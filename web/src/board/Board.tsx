@@ -8,11 +8,13 @@ import { MapView } from "../map/MapView";
 import type { Art } from "../map/pack";
 import type { Viewpoint } from "../map/transform";
 import { Wordmark } from "../ui/Wordmark";
+import { formatClock, parseClock } from "../core/clock";
+import { InlineEdit } from "../ui/InlineEdit";
 import { JoinCard } from "./JoinCard";
+import { SceneStrip } from "./SceneStrip";
 import { createBoardState } from "./state";
 import { Tokens } from "./Tokens";
 
-const clock = (s: number | null) => (s == null ? "" : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`);
 
 function SaveStatus(p: { state: ReturnType<typeof createBoardState> }) {
   const st = () => p.state.status();
@@ -132,10 +134,37 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 Scene {sceneIndex() + 1} of {state.scenes().length}
               </span>
               <h1>
-                <Show when={scene()?.scene.clock != null}>
-                  <span class="clock">{clock(scene()!.scene.clock)}</span>{" "}
-                </Show>
-                {scene()?.scene.name}
+                <InlineEdit
+                  class="clock"
+                  label="scene clock"
+                  testid="scene-clock"
+                  placeholder={state.canEdit() ? "–:––" : ""}
+                  editable={state.canEdit()}
+                  value={formatClock(scene()?.scene.clock)}
+                  maxLength={8}
+                  onEditing={(on) => state.presence({ focus: on ? (scene()?.id ?? null) : null })}
+                  onCommit={(t) => {
+                    const c = parseClock(t);
+                    const s = scene();
+                    if (c === undefined || !s) return false;
+                    state.edit([{ Set: { id: s.id, value: { SceneClock: c } } }]);
+                  }}
+                />{" "}
+                <InlineEdit
+                  class="scene-name"
+                  label="scene name"
+                  testid="scene-name"
+                  editable={state.canEdit()}
+                  value={scene()?.scene.name ?? ""}
+                  maxLength={24}
+                  onEditing={(on) => state.presence({ focus: on ? (scene()?.id ?? null) : null })}
+                  onCommit={(t) => {
+                    const s = scene();
+                    const name = t.trim();
+                    if (!s || !name) return false;
+                    state.edit([{ Set: { id: s.id, value: { SceneName: name } } }]);
+                  }}
+                />
               </h1>
             </div>
             <Show when={!p.art.packId}>
@@ -254,6 +283,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </section>
         </aside>
       </div>
+      <SceneStrip state={state} art={p.art} vp={viewpoint()} current={scene()?.id} onFlip={setSceneId} />
       <Show when={!joined()}>
         <JoinCard title={state.title()} others={people().map((x) => x.state!.name).filter(Boolean)} initial={me()} onJoin={join} />
       </Show>

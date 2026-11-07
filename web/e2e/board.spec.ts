@@ -39,8 +39,8 @@ test("create a board, join it, drag a hero, and see it in a second browser and a
   await expect(a.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
   // No pack on this server: the schematic map, and it says so.
   await expect(a.getByTestId("placeholder-note")).toBeVisible();
-  await expect(a.locator(".mm-host")).toHaveAttribute("data-pack", "none");
-  await expect(a.locator(".mk.t2")).toHaveCount(6);
+  await expect(a.locator(".mapbox .mm-host")).toHaveAttribute("data-pack", "none");
+  await expect(a.locator(".mapbox .mk.t2")).toHaveCount(6);
   await expect(a.locator(".tok")).toHaveCount(12);
 
   const link = a.url();
@@ -83,9 +83,9 @@ test("create a board, join it, drag a hero, and see it in a second browser and a
   // The Sapphire view turns the map 180°: the same hero, mirrored through the centre.
   await c.getByTestId("viewpoint-flip").click();
   await expect.poll(async () => tokenAt(c, "Amber-0")).toEqual({ x: 1000 - dropped.x, y: 1000 - dropped.y });
-  await expect(c.locator(".mm-host")).toHaveClass(/vp-sapphire/);
+  await expect(c.locator(".mapbox .mm-host")).toHaveClass(/vp-sapphire/);
 
-  await a.screenshot({ path: "test-results/slice1-board-fallback.png" });
+  await a.screenshot({ path: "shots/slice1-board-fallback.png" });
 });
 
 test("a view link sees the board but can't drag", async ({ browser }) => {

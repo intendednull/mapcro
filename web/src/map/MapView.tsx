@@ -170,7 +170,7 @@ export function MapView(p: {
               <For each={markers()}>{(m) => <MarkerView m={m} vp={p.viewpoint} />}</For>
             </div>
           </div>
-          <svg ref={p.overlayRef} class="mm-overlay map" viewBox="0 0 1000 1000" {...p.overlayProps}>
+          <svg ref={p.overlayRef} class={`mm-overlay ${p.lite ? "mini" : "map"}`} viewBox="0 0 1000 1000" {...p.overlayProps}>
             {p.children}
           </svg>
         </div>

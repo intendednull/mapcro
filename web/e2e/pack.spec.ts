@@ -70,19 +70,19 @@ test.describe("with a synthetic pack", () => {
   test("terrain, markers and portraits come from the pack", async ({ browser }) => {
     const url = await newBoard(server, "packed");
     const a = await joinNew(browser, url, "Coach");
-    const host = a.locator(".mm-host");
+    const host = a.locator(".mapbox .mm-host");
     await expect(host).toHaveClass(/\bpack-art\b/);
     // Visible, not just styled: a class clash once hid the whole map (journal).
     await expect(host).toBeVisible();
-    expect((await a.locator(".mm-rot .terrain").boundingBox())?.width).toBeGreaterThan(400);
+    expect((await a.locator(".mapbox .mm-rot .terrain").boundingBox())?.width).toBeGreaterThan(400);
     const packId = (await (await fetch(`${server.url}/api/packs`)).json())[0].pack_id as string;
     await expect(host).toHaveAttribute("data-pack", packId);
     await expect(a.getByTestId("placeholder-note")).toHaveCount(0);
-    const bg = await a.locator(".mm-rot .terrain").evaluate((e) => getComputedStyle(e).backgroundImage);
+    const bg = await a.locator(".mapbox .mm-rot .terrain").evaluate((e) => getComputedStyle(e).backgroundImage);
     expect(bg).toContain(`/packs/${packId}/map/minimap_midtown_mid.png`);
     // Only the pack's entities: two walkers and the mid boss, at their transformed positions.
-    await expect(a.locator(".mk")).toHaveCount(3);
-    const walker = a.locator('.mk[data-key="walker:amber:lane1:1"]');
+    await expect(a.locator(".mapbox .mk")).toHaveCount(3);
+    const walker = a.locator('.mapbox .mk[data-key="walker:amber:lane1:1"]');
     await expect(walker).toHaveAttribute("style", /left: 20\.83\d*%; top: 72\.02\d*%/);
 
     // Picking a hero puts the pack's portrait on the token, in every browser.
@@ -108,7 +108,6 @@ test("screenshot with the real pack", async ({ browser }) => {
       const sel = a.getByTestId(`hero-pick-${i < 6 ? "Amber" : "Sapphire"}-${i % 6}`);
       await sel.selectOption({ label: h }).catch(() => undefined);
     }
-    await a.screenshot({ path: "test-results/slice1-board-pack-before.png" });
     const box = (await a.locator('.tok[data-slot="Amber-2"]').boundingBox())!;
     const map = (await a.locator(".mm-overlay.map").boundingBox())!;
     await b.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -116,7 +115,7 @@ test("screenshot with the real pack", async ({ browser }) => {
     await b.mouse.move(map.x + map.width * 0.45, map.y + map.height * 0.6, { steps: 10 });
     await expect(a.locator('.p-tag[data-tag="Marrow"]')).toBeVisible();
     await a.waitForTimeout(300);
-    await a.screenshot({ path: "test-results/slice1-board-pack.png" });
+    await a.screenshot({ path: "shots/slice1-board-pack.png" });
     await b.mouse.up();
     const t = translate(await a.locator('.tok[data-slot="Amber-2"]').getAttribute("transform"));
     expect(t.y).toBeLessThan(700);

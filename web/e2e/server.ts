@@ -59,3 +59,14 @@ export function translate(t: string | null): { x: number; y: number } {
   if (!m) throw new Error(`no translate in ${t}`);
   return { x: Number(m[1]), y: Number(m[2]) };
 }
+
+/** A board made through the API; returns its owner link. */
+export async function newBoardUrl(server: Server, title: string): Promise<string> {
+  const r = await fetch(`${server.url}/api/boards`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  const { board, owner_token } = (await r.json()) as { board: string; owner_token: string };
+  return `${server.url}/b/${board}#${owner_token}`;
+}
