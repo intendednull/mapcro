@@ -1,5 +1,6 @@
 use crate::protocol::{ClientMsg, Hello, ServerMsg};
 use mapcro_schema::{ClientId, Doc, Op, Reject, Tx, TxKind, apply_tx, apply_tx_with_inverse};
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
 /// What the UI's save indicator shows (spec §4). Never `Saved` while anything is pending.
@@ -33,10 +34,24 @@ pub enum UndoError {
 }
 
 /// A history entry: the ops that invert transaction `cseq` of this client.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct HistoryEntry {
     cseq: u64,
     inverse: Vec<Op>,
+}
+
+/// Everything a replica must keep across a page reload: above all the pending queue, which is
+/// written to IndexedDB before it is sent (spec §4).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReplicaState {
+    client: ClientId,
+    confirmed: Doc,
+    last_seq: u64,
+    pending: VecDeque<Tx>,
+    next_cseq: u64,
+    undo: Vec<HistoryEntry>,
+    redo: Vec<HistoryEntry>,
+    rejected: Vec<(u64, Reject)>,
 }
 
 /// One client's replica of a board.
@@ -68,6 +83,38 @@ impl Replica {
             rejected: Vec::new(),
             connected: false,
         }
+    }
+
+    /// The state to persist. Restoring it gives back a disconnected replica with the same
+    /// pending work, ready to `connect`.
+    pub fn state(&self) -> ReplicaState {
+        ReplicaState {
+            client: self.client,
+            confirmed: self.confirmed.clone(),
+            last_seq: self.last_seq,
+            pending: self.pending.clone(),
+            next_cseq: self.next_cseq,
+            undo: self.undo.clone(),
+            redo: self.redo.clone(),
+            rejected: self.rejected.clone(),
+        }
+    }
+
+    pub fn from_state(s: ReplicaState) -> Replica {
+        let mut r = Replica {
+            client: s.client,
+            view: s.confirmed.clone(),
+            confirmed: s.confirmed,
+            last_seq: s.last_seq,
+            pending: s.pending,
+            next_cseq: s.next_cseq,
+            undo: s.undo,
+            redo: s.redo,
+            rejected: s.rejected,
+            connected: false,
+        };
+        r.rebase();
+        r
     }
 
     pub fn client(&self) -> ClientId {

@@ -48,6 +48,7 @@ pub struct Stats {
     pub editor_rejected: usize,
     pub disconnects: usize,
     pub server_restarts: usize,
+    pub reloads: usize,
     pub undo_fields_checked: usize,
 }
 
@@ -188,6 +189,9 @@ impl World {
             self.restart_server();
             return Ok(());
         }
+        if self.rng.random_range(0..1000) < 5 {
+            return self.reload(i);
+        }
         if self.rng.random_range(0..100) < config.fault_rate {
             if self.clients[i].conn.is_some() {
                 self.disconnect(i);
@@ -243,6 +247,26 @@ impl World {
         }
         self.stats.server_restarts += 1;
         self.log("server restarted from storage");
+    }
+
+    /// The tab reloads: the replica is persisted as JSON (as to IndexedDB) and rebuilt from it.
+    fn reload(&mut self, i: usize) -> Result<(), String> {
+        if !matches!(self.clients[i].driver, Driver::Replica { .. }) {
+            return Ok(());
+        }
+        self.disconnect(i);
+        let Driver::Replica { replica, .. } = &mut self.clients[i].driver else { return Ok(()) };
+        let json = serde_json::to_string(&replica.state()).map_err(|e| format!("persist: {e}"))?;
+        let state = serde_json::from_str(&json).map_err(|e| format!("restore: {e}"))?;
+        let restored = Replica::from_state(state);
+        if restored.view() != replica.view() || restored.status() != replica.status() {
+            return Err("reloaded replica differs from the one persisted".into());
+        }
+        **replica = restored;
+        self.stats.reloads += 1;
+        let name = self.clients[i].name.clone();
+        self.log(format!("{name}: reload from persisted state"));
+        Ok(())
     }
 
     pub(crate) fn reconnect(&mut self, i: usize) {

@@ -693,6 +693,7 @@ dependencies = [
  "mapcro-schema",
  "rand",
  "rand_chacha",
+ "serde_json",
 ]
 
 [[package]]
