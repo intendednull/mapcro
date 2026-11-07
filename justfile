@@ -59,3 +59,7 @@ web-test: wasm ts
 check: test web-test
     just model-sim 5000
     nix build .#checks.x86_64-linux.service
+
+# Extract an asset pack from a local Deadlock install (read-only; output must be outside the repo).
+extract game out:
+    cargo run -q --release -p mapcro-extract -- --game {{game}} --out {{out}}

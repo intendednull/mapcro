@@ -1,0 +1,25 @@
+[package]
+name = "mapcro-extract"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "mapcro game-asset extractor: VPK v2 reading and Source 2 texture decoding"
+
+[[bin]]
+name = "mapcro-extract"
+path = "src/main.rs"
+
+[dependencies]
+crc32fast = "1"
+png = "0.18"
+serde.workspace = true
+serde_json = "1"
+sha2 = "0.10"
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
