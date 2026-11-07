@@ -194,6 +194,37 @@ and shared boards therefore follow one code path and one set of tests.
   the durable, portable save, independent of browser storage.
 - The app asks for `navigator.storage.persist()` so the browser doesn't evict local boards.
 
+## 6a. Match import (v1)
+
+**Decision (operator, 2026-11-07):** a scene can come from a real match. The research is
+[match replay](../research/match-replay.md); this is its v1 path.
+
+- **Source:** deadlock-api.com's match metadata, through our server only. Browsers never call it,
+  so the CSP keeps `connect-src 'self'`. We hold no Steam account.
+- **Server:** `GET /api/matches/{id}` derives a compact timeline and caches it as
+  `DATA_DIR/matches/<id>.json` (matches don't change). The timeline has, for each player, team,
+  slot and hero, world x/y at each game second, health, deaths and souls samples. It also has
+  objectives as board keys with their destroy times, mid boss kills, start time and duration.
+  - **Path clock drift** (research §1.2) is re-anchored on deaths, and the timeline counts the
+    players that needed it.
+  - **Objective mapping**, checked on two matches against the attackers' positions at each
+    destruction:
+    - Valve's objective lanes 1, 3 and 4 are our `lane1`, `lane4` and `lane6`.
+    - Shield generator 1 is the east shrine and 2 the west, for both teams.
+    - `Titan` is the patron, and lobby team 0 is Amber.
+- **Browser:** the strip's **From match** opens a panel with the id, a scrubber (mm:ss, play,
+  ±10 s) and the credit line "Match data: deadlock-api.com". Scrubbing is a local preview, never
+  synced: heroes at their positions, the dead hidden, and objectives down as at that moment.
+  **Save as scene** is one transaction:
+  - It adds a frozen scene, "Match <id> @ mm:ss", with clock t, players, alive and souls (the
+    nearest sample at or before t), and objective states.
+  - If the board's heroes differ from the match's, the same transaction sets the roster to the
+    match's ("Roster → match heroes"). One undo reverts all of it.
+- **Not in v1:** ults, lane waves and z (they stay manual), and demo parsing. A match older than
+  the pack is drawn on it with an "Older map" label.
+- The mid boss's respawn time isn't in the match data. The preview shows it down from a kill
+  until the next kill.
+
 ## 7. Per-user undo
 
 Undo covers only your own transactions, in the order you made them. Each history entry records the
@@ -381,6 +412,19 @@ and memory is capped by the open-room limit and the room memory budget. Rotation
 faster, so its cost is availability (new boards refused, joins `busy`), never a crash or a full
 disk. Widening the key to /56 would penalise everyone behind a shared prefix; revisit with
 proof-of-work or accounts if rotation is seen in practice.
+
+**Match import (§6a): upstream limits and privacy.**
+
+- **Limits:** our server alone calls deadlock-api. It uses a global token bucket (5 calls, then
+  one every 2 s, well under their published 100 per 10 s), at most 20 uncached imports per
+  client address per hour, a 20 s timeout and a 16 MiB response cap. Ids are digits only, at
+  most 12. Failures map to `bad_id`, `not_found`, `rate_limited`/`busy`/`upstream_limited`,
+  `upstream_down` and `too_large`, are shown as short labels, and are never cached.
+- **Privacy (operator, 2026-11-07):** players' names would be kept, but Steam and account ids
+  never. Account ids are never even deserialised, so they can't reach the cache or a response.
+  Names would have meant a second call to a profile endpoint, and the operator allowed names only
+  if the match call itself returns them. It doesn't, so v1 imports no names and leaves
+  `RosterName` alone. A player is a team, a slot and a hero.
 
 No end-to-end encryption, unlike Excalidraw. E2EE would stop the server validating ops, which is
 the reliability and security boundary above. Boards are game strategy, so server trust plus TLS is

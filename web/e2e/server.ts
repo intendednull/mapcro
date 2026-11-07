@@ -21,7 +21,10 @@ export class Server {
   child!: ChildProcess;
   port = 0;
   readonly dataDir = mkdtempSync(join(tmpdir(), "mapcro-e2e-"));
-  constructor(private readonly packsDir?: string) {}
+  constructor(
+    private readonly packsDir?: string,
+    private readonly extraEnv: Record<string, string> = {},
+  ) {}
 
   get url() {
     return `http://127.0.0.1:${this.port}`;
@@ -39,6 +42,7 @@ export class Server {
       RUST_LOG: "warn",
     };
     if (this.packsDir) env.PACKS_DIR = this.packsDir;
+    Object.assign(env, this.extraEnv);
     this.child = spawn(join(ROOT, "target/debug/mapcro-server"), [], { env, stdio: ["ignore", "ignore", "inherit"] });
     for (let i = 0; i < 200; i++) {
       try {

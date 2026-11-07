@@ -26,6 +26,7 @@ import { HUD_PX, type Marker, laneStroke } from "../map/model";
 import { pathOf, pointAt, project, splitAt } from "../map/lanes";
 import { LANE_GAP } from "../map/MapView";
 import { groupToggleOps, marqueePick, toggleOps } from "./objectives";
+import type { MatchPreview } from "../match/MatchPanel";
 import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
@@ -87,6 +88,7 @@ export function Layers(p: {
   /** Comments: whether one shows as its full card, and this person's open one. */
   isOpen: (id: RecordId) => boolean;
   openComment: () => RecordId | undefined;
+  preview?: (() => MatchPreview | undefined) | undefined;
   setOpenComment: (id: RecordId | undefined) => void;
 }) {
   const st = p.state;
@@ -707,7 +709,7 @@ export function Layers(p: {
           />
         )}
       </Show>
-      <Tokens state={st} art={p.art} vp={p.vp} scene={p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} onPress={clearObjects} />
+      <Tokens state={st} art={p.art} vp={p.vp} scene={p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} onPress={clearObjects} preview={p.preview} />
       <For each={othersPicks()}>
         {(x) => (
           <g class="picks" data-picks={x.peer.state!.name} style={{ "pointer-events": "none" }}>

@@ -44,6 +44,8 @@ export interface Hero {
 export interface Art {
   packId: string | undefined;
   version: string | undefined;
+  /** The game build's date, as the pack records it ("Nov 05 2026"). */
+  date: string | undefined;
   model: MapModel;
   heroes: Map<number, Hero>;
   /** Image name (as minimap markers use it) → URL. Empty without a pack. */
@@ -78,7 +80,7 @@ export const IMAGE_BLOBS: Record<string, string> = {
 };
 
 export function fallbackArt(): Art {
-  return { packId: undefined, version: undefined, model: modelFromFallback(FALLBACK), heroes: new Map(), images: new Map() };
+  return { packId: undefined, version: undefined, date: undefined, model: modelFromFallback(FALLBACK), heroes: new Map(), images: new Map() };
 }
 
 /** Build the renderer's view of a pack. Pure: the manifest and its id in, art out. */
@@ -101,7 +103,7 @@ export function artFromManifest(base: string, packId: string, m: PackManifest): 
   const entities = m.entities ?? [];
   // A pack without map entities still has portraits; its map falls back to the schematic.
   const model = entities.length ? modelFromEntities(entities) : modelFromFallback(FALLBACK);
-  return { packId, version: String(m.game.client_version), model, heroes, images };
+  return { packId, version: String(m.game.client_version), date: m.game.date ? String(m.game.date) : undefined, model, heroes, images };
 }
 
 /** The newest pack the server has, or the fallback if it has none (or can't be reached). */

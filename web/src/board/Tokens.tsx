@@ -5,6 +5,8 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
 import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
+import type { MatchPreview } from "../match/MatchPanel";
+import { slotKey } from "../match/save";
 import { colorOf } from "../core/device";
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { RecordId } from "../gen/RecordId";
@@ -70,6 +72,8 @@ export function Tokens(p: {
   setSelection: (s: Set<RecordId>) => void;
   /** A press on a hero ends an objective group selection. */
   onPress?: () => void;
+  /** A match preview: heroes at the match's positions (by "amber-0"…), dead ones hidden. */
+  preview?: (() => MatchPreview | undefined) | undefined;
 }) {
   const [drag, setDrag] = createSignal<Drag | undefined>();
   const slots = createMemo(() => new Map(p.state.roster().map((s) => [s.id, s.slot])));
@@ -101,7 +105,7 @@ export function Tokens(p: {
     return m;
   });
 
-  const editable = () => p.tool === "move" && p.state.canEdit();
+  const editable = () => p.tool === "move" && p.state.canEdit() && !p.preview?.();
 
   const down = (pl: Player, e: PointerEvent) => {
     if (!editable() || e.button !== 0) return;
@@ -167,7 +171,9 @@ export function Tokens(p: {
       <For each={players()}>
         {(pl) => {
           const slot = () => slots().get(pl.state.slot)!;
-          const hero = () => (slot().hero != null ? p.art.heroes.get(slot().hero!) : undefined);
+          const pv = () => p.preview?.()?.players.get(slotKey(slot().team, slot().slot));
+          const heroId = () => pv()?.hero ?? slot().hero;
+          const hero = () => (heroId() != null ? p.art.heroes.get(heroId()!) : undefined);
           const team = () => (slot().team === "Amber" ? "amber" : "sapphire");
           const mine = () => {
             const d = drag();
@@ -177,14 +183,14 @@ export function Tokens(p: {
           const others = () => (touching().get(pl.id) ?? []).map((t) => t.peer);
           const remote = () => (touching().get(pl.id) ?? []).find((t) => t.at);
           const remoteDrag = () => remote()?.peer;
-          const shown = () => mine() ?? remote()?.at ?? pl.state.pos;
+          const shown = () => pv()?.pos ?? mine() ?? remote()?.at ?? pl.state.pos;
           const selected = () => p.selection().has(pl.id);
           const at = () => worldToView(shown(), p.vp);
           const home = () => worldToView(pl.state.pos, p.vp);
           const r = () => TOKEN_R * p.k;
           const label = () => `${slot().name || `${slot().team} ${slot().slot + 1}`}${hero() ? `, ${hero()!.name}` : ""}`;
           return (
-            <Show when={pl.state.placed}>
+            <Show when={pl.state.placed && (!p.preview?.() || pv()?.pos)}>
               <Show when={remoteDrag()}>
                 {(o) => (
                   <g class="drag-trail" style={{ "--c": colorOf(o().state!.color) }}>

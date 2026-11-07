@@ -33,6 +33,8 @@ export function SceneStrip(p: {
   vp: Viewpoint;
   current: RecordId | undefined;
   onFlip: (id: RecordId) => void;
+  /** Editors: open the match import. */
+  onMatch?: () => void;
 }) {
   const scenes = () => p.state.scenes();
   const index = () => scenes().findIndex((s) => s.id === p.current);
@@ -150,6 +152,14 @@ export function SceneStrip(p: {
             </svg>
             <span>Add scene</span>
           </button>
+          <Show when={p.onMatch}>
+            <button class="card add match" data-testid="scene-from-match" onClick={() => p.onMatch?.()}>
+              <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 18h16M7 18V9M12 18V5M17 18v-6" />
+              </svg>
+              <span>From match</span>
+            </button>
+          </Show>
         </Show>
       </div>
       <button class="nav" aria-label="Next scene" disabled={index() >= scenes().length - 1} onClick={() => flipBy(1)}>

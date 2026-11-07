@@ -252,3 +252,19 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .mm-overlay.map .co.bubble .preview rect { fill: #0c1917; stroke: var(--accent); stroke-width: 1.2; }
 .mm-overlay.map .co.bubble .preview text { font: 600 15px var(--ui); fill: var(--text); dominant-baseline: central; }
 .mm-overlay.map .co.bubble.touched .bubble-body { stroke: var(--text); stroke-width: 2.5; }
+
+/* Match import: a panel over the map's foot; labels only */
+.match-panel { position: fixed; left: 50%; bottom: 116px; transform: translateX(-50%); z-index: 45; width: min(720px, calc(100% - 24px)); padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 16px 40px #000a; display: flex; flex-direction: column; gap: 8px; }
+.match-head, .match-scrub, .match-foot { display: flex; align-items: center; gap: 8px; }
+.match-head .input { width: 180px; height: 30px; }
+.match-head .spacer, .match-foot .spacer { flex: 1; }
+.match-status { font-size: 12px; color: var(--warn); }
+.match-range { flex: 1; accent-color: var(--accent); }
+.match-clock { font: 600 13px var(--ui); min-width: 100px; text-align: right; font-variant-numeric: tabular-nums; }
+.match-teams { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11.5px; }
+.match-team { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.match-team.amber .match-hero { color: var(--amber); }
+.match-team.sapphire .match-hero { color: var(--sapphire); }
+.match-note { font-size: 11.5px; color: var(--brass); border: 1px solid var(--brass-dim); border-radius: 4px; padding: 1px 6px; }
+.match-credit { font-size: 11px; color: var(--faint); }
+.card.add.match { min-width: 96px; max-width: 120px; flex: 0 0 auto; }

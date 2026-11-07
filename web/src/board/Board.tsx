@@ -20,6 +20,8 @@ import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type ViewRect, clampView, fromViewport, presenters, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
+import { type MatchPreview, MatchPanel } from "../match/MatchPanel";
+import { matchSceneOps } from "../match/save";
 import { Layers, calloutOrder } from "./Layers";
 import { FRESH_BOARD, randomRosterOps } from "./roster";
 import { HeroPicker } from "./HeroPicker";
@@ -95,6 +97,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
   onCleanup(() => clearTimeout(toastTimer));
   const [overlay, setOverlay] = createSignal<SVGSVGElement>();
   const [dialog, setDialog] = createSignal<"share" | "clone">();
+  // ---- match import: the panel, and its local (unsynced) preview on the map ----
+  const [matchOpen, setMatchOpen] = createSignal(false);
+  const [matchPreview, setMatchPreview] = createSignal<MatchPreview>();
   // Problems the session reports: rejections show in the save status until dismissed; local
   // refusals (nothing to undo, couldn't save locally) are a toast.
   const [seenProblems, setSeenProblems] = createSignal(0);
@@ -459,7 +464,13 @@ export function Board(p: { board: string; token: string; art: Art }) {
               overlayRef={setOverlay}
               overlayProps={{ "data-tool": tool(), "data-pan": spaceHeld() ? "on" : undefined, onContextMenu: (e: MouseEvent) => e.preventDefault() } as never}
               overlayClass={!state.canEdit() && "readonly"}
-              status={(k) => objectives().get(k)?.status}
+              status={(k) => {
+                const pv = matchPreview();
+                const own = objectives().get(k)?.status;
+                // The match preview shows what was down at that moment; rifts keep the board's.
+                if (!pv || k.startsWith("rift:")) return own;
+                return pv.down.has(k) ? "Destroyed" : "Active";
+              }}
               waveT={splitOf}
               raisedLane={waveDrag()?.key}
               picked={(k) => objSelection().has(k)}
@@ -487,6 +498,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 objSelection={objSelection}
                 setObjSelection={setObjSelection}
                 isOpen={isOpen}
+                preview={matchPreview}
                 openComment={openComment}
                 setOpenComment={setOpenComment}
                 compactCallouts={phone}
@@ -732,7 +744,27 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </section>
         </aside>
       </div>
-      <SceneStrip state={state} art={p.art} vp={viewpoint()} current={scene()?.id} onFlip={userFlip} />
+      <SceneStrip
+        state={state}
+        art={p.art}
+        vp={viewpoint()}
+        current={scene()?.id}
+        onFlip={userFlip}
+        {...(state.canEdit() ? { onMatch: () => setMatchOpen(true) } : {})}
+      />
+      <Show when={matchOpen() && state.canEdit()}>
+        <MatchPanel
+          art={p.art}
+          roster={state.roster()}
+          onPreview={setMatchPreview}
+          onClose={() => setMatchOpen(false)}
+          onSave={(tl, t) => {
+            const { id, ops } = matchSceneOps(state.roster(), state.scenes(), scene(), tl, t, p.art.model.markers, newRecordId);
+            state.edit(ops); // one transaction: one undo removes the scene and the roster change
+            userFlip(id);
+          }}
+        />
+      </Show>
     </div>
     </Show>
     <Show when={dialog() === "share" && state.canEdit()}>
