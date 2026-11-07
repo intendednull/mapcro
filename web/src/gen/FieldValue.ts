@@ -3,7 +3,6 @@ import type { HeroId } from "./HeroId";
 import type { ObjectiveStatus } from "./ObjectiveStatus";
 import type { OrderKey } from "./OrderKey";
 import type { Team } from "./Team";
-import type { UltStatus } from "./UltStatus";
 import type { WorldPos } from "./WorldPos";
 
 /**
@@ -11,4 +10,4 @@ import type { WorldPos } from "./WorldPos";
  * field of the wrong type. Identity fields (a player state's scene and slot, a record's kind)
  * have no variant: they are immutable by construction.
  */
-export type FieldValue = { "Title": string } | { "RosterName": string } | { "RosterHero": HeroId | null } | { "SceneName": string } | { "SceneOrder": OrderKey } | { "SceneClock": number | null } | { "PlayerPos": WorldPos } | { "PlayerAlive": boolean } | { "PlayerPlaced": boolean } | { "PlayerSouls": number | null } | { "PlayerUlt": UltStatus | null } | { "ObjectiveStatus": ObjectiveStatus } | { "ArrowFrom": WorldPos } | { "ArrowTo": WorldPos } | { "ArrowTeam": Team | null } | { "CalloutPos": WorldPos } | { "CalloutText": string } | { "NoteText": string };
+export type FieldValue = { "Title": string } | { "RosterName": string } | { "RosterHero": HeroId | null } | { "SceneName": string } | { "SceneOrder": OrderKey } | { "SceneClock": number | null } | { "PlayerPos": WorldPos } | { "PlayerAlive": boolean } | { "PlayerPlaced": boolean } | { "PlayerSouls": number | null } | { "PlayerUltCooldown": number | null } | { "ObjectiveStatus": ObjectiveStatus } | { "ArrowFrom": WorldPos } | { "ArrowTo": WorldPos } | { "ArrowTeam": Team | null } | { "CalloutPos": WorldPos } | { "CalloutText": string } | { "NoteText": string };

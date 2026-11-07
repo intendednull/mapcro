@@ -19,14 +19,6 @@ pub struct WorldPos {
     pub y: i32,
 }
 
-/// A player's ultimate, as the HUD's little circle under the portrait shows it.
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum UltStatus {
-    Ready,
-    Cooldown,
-}
-
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ObjectiveStatus {
@@ -72,9 +64,10 @@ pub struct PlayerState {
     /// stored, so they can't disagree with the players.
     #[serde(default)]
     pub souls: Option<u32>,
-    /// `None`: not tracked in this scene.
+    /// Ultimate cooldown remaining, in percent (0 = ready, 100 = just used), drawn as the HUD's
+    /// little circle under the portrait. `None`: not tracked in this scene.
     #[serde(default)]
-    pub ult: Option<UltStatus>,
+    pub ult_cooldown: Option<u8>,
 }
 
 impl PlayerState {
@@ -85,7 +78,7 @@ impl PlayerState {
             Team::Amber => -8000,
             Team::Sapphire => 8000,
         };
-        PlayerState { scene, slot, pos: WorldPos { x, y }, alive: true, placed: true, souls: None, ult: None }
+        PlayerState { scene, slot, pos: WorldPos { x, y }, alive: true, placed: true, souls: None, ult_cooldown: None }
     }
 }
 
@@ -178,7 +171,7 @@ pub enum FieldValue {
     PlayerAlive(bool),
     PlayerPlaced(bool),
     PlayerSouls(Option<u32>),
-    PlayerUlt(Option<UltStatus>),
+    PlayerUltCooldown(Option<u8>),
     ObjectiveStatus(ObjectiveStatus),
     ArrowFrom(WorldPos),
     ArrowTo(WorldPos),
@@ -201,7 +194,7 @@ pub enum Field {
     PlayerAlive,
     PlayerPlaced,
     PlayerSouls,
-    PlayerUlt,
+    PlayerUltCooldown,
     ObjectiveStatus,
     ArrowFrom,
     ArrowTo,
@@ -223,7 +216,7 @@ impl Field {
         Field::PlayerAlive,
         Field::PlayerPlaced,
         Field::PlayerSouls,
-        Field::PlayerUlt,
+        Field::PlayerUltCooldown,
         Field::ObjectiveStatus,
         Field::ArrowFrom,
         Field::ArrowTo,
@@ -247,7 +240,7 @@ impl FieldValue {
             FieldValue::PlayerAlive(_) => Field::PlayerAlive,
             FieldValue::PlayerPlaced(_) => Field::PlayerPlaced,
             FieldValue::PlayerSouls(_) => Field::PlayerSouls,
-            FieldValue::PlayerUlt(_) => Field::PlayerUlt,
+            FieldValue::PlayerUltCooldown(_) => Field::PlayerUltCooldown,
             FieldValue::ObjectiveStatus(_) => Field::ObjectiveStatus,
             FieldValue::ArrowFrom(_) => Field::ArrowFrom,
             FieldValue::ArrowTo(_) => Field::ArrowTo,
@@ -301,7 +294,7 @@ impl Record {
             (Record::PlayerState(r), Field::PlayerAlive) => V::PlayerAlive(r.alive),
             (Record::PlayerState(r), Field::PlayerPlaced) => V::PlayerPlaced(r.placed),
             (Record::PlayerState(r), Field::PlayerSouls) => V::PlayerSouls(r.souls),
-            (Record::PlayerState(r), Field::PlayerUlt) => V::PlayerUlt(r.ult),
+            (Record::PlayerState(r), Field::PlayerUltCooldown) => V::PlayerUltCooldown(r.ult_cooldown),
             (Record::ObjectiveState(r), Field::ObjectiveStatus) => V::ObjectiveStatus(r.status),
             (Record::Arrow(r), Field::ArrowFrom) => V::ArrowFrom(r.from),
             (Record::Arrow(r), Field::ArrowTo) => V::ArrowTo(r.to),
@@ -327,7 +320,7 @@ impl Record {
             (Record::PlayerState(r), V::PlayerAlive(v)) => r.alive = v,
             (Record::PlayerState(r), V::PlayerPlaced(v)) => r.placed = v,
             (Record::PlayerState(r), V::PlayerSouls(v)) => r.souls = v,
-            (Record::PlayerState(r), V::PlayerUlt(v)) => r.ult = v,
+            (Record::PlayerState(r), V::PlayerUltCooldown(v)) => r.ult_cooldown = v,
             (Record::ObjectiveState(r), V::ObjectiveStatus(v)) => r.status = v,
             (Record::Arrow(r), V::ArrowFrom(v)) => r.from = v,
             (Record::Arrow(r), V::ArrowTo(v)) => r.to = v,

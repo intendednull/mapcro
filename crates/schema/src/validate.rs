@@ -109,7 +109,8 @@ fn check_value(v: &FieldValue) -> Result<(), Reject> {
         // A match clock up to four hours; souls up to a million.
         V::SceneClock(c) => if c.is_none_or(|c| c <= 4 * 3600) { Ok(()) } else { Err(Reject::OutOfBounds) },
         V::PlayerSouls(n) => if n.is_none_or(|n| n <= 1_000_000) { Ok(()) } else { Err(Reject::OutOfBounds) },
-        V::RosterHero(_) | V::PlayerAlive(_) | V::PlayerPlaced(_) | V::PlayerUlt(_) | V::ObjectiveStatus(_) | V::ArrowTeam(_) => Ok(()),
+        V::PlayerUltCooldown(p) => if p.is_none_or(|p| p <= 100) { Ok(()) } else { Err(Reject::OutOfBounds) },
+        V::RosterHero(_) | V::PlayerAlive(_) | V::PlayerPlaced(_) | V::ObjectiveStatus(_) | V::ArrowTeam(_) => Ok(()),
     }
 }
 
@@ -132,6 +133,7 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
                 return Err(Reject::NoSuchSlot);
             }
             check_value(&FieldValue::PlayerSouls(p.souls))?;
+            check_value(&FieldValue::PlayerUltCooldown(p.ult_cooldown))?;
             check_pos(p.pos)
         }
         Record::ObjectiveState(o) => {

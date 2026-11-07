@@ -15,7 +15,7 @@ pub use doc::DocPair;
 pub use ids::{ClientId, HeroId, ObjectiveKey, OrderKey, RecordId};
 pub use records::{
     Arrow, BoardMeta, Callout, Field, FieldValue, Note, ObjectiveState, ObjectiveStatus, PlayerState,
-    Record, RecordKind, RosterSlot, Scene, Stroke, Team, UltStatus, WorldPos,
+    Record, RecordKind, RosterSlot, Scene, Stroke, Team, WorldPos,
 };
 pub use validate::{Limits, Reject, LIMITS};
 

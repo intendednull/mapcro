@@ -140,11 +140,11 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
             if rng.random() {
                 set(p, FieldValue::PlayerAlive(rng.random()))
             } else {
-                let ult = [None, Some(mapcro_schema::UltStatus::Ready), Some(mapcro_schema::UltStatus::Cooldown)];
                 if rng.random() {
                     set(p, FieldValue::PlayerSouls(Some(rng.random_range(0..60_000))))
                 } else {
-                    set(p, FieldValue::PlayerUlt(*ult.choose(rng).unwrap_or(&None)))
+                    let cd = if rng.random_range(0..4) == 0 { None } else { Some(rng.random_range(0..=100)) };
+                    set(p, FieldValue::PlayerUltCooldown(cd))
                 }
             }
         }
