@@ -112,3 +112,28 @@ test("a view link sees the board but can't drag", async ({ browser }) => {
   expect(await tokenAt(page, "Sapphire-2")).toEqual(before);
   await expect(page.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
 });
+
+test("the map doesn't move after the board appears, even when the browser measures late", async ({ browser }) => {
+  // A loaded machine delivers ResizeObserver callbacks late. The top bar's height once came only
+  // from that callback, so the map jumped ~34 px after people had aimed at it (the long-running
+  // outage flake). Delay every observer callback and check the map holds still.
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await ctx.addInitScript(() => {
+    const RO = window.ResizeObserver;
+    window.ResizeObserver = class extends RO {
+      constructor(cb: ResizeObserverCallback) {
+        super((entries, ob) => setTimeout(() => cb(entries, ob), 600));
+      }
+    };
+  });
+  const r = await fetch(`${server.url}/api/boards`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "still" }) });
+  const { board, owner_token } = (await r.json()) as { board: string; owner_token: string };
+  const page = await ctx.newPage();
+  await page.goto(`${server.url}/b/${board}#${owner_token}`);
+  await page.locator("#join-name").fill("Coach");
+  await page.keyboard.press("Enter");
+  const top = () => page.locator(".mapbox").evaluate((e) => Math.round(e.getBoundingClientRect().top));
+  const first = await top();
+  await page.waitForTimeout(1000);
+  expect(await top()).toBe(first);
+});

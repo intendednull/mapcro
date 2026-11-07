@@ -30,8 +30,9 @@ test("an outage: offline with changes kept, a closed tab keeps them, and they sy
     return `${e?.tagName}.${(e?.getAttribute("class") ?? "").slice(0, 40)} in ${e?.closest("[data-slot], .toast, .scrim, .toolbar")?.outerHTML.slice(0, 80)}`;
   }, [tb.x + tb.width / 2, tb.y + tb.height / 2]);
   await dragToken(a, "Amber-0", 0.4, 0.6);
-  // Seen once in ~6 full runs: the count stayed at 0. If it recurs, this says whether the drag
-  // itself landed (the token moved) and what the connection was doing.
+  // This once failed in ~1 of 3 full runs: the top bar settled its height late and moved the
+  // map ~34 px between aiming and pressing (fixed in TopBar; board.spec pins it). The message
+  // still says where the press landed if it ever recurs.
   const after = await tokenAt(a, "Amber-0");
   const conn = await status.getAttribute("data-connection");
   const canEdit = await status.getAttribute("data-can-edit");

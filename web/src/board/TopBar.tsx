@@ -4,6 +4,7 @@
 // the cooldown, click it for ready. No health: the board doesn't track it.
 
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
 import { formatClock, parseClock } from "../core/clock";
 import { formatSouls, parseSouls, splitTotal, teamTotal, ultFromVector, ultStep } from "../core/souls";
@@ -42,7 +43,7 @@ function UltRing(p: { state: BoardState; player: Player; editable: boolean; labe
   const down = (e: PointerEvent) => {
     if (!p.editable || e.button !== 0) return;
     e.preventDefault();
-    el.setPointerCapture(e.pointerId);
+    capture(el, e.pointerId);
     const r = el.getBoundingClientRect();
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
@@ -122,6 +123,9 @@ export function TopBar(p: {
   let host!: HTMLDivElement;
   const [unit, setUnit] = createSignal(1);
   onMount(() => {
+    // Measure now, not only when the observer first fires: the bar's height follows its unit,
+    // and a late first measurement moved the map under people's pointers by ~34 px (journal).
+    setUnit(host.clientWidth / BAR || 1);
     const ro = new ResizeObserver(() => setUnit(host.clientWidth / BAR));
     ro.observe(host);
     onCleanup(() => ro.disconnect());
