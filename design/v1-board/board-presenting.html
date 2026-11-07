@@ -6,13 +6,15 @@
 <title>Board, presenting</title>
 <link rel="stylesheet" href="board.css">
 
+<!-- Local game art, git-ignored. Missing on a fresh clone: every var(--art-*) then falls back to the schematic. -->
+<link rel="stylesheet" href="../_art/art.css">
 <link rel="stylesheet" href="tweaks.css">
 </head>
 <body>
 <div class="app" data-dc-id="app">
 <header class="top" data-dc-id="topbar">
   <div class="wordmark" data-dc-id="wordmark"><svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12,1.5 22.5,12 12,22.5 1.5,12" fill="none" stroke="var(--brass)" stroke-width="1.6"/><polygon points="12,7 17,12 12,17 7,12" fill="var(--brass)"/></svg><span>mapcro</span></div>
-  <div class="board-title" data-dc-id="board-title"><b>Scrim prep vs Night Owls</b><span>7 scenes · map pack placeholder</span></div>
+  <div class="board-title" data-dc-id="board-title"><b>Scrim prep vs Night Owls</b><span>7 scenes</span></div>
   <div class="spacer"></div>
   <div class="present-pill" data-dc-id="presenting-pill"><span class="live"></span>Presenting<span class="count">3 following</span><button data-dc-id="stop-presenting">Stop</button></div>
   <div class="spacer"></div>
@@ -25,7 +27,7 @@
       <span class="ord">Scene 3 of 7</span>
       <h1><span class="clock">8:00</span> mid boss setup</h1>
     </div>
-    <span class="ph-badge" data-dc-id="placeholder-note" title="Schematic placeholder. The server's extracted map pack draws the real minimap here.">Placeholder map: your server's map pack replaces it</span>
+    <span class="ph-badge" data-dc-id="placeholder-note"><span class="ph-schem">Placeholder map: your server's map pack replaces it</span><span class="ph-art"></span></span>
   </div>
   <div class="mapbox" data-dc-id="map"><svg class="map live" viewBox="0 0 1000 1000" role="img" aria-label="Board map" xmlns="http://www.w3.org/2000/svg">
 <defs><clipPath id="clip-m"><polygon points="130,20 870,20 980,130 980,870 870,980 130,980 20,870 20,130"/></clipPath></defs>
@@ -33,71 +35,67 @@
 <svg x="0" y="0" width="1000" height="1000" viewBox="0 0 1000 1000">
 
 <g data-dc-id="map-terrain">
+<rect class="ground" x="-500" y="-500" width="2000" height="2000"/>
+<g class="schem">
 <polygon class="terrain" points="130,20 870,20 980,130 980,870 870,980 130,980 20,870 20,130"/>
 <polygon class="terrain-edge" points="130,20 870,20 980,130 980,870 870,980 130,980 20,870 20,130"/>
-<path class="base sapphire" d="M250 40 H750 Q790 40 790 80 V140 Q790 190 740 190 H260 Q210 190 210 140 V80 Q210 40 250 40Z"/>
-<path class="base amber" d="M250 960 H750 Q790 960 790 920 V860 Q790 810 740 810 H260 Q210 810 210 860 V920 Q210 960 250 960Z"/>
-<rect class="block" x="215" y="380" width="230" height="95" rx="16"/>
-<rect class="block" x="555" y="380" width="230" height="95" rx="16"/>
-<rect class="block" x="215" y="525" width="230" height="95" rx="16"/>
-<rect class="block" x="555" y="525" width="230" height="95" rx="16"/>
-<rect class="block" x="215" y="215" width="70" height="120" rx="16"/>
-<rect class="block" x="715" y="215" width="70" height="120" rx="16"/>
-<rect class="block" x="215" y="665" width="70" height="120" rx="16"/>
-<rect class="block" x="715" y="665" width="70" height="120" rx="16"/>
-<rect class="block" x="325" y="230" width="120" height="110" rx="16"/>
-<rect class="block" x="555" y="230" width="120" height="110" rx="16"/>
-<rect class="block" x="325" y="660" width="120" height="110" rx="16"/>
-<rect class="block" x="555" y="660" width="120" height="110" rx="16"/>
-<path class="path" d="M175 450 C300 450 380 470 500 470 C620 470 700 450 825 450"/>
-<path class="path" d="M175 550 C300 550 380 530 500 530 C620 530 700 550 825 550"/>
-<path class="path" d="M300 190 C330 260 400 300 500 300 C600 300 670 260 700 190"/>
-<path class="path" d="M300 810 C330 740 400 700 500 700 C600 700 670 740 700 810"/>
-<polyline class="lane" points="300,140 175,300 175,700 300,860"/>
-<polyline class="lane" points="700,140 825,300 825,700 700,860"/>
-<polyline class="lane" points="500,160 500,840"/>
-<polyline class="lane-core" points="300,140 175,300 175,700 300,860"/>
-<polyline class="lane-core" points="700,140 825,300 825,700 700,860"/>
-<polyline class="lane-core" points="500,160 500,840"/>
-<circle class="pit" cx="500" cy="500" r="64"/>
-<rect class="bridge" x="468" y="402" width="64" height="20" rx="3"/>
-<rect class="bridge" x="468" y="578" width="64" height="20" rx="3"/>
-<circle class="camp" cx="250" cy="430" r="5"/><circle class="camp" cx="750" cy="430" r="5"/><circle class="camp" cx="250" cy="570" r="5"/><circle class="camp" cx="750" cy="570" r="5"/><circle class="camp" cx="385" cy="285" r="5"/><circle class="camp" cx="615" cy="285" r="5"/><circle class="camp" cx="385" cy="715" r="5"/><circle class="camp" cx="615" cy="715" r="5"/><circle class="camp" cx="330" cy="500" r="5"/><circle class="camp" cx="670" cy="500" r="5"/>
-<text class="lbl" x="122" y="505" transform="rotate(-90 122 505)" text-anchor="middle">WEST LANE</text>
-<text class="lbl" x="878" y="505" transform="rotate(90 878 505)" text-anchor="middle">EAST LANE</text>
-<text class="lbl small" x="236" y="66">SAPPHIRE BASE</text>
-<text class="lbl small" x="236" y="946">AMBER BASE</text>
+<path class="base sapphire" d="M250 30 H750 Q790 30 790 70 V180 Q790 222 740 222 H260 Q210 222 210 180 V70 Q210 30 250 30Z"/>
+<path class="base amber" d="M250 970 H750 Q790 970 790 930 V820 Q790 778 740 778 H260 Q210 778 210 820 V930 Q210 970 250 970Z"/>
+<rect class="block" x="262" y="290" width="150" height="85" rx="16"/>
+<rect class="block" x="590" y="290" width="150" height="85" rx="16"/>
+<rect class="block" x="262" y="440" width="130" height="120" rx="16"/>
+<rect class="block" x="608" y="440" width="130" height="120" rx="16"/>
+<rect class="block" x="262" y="625" width="150" height="85" rx="16"/>
+<rect class="block" x="590" y="625" width="150" height="85" rx="16"/>
+<path class="path" d="M150 500 C300 470 400 470 500 470 C600 470 700 470 850 500"/>
+<path class="path" d="M150 500 C300 530 400 530 500 530 C600 530 700 530 850 500"/>
+<polyline class="lane" points="359,806 208,720 119,586 173,408 248,266 478,193"/><polyline class="lane" points="522,806 762,735 827,592 878,414 800,278 641,193"/><polyline class="lane" points="440,754 440,662 500,583 500,417 560,338 560,246"/>
+<polyline class="lane-core" points="359,806 208,720 119,586 173,408 248,266 478,193"/><polyline class="lane-core" points="522,806 762,735 827,592 878,414 800,278 641,193"/><polyline class="lane-core" points="440,754 440,662 500,583 500,417 560,338 560,246"/>
+<circle class="camp" cx="300" cy="500" r="5"/><circle class="camp" cx="700" cy="500" r="5"/><circle class="camp" cx="330" cy="255" r="5"/><circle class="camp" cx="670" cy="255" r="5"/><circle class="camp" cx="330" cy="745" r="5"/><circle class="camp" cx="670" cy="745" r="5"/><circle class="camp" cx="190" cy="500" r="5"/><circle class="camp" cx="810" cy="500" r="5"/>
+<text class="lbl" x="70" y="505" transform="rotate(-90 70 505)" text-anchor="middle">WEST LANE</text>
+<text class="lbl" x="930" y="505" transform="rotate(90 930 505)" text-anchor="middle">EAST LANE</text>
+<text class="lbl small" x="236" y="58">SAPPHIRE BASE</text>
+<text class="lbl small" x="236" y="956">AMBER BASE</text>
 </g>
-<g data-dc-id="objectives" class="objs"><g style="color:var(--sapphire)" data-dc-id="obj-guardian-sapphire-west"><title>Guardian (sapphire, west lane)</title><polygon class="obj sapphire" points="175,332 188,345 175,358 162,345"/></g>
-<g style="color:var(--sapphire)" data-dc-id="obj-walker-sapphire-west"><title>Walker (sapphire, west lane)</title><circle cx="241" cy="215" r="26" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj sapphire" points="241,196 260,215 241,234 222,215"/></g>
-<g style="color:var(--sapphire)" data-dc-id="obj-guardian-sapphire-mid"><title>Guardian (sapphire, mid lane)</title><polygon class="obj sapphire" points="500,332 513,345 500,358 487,345"/></g>
-<g style="color:var(--sapphire)" data-dc-id="obj-walker-sapphire-mid"><title>Walker (sapphire, mid lane)</title><circle cx="500" cy="215" r="26" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj sapphire" points="500,196 519,215 500,234 481,215"/></g>
-<g style="color:var(--sapphire)" data-dc-id="obj-guardian-sapphire-east"><title>Guardian (sapphire, east lane) destroyed</title><polygon class="obj sapphire down" points="825,332 838,345 825,358 812,345"/><path class="obj-x" stroke="var(--sapphire)" d="M817 337L833 353M833 337L817 353"/></g>
-<g style="color:var(--sapphire)" data-dc-id="obj-walker-sapphire-east"><title>Walker (sapphire, east lane)</title><circle cx="759" cy="215" r="26" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj sapphire" points="759,196 778,215 759,234 740,215"/></g>
-<g data-dc-id="obj-patron-sapphire"><title>Patron (sapphire)</title><polygon class="obj sapphire" points="520.8,94.0 500.0,106.0 479.2,94.0 479.2,70.0 500.0,58.0 520.8,70.0"/><polygon fill="none" stroke="#0b1714" stroke-width="2" points="509.5,87.5 500.0,93.0 490.5,87.5 490.5,76.5 500.0,71.0 509.5,76.5"/></g>
-<polygon class="obj sapphire" points="395,106 407,127 383,127"><title>Shrine (sapphire)</title></polygon>
-<polygon class="obj sapphire" points="605,106 617,127 593,127"><title>Shrine (sapphire)</title></polygon>
-<rect class="obj sapphire" x="315" y="161" width="14" height="14" rx="2"><title>Base guardian (sapphire)</title></rect>
-<rect class="obj sapphire" x="493" y="161" width="14" height="14" rx="2"><title>Base guardian (sapphire)</title></rect>
-<rect class="obj sapphire" x="671" y="161" width="14" height="14" rx="2"><title>Base guardian (sapphire)</title></rect>
-<g style="color:var(--amber)" data-dc-id="obj-guardian-amber-west"><title>Guardian (amber, west lane) destroyed</title><polygon class="obj amber down" points="175,642 188,655 175,668 162,655"/><path class="obj-x" stroke="var(--amber)" d="M167 647L183 663M183 647L167 663"/></g>
-<g style="color:var(--amber)" data-dc-id="obj-walker-amber-west"><title>Walker (amber, west lane)</title><circle cx="241" cy="785" r="26" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj amber" points="241,766 260,785 241,804 222,785"/></g>
-<g style="color:var(--amber)" data-dc-id="obj-guardian-amber-mid"><title>Guardian (amber, mid lane)</title><polygon class="obj amber" points="500,642 513,655 500,668 487,655"/></g>
-<g style="color:var(--amber)" data-dc-id="obj-walker-amber-mid"><title>Walker (amber, mid lane)</title><circle cx="500" cy="785" r="26" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj amber" points="500,766 519,785 500,804 481,785"/></g>
-<g style="color:var(--amber)" data-dc-id="obj-guardian-amber-east"><title>Guardian (amber, east lane)</title><polygon class="obj amber" points="825,642 838,655 825,668 812,655"/></g>
-<g style="color:var(--amber)" data-dc-id="obj-walker-amber-east"><title>Walker (amber, east lane)</title><circle cx="759" cy="785" r="26" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj amber" points="759,766 778,785 759,804 740,785"/></g>
-<g data-dc-id="obj-patron-amber"><title>Patron (amber)</title><polygon class="obj amber" points="520.8,930.0 500.0,942.0 479.2,930.0 479.2,906.0 500.0,894.0 520.8,906.0"/><polygon fill="none" stroke="#0b1714" stroke-width="2" points="509.5,923.5 500.0,929.0 490.5,923.5 490.5,912.5 500.0,907.0 509.5,912.5"/></g>
-<polygon class="obj amber" points="395,870 407,891 383,891"><title>Shrine (amber)</title></polygon>
-<polygon class="obj amber" points="605,870 617,891 593,891"><title>Shrine (amber)</title></polygon>
-<rect class="obj amber" x="315" y="825" width="14" height="14" rx="2"><title>Base guardian (amber)</title></rect>
-<rect class="obj amber" x="493" y="825" width="14" height="14" rx="2"><title>Base guardian (amber)</title></rect>
-<rect class="obj amber" x="671" y="825" width="14" height="14" rx="2"><title>Base guardian (amber)</title></rect>
-<g data-dc-id="obj-mid-boss"><title>Mid boss</title><circle class="boss-ring" cx="500" cy="500" r="36"/><polygon class="boss" points="500.0,478.0 505.5,490.5 519.1,489.0 511.0,500.0 519.1,511.0 505.5,509.5 500.0,522.0 494.5,509.5 480.9,511.0 489.0,500.0 480.9,489.0 494.5,490.5"/></g></g>
+<circle class="pit" cx="500" cy="500" r="64"/>
+<foreignObject class="art-fo" x="0" y="0" width="1000" height="1000"><div xmlns="http://www.w3.org/1999/xhtml" class="art art-surface"></div></foreignObject>
+</g>
+<g data-dc-id="objectives" class="objs"><g class="og amber" style="color:var(--amber)" data-dc-id="obj-guardian-amber-west"><title>Guardian (amber, west lane) destroyed</title><g class="schem"><polygon class="obj amber down" points="119,573 132,586 119,599 106,586"/><path class="obj-x schem" stroke="var(--amber)" d="M111 578L127 594M127 578L111 594"/></g><foreignObject class="art-fo" x="96.0" y="563.3" width="46" height="46"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-guardian down"></div></foreignObject></g>
+<g class="og amber" style="color:var(--amber)" data-dc-id="obj-guardian-amber-east"><title>Guardian (amber, east lane)</title><g class="schem"><polygon class="obj amber" points="827,579 840,592 827,605 814,592"/></g><foreignObject class="art-fo" x="804.4" y="569.3" width="46" height="46"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-guardian"></div></foreignObject></g>
+<g class="og sapphire" style="color:var(--sapphire)" data-dc-id="obj-guardian-sapphire-east"><title>Guardian (sapphire, east lane) destroyed</title><g class="schem"><polygon class="obj sapphire down" points="878,401 891,414 878,427 865,414"/><path class="obj-x schem" stroke="var(--sapphire)" d="M870 406L886 422M886 406L870 422"/></g><foreignObject class="art-fo" x="855.0" y="390.7" width="46" height="46"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-guardian down"></div></foreignObject></g>
+<g class="og sapphire" style="color:var(--sapphire)" data-dc-id="obj-guardian-sapphire-west"><title>Guardian (sapphire, west lane)</title><g class="schem"><polygon class="obj sapphire" points="173,395 186,408 173,421 160,408"/></g><foreignObject class="art-fo" x="149.6" y="384.7" width="46" height="46"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-guardian"></div></foreignObject></g>
+<g class="og amber" style="color:var(--amber)" data-dc-id="obj-guardian-amber-mid"><title>Guardian (amber, mid lane)</title><g class="schem"><polygon class="obj amber" points="500,570 513,583 500,596 487,583"/></g><foreignObject class="art-fo" x="477.0" y="560.3" width="46" height="46"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-guardian"></div></foreignObject></g>
+<g class="og sapphire" style="color:var(--sapphire)" data-dc-id="obj-guardian-sapphire-mid"><title>Guardian (sapphire, mid lane)</title><g class="schem"><polygon class="obj sapphire" points="500,404 513,417 500,430 487,417"/></g><foreignObject class="art-fo" x="477.0" y="393.7" width="46" height="46"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-guardian"></div></foreignObject></g>
+<g class="og sapphire" style="color:var(--sapphire)" data-dc-id="obj-patron-sapphire"><title>Patron (sapphire)</title><g class="schem"><polygon class="obj sapphire" points="578.6,136.7 559.5,147.7 540.4,136.7 540.4,114.7 559.5,103.7 578.6,114.7"/><polygon fill="none" stroke="#0b1714" stroke-width="2" points="568.2,130.7 559.5,135.7 550.8,130.7 550.8,120.7 559.5,115.7 568.2,120.7"/></g><foreignObject class="art-fo" x="522.5" y="88.7" width="74" height="74"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-patron"></div></foreignObject></g>
+<g class="og amber" style="color:var(--amber)" data-dc-id="obj-patron-amber"><title>Patron (amber)</title><g class="schem"><polygon class="obj amber" points="459.6,884.6 440.5,895.6 421.4,884.6 421.4,862.6 440.5,851.6 459.6,862.6"/><polygon fill="none" stroke="#0b1714" stroke-width="2" points="449.2,878.6 440.5,883.6 431.8,878.6 431.8,868.6 440.5,863.6 449.2,868.6"/></g><foreignObject class="art-fo" x="403.5" y="836.6" width="74" height="74"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-patron"></div></foreignObject></g>
+<g class="og" data-dc-id="obj-mid-boss"><title>Mid boss</title><circle class="boss-ring" cx="500" cy="500" r="36"/><polygon class="boss schem" points="500.0,478.0 505.5,490.5 519.1,489.0 511.0,500.0 519.1,511.0 505.5,509.5 500.0,522.0 494.5,509.5 480.9,511.0 489.0,500.0 480.9,489.0 494.5,490.5"/><foreignObject class="art-fo" x="457.0" y="457.0" width="86" height="86"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-midboss"></div></foreignObject></g>
+<polygon class="obj amber shrine" points="514,839 525,858 503,858"><title>Shrine (amber)</title></polygon>
+<g class="og sapphire" style="color:var(--sapphire)" data-dc-id="obj-walker-sapphire-west"><title>Walker (sapphire, west lane)</title><g class="schem"><circle class="schem" cx="248" cy="266" r="25" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj sapphire" points="248,248 266,266 248,284 230,266"/></g><foreignObject class="art-fo" x="216.1" y="234.4" width="64" height="64"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-walker"></div></foreignObject></g>
+<g class="og sapphire" style="color:var(--sapphire)" data-dc-id="obj-walker-sapphire-east"><title>Walker (sapphire, east lane)</title><g class="schem"><circle class="schem" cx="800" cy="278" r="25" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj sapphire" points="800,260 818,278 800,296 782,278"/></g><foreignObject class="art-fo" x="767.7" y="245.9" width="64" height="64"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-walker"></div></foreignObject></g>
+<g class="og amber" style="color:var(--amber)" data-dc-id="obj-walker-amber-east"><title>Walker (amber, east lane)</title><g class="schem"><circle class="schem" cx="762" cy="735" r="25" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj amber" points="762,717 780,735 762,753 744,735"/></g><foreignObject class="art-fo" x="729.7" y="703.3" width="64" height="64"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-walker"></div></foreignObject></g>
+<g class="og amber" style="color:var(--amber)" data-dc-id="obj-walker-amber-west"><title>Walker (amber, west lane)</title><g class="schem"><circle class="schem" cx="208" cy="720" r="25" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj amber" points="208,702 226,720 208,738 190,720"/></g><foreignObject class="art-fo" x="176.3" y="688.2" width="64" height="64"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-walker"></div></foreignObject></g>
+<g class="og amber" style="color:var(--amber)" data-dc-id="obj-walker-amber-mid"><title>Walker (amber, mid lane)</title><g class="schem"><circle class="schem" cx="440" cy="662" r="25" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj amber" points="440,644 458,662 440,680 422,662"/></g><foreignObject class="art-fo" x="408.1" y="629.5" width="64" height="64"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-walker"></div></foreignObject></g>
+<g class="og sapphire" style="color:var(--sapphire)" data-dc-id="obj-walker-sapphire-mid"><title>Walker (sapphire, mid lane)</title><g class="schem"><circle class="schem" cx="560" cy="338" r="25" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj sapphire" points="560,320 578,338 560,356 542,338"/></g><foreignObject class="art-fo" x="527.9" y="306.5" width="64" height="64"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-walker"></div></foreignObject></g>
+<g class="og amber" style="color:var(--amber)"><title>Base guardian (amber, mid)</title><rect class="obj amber schem" x="444" y="748" width="12" height="12" rx="2"/><foreignObject class="art-fo" x="432.1" y="735.6" width="36" height="36"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-base"></div></foreignObject></g>
+<g class="og amber" style="color:var(--amber)"><title>Base guardian (amber, mid)</title><rect class="obj amber schem" x="425" y="748" width="12" height="12" rx="2"/><foreignObject class="art-fo" x="412.8" y="735.8" width="36" height="36"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-base"></div></foreignObject></g>
+<g class="og amber" style="color:var(--amber)"><title>Base guardian (amber, east)</title><rect class="obj amber schem" x="516" y="808" width="12" height="12" rx="2"/><foreignObject class="art-fo" x="504.3" y="796.2" width="36" height="36"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-base"></div></foreignObject></g>
+<g class="og amber" style="color:var(--amber)"><title>Base guardian (amber, east)</title><rect class="obj amber schem" x="516" y="791" width="12" height="12" rx="2"/><foreignObject class="art-fo" x="504.3" y="779.4" width="36" height="36"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-base"></div></foreignObject></g>
+<g class="og amber" style="color:var(--amber)"><title>Base guardian (amber, west)</title><rect class="obj amber schem" x="353" y="791" width="12" height="12" rx="2"/><foreignObject class="art-fo" x="340.6" y="779.4" width="36" height="36"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-base"></div></foreignObject></g>
+<g class="og amber" style="color:var(--amber)"><title>Base guardian (amber, west)</title><rect class="obj amber schem" x="353" y="808" width="12" height="12" rx="2"/><foreignObject class="art-fo" x="340.6" y="796.2" width="36" height="36"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-base"></div></foreignObject></g>
+<g class="og sapphire" style="color:var(--sapphire)"><title>Base guardian (sapphire, mid)</title><rect class="obj sapphire schem" x="564" y="240" width="12" height="12" rx="2"/><foreignObject class="art-fo" x="551.6" y="228.4" width="36" height="36"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-base"></div></foreignObject></g>
+<g class="og sapphire" style="color:var(--sapphire)"><title>Base guardian (sapphire, mid)</title><rect class="obj sapphire schem" x="544" y="240" width="12" height="12" rx="2"/><foreignObject class="art-fo" x="531.5" y="228.4" width="36" height="36"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-base"></div></foreignObject></g>
+<g class="og sapphire" style="color:var(--sapphire)"><title>Base guardian (sapphire, west)</title><rect class="obj sapphire schem" x="472" y="197" width="12" height="12" rx="2"/><foreignObject class="art-fo" x="459.7" y="184.6" width="36" height="36"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-base"></div></foreignObject></g>
+<g class="og sapphire" style="color:var(--sapphire)"><title>Base guardian (sapphire, west)</title><rect class="obj sapphire schem" x="472" y="178" width="12" height="12" rx="2"/><foreignObject class="art-fo" x="459.7" y="166.3" width="36" height="36"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-base"></div></foreignObject></g>
+<polygon class="obj sapphire shrine" points="631,139 642,158 620,158"><title>Shrine (sapphire)</title></polygon>
+<polygon class="obj sapphire shrine" points="488,139 499,158 477,158"><title>Shrine (sapphire)</title></polygon>
+<g class="og sapphire" style="color:var(--sapphire)"><title>Base guardian (sapphire, east)</title><rect class="obj sapphire schem" x="635" y="197" width="12" height="12" rx="2"/><foreignObject class="art-fo" x="623.4" y="184.6" width="36" height="36"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-base"></div></foreignObject></g>
+<g class="og sapphire" style="color:var(--sapphire)"><title>Base guardian (sapphire, east)</title><rect class="obj sapphire schem" x="635" y="178" width="12" height="12" rx="2"/><foreignObject class="art-fo" x="623.4" y="166.3" width="36" height="36"><div xmlns="http://www.w3.org/1999/xhtml" class="art ob ob-base"></div></foreignObject></g>
+<polygon class="obj amber shrine" points="367,839 378,858 356,858"><title>Shrine (amber)</title></polygon></g>
 <rect class="map-shade" x="-500" y="-500" width="2000" height="2000"/>
 <g data-dc-id="arrows"><g data-dc-id="arrow-1"><path class="arw amber" d="M500 586 L500 545"/><polygon class="head amber" points="500,541 510,561 490,561"/></g><g data-dc-id="arrow-2"><path class="arw amber" d="M585 612 Q650 520 608 470"/><polygon class="head amber" points="605,467 625,476 611,488"/></g><g data-dc-id="arrow-3"><path class="arw sapphire plan" d="M296 452 Q360 520 420 545"/><polygon class="head sapphire" points="424,547 402,548 409,530"/></g></g>
 <g class="co" data-dc-id="callout-bridge"><path d="M500 412 L484 394" stroke="var(--brass)" stroke-width="1.5"/><circle class="pin" cx="500" cy="412" r="6"/><rect x="251" y="373" width="233" height="37" rx="6"/><text x="265" y="392" style="font-size:18px">Smoke on the bridge</text></g><g class="co" data-dc-id="callout-dome"><path d="M608 470 L624 452" stroke="var(--brass)" stroke-width="1.5"/><circle class="pin" cx="608" cy="470" r="6"/><rect x="624" y="431" width="254" height="37" rx="6"/><text x="638" y="450" style="font-size:18px">Dome when boss is low</text></g><g class="co" data-dc-id="callout-flank"><path d="M296 452 L280 434" stroke="var(--brass)" stroke-width="1.5"/><circle class="pin" cx="296" cy="452" r="6"/><rect x="101" y="413" width="179" height="37" rx="6"/><text x="115" y="432" style="font-size:18px">Paradox flank?</text></g>
 
-<g data-dc-id="tokens"><g class="tok amber " data-dc-id="tok-vexa" transform="translate(425 598)"><title>vexa, Haze. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>HZ</text></g><g class="tok amber hover" data-dc-id="tok-marrow" transform="translate(500 586)"><title>Marrow, Abrams. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="rim" r="32"/><g class="nub" transform="rotate(-40) translate(32 0)"><circle r="8"/><path d="M-3 0 H3 M0.5 -3 L3.5 0 L0.5 3"/></g><circle class="body" r="23"/><text>AB</text></g><g class="tok amber " data-dc-id="tok-juno" transform="translate(585 612)"><title>Juno, Dynamo. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>DY</text></g><g class="tok amber " data-dc-id="tok-kiwi" transform="translate(372 640)"><title>kiwi, Vindicta. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>VI</text></g><g class="tok amber " data-dc-id="tok-tomb" transform="translate(618 668)"><title>Tombstone, Seven. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>SE</text></g><g class="tok amber " data-dc-id="tok-pell" transform="translate(470 668)"><title>Pell, Lady Geist. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>LG</text></g><g class="tok sapphire " data-dc-id="tok-sorrel" transform="translate(478 352)"><title>sorrel, Infernus. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>IN</text></g><g class="tok sapphire " data-dc-id="tok-bishop" transform="translate(566 340)"><title>Bishop, Wraith. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>WR</text></g><g class="tok sapphire " data-dc-id="tok-nyx" transform="translate(520 288)"><title>Nyx, McGinnis. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>MG</text></g><g class="tok sapphire " data-dc-id="tok-lowtide" transform="translate(296 452)"><title>Lowtide, Paradox. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>PX</text></g><g class="tok sapphire " data-dc-id="tok-quill" transform="translate(712 330)"><title>Quill, Kelvin. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>KE</text></g><g class="tok sapphire " data-dc-id="tok-ferro" transform="translate(420 312)"><title>Ferro, Grey Talon. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>GT</text></g></g>
+<g data-dc-id="tokens"><g class="tok amber " data-dc-id="tok-vexa" transform="translate(425 598)" style="color:var(--amber)"><title>vexa, Haze. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>HZ</text><foreignObject class="art-fo pf" x="-21" y="-21" width="42" height="42"><div xmlns="http://www.w3.org/1999/xhtml" class="art portrait" style="--p: var(--art-hero-haze)"></div></foreignObject></g><g class="tok amber hover" data-dc-id="tok-marrow" transform="translate(500 586)" style="color:var(--amber)"><title>Marrow, Abrams. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="rim" r="32"/><g class="nub" transform="rotate(-40) translate(32 0)"><circle r="8"/><path d="M-3 0 H3 M0.5 -3 L3.5 0 L0.5 3"/></g><circle class="body" r="23"/><text>AB</text><foreignObject class="art-fo pf" x="-21" y="-21" width="42" height="42"><div xmlns="http://www.w3.org/1999/xhtml" class="art portrait" style="--p: var(--art-hero-atlas)"></div></foreignObject></g><g class="tok amber " data-dc-id="tok-juno" transform="translate(585 612)" style="color:var(--amber)"><title>Juno, Dynamo. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>DY</text><foreignObject class="art-fo pf" x="-21" y="-21" width="42" height="42"><div xmlns="http://www.w3.org/1999/xhtml" class="art portrait" style="--p: var(--art-hero-dynamo)"></div></foreignObject></g><g class="tok amber " data-dc-id="tok-kiwi" transform="translate(372 640)" style="color:var(--amber)"><title>kiwi, Vindicta. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>VI</text><foreignObject class="art-fo pf" x="-21" y="-21" width="42" height="42"><div xmlns="http://www.w3.org/1999/xhtml" class="art portrait" style="--p: var(--art-hero-hornet)"></div></foreignObject></g><g class="tok amber " data-dc-id="tok-tomb" transform="translate(618 668)" style="color:var(--amber)"><title>Tombstone, Seven. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>SE</text><foreignObject class="art-fo pf" x="-21" y="-21" width="42" height="42"><div xmlns="http://www.w3.org/1999/xhtml" class="art portrait" style="--p: var(--art-hero-gigawatt)"></div></foreignObject></g><g class="tok amber " data-dc-id="tok-pell" transform="translate(470 668)" style="color:var(--amber)"><title>Pell, Lady Geist. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>LG</text><foreignObject class="art-fo pf" x="-21" y="-21" width="42" height="42"><div xmlns="http://www.w3.org/1999/xhtml" class="art portrait" style="--p: var(--art-hero-ghost)"></div></foreignObject></g><g class="tok sapphire " data-dc-id="tok-sorrel" transform="translate(478 352)" style="color:var(--sapphire)"><title>sorrel, Infernus. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>IN</text><foreignObject class="art-fo pf" x="-21" y="-21" width="42" height="42"><div xmlns="http://www.w3.org/1999/xhtml" class="art portrait" style="--p: var(--art-hero-inferno)"></div></foreignObject></g><g class="tok sapphire " data-dc-id="tok-bishop" transform="translate(566 340)" style="color:var(--sapphire)"><title>Bishop, Wraith. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>WR</text><foreignObject class="art-fo pf" x="-21" y="-21" width="42" height="42"><div xmlns="http://www.w3.org/1999/xhtml" class="art portrait" style="--p: var(--art-hero-wraith)"></div></foreignObject></g><g class="tok sapphire " data-dc-id="tok-nyx" transform="translate(520 288)" style="color:var(--sapphire)"><title>Nyx, McGinnis. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>MG</text><foreignObject class="art-fo pf" x="-21" y="-21" width="42" height="42"><div xmlns="http://www.w3.org/1999/xhtml" class="art portrait" style="--p: var(--art-hero-forge)"></div></foreignObject></g><g class="tok sapphire " data-dc-id="tok-lowtide" transform="translate(296 452)" style="color:var(--sapphire)"><title>Lowtide, Paradox. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>PX</text><foreignObject class="art-fo pf" x="-21" y="-21" width="42" height="42"><div xmlns="http://www.w3.org/1999/xhtml" class="art portrait" style="--p: var(--art-hero-chrono)"></div></foreignObject></g><g class="tok sapphire " data-dc-id="tok-quill" transform="translate(712 330)" style="color:var(--sapphire)"><title>Quill, Kelvin. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>KE</text><foreignObject class="art-fo pf" x="-21" y="-21" width="42" height="42"><div xmlns="http://www.w3.org/1999/xhtml" class="art portrait" style="--p: var(--art-hero-kelvin)"></div></foreignObject></g><g class="tok sapphire " data-dc-id="tok-ferro" transform="translate(420 312)" style="color:var(--sapphire)"><title>Ferro, Grey Talon. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>GT</text><foreignObject class="art-fo pf" x="-21" y="-21" width="42" height="42"><div xmlns="http://www.w3.org/1999/xhtml" class="art portrait" style="--p: var(--art-hero-orion)"></div></foreignObject></g></g>
 
 </svg></g>
 <g data-dc-id="map-frame"><polygon class="frame" points="130,6 870,6 994,130 994,870 870,994 130,994 6,870 6,130"/><polygon class="frame-in" points="136,14 864,14 986,136 986,864 864,986 136,986 14,864 14,136"/><g class="fan" transform="translate(34 34) rotate(0 34 34)"><g transform="translate(34 34) scale(-1 -1) translate(-34 -34)"><path d="M0 0 L38.0 0.0"/><path d="M0 0 L36.7 9.8"/><path d="M0 0 L32.9 19.0"/><path d="M0 0 L26.9 26.9"/><path d="M0 0 L19.0 32.9"/><path d="M0 0 L9.8 36.7"/><path d="M0 0 L0.0 38.0"/><path d="M38 0 A38 38 0 0 1 0 38"/><path d="M22 0 A22 22 0 0 1 0 22"/></g></g><g class="fan" transform="translate(898 34) rotate(90 34 34)"><g transform="translate(34 34) scale(-1 -1) translate(-34 -34)"><path d="M0 0 L38.0 0.0"/><path d="M0 0 L36.7 9.8"/><path d="M0 0 L32.9 19.0"/><path d="M0 0 L26.9 26.9"/><path d="M0 0 L19.0 32.9"/><path d="M0 0 L9.8 36.7"/><path d="M0 0 L0.0 38.0"/><path d="M38 0 A38 38 0 0 1 0 38"/><path d="M22 0 A22 22 0 0 1 0 22"/></g></g><g class="fan" transform="translate(898 898) rotate(180 34 34)"><g transform="translate(34 34) scale(-1 -1) translate(-34 -34)"><path d="M0 0 L38.0 0.0"/><path d="M0 0 L36.7 9.8"/><path d="M0 0 L32.9 19.0"/><path d="M0 0 L26.9 26.9"/><path d="M0 0 L19.0 32.9"/><path d="M0 0 L9.8 36.7"/><path d="M0 0 L0.0 38.0"/><path d="M38 0 A38 38 0 0 1 0 38"/><path d="M22 0 A22 22 0 0 1 0 22"/></g></g><g class="fan" transform="translate(34 898) rotate(270 34 34)"><g transform="translate(34 34) scale(-1 -1) translate(-34 -34)"><path d="M0 0 L38.0 0.0"/><path d="M0 0 L36.7 9.8"/><path d="M0 0 L32.9 19.0"/><path d="M0 0 L26.9 26.9"/><path d="M0 0 L19.0 32.9"/><path d="M0 0 L9.8 36.7"/><path d="M0 0 L0.0 38.0"/><path d="M38 0 A38 38 0 0 1 0 38"/><path d="M22 0 A22 22 0 0 1 0 22"/></g></g><polygon class="fan" points="500,0 506,6 500,12 494,6"/><polygon class="fan" points="500,988 506,994 500,1000 494,994"/><polygon class="fan" points="6,494 12,500 6,506 0,500"/><polygon class="fan" points="994,494 1000,500 994,506 988,500"/></g><g class="flip" data-dc-id="viewpoint-flip" transform="translate(918 918)"><title>Flip to Sapphire side (changes only your view)</title><circle r="24"/><path d="M-10 -4 A11 11 0 0 1 9 -6 M9 -6 L9 -14 M9 -6 L1 -6 M10 4 A11 11 0 0 1 -9 6 M-9 6 L-9 14 M-9 6 L-1 6"/></g>
@@ -136,63 +134,84 @@
     <button class="card" data-dc-id="scene-card-1" aria-label="Scene 1: 6:00 first walker trade">
       <span class="mini"><svg class="mini" viewBox="0 0 1000 1000" aria-hidden="true">
 <rect class="terrain" width="1000" height="1000"/>
-<rect class="base sapphire" x="210" y="30" width="580" height="160" rx="40"/>
-<rect class="base amber" x="210" y="810" width="580" height="160" rx="40"/>
-<polyline class="lane" points="300,140 175,300 175,700 300,860"/><polyline class="lane" points="700,140 825,300 825,700 700,860"/><polyline class="lane" points="500,160 500,840"/>
+<g class="schem">
+<rect class="base sapphire" x="210" y="30" width="580" height="190" rx="40"/>
+<rect class="base amber" x="210" y="780" width="580" height="190" rx="40"/>
+<polyline class="lane" points="359,806 208,720 119,586 173,408 248,266 478,193"/><polyline class="lane" points="522,806 762,735 827,592 878,414 800,278 641,193"/><polyline class="lane" points="440,754 440,662 500,583 500,417 560,338 560,246"/>
+</g>
+<foreignObject class="art-fo" x="0" y="0" width="1000" height="1000"><div xmlns="http://www.w3.org/1999/xhtml" class="art art-surface"></div></foreignObject>
 <rect class="shade" width="1000" height="1000"/>
 <path class="a amber" d="M800 690 L790 380"/><circle class="d amber" cx="235" cy="700" r="34"/><circle class="d amber" cx="500" cy="720" r="34"/><circle class="d amber" cx="470" cy="760" r="34"/><circle class="d amber" cx="210" cy="760" r="34"/><circle class="d amber" cx="800" cy="690" r="34"/><circle class="d amber" cx="775" cy="740" r="34"/><circle class="d sapphire" cx="250" cy="300" r="34"/><circle class="d sapphire" cx="530" cy="290" r="34"/><circle class="d sapphire" cx="480" cy="250" r="34"/><circle class="d sapphire" cx="780" cy="300" r="34"/><circle class="d sapphire" cx="820" cy="260" r="34"/><circle class="d sapphire" cx="200" cy="260" r="34"/></svg></span>
       <span class="txt"><span class="no">Scene 1</span><div class="clock">6:00</div><div class="cap">first walker trade</div></span>
     </button><button class="card" data-dc-id="scene-card-2" aria-label="Scene 2: 7:20 urn run west">
       <span class="mini"><svg class="mini" viewBox="0 0 1000 1000" aria-hidden="true">
 <rect class="terrain" width="1000" height="1000"/>
-<rect class="base sapphire" x="210" y="30" width="580" height="160" rx="40"/>
-<rect class="base amber" x="210" y="810" width="580" height="160" rx="40"/>
-<polyline class="lane" points="300,140 175,300 175,700 300,860"/><polyline class="lane" points="700,140 825,300 825,700 700,860"/><polyline class="lane" points="500,160 500,840"/>
+<g class="schem">
+<rect class="base sapphire" x="210" y="30" width="580" height="190" rx="40"/>
+<rect class="base amber" x="210" y="780" width="580" height="190" rx="40"/>
+<polyline class="lane" points="359,806 208,720 119,586 173,408 248,266 478,193"/><polyline class="lane" points="522,806 762,735 827,592 878,414 800,278 641,193"/><polyline class="lane" points="440,754 440,662 500,583 500,417 560,338 560,246"/>
+</g>
+<foreignObject class="art-fo" x="0" y="0" width="1000" height="1000"><div xmlns="http://www.w3.org/1999/xhtml" class="art art-surface"></div></foreignObject>
 <rect class="shade" width="1000" height="1000"/>
 <path class="a amber" d="M190 520 L190 330"/><path class="a sapphire" d="M320 380 L230 470"/><circle class="d amber" cx="190" cy="520" r="34"/><circle class="d amber" cx="330" cy="600" r="34"/><circle class="d amber" cx="420" cy="640" r="34"/><circle class="d amber" cx="175" cy="600" r="34"/><circle class="d amber" cx="640" cy="700" r="34"/><circle class="d amber" cx="560" cy="660" r="34"/><circle class="d sapphire" cx="320" cy="380" r="34"/><circle class="d sapphire" cx="560" cy="330" r="34"/><circle class="d sapphire" cx="500" cy="300" r="34"/><circle class="d sapphire" cx="640" cy="380" r="34"/><circle class="d sapphire" cx="790" cy="300" r="34"/><circle class="d sapphire" cx="230" cy="300" r="34"/></svg></span>
       <span class="txt"><span class="no">Scene 2</span><div class="clock">7:20</div><div class="cap">urn run west</div></span>
     </button><button class="card on" data-dc-id="scene-card-3" aria-label="Scene 3: 8:00 mid boss setup">
       <span class="mini"><svg class="mini" viewBox="0 0 1000 1000" aria-hidden="true">
 <rect class="terrain" width="1000" height="1000"/>
-<rect class="base sapphire" x="210" y="30" width="580" height="160" rx="40"/>
-<rect class="base amber" x="210" y="810" width="580" height="160" rx="40"/>
-<polyline class="lane" points="300,140 175,300 175,700 300,860"/><polyline class="lane" points="700,140 825,300 825,700 700,860"/><polyline class="lane" points="500,160 500,840"/>
+<g class="schem">
+<rect class="base sapphire" x="210" y="30" width="580" height="190" rx="40"/>
+<rect class="base amber" x="210" y="780" width="580" height="190" rx="40"/>
+<polyline class="lane" points="359,806 208,720 119,586 173,408 248,266 478,193"/><polyline class="lane" points="522,806 762,735 827,592 878,414 800,278 641,193"/><polyline class="lane" points="440,754 440,662 500,583 500,417 560,338 560,246"/>
+</g>
+<foreignObject class="art-fo" x="0" y="0" width="1000" height="1000"><div xmlns="http://www.w3.org/1999/xhtml" class="art art-surface"></div></foreignObject>
 <rect class="shade" width="1000" height="1000"/>
 <path class="a amber" d="M500 586 L500 545"/><path class="a amber" d="M585 612 Q650 520 608 470"/><path class="a sapphire" d="M296 452 Q360 520 420 545"/><circle class="d amber" cx="425" cy="598" r="34"/><circle class="d amber" cx="500" cy="586" r="34"/><circle class="d amber" cx="585" cy="612" r="34"/><circle class="d amber" cx="372" cy="640" r="34"/><circle class="d amber" cx="618" cy="668" r="34"/><circle class="d amber" cx="470" cy="668" r="34"/><circle class="d sapphire" cx="478" cy="352" r="34"/><circle class="d sapphire" cx="566" cy="340" r="34"/><circle class="d sapphire" cx="520" cy="288" r="34"/><circle class="d sapphire" cx="296" cy="452" r="34"/><circle class="d sapphire" cx="712" cy="330" r="34"/><circle class="d sapphire" cx="420" cy="312" r="34"/></svg></span>
       <span class="txt"><span class="no">Scene 3</span><div class="clock">8:00</div><div class="cap">mid boss setup</div></span><span class="here"><span class="av sm coach">C</span><span class="av sm marrow">M</span><span class="av sm juno">J</span><span class="av sm guest">G</span></span>
     </button><button class="card" data-dc-id="scene-card-4" aria-label="Scene 4: 8:40 rotate east to Walker">
       <span class="mini"><svg class="mini" viewBox="0 0 1000 1000" aria-hidden="true">
 <rect class="terrain" width="1000" height="1000"/>
-<rect class="base sapphire" x="210" y="30" width="580" height="160" rx="40"/>
-<rect class="base amber" x="210" y="810" width="580" height="160" rx="40"/>
-<polyline class="lane" points="300,140 175,300 175,700 300,860"/><polyline class="lane" points="700,140 825,300 825,700 700,860"/><polyline class="lane" points="500,160 500,840"/>
+<g class="schem">
+<rect class="base sapphire" x="210" y="30" width="580" height="190" rx="40"/>
+<rect class="base amber" x="210" y="780" width="580" height="190" rx="40"/>
+<polyline class="lane" points="359,806 208,720 119,586 173,408 248,266 478,193"/><polyline class="lane" points="522,806 762,735 827,592 878,414 800,278 641,193"/><polyline class="lane" points="440,754 440,662 500,583 500,417 560,338 560,246"/>
+</g>
+<foreignObject class="art-fo" x="0" y="0" width="1000" height="1000"><div xmlns="http://www.w3.org/1999/xhtml" class="art art-surface"></div></foreignObject>
 <rect class="shade" width="1000" height="1000"/>
 <path class="a amber" d="M560 520 Q700 420 760 250"/><circle class="d amber" cx="700" cy="420" r="34"/><circle class="d amber" cx="760" cy="380" r="34"/><circle class="d amber" cx="650" cy="470" r="34"/><circle class="d amber" cx="610" cy="520" r="34"/><circle class="d amber" cx="800" cy="450" r="34"/><circle class="d amber" cx="720" cy="500" r="34"/><circle class="d sapphire" cx="500" cy="360" r="34"/><circle class="d sapphire" cx="580" cy="300" r="34"/><circle class="d sapphire" cx="760" cy="250" r="34"/><circle class="d sapphire" cx="430" cy="420" r="34"/><circle class="d sapphire" cx="850" cy="280" r="34"/><circle class="d sapphire" cx="470" cy="300" r="34"/></svg></span>
       <span class="txt"><span class="no">Scene 4</span><div class="clock">8:40</div><div class="cap">rotate east to Walker</div></span>
     </button><button class="card" data-dc-id="scene-card-5" aria-label="Scene 5: 9:30 defend west guardian">
       <span class="mini"><svg class="mini" viewBox="0 0 1000 1000" aria-hidden="true">
 <rect class="terrain" width="1000" height="1000"/>
-<rect class="base sapphire" x="210" y="30" width="580" height="160" rx="40"/>
-<rect class="base amber" x="210" y="810" width="580" height="160" rx="40"/>
-<polyline class="lane" points="300,140 175,300 175,700 300,860"/><polyline class="lane" points="700,140 825,300 825,700 700,860"/><polyline class="lane" points="500,160 500,840"/>
+<g class="schem">
+<rect class="base sapphire" x="210" y="30" width="580" height="190" rx="40"/>
+<rect class="base amber" x="210" y="780" width="580" height="190" rx="40"/>
+<polyline class="lane" points="359,806 208,720 119,586 173,408 248,266 478,193"/><polyline class="lane" points="522,806 762,735 827,592 878,414 800,278 641,193"/><polyline class="lane" points="440,754 440,662 500,583 500,417 560,338 560,246"/>
+</g>
+<foreignObject class="art-fo" x="0" y="0" width="1000" height="1000"><div xmlns="http://www.w3.org/1999/xhtml" class="art art-surface"></div></foreignObject>
 <rect class="shade" width="1000" height="1000"/>
 <path class="a sapphire" d="M280 480 L230 600"/><circle class="d amber" cx="210" cy="650" r="34"/><circle class="d amber" cx="240" cy="700" r="34"/><circle class="d amber" cx="290" cy="640" r="34"/><circle class="d amber" cx="180" cy="720" r="34"/><circle class="d amber" cx="460" cy="620" r="34"/><circle class="d amber" cx="330" cy="700" r="34"/><circle class="d sapphire" cx="220" cy="520" r="34"/><circle class="d sapphire" cx="280" cy="480" r="34"/><circle class="d sapphire" cx="330" cy="540" r="34"/><circle class="d sapphire" cx="170" cy="470" r="34"/><circle class="d sapphire" cx="520" cy="470" r="34"/><circle class="d sapphire" cx="400" cy="450" r="34"/></svg></span>
       <span class="txt"><span class="no">Scene 5</span><div class="clock">9:30</div><div class="cap">defend west guardian</div></span><span class="here"><span class="av sm vexa">V</span></span>
     </button><button class="card" data-dc-id="scene-card-6" aria-label="Scene 6: 11:00 shrine dive">
       <span class="mini"><svg class="mini" viewBox="0 0 1000 1000" aria-hidden="true">
 <rect class="terrain" width="1000" height="1000"/>
-<rect class="base sapphire" x="210" y="30" width="580" height="160" rx="40"/>
-<rect class="base amber" x="210" y="810" width="580" height="160" rx="40"/>
-<polyline class="lane" points="300,140 175,300 175,700 300,860"/><polyline class="lane" points="700,140 825,300 825,700 700,860"/><polyline class="lane" points="500,160 500,840"/>
+<g class="schem">
+<rect class="base sapphire" x="210" y="30" width="580" height="190" rx="40"/>
+<rect class="base amber" x="210" y="780" width="580" height="190" rx="40"/>
+<polyline class="lane" points="359,806 208,720 119,586 173,408 248,266 478,193"/><polyline class="lane" points="522,806 762,735 827,592 878,414 800,278 641,193"/><polyline class="lane" points="440,754 440,662 500,583 500,417 560,338 560,246"/>
+</g>
+<foreignObject class="art-fo" x="0" y="0" width="1000" height="1000"><div xmlns="http://www.w3.org/1999/xhtml" class="art art-surface"></div></foreignObject>
 <rect class="shade" width="1000" height="1000"/>
 <path class="a amber" d="M500 300 L480 150"/><circle class="d amber" cx="420" cy="230" r="34"/><circle class="d amber" cx="470" cy="200" r="34"/><circle class="d amber" cx="520" cy="180" r="34"/><circle class="d amber" cx="380" cy="160" r="34"/><circle class="d amber" cx="560" cy="230" r="34"/><circle class="d amber" cx="600" cy="190" r="34"/><circle class="d sapphire" cx="500" cy="110" r="34"/><circle class="d sapphire" cx="400" cy="110" r="34"/><circle class="d sapphire" cx="600" cy="120" r="34"/><circle class="d sapphire" cx="450" cy="70" r="34"/><circle class="d sapphire" cx="550" cy="70" r="34"/><circle class="d sapphire" cx="700" cy="160" r="34"/></svg></span>
       <span class="txt"><span class="no">Scene 6</span><div class="clock">11:00</div><div class="cap">shrine dive</div></span>
     </button><button class="card" data-dc-id="scene-card-7" aria-label="Scene 7: 12:30 reset and farm">
       <span class="mini"><svg class="mini" viewBox="0 0 1000 1000" aria-hidden="true">
 <rect class="terrain" width="1000" height="1000"/>
-<rect class="base sapphire" x="210" y="30" width="580" height="160" rx="40"/>
-<rect class="base amber" x="210" y="810" width="580" height="160" rx="40"/>
-<polyline class="lane" points="300,140 175,300 175,700 300,860"/><polyline class="lane" points="700,140 825,300 825,700 700,860"/><polyline class="lane" points="500,160 500,840"/>
+<g class="schem">
+<rect class="base sapphire" x="210" y="30" width="580" height="190" rx="40"/>
+<rect class="base amber" x="210" y="780" width="580" height="190" rx="40"/>
+<polyline class="lane" points="359,806 208,720 119,586 173,408 248,266 478,193"/><polyline class="lane" points="522,806 762,735 827,592 878,414 800,278 641,193"/><polyline class="lane" points="440,754 440,662 500,583 500,417 560,338 560,246"/>
+</g>
+<foreignObject class="art-fo" x="0" y="0" width="1000" height="1000"><div xmlns="http://www.w3.org/1999/xhtml" class="art art-surface"></div></foreignObject>
 <rect class="shade" width="1000" height="1000"/>
 <circle class="d amber" cx="190" cy="720" r="34"/><circle class="d amber" cx="500" cy="760" r="34"/><circle class="d amber" cx="810" cy="720" r="34"/><circle class="d amber" cx="320" cy="800" r="34"/><circle class="d amber" cx="680" cy="800" r="34"/><circle class="d amber" cx="500" cy="860" r="34"/><circle class="d sapphire" cx="190" cy="290" r="34"/><circle class="d sapphire" cx="500" cy="260" r="34"/><circle class="d sapphire" cx="810" cy="290" r="34"/><circle class="d sapphire" cx="340" cy="200" r="34"/><circle class="d sapphire" cx="660" cy="200" r="34"/><circle class="d sapphire" cx="500" cy="140" r="34"/></svg></span>
       <span class="txt"><span class="no">Scene 7</span><div class="clock">12:30</div><div class="cap">reset and farm</div></span>

@@ -616,3 +616,48 @@ kbd {
 .slot .rename { display: inline-flex !important; align-items: center; }
 .slot .caret-h { display: inline-block; width: 1.5px; height: 14px; background: var(--accent); margin-left: 1px; }
 .slot.drop { box-shadow: inset 0 0 0 1.5px var(--amber), 0 0 16px color-mix(in srgb, var(--amber) 30%, transparent); background: color-mix(in srgb, var(--amber) 9%, var(--panel)); }
+
+/* ---------- Local game art (optional) ----------
+   ../_art/art.css is generated from the local install and git-ignored. It only defines
+   variables: --art-display/--schem-display switch layers, --art-* hold the images.
+   Without it (a fresh clone) every rule below falls back to the original schematic. */
+.map .schem { display: var(--schem-display, inline); }
+.map .ground { display: var(--art-display, none); fill: #0d1c19; }
+.art-fo { overflow: visible; pointer-events: none; }
+.art { display: var(--art-display, none); width: 100%; height: 100%; }
+.art-surface {
+  background: #2b4b43;
+  -webkit-mask: var(--art-surface) 0 0 / 100% 100% no-repeat;
+  mask: var(--art-surface) 0 0 / 100% 100% no-repeat;
+}
+.mini .art-surface { background: #3a6157; }
+.mini .terrain { fill: var(--art-disc, #17332d); }
+
+/* Objective icons: the game's ring, with its fill tinted by team. */
+.ob { position: relative; background: center / contain no-repeat; }
+.ob::after { content: ""; position: absolute; inset: 0; background: currentColor; -webkit-mask: center / contain no-repeat; mask: center / contain no-repeat; }
+.ob-guardian { background-image: var(--art-guardian); }
+.ob-guardian::after { -webkit-mask-image: var(--art-guardian-fill); mask-image: var(--art-guardian-fill); }
+.ob-walker { background-image: var(--art-walker); }
+.ob-walker::after { -webkit-mask-image: var(--art-walker-fill); mask-image: var(--art-walker-fill); }
+.ob-patron { background-image: var(--art-patron); }
+.ob-patron::after { -webkit-mask-image: var(--art-patron-fill); mask-image: var(--art-patron-fill); }
+.ob-base { background-image: var(--art-base); }
+.ob-base::after { -webkit-mask-image: var(--art-base-fill); mask-image: var(--art-base-fill); }
+.ob-midboss { background-image: var(--art-midboss); }
+.ob-midboss::after { display: none; }
+.ob.down { opacity: 0.55; }
+.ob.down::after { background: center / 70% no-repeat var(--art-dead); -webkit-mask: none; mask: none; }
+.map .og:hover .ob { filter: drop-shadow(0 0 4px var(--text)); }
+
+/* Hero tokens: the game's minimap portrait on a dark disc ringed in team colour. */
+.map .tok .body { fill: var(--art-disc, currentColor); stroke: var(--art-ring, #0b1714); }
+.map .tok text { display: var(--schem-display, inline); }
+.map .tok.preview .body { stroke: var(--p-juno); }
+.map .tok.dead .body { fill: #33433e; stroke: #0b1714; }
+.portrait { background: var(--p) center / 112% no-repeat; border-radius: 50%; }
+
+.ph-art { display: var(--art-inline, none); }
+.ph-art::after { content: var(--art-label, ""); }
+.ph-schem { display: var(--schem-display, inline); }
+.ph-badge:has(.ph-art) { border-style: dashed; }

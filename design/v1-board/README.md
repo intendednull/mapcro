@@ -63,3 +63,20 @@ tokens with initials. The pages use no web fonts and make no network requests. S
 7. **Arrow colour from empty map.** An arrow drawn from a token takes that token's team colour.
    One drawn from empty map has none, so it currently takes the colour of the last arrow drawn.
    A colour choice in the radial menu would make that explicit.
+
+## Local game art (optional, never committed)
+
+`design/_art/` holds art extracted from the local Deadlock install: the surface minimap layer,
+the HUD objective icons and 12 hero minimap portraits. It's git-ignored. `_art/manifest.json`
+records the source path, the build (6860, SourceRevision 11211860), and each file's archive
+entry, CRC and SHA-256.
+
+- Pages link `../_art/art.css`. That file defines only CSS variables (`--art-*`, `--art-display`
+  and `--schem-display`). `board.css` uses each one with a fallback.
+- With the art present, the real streets show in the board's palette, with the game's objective
+  icons tinted by team and portraits on team-ringed tokens. Shrines keep the original glyph,
+  because the game files have no minimap icon for them.
+- Without it (a fresh clone), the canvas drops the missing stylesheet. Every artboard then
+  renders the original schematic, with no errors and no requests.
+- Objectives sit at their real map positions, taken from the entity lump via deadlock-api's
+  transform (`R = 10752`). The schematic lanes run through them.

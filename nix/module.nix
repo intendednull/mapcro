@@ -1,0 +1,70 @@
+# NixOS module for the mapcro server (infra ONBOARDING.md §0 contract): binds 127.0.0.1:$PORT,
+# serves /healthz, logs to stdout, config via env, fails fast on bad config.
+self:
+{ config, lib, pkgs, ... }:
+let
+  cfg = config.services.mapcro;
+  pkg = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+in
+{
+  options.services.mapcro = {
+    enable = lib.mkEnableOption "mapcro collaborative board server";
+    port = lib.mkOption {
+      type = lib.types.port;
+      description = "Loopback port; the infra edge Caddy proxies to it.";
+    };
+    publicOrigin = lib.mkOption {
+      type = lib.types.str;
+      example = "https://mapcro.example.com";
+      description = "Origin(s) allowed to open WebSockets, comma-separated. Must be https.";
+    };
+    webDir = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = "Built web client to serve (absent until the UI ships).";
+    };
+    createPerHour = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 30;
+      description = "Boards one client IP may create per hour.";
+    };
+  };
+
+  config = lib.mkIf cfg.enable {
+    users.users.mapcro = { isSystemUser = true; group = "mapcro"; };
+    users.groups.mapcro = { };
+    systemd.services.mapcro = {
+      description = "mapcro board server";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network.target" ];
+      environment = {
+        PORT = toString cfg.port;
+        HOST = "127.0.0.1";
+        DATA_DIR = "/var/lib/mapcro";
+        PUBLIC_ORIGIN = cfg.publicOrigin;
+        CREATE_PER_HOUR = toString cfg.createPerHour;
+        RUST_LOG = "info";
+      } // lib.optionalAttrs (cfg.webDir != null) { WEB_DIR = toString cfg.webDir; };
+      serviceConfig = {
+        ExecStart = lib.getExe pkg;
+        User = "mapcro";
+        Group = "mapcro";
+        StateDirectory = "mapcro";
+        StateDirectoryMode = "0700";
+        Restart = "on-failure";
+        RestartSec = 1;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        PrivateTmp = true;
+        PrivateDevices = true;
+        NoNewPrivileges = true;
+        CapabilityBoundingSet = [ "" ];
+        RestrictAddressFamilies = [ "AF_INET" "AF_INET6" ];
+        SystemCallFilter = [ "@system-service" ];
+        LockPersonality = true;
+        MemoryDenyWriteExecute = true;
+        UMask = "0077";
+      };
+    };
+  };
+}
