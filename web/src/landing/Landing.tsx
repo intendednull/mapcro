@@ -33,6 +33,7 @@ export function Landing() {
         <div class="spacer" />
       </header>
       <main class="landing-body">
+        <h1>A shared minimap for macro coaching.</h1>
         <form class="new-board" onSubmit={create} data-testid="new-board">
           <input
             class="input big"
