@@ -19,11 +19,26 @@ struct Manifest {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Game {
+    /// A number in the extractor's schema-2 manifests, a string in older ones; served as a string.
+    #[serde(deserialize_with = "string_or_number")]
     pub client_version: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "string_or_number")]
     pub source_revision: String,
     #[serde(default)]
     pub date: String,
+}
+
+fn string_or_number<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum V {
+        S(String),
+        N(u64),
+    }
+    Ok(match V::deserialize(d)? {
+        V::S(s) => s,
+        V::N(n) => n.to_string(),
+    })
 }
 
 #[derive(Deserialize)]

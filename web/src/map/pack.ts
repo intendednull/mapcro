@@ -1,0 +1,128 @@
+// The server's asset pack (spec §12): the only source of game art. With no pack, the board
+// draws the schematic fallback, so everything here is optional.
+
+import { FALLBACK } from "./fallback-data";
+import { type MapModel, type PackEntity, modelFromEntities, modelFromFallback } from "./model";
+
+export interface PackBlob {
+  sha256: string;
+  mime: string;
+  file: string;
+  w?: number;
+  h?: number;
+}
+
+export interface PackHero {
+  hero_id: number;
+  class_name?: string;
+  name: string | null;
+  disabled?: boolean;
+  minimap_blob: string | null;
+}
+
+export interface PackManifest {
+  schema?: number;
+  game: { client_version: string | number; source_revision?: string | number; date?: string };
+  blobs: Record<string, PackBlob>;
+  heroes?: PackHero[];
+  entities?: PackEntity[];
+}
+
+export interface Hero {
+  id: number;
+  name: string;
+  /** Minimap portrait URL, when the pack has one. */
+  portrait: string | undefined;
+}
+
+export interface Art {
+  packId: string | undefined;
+  version: string | undefined;
+  model: MapModel;
+  heroes: Map<number, Hero>;
+  /** Image name (as minimap markers use it) → URL. Empty without a pack. */
+  images: Map<string, string>;
+}
+
+/** Marker image names → pack blob keys (design/parity/README.md, "Markers"). */
+export const IMAGE_BLOBS: Record<string, string> = {
+  "terrain-mid": "map/minimap_midtown_mid",
+  frame: "icons/compass_frame_psd",
+  "frame-mask": "icons/compass_frame_mask_psd",
+  "boss-health": "icons/boss_health_psd",
+  "boss-health-fill": "icons/boss_health_fill_psd",
+  "boss-health-t2": "icons/boss_health_t2_psd",
+  "boss-health-fill-t2": "icons/boss_health_fill_t2_psd",
+  "boss-health-final": "icons/boss_health_final_psd",
+  "boss-health-final-fill": "icons/boss_health_final_fill_psd",
+  "boss-health-final-stage2": "icons/boss_health_final_stage2_psd",
+  "boss-health-final-stage2-fill": "icons/boss_health_final_stage2_fill_psd",
+  "super-neutral-marker": "icons/super_neutral_marker_psd",
+  "neutral-small": "icons/neutral_small_psd",
+  "neutral-medium": "icons/neutral_medium_psd",
+  "neutral-large": "icons/neutral_large_psd",
+  "neutral-vault": "icons/neutral_vault_psd",
+  koth: "icons/minimap_icon_koth_png",
+};
+
+export function fallbackArt(): Art {
+  return { packId: undefined, version: undefined, model: modelFromFallback(FALLBACK), heroes: new Map(), images: new Map() };
+}
+
+/** Build the renderer's view of a pack. Pure: the manifest and its id in, art out. */
+export function artFromManifest(base: string, packId: string, m: PackManifest): Art {
+  const url = (key: string | null | undefined) => {
+    const b = key ? m.blobs[key] : undefined;
+    return b ? `${base}/packs/${packId}/${b.file}` : undefined;
+  };
+  const images = new Map<string, string>();
+  for (const [name, key] of Object.entries(IMAGE_BLOBS)) {
+    const u = url(key);
+    if (u) images.set(name, u);
+  }
+  const heroes = new Map<number, Hero>();
+  for (const h of m.heroes ?? []) {
+    if (h.disabled) continue;
+    heroes.set(h.hero_id, { id: h.hero_id, name: h.name ?? h.class_name ?? `Hero ${h.hero_id}`, portrait: url(h.minimap_blob) });
+  }
+  const entities = m.entities ?? [];
+  // A pack without map entities still has portraits; its map falls back to the schematic.
+  const model = entities.length ? modelFromEntities(entities) : modelFromFallback(FALLBACK);
+  return { packId, version: String(m.game.client_version), model, heroes, images };
+}
+
+/** The newest pack the server has, or the fallback if it has none (or can't be reached). */
+export async function loadArt(base = ""): Promise<Art> {
+  try {
+    const list = (await (await fetch(`${base}/api/packs`)).json()) as Array<{ pack_id: string }>;
+    const id = list[0]?.pack_id;
+    if (!id) return fallbackArt();
+    const r = await fetch(`${base}/packs/${id}/pack.json`);
+    if (!r.ok) return fallbackArt();
+    return artFromManifest(base, id, (await r.json()) as PackManifest);
+  } catch {
+    return fallbackArt();
+  }
+}
+
+/**
+ * CSS that puts the pack's images on the minimap's `[data-img]` (washed: image plus its own
+ * alpha as mask) and `[data-pimg]` (plain) layers. URLs live only here, never in user data.
+ */
+export function artCss(art: Art): string {
+  if (!art.images.has("terrain-mid")) return "";
+  const css: string[] = [".mm-host.pack-art { --pa-display: block; --pa-fb-display: none; }"];
+  for (const [name, u] of art.images) {
+    const q = JSON.stringify(u);
+    css.push(`.mm-host.pack-art [data-img="${name}"] { background-image: url(${q}); -webkit-mask-image: url(${q}); mask-image: url(${q}); }`);
+    css.push(`.mm-host.pack-art [data-pimg="${name}"] { background-image: url(${q}); }`);
+  }
+  const frame = art.images.get("frame");
+  const mask = art.images.get("frame-mask");
+  if (frame) {
+    css.push(`.mm-host.pack-art .mm-frame .frame-art { background-image: url(${JSON.stringify(frame)}); }`);
+    if (mask) css.push(`.mm-host.pack-art .mm-frame .frame-art { -webkit-mask-image: url(${JSON.stringify(mask)}); mask-image: url(${JSON.stringify(mask)}); }`);
+    if (mask) css.push(`.mm-host.pack-art.zoomed .mm-clip { -webkit-mask-image: url(${JSON.stringify(mask)}); mask-image: url(${JSON.stringify(mask)}); }`);
+  }
+  return css.join("\n");
+}

@@ -50,13 +50,35 @@ wasm:
     cargo build -q --release -p mapcro-wasm --target wasm32-unknown-unknown
     wasm-bindgen --target web --out-dir web/src/wasm target/wasm32-unknown-unknown/release/mapcro_wasm.wasm
 
-# Web client tests: the TypeScript session over the real WASM replica against the real server.
+# Web client tests: the TypeScript session over the real WASM replica against the real server,
+# plus the map renderer's pure parts; then the type check.
 web-test: wasm ts
     cargo build -q -p mapcro-server
-    cd web && npm test
+    cd web && npm test && npx tsc --noEmit
+
+# Browser tests: real Chromium (from nix) against the real server serving the built client.
+# `just e2e --headed`, or MAPCRO_SHOT_PACKS=~/.local/share/mapcro/packs just e2e to also
+# screenshot the board with a real asset pack.
+e2e *args: wasm
+    cargo build -q -p mapcro-server
+    cd web && npx vite build --logLevel warn && npx playwright test {{args}}
+
+# The app, live-reloading: the server (state and packs under ~/.local/share/mapcro, outside the
+# repo) plus Vite on http://localhost:5173 proxying /api, /ws and /packs to it.
+dev port="8094": wasm
+    #!/usr/bin/env bash
+    set -euo pipefail
+    state="${XDG_DATA_HOME:-$HOME/.local/share}/mapcro"
+    mkdir -p "$state/data" "$state/packs"
+    cargo build -q -p mapcro-server
+    PORT={{port}} DATA_DIR="$state/data" PACKS_DIR="$state/packs" \
+      PUBLIC_ORIGIN=http://localhost:5173,http://127.0.0.1:5173 target/debug/mapcro-server &
+    server=$!
+    trap 'kill $server 2>/dev/null' EXIT
+    cd web && MAPCRO_PORT={{port}} npx vite
 
 # Everything CI runs, locally.
-check: test web-test
+check: test web-test e2e
     just model-sim 5000
     nix build .#checks.x86_64-linux.service
 

@@ -640,16 +640,22 @@ fn sha256_hex(b: &[u8]) -> String {
     sha2::Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect()
 }
 
-/// A synthetic pack (not Valve data): two "images" and a manifest listing them.
-fn write_pack(dir: &std::path::Path, version: &str, tamper: bool) {
+/// A synthetic pack (not Valve data): two "images" and a manifest listing them. `version` is
+/// written as a JSON number when it parses as one, as the extractor's schema-2 manifests do.
+fn write_pack(dir: &std::path::Path, version: &str, tamper: bool, numeric: bool) {
     std::fs::create_dir_all(dir.join("map")).expect("mkdir");
     let img = format!("not really a png {version}").into_bytes();
     std::fs::write(dir.join("map/mid.png"), &img).expect("write");
     std::fs::write(dir.join("secret.txt"), b"not listed").expect("write");
     let hash = if tamper { "0".repeat(64) } else { sha256_hex(&img) };
+    let game = if numeric {
+        serde_json::json!({ "client_version": version.parse::<u64>().expect("number"), "source_revision": 11211860, "date": "Nov 05 2026" })
+    } else {
+        serde_json::json!({ "client_version": version, "source_revision": "1", "date": "Nov 05 2026" })
+    };
     let manifest = serde_json::json!({
-        "schema": 1,
-        "game": { "client_version": version, "source_revision": "1", "date": "Nov 05 2026" },
+        "schema": if numeric { 2 } else { 1 },
+        "game": game,
         "blobs": { "map/mid": { "sha256": hash, "w": 1, "h": 1, "mime": "image/png", "file": "map/mid.png" } }
     });
     std::fs::write(dir.join("pack.json"), serde_json::to_vec(&manifest).expect("json")).expect("write");
@@ -659,9 +665,9 @@ fn write_pack(dir: &std::path::Path, version: &str, tamper: bool) {
 async fn asset_packs_are_served_immutably_and_only_as_listed() {
     let dir = tempfile::tempdir().expect("tempdir");
     let packs = tempfile::tempdir().expect("packs");
-    write_pack(&packs.path().join("old"), "6851", false);
-    write_pack(&packs.path().join("new"), "6860", false);
-    write_pack(&packs.path().join("bad"), "9999", true);
+    write_pack(&packs.path().join("old"), "6851", false, false);
+    write_pack(&packs.path().join("new"), "6860", false, true);
+    write_pack(&packs.path().join("bad"), "9999", true, false);
     let server = Server::start_with(dir.path(), None, &[("PACKS_DIR", packs.path().to_str().expect("utf8"))]);
 
     let list: Vec<serde_json::Value> = ureq::get(&server.url("/api/packs")).call().expect("list").body_mut().read_json().expect("json");

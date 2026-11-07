@@ -1,0 +1,55 @@
+/* App-only layout on top of the ported design styles: the artboards are fixed-size, the app
+   fills the window. */
+
+.app { position: relative; }
+.board-app .main { grid-template-columns: 1fr 318px; }
+.board-app .stage { overflow: hidden; }
+
+/* The map takes the largest square the stage allows. */
+.board-app .mapbox {
+  width: min(100%, calc(100dvh - 56px - 120px));
+  height: auto;
+  aspect-ratio: 1;
+  flex: none;
+}
+.board-app .stage-head, .board-app .tb-hint, .board-app .toolbar { width: min(100%, calc(100dvh - 56px - 120px)); }
+
+/* Board layers take pointer input; the map art underneath never does. */
+.mm-overlay.map { touch-action: none; }
+.mm-overlay.map .tok.dragging { cursor: grabbing; }
+.mm-overlay.map .tok.dragging .body { stroke: var(--text); stroke-width: 4; }
+.mm-overlay.map .p-tag, .mm-overlay.map .p-ring, .mm-overlay.map .drag-trail { pointer-events: none; }
+.mm-overlay.map .tok image { pointer-events: none; }
+
+/* The schematic fallback: a dark disc under the lanes and shapes when there is no pack. */
+.mm-host:not(.pack-art) .mm-rot { background: radial-gradient(circle at 50% 50%, #16302b 0 46%, transparent 46.5%); }
+
+.loading { display: grid; place-items: center; }
+
+/* Landing */
+.landing { min-height: 100dvh; display: grid; grid-template-rows: 56px 1fr; background: radial-gradient(ellipse 60% 70% at 50% 35%, #14302b 0%, transparent 70%), var(--bg); }
+.landing-body { width: min(640px, 100% - 32px); margin: 0 auto; padding: 12vh 0 40px; }
+.landing-body h1 { font: 400 40px/1.1 var(--display); margin: 0 0 12px; }
+.landing-body h2 { font: 600 13px var(--ui); margin: 36px 0 8px; color: var(--muted); }
+.landing-body .muted { font-size: 14px; max-width: 54ch; }
+.new-board { display: flex; gap: 10px; margin-top: 28px; }
+.new-board .input { flex: 1; }
+.new-board .btn { height: 46px; padding: 0 18px; font-size: 14px; }
+.known { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.known li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: 7px; background: var(--panel); }
+.known a { color: var(--text); text-decoration: none; font-weight: 600; }
+.known a:hover { text-decoration: underline; }
+.known .muted { font-size: 12px; }
+.error { color: #ffb9ab; }
+.legal { margin-top: 64px; font-size: 11.5px !important; color: var(--faint) !important; }
+
+/* Join card: the real input */
+.join { display: flex; flex-direction: column; gap: 10px; }
+input.input { outline: none; }
+input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.btn[disabled] { opacity: 0.55; cursor: default; }
+
+/* Roster: the hero picker is the one separate control the design keeps (README, "Still a separate control"). */
+.hero-pick { display: block; width: 100%; max-width: 110px; margin-top: 1px; padding: 0; border: 0; background: transparent; color: var(--faint); font: 10.5px var(--ui); cursor: pointer; }
+.hero-pick:hover, .hero-pick:focus { color: var(--text); }
+.hero-pick option { background: var(--panel); color: var(--text); }

@@ -13,3 +13,4 @@ experiment writes its predictions down *before* it runs, so the result can show 
 | 2026-11-06 | [Engine tracer bullet and the simulation harness](2026-11-06-engine-tracer.md) |
 | 2026-11-06 | [Server, browser client core and packaging](2026-11-06-server-and-client.md) |
 | 2026-11-06 | [The first security review, and fixing it](2026-11-06-security-review.md) |
+| 2026-11-07 | [The web app, slice by slice](2026-11-07-web-app.md) |
