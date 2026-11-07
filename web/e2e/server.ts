@@ -27,8 +27,9 @@ export class Server {
     return `http://127.0.0.1:${this.port}`;
   }
 
+  /** Starts on a free port, or again on the same port and data (a restart). */
   async start() {
-    this.port = await freePort();
+    if (!this.port) this.port = await freePort();
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       PORT: String(this.port),
@@ -50,6 +51,14 @@ export class Server {
 
   stop() {
     this.child?.kill("SIGKILL");
+  }
+
+  /** Kill -9 and wait until it's gone, for outage tests. */
+  async kill() {
+    if (this.child.exitCode !== null) return;
+    const gone = new Promise((r) => this.child.once("exit", r));
+    this.child.kill("SIGKILL");
+    await gone;
   }
 }
 

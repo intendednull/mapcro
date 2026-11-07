@@ -207,7 +207,9 @@ export function Layers(p: {
           const pts = drawing() ?? [];
           setDrawing(undefined);
           if (!ok || pts.length === 0) return;
-          const points = fitStroke(pts, MAX_STROKE_POINTS).map(world);
+          const fitted = fitStroke(pts, MAX_STROKE_POINTS);
+          // A tap is a dot: the schema wants at least two points, so the dot repeats its one.
+          const points = (fitted.length === 1 ? [fitted[0]!, fitted[0]!] : fitted).map(world);
           st.edit([{ Create: { id: newRecordId(), record: { Stroke: { scene: p.scene!, points, color: p.ink, width: INK_WIDTH } } } }]);
         },
       );

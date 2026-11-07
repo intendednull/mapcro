@@ -9,6 +9,7 @@ import { BoardSession, type Connection, type SocketLike } from "../core/session"
 import { IdbPersist, MemoryPersist, type Persist } from "../core/persist";
 import type { SaveStatus } from "../core/update";
 import type { Entry } from "../gen/Entry";
+import type { LinkRole } from "../gen/LinkRole";
 import type { Op } from "../gen/Op";
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { PlayerState } from "../gen/PlayerState";
@@ -94,9 +95,14 @@ export function createBoardState(board: string, token: string) {
           "PlayerState" in r && r.PlayerState.scene === scene ? [{ id, state: r.PlayerState }] : [],
         );
 
+  // The role a link had when it last connected. It holds while offline, so editing offline
+  // works (the edits wait on this device); a link the server refused for good has none.
+  let lastRole: LinkRole | undefined;
   const role = () => {
     const c = connection();
-    return c.kind === "live" ? c.role : undefined;
+    if (c.kind === "live") lastRole = c.role;
+    if (c.kind === "closed") lastRole = undefined;
+    return lastRole;
   };
 
   return {

@@ -9,6 +9,7 @@ import { MapView } from "../map/MapView";
 import type { Art } from "../map/pack";
 import type { Viewpoint } from "../map/transform";
 import { Wordmark } from "../ui/Wordmark";
+import { DeadLink } from "../ui/DeadLink";
 import { formatClock, parseClock } from "../core/clock";
 import { InlineEdit } from "../ui/InlineEdit";
 import { JoinCard } from "./JoinCard";
@@ -22,43 +23,65 @@ import { CloneDialog, JUST_CLONED } from "./CloneDialog";
 import { Layers, calloutOrder } from "./Layers";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { ShareDialog } from "./ShareDialog";
+import { rejection, statusView } from "./status";
+import type { Reject } from "../gen/Reject";
 import { Avatar, FollowChip, PeopleList, PresentingPill } from "./Presence";
 import { Toolbar } from "./Toolbar";
 import type { Tool } from "./tools";
 
 
-function SaveStatus(p: { state: ReturnType<typeof createBoardState> }) {
-  const st = () => p.state.status();
-  const conn = () => p.state.connection();
+function SaveStatus(p: { state: ReturnType<typeof createBoardState>; rejected: Reject | undefined; dismiss: () => void }) {
+  // "Syncing" shows only once a change has waited 400 ms, so quick saves don't flicker; until
+  // then the indicator is blank, never "Saved".
+  const [slow, setSlow] = createSignal(false);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  createEffect(() => {
+    const syncing = p.state.status().kind === "syncing";
+    clearTimeout(timer);
+    if (!syncing) setSlow(false);
+    else timer = setTimeout(() => setSlow(true), 400);
+  });
+  onCleanup(() => clearTimeout(timer));
+  const [why, setWhy] = createSignal(false);
+  const v = () => statusView(p.state.status(), p.state.connection(), slow(), p.rejected);
   return (
-    <span
-      class="save"
-      classList={{
-        saved: st().kind === "saved" && conn().kind === "live",
-        syncing: st().kind === "syncing" || conn().kind === "connecting",
-        offline: st().kind === "offline" || conn().kind === "waiting",
-        rejected: conn().kind === "closed",
-      }}
-      data-testid="save-status"
-      data-state={conn().kind === "closed" ? "closed" : st().kind}
-    >
-      <Switch>
-        <Match when={conn().kind === "closed"}>This link no longer opens the board</Match>
-        <Match when={st().kind === "offline"}>
-          {(() => {
-            const n = (st() as { pending: number }).pending;
-            return n ? `Offline: ${n} change${n === 1 ? "" : "s"} kept on this device` : "Offline";
-          })()}
-        </Match>
-        <Match when={st().kind === "syncing"}>Syncing ({(st() as { pending: number }).pending})</Match>
-        <Match when={conn().kind !== "live"}>Connecting…</Match>
-        <Match when={true}>
-          <svg class="ico glyph" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M5 12.5l4.5 4.5L19 7.5" />
-          </svg>
-          Saved
-        </Match>
-      </Switch>
+    <span class={cx("save", v().kind === "connecting" ? "syncing" : v().kind === "closed" ? "rejected" : v().kind)} data-testid="save-status" data-state={v().kind} data-connection={p.state.connection().kind} role="status">
+      <Show when={v().kind === "saved"}>
+        <svg class="ico glyph" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5 12.5l4.5 4.5L19 7.5" />
+        </svg>
+      </Show>
+      <Show when={v().kind === "offline"}>
+        <svg class="ico glyph" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 3l18 18M8.5 16.5a5 5 0 017 0M5 12.5a10 10 0 015-2.6M14.5 10a10 10 0 014.5 2.5M2 8.8a15 15 0 015.3-3.2M12 5a15 15 0 0110 3.8" />
+        </svg>
+      </Show>
+      <Show when={v().kind === "syncing" && v().text}>
+        <svg class="ico glyph spin" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M20 12a8 8 0 11-2.3-5.7M20 4v4h-4" />
+        </svg>
+      </Show>
+      {v().text}
+      <Show when={v().why}>
+        {" "}
+        <button class="why" data-testid="why" onClick={() => setWhy(!why())}>
+          Why?
+        </button>
+        <Show when={why()}>
+          <span class="why-pop" role="note">
+            {v().why}{" "}
+            <button
+              class="link"
+              onClick={() => {
+                setWhy(false);
+                p.dismiss();
+              }}
+            >
+              OK
+            </button>
+          </span>
+        </Show>
+      </Show>
     </span>
   );
 }
@@ -83,6 +106,23 @@ export function Board(p: { board: string; token: string; art: Art }) {
   onCleanup(() => clearTimeout(toastTimer));
   const [overlay, setOverlay] = createSignal<SVGSVGElement>();
   const [dialog, setDialog] = createSignal<"share" | "clone">();
+  // Problems the session reports: rejections show in the save status until dismissed; local
+  // refusals (nothing to undo, couldn't save locally) are a toast.
+  const [seenProblems, setSeenProblems] = createSignal(0);
+  let toasted = 0;
+  const rejected = createMemo(() => {
+    const ps = state.problems().slice(seenProblems());
+    for (let i = ps.length - 1; i >= 0; i--) {
+      const r = rejection(ps[i]!);
+      if (r) return r;
+    }
+    return undefined;
+  });
+  createEffect(() => {
+    const ps = state.problems();
+    for (const pr of ps.slice(toasted)) if (!rejection(pr) && !pr.startsWith("protocol error")) say(pr[0]!.toUpperCase() + pr.slice(1) + ".");
+    toasted = ps.length;
+  });
   const [justCloned, setJustCloned] = createSignal(sessionStorage.getItem(JUST_CLONED) === p.board);
   if (justCloned()) sessionStorage.removeItem(JUST_CLONED);
 
@@ -241,7 +281,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           {state.canEdit() ? "Can edit" : "View only"} · {viewpoint() === "amber" ? "Amber" : "Sapphire"} side
         </span>
         <div class="spacer" />
-        <SaveStatus state={state} />
+        <SaveStatus state={state} rejected={rejected()} dismiss={() => setSeenProblems(state.problems().length)} />
       </header>
       <Show
         when={followed()}
@@ -417,7 +457,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
         <PresentingPill followers={followersOf(state.myPeer())} />
         <FollowChip following={followed()} presenters={presenterList()} sceneLabel={sceneLabel} follow={follow} stop={() => stopFollowing()} />
         <div class="spacer" />
-        <SaveStatus state={state} />
+        <SaveStatus state={state} rejected={rejected()} dismiss={() => setSeenProblems(state.problems().length)} />
         <div class="avatars" data-testid="avatars">
           <Show when={me() && joined()}>
             <span class="av ring" style={{ background: colorOf(me()!.color) }} title={`${me()!.name} (you)`}>
@@ -634,7 +674,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
         </button>
       </div>
     </Show>
-    <Show when={!joined()}>
+    <Show when={state.connection().kind === "closed"}>
+      <DeadLink />
+    </Show>
+    <Show when={!joined() && state.connection().kind !== "closed"}>
       <JoinCard title={state.title()} others={people().map((x) => x.state!.name).filter(Boolean)} initial={me()} onJoin={join} />
     </Show>
     </>
