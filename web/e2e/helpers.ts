@@ -55,3 +55,18 @@ export async function viewLink(serverUrl: string, ownerUrl: string): Promise<str
   const { token: view } = (await r.json()) as { token: string };
   return `${serverUrl}/b/${board}#${view}`;
 }
+
+/** An edit link for a board, from its owner link. */
+export async function editLink(serverUrl: string, ownerUrl: string): Promise<string> {
+  const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(ownerUrl)!;
+  const r = await fetch(`${serverUrl}/api/boards/${board}/links`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ role: "edit", label: "teammate" }),
+  });
+  const { token: edit } = (await r.json()) as { token: string };
+  return `${serverUrl}/b/${board}#${edit}`;
+}
+
+/** The main map's view rectangle, "x y w" in view units. */
+export const viewOf = async (page: Page) => (await page.getByTestId("map").getAttribute("data-view"))!.split(" ").map(Number) as [number, number, number];

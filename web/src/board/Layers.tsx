@@ -30,6 +30,7 @@ import { LASER_MAX_POINTS, type Timed, arrowHead, fitStroke, laserOpacity, polyl
 import type { BoardState } from "./state";
 import type { Tool } from "./tools";
 import { NameTag, Tokens, svgPoint } from "./Tokens";
+import { Cursors } from "./Presence";
 
 export const INK_WIDTH = 60; // tenths: 6 map units, the design's ink
 const MAX_STROKE_POINTS = 512;
@@ -53,6 +54,12 @@ export function Layers(p: {
   svg: () => SVGSVGElement | undefined;
   /** Objective statuses in this scene, by key (absent = active). */
   objectives: () => Map<string, { id: RecordId; status: ObjectiveStatus }>;
+  /** Zoom scale (view width / 1000): tokens, tags and cursors keep their screen size. */
+  k: number;
+  /** Move tool on empty map: pan by this much (view units). */
+  onPan: (dx: number, dy: number) => void;
+  /** Wheel: zoom about a point (view units); factor > 1 zooms out. */
+  onZoom: (at: Pt, factor: number) => void;
 }) {
   const st = p.state;
   const view = (w: WorldPos) => worldToView(w, p.vp);
@@ -161,6 +168,32 @@ export function Layers(p: {
       track(e, (pt) => pushLaser(pt), () => {});
       return;
     }
+    if (tool === "move") {
+      const key = editor() ? objectiveAt(start) : undefined;
+      e.preventDefault();
+      // Drag on empty map pans; a click on an objective (editors) cycles it.
+      const perPx = 1000 / svg.getBoundingClientRect().width;
+      let last = { x: e.clientX, y: e.clientY };
+      let travelled = 0;
+      const onMove = (ev: PointerEvent) => {
+        if (ev.pointerId !== e.pointerId) return;
+        const dx = ev.clientX - last.x;
+        const dy = ev.clientY - last.y;
+        travelled += Math.abs(dx) + Math.abs(dy);
+        last = { x: ev.clientX, y: ev.clientY };
+        if (travelled > 4) p.onPan(dx * perPx, dy * perPx);
+      };
+      svg.addEventListener("pointermove", onMove);
+      track(
+        e,
+        () => {},
+        (_, ok) => {
+          svg.removeEventListener("pointermove", onMove);
+          if (ok && key && travelled <= 4) cycleObjective(key);
+        },
+      );
+      return;
+    }
     if (!editor()) return;
     if (tool === "draw") {
       e.preventDefault();
@@ -223,24 +256,30 @@ export function Layers(p: {
           if (ok && hits.size) st.edit([...hits].map((id): Op => ({ Delete: { id } })));
         },
       );
-    } else if (tool === "move") {
-      const key = objectiveAt(start);
-      if (!key) return;
-      e.preventDefault();
-      track(
-        e,
-        () => {},
-        (pt, ok) => {
-          if (ok && Math.hypot(pt.x - start.x, pt.y - start.y) < 8) cycleObjective(key);
-        },
-      );
     }
   };
 
   onMount(() => {
     const svg = p.svg();
-    svg?.addEventListener("pointerdown", down);
-    onCleanup(() => svg?.removeEventListener("pointerdown", down));
+    if (!svg) return;
+    // Your cursor, for everyone looking at the same scene.
+    const cursor = (e: PointerEvent) => st.presence({ cursor: world(svgPoint(svg, e)) });
+    const leave = () => st.presence({ cursor: null });
+    const wheel = (e: WheelEvent) => {
+      if (e.ctrlKey && Math.abs(e.deltaY) < 1) return;
+      e.preventDefault();
+      p.onZoom(svgPoint(svg, e), Math.exp(Math.max(-1, Math.min(1, e.deltaY / 300))));
+    };
+    svg.addEventListener("pointerdown", down);
+    svg.addEventListener("pointermove", cursor);
+    svg.addEventListener("pointerleave", leave);
+    svg.addEventListener("wheel", wheel, { passive: false });
+    onCleanup(() => {
+      svg.removeEventListener("pointerdown", down);
+      svg.removeEventListener("pointermove", cursor);
+      svg.removeEventListener("pointerleave", leave);
+      svg.removeEventListener("wheel", wheel);
+    });
   });
 
   // ---- callouts: drag (Move), edit in place (double-click, or the Callout tool) ----
@@ -299,7 +338,7 @@ export function Layers(p: {
 
   const arrowClass = (team: Arrow["team"]) => (team === "Amber" ? "amber" : team === "Sapphire" ? "sapphire" : "neutral");
 
-  const remoteLasers = createMemo(() => st.peerList().filter((x) => (x.state?.laser.length ?? 0) > 0));
+  const remoteLasers = createMemo(() => st.peerList().filter((x) => (x.state?.laser.length ?? 0) > 0 && x.state?.scene === p.scene));
 
   return (
     <>
@@ -413,7 +452,7 @@ export function Layers(p: {
           }}
         </Show>
       </g>
-      <Tokens state={st} art={p.art} vp={p.vp} scene={p.scene} tool={p.tool} k={1} svg={p.svg} />
+      <Tokens state={st} art={p.art} vp={p.vp} scene={p.scene} tool={p.tool} k={p.k} svg={p.svg} />
       <g class="lasers">
         <For each={remoteLasers()}>
           {(peer) => <LaserTrail points={peer.state!.laser.map(view)} color={colorOf(peer.state!.color)} name={peer.state!.name} />}
@@ -422,6 +461,7 @@ export function Layers(p: {
           <LaserTrail points={laser().map((q) => q.p)} color={colorOf(p.myColor)} mine />
         </Show>
       </g>
+      <Cursors peers={st.peerList()} scene={p.scene} vp={p.vp} k={p.k} />
     </>
   );
 }

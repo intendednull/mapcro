@@ -16,7 +16,10 @@ import { SceneStrip } from "./SceneStrip";
 import { TopBar } from "./TopBar";
 import { createBoardState } from "./state";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
+import type { PeerPresence } from "../gen/PeerPresence";
+import { FIT, type ViewRect, clampView, fromViewport, presenters, toViewport, zoomAt } from "./follow";
 import { Layers } from "./Layers";
+import { Avatar, FollowChip, PeopleList, PresentingPill } from "./Presence";
 import { Toolbar } from "./Toolbar";
 import type { Tool } from "./tools";
 
@@ -67,10 +70,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const [sceneId, setSceneId] = createSignal<RecordId | undefined>();
   const [tool, setTool] = createSignal<Tool>("move");
   const [ink, setInk] = createSignal(loadMe()?.color ?? 1);
-  const [toast, setToast] = createSignal<{ text: string; undo: boolean }>();
+  const [toast, setToast] = createSignal<{ text: string; action?: { label: string; run: () => void } }>();
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
-  const say = (text: string, undo = false) => {
-    setToast({ text, undo });
+  const say = (text: string, action?: { label: string; run: () => void }) => {
+    setToast(action ? { text, action } : { text });
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => setToast(undefined), 6000);
   };
@@ -80,6 +83,70 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const scene = createMemo(() => {
     const all = state.scenes();
     return all.find((s) => s.id === sceneId()) ?? all[0];
+  });
+
+  // ---- view and follow (spec §8): following mirrors a presenter's scene and viewport; any
+  // change you make to what you see stops it, and following again is one click ----
+  const [view, setView] = createSignal<ViewRect>(FIT);
+  const [following, setFollowing] = createSignal<number | undefined>();
+  const followed = () => {
+    const f = following();
+    return f === undefined ? undefined : state.peerList().find((x) => x.peer === f);
+  };
+  const nameOfPeer = (x: PeerPresence | undefined) => x?.state?.name || "them";
+  const follow = (peer: number) => {
+    setFollowing(peer);
+    state.presence({ following: peer });
+    setToast(undefined);
+  };
+  const stopFollowing = (why?: string) => {
+    const was = followed();
+    if (following() === undefined) return;
+    setFollowing(undefined);
+    state.presence({ following: null });
+    if (why && was) say(`You ${why}, so you stopped following ${nameOfPeer(was)}.`, { label: "Follow again", run: () => follow(was.peer) });
+  };
+  createEffect(() => {
+    const f = following();
+    if (f === undefined) return;
+    const x = followed();
+    if (!x) {
+      setFollowing(undefined);
+      state.presence({ following: null });
+      say("The person you followed left the board.");
+      return;
+    }
+    const s = x.state!;
+    if (s.scene && s.scene !== sceneId()) setSceneId(s.scene);
+    setView(fromViewport(s.view, viewpoint()));
+  });
+  createEffect(() => state.presence({ view: toViewport(view(), viewpoint()) }));
+  const userFlip = (id: RecordId) => {
+    if (id !== scene()?.id) stopFollowing("flipped the scene");
+    setSceneId(id);
+  };
+  const userView = (v: ViewRect, why: string) => {
+    stopFollowing(why);
+    setView(clampView(v));
+  };
+  const presenterList = createMemo(() => presenters(state.peerList(), state.myPeer(), following()));
+  const followersOf = (peer: number | undefined) =>
+    peer === undefined ? 0 : state.peerList().filter((x) => x.state?.following === peer).length;
+  const sceneLabel = (id: RecordId | null | undefined) => {
+    const i = state.scenes().findIndex((x) => x.id === id);
+    return i < 0 ? "" : `scene ${i + 1}/${state.scenes().length}`;
+  };
+  onMount(() => {
+    const key = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      if (e.key.toLowerCase() === "f" && !e.ctrlKey && !e.metaKey && !e.altKey && following() === undefined) {
+        const lead = presenterList()[0];
+        if (lead) follow(lead.peer.peer);
+      }
+    };
+    window.addEventListener("keydown", key);
+    onCleanup(() => window.removeEventListener("keydown", key));
   });
 
   onMount(() => {
@@ -131,6 +198,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </span>
         </div>
         <div class="spacer" />
+        <PresentingPill followers={followersOf(state.myPeer())} />
+        <FollowChip following={followed()} presenters={presenterList()} sceneLabel={sceneLabel} follow={follow} stop={() => stopFollowing()} />
+        <div class="spacer" />
         <SaveStatus state={state} />
         <div class="avatars" data-testid="avatars">
           <Show when={me() && joined()}>
@@ -138,13 +208,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               {avatarLetter(me()!.name)}
             </span>
           </Show>
-          <For each={people()}>
-            {(peer) => (
-              <span class="av" style={{ background: colorOf(peer.state!.color) }} title={peer.state!.name || "Someone joining"}>
-                {avatarLetter(peer.state!.name)}
-              </span>
-            )}
-          </For>
+          <For each={people()}>{(peer) => <Avatar name={peer.state!.name || "?"} color={peer.state!.color} title={peer.state!.name || "Someone joining"} />}</For>
         </div>
       </header>
       <div class="main">
@@ -195,10 +259,12 @@ export function Board(p: { board: string; token: string; art: Art }) {
             </Show>
           </div>
           <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} />
-          <div class="mapbox" data-testid="map">
+          <div class="mapbox" data-testid="map" data-view={`${Math.round(view().x)} ${Math.round(view().y)} ${Math.round(view().w)}`}>
             <MapView
               art={p.art}
               viewpoint={viewpoint()}
+              view={view()}
+              live={following() !== undefined}
               overlayRef={setOverlay}
               overlayProps={{ "data-tool": tool() } as never}
               overlayClass={!state.canEdit() && "readonly"}
@@ -215,6 +281,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 myColor={me()?.color ?? 0}
                 svg={overlay}
                 objectives={objectives}
+                k={view().w / 1000}
+                onPan={(dx, dy) => userView({ ...view(), x: view().x - dx, y: view().y - dy }, "panned the map")}
+                onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
               />
             </MapView>
             <button
@@ -243,23 +312,26 @@ export function Board(p: { board: string; token: string; art: Art }) {
               const ids = inkIds();
               if (!ids.length) return;
               state.edit(ids.map((id) => ({ Delete: { id } })));
-              say(`Cleared ${ids.length} stroke${ids.length === 1 ? "" : "s"} on this scene`, true);
+              say(`Cleared ${ids.length} stroke${ids.length === 1 ? "" : "s"} on this scene`, { label: "Undo", run: () => state.undo() });
             }}
           />
           <Show when={toast()}>
             {(t) => (
               <div class="toast" role="status" data-testid="toast">
                 {t().text}
-                <Show when={t().undo}>
-                  <button
-                    class="link"
-                    onClick={() => {
-                      state.undo();
-                      setToast(undefined);
-                    }}
-                  >
-                    Undo
-                  </button>
+                <Show when={t().action}>
+                  {(a) => (
+                    <button
+                      class="link"
+                      data-testid="toast-action"
+                      onClick={() => {
+                        a().run();
+                        setToast(undefined);
+                      }}
+                    >
+                      {a().label}
+                    </button>
+                  )}
                 </Show>
               </div>
             )}
@@ -318,40 +390,24 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </section>
           <section>
             <h2>
-              People here <small>{people().length + (joined() ? 1 : 0)} online</small>
+              People here <small>{people().length + (joined() ? 1 : 0)} online{presenterList().length ? ` · ${presenterList().length} presenting` : ""}</small>
             </h2>
-            <div class="people" data-testid="people">
-              <Show when={me() && joined()}>
-                <div class="person">
-                  <span class="av" style={{ background: colorOf(me()!.color) }}>
-                    {avatarLetter(me()!.name)}
-                  </span>
-                  <span class="nm">
-                    <b>
-                      {me()!.name} <span class="you-tag">(you)</span>
-                    </b>
-                    <span class="state">{state.role() ?? ""}</span>
-                  </span>
-                </div>
-              </Show>
-              <For each={people()}>
-                {(peer) => (
-                  <div class="person">
-                    <span class="av" style={{ background: colorOf(peer.state!.color) }}>
-                      {avatarLetter(peer.state!.name)}
-                    </span>
-                    <span class="nm">
-                      <b>{peer.state!.name || "Someone joining"}</b>
-                      <span class="state">{peer.role}</span>
-                    </span>
-                  </div>
-                )}
-              </For>
-            </div>
+            <PeopleList
+              me={joined() ? me() : undefined}
+              myRole={state.role()}
+              myPeer={state.myPeer()}
+              peers={people()}
+              following={following()}
+              followersOf={followersOf}
+              sceneLabel={sceneLabel}
+              follow={follow}
+              stop={() => stopFollowing()}
+              rename={() => setJoined(false)}
+            />
           </section>
         </aside>
       </div>
-      <SceneStrip state={state} art={p.art} vp={viewpoint()} current={scene()?.id} onFlip={setSceneId} />
+      <SceneStrip state={state} art={p.art} vp={viewpoint()} current={scene()?.id} onFlip={userFlip} />
       <Show when={!joined()}>
         <JoinCard title={state.title()} others={people().map((x) => x.state!.name).filter(Boolean)} initial={me()} onJoin={join} />
       </Show>
