@@ -276,6 +276,32 @@ mod tests {
     }
 
     #[test]
+    fn records_saved_before_vision_load_as_visible() {
+        let old_player = r#"{"PlayerState":{"scene":"00000000000000000000000000000001","slot":"00000000000000000000000000000002","pos":{"x":1,"y":2},"alive":true,"placed":true,"souls":null,"ult_cooldown":null}}"#;
+        let p: Record = serde_json::from_str(old_player).expect("old player loads");
+        assert!(matches!(p, Record::PlayerState(PlayerState { visible: true, .. })));
+    }
+
+    #[test]
+    fn camp_rift_and_mid_boss_keys_are_valid_objectives() {
+        let (doc, scene, _) = board();
+        for k in ["camp:neutral:lane1:10", "rift:neutral:lane6:1", "mid_boss:neutral:lane4:1", "base_guardian:amber:lane4"] {
+            let op = Op::Create {
+                id: RecordId(900),
+                record: Record::ObjectiveState(ObjectiveState { scene, key: crate::ids::ObjectiveKey(k.into()), status: ObjectiveStatus::Destroyed }),
+            };
+            apply_tx(&mut doc.clone(), &tx(vec![op])).expect(k);
+        }
+    }
+
+    #[test]
+    fn vision_is_a_field_like_any_other() {
+        let (mut doc, _, player) = board();
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: FieldValue::PlayerVisible(false) }])).expect("set");
+        assert!(matches!(doc.live(player), Some(Record::PlayerState(PlayerState { visible: false, .. }))));
+    }
+
+    #[test]
     fn field_writes_skip_the_invariant_check_but_structure_does_not() {
         assert!(!affects_invariants(&mv(RecordId(1), 0)));
         assert!(affects_invariants(&Op::Delete { id: RecordId(1) }));

@@ -12,4 +12,9 @@ souls: number | null,
  * Ultimate cooldown remaining, in percent (0 = ready, 100 = just used), drawn as the HUD's
  * little circle under the portrait. `None`: not tracked in this scene.
  */
-ult_cooldown: number | null, };
+ult_cooldown: number | null, 
+/**
+ * Whether the team has vision on this hero. Without it the board shows a ghost at the
+ * last known position. Older records load as visible.
+ */
+visible: boolean, };

@@ -138,7 +138,7 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
         2 => {
             let p = pick(rng, &players);
             if rng.random() {
-                set(p, FieldValue::PlayerAlive(rng.random()))
+                if rng.random() { set(p, FieldValue::PlayerAlive(rng.random())) } else { set(p, FieldValue::PlayerVisible(rng.random())) }
             } else {
                 if rng.random() {
                     set(p, FieldValue::PlayerSouls(Some(rng.random_range(0..60_000))))
@@ -159,7 +159,15 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
             set(s, FieldValue::RosterHero(Some(HeroId(rng.random_range(1..60)))))
         }
         5 => {
-            let key = ObjectiveKey(format!("walker:amber:lane{}", rng.random_range(1..4)));
+            let key = ObjectiveKey(
+                [
+                    format!("walker:amber:lane{}:1", rng.random_range(1..4)),
+                    "mid_boss:neutral:lane4:1".to_owned(),
+                    format!("camp:neutral:lane1:{}", rng.random_range(1..12)),
+                    format!("rift:neutral:lane{}:1", [1, 6][rng.random_range(0..2)]),
+                ][rng.random_range(0..4)]
+                .clone(),
+            );
             let existing = r.view().iter_live().find_map(|(id, rec)| match rec {
                 Record::ObjectiveState(o) if o.scene == scene && o.key == key => Some(id),
                 _ => None,

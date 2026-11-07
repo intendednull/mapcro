@@ -68,6 +68,14 @@ pub struct PlayerState {
     /// little circle under the portrait. `None`: not tracked in this scene.
     #[serde(default)]
     pub ult_cooldown: Option<u8>,
+    /// Whether the team has vision on this hero. Without it the board shows a ghost at the
+    /// last known position. Older records load as visible.
+    #[serde(default = "visible_by_default")]
+    pub visible: bool,
+}
+
+fn visible_by_default() -> bool {
+    true
 }
 
 impl PlayerState {
@@ -78,7 +86,7 @@ impl PlayerState {
             Team::Amber => -8000,
             Team::Sapphire => 8000,
         };
-        PlayerState { scene, slot, pos: WorldPos { x, y }, alive: true, placed: true, souls: None, ult_cooldown: None }
+        PlayerState { scene, slot, pos: WorldPos { x, y }, alive: true, placed: true, souls: None, ult_cooldown: None, visible: true }
     }
 }
 
@@ -172,6 +180,7 @@ pub enum FieldValue {
     PlayerPlaced(bool),
     PlayerSouls(Option<u32>),
     PlayerUltCooldown(Option<u8>),
+    PlayerVisible(bool),
     ObjectiveStatus(ObjectiveStatus),
     ArrowFrom(WorldPos),
     ArrowTo(WorldPos),
@@ -195,6 +204,7 @@ pub enum Field {
     PlayerPlaced,
     PlayerSouls,
     PlayerUltCooldown,
+    PlayerVisible,
     ObjectiveStatus,
     ArrowFrom,
     ArrowTo,
@@ -205,7 +215,7 @@ pub enum Field {
 }
 
 impl Field {
-    pub const ALL: [Field; 18] = [
+    pub const ALL: [Field; 19] = [
         Field::Title,
         Field::RosterName,
         Field::RosterHero,
@@ -217,6 +227,7 @@ impl Field {
         Field::PlayerPlaced,
         Field::PlayerSouls,
         Field::PlayerUltCooldown,
+        Field::PlayerVisible,
         Field::ObjectiveStatus,
         Field::ArrowFrom,
         Field::ArrowTo,
@@ -241,6 +252,7 @@ impl FieldValue {
             FieldValue::PlayerPlaced(_) => Field::PlayerPlaced,
             FieldValue::PlayerSouls(_) => Field::PlayerSouls,
             FieldValue::PlayerUltCooldown(_) => Field::PlayerUltCooldown,
+            FieldValue::PlayerVisible(_) => Field::PlayerVisible,
             FieldValue::ObjectiveStatus(_) => Field::ObjectiveStatus,
             FieldValue::ArrowFrom(_) => Field::ArrowFrom,
             FieldValue::ArrowTo(_) => Field::ArrowTo,
@@ -295,6 +307,7 @@ impl Record {
             (Record::PlayerState(r), Field::PlayerPlaced) => V::PlayerPlaced(r.placed),
             (Record::PlayerState(r), Field::PlayerSouls) => V::PlayerSouls(r.souls),
             (Record::PlayerState(r), Field::PlayerUltCooldown) => V::PlayerUltCooldown(r.ult_cooldown),
+            (Record::PlayerState(r), Field::PlayerVisible) => V::PlayerVisible(r.visible),
             (Record::ObjectiveState(r), Field::ObjectiveStatus) => V::ObjectiveStatus(r.status),
             (Record::Arrow(r), Field::ArrowFrom) => V::ArrowFrom(r.from),
             (Record::Arrow(r), Field::ArrowTo) => V::ArrowTo(r.to),
@@ -321,6 +334,7 @@ impl Record {
             (Record::PlayerState(r), V::PlayerPlaced(v)) => r.placed = v,
             (Record::PlayerState(r), V::PlayerSouls(v)) => r.souls = v,
             (Record::PlayerState(r), V::PlayerUltCooldown(v)) => r.ult_cooldown = v,
+            (Record::PlayerState(r), V::PlayerVisible(v)) => r.visible = v,
             (Record::ObjectiveState(r), V::ObjectiveStatus(v)) => r.status = v,
             (Record::Arrow(r), V::ArrowFrom(v)) => r.from = v,
             (Record::Arrow(r), V::ArrowTo(v)) => r.to = v,

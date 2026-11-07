@@ -140,7 +140,7 @@ fn check_value(v: &FieldValue) -> Result<(), Reject> {
         V::SceneClock(c) => if c.is_none_or(|c| c <= 4 * 3600) { Ok(()) } else { Err(Reject::OutOfBounds) },
         V::PlayerSouls(n) => if n.is_none_or(|n| n <= 1_000_000) { Ok(()) } else { Err(Reject::OutOfBounds) },
         V::PlayerUltCooldown(p) => if p.is_none_or(|p| p <= 100) { Ok(()) } else { Err(Reject::OutOfBounds) },
-        V::RosterHero(_) | V::PlayerAlive(_) | V::PlayerPlaced(_) | V::ObjectiveStatus(_) | V::ArrowTeam(_) => Ok(()),
+        V::RosterHero(_) | V::PlayerAlive(_) | V::PlayerPlaced(_) | V::PlayerVisible(_) | V::ObjectiveStatus(_) | V::ArrowTeam(_) => Ok(()),
     }
 }
 
