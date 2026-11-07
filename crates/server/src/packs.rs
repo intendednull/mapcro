@@ -95,7 +95,8 @@ impl Packs {
         let entries = std::fs::read_dir(dir).map_err(|e| format!("PACKS_DIR {}: {e}", dir.display()))?;
         for entry in entries.flatten() {
             let root = entry.path();
-            if !root.join("pack.json").is_file() {
+            // Dot-directories are copies still being placed (docs/deploy.md): never load them.
+            if entry.file_name().to_string_lossy().starts_with('.') || !root.join("pack.json").is_file() {
                 continue;
             }
             match Self::load_one(&root) {

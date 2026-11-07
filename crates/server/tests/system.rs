@@ -668,11 +668,13 @@ async fn asset_packs_are_served_immutably_and_only_as_listed() {
     write_pack(&packs.path().join("old"), "6851", false, false);
     write_pack(&packs.path().join("new"), "6860", false, true);
     write_pack(&packs.path().join("bad"), "9999", true, false);
+    // A complete, valid pack still being moved into place (docs/deploy.md) is never loaded.
+    write_pack(&packs.path().join(".incoming-next"), "7000", false, false);
     let server = Server::start_with(dir.path(), None, &[("PACKS_DIR", packs.path().to_str().expect("utf8"))]);
 
     let list: Vec<serde_json::Value> = ureq::get(&server.url("/api/packs")).call().expect("list").body_mut().read_json().expect("json");
     let versions: Vec<&str> = list.iter().filter_map(|p| p["game"]["client_version"].as_str()).collect();
-    assert_eq!(versions, ["6860", "6851"], "newest first; the tampered pack is skipped");
+    assert_eq!(versions, ["6860", "6851"], "newest first; the tampered and the incoming packs are skipped");
     let id = list[0]["pack_id"].as_str().expect("id").to_owned();
     let manifest = std::fs::read(packs.path().join("new/pack.json")).expect("read");
     assert_eq!(id, sha256_hex(&manifest), "pack id is the manifest's hash");
