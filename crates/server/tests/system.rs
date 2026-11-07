@@ -276,24 +276,93 @@ async fn revoked_links_are_cut_off_immediately() {
     assert_eq!(e.connect(server.port, &board, &edit).await, Err(Some(CloseReason::Unauthorized)));
 }
 
+fn list(server: &Server, board: &str, token: &str) -> Result<Vec<serde_json::Value>, ureq::Error> {
+    ureq::get(&server.url(&format!("/api/boards/{board}/links")))
+        .header("authorization", &format!("Bearer {token}"))
+        .call()?
+        .body_mut()
+        .read_json()
+}
+
+fn revoke(server: &Server, board: &str, token: &str, link_id: &str) -> u16 {
+    match ureq::delete(&server.url(&format!("/api/boards/{board}/links/{link_id}"))).header("authorization", &format!("Bearer {token}")).call() {
+        Ok(r) => r.status().as_u16(),
+        Err(ureq::Error::StatusCode(c)) => c,
+        Err(e) => panic!("{e}"),
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
-async fn only_the_owner_manages_links() {
+async fn editors_share_within_their_own_subtree() {
     let dir = tempfile::tempdir().expect("tempdir");
     let server = Server::start(dir.path(), None);
     let (board, owner) = server.create_board();
-    let (view_id, _) = server.mint(&board, &owner, "view");
-    for role in ["edit", "view"] {
-        let (_, token) = server.mint(&board, &owner, role); // live, unrevoked
-        let auth = format!("Bearer {token}");
-        let list = ureq::get(&server.url(&format!("/api/boards/{board}/links"))).header("authorization", &auth).call();
-        assert!(list.is_err(), "{role} token must not list links");
-        let mint = ureq::post(&server.url(&format!("/api/boards/{board}/links")))
-            .header("authorization", &auth)
-            .send_json(serde_json::json!({ "role": "edit", "label": "x" }));
-        assert!(mint.is_err(), "{role} token must not mint links");
-        let revoke = ureq::delete(&server.url(&format!("/api/boards/{board}/links/{view_id}"))).header("authorization", &auth).call();
-        assert!(revoke.is_err(), "{role} token must not revoke links");
+    let (a_id, a) = server.mint(&board, &owner, "edit"); // editor A
+    let (b_id, b) = server.mint(&board, &owner, "edit"); // editor B, A's sibling
+    let (av_id, _) = server.mint(&board, &a, "view"); // minted by A
+    let (ae_id, ae) = server.mint(&board, &a, "edit"); // minted by A
+    let (aev_id, _) = server.mint(&board, &ae, "view"); // minted by A's child
+
+    // View links can't share or list.
+    let (_, view) = server.mint(&board, &owner, "view");
+    assert!(list(&server, &board, &view).is_err());
+    let mint = ureq::post(&server.url(&format!("/api/boards/{board}/links")))
+        .header("authorization", &format!("Bearer {view}"))
+        .send_json(serde_json::json!({ "role": "view", "label": "x" }));
+    assert!(mint.is_err(), "view links cannot mint");
+
+    // An editor sees exactly its descendants; the owner sees everything.
+    let ids = |v: Vec<serde_json::Value>| {
+        let mut ids: Vec<String> = v.iter().map(|l| l["link_id"].as_str().unwrap_or_default().to_owned()).collect();
+        ids.sort();
+        ids
+    };
+    let mut expect = vec![av_id.clone(), ae_id.clone(), aev_id.clone()];
+    expect.sort();
+    assert_eq!(ids(list(&server, &board, &a).expect("list")), expect);
+    assert!(list(&server, &board, &b).expect("list").is_empty());
+    assert_eq!(list(&server, &board, &owner).expect("list").len(), 7); // owner, a, b, av, ae, aev, view
+
+    // An editor can't revoke a sibling, an ancestor, itself or the owner; the response doesn't
+    // tell "not yours" from "not found".
+    assert_eq!(revoke(&server, &board, &b, &a_id), 404);
+    assert_eq!(revoke(&server, &board, &ae, &a_id), 404);
+    assert_eq!(revoke(&server, &board, &a, &a_id), 404);
+    assert_eq!(revoke(&server, &board, &a, &b_id), 404);
+    // But it can revoke inside its subtree.
+    assert_eq!(revoke(&server, &board, &a, &aev_id), 204);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn revocation_cascades_and_cuts_live_sessions() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let (board, owner) = server.create_board();
+    let (leaked_id, leaked) = server.mint(&board, &owner, "edit");
+    let (_, child) = server.mint(&board, &leaked, "edit");
+    let (_, grandchild) = server.mint(&board, &child, "view");
+    let (_, unrelated) = server.mint(&board, &owner, "view");
+
+    let mut sessions = Vec::new();
+    for (i, t) in [&leaked, &child, &grandchild, &unrelated].into_iter().enumerate() {
+        let mut c = Client::new(0x100 + i as u128);
+        c.connect(server.port, &board, t).await.expect("connect");
+        sessions.push(c);
     }
+    assert_eq!(revoke(&server, &board, &owner, &leaked_id), 204);
+    for c in &mut sessions[..3] {
+        assert_eq!(c.pump_one().await, Err(Some(CloseReason::Revoked)));
+    }
+    for t in [&leaked, &child, &grandchild] {
+        assert_eq!(Client::new(0x200).connect(server.port, &board, t).await, Err(Some(CloseReason::Unauthorized)));
+    }
+    // The unrelated link is untouched: it still connects.
+    Client::new(0x300).connect(server.port, &board, &unrelated).await.expect("unrelated link still works");
+    // A revoked editor can no longer mint.
+    let mint = ureq::post(&server.url(&format!("/api/boards/{board}/links")))
+        .header("authorization", &format!("Bearer {leaked}"))
+        .send_json(serde_json::json!({ "role": "view", "label": "x" }));
+    assert!(mint.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread")]

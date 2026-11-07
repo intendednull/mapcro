@@ -32,6 +32,8 @@ pub struct LinkRow {
     pub label: String,
     pub created_at: i64,
     pub revoked: bool,
+    /// The link that minted this one (`None` for the owner link).
+    pub minted_by: Option<String>,
 }
 
 #[derive(Clone)]
@@ -39,7 +41,26 @@ pub struct Store {
     conn: Arc<Mutex<Connection>>,
 }
 
-const SCHEMA_VERSION: i64 = 1;
+/// Database schema version. Each step in `migrate` takes the database one version forward.
+const SCHEMA_VERSION: i64 = 2;
+
+/// v1 → v2: links remember which link minted them (editors can share; revocation cascades).
+fn migrate(conn: &Connection, from: i64) -> Result<(), StoreError> {
+    let mut v = from;
+    while v < SCHEMA_VERSION {
+        match v {
+            1 => conn.execute_batch(
+                "ALTER TABLE links ADD COLUMN minted_by TEXT REFERENCES links(hash);
+                 CREATE INDEX IF NOT EXISTS links_by_parent ON links(minted_by);",
+            )?,
+            other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
+        }
+        v += 1;
+        conn.execute("UPDATE meta SET value = ?1 WHERE key = 'schema_version'", [v.to_string()])?;
+        tracing::info!(to = v, "migrated database schema");
+    }
+    Ok(())
+}
 
 fn role_str(r: LinkRole) -> &'static str {
     match r {
@@ -106,9 +127,12 @@ impl Store {
             .map(|v| v.parse().unwrap_or(-1));
         match version {
             None => {
-                conn.execute("INSERT INTO meta (key, value) VALUES ('schema_version', ?1)", [SCHEMA_VERSION.to_string()])?;
+                // A fresh database is created at v1 above, then migrated like any other.
+                conn.execute("INSERT INTO meta (key, value) VALUES ('schema_version', '1')", [])?;
+                migrate(&conn, 1)?;
             }
-            Some(SCHEMA_VERSION) => {}
+            Some(v) if v == SCHEMA_VERSION => {}
+            Some(v) if (1..SCHEMA_VERSION).contains(&v) => migrate(&conn, v)?,
             Some(v) => return Err(StoreError::Corrupt(format!("database schema {v}, this server knows {SCHEMA_VERSION}"))),
         }
         Ok(Store { conn: Arc::new(Mutex::new(conn)) })
@@ -209,63 +233,167 @@ impl Store {
         self.with(move |c| {
             let row = c
                 .query_row(
-                    "SELECT hash, board, role, label, created_at, revoked_at IS NOT NULL FROM links WHERE hash = ?1",
+                    "SELECT hash, board, role, label, created_at, revoked_at IS NOT NULL, minted_by FROM links WHERE hash = ?1",
                     [&hash],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, String>(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, String>(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
                 )
                 .optional()?;
-            row.map(|(hash, board, role, label, created_at, revoked)| {
-                Ok(LinkRow { hash, board, role: parse_role(&role)?, label, created_at, revoked })
+            row.map(|(hash, board, role, label, created_at, revoked, minted_by)| {
+                Ok(LinkRow { hash, board, role: parse_role(&role)?, label, created_at, revoked, minted_by })
             })
             .transpose()
         })
         .await
     }
 
-    pub async fn add_link(&self, hash: String, board: String, role: LinkRole, label: String, now: i64) -> Result<(), StoreError> {
+    /// Mint a link on behalf of `parent`, atomically refusing if `parent` is (or just became)
+    /// revoked, so a revocation can never miss a link minted concurrently.
+    pub async fn add_link(
+        &self,
+        hash: String,
+        board: String,
+        role: LinkRole,
+        label: String,
+        parent: String,
+        now: i64,
+    ) -> Result<bool, StoreError> {
         self.with(move |c| {
-            c.execute(
-                "INSERT INTO links (hash, board, role, label, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![hash, board, role_str(role), label, now],
+            let n = c.execute(
+                "INSERT INTO links (hash, board, role, label, created_at, minted_by)
+                 SELECT ?1, ?2, ?3, ?4, ?5, ?6
+                 WHERE EXISTS (SELECT 1 FROM links WHERE hash = ?6 AND board = ?2 AND revoked_at IS NULL)",
+                params![hash, board, role_str(role), label, now, parent],
             )?;
-            Ok(())
+            Ok(n == 1)
         })
         .await
     }
 
-    pub async fn links_for(&self, board: String) -> Result<Vec<LinkRow>, StoreError> {
+    /// Links visible to `viewer`: every link for the owner; for anyone else, the links minted
+    /// through them (their descendants), not including themselves.
+    pub async fn links_visible_to(&self, board: String, viewer: String, is_owner: bool) -> Result<Vec<LinkRow>, StoreError> {
         self.with(move |c| {
-            let mut stmt = c.prepare(
-                "SELECT hash, board, role, label, created_at, revoked_at IS NOT NULL FROM links WHERE board = ?1 ORDER BY created_at",
-            )?;
-            let rows = stmt.query_map([&board], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get::<_, String>(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+            let sql = if is_owner {
+                "SELECT hash, board, role, label, created_at, revoked_at IS NOT NULL, minted_by FROM links
+                 WHERE board = ?1 AND ?2 = ?2 ORDER BY created_at"
+            } else {
+                "WITH RECURSIVE sub(hash) AS (
+                   SELECT hash FROM links WHERE minted_by = ?2 AND board = ?1
+                   UNION SELECT l.hash FROM links l JOIN sub ON l.minted_by = sub.hash
+                 )
+                 SELECT hash, board, role, label, created_at, revoked_at IS NOT NULL, minted_by FROM links
+                 WHERE board = ?1 AND hash IN (SELECT hash FROM sub) ORDER BY created_at"
+            };
+            let mut stmt = c.prepare(sql)?;
+            let rows = stmt.query_map(params![board, viewer], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get::<_, String>(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
             })?;
             let mut out = Vec::new();
             for row in rows {
-                let (hash, board, role, label, created_at, revoked) = row?;
-                out.push(LinkRow { hash, board, role: parse_role(&role)?, label, created_at, revoked });
+                let (hash, board, role, label, created_at, revoked, minted_by) = row?;
+                out.push(LinkRow { hash, board, role: parse_role(&role)?, label, created_at, revoked, minted_by });
             }
             Ok(out)
         })
         .await
     }
 
-    /// Revoke a non-owner link by its public id (a prefix of its hash). Returns the full hash.
-    pub async fn revoke(&self, board: String, link_id: String, now: i64) -> Result<Option<String>, StoreError> {
+    /// Revoke the link with public id `link_id` and everything minted through it. `actor` must be
+    /// the owner, or an ancestor of the target. Returns the hashes revoked (empty if not allowed
+    /// or not found).
+    pub async fn revoke(
+        &self,
+        board: String,
+        link_id: String,
+        actor: String,
+        actor_is_owner: bool,
+        now: i64,
+    ) -> Result<Vec<String>, StoreError> {
         self.with(move |c| {
-            let hash: Option<String> = c
+            let t = c.transaction()?;
+            let target: Option<String> = t
                 .query_row(
                     "SELECT hash FROM links WHERE board = ?1 AND substr(hash, 1, 16) = ?2 AND role != 'owner'",
                     params![board, link_id],
                     |r| r.get(0),
                 )
                 .optional()?;
-            if let Some(h) = &hash {
-                c.execute("UPDATE links SET revoked_at = ?1 WHERE hash = ?2 AND revoked_at IS NULL", params![now, h])?;
+            let Some(target) = target else { return Ok(Vec::new()) };
+            if !actor_is_owner {
+                // The actor must be a strict ancestor of the target.
+                let allowed: bool = t.query_row(
+                    "WITH RECURSIVE up(hash, parent) AS (
+                       SELECT hash, minted_by FROM links WHERE hash = ?1
+                       UNION SELECT l.hash, l.minted_by FROM links l JOIN up ON l.hash = up.parent
+                     )
+                     SELECT EXISTS (SELECT 1 FROM up WHERE parent = ?2)",
+                    params![target, actor],
+                    |r| r.get(0),
+                )?;
+                if !allowed {
+                    return Ok(Vec::new());
+                }
             }
-            Ok(hash)
+            let mut stmt = t.prepare(
+                "WITH RECURSIVE sub(hash) AS (
+                   SELECT ?1
+                   UNION SELECT l.hash FROM links l JOIN sub ON l.minted_by = sub.hash
+                 )
+                 SELECT hash FROM sub",
+            )?;
+            let hashes: Vec<String> = stmt.query_map([&target], |r| r.get(0))?.collect::<Result<_, _>>()?;
+            drop(stmt);
+            for h in &hashes {
+                t.execute("UPDATE links SET revoked_at = ?1 WHERE hash = ?2 AND revoked_at IS NULL", params![now, h])?;
+            }
+            t.commit()?;
+            Ok(hashes)
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_v1_database_migrates_to_current() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        {
+            // The v1 schema exactly as it shipped.
+            let c = Connection::open(&path).expect("open");
+            c.execute_batch(
+                "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                 INSERT INTO meta VALUES ('schema_version', '1');
+                 CREATE TABLE boards (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, base_doc TEXT NOT NULL, base_seq INTEGER NOT NULL);
+                 CREATE TABLE links (hash TEXT PRIMARY KEY, board TEXT NOT NULL REFERENCES boards(id), role TEXT NOT NULL,
+                                     label TEXT NOT NULL, created_at INTEGER NOT NULL, revoked_at INTEGER);
+                 INSERT INTO boards VALUES ('b', 0, '[]', 0);
+                 INSERT INTO links VALUES ('h', 'b', 'owner', 'owner', 0, NULL);",
+            )
+            .expect("v1 schema");
+        }
+        let _store = Store::open(&path).expect("migrates");
+        let c = Connection::open(&path).expect("reopen");
+        let v: String = c.query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("version");
+        assert_eq!(v, SCHEMA_VERSION.to_string());
+        let parent: Option<String> = c.query_row("SELECT minted_by FROM links WHERE hash = 'h'", [], |r| r.get(0)).expect("column");
+        assert_eq!(parent, None);
+        // Opening again is a no-op.
+        Store::open(&path).expect("idempotent");
+    }
+
+    #[test]
+    fn a_database_from_the_future_is_refused() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        Store::open(&path).expect("create");
+        Connection::open(&path)
+            .expect("open")
+            .execute("UPDATE meta SET value = '99' WHERE key = 'schema_version'", [])
+            .expect("bump");
+        assert!(matches!(Store::open(&path), Err(StoreError::Corrupt(_))));
     }
 }

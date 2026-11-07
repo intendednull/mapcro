@@ -1,7 +1,20 @@
 /* mapcro v1 board: shared styles for every artboard in this design.
-   No web fonts and no network: system font stacks only. The intended faces are described in
-   notes.html. Values worth tuning are custom properties on :root, and the canvas tweaks drive
-   --accent, --amber, --sapphire, --space and --map-shade. */
+   Fonts are self-hosted OFL faces under design/fonts/ (no CDN, no network). Values worth tuning
+   are custom properties on :root; the canvas tweaks drive --accent, --amber, --sapphire, --space
+   and --map-shade. */
+
+@font-face {
+  font-family: "Federo";
+  src: url("../fonts/federo/Federo-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("../fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext-Variable.woff2") format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+}
 
 :root {
   --accent: #8ee0c4;      /* spirit: live, presenting, following */
@@ -30,8 +43,8 @@
   --p-vexa: #7fe0e8;
   --p-guest: #c8c2b0;
 
-  --display: "Didot", "Bodoni 72", "Noto Serif Display", "Noto Serif", "DejaVu Serif", Georgia, serif;
-  --ui: system-ui, -apple-system, "Segoe UI", "Adwaita Sans", "Noto Sans", "DejaVu Sans", sans-serif;
+  --display: "Federo", "Noto Serif", Georgia, serif;
+  --ui: "Atkinson Hyperlegible Next", system-ui, "Noto Sans", sans-serif;
 
   color-scheme: dark;
 }
@@ -43,6 +56,7 @@ body {
   color: var(--text);
   font: 13px/1.45 var(--ui);
   font-variant-numeric: tabular-nums;
+  font-synthesis-weight: none;   /* Federo has one weight: never fake a bold */
   -webkit-font-smoothing: antialiased;
 }
 button { font: inherit; color: inherit; cursor: pointer; }

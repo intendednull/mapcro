@@ -107,18 +107,19 @@ pub async fn create_board(
     }
 }
 
-/// Checks the `Authorization: Bearer <owner token>` header against this board.
+/// The caller's link from `Authorization: Bearer <token>`, if it may manage links on this board:
+/// the owner, or an editor (who manages the links it minted). View links can't.
 #[allow(clippy::result_large_err)] // the error *is* the HTTP response
-async fn require_owner(app: &AppState, board: &str, headers: &HeaderMap) -> Result<(), Response> {
+async fn require_manager(app: &AppState, board: &str, headers: &HeaderMap) -> Result<crate::store::LinkRow, Response> {
     let token = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .filter(|t| links::plausible_token(t))
-        .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "owner token required"))?;
+        .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "link token required"))?;
     match app.store.link(links::hash(token)).await {
-        Ok(Some(l)) if l.board == board && l.role == LinkRole::Owner && !l.revoked => Ok(()),
-        Ok(_) => Err(err(StatusCode::FORBIDDEN, "not the owner of this board")),
+        Ok(Some(l)) if l.board == board && !l.revoked && matches!(l.role, LinkRole::Owner | LinkRole::Edit) => Ok(l),
+        Ok(_) => Err(err(StatusCode::FORBIDDEN, "this link cannot share")),
         Err(e) => Err(internal(e)),
     }
 }
@@ -142,9 +143,10 @@ pub async fn mint_link(
     headers: HeaderMap,
     Json(body): Json<MintLink>,
 ) -> Response {
-    if let Err(r) = require_owner(&app, &board, &headers).await {
-        return r;
-    }
+    let caller = match require_manager(&app, &board, &headers).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
     if body.role == LinkRole::Owner {
         return err(StatusCode::BAD_REQUEST, "owner links cannot be minted");
     }
@@ -154,8 +156,10 @@ pub async fn mint_link(
     let token = links::new_token();
     let hash = links::hash(&token);
     let link_id = links::link_id(&hash).to_owned();
-    match app.store.add_link(hash, board, body.role, label, now()).await {
-        Ok(()) => (StatusCode::CREATED, Json(Minted { link_id, token })).into_response(),
+    match app.store.add_link(hash, board, body.role, label, caller.hash, now()).await {
+        Ok(true) => (StatusCode::CREATED, Json(Minted { link_id, token })).into_response(),
+        // The caller's link was revoked between the check and the insert.
+        Ok(false) => err(StatusCode::FORBIDDEN, "this link cannot share"),
         Err(e) => internal(e),
     }
 }
@@ -167,13 +171,17 @@ struct LinkInfo {
     label: String,
     created_at: i64,
     revoked: bool,
+    /// Public id of the link that minted this one.
+    minted_by: Option<String>,
 }
 
 pub async fn list_links(State(app): State<AppState>, Path(board): Path<String>, headers: HeaderMap) -> Response {
-    if let Err(r) = require_owner(&app, &board, &headers).await {
-        return r;
-    }
-    match app.store.links_for(board).await {
+    let caller = match require_manager(&app, &board, &headers).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let is_owner = caller.role == LinkRole::Owner;
+    match app.store.links_visible_to(board, caller.hash, is_owner).await {
         Ok(rows) => Json(
             rows.into_iter()
                 .map(|l| LinkInfo {
@@ -182,6 +190,7 @@ pub async fn list_links(State(app): State<AppState>, Path(board): Path<String>, 
                     label: l.label,
                     created_at: l.created_at,
                     revoked: l.revoked,
+                    minted_by: l.minted_by.as_deref().map(|h| links::link_id(h).to_owned()),
                 })
                 .collect::<Vec<_>>(),
         )
@@ -195,17 +204,22 @@ pub async fn revoke_link(
     Path((board, link_id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
-    if let Err(r) = require_owner(&app, &board, &headers).await {
-        return r;
-    }
-    match app.store.revoke(board.clone(), link_id, now()).await {
-        Ok(Some(hash)) => {
+    let caller = match require_manager(&app, &board, &headers).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let is_owner = caller.role == LinkRole::Owner;
+    match app.store.revoke(board.clone(), link_id, caller.hash, is_owner, now()).await {
+        Ok(hashes) if !hashes.is_empty() => {
             if let Some(room) = app.rooms.lookup(&board) {
-                let _ = room.send(crate::room::RoomCmd::Revoke { link_hash: hash }).await;
+                for link_hash in hashes {
+                    let _ = room.send(crate::room::RoomCmd::Revoke { link_hash }).await;
+                }
             }
             StatusCode::NO_CONTENT.into_response()
         }
-        Ok(None) => err(StatusCode::NOT_FOUND, "no such link"),
+        // Not found and not yours look the same, so link ids can't be probed.
+        Ok(_) => err(StatusCode::NOT_FOUND, "no such link"),
         Err(e) => internal(e),
     }
 }
