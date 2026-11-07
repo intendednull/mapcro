@@ -207,12 +207,27 @@ export class BoardSession {
           this.resetRecords(this.replica.view());
         }
         const u = this.apply(this.replica.connect());
-        for (const f of u.frames) this.send(f);
+        // The hello resends every pending transaction, so it goes through the save chain like any
+        // edit: an edit made offline may not be durable yet, and the server must never ack what a
+        // reload would forget (soak 2026-11-07, resend-before-durable). Later edits queue behind
+        // this on the chain, so frames still leave in cseq order.
+        const sock = this.socket;
+        const state = this.replica.state();
+        this.chain = this.chain
+          .then(() => this.o.persist.save(this.o.board, state))
+          .then(() => {
+            if (sock !== this.socket) return;
+            for (const f of u.frames) this.send(f);
+            this.send({ t: "presence", state: this.presence });
+          })
+          .catch((e) => {
+            this.problems.push(`could not save locally, reconnecting: ${e}`);
+            if (sock === this.socket) this.retry();
+          });
         this.live = true;
         this.readOnly = frame.role === "view";
         this.peers.clear(); // the room sends everyone present right after Ready
         this.myPeer = frame.peer;
-        this.send({ t: "presence", state: this.presence });
         this.attempt = 0;
         this.connection = { kind: "live", role: frame.role };
         this.o.onChange?.(this);
