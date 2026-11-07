@@ -45,6 +45,11 @@ test("a phone viewer follows, reads the callouts and note, flips on its own, and
   await phone.getByTestId("follow-presenter").tap();
   await expect(phone.getByTestId("follow-chip")).toContainText("Following Coach");
   await expect(phone.locator(".p-title")).toContainText("Scene 2 of 2");
+  // The presenter turns the map; the phone turns with it, and back.
+  await a.getByTestId("viewpoint-flip").click();
+  await expect(phone.locator(".p-map .mm-host")).toHaveClass(/vp-sapphire/);
+  await a.getByTestId("viewpoint-flip").click();
+  await expect(phone.locator(".p-map .mm-host")).toHaveClass(/vp-amber/);
 
   // Callouts are numbered pins with their text listed; the note shows below.
   await expect(phone.locator(".p-map .co-pin")).toHaveCount(2);

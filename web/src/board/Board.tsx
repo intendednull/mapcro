@@ -18,7 +18,7 @@ import { TopBar } from "./TopBar";
 import { createBoardState } from "./state";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
-import { FIT, type ViewRect, clampView, fromViewport, presenters, toViewport, zoomAt } from "./follow";
+import { FIT, type ViewRect, clampView, fromViewport, presenters, sideOf, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
 import { type MatchPreview, MatchPanel } from "../match/MatchPanel";
 import { matchSceneOps } from "../match/save";
@@ -158,9 +158,17 @@ export function Board(p: { board: string; token: string; art: Art }) {
     }
     const s = x.state!;
     if (s.scene && s.scene !== sceneId()) setSceneId(s.scene);
-    setView(fromViewport(s.view, viewpoint()));
+    // The presenter's side too: their map turned the same way (older peers: Amber).
+    const side = sideOf(s.view);
+    if (side && side !== viewpoint()) setViewpoint(side);
+    setView(fromViewport(s.view, side ?? viewpoint()));
   });
   createEffect(() => state.presence({ view: toViewport(view(), viewpoint()) }));
+  /** Your own flip changes what you see, so it stops following; you keep the side you chose. */
+  const flipSide = () => {
+    stopFollowing("flipped");
+    setViewpoint(viewpoint() === "amber" ? "sapphire" : "amber");
+  };
   const userFlip = (id: RecordId) => {
     if (id !== scene()?.id) stopFollowing("flipped the scene");
     setSceneId(id);
@@ -415,7 +423,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           <button class={cx("tb", tool() === "laser" && "on")} data-testid="tool-laser" onClick={() => setTool("laser")}>
             <span>Laser</span>
           </button>
-          <button class="tb" data-testid="viewpoint-flip" aria-label="Flip view" title="Flip view" onClick={() => setViewpoint(viewpoint() === "amber" ? "sapphire" : "amber")}>
+          <button class="tb" data-testid="viewpoint-flip" aria-label="Flip view" title="Flip view" onClick={flipSide}>
             <span>⟲</span>
           </button>
         </div>
@@ -512,7 +520,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               data-testid="viewpoint-flip"
               title="Flip view"
               aria-label="Flip view"
-              onClick={() => setViewpoint(viewpoint() === "amber" ? "sapphire" : "amber")}
+              onClick={flipSide}
             >
               <svg viewBox="-16 -16 32 32" aria-hidden="true">
                 <path d="M-10 -4 A11 11 0 0 1 9 -6 M9 -6 L9 -14 M9 -6 L1 -6 M10 4 A11 11 0 0 1 -9 6 M-9 6 L-9 14 M-9 6 L-1 6" />

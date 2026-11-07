@@ -78,3 +78,35 @@ test("cursors, the people list, follow, unfollow by changing your view, follow a
   await expect(b.getByTestId("toast")).toContainText("Presenter left", { timeout: 15000 });
   await expect(b.getByTestId("follow-chip")).toHaveCount(0);
 });
+
+test("a follower's map turns with the presenter's; their own flip stops following; Follow again turns it back", async ({ browser }) => {
+  const url = await newBoardUrl(server, "flip");
+  const a = await joinNew(browser, url, "Coach");
+  const b = await joinNew(browser, await editLink(server.url, url), "Marrow");
+  const side = (p: typeof a) => p.locator(".mapbox .mm-host");
+  await b.getByTestId("follow-Coach").click();
+  await expect(b.getByTestId("follow-chip")).toContainText("Following Coach");
+
+  // The presenter flips: the follower's map turns with it, and back.
+  await a.getByTestId("viewpoint-flip").click();
+  await expect(side(b)).toHaveClass(/vp-sapphire/);
+  await a.getByTestId("viewpoint-flip").click();
+  await expect(side(b)).toHaveClass(/vp-amber/);
+  await a.getByTestId("viewpoint-flip").click();
+  await expect(side(b)).toHaveClass(/vp-sapphire/);
+
+  // The follower flips their own map: that's changing their view, so following stops.
+  await b.getByTestId("viewpoint-flip").click();
+  await expect(b.getByTestId("toast")).toContainText("Stopped following Coach");
+  await expect(side(b)).toHaveClass(/vp-amber/);
+  await expect(side(a)).toHaveClass(/vp-sapphire/); // the presenter is unaffected
+  // Follow again: back on the presenter's side.
+  await b.getByTestId("toast-action").click();
+  await expect(side(b)).toHaveClass(/vp-sapphire/);
+  // Stopping keeps the side the follower is on; no snapping back.
+  await b.getByTestId("stop-following").click();
+  await a.getByTestId("viewpoint-flip").click();
+  await expect(side(a)).toHaveClass(/vp-amber/);
+  await b.waitForTimeout(400);
+  await expect(side(b)).toHaveClass(/vp-sapphire/);
+});

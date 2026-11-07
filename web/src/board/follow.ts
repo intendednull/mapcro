@@ -39,7 +39,13 @@ export function zoomAt(v: ViewRect, at: { x: number; y: number }, factor: number
 
 /** What presence carries: the centre in world units (right in either viewpoint) and zoom. */
 export function toViewport(v: ViewRect, vp: Viewpoint): Viewport {
-  return { center: viewToWorld({ x: v.x + v.w / 2, y: v.y + v.w / 2 }, vp), zoom: Math.round((1000 * 1000) / v.w) };
+  return { center: viewToWorld({ x: v.x + v.w / 2, y: v.y + v.w / 2 }, vp), zoom: Math.round((1000 * 1000) / v.w), side: vp === "sapphire" ? "Sapphire" : "Amber" };
+}
+
+/** The side a presenter's map is turned to (`undefined` before they've sent a view). */
+export function sideOf(p: Viewport | null | undefined): Viewpoint | undefined {
+  if (!p) return undefined;
+  return p.side === "Sapphire" ? "sapphire" : "amber";
 }
 
 export function fromViewport(p: Viewport | null, vp: Viewpoint): ViewRect {

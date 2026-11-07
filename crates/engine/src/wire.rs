@@ -138,6 +138,14 @@ pub struct Viewport {
     pub center: WorldPos,
     /// Thousandths: 1000 = fit the map.
     pub zoom: u32,
+    /// Whose side is at the bottom (the viewpoint), so followers see the map turned the same
+    /// way. Older peers don't send it: Amber.
+    #[serde(default = "amber_side")]
+    pub side: mapcro_schema::Team,
+}
+
+fn amber_side() -> mapcro_schema::Team {
+    mapcro_schema::Team::Amber
 }
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]

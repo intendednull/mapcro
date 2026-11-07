@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FIT, clampView, followable, fromViewport, presenters, toViewport, zoomAt } from "../src/board/follow";
+import { FIT, clampView, followable, fromViewport, presenters, sideOf, toViewport, zoomAt } from "../src/board/follow";
 import type { PeerPresence } from "../src/gen/PeerPresence";
 import type { Presence } from "../src/gen/Presence";
 
@@ -34,5 +34,12 @@ describe("follow", () => {
     expect(z).toEqual({ w: 500, x: 125, y: 125 });
     expect(zoomAt(z, { x: 0, y: 0 }, 10)).toEqual(FIT);
     expect(clampView({ x: 900, y: -50, w: 300 })).toEqual({ x: 700, y: 0, w: 300 });
+  });
+  it("carries the presenter's side, and older peers without one are Amber", () => {
+    expect(toViewport(FIT, "sapphire").side).toBe("Sapphire");
+    expect(toViewport(FIT, "amber").side).toBe("Amber");
+    expect(sideOf(toViewport(FIT, "sapphire"))).toBe("sapphire");
+    expect(sideOf({ center: { x: 0, y: 0 }, zoom: 1000 } as never)).toBe("amber");
+    expect(sideOf(null)).toBeUndefined();
   });
 });
