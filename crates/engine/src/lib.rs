@@ -10,6 +10,7 @@
 mod authority;
 mod protocol;
 mod replica;
+pub mod wire;
 
 pub use authority::{Authority, ConnId, Effect, Outbox, Role};
 pub use protocol::{ClientMsg, Hello, ServerMsg};
