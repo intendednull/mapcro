@@ -15,7 +15,10 @@ import { JoinCard } from "./JoinCard";
 import { SceneStrip } from "./SceneStrip";
 import { TopBar } from "./TopBar";
 import { createBoardState } from "./state";
-import { Tokens } from "./Tokens";
+import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
+import { Layers } from "./Layers";
+import { Toolbar } from "./Toolbar";
+import type { Tool } from "./tools";
 
 
 function SaveStatus(p: { state: ReturnType<typeof createBoardState> }) {
@@ -62,7 +65,16 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const [joined, setJoined] = createSignal(hasJoined(p.board) && !!loadMe());
   const [viewpoint, setViewpoint] = createSignal<Viewpoint>("amber");
   const [sceneId, setSceneId] = createSignal<RecordId | undefined>();
-  const [tool] = createSignal("move");
+  const [tool, setTool] = createSignal<Tool>("move");
+  const [ink, setInk] = createSignal(loadMe()?.color ?? 1);
+  const [toast, setToast] = createSignal<{ text: string; undo: boolean }>();
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  const say = (text: string, undo = false) => {
+    setToast({ text, undo });
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => setToast(undefined), 6000);
+  };
+  onCleanup(() => clearTimeout(toastTimer));
   const [overlay, setOverlay] = createSignal<SVGSVGElement>();
 
   const scene = createMemo(() => {
@@ -98,6 +110,13 @@ export function Board(p: { board: string; token: string; art: Art }) {
   };
 
   const people = () => state.peerList();
+  const inkIds = createMemo(() => state.inScene("Stroke", scene()?.id).map(([id]) => id));
+  const objectives = createMemo(() => {
+    const m = new Map<string, { id: RecordId; status: ObjectiveStatus }>();
+    for (const [id, r] of state.inScene("ObjectiveState", scene()?.id))
+      if ("ObjectiveState" in r) m.set(r.ObjectiveState.key, { id, status: r.ObjectiveState.status });
+    return m;
+  });
   const heroList = createMemo(() => [...p.art.heroes.values()].sort((a, b) => a.name.localeCompare(b.name)));
   const sceneIndex = () => state.scenes().findIndex((s) => s.id === scene()?.id);
 
@@ -183,8 +202,20 @@ export function Board(p: { board: string; token: string; art: Art }) {
               overlayRef={setOverlay}
               overlayProps={{ "data-tool": tool() } as never}
               overlayClass={!state.canEdit() && "readonly"}
+              status={(k) => objectives().get(k)?.status}
+              showHidden={state.canEdit()}
             >
-              <Tokens state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} tool={tool()} k={1} svg={overlay} />
+              <Layers
+                state={state}
+                art={p.art}
+                vp={viewpoint()}
+                scene={scene()?.id}
+                tool={tool()}
+                ink={ink()}
+                myColor={me()?.color ?? 0}
+                svg={overlay}
+                objectives={objectives}
+              />
             </MapView>
             <button
               class="mm-flip"
@@ -197,9 +228,42 @@ export function Board(p: { board: string; token: string; art: Art }) {
               </svg>
             </button>
           </div>
-          <div class="tb-hint">
-            <b>Move</b> Drag a hero to move it; everyone sees it live.
-          </div>
+          <Toolbar
+            tool={tool()}
+            setTool={setTool}
+            editor={state.canEdit()}
+            ink={ink()}
+            setInk={setInk}
+            canUndo={state.canUndo()}
+            canRedo={state.canRedo()}
+            undo={() => state.undo()}
+            redo={() => state.redo()}
+            inkCount={inkIds().length}
+            clearInk={() => {
+              const ids = inkIds();
+              if (!ids.length) return;
+              state.edit(ids.map((id) => ({ Delete: { id } })));
+              say(`Cleared ${ids.length} stroke${ids.length === 1 ? "" : "s"} on this scene`, true);
+            }}
+          />
+          <Show when={toast()}>
+            {(t) => (
+              <div class="toast" role="status" data-testid="toast">
+                {t().text}
+                <Show when={t().undo}>
+                  <button
+                    class="link"
+                    onClick={() => {
+                      state.undo();
+                      setToast(undefined);
+                    }}
+                  >
+                    Undo
+                  </button>
+                </Show>
+              </div>
+            )}
+          </Show>
         </main>
         <aside class="side">
           <section>

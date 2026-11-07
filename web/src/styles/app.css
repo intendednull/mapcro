@@ -53,7 +53,7 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .hero-pick option { background: var(--panel); color: var(--text); }
 
 /* Scene strip */
-.board-app { --bar-w: min(100%, 1008px); --map-side: min(100%, calc(100dvh - 56px - 104px - 100px - var(--bar-w) * 0.1365)); }
+.board-app { --bar-w: min(100%, 1008px); --map-side: min(100%, calc(100dvh - 56px - 104px - 150px - var(--bar-w) * 0.1365)); }
 .board-app .mapbox, .board-app .stage-head, .board-app .tb-hint, .board-app .toolbar { width: var(--map-side); }
 .strip .nav[disabled] { opacity: 0.3; cursor: default; }
 .cards { overflow-x: auto; scrollbar-width: thin; padding-top: 10px; margin-top: -10px; }
@@ -81,3 +81,21 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .tb-host .ie-input.bad { outline: 2px solid var(--danger); }
 .tb-host .tb-souls:has(.ie-input), .tb-host .tb-clock:has(.ie-input) { outline: calc(2 * var(--u)) solid var(--accent); outline-offset: calc(2 * var(--u)); }
 .tb-host.editable .tb-ult { touch-action: none; }
+
+/* Tools: ink, arrows, callouts, laser, erase */
+.mm-overlay.map .hit { fill: none; stroke: transparent; stroke-width: 26; stroke-linecap: round; pointer-events: stroke; }
+.mm-overlay.map .arw.neutral { stroke: var(--brass); }
+.mm-overlay.map .head.neutral { fill: var(--brass); }
+.mm-overlay.map .arrow.preview, .mm-overlay.map .ink.preview { pointer-events: none; opacity: 0.8; }
+.mm-overlay.map .erasing { opacity: 0.35; }
+.mm-overlay.map .ink.erasing { stroke-dasharray: 3 9; }
+.mm-overlay.map .laser { pointer-events: none; }
+.mm-overlay.map .co .p-outline { pointer-events: none; }
+.mm-overlay.map[data-tool="erase"] [data-erase]:hover { opacity: 0.45; }
+.mm-overlay.map:not([data-tool="move"]) .tok, .mm-overlay.map:not([data-tool="move"]) .co { cursor: inherit; }
+.callout-input { width: 100%; height: 37px; font: 600 17px var(--ui); color: var(--text); background: #0c1917; border: 2px solid var(--accent); border-radius: 6px; padding: 0 10px; outline: none; }
+.mk.down { filter: grayscale(1) brightness(0.6); opacity: 0.55; }
+.mk.gone { opacity: 0.18; filter: grayscale(1); outline: 1px dashed #ffffff55; border-radius: 50%; }
+.toast { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 40; display: flex; gap: 12px; align-items: center; padding: 8px 14px; border-radius: 8px; background: var(--raised); border: 1px solid var(--line); box-shadow: 0 10px 30px #0008; font-size: 12.5px; }
+.toast .link { background: none; border: 0; color: var(--accent); font-weight: 700; padding: 0; }
+.tb[disabled] { opacity: 0.35; cursor: default; }

@@ -24,3 +24,34 @@ export async function dragToken(page: Page, slot: string, fx: number, fy: number
   await page.mouse.move(map.x + map.width * fx, map.y + map.height * fy, { steps: 8 });
   await page.mouse.up();
 }
+
+/** A point on the main map, as a fraction of its box, in page pixels. */
+export async function mapPoint(page: Page, fx: number, fy: number) {
+  const map = (await page.locator(".mapbox .mm-overlay.map").boundingBox())!;
+  return { x: map.x + map.width * fx, y: map.y + map.height * fy };
+}
+
+/** Press, move through the given map fractions, release. */
+export async function gesture(page: Page, path: Array<[number, number]>, steps = 5) {
+  const [first, ...rest] = path;
+  const p0 = await mapPoint(page, ...first!);
+  await page.mouse.move(p0.x, p0.y);
+  await page.mouse.down();
+  for (const f of rest) {
+    const p = await mapPoint(page, ...f);
+    await page.mouse.move(p.x, p.y, { steps });
+  }
+  await page.mouse.up();
+}
+
+/** A view link for a board, from its owner link. */
+export async function viewLink(serverUrl: string, ownerUrl: string): Promise<string> {
+  const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(ownerUrl)!;
+  const r = await fetch(`${serverUrl}/api/boards/${board}/links`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ role: "view", label: "guest" }),
+  });
+  const { token: view } = (await r.json()) as { token: string };
+  return `${serverUrl}/b/${board}#${view}`;
+}

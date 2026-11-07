@@ -4,6 +4,7 @@
 
 import { For, type JSX, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { cx } from "../ui/cx";
+import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import { type Marker, HUD_MAP_PX, isFriendly, laneStroke, washFor } from "./model";
 import { type Art, artCss } from "./pack";
 import type { Viewpoint } from "./transform";
@@ -22,7 +23,7 @@ function Fb(p: { shape: string; color: string; k: number }) {
   return <b class={`fb ${p.shape}`} style={{ "--c": p.color, "--k": String(p.k) }} />;
 }
 
-function MarkerView(p: { m: Marker; vp: Viewpoint }) {
+function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | undefined }) {
   const c = () => washFor(p.m, p.vp);
   const body = () => {
     const m = p.m;
@@ -55,7 +56,8 @@ function MarkerView(p: { m: Marker; vp: Viewpoint }) {
   };
   return (
     <div
-      class={cx("mk", p.m.kind, p.m.kind === "koth" && "koth")}
+      class={cx("mk", p.m.kind, p.m.kind === "koth" && "koth", p.status === "Destroyed" && "down", p.status === "Hidden" && "gone")}
+      data-status={p.status ?? "Active"}
       title={p.m.title}
       data-key={p.m.key}
       style={{
@@ -119,6 +121,10 @@ export function MapView(p: {
   overlayRef?: (el: SVGSVGElement) => void;
   overlayProps?: JSX.SvgSVGAttributes<SVGSVGElement>;
   overlayClass?: string | false | undefined;
+  /** Objective state in the scene shown (absent = active). */
+  status?: (key: string) => ObjectiveStatus | undefined;
+  /** Editors still see hidden objectives, as ghosts, so they can bring them back. */
+  showHidden?: boolean;
 }) {
   useArtCss(() => p.art);
   let host!: HTMLDivElement;
@@ -167,7 +173,9 @@ export function MapView(p: {
             <i class="mm-shade" />
             <Lanes art={p.art} vp={p.viewpoint} />
             <div class="mm-objs">
-              <For each={markers()}>{(m) => <MarkerView m={m} vp={p.viewpoint} />}</For>
+              <For each={markers().filter((m) => p.showHidden || p.status?.(m.key) !== "Hidden")}>
+                {(m) => <MarkerView m={m} vp={p.viewpoint} status={p.status?.(m.key)} />}
+              </For>
             </div>
           </div>
           <svg ref={p.overlayRef} viewBox="0 0 1000 1000" {...p.overlayProps} class={cx("mm-overlay", p.lite ? "mini" : "map", p.overlayClass)}>

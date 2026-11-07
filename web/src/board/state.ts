@@ -47,6 +47,7 @@ export function createBoardState(board: string, token: string) {
   const [connection, setConnection] = createSignal<Connection>({ kind: "connecting", attempt: 0 });
   const [myPeer, setMyPeer] = createSignal<number | undefined>();
   const [problems, setProblems] = createSignal<string[]>([]);
+  const [undoable, setUndoable] = createSignal({ undo: false, redo: false });
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const session = new BoardSession({
@@ -61,6 +62,7 @@ export function createBoardState(board: string, token: string) {
       setStatus({ ...s.status });
       setConnection({ ...s.connection } as Connection);
       setMyPeer(s.myPeer);
+      if (s.canUndo !== undoable().undo || s.canRedo !== undoable().redo) setUndoable({ undo: s.canUndo, redo: s.canRedo });
       if (s.problems.length !== problems().length) setProblems([...s.problems]);
     },
   });
@@ -117,6 +119,13 @@ export function createBoardState(board: string, token: string) {
       return r === "owner" || r === "edit";
     },
     edit: (ops: Op[]) => session.edit(ops),
+    undo: () => session.undo(),
+    redo: () => session.redo(),
+    canUndo: () => undoable().undo,
+    canRedo: () => undoable().redo,
+    /** Live records of one kind in one scene. */
+    inScene: <K extends string>(kind: K, scene: RecordId | undefined) =>
+      scene === undefined ? [] : live(kind).filter(([, r]) => (Object.values(r)[0] as { scene?: string }).scene === scene),
     presence: (p: Partial<Presence>) => session.setPresence(p),
     peerList: () => Object.values(peers).filter((p) => p.state !== null),
     start: async () => {
