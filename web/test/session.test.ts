@@ -156,6 +156,25 @@ describe("board sessions against the real server", () => {
     fresh.stop();
   });
 
+  it("presence flows both ways and only editors are followable", async () => {
+    const { board, owner_token } = await api.createBoard("presence");
+    const { token: viewToken } = await api.mintLink(board, owner_token, "view", "fan");
+    const coach = session(server, board, owner_token);
+    const fan = session(server, board, viewToken);
+    await coach.start();
+    await fan.start();
+    await until(() => coach.connection.kind === "live" && fan.connection.kind === "live", "both live");
+    coach.setPresence({ name: "Coach", cursor: { x: 1, y: 2 } });
+    fan.setPresence({ name: "Fan", laser: [{ x: 0, y: 0 }] });
+    await until(() => [...fan.peers.values()].some((p) => p.state?.name === "Coach"), "fan sees coach");
+    await until(() => [...coach.peers.values()].some((p) => p.state?.name === "Fan"), "coach sees fan");
+    expect(fan.followable().map((p) => p.state?.name)).toEqual(["Coach"]);
+    expect(coach.followable()).toEqual([]); // the fan is view-only
+    coach.stop();
+    await until(() => fan.followable().length === 0, "coach left");
+    fan.stop();
+  });
+
   it("view links are read-only and revocation is final", async () => {
     const { board, owner_token } = await api.createBoard("roles");
     const { token: viewToken } = await api.mintLink(board, owner_token, "view", "audience");

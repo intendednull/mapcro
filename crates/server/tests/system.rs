@@ -111,11 +111,13 @@ struct Client {
     id: ClientId,
     ws: Option<Ws>,
     role: Option<LinkRole>,
+    /// Latest presence per peer, as relayed by the server.
+    peers: std::collections::BTreeMap<u64, mapcro_engine::wire::PeerPresence>,
 }
 
 impl Client {
     fn new(id: u128) -> Client {
-        Client { replica: None, id: ClientId(id), ws: None, role: None }
+        Client { replica: None, id: ClientId(id), ws: None, role: None, peers: Default::default() }
     }
 
     /// Connect and authenticate. Returns the close reason if the server refused.
@@ -124,7 +126,7 @@ impl Client {
         let known_seq = self.replica.as_ref().map(Replica::last_seq);
         send(&mut ws, &WireIn::Auth { board: board.into(), token: token.into(), known_seq }).await;
         match recv(&mut ws).await {
-            Some(WireOut::Ready { role, base }) => {
+            Some(WireOut::Ready { role, base, .. }) => {
                 self.role = Some(role);
                 if self.replica.is_none() {
                     let Base { doc, seq } = base.expect("a new client gets a base document");
@@ -163,6 +165,12 @@ impl Client {
         match recv(ws).await {
             Some(WireOut::Msg { msg }) => {
                 self.replica.as_mut().ok_or(None)?.receive(msg).expect("protocol");
+                Ok(())
+            }
+            Some(WireOut::Presence { peers }) => {
+                for p in peers {
+                    self.peers.insert(p.peer, p);
+                }
                 Ok(())
             }
             Some(WireOut::Closed { reason }) => Err(Some(reason)),
@@ -560,4 +568,68 @@ async fn idle_rooms_unload_and_reload_intact() {
     }
     assert_eq!(b.replica().confirmed(), a.replica().confirmed());
     assert_eq!(open_rooms(&server), 1);
+}
+
+async fn send_presence(c: &mut Client, state: mapcro_engine::wire::Presence) {
+    let ws = c.ws.as_mut().expect("ws");
+    send(ws, &WireIn::Presence { state }).await;
+}
+
+async fn until_peer(c: &mut Client, pred: impl Fn(&mapcro_engine::wire::PeerPresence) -> bool) -> mapcro_engine::wire::PeerPresence {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(p) = c.peers.values().find(|p| pred(p)) {
+            return p.clone();
+        }
+        assert!(Instant::now() < deadline, "presence never arrived: {:?}", c.peers);
+        c.pump_one().await.expect("connection");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn presence_is_relayed_with_server_stamped_roles() {
+    use mapcro_engine::wire::{MAX_LASER_POINTS, Presence};
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let (board, owner) = server.create_board();
+    let (_, view) = server.mint(&board, &owner, "view");
+    let mut coach = Client::new(0x71);
+    let mut viewer = Client::new(0x72);
+    coach.connect(server.port, &board, &owner).await.expect("coach");
+    viewer.connect(server.port, &board, &view).await.expect("viewer");
+
+    let cursor = WorldPos { x: 100, y: -200 };
+    send_presence(&mut coach, Presence { name: "Coach".into(), cursor: Some(cursor), ..Default::default() }).await;
+    let seen = until_peer(&mut viewer, |p| p.state.as_ref().is_some_and(|s| s.name == "Coach")).await;
+    assert_eq!(seen.role, LinkRole::Owner, "role comes from the link, not the client");
+    assert_eq!(seen.state.as_ref().and_then(|s| s.cursor), Some(cursor));
+
+    // A viewer's presence is relayed too, stamped view (so the UI won't offer to follow it).
+    send_presence(&mut viewer, Presence { name: "Fan".into(), laser: vec![cursor; 3], ..Default::default() }).await;
+    let fan = until_peer(&mut coach, |p| p.state.as_ref().is_some_and(|s| s.name == "Fan")).await;
+    assert_eq!(fan.role, LinkRole::View);
+
+    // A newcomer sees everyone already present straight away.
+    let mut late = Client::new(0x73);
+    late.connect(server.port, &board, &owner).await.expect("late");
+    until_peer(&mut late, |p| p.state.as_ref().is_some_and(|s| s.name == "Coach")).await;
+    until_peer(&mut late, |p| p.state.as_ref().is_some_and(|s| s.name == "Fan")).await;
+
+    // Leaving clears it for the others.
+    let coach_peer = seen.peer;
+    coach.drop_connection();
+    until_peer(&mut viewer, |p| p.peer == coach_peer && p.state.is_none()).await;
+
+    // Out-of-bounds presence is abuse.
+    let huge = Presence { laser: vec![cursor; MAX_LASER_POINTS + 1], ..Default::default() };
+    send_presence(&mut late, huge).await;
+    loop {
+        match late.pump_one().await {
+            Ok(()) => continue,
+            Err(reason) => {
+                assert_eq!(reason, Some(CloseReason::Abuse));
+                break;
+            }
+        }
+    }
 }

@@ -3,7 +3,7 @@
 //! before anyone hears about it (spec §9, "durable before ack").
 
 use crate::store::{Store, StoreError};
-use mapcro_engine::wire::{Base, CloseReason, WireOut};
+use mapcro_engine::wire::{Base, CloseReason, LinkRole, PeerPresence, Presence, WireOut};
 use mapcro_engine::{Authority, ClientMsg, ConnId, Effect, Role, ServerMsg};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -18,19 +18,25 @@ pub const IDLE_UNLOAD: std::time::Duration = std::time::Duration::from_secs(300)
 pub enum RoomCmd {
     Join {
         link_hash: String,
-        role: Role,
+        role: LinkRole,
         want_base: bool,
         reply: oneshot::Sender<Result<Joined, CloseReason>>,
     },
     Msg { conn: ConnId, msg: ClientMsg },
+    Presence { conn: ConnId, state: Presence },
     Leave { conn: ConnId },
     Revoke { link_hash: String },
 }
 
 struct Peer {
     link_hash: String,
+    role: LinkRole,
     out: mpsc::Sender<WireOut>,
+    presence: Option<Presence>,
 }
+
+/// Presence is batched: changes collect for this long, then go out as one frame per peer.
+const PRESENCE_BATCH: std::time::Duration = std::time::Duration::from_millis(50);
 
 struct Room {
     id: String,
@@ -40,6 +46,9 @@ struct Room {
     peers: HashMap<ConnId, Peer>,
     next_conn: u64,
     idle: std::time::Duration,
+    /// Peers whose presence changed (or who left) since the last batch.
+    presence_dirty: Vec<(u64, LinkRole)>,
+    flush_at: Option<tokio::time::Instant>,
 }
 
 pub type Joined = (ConnId, mpsc::Receiver<WireOut>, Option<Base>);
@@ -101,6 +110,8 @@ impl Rooms {
             peers: HashMap::new(),
             next_conn: 0,
             idle: self.idle,
+            presence_dirty: Vec::new(),
+            flush_at: None,
         };
         let registry = self.clone();
         let sender = tx.clone();
@@ -126,7 +137,7 @@ impl Rooms {
         &self,
         board: &str,
         link_hash: String,
-        role: Role,
+        role: LinkRole,
         want_base: bool,
     ) -> Result<(mpsc::Sender<RoomCmd>, Result<Joined, CloseReason>), RoomError> {
         for _ in 0..3 {
@@ -158,6 +169,16 @@ impl Rooms {
 impl Room {
     async fn run(mut self, mut rx: mpsc::Receiver<RoomCmd>) {
         loop {
+            if let Some(at) = self.flush_at {
+                tokio::select! {
+                    cmd = rx.recv() => match cmd {
+                        Some(cmd) => { if self.dispatch(cmd).await.is_err() { return self.fail_all(); } }
+                        None => return,
+                    },
+                    _ = tokio::time::sleep_until(at) => self.flush_presence(),
+                }
+                continue;
+            }
             let cmd = if self.peers.is_empty() {
                 match tokio::time::timeout(self.idle, rx.recv()).await {
                     Ok(Some(cmd)) => cmd,
@@ -171,15 +192,40 @@ impl Room {
                     None => return,
                 }
             };
+            if self.dispatch(cmd).await.is_err() {
+                return self.fail_all();
+            }
+        }
+    }
+
+    /// Crash-only: if storage fails we cannot promise durability, so stop serving this board.
+    /// Clients keep their pending work and reconnect to a fresh room.
+    fn fail_all(&mut self) {
+        tracing::error!(board = self.id, "storage failed; closing room");
+        let all: Vec<ConnId> = self.peers.keys().copied().collect();
+        for conn in all {
+            self.close(conn, CloseReason::StorageFailure);
+        }
+    }
+
+    async fn dispatch(&mut self, cmd: RoomCmd) -> Result<(), StoreError> {
+        {
             let result = match cmd {
                 RoomCmd::Join { link_hash, role, want_base, reply } => {
                     self.join(link_hash, role, want_base, reply);
                     Ok(())
                 }
                 RoomCmd::Msg { conn, msg } => self.message(conn, msg).await,
+                RoomCmd::Presence { conn, state } => {
+                    if let Some(peer) = self.peers.get_mut(&conn) {
+                        peer.presence = Some(state);
+                        let role = peer.role;
+                        self.mark_presence(conn, role);
+                    }
+                    Ok(())
+                }
                 RoomCmd::Leave { conn } => {
-                    self.peers.remove(&conn);
-                    self.authority.disconnect(conn);
+                    self.forget_peer(conn);
                     Ok(())
                 }
                 RoomCmd::Revoke { link_hash } => {
@@ -191,26 +237,67 @@ impl Room {
                     Ok(())
                 }
             };
-            if let Err(e) = result {
-                // Crash-only: if storage fails we cannot promise durability, so stop serving
-                // this board. Clients keep their pending work and reconnect to a fresh room.
-                tracing::error!(board = self.id, error = %e, "storage failed; closing room");
-                let all: Vec<ConnId> = self.peers.keys().copied().collect();
-                for conn in all {
-                    self.close(conn, CloseReason::StorageFailure);
-                }
-                return;
+            if let Err(e) = &result {
+                tracing::error!(board = self.id, error = %e, "storage write failed");
             }
+            result
+        }
+    }
+
+    fn mark_presence(&mut self, conn: ConnId, role: LinkRole) {
+        if !self.presence_dirty.iter().any(|(p, _)| *p == conn.0) {
+            self.presence_dirty.push((conn.0, role));
+        }
+        self.flush_at.get_or_insert_with(|| tokio::time::Instant::now() + PRESENCE_BATCH);
+    }
+
+    /// A peer left: drop it from the engine and tell the others it's gone.
+    fn forget_peer(&mut self, conn: ConnId) {
+        self.authority.disconnect(conn);
+        if let Some(peer) = self.peers.remove(&conn)
+            && peer.presence.is_some()
+        {
+            self.mark_presence(conn, peer.role);
+        }
+    }
+
+    fn flush_presence(&mut self) {
+        self.flush_at = None;
+        let batch: Vec<PeerPresence> = std::mem::take(&mut self.presence_dirty)
+            .into_iter()
+            .map(|(peer, role)| PeerPresence {
+                peer,
+                role,
+                state: self.peers.get(&ConnId(peer)).and_then(|p| p.presence.clone()),
+            })
+            .collect();
+        if batch.is_empty() {
+            return;
+        }
+        // Everyone gets the batch minus their own entry.
+        let slow: Vec<ConnId> = self
+            .peers
+            .iter()
+            .filter(|(c, p)| {
+                let mine: Vec<PeerPresence> = batch.iter().filter(|e| e.peer != c.0).cloned().collect();
+                !mine.is_empty() && p.out.try_send(WireOut::Presence { peers: mine }).is_err()
+            })
+            .map(|(c, _)| *c)
+            .collect();
+        for conn in slow {
+            self.close(conn, CloseReason::TooSlow);
         }
     }
 
     fn join(
         &mut self,
         link_hash: String,
-        role: Role,
+        role: LinkRole,
         want_base: bool,
         reply: oneshot::Sender<Result<Joined, CloseReason>>,
     ) {
+        let link_role = role;
+        let role: Role = role.engine_role();
         if self.peers.len() >= MAX_SESSIONS {
             let _ = reply.send(Err(CloseReason::Full));
             return;
@@ -219,11 +306,19 @@ impl Room {
         self.next_conn += 1;
         let (out, rx) = mpsc::channel(OUTBOX_DEPTH);
         self.authority.connect(conn, role);
-        self.peers.insert(conn, Peer { link_hash, out });
+        // Everyone already here, so the newcomer sees the room at once.
+        let here: Vec<PeerPresence> = self
+            .peers
+            .iter()
+            .filter_map(|(c, p)| p.presence.clone().map(|s| PeerPresence { peer: c.0, role: p.role, state: Some(s) }))
+            .collect();
+        if !here.is_empty() {
+            let _ = out.try_send(WireOut::Presence { peers: here });
+        }
+        self.peers.insert(conn, Peer { link_hash, role: link_role, out, presence: None });
         let base = want_base.then(|| self.base.clone());
         if reply.send(Ok((conn, rx, base))).is_err() {
-            self.peers.remove(&conn);
-            self.authority.disconnect(conn);
+            self.forget_peer(conn);
         }
     }
 
@@ -261,10 +356,10 @@ impl Room {
     }
 
     fn close(&mut self, conn: ConnId, reason: CloseReason) {
-        self.authority.disconnect(conn);
-        if let Some(peer) = self.peers.remove(&conn) {
+        if let Some(peer) = self.peers.get(&conn) {
             // Best effort: if the outbox is full the socket task notices the channel closing.
             let _ = peer.out.try_send(WireOut::Closed { reason });
         }
+        self.forget_peer(conn);
     }
 }

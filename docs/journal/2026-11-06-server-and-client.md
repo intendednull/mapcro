@@ -64,3 +64,15 @@ already assume committed state; the ad-hoc one didn't.
 - **Extractor:** part 1 (VPK, textures, `pack.json`) is delegated to a DeepSeek session, with VRF's
   CLI as the oracle. Part 2 (binary KV3 for the hero list and map entities) follows.
 - **Security review:** a fresh Opus reviewer is running against the server and the link model.
+
+## Update: the extended model, checked exhaustively
+
+TLC on the extended model (rejection, `pending_from`, and properties `acksInOrder` and
+`rejectedNeverLogged`) finished with no error:
+
+- **151,407,664 distinct states** (518 million generated)
+- graph depth 32
+- 47 min 38 s on 16 cores
+
+The earlier model had 65 million states. Adding one action (re-creating a deleted record) and the
+rejection paths more than doubled the space.

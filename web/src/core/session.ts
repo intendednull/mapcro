@@ -8,6 +8,8 @@ import type { Op } from "../gen/Op";
 import type { RecordId } from "../gen/RecordId";
 import type { WireIn } from "../gen/WireIn";
 import type { WireOut } from "../gen/WireOut";
+import type { PeerPresence } from "../gen/PeerPresence";
+import type { Presence } from "../gen/Presence";
 import { BoardReplica, newClientId, newClientSecret } from "../wasm/mapcro_wasm.js";
 import type { Persist } from "./persist";
 import type { SaveStatus, Update } from "./update";
@@ -51,6 +53,16 @@ export class BoardSession {
   canRedo = false;
   /** Local refusals and server rejections, newest last, for the UI to explain. */
   readonly problems: string[] = [];
+  /** Everyone else in the room, by peer id. Roles are stamped by the server. */
+  readonly peers = new Map<number, PeerPresence>();
+  /** Our own peer id in this room (from Ready); others' `following` may point at it. */
+  myPeer: number | undefined;
+
+  private presence: Presence = {
+    name: "", color: 0, scene: null, floor: "surface", view: null, cursor: null, laser: [], drag: null, following: null,
+  };
+  private presenceTimer: ReturnType<typeof setTimeout> | undefined;
+  private presenceSentAt = 0;
 
   private replica: BoardReplica | undefined;
   /** Set from the link's role on Ready. */
@@ -85,6 +97,23 @@ export class BoardSession {
 
   edit(ops: Op[]): void {
     this.local((r) => r.edit(JSON.stringify(ops)));
+  }
+
+  /** Update what others see of us. Sent at most every 50 ms; the latest state always wins. */
+  setPresence(patch: Partial<Presence>): void {
+    this.presence = { ...this.presence, ...patch };
+    if (this.presenceTimer !== undefined) return;
+    const wait = Math.max(0, this.presenceSentAt + 50 - Date.now());
+    this.presenceTimer = setTimeout(() => {
+      this.presenceTimer = undefined;
+      this.presenceSentAt = Date.now();
+      if (this.live) this.send({ t: "presence", state: this.presence });
+    }, wait);
+  }
+
+  /** People this session may follow: anyone with edit rights (spec §8). */
+  followable(): PeerPresence[] {
+    return [...this.peers.values()].filter((p) => p.state !== null && p.role !== "view");
   }
 
   undo(): void {
@@ -181,6 +210,9 @@ export class BoardSession {
         for (const f of u.frames) this.send(f);
         this.live = true;
         this.readOnly = frame.role === "view";
+        this.peers.clear(); // the room sends everyone present right after Ready
+        this.myPeer = frame.peer;
+        this.send({ t: "presence", state: this.presence });
         this.attempt = 0;
         this.connection = { kind: "live", role: frame.role };
         this.o.onChange?.(this);
@@ -193,6 +225,14 @@ export class BoardSession {
         const m = frame.msg;
         if (typeof m === "object" && "Rejected" in m) this.problems.push(`rejected: ${JSON.stringify(m.Rejected.reason)}`);
         this.persistSoon();
+        return;
+      }
+      case "presence": {
+        for (const p of frame.peers) {
+          if (p.state) this.peers.set(p.peer, p);
+          else this.peers.delete(p.peer);
+        }
+        this.o.onChange?.(this);
         return;
       }
       case "closed": {

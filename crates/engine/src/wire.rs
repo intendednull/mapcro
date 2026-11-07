@@ -4,7 +4,7 @@
 //! client has none) and the engine protocol (`ClientMsg`/`ServerMsg`) runs from there.
 
 use crate::protocol::{ClientMsg, ServerMsg};
-use mapcro_schema::Doc;
+use mapcro_schema::{Doc, RecordId, WorldPos};
 use serde::{Deserialize, Serialize};
 
 /// What a link lets you do. `Owner` can also mint and revoke links.
@@ -38,14 +38,19 @@ pub enum WireIn {
         known_seq: Option<u64>,
     },
     Msg { msg: ClientMsg },
+    /// This client's presence, replacing its previous one. Ephemeral: never stored.
+    Presence { state: Presence },
 }
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum WireOut {
-    Ready { role: LinkRole, base: Option<Base> },
+    /// `peer` is this connection's id in presence batches (so the UI can tell "following you").
+    Ready { role: LinkRole, base: Option<Base>, peer: u64 },
     Msg { msg: ServerMsg },
+    /// Presence changes since the last batch; `state: null` means the peer left.
+    Presence { peers: Vec<PeerPresence> },
     /// The server is closing this connection.
     Closed { reason: CloseReason },
 }
@@ -79,4 +84,78 @@ pub enum CloseReason {
     Full,
     /// Too many connections from this address.
     TooMany,
+}
+
+/// What one person is doing right now (spec §8). Sent by its owner at up to ~20 Hz; relayed to
+/// everyone in the room; never stored.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Presence {
+    pub name: String,
+    /// Index into the UI's presence palette.
+    pub color: u8,
+    pub scene: Option<RecordId>,
+    pub floor: Floor,
+    /// Map centre (world units) and zoom, so followers can mirror the view.
+    pub view: Option<Viewport>,
+    pub cursor: Option<WorldPos>,
+    /// The laser pointer's recent trail, oldest first.
+    pub laser: Vec<WorldPos>,
+    /// A drag in progress: which record, and where it is now (spec §4a: preview, then one op).
+    pub drag: Option<DragPreview>,
+    /// The peer this person is following, if any.
+    pub following: Option<u64>,
+}
+
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Floor {
+    #[default]
+    Surface,
+    Tunnels,
+    Rat,
+}
+
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Viewport {
+    pub center: WorldPos,
+    /// Thousandths: 1000 = fit the map.
+    pub zoom: u32,
+}
+
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DragPreview {
+    pub id: RecordId,
+    pub pos: WorldPos,
+}
+
+/// One peer in a presence batch. `peer` is per connection (not the client id), and `role` is
+/// stamped by the server from the peer's link, so nobody can pose as an editor to be followed.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PeerPresence {
+    pub peer: u64,
+    pub role: LinkRole,
+    pub state: Option<Presence>,
+}
+
+pub const MAX_LASER_POINTS: usize = 48;
+
+impl Presence {
+    /// Bounds a presence update must satisfy before it is relayed.
+    pub fn is_valid(&self) -> bool {
+        let m = mapcro_schema::LIMITS.max_coord;
+        let ok_pos = |p: &WorldPos| (-m..=m).contains(&p.x) && (-m..=m).contains(&p.y);
+        self.name.chars().count() <= mapcro_schema::LIMITS.max_name
+            && !self.name.chars().any(char::is_control)
+            && self.color < 16
+            && self.laser.len() <= MAX_LASER_POINTS
+            && self.laser.iter().all(ok_pos)
+            && self.cursor.as_ref().is_none_or(ok_pos)
+            && self.drag.as_ref().is_none_or(|d| ok_pos(&d.pos))
+            && self.view.as_ref().is_none_or(|v| ok_pos(&v.center) && (100..=20_000).contains(&v.zoom))
+    }
 }

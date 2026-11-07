@@ -96,7 +96,7 @@ async fn session(app: AppState, mut socket: WebSocket) {
     };
 
     // 2. Join the room.
-    let (room, joined) = match app.rooms.join(&board, hash.clone(), link.role.engine_role(), known_seq.is_none()).await {
+    let (room, joined) = match app.rooms.join(&board, hash.clone(), link.role, known_seq.is_none()).await {
         Ok(j) => j,
         Err(e) => {
             tracing::error!(board, error = %e, "room failed to open");
@@ -117,7 +117,7 @@ async fn session(app: AppState, mut socket: WebSocket) {
             return send_closed(&mut socket, CloseReason::Revoked).await;
         }
     }
-    if socket.send(frame(&WireOut::Ready { role: link.role, base })).await.is_err() {
+    if socket.send(frame(&WireOut::Ready { role: link.role, base, peer: conn.0 })).await.is_err() {
         let _ = room.send(crate::room::RoomCmd::Leave { conn }).await;
         return;
     }
@@ -150,6 +150,11 @@ async fn session(app: AppState, mut socket: WebSocket) {
                         match serde_json::from_str::<WireIn>(&t) {
                             Ok(WireIn::Msg { msg }) => {
                                 if room.send(crate::room::RoomCmd::Msg { conn, msg }).await.is_err() {
+                                    break Some(CloseReason::StorageFailure);
+                                }
+                            }
+                            Ok(WireIn::Presence { state }) if state.is_valid() => {
+                                if room.send(crate::room::RoomCmd::Presence { conn, state }).await.is_err() {
                                     break Some(CloseReason::StorageFailure);
                                 }
                             }
