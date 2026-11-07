@@ -121,7 +121,11 @@ async fn session(app: AppState, mut socket: WebSocket) {
     // 1. Authenticate.
     let first = match timeout(AUTH_TIMEOUT, socket.recv()).await {
         Ok(Some(Ok(Message::Text(t)))) => t,
-        _ => return send_closed(&mut socket, CloseReason::Unauthorized).await,
+        // A slow first frame says nothing about the link: a briefly frozen tab must be able to
+        // retry, so this is transient, not `Unauthorized` (soak 2026-11-07).
+        Err(_) => return send_closed(&mut socket, CloseReason::TooSlow).await,
+        Ok(None | Some(Err(_))) => return,
+        Ok(Some(Ok(_))) => return send_closed(&mut socket, CloseReason::Unauthorized).await,
     };
     let Ok(WireIn::Auth { board, token, known_seq }) = serde_json::from_str::<WireIn>(&first) else {
         return send_closed(&mut socket, CloseReason::Unauthorized).await;

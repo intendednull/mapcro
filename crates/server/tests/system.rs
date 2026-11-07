@@ -1407,3 +1407,20 @@ async fn pages_are_never_stale_and_hashed_assets_cache_forever() {
         Some("public, max-age=31536000, immutable")
     );
 }
+
+/// A tab that freezes before authenticating (a backgrounded phone, a long GC) is told it was
+/// slow, which clients retry, not `Unauthorized`, which they treat as final (soak 2026-11-07).
+#[tokio::test]
+async fn a_silent_socket_is_closed_as_slow_not_unauthorized() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let mut ws = open_ws(server.port, ORIGIN).await.expect("open");
+    let closed = loop {
+        match tokio::time::timeout(Duration::from_secs(15), ws.next()).await.expect("closed within the auth timeout") {
+            Some(Ok(Message::Text(t))) => break serde_json::from_str::<WireOut>(t.as_str()).ok(),
+            Some(Ok(_)) => continue,
+            _ => break None,
+        }
+    };
+    assert_eq!(closed, Some(WireOut::Closed { reason: CloseReason::TooSlow }));
+}
