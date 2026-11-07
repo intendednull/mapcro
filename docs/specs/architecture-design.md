@@ -155,11 +155,14 @@ presence   = other users' cursors and drag previews                   (ephemeral
    typestate on the server, `Connecting → Live`, and only `Live` connections get broadcasts.
    - **Catch-up is streamed, not queued.** The authority answers a hello with a catch-up *range*
      in the connection's outbox, between the rejections and the first live broadcast. The socket
-     fetches that range from the room a page (about 64 KiB) at a time and sends each page before
-     fetching the next, so a history of any length goes out at the client's pace. Live entries
+     reads that range from storage a page (about 64 KiB) at a time and sends each page before
+     reading the next. Every entry in the range was durable before the range was queued, so
+     storage has all of it, and a history of any length goes out at the client's pace. The room
+     doesn't hold the log at all (§9); the engine's authority is the model's server minus its log,
+     which the host keeps durably and appends on each `Effect::Logged`. Live entries
      wait behind the range in the outbox, so the client still hears rejections, then catch-up,
      then live traffic, the order `LIVE_AFTER_HELLO` and `REJECT_BEFORE_CATCHUP` model. The
-     outbox (4096 frames) bounds only how far behind *live* traffic a client may fall before it is
+     outbox (4096 frames, 256 KiB) bounds only how far behind *live* traffic a client may fall before it is
      dropped. Before this, a board past 4096 ops dropped every fresh client (security review
      2026-11-07, H-A).
    Without this, an op applied between the reconnect and the `hello` reaches the client before its
@@ -238,6 +241,22 @@ at about 20 Hz; the server coalesces them per room and relays.
   - `boards`: id, schema version, head seq, latest snapshot and the seq it covers
   - `ops`: board id, seq, client id, client seq, transaction JSON, time. Append-only.
   - `links`: token hash, board id, role, label, created, revoked
+- **Stored rows are compressed JSON.** Each op row and base document is the engine's JSON,
+  compressed with zstd and a static 16 KiB dictionary trained from the simulation (`just zdict`,
+  reproducible byte for byte; `crates/server/dict/ops-v1.zdict`). JSON stays the inner format so
+  `#[serde(default)]` field additions keep working (a positional format like postcard would not).
+  Each row names its codec (`json`, `zstd-v1`): rows from before schema v4 are JSON and still read,
+  a row that wouldn't shrink is stored as JSON, and a new dictionary is a new codec beside the old.
+  On a realistic session this stores 2.7× smaller than JSON. (A dictionary trained on the same
+  session reaches 4.6×, but only because it learns that board's ids; one trained on another
+  session gets 2.7× too. Whole-log compression would get ~6×; that belongs with snapshots.)
+- **The log lives on disk only.** The authority keeps the document, not the log: each accepted
+  transaction leaves as an `Effect::Logged`, the room writes it, and catch-up pages are read back
+  from SQLite on a second, read-only connection (§5). A cold load replays the rows one at a time
+  to rebuild the document and keeps none of them. The base document isn't held either; a fresh
+  client's comes from storage. A loaded room costs its document plus its client and connection
+  tables. (Measured: a room over 8 MB of history grew the server by 3.5 MB, against 11.6 MB when
+  it held the log.)
 - **Durable before ack.** A transaction is committed to `ops` before the client hears "accepted".
   Commits are grouped per event-loop tick, so throughput doesn't cost durability.
 - **Snapshots:** after 500 ops, or when a room goes idle, the server writes a full snapshot.
@@ -258,7 +277,8 @@ at about 20 Hz; the server coalesces them per room and relays.
   closes rather than acknowledge what it couldn't save (crash-only). Rejections are stored as well,
   so a restart doesn't turn a client's next edit into a sequence gap.
 - **Not yet built:** snapshots and compaction. A load currently replays the full log; that is fine
-  for boards with tens of thousands of ops. Compaction needs a protocol addition: a replica far
+  for boards within the caps below (measured: the largest documents' 54 MB of history loads in
+  about a third of a second). Compaction needs a protocol addition: a replica far
   behind must rebase its pending work onto a fresh base. That change goes into the model first.
 - **Until then, history is capped (interim, security review 2026-11-07, C1).** Without compaction
   the op log is the board's whole history, and one anonymous client could grow it until a cold
@@ -268,11 +288,12 @@ at about 20 Hz; the server coalesces them per room and relays.
   |---|---|---|---|
   | Transaction size (JSON) | 64 KiB | (schema `Limits::max_tx_bytes`) | Twice the largest legal op: an undo of a full note carries 4000 chars twice, at most 4 bytes each, about 32 KB. A test builds the worst ops and checks the bound |
   | WebSocket frame | 65 KiB | (derived) | `max_tx_bytes` plus 1 KiB for the frame around it. A tx just over the limit gets a typed `TxTooLarge`; only frames no honest client sends close the socket. Was 256 KiB |
-  | Transactions per board | 20,000 | `BOARD_MAX_OPS` | Tens of thousands is the load-time budget above; 20,000 is about 5.5 minutes at the 60/s session limit, or a long coaching session of honest edits (notes save on blur) |
-  | History bytes per board | 4 MiB | `BOARD_MAX_BYTES` | A busy honest board is well under 1 MiB (a drag is ~100 bytes, a stroke a few KB). Bounds what a cold load reads |
+  | Transactions per board | 100,000 | `BOARD_MAX_OPS` | Was 20,000. History is now on disk only, so this bounds disk and cold-load time, not memory. 100,000 is many coaching sessions of honest edits (notes save on blur) |
+  | History bytes per board (as stored) | 20 MiB | `BOARD_MAX_BYTES` | Was 4 MiB of JSON. Counted compressed: a realistic edit stores at ~107 bytes (288 as JSON), so 100,000 realistic edits take ~11 MB and the op cap binds first. Adversarial history (60 KB of random text per edit) fills it at ~35 MB of JSON, 22 MB on disk |
   | Editing clients per board | 1024 | `BOARD_MAX_CLIENTS` | Distinct devices that have edited. View links register nothing (§11) |
   | Stored rejections per board | 4096 | `BOARD_MAX_REJECTIONS` | Sixteen clients' worth of the 256 each may leave; past it, a refused transaction closes its sender instead of being stored |
-  | Boards in memory | 32 | `MAX_OPEN_ROOMS` | Measured: 32 full boards opened at once peak at 155 MB, and filling 40 at once at 219 MB, inside the infra default `MemoryMax=256M` ([journal](../journal/2026-11-07-security-fixes.md)) |
+  | Boards in memory | 256 | `MAX_OPEN_ROOMS` | Was 32. A room no longer holds its history: a board full of history costs ~1.6 MB, a small one ~0.3 MB. 256 small rooms opened at once are 87 MB |
+  | Room memory | 128 MiB of estimates | `ROOM_MEMORY_BYTES` | A room's cost is its document, up to ~20 MB at the schema's limits (5000 records of 512-point strokes), so rooms are budgeted by estimate, not only counted. Rooms of the largest documents fill it at 8 open, 180 MB peak: 30% headroom under `MemoryMax=256M` ([journal](../journal/2026-11-07-security-fixes.md)) |
   | Boards stored | 5000 | `MAX_BOARDS` | Creation past it is refused with 507 |
   | Database size | 2 GiB | `MAX_STORAGE_BYTES` | Creation past it is refused with 507, and edits with `ServerFull` |
 
@@ -281,10 +302,16 @@ at about 20 Hz; the server coalesces them per room and relays.
   history (§11). A cold load reads one row at a time and refuses a board over the caps rather
   than reading it, so a board written under larger caps reports a storage failure and is logged.
   Raising the cap opens it again. Lowering a cap below a stored board does the same to that board.
-  When the open-room cap is reached, an idle room (nobody connected) unloads early to make way.
-  If every room is in use, the join is refused with `busy` and the client retries with backoff.
-  Broadcast frames are serialized once and shared by every peer's outbox, so a slow reader costs
-  pointers, not copies of the history. On the host, systemd restarts a failed server with
+  When the open-room cap or the memory budget is reached, an idle room (nobody connected)
+  unloads early to make way. If every room is in use, the join is refused with `busy` and the
+  client retries with backoff. A room's estimate (`Doc::approx_heap_bytes` plus a fixed base for
+  its tables and one outbox backlog) is taken at load and kept current as it's edited; an edit
+  that would take the server past the budget is refused as `ServerFull` while an idle room is
+  asked to unload. The budget is calibrated with `MALLOC_ARENA_MAX=2`, which the module and the
+  image set: glibc's default arenas measured ~1.5× the estimates resident, against ~1.3× with two.
+  Broadcast frames are serialized once and shared by every peer's outbox, and each outbox is
+  capped at 4096 frames and 256 KiB, so a peer that stops reading is dropped before it pins
+  memory. On the host, systemd restarts a failed server with
   exponential backoff (2 s doubling to 2 min) and gives up after 8 starts in 15 minutes, so a
   crash loop stops rather than spinning.
 
@@ -341,7 +368,7 @@ later bind owner capabilities to a person.
 | Cross-site WebSocket hijacking | `Origin` allow-list on upgrade; no cookies, so no ambient authority |
 | XSS via names, notes, callouts | All user text rendered as text, never HTML; strict CSP; no user-supplied URLs or images |
 | Storage spam (anonymous board creation) | Per-IP creation rate limit plus a global hourly cap, max board size and history quota, total board and database caps (§9), idle-board expiry (Q3, not built) |
-| Room flooding | Max sessions per room, sockets per address, presence rate limit, message size cap, open-room cap with early unload of idle rooms |
+| Room flooding | Max sessions per room, sockets per address, presence rate limit, message size cap, open-room cap and room memory budget with early unload of idle rooms, outbox caps in frames and bytes |
 | View link as a write primitive | A view connection registers no client id and stores nothing; only an id someone registered by editing is checked against its secret (security review 2026-11-07, H-B) |
 | Hosting abusive content | No user uploads at all; text only, with caps. Asset packs are placed in the data directory by the server operator, never through HTTP |
 
@@ -349,7 +376,7 @@ later bind owner capabilities to a person.
 /64, and someone with a routed /56 or /48 holds many /64s. That is left as is (security review
 2026-11-07, M-A): the global caps bound the damage whatever the address count. Creation is capped
 per hour server-wide, total boards and database size are capped, each board's history is capped,
-and memory is capped by the open-room limit. Rotation lets one party use up those shared budgets
+and memory is capped by the open-room limit and the room memory budget. Rotation lets one party use up those shared budgets
 faster, so its cost is availability (new boards refused, joins `busy`), never a crash or a full
 disk. Widening the key to /56 would penalise everyone behind a shared prefix; revisit with
 proof-of-work or accounts if rotation is seen in practice.

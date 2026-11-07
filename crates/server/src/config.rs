@@ -19,18 +19,22 @@ pub struct Config {
     pub create_global_per_hour: u32,
     /// How long an empty room stays loaded.
     pub room_idle: std::time::Duration,
-    /// Per-board caps: history length and bytes, distinct editing clients (spec §9; security
-    /// review 2026-11-07, C1 and H-B). `BOARD_MAX_OPS` (20,000), `BOARD_MAX_BYTES` (4 MiB),
-    /// `BOARD_MAX_CLIENTS` (1024), `BOARD_MAX_REJECTIONS` (4096 stored rejections). A full board
-    /// refuses edits with `BoardFull` and stays readable.
-    /// A cold load reads at most this much, so a board can't be made too big to open.
+    /// Per-board caps: history length and stored bytes, distinct editing clients (spec §9;
+    /// security review 2026-11-07, C1 and H-B). `BOARD_MAX_OPS` (100,000), `BOARD_MAX_BYTES`
+    /// (20 MiB as stored, compressed: ~100,000 realistic edits take ~11 MB), `BOARD_MAX_CLIENTS`
+    /// (1024), `BOARD_MAX_REJECTIONS` (4096 stored rejections). A full board refuses edits with
+    /// `BoardFull` and stays readable. History is on disk only, so these bound disk and cold-load
+    /// time, not memory; a cold load reads at most this much.
     pub quota: mapcro_engine::Quota,
-    /// Boards loaded in memory at once (`MAX_OPEN_ROOMS`, 32). Measured with every room a full
-    /// board: 155 MB peak opening 32 at once, 219 MB filling 40 at once, inside the infra's
-    /// `MemoryMax=256M` (M-B; journal 2026-11-07-security-fixes). At the cap, an idle room is
-    /// unloaded early; if none is idle, joins are refused with `busy`.
+    /// Boards loaded in memory at once (`MAX_OPEN_ROOMS`, 256). Measured: 256 small rooms at once
+    /// are 87 MB resident. At the cap, an idle room is unloaded early; if none is idle, joins
+    /// are refused with `busy` (M-B; journal 2026-11-07-security-fixes).
     pub max_open_rooms: usize,
-    /// ROOM_MEMORY_DOC
+    /// What open rooms may occupy together by their estimates (`ROOM_MEMORY_BYTES`, 128 MiB). A
+    /// room costs its document (kilobytes, up to ~20 MB at the schema's limits) plus a fixed
+    /// base. Measured with `MALLOC_ARENA_MAX=2`: rooms of the largest documents fill the budget
+    /// at 8 rooms and 180 MB peak, inside `MemoryMax=256M` with 30% headroom. Past it, idle rooms
+    /// unload, joins are `busy`, and edits that grow memory are refused as `ServerFull`.
     pub room_memory_bytes: usize,
     /// Boards the server stores (`MAX_BOARDS`, 5000). Creation past it is refused with 507.
     pub max_boards: u64,
