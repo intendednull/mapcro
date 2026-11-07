@@ -23,7 +23,7 @@ use std::fmt::Write as _;
 pub struct Config {
     /// Honest editing clients (each with a behaviour).
     pub editors: usize,
-    /// Clients holding a view-only link who still try to edit (the server must refuse).
+    /// Clients holding a view-only link. Honest ones only watch.
     pub viewers: usize,
     /// Raw clients that send hand-crafted, mostly invalid transactions.
     pub attackers: usize,
@@ -34,7 +34,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { editors: 6, viewers: 1, attackers: 1, steps: 400, fault_rate: 4 }
+        Config { editors: 6, viewers: 1, attackers: 2, steps: 400, fault_rate: 4 }
     }
 }
 
@@ -74,7 +74,7 @@ impl std::fmt::Display for Failure {
 pub(crate) enum Driver {
     Replica { replica: Box<Replica>, behaviour: Behaviour },
     /// No replica: tracks its own cseq so it can send anything at all.
-    Attacker { client: ClientId, next_cseq: u64 },
+    Attacker { client: ClientId, next_cseq: u64, secret: String },
 }
 
 pub(crate) struct SimClient {
@@ -99,6 +99,7 @@ pub struct World {
     /// What the real server would have on disk: genesis plus durable effects.
     pub(crate) genesis: Doc,
     pub(crate) stored_rejections: Vec<(ClientId, u64, Reject)>,
+    pub(crate) stored_clients: Vec<(ClientId, [u8; 32])>,
 }
 
 pub fn run(seed: u64, config: &Config) -> Result<Stats, Failure> {
@@ -122,7 +123,7 @@ impl World {
         let mut clients = Vec::new();
         for i in 0..config.editors {
             let behaviour = Behaviour::for_index(i);
-            let replica = Replica::new(ClientId(rng.random()), doc.clone(), 0);
+            let replica = Replica::new(ClientId(rng.random()), format!("{:032x}", rng.random::<u128>()), doc.clone(), 0);
             clients.push(SimClient {
                 name: format!("e{i}:{behaviour:?}"),
                 role: Role::Edit,
@@ -133,7 +134,7 @@ impl World {
             });
         }
         for i in 0..config.viewers {
-            let replica = Replica::new(ClientId(rng.random()), doc.clone(), 0);
+            let replica = Replica::new(ClientId(rng.random()), format!("{:032x}", rng.random::<u128>()), doc.clone(), 0);
             clients.push(SimClient {
                 name: format!("v{i}"),
                 role: Role::View,
@@ -144,10 +145,12 @@ impl World {
             });
         }
         for i in 0..config.attackers {
+            // Odd attackers hold a view link, even ones an edit link.
+            let role = if i % 2 == 1 { Role::View } else { Role::Edit };
             clients.push(SimClient {
-                name: format!("x{i}"),
-                role: Role::Edit,
-                driver: Driver::Attacker { client: ClientId(rng.random()), next_cseq: 0 },
+                name: format!("x{i}:{role:?}"),
+                role,
+                driver: Driver::Attacker { client: ClientId(rng.random()), next_cseq: 0, secret: format!("{:032x}", rng.random::<u128>()) },
                 conn: None,
                 up: VecDeque::new(),
                 down: VecDeque::new(),
@@ -159,6 +162,7 @@ impl World {
             oracle: checks::Oracle::new(doc.clone()),
             genesis: doc.clone(),
             stored_rejections: Vec::new(),
+            stored_clients: Vec::new(),
             authority: Authority::new(doc),
             clients,
             next_conn: 0,
@@ -226,6 +230,9 @@ impl World {
     /// rebuilt from storage alone (genesis, the log, stored rejections), as the real server does.
     fn restart_server(&mut self) {
         let mut fresh = Authority::new(self.genesis.clone());
+        for (client, h) in self.stored_clients.clone() {
+            fresh.replay_client(client, h);
+        }
         for tx in self.authority.log().to_vec() {
             if let Err(r) = fresh.replay(tx) {
                 // Surfaces as an oracle mismatch on the next check.
@@ -283,9 +290,10 @@ impl World {
         c.down.clear();
         match &mut c.driver {
             Driver::Replica { replica, .. } => c.up.extend(replica.connect()),
-            Driver::Attacker { client, next_cseq } => {
+            Driver::Attacker { client, next_cseq, secret } => {
                 c.up.push_back(ClientMsg::Hello(mapcro_engine::Hello {
                     client: *client,
+                    secret: secret.clone(),
                     last_seq: 0,
                     pending_from: *next_cseq,
                 }));
@@ -306,9 +314,16 @@ impl World {
         let before = self.authority.doc().clone();
         let log_before = self.authority.log().len();
         let label = describe_client_msg(&msg);
-        let (out, effect) = self.authority.handle(conn, msg);
-        if let Effect::Rejected { client, cseq, reason } = effect {
-            self.stored_rejections.push((client, cseq, reason));
+        let (out, effects) = self.authority.handle(conn, msg);
+        for effect in effects {
+            match effect {
+                Effect::Rejected { client, cseq, reason } => self.stored_rejections.push((client, cseq, reason)),
+                Effect::ClientRegistered { client, secret_hash } => self.stored_clients.push((client, secret_hash)),
+                Effect::RejectionsResolved { client, below } => {
+                    self.stored_rejections.retain(|(c, k, _)| *c != client || *k >= below);
+                }
+                Effect::Logged { .. } => {}
+            }
         }
         let name = self.clients[i].name.clone();
         self.log(format!("server <- {name}: {label}"));
@@ -367,7 +382,9 @@ impl World {
     fn quiesce(&mut self) -> Result<(), String> {
         self.log("--- quiesce ---");
         for i in 0..self.clients.len() {
-            self.reconnect(i);
+            if matches!(self.clients[i].driver, Driver::Replica { .. }) {
+                self.reconnect(i);
+            }
         }
         for _round in 0..10_000 {
             let mut moved = false;
@@ -384,9 +401,12 @@ impl World {
             if !moved {
                 return Ok(());
             }
-            // An attacker that got itself disconnected comes back, so its queue drains too.
+            // Honest clients that were thrown off (e.g. superseded) come back; attackers that
+            // were cut off stay off.
             for i in 0..self.clients.len() {
-                self.reconnect(i);
+                if matches!(self.clients[i].driver, Driver::Replica { .. }) {
+                    self.reconnect(i);
+                }
             }
         }
         Err("did not quiesce".into())

@@ -6,6 +6,12 @@ import type { ClientId } from "./ClientId";
  */
 export type Hello = { client: ClientId, 
 /**
+ * Proves this connection speaks for `client`. Client ids are public (every entry carries
+ * one); the secret never leaves the client except in its own hello. The first hello
+ * registers it; later ones must match (security review 2026-11-06, H1).
+ */
+secret: string, 
+/**
  * Entries the client already has: the server sends everything after this.
  */
 last_seq: number, 

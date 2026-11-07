@@ -169,9 +169,10 @@ describe("board sessions against the real server", () => {
     const [p0] = players(v);
     const before = pos(v, p0!);
     v.edit(move(p0!, 999));
-    await until(() => v.problems.some((p) => p.includes("Forbidden")), "rejection");
-    await until(() => v.status.kind === "saved", "rejected edit dropped");
+    expect(v.problems).toContain("this link is view-only");
+    expect(v.status.kind).toBe("saved");
     expect(pos(v, p0!)).toBe(before);
+    expect(v.connection.kind).toBe("live"); // nothing was sent, so nothing was cut off
 
     await api.revoke(board, owner_token, link_id);
     await until(() => e.connection.kind === "closed", "revoked session closed");

@@ -128,7 +128,7 @@ impl Client {
                 self.role = Some(role);
                 if self.replica.is_none() {
                     let Base { doc, seq } = base.expect("a new client gets a base document");
-                    self.replica = Some(Replica::new(self.id, doc, seq));
+                    self.replica = Some(Replica::new(self.id, format!("secret-{:032x}", self.id.0), doc, seq));
                 }
             }
             Some(WireOut::Closed { reason }) => return Err(Some(reason)),
@@ -246,11 +246,99 @@ async fn view_links_cannot_write() {
     let mut v = Client::new(0x1);
     v.connect(server.port, &board, &view).await.expect("connect");
     assert_eq!(v.role, Some(LinkRole::View));
+    // An honest UI never sends this; the server treats it as abuse and stores nothing.
     let ops = move_op(v.replica(), 0);
     v.edit(ops).await;
-    v.pump_one().await.expect("reply");
-    assert_eq!(v.replica().rejected(), &[(0, Reject::Forbidden)]);
-    assert_eq!(v.replica().last_seq(), 0, "nothing was logged");
+    let ws = v.ws.as_mut().expect("ws");
+    match recv(ws).await {
+        Some(WireOut::Msg { msg: ServerMsg::Fatal(_) }) => {}
+        other => panic!("expected Fatal, got {other:?}"),
+    }
+    let mut o = Client::new(0x2);
+    o.connect(server.port, &board, &owner).await.expect("owner");
+    assert_eq!(o.replica().last_seq(), 0, "nothing was logged");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn client_ids_cannot_be_hijacked() {
+    // Security review H1: client ids are public (every entry carries one). Claiming one without
+    // its secret must fail and must not disturb the real client.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let (board, owner) = server.create_board();
+    let (_, view) = server.mint(&board, &owner, "view");
+    let mut victim = Client::new(0x51);
+    victim.connect(server.port, &board, &owner).await.expect("victim");
+    let ops = move_op(victim.replica(), 0);
+    victim.edit(ops).await;
+    victim.until_saved().await;
+
+    let mut ws = open_ws(server.port, ORIGIN).await.expect("ws");
+    send(&mut ws, &WireIn::Auth { board: board.clone(), token: view.clone(), known_seq: Some(0) }).await;
+    assert!(matches!(recv(&mut ws).await, Some(WireOut::Ready { .. })));
+    let hello = mapcro_engine::Hello { client: ClientId(0x51), secret: "guess".into(), last_seq: 0, pending_from: 0 };
+    send(&mut ws, &WireIn::Msg { msg: ClientMsg::Hello(hello) }).await;
+    match recv(&mut ws).await {
+        Some(WireOut::Msg { msg: ServerMsg::Fatal(why) }) => assert!(why.contains("another client"), "{why}"),
+        other => panic!("expected Fatal, got {other:?}"),
+    }
+    // The victim is still connected and can still edit.
+    let ops = move_op(victim.replica(), 1);
+    victim.edit(ops).await;
+    victim.until_saved().await;
+
+    // And the binding survives a restart.
+    let (d, port) = server.kill9();
+    victim.drop_connection();
+    let server = Server::start(&d, Some(port));
+    let mut ws = open_ws(server.port, ORIGIN).await.expect("ws");
+    send(&mut ws, &WireIn::Auth { board: board.clone(), token: view, known_seq: Some(0) }).await;
+    assert!(matches!(recv(&mut ws).await, Some(WireOut::Ready { .. })));
+    let hello = mapcro_engine::Hello { client: ClientId(0x51), secret: "guess".into(), last_seq: 0, pending_from: 0 };
+    send(&mut ws, &WireIn::Msg { msg: ClientMsg::Hello(hello) }).await;
+    assert!(matches!(recv(&mut ws).await, Some(WireOut::Msg { msg: ServerMsg::Fatal(_) })));
+    victim.connect(server.port, &board, &owner).await.expect("victim reconnects with its secret");
+    victim.until_saved().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn owner_token_rotation() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let (board, owner) = server.create_board();
+    let (_, edit) = server.mint(&board, &owner, "edit");
+    let mut o = Client::new(0x61);
+    o.connect(server.port, &board, &owner).await.expect("owner");
+    let v: serde_json::Value = ureq::post(&server.url(&format!("/api/boards/{board}/owner/rotate")))
+        .header("authorization", &format!("Bearer {owner}"))
+        .send_empty()
+        .expect("rotate")
+        .body_mut()
+        .read_json()
+        .expect("json");
+    let new_owner = v["owner_token"].as_str().expect("token").to_owned();
+    assert_eq!(o.pump_one().await, Err(Some(CloseReason::Revoked)), "the old owner session is cut off");
+    assert_eq!(Client::new(0x62).connect(server.port, &board, &owner).await, Err(Some(CloseReason::Unauthorized)));
+    Client::new(0x63).connect(server.port, &board, &new_owner).await.expect("new owner token works");
+    Client::new(0x64).connect(server.port, &board, &edit).await.expect("links minted by the old owner still work");
+    assert_eq!(list(&server, &board, &new_owner).expect("new owner manages links").len(), 3);
+    // An edit link can't rotate.
+    let r = ureq::post(&server.url(&format!("/api/boards/{board}/owner/rotate"))).header("authorization", &format!("Bearer {edit}")).send_empty();
+    assert!(r.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn connections_per_address_are_capped() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let mut open = Vec::new();
+    for _ in 0..32 {
+        open.push(open_ws(server.port, ORIGIN).await.expect("within cap"));
+    }
+    assert!(open_ws(server.port, ORIGIN).await.is_err(), "33rd connection from one address is refused");
+    drop(open.pop());
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    open_ws(server.port, ORIGIN).await.expect("a slot frees when a socket closes");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -372,22 +460,28 @@ async fn rejections_survive_a_restart() {
     let dir = tempfile::tempdir().expect("tempdir");
     let server = Server::start(dir.path(), None);
     let (board, owner) = server.create_board();
-    let (_, view) = server.mint(&board, &owner, "view");
-    let mut v = Client::new(0x9);
-    v.connect(server.port, &board, &view).await.expect("connect");
-    let ops = move_op(v.replica(), 0);
-    v.edit(ops).await;
-    v.pump_one().await.expect("rejection");
-    assert_eq!(v.replica().rejected().len(), 1);
+    let mut a = Client::new(0x8);
+    let mut b = Client::new(0x9);
+    a.connect(server.port, &board, &owner).await.expect("a");
+    b.connect(server.port, &board, &owner).await.expect("b");
+    // Both create the scene's note concurrently: one note per scene, so the second is rejected.
+    let scene = a.replica().view().iter_live().find(|(_, r)| matches!(r, Record::Scene(_))).map(|(id, _)| id).expect("scene");
+    let note = |id: u128| vec![Op::Create { id: mapcro_schema::RecordId(id), record: Record::Note(mapcro_schema::Note { scene, text: "x".into() }) }];
+    a.edit(note(1)).await;
+    a.until_saved().await;
+    b.edit(note(2)).await; // b hasn't seen a's note yet
+    while b.replica().rejected().is_empty() {
+        b.pump_one().await.expect("reply");
+    }
+    assert_eq!(b.replica().rejected()[0].1, Reject::Duplicate);
 
     let (d, port) = server.kill9();
-    v.drop_connection();
+    b.drop_connection();
     let server = Server::start(&d, Some(port));
-    v.connect(server.port, &board, &view).await.expect("reconnect");
-    let ops = move_op(v.replica(), 1);
-    v.edit(ops).await;
-    v.pump_one().await.expect("second rejection, not a protocol error");
-    assert_eq!(v.replica().rejected(), &[(0, Reject::Forbidden), (1, Reject::Forbidden)]);
+    b.connect(server.port, &board, &owner).await.expect("reconnect");
+    let ops = move_op(b.replica(), 1);
+    b.edit(ops).await;
+    b.until_saved().await; // the next cseq is accepted, not treated as a gap
 }
 
 #[tokio::test(flavor = "multi_thread")]

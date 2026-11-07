@@ -75,4 +75,8 @@ pub enum CloseReason {
     /// The engine protocol was broken (see the preceding `Fatal`).
     Protocol,
     ShuttingDown,
+    /// The room already has as many sessions as it allows.
+    Full,
+    /// Too many connections from this address.
+    TooMany,
 }

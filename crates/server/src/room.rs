@@ -20,7 +20,7 @@ pub enum RoomCmd {
         link_hash: String,
         role: Role,
         want_base: bool,
-        reply: oneshot::Sender<(ConnId, mpsc::Receiver<WireOut>, Option<Base>)>,
+        reply: oneshot::Sender<Result<Joined, CloseReason>>,
     },
     Msg { conn: ConnId, msg: ClientMsg },
     Leave { conn: ConnId },
@@ -41,6 +41,11 @@ struct Room {
     next_conn: u64,
     idle: std::time::Duration,
 }
+
+pub type Joined = (ConnId, mpsc::Receiver<WireOut>, Option<Base>);
+
+/// Sessions per room. Beyond this, joins are refused (security review M1).
+pub const MAX_SESSIONS: usize = 64;
 
 #[derive(Clone)]
 pub struct Rooms {
@@ -78,6 +83,9 @@ impl Rooms {
         }
         for (client, cseq, reason) in stored.rejections {
             authority.replay_rejection(client, cseq, reason);
+        }
+        for (client, secret_hash) in stored.clients {
+            authority.replay_client(client, secret_hash);
         }
         // Two loads may race; the first to insert wins and the other's work is dropped.
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
@@ -120,7 +128,7 @@ impl Rooms {
         link_hash: String,
         role: Role,
         want_base: bool,
-    ) -> Result<(mpsc::Sender<RoomCmd>, (ConnId, mpsc::Receiver<WireOut>, Option<Base>)), RoomError> {
+    ) -> Result<(mpsc::Sender<RoomCmd>, Result<Joined, CloseReason>), RoomError> {
         for _ in 0..3 {
             let room = self.get(board).await?;
             let (reply, joined) = oneshot::channel();
@@ -201,30 +209,41 @@ impl Room {
         link_hash: String,
         role: Role,
         want_base: bool,
-        reply: oneshot::Sender<(ConnId, mpsc::Receiver<WireOut>, Option<Base>)>,
+        reply: oneshot::Sender<Result<Joined, CloseReason>>,
     ) {
+        if self.peers.len() >= MAX_SESSIONS {
+            let _ = reply.send(Err(CloseReason::Full));
+            return;
+        }
         let conn = ConnId(self.next_conn);
         self.next_conn += 1;
         let (out, rx) = mpsc::channel(OUTBOX_DEPTH);
         self.authority.connect(conn, role);
         self.peers.insert(conn, Peer { link_hash, out });
         let base = want_base.then(|| self.base.clone());
-        if reply.send((conn, rx, base)).is_err() {
+        if reply.send(Ok((conn, rx, base))).is_err() {
             self.peers.remove(&conn);
             self.authority.disconnect(conn);
         }
     }
 
     async fn message(&mut self, conn: ConnId, msg: ClientMsg) -> Result<(), StoreError> {
-        let (outbox, effect) = self.authority.handle(conn, msg);
-        match &effect {
-            Effect::None => {}
-            Effect::Logged { seq } => {
-                let tx = &self.authority.log()[*seq as usize - 1];
-                self.store.append_op(self.id.clone(), *seq, tx).await?;
-            }
-            Effect::Rejected { client, cseq, reason } => {
-                self.store.add_rejection(self.id.clone(), *client, *cseq, reason).await?;
+        let (outbox, effects) = self.authority.handle(conn, msg);
+        for effect in &effects {
+            match effect {
+                Effect::Logged { seq } => {
+                    let tx = &self.authority.log()[*seq as usize - 1];
+                    self.store.append_op(self.id.clone(), *seq, tx).await?;
+                }
+                Effect::Rejected { client, cseq, reason } => {
+                    self.store.add_rejection(self.id.clone(), *client, *cseq, reason).await?;
+                }
+                Effect::ClientRegistered { client, secret_hash } => {
+                    self.store.add_client(self.id.clone(), *client, *secret_hash).await?;
+                }
+                Effect::RejectionsResolved { client, below } => {
+                    self.store.prune_rejections(self.id.clone(), *client, *below).await?;
+                }
             }
         }
         for (to, msg) in outbox {

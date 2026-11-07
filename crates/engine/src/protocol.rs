@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hello {
     pub client: ClientId,
+    /// Proves this connection speaks for `client`. Client ids are public (every entry carries
+    /// one); the secret never leaves the client except in its own hello. The first hello
+    /// registers it; later ones must match (security review 2026-11-06, H1).
+    pub secret: String,
     /// Entries the client already has: the server sends everything after this.
     pub last_seq: u64,
     /// The client's oldest unacknowledged `cseq`. The server reports rejections from here on

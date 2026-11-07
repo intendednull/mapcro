@@ -8,7 +8,7 @@ import type { Op } from "../gen/Op";
 import type { RecordId } from "../gen/RecordId";
 import type { WireIn } from "../gen/WireIn";
 import type { WireOut } from "../gen/WireOut";
-import { BoardReplica, newClientId } from "../wasm/mapcro_wasm.js";
+import { BoardReplica, newClientId, newClientSecret } from "../wasm/mapcro_wasm.js";
 import type { Persist } from "./persist";
 import type { SaveStatus, Update } from "./update";
 
@@ -53,6 +53,8 @@ export class BoardSession {
   readonly problems: string[] = [];
 
   private replica: BoardReplica | undefined;
+  /** Set from the link's role on Ready. */
+  private readOnly = false;
   private socket: SocketLike | undefined;
   private live = false;
   private attempt = 0;
@@ -96,6 +98,11 @@ export class BoardSession {
   private local(call: (r: BoardReplica) => string): void {
     const r = this.replica;
     if (!r) return; // not loaded yet: the UI is read-only until the first Ready
+    if (this.readOnly) {
+      // View links never edit; the server would treat it as abuse and drop the connection.
+      this.problems.push("this link is view-only");
+      return;
+    }
     const u = this.apply(call(r));
     if (u.refused) this.problems.push(u.refused);
     const state = r.state();
@@ -167,12 +174,13 @@ export class BoardSession {
       case "ready": {
         if (!this.replica) {
           if (!frame.base) throw new Error("server sent no base for a new replica");
-          this.replica = new BoardReplica(newClientId(), JSON.stringify(frame.base));
+          this.replica = new BoardReplica(newClientId(), newClientSecret(), JSON.stringify(frame.base));
           this.resetRecords(this.replica.view());
         }
         const u = this.apply(this.replica.connect());
         for (const f of u.frames) this.send(f);
         this.live = true;
+        this.readOnly = frame.role === "view";
         this.attempt = 0;
         this.connection = { kind: "live", role: frame.role };
         this.o.onChange?.(this);

@@ -13,6 +13,8 @@ pub struct Config {
     pub web_dir: Option<PathBuf>,
     /// Board creations allowed per client IP per hour.
     pub create_per_hour: u32,
+    /// Board creations allowed server-wide per hour (a backstop against address rotation).
+    pub create_global_per_hour: u32,
     /// How long an empty room stays loaded.
     pub room_idle: std::time::Duration,
 }
@@ -46,10 +48,14 @@ impl Config {
             Some(v) => v.parse().map_err(|_| "CREATE_PER_HOUR must be a number")?,
             None => 30,
         };
+        let create_global_per_hour = match var("CREATE_GLOBAL_PER_HOUR") {
+            Some(v) => v.parse().map_err(|_| "CREATE_GLOBAL_PER_HOUR must be a number")?,
+            None => 500,
+        };
         let room_idle = match var("ROOM_IDLE_SECS") {
             Some(v) => std::time::Duration::from_secs(v.parse().map_err(|_| "ROOM_IDLE_SECS must be a number")?),
             None => crate::room::IDLE_UNLOAD,
         };
-        Ok(Config { addr: SocketAddr::new(host, port), data_dir, allowed_origins, web_dir, create_per_hour, room_idle })
+        Ok(Config { addr: SocketAddr::new(host, port), data_dir, allowed_origins, web_dir, create_per_hour, create_global_per_hour, room_idle })
     }
 }

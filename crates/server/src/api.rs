@@ -39,18 +39,41 @@ pub struct CreateLimiter {
 }
 
 impl CreateLimiter {
-    fn allow(&self, ip: IpAddr, per_hour: u32) -> bool {
+    /// Allow a creation from `ip` if both its own and the server-wide hourly budgets have room.
+    fn allow(&self, ip: IpAddr, per_hour: u32, global_per_hour: u32) -> bool {
         let mut w = self.windows.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
         w.retain(|_, (start, _)| now.duration_since(*start) < Duration::from_secs(3600));
-        let entry = w.entry(ip).or_insert((now, 0));
+        let total: u32 = w.values().map(|(_, n)| *n).sum();
+        if total >= global_per_hour {
+            return false;
+        }
+        let entry = w.entry(client_key(ip)).or_insert((now, 0));
+        if entry.1 >= per_hour {
+            return false;
+        }
         entry.1 += 1;
-        entry.1 <= per_hour
+        true
+    }
+}
+
+/// The unit a limit applies to: an IPv4 address, or an IPv6 /64. One host commonly owns a whole
+/// /64, so per-address IPv6 limits are trivially rotated around (security review M2).
+pub fn client_key(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V4(_) => ip,
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => {
+                let s = v6.segments();
+                IpAddr::V6(std::net::Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
+            }
+        },
     }
 }
 
 /// The client's address. Behind Caddy (loopback peer) trust its X-Forwarded-For; otherwise the peer.
-fn client_ip(peer: SocketAddr, headers: &HeaderMap) -> IpAddr {
+pub fn client_ip(peer: SocketAddr, headers: &HeaderMap) -> IpAddr {
     if peer.ip().is_loopback()
         && let Some(ip) = headers
             .get("x-forwarded-for")
@@ -81,7 +104,7 @@ pub async fn create_board(
     headers: HeaderMap,
     Json(body): Json<CreateBoard>,
 ) -> Response {
-    if !app.limiter.allow(client_ip(peer, &headers), app.config.create_per_hour) {
+    if !app.limiter.allow(client_ip(peer, &headers), app.config.create_per_hour, app.config.create_global_per_hour) {
         return err(StatusCode::TOO_MANY_REQUESTS, "too many boards created; try again later");
     }
     let Some(title) = clean_label(&body.title, mapcro_schema::LIMITS.max_title) else {
@@ -220,6 +243,32 @@ pub async fn revoke_link(
         }
         // Not found and not yours look the same, so link ids can't be probed.
         Ok(_) => err(StatusCode::NOT_FOUND, "no such link"),
+        Err(e) => internal(e),
+    }
+}
+
+#[derive(Serialize)]
+struct Rotated {
+    owner_token: String,
+}
+
+/// Replace a (possibly leaked) owner token (security review M4). The caller presents the current
+/// owner token and gets a new one; the old one stops working, and its live sessions close.
+pub async fn rotate_owner(State(app): State<AppState>, Path(board): Path<String>, headers: HeaderMap) -> Response {
+    let caller = match require_manager(&app, &board, &headers).await {
+        Ok(c) if c.role == LinkRole::Owner => c,
+        Ok(_) => return err(StatusCode::FORBIDDEN, "only the owner can rotate the owner token"),
+        Err(r) => return r,
+    };
+    let token = links::new_token();
+    match app.store.rotate_owner(board.clone(), caller.hash.clone(), links::hash(&token), now()).await {
+        Ok(true) => {
+            if let Some(room) = app.rooms.lookup(&board) {
+                let _ = room.send(crate::room::RoomCmd::Revoke { link_hash: caller.hash }).await;
+            }
+            Json(Rotated { owner_token: token }).into_response()
+        }
+        Ok(false) => err(StatusCode::CONFLICT, "owner token changed concurrently"),
         Err(e) => internal(e),
     }
 }

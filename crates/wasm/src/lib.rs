@@ -60,13 +60,14 @@ pub struct BoardReplica {
 
 #[wasm_bindgen]
 impl BoardReplica {
-    /// A fresh replica from the server's `Ready.base` (`Base` as JSON).
+    /// A fresh replica from the server's `Ready.base` (`Base` as JSON). `secret` comes from
+    /// `newClientSecret()` and is kept with the replica's state; it proves the id is ours.
     #[wasm_bindgen(constructor)]
-    pub fn new(client: &str, base_json: &str) -> Result<BoardReplica, JsError> {
+    pub fn new(client: &str, secret: &str, base_json: &str) -> Result<BoardReplica, JsError> {
         let client: ClientId = serde_json::from_value(serde_json::Value::String(client.into())).map_err(js_err)?;
         let base: mapcro_engine::wire::Base = serde_json::from_str(base_json).map_err(js_err)?;
         mapcro_schema::validate_doc(&base.doc).map_err(js_err)?;
-        Ok(BoardReplica { inner: Replica::new(client, base.doc, base.seq) })
+        Ok(BoardReplica { inner: Replica::new(client, secret.to_owned(), base.doc, base.seq) })
     }
 
     /// Rebuild from `state()`, e.g. after a reload. The result is disconnected.
@@ -161,6 +162,12 @@ pub fn new_client_id() -> Result<String, JsError> {
     let mut b = [0u8; 16];
     getrandom::fill(&mut b).map_err(js_err)?;
     Ok(format!("{:032x}", u128::from_le_bytes(b)))
+}
+
+/// A new random client secret (256 bits, hex).
+#[wasm_bindgen(js_name = newClientSecret)]
+pub fn new_client_secret() -> Result<String, JsError> {
+    Ok(format!("{}{}", new_client_id()?, new_client_id()?))
 }
 
 /// A new random record id, for creating records in the UI.

@@ -20,13 +20,48 @@ const DEAD_AFTER: Duration = Duration::from_secs(40);
 const RATE_PER_SEC: f64 = 60.0;
 const BURST: f64 = 300.0;
 
-pub async fn upgrade(State(app): State<AppState>, headers: HeaderMap, ws: WebSocketUpgrade) -> Response {
+/// Open WebSockets per client address (security review M1). IPv6 counts per /64.
+pub const MAX_SOCKETS_PER_IP: usize = 32;
+
+/// Releases its slot in the per-IP count when the session ends, however it ends.
+struct IpSlot(AppState, std::net::IpAddr);
+impl Drop for IpSlot {
+    fn drop(&mut self) {
+        let mut m = self.0.sockets.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(n) = m.get_mut(&self.1) {
+            *n -= 1;
+            if *n == 0 {
+                m.remove(&self.1);
+            }
+        }
+    }
+}
+
+pub async fn upgrade(
+    State(app): State<AppState>,
+    axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
+) -> Response {
     // Cross-site WebSocket hijacking: browsers always send Origin on upgrades; refuse others.
     let origin = headers.get("origin").and_then(|v| v.to_str().ok()).unwrap_or("");
     if !app.config.allowed_origins.iter().any(|o| o == origin) {
         return (StatusCode::FORBIDDEN, "origin not allowed").into_response();
     }
-    ws.max_message_size(MAX_FRAME).max_frame_size(MAX_FRAME).on_upgrade(move |socket| session(app, socket))
+    let ip = crate::api::client_key(crate::api::client_ip(peer, &headers));
+    {
+        let mut m = app.sockets.lock().unwrap_or_else(|e| e.into_inner());
+        let n = m.entry(ip).or_insert(0);
+        if *n >= MAX_SOCKETS_PER_IP {
+            return (StatusCode::TOO_MANY_REQUESTS, "too many connections").into_response();
+        }
+        *n += 1;
+    }
+    let slot = IpSlot(app.clone(), ip);
+    ws.max_message_size(MAX_FRAME).max_frame_size(MAX_FRAME).on_upgrade(move |socket| async move {
+        session(app, socket).await;
+        drop(slot);
+    })
 }
 
 fn frame(out: &WireOut) -> Message {
@@ -61,14 +96,27 @@ async fn session(app: AppState, mut socket: WebSocket) {
     };
 
     // 2. Join the room.
-    let (room, (conn, mut outbox, base)) =
-        match app.rooms.join(&board, hash, link.role.engine_role(), known_seq.is_none()).await {
-            Ok(j) => j,
-            Err(e) => {
-                tracing::error!(board, error = %e, "room failed to open");
-                return send_closed(&mut socket, CloseReason::StorageFailure).await;
-            }
-        };
+    let (room, joined) = match app.rooms.join(&board, hash.clone(), link.role.engine_role(), known_seq.is_none()).await {
+        Ok(j) => j,
+        Err(e) => {
+            tracing::error!(board, error = %e, "room failed to open");
+            return send_closed(&mut socket, CloseReason::StorageFailure).await;
+        }
+    };
+    let (conn, mut outbox, base) = match joined {
+        Ok(j) => j,
+        Err(reason) => return send_closed(&mut socket, reason).await,
+    };
+    // Revocation race (security review M5): a revoke that landed between the first check and
+    // the join reached the store but maybe not this room. Check again now that we're in it;
+    // any revoke after this point finds the room open and closes us through it.
+    match app.store.link(hash).await {
+        Ok(Some(l)) if !l.revoked => {}
+        _ => {
+            let _ = room.send(crate::room::RoomCmd::Leave { conn }).await;
+            return send_closed(&mut socket, CloseReason::Revoked).await;
+        }
+    }
     if socket.send(frame(&WireOut::Ready { role: link.role, base })).await.is_err() {
         let _ = room.send(crate::room::RoomCmd::Leave { conn }).await;
         return;

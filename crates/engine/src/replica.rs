@@ -45,6 +45,7 @@ struct HistoryEntry {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ReplicaState {
     client: ClientId,
+    secret: String,
     confirmed: Doc,
     last_seq: u64,
     pending: VecDeque<Tx>,
@@ -57,6 +58,7 @@ pub struct ReplicaState {
 /// One client's replica of a board.
 pub struct Replica {
     client: ClientId,
+    secret: String,
     confirmed: Doc,
     last_seq: u64,
     pending: VecDeque<Tx>,
@@ -69,10 +71,12 @@ pub struct Replica {
 }
 
 impl Replica {
-    /// Start from `doc`, which is the server's state at `last_seq`.
-    pub fn new(client: ClientId, doc: Doc, last_seq: u64) -> Self {
+    /// Start from `doc`, which is the server's state at `last_seq`. `secret` is random, chosen
+    /// once with the client id, and kept with the replica's state.
+    pub fn new(client: ClientId, secret: String, doc: Doc, last_seq: u64) -> Self {
         Replica {
             client,
+            secret,
             view: doc.clone(),
             confirmed: doc,
             last_seq,
@@ -90,6 +94,7 @@ impl Replica {
     pub fn state(&self) -> ReplicaState {
         ReplicaState {
             client: self.client,
+            secret: self.secret.clone(),
             confirmed: self.confirmed.clone(),
             last_seq: self.last_seq,
             pending: self.pending.clone(),
@@ -103,6 +108,7 @@ impl Replica {
     pub fn from_state(s: ReplicaState) -> Replica {
         let mut r = Replica {
             client: s.client,
+            secret: s.secret,
             view: s.confirmed.clone(),
             confirmed: s.confirmed,
             last_seq: s.last_seq,
@@ -200,7 +206,7 @@ impl Replica {
     pub fn connect(&mut self) -> Vec<ClientMsg> {
         self.connected = true;
         let pending_from = self.pending.front().map_or(self.next_cseq, |t| t.cseq);
-        let hello = Hello { client: self.client, last_seq: self.last_seq, pending_from };
+        let hello = Hello { client: self.client, secret: self.secret.clone(), last_seq: self.last_seq, pending_from };
         std::iter::once(ClientMsg::Hello(hello))
             .chain(self.pending.iter().cloned().map(ClientMsg::Submit))
             .collect()

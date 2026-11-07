@@ -22,6 +22,8 @@ pub struct AppState {
     pub store: store::Store,
     pub rooms: room::Rooms,
     pub limiter: Arc<api::CreateLimiter>,
+    /// Open WebSockets per client address key.
+    pub sockets: Arc<std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, usize>>>,
 }
 
 fn header(name: &'static str, value: &'static str) -> SetResponseHeaderLayer<HeaderValue> {
@@ -51,6 +53,7 @@ async fn main() {
         rooms: room::Rooms::new(store.clone(), config.room_idle),
         store,
         limiter: Arc::new(api::CreateLimiter::default()),
+        sockets: Arc::default(),
         config: Arc::new(config.clone()),
     };
 
@@ -59,7 +62,8 @@ async fn main() {
         .route("/ws", get(ws::upgrade))
         .route("/api/boards", post(api::create_board))
         .route("/api/boards/{board}/links", post(api::mint_link).get(api::list_links))
-        .route("/api/boards/{board}/links/{link}", delete(api::revoke_link));
+        .route("/api/boards/{board}/links/{link}", delete(api::revoke_link))
+        .route("/api/boards/{board}/owner/rotate", post(api::rotate_owner));
     if let Some(web) = &config.web_dir {
         let index = web.join("index.html");
         app = app.fallback_service(ServeDir::new(web).fallback(ServeFile::new(index)));
@@ -68,6 +72,10 @@ async fn main() {
         .layer(RequestBodyLimitLayer::new(16 * 1024))
         .layer(header("referrer-policy", "no-referrer"))
         .layer(header("x-content-type-options", "nosniff"))
+        .layer(header("strict-transport-security", "max-age=63072000; includeSubDomains"))
+        .layer(header("cross-origin-opener-policy", "same-origin"))
+        .layer(header("cross-origin-resource-policy", "same-origin"))
+        .layer(header("x-frame-options", "DENY"))
         .layer(header(
             "content-security-policy",
             "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; \

@@ -52,6 +52,18 @@ impl Doc {
         self.entries.insert(id, Entry { record, deleted: false });
     }
 
+    /// Put back an entry exactly as it was (`None`: it didn't exist). Rollback only.
+    pub(crate) fn restore_entry(&mut self, id: RecordId, entry: Option<Entry>) {
+        match entry {
+            Some(e) => {
+                self.entries.insert(id, e);
+            }
+            None => {
+                self.entries.remove(&id);
+            }
+        }
+    }
+
     pub(crate) fn entry_mut(&mut self, id: RecordId) -> Option<&mut Entry> {
         self.entries.get_mut(&id)
     }

@@ -23,6 +23,7 @@ pub struct StoredBoard {
     pub base_seq: u64,
     pub log: Vec<Tx>,
     pub rejections: Vec<(ClientId, u64, Reject)>,
+    pub clients: Vec<(ClientId, [u8; 32])>,
 }
 
 pub struct LinkRow {
@@ -42,7 +43,7 @@ pub struct Store {
 }
 
 /// Database schema version. Each step in `migrate` takes the database one version forward.
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 /// v1 → v2: links remember which link minted them (editors can share; revocation cascades).
 fn migrate(conn: &Connection, from: i64) -> Result<(), StoreError> {
@@ -52,6 +53,15 @@ fn migrate(conn: &Connection, from: i64) -> Result<(), StoreError> {
             1 => conn.execute_batch(
                 "ALTER TABLE links ADD COLUMN minted_by TEXT REFERENCES links(hash);
                  CREATE INDEX IF NOT EXISTS links_by_parent ON links(minted_by);",
+            )?,
+            // v2 → v3: client ids are bound to a secret (security review H1).
+            2 => conn.execute_batch(
+                "CREATE TABLE clients (
+                   board TEXT NOT NULL REFERENCES boards(id),
+                   client TEXT NOT NULL,
+                   secret_hash BLOB NOT NULL,
+                   PRIMARY KEY (board, client)
+                 ) WITHOUT ROWID;",
             )?,
             other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
         }
@@ -202,7 +212,15 @@ impl Store {
                 let client: ClientId = serde_json::from_value(serde_json::Value::String(client)).map_err(corrupt)?;
                 rejections.push((client, cseq as u64, serde_json::from_str(&reason).map_err(corrupt)?));
             }
-            Ok(Some(StoredBoard { base, base_seq: base_seq as u64, log, rejections }))
+            let mut stmt = c.prepare("SELECT client, secret_hash FROM clients WHERE board = ?1")?;
+            let mut clients = Vec::new();
+            for row in stmt.query_map([&id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?)))? {
+                let (client, hash) = row?;
+                let client: ClientId = serde_json::from_value(serde_json::Value::String(client)).map_err(corrupt)?;
+                let hash: [u8; 32] = hash.try_into().map_err(|_| StoreError::Corrupt("secret hash length".into()))?;
+                clients.push((client, hash));
+            }
+            Ok(Some(StoredBoard { base, base_seq: base_seq as u64, log, rejections, clients }))
         })
         .await
     }
@@ -225,6 +243,51 @@ impl Store {
                 params![board, client, cseq as i64, reason],
             )?;
             Ok(())
+        })
+        .await
+    }
+
+    pub async fn add_client(&self, board: String, client: ClientId, secret_hash: [u8; 32]) -> Result<(), StoreError> {
+        let client = serde_json::to_value(client).map_err(corrupt)?.as_str().unwrap_or_default().to_owned();
+        self.with(move |c| {
+            c.execute(
+                "INSERT OR IGNORE INTO clients (board, client, secret_hash) VALUES (?1, ?2, ?3)",
+                params![board, client, secret_hash.to_vec()],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn prune_rejections(&self, board: String, client: ClientId, below: u64) -> Result<(), StoreError> {
+        let client = serde_json::to_value(client).map_err(corrupt)?.as_str().unwrap_or_default().to_owned();
+        self.with(move |c| {
+            c.execute("DELETE FROM rejections WHERE board = ?1 AND client = ?2 AND cseq < ?3", params![board, client, below as i64])?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Replace the owner token: the old one stops working at once. Returns false if `old` isn't
+    /// this board's live owner link. Links the old owner minted stay valid.
+    pub async fn rotate_owner(&self, board: String, old: String, new: String, now: i64) -> Result<bool, StoreError> {
+        self.with(move |c| {
+            let t = c.transaction()?;
+            let n = t.execute(
+                "UPDATE links SET revoked_at = ?1 WHERE hash = ?2 AND board = ?3 AND role = 'owner' AND revoked_at IS NULL",
+                params![now, old, board],
+            )?;
+            if n != 1 {
+                return Ok(false);
+            }
+            t.execute(
+                "INSERT INTO links (hash, board, role, label, created_at) VALUES (?1, ?2, 'owner', 'owner', ?3)",
+                params![new, board, now],
+            )?;
+            // Keep lineage: the old owner's children now hang off the new owner.
+            t.execute("UPDATE links SET minted_by = ?1 WHERE minted_by = ?2", params![new, old])?;
+            t.commit()?;
+            Ok(true)
         })
         .await
     }

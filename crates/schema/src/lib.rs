@@ -73,20 +73,23 @@ pub enum OpOutcome {
 /// Apply a transaction atomically: either every op is valid and the document changes, or the
 /// document is untouched and the reason is returned.
 pub fn apply_tx(doc: &mut Doc, tx: &Tx) -> Result<Vec<OpOutcome>, Reject> {
-    if tx.ops.is_empty() {
-        return Err(Reject::EmptyTx);
+    apply_tx_with_inverse(doc, tx).map(|(outcomes, _)| outcomes)
+}
+
+/// Could this op change a whole-board invariant (record counts, one-per-scene rules)? Field
+/// writes can't: they never change a record's kind, scene, slot or tombstone.
+fn affects_invariants(op: &Op) -> bool {
+    match op {
+        Op::Set { .. } | Op::SetIf { .. } => false,
+        Op::Create { record, .. } => !matches!(record, Record::Arrow(_) | Record::Callout(_)),
+        Op::Delete { .. } | Op::Restore { .. } => true,
     }
-    if tx.ops.len() > LIMITS.max_ops_per_tx {
-        return Err(Reject::TooManyOps);
+}
+
+fn op_target(op: &Op) -> RecordId {
+    match op {
+        Op::Create { id, .. } | Op::Set { id, .. } | Op::SetIf { id, .. } | Op::Delete { id } | Op::Restore { id } => *id,
     }
-    let mut scratch = doc.clone();
-    let mut outcomes = Vec::with_capacity(tx.ops.len());
-    for op in &tx.ops {
-        outcomes.push(validate::apply_op(&mut scratch, op)?);
-    }
-    validate::check_invariants(&scratch)?;
-    *doc = scratch;
-    Ok(outcomes)
 }
 
 /// Check whole-board invariants on a document (for tests and for loading stored boards).
@@ -97,6 +100,9 @@ pub fn validate_doc(doc: &Doc) -> Result<(), Reject> {
 /// Like [`apply_tx`], also returning the ops that would undo it, computed against the state each
 /// op actually saw. Undo is built from these: `SetIf` for field writes (so the authority skips a
 /// field someone else changed since), `Restore` for deletes, `Delete` for creates.
+///
+/// Applies in place with a rollback log rather than cloning the board, so a transaction costs
+/// what it touches (security review 2026-11-06, M3).
 pub fn apply_tx_with_inverse(doc: &mut Doc, tx: &Tx) -> Result<(Vec<OpOutcome>, Vec<Op>), Reject> {
     if tx.ops.is_empty() {
         return Err(Reject::EmptyTx);
@@ -104,19 +110,39 @@ pub fn apply_tx_with_inverse(doc: &mut Doc, tx: &Tx) -> Result<(Vec<OpOutcome>, 
     if tx.ops.len() > LIMITS.max_ops_per_tx {
         return Err(Reject::TooManyOps);
     }
-    let mut scratch = doc.clone();
+    let mut undo_log: Vec<(RecordId, Option<Entry>)> = Vec::new();
     let mut outcomes = Vec::with_capacity(tx.ops.len());
     let mut inverse = Vec::new();
-    for op in &tx.ops {
-        if let Some(inv) = inverse_of(&scratch, op) {
-            inverse.push(inv);
+    let mut check = false;
+    let result = (|| {
+        for op in &tx.ops {
+            let id = op_target(op);
+            if !undo_log.iter().any(|(i, _)| *i == id) {
+                undo_log.push((id, doc.get(id).cloned()));
+            }
+            if let Some(inv) = inverse_of(doc, op) {
+                inverse.push(inv);
+            }
+            check |= affects_invariants(op);
+            outcomes.push(validate::apply_op(doc, op)?);
         }
-        outcomes.push(validate::apply_op(&mut scratch, op)?);
+        if check {
+            validate::check_invariants(doc)?;
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => {
+            inverse.reverse();
+            Ok((outcomes, inverse))
+        }
+        Err(reason) => {
+            for (id, entry) in undo_log.into_iter().rev() {
+                doc.restore_entry(id, entry);
+            }
+            Err(reason)
+        }
     }
-    validate::check_invariants(&scratch)?;
-    *doc = scratch;
-    inverse.reverse();
-    Ok((outcomes, inverse))
 }
 
 fn inverse_of(before: &Doc, op: &Op) -> Option<Op> {

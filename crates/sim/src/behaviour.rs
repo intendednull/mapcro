@@ -30,9 +30,13 @@ impl Behaviour {
 }
 
 pub(crate) fn act(world: &mut World, i: usize) -> Result<(), String> {
+    // Ids an attacker can learn: every entry carries its author's client id.
+    let known_ids: Vec<mapcro_schema::ClientId> = world.authority.log().iter().map(|t| t.client).collect();
     let World { rng, clients, stats, .. } = world;
     let c = &mut clients[i];
     let line = match &mut c.driver {
+        // An honest viewer's UI offers no editing.
+        Driver::Replica { .. } if c.role == mapcro_engine::Role::View => return Ok(()),
         Driver::Replica { replica, behaviour } => {
             let undo_bias = match behaviour {
                 Behaviour::Undoer => 50,
@@ -62,8 +66,15 @@ pub(crate) fn act(world: &mut World, i: usize) -> Result<(), String> {
                 }
             }
         }
-        Driver::Attacker { client, next_cseq } => {
+        Driver::Attacker { client, next_cseq, .. } => {
             if c.conn.is_none() {
+                // Reconnect claiming an honest client's (public) id, with a wrong secret.
+                if let Some(victim) = known_ids.choose(rng).copied()
+                    && rng.random_range(0..4) == 0
+                {
+                    *client = victim;
+                    *next_cseq = 0;
+                }
                 return Ok(());
             }
             let (tx, what) = attack(rng, *client, *next_cseq);
