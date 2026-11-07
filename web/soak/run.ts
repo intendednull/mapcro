@@ -124,26 +124,42 @@ interface Status {
   lastSeq: number;
 }
 
-/** A raw view connection that reads the whole log: base, then every entry up to `head`. */
-async function readLog(wsUrl: string, board: string, token: string, head: number) {
+/** The board's base at seq 0, read before anyone edits: a fresh client then gets the board as it
+ * is, which on a new board is the genesis document. */
+async function readGenesis(wsUrl: string, board: string, token: string) {
+  return new Promise<string>((ok, fail) => {
+    const ws = new WebSocket(wsUrl, { origin: ORIGIN, headers: { "x-forwarded-for": "10.255.255.1" } });
+    ws.on("open", () => ws.send(JSON.stringify({ t: "auth", board, token, known_seq: null })));
+    ws.on("message", (data) => {
+      const f = JSON.parse(String(data)) as WireOut;
+      if (f.t !== "ready") return;
+      ws.close();
+      if (!f.base || f.base.seq !== 0) return fail(new Error(`a new board's base should be at seq 0, got ${f.base?.seq}`));
+      ok(JSON.stringify(f.base));
+    });
+    ws.on("error", (e) => fail(e));
+  });
+}
+
+/** A raw view connection that reads the whole log: it already holds the genesis base, so it says
+ * `known_seq: 0` and gets every entry up to `head` as catch-up. (A fresh reader would get a
+ * snapshot of the board instead; `freshClient` checks that one against this log.) */
+async function readLog(wsUrl: string, board: string, token: string, head: number, genesis: string) {
   return new Promise<{ base: string; baseSeq: number; log: LogEntry[] }>((ok, fail) => {
     const ws = new WebSocket(wsUrl, { origin: ORIGIN, headers: { "x-forwarded-for": "10.255.255.1" } });
     const log: LogEntry[] = [];
-    let base = "";
-    let baseSeq = 0;
+    const base = genesis;
+    const baseSeq = 0;
     const timer = setTimeout(() => fail(new Error(`log reader timed out at ${log.length} entries of ${head}`)), 180_000);
     const done = () => {
       clearTimeout(timer);
       ws.close();
       ok({ base, baseSeq, log });
     };
-    ws.on("open", () => ws.send(JSON.stringify({ t: "auth", board, token, known_seq: null })));
+    ws.on("open", () => ws.send(JSON.stringify({ t: "auth", board, token, known_seq: 0 })));
     ws.on("message", (data) => {
       const f = JSON.parse(String(data)) as WireOut;
       if (f.t === "ready") {
-        if (!f.base) return fail(new Error("no base for a fresh reader"));
-        base = JSON.stringify(f.base);
-        baseSeq = f.base.seq;
         ws.send(JSON.stringify({ t: "msg", msg: { Hello: { client: newClientId(), secret: newClientSecret(), last_seq: baseSeq, pending_from: 0 } } }));
         if (baseSeq >= head) done();
       } else if (f.t === "msg" && "Entry" in f.msg) {
@@ -224,6 +240,7 @@ async function main() {
   const { board, owner_token } = await api.createBoard("Soak");
   const { token: editToken } = await api.mintLink(board, owner_token, "edit", "team");
   const { token: viewToken } = await api.mintLink(board, owner_token, "view", "audience");
+  const genesis = await readGenesis(server.ws, board, viewToken);
 
   // Peers, round-robin over the workers; peer 0 holds the owner link.
   const t0 = Date.now() + 1500;
@@ -321,7 +338,7 @@ async function main() {
   let read: Awaited<ReturnType<typeof readLog>> | undefined;
   for (let i = 0; !read; i++) {
     try {
-      read = await readLog(server.ws, board, viewToken, head);
+      read = await readLog(server.ws, board, viewToken, head, genesis);
     } catch (e) {
       if (i > 50 || !String(e).includes("closed: full")) throw e;
       await sleep(200);
