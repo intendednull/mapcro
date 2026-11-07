@@ -1379,3 +1379,31 @@ async fn a_peer_that_stops_reading_is_dropped_by_bytes_queued() {
     assert_eq!(end, Some(CloseReason::TooSlow), "got {entries} of 151 entries");
     assert!(entries < 151);
 }
+
+/// After a deploy every browser must get the new app: pages are never served from a cached
+/// copy (the nix store dates every file 1970, so a revalidation would always say "not
+/// modified"), while hashed assets cache forever.
+#[tokio::test]
+async fn pages_are_never_stale_and_hashed_assets_cache_forever() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let web = tempfile::tempdir().expect("web");
+    std::fs::write(web.path().join("index.html"), "<!doctype html><title>new</title>").expect("index");
+    std::fs::create_dir(web.path().join("assets")).expect("assets");
+    std::fs::write(web.path().join("assets/index-abc123.js"), "1").expect("asset");
+    let server = Server::start_with(dir.path(), None, &[("WEB_DIR", web.path().to_str().expect("utf8"))]);
+
+    for path in ["/", "/b/someboard"] {
+        let mut res = ureq::get(&server.url(path))
+            .header("if-modified-since", "Sat, 01 Jan 2050 00:00:00 GMT")
+            .call()
+            .expect("page");
+        assert_eq!(res.status(), 200, "{path}: a cached copy must not be confirmed");
+        assert_eq!(res.headers().get("cache-control").and_then(|v| v.to_str().ok()), Some("no-store"), "{path}");
+        assert!(res.body_mut().read_to_string().expect("body").contains("new"), "{path}");
+    }
+    let res = ureq::get(&server.url("/assets/index-abc123.js")).call().expect("asset");
+    assert_eq!(
+        res.headers().get("cache-control").and_then(|v| v.to_str().ok()),
+        Some("public, max-age=31536000, immutable")
+    );
+}

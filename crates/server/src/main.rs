@@ -33,6 +33,16 @@ fn header(name: &'static str, value: &'static str) -> SetResponseHeaderLayer<Hea
     SetResponseHeaderLayer::overriding(HeaderName::from_static(name), HeaderValue::from_static(value))
 }
 
+/// Ignore a browser's cached copy of a page: always answer with the current file.
+async fn fresh_request(mut req: axum::extract::Request) -> axum::extract::Request {
+    let h = req.headers_mut();
+    h.remove(axum::http::header::IF_MODIFIED_SINCE);
+    h.remove(axum::http::header::IF_NONE_MATCH);
+    h.remove(axum::http::header::IF_UNMODIFIED_SINCE);
+    h.remove(axum::http::header::IF_RANGE);
+    req
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -97,8 +107,26 @@ async fn main() {
         .route("/api/packs", get(packs::list))
         .route("/packs/{pack}/{*file}", get(packs::file));
     if let Some(web) = &config.web_dir {
+        // Vite's /assets/* names carry a content hash: cache them forever. Everything else
+        // (index.html, the SPA fallback, fonts) must never be served stale after a deploy. The
+        // nix store stamps every file 1970, so a browser's If-Modified-Since would always get a
+        // 304: drop conditional headers and say no-store.
         let index = web.join("index.html");
-        app = app.fallback_service(ServeDir::new(web).fallback(ServeFile::new(index)));
+        let assets = ServeDir::new(web.join("assets"));
+        let pages = ServeDir::new(web).fallback(ServeFile::new(index));
+        app = app
+            .nest_service(
+                "/assets",
+                tower::ServiceBuilder::new()
+                    .layer(header("cache-control", "public, max-age=31536000, immutable"))
+                    .service(assets),
+            )
+            .fallback_service(
+                tower::ServiceBuilder::new()
+                    .layer(axum::middleware::map_request(fresh_request))
+                    .layer(header("cache-control", "no-store"))
+                    .service(pages),
+            );
     }
     let app = app
         .layer(RequestBodyLimitLayer::new(16 * 1024))

@@ -19,6 +19,7 @@ zstd = { version = "=0.13.3", default-features = false }
 thiserror.workspace = true
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }
+tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "set-header", "limit"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 sha2 = "0.10"
