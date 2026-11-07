@@ -181,11 +181,11 @@ All on the release build, under `MemoryMax=256M`, with `MALLOC_ARENA_MAX=2`:
 | Disk, board at the byte cap | ~4.5 MB | 22.3 MB (577 edits of 60 KB random text: 34.6 MB of JSON) |
 | RSS, room full of history | ~4.7 MB (32 rooms, 155 MB) | ~1.6 MB |
 | RSS, small room | (not measured) | 0.31 MB (256 rooms at once: 87 MB) |
-| RSS, largest document | (not measured) | ~21 MB; budget admits 8, peak 180 MB |
+| RSS, largest document | (not measured) | ~21 MB; budget admits 8, peak 183 MB |
 | Open rooms | 32 | up to 256, within `ROOM_MEMORY_BYTES` = 128 MiB of estimates |
 | Loading a room with 8 MB of history | (log held) +11.6 MB | +3.5 MB (system test bound: 7 MB) |
 
-The worst case in that table is 180 MB, leaving 30% of 256M as headroom. The target was 25%.
+The worst case in that table is 183 MB, leaving 29% of 256M as headroom. The target was 25%.
 
 ## What the tests caught (second round)
 

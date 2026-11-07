@@ -33,7 +33,7 @@ pub struct Config {
     /// What open rooms may occupy together by their estimates (`ROOM_MEMORY_BYTES`, 128 MiB). A
     /// room costs its document (kilobytes, up to ~20 MB at the schema's limits) plus a fixed
     /// base. Measured with `MALLOC_ARENA_MAX=2`: rooms of the largest documents fill the budget
-    /// at 8 rooms and 180 MB peak, inside `MemoryMax=256M` with 30% headroom. Past it, idle rooms
+    /// at 8 rooms and 183 MB peak, inside `MemoryMax=256M` with 29% headroom. Past it, idle rooms
     /// unload, joins are `busy`, and edits that grow memory are refused as `ServerFull`.
     pub room_memory_bytes: usize,
     /// Boards the server stores (`MAX_BOARDS`, 5000). Creation past it is refused with 507.
