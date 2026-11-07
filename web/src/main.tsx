@@ -1,6 +1,7 @@
 import { render } from "solid-js/web";
 import { App } from "./App";
 import "./styles/minimap.css";
+import "./styles/topbar.css";
 import "./styles/board.css";
 import "./styles/app.css";
 

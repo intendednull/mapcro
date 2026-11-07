@@ -1,6 +1,7 @@
 // Text edited where it's shown: click to type, Enter or leaving commits, Escape cancels.
 
 import { type JSX, Show, createSignal } from "solid-js";
+import { cx } from "../ui/cx";
 
 export function InlineEdit(p: {
   value: string;
@@ -41,8 +42,7 @@ export function InlineEdit(p: {
       when={editing()}
       fallback={
         <span
-          class={`ie ${p.class ?? ""}`}
-          classList={{ editable: p.editable, empty: !p.value }}
+          class={cx("ie", p.class, p.editable && "editable", !p.value && "empty")}
           data-testid={p.testid}
           role={p.editable ? "button" : undefined}
           tabIndex={p.editable ? 0 : undefined}
@@ -55,8 +55,7 @@ export function InlineEdit(p: {
       }
     >
       <input
-        class={`ie-input ${p.class ?? ""}`}
-        classList={{ bad: bad() }}
+        class={cx("ie-input", p.class, bad() && "bad")}
         data-testid={p.testid && `${p.testid}-input`}
         aria-label={p.label}
         value={p.value}

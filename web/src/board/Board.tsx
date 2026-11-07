@@ -2,6 +2,7 @@
 // panel. The map is the interface: edits happen on it directly.
 
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { cx } from "../ui/cx";
 import { type Me, colorOf, hasJoined, loadMe, markJoined, rememberBoard, saveMe } from "../core/device";
 import type { RecordId } from "../gen/RecordId";
 import { MapView } from "../map/MapView";
@@ -12,6 +13,7 @@ import { formatClock, parseClock } from "../core/clock";
 import { InlineEdit } from "../ui/InlineEdit";
 import { JoinCard } from "./JoinCard";
 import { SceneStrip } from "./SceneStrip";
+import { TopBar } from "./TopBar";
 import { createBoardState } from "./state";
 import { Tokens } from "./Tokens";
 
@@ -173,12 +175,14 @@ export function Board(p: { board: string; token: string; art: Art }) {
               </span>
             </Show>
           </div>
+          <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} />
           <div class="mapbox" data-testid="map">
             <MapView
               art={p.art}
               viewpoint={viewpoint()}
               overlayRef={setOverlay}
-              overlayProps={{ "data-tool": tool(), classList: { readonly: !state.canEdit() } } as never}
+              overlayProps={{ "data-tool": tool() } as never}
+              overlayClass={!state.canEdit() && "readonly"}
             >
               <Tokens state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} tool={tool()} k={1} svg={overlay} />
             </MapView>

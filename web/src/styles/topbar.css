@@ -1,0 +1,134 @@
+/* mapcro shared top bar: styles for design/shared/topbar.js. Values are Panorama px from
+   citadel_hud_top_bar.vcss and hero_badge.vcss, multiplied by --u (host width / 1260).
+   Team colours from citadel_base_styles.vcss: team1Color #D4860B, team1Foreground #201500,
+   team2Color #4D75C3, team2Foreground #FFFFFF, offWhite #FFEFD7, offBlack #10130D. */
+
+.tb-host { position: relative; width: 100%; height: calc(172 * var(--u, 1px)); --t1: #D4860B; --t1fg: #201500; --t2: #4D75C3; --t2fg: #FFFFFF; }
+.tb-host * { box-sizing: border-box; }
+.tb-bar { position: absolute; left: 0; top: calc(24 * var(--u)); width: calc(1260 * var(--u)); height: calc(150 * var(--u));
+  font-family: "VALVEOracle", "Reaver", "Noto Sans", system-ui, sans-serif; }
+
+/* CitadelHudTopBarTeam: 528 px, friendly left, enemy right; players flow right, 88 px each */
+.tb-team { position: absolute; top: 0; width: calc(528 * var(--u)); height: 100%; display: flex; }
+.tb-team.friend { left: 0; }
+.tb-team.enemy { right: 0; }
+.tb-player { position: relative; width: calc(88 * var(--u)); height: 100%; flex: none; }
+
+/* .SoulsValueContainer: margin-top 76px, padding 20px 5px 0, radius 0 0 3px 3px, team colour */
+.tb-souls {
+  position: absolute; left: 50%; top: calc(76 * var(--u)); transform: translateX(-50%); z-index: 1;
+  padding: calc(20 * var(--u)) calc(5 * var(--u)) 0; min-width: calc(30 * var(--u));
+  border-radius: 0 0 calc(3 * var(--u)) calc(3 * var(--u));
+  box-shadow: calc(2 * var(--u)) calc(2 * var(--u)) 0 #00000050; white-space: nowrap; text-align: center;
+}
+.tb-player.amber .tb-souls { background: var(--t1); color: var(--t1fg); }
+.tb-player.sapphire .tb-souls { background: var(--t2); color: var(--t2fg); }
+.tb-souls-value { font: 700 calc(15 * var(--u)) / 1.2 "Gulim", "VALVEOracle", "Noto Sans", sans-serif; }   /* numericOracle */
+.demote { font-size: calc(12 * var(--u)); font-weight: 400; margin-left: calc(2 * var(--u)); opacity: 0.85; }   /* .demote */
+.tb-player.dead .tb-souls { opacity: 0.3; }
+
+/* CitadelHeroBadge (88x120): disc #424640 -> #252722, vertical portrait masked by hero_image_mask */
+.tb-badge { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.tb-disc {
+  position: absolute; left: calc(8.8 * var(--u)); top: calc(15 * var(--u)); width: calc(70.4 * var(--u)); height: calc(70.4 * var(--u));
+  border-radius: 50%; background: radial-gradient(circle at 50% 50%, #424640, #252722);
+  display: grid; place-items: center; font: 700 calc(20 * var(--u)) "Noto Sans", sans-serif; color: #c9c2b0; font-style: normal;
+}
+.tb-img {
+  position: absolute; left: calc(8.8 * var(--u)); width: calc(70.4 * var(--u)); height: calc(117.3 * var(--u)); top: calc(-32.3 * var(--u));
+  display: var(--tb-display, none);
+  background-position: center bottom; background-size: contain; background-repeat: no-repeat;   /* images: topbar.css */
+  -webkit-mask-position: center bottom; mask-position: center bottom; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+}
+.tb-player.dead .tb-img { filter: grayscale(1) brightness(0.1); }   /* .Dead #HeroIcon: saturation 0, brightness 0.1 */
+.tb-player.dead .tb-disc { color: #555; }
+
+/* #HealthBar 16x50: friendly rotateZ(-10deg) left, enemy rotateZ(7deg) right; fill offWhite / #FF5656 */
+.tb-health { position: absolute; top: calc(26 * var(--u)); width: calc(16 * var(--u)); height: calc(50 * var(--u)); z-index: 3; }
+.tb-player.friend .tb-health { left: calc(4 * var(--u)); transform: rotate(-10deg); }
+.tb-player.enemy .tb-health { right: calc(4 * var(--u)); transform: rotate(7deg); }
+.tb-health > i { position: absolute; inset: 0; }
+.tb-health-back { background-color: #000000de; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; border-radius: 3px; }
+.tb-health .tb-health-fill { top: auto; bottom: 0; background-color: #FFEFD7; -webkit-mask-position: center bottom; mask-position: center bottom; -webkit-mask-size: 100% calc(50 * var(--u)); mask-size: 100% calc(50 * var(--u)); }
+.tb-player.enemy .tb-health-fill { background-color: #FF5656; }
+.tb-health-border { display: var(--tb-display, none); background-color: #10130D; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
+
+/* .UltimateStatus 22px at margin-top 125px. Unlocked: offBlack disc, opacity 0.6, team-colour BG,
+   icon_ultimate_off. Ready: icon_ultimate, opacity 1, no BG. Not unlocked: hidden.
+   The sweep is ours: the stylesheet has no radial; it shows PlayerState.ult_cooldown. */
+.tb-ult {
+  position: absolute; left: calc(33 * var(--u)); top: calc(125 * var(--u)); width: calc(22 * var(--u)); height: calc(22 * var(--u));
+  border-radius: 50%; z-index: 4;
+}
+.tb-ult > i { position: absolute; inset: 0; border-radius: 50%; }
+.tb-ult-icon { display: var(--tb-display, none); background-position: center; background-size: contain; background-repeat: no-repeat; }   /* image: topbar.css */
+.tb-ult-fb { display: var(--tb-fb-display, block); }
+.tb-ult.ready { box-shadow: 0 0 calc(4 * var(--u)) calc(3 * var(--u)) #000; }
+.tb-ult.ready .tb-ult-fb { background: radial-gradient(circle, #10130D 0 22%, #FFEFD7 24% 100%); }
+.tb-ult.cooldown { background: #10130D; box-shadow: 0 0 calc(8 * var(--u)) calc(3 * var(--u)) #000; }
+.tb-ult.cooldown .tb-ult-bg { background: conic-gradient(transparent 0 var(--left), var(--team-c) var(--left) 100%); }   /* elapsed, in team colour */
+.tb-player.amber .tb-ult { --team-c: var(--t1); }
+.tb-player.sapphire .tb-ult { --team-c: var(--t2); }
+.tb-ult.cooldown .tb-ult-icon { inset: calc(2 * var(--u)); opacity: 0.6; }
+.tb-ult.cooldown .tb-ult-sweep { inset: calc(2 * var(--u)); background: conic-gradient(#000000a0 0 var(--left), transparent var(--left) 100%); }   /* remaining */
+.tb-ult.cooldown .tb-ult-fb { inset: calc(2 * var(--u)); background: #2a2d27; opacity: 0.8; }
+.tb-ult.untracked { display: none; }
+.tb-player.dead .tb-ult { opacity: 0.3; }
+
+/* .GameClock: top 8px, #00000090, radius 5px, padding 5px; .GameTime 80x20, 14px, offWhite&90 */
+.tb-center { position: absolute; left: 50%; top: 0; width: calc(300 * var(--u)); height: 100%; transform: translateX(-50%); }
+.tb-clock {
+  position: absolute; left: 50%; top: calc(8 * var(--u)); transform: translateX(-50%);
+  padding: calc(5 * var(--u)); border-radius: calc(5 * var(--u)); background: #00000090;
+}
+.tb-clock-label {
+  display: block; width: calc(80 * var(--u)); height: calc(20 * var(--u)); line-height: calc(20 * var(--u));
+  text-align: center; font: 600 calc(14 * var(--u)) "MingLiu", "VALVEPulp", "Noto Sans", sans-serif; color: #FFEFD790;   /* numericBlock */
+}
+
+/* .TeamNetworth: 300 wide, margin-top 45px. .TeamScore 145px; .ScoreBG team colour masked by dust_01;
+   .ScoreLabel 22px bold (oracle); .TeamIcon 30x26, margin 4px 0. */
+.tb-scores { position: absolute; left: 0; top: calc(45 * var(--u)); width: 100%; height: calc(34 * var(--u)); }
+.tb-score { position: absolute; top: 0; width: calc(145 * var(--u)); height: 100%; left: 0; }
+.tb-score.right { left: auto; right: 0; }
+.tb-score-bg { position: absolute; inset: 0; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; }   /* mask image: topbar.css */
+.tb-score.amber .tb-score-bg { background: var(--t1); }
+.tb-score.sapphire .tb-score-bg { background: var(--t2); }
+.tb-score-row { position: absolute; inset: 0; display: flex; align-items: center; justify-content: flex-end; gap: calc(4 * var(--u)); padding-right: calc(5 * var(--u)); }
+.tb-score.right .tb-score-row { justify-content: flex-start; padding: 0 0 0 calc(5 * var(--u)); }
+.tb-score-label { font: 700 calc(22 * var(--u)) "VALVEOracle", "Reaver", "Noto Sans", sans-serif; }
+.tb-score.amber .tb-score-label { color: var(--t1fg); }
+.tb-score.sapphire .tb-score-label { color: var(--t2fg); }
+.tb-score .demote { font-size: calc(14 * var(--u)); }
+.tb-team-icon { width: calc(30 * var(--u)); height: calc(26 * var(--u)); margin: calc(4 * var(--u)) 0; background-position: center; background-size: contain; background-repeat: no-repeat; display: block; }   /* image: topbar.css */
+
+/* Editing in place (board only): souls and the clock edit as text; the ult ring drags or scrolls */
+.tb-host.editable .tb-souls, .tb-host.editable .tb-clock { cursor: text; }
+.tb-host.editable .tb-souls:hover, .tb-host.editable .tb-clock:hover { outline: calc(1.5 * var(--u)) dashed #FFEFD7aa; outline-offset: calc(2 * var(--u)); }
+.tb-host.editable .tb-ult { cursor: grab; }
+.tb-host.editable .tb-ult.untracked { display: block; border: calc(1.5 * var(--u)) dashed #FFEFD766; background: none; }   /* untracked: a faint empty ring to click */
+.tb-host.editable .tb-ult.untracked > i { display: none; }
+.tb-souls.editing, .tb-clock.editing { outline: calc(2 * var(--u)) solid #8ee0c4; outline-offset: calc(2 * var(--u)); }
+.tb-caret { display: inline-block; width: calc(1.5 * var(--u)); height: calc(15 * var(--u)); background: currentColor; margin-left: calc(1 * var(--u)); vertical-align: middle; font-style: normal; }
+.tb-clock.editing .tb-caret { color: #FFEFD7; position: absolute; right: calc(14 * var(--u)); top: calc(8 * var(--u)); }
+.tb-ult.adjusting { outline: calc(2 * var(--u)) solid #8ee0c4; outline-offset: calc(3 * var(--u)); }
+.tb-ult-handle { inset: auto !important; left: 50%; top: 50%; width: calc(7 * var(--u)); height: calc(7 * var(--u));
+  background: #8ee0c4; border-radius: 50%; box-shadow: 0 0 0 calc(1.5 * var(--u)) #0b1d18; }
+.tb-ult-pct { position: absolute; left: 50%; top: calc(26 * var(--u)); transform: translateX(-50%); font: 700 calc(11 * var(--u)) "Noto Sans", sans-serif; color: #0b1d18; background: #8ee0c4; padding: 0 calc(4 * var(--u)); border-radius: calc(3 * var(--u)); white-space: nowrap; }
+
+/* Compressed (phone): the same bar, scaled down, with legibility floors on the text */
+.tb-host.compact .tb-souls-value { font-size: max(calc(15 * var(--u)), 8.5px); }
+.tb-host.compact .demote { font-size: max(calc(12 * var(--u)), 7px); }
+.tb-host.compact .tb-score-label { font-size: max(calc(22 * var(--u)), 11px); }
+.tb-host.compact .tb-clock-label { font-size: max(calc(14 * var(--u)), 9px); }
+.tb-host.compact .tb-souls { padding-left: 1px; padding-right: 1px; }
+.tb-host.compact .tb-clock { top: 0; padding: 1px 3px; }
+.tb-host.compact .tb-clock-label { width: auto; height: auto; line-height: 1.2; }
+.tb-host.compact .tb-scores { top: calc(62 * var(--u)); height: max(calc(34 * var(--u)), 15px); }
+.tb-host.compact .tb-team-icon { width: max(calc(30 * var(--u)), 10px); height: max(calc(26 * var(--u)), 9px); }
+.tb-host.compact .tb-ult { width: max(calc(22 * var(--u)), 9px); height: max(calc(22 * var(--u)), 9px); }
+.tb-host.compact .tb-ult { top: calc(96 * var(--u) + 12px); left: 50%; margin-left: -4.5px; }
+.tb-host.compact { height: calc(172 * var(--u) + 10px); }
+.tb-host.compact .tb-ult { top: calc(96 * var(--u) + 17px); }
+.tb-host.compact .tb-souls-value { font-size: max(calc(15 * var(--u)), 8px); line-height: 1.05; }
+.tb-host.compact { height: calc(172 * var(--u) + 16px); }

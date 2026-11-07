@@ -3,6 +3,7 @@
 // move, with the dragger's name tag), and the drop commits one op (spec §4a).
 
 import { For, Show, createMemo, createSignal } from "solid-js";
+import { cx } from "../ui/cx";
 import { colorOf } from "../core/device";
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { RecordId } from "../gen/RecordId";
@@ -133,8 +134,7 @@ export function Tokens(p: {
                 )}
               </Show>
               <g
-                class={`tok ${team()}`}
-                classList={{ dead: !pl.state.alive, preview: !!remoteDrag() || !!mine(), dragging: !!mine() }}
+                class={cx("tok", team(), !pl.state.alive && "dead", (!!remoteDrag() || !!mine()) && "preview", !!mine() && "dragging")}
                 transform={`translate(${at().x} ${at().y})`}
                 data-slot={`${slot().team}-${slot().slot}`}
                 data-player={pl.id}

@@ -18,6 +18,8 @@ export interface PackHero {
   name: string | null;
   disabled?: boolean;
   minimap_blob: string | null;
+  /** Schema 3: the 120×200 top-bar portrait. */
+  topbar_blob?: string | null;
 }
 
 export interface PackManifest {
@@ -33,6 +35,8 @@ export interface Hero {
   name: string;
   /** Minimap portrait URL, when the pack has one. */
   portrait: string | undefined;
+  /** Top-bar portrait (vertical bust), when the pack has one. */
+  topbar: string | undefined;
 }
 
 export interface Art {
@@ -63,6 +67,12 @@ export const IMAGE_BLOBS: Record<string, string> = {
   "neutral-large": "icons/neutral_large_psd",
   "neutral-vault": "icons/neutral_vault_psd",
   koth: "icons/minimap_icon_koth_png",
+  "tb-mask": "topbar/hero_image_mask_psd",
+  "tb-ult": "topbar/icon_ultimate",
+  "tb-ult-off": "topbar/icon_ultimate_off",
+  "tb-dust": "topbar/dust_01_psd",
+  "tb-team1": "topbar/icon_team1_psd",
+  "tb-team2": "topbar/icon_team2_psd",
 };
 
 export function fallbackArt(): Art {
@@ -83,7 +93,7 @@ export function artFromManifest(base: string, packId: string, m: PackManifest): 
   const heroes = new Map<number, Hero>();
   for (const h of m.heroes ?? []) {
     if (h.disabled) continue;
-    heroes.set(h.hero_id, { id: h.hero_id, name: h.name ?? h.class_name ?? `Hero ${h.hero_id}`, portrait: url(h.minimap_blob) });
+    heroes.set(h.hero_id, { id: h.hero_id, name: h.name ?? h.class_name ?? `Hero ${h.hero_id}`, portrait: url(h.minimap_blob), topbar: url(h.topbar_blob) });
   }
   const entities = m.entities ?? [];
   // A pack without map entities still has portraits; its map falls back to the schematic.
@@ -110,19 +120,38 @@ export async function loadArt(base = ""): Promise<Art> {
  * alpha as mask) and `[data-pimg]` (plain) layers. URLs live only here, never in user data.
  */
 export function artCss(art: Art): string {
-  if (!art.images.has("terrain-mid")) return "";
-  const css: string[] = [".mm-host.pack-art { --pa-display: block; --pa-fb-display: none; }"];
+  const css: string[] = [];
+  const img = (name: string) => {
+    const u = art.images.get(name);
+    return u ? `url(${JSON.stringify(u)})` : undefined;
+  };
+  const mask = (u: string) => `-webkit-mask-image: ${u}; mask-image: ${u};`;
+  // The top bar's own images (pack schema 3), independent of the map's.
+  if (img("tb-mask")) {
+    css.push(".tb-host.pack-art { --tb-display: block; --tb-fb-display: none; }");
+    css.push(`.tb-host.pack-art .tb-img { ${mask(img("tb-mask")!)} }`);
+    const rules: Array<[string, string]> = [
+      [".tb-ult.ready .tb-ult-icon", "tb-ult"],
+      [".tb-ult.cooldown .tb-ult-icon", "tb-ult-off"],
+      [".tb-score.amber .tb-team-icon", "tb-team1"],
+      [".tb-score.sapphire .tb-team-icon", "tb-team2"],
+    ];
+    for (const [sel, name] of rules) if (img(name)) css.push(`.tb-host.pack-art ${sel} { background-image: ${img(name)}; }`);
+    if (img("tb-dust")) css.push(`.tb-host.pack-art .tb-score-bg { ${mask(img("tb-dust")!)} }`);
+  }
+  if (!art.images.has("terrain-mid")) return css.join("\n");
+  css.push(".mm-host.pack-art { --pa-display: block; --pa-fb-display: none; }");
   for (const [name, u] of art.images) {
     const q = JSON.stringify(u);
     css.push(`.mm-host.pack-art [data-img="${name}"] { background-image: url(${q}); -webkit-mask-image: url(${q}); mask-image: url(${q}); }`);
     css.push(`.mm-host.pack-art [data-pimg="${name}"] { background-image: url(${q}); }`);
   }
-  const frame = art.images.get("frame");
-  const mask = art.images.get("frame-mask");
+  const frame = img("frame");
+  const frameMask = img("frame-mask");
   if (frame) {
-    css.push(`.mm-host.pack-art .mm-frame .frame-art { background-image: url(${JSON.stringify(frame)}); }`);
-    if (mask) css.push(`.mm-host.pack-art .mm-frame .frame-art { -webkit-mask-image: url(${JSON.stringify(mask)}); mask-image: url(${JSON.stringify(mask)}); }`);
-    if (mask) css.push(`.mm-host.pack-art.zoomed .mm-clip { -webkit-mask-image: url(${JSON.stringify(mask)}); mask-image: url(${JSON.stringify(mask)}); }`);
+    css.push(`.mm-host.pack-art .mm-frame .frame-art { background-image: ${frame}; }`);
+    if (frameMask) css.push(`.mm-host.pack-art .mm-frame .frame-art { ${mask(frameMask)} }`);
+    if (frameMask) css.push(`.mm-host.pack-art.zoomed .mm-clip { ${mask(frameMask)} }`);
   }
   return css.join("\n");
 }

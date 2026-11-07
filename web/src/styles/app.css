@@ -53,7 +53,7 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .hero-pick option { background: var(--panel); color: var(--text); }
 
 /* Scene strip */
-.board-app { --map-side: min(100%, calc(100dvh - 56px - 104px - 110px)); }
+.board-app { --bar-w: min(100%, 1008px); --map-side: min(100%, calc(100dvh - 56px - 104px - 100px - var(--bar-w) * 0.1365)); }
 .board-app .mapbox, .board-app .stage-head, .board-app .tb-hint, .board-app .toolbar { width: var(--map-side); }
 .strip .nav[disabled] { opacity: 0.3; cursor: default; }
 .cards { overflow-x: auto; scrollbar-width: thin; padding-top: 10px; margin-top: -10px; }
@@ -71,3 +71,13 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .ie-input { font: inherit; color: inherit; background: var(--bg-deep); border: 1px solid var(--accent); border-radius: 5px; padding: 0 6px; outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 .ie-input.bad { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 25%, transparent); }
 .scene-title h1 .ie-input.clock { width: 4.2em; color: var(--brass); }
+
+/* The in-game top bar above the map: up to 1008 px wide, its height follows (172/1260). */
+.board-app .stage > .tb-host { width: var(--bar-w); margin: 14px 0 2px; }
+.board-app .stage:has(.tb-host) .stage-head { width: var(--bar-w); }
+.tb-host .ie { border: 0; }
+.tb-host .ie-input.tb-souls-value { width: calc(60 * var(--u)); padding: 0 2px; color: #10130D; background: #FFEFD7; border-radius: 2px; text-align: center; box-shadow: none; border: 0; }
+.tb-host .ie-input.tb-clock-label { width: calc(80 * var(--u)); padding: 0; text-align: center; color: #FFEFD7; background: transparent; border: 0; box-shadow: none; }
+.tb-host .ie-input.bad { outline: 2px solid var(--danger); }
+.tb-host .tb-souls:has(.ie-input), .tb-host .tb-clock:has(.ie-input) { outline: calc(2 * var(--u)) solid var(--accent); outline-offset: calc(2 * var(--u)); }
+.tb-host.editable .tb-ult { touch-action: none; }

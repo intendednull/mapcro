@@ -85,6 +85,12 @@ test.describe("with a synthetic pack", () => {
     const walker = a.locator('.mapbox .mk[data-key="walker:amber:lane1:1"]');
     await expect(walker).toHaveAttribute("style", /left: 20\.83\d*%; top: 72\.02\d*%/);
 
+    // Flipping the view keeps the art (a dynamic class once wiped the pack-art class).
+    await a.getByTestId("viewpoint-flip").click();
+    await expect(host).toHaveClass(/vp-sapphire/);
+    await expect(host).toHaveClass(/\bpack-art\b/);
+    await a.getByTestId("viewpoint-flip").click();
+
     // Picking a hero puts the pack's portrait on the token, in every browser.
     const b = await joinNew(browser, url, "Marrow");
     await a.getByTestId("hero-pick-Amber-0").selectOption({ label: "Testhero" });
@@ -108,6 +114,30 @@ test("screenshot with the real pack", async ({ browser }) => {
       const sel = a.getByTestId(`hero-pick-${i < 6 ? "Amber" : "Sapphire"}-${i % 6}`);
       await sel.selectOption({ label: h }).catch(() => undefined);
     }
+    const souls = [9040, 7310, 6120, 7100, 5480, 4790, 8800, 7700, 6900, 6200, 5100, 4400];
+    const ults = [0, 60, 25, null, 90, 0, 40, 0, 75, 10, null, 100];
+    for (const [i, n] of souls.entries()) {
+      const slot = `${i < 6 ? "Amber" : "Sapphire"}-${i % 6}`;
+      await a.locator(`.tb-player[data-slot="${slot}"]`).getByTestId("souls").click();
+      await a.getByTestId("souls-input").fill(String(n));
+      await a.keyboard.press("Enter");
+      const u = ults[i];
+      const ring = a.locator(`.tb-player[data-slot="${slot}"]`).getByTestId("ult");
+      if (u === 0) await ring.click();
+      else if (u != null) {
+        const r = (await ring.boundingBox())!;
+        const [x, y] = [r.x + r.width / 2, r.y + r.height / 2];
+        const t = (u / 100) * 2 * Math.PI;
+        await a.mouse.move(x, y);
+        await a.mouse.down();
+        await a.mouse.move(x, y - 20, { steps: 2 });
+        await a.mouse.move(x + 20 * Math.sin(t), y - 20 * Math.cos(t), { steps: 2 });
+        await a.mouse.up();
+      }
+    }
+    await a.getByTestId("tb-clock").click();
+    await a.getByTestId("tb-clock-input").fill("8:00");
+    await a.keyboard.press("Enter");
     const box = (await a.locator('.tok[data-slot="Amber-2"]').boundingBox())!;
     const map = (await a.locator(".mm-overlay.map").boundingBox())!;
     await b.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -115,7 +145,7 @@ test("screenshot with the real pack", async ({ browser }) => {
     await b.mouse.move(map.x + map.width * 0.45, map.y + map.height * 0.6, { steps: 10 });
     await expect(a.locator('.p-tag[data-tag="Marrow"]')).toBeVisible();
     await a.waitForTimeout(300);
-    await a.screenshot({ path: "shots/slice1-board-pack.png" });
+    await a.screenshot({ path: "shots/board-pack.png" });
     await b.mouse.up();
     const t = translate(await a.locator('.tok[data-slot="Amber-2"]').getAttribute("transform"));
     expect(t.y).toBeLessThan(700);

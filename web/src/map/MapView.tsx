@@ -3,6 +3,7 @@
 // every image layer falls back to CSS shapes in the same tints.
 
 import { For, type JSX, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { cx } from "../ui/cx";
 import { type Marker, HUD_MAP_PX, isFriendly, laneStroke, washFor } from "./model";
 import { type Art, artCss } from "./pack";
 import type { Viewpoint } from "./transform";
@@ -54,8 +55,7 @@ function MarkerView(p: { m: Marker; vp: Viewpoint }) {
   };
   return (
     <div
-      class={`mk ${p.m.kind}`}
-      classList={{ koth: p.m.kind === "koth" }}
+      class={cx("mk", p.m.kind, p.m.kind === "koth" && "koth")}
       title={p.m.title}
       data-key={p.m.key}
       style={{
@@ -118,6 +118,7 @@ export function MapView(p: {
   children?: JSX.Element;
   overlayRef?: (el: SVGSVGElement) => void;
   overlayProps?: JSX.SvgSVGAttributes<SVGSVGElement>;
+  overlayClass?: string | false | undefined;
 }) {
   useArtCss(() => p.art);
   let host!: HTMLDivElement;
@@ -138,8 +139,7 @@ export function MapView(p: {
   return (
     <div
       ref={host}
-      class={`mm-host vp-${p.viewpoint} ${p.class ?? ""}`}
-      classList={{ "pack-art": hasArt(), lite: !!p.lite, zoomed: view().w < 1000, live: !!p.live }}
+      class={cx("mm-host", `vp-${p.viewpoint}`, p.class, hasArt() && "pack-art", p.lite && "lite", view().w < 1000 && "zoomed", p.live && "live")}
       data-viewpoint={p.viewpoint}
       data-pack={p.art.packId ?? "none"}
       style={{ "--u": `${u()}px`, "--mk-scale": String(view().w / 1000) }}
@@ -170,7 +170,7 @@ export function MapView(p: {
               <For each={markers()}>{(m) => <MarkerView m={m} vp={p.viewpoint} />}</For>
             </div>
           </div>
-          <svg ref={p.overlayRef} class={`mm-overlay ${p.lite ? "mini" : "map"}`} viewBox="0 0 1000 1000" {...p.overlayProps}>
+          <svg ref={p.overlayRef} viewBox="0 0 1000 1000" {...p.overlayProps} class={cx("mm-overlay", p.lite ? "mini" : "map", p.overlayClass)}>
             {p.children}
           </svg>
         </div>
