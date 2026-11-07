@@ -42,7 +42,7 @@ pub struct Config {
 /// Defaults; see the field docs above for what each bounds and how it was measured.
 const BOARD_MAX_OPS: usize = 100_000;
 const BOARD_MAX_BYTES: usize = 20 * 1024 * 1024;
-const MAX_OPEN_ROOMS: usize = 128;
+const MAX_OPEN_ROOMS: usize = 256;
 const ROOM_MEMORY_BYTES: usize = 128 * 1024 * 1024;
 
 fn num<T: std::str::FromStr>(var: &impl Fn(&str) -> Option<String>, key: &str, default: T) -> Result<T, String> {

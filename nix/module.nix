@@ -50,6 +50,10 @@ in
         PUBLIC_ORIGIN = cfg.publicOrigin;
         CREATE_PER_HOUR = toString cfg.createPerHour;
         RUST_LOG = "info";
+        # Two malloc arenas: the room memory budget (ROOM_MEMORY_BYTES) is calibrated with this.
+        # glibc's default (8 per core) keeps freed load buffers in each thread's arena, which
+        # measured ~1.5x the budget resident instead of ~1.3x (journal 2026-11-07-security-fixes).
+        MALLOC_ARENA_MAX = "2";
       } // lib.optionalAttrs (cfg.webDir != null) { WEB_DIR = toString cfg.webDir; };
       serviceConfig = {
         ExecStart = lib.getExe pkg;

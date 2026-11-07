@@ -40,7 +40,7 @@
           contents = [ server ];
           config = {
             Cmd = [ (pkgs.lib.getExe server) ];
-            Env = [ "HOST=0.0.0.0" "DATA_DIR=/data" ];
+            Env = [ "HOST=0.0.0.0" "DATA_DIR=/data" "MALLOC_ARENA_MAX=2" ];
           };
         };
       };
@@ -66,6 +66,7 @@
           # A crash loop backs off and gives up rather than spinning.
           machine.succeed("systemctl show mapcro.service -p StartLimitBurst | grep -qx StartLimitBurst=8")
           machine.succeed("systemctl show mapcro.service -p RestartSteps | grep -qx RestartSteps=5")
+          machine.succeed("systemctl show mapcro.service -p Environment | grep -q MALLOC_ARENA_MAX=2")
         '';
       };
 

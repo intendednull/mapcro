@@ -62,6 +62,9 @@ async fn main() {
         },
         None => packs::Packs::default(),
     };
+    if std::env::var_os("MALLOC_ARENA_MAX").is_none() {
+        tracing::warn!("MALLOC_ARENA_MAX is unset: the room memory budget assumes 2 (nix/module.nix sets it)");
+    }
     if packs.list.is_empty() {
         tracing::warn!("no asset packs: boards render with placeholder art (set PACKS_DIR)");
     }
