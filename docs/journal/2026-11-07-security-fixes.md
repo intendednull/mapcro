@@ -227,3 +227,7 @@ waits for every acknowledgement found the same wall time for old and new builds,
 more server CPU per transaction on the new one (an extra serialization and the compression). So
 `catchup_tooslow`'s count measures disk contention here, not the code. Group commit (§9,
 promised, not built) is what would raise that ceiling.
+
+Re-run once the machine went quiet (load average about 4), alternating builds: the old build
+and the new one each logged ~4983 of `catchup_tooslow`'s transactions, and every fresh device that
+joined after the backlog cleared got all of them. No regression.
