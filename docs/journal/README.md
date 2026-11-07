@@ -10,3 +10,4 @@ experiment writes its predictions down *before* it runs, so the result can show 
 |---|---|
 | 2026-11-06 | [Architecture decisions](2026-11-06-architecture-decisions.md) |
 | 2026-11-06 | [Experiment: a Quint model of the sync protocol](2026-11-06-quint-sync-model.md) |
+| 2026-11-06 | [Engine tracer bullet and the simulation harness](2026-11-06-engine-tracer.md) |

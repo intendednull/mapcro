@@ -1,5 +1,5 @@
 **Date:** 2026-11-06
-**Status:** active
+**Status:** landed (steps 1–5, 2026-11-06; see journal)
 **Spec:** docs/specs/architecture-design.md (§2–§7, §14)
 
 # Plan: the engine tracer bullet
