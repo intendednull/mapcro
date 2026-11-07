@@ -212,6 +212,9 @@ at about 20 Hz; the server coalesces them per room and relays.
   - **A follower who changes what they see stops following:** flipping a scene, panning, zooming or
     switching floor. There's no half-state.
   - **Presenters can't force or nudge anyone;** getting back in is just as easy.
+  - **Anyone can follow anyone who holds edit rights** (owner or edit link), so there can be several
+    presenters at once. View-only people can follow but can't be followed. Presence carries each
+    person's role, and the server stamps it from their link, so it can't be forged.
 - Presence timeout: 30 s without a heartbeat removes the entry.
 
 ## 9. Persistence, snapshots and backups
