@@ -37,7 +37,8 @@ test("a phone viewer follows, reads the callouts and note, flips on its own, and
   await expect(phone.getByTestId("role-chip")).toContainText("View only");
   await expect(phone.getByTestId("scene-strip")).toHaveCount(0);
   // One flip control on the phone: the desktop's round button over the map is hidden.
-  await expect(phone.locator(".mm-flip")).toBeHidden();
+  await expect(phone.locator(".mm-flip")).toHaveCount(0);
+  await expect(phone.getByTestId("viewpoint-flip")).toHaveCount(1);
 
   // Someone follows Coach so Coach is presenting; the phone offers Follow in one tap.
   const b = await joinNew(browser, url, "Marrow");

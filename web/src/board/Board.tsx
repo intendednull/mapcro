@@ -462,8 +462,16 @@ export function Board(p: { board: string; token: string; art: Art }) {
     </div>
   );
 
+  // The map's width on screen, so comments can be drawn at screen size.
+  const [mapPx, setMapPx] = createSignal(500);
+  const measureMap = (el: HTMLDivElement) => {
+    queueMicrotask(() => setMapPx(el.clientWidth || 500));
+    const ro = new ResizeObserver(() => setMapPx(el.clientWidth || 500));
+    ro.observe(el);
+    onCleanup(() => ro.disconnect());
+  };
   const mapBox = (phone: boolean) => (
-          <div class={phone ? "p-map" : "mapbox"} data-testid="map" data-view={`${Math.round(view().x)} ${Math.round(view().y)} ${Math.round(view().w)}`}>
+          <div ref={measureMap} class={phone ? "p-map" : "mapbox"} data-testid="map" data-view={`${Math.round(view().x)} ${Math.round(view().y)} ${Math.round(view().w)}`}>
             <MapView
               art={p.art}
               viewpoint={viewpoint()}
@@ -507,6 +515,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 setObjSelection={setObjSelection}
                 isOpen={isOpen}
                 preview={matchPreview}
+                unitsPerPx={() => view().w / (mapPx() * 0.9)}
+                visible={view}
                 openComment={openComment}
                 setOpenComment={setOpenComment}
                 compactCallouts={phone}
@@ -514,18 +524,14 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
               />
             </MapView>
-            <button
-              class="mm-flip"
-              hidden={phone}
-              data-testid="viewpoint-flip"
-              title="Flip view"
-              aria-label="Flip view"
-              onClick={flipSide}
-            >
-              <svg viewBox="-16 -16 32 32" aria-hidden="true">
-                <path d="M-10 -4 A11 11 0 0 1 9 -6 M9 -6 L9 -14 M9 -6 L1 -6 M10 4 A11 11 0 0 1 -9 6 M-9 6 L-9 14 M-9 6 L-1 6" />
-              </svg>
-            </button>
+            {/* The phone has its own Flip in its tool strip: one control, one test id. */}
+            {!phone && (
+              <button class="mm-flip" data-testid="viewpoint-flip" title="Flip view" aria-label="Flip view" onClick={flipSide}>
+                <svg viewBox="-16 -16 32 32" aria-hidden="true">
+                  <path d="M-10 -4 A11 11 0 0 1 9 -6 M9 -6 L9 -14 M9 -6 L1 -6 M10 4 A11 11 0 0 1 -9 6 M-9 6 L-9 14 M-9 6 L-1 6" />
+                </svg>
+              </button>
+            )}
           </div>
   );
   const toastView = () => (

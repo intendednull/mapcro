@@ -26,6 +26,7 @@ import { HUD_PX, type Marker, laneStroke } from "../map/model";
 import { pathOf, pointAt, project, splitAt } from "../map/lanes";
 import { LANE_GAP } from "../map/MapView";
 import { groupToggleOps, marqueePick, toggleOps } from "./objectives";
+import { CARD, cardBox } from "./commentLayout";
 import type { MatchPreview } from "../match/MatchPanel";
 import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
@@ -45,10 +46,6 @@ type Rec<T> = { id: RecordId; r: T };
 
 /** A small speech bubble whose tail points at the comment's spot (the origin). */
 const BUBBLE = "M0 0 L-4 -8 H-11 A5 5 0 0 1 -16 -13 V-25 A5 5 0 0 1 -11 -30 H11 A5 5 0 0 1 16 -25 V-13 A5 5 0 0 1 11 -8 H4 Z";
-
-function textWidth(s: string, px: number) {
-  return Math.max(40, s.length * px * 0.56 + 28);
-}
 
 export function Layers(p: {
   state: BoardState;
@@ -89,6 +86,9 @@ export function Layers(p: {
   isOpen: (id: RecordId) => boolean;
   openComment: () => RecordId | undefined;
   preview?: (() => MatchPreview | undefined) | undefined;
+  /** Comments are drawn at screen size: view units per screen pixel, and the visible part of the map. */
+  unitsPerPx: () => number;
+  visible: () => { x: number; y: number; w: number };
   setOpenComment: (id: RecordId | undefined) => void;
 }) {
   const st = p.state;
@@ -587,116 +587,6 @@ export function Layers(p: {
         </For>
         <Show when={drawing()}>{(pts) => <path class="ink preview" d={polyline(pts())} stroke={colorOf(p.ink)} style={{ "stroke-width": `${INK_WIDTH / 10}` }} />}</Show>
       </g>
-      <g class="callouts">
-        <For each={callouts()}>
-          {(c) => {
-            const others = () => touching().get(c.id) ?? [];
-            const remote = () => others().find((o) => o.state?.drag?.id === c.id)?.state?.drag?.pos;
-            const pos = () => view(dragCallout()?.id === c.id ? dragCallout()!.pos : (remote() ?? c.r.pos));
-            const w = () => textWidth(c.r.text, 18);
-            const left = () => pos().x + 16 + w() > 1000;
-            const bx = () => (left() ? pos().x - 16 - w() : pos().x + 16);
-            const by = () => pos().y - 56;
-            const hidden = () => editing()?.id === c.id;
-            if (p.compactCallouts)
-              return (
-                <g class="co-pin" data-callout={c.id} transform={`translate(${pos().x} ${pos().y}) scale(${p.k})`}>
-                  <circle r="16" />
-                  <text>{callouts().findIndex((x) => x.id === c.id) + 1}</text>
-                </g>
-              );
-            const open = () => p.isOpen(c.id) || hidden();
-            const tags = () => (
-              <For each={others()}>
-                {(o, i) => (
-                  <NameTag
-                    at={{ x: (open() ? bx() - 30 : pos().x - 14 * p.k), y: (open() ? by() + 10 : pos().y - 40 * p.k) - i() * 32 * p.k }}
-                    name={o.state!.name}
-                    color={o.state!.color}
-                    what={o.state!.drag?.id === c.id ? "moving" : undefined}
-                    k={p.k}
-                  />
-                )}
-              </For>
-            );
-            return (
-              <Show
-                when={open()}
-                fallback={
-                  <g
-                    class={cx("co", "bubble", erasing().has(c.id) && "erasing", others().length > 0 && "touched")}
-                    data-erase={c.id}
-                    data-callout={c.id}
-                    data-open="false"
-                    onPointerDown={(e) => calloutDown(c, e)}
-                  >
-                    <g transform={`translate(${pos().x} ${pos().y}) scale(${p.k})`}>
-                      <path class="bubble-body" d={BUBBLE} />
-                      <path class="bubble-dots" d="M-7 -19h0.01M0 -19h0.01M7 -19h0.01" />
-                      <g class="preview" data-testid="comment-preview">
-                        <rect x="20" y="-34" width={textWidth(c.r.text, 15)} height="28" rx="5" />
-                        <text x="31" y="-20" style={{ "font-size": "15px" }}>
-                          {c.r.text}
-                        </text>
-                      </g>
-                    </g>
-                    {tags()}
-                  </g>
-                }
-              >
-              <g
-                class={cx("co", erasing().has(c.id) && "erasing", others().length > 0 && "touched")}
-                data-erase={c.id}
-                data-callout={c.id}
-                data-open="true"
-                style={{ opacity: hidden() ? 0.25 : undefined }}
-                onPointerDown={(e) => calloutDown(c, e)}
-              >
-                <path d={`M${pos().x} ${pos().y} L${left() ? bx() + w() : bx()} ${by() + 18}`} stroke="var(--brass)" stroke-width="1.5" />
-                <circle class="pin" cx={pos().x} cy={pos().y} r="6" />
-                <rect x={bx()} y={by()} width={w()} height="37" rx="6" />
-                <text x={bx() + 14} y={by() + 19} style={{ "font-size": "18px" }}>
-                  {c.r.text}
-                </text>
-                <For each={others()}>
-                  {(o) => <rect class="p-outline" x={bx() - 4} y={by() - 4} width={w() + 8} height="45" rx="9" stroke={colorOf(o.state!.color)} />}
-                </For>
-                {tags()}
-              </g>
-              </Show>
-            );
-          }}
-        </For>
-        <Show when={editing()}>
-          {(ed) => {
-            const pos = () => view(ed().pos);
-            const x = () => Math.min(pos().x + 16, 1000 - 300);
-            return (
-              <g class="co editing" data-callout={ed().id ?? "new"}>
-                <circle class="pin" cx={pos().x} cy={pos().y} r="6" />
-                <foreignObject x={x()} y={pos().y - 60} width="300" height="44">
-                  <input
-                    class="callout-input"
-                    data-testid="comment-input"
-                    aria-label="Comment"
-                    maxLength={MAX_CALLOUT}
-                    value={ed().text}
-                    placeholder="Comment"
-                    ref={(el) => queueMicrotask(() => el.focus())}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => {
-                      e.stopPropagation();
-                      if (e.key === "Enter") closeEditor(true, e.currentTarget.value);
-                      if (e.key === "Escape") closeEditor(false);
-                    }}
-                    onBlur={(e) => editing() && closeEditor(true, e.currentTarget.value)}
-                  />
-                </foreignObject>
-              </g>
-            );
-          }}
-        </Show>
-      </g>
       <Show when={box()}>
         {(b) => (
           <rect
@@ -718,6 +608,124 @@ export function Layers(p: {
           </g>
         )}
       </For>
+      <g class="callouts">
+        <For each={callouts()}>
+          {(c) => {
+            const others = () => touching().get(c.id) ?? [];
+            const remote = () => others().find((o) => o.state?.drag?.id === c.id)?.state?.drag?.pos;
+            const pos = () => view(dragCallout()?.id === c.id ? dragCallout()!.pos : (remote() ?? c.r.pos));
+            const hidden = () => editing()?.id === c.id;
+            if (p.compactCallouts)
+              return (
+                <g class="co-pin" data-callout={c.id} transform={`translate(${pos().x} ${pos().y}) scale(${p.k})`}>
+                  <circle r="16" />
+                  <text>{callouts().findIndex((x) => x.id === c.id) + 1}</text>
+                </g>
+              );
+            const sc = () => p.unitsPerPx();
+            const box = () => cardBox(c.r.text, pos(), sc(), p.visible());
+            const open = () => p.isOpen(c.id) || hidden();
+            const card = (cls: string) => (
+              <g class={cls}>
+                <rect class="card-bg" x={box().x} y={box().y} width={box().w} height={box().h} rx={5 * sc()} />
+                <For each={box().lines}>
+                  {(line, i) => (
+                    <text x={box().x + CARD.padX * sc()} y={box().y + (CARD.padY + CARD.line * (i() + 0.5)) * sc()} style={{ "font-size": `${CARD.font * sc()}px` }}>
+                      {line}
+                    </text>
+                  )}
+                </For>
+              </g>
+            );
+            const tags = () => (
+              <For each={others()}>
+                {(o, i) => (
+                  <NameTag
+                    at={{ x: (open() ? box().x : pos().x) - 30 * p.k, y: (open() ? box().y + 14 * p.k : pos().y - 40 * p.k) - i() * 32 * p.k }}
+                    name={o.state!.name}
+                    color={o.state!.color}
+                    what={o.state!.drag?.id === c.id ? "moving" : undefined}
+                    k={p.k}
+                  />
+                )}
+              </For>
+            );
+            return (
+              <Show
+                when={open()}
+                fallback={
+                  <g
+                    class={cx("co", "bubble", erasing().has(c.id) && "erasing", others().length > 0 && "touched")}
+                    data-erase={c.id}
+                    data-callout={c.id}
+                    data-open="false"
+                    onPointerDown={(e) => calloutDown(c, e)}
+                  >
+                    <g transform={`translate(${pos().x} ${pos().y}) scale(${sc() * 0.8})`}>
+                      <path class="bubble-body" d={BUBBLE} />
+                      <path class="bubble-dots" d="M-7 -19h0.01M0 -19h0.01M7 -19h0.01" />
+                    </g>
+                    <g class="preview" data-testid="comment-preview">
+                      {card("preview-card")}
+                    </g>
+                    {tags()}
+                  </g>
+                }
+              >
+                <g
+                  class={cx("co", "open", erasing().has(c.id) && "erasing", others().length > 0 && "touched")}
+                  data-erase={c.id}
+                  data-callout={c.id}
+                  data-open="true"
+                  style={{ opacity: hidden() ? 0.25 : undefined }}
+                  onPointerDown={(e) => calloutDown(c, e)}
+                >
+                  <path class="leader" d={`M${pos().x} ${pos().y} L${Math.min(Math.max(pos().x, box().x), box().x + box().w)} ${Math.min(Math.max(pos().y, box().y), box().y + box().h)}`} style={{ "stroke-width": `${1.5 * sc()}` }} />
+                  <circle class="pin" cx={pos().x} cy={pos().y} r={5 * sc()} style={{ "stroke-width": `${2 * sc()}` }} />
+                  {card("open-card")}
+                  <For each={others()}>
+                    {(o) => <rect class="p-outline" x={box().x - 3 * sc()} y={box().y - 3 * sc()} width={box().w + 6 * sc()} height={box().h + 6 * sc()} rx={7 * sc()} stroke={colorOf(o.state!.color)} />}
+                  </For>
+                  {tags()}
+                </g>
+              </Show>
+            );
+          }}
+        </For>
+        <Show when={editing()}>
+          {(ed) => {
+            const pos = () => view(ed().pos);
+            const sc = () => p.unitsPerPx();
+            // Placed like a card with room for a full-width line.
+            const box = () => cardBox("x".repeat(26), pos(), sc(), p.visible());
+            return (
+              <g class="co editing" data-callout={ed().id ?? "new"}>
+                <circle class="pin" cx={pos().x} cy={pos().y} r={5 * sc()} style={{ "stroke-width": `${2 * sc()}` }} />
+                <g transform={`translate(${box().x} ${box().y}) scale(${sc()})`}>
+                  <foreignObject x="0" y="-4" width={CARD.maxW} height="32">
+                    <input
+                      class="callout-input"
+                      data-testid="comment-input"
+                      aria-label="Comment"
+                      maxLength={MAX_CALLOUT}
+                      value={ed().text}
+                      placeholder="Comment"
+                      ref={(el) => queueMicrotask(() => el.focus())}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === "Enter") closeEditor(true, e.currentTarget.value);
+                        if (e.key === "Escape") closeEditor(false);
+                      }}
+                      onBlur={(e) => editing() && closeEditor(true, e.currentTarget.value)}
+                    />
+                  </foreignObject>
+                </g>
+              </g>
+            );
+          }}
+        </Show>
+      </g>
       <g class="waves">
         <For each={p.art.model.lanes}>
           {(l) => {

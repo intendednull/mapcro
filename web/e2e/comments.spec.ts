@@ -106,3 +106,36 @@ test("a bubble drags with Move and erases with Erase", async ({ browser }) => {
   await a.mouse.click(nb.x + nb.width / 2, nb.y + nb.height / 2);
   await expect(comment(b)).toHaveCount(0);
 });
+
+test("cards stay inside the map, at a readable size at any zoom, in the comment colour", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "cards"), "Coach");
+  const long = "Smoke the bridge, then rotate east through the vault and hold";
+  await place(a, [0.03, 0.5], long); // at the left edge: the card used to run off the map
+  await place(a, [0.97, 0.06], "Top right");
+  await a.getByTestId("comments-toggle").click();
+  const clip = (await a.locator(".mapbox .mm-clip").boundingBox())!;
+  const inside = async () => {
+    for (const r of await a.locator(".mapbox .co.open .card-bg").all()) {
+      const b = (await r.boundingBox())!;
+      expect(b.x).toBeGreaterThanOrEqual(clip.x - 1);
+      expect(b.y).toBeGreaterThanOrEqual(clip.y - 1);
+      expect(b.x + b.width).toBeLessThanOrEqual(clip.x + clip.width + 1);
+      expect(b.y + b.height).toBeLessThanOrEqual(clip.y + clip.height + 1);
+    }
+  };
+  await inside();
+  // Long text wraps onto more than one line.
+  expect(await comment(a).filter({ hasText: "Smoke the bridge" }).locator("text").count()).toBeGreaterThan(1);
+  const textPx = () => comment(a).filter({ hasText: "Top right" }).locator("text").first().evaluate((e) => e.getBoundingClientRect().height);
+  const atFit = await textPx();
+  expect(atFit).toBeGreaterThan(11); // was ~8 px at fit: map units, not screen pixels
+  // Zoomed in, the card keeps its screen size.
+  const m = await mapPoint(a, 0.9, 0.1);
+  await a.mouse.move(m.x, m.y);
+  await a.mouse.wheel(0, -500);
+  await expect.poll(async () => Math.abs((await textPx()) - atFit)).toBeLessThan(2);
+  // One colour no map element uses.
+  await a.getByTestId("comments-toggle").click();
+  const fill = await comment(a).first().locator(".bubble-body").evaluate((e) => getComputedStyle(e).fill);
+  expect(fill).toBe("rgb(255, 43, 214)");
+});

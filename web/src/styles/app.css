@@ -146,11 +146,11 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .p-map > .mm-host { width: 100%; height: 100%; }
 .p-tools { position: absolute; right: 14px; bottom: 6px; display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: #0a1513e6; border: 1px solid var(--line); z-index: 30; }
 .p-tools .tb { height: 34px; padding: 0 12px; }
-.mm-overlay .co-pin circle { fill: var(--brass); stroke: #0c1917; stroke-width: 4; }
-.mm-overlay .co-pin text { font: 800 18px var(--ui); fill: #1b1408; text-anchor: middle; dominant-baseline: central; }
+.mm-overlay .co-pin circle { fill: var(--comment); stroke: var(--comment-ink); stroke-width: 3; }
+.mm-overlay .co-pin text { font: 800 18px var(--ui); fill: var(--comment-ink); text-anchor: middle; dominant-baseline: central; }
 .p-callouts { list-style: none; margin: 10px 16px 0; padding: 0; display: flex; gap: 6px 16px; flex-wrap: wrap; font-size: 13px; }
 .p-callouts li { display: flex; align-items: center; gap: 7px; }
-.p-callouts b { width: 20px; height: 20px; border-radius: 50%; background: var(--brass); color: #1b1408; display: grid; place-items: center; font-size: 11px; }
+.p-callouts b { width: 20px; height: 20px; border-radius: 50%; background: var(--comment); color: var(--comment-ink); display: grid; place-items: center; font-size: 11px; }
 .p-note { margin: 8px 16px 0; color: var(--muted); font-size: 13px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .p-nav { margin-top: auto; padding: 12px 16px 22px; border-top: 1px solid var(--line); background: var(--bg-deep); touch-action: pan-y; }
 .p-nav .row { display: flex; align-items: center; gap: 12px; }
@@ -242,16 +242,25 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .mk.camp.picked::after { inset: -40%; }
 .mm-overlay.map .pick-ring { fill: none; stroke-width: 2; stroke-dasharray: 4 3; }
 
-/* Comments: small bubbles by default; hover previews the text; open shows the card */
+/* Comments: one colour no map element uses. The map's hues are orange and yellow (Amber, the
+   west lane), blue and cyan (Sapphire, the mid lane), green (east lane), red (enemy), mint and
+   teal (camps, rifts, the accent) and cream (patrons); the presence palette's nearest is a pastel
+   rose. A saturated magenta sits in none of those hue ranges and is bright on the dark terrain;
+   a near-black outline separates it from bright icons. */
+:root { --comment: #ff2bd6; --comment-ink: #1a0414; }
 .mm-overlay.map .co.bubble { cursor: pointer; }
-.mm-overlay.map .co.bubble .bubble-body { fill: var(--accent); stroke: #0b1714; stroke-width: 1.5; }
-.mm-overlay.map .co.bubble .bubble-dots { stroke: #0b1d18; stroke-width: 3; stroke-linecap: round; }
-.mm-overlay.map .co.bubble:hover .bubble-body { fill: color-mix(in srgb, var(--accent) 80%, #fff); }
+.mm-overlay.map .co.bubble .bubble-body { fill: var(--comment); stroke: var(--comment-ink); stroke-width: 2; }
+.mm-overlay.map .co.bubble .bubble-dots { stroke: var(--comment-ink); stroke-width: 3; stroke-linecap: round; }
+.mm-overlay.map .co.bubble:hover .bubble-body { fill: color-mix(in srgb, var(--comment) 75%, #fff); }
 .mm-overlay.map .co.bubble .preview { display: none; pointer-events: none; }
 .mm-overlay.map .co.bubble:hover .preview { display: inline; }
-.mm-overlay.map .co.bubble .preview rect { fill: #0c1917; stroke: var(--accent); stroke-width: 1.2; }
-.mm-overlay.map .co.bubble .preview text { font: 600 15px var(--ui); fill: var(--text); dominant-baseline: central; }
-.mm-overlay.map .co.bubble.touched .bubble-body { stroke: var(--text); stroke-width: 2.5; }
+.mm-overlay.map .co .card-bg { fill: var(--comment-ink); stroke: var(--comment); stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.mm-overlay.map .co text { fill: #fff; font-weight: 600; font-family: var(--ui); dominant-baseline: central; }
+.mm-overlay.map .co .pin { fill: var(--comment); stroke: var(--comment-ink); }
+.mm-overlay.map .co .leader { stroke: var(--comment); fill: none; }
+.mm-overlay.map .co.bubble.touched .bubble-body { stroke: #fff; stroke-width: 2.5; }
+.mm-overlay.map .co.open .p-outline { fill: none; stroke-width: 2px; vector-effect: non-scaling-stroke; }
+.callout-input { font: 600 13px var(--ui) !important; height: 26px !important; border-color: var(--comment) !important; background: var(--comment-ink) !important; color: #fff !important; }
 
 /* Match import: a panel over the map's foot; labels only */
 .match-panel { position: fixed; left: 50%; bottom: 116px; transform: translateX(-50%); z-index: 45; width: min(720px, calc(100% - 24px)); padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 16px 40px #000a; display: flex; flex-direction: column; gap: 8px; }
