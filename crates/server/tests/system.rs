@@ -269,9 +269,51 @@ async fn revoked_links_are_cut_off_immediately() {
     assert_eq!(e.pump_one().await, Err(Some(CloseReason::Revoked)));
     e.drop_connection();
     assert_eq!(e.connect(server.port, &board, &edit).await, Err(Some(CloseReason::Unauthorized)));
-    // An edit link can't manage links.
-    let r = ureq::get(&server.url(&format!("/api/boards/{board}/links"))).header("authorization", &format!("Bearer {edit}")).call();
-    assert!(r.is_err(), "edit token must not list links");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn only_the_owner_manages_links() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let (board, owner) = server.create_board();
+    let (view_id, _) = server.mint(&board, &owner, "view");
+    for role in ["edit", "view"] {
+        let (_, token) = server.mint(&board, &owner, role); // live, unrevoked
+        let auth = format!("Bearer {token}");
+        let list = ureq::get(&server.url(&format!("/api/boards/{board}/links"))).header("authorization", &auth).call();
+        assert!(list.is_err(), "{role} token must not list links");
+        let mint = ureq::post(&server.url(&format!("/api/boards/{board}/links")))
+            .header("authorization", &auth)
+            .send_json(serde_json::json!({ "role": "edit", "label": "x" }));
+        assert!(mint.is_err(), "{role} token must not mint links");
+        let revoke = ureq::delete(&server.url(&format!("/api/boards/{board}/links/{view_id}"))).header("authorization", &auth).call();
+        assert!(revoke.is_err(), "{role} token must not revoke links");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn rejections_survive_a_restart() {
+    // A rejection the client has heard about must still count after a restart; otherwise the
+    // client's next transaction looks like a sequence gap and it gets thrown off.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let (board, owner) = server.create_board();
+    let (_, view) = server.mint(&board, &owner, "view");
+    let mut v = Client::new(0x9);
+    v.connect(server.port, &board, &view).await.expect("connect");
+    let ops = move_op(v.replica(), 0);
+    v.edit(ops).await;
+    v.pump_one().await.expect("rejection");
+    assert_eq!(v.replica().rejected().len(), 1);
+
+    let (d, port) = server.kill9();
+    v.drop_connection();
+    let server = Server::start(&d, Some(port));
+    v.connect(server.port, &board, &view).await.expect("reconnect");
+    let ops = move_op(v.replica(), 1);
+    v.edit(ops).await;
+    v.pump_one().await.expect("second rejection, not a protocol error");
+    assert_eq!(v.replica().rejected(), &[(0, Reject::Forbidden), (1, Reject::Forbidden)]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
