@@ -18,7 +18,9 @@ import { createBoardState } from "./state";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type ViewRect, clampView, fromViewport, presenters, toViewport, zoomAt } from "./follow";
+import { CloneDialog, JUST_CLONED } from "./CloneDialog";
 import { Layers } from "./Layers";
+import { ShareDialog } from "./ShareDialog";
 import { Avatar, FollowChip, PeopleList, PresentingPill } from "./Presence";
 import { Toolbar } from "./Toolbar";
 import type { Tool } from "./tools";
@@ -79,6 +81,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
   };
   onCleanup(() => clearTimeout(toastTimer));
   const [overlay, setOverlay] = createSignal<SVGSVGElement>();
+  const [dialog, setDialog] = createSignal<"share" | "clone">();
+  const [justCloned, setJustCloned] = createSignal(sessionStorage.getItem(JUST_CLONED) === p.board);
+  if (justCloned()) sessionStorage.removeItem(JUST_CLONED);
 
   const scene = createMemo(() => {
     const all = state.scenes();
@@ -210,6 +215,24 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </Show>
           <For each={people()}>{(peer) => <Avatar name={peer.state!.name || "?"} color={peer.state!.color} title={peer.state!.name || "Someone joining"} />}</For>
         </div>
+        <Show when={state.role()}>
+          <button class="btn ghost" data-testid="clone" title="Clone to a new board you own" onClick={() => setDialog("clone")}>
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="8" y="8" width="12" height="12" rx="2" />
+              <path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3" />
+            </svg>
+            Clone
+          </button>
+        </Show>
+        <Show when={state.canEdit()}>
+          <button class="btn primary" data-testid="share" onClick={() => setDialog("share")}>
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1" />
+              <path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1" />
+            </svg>
+            Share
+          </button>
+        </Show>
       </header>
       <div class="main">
         <main class="stage">
@@ -408,6 +431,35 @@ export function Board(p: { board: string; token: string; art: Art }) {
         </aside>
       </div>
       <SceneStrip state={state} art={p.art} vp={viewpoint()} current={scene()?.id} onFlip={userFlip} />
+      <Show when={dialog() === "share" && state.canEdit()}>
+        <ShareDialog
+          board={p.board}
+          token={p.token}
+          role={state.role() === "owner" ? "owner" : "edit"}
+          onClose={() => setDialog(undefined)}
+          onClone={() => setDialog("clone")}
+        />
+      </Show>
+      <Show when={dialog() === "clone"}>
+        <CloneDialog board={p.board} token={p.token} title={state.title()} onClose={() => setDialog(undefined)} />
+      </Show>
+      <Show when={justCloned() && state.role() === "owner" && joined() && !dialog()}>
+        <div class="owner-note landed-note" data-testid="owner-note">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7z" />
+          </svg>
+          <div>
+            <b>You own this copy</b>
+            <span>It has no links yet, so only you can open it. Share it to bring the right people in.</span>
+          </div>
+          <button class="btn primary small" onClick={() => (setJustCloned(false), setDialog("share"))}>
+            Share
+          </button>
+          <button class="btn ghost small" aria-label="Dismiss" onClick={() => setJustCloned(false)}>
+            Later
+          </button>
+        </div>
+      </Show>
       <Show when={!joined()}>
         <JoinCard title={state.title()} others={people().map((x) => x.state!.name).filter(Boolean)} initial={me()} onJoin={join} />
       </Show>

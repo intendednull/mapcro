@@ -99,3 +99,14 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .toast { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 40; display: flex; gap: 12px; align-items: center; padding: 8px 14px; border-radius: 8px; background: var(--raised); border: 1px solid var(--line); box-shadow: 0 10px 30px #0008; font-size: 12.5px; }
 .toast .link { background: none; border: 0; color: var(--accent); font-weight: 700; padding: 0; }
 .tb[disabled] { opacity: 0.35; cursor: default; }
+
+/* Zoomed without a pack: clip to the frame's disc (with a pack, the compass frame mask does it). */
+.mm-host.zoomed:not(.pack-art):not(.mm-crop) .mm-clip { clip-path: circle(47.8% at 50% 50%); }
+
+/* Share and clone */
+.dialog { max-height: calc(100dvh - 40px); overflow: auto; }
+.dialog .mint .input { height: 36px; }
+.minted .url { user-select: all; overflow-wrap: anywhere; }
+.landed-note { position: absolute; left: 50%; top: 68px; transform: translateX(-50%); z-index: 30; width: min(560px, 100% - 32px); box-shadow: 0 16px 40px #0009; background: var(--panel); }
+.owner-note .btn { display: inline-flex; }
+.scrim { z-index: 60; }

@@ -8,6 +8,8 @@ export interface LinkInfo {
   label: string;
   created_at: number;
   revoked: boolean;
+  /** Public id of the link that minted this one (null for the owner's). */
+  minted_by: string | null;
 }
 
 async function json<T>(r: Response): Promise<T> {
