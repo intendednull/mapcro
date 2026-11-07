@@ -28,6 +28,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures-util = "0.3"
 
 [dev-dependencies]
+sha2 = "0.10"
 tokio-tungstenite = "0.27"
 ureq = { version = "3", features = ["json"] }
 tempfile = "3"

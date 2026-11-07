@@ -633,3 +633,55 @@ async fn presence_is_relayed_with_server_stamped_roles() {
         }
     }
 }
+
+fn sha256_hex(b: &[u8]) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(b).iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// A synthetic pack (not Valve data): two "images" and a manifest listing them.
+fn write_pack(dir: &std::path::Path, version: &str, tamper: bool) {
+    std::fs::create_dir_all(dir.join("map")).expect("mkdir");
+    let img = format!("not really a png {version}").into_bytes();
+    std::fs::write(dir.join("map/mid.png"), &img).expect("write");
+    std::fs::write(dir.join("secret.txt"), b"not listed").expect("write");
+    let hash = if tamper { "0".repeat(64) } else { sha256_hex(&img) };
+    let manifest = serde_json::json!({
+        "schema": 1,
+        "game": { "client_version": version, "source_revision": "1", "date": "Nov 05 2026" },
+        "blobs": { "map/mid": { "sha256": hash, "w": 1, "h": 1, "mime": "image/png", "file": "map/mid.png" } }
+    });
+    std::fs::write(dir.join("pack.json"), serde_json::to_vec(&manifest).expect("json")).expect("write");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn asset_packs_are_served_immutably_and_only_as_listed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let packs = tempfile::tempdir().expect("packs");
+    write_pack(&packs.path().join("old"), "6851", false);
+    write_pack(&packs.path().join("new"), "6860", false);
+    write_pack(&packs.path().join("bad"), "9999", true);
+    let server = Server::start_with(dir.path(), None, &[("PACKS_DIR", packs.path().to_str().expect("utf8"))]);
+
+    let list: Vec<serde_json::Value> = ureq::get(&server.url("/api/packs")).call().expect("list").body_mut().read_json().expect("json");
+    let versions: Vec<&str> = list.iter().filter_map(|p| p["game"]["client_version"].as_str()).collect();
+    assert_eq!(versions, ["6860", "6851"], "newest first; the tampered pack is skipped");
+    let id = list[0]["pack_id"].as_str().expect("id").to_owned();
+    let manifest = std::fs::read(packs.path().join("new/pack.json")).expect("read");
+    assert_eq!(id, sha256_hex(&manifest), "pack id is the manifest's hash");
+
+    let mut r = ureq::get(&server.url(&format!("/packs/{id}/map/mid.png"))).call().expect("file");
+    assert_eq!(r.headers().get("content-type").and_then(|v| v.to_str().ok()), Some("image/png"));
+    assert!(r.headers().get("cache-control").and_then(|v| v.to_str().ok()).is_some_and(|v| v.contains("immutable")));
+    assert_eq!(r.body_mut().read_to_vec().expect("body"), b"not really a png 6860");
+
+    for path in ["secret.txt", "../old/pack.json", "map/../secret.txt", "%2e%2e/old/map/mid.png", "pack.json/../secret.txt"] {
+        let status = match ureq::get(&server.url(&format!("/packs/{id}/{path}"))).call() {
+            Ok(r) => r.status().as_u16(),
+            Err(ureq::Error::StatusCode(c)) => c,
+            Err(e) => panic!("{e}"),
+        };
+        assert_eq!(status, 404, "{path} must not be served");
+    }
+    assert!(ureq::get(&server.url(&format!("/packs/{}/map/mid.png", "f".repeat(64)))).call().is_err());
+}

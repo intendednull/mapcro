@@ -11,6 +11,8 @@ pub struct Config {
     pub allowed_origins: Vec<String>,
     /// Built web client to serve, if any.
     pub web_dir: Option<PathBuf>,
+    /// Directory of extracted asset packs, one per subdirectory (spec §12).
+    pub packs_dir: Option<PathBuf>,
     /// Board creations allowed per client IP per hour.
     pub create_per_hour: u32,
     /// Board creations allowed server-wide per hour (a backstop against address rotation).
@@ -44,6 +46,12 @@ impl Config {
         {
             return Err(format!("WEB_DIR {} has no index.html", w.display()));
         }
+        let packs_dir = var("PACKS_DIR").map(PathBuf::from);
+        if let Some(p) = &packs_dir
+            && !p.is_dir()
+        {
+            return Err(format!("PACKS_DIR {} is not a directory", p.display()));
+        }
         let create_per_hour = match var("CREATE_PER_HOUR") {
             Some(v) => v.parse().map_err(|_| "CREATE_PER_HOUR must be a number")?,
             None => 30,
@@ -56,6 +64,15 @@ impl Config {
             Some(v) => std::time::Duration::from_secs(v.parse().map_err(|_| "ROOM_IDLE_SECS must be a number")?),
             None => crate::room::IDLE_UNLOAD,
         };
-        Ok(Config { addr: SocketAddr::new(host, port), data_dir, allowed_origins, web_dir, create_per_hour, create_global_per_hour, room_idle })
+        Ok(Config {
+            addr: SocketAddr::new(host, port),
+            data_dir,
+            allowed_origins,
+            web_dir,
+            packs_dir,
+            create_per_hour,
+            create_global_per_hour,
+            room_idle,
+        })
     }
 }

@@ -3,6 +3,7 @@
 mod api;
 mod config;
 mod links;
+mod packs;
 mod room;
 mod store;
 mod ws;
@@ -24,6 +25,7 @@ pub struct AppState {
     pub limiter: Arc<api::CreateLimiter>,
     /// Open WebSockets per client address key.
     pub sockets: Arc<std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, usize>>>,
+    pub packs: Arc<packs::Packs>,
 }
 
 fn header(name: &'static str, value: &'static str) -> SetResponseHeaderLayer<HeaderValue> {
@@ -49,7 +51,21 @@ async fn main() {
             std::process::exit(2);
         }
     };
+    let packs = match &config.packs_dir {
+        Some(dir) => match packs::Packs::load(dir) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("mapcro-server: {e}");
+                std::process::exit(2);
+            }
+        },
+        None => packs::Packs::default(),
+    };
+    if packs.list.is_empty() {
+        tracing::warn!("no asset packs: boards render with placeholder art (set PACKS_DIR)");
+    }
     let state = AppState {
+        packs: Arc::new(packs),
         rooms: room::Rooms::new(store.clone(), config.room_idle),
         store,
         limiter: Arc::new(api::CreateLimiter::default()),
@@ -63,7 +79,9 @@ async fn main() {
         .route("/api/boards", post(api::create_board))
         .route("/api/boards/{board}/links", post(api::mint_link).get(api::list_links))
         .route("/api/boards/{board}/links/{link}", delete(api::revoke_link))
-        .route("/api/boards/{board}/owner/rotate", post(api::rotate_owner));
+        .route("/api/boards/{board}/owner/rotate", post(api::rotate_owner))
+        .route("/api/packs", get(packs::list))
+        .route("/packs/{pack}/{*file}", get(packs::file));
     if let Some(web) = &config.web_dir {
         let index = web.join("index.html");
         app = app.fallback_service(ServeDir::new(web).fallback(ServeFile::new(index)));
