@@ -66,7 +66,11 @@ async fn main() {
     }
     let state = AppState {
         packs: Arc::new(packs),
-        rooms: room::Rooms::new(store.clone(), config.room_idle),
+        rooms: room::Rooms::new(
+            store.clone(),
+            config.room_idle,
+            room::Caps { quota: config.quota, max_open_rooms: config.max_open_rooms, max_storage_bytes: config.max_storage_bytes },
+        ),
         store,
         limiter: Arc::new(api::CreateLimiter::default()),
         sockets: Arc::default(),
@@ -98,7 +102,8 @@ async fn main() {
         .layer(header(
             "content-security-policy",
             "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; \
-             img-src 'self' blob: data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+             img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; \
+             form-action 'none'",
         ))
         .with_state(state);
 

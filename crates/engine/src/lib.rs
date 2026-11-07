@@ -12,6 +12,9 @@ mod protocol;
 mod replica;
 pub mod wire;
 
-pub use authority::{Authority, ConnId, Effect, MAX_REJECTIONS_PER_CLIENT, Outbox, Role, secret_hash};
+pub use authority::{
+    Authority, ConnId, Effect, MAX_REJECTIONS_PER_BOARD, MAX_REJECTIONS_PER_CLIENT, Outbox, Outgoing, Quota, Role, encoded_len,
+    secret_hash,
+};
 pub use protocol::{ClientMsg, Hello, ServerMsg};
 pub use replica::{ProtocolError, Replica, ReplicaState, SaveStatus, UndoError};

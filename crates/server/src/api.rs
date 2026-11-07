@@ -27,6 +27,12 @@ fn internal(e: impl std::fmt::Display) -> Response {
     err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
 }
 
+/// The server is at its board or storage cap (spec §11, storage spam).
+fn server_full() -> Response {
+    tracing::warn!("board creation refused: server storage is full");
+    err(StatusCode::INSUFFICIENT_STORAGE, "this server is full and can't create boards right now")
+}
+
 fn clean_label(s: &str, max: usize) -> Option<String> {
     let s = s.trim();
     (s.chars().count() <= max && !s.chars().any(char::is_control)).then(|| s.to_owned())
@@ -124,8 +130,9 @@ pub async fn create_board(
     );
     let board = links::new_board_id();
     let owner_token = links::new_token();
-    match app.store.create_board(board.clone(), doc, links::hash(&owner_token), now()).await {
+    match app.store.create_board(board.clone(), doc, links::hash(&owner_token), now(), app.config.max_boards, app.config.max_storage_bytes).await {
         Ok(()) => (StatusCode::CREATED, Json(Created { board, owner_token })).into_response(),
+        Err(crate::store::StoreError::Full) => server_full(),
         Err(e) => internal(e),
     }
 }
@@ -320,8 +327,9 @@ pub async fn clone_board(
     }
     let new_board = links::new_board_id();
     let owner_token = links::new_token();
-    match app.store.create_board(new_board.clone(), doc, links::hash(&owner_token), now()).await {
+    match app.store.create_board(new_board.clone(), doc, links::hash(&owner_token), now(), app.config.max_boards, app.config.max_storage_bytes).await {
         Ok(()) => (StatusCode::CREATED, Json(Created { board: new_board, owner_token })).into_response(),
+        Err(crate::store::StoreError::Full) => server_full(),
         Err(e) => internal(e),
     }
 }

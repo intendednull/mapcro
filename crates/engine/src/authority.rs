@@ -1,5 +1,5 @@
 use crate::protocol::{ClientMsg, Hello, ServerMsg};
-use mapcro_schema::{ClientId, Doc, Reject, Tx, apply_tx};
+use mapcro_schema::{ClientId, Doc, LIMITS, Reject, Tx, apply_tx};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -32,15 +32,56 @@ struct ClientRecord {
     rejected: BTreeMap<u64, Reject>,
 }
 
+/// How much one board may hold (security review 2026-11-07, C1 and H-B). Until snapshots and
+/// compaction land (spec §9), the op log is the board's whole history, so it is capped; a full
+/// board refuses edits with [`Reject::BoardFull`] and stays readable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Quota {
+    /// Logged transactions.
+    pub max_log_ops: usize,
+    /// Logged transactions' JSON encoding, summed: what storage holds and a cold load reads.
+    pub max_log_bytes: usize,
+    /// Distinct client ids bound to a secret. Only editors register (view links never write).
+    pub max_clients: usize,
+}
+
+impl Default for Quota {
+    /// The spec's numbers (§9): 20,000 transactions (about 5.5 minutes at the per-session rate
+    /// limit, or a long coaching session of honest edits) and 4 MiB of history; 1024 editing
+    /// clients.
+    fn default() -> Quota {
+        Quota { max_log_ops: 20_000, max_log_bytes: 4 * 1024 * 1024, max_clients: 1024 }
+    }
+}
+
 /// The single source of truth for one board. Processes messages one at a time.
 pub struct Authority {
     doc: Doc,
     log: Vec<Tx>,
+    /// The log's JSON size, summed (what `Quota::max_log_bytes` caps).
+    log_bytes: usize,
     clients: BTreeMap<ClientId, ClientRecord>,
+    /// Stored rejections across every client (what `MAX_REJECTIONS_PER_BOARD` caps).
+    rejections: usize,
     conns: BTreeMap<ConnId, Conn>,
+    quota: Quota,
+    /// Set by the host when storage as a whole is full: valid edits are refused with
+    /// [`Reject::ServerFull`].
+    storage_full: bool,
 }
 
-pub type Outbox = Vec<(ConnId, ServerMsg)>;
+/// One thing to send on a connection, in order.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Outgoing {
+    Msg(ServerMsg),
+    /// Log entries `from..=to`, as `ServerMsg::Entry`, in this position relative to the
+    /// connection's other messages: the catch-up for a hello. It's a range, not the entries, so a
+    /// transport can stream a long catch-up from [`Authority::log`] at the client's pace instead
+    /// of queueing the whole history at once (security review 2026-11-07, H-A).
+    CatchUp { from: u64, to: u64 },
+}
+
+pub type Outbox = Vec<(ConnId, Outgoing)>;
 
 /// What a message changed that must be made durable *before* the outbox is sent: an
 /// acknowledgement or rejection the client hears about must survive a crash.
@@ -58,6 +99,15 @@ pub enum Effect {
 /// Stored rejections a client may accumulate before it is cut off. Honest clients rarely
 /// exceed a handful; the cap bounds what anyone can make the server store.
 pub const MAX_REJECTIONS_PER_CLIENT: usize = 256;
+/// Stored rejections a whole board may accumulate; past it, a refused transaction cuts its
+/// sender off instead of being stored. Bounds the rejections table per board whatever the
+/// number of clients.
+pub const MAX_REJECTIONS_PER_BOARD: usize = 4096;
+
+/// A transaction's size as stored and sent: its JSON encoding.
+pub fn encoded_len(tx: &Tx) -> usize {
+    serde_json::to_vec(tx).map(|v| v.len()).unwrap_or(usize::MAX)
+}
 
 pub fn secret_hash(secret: &str) -> [u8; 32] {
     Sha256::digest(secret.as_bytes()).into()
@@ -65,7 +115,30 @@ pub fn secret_hash(secret: &str) -> [u8; 32] {
 
 impl Authority {
     pub fn new(doc: Doc) -> Self {
-        Authority { doc, log: Vec::new(), clients: BTreeMap::new(), conns: BTreeMap::new() }
+        Authority::with_quota(doc, Quota::default())
+    }
+
+    pub fn with_quota(doc: Doc, quota: Quota) -> Self {
+        Authority {
+            doc,
+            log: Vec::new(),
+            log_bytes: 0,
+            clients: BTreeMap::new(),
+            rejections: 0,
+            conns: BTreeMap::new(),
+            quota,
+            storage_full: false,
+        }
+    }
+
+    /// Storage as a whole is (or is no longer) full. While it is, valid edits are refused.
+    pub fn set_storage_full(&mut self, full: bool) {
+        self.storage_full = full;
+    }
+
+    /// The log's JSON size, summed.
+    pub fn log_bytes(&self) -> usize {
+        self.log_bytes
     }
 
     pub fn doc(&self) -> &Doc {
@@ -82,6 +155,7 @@ impl Authority {
         apply_tx(&mut self.doc, &tx)?;
         let rec = self.clients.entry(tx.client).or_default();
         rec.next_cseq = rec.next_cseq.max(tx.cseq + 1);
+        self.log_bytes += encoded_len(&tx);
         self.log.push(tx);
         Ok(())
     }
@@ -95,7 +169,9 @@ impl Authority {
     pub fn replay_rejection(&mut self, client: ClientId, cseq: u64, reason: Reject) {
         let rec = self.clients.entry(client).or_default();
         rec.next_cseq = rec.next_cseq.max(cseq + 1);
-        rec.rejected.insert(cseq, reason);
+        if rec.rejected.insert(cseq, reason).is_none() {
+            self.rejections += 1;
+        }
     }
 
     /// Connections currently attached (any state).
@@ -131,7 +207,7 @@ impl Authority {
 
     fn fatal(&mut self, conn: ConnId, why: &str) -> Outbox {
         self.conns.remove(&conn);
-        vec![(conn, ServerMsg::Fatal(why.to_owned()))]
+        vec![(conn, Outgoing::Msg(ServerMsg::Fatal(why.to_owned())))]
     }
 
     fn hello(&mut self, conn: ConnId, role: Role, hello: Hello) -> (Outbox, Vec<Effect>) {
@@ -144,29 +220,39 @@ impl Authority {
         }
         let mut effects = Vec::new();
         let presented = secret_hash(&hello.secret);
-        let rec = self.clients.entry(hello.client).or_default();
-        match rec.secret_hash {
+        match self.clients.get(&hello.client).and_then(|r| r.secret_hash) {
             Some(known) if known != presented => {
                 // Someone else's id. Refuse; never supersede the real owner's connection.
                 return (self.fatal(conn, "client id belongs to another client"), Vec::new());
             }
             Some(_) => {}
+            // A view link never edits, so there is nothing to bind its id to: registering it
+            // would let the lowest capability grow storage and memory without bound (security
+            // review 2026-11-07, H-B). An id someone has registered is still checked above.
+            None if role == Role::View => {}
             None => {
-                rec.secret_hash = Some(presented);
+                if !self.clients.contains_key(&hello.client) && self.clients.len() >= self.quota.max_clients {
+                    return (self.fatal(conn, "board has too many clients"), Vec::new());
+                }
+                self.clients.entry(hello.client).or_default().secret_hash = Some(presented);
                 effects.push(Effect::ClientRegistered { client: hello.client, secret_hash: presented });
             }
         }
-        // The client has resolved everything below `pending_from`, so forget those rejections.
-        let before = rec.rejected.len();
-        rec.rejected = rec.rejected.split_off(&hello.pending_from);
-        if rec.rejected.len() != before {
-            effects.push(Effect::RejectionsResolved { client: hello.client, below: hello.pending_from });
+        let mut out: Outbox = Vec::new();
+        if let Some(rec) = self.clients.get_mut(&hello.client) {
+            // The client has resolved everything below `pending_from`, so forget those rejections.
+            let before = rec.rejected.len();
+            rec.rejected = rec.rejected.split_off(&hello.pending_from);
+            if rec.rejected.len() != before {
+                self.rejections -= before - rec.rejected.len();
+                effects.push(Effect::RejectionsResolved { client: hello.client, below: hello.pending_from });
+            }
+            out.extend(
+                rec.rejected
+                    .iter()
+                    .map(|(cseq, reason)| (conn, Outgoing::Msg(ServerMsg::Rejected { cseq: *cseq, reason: reason.clone() }))),
+            );
         }
-        let mut out: Outbox = rec
-            .rejected
-            .iter()
-            .map(|(cseq, reason)| (conn, ServerMsg::Rejected { cseq: *cseq, reason: reason.clone() }))
-            .collect();
 
         // One live connection per client: a newer one supersedes the old.
         let stale: Vec<ConnId> = self
@@ -177,11 +263,11 @@ impl Authority {
             .collect();
         for c in stale {
             self.conns.remove(&c);
-            out.push((c, ServerMsg::Fatal("superseded by a newer connection".into())));
+            out.push((c, Outgoing::Msg(ServerMsg::Fatal("superseded by a newer connection".into()))));
         }
 
-        for (i, tx) in self.log.iter().enumerate().skip(hello.last_seq as usize) {
-            out.push((conn, ServerMsg::Entry { seq: i as u64 + 1, tx: tx.clone() }));
+        if hello.last_seq < len {
+            out.push((conn, Outgoing::CatchUp { from: hello.last_seq + 1, to: len }));
         }
         self.conns.insert(conn, Conn::Live { role, client: hello.client });
         (out, effects)
@@ -203,27 +289,39 @@ impl Authority {
         if tx.cseq > rec.next_cseq {
             return (self.fatal(conn, "transaction sequence gap"), Vec::new());
         }
-        let result = apply_tx(&mut self.doc, &tx).map(|_| ());
-        if result.is_err() && rec.rejected.len() >= MAX_REJECTIONS_PER_CLIENT {
+        // Admission before validity: size, then the board's and the server's room for it.
+        let size = encoded_len(&tx);
+        let result = if size > LIMITS.max_tx_bytes {
+            Err(Reject::TxTooLarge)
+        } else if self.log.len() >= self.quota.max_log_ops || self.log_bytes.saturating_add(size) > self.quota.max_log_bytes {
+            Err(Reject::BoardFull)
+        } else if self.storage_full {
+            Err(Reject::ServerFull)
+        } else {
+            apply_tx(&mut self.doc, &tx).map(|_| ())
+        };
+        if result.is_err() && (rec.rejected.len() >= MAX_REJECTIONS_PER_CLIENT || self.rejections >= MAX_REJECTIONS_PER_BOARD) {
             return (self.fatal(conn, "too many rejected transactions"), Vec::new());
         }
         rec.next_cseq += 1;
         match result {
             Ok(()) => {
+                self.log_bytes += size;
                 self.log.push(tx.clone());
                 let seq = self.log.len() as u64;
                 let out = self
                     .conns
                     .iter()
                     .filter(|(_, s)| matches!(s, Conn::Live { .. }))
-                    .map(|(c, _)| (*c, ServerMsg::Entry { seq, tx: tx.clone() }))
+                    .map(|(c, _)| (*c, Outgoing::Msg(ServerMsg::Entry { seq, tx: tx.clone() })))
                     .collect();
                 (out, vec![Effect::Logged { seq }])
             }
             Err(reason) => {
                 rec.rejected.insert(tx.cseq, reason.clone());
+                self.rejections += 1;
                 let effect = Effect::Rejected { client, cseq: tx.cseq, reason: reason.clone() };
-                (vec![(conn, ServerMsg::Rejected { cseq: tx.cseq, reason })], vec![effect])
+                (vec![(conn, Outgoing::Msg(ServerMsg::Rejected { cseq: tx.cseq, reason }))], vec![effect])
             }
         }
     }

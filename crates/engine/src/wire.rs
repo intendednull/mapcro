@@ -84,6 +84,8 @@ pub enum CloseReason {
     Full,
     /// Too many connections from this address.
     TooMany,
+    /// The server has as many boards open as it allows, all in use. Try again later.
+    Busy,
 }
 
 /// What one person is doing right now (spec §8). Sent by its owner at up to ~20 Hz; relayed to

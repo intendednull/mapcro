@@ -281,4 +281,29 @@ mod tests {
         assert!(affects_invariants(&Op::Delete { id: RecordId(1) }));
         assert!(affects_invariants(&Op::Restore { id: RecordId(1) }));
     }
+
+    #[test]
+    fn the_largest_legal_ops_fit_the_op_and_tx_bounds() {
+        // Build the worst cases the limits allow and check the bounds in `Limits` hold for them.
+        let (mut doc, scene, _) = board();
+        let widest = "\u{1F600}".repeat(LIMITS.max_note); // 4 bytes of UTF-8 per char
+        let corner = WorldPos { x: -LIMITS.max_coord, y: -LIMITS.max_coord };
+        let note = RecordId(u128::MAX);
+        let ops = [
+            Op::Create { id: note, record: Record::Note(Note { scene, text: widest.clone() }) },
+            Op::SetIf { id: note, expect: FieldValue::NoteText(widest.clone()), value: FieldValue::NoteText(widest.clone()) },
+            Op::Create {
+                id: RecordId(u128::MAX - 1),
+                record: Record::Stroke(Stroke { scene, points: vec![corner; LIMITS.max_stroke_points], color: 15, width: 200 }),
+            },
+        ];
+        for op in ops {
+            let t = Tx { client: ClientId(u128::MAX), cseq: u64::MAX, kind: TxKind::Redo { of: u64::MAX }, ops: vec![op] };
+            apply_tx(&mut doc, &t).expect("the op is legal");
+            let op_len = serde_json::to_vec(&t.ops[0]).expect("json").len();
+            assert!(op_len <= LIMITS.max_op_bytes(), "{op_len} > {}", LIMITS.max_op_bytes());
+            let tx_len = serde_json::to_vec(&t).expect("json").len();
+            assert!(tx_len <= LIMITS.max_tx_bytes, "{tx_len}");
+        }
+    }
 }

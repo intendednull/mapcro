@@ -59,6 +59,9 @@
           machine.succeed("test -f /var/lib/mapcro/mapcro.sqlite")
           machine.systemctl("restart mapcro.service")
           machine.wait_until_succeeds("curl -fsS http://127.0.0.1:8094/healthz")
+          # A crash loop backs off and gives up rather than spinning.
+          machine.succeed("systemctl show mapcro.service -p StartLimitBurst | grep -qx StartLimitBurst=8")
+          machine.succeed("systemctl show mapcro.service -p RestartSteps | grep -qx RestartSteps=5")
         '';
       };
 

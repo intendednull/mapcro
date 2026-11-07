@@ -31,7 +31,7 @@ function freePort(): Promise<number> {
 
 class Server {
   child!: ChildProcess;
-  constructor(readonly dir: string, readonly port: number) {}
+  constructor(readonly dir: string, readonly port: number, readonly env: Record<string, string> = {}) {}
   get http() {
     return `http://127.0.0.1:${this.port}`;
   }
@@ -40,7 +40,7 @@ class Server {
   }
   async start() {
     this.child = spawn(join(ROOT, "target/debug/mapcro-server"), [], {
-      env: { ...process.env, PORT: String(this.port), DATA_DIR: this.dir, PUBLIC_ORIGIN: ORIGIN, RUST_LOG: "warn" },
+      env: { ...process.env, PORT: String(this.port), DATA_DIR: this.dir, PUBLIC_ORIGIN: ORIGIN, RUST_LOG: "warn", ...this.env },
       stdio: ["ignore", "ignore", "inherit"],
     });
     for (let i = 0; i < 200; i++) {
@@ -197,5 +197,26 @@ describe("board sessions against the real server", () => {
     await until(() => e.connection.kind === "closed", "revoked session closed");
     expect(e.connection).toEqual({ kind: "closed", reason: "revoked" });
     v.stop();
+  });
+
+  it("a full board refuses edits as BoardFull and keeps what it has", async () => {
+    // Security review 2026-11-07, C1: the op log has a quota. Five transactions here.
+    const small = new Server(mkdtempSync(join(tmpdir(), "mapcro-web-")), await freePort(), { BOARD_MAX_OPS: "5" });
+    await small.start();
+    try {
+      const { board, owner_token } = await new Api(small.http).createBoard("full");
+      const a = session(small, board, owner_token);
+      await a.start();
+      await until(() => a.connection.kind === "live", "live");
+      const [p0] = players(a);
+      for (let i = 1; i <= 7; i++) a.edit(move(p0!, i));
+      await until(() => a.status.kind === "saved", "every change decided");
+      expect(a.problems.filter((p) => p === 'rejected: "BoardFull"')).toHaveLength(2);
+      expect(pos(a, p0!)).toBe(5); // the last change that fit
+      expect(a.connection.kind).toBe("live"); // refused, not cut off
+      a.stop();
+    } finally {
+      small.child.kill("SIGKILL");
+    }
   });
 });

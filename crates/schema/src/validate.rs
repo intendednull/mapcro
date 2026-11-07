@@ -19,6 +19,22 @@ pub struct Limits {
     pub max_stroke_points: usize,
     /// World coordinates are clamped to ±this (the map radius is ~10,752 units).
     pub max_coord: i32,
+    /// A transaction's JSON encoding, in bytes. Twice the largest single op (an undo of a full
+    /// note carries the note twice, about 32 KB), so any one legal op always fits, and the
+    /// server's frame cap follows from this (security review 2026-11-07, C1).
+    pub max_tx_bytes: usize,
+}
+
+impl Limits {
+    /// An upper bound on one op's JSON encoding, from the other limits: the worst case is a
+    /// `SetIf` on a note's text, which carries the text twice, each char up to 4 bytes of UTF-8.
+    /// (A full stroke is smaller: 512 points of at most 25 bytes.) The 512 covers the op's
+    /// framing, ids and field names. A test builds these ops and checks the bound holds.
+    pub const fn max_op_bytes(&self) -> usize {
+        let text = 2 * 4 * self.max_note;
+        let stroke = self.max_stroke_points * 25;
+        (if text > stroke { text } else { stroke }) + 512
+    }
 }
 
 pub const LIMITS: Limits = Limits {
@@ -31,7 +47,11 @@ pub const LIMITS: Limits = Limits {
     max_note: 4000,
     max_stroke_points: 512,
     max_coord: 16384,
+    max_tx_bytes: 64 * 1024,
 };
+
+// Every legal op fits in a transaction on its own.
+const _: () = assert!(LIMITS.max_op_bytes() <= LIMITS.max_tx_bytes);
 
 /// Why a transaction was refused. Typed so the client can explain it and tests can assert it.
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -79,6 +99,16 @@ pub enum Reject {
     Forbidden,
     #[error("a stroke needs 2–512 points, a palette colour and a sane width")]
     BadStroke,
+    /// The transaction's encoding is over `Limits::max_tx_bytes`.
+    #[error("transaction is too large")]
+    TxTooLarge,
+    /// The board's history is at its quota (operations or bytes). Until snapshots and
+    /// compaction ship (spec §9), a full board takes no more edits; a copy starts fresh.
+    #[error("board history is full")]
+    BoardFull,
+    /// The server's storage is at its cap; no board takes edits until the operator makes room.
+    #[error("server storage is full")]
+    ServerFull,
 }
 
 fn check_text(s: &str, max: usize) -> Result<(), Reject> {

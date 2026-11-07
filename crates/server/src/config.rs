@@ -19,6 +19,28 @@ pub struct Config {
     pub create_global_per_hour: u32,
     /// How long an empty room stays loaded.
     pub room_idle: std::time::Duration,
+    /// Per-board caps: history length and bytes, distinct editing clients (spec §9; security
+    /// review 2026-11-07, C1 and H-B). `BOARD_MAX_OPS` (20,000), `BOARD_MAX_BYTES` (4 MiB),
+    /// `BOARD_MAX_CLIENTS` (1024). A full board refuses edits with `BoardFull` and stays readable.
+    /// A cold load reads at most this much, so a board can't be made too big to open.
+    pub quota: mapcro_engine::Quota,
+    /// Boards loaded in memory at once (`MAX_OPEN_ROOMS`, 32). Worst case a room holds a full
+    /// board, about twice `BOARD_MAX_BYTES` resident, so the default keeps the server near
+    /// 256 MiB however the rooms are chosen (M-B). At the cap, an idle room is unloaded early;
+    /// if none is idle, joins are refused with `busy`.
+    pub max_open_rooms: usize,
+    /// Boards the server stores (`MAX_BOARDS`, 5000). Creation past it is refused with 507.
+    pub max_boards: u64,
+    /// The database's size cap in bytes (`MAX_STORAGE_BYTES`, 2 GiB). Past it, creation is
+    /// refused with 507 and edits with `ServerFull`.
+    pub max_storage_bytes: u64,
+}
+
+fn num<T: std::str::FromStr>(var: &impl Fn(&str) -> Option<String>, key: &str, default: T) -> Result<T, String> {
+    match var(key) {
+        Some(v) => v.parse().map_err(|_| format!("{key} must be a number")),
+        None => Ok(default),
+    }
 }
 
 impl Config {
@@ -64,6 +86,18 @@ impl Config {
             Some(v) => std::time::Duration::from_secs(v.parse().map_err(|_| "ROOM_IDLE_SECS must be a number")?),
             None => crate::room::IDLE_UNLOAD,
         };
+        let d = mapcro_engine::Quota::default();
+        let quota = mapcro_engine::Quota {
+            max_log_ops: num(&var, "BOARD_MAX_OPS", d.max_log_ops)?,
+            max_log_bytes: num(&var, "BOARD_MAX_BYTES", d.max_log_bytes)?,
+            max_clients: num(&var, "BOARD_MAX_CLIENTS", d.max_clients)?,
+        };
+        let max_open_rooms = num(&var, "MAX_OPEN_ROOMS", 32)?;
+        if max_open_rooms == 0 {
+            return Err("MAX_OPEN_ROOMS must be at least 1".into());
+        }
+        let max_boards = num(&var, "MAX_BOARDS", 5000)?;
+        let max_storage_bytes = num(&var, "MAX_STORAGE_BYTES", 2 * 1024 * 1024 * 1024)?;
         Ok(Config {
             addr: SocketAddr::new(host, port),
             data_dir,
@@ -73,6 +107,10 @@ impl Config {
             create_per_hour,
             create_global_per_hour,
             room_idle,
+            quota,
+            max_open_rooms,
+            max_boards,
+            max_storage_bytes,
         })
     }
 }

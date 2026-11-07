@@ -113,7 +113,9 @@ fn midpoint(lo: &[usize], hi: Option<&[usize]>) -> Vec<usize> {
     }
     let dl = lo_at(0);
     let dh = hi.and_then(|h| h.first().copied()).unwrap_or(BASE);
-    if dh - dl > 1 {
+    // `checked_sub`: a caller passing `lo >= hi` gets some key rather than a panic (security
+    // review 2026-11-07, L3).
+    if dh.checked_sub(dl).is_some_and(|d| d > 1) {
         return vec![(dl + dh) / 2];
     }
     if let Some(hi) = hi
@@ -157,6 +159,14 @@ mod tests {
             if let Some(hi) = &hi {
                 assert!(&m < hi, "{m:?} not below {hi:?}");
             }
+        }
+    }
+
+    #[test]
+    fn misordered_bounds_do_not_panic() {
+        for (lo, hi) in [("j", "i"), ("i", "i"), ("z", "0"), ("i1", "i")] {
+            let m = OrderKey::between(Some(&k(lo)), Some(&k(hi)));
+            assert!(!m.0.is_empty(), "{lo}..{hi}");
         }
     }
 

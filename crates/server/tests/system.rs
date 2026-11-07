@@ -736,3 +736,314 @@ async fn cloning_makes_an_independent_board_with_fresh_links() {
     let r = ureq::post(&server.url(&format!("/api/boards/{board}/clone"))).header("authorization", &format!("Bearer {copy_owner}")).send_json(serde_json::json!({}));
     assert!(r.is_err());
 }
+
+// ---- security review 2026-11-07: capacity and quotas ----
+
+/// Authenticate and hello as `client` by hand, and return the first thing the server says
+/// back (on a board with history, success is a catch-up entry).
+async fn raw_hello(port: u16, board: &str, token: &str, client: u128) -> Option<WireOut> {
+    let mut ws = open_ws(port, ORIGIN).await.ok()?;
+    send(&mut ws, &WireIn::Auth { board: board.into(), token: token.into(), known_seq: Some(0) }).await;
+    match recv(&mut ws).await? {
+        WireOut::Ready { .. } => {}
+        other => return Some(other),
+    }
+    let hello = mapcro_engine::Hello { client: ClientId(client), secret: format!("s-{client}"), last_seq: 0, pending_from: 0 };
+    send(&mut ws, &WireIn::Msg { msg: ClientMsg::Hello(hello) }).await;
+    recv(&mut ws).await
+}
+
+/// Make edits and wait until all are decided; returns the rejections they drew.
+async fn edits_until_decided(c: &mut Client, n: usize, op: impl Fn(&Replica, usize) -> Vec<Op>) -> Vec<Reject> {
+    let before = c.replica().rejected().len();
+    for i in 0..n {
+        let ops = op(c.replica(), i);
+        c.edit(ops).await;
+    }
+    c.until_saved().await;
+    c.replica().rejected()[before..].iter().map(|(_, r)| r.clone()).collect()
+}
+
+fn scene_of(r: &Replica) -> mapcro_schema::RecordId {
+    r.view().iter_live().find(|(_, x)| matches!(x, Record::Scene(_))).map(|(id, _)| id).expect("scene")
+}
+
+async fn fresh_catch_up(port: u16, board: &str, token: &str, id: u128, upto: u64) -> Client {
+    let mut f = Client::new(id);
+    f.connect(port, board, token).await.expect("fresh client connects");
+    while f.replica().last_seq() < upto {
+        f.pump_one().await.expect("catch-up keeps the connection");
+    }
+    f
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_full_board_refuses_edits_and_stays_readable() {
+    // C1: the op log has a quota. Past it, edits are refused with a typed reason; nothing
+    // breaks, and the board still loads after a restart.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = [("BOARD_MAX_OPS", "10")];
+    let server = Server::start_with(dir.path(), None, &env);
+    let (board, owner) = server.create_board();
+    let mut a = Client::new(0xc1);
+    a.connect(server.port, &board, &owner).await.expect("connect");
+    let rejected = edits_until_decided(&mut a, 12, move_op).await;
+    assert_eq!(rejected, [Reject::BoardFull, Reject::BoardFull]);
+    assert_eq!(a.replica().last_seq(), 10);
+    // Another board on the same server is unaffected.
+    let (other, other_owner) = server.create_board();
+    let mut o = Client::new(0xc2);
+    o.connect(server.port, &other, &other_owner).await.expect("other board");
+    assert!(edits_until_decided(&mut o, 3, move_op).await.is_empty());
+
+    // After a restart the full board opens, reads in full, and still refuses edits.
+    let (d, port) = server.kill9();
+    a.drop_connection();
+    let server = Server::start_with(&d, Some(port), &env);
+    let f = fresh_catch_up(server.port, &board, &owner, 0xc3, 10).await;
+    assert_eq!(f.replica().confirmed(), a.replica().confirmed());
+    a.connect(server.port, &board, &owner).await.expect("reconnect");
+    assert_eq!(edits_until_decided(&mut a, 1, move_op).await, [Reject::BoardFull]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_byte_quota_counts_history_not_board_size() {
+    // C1 as the review found it: rewriting one note keeps the board tiny while its history
+    // grows. The byte quota counts history.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start_with(dir.path(), None, &[("BOARD_MAX_BYTES", "65536")]);
+    let (board, owner) = server.create_board();
+    let mut a = Client::new(0xc4);
+    a.connect(server.port, &board, &owner).await.expect("connect");
+    let scene = scene_of(a.replica());
+    let note = mapcro_schema::RecordId(0xc4c4);
+    a.edit(vec![Op::Create { id: note, record: Record::Note(mapcro_schema::Note { scene, text: "x".into() }) }]).await;
+    let set = |_: &Replica, i: usize| vec![Op::Set { id: note, value: FieldValue::NoteText(format!("{i:04}{}", "a".repeat(3996))) }];
+    let rejected = edits_until_decided(&mut a, 20, set).await;
+    // About 4.1 KB per rewrite: fifteen fit in 64 KiB with the note's creation.
+    assert_eq!(a.replica().last_seq(), 16, "{rejected:?}");
+    assert!(rejected.iter().all(|r| *r == Reject::BoardFull) && rejected.len() == 5, "{rejected:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn frames_are_capped_at_the_largest_legal_transaction() {
+    // C1: the frame cap follows from `Limits`. The largest legal op is accepted; a transaction
+    // just over `max_tx_bytes` gets a typed rejection; a frame no honest client can produce
+    // (but which the old 256 KiB cap allowed) closes the socket and stores nothing.
+    use mapcro_schema::LIMITS;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let (board, owner) = server.create_board();
+    let mut a = Client::new(0xc5);
+    a.connect(server.port, &board, &owner).await.expect("connect");
+    let scene = scene_of(a.replica());
+    let note = mapcro_schema::RecordId(0xc5c5);
+    let widest = "\u{1F600}".repeat(LIMITS.max_note);
+    a.edit(vec![Op::Create { id: note, record: Record::Note(mapcro_schema::Note { scene, text: widest.clone() }) }]).await;
+    let undo_shaped = Op::SetIf { id: note, expect: FieldValue::NoteText(widest.clone()), value: FieldValue::NoteText(widest.clone()) };
+    a.edit(vec![undo_shaped]).await;
+    a.until_saved().await;
+    assert!(a.replica().rejected().is_empty(), "the largest legal ops fit: {:?}", a.replica().rejected());
+
+    // Just over the transaction limit, still inside the frame cap: refused, typed.
+    let wide = |n: usize| (0..n).map(|_| Op::Set { id: note, value: FieldValue::NoteText(widest.clone()) }).collect::<Vec<_>>();
+    let mut ops = wide(4);
+    let tx_len = |ops: &Vec<Op>| {
+        let tx = mapcro_schema::Tx { client: a.id, cseq: a.replica().next_cseq(), kind: mapcro_schema::TxKind::Edit, ops: ops.clone() };
+        mapcro_engine::encoded_len(&tx)
+    };
+    let pad = Op::Set { id: note, value: FieldValue::NoteText(String::new()) };
+    ops.push(pad);
+    let short = LIMITS.max_tx_bytes + 200 - tx_len(&ops);
+    ops.pop();
+    ops.push(Op::Set { id: note, value: FieldValue::NoteText("a".repeat(short)) });
+    assert_eq!(tx_len(&ops), LIMITS.max_tx_bytes + 200);
+    assert_eq!(edits_until_decided(&mut a, 1, |_, _| ops.clone()).await, [Reject::TxTooLarge]);
+
+    // A valid transaction of about 96 KB: over the frame cap, under the old 256 KiB one.
+    let seq = a.replica().last_seq();
+    let mut b = Client::new(0xc6);
+    b.connect(server.port, &board, &owner).await.expect("connect");
+    while b.replica().last_seq() < seq {
+        b.pump_one().await.expect("catch-up");
+    }
+    let big = mapcro_schema::Tx { client: b.id, cseq: 0, kind: mapcro_schema::TxKind::Edit, ops: wide(6) };
+    assert!(mapcro_engine::encoded_len(&big) > 90_000);
+    let ws = b.ws.as_mut().expect("ws");
+    let _ = ws.send(Message::Text(serde_json::to_string(&WireIn::Msg { msg: ClientMsg::Submit(big) }).expect("json").into())).await;
+    while let Ok(()) = b.pump_one().await {
+        assert_eq!(b.replica().last_seq(), seq, "an oversized frame must not be logged");
+    }
+    let c = fresh_catch_up(server.port, &board, &owner, 0xc7, seq).await;
+    assert_eq!(c.replica().last_seq(), seq);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_board_over_the_load_caps_is_refused_not_read() {
+    // C1: a cold load reads at most the quota, so no stored board can be too big to open
+    // safely. One written under larger caps is refused (logged), and the server carries on.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let (board, owner) = server.create_board();
+    let mut a = Client::new(0xc8);
+    a.connect(server.port, &board, &owner).await.expect("connect");
+    assert!(edits_until_decided(&mut a, 30, move_op).await.is_empty());
+    let (d, port) = server.kill9();
+    a.drop_connection();
+
+    let server = Server::start_with(&d, Some(port), &[("BOARD_MAX_OPS", "10")]);
+    assert_eq!(Client::new(0xc9).connect(server.port, &board, &owner).await, Err(Some(CloseReason::StorageFailure)));
+    let (small, small_owner) = server.create_board();
+    let mut s = Client::new(0xca);
+    s.connect(server.port, &small, &small_owner).await.expect("the server still serves other boards");
+    assert!(edits_until_decided(&mut s, 2, move_op).await.is_empty());
+
+    // Raising the cap opens it again, intact.
+    let (d, port) = server.kill9();
+    let server = Server::start(&d, Some(port));
+    let f = fresh_catch_up(server.port, &board, &owner, 0xcb, 30).await;
+    assert_eq!(f.replica().confirmed(), a.replica().confirmed());
+}
+
+fn create_status(server: &Server, path: &str, auth: Option<&str>) -> (u16, String) {
+    let mut req = ureq::post(&server.url(path));
+    if let Some(t) = auth {
+        req = req.header("authorization", &format!("Bearer {t}"));
+    }
+    match req.config().http_status_as_error(false).build().send_json(serde_json::json!({ "title": "x" })) {
+        Ok(mut r) => (r.status().as_u16(), r.body_mut().read_to_string().unwrap_or_default()),
+        Err(e) => panic!("{e}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn storage_caps_refuse_new_boards_and_edits_clearly() {
+    // C1/M-A: the number of boards and the database's size are capped. Creation past either is
+    // a clear 507; edits once storage is full are refused as ServerFull.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start_with(dir.path(), None, &[("MAX_BOARDS", "2")]);
+    let (board, owner) = server.create_board();
+    server.create_board();
+    let (status, body) = create_status(&server, "/api/boards", None);
+    assert_eq!(status, 507, "{body}");
+    assert!(body.contains("server is full"), "{body}");
+    assert_eq!(create_status(&server, &format!("/api/boards/{board}/clone"), Some(&owner)).0, 507, "clones count too");
+
+    let (d, port) = server.kill9();
+    let server = Server::start_with(&d, Some(port), &[("MAX_STORAGE_BYTES", "4096")]);
+    assert_eq!(create_status(&server, "/api/boards", None).0, 507);
+    let mut a = Client::new(0xcc);
+    a.connect(server.port, &board, &owner).await.expect("existing boards still open");
+    assert_eq!(edits_until_decided(&mut a, 1, move_op).await, [Reject::ServerFull]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fresh_client_catches_up_on_a_long_history() {
+    // H-A: catch-up used to be queued whole into a 4096-deep outbox, so a board past ~4096 ops
+    // dropped every fresh client. It's streamed now, and live entries still follow it in order.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let (board, owner) = server.create_board();
+    // 25 writers × 250 (inside each socket's burst allowance) = 6250 entries, five writers at a
+    // time, each leaving when done so nobody has to keep up with the whole fill live.
+    for wave in 0..5u128 {
+        let writers: Vec<_> = (0..5u128)
+            .map(|w| {
+                let (port, board, owner, w) = (server.port, board.clone(), owner.clone(), wave * 5 + w);
+                tokio::spawn(async move {
+                    let mut c = Client::new(0xd00 + w);
+                    c.connect(port, &board, &owner).await.expect("writer");
+                    assert!(edits_until_decided(&mut c, 250, |r, i| move_op(r, i + w as usize)).await.is_empty());
+                })
+            })
+            .collect();
+        for w in writers {
+            w.await.expect("writer done");
+        }
+    }
+    let total = 6250;
+    let mut live = Client::new(0xd99);
+    live.connect(server.port, &board, &owner).await.expect("live writer");
+    while live.replica().last_seq() < total {
+        live.pump_one().await.expect("catch-up");
+    }
+    // A fresh device joins while edits keep landing.
+    let (port, b, o) = (server.port, board.clone(), owner.clone());
+    let fresh = tokio::spawn(async move { fresh_catch_up(port, &b, &o, 0xd98, total + 40).await });
+    assert!(edits_until_decided(&mut live, 40, move_op).await.is_empty());
+    let fresh = fresh.await.expect("fresh client");
+    assert_eq!(fresh.replica().last_seq(), total + 40);
+    assert_eq!(fresh.replica().confirmed(), live.replica().confirmed());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn view_links_register_nothing_and_editors_are_capped() {
+    // H-B: a view link used to write a permanent client row per fresh id. Now viewers register
+    // nothing, and distinct editing clients per board are capped. H1 (a registered id is bound
+    // to its secret) is covered by `client_ids_cannot_be_hijacked`.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = [("BOARD_MAX_CLIENTS", "3")];
+    let server = Server::start_with(dir.path(), None, &env);
+    let (board, owner) = server.create_board();
+    let (_, view) = server.mint(&board, &owner, "view");
+    let mut o = Client::new(0xe0);
+    o.connect(server.port, &board, &owner).await.expect("owner");
+    assert!(edits_until_decided(&mut o, 1, move_op).await.is_empty());
+    for id in 0..12 {
+        let r = raw_hello(server.port, &board, &view, 0xe100 + id).await;
+        assert!(matches!(r, Some(WireOut::Msg { msg: ServerMsg::Entry { .. } })), "viewer {id}: {r:?}");
+    }
+    // The owner plus two more editors fill the cap; the next is refused.
+    for id in [0xe1, 0xe2] {
+        let r = raw_hello(server.port, &board, &owner, id).await;
+        assert!(matches!(r, Some(WireOut::Msg { msg: ServerMsg::Entry { .. } })), "editor {id:x}: {r:?}");
+    }
+    match raw_hello(server.port, &board, &owner, 0xe3).await {
+        Some(WireOut::Msg { msg: ServerMsg::Fatal(why) }) => assert!(why.contains("too many clients"), "{why}"),
+        other => panic!("expected Fatal, got {other:?}"),
+    }
+    // Registered editors still get in, and the cap survives a restart.
+    let (d, port) = server.kill9();
+    o.drop_connection();
+    let server = Server::start_with(&d, Some(port), &env);
+    o.connect(server.port, &board, &owner).await.expect("owner again");
+    assert!(edits_until_decided(&mut o, 1, move_op).await.is_empty());
+    assert!(matches!(raw_hello(server.port, &board, &owner, 0xe4).await, Some(WireOut::Msg { msg: ServerMsg::Fatal(_) })));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn open_rooms_are_capped_and_idle_ones_make_way() {
+    // M-B: boards held in memory are capped. At the cap, an idle room unloads early to make
+    // room; if every room is in use, a join is refused as busy rather than loaded.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start_with(dir.path(), None, &[("MAX_OPEN_ROOMS", "2")]);
+    let boards: Vec<(String, String)> = (0..3).map(|_| server.create_board()).collect();
+    let mut a = Client::new(0xf1);
+    let mut b = Client::new(0xf2);
+    a.connect(server.port, &boards[0].0, &boards[0].1).await.expect("a");
+    b.connect(server.port, &boards[1].0, &boards[1].1).await.expect("b");
+    assert_eq!(Client::new(0xf3).connect(server.port, &boards[2].0, &boards[2].1).await, Err(Some(CloseReason::Busy)));
+    assert_eq!(open_rooms(&server), 2);
+
+    b.drop_connection(); // room 1 is now idle, though far from its idle timeout
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut c = Client::new(0xf3);
+    while let Err(e) = c.connect(server.port, &boards[2].0, &boards[2].1).await {
+        assert!(Instant::now() < deadline, "the idle room never made way: {e:?}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(open_rooms(&server), 2);
+    assert!(edits_until_decided(&mut c, 1, move_op).await.is_empty());
+    // The evicted board reloads intact when someone comes back (evicting another idle room).
+    assert!(edits_until_decided(&mut a, 1, move_op).await.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_csp_forbids_plugins() {
+    // L1: `object-src` falls back to `'self'` unless set.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let r = ureq::get(&server.url("/healthz")).call().expect("healthz");
+    let csp = r.headers().get("content-security-policy").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
+    assert!(csp.contains("object-src 'none'"), "{csp}");
+}

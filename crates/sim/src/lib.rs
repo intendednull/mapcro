@@ -12,7 +12,7 @@ mod behaviour;
 mod checks;
 
 use behaviour::Behaviour;
-use mapcro_engine::{Authority, ClientMsg, ConnId, Effect, Replica, Role, ServerMsg};
+use mapcro_engine::{Authority, ClientMsg, ConnId, Effect, Outgoing, Replica, Role, ServerMsg};
 use mapcro_schema::{ClientId, Doc, RecordId, Reject, Tx, genesis};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -338,6 +338,18 @@ impl World {
             return Err("authority state differs from replaying its own log".into());
         }
 
+        // A catch-up range is the log entries it names, delivered in its place (the server
+        // streams them; here the link is a queue, so expanding them is the same thing).
+        let log = self.authority.log();
+        let out: Vec<(ConnId, ServerMsg)> = out
+            .into_iter()
+            .flat_map(|(to, o)| match o {
+                Outgoing::Msg(m) => vec![(to, m)],
+                Outgoing::CatchUp { from, to: last } => {
+                    (from..=last).map(|seq| (to, ServerMsg::Entry { seq, tx: log[seq as usize - 1].clone() })).collect()
+                }
+            })
+            .collect();
         for (to, msg) in out {
             let Some(j) = self.clients.iter().position(|c| c.conn == Some(to)) else { continue };
             if let ServerMsg::Fatal(why) = &msg {

@@ -8,11 +8,20 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use futures_util::{SinkExt, StreamExt};
+use crate::room::{Out, RoomCmd};
 use mapcro_engine::wire::{CloseReason, WireIn, WireOut};
 use std::time::Duration;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::{Instant, interval, timeout};
 
-const MAX_FRAME: usize = 256 * 1024;
+/// The largest frame a client may send: the largest legal transaction (`Limits::max_tx_bytes`)
+/// plus the frame around it, `{"t":"msg","msg":{"Submit":…}}`, with room to spare for a
+/// client's JSON being a little longer than ours. A tx over `max_tx_bytes` but under this gets a
+/// typed `TxTooLarge` rejection; only a frame no honest client can produce closes the socket
+/// (security review 2026-11-07, C1: it was 256 KiB, four times the largest legal tx).
+pub const MAX_FRAME: usize = mapcro_schema::LIMITS.max_tx_bytes + 1024;
+/// A send that can't complete in this long means the client stopped reading.
+const SEND_TIMEOUT: Duration = Duration::from_secs(30);
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 const PING_EVERY: Duration = Duration::from_secs(15);
 const DEAD_AFTER: Duration = Duration::from_secs(40);
@@ -64,6 +73,35 @@ pub async fn upgrade(
     })
 }
 
+/// Stream log entries `from..=to` page by page, each sent before the next is fetched, so a
+/// long history goes out at the client's pace and never sits in the outbox (security review
+/// 2026-11-07, H-A). Live entries queue behind this in the outbox, so the client still sees
+/// rejections, then catch-up, then live traffic, the order the sync model checks.
+async fn catch_up(
+    room: &mpsc::Sender<RoomCmd>,
+    sink: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    from: u64,
+    to: u64,
+) -> Result<(), Option<CloseReason>> {
+    let mut next = from;
+    while next <= to {
+        let (reply, page) = oneshot::channel();
+        room.send(RoomCmd::Entries { from: next, to, reply }).await.map_err(|_| Some(CloseReason::ShuttingDown))?;
+        let page = page.await.map_err(|_| Some(CloseReason::ShuttingDown))?;
+        if page.is_empty() {
+            return Err(Some(CloseReason::StorageFailure)); // the log is shorter than the hello said
+        }
+        next += page.len() as u64;
+        for f in page {
+            sink.feed(Message::Text(f.into())).await.map_err(|_| None)?;
+        }
+        if !matches!(timeout(SEND_TIMEOUT, sink.flush()).await, Ok(Ok(()))) {
+            return Err(None);
+        }
+    }
+    Ok(())
+}
+
 fn frame(out: &WireOut) -> Message {
     Message::Text(serde_json::to_string(out).unwrap_or_default().into())
 }
@@ -98,6 +136,7 @@ async fn session(app: AppState, mut socket: WebSocket) {
     // 2. Join the room.
     let (room, joined) = match app.rooms.join(&board, hash.clone(), link.role, known_seq.is_none()).await {
         Ok(j) => j,
+        Err(crate::room::RoomError::Busy) => return send_closed(&mut socket, CloseReason::Busy).await,
         Err(e) => {
             tracing::error!(board, error = %e, "room failed to open");
             return send_closed(&mut socket, CloseReason::StorageFailure).await;
@@ -113,12 +152,12 @@ async fn session(app: AppState, mut socket: WebSocket) {
     match app.store.link(hash).await {
         Ok(Some(l)) if !l.revoked => {}
         _ => {
-            let _ = room.send(crate::room::RoomCmd::Leave { conn }).await;
+            let _ = room.send(RoomCmd::Leave { conn }).await;
             return send_closed(&mut socket, CloseReason::Revoked).await;
         }
     }
     if socket.send(frame(&WireOut::Ready { role: link.role, base, peer: conn.0 })).await.is_err() {
-        let _ = room.send(crate::room::RoomCmd::Leave { conn }).await;
+        let _ = room.send(RoomCmd::Leave { conn }).await;
         return;
     }
 
@@ -131,10 +170,19 @@ async fn session(app: AppState, mut socket: WebSocket) {
     let reason = loop {
         tokio::select! {
             out = outbox.recv() => match out {
-                Some(out) => {
-                    let closing = matches!(out, WireOut::Closed { .. });
-                    if sink.send(frame(&out)).await.is_err() { break None; }
-                    if closing { break None; }
+                Some(Out::Frame(f)) => {
+                    if !matches!(timeout(SEND_TIMEOUT, sink.send(Message::Text(f.as_ref().into()))).await, Ok(Ok(()))) { break None; }
+                }
+                Some(Out::Closed(reason)) => {
+                    let _ = sink.send(frame(&WireOut::Closed { reason })).await;
+                    break None;
+                }
+                Some(Out::CatchUp { from, to }) => {
+                    if let Err(reason) = catch_up(&room, &mut sink, from, to).await {
+                        break reason;
+                    }
+                    // The catch-up may have taken a while; the client wasn't idle, we were busy.
+                    last_heard = Instant::now();
                 }
                 None => break Some(CloseReason::ShuttingDown),
             },
@@ -149,12 +197,12 @@ async fn session(app: AppState, mut socket: WebSocket) {
                         tokens -= 1.0;
                         match serde_json::from_str::<WireIn>(&t) {
                             Ok(WireIn::Msg { msg }) => {
-                                if room.send(crate::room::RoomCmd::Msg { conn, msg }).await.is_err() {
+                                if room.send(RoomCmd::Msg { conn, msg }).await.is_err() {
                                     break Some(CloseReason::StorageFailure);
                                 }
                             }
                             Ok(WireIn::Presence { state }) if state.is_valid() => {
-                                if room.send(crate::room::RoomCmd::Presence { conn, state }).await.is_err() {
+                                if room.send(RoomCmd::Presence { conn, state }).await.is_err() {
                                     break Some(CloseReason::StorageFailure);
                                 }
                             }
@@ -172,7 +220,7 @@ async fn session(app: AppState, mut socket: WebSocket) {
             }
         }
     };
-    let _ = room.send(crate::room::RoomCmd::Leave { conn }).await;
+    let _ = room.send(RoomCmd::Leave { conn }).await;
     if let Some(reason) = reason {
         let _ = sink.send(frame(&WireOut::Closed { reason })).await;
     }

@@ -20,4 +20,12 @@ describe("save status", () => {
     expect(statusView({ kind: "saved" }, live, false, "TextTooLong").text).toBe("Rejected: the text is too long");
     expect(statusView({ kind: "saved" }, { kind: "closed", reason: "unauthorized" }, false, undefined).kind).toBe("closed");
   });
+  it("a full board says so, and how to keep working", () => {
+    expect(rejection('rejected: "BoardFull"')).toBe("BoardFull");
+    const v = statusView({ kind: "saved" }, live, false, "BoardFull");
+    expect(v.kind).toBe("rejected");
+    expect(v.text).toBe("Rejected: the board is full");
+    expect(v.why).toContain("Clone it");
+    expect(statusView({ kind: "saved" }, live, false, "ServerFull").text).toBe("Rejected: the server is out of space");
+  });
 });

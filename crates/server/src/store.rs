@@ -5,6 +5,7 @@ use mapcro_engine::wire::LinkRole;
 use mapcro_schema::{ClientId, Doc, Reject, Tx};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, thiserror::Error)]
@@ -15,6 +16,28 @@ pub enum StoreError {
     Corrupt(String),
     #[error("storage thread failed")]
     Join,
+    /// A stored board is bigger than this server's caps allow it to load (written under larger
+    /// caps). Refused rather than read, so no board can be too big to open safely.
+    #[error("board exceeds the load caps: {0}")]
+    TooLarge(String),
+    /// The server is at its board-count or storage cap.
+    #[error("server storage is full")]
+    Full,
+}
+
+/// Caps on what a board may hold, checked as it loads.
+#[derive(Clone, Copy, Debug)]
+pub struct LoadCaps {
+    pub ops: usize,
+    pub bytes: usize,
+    pub clients: usize,
+    pub rejections: usize,
+}
+
+/// The database's size in bytes (pages in use or free; it never shrinks).
+fn db_size(c: &Connection) -> rusqlite::Result<u64> {
+    c.query_row("SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()", [], |r| r.get::<_, i64>(0))
+        .map(|n| n.max(0) as u64)
 }
 
 /// Everything needed to rebuild a board's authority.
@@ -40,6 +63,8 @@ pub struct LinkRow {
 #[derive(Clone)]
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
+    /// The database's size as of the last write.
+    bytes: Arc<AtomicU64>,
 }
 
 /// Database schema version. Each step in `migrate` takes the database one version forward.
@@ -145,7 +170,13 @@ impl Store {
             Some(v) if (1..SCHEMA_VERSION).contains(&v) => migrate(&conn, v)?,
             Some(v) => return Err(StoreError::Corrupt(format!("database schema {v}, this server knows {SCHEMA_VERSION}"))),
         }
-        Ok(Store { conn: Arc::new(Mutex::new(conn)) })
+        let bytes = Arc::new(AtomicU64::new(db_size(&conn)?));
+        Ok(Store { conn: Arc::new(Mutex::new(conn)), bytes })
+    }
+
+    /// The database's size in bytes as of the last write.
+    pub fn bytes(&self) -> u64 {
+        self.bytes.load(Ordering::Relaxed)
     }
 
     /// Run a closure on the connection off the async runtime.
@@ -154,9 +185,14 @@ impl Store {
         f: impl FnOnce(&mut Connection) -> Result<T, StoreError> + Send + 'static,
     ) -> Result<T, StoreError> {
         let conn = self.conn.clone();
+        let bytes = self.bytes.clone();
         tokio::task::spawn_blocking(move || {
             let mut guard = conn.lock().map_err(|_| StoreError::Join)?;
-            f(&mut guard)
+            let out = f(&mut guard);
+            if let Ok(n) = db_size(&guard) {
+                bytes.store(n, Ordering::Relaxed);
+            }
+            out
         })
         .await
         .map_err(|_| StoreError::Join)?
@@ -166,10 +202,24 @@ impl Store {
         self.with(|c| Ok(c.query_row("SELECT 1", [], |r| r.get::<_, i64>(0)).map(|_| ())?)).await
     }
 
-    pub async fn create_board(&self, id: String, base: Doc, owner_hash: String, now: i64) -> Result<(), StoreError> {
+    /// Create a board, unless the server already holds `max_boards` or `max_bytes` (then
+    /// `StoreError::Full`: storage spam can't fill the disk, security review 2026-11-07, C1/M-A).
+    pub async fn create_board(
+        &self,
+        id: String,
+        base: Doc,
+        owner_hash: String,
+        now: i64,
+        max_boards: u64,
+        max_bytes: u64,
+    ) -> Result<(), StoreError> {
         let base = serde_json::to_string(&base).map_err(corrupt)?;
         self.with(move |c| {
             let t = c.transaction()?;
+            let boards: i64 = t.query_row("SELECT COUNT(*) FROM boards", [], |r| r.get(0))?;
+            if boards as u64 >= max_boards || db_size(&t)? >= max_bytes {
+                return Err(StoreError::Full);
+            }
             t.execute("INSERT INTO boards (id, created_at, base_doc, base_seq) VALUES (?1, ?2, ?3, 0)", params![id, now, base])?;
             t.execute(
                 "INSERT INTO links (hash, board, role, label, created_at) VALUES (?1, ?2, 'owner', 'owner', ?3)",
@@ -181,7 +231,10 @@ impl Store {
         .await
     }
 
-    pub async fn load_board(&self, id: String) -> Result<Option<StoredBoard>, StoreError> {
+    /// Read a board to rebuild its room. Reads at most `caps` worth, one row at a time, and
+    /// refuses a board past them, so loading can't exhaust memory (security review 2026-11-07, C1).
+    pub async fn load_board(&self, id: String, caps: LoadCaps) -> Result<Option<StoredBoard>, StoreError> {
+        let too_large = |what: &str, cap: usize| StoreError::TooLarge(format!("more than {cap} {what}"));
         self.with(move |c| {
             let Some((base, base_seq)) = c
                 .query_row("SELECT base_doc, base_seq FROM boards WHERE id = ?1", [&id], |r| {
@@ -196,6 +249,7 @@ impl Store {
             let mut stmt = c.prepare("SELECT seq, tx FROM ops WHERE board = ?1 ORDER BY seq")?;
             let mut log = Vec::new();
             let mut expected = base_seq + 1;
+            let mut bytes = 0usize;
             #[allow(clippy::explicit_counter_loop)] // the counter is checked against the row, not used as an index
             for row in stmt.query_map([&id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))? {
                 let (seq, tx) = row?;
@@ -203,12 +257,22 @@ impl Store {
                     return Err(StoreError::Corrupt(format!("op log gap at {seq}, expected {expected}")));
                 }
                 expected += 1;
+                bytes += tx.len();
+                if log.len() >= caps.ops {
+                    return Err(too_large("logged transactions", caps.ops));
+                }
+                if bytes > caps.bytes {
+                    return Err(too_large("bytes of history", caps.bytes));
+                }
                 log.push(serde_json::from_str(&tx).map_err(corrupt)?);
             }
             let mut stmt = c.prepare("SELECT client, cseq, reason FROM rejections WHERE board = ?1")?;
             let mut rejections = Vec::new();
             for row in stmt.query_map([&id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))? {
                 let (client, cseq, reason) = row?;
+                if rejections.len() >= caps.rejections {
+                    return Err(too_large("stored rejections", caps.rejections));
+                }
                 let client: ClientId = serde_json::from_value(serde_json::Value::String(client)).map_err(corrupt)?;
                 rejections.push((client, cseq as u64, serde_json::from_str(&reason).map_err(corrupt)?));
             }
@@ -216,6 +280,9 @@ impl Store {
             let mut clients = Vec::new();
             for row in stmt.query_map([&id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?)))? {
                 let (client, hash) = row?;
+                if clients.len() >= caps.clients {
+                    return Err(too_large("clients", caps.clients));
+                }
                 let client: ClientId = serde_json::from_value(serde_json::Value::String(client)).map_err(corrupt)?;
                 let hash: [u8; 32] = hash.try_into().map_err(|_| StoreError::Corrupt("secret hash length".into()))?;
                 clients.push((client, hash));

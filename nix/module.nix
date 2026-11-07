@@ -37,6 +37,12 @@ in
       description = "mapcro board server";
       wantedBy = [ "multi-user.target" ];
       after = [ "network.target" ];
+      # A crash loop gives up instead of spinning (security review 2026-11-07, C1). With the
+      # backoff below, eight starts that each fail at once span about six minutes, inside the
+      # fifteen-minute window, so the limit trips only when restarts keep failing; an occasional
+      # crash never reaches it. `systemctl reset-failed mapcro` re-arms it.
+      startLimitIntervalSec = 900;
+      startLimitBurst = 8;
       environment = {
         PORT = toString cfg.port;
         HOST = "127.0.0.1";
@@ -52,7 +58,10 @@ in
         StateDirectory = "mapcro";
         StateDirectoryMode = "0700";
         Restart = "on-failure";
-        RestartSec = 1;
+        # Exponential backoff: 2 s, doubling over five steps to at most two minutes.
+        RestartSec = "2s";
+        RestartSteps = 5;
+        RestartMaxDelaySec = "2min";
         ProtectSystem = "strict";
         ProtectHome = true;
         PrivateTmp = true;
