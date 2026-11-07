@@ -184,16 +184,21 @@ async fn session(app: AppState, mut socket: WebSocket) {
         },
         None => None,
     };
-    let _permit; // held until the base frame is sent: base frames in flight are bounded
+    let permit; // held until the base frame is sent: base frames in flight are bounded
     let ready = match base {
         Some((doc, seq)) => {
             let kib = (2 * doc.len() / 1024 + 1).min(BASE_SENDS_KIB) as u32;
-            _permit = app.base_sends.clone().acquire_many_owned(kib).await.ok();
+            permit = app.base_sends.clone().acquire_many_owned(kib).await.ok();
             Message::Text(crate::store::ready_frame(link.role, &doc, seq, conn.0).into())
         }
-        None => frame(&WireOut::Ready { role: link.role, base: None, peer: conn.0 }),
+        None => {
+            permit = None;
+            frame(&WireOut::Ready { role: link.role, base: None, peer: conn.0 })
+        }
     };
-    if socket.send(ready).await.is_err() {
+    let sent = socket.send(ready).await;
+    drop(permit);
+    if sent.is_err() {
         let _ = room.send(RoomCmd::Leave { conn }).await;
         return;
     }
