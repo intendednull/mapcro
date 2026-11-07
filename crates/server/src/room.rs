@@ -83,6 +83,10 @@ struct Peer {
     /// Bytes of frames queued in `out`; the socket task subtracts what it takes.
     queued: Arc<AtomicUsize>,
     presence: Option<Presence>,
+    /// Peers whose presence changes this peer missed while it was too far behind (batches are
+    /// skipped then, not queued). It gets their current state, or their leaving, once it catches
+    /// up: presence is only sent on change, so a skipped batch would otherwise be stale for ever.
+    missed: Vec<(u64, LinkRole)>,
 }
 
 impl Peer {
@@ -497,32 +501,55 @@ impl Room {
 
     fn flush_presence(&mut self) {
         self.flush_at = None;
-        let batch: Vec<PeerPresence> = std::mem::take(&mut self.presence_dirty)
-            .into_iter()
-            .map(|(peer, role)| PeerPresence {
-                peer,
-                role,
-                state: self.peers.get(&ConnId(peer)).and_then(|p| p.presence.clone()),
-            })
-            .collect();
-        if batch.is_empty() {
+        let dirty = std::mem::take(&mut self.presence_dirty);
+        if dirty.is_empty() && self.peers.values().all(|p| p.missed.is_empty()) {
             return;
         }
-        // Everyone gets the batch minus their own entry.
-        let slow: Vec<ConnId> = self
-            .peers
-            .iter()
-            .filter(|(c, p)| {
-                if p.queued.load(Ordering::Relaxed) > PRESENCE_SKIP_BYTES {
-                    return false; // behind: skip this batch rather than queue it
+        // The current entry for every peer anyone is owed: changed now, or missed before.
+        let mut owed: Vec<(u64, LinkRole)> = dirty.clone();
+        for p in self.peers.values() {
+            for m in &p.missed {
+                if !owed.iter().any(|(id, _)| *id == m.0) {
+                    owed.push(*m);
                 }
-                let mine: Vec<PeerPresence> = batch.iter().filter(|e| e.peer != c.0).cloned().collect();
-                !mine.is_empty() && !p.offer(Out::Frame(frame(&WireOut::Presence { peers: mine })))
+            }
+        }
+        let entries: HashMap<u64, PeerPresence> = owed
+            .iter()
+            .map(|(id, role)| {
+                let state = self.peers.get(&ConnId(*id)).and_then(|p| p.presence.clone());
+                (*id, PeerPresence { peer: *id, role: *role, state })
             })
-            .map(|(c, _)| *c)
             .collect();
+        // Everyone gets the batch minus their own entry, plus anything they missed.
+        let mut slow = Vec::new();
+        let mut retry = false;
+        for (c, p) in self.peers.iter_mut() {
+            if p.queued.load(Ordering::Relaxed) > PRESENCE_SKIP_BYTES {
+                // Behind: skip this batch rather than queue it, and owe it these peers.
+                for d in dirty.iter().filter(|(id, _)| *id != c.0) {
+                    if !p.missed.iter().any(|(id, _)| *id == d.0) {
+                        p.missed.push(*d);
+                    }
+                }
+                retry |= !p.missed.is_empty();
+                continue;
+            }
+            let mut ids: Vec<u64> = dirty.iter().map(|(id, _)| *id).collect();
+            ids.extend(p.missed.drain(..).map(|(id, _)| id));
+            ids.sort_unstable();
+            ids.dedup();
+            let mine: Vec<PeerPresence> = ids.iter().filter(|id| **id != c.0).filter_map(|id| entries.get(id).cloned()).collect();
+            if !mine.is_empty() && !p.offer(Out::Frame(frame(&WireOut::Presence { peers: mine }))) {
+                slow.push(*c);
+            }
+        }
         for conn in slow {
             self.close(conn, CloseReason::TooSlow);
+        }
+        // A peer still behind is retried, so it's caught up even if nobody moves again.
+        if retry {
+            self.flush_at = Some(tokio::time::Instant::now() + PRESENCE_BATCH);
         }
     }
 
@@ -542,7 +569,7 @@ impl Room {
         let conn = ConnId(self.next_conn);
         self.next_conn += 1;
         let (out, rx) = mpsc::channel(OUTBOX_DEPTH);
-        let peer = Peer { link_hash, role: link_role, out, queued: Arc::default(), presence: None };
+        let peer = Peer { link_hash, role: link_role, out, queued: Arc::default(), presence: None, missed: Vec::new() };
         self.authority.connect(conn, role);
         // Everyone already here, so the newcomer sees the room at once.
         let here: Vec<PeerPresence> = self
