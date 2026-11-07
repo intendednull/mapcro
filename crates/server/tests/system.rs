@@ -1286,9 +1286,9 @@ async fn open_rooms_fit_a_memory_budget() {
     // With no history in memory, a room costs its document, which ranges from kilobytes to the
     // ~20 MB the schema allows. So rooms are admitted against a memory budget, not just counted:
     // past it, an idle room makes way or the join is busy, and edits that would grow memory
-    // further are refused as ServerFull. Here each small room weighs ~330 KB; two fit in 900 KB.
+    // further are refused as ServerFull. Here each small room weighs ~75 KB; two fit in 200 KB.
     let dir = tempfile::tempdir().expect("tempdir");
-    let server = Server::start_with(dir.path(), None, &[("ROOM_MEMORY_BYTES", "900000")]);
+    let server = Server::start_with(dir.path(), None, &[("ROOM_MEMORY_BYTES", "200000")]);
     let boards: Vec<(String, String)> = (0..3).map(|_| server.create_board()).collect();
     let mut a = Client::new(0x9a1);
     let mut b = Client::new(0x9a2);
@@ -1322,14 +1322,25 @@ async fn open_rooms_fit_a_memory_budget() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_peer_that_stops_reading_is_dropped_by_bytes_queued() {
     // Live frames are shared between peers, but a peer that stops reading would keep every
-    // frame since alive. Its outbox is capped in bytes (256 KiB), not just frames (4096), so
-    // ~25 MB of edits, more than the kernel's socket buffers take, gets it dropped as too slow.
+    // frame since alive. Its outbox is capped in bytes (1 MiB), not just frames (4096). The slow
+    // viewer's receive buffer is kept small, so ~9 MB of edits (150 frames) is more than the
+    // sockets absorb, and it's dropped as too slow well before it's sent everything.
+    use tokio_tungstenite::tungstenite::Message as M;
     let dir = tempfile::tempdir().expect("tempdir");
     let server = Server::start(dir.path(), None);
     let (board, owner) = server.create_board();
     let (_, view) = server.mint(&board, &owner, "view");
-    let mut slow = Client::new(0x7a1);
-    slow.connect(server.port, &board, &view).await.expect("viewer");
+    let sock = tokio::net::TcpSocket::new_v4().expect("socket");
+    sock.set_recv_buffer_size(16 * 1024).expect("rcvbuf");
+    let stream = sock.connect(([127, 0, 0, 1], server.port).into()).await.expect("connect");
+    let mut req = format!("ws://127.0.0.1:{}/ws", server.port).into_client_request().expect("request");
+    req.headers_mut().insert("origin", ORIGIN.parse().expect("origin"));
+    let (mut slow, _) = tokio_tungstenite::client_async(req, stream).await.expect("ws");
+    let text = |f: &WireIn| M::Text(serde_json::to_string(f).expect("json").into());
+    slow.send(text(&WireIn::Auth { board: board.clone(), token: view, known_seq: Some(0) })).await.expect("auth");
+    let hello = mapcro_engine::Hello { client: ClientId(0x7a1), secret: "slow".into(), last_seq: 0, pending_from: 0 };
+    slow.send(text(&WireIn::Msg { msg: ClientMsg::Hello(hello) })).await.expect("hello");
+
     let mut w = Client::new(0x7a2);
     w.connect(server.port, &board, &owner).await.expect("writer");
     let scene = scene_of(w.replica());
@@ -1346,18 +1357,23 @@ async fn a_peer_that_stops_reading_is_dropped_by_bytes_queued() {
             })
             .collect()
     };
-    // 400 transactions of 15 rewrites each, ~60 KB apiece.
-    for batch in 0..16 {
+    for batch in 0..6 {
         let ops = |_: &Replica, i: usize| (0..15).map(|k| Op::Set { id: note, value: FieldValue::NoteText(letters(batch * 1000 + i * 15 + k)) }).collect();
         assert!(edits_until_decided(&mut w, 25, ops).await.is_empty());
     }
     // Now the viewer reads: it was cut off before it got everything.
-    let mut last = Ok(());
-    while slow.replica().last_seq() < 401 {
-        last = slow.pump_one().await;
-        if last.is_err() {
-            break;
+    let mut entries = 0;
+    let end = loop {
+        match tokio::time::timeout(Duration::from_secs(10), slow.next()).await {
+            Ok(Some(Ok(M::Text(t)))) => match serde_json::from_str::<WireOut>(t.as_str()) {
+                Ok(WireOut::Msg { msg: ServerMsg::Entry { .. } }) => entries += 1,
+                Ok(WireOut::Closed { reason }) => break Some(reason),
+                _ => {}
+            },
+            Ok(Some(Ok(_))) => {}
+            _ => break None,
         }
-    }
-    assert_eq!(last, Err(Some(CloseReason::TooSlow)), "got {} of 401 entries", slow.replica().last_seq());
+    };
+    assert_eq!(end, Some(CloseReason::TooSlow), "got {entries} of 151 entries");
+    assert!(entries < 151);
 }

@@ -13,13 +13,18 @@ use tokio::sync::{mpsc, oneshot};
 
 /// Outbound frames per connection, and their bytes. A client this far behind live traffic is
 /// dropped rather than letting it stall the room or pin memory. Catch-up doesn't count against
-/// either: it's streamed at the client's pace (security review 2026-11-07, H-A). Frames are
-/// shared between peers, so a room's outboxes together hold about one backlog's worth.
+/// either: it's streamed at the client's pace (security review 2026-11-07, H-A). Small frames
+/// meet the frame cap first (4096 of ~200 B is ~800 KB), big ones the byte cap (16 of 64 KiB).
+/// Live entries are shared between peers, so a room's outboxes hold about its slowest peer's
+/// backlog, and that backlog counts towards the room's memory weight.
 const OUTBOX_DEPTH: usize = 4096;
-pub const OUTBOX_BYTES: usize = 256 * 1024;
-/// What a room costs in memory besides its document: its tables, channels, and one outbox
-/// backlog. Measured (journal 2026-11-07-security-fixes) and rounded up.
-const ROOM_BASE_BYTES: usize = 64 * 1024 + OUTBOX_BYTES;
+pub const OUTBOX_BYTES: usize = 1024 * 1024;
+/// Presence is skipped, not queued, for a peer already this far behind: it's ephemeral and the
+/// next batch supersedes it, and each peer's presence frame is its own (not shared).
+const PRESENCE_SKIP_BYTES: usize = 64 * 1024;
+/// What a room costs in memory besides its document and outbox backlog: its tables and
+/// channels. Rounded up from the measured ~0.3 MB a small room costs in all.
+const ROOM_BASE_BYTES: usize = 64 * 1024;
 /// Per stored client or rejection, in memory.
 const ROW_BYTES: usize = 160;
 /// A room's weight is re-estimated exactly every this many logged transactions, and grows by
@@ -97,8 +102,11 @@ struct Room {
     store: Store,
     rooms: Rooms,
     authority: Authority,
-    /// This room's memory estimate, published for the registry's budget.
+    /// This room's memory estimate, published for the registry's budget: `doc_weight` plus its
+    /// slowest peer's outbox backlog.
     weight: Arc<AtomicUsize>,
+    /// The document and tables, by estimate (re-estimated every `REWEIGH_EVERY` logged edits).
+    doc_weight: usize,
     since_weighed: u32,
     peers: HashMap<ConnId, Peer>,
     /// `peers.len()`, published for the registry's eviction choice.
@@ -276,6 +284,7 @@ impl Rooms {
             store: self.store.clone(),
             rooms: self.clone(),
             authority,
+            doc_weight: weight.load(Ordering::Relaxed),
             weight: weight.clone(),
             since_weighed: 0,
             peers: HashMap::new(),
@@ -482,6 +491,9 @@ impl Room {
             .peers
             .iter()
             .filter(|(c, p)| {
+                if p.queued.load(Ordering::Relaxed) > PRESENCE_SKIP_BYTES {
+                    return false; // behind: skip this batch rather than queue it
+                }
                 let mine: Vec<PeerPresence> = batch.iter().filter(|e| e.peer != c.0).cloned().collect();
                 !mine.is_empty() && !p.offer(Out::Frame(frame(&WireOut::Presence { peers: mine })))
             })
@@ -555,9 +567,9 @@ impl Room {
                     self.since_weighed += 1;
                     if self.since_weighed >= REWEIGH_EVERY {
                         self.since_weighed = 0;
-                        self.weight.store(weigh(&self.authority), Ordering::Relaxed);
+                        self.doc_weight = weigh(&self.authority);
                     } else {
-                        self.weight.fetch_add(mapcro_engine::encoded_len(tx), Ordering::Relaxed);
+                        self.doc_weight += mapcro_engine::encoded_len(tx);
                     }
                 }
                 Effect::Rejected { client, cseq, reason } => {
@@ -598,7 +610,15 @@ impl Room {
                 self.close(to, CloseReason::Protocol);
             }
         }
+        self.publish_weight();
         Ok(())
+    }
+
+    /// Publish the room's weight: its document and tables, plus the largest outbox backlog
+    /// (live entries are shared, so that's about what all the outboxes hold together).
+    fn publish_weight(&self) {
+        let backlog = self.peers.values().map(|p| p.queued.load(Ordering::Relaxed)).max().unwrap_or(0);
+        self.weight.store(self.doc_weight + backlog, Ordering::Relaxed);
     }
 
     fn close(&mut self, conn: ConnId, reason: CloseReason) {
