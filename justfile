@@ -54,3 +54,8 @@ wasm:
 web-test: wasm ts
     cargo build -q -p mapcro-server
     cd web && npm test
+
+# Everything CI runs, locally.
+check: test web-test
+    just model-sim 5000
+    nix build .#checks.x86_64-linux.service
