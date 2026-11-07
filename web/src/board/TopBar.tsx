@@ -115,7 +115,7 @@ function UltRing(p: { state: BoardState; player: Player; editable: boolean; labe
   );
 }
 
-export function TopBar(p: { state: BoardState; art: Art; vp: Viewpoint; scene: RecordId | undefined }) {
+export function TopBar(p: { state: BoardState; art: Art; vp: Viewpoint; scene: RecordId | undefined; compact?: boolean }) {
   let host!: HTMLDivElement;
   const [unit, setUnit] = createSignal(1);
   onMount(() => {
@@ -203,7 +203,7 @@ export function TopBar(p: { state: BoardState; art: Art; vp: Viewpoint; scene: R
   return (
     <div
       ref={host}
-      class={cx("tb-host", editable() && "editable", p.art.images.has("tb-mask") && "pack-art")}
+      class={cx("tb-host", editable() && "editable", p.art.images.has("tb-mask") && "pack-art", p.compact && "compact")}
       style={{ "--u": `${unit()}px` }}
       data-testid="topbar"
     >

@@ -110,3 +110,55 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .landed-note { position: absolute; left: 50%; top: 68px; transform: translateX(-50%); z-index: 30; width: min(560px, 100% - 32px); box-shadow: 0 16px 40px #0009; background: var(--panel); }
 .owner-note .btn { display: inline-flex; }
 .scrim { z-index: 60; }
+
+/* Overlays sit over either layout */
+.scrim { position: fixed; }
+.toast { position: fixed; bottom: 120px; }
+
+/* Scene note (desktop side panel) */
+.note-section { flex: 1; display: flex; flex-direction: column; }
+.note-edit { flex: 1; min-height: 120px; width: 100%; resize: none; font: inherit; color: var(--text); background: var(--bg-deep); border: 1px solid var(--line); border-radius: 7px; padding: 9px 11px; outline: none; }
+.note-edit:focus { border-color: var(--accent); }
+
+/* Phone (design/v1-board/phone-following.html) */
+.phone { min-height: 100dvh; display: flex; flex-direction: column; position: relative;
+  background: radial-gradient(ellipse 90% 50% at 50% 42%, #14302b 0%, transparent 70%), var(--bg); }
+.p-top { height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--bg-deep); }
+.p-top .wordmark { font-size: 18px; }
+.p-top .spacer { flex: 1; }
+.p-top .save { font-size: 11px; }
+.viewonly { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 3px 7px; white-space: nowrap; }
+.p-follow { margin: 10px 12px 0; min-height: 40px; display: flex; align-items: center; gap: 9px; padding: 0 6px 0 10px; border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 8%, var(--bg-deep)); }
+.p-follow.off { border-color: var(--line); background: var(--panel); }
+.p-follow .ico { stroke: var(--accent); }
+.p-follow b { font-weight: 600; }
+.p-follow .where { color: var(--muted); flex: 1; }
+.p-follow button { height: 28px; border-radius: 14px; border: 1px solid var(--line); background: transparent; color: var(--muted); padding: 0 10px; font-size: 12px; }
+.p-follow button.go { background: var(--accent); border-color: var(--accent); color: #0b1d18; font-weight: 700; }
+.p-title { padding: 8px 16px 4px; touch-action: pan-y; }
+.p-title .ord { font-size: 12px; color: var(--muted); }
+.p-title h1 { margin: 2px 0 0; font: 500 24px/1.05 var(--display); }
+.p-title h1 .clock { color: var(--brass); display: block; font-size: 30px; }
+.phone > .tb-host { width: calc(100% - 16px); margin: 6px 8px 0; flex: none; }
+.p-map-wrap { position: relative; padding: 0 8px; }
+.p-map { width: 100%; aspect-ratio: 1; position: relative; }
+.p-map > .mm-host { width: 100%; height: 100%; }
+.p-tools { position: absolute; right: 14px; bottom: 6px; display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: #0a1513e6; border: 1px solid var(--line); z-index: 30; }
+.p-tools .tb { height: 34px; padding: 0 12px; }
+.mm-overlay .co-pin circle { fill: var(--brass); stroke: #0c1917; stroke-width: 4; }
+.mm-overlay .co-pin text { font: 800 18px var(--ui); fill: #1b1408; text-anchor: middle; dominant-baseline: central; }
+.p-callouts { list-style: none; margin: 10px 16px 0; padding: 0; display: flex; gap: 6px 16px; flex-wrap: wrap; font-size: 13px; }
+.p-callouts li { display: flex; align-items: center; gap: 7px; }
+.p-callouts b { width: 20px; height: 20px; border-radius: 50%; background: var(--brass); color: #1b1408; display: grid; place-items: center; font-size: 11px; }
+.p-note { margin: 8px 16px 0; color: var(--muted); font-size: 13px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.p-nav { margin-top: auto; padding: 12px 16px 22px; border-top: 1px solid var(--line); background: var(--bg-deep); touch-action: pan-y; }
+.p-nav .row { display: flex; align-items: center; gap: 12px; }
+.p-nav .btn { height: 48px; flex: 1; font-size: 14px; }
+.p-nav .btn[disabled] { opacity: 0.4; }
+.dots { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; max-width: 50%; }
+.dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.dots i.on { background: var(--accent); width: 20px; border-radius: 4px; }
+.p-hint { text-align: center; font-size: 11.5px; color: var(--faint); margin-top: 10px; }
+@media (max-width: 700px) { .toast { bottom: 110px; max-width: calc(100% - 24px); } .join { width: calc(100% - 24px); } .dialog { width: calc(100% - 16px) !important; } }
+.mm-flip[hidden] { display: none; }

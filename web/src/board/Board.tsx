@@ -19,7 +19,8 @@ import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type ViewRect, clampView, fromViewport, presenters, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
-import { Layers } from "./Layers";
+import { Layers, calloutOrder } from "./Layers";
+import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { ShareDialog } from "./ShareDialog";
 import { Avatar, FollowChip, PeopleList, PresentingPill } from "./Presence";
 import { Toolbar } from "./Toolbar";
@@ -192,7 +193,217 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const heroList = createMemo(() => [...p.art.heroes.values()].sort((a, b) => a.name.localeCompare(b.name)));
   const sceneIndex = () => state.scenes().findIndex((s) => s.id === scene()?.id);
 
+  // ---- the phone layout (design/v1-board/phone-following.html) below 700 px ----
+  const mq = window.matchMedia("(max-width: 700px)");
+  const [phone, setPhone] = createSignal(mq.matches);
+  const onMq = () => setPhone(mq.matches);
+  mq.addEventListener("change", onMq);
+  onCleanup(() => mq.removeEventListener("change", onMq));
+  createEffect(() => {
+    // The phone picker is Look/Move and Laser; drawing tools need the desktop.
+    if (phone() && tool() !== "move" && tool() !== "laser") setTool("move");
+  });
+
+  // ---- the scene note: free text, one per scene ----
+  const note = createMemo(() => {
+    const n = state.inScene("Note", scene()?.id)[0];
+    return n && "Note" in n[1] ? { id: n[0], text: n[1].Note.text } : undefined;
+  });
+  const saveNote = (text: string) => {
+    const s = scene();
+    const n = note();
+    if (!s || text === (n?.text ?? "")) return;
+    if (n) state.edit([{ Set: { id: n.id, value: { NoteText: text } } }]);
+    else if (text.trim()) state.edit([{ Create: { id: newRecordId(), record: { Note: { scene: s.id, text } } } }]);
+  };
+  const calloutList = createMemo(() => calloutOrder(state.inScene("Callout", scene()?.id)));
+
+  const flipBy = (d: number) => {
+    const all = state.scenes();
+    const next = all[sceneIndex() + d];
+    if (next) userFlip(next.id);
+  };
+  const swipe = (e: PointerEvent) => {
+    const x0 = e.clientX;
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointerup", up);
+      const dx = ev.clientX - x0;
+      if (Math.abs(dx) > 60) flipBy(dx < 0 ? 1 : -1);
+    };
+    window.addEventListener("pointerup", up);
+  };
+
+  const PhoneBoard = () => (
+    <div class="phone" data-testid="board" data-board={p.board} data-layout="phone">
+      <header class="p-top">
+        <Wordmark />
+        <span class="viewonly" data-testid="role-chip">
+          {state.canEdit() ? "Can edit" : "View only"} · {viewpoint() === "amber" ? "Amber" : "Sapphire"} side
+        </span>
+        <div class="spacer" />
+        <SaveStatus state={state} />
+      </header>
+      <Show
+        when={followed()}
+        fallback={
+          <Show when={presenterList()[0]}>
+            {(lead) => (
+              <div class="p-follow off" data-testid="follow-chip">
+                <span>
+                  <b>{lead().peer.state?.name || "Someone"}</b> is presenting
+                </span>
+                <span class="where">{sceneLabel(lead().peer.state?.scene)}</span>
+                <button class="go" data-testid="follow-presenter" onClick={() => follow(lead().peer.peer)}>
+                  Follow
+                </button>
+              </div>
+            )}
+          </Show>
+        }
+      >
+        {(f) => (
+          <div class="p-follow" data-testid="follow-chip">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" innerHTML={'<path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>'} />
+            <span>
+              <b>Following {f().state?.name || "them"}</b>
+            </span>
+            <span class="where">{sceneLabel(f().state?.scene)}</span>
+            <button data-testid="stop-following" onClick={() => stopFollowing()}>
+              Stop
+            </button>
+          </div>
+        )}
+      </Show>
+      <div class="p-title" onPointerDown={swipe}>
+        <div class="ord">
+          Scene {sceneIndex() + 1} of {state.scenes().length} · {state.title()}
+        </div>
+        <h1>
+          <Show when={scene()?.scene.clock != null}>
+            <span class="clock">{formatClock(scene()!.scene.clock)}</span>
+          </Show>
+          {scene()?.scene.name}
+        </h1>
+      </div>
+      <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact />
+      <div class="p-map-wrap">
+        {mapBox(true)}
+        <div class="p-tools" role="toolbar" aria-label="Tools">
+          <button class={cx("tb", tool() === "move" && "on")} data-testid="tool-move" onClick={() => setTool("move")}>
+            <span>{state.canEdit() ? "Move" : "Look"}</span>
+          </button>
+          <button class={cx("tb", tool() === "laser" && "on")} data-testid="tool-laser" onClick={() => setTool("laser")}>
+            <span>Laser</span>
+          </button>
+          <button class="tb" data-testid="viewpoint-flip" aria-label="Flip to the other side" onClick={() => setViewpoint(viewpoint() === "amber" ? "sapphire" : "amber")}>
+            <span>⟲</span>
+          </button>
+        </div>
+      </div>
+      <Show when={calloutList().length > 0}>
+        <ol class="p-callouts" data-testid="callout-list">
+          <For each={calloutList()}>
+            {(c, i) => (
+              <li>
+                <b>{i() + 1}</b>
+                {c.text}
+              </li>
+            )}
+          </For>
+        </ol>
+      </Show>
+      <Show when={note()?.text}>
+        <p class="p-note" data-testid="scene-note">
+          {note()!.text}
+        </p>
+      </Show>
+      <nav class="p-nav" onPointerDown={swipe}>
+        <div class="row">
+          <button class="btn" data-testid="p-prev" disabled={sceneIndex() <= 0} onClick={() => flipBy(-1)}>
+            Prev
+          </button>
+          <div class="dots" aria-label={`Scene ${sceneIndex() + 1} of ${state.scenes().length}`}>
+            <For each={state.scenes()}>{(x) => <i class={cx(x.id === scene()?.id && "on")} />}</For>
+          </div>
+          <button class="btn" data-testid="p-next" disabled={sceneIndex() >= state.scenes().length - 1} onClick={() => flipBy(1)}>
+            Next
+          </button>
+        </div>
+        <div class="p-hint">Swipe or tap to flip on your own. That stops following; tap Follow to come back.</div>
+      </nav>
+      {toastView()}
+    </div>
+  );
+
+  const mapBox = (phone: boolean) => (
+          <div class={phone ? "p-map" : "mapbox"} data-testid="map" data-view={`${Math.round(view().x)} ${Math.round(view().y)} ${Math.round(view().w)}`}>
+            <MapView
+              art={p.art}
+              viewpoint={viewpoint()}
+              view={view()}
+              live={following() !== undefined}
+              overlayRef={setOverlay}
+              overlayProps={{ "data-tool": tool() } as never}
+              overlayClass={!state.canEdit() && "readonly"}
+              status={(k) => objectives().get(k)?.status}
+              showHidden={state.canEdit()}
+            >
+              <Layers
+                state={state}
+                art={p.art}
+                vp={viewpoint()}
+                scene={scene()?.id}
+                tool={tool()}
+                ink={ink()}
+                myColor={me()?.color ?? 0}
+                svg={overlay}
+                objectives={objectives}
+                k={(view().w / 1000) * (phone ? 1.4 : 1)}
+                compactCallouts={phone}
+                onPan={(dx, dy) => userView({ ...view(), x: view().x - dx, y: view().y - dy }, "panned the map")}
+                onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
+              />
+            </MapView>
+            <button
+              class="mm-flip"
+              hidden={phone}
+              data-testid="viewpoint-flip"
+              title={`Flip to the ${viewpoint() === "amber" ? "Sapphire" : "Amber"} side (changes only your view)`}
+              onClick={() => setViewpoint(viewpoint() === "amber" ? "sapphire" : "amber")}
+            >
+              <svg viewBox="-16 -16 32 32" aria-hidden="true">
+                <path d="M-10 -4 A11 11 0 0 1 9 -6 M9 -6 L9 -14 M9 -6 L1 -6 M10 4 A11 11 0 0 1 -9 6 M-9 6 L-9 14 M-9 6 L-1 6" />
+              </svg>
+            </button>
+          </div>
+  );
+  const toastView = () => (
+          <Show when={toast()}>
+            {(t) => (
+              <div class="toast" role="status" data-testid="toast">
+                {t().text}
+                <Show when={t().action}>
+                  {(a) => (
+                    <button
+                      class="link"
+                      data-testid="toast-action"
+                      onClick={() => {
+                        a().run();
+                        setToast(undefined);
+                      }}
+                    >
+                      {a().label}
+                    </button>
+                  )}
+                </Show>
+              </div>
+            )}
+          </Show>
+  );
+
   return (
+    <>
+    <Show when={!phone()} fallback={<PhoneBoard />}>
     <div class="app board-app" data-testid="board" data-board={p.board}>
       <header class="top">
         <Wordmark />
@@ -282,44 +493,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
             </Show>
           </div>
           <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} />
-          <div class="mapbox" data-testid="map" data-view={`${Math.round(view().x)} ${Math.round(view().y)} ${Math.round(view().w)}`}>
-            <MapView
-              art={p.art}
-              viewpoint={viewpoint()}
-              view={view()}
-              live={following() !== undefined}
-              overlayRef={setOverlay}
-              overlayProps={{ "data-tool": tool() } as never}
-              overlayClass={!state.canEdit() && "readonly"}
-              status={(k) => objectives().get(k)?.status}
-              showHidden={state.canEdit()}
-            >
-              <Layers
-                state={state}
-                art={p.art}
-                vp={viewpoint()}
-                scene={scene()?.id}
-                tool={tool()}
-                ink={ink()}
-                myColor={me()?.color ?? 0}
-                svg={overlay}
-                objectives={objectives}
-                k={view().w / 1000}
-                onPan={(dx, dy) => userView({ ...view(), x: view().x - dx, y: view().y - dy }, "panned the map")}
-                onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
-              />
-            </MapView>
-            <button
-              class="mm-flip"
-              data-testid="viewpoint-flip"
-              title={`Flip to the ${viewpoint() === "amber" ? "Sapphire" : "Amber"} side (changes only your view)`}
-              onClick={() => setViewpoint(viewpoint() === "amber" ? "sapphire" : "amber")}
-            >
-              <svg viewBox="-16 -16 32 32" aria-hidden="true">
-                <path d="M-10 -4 A11 11 0 0 1 9 -6 M9 -6 L9 -14 M9 -6 L1 -6 M10 4 A11 11 0 0 1 -9 6 M-9 6 L-9 14 M-9 6 L-1 6" />
-              </svg>
-            </button>
-          </div>
+          {mapBox(false)}
           <Toolbar
             tool={tool()}
             setTool={setTool}
@@ -338,27 +512,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               say(`Cleared ${ids.length} stroke${ids.length === 1 ? "" : "s"} on this scene`, { label: "Undo", run: () => state.undo() });
             }}
           />
-          <Show when={toast()}>
-            {(t) => (
-              <div class="toast" role="status" data-testid="toast">
-                {t().text}
-                <Show when={t().action}>
-                  {(a) => (
-                    <button
-                      class="link"
-                      data-testid="toast-action"
-                      onClick={() => {
-                        a().run();
-                        setToast(undefined);
-                      }}
-                    >
-                      {a().label}
-                    </button>
-                  )}
-                </Show>
-              </div>
-            )}
-          </Show>
+          {toastView()}
         </main>
         <aside class="side">
           <section>
@@ -428,41 +582,61 @@ export function Board(p: { board: string; token: string; art: Art }) {
               rename={() => setJoined(false)}
             />
           </section>
+          <section class="note-section">
+            <h2>Scene note</h2>
+            <Show when={state.canEdit()} fallback={<div class="note">{note()?.text || <span class="muted">No note for this scene.</span>}</div>}>
+              <textarea
+                class="note note-edit"
+                data-testid="scene-note-edit"
+                aria-label="Scene note"
+                placeholder="What should everyone know about this moment?"
+                maxLength={4000}
+                value={note()?.text ?? ""}
+                onFocus={() => state.presence({ focus: note()?.id ?? scene()?.id ?? null })}
+                onBlur={(e) => {
+                  state.presence({ focus: null });
+                  saveNote(e.currentTarget.value);
+                }}
+              />
+            </Show>
+          </section>
         </aside>
       </div>
       <SceneStrip state={state} art={p.art} vp={viewpoint()} current={scene()?.id} onFlip={userFlip} />
-      <Show when={dialog() === "share" && state.canEdit()}>
-        <ShareDialog
-          board={p.board}
-          token={p.token}
-          role={state.role() === "owner" ? "owner" : "edit"}
-          onClose={() => setDialog(undefined)}
-          onClone={() => setDialog("clone")}
-        />
-      </Show>
-      <Show when={dialog() === "clone"}>
-        <CloneDialog board={p.board} token={p.token} title={state.title()} onClose={() => setDialog(undefined)} />
-      </Show>
-      <Show when={justCloned() && state.role() === "owner" && joined() && !dialog()}>
-        <div class="owner-note landed-note" data-testid="owner-note">
-          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7z" />
-          </svg>
-          <div>
-            <b>You own this copy</b>
-            <span>It has no links yet, so only you can open it. Share it to bring the right people in.</span>
-          </div>
-          <button class="btn primary small" onClick={() => (setJustCloned(false), setDialog("share"))}>
-            Share
-          </button>
-          <button class="btn ghost small" aria-label="Dismiss" onClick={() => setJustCloned(false)}>
-            Later
-          </button>
-        </div>
-      </Show>
-      <Show when={!joined()}>
-        <JoinCard title={state.title()} others={people().map((x) => x.state!.name).filter(Boolean)} initial={me()} onJoin={join} />
-      </Show>
     </div>
+    </Show>
+    <Show when={dialog() === "share" && state.canEdit()}>
+      <ShareDialog
+        board={p.board}
+        token={p.token}
+        role={state.role() === "owner" ? "owner" : "edit"}
+        onClose={() => setDialog(undefined)}
+        onClone={() => setDialog("clone")}
+      />
+    </Show>
+    <Show when={dialog() === "clone"}>
+      <CloneDialog board={p.board} token={p.token} title={state.title()} onClose={() => setDialog(undefined)} />
+    </Show>
+    <Show when={justCloned() && state.role() === "owner" && joined() && !dialog()}>
+      <div class="owner-note landed-note" data-testid="owner-note">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7z" />
+        </svg>
+        <div>
+          <b>You own this copy</b>
+          <span>It has no links yet, so only you can open it. Share it to bring the right people in.</span>
+        </div>
+        <button class="btn primary small" onClick={() => (setJustCloned(false), setDialog("share"))}>
+          Share
+        </button>
+        <button class="btn ghost small" aria-label="Dismiss" onClick={() => setJustCloned(false)}>
+          Later
+        </button>
+      </div>
+    </Show>
+    <Show when={!joined()}>
+      <JoinCard title={state.title()} others={people().map((x) => x.state!.name).filter(Boolean)} initial={me()} onJoin={join} />
+    </Show>
+    </>
   );
 }

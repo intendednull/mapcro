@@ -18,7 +18,7 @@ export const tokenAt = async (page: Page, slot: string) => translate(await page.
 /** Drag a token to a fraction of the map's box with the mouse. */
 export async function dragToken(page: Page, slot: string, fx: number, fy: number) {
   const box = (await page.locator(`.tok[data-slot="${slot}"]`).boundingBox())!;
-  const map = (await page.locator(".mapbox .mm-overlay.map").boundingBox())!;
+  const map = (await page.locator("[data-testid=map] .mm-overlay.map").boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(map.x + map.width * fx, map.y + map.height * fy, { steps: 8 });
@@ -27,7 +27,7 @@ export async function dragToken(page: Page, slot: string, fx: number, fy: number
 
 /** A point on the main map, as a fraction of its box, in page pixels. */
 export async function mapPoint(page: Page, fx: number, fy: number) {
-  const map = (await page.locator(".mapbox .mm-overlay.map").boundingBox())!;
+  const map = (await page.locator("[data-testid=map] .mm-overlay.map").boundingBox())!;
   return { x: map.x + map.width * fx, y: map.y + map.height * fy };
 }
 

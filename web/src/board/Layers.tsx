@@ -60,6 +60,8 @@ export function Layers(p: {
   onPan: (dx: number, dy: number) => void;
   /** Wheel: zoom about a point (view units); factor > 1 zooms out. */
   onZoom: (at: Pt, factor: number) => void;
+  /** Phone: callouts as numbered pins, their text listed under the map. */
+  compactCallouts?: boolean;
 }) {
   const st = p.state;
   const view = (w: WorldPos) => worldToView(w, p.vp);
@@ -68,7 +70,7 @@ export function Layers(p: {
 
   const strokes = createMemo(() => st.inScene("Stroke", p.scene).map(([id, r]) => ({ id, r: (r as { Stroke: Stroke }).Stroke })));
   const arrows = createMemo(() => st.inScene("Arrow", p.scene).map(([id, r]) => ({ id, r: (r as { Arrow: Arrow }).Arrow })));
-  const callouts = createMemo(() => st.inScene("Callout", p.scene).map(([id, r]) => ({ id, r: (r as { Callout: Callout }).Callout })));
+  const callouts = createMemo(() => calloutOrder(st.inScene("Callout", p.scene)).map((c) => ({ id: c.id, r: c.r })));
   const teamOfSlot = createMemo(() => new Map(st.roster().map((s) => [s.id, s.slot.team])));
 
   // Others' drags and focus by record (callouts here; tokens do their own).
@@ -390,6 +392,13 @@ export function Layers(p: {
             const bx = () => (left() ? pos().x - 16 - w() : pos().x + 16);
             const by = () => pos().y - 56;
             const hidden = () => editing()?.id === c.id;
+            if (p.compactCallouts)
+              return (
+                <g class="co-pin" data-callout={c.id} transform={`translate(${pos().x} ${pos().y}) scale(${p.k})`}>
+                  <circle r="16" />
+                  <text>{callouts().findIndex((x) => x.id === c.id) + 1}</text>
+                </g>
+              );
             return (
               <g
                 class={cx("co", erasing().has(c.id) && "erasing", others().length > 0 && "touched")}
@@ -485,3 +494,11 @@ function LaserTrail(p: { points: Pt[]; color: string; name?: string; mine?: bool
 }
 
 export { LASER_MAX_POINTS };
+
+/** Callouts in a stable order (by id), so the phone's numbered pins match its list. */
+export function calloutOrder(rows: Array<readonly [RecordId, unknown]>): Array<{ id: RecordId; r: Callout; text: string }> {
+  return rows
+    .flatMap(([id, r]) => (r && typeof r === "object" && "Callout" in r ? [{ id, r: (r as { Callout: Callout }).Callout }] : []))
+    .sort((a, b) => (a.id < b.id ? -1 : 1))
+    .map((c) => ({ ...c, text: c.r.text }));
+}
