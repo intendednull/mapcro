@@ -1,0 +1,2 @@
+// Fixes 1 and 2 only: rejections still follow the catch-up (engine finding 3 unfixed).
+module rejectAfter { import sync(LIVE_AFTER_HELLO = true, SERVER_SIDE_UNDO = true, REJECT_BEFORE_CATCHUP = false).* from "./sync" }

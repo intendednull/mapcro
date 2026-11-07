@@ -2,12 +2,34 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// A record id. Random 128-bit, so clients create records offline without coordination.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+/// Serialized as 32 hex digits: JSON numbers can't carry 128 bits into JavaScript.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RecordId(pub u128);
 
 /// A client (one browser tab's replica). Random 128-bit, persisted with the tab's pending queue.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClientId(pub u128);
+
+macro_rules! hex_id {
+    ($t:ident) => {
+        impl Serialize for $t {
+            fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                s.serialize_str(&format!("{:032x}", self.0))
+            }
+        }
+        impl<'de> Deserialize<'de> for $t {
+            fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+                let s = <std::borrow::Cow<'de, str>>::deserialize(d)?;
+                if s.len() != 32 {
+                    return Err(serde::de::Error::custom("id must be 32 hex digits"));
+                }
+                u128::from_str_radix(&s, 16).map($t).map_err(serde::de::Error::custom)
+            }
+        }
+    };
+}
+hex_id!(RecordId);
+hex_id!(ClientId);
 
 impl fmt::Debug for RecordId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

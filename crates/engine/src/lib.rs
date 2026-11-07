@@ -11,6 +11,6 @@ mod authority;
 mod protocol;
 mod replica;
 
-pub use authority::{Authority, ConnId, Role};
+pub use authority::{Authority, ConnId, Effect, Outbox, Role};
 pub use protocol::{ClientMsg, Hello, ServerMsg};
 pub use replica::{ProtocolError, Replica, SaveStatus, UndoError};

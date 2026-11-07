@@ -1,10 +1,11 @@
 use crate::ids::RecordId;
 use crate::records::Record;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// A record plus its tombstone flag. Deleted records keep their fields so `Restore` brings back
 /// edits that others made in the meantime.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub record: Record,
     pub deleted: bool,
@@ -12,7 +13,9 @@ pub struct Entry {
 
 /// The whole board. A `BTreeMap` keeps iteration order deterministic, so two replicas holding
 /// the same records compare and hash identically.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// Serialized as a list of `[id, entry]` pairs (ids aren't valid JSON object keys as numbers).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "Vec<(RecordId, Entry)>", into = "Vec<(RecordId, Entry)>")]
 pub struct Doc {
     entries: BTreeMap<RecordId, Entry>,
 }
@@ -49,5 +52,17 @@ impl Doc {
 
     pub(crate) fn entry_mut(&mut self, id: RecordId) -> Option<&mut Entry> {
         self.entries.get_mut(&id)
+    }
+}
+
+impl From<Vec<(RecordId, Entry)>> for Doc {
+    fn from(v: Vec<(RecordId, Entry)>) -> Self {
+        Doc { entries: v.into_iter().collect() }
+    }
+}
+
+impl From<Doc> for Vec<(RecordId, Entry)> {
+    fn from(d: Doc) -> Self {
+        d.entries.into_iter().collect()
     }
 }

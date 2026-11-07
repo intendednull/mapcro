@@ -12,8 +12,8 @@ mod behaviour;
 mod checks;
 
 use behaviour::Behaviour;
-use mapcro_engine::{Authority, ClientMsg, ConnId, Replica, Role, ServerMsg};
-use mapcro_schema::{ClientId, Doc, RecordId, Tx, genesis};
+use mapcro_engine::{Authority, ClientMsg, ConnId, Effect, Replica, Role, ServerMsg};
+use mapcro_schema::{ClientId, Doc, RecordId, Reject, Tx, genesis};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::collections::VecDeque;
@@ -47,6 +47,7 @@ pub struct Stats {
     /// Rejections of honest editors' work: concurrent conflicts, not view-only refusals.
     pub editor_rejected: usize,
     pub disconnects: usize,
+    pub server_restarts: usize,
     pub undo_fields_checked: usize,
 }
 
@@ -94,6 +95,9 @@ pub struct World {
     pub(crate) trace: Vec<String>,
     pub(crate) oracle: checks::Oracle,
     pub(crate) stats: Stats,
+    /// What the real server would have on disk: genesis plus durable effects.
+    pub(crate) genesis: Doc,
+    pub(crate) stored_rejections: Vec<(ClientId, u64, Reject)>,
 }
 
 pub fn run(seed: u64, config: &Config) -> Result<Stats, Failure> {
@@ -152,6 +156,8 @@ impl World {
             seed,
             rng,
             oracle: checks::Oracle::new(doc.clone()),
+            genesis: doc.clone(),
+            stored_rejections: Vec::new(),
             authority: Authority::new(doc),
             clients,
             next_conn: 0,
@@ -178,6 +184,10 @@ impl World {
     fn random_step(&mut self, config: &Config) -> Result<(), String> {
         let n = self.clients.len();
         let i = self.rng.random_range(0..n);
+        if self.rng.random_range(0..1000) < 2 {
+            self.restart_server();
+            return Ok(());
+        }
         if self.rng.random_range(0..100) < config.fault_rate {
             if self.clients[i].conn.is_some() {
                 self.disconnect(i);
@@ -206,6 +216,33 @@ impl World {
         self.stats.disconnects += 1;
         let name = self.clients[i].name.clone();
         self.log(format!("{name}: disconnect"));
+    }
+
+    /// The server process dies and comes back: every connection drops, and the authority is
+    /// rebuilt from storage alone (genesis, the log, stored rejections), as the real server does.
+    fn restart_server(&mut self) {
+        let mut fresh = Authority::new(self.genesis.clone());
+        for tx in self.authority.log().to_vec() {
+            if let Err(r) = fresh.replay(tx) {
+                // Surfaces as an oracle mismatch on the next check.
+                self.log(format!("replay failed: {r}"));
+            }
+        }
+        for (client, cseq, reason) in self.stored_rejections.clone() {
+            fresh.replay_rejection(client, cseq, reason);
+        }
+        self.authority = fresh;
+        for i in 0..self.clients.len() {
+            let c = &mut self.clients[i];
+            c.conn = None;
+            c.up.clear();
+            c.down.clear();
+            if let Driver::Replica { replica, .. } = &mut c.driver {
+                replica.disconnect();
+            }
+        }
+        self.stats.server_restarts += 1;
+        self.log("server restarted from storage");
     }
 
     pub(crate) fn reconnect(&mut self, i: usize) {
@@ -245,7 +282,10 @@ impl World {
         let before = self.authority.doc().clone();
         let log_before = self.authority.log().len();
         let label = describe_client_msg(&msg);
-        let out = self.authority.handle(conn, msg);
+        let (out, effect) = self.authority.handle(conn, msg);
+        if let Effect::Rejected { client, cseq, reason } = effect {
+            self.stored_rejections.push((client, cseq, reason));
+        }
         let name = self.clients[i].name.clone();
         self.log(format!("server <- {name}: {label}"));
 

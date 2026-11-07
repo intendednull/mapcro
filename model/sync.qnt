@@ -3,8 +3,9 @@
 // What it models: one record with fields, a server-ordered op log, optimistic clients with
 // pending queues, WebSocket connections (FIFO while up; a disconnect loses everything in
 // flight), reconnect with `hello(lastSeq)` + resend of pending work, and per-user undo.
-// What it leaves out on purpose: game data, scenes, many records, validation/rejection,
-// presence, persistence. Those don't change whether the protocol converges.
+// Rejection is modelled too: re-creating a record someone else already restored is refused,
+// which is the state-dependent kind of rejection honest clients hit.
+// What it leaves out on purpose: game data, scenes, many records, presence, persistence.
 module sync {
   // Design switches, so the spec as first written and each fix can be checked side by side.
   // LIVE_AFTER_HELLO: the server sends live broadcasts on a connection only once it has
@@ -13,6 +14,9 @@ module sync {
   //   (set-if-still-equal, restore-if-still-deleted), rather than a plain write decided on the client.
   const LIVE_AFTER_HELLO: bool
   const SERVER_SIDE_UNDO: bool
+  // REJECT_BEFORE_CATCHUP: a hello is answered with the client's outstanding rejections *before*
+  //   the catch-up entries (engine finding 3: a lost rejection must not arrive after later acks).
+  const REJECT_BEFORE_CATCHUP: bool
 
   type ClientId = str
 
@@ -60,20 +64,24 @@ module sync {
     undoStack: List[UndoEntry],
     connected: bool,
     drops: int,
+    rejected: Set[int],        // cseqs the server refused
   }
 
   // ---- Wire messages
-  type Up = | Hello(int) | Submit(Tx)
-  type Entry = { seq: int, tx: Tx }   // server -> client: the tx at log position `seq`
+  type Up = | Hello({ lastSeq: int, pendingFrom: int }) | Submit(Tx)
+  type Entry = { seq: int, tx: Tx }   // the tx at log position `seq`
+  type Down = | DEntry(Entry) | DRej(int)
 
   // ---- State
   var log: List[Tx]                    // the server's ordered truth
   var board: Board                     // the server's board = applyTxs(INIT_BOARD, log)
   var cli: ClientId -> ClientState
   var up: ClientId -> List[Up]         // client -> server, in flight
-  var down: ClientId -> List[Entry]    // server -> client, in flight
+  var down: ClientId -> List[Down]     // server -> client, in flight
   var live: ClientId -> bool           // server side: may this connection get broadcasts?
   var clobbered: bool                  // ghost: an undo overwrote a value it did not write
+  var srvRejected: ClientId -> Set[int] // server side: cseqs refused, per client
+  var ackMismatch: bool                // ghost: a client got its own ack out of pending order
 
   def view(c: ClientId): Board = applyTxs(cli.get(c).confirmed, cli.get(c).pending)
   pure def inLog(l: List[Tx], c: ClientId, k: int): bool =
@@ -84,12 +92,14 @@ module sync {
     board' = INIT_BOARD,
     cli' = CLIENTS.mapBy(_ => {
       confirmed: INIT_BOARD, lastSeq: 0, pending: List(), nextCseq: 0,
-      undoStack: List(), connected: true, drops: 0,
+      undoStack: List(), connected: true, drops: 0, rejected: Set(),
     }),
     up' = CLIENTS.mapBy(_ => List()),
     down' = CLIENTS.mapBy(_ => List()),
     live' = CLIENTS.mapBy(_ => true),
     clobbered' = false,
+    srvRejected' = CLIENTS.mapBy(_ => Set()),
+    ackMismatch' = false,
   }
 
   // ---- Client: create a transaction (optimistic; sent now if connected, else on reconnect)
@@ -100,7 +110,7 @@ module sync {
       s.nextCseq < MAX_TX,
       cli' = cli.set(c, { ...s, pending: s.pending.append(tx), nextCseq: s.nextCseq + 1, undoStack: stack }),
       up' = if (s.connected) up.setBy(c, q => q.append(Submit(tx))) else up,
-      down' = down, log' = log, board' = board, live' = live, clobbered' = clobbered,
+      down' = down, log' = log, board' = board, live' = live, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch,
     }
   }
 
@@ -121,6 +131,13 @@ module sync {
     all { b.exists, submit(c, Delete, false, -1, cli.get(c).undoStack.append(UndoDelete(b.fields))) }
   }
 
+  // Re-create the record if this client sees it deleted. Concurrently someone may already have
+  // restored it; then the server refuses (the honest, state-dependent kind of rejection).
+  action editRecreate(c: ClientId): bool = {
+    val b = view(c)
+    all { not(b.exists), submit(c, Create(b.fields), false, -1, cli.get(c).undoStack) }
+  }
+
   // Spec §7 as written: undo writes the before-value only if the field still holds my
   // after-value, *as this client currently sees it*.
   action undo(c: ClientId): bool = {
@@ -139,14 +156,14 @@ module sync {
               submit(c, SetField({ field: u.field, value: u.before }), true, u.after, rest)
             else all {   // someone changed it since: skip, but still pop the entry
               cli' = cli.set(c, { ...s, undoStack: rest }),
-              up' = up, down' = down, log' = log, board' = board, live' = live, clobbered' = clobbered,
+              up' = up, down' = down, log' = log, board' = board, live' = live, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch,
             }
         | UndoDelete(fs) =>
             if (SERVER_SIDE_UNDO) submit(c, Restore, true, -1, rest)
             else if (not(b.exists)) submit(c, Create(fs), true, -1, rest)
             else all {
               cli' = cli.set(c, { ...s, undoStack: rest }),
-              up' = up, down' = down, log' = log, board' = board, live' = live, clobbered' = clobbered,
+              up' = up, down' = down, log' = log, board' = board, live' = live, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch,
             }
       },
     }
@@ -158,21 +175,30 @@ module sync {
     all {
       q.length() > 0,
       match q[0] {
-        | Hello(n) => all {
-            // catch-up: everything after the client's lastSeq
+        | Hello(h) => all {
+            // catch-up: everything after the client's lastSeq, plus rejections it may have missed
+            val catchUp = range(0, MAX_LOG).foldl(List(), (acc, i) =>
+              if (i >= h.lastSeq and i < log.length()) acc.append(DEntry({ seq: i + 1, tx: log[i] })) else acc)
+            val rejections = range(0, MAX_TX).foldl(List(), (acc, k) =>
+              if (k >= h.pendingFrom and srvRejected.get(c).contains(k)) acc.append(DRej(k)) else acc)
             down' = down.setBy(c, d => d.concat(
-              range(0, MAX_LOG).foldl(List(), (acc, i) =>
-                if (i >= n and i < log.length()) acc.append({ seq: i + 1, tx: log[i] }) else acc))),
+              if (REJECT_BEFORE_CATCHUP) rejections.concat(catchUp) else catchUp.concat(rejections))),
             up' = up.set(c, q.tail()),
             live' = live.set(c, true),
-            log' = log, board' = board, cli' = cli, clobbered' = clobbered,
+            log' = log, board' = board, cli' = cli, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch,
           }
         | Submit(tx) =>
-            if (inLog(log, tx.client, tx.cseq)) all {   // duplicate after reconnect: ignore
+            if (inLog(log, tx.client, tx.cseq) or srvRejected.get(c).contains(tx.cseq)) all {   // already decided: ignore
               up' = up.set(c, q.tail()),
-              down' = down, log' = log, board' = board, cli' = cli, live' = live, clobbered' = clobbered,
+              down' = down, log' = log, board' = board, cli' = cli, live' = live, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch,
+            } else if (match tx.op { | Create(_) => board.exists | _ => false }) all {
+              // refused: tell the sender only
+              srvRejected' = srvRejected.setBy(c, r => r.union(Set(tx.cseq))),
+              down' = down.setBy(c, d => d.append(DRej(tx.cseq))),
+              up' = up.set(c, q.tail()),
+              log' = log, board' = board, cli' = cli, live' = live, clobbered' = clobbered, ackMismatch' = ackMismatch,
             } else {
-              val e = { seq: log.length() + 1, tx: tx }
+              val e = DEntry({ seq: log.length() + 1, tx: tx })
               // Did this undo overwrite something its own edit didn't write?
               val wouldClobber = tx.isUndo and match tx.op {
                 | SetField(s) => board.exists and board.fields.get(s.field) != tx.undoExpect
@@ -189,6 +215,7 @@ module sync {
                 up' = up.set(c, q.tail()),
                 cli' = cli, live' = live,
                 clobbered' = (clobbered or wouldClobber),
+                srvRejected' = srvRejected, ackMismatch' = ackMismatch,
               }
             }
       },
@@ -201,16 +228,29 @@ module sync {
     val s = cli.get(c)
     all {
       d.length() > 0,
-      val e = d[0]
-      val acked = e.tx.client == c and s.pending.length() > 0 and s.pending[0].cseq == e.tx.cseq
-      all {
-        cli' = cli.set(c, { ...s,
-          confirmed: applyOp(s.confirmed, e.tx.op),
-          lastSeq: e.seq,
-          pending: if (acked) s.pending.tail() else s.pending,
-        }),
-        down' = down.set(c, d.tail()),
-        up' = up, log' = log, board' = board, live' = live, clobbered' = clobbered,
+      match d[0] {
+        | DEntry(e) =>
+          val own = e.tx.client == c
+          val acked = own and s.pending.length() > 0 and s.pending[0].cseq == e.tx.cseq
+          all {
+            cli' = cli.set(c, { ...s,
+              confirmed: applyOp(s.confirmed, e.tx.op),
+              lastSeq: e.seq,
+              pending: if (acked) s.pending.tail() else s.pending,
+            }),
+            ackMismatch' = (ackMismatch or (own and not(acked))),
+            down' = down.set(c, d.tail()),
+            up' = up, log' = log, board' = board, live' = live, clobbered' = clobbered, srvRejected' = srvRejected,
+          }
+        | DRej(k) => all {
+            cli' = cli.set(c, { ...s,
+              pending: s.pending.select(t => t.cseq != k),
+              rejected: s.rejected.union(Set(k)),
+            }),
+            down' = down.set(c, d.tail()),
+            up' = up, log' = log, board' = board, live' = live, clobbered' = clobbered,
+            srvRejected' = srvRejected, ackMismatch' = ackMismatch,
+          }
       },
     }
   }
@@ -223,7 +263,7 @@ module sync {
       cli' = cli.set(c, { ...s, connected: false, drops: s.drops + 1 }),
       up' = up.set(c, List()), down' = down.set(c, List()),
       live' = live.set(c, false),
-      log' = log, board' = board, clobbered' = clobbered,
+      log' = log, board' = board, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch,
     }
   }
 
@@ -234,14 +274,14 @@ module sync {
       not(s.connected),
       cli' = cli.set(c, { ...s, connected: true }),
       live' = live,   // not live until the server processes the hello (if LIVE_AFTER_HELLO)
-      up' = up.set(c, List(Hello(s.lastSeq)).concat(s.pending.foldl(List(), (acc, t) => acc.append(Submit(t))))),
-      down' = down, log' = log, board' = board, clobbered' = clobbered,
+      up' = up.set(c, List(Hello({ lastSeq: s.lastSeq, pendingFrom: if (s.pending.length() > 0) s.pending[0].cseq else s.nextCseq })).concat(s.pending.foldl(List(), (acc, t) => acc.append(Submit(t))))),
+      down' = down, log' = log, board' = board, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch,
     }
   }
 
   action step = {
     nondet c = CLIENTS.oneOf()
-    any { editSet(c), editDelete(c), undo(c), serverRecv(c), clientRecv(c), disconnect(c), reconnect(c) }
+    any { editSet(c), editDelete(c), editRecreate(c), undo(c), serverRecv(c), clientRecv(c), disconnect(c), reconnect(c) }
   }
 
   // ---- Properties
@@ -253,7 +293,8 @@ module sync {
   val noLostEdits = CLIENTS.forall(c => {
     val s = cli.get(c)
     range(0, MAX_TX).foldl(true, (ok, k) =>
-      ok and (k >= s.nextCseq or s.pending.indices().exists(i => s.pending[i].cseq == k) or inLog(log, c, k)))
+      ok and (k >= s.nextCseq or s.pending.indices().exists(i => s.pending[i].cseq == k) or inLog(log, c, k)
+              or s.rejected.contains(k)))
   })
 
   // A client's confirmed board is exactly the server's log prefix it claims to have seen.
@@ -271,5 +312,12 @@ module sync {
   // Undo never overwrites a value its edit did not write (spec §7's promise).
   val noClobber = not(clobbered)
 
+  // A client's own acks arrive in the order of its pending queue (engine finding 3).
+  val acksInOrder = not(ackMismatch)
+
+  // A refused transaction never lands, and a client never thinks a landed one was refused.
+  val rejectedNeverLogged = CLIENTS.forall(c => cli.get(c).rejected.forall(k => not(inLog(log, c, k))))
+
   val safety = exactlyOnce and noLostEdits and confirmedIsLogPrefix and quiescentConverges and noClobber
+    and acksInOrder and rejectedNeverLogged
 }
