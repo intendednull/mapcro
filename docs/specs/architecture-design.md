@@ -153,6 +153,15 @@ presence   = other users' cursors and drag previews                   (ephemeral
    `last_seq`, or a snapshot if they're already compacted. Only then
    does it mark the connection **live**, meaning it may now receive broadcasts. The connection is a
    typestate on the server, `Connecting → Live`, and only `Live` connections get broadcasts.
+   - **Catch-up is streamed, not queued.** The authority answers a hello with a catch-up *range*
+     in the connection's outbox, between the rejections and the first live broadcast. The socket
+     fetches that range from the room a page (about 64 KiB) at a time and sends each page before
+     fetching the next, so a history of any length goes out at the client's pace. Live entries
+     wait behind the range in the outbox, so the client still hears rejections, then catch-up,
+     then live traffic, the order `LIVE_AFTER_HELLO` and `REJECT_BEFORE_CATCHUP` model. The
+     outbox (4096 frames) bounds only how far behind *live* traffic a client may fall before it is
+     dropped. Before this, a board past 4096 ops dropped every fresh client (security review
+     2026-11-07, H-A).
    Without this, an op applied between the reconnect and the `hello` reaches the client before its
    catch-up does, so the client sees ops out of order and some of them twice. The model found this
    ([journal](../journal/2026-11-06-quint-sync-model.md)).
@@ -251,6 +260,33 @@ at about 20 Hz; the server coalesces them per room and relays.
 - **Not yet built:** snapshots and compaction. A load currently replays the full log; that is fine
   for boards with tens of thousands of ops. Compaction needs a protocol addition: a replica far
   behind must rebase its pending work onto a fresh base. That change goes into the model first.
+- **Until then, history is capped (interim, security review 2026-11-07, C1).** Without compaction
+  the op log is the board's whole history, and one anonymous client could grow it until a cold
+  load ran the server out of memory. The caps, each overridable by environment variable:
+
+  | Cap | Default | Env | Why this number |
+  |---|---|---|---|
+  | Transaction size (JSON) | 64 KiB | (schema `Limits::max_tx_bytes`) | Twice the largest legal op: an undo of a full note carries 4000 chars twice, at most 4 bytes each, about 32 KB. A test builds the worst ops and checks the bound |
+  | WebSocket frame | 65 KiB | (derived) | `max_tx_bytes` plus 1 KiB for the frame around it. A tx just over the limit gets a typed `TxTooLarge`; only frames no honest client sends close the socket. Was 256 KiB |
+  | Transactions per board | 20,000 | `BOARD_MAX_OPS` | Tens of thousands is the load-time budget above; 20,000 is about 5.5 minutes at the 60/s session limit, or a long coaching session of honest edits (notes save on blur) |
+  | History bytes per board | 4 MiB | `BOARD_MAX_BYTES` | A busy honest board is well under 1 MiB (a drag is ~100 bytes, a stroke a few KB). Bounds what a cold load reads |
+  | Editing clients per board | 1024 | `BOARD_MAX_CLIENTS` | Distinct devices that have edited. View links register nothing (§11) |
+  | Stored rejections per board | 4096 | `BOARD_MAX_REJECTIONS` | Sixteen clients' worth of the 256 each may leave; past it, a refused transaction closes its sender instead of being stored |
+  | Boards in memory | 32 | `MAX_OPEN_ROOMS` | Measured: 32 full boards opened at once peak at 155 MB, and filling 40 at once at 219 MB, inside the infra default `MemoryMax=256M` ([journal](../journal/2026-11-07-security-fixes.md)) |
+  | Boards stored | 5000 | `MAX_BOARDS` | Creation past it is refused with 507 |
+  | Database size | 2 GiB | `MAX_STORAGE_BYTES` | Creation past it is refused with 507, and edits with `ServerFull` |
+
+  A board at its history cap refuses edits with `BoardFull`. It stays readable and loads
+  normally, and the client says the board is full and suggests cloning it, which starts a fresh
+  history (§11). A cold load reads one row at a time and refuses a board over the caps rather
+  than reading it, so a board written under larger caps reports a storage failure and is logged.
+  Raising the cap opens it again. Lowering a cap below a stored board does the same to that board.
+  When the open-room cap is reached, an idle room (nobody connected) unloads early to make way.
+  If every room is in use, the join is refused with `busy` and the client retries with backoff.
+  Broadcast frames are serialized once and shared by every peer's outbox, so a slow reader costs
+  pointers, not copies of the history. On the host, systemd restarts a failed server with
+  exponential backoff (2 s doubling to 2 min) and gives up after 8 starts in 15 minutes, so a
+  crash loop stops rather than spinning.
 
 ## 10. Schema versioning and migrations
 
@@ -291,8 +327,9 @@ later bind owner capabilities to a person.
   `hello`, never in a query string.
 - **Revocation** is instant: revoking a link closes its live sessions. Each link has a label
   ("team scrim, edit"), so the owner can see what they handed out.
-- **Server-side enforcement on every message.** A view session's ops are rejected. Edit sessions are
-  schema-validated and rate-limited. Owner operations need the owner token.
+- **Server-side enforcement on every message.** A view session that sends an op is closed, and
+  nothing is stored. Edit sessions are schema-validated, size-capped and rate-limited. Owner
+  operations need the owner token.
 
 **Attack surface and controls** (the public server is the exposure):
 
@@ -300,12 +337,22 @@ later bind owner capabilities to a person.
 |---|---|
 | Guessing links | 256-bit tokens; board ids alone grant nothing |
 | Link leakage | Fragment tokens, `Referrer-Policy: no-referrer`, revocation, labels |
-| Malicious edit-link holder | Typed op validation, per-record and per-board size caps, per-session op rate limit, owner restores from version history |
+| Malicious edit-link holder | Typed op validation, per-record and per-board size caps, per-transaction size cap, per-board history quota (§9), per-session op rate limit, owner restores from version history (not built yet; until then, clone) |
 | Cross-site WebSocket hijacking | `Origin` allow-list on upgrade; no cookies, so no ambient authority |
 | XSS via names, notes, callouts | All user text rendered as text, never HTML; strict CSP; no user-supplied URLs or images |
-| Storage spam (anonymous board creation) | Per-IP creation rate limit, max board size, idle-board expiry (Q3) |
-| Room flooding | Max sessions per room, presence rate limit, message size cap |
+| Storage spam (anonymous board creation) | Per-IP creation rate limit plus a global hourly cap, max board size and history quota, total board and database caps (§9), idle-board expiry (Q3, not built) |
+| Room flooding | Max sessions per room, sockets per address, presence rate limit, message size cap, open-room cap with early unload of idle rooms |
+| View link as a write primitive | A view connection registers no client id and stores nothing; only an id someone registered by editing is checked against its secret (security review 2026-11-07, H-B) |
 | Hosting abusive content | No user uploads at all; text only, with caps. Asset packs are placed in the data directory by the server operator, never through HTTP |
+
+**Address rotation (IPv6 /64), accepted.** Per-address limits key on an IPv4 address or an IPv6
+/64, and someone with a routed /56 or /48 holds many /64s. That is left as is (security review
+2026-11-07, M-A): the global caps bound the damage whatever the address count. Creation is capped
+per hour server-wide, total boards and database size are capped, each board's history is capped,
+and memory is capped by the open-room limit. Rotation lets one party use up those shared budgets
+faster, so its cost is availability (new boards refused, joins `busy`), never a crash or a full
+disk. Widening the key to /56 would penalise everyone behind a shared prefix; revisit with
+proof-of-work or accounts if rotation is seen in practice.
 
 No end-to-end encryption, unlike Excalidraw. E2EE would stop the server validating ops, which is
 the reliability and security boundary above. Boards are game strategy, so server trust plus TLS is

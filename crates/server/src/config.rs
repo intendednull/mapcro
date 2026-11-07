@@ -25,10 +25,10 @@ pub struct Config {
     /// refuses edits with `BoardFull` and stays readable.
     /// A cold load reads at most this much, so a board can't be made too big to open.
     pub quota: mapcro_engine::Quota,
-    /// Boards loaded in memory at once (`MAX_OPEN_ROOMS`, 32). Worst case a room holds a full
-    /// board, about twice `BOARD_MAX_BYTES` resident, so the default keeps the server near
-    /// 256 MiB however the rooms are chosen (M-B). At the cap, an idle room is unloaded early;
-    /// if none is idle, joins are refused with `busy`.
+    /// Boards loaded in memory at once (`MAX_OPEN_ROOMS`, 32). Measured with every room a full
+    /// board: 155 MB peak opening 32 at once, 219 MB filling 40 at once, inside the infra's
+    /// `MemoryMax=256M` (M-B; journal 2026-11-07-security-fixes). At the cap, an idle room is
+    /// unloaded early; if none is idle, joins are refused with `busy`.
     pub max_open_rooms: usize,
     /// Boards the server stores (`MAX_BOARDS`, 5000). Creation past it is refused with 507.
     pub max_boards: u64,
