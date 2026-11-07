@@ -15,7 +15,7 @@ pub use doc::DocPair;
 pub use ids::{ClientId, HeroId, ObjectiveKey, OrderKey, RecordId};
 pub use records::{
     Arrow, BoardMeta, Callout, Field, FieldValue, Note, ObjectiveState, ObjectiveStatus, PlayerState,
-    Record, RecordKind, RosterSlot, Scene, Team, WorldPos,
+    Record, RecordKind, RosterSlot, Scene, Stroke, Team, WorldPos,
 };
 pub use validate::{Limits, Reject, LIMITS};
 
@@ -81,7 +81,7 @@ pub fn apply_tx(doc: &mut Doc, tx: &Tx) -> Result<Vec<OpOutcome>, Reject> {
 fn affects_invariants(op: &Op) -> bool {
     match op {
         Op::Set { .. } | Op::SetIf { .. } => false,
-        Op::Create { record, .. } => !matches!(record, Record::Arrow(_) | Record::Callout(_)),
+        Op::Create { record, .. } => !matches!(record, Record::Arrow(_) | Record::Callout(_) | Record::Stroke(_)),
         Op::Delete { .. } | Op::Restore { .. } => true,
     }
 }

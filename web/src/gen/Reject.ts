@@ -3,4 +3,4 @@
 /**
  * Why a transaction was refused. Typed so the client can explain it and tests can assert it.
  */
-export type Reject = "EmptyTx" | "TooManyOps" | "TooManyRecords" | "TooManyScenes" | "IdTaken" | "NoSuchRecord" | "Immutable" | "WrongField" | "MismatchedSetIf" | "TextTooLong" | "BadText" | "OutOfBounds" | "BadObjectiveKey" | "BadOrderKey" | "NoSuchScene" | "NoSuchSlot" | "Duplicate" | "IncompleteScene" | "LastScene" | "Forbidden";
+export type Reject = "EmptyTx" | "TooManyOps" | "TooManyRecords" | "TooManyScenes" | "IdTaken" | "NoSuchRecord" | "Immutable" | "WrongField" | "MismatchedSetIf" | "TextTooLong" | "BadText" | "OutOfBounds" | "BadObjectiveKey" | "BadOrderKey" | "NoSuchScene" | "NoSuchSlot" | "Duplicate" | "IncompleteScene" | "LastScene" | "Forbidden" | "BadStroke";

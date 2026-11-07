@@ -16,6 +16,7 @@ pub struct Limits {
     pub max_title: usize,
     pub max_callout: usize,
     pub max_note: usize,
+    pub max_stroke_points: usize,
     /// World coordinates are clamped to ±this (the map radius is ~10,752 units).
     pub max_coord: i32,
 }
@@ -28,6 +29,7 @@ pub const LIMITS: Limits = Limits {
     max_title: 80,
     max_callout: 80,
     max_note: 4000,
+    max_stroke_points: 512,
     max_coord: 16384,
 };
 
@@ -75,6 +77,8 @@ pub enum Reject {
     LastScene,
     #[error("this link can only view")]
     Forbidden,
+    #[error("a stroke needs 2–512 points, a palette colour and a sane width")]
+    BadStroke,
 }
 
 fn check_text(s: &str, max: usize) -> Result<(), Reject> {
@@ -150,6 +154,18 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
                 return Err(Reject::NoSuchScene);
             }
             check_text(&n.text, LIMITS.max_note)
+        }
+        Record::Stroke(s) => {
+            if !live_scene(s.scene) {
+                return Err(Reject::NoSuchScene);
+            }
+            if s.points.len() < 2 || s.points.len() > LIMITS.max_stroke_points {
+                return Err(Reject::BadStroke);
+            }
+            if s.color >= 16 || s.width == 0 || s.width > 200 {
+                return Err(Reject::BadStroke);
+            }
+            s.points.iter().try_for_each(|p| check_pos(*p))
         }
     }
 }

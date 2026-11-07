@@ -7,8 +7,9 @@ import type { ObjectiveState } from "./ObjectiveState";
 import type { PlayerState } from "./PlayerState";
 import type { RosterSlot } from "./RosterSlot";
 import type { Scene } from "./Scene";
+import type { Stroke } from "./Stroke";
 
 /**
  * Every record a board can hold.
  */
-export type Record = { "BoardMeta": BoardMeta } | { "RosterSlot": RosterSlot } | { "Scene": Scene } | { "PlayerState": PlayerState } | { "ObjectiveState": ObjectiveState } | { "Arrow": Arrow } | { "Callout": Callout } | { "Note": Note };
+export type Record = { "BoardMeta": BoardMeta } | { "RosterSlot": RosterSlot } | { "Scene": Scene } | { "PlayerState": PlayerState } | { "ObjectiveState": ObjectiveState } | { "Arrow": Arrow } | { "Callout": Callout } | { "Note": Note } | { "Stroke": Stroke };

@@ -96,6 +96,19 @@ pub struct Callout {
     pub text: String,
 }
 
+/// Freehand ink (the Draw tool). Drawn once and erased whole; never edited point by point.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stroke {
+    pub scene: RecordId,
+    /// World points, in drawing order (simplified by the client before sending).
+    pub points: Vec<WorldPos>,
+    /// Index into the presence palette.
+    pub color: u8,
+    /// Line width in tenths of a screen pixel at fit zoom.
+    pub width: u8,
+}
+
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Note {
@@ -115,6 +128,7 @@ pub enum Record {
     Arrow(Arrow),
     Callout(Callout),
     Note(Note),
+    Stroke(Stroke),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -127,6 +141,7 @@ pub enum RecordKind {
     Arrow,
     Callout,
     Note,
+    Stroke,
 }
 
 /// A value for one mutable field. Each variant names its field, so a `Set` can never write a
@@ -225,6 +240,7 @@ impl Record {
             Record::Arrow(_) => RecordKind::Arrow,
             Record::Callout(_) => RecordKind::Callout,
             Record::Note(_) => RecordKind::Note,
+            Record::Stroke(_) => RecordKind::Stroke,
         }
     }
 
@@ -236,6 +252,7 @@ impl Record {
             Record::Arrow(r) => Some(r.scene),
             Record::Callout(r) => Some(r.scene),
             Record::Note(r) => Some(r.scene),
+            Record::Stroke(r) => Some(r.scene),
             Record::BoardMeta(_) | Record::RosterSlot(_) | Record::Scene(_) => None,
         }
     }

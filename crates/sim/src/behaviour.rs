@@ -126,7 +126,7 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
     let new_id = RecordId(rng.random());
     let choice = match b {
         Behaviour::Dragger | Behaviour::Undoer => rng.random_range(0..3),
-        Behaviour::Editor => rng.random_range(0..12),
+        Behaviour::Editor => rng.random_range(0..12).max(if rng.random_range(0..6) == 0 { 15 } else { 0 }),
         Behaviour::SceneShuffler => [12, 13, 14, 0].choose(rng).copied().unwrap_or(0),
     };
     let set = |id: Option<RecordId>, value: FieldValue| id.map(|id| vec![Op::Set { id, value }]).unwrap_or_default();
@@ -169,7 +169,8 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
         }],
         7 => vec![Op::Create { id: new_id, record: Record::Callout(Callout { scene, pos: pos(rng), text: text(rng, 80) }) }],
         8 => {
-            let deletable = live_ids(r, |x| matches!(x, Record::Arrow(_) | Record::Callout(_) | Record::ObjectiveState(_)));
+            let deletable =
+                live_ids(r, |x| matches!(x, Record::Arrow(_) | Record::Callout(_) | Record::ObjectiveState(_) | Record::Stroke(_)));
             pick(rng, &deletable).map(|id| vec![Op::Delete { id }]).unwrap_or_default()
         }
         9 => {
@@ -208,6 +209,11 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
             ops
         }
         13 => vec![Op::Delete { id: scene }],
+        15 => {
+            let n = rng.random_range(2..40);
+            let points = (0..n).map(|_| pos(rng)).collect();
+            vec![Op::Create { id: new_id, record: Record::Stroke(mapcro_schema::Stroke { scene, points, color: rng.random_range(0..16), width: 20 }) }]
+        }
         _ => {
             let order = OrderKey::between(None, first_order(r).as_ref());
             vec![Op::Set { id: scene, value: FieldValue::SceneOrder(order) }]
