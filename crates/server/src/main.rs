@@ -4,6 +4,7 @@ mod api;
 mod codec;
 mod config;
 mod links;
+mod matches;
 mod packs;
 mod room;
 mod store;
@@ -105,6 +106,7 @@ async fn main() {
         .route("/api/boards/{board}/owner/rotate", post(api::rotate_owner))
         .route("/api/boards/{board}/clone", post(api::clone_board))
         .route("/api/packs", get(packs::list))
+        .route("/api/matches/{id}", get(matches::get))
         .route("/packs/{pack}/{*file}", get(packs::file));
     if let Some(web) = &config.web_dir {
         // Vite's /assets/* names carry a content hash: cache them forever. Everything else

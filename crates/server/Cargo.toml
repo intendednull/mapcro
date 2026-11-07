@@ -28,6 +28,8 @@ getrandom = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures-util = "0.3"
+# Match import's upstream calls (deadlock-api.com), run on the blocking pool.
+ureq = { version = "3", features = ["json"] }
 
 [dev-dependencies]
 sha2 = "0.10"
