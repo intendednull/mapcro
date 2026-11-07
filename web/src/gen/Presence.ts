@@ -27,6 +27,11 @@ laser: Array<WorldPos>,
  */
 drag: DragPreview | null, 
 /**
+ * Other records moving with `drag` by the same offset: a group move of selected heroes.
+ * Meaningless without `drag`.
+ */
+drag_group: Array<RecordId>, 
+/**
  * The element this person is interacting with (selected, editing its text). Others see
  * this person's name tag beside it, like collaborators' names in a shared document.
  */

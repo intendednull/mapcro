@@ -59,7 +59,7 @@ export class BoardSession {
   myPeer: number | undefined;
 
   private presence: Presence = {
-    name: "", color: 0, scene: null, floor: "surface", view: null, cursor: null, laser: [], drag: null, focus: null, following: null,
+    name: "", color: 0, scene: null, floor: "surface", view: null, cursor: null, laser: [], drag: null, drag_group: [], focus: null, following: null,
   };
   private presenceTimer: ReturnType<typeof setTimeout> | undefined;
   private presenceSentAt = 0;

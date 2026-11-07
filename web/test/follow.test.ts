@@ -4,7 +4,7 @@ import type { PeerPresence } from "../src/gen/PeerPresence";
 import type { Presence } from "../src/gen/Presence";
 
 const st = (following: number | null = null): Presence => ({
-  name: "x", color: 0, scene: null, floor: "surface", view: null, cursor: null, laser: [], drag: null, focus: null, following,
+  name: "x", color: 0, scene: null, floor: "surface", view: null, cursor: null, laser: [], drag: null, drag_group: [], focus: null, following,
 });
 const peer = (id: number, role: PeerPresence["role"], following: number | null = null): PeerPresence => ({ peer: id, role, state: st(following) });
 

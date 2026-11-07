@@ -105,6 +105,10 @@ pub struct Presence {
     pub laser: Vec<WorldPos>,
     /// A drag in progress: which record, and where it is now (spec §4a: preview, then one op).
     pub drag: Option<DragPreview>,
+    /// Other records moving with `drag` by the same offset: a group move of selected heroes.
+    /// Meaningless without `drag`.
+    #[serde(default)]
+    pub drag_group: Vec<RecordId>,
     /// The element this person is interacting with (selected, editing its text). Others see
     /// this person's name tag beside it, like collaborators' names in a shared document.
     pub focus: Option<RecordId>,
@@ -148,6 +152,8 @@ pub struct PeerPresence {
 }
 
 pub const MAX_LASER_POINTS: usize = 48;
+/// A group move carries at most the whole roster.
+pub const MAX_DRAG_GROUP: usize = 12;
 
 impl Presence {
     /// Bounds a presence update must satisfy before it is relayed.
@@ -161,6 +167,7 @@ impl Presence {
             && self.laser.iter().all(ok_pos)
             && self.cursor.as_ref().is_none_or(ok_pos)
             && self.drag.as_ref().is_none_or(|d| ok_pos(&d.pos))
+            && self.drag_group.len() <= MAX_DRAG_GROUP
             && self.view.as_ref().is_none_or(|v| ok_pos(&v.center) && (100..=20_000).contains(&v.zoom))
     }
 }
