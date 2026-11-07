@@ -1,5 +1,9 @@
 # parity: the in-game minimap, rebuilt from its sources
 
+**One implementation, shared:** `design/shared/minimap.js` (renderer), `minimap.css` (styles,
+all sizes relative) and `minimap-data.js` (derived coordinates). This collection and every
+v1-board artboard use it. The renderer spec for the app is at the end of this file.
+
 This collection checks the board's map rendering against the game's own minimap. It covers map
 rendering only, with no app chrome. Once it matches, the v1-board map adopts it.
 
@@ -73,3 +77,100 @@ Corrected against the screenshot:
 6. **The local player marker.** Its facing comes from code, and the green cone isn't drawn.
 7. **Wash maths.** `wash-color` is approximated as image × colour. The tints match within a
    few levels in the difference view; the cream patron reads slightly brighter.
+
+## Renderer spec (for the app)
+
+Everything below is what `design/shared/minimap.js` and `minimap.css` do. All numbers come from
+the HUD sources unless marked *chosen*.
+
+### Coordinates
+
+- **Map square:** the `minimap_midtown_mid` texture fills it exactly, at 100% × 100%. Call its
+  side 1000 units.
+- **World to map:** `mx = (x + 10752) / 21504 × 1000`, `my = (10752 − y) / 21504 × 1000`.
+  - Map y grows downward, and Amber (team 2) sits at the bottom.
+  - `R = 10752` is deadlock-api's constant. Checked against the screenshot, every objective,
+    camp and shop lands on its street.
+- **One HUD px** is 1000/360 = 2.778 units. The game's `#hud_minimap` is 360 px.
+- **Frame:** `#minimap_frame` is 400 px and the map is 360 px, centred. With frame side `F`, the
+  map square has side `0.9F`, offset `0.05F` on each side. In game, `#minimap_container` adds
+  `ui-scale: 105%`; parity applies it, and the board doesn't need to.
+
+### Layer order, bottom to top
+
+| # | Layer | Source / notes |
+|---|---|---|
+| 0 | World behind the HUD | In game, a gaussian(2,2,2) blur of the live scene; here a flat backdrop |
+| 1 | Frame | `compass_frame_psd`, opacity-masked by `compass_frame_mask_psd` alpha, `contain` in the frame box |
+| 2 | Terrain | `minimap_midtown_mid_psd`, drawn as is; z −3. The board's "Map darkness" tweak is `brightness(1 − shade)` on this layer only |
+| 3 | Lane lines | z −1, drawn in code (below) |
+| 4 | Powerups, Unstable Rift | z 0 |
+| 5 | Neutral camps | z 2 |
+| 6 | Shops | z 3 |
+| 7 | Mid boss | z 4 |
+| 8 | Objectives: guardian, walker, base guardian, shrine, patron | z 15 |
+| 9 | Local player marker | z 18; parity only |
+| 10 | Board layers | Arrows, then ink and callouts, then drag ghosts, then hero tokens, then cursors and name tags |
+
+### Markers: size (width = height, in map units), images, tint
+
+| Marker | Units | Layers, bottom to top | Tint |
+|---|---|---|---|
+| Guardian (t1) | 111.1 (40 px) | `boss_health` + `boss_health_fill` | Objective tint |
+| Walker (t2) | 177.8 (64 px) | `boss_health_t2` + `boss_health_fill_t2` | Objective tint |
+| Base guardian | 111.1 (40 px) | `boss_health` + `boss_health_fill`; one per team and lane, at the midpoint of the entity pair | Objective tint |
+| Shrine | 88.9 (32 px) | `boss_health_t2` + `boss_health_fill_t2` | Team-only tint |
+| Patron (t3) | 222.2 (80 px) | `boss_health_final` + `_final_fill`, rotated 180° when friendly; then `_final_stage2` + `_stage2_fill`, not rotated | Team-only tint |
+| Mid boss | 177.8 (64 px) | `super_neutral_marker` (the spawned state), untinted | — |
+| Camp | 66.7 (24 px) | `neutral_small` / `medium` / `large` / `vault` by `subclass_name` weak / medium / strong / vaults | — |
+| Shop | 100 (36 px) | `minimap_shop` at 50% (25% inset), shadow 8 px black | — |
+| Unstable Rift | 88.9 (32 px) | Black disc; `minimap_icon_koth_png` at 70%; 2 px border `#99FFD6` at 0x50 alpha. Only the active site is drawn | — |
+| Powerup | 55.6 (20 px) | `powerup_health` / `powerup_magic` svg | `#D7FF9A` / `#E1A6FF` |
+| Local player | 150 (15% of map) | `player_marker_self` at 110%, then the spec highlight; rotation = facing − 90° | — |
+
+**Wash.** Panorama `wash-color` is implemented as image × tint (multiply), masked by the
+image's own alpha.
+
+**Tints by viewpoint.** "Friendly" means the viewer's team.
+
+| | Amber viewpoint | Sapphire viewpoint | Neutral |
+|---|---|---|---|
+| Friendly guardian, walker, base guardian | Lane colour: west/yellow `#FFDF40`, mid/blue `#2EC7E6`, east/purple lane `#6BB247` | Same lane colours | — |
+| Friendly patron, shrine | offWhite `#FFEFD7` | offWhite | — |
+| Enemy objectives | `#DC4C2F` (ColorEnemyObjective) | `#DC4C2F` | — |
+| All objectives | — | — | Amber `#E7B659`, Sapphire `#5B79E6` (ColorTeam1/2) |
+| Lane lines, friendly half / enemy half | lane colour / `#DC4C2F` | lane colour / `#DC4C2F` | Amber half `#E7B659` / Sapphire half `#5B79E6` |
+| Patron rotated 180° | Amber's | Sapphire's | Amber's (team1 rule) |
+
+**Viewpoint rotation.** For the Sapphire viewpoint, the terrain, lanes and marker positions turn
+180° about the map centre, so Sapphire sits at the bottom. Every marker is then counter-rotated
+180°, so icons stay upright. Board layers aren't rotated: their positions are mapped to
+`(1000 − x, 1000 − y)`, and text stays upright.
+
+**Lane lines.** These are drawn in code; the game uses a `UICanvas`.
+- **Source:** the `citadel_zipline_path` entities `Lane1`, `Lane4` and `Lane6`. Each one's
+  `pathnodes` holds nine floats per node: position, in-tangent and out-tangent, all local to the
+  entity origin.
+- **Curves:** world point `P = origin + p`. Each segment is a cubic Bezier
+  `P_i → (P_i + out_i) → (P_{i+1} + in_{i+1}) → P_{i+1}`, mapped to map units.
+- **Lane identity:** each path takes the lane of the nearest Amber walker (yellow, blue or
+  purple).
+- **Stroke** *(chosen; no source)*: 4.17 units (1.5 px), opacity 0.85, round caps.
+- **Colour split:** clipped at the map's centre line `my = 500`, where world `y = 0`. The Amber
+  half and Sapphire half take their colours from the table above.
+
+**Zoom.** For a view rectangle `(x, y, w)`:
+- the map square scales by `1000/w` and shifts by `(−x, −y)`;
+- markers stay at their unzoomed size (`scale: w/1000`), as in game;
+- the view is clipped by the frame mask, scaled to 111.1% of the map box.
+
+**Fallback.** Without `_art/parity/parity.css`, the frame becomes an SVG outline and markers
+become CSS shapes in the same tints. The lanes are unchanged.
+
+**Data provenance.**
+- Objectives: `npc_boss_tier2` / `tier3`, `npc_barrack_boss`, `info_super_trooper_spawn` with
+  |y| < 5000, `destroyable_building` (shrines), and `info_neutral_trooper_spawn` with
+  `npc_super_neutral` (mid boss).
+- `info_neutral_trooper_camp`, `citadel_shop_prop_dynamic`, `info_koth_spawn_location`,
+  `citadel_item_powerup_spawner`, and the `info_team_spawn` centroid.
+- All from `maps/dl_midtown/entities/default_ents.vents_c`.

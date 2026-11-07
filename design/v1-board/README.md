@@ -26,6 +26,16 @@ accent, Amber, Sapphire, density and map darkness.
 display text and Atkinson Hyperlegible Next the UI. Sources and hashes are in `provenance.json`.
 No network: the canvas blocks it, and nothing here asks for it.
 
+## The map
+
+Every artboard's map is the shared parity minimap (`design/shared/minimap.js` and `.css`). It's
+the in-game HUD rebuilt from the game's sources: see `design/parity/README.md` for the spec.
+
+- Board layers draw on top: tokens, ink, arrows, callouts, laser, name tags and cursors.
+- **Viewpoints:** the desktop boards are from the Amber side. The phone is from the Sapphire
+  side, rotated with icons upright. The join card's backdrop uses the neutral tints.
+- Scene thumbnails use the minimap's lite mode.
+
 ## Operator decisions applied (2026-11-06, spec §4, §8, §11)
 
 - **Tools.** This reverses the earlier "no tool rail" rule. A compact picker under the map

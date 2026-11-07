@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Design notes</title>
+<link rel="stylesheet" href="../shared/minimap.css">
 <link rel="stylesheet" href="board.css">
 <style>
 .notes { width: 1000px; padding: 40px 48px 56px; }
@@ -30,6 +31,7 @@
 .spec-d { font: 400 30px/1.15 var(--display); color: var(--text); }
 .spec-u { font: 500 17px/1.4 var(--ui); color: var(--text); }
 </style>
+<link rel="stylesheet" href="../_art/parity/parity.css">
 <!-- Local game art, git-ignored. Missing on a fresh clone: every var(--art-*) then falls back to the schematic. -->
 <link rel="stylesheet" href="../_art/art.css">
 <link rel="stylesheet" href="tweaks.css">
@@ -52,5 +54,7 @@
   <h2 data-dc-id="h-open">Settled in the second round</h2>
   <div data-dc-id="open-questions"><div class="q settled" data-dc-id="open-1"><span class="n">O1</span><div><b>Ink colour</b><p>Settled: ink comes from a palette, picked beside Draw; the Draw button shows the current colour.</p></div></div><div class="q settled" data-dc-id="open-2"><span class="n">O2</span><div><b>Laser for viewers</b><p>Settled: everyone has Laser. It draws like ink, holds for a moment, then fades, and is never saved. Viewers get Look and Laser only.</p></div></div><div class="q settled" data-dc-id="open-3"><span class="n">O3</span><div><b>Clearing ink</b><p>Settled: a Clear ink button beside the tools removes every stroke on the scene in one undoable step, and its toast says Undo.</p></div></div><div class="q settled" data-dc-id="open-4"><span class="n">O4</span><div><b>What a cut-off link holder sees</b><p>Settled differently: there's no revocation in the UI. To stop sharing, clone the board and don't send the new link.</p></div></div></div>
 </div>
+<script src="../shared/minimap-data.js"></script>
+<script src="../shared/minimap.js"></script>
 </body>
 </html>

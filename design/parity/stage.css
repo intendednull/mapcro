@@ -1,0 +1,51 @@
+/* design/parity stage: everything around the shared minimap (design/shared/minimap.css).
+   The minimap itself is drawn by design/shared/minimap.js; this file only places it at 2x
+   Panorama px with the container's ui-scale, and adds the location tag and the compare overlay. */
+:root {
+  --ref-opacity: 50%;
+  --ref-blend: normal;
+  --ref-scale: 92.4%;
+  --ref-x: -10px;
+  --ref-y: -115px;
+  --ref-img: var(--ref-ingame-hidden-king-base);
+  --s: 2;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font: 13px/1.4 system-ui, "Noto Sans", sans-serif; color: #ddd; }
+/* A mid-tone stand-in for the blurred 3D world; the HUD is translucent over it. */
+.stage {
+  position: relative; width: 1000px; height: 1060px; overflow: hidden; isolation: isolate;
+  background:
+    radial-gradient(ellipse 45% 35% at 30% 30%, #8d8a76 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 70% 65%, #6f7466 0%, transparent 70%),
+    linear-gradient(160deg, #7b7867, #4f5249 60%, #3c3d37);
+}
+.caption { position: absolute; left: 16px; top: 12px; font-size: 12px; color: #ffffff80; }
+/* #minimap_container: 400 Panorama px, ui-scale 105% */
+.mm-container { position: absolute; left: 100px; top: 50px; width: calc(400px * var(--s)); height: calc(400px * var(--s)); transform: scale(1.05); }
+/* #minimap_location: offBlack&ee, 3px 10px, radius 2px, rotateZ(-30deg); font-family block
+   (VALVEPulp, Noto Sans), 13px; district at .8, building at .5. Placed against the screenshot. */
+.mm-location {
+  position: absolute;
+  left: calc(100px + 320px * var(--s)); top: calc(50px + 360px * var(--s));
+  transform: translate(-50%, -100%) rotate(-30deg);
+  background: #10130Dee; padding: calc(3px * var(--s)) calc(10px * var(--s)); border-radius: calc(2px * var(--s));
+  font-family: "VALVEPulp", "Noto Sans", sans-serif; font-stretch: 75%; font-weight: 700;
+  font-size: calc(13px * var(--s)); letter-spacing: 0.02em; color: #FFEFD7; white-space: nowrap;
+}
+.mm-location .district { text-transform: uppercase; opacity: 0.8; }
+.mm-location .building { text-transform: uppercase; opacity: 0.5; }
+.ref {
+  position: absolute; inset: 0; pointer-events: none; display: var(--ref-display, none);
+  background: var(--ref-img) var(--ref-x) var(--ref-y) / var(--ref-scale) auto no-repeat;
+  opacity: var(--ref-opacity); mix-blend-mode: var(--ref-blend);
+}
+.ref-missing {
+  position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); width: 620px;
+  display: var(--ref-missing-display, flex); flex-direction: column; gap: 6px;
+  padding: 14px 18px; border-radius: 10px; border: 1px dashed #ffffff55; background: #000000b0; color: #eee;
+}
+.ref-missing b { font-size: 14px; }
+.ref-missing code { font: 12px ui-monospace, monospace; color: #9fe0c8; }

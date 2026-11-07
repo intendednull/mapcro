@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>State gallery</title>
+<link rel="stylesheet" href="../shared/minimap.css">
 <link rel="stylesheet" href="board.css">
 <style>
 body { background: var(--bg); }
@@ -38,6 +39,7 @@ body { background: var(--bg); }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12px; color: var(--muted); margin-top: 10px; }
 .legend svg { width: 22px; height: 22px; display: inline-block; vertical-align: -6px; margin-right: 6px; }
 </style>
+<link rel="stylesheet" href="../_art/parity/parity.css">
 <!-- Local game art, git-ignored. Missing on a fresh clone: every var(--art-*) then falls back to the schematic. -->
 <link rel="stylesheet" href="../_art/art.css">
 <link rel="stylesheet" href="tweaks.css">
@@ -80,8 +82,10 @@ body { background: var(--bg); }
     <div class="acts"><button class="btn small" data-dc-id="make-copy">Open a new board</button></div></div></div>
 
   <h2 data-dc-id="h-legend">Map glyphs</h2>
-  <p>Generic, original shapes on the placeholder map. A server's extracted map pack replaces the art, but these glyphs stay as the fallback for anything the pack is missing.</p>
-  <div class="legend" data-dc-id="glyph-legend"><span><svg viewBox="0 0 22 22" aria-hidden="true"><polygon points="11,4 18,11 11,18 4,11" fill="var(--amber)" stroke="#0b1714" stroke-width="1.5"/></svg>Guardian</span><span><svg viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="10" fill="none" stroke="var(--sapphire)" opacity=".6"/><polygon points="11,4 18,11 11,18 4,11" fill="var(--sapphire)"/></svg>Walker</span><span><svg viewBox="0 0 22 22" aria-hidden="true"><polygon points="18.8,15.5 11.0,20.0 3.2,15.5 3.2,6.5 11.0,2.0 18.8,6.5" fill="var(--amber)"/></svg>Patron</span><span><svg viewBox="0 0 22 22" aria-hidden="true"><polygon points="11,3 19,18 3,18" fill="var(--sapphire)"/></svg>Shrine</span><span><svg viewBox="0 0 22 22" aria-hidden="true"><rect x="5" y="5" width="12" height="12" rx="2" fill="var(--amber)"/></svg>Base guardian</span><span><svg viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="8" fill="#d9c48f"/></svg>Mid boss</span><span><svg viewBox="0 0 22 22" aria-hidden="true"><polygon points="11,4 18,11 11,18 4,11" fill="none" stroke="var(--amber)" stroke-width="1.5"/><path d="M7 7l8 8M15 7l-8 8" stroke="var(--amber)" stroke-width="1.5"/></svg>Destroyed</span></div>
+  <p>The board's map is the in-game minimap, rebuilt in design/parity and shared by every artboard. Icons come from the local install and are tinted as in game; CSS shapes stand in without the art.</p>
+  <div class="legend" data-dc-id="glyph-legend"><span><span data-mm-icon="t1" data-wash="#FFDF40"></span>Guardian, friendly west</span><span><span data-mm-icon="t2" data-wash="#DC4C2F"></span>Walker, enemy</span><span><span data-mm-icon="t3" data-wash="#FFEFD7"></span>Patron, friendly</span><span><span data-mm-icon="midboss"></span>Mid boss</span><span><span data-mm-icon="camp"></span>Neutral camp</span><span><span data-mm-icon="shop"></span>Shop</span><span><span data-mm-icon="koth"></span>Unstable Rift</span></div>
 </div>
+<script src="../shared/minimap-data.js"></script>
+<script src="../shared/minimap.js"></script>
 </body>
 </html>
