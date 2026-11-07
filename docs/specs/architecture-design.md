@@ -128,8 +128,14 @@ presence   = other users' cursors and drag previews                   (ephemeral
 
 ## 5. Offline and reconnect
 
-1. Connect: `hello { boardId, capability, clientId, protocolVersion, schemaVersion, lastSeq }`.
-2. The server sends the ops after `lastSeq`, or a snapshot if they're already compacted. Only then
+1. Connect. The socket's first frame is `auth { board, token, known_seq }`. The server answers
+   `ready { role, base? }`, sending a base document only to a client that has none. Then the
+   engine's `hello { client, last_seq, pending_from }`, where `pending_from` is the client's oldest
+   unacknowledged cseq.
+2. The server answers the hello first with any of the client's rejections from `pending_from` on,
+   so a rejection lost in a disconnect is heard before any later ack. (Found while designing the
+   engine and confirmed by the model's `acksInOrder` property.) Then it sends the ops after
+   `last_seq`, or a snapshot if they're already compacted. Only then
    does it mark the connection **live**, meaning it may now receive broadcasts. The connection is a
    typestate on the server, `Connecting → Live`, and only `Live` connections get broadcasts.
    Without this, an op applied between the reconnect and the `hello` reaches the client before its
@@ -209,7 +215,15 @@ at about 20 Hz; the server coalesces them per room and relays.
   a nightly verified `.backup` snapshot. A restore is tested in CI against a fresh database.
   *(Target bucket: Q5.)*
 - **Room lifecycle:** a room loads on its first connection and unloads after 5 minutes with no
-  connections, once a final snapshot is written. A graceful shutdown flushes every room.
+  connections (`ROOM_IDLE_SECS`). Every acknowledged edit is already on disk, so unloading and
+  shutting down flush nothing. A join that races an unload retries against a freshly loaded room.
+- **Durability means "on disk before it's heard":** the authority reports each change as an effect
+  (logged, or rejected), and the room writes it before sending anything. If storage fails, the room
+  closes rather than acknowledge what it couldn't save (crash-only). Rejections are stored as well,
+  so a restart doesn't turn a client's next edit into a sequence gap.
+- **Not yet built:** snapshots and compaction. A load currently replays the full log; that is fine
+  for boards with tens of thousands of ops. Compaction needs a protocol addition: a replica far
+  behind must rebase its pending work onto a fresh base. That change goes into the model first.
 
 ## 10. Schema versioning and migrations
 
