@@ -236,9 +236,8 @@ impl Room {
                 RoomCmd::Presence { conn, mut state } => {
                     if let Some(peer) = self.peers.get_mut(&conn) {
                         if peer.role == LinkRole::View {
-                            // The laser and drag previews are editing gestures (operator,
-                            // 2026-11-06): a view link's are dropped, not relayed.
-                            state.laser.clear();
+                            // A view link can't move anything, so it has no drag to preview.
+                            // (Its laser is relayed: everyone gets the laser.)
                             state.drag = None;
                         }
                         peer.presence = Some(state);

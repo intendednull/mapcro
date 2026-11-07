@@ -117,7 +117,7 @@ transaction and one undo step.
 | Draw | freehand ink in a palette colour | a `stroke` record |
 | Arrow | drag out a rotation arrow | an `arrow` record |
 | Callout | click to place a label, typed in place | a `callout` record |
-| Laser | drawing that fades: the trail holds briefly, then fades away (operator, 2026-11-06). Editors only, like drawing | presence only, never stored |
+| Laser | drawing that fades: the trail holds briefly, then fades away. Everyone gets it, viewers included (operator, 2026-11-06) | presence only, never stored |
 | Erase | click or scrub over ink, arrows and callouts | deletes |
 | Clear ink | a button: removes every stroke on this scene, as one undoable step | one transaction of deletes |
 

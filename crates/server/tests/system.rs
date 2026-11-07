@@ -608,7 +608,7 @@ async fn presence_is_relayed_with_server_stamped_roles() {
     send_presence(&mut viewer, Presence { name: "Fan".into(), laser: vec![cursor; 3], ..Default::default() }).await;
     let fan = until_peer(&mut coach, |p| p.state.as_ref().is_some_and(|s| s.name == "Fan")).await;
     assert_eq!(fan.role, LinkRole::View);
-    assert!(fan.state.as_ref().is_some_and(|s| s.laser.is_empty()), "a view link's laser is not relayed");
+    assert_eq!(fan.state.as_ref().map(|s| s.laser.len()), Some(3), "viewers get the laser too");
 
     // A newcomer sees everyone already present straight away.
     let mut late = Client::new(0x73);
