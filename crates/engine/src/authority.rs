@@ -43,14 +43,18 @@ pub struct Quota {
     pub max_log_bytes: usize,
     /// Distinct client ids bound to a secret. Only editors register (view links never write).
     pub max_clients: usize,
+    /// Stored rejections across all clients; past it, a refused transaction cuts its sender off
+    /// instead of being stored, so the rejections table is bounded per board however many
+    /// clients there are.
+    pub max_rejections: usize,
 }
 
 impl Default for Quota {
     /// The spec's numbers (§9): 20,000 transactions (about 5.5 minutes at the per-session rate
     /// limit, or a long coaching session of honest edits) and 4 MiB of history; 1024 editing
-    /// clients.
+    /// clients; 4096 stored rejections (sixteen clients' worth of `MAX_REJECTIONS_PER_CLIENT`).
     fn default() -> Quota {
-        Quota { max_log_ops: 20_000, max_log_bytes: 4 * 1024 * 1024, max_clients: 1024 }
+        Quota { max_log_ops: 20_000, max_log_bytes: 4 * 1024 * 1024, max_clients: 1024, max_rejections: 4096 }
     }
 }
 
@@ -61,7 +65,7 @@ pub struct Authority {
     /// The log's JSON size, summed (what `Quota::max_log_bytes` caps).
     log_bytes: usize,
     clients: BTreeMap<ClientId, ClientRecord>,
-    /// Stored rejections across every client (what `MAX_REJECTIONS_PER_BOARD` caps).
+    /// Stored rejections across every client (what `Quota::max_rejections` caps).
     rejections: usize,
     conns: BTreeMap<ConnId, Conn>,
     quota: Quota,
@@ -99,10 +103,6 @@ pub enum Effect {
 /// Stored rejections a client may accumulate before it is cut off. Honest clients rarely
 /// exceed a handful; the cap bounds what anyone can make the server store.
 pub const MAX_REJECTIONS_PER_CLIENT: usize = 256;
-/// Stored rejections a whole board may accumulate; past it, a refused transaction cuts its
-/// sender off instead of being stored. Bounds the rejections table per board whatever the
-/// number of clients.
-pub const MAX_REJECTIONS_PER_BOARD: usize = 4096;
 
 /// A transaction's size as stored and sent: its JSON encoding.
 pub fn encoded_len(tx: &Tx) -> usize {
@@ -300,7 +300,7 @@ impl Authority {
         } else {
             apply_tx(&mut self.doc, &tx).map(|_| ())
         };
-        if result.is_err() && (rec.rejected.len() >= MAX_REJECTIONS_PER_CLIENT || self.rejections >= MAX_REJECTIONS_PER_BOARD) {
+        if result.is_err() && (rec.rejected.len() >= MAX_REJECTIONS_PER_CLIENT || self.rejections >= self.quota.max_rejections) {
             return (self.fatal(conn, "too many rejected transactions"), Vec::new());
         }
         rec.next_cseq += 1;

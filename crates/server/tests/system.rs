@@ -1047,3 +1047,51 @@ async fn the_csp_forbids_plugins() {
     let csp = r.headers().get("content-security-policy").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
     assert!(csp.contains("object-src 'none'"), "{csp}");
 }
+
+/// A hand-driven session: authenticated and helloed, nothing read yet.
+async fn raw_session(port: u16, board: &str, token: &str, client: u128) -> Ws {
+    let mut ws = open_ws(port, ORIGIN).await.expect("ws");
+    send(&mut ws, &WireIn::Auth { board: board.into(), token: token.into(), known_seq: Some(0) }).await;
+    assert!(matches!(recv(&mut ws).await, Some(WireOut::Ready { .. })));
+    let hello = mapcro_engine::Hello { client: ClientId(client), secret: format!("s-{client}"), last_seq: 0, pending_from: 0 };
+    send(&mut ws, &WireIn::Msg { msg: ClientMsg::Hello(hello) }).await;
+    ws
+}
+
+/// Submit a transaction the server will refuse (it names a record that doesn't exist).
+async fn submit_bad(ws: &mut Ws, client: u128, cseq: u64) -> Option<WireOut> {
+    let ops = vec![Op::Set { id: mapcro_schema::RecordId(0xbad0), value: FieldValue::PlayerAlive(true) }];
+    let tx = mapcro_schema::Tx { client: ClientId(client), cseq, kind: mapcro_schema::TxKind::Edit, ops };
+    send(ws, &WireIn::Msg { msg: ClientMsg::Submit(tx) }).await;
+    recv(ws).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stored_rejections_are_capped_per_board() {
+    // H-B: each client may leave 256 rejections stored, but with many clients that adds up, so
+    // the board as a whole is capped too. Past it, a refused transaction cuts its sender off.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start_with(dir.path(), None, &[("BOARD_MAX_REJECTIONS", "3")]);
+    let (board, owner) = server.create_board();
+    let rejected = Some(WireOut::Msg { msg: ServerMsg::Rejected { cseq: 0, reason: Reject::NoSuchRecord } });
+    let mut a = raw_session(server.port, &board, &owner, 0xa1).await;
+    for cseq in 0..3 {
+        let r = submit_bad(&mut a, 0xa1, cseq).await;
+        assert!(matches!(r, Some(WireOut::Msg { msg: ServerMsg::Rejected { reason: Reject::NoSuchRecord, .. } })), "{r:?}");
+    }
+    let mut b = raw_session(server.port, &board, &owner, 0xa2).await;
+    match submit_bad(&mut b, 0xa2, 0).await {
+        Some(WireOut::Msg { msg: ServerMsg::Fatal(why) }) => assert!(why.contains("too many rejected"), "{why}"),
+        other => panic!("expected Fatal, got {other:?}"),
+    }
+    // Once `a` says it has heard its rejections, they're forgotten and there's room again.
+    drop(a);
+    let mut a = open_ws(server.port, ORIGIN).await.expect("ws");
+    send(&mut a, &WireIn::Auth { board: board.clone(), token: owner.clone(), known_seq: Some(0) }).await;
+    assert!(matches!(recv(&mut a).await, Some(WireOut::Ready { .. })));
+    let hello = mapcro_engine::Hello { client: ClientId(0xa1), secret: format!("s-{}", 0xa1), last_seq: 0, pending_from: 3 };
+    send(&mut a, &WireIn::Msg { msg: ClientMsg::Hello(hello) }).await;
+    let mut c = raw_session(server.port, &board, &owner, 0xa3).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(submit_bad(&mut c, 0xa3, 0).await, rejected);
+}

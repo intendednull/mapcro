@@ -21,7 +21,8 @@ pub struct Config {
     pub room_idle: std::time::Duration,
     /// Per-board caps: history length and bytes, distinct editing clients (spec §9; security
     /// review 2026-11-07, C1 and H-B). `BOARD_MAX_OPS` (20,000), `BOARD_MAX_BYTES` (4 MiB),
-    /// `BOARD_MAX_CLIENTS` (1024). A full board refuses edits with `BoardFull` and stays readable.
+    /// `BOARD_MAX_CLIENTS` (1024), `BOARD_MAX_REJECTIONS` (4096 stored rejections). A full board
+    /// refuses edits with `BoardFull` and stays readable.
     /// A cold load reads at most this much, so a board can't be made too big to open.
     pub quota: mapcro_engine::Quota,
     /// Boards loaded in memory at once (`MAX_OPEN_ROOMS`, 32). Worst case a room holds a full
@@ -91,6 +92,7 @@ impl Config {
             max_log_ops: num(&var, "BOARD_MAX_OPS", d.max_log_ops)?,
             max_log_bytes: num(&var, "BOARD_MAX_BYTES", d.max_log_bytes)?,
             max_clients: num(&var, "BOARD_MAX_CLIENTS", d.max_clients)?,
+            max_rejections: num(&var, "BOARD_MAX_REJECTIONS", d.max_rejections)?,
         };
         let max_open_rooms = num(&var, "MAX_OPEN_ROOMS", 32)?;
         if max_open_rooms == 0 {

@@ -4,7 +4,7 @@
 
 use crate::store::{LoadCaps, Store, StoreError};
 use mapcro_engine::wire::{Base, CloseReason, LinkRole, PeerPresence, Presence, WireOut};
-use mapcro_engine::{Authority, ClientMsg, ConnId, Effect, MAX_REJECTIONS_PER_BOARD, Outgoing, Quota, Role, ServerMsg};
+use mapcro_engine::{Authority, ClientMsg, ConnId, Effect, Outgoing, Quota, Role, ServerMsg};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -183,7 +183,7 @@ impl Rooms {
         }
         let mut slot = self.reserve().await?;
         let q = self.caps.quota;
-        let caps = LoadCaps { ops: q.max_log_ops, bytes: q.max_log_bytes, clients: q.max_clients, rejections: MAX_REJECTIONS_PER_BOARD };
+        let caps = LoadCaps { ops: q.max_log_ops, bytes: q.max_log_bytes, clients: q.max_clients, rejections: q.max_rejections };
         let stored = self.store.load_board(board.to_owned(), caps).await?.ok_or(RoomError::NotFound)?;
         let mut authority = Authority::with_quota(stored.base.clone(), q);
         for tx in stored.log {

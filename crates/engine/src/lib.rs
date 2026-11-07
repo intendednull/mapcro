@@ -13,7 +13,7 @@ mod replica;
 pub mod wire;
 
 pub use authority::{
-    Authority, ConnId, Effect, MAX_REJECTIONS_PER_BOARD, MAX_REJECTIONS_PER_CLIENT, Outbox, Outgoing, Quota, Role, encoded_len,
+    Authority, ConnId, Effect, MAX_REJECTIONS_PER_CLIENT, Outbox, Outgoing, Quota, Role, encoded_len,
     secret_hash,
 };
 pub use protocol::{ClientMsg, Hello, ServerMsg};
