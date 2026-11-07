@@ -21,6 +21,8 @@
           rust
           rust-analyzer
           cargo-nextest
+          wasm-bindgen-cli  # must match the wasm-bindgen crate pin in crates/wasm
+          binaryen          # wasm-opt
           just
           nodejs_24       # Quint CLI (npm) and, later, the web UI
           jdk21_headless  # Apalache, the symbolic model checker Quint downloads on first `quint verify`

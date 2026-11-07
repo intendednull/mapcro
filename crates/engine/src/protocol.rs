@@ -2,6 +2,7 @@ use mapcro_schema::{ClientId, Reject, Tx};
 use serde::{Deserialize, Serialize};
 
 /// First message on every connection.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hello {
     pub client: ClientId,
@@ -13,12 +14,14 @@ pub struct Hello {
     pub pending_from: u64,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
     Hello(Hello),
     Submit(Tx),
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ServerMsg {
     /// The transaction at log position `seq` (1-based). The sender's own entry is its ack.

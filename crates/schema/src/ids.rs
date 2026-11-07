@@ -3,10 +3,12 @@ use std::fmt;
 
 /// A record id. Random 128-bit, so clients create records offline without coordination.
 /// Serialized as 32 hex digits: JSON numbers can't carry 128 bits into JavaScript.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, type = "string"))]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RecordId(pub u128);
 
 /// A client (one browser tab's replica). Random 128-bit, persisted with the tab's pending queue.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, type = "string"))]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClientId(pub u128);
 
@@ -43,11 +45,13 @@ impl fmt::Debug for ClientId {
 }
 
 /// The game's own hero id (`m_HeroID` in `heroes.vdata`), stable across builds.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct HeroId(pub u32);
 
 /// A semantic objective key, e.g. `walker:amber:lane2`. Survives map updates better than raw
 /// entity ids (spec §12). Validated: 1–48 chars of `[a-z0-9_:]`.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ObjectiveKey(pub String);
 
@@ -61,6 +65,7 @@ impl ObjectiveKey {
 /// A fractional-index key ordering scenes: concurrent inserts between the same two scenes get
 /// distinct keys, so reorders never collide. Validated: 1–32 chars of `[0-9a-z]`, not ending in
 /// `0`, so there is always room on both sides.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct OrderKey(pub String);
 

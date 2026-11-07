@@ -8,6 +8,7 @@ use mapcro_schema::Doc;
 use serde::{Deserialize, Serialize};
 
 /// What a link lets you do. `Owner` can also mint and revoke links.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LinkRole {
@@ -25,6 +26,7 @@ impl LinkRole {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum WireIn {
@@ -38,6 +40,7 @@ pub enum WireIn {
     Msg { msg: ClientMsg },
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum WireOut {
@@ -48,12 +51,14 @@ pub enum WireOut {
 }
 
 /// A document at a log position, from which a replica starts.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Base {
     pub doc: Doc,
     pub seq: u64,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CloseReason {

@@ -32,6 +32,7 @@ pub const LIMITS: Limits = Limits {
 };
 
 /// Why a transaction was refused. Typed so the client can explain it and tests can assert it.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 pub enum Reject {
     #[error("transaction has no ops")]

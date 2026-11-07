@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub const SLOTS_PER_TEAM: u8 = 6;
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Team {
     Amber,
@@ -11,12 +12,14 @@ pub enum Team {
 
 /// A position in game world units, rounded to integers. Integers keep equality exact (so
 /// `SetIf` comparisons are well defined) and identical across native and WASM.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WorldPos {
     pub x: i32,
     pub y: i32,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ObjectiveStatus {
     Active,
@@ -24,11 +27,13 @@ pub enum ObjectiveStatus {
     Hidden,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoardMeta {
     pub title: String,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RosterSlot {
     pub team: Team,
@@ -37,12 +42,14 @@ pub struct RosterSlot {
     pub hero: Option<HeroId>,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Scene {
     pub name: String,
     pub order: OrderKey,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlayerState {
     pub scene: RecordId,
@@ -64,6 +71,7 @@ impl PlayerState {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObjectiveState {
     pub scene: RecordId,
@@ -71,6 +79,7 @@ pub struct ObjectiveState {
     pub status: ObjectiveStatus,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Arrow {
     pub scene: RecordId,
@@ -79,6 +88,7 @@ pub struct Arrow {
     pub team: Option<Team>,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Callout {
     pub scene: RecordId,
@@ -86,6 +96,7 @@ pub struct Callout {
     pub text: String,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Note {
     pub scene: RecordId,
@@ -93,6 +104,7 @@ pub struct Note {
 }
 
 /// Every record a board can hold.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Record {
     BoardMeta(BoardMeta),
@@ -120,6 +132,7 @@ pub enum RecordKind {
 /// A value for one mutable field. Each variant names its field, so a `Set` can never write a
 /// field of the wrong type. Identity fields (a player state's scene and slot, a record's kind)
 /// have no variant: they are immutable by construction.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FieldValue {
     Title(String),

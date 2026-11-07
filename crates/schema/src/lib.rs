@@ -10,6 +10,8 @@ mod records;
 mod validate;
 
 pub use doc::{Doc, Entry};
+#[cfg(feature = "ts")]
+pub use doc::DocPair;
 pub use ids::{ClientId, HeroId, ObjectiveKey, OrderKey, RecordId};
 pub use records::{
     Arrow, BoardMeta, Callout, Field, FieldValue, Note, ObjectiveState, ObjectiveStatus, PlayerState,
@@ -20,6 +22,7 @@ pub use validate::{Limits, Reject, LIMITS};
 use serde::{Deserialize, Serialize};
 
 /// One change to the board. Field-level, so concurrent edits to different fields never conflict.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Op {
     /// Create a record with a fresh id.
@@ -37,6 +40,7 @@ pub enum Op {
 
 /// Why a transaction exists. Carried on the wire so the UI and the simulation can tell edits
 /// from undos without guessing.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TxKind {
     Edit,
@@ -48,6 +52,7 @@ pub enum TxKind {
 
 /// An atomic group of ops from one client. `(client, cseq)` identifies it everywhere, which is
 /// what makes resending after a lost ack safe.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tx {
     pub client: ClientId,

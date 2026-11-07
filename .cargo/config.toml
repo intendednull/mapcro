@@ -1,0 +1,5 @@
+[env]
+# TypeScript bindings (`just ts`): sequence numbers stay far below 2^53, and JSON carries them as
+# numbers, so map u64 to `number` rather than ts-rs's default `bigint`.
+TS_RS_LARGE_INT = "number"
+TS_RS_EXPORT_DIR = { value = "web/src/gen", relative = true }

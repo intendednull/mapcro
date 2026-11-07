@@ -10,6 +10,11 @@ description = "mapcro sync engine: the authority and the client replica. Pure an
 mapcro-schema.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+ts-rs = { version = "12", optional = true }
+
+[features]
+# Generate TypeScript bindings for the web client (`just ts`).
+ts = ["dep:ts-rs", "mapcro-schema/ts"]
 
 [lints]
 workspace = true

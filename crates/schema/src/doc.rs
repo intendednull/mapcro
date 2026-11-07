@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 /// A record plus its tombstone flag. Deleted records keep their fields so `Restore` brings back
 /// edits that others made in the meantime.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub record: Record,
@@ -14,6 +15,7 @@ pub struct Entry {
 /// The whole board. A `BTreeMap` keeps iteration order deterministic, so two replicas holding
 /// the same records compare and hash identically.
 /// Serialized as a list of `[id, entry]` pairs (ids aren't valid JSON object keys as numbers).
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, as = "Vec<DocPair>"))]
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(from = "Vec<(RecordId, Entry)>", into = "Vec<(RecordId, Entry)>")]
 pub struct Doc {
@@ -66,3 +68,9 @@ impl From<Doc> for Vec<(RecordId, Entry)> {
         d.entries.into_iter().collect()
     }
 }
+
+/// TypeScript view of one serialized `Doc` element: `[id, entry]`.
+#[cfg(feature = "ts")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
+pub struct DocPair(pub RecordId, pub Entry);

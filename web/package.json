@@ -1,0 +1,20 @@
+{
+  "name": "mapcro-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "@types/ws": "^8",
+    "fake-indexeddb": "^6",
+    "typescript": "^5.9",
+    "vite": "^7",
+    "vitest": "^3",
+    "ws": "^8"
+  }
+}

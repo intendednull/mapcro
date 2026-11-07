@@ -1,0 +1,22 @@
+[package]
+name = "mapcro-wasm"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The mapcro replica for the browser: a thin wasm-bindgen wrapper over mapcro-engine"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+mapcro-schema.workspace = true
+mapcro-engine.workspace = true
+serde.workspace = true
+serde_json = "1"
+# Must match the wasm-bindgen CLI in the dev shell (nixpkgs wasm-bindgen-cli).
+wasm-bindgen = "=0.2.121"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[lints]
+workspace = true

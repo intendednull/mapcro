@@ -39,3 +39,18 @@ test:
 # Run the sync simulation (e.g. `just sim --seed 0x2a`, `just sim --seeds 10000 --steps 2000`).
 sim *args:
     cargo run -q --release -p mapcro-sim -- {{args}}
+
+# Regenerate the TypeScript types in web/src/gen from the Rust definitions.
+ts:
+    rm -rf web/src/gen
+    cargo test -q -p mapcro-schema -p mapcro-engine --features ts export_bindings
+
+# Build the browser replica (WASM) into web/src/wasm.
+wasm:
+    cargo build -q --release -p mapcro-wasm --target wasm32-unknown-unknown
+    wasm-bindgen --target web --out-dir web/src/wasm target/wasm32-unknown-unknown/release/mapcro_wasm.wasm
+
+# Web client tests: the TypeScript session over the real WASM replica against the real server.
+web-test: wasm ts
+    cargo build -q -p mapcro-server
+    cd web && npm test

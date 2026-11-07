@@ -24,3 +24,6 @@ result-*
 _apalache-out/
 states/
 *.itf.json
+
+# Real game art for local design review: extracted from the local install, never committed
+/design/_art/
