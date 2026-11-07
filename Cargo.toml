@@ -1,0 +1,22 @@
+[workspace]
+resolver = "3"
+members = ["crates/schema", "crates/engine", "crates/sim"]
+
+[workspace.package]
+edition = "2024"
+license = "UNLICENSED"   # placeholder until the operator picks MIT or AGPL
+publish = false
+
+[workspace.dependencies]
+mapcro-schema = { path = "crates/schema" }
+mapcro-engine = { path = "crates/engine" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+rand = "0.9"
+rand_chacha = "0.9"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"

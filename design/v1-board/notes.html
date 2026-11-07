@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design notes</title>
+<link rel="stylesheet" href="board.css">
+<style>
+.notes { width: 1000px; padding: 40px 48px 56px; }
+.notes h1 { margin: 0; font: 500 34px/1.1 var(--display); }
+.notes > p { color: var(--muted); max-width: 72ch; margin: 8px 0 0; }
+.notes h2 { margin: 34px 0 10px; font: 500 22px/1.2 var(--display); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 40px; }
+.item { padding: 12px 0; border-top: 1px solid var(--line-soft); }
+.item b { display: block; font-weight: 600; margin-bottom: 3px; }
+.item p { margin: 0; color: #cfcab9; font-size: 13px; line-height: 1.55; max-width: 60ch; }
+.q { display: grid; grid-template-columns: 34px 1fr; gap: 6px; padding: 14px 0; border-top: 1px solid var(--line-soft); }
+.q .n { font: 500 22px/1 var(--display); color: var(--brass); }
+.q b { font-weight: 600; }
+.q p { margin: 4px 0 0; color: #cfcab9; font-size: 13px; line-height: 1.55; max-width: 76ch; }
+.swatches { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.sw { width: 132px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-size: 11.5px; }
+.sw i { display: block; height: 44px; }
+.sw span { display: block; padding: 6px 8px; color: var(--muted); }
+.sw span b { color: var(--text); font-weight: 600; display: block; }
+</style>
+<link rel="stylesheet" href="tweaks.css">
+</head>
+<body>
+<div class="notes" data-dc-id="notes">
+  <h1 data-dc-id="notes-title">Design notes, v1 board</h1>
+  <p data-dc-id="notes-intro">The heart of mapcro is preparing a run of scenes and flipping through them together. These choices serve that; the questions below are where your call matters most. Pin a comment on any of them.</p>
+  <h2 data-dc-id="h-palette">Palette</h2>
+  <div class="swatches" data-dc-id="palette"><div class="sw"><i style="background:var(--bg)"></i><span><b>Verdigris night</b>#0f1d1b</span></div><div class="sw"><i style="background:var(--panel)"></i><span><b>Patina</b>#142522</span></div><div class="sw"><i style="background:var(--brass)"></i><span><b>Brass</b>#c4a062</span></div><div class="sw"><i style="background:var(--text)"></i><span><b>Parchment</b>#ece4d0</span></div><div class="sw"><i style="background:var(--accent)"></i><span><b>Spirit (live)</b>#8ee0c4</span></div><div class="sw"><i style="background:var(--amber)"></i><span><b>Amber</b>#f2a93b</span></div><div class="sw"><i style="background:var(--sapphire)"></i><span><b>Sapphire</b>#6d8cff</span></div><div class="sw"><i style="background:var(--danger)"></i><span><b>Cinnabar</b>#e0664f</span></div></div>
+  <h2 data-dc-id="h-decisions">Decisions</h2>
+  <div class="cols" data-dc-id="decisions"><div class="item" data-dc-id="decision-1"><b>The map is the editor</b><p>No tool rail, no modes and no property panels. Drag a hero to move it, drag from its rim to draw an arrow, click an objective to cycle it, double-click for a callout, right-click for the rest. One line of hints under the map is the only tool chrome.</p></div><div class="item" data-dc-id="decision-2"><b>Scenes are a film strip, not a menu</b><p>The strip is always on screen along the bottom, with a mini map of each scene and the game clock set large. Flipping is the main action, so it gets the most room and the arrow keys.</p></div><div class="item" data-dc-id="decision-3"><b>The frame says whether you're live</b><p>The brass map frame glows spirit-green while you present or follow, and goes dashed and dim when you've drifted. You can read your follow state without reading any text.</p></div><div class="item" data-dc-id="decision-4"><b>Presence sits on the scenes</b><p>Avatars ride on the scene card each person is looking at, so a presenter sees at a glance who is with them and who wandered off to scene 5.</p></div><div class="item" data-dc-id="decision-5"><b>Drifting is gentle; resuming is one key</b><p>Panning, zooming or flipping on your own pauses follow without a prompt. The banner turns into “Resume following (F)”, and the presenter's scene card gets a dashed outline in their colour.</p></div><div class="item" data-dc-id="decision-6"><b>Game clock is the scene's name</b><p>Scene titles start with the in-game time (“8:00 · mid boss setup”), and the clock is the typographic anchor in the strip and the title.</p></div><div class="item" data-dc-id="decision-7"><b>A link is a key, and the dialog says so</b><p>Share is owner-only. Every link has a label, a role and a live-use count. Revoking one asks once and names who gets disconnected.</p></div><div class="item" data-dc-id="decision-8"><b>Honest save status</b><p>Saved, Syncing (n), Offline: n kept, Rejected. Offline work that can't merge becomes a named offline copy, never a silent drop.</p></div><div class="item" data-dc-id="decision-9"><b>Original placeholder art only</b><p>The map is an original schematic: three lanes, a mid, two bases and generic glyphs. Heroes are team-coloured tokens with initials. A server's extracted pack replaces the art; none of it lives in the repo.</p></div></div>
+  <h2 data-dc-id="h-questions">Open questions</h2>
+  <div data-dc-id="questions"><div class="q" data-dc-id="question-1"><span class="n">Q1</span><div><b>Can the presenter pull people back?</b><p>Today follow is opt-in per viewer (spec §8). Should the presenter get a “Bring everyone back” nudge that re-offers follow to people who drifted, or is the dashed card on the strip enough?</p></div></div><div class="q" data-dc-id="question-2"><span class="n">Q2</span><div><b>Does flipping scenes as a follower end follow, or only pause it?</b><p>This design pauses: you look around, and one key snaps you back to wherever the presenter is now. The alternative is a hard stop that needs an explicit “Follow Coach” again.</p></div></div><div class="q" data-dc-id="question-3"><span class="n">Q3</span><div><b>What does an edit-link holder see instead of Share?</b><p>Share is owner-only, so editors and viewers currently get no Share button at all. Should they get “Ask the owner for a link”, or nothing?</p></div></div><div class="q" data-dc-id="question-4"><span class="n">Q4</span><div><b>Drag on empty map: arrow, or pan?</b><p>This design makes a drag on empty map draw an arrow, so panning needs Space+drag, a right-drag or two fingers. Coaches pan a lot while presenting. Should empty-map drag pan instead, with arrows only from a hero's rim?</p></div></div><div class="q" data-dc-id="question-5"><span class="n">Q5</span><div><b>Which typeface?</b><p>These boards use system fonts only, so nothing loads from the network. The intent is a self-hosted OFL face with deco-roman proportions for clocks and titles (candidates: Marcellus, Federo, Poiret One) and a plain humanist sans for the UI. Do you want a face in the repo, or stay on system fonts?</p></div></div></div>
+</div>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "name": "mapcro-model",
+  "private": true,
+  "description": "Quint model of the mapcro sync protocol",
+  "devDependencies": {
+    "@informalsystems/quint": "0.33.1"
+  }
+}

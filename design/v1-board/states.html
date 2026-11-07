@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>State gallery</title>
+<link rel="stylesheet" href="board.css">
+<style>
+body { background: var(--bg); }
+.gal { width: 1000px; padding: 40px 48px 56px; }
+.gal > h1 { margin: 0; font: 500 34px/1.1 var(--display); }
+.gal > p { margin: 8px 0 0; color: var(--muted); max-width: 70ch; }
+.gal h2 { margin: 38px 0 4px; font: 500 22px/1.2 var(--display); color: var(--text); }
+.gal h2 + p { margin: 0 0 14px; color: var(--muted); font-size: 12.5px; max-width: 72ch; }
+.spec { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: center; padding: 14px 0; border-top: 1px solid var(--line-soft); }
+.spec .what b { display: block; font-weight: 600; }
+.spec .what span { color: var(--faint); font-size: 12px; }
+.bar { height: 52px; display: flex; align-items: center; gap: 12px; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-deep); }
+.bar .board { font-weight: 600; white-space: nowrap; }
+.bar .spacer { flex: 1; }
+.bar .ghostbtn { width: 80px; height: 28px; border-radius: 7px; background: var(--brass); opacity: .9; }
+.toast { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); box-shadow: 0 12px 30px #0007; max-width: 560px; }
+.toast .ico { stroke: var(--warn); }
+.toast span { flex: 1; }
+.toast .av { width: 22px; height: 22px; font-size: 10px; display: inline-grid; vertical-align: -6px; margin: 0 2px; border: 0; }
+.banner { display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); }
+.banner .ico { width: 22px; height: 22px; margin-top: 1px; }
+.banner .txt { flex: 1; }
+.banner .txt b { display: block; font-weight: 600; font-size: 14px; margin-bottom: 3px; }
+.banner .txt p { margin: 0; color: #cfcab9; font-size: 12.5px; max-width: 62ch; }
+.banner .acts { display: flex; gap: 8px; margin-top: 12px; }
+.banner.copy { border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 6%, var(--panel)); }
+.banner.copy .ico { stroke: var(--warn); }
+.banner.oldmap { border-color: var(--brass-dim); background: color-mix(in srgb, var(--brass) 6%, var(--panel)); }
+.banner.oldmap .ico { stroke: var(--brass); }
+.banner.revoked { border-color: color-mix(in srgb, var(--danger) 50%, transparent); }
+.banner.revoked .ico { stroke: var(--danger); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12px; color: var(--muted); margin-top: 10px; }
+.legend svg { width: 22px; height: 22px; display: inline-block; vertical-align: -6px; margin-right: 6px; }
+</style>
+<link rel="stylesheet" href="tweaks.css">
+</head>
+<body>
+<div class="gal" data-dc-id="gallery">
+  <h1 data-dc-id="gallery-title">States and notices</h1>
+  <p data-dc-id="gallery-intro">Everything the board says when sync, undo or the map pack doesn't go to plan. Each one says what happened and what to do next, in the board's voice.</p>
+
+  <h2 data-dc-id="h-save">Save status</h2>
+  <p>Lives in the top bar, always visible. It never says Saved while a change is waiting.</p>
+  <div class="spec" data-dc-id="spec-saved"><div class="what"><b>Saved</b><span>Nothing waiting to send.</span></div><div class="bar"><span class="wordmark" style="font-size:17px"><svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12,1.5 22.5,12 12,22.5 1.5,12" fill="none" stroke="var(--brass)" stroke-width="1.6"/><polygon points="12,7 17,12 12,17 7,12" fill="var(--brass)"/></svg>mapcro</span><span class="board">Scrim prep vs Night Owls</span><span class="spacer"></span><span class="save saved" data-dc-id="state-saved"><svg class="ico glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Saved</span><span class="ghostbtn"></span></div></div><div class="spec" data-dc-id="spec-syncing"><div class="what"><b>Syncing (n)</b><span>Sent, waiting for the server to accept. Shown after 400 ms, so quick saves don't flicker.</span></div><div class="bar"><span class="wordmark" style="font-size:17px"><svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12,1.5 22.5,12 12,22.5 1.5,12" fill="none" stroke="var(--brass)" stroke-width="1.6"/><polygon points="12,7 17,12 12,17 7,12" fill="var(--brass)"/></svg>mapcro</span><span class="board">Scrim prep vs Night Owls</span><span class="spacer"></span><span class="save syncing" data-dc-id="state-syncing"><svg class="ico glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 00-14.3-4.3L4 9"/><path d="M4 4v5h5"/><path d="M4 13a8 8 0 0014.3 4.3L20 15"/><path d="M20 20v-5h-5"/></svg>Syncing (3)</span><span class="ghostbtn"></span></div></div><div class="spec" data-dc-id="spec-offline"><div class="what"><b>Offline: n kept</b><span>No connection. Changes are on this device and send when it's back.</span></div><div class="bar"><span class="wordmark" style="font-size:17px"><svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12,1.5 22.5,12 12,22.5 1.5,12" fill="none" stroke="var(--brass)" stroke-width="1.6"/><polygon points="12,7 17,12 12,17 7,12" fill="var(--brass)"/></svg>mapcro</span><span class="board">Scrim prep vs Night Owls</span><span class="spacer"></span><span class="save offline" data-dc-id="state-offline"><svg class="ico glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M8.5 6.3A6 6 0 0117.7 10 4 4 0 0120 17"/><path d="M16.5 18H7a4.5 4.5 0 01-1.6-8.7"/></svg>Offline: 5 changes kept on this device</span><span class="ghostbtn"></span></div></div><div class="spec" data-dc-id="spec-rejected"><div class="what"><b>Rejected</b><span>The server refused a change. The reason is one click away; the change stays visible until you act.</span></div><div class="bar"><span class="wordmark" style="font-size:17px"><svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12,1.5 22.5,12 12,22.5 1.5,12" fill="none" stroke="var(--brass)" stroke-width="1.6"/><polygon points="12,7 17,12 12,17 7,12" fill="var(--brass)"/></svg>mapcro</span><span class="board">Scrim prep vs Night Owls</span><span class="spacer"></span><span class="save rejected" data-dc-id="state-rejected"><svg class="ico glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.01"/></svg>Rejected: callout too long <span class="why">Why?</span></span><span class="ghostbtn"></span></div></div>
+
+  <h2 data-dc-id="h-undo">Undo that collides</h2>
+  <p>Undo covers only your own changes. When someone has changed the same thing since, the server skips it and the board says so.</p>
+  <div class="spec" data-dc-id="spec-undo"><div class="what"><b>Couldn't undo</b><span>Toast, bottom centre, 6 s. Nothing else on the board changes.</span></div>
+    <div class="toast" data-dc-id="toast-undo"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.01"/></svg><span>Couldn't undo: Haze was moved by <span class="av juno">J</span><b>Juno</b> after you.</span><button class="btn small ghost">Show me</button></div>
+  </div>
+  <div class="spec" data-dc-id="spec-undo-partial"><div class="what"><b>Partly undone</b><span>A multi-part change where only some fields still held your value.</span></div>
+    <div class="toast" data-dc-id="toast-undo-partial"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.01"/></svg><span>Undid 2 of 3 moves. Abrams was moved by <span class="av marrow">M</span><b>Marrow</b> after you.</span><button class="btn small ghost">OK</button></div>
+  </div>
+
+  <h2 data-dc-id="h-copy">Offline changes that couldn't merge</h2>
+  <p>Nothing you do is dropped. If the server refuses offline work on reconnect, it becomes a separate local board.</p>
+  <div class="banner copy" data-dc-id="banner-offline-copy"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h4"/></svg><div class="txt"><b>Your offline changes were saved as a copy</b><p>12 changes you made offline couldn't be merged into “Scrim prep vs Night Owls”, because the board changed shape while you were away. They're in <b style="display:inline">Scrim prep vs Night Owls (offline copy)</b> on this device.</p>
+    <div class="acts"><button class="btn small" data-dc-id="open-offline-copy">Open offline copy</button><button class="btn small ghost" data-dc-id="dismiss-offline-copy">Stay on this board</button></div></div></div>
+
+  <h2 data-dc-id="h-oldmap">Board made on an earlier map</h2>
+  <p>Opens on the newest map pack. Anything that moved or vanished is marked on the board, never silently snapped.</p>
+  <div class="banner oldmap" data-dc-id="banner-old-map"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/></svg><div class="txt"><b>This board was made on an earlier map</b><p>It was made on the map from 14 Oct. Since then, 2 objectives moved and 1 is gone; they're outlined on the board. Tokens stay exactly where you put them.</p>
+    <div class="acts"><button class="btn small" data-dc-id="view-original-map">View on the map it was made for</button><button class="btn small ghost" data-dc-id="keep-current-map">Keep the current map</button></div></div></div>
+
+  <h2 data-dc-id="h-revoked">Link revoked</h2>
+  <p>Revocation closes live sessions right away. The page explains rather than just going blank.</p>
+  <div class="banner revoked" data-dc-id="banner-revoked"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4.5"/><path d="M11.2 11.8L20 3M16.5 6.5l2.5 2.5M14 9l2 2"/></svg><div class="txt"><b>This link no longer works</b><p>The board's owner revoked it. Ask them for a new link. Anything you changed before it was revoked is saved.</p>
+    <div class="acts"><button class="btn small" data-dc-id="make-copy">Make a local copy of what you saw</button></div></div></div>
+
+  <h2 data-dc-id="h-legend">Map glyphs</h2>
+  <p>Generic, original shapes on the placeholder map. A server's extracted map pack replaces the art, but these glyphs stay as the fallback for anything the pack is missing.</p>
+  <div class="legend" data-dc-id="glyph-legend"><span><svg viewBox="0 0 22 22" aria-hidden="true"><polygon points="11,4 18,11 11,18 4,11" fill="var(--amber)" stroke="#0b1714" stroke-width="1.5"/></svg>Guardian</span><span><svg viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="10" fill="none" stroke="var(--sapphire)" opacity=".6"/><polygon points="11,4 18,11 11,18 4,11" fill="var(--sapphire)"/></svg>Walker</span><span><svg viewBox="0 0 22 22" aria-hidden="true"><polygon points="18.8,15.5 11.0,20.0 3.2,15.5 3.2,6.5 11.0,2.0 18.8,6.5" fill="var(--amber)"/></svg>Patron</span><span><svg viewBox="0 0 22 22" aria-hidden="true"><polygon points="11,3 19,18 3,18" fill="var(--sapphire)"/></svg>Shrine</span><span><svg viewBox="0 0 22 22" aria-hidden="true"><rect x="5" y="5" width="12" height="12" rx="2" fill="var(--amber)"/></svg>Base guardian</span><span><svg viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="8" fill="#d9c48f"/></svg>Mid boss</span><span><svg viewBox="0 0 22 22" aria-hidden="true"><polygon points="11,4 18,11 11,18 4,11" fill="none" stroke="var(--amber)" stroke-width="1.5"/><path d="M7 7l8 8M15 7l-8 8" stroke="var(--amber)" stroke-width="1.5"/></svg>Destroyed</span></div>
+</div>
+</body>
+</html>

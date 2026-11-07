@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phone, following</title>
+<link rel="stylesheet" href="board.css">
+<style>
+.phone { height: 844px; display: flex; flex-direction: column; overflow: hidden;
+  background: radial-gradient(ellipse 90% 50% at 50% 42%, #14302b 0%, transparent 70%), var(--bg); }
+.p-top { height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--bg-deep); }
+.p-top .wordmark { font-size: 18px; }
+.p-top .spacer { flex: 1; }
+.p-top .avatars .av { width: 24px; height: 24px; font-size: 10px; }
+.viewonly { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 3px 7px; display: inline-flex; gap: 5px; align-items: center; }
+.viewonly .ico { width: 13px; height: 13px; }
+.p-follow { margin: 12px 16px 0; height: 40px; display: flex; align-items: center; gap: 9px; padding: 0 6px 0 10px; border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 8%, var(--bg-deep)); }
+.p-follow .ico { stroke: var(--accent); }
+.p-follow b { font-weight: 600; }
+.p-follow .where { color: var(--muted); flex: 1; }
+.p-follow button { height: 28px; border-radius: 14px; border: 1px solid var(--line); background: transparent; color: var(--muted); padding: 0 10px; font-size: 12px; }
+.p-title { padding: 14px 18px 8px; }
+.p-title .ord { font-size: 12px; color: var(--muted); }
+.p-title h1 { margin: 2px 0 0; font: 500 30px/1.05 var(--display); }
+.p-title h1 .clock { color: var(--brass); display: block; font-size: 44px; }
+.p-map { padding: 0 8px; position: relative; }
+.p-map svg { width: 374px; height: 374px; }
+.p-note { margin: 8px 16px 0; color: var(--muted) !important; font-size: 13px; line-height: 1.5; color: #d8d2c0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.p-nav { margin-top: auto; padding: 12px 16px 26px; border-top: 1px solid var(--line); background: var(--bg-deep); }
+.p-nav .row { display: flex; align-items: center; gap: 12px; }
+.p-nav .btn { height: 48px; flex: 1; font-size: 14px; }
+.dots { display: flex; gap: 6px; justify-content: center; }
+.dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.dots i.on { background: var(--accent); width: 20px; border-radius: 4px; }
+.p-hint { text-align: center; font-size: 11.5px; color: var(--faint); margin-top: 10px; }
+.p-map .lbl { display: none; }
+.p-map .tok .body { r: 32px; }
+.p-map .co-pin circle { fill: var(--brass); stroke: #0c1917; stroke-width: 4; }
+.p-map .co-pin text { font: 800 26px var(--ui); fill: #1b1408; text-anchor: middle; dominant-baseline: central; }
+.p-callouts { list-style: none; margin: 10px 16px 0; padding: 0; display: flex; gap: 6px 16px; flex-wrap: wrap; font-size: 13px; }
+.p-callouts li { display: flex; align-items: center; gap: 7px; }
+.p-callouts b { width: 20px; height: 20px; border-radius: 50%; background: var(--brass); color: #1b1408; display: grid; place-items: center; font-size: 11px; }
+.p-map .tok text { font-size: 21px; }
+</style>
+<link rel="stylesheet" href="tweaks.css">
+</head>
+<body>
+<div class="phone" data-dc-id="phone">
+  <header class="p-top" data-dc-id="p-topbar">
+    <div class="wordmark" data-dc-id="wordmark"><svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12,1.5 22.5,12 12,22.5 1.5,12" fill="none" stroke="var(--brass)" stroke-width="1.6"/><polygon points="12,7 17,12 12,17 7,12" fill="var(--brass)"/></svg><span>mapcro</span></div>
+    <span class="viewonly" data-dc-id="view-only"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>View only</span>
+    <div class="spacer"></div>
+    <div class="avatars" data-dc-id="presence-avatars"><span class="av coach" title="Coach">C</span><span class="av marrow" title="Marrow">M</span><span class="av juno" title="Juno">J</span><span class="av vexa" title="vexa">V</span><span class="av guest" title="Guest viewer">G</span></div>
+  </header>
+  <div class="p-follow" data-dc-id="follow-banner"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><span><b>Following Coach</b></span><span class="where">scene 3/7</span><button data-dc-id="stop-following">Stop</button></div>
+  <div class="p-title" data-dc-id="scene-title">
+    <div class="ord">Scene 3 of 7 · Scrim prep vs Night Owls</div>
+    <h1><span class="clock">8:00</span>mid boss setup</h1>
+  </div>
+  <div class="p-map" data-dc-id="map"><svg class="map live readonly" viewBox="0 0 1000 1000" role="img" aria-label="Board map, view only" xmlns="http://www.w3.org/2000/svg">
+<defs><clipPath id="clip-m"><polygon points="130,20 870,20 980,130 980,870 870,980 130,980 20,870 20,130"/></clipPath></defs>
+<g clip-path="url(#clip-m)"><rect class="void" width="1000" height="1000"/>
+<svg x="0" y="0" width="1000" height="1000" viewBox="0 0 1000 1000">
+
+<g data-dc-id="map-terrain">
+<polygon class="terrain" points="130,20 870,20 980,130 980,870 870,980 130,980 20,870 20,130"/>
+<polygon class="terrain-edge" points="130,20 870,20 980,130 980,870 870,980 130,980 20,870 20,130"/>
+<path class="base sapphire" d="M250 40 H750 Q790 40 790 80 V140 Q790 190 740 190 H260 Q210 190 210 140 V80 Q210 40 250 40Z"/>
+<path class="base amber" d="M250 960 H750 Q790 960 790 920 V860 Q790 810 740 810 H260 Q210 810 210 860 V920 Q210 960 250 960Z"/>
+<rect class="block" x="215" y="380" width="230" height="95" rx="16"/>
+<rect class="block" x="555" y="380" width="230" height="95" rx="16"/>
+<rect class="block" x="215" y="525" width="230" height="95" rx="16"/>
+<rect class="block" x="555" y="525" width="230" height="95" rx="16"/>
+<rect class="block" x="215" y="215" width="70" height="120" rx="16"/>
+<rect class="block" x="715" y="215" width="70" height="120" rx="16"/>
+<rect class="block" x="215" y="665" width="70" height="120" rx="16"/>
+<rect class="block" x="715" y="665" width="70" height="120" rx="16"/>
+<rect class="block" x="325" y="230" width="120" height="110" rx="16"/>
+<rect class="block" x="555" y="230" width="120" height="110" rx="16"/>
+<rect class="block" x="325" y="660" width="120" height="110" rx="16"/>
+<rect class="block" x="555" y="660" width="120" height="110" rx="16"/>
+<path class="path" d="M175 450 C300 450 380 470 500 470 C620 470 700 450 825 450"/>
+<path class="path" d="M175 550 C300 550 380 530 500 530 C620 530 700 550 825 550"/>
+<path class="path" d="M300 190 C330 260 400 300 500 300 C600 300 670 260 700 190"/>
+<path class="path" d="M300 810 C330 740 400 700 500 700 C600 700 670 740 700 810"/>
+<polyline class="lane" points="300,140 175,300 175,700 300,860"/>
+<polyline class="lane" points="700,140 825,300 825,700 700,860"/>
+<polyline class="lane" points="500,160 500,840"/>
+<polyline class="lane-core" points="300,140 175,300 175,700 300,860"/>
+<polyline class="lane-core" points="700,140 825,300 825,700 700,860"/>
+<polyline class="lane-core" points="500,160 500,840"/>
+<circle class="pit" cx="500" cy="500" r="64"/>
+<rect class="bridge" x="468" y="402" width="64" height="20" rx="3"/>
+<rect class="bridge" x="468" y="578" width="64" height="20" rx="3"/>
+<circle class="camp" cx="250" cy="430" r="5"/><circle class="camp" cx="750" cy="430" r="5"/><circle class="camp" cx="250" cy="570" r="5"/><circle class="camp" cx="750" cy="570" r="5"/><circle class="camp" cx="385" cy="285" r="5"/><circle class="camp" cx="615" cy="285" r="5"/><circle class="camp" cx="385" cy="715" r="5"/><circle class="camp" cx="615" cy="715" r="5"/><circle class="camp" cx="330" cy="500" r="5"/><circle class="camp" cx="670" cy="500" r="5"/>
+<text class="lbl" x="122" y="505" transform="rotate(-90 122 505)" text-anchor="middle">WEST LANE</text>
+<text class="lbl" x="878" y="505" transform="rotate(90 878 505)" text-anchor="middle">EAST LANE</text>
+<text class="lbl small" x="236" y="66">SAPPHIRE BASE</text>
+<text class="lbl small" x="236" y="946">AMBER BASE</text>
+</g>
+<g data-dc-id="objectives" class="objs"><g style="color:var(--sapphire)" data-dc-id="obj-guardian-sapphire-west"><title>Guardian (sapphire, west lane)</title><polygon class="obj sapphire" points="175,332 188,345 175,358 162,345"/></g>
+<g style="color:var(--sapphire)" data-dc-id="obj-walker-sapphire-west"><title>Walker (sapphire, west lane)</title><circle cx="241" cy="215" r="26" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj sapphire" points="241,196 260,215 241,234 222,215"/></g>
+<g style="color:var(--sapphire)" data-dc-id="obj-guardian-sapphire-mid"><title>Guardian (sapphire, mid lane)</title><polygon class="obj sapphire" points="500,332 513,345 500,358 487,345"/></g>
+<g style="color:var(--sapphire)" data-dc-id="obj-walker-sapphire-mid"><title>Walker (sapphire, mid lane)</title><circle cx="500" cy="215" r="26" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj sapphire" points="500,196 519,215 500,234 481,215"/></g>
+<g style="color:var(--sapphire)" data-dc-id="obj-guardian-sapphire-east"><title>Guardian (sapphire, east lane) destroyed</title><polygon class="obj sapphire down" points="825,332 838,345 825,358 812,345"/><path class="obj-x" stroke="var(--sapphire)" d="M817 337L833 353M833 337L817 353"/></g>
+<g style="color:var(--sapphire)" data-dc-id="obj-walker-sapphire-east"><title>Walker (sapphire, east lane)</title><circle cx="759" cy="215" r="26" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj sapphire" points="759,196 778,215 759,234 740,215"/></g>
+<g data-dc-id="obj-patron-sapphire"><title>Patron (sapphire)</title><polygon class="obj sapphire" points="520.8,94.0 500.0,106.0 479.2,94.0 479.2,70.0 500.0,58.0 520.8,70.0"/><polygon fill="none" stroke="#0b1714" stroke-width="2" points="509.5,87.5 500.0,93.0 490.5,87.5 490.5,76.5 500.0,71.0 509.5,76.5"/></g>
+<polygon class="obj sapphire" points="395,106 407,127 383,127"><title>Shrine (sapphire)</title></polygon>
+<polygon class="obj sapphire" points="605,106 617,127 593,127"><title>Shrine (sapphire)</title></polygon>
+<rect class="obj sapphire" x="315" y="161" width="14" height="14" rx="2"><title>Base guardian (sapphire)</title></rect>
+<rect class="obj sapphire" x="493" y="161" width="14" height="14" rx="2"><title>Base guardian (sapphire)</title></rect>
+<rect class="obj sapphire" x="671" y="161" width="14" height="14" rx="2"><title>Base guardian (sapphire)</title></rect>
+<g style="color:var(--amber)" data-dc-id="obj-guardian-amber-west"><title>Guardian (amber, west lane) destroyed</title><polygon class="obj amber down" points="175,642 188,655 175,668 162,655"/><path class="obj-x" stroke="var(--amber)" d="M167 647L183 663M183 647L167 663"/></g>
+<g style="color:var(--amber)" data-dc-id="obj-walker-amber-west"><title>Walker (amber, west lane)</title><circle cx="241" cy="785" r="26" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj amber" points="241,766 260,785 241,804 222,785"/></g>
+<g style="color:var(--amber)" data-dc-id="obj-guardian-amber-mid"><title>Guardian (amber, mid lane)</title><polygon class="obj amber" points="500,642 513,655 500,668 487,655"/></g>
+<g style="color:var(--amber)" data-dc-id="obj-walker-amber-mid"><title>Walker (amber, mid lane)</title><circle cx="500" cy="785" r="26" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj amber" points="500,766 519,785 500,804 481,785"/></g>
+<g style="color:var(--amber)" data-dc-id="obj-guardian-amber-east"><title>Guardian (amber, east lane)</title><polygon class="obj amber" points="825,642 838,655 825,668 812,655"/></g>
+<g style="color:var(--amber)" data-dc-id="obj-walker-amber-east"><title>Walker (amber, east lane)</title><circle cx="759" cy="785" r="26" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/><polygon class="obj amber" points="759,766 778,785 759,804 740,785"/></g>
+<g data-dc-id="obj-patron-amber"><title>Patron (amber)</title><polygon class="obj amber" points="520.8,930.0 500.0,942.0 479.2,930.0 479.2,906.0 500.0,894.0 520.8,906.0"/><polygon fill="none" stroke="#0b1714" stroke-width="2" points="509.5,923.5 500.0,929.0 490.5,923.5 490.5,912.5 500.0,907.0 509.5,912.5"/></g>
+<polygon class="obj amber" points="395,870 407,891 383,891"><title>Shrine (amber)</title></polygon>
+<polygon class="obj amber" points="605,870 617,891 593,891"><title>Shrine (amber)</title></polygon>
+<rect class="obj amber" x="315" y="825" width="14" height="14" rx="2"><title>Base guardian (amber)</title></rect>
+<rect class="obj amber" x="493" y="825" width="14" height="14" rx="2"><title>Base guardian (amber)</title></rect>
+<rect class="obj amber" x="671" y="825" width="14" height="14" rx="2"><title>Base guardian (amber)</title></rect>
+<g data-dc-id="obj-mid-boss"><title>Mid boss</title><circle class="boss-ring" cx="500" cy="500" r="36"/><polygon class="boss" points="500.0,478.0 505.5,490.5 519.1,489.0 511.0,500.0 519.1,511.0 505.5,509.5 500.0,522.0 494.5,509.5 480.9,511.0 489.0,500.0 480.9,489.0 494.5,490.5"/></g></g>
+<rect class="map-shade" x="-500" y="-500" width="2000" height="2000"/>
+<g data-dc-id="arrows"><g data-dc-id="arrow-1"><path class="arw amber" d="M500 586 L500 545"/><polygon class="head amber" points="500,541 510,561 490,561"/></g><g data-dc-id="arrow-2"><path class="arw amber" d="M585 612 Q650 520 608 470"/><polygon class="head amber" points="605,467 625,476 611,488"/></g><g data-dc-id="arrow-3"><path class="arw sapphire plan" d="M296 452 Q360 520 420 545"/><polygon class="head sapphire" points="424,547 402,548 409,530"/></g></g>
+<g class="co-pin" data-dc-id="callout-pin-1"><circle cx="500" cy="412" r="24"/><text x="500" y="413">1</text></g><g class="co-pin"><circle cx="608" cy="470" r="24"/><text x="608" y="471">2</text></g>
+
+<g data-dc-id="tokens"><g class="tok amber " data-dc-id="tok-vexa" transform="translate(425 598)"><title>vexa, Haze. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>HZ</text></g><g class="tok amber " data-dc-id="tok-marrow" transform="translate(500 586)"><title>Marrow, Abrams. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>AB</text></g><g class="tok amber " data-dc-id="tok-juno" transform="translate(585 612)"><title>Juno, Dynamo. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>DY</text></g><g class="tok amber " data-dc-id="tok-kiwi" transform="translate(372 640)"><title>kiwi, Vindicta. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>VI</text></g><g class="tok amber " data-dc-id="tok-tomb" transform="translate(618 668)"><title>Tombstone, Seven. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>SE</text></g><g class="tok amber " data-dc-id="tok-pell" transform="translate(470 668)"><title>Pell, Lady Geist. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>LG</text></g><g class="tok sapphire " data-dc-id="tok-sorrel" transform="translate(478 352)"><title>sorrel, Infernus. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>IN</text></g><g class="tok sapphire " data-dc-id="tok-bishop" transform="translate(566 340)"><title>Bishop, Wraith. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>WR</text></g><g class="tok sapphire " data-dc-id="tok-nyx" transform="translate(520 288)"><title>Nyx, McGinnis. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>MG</text></g><g class="tok sapphire " data-dc-id="tok-lowtide" transform="translate(296 452)"><title>Lowtide, Paradox. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>PX</text></g><g class="tok sapphire " data-dc-id="tok-quill" transform="translate(712 330)"><title>Quill, Kelvin. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>KE</text></g><g class="tok sapphire " data-dc-id="tok-ferro" transform="translate(420 312)"><title>Ferro, Grey Talon. Drag to move; drag from the rim to draw an arrow; right-click for more.</title><circle class="body" r="23"/><text>GT</text></g></g>
+<g class="cur" data-dc-id="cursor-coach" transform="translate(530 560) scale(1.45)"><path d="M0 0 L0 24 L6.5 18 L11 28 L15 26 L10.5 16.5 L19 16 Z" fill="var(--p-coach)"/><rect x="16" y="24" width="58" height="22" fill="var(--p-coach)"/><text x="25" y="35">Coach</text></g>
+</svg></g>
+<g data-dc-id="map-frame"><polygon class="frame" points="130,6 870,6 994,130 994,870 870,994 130,994 6,870 6,130"/><polygon class="frame-in" points="136,14 864,14 986,136 986,864 864,986 136,986 14,864 14,136"/><g class="fan" transform="translate(34 34) rotate(0 34 34)"><g transform="translate(34 34) scale(-1 -1) translate(-34 -34)"><path d="M0 0 L38.0 0.0"/><path d="M0 0 L36.7 9.8"/><path d="M0 0 L32.9 19.0"/><path d="M0 0 L26.9 26.9"/><path d="M0 0 L19.0 32.9"/><path d="M0 0 L9.8 36.7"/><path d="M0 0 L0.0 38.0"/><path d="M38 0 A38 38 0 0 1 0 38"/><path d="M22 0 A22 22 0 0 1 0 22"/></g></g><g class="fan" transform="translate(898 34) rotate(90 34 34)"><g transform="translate(34 34) scale(-1 -1) translate(-34 -34)"><path d="M0 0 L38.0 0.0"/><path d="M0 0 L36.7 9.8"/><path d="M0 0 L32.9 19.0"/><path d="M0 0 L26.9 26.9"/><path d="M0 0 L19.0 32.9"/><path d="M0 0 L9.8 36.7"/><path d="M0 0 L0.0 38.0"/><path d="M38 0 A38 38 0 0 1 0 38"/><path d="M22 0 A22 22 0 0 1 0 22"/></g></g><g class="fan" transform="translate(898 898) rotate(180 34 34)"><g transform="translate(34 34) scale(-1 -1) translate(-34 -34)"><path d="M0 0 L38.0 0.0"/><path d="M0 0 L36.7 9.8"/><path d="M0 0 L32.9 19.0"/><path d="M0 0 L26.9 26.9"/><path d="M0 0 L19.0 32.9"/><path d="M0 0 L9.8 36.7"/><path d="M0 0 L0.0 38.0"/><path d="M38 0 A38 38 0 0 1 0 38"/><path d="M22 0 A22 22 0 0 1 0 22"/></g></g><g class="fan" transform="translate(34 898) rotate(270 34 34)"><g transform="translate(34 34) scale(-1 -1) translate(-34 -34)"><path d="M0 0 L38.0 0.0"/><path d="M0 0 L36.7 9.8"/><path d="M0 0 L32.9 19.0"/><path d="M0 0 L26.9 26.9"/><path d="M0 0 L19.0 32.9"/><path d="M0 0 L9.8 36.7"/><path d="M0 0 L0.0 38.0"/><path d="M38 0 A38 38 0 0 1 0 38"/><path d="M22 0 A22 22 0 0 1 0 22"/></g></g><polygon class="fan" points="500,0 506,6 500,12 494,6"/><polygon class="fan" points="500,988 506,994 500,1000 494,994"/><polygon class="fan" points="6,494 12,500 6,506 0,500"/><polygon class="fan" points="994,494 1000,500 994,506 988,500"/></g>
+</svg></div>
+  <ol class="p-callouts" data-dc-id="callout-list"><li><b>1</b>Smoke on the bridge</li><li><b>2</b>Dome when boss is low</li></ol>
+  <p class="p-note" data-dc-id="scene-note">Boss at 8:00. Haze and Vindicta hold the west stairs; Abrams only starts it once Dynamo is on the ridge.</p>
+  <nav class="p-nav" data-dc-id="p-scene-nav">
+    <div class="row">
+      <button class="btn" data-dc-id="p-prev"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Prev</button>
+      <div class="dots" data-dc-id="p-dots" aria-label="Scene 3 of 7"><i class=""></i><i class=""></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i></div>
+      <button class="btn" data-dc-id="p-next">Next<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+    </div>
+    <div class="p-hint" data-dc-id="p-hint">Swipe or tap to flip on your own. That pauses following.</div>
+  </nav>
+</div>
+</body>
+</html>

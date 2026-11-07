@@ -1,0 +1,2 @@
+// The protocol exactly as spec §3–§7 first described it.
+module asWritten { import sync(LIVE_AFTER_HELLO = false, SERVER_SIDE_UNDO = false).* from "./sync" }

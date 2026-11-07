@@ -19,3 +19,8 @@ result-*
 *.db
 .env
 .env.*
+
+# Model-checker output
+_apalache-out/
+states/
+*.itf.json

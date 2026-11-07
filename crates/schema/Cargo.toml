@@ -1,0 +1,14 @@
+[package]
+name = "mapcro-schema"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "mapcro board records, ops, validation and apply semantics: shared by server and browser"
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

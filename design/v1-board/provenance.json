@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "collection": "v1-board",
+  "created": "2026-11-06",
+  "origin": "Authored from scratch for mapcro. Not imported from any earlier artifact.",
+  "sources_read": [
+    "docs/specs/architecture-design.md (sections 2, 4, 7, 8, 11, 12)",
+    "concierge/artifacts/deadlock-coach/README.md, index.html, style.css (prototype; read for context only, nothing copied)"
+  ],
+  "game_assets": "None. No extracted Valve art, no prototype assets/, no screenshots. The map is an original schematic SVG (three lanes, a mid, two bases, generic objective glyphs). Heroes appear as coloured tokens with initials, and hero names as text only.",
+  "network": "None. System font stacks only; every page uses only board.css and tweaks.css from this folder.",
+  "generator": "Written by a scratch Python generator outside the repo. The HTML here is the source of truth; edit it directly."
+}

@@ -94,7 +94,21 @@ server transforms against concurrent splices: single-server OT for plain text, t
 algorithm ShareDB's text type uses. Callout text stays LWW because it is a short label. *(Open:
 whether notes are collaborative enough to justify this. See Q2.)*
 
-## 4. Client state
+## 4. Interaction rule: the map is the interface
+
+**Decision (operator, 2026-11-06).** Changes are made directly on the map, and separate controls
+are avoided wherever possible:
+
+- Drag a token to move it.
+- Click an objective to cycle its state.
+- Drag to draw an arrow.
+- Double-click to drop a callout and edit it in place.
+- A contextual menu on a token covers dead or alive, hero and unplace.
+
+The chrome is the scene strip, presence and Share. This suits the op model: each gesture is one
+transaction and one undo step.
+
+## 4a. Client state
 
 ```
 confirmed  = board state at server seq N      (server-replicated)
@@ -115,10 +129,18 @@ presence   = other users' cursors and drag previews                   (ephemeral
 ## 5. Offline and reconnect
 
 1. Connect: `hello { boardId, capability, clientId, protocolVersion, schemaVersion, lastSeq }`.
-2. The server sends the ops after `lastSeq`. If they are already compacted, it sends a snapshot.
+2. The server sends the ops after `lastSeq`, or a snapshot if they're already compacted. Only then
+   does it mark the connection **live**, meaning it may now receive broadcasts. The connection is a
+   typestate on the server, `Connecting → Live`, and only `Live` connections get broadcasts.
+   Without this, an op applied between the reconnect and the `hello` reaches the client before its
+   catch-up does, so the client sees ops out of order and some of them twice. The model found this
+   ([journal](../journal/2026-11-06-quint-sync-model.md)).
 3. The client rebases pending transactions and resends them. The server deduplicates by
    `(clientId, clientSeq)`, so a transaction whose ack was lost is never applied twice.
-4. Reconnect uses exponential backoff with jitter. A heartbeat detects dead sockets in about 10 s.
+4. Defense in depth: the client requires every entry's seq to be exactly `lastSeq + 1`. It ignores
+   duplicates, and on a gap it drops the connection and reconnects. A gap is a bug, so it's also
+   reported.
+5. Reconnect uses exponential backoff with jitter. A heartbeat detects dead sockets in about 10 s.
 
 Long offline sessions are fine for positional edits (LWW). If a transaction is rejected on
 reconnect, or if the board's schema moved past a migration the client can't apply, that
@@ -144,11 +166,14 @@ and shared boards therefore follow one code path and one set of tests.
 Undo covers only your own transactions, in the order you made them. Each history entry records the
 fields it changed, with their before and after values:
 
-- **Undo** writes the before-value for each field that still holds your after-value. If someone else
-  changed a field since, undo skips it rather than clobbering their edit. Undo is itself a normal
-  transaction.
-- Undoing a delete recreates the record with its original id (the server allows recreating an id
-  it has tombstoned).
+- **Undo sends conditional ops that the server evaluates when it applies them:**
+  `set_if(field, expect: after, value: before)`. If someone else changed the field since, the server
+  skips it rather than clobbering their edit, and the client says "couldn't undo: changed by …".
+  - **Why on the server:** the first draft checked "does the field still hold my value?" on the
+    client. But the server can order someone else's edit between that check and the undo landing,
+    especially after time offline. The model found this.
+- **Undoing a delete** is `restore(id)`. It undeletes the server's tombstoned record, with any
+  edits others made, rather than re-creating it from the client's possibly stale copy.
 - Redo is symmetric. The stack lives per tab, survives reconnect, and is cleared on scene reset or
   when a migration reloads the board.
 
@@ -356,8 +381,19 @@ by path through sops. Nothing deploys without your OK at the time.
 
 ## 14. Validation harness
 
-There are five layers. Each runs the real code in a setting as close to real as that layer allows.
+There are six layers. Layer 0 checks the design; the rest run the real code in a setting as close to real as that layer allows.
 The harness is the judge of everything else, so Opus writes it and DeepSeek never does.
+
+**0. Protocol model** (Quint, in `model/`)
+
+- **What it is:** a small formal model of §3–§7, covering the op log, pending queues,
+  connections, reconnect and undo.
+- **Two ways to check it:**
+  - `just model-check` runs TLC over **every reachable state** of the bounded model.
+  - `just model-sim` runs fast random simulation.
+- **A protocol change goes in the model first.** Rust test traces will later be generated from it
+  (`quint-connect`).
+- See the [experiment journal](../journal/2026-11-06-quint-sync-model.md).
 
 **1. Sync simulation** (pure Rust, deterministic, the main gate)
 

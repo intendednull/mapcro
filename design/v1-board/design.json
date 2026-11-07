@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "title": "mapcro v1 board",
+  "kind": "prototype",
+  "description": "First UI pass for mapcro, the shared Deadlock macro-coaching board: present a run of scenes and flip through them together. The map is the editor. The map art is an original schematic placeholder; a server's extracted map pack replaces it.",
+  "artboards": [
+    {
+      "id": "board-presenting",
+      "title": "Board, desktop: presenting (3 following)",
+      "file": "board-presenting.html",
+      "width": 1440,
+      "height": 900,
+      "group": "Board, desktop"
+    },
+    {
+      "id": "board-follower",
+      "title": "Board, desktop: following Coach",
+      "file": "board-follower.html",
+      "width": 1440,
+      "height": 900,
+      "group": "Board, desktop"
+    },
+    {
+      "id": "board-follower-drift",
+      "title": "Board, desktop: drifted out of follow",
+      "file": "board-follower-drift.html",
+      "width": 1440,
+      "height": 900,
+      "group": "Board, desktop"
+    },
+    {
+      "id": "share-dialog",
+      "title": "Share dialog (owner only)",
+      "file": "share-dialog.html",
+      "width": 1440,
+      "height": 900,
+      "group": "Sharing and phone"
+    },
+    {
+      "id": "phone-following",
+      "title": "Phone: viewer following a presentation",
+      "file": "phone-following.html",
+      "width": 390,
+      "height": 844,
+      "group": "Sharing and phone"
+    },
+    {
+      "id": "gestures",
+      "title": "Map gestures: the map is the editor",
+      "file": "gestures.html",
+      "width": 1000,
+      "group": "Reference"
+    },
+    {
+      "id": "states",
+      "title": "State gallery",
+      "file": "states.html",
+      "width": 1000,
+      "group": "Reference"
+    },
+    {
+      "id": "notes",
+      "title": "Design notes and open questions",
+      "file": "notes.html",
+      "width": 1000,
+      "group": "Reference"
+    }
+  ],
+  "tweaks": [
+    {
+      "id": "accent",
+      "label": "Live accent",
+      "var": "--accent",
+      "type": "color",
+      "default": "#8ee0c4"
+    },
+    {
+      "id": "amber",
+      "label": "Amber team",
+      "var": "--amber",
+      "type": "color",
+      "default": "#f2a93b"
+    },
+    {
+      "id": "sapphire",
+      "label": "Sapphire team",
+      "var": "--sapphire",
+      "type": "color",
+      "default": "#6d8cff"
+    },
+    {
+      "id": "density",
+      "label": "Density",
+      "var": "--space",
+      "type": "select",
+      "options": [
+        {
+          "label": "Compact",
+          "value": "7px"
+        },
+        {
+          "label": "Regular",
+          "value": "9px"
+        },
+        {
+          "label": "Roomy",
+          "value": "11px"
+        }
+      ],
+      "default": "9px"
+    },
+    {
+      "id": "map-shade",
+      "label": "Map darkness",
+      "var": "--map-shade",
+      "type": "range",
+      "min": 0,
+      "max": 0.7,
+      "step": 0.05,
+      "default": 0.2
+    }
+  ]
+}
