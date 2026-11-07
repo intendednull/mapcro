@@ -114,11 +114,12 @@ transaction and one undo step.
 | Tool | What it does | Result |
 |---|---|---|
 | Move | the default: drag tokens and callouts, click objectives | ops |
-| Draw | freehand ink | a `stroke` record |
+| Draw | freehand ink in a palette colour | a `stroke` record |
 | Arrow | drag out a rotation arrow | an `arrow` record |
 | Callout | click to place a label, typed in place | a `callout` record |
-| Laser | a glowing pointer trail others see, fading in about a second | presence only, never stored |
+| Laser | drawing that fades: the trail holds briefly, then fades away (operator, 2026-11-06). Editors only, like drawing | presence only, never stored |
 | Erase | click or scrub over ink, arrows and callouts | deletes |
+| Clear ink | a button: removes every stroke on this scene, as one undoable step | one transaction of deletes |
 
 The map is still the surface for every tool; the picker only chooses the gesture.
 

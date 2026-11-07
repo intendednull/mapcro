@@ -233,8 +233,14 @@ impl Room {
                     Ok(())
                 }
                 RoomCmd::Msg { conn, msg } => self.message(conn, msg).await,
-                RoomCmd::Presence { conn, state } => {
+                RoomCmd::Presence { conn, mut state } => {
                     if let Some(peer) = self.peers.get_mut(&conn) {
+                        if peer.role == LinkRole::View {
+                            // The laser and drag previews are editing gestures (operator,
+                            // 2026-11-06): a view link's are dropped, not relayed.
+                            state.laser.clear();
+                            state.drag = None;
+                        }
                         peer.presence = Some(state);
                         let role = peer.role;
                         self.mark_presence(conn, role);
