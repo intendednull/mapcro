@@ -45,3 +45,15 @@ describe("ult ring", () => {
     expect(ultStep(null, true)).toBe(5);
   });
 });
+
+import { splitTotal } from "../src/core/souls";
+describe("team total, shared out", () => {
+  it("splits evenly, the remainder one soul each to the first heroes, summing exactly", () => {
+    expect(splitTotal(40000, 6)).toEqual([6667, 6667, 6667, 6667, 6666, 6666]);
+    expect(splitTotal(40500, 6)).toEqual([6750, 6750, 6750, 6750, 6750, 6750]);
+    expect(splitTotal(5, 6)).toEqual([1, 1, 1, 1, 1, 0]);
+    expect(splitTotal(0, 6)).toEqual([0, 0, 0, 0, 0, 0]);
+    for (const t of [1, 59999, 123457]) expect(splitTotal(t, 6).reduce((a, b) => a + b)).toBe(t);
+    expect(splitTotal(100, 0)).toEqual([]);
+  });
+});

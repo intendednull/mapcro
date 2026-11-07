@@ -35,3 +35,15 @@ export function ultFromVector(dx: number, dy: number): number {
 export function ultStep(current: number | null, down: boolean): number {
   return Math.max(0, Math.min(100, (current ?? 0) + (down ? 5 : -5)));
 }
+
+/**
+ * A team total set by hand, shared out evenly (operator, 2026-11-07): everyone gets
+ * floor(total / n), and the remainder goes one soul each to the first heroes in roster order,
+ * so the parts add up to exactly the total.
+ */
+export function splitTotal(total: number, n: number): number[] {
+  if (n <= 0) return [];
+  const base = Math.floor(total / n);
+  const extra = total - base * n;
+  return Array.from({ length: n }, (_, i) => base + (i < extra ? 1 : 0));
+}

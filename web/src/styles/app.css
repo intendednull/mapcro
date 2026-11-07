@@ -228,3 +228,11 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .hero-face b { align-self: center; font: 700 18px var(--ui); color: #c9c2b0; }
 .hero-name { font-size: 11.5px; text-align: center; line-height: 1.2; }
 @media (max-width: 700px) { .hero-grid { grid-template-columns: repeat(4, 1fr); } }
+
+/* Team totals edit in place, and show who is editing */
+.tb-host.editable .tb-score { cursor: text; }
+.tb-host.editable .tb-score:hover .tb-score-bg { filter: brightness(1.12); }
+.tb-host .ie-input.tb-score-label { width: calc(90 * var(--u)); padding: 0 2px; color: #10130D; background: #FFEFD7; border-radius: 3px; text-align: center; border: 0; box-shadow: none; }
+.tb-score:has(.ie-input) { outline: calc(2 * var(--u)) solid var(--accent); outline-offset: calc(2 * var(--u)); }
+.tb-score.touched { outline: calc(2 * var(--u)) dashed #ffefd7aa; outline-offset: calc(2 * var(--u)); }
+.tb-tag { position: absolute; left: 50%; top: calc(100% + 4px); transform: translateX(-50%); z-index: 6; white-space: nowrap; padding: 1px 7px; border-radius: 4px; font: 700 11px var(--ui); color: #10201c; }

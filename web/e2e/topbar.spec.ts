@@ -106,6 +106,39 @@ test("a viewer sees the bar but can't edit it", async ({ browser }) => {
   await expect(souls(v, "Sapphire-0")).toHaveText("9.0k");
   await souls(v, "Sapphire-0").click();
   await expect(v.getByTestId("souls-input")).toHaveCount(0);
+  await v.getByTestId("total-Sapphire").click();
+  await expect(v.getByTestId("total-edit-Sapphire-input")).toHaveCount(0);
   // Untracked rings stay hidden for viewers, as in game.
   await expect(ult(v, "Sapphire-1")).toBeHidden();
+});
+
+test("a team total set by hand is shared out evenly, in one undoable step", async ({ browser }) => {
+  const url = await newBoardUrl(server, "net worth");
+  const a = await joinNew(browser, url, "Coach");
+  const b = await joinNew(browser, url, "Marrow");
+  await typeSouls(a, "Amber-0", "9040");
+  await expect(b.getByTestId("total-Amber")).toHaveText("9.0k");
+
+  // Click the total and type: while A edits, B sees who.
+  await a.getByTestId("total-Amber").click();
+  await expect(b.getByTestId("total-Amber").locator('.tb-tag[data-tag="Coach"]')).toContainText("Coach · editing");
+  await a.getByTestId("total-edit-Amber-input").fill("40"); // 40k
+  await a.keyboard.press("Enter");
+  // 40,000 over six: 6,667 for the first four in roster order, 6,666 for the last two.
+  const want = ["6.6k", "6.6k", "6.6k", "6.6k", "6.6k", "6.6k"];
+  await expect(b.locator('.tb-player.amber [data-testid="souls"]')).toHaveText(want);
+  await expect(b.getByTestId("total-Amber")).toHaveText("40k");
+  await expect(b.getByTestId("total-Amber").locator(".tb-tag")).toHaveCount(0);
+  await expect(b.getByTestId("total-Sapphire")).toHaveText("0");
+  // Exact parts: the souls editor shows the raw number.
+  for (const [i, n] of [6667, 6667, 6667, 6667, 6666, 6666].entries()) {
+    await b.locator(`.tb-player[data-slot="Amber-${i}"]`).getByTestId("souls").click();
+    await expect(b.getByTestId("souls-input")).toHaveValue(String(n));
+    await b.keyboard.press("Escape");
+  }
+
+  // One undo puts every hero back.
+  await a.keyboard.press("Control+z");
+  await expect(b.locator('.tb-player.amber [data-testid="souls"]')).toHaveText(["9.0k", "–", "–", "–", "–", "–"]);
+  await expect(b.getByTestId("total-Amber")).toHaveText("9.0k");
 });

@@ -6,7 +6,8 @@
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { cx } from "../ui/cx";
 import { formatClock, parseClock } from "../core/clock";
-import { formatSouls, parseSouls, teamTotal, ultFromVector, ultStep } from "../core/souls";
+import { formatSouls, parseSouls, splitTotal, teamTotal, ultFromVector, ultStep } from "../core/souls";
+import { colorOf } from "../core/device";
 import type { RecordId } from "../gen/RecordId";
 import type { Art } from "../map/pack";
 import type { Viewpoint } from "../map/transform";
@@ -219,22 +220,60 @@ export function TopBar(p: {
     </div>
   );
 
-  const score = (t: "Amber" | "Sapphire", right: boolean) => (
-    <div class={cx("tb-score", t.toLowerCase(), right && "right")} data-testid={`total-${t}`}>
-      <i class="tb-score-bg" />
-      <div class="tb-score-row">
-        <Show when={right}>
-          <i class="tb-team-icon" />
-        </Show>
-        <span class="tb-score-label">
-          <Souls n={total(t)} />
-        </span>
-        <Show when={!right}>
-          <i class="tb-team-icon" />
-        </Show>
+  // Setting a team's total shares it out evenly over its heroes, in one transaction. While
+  // someone edits it, presence `focus` names the team's first roster slot, so others can see who.
+  const firstSlot = (t: "Amber" | "Sapphire") => p.state.roster().find((x) => x.slot.team === t)?.id;
+  const editingTotal = (t: "Amber" | "Sapphire") => {
+    const id = firstSlot(t);
+    return id ? p.state.peerList().filter((x) => x.state?.focus === id && x.state.scene === p.scene) : [];
+  };
+  const setTotal = (t: "Amber" | "Sapphire", text: string) => {
+    const v = parseSouls(text);
+    if (v === undefined) return false;
+    const members = team(t);
+    const parts = v === null ? members.map(() => null) : splitTotal(v, members.length);
+    const ops = members.map((m, i) => ({ Set: { id: m.player.id, value: { PlayerSouls: parts[i] ?? null } } }));
+    if (ops.length) p.state.edit(ops);
+  };
+  const score = (t: "Amber" | "Sapphire", right: boolean) => {
+    let openTotal: (() => void) | undefined;
+    return (
+      <div
+        class={cx("tb-score", t.toLowerCase(), right && "right", editingTotal(t).length > 0 && "touched")}
+        data-testid={`total-${t}`}
+        onClick={() => openTotal?.()}
+      >
+        <i class="tb-score-bg" />
+        <div class="tb-score-row">
+          <Show when={right}>
+            <i class="tb-team-icon" />
+          </Show>
+          <InlineEdit
+            class="tb-score-label"
+            label={`${t} total souls`}
+            testid={`total-edit-${t}`}
+            editable={editable()}
+            value={String(total(t))}
+            maxLength={9}
+            display={() => <Souls n={total(t)} />}
+            bindOpen={(o) => (openTotal = o)}
+            onEditing={(on) => p.state.presence({ focus: on ? (firstSlot(t) ?? null) : null })}
+            onCommit={(text) => setTotal(t, text)}
+          />
+          <Show when={!right}>
+            <i class="tb-team-icon" />
+          </Show>
+        </div>
+        <For each={editingTotal(t)}>
+          {(x) => (
+            <span class="tb-tag" data-tag={x.state!.name} style={{ background: colorOf(x.state!.color) }}>
+              {x.state!.name || "Someone"} · editing
+            </span>
+          )}
+        </For>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div
