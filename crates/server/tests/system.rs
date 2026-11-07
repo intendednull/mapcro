@@ -871,9 +871,11 @@ async fn frames_are_capped_at_the_largest_legal_transaction() {
     assert!(mapcro_engine::encoded_len(&big) > 90_000);
     let ws = b.ws.as_mut().expect("ws");
     let _ = ws.send(Message::Text(serde_json::to_string(&WireIn::Msg { msg: ClientMsg::Submit(big) }).expect("json").into())).await;
-    while let Ok(()) = b.pump_one().await {
-        assert_eq!(b.replica().last_seq(), seq, "an oversized frame must not be logged");
-    }
+    // The frame itself is refused: the socket closes before any answer to the transaction.
+    let t0 = Instant::now();
+    let reply = recv(ws).await;
+    assert!(matches!(reply, None | Some(WireOut::Closed { .. })), "the frame was read: {reply:?}");
+    assert!(t0.elapsed() < Duration::from_secs(5), "the server closed the socket, not a timeout");
     let c = fresh_catch_up(server.port, &board, &owner, 0xc7, seq).await;
     assert_eq!(c.replica().last_seq(), seq);
 }
