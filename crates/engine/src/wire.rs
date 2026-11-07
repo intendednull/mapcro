@@ -109,6 +109,12 @@ pub struct Presence {
     /// Meaningless without `drag`.
     #[serde(default)]
     pub drag_group: Vec<RecordId>,
+    /// Objectives this person has selected as a group (by key: an objective at its default
+    /// state has no record), so others see whose selection it is.
+    /// Optional in TypeScript: clients that never select objectives can leave it out.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<mapcro_schema::ObjectiveKey>>", optional))]
+    pub picked: Vec<mapcro_schema::ObjectiveKey>,
     /// The element this person is interacting with (selected, editing its text). Others see
     /// this person's name tag beside it, like collaborators' names in a shared document.
     pub focus: Option<RecordId>,
@@ -154,6 +160,8 @@ pub struct PeerPresence {
 pub const MAX_LASER_POINTS: usize = 48;
 /// A group move carries at most the whole roster.
 pub const MAX_DRAG_GROUP: usize = 12;
+/// More than every objective, camp and rift on the map.
+pub const MAX_PICKED: usize = 128;
 
 impl Presence {
     /// Bounds a presence update must satisfy before it is relayed.
@@ -168,6 +176,8 @@ impl Presence {
             && self.cursor.as_ref().is_none_or(ok_pos)
             && self.drag.as_ref().is_none_or(|d| ok_pos(&d.pos))
             && self.drag_group.len() <= MAX_DRAG_GROUP
+            && self.picked.len() <= MAX_PICKED
+            && self.picked.iter().all(mapcro_schema::ObjectiveKey::is_valid)
             && self.view.as_ref().is_none_or(|v| ok_pos(&v.center) && (100..=20_000).contains(&v.zoom))
     }
 }
