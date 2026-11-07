@@ -273,6 +273,59 @@ pub async fn rotate_owner(State(app): State<AppState>, Path(board): Path<String>
     }
 }
 
+#[derive(Deserialize)]
+pub struct CloneBoard {
+    #[serde(default)]
+    title: Option<String>,
+}
+
+/// Copy a board's current state into a brand-new board with fresh links (operator, 2026-11-06):
+/// the way to "drop" someone is to move to a clone and not share its links with them. Any
+/// valid link can clone, since anyone who can see a board could copy it by hand. History,
+/// presence and links are not copied. Counts against the creation limits.
+pub async fn clone_board(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Path(board): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<CloneBoard>,
+) -> Response {
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .filter(|t| links::plausible_token(t));
+    let Some(token) = token else {
+        return err(StatusCode::UNAUTHORIZED, "link token required");
+    };
+    match app.store.link(links::hash(token)).await {
+        Ok(Some(l)) if l.board == board && !l.revoked => {}
+        Ok(_) => return err(StatusCode::FORBIDDEN, "not a link to this board"),
+        Err(e) => return internal(e),
+    }
+    if !app.limiter.allow(client_ip(peer, &headers), app.config.create_per_hour, app.config.create_global_per_hour) {
+        return err(StatusCode::TOO_MANY_REQUESTS, "too many boards created; try again later");
+    }
+    let mut doc = match app.rooms.snapshot(&board).await {
+        Ok(d) => d,
+        Err(e) => return internal(e),
+    };
+    if let Some(title) = body.title {
+        let Some(title) = clean_label(&title, mapcro_schema::LIMITS.max_title) else {
+            return err(StatusCode::BAD_REQUEST, "invalid title");
+        };
+        if !title.is_empty() {
+            doc = mapcro_schema::retitle(doc, &title);
+        }
+    }
+    let new_board = links::new_board_id();
+    let owner_token = links::new_token();
+    match app.store.create_board(new_board.clone(), doc, links::hash(&owner_token), now()).await {
+        Ok(()) => (StatusCode::CREATED, Json(Created { board: new_board, owner_token })).into_response(),
+        Err(e) => internal(e),
+    }
+}
+
 pub async fn healthz(State(app): State<AppState>) -> Response {
     match app.store.ping().await {
         Ok(()) => (StatusCode::OK, format!("ok rooms={}", app.rooms.open_count())).into_response(),

@@ -40,6 +40,15 @@ export class Api {
     );
   }
 
+  /** Copy a board's current state into a new board with fresh links; any valid link may. */
+  cloneBoard(board: string, token: string, title?: string) {
+    return fetch(`${this.base}/api/boards/${board}/clone`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify(title ? { title } : {}),
+    }).then((r) => json<{ board: string; owner_token: string }>(r));
+  }
+
   async revoke(board: string, owner: string, linkId: string) {
     const r = await fetch(`${this.base}/api/boards/${board}/links/${linkId}`, {
       method: "DELETE",

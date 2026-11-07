@@ -268,7 +268,12 @@ later bind owner capabilities to a person.
 
 - **Editors can share too (operator, 2026-11-06).** An edit link can mint view and edit links. It
   can list and revoke the links it minted, and those minted from them in turn.
-- **The owner sees and revokes everything.**
+- **Moving on without someone is a clone (operator, 2026-11-06).** Anyone with a link can clone the
+  board's current state into a new board, which gets fresh links. Share those with everyone except
+  the person you're leaving out. The clone copies scenes and records, not history, links or
+  presence. The UI offers cloning, not revocation.
+- **The owner sees and revokes everything.** Revocation stays in the API as an emergency backstop,
+  for example for a link posted publicly. It isn't in the UI.
 - **Revocation cascades:** revoking a link also revokes every link minted through it. A leaked edit
   link can then be cleaned up in one step, together with anything its holder handed out.
 - View links can't mint.

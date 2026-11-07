@@ -685,3 +685,47 @@ async fn asset_packs_are_served_immutably_and_only_as_listed() {
     }
     assert!(ureq::get(&server.url(&format!("/packs/{}/map/mid.png", "f".repeat(64)))).call().is_err());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cloning_makes_an_independent_board_with_fresh_links() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let (board, owner) = server.create_board();
+    let (_, view) = server.mint(&board, &owner, "view");
+    let mut a = Client::new(0x81);
+    a.connect(server.port, &board, &owner).await.expect("a");
+    for i in 0..3 {
+        let ops = move_op(a.replica(), i);
+        a.edit(ops).await;
+    }
+    a.until_saved().await;
+
+    // Even a view link can clone (it can already see everything).
+    let v: serde_json::Value = ureq::post(&server.url(&format!("/api/boards/{board}/clone")))
+        .header("authorization", &format!("Bearer {view}"))
+        .send_json(serde_json::json!({ "title": "Scrim prep (copy)" }))
+        .expect("clone")
+        .body_mut()
+        .read_json()
+        .expect("json");
+    let (copy, copy_owner) = (v["board"].as_str().expect("board").to_owned(), v["owner_token"].as_str().expect("token").to_owned());
+    assert_ne!(copy, board);
+
+    let mut c = Client::new(0x82);
+    c.connect(server.port, &copy, &copy_owner).await.expect("copy");
+    let live = |r: &Replica| r.view().iter_live().filter(|(_, x)| !matches!(x, Record::BoardMeta(_))).map(|(i, x)| (i, x.clone())).collect::<Vec<_>>();
+    assert_eq!(live(c.replica()), live(a.replica()), "same scenes, players and positions");
+    assert_eq!(c.replica().last_seq(), 0, "history is not copied");
+    // The old links don't open the copy, and the copy's owner can't touch the original.
+    assert_eq!(Client::new(0x83).connect(server.port, &copy, &view).await, Err(Some(CloseReason::Unauthorized)));
+    assert_eq!(Client::new(0x84).connect(server.port, &board, &copy_owner).await, Err(Some(CloseReason::Unauthorized)));
+    // Edits to the copy don't reach the original.
+    let ops = move_op(c.replica(), 9);
+    c.edit(ops).await;
+    c.until_saved().await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(a.replica().last_seq(), 3);
+    // A token for another board can't clone this one.
+    let r = ureq::post(&server.url(&format!("/api/boards/{board}/clone"))).header("authorization", &format!("Bearer {copy_owner}")).send_json(serde_json::json!({}));
+    assert!(r.is_err());
+}

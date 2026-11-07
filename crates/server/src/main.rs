@@ -80,6 +80,7 @@ async fn main() {
         .route("/api/boards/{board}/links", post(api::mint_link).get(api::list_links))
         .route("/api/boards/{board}/links/{link}", delete(api::revoke_link))
         .route("/api/boards/{board}/owner/rotate", post(api::rotate_owner))
+        .route("/api/boards/{board}/clone", post(api::clone_board))
         .route("/api/packs", get(packs::list))
         .route("/packs/{pack}/{*file}", get(packs::file));
     if let Some(web) = &config.web_dir {

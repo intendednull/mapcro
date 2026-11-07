@@ -164,6 +164,18 @@ fn inverse_of(before: &Doc, op: &Op) -> Option<Op> {
     }
 }
 
+/// The same board with a new title (used when cloning). Tombstones are kept: ids are never
+/// reused, and a clone's undo stays meaningful to nobody, so this is purely cosmetic.
+pub fn retitle(mut doc: Doc, title: &str) -> Doc {
+    let meta = doc.iter_live().find(|(_, r)| matches!(r, Record::BoardMeta(_))).map(|(id, _)| id);
+    if let Some(id) = meta
+        && let Some(e) = doc.entry_mut(id)
+    {
+        e.record.set(FieldValue::Title(title.to_owned()));
+    }
+    doc
+}
+
 /// A fresh board: metadata, the 12 roster slots, and one scene with a player state per slot.
 /// Ids are supplied by the caller so that creation is deterministic (the simulation seeds them;
 /// the server draws them from its RNG).

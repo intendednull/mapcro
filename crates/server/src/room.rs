@@ -25,6 +25,8 @@ pub enum RoomCmd {
     Msg { conn: ConnId, msg: ClientMsg },
     Presence { conn: ConnId, state: Presence },
     Leave { conn: ConnId },
+    /// The board as it is now (for cloning).
+    Snapshot { reply: oneshot::Sender<mapcro_schema::Doc> },
     Revoke { link_hash: String },
 }
 
@@ -161,6 +163,21 @@ impl Rooms {
         }
     }
 
+    /// The board's current document, loading the room if needed.
+    pub async fn snapshot(&self, board: &str) -> Result<mapcro_schema::Doc, RoomError> {
+        for _ in 0..3 {
+            let room = self.get(board).await?;
+            let (reply, rx) = oneshot::channel();
+            if room.send(RoomCmd::Snapshot { reply }).await.is_ok()
+                && let Ok(doc) = rx.await
+            {
+                return Ok(doc);
+            }
+            self.forget(board, &room);
+        }
+        Err(RoomError::Unavailable)
+    }
+
     pub fn open_count(&self) -> usize {
         self.open.lock().map(|o| o.values().filter(|t| !t.is_closed()).count()).unwrap_or(0)
     }
@@ -226,6 +243,10 @@ impl Room {
                 }
                 RoomCmd::Leave { conn } => {
                     self.forget_peer(conn);
+                    Ok(())
+                }
+                RoomCmd::Snapshot { reply } => {
+                    let _ = reply.send(self.authority.doc().clone());
                     Ok(())
                 }
                 RoomCmd::Revoke { link_hash } => {
