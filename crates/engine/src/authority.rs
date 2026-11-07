@@ -156,6 +156,16 @@ impl Authority {
         self.log_len
     }
 
+    /// Client ids known (registered, or seen in the log).
+    pub fn clients_len(&self) -> usize {
+        self.clients.len()
+    }
+
+    /// Stored rejections across all clients.
+    pub fn rejections_len(&self) -> usize {
+        self.rejections
+    }
+
     pub fn doc(&self) -> &Doc {
         &self.doc
     }

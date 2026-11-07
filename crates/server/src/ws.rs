@@ -148,7 +148,7 @@ async fn session(app: AppState, mut socket: WebSocket) {
             return send_closed(&mut socket, CloseReason::StorageFailure).await;
         }
     };
-    let (conn, mut outbox) = match joined {
+    let (conn, mut outbox, queued) = match joined {
         Ok(j) => j,
         Err(reason) => return send_closed(&mut socket, reason).await,
     };
@@ -191,6 +191,7 @@ async fn session(app: AppState, mut socket: WebSocket) {
         tokio::select! {
             out = outbox.recv() => match out {
                 Some(Out::Frame(f)) => {
+                    queued.fetch_sub(f.len(), std::sync::atomic::Ordering::Relaxed);
                     if !matches!(timeout(SEND_TIMEOUT, sink.send(Message::Text(f.as_ref().into()))).await, Ok(Ok(()))) { break None; }
                 }
                 Some(Out::Closed(reason)) => {

@@ -1263,3 +1263,101 @@ async fn a_loaded_room_does_not_hold_its_history() {
     let fresh = fresh_catch_up(server.port, &board, &owner, 0x5ff, total).await;
     assert_eq!(fresh.replica().last_seq(), total);
 }
+
+fn stroke_ops(scene: mapcro_schema::RecordId, seed: u32, n: usize) -> Vec<Op> {
+    let mut x = seed.wrapping_mul(0x9e37_79b9) | 1;
+    let mut next = move || {
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        (x % 32_000) as i32 - 16_000
+    };
+    (0..n)
+        .map(|k| {
+            let points = (0..512).map(|_| WorldPos { x: next(), y: next() }).collect();
+            let id = mapcro_schema::RecordId(((seed as u128) << 32) | k as u128 | 1 << 100);
+            Op::Create { id, record: Record::Stroke(mapcro_schema::Stroke { scene, points, color: 3, width: 30 }) }
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn open_rooms_fit_a_memory_budget() {
+    // With no history in memory, a room costs its document, which ranges from kilobytes to the
+    // ~20 MB the schema allows. So rooms are admitted against a memory budget, not just counted:
+    // past it, an idle room makes way or the join is busy, and edits that would grow memory
+    // further are refused as ServerFull. Here each small room weighs ~330 KB; two fit in 900 KB.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start_with(dir.path(), None, &[("ROOM_MEMORY_BYTES", "900000")]);
+    let boards: Vec<(String, String)> = (0..3).map(|_| server.create_board()).collect();
+    let mut a = Client::new(0x9a1);
+    let mut b = Client::new(0x9a2);
+    a.connect(server.port, &boards[0].0, &boards[0].1).await.expect("a");
+    b.connect(server.port, &boards[1].0, &boards[1].1).await.expect("b");
+    assert_eq!(Client::new(0x9a3).connect(server.port, &boards[2].0, &boards[2].1).await, Err(Some(CloseReason::Busy)));
+
+    // Growing a room past the budget: its edits are refused once the estimate says so.
+    let scene = scene_of(a.replica());
+    let mut refused = Vec::new();
+    for i in 0..40 {
+        refused = edits_until_decided(&mut a, 1, |_, _| stroke_ops(scene, i, 5)).await;
+        if !refused.is_empty() {
+            break;
+        }
+    }
+    assert_eq!(refused, [Reject::ServerFull], "memory growth is refused");
+    // When another room goes idle, it makes way, and edits are accepted again.
+    b.drop_connection();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let r = edits_until_decided(&mut a, 1, move_op).await;
+        if r.is_empty() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the idle room never made way: {r:?}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_peer_that_stops_reading_is_dropped_by_bytes_queued() {
+    // Live frames are shared between peers, but a peer that stops reading would keep every
+    // frame since alive. Its outbox is capped in bytes (256 KiB), not just frames (4096), so
+    // ~25 MB of edits, more than the kernel's socket buffers take, gets it dropped as too slow.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let (board, owner) = server.create_board();
+    let (_, view) = server.mint(&board, &owner, "view");
+    let mut slow = Client::new(0x7a1);
+    slow.connect(server.port, &board, &view).await.expect("viewer");
+    let mut w = Client::new(0x7a2);
+    w.connect(server.port, &board, &owner).await.expect("writer");
+    let scene = scene_of(w.replica());
+    let note = mapcro_schema::RecordId(0x7a7a);
+    w.edit(vec![Op::Create { id: note, record: Record::Note(mapcro_schema::Note { scene, text: "x".into() }) }]).await;
+    let letters = |i: usize| -> String {
+        let mut x = 0x2545_f491_u32.wrapping_add(i as u32 * 7919);
+        (0..4000)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                (b'a' + (x % 26) as u8) as char
+            })
+            .collect()
+    };
+    // 400 transactions of 15 rewrites each, ~60 KB apiece.
+    for batch in 0..16 {
+        let ops = |_: &Replica, i: usize| (0..15).map(|k| Op::Set { id: note, value: FieldValue::NoteText(letters(batch * 1000 + i * 15 + k)) }).collect();
+        assert!(edits_until_decided(&mut w, 25, ops).await.is_empty());
+    }
+    // Now the viewer reads: it was cut off before it got everything.
+    let mut last = Ok(());
+    while slow.replica().last_seq() < 401 {
+        last = slow.pump_one().await;
+        if last.is_err() {
+            break;
+        }
+    }
+    assert_eq!(last, Err(Some(CloseReason::TooSlow)), "got {} of 401 entries", slow.replica().last_seq());
+}

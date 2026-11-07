@@ -241,6 +241,17 @@ impl Store {
         .map_err(|_| StoreError::Join)?
     }
 
+    /// Run a closure on the reader connection off the async runtime.
+    async fn read<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut Connection) -> Result<T, StoreError> + Send + 'static,
+    ) -> Result<T, StoreError> {
+        let reader = self.reader.clone();
+        tokio::task::spawn_blocking(move || f(&mut *reader.lock().map_err(|_| StoreError::Join)?))
+            .await
+            .map_err(|_| StoreError::Join)?
+    }
+
     pub async fn ping(&self) -> Result<(), StoreError> {
         self.with(|c| Ok(c.query_row("SELECT 1", [], |r| r.get::<_, i64>(0)).map(|_| ())?)).await
     }
@@ -281,9 +292,12 @@ impl Store {
     /// document, not the log (the log stays on disk and catch-up reads it from there). Refuses a
     /// board past `caps` rather than reading it, so loading can't exhaust memory (security
     /// review 2026-11-07, C1). `caps.bytes` counts stored, compressed bytes, as the quota does.
+    ///
+    /// Runs on the reader connection, so a long load never holds up other boards' writes. The
+    /// board's own room isn't open while it loads, so nothing writes to it meanwhile.
     pub async fn load_board(&self, id: String, caps: LoadCaps, quota: Quota) -> Result<Option<LoadedBoard>, StoreError> {
         let too_large = |what: &str, cap: usize| StoreError::TooLarge(format!("more than {cap} {what}"));
-        self.with(move |c| {
+        self.read(move |c| {
             let Some((base, base_codec, base_seq)) = c
                 .query_row("SELECT base_doc, base_codec, base_seq FROM boards WHERE id = ?1", [&id], |r| {
                     Ok((raw(r.get_ref(0)?)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))

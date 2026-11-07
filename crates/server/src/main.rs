@@ -70,7 +70,12 @@ async fn main() {
         rooms: room::Rooms::new(
             store.clone(),
             config.room_idle,
-            room::Caps { quota: config.quota, max_open_rooms: config.max_open_rooms, max_storage_bytes: config.max_storage_bytes },
+            room::Caps {
+                quota: config.quota,
+                max_open_rooms: config.max_open_rooms,
+                room_memory_bytes: config.room_memory_bytes,
+                max_storage_bytes: config.max_storage_bytes,
+            },
         ),
         store,
         limiter: Arc::new(api::CreateLimiter::default()),

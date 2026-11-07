@@ -1,5 +1,5 @@
 use crate::ids::RecordId;
-use crate::records::Record;
+use crate::records::{Record, WorldPos};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -48,6 +48,15 @@ impl Doc {
         self.entries.is_empty()
     }
 
+    /// Roughly what the document occupies in memory, in bytes: each entry's map node and record,
+    /// plus the text and points it owns. For a host's memory budget, so it's an estimate, not an
+    /// accounting; a test checks it against the largest documents the limits allow.
+    pub fn approx_heap_bytes(&self) -> usize {
+        // A B-tree node holds up to 11 entries; count each entry's share plus slack.
+        const PER_ENTRY: usize = std::mem::size_of::<(RecordId, Entry)>() + 32;
+        self.entries.values().map(|e| PER_ENTRY + record_heap_bytes(&e.record)).sum()
+    }
+
     pub(crate) fn insert(&mut self, id: RecordId, record: Record) {
         self.entries.insert(id, Entry { record, deleted: false });
     }
@@ -86,3 +95,17 @@ impl From<Doc> for Vec<(RecordId, Entry)> {
 #[derive(ts_rs::TS)]
 #[ts(export)]
 pub struct DocPair(pub RecordId, pub Entry);
+
+/// The heap a record owns beyond its own size: strings and points.
+fn record_heap_bytes(r: &Record) -> usize {
+    match r {
+        Record::BoardMeta(m) => m.title.capacity(),
+        Record::RosterSlot(s) => s.name.capacity(),
+        Record::Scene(s) => s.name.capacity() + s.order.0.capacity(),
+        Record::ObjectiveState(o) => o.key.0.capacity(),
+        Record::Callout(c) => c.text.capacity(),
+        Record::Note(n) => n.text.capacity(),
+        Record::Stroke(s) => s.points.capacity() * std::mem::size_of::<WorldPos>(),
+        Record::PlayerState(_) | Record::Arrow(_) => 0,
+    }
+}

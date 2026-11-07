@@ -306,4 +306,19 @@ mod tests {
             assert!(tx_len <= LIMITS.max_tx_bytes, "{tx_len}");
         }
     }
+
+    #[test]
+    fn the_heap_estimate_tracks_the_biggest_documents() {
+        // A host budgets memory by this estimate, so it must not undercount the heaviest records.
+        let (mut doc, scene, _) = board();
+        let small = doc.approx_heap_bytes();
+        let points = vec![WorldPos { x: 1, y: 2 }; LIMITS.max_stroke_points];
+        let strokes: Vec<Op> = (0..100)
+            .map(|k| Op::Create { id: RecordId(10_000 + k), record: Record::Stroke(Stroke { scene, points: points.clone(), color: 1, width: 20 }) })
+            .collect();
+        apply_tx(&mut doc, &tx(strokes)).expect("valid");
+        let grew = doc.approx_heap_bytes() - small;
+        let raw = 100 * LIMITS.max_stroke_points * std::mem::size_of::<WorldPos>();
+        assert!(grew >= raw && grew < raw + raw / 4, "{grew} for {raw} bytes of points");
+    }
 }

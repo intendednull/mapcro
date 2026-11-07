@@ -11,11 +11,20 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 
-/// Outbound frames per connection. A client this far behind live traffic is dropped rather than
-/// letting it stall the room. Catch-up doesn't count against it: it's streamed at the client's
-/// pace (security review 2026-11-07, H-A). Frames are shared between peers, so a full outbox
-/// costs pointers, not copies.
+/// Outbound frames per connection, and their bytes. A client this far behind live traffic is
+/// dropped rather than letting it stall the room or pin memory. Catch-up doesn't count against
+/// either: it's streamed at the client's pace (security review 2026-11-07, H-A). Frames are
+/// shared between peers, so a room's outboxes together hold about one backlog's worth.
 const OUTBOX_DEPTH: usize = 4096;
+pub const OUTBOX_BYTES: usize = 256 * 1024;
+/// What a room costs in memory besides its document: its tables, channels, and one outbox
+/// backlog. Measured (journal 2026-11-07-security-fixes) and rounded up.
+const ROOM_BASE_BYTES: usize = 64 * 1024 + OUTBOX_BYTES;
+/// Per stored client or rejection, in memory.
+const ROW_BYTES: usize = 160;
+/// A room's weight is re-estimated exactly every this many logged transactions, and grows by
+/// each one's JSON size in between (an overestimate: most edits replace a value).
+const REWEIGH_EVERY: u32 = 64;
 /// A room with nobody in it unloads after this long (spec §9, room lifecycle).
 pub const IDLE_UNLOAD: std::time::Duration = std::time::Duration::from_secs(300);
 /// How long a load waits for an idle room it asked to unload.
@@ -33,7 +42,7 @@ pub enum RoomCmd {
     /// The board as it is now (for cloning).
     Snapshot { reply: oneshot::Sender<mapcro_schema::Doc> },
     Revoke { link_hash: String },
-    /// Unload now if nobody is in the room (the server is at its open-room cap).
+    /// Unload now if nobody is in the room (the server is at its open-room or memory cap).
     Unload,
 }
 
@@ -56,7 +65,28 @@ struct Peer {
     link_hash: String,
     role: LinkRole,
     out: mpsc::Sender<Out>,
+    /// Bytes of frames queued in `out`; the socket task subtracts what it takes.
+    queued: Arc<AtomicUsize>,
     presence: Option<Presence>,
+}
+
+impl Peer {
+    /// Queue a frame unless the outbox is full (by count or bytes).
+    fn offer(&self, item: Out) -> bool {
+        let size = match &item {
+            Out::Frame(f) => f.len(),
+            Out::Closed(_) | Out::CatchUp { .. } => 0,
+        };
+        if self.queued.load(Ordering::Relaxed) + size > OUTBOX_BYTES {
+            return false;
+        }
+        self.queued.fetch_add(size, Ordering::Relaxed);
+        if self.out.try_send(item).is_err() {
+            self.queued.fetch_sub(size, Ordering::Relaxed);
+            return false;
+        }
+        true
+    }
 }
 
 /// Presence is batched: changes collect for this long, then go out as one frame per peer.
@@ -65,7 +95,11 @@ const PRESENCE_BATCH: std::time::Duration = std::time::Duration::from_millis(50)
 struct Room {
     id: String,
     store: Store,
+    rooms: Rooms,
     authority: Authority,
+    /// This room's memory estimate, published for the registry's budget.
+    weight: Arc<AtomicUsize>,
+    since_weighed: u32,
     peers: HashMap<ConnId, Peer>,
     /// `peers.len()`, published for the registry's eviction choice.
     occupancy: Arc<AtomicUsize>,
@@ -80,7 +114,8 @@ struct Room {
 }
 
 /// The base document isn't held here: a fresh client's comes straight from storage (ws.rs).
-pub type Joined = (ConnId, mpsc::Receiver<Out>);
+/// The counter is the outbox's queued bytes, which the socket task decrements as it sends.
+pub type Joined = (ConnId, mpsc::Receiver<Out>, Arc<AtomicUsize>);
 
 /// Sessions per room. Beyond this, joins are refused (security review M1).
 pub const MAX_SESSIONS: usize = 64;
@@ -90,12 +125,20 @@ pub const MAX_SESSIONS: usize = 64;
 pub struct Caps {
     pub quota: Quota,
     pub max_open_rooms: usize,
+    /// What open rooms may occupy in memory together, by their estimates.
+    pub room_memory_bytes: usize,
     pub max_storage_bytes: u64,
 }
 
 struct Handle {
     tx: mpsc::Sender<RoomCmd>,
     occupancy: Arc<AtomicUsize>,
+    weight: Arc<AtomicUsize>,
+}
+
+/// A room's memory estimate: its document, its tables, and a fixed base.
+fn weigh(a: &Authority) -> usize {
+    ROOM_BASE_BYTES + a.doc().approx_heap_bytes() + (a.clients_len() + a.rejections_len()) * ROW_BYTES
 }
 
 #[derive(Default)]
@@ -135,7 +178,7 @@ pub enum RoomError {
     Store(#[from] StoreError),
     #[error("room unavailable")]
     Unavailable,
-    /// As many rooms are open as the server allows, and none of them is idle.
+    /// As many rooms are open as the server allows (by count or memory), none of them idle.
     #[error("too many boards open")]
     Busy,
 }
@@ -147,6 +190,18 @@ impl Rooms {
 
     fn registry(&self) -> std::sync::MutexGuard<'_, Registry> {
         self.reg.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The open rooms' memory estimates, summed.
+    fn resident(&self) -> usize {
+        self.registry().open.values().filter(|h| !h.tx.is_closed()).map(|h| h.weight.load(Ordering::Relaxed)).sum()
+    }
+
+    /// Ask one idle room to unload; true if there was one.
+    fn nudge_idle(&self) -> Option<mpsc::Sender<RoomCmd>> {
+        let reg = self.registry();
+        let victim = reg.open.values().find(|h| h.occupancy.load(Ordering::Relaxed) == 0 && !h.tx.is_closed())?;
+        victim.tx.try_send(RoomCmd::Unload).ok().map(|()| victim.tx.clone())
     }
 
     /// Room for one more board: free below the cap, else unload an idle room to make some
@@ -180,18 +235,49 @@ impl Rooms {
         let q = self.caps.quota;
         let caps = LoadCaps { ops: q.max_log_ops, bytes: q.max_log_bytes, clients: q.max_clients, rejections: q.max_rejections };
         let stored = self.store.load_board(board.to_owned(), caps, q).await?.ok_or(RoomError::NotFound)?;
-        // Two loads may race; the first to insert wins and the other's work is dropped.
-        let mut reg = self.registry();
-        if let Some(tx) = reg.open.get(board).filter(|h| !h.tx.is_closed()).map(|h| h.tx.clone()) {
-            drop(reg); // before `slot`, whose drop takes the lock
-            return Ok(tx);
+        let weight = Arc::new(AtomicUsize::new(weigh(&stored.authority)));
+        let mut room = Some(stored.authority);
+        // Admit it within the memory budget, unloading idle rooms to make room if needed.
+        for _ in 0..8 {
+            let victim = {
+                let mut reg = self.registry();
+                reg.open.retain(|_, h| !h.tx.is_closed());
+                // Two loads may race; the first to insert wins and the other's work is dropped.
+                if let Some(tx) = reg.open.get(board).map(|h| h.tx.clone()) {
+                    drop(reg); // before `slot`, whose drop takes the lock
+                    return Ok(tx);
+                }
+                let resident: usize = reg.open.values().map(|h| h.weight.load(Ordering::Relaxed)).sum();
+                if reg.open.is_empty() || resident + weight.load(Ordering::Relaxed) <= self.caps.room_memory_bytes {
+                    let authority = room.take().ok_or(RoomError::Unavailable)?;
+                    let tx = self.spawn(board, authority, weight.clone(), &mut reg);
+                    // The reservation became the open room in one step under the lock.
+                    reg.loading -= 1;
+                    slot.held = false;
+                    tracing::info!(board, "room opened");
+                    return Ok(tx);
+                }
+                reg.open.values().find(|h| h.occupancy.load(Ordering::Relaxed) == 0).map(|h| h.tx.clone())
+            };
+            let Some(victim) = victim else { break };
+            if victim.try_send(RoomCmd::Unload).is_ok() {
+                let _ = tokio::time::timeout(EVICT_WAIT, victim.closed()).await;
+            }
         }
+        tracing::warn!(board, "room memory budget reached; join refused");
+        Err(RoomError::Busy)
+    }
+
+    fn spawn(&self, board: &str, authority: Authority, weight: Arc<AtomicUsize>, reg: &mut Registry) -> mpsc::Sender<RoomCmd> {
         let (tx, rx) = mpsc::channel(1024);
         let occupancy = Arc::new(AtomicUsize::new(0));
         let room = Room {
             id: board.to_owned(),
             store: self.store.clone(),
-            authority: stored.authority,
+            rooms: self.clone(),
+            authority,
+            weight: weight.clone(),
+            since_weighed: 0,
             peers: HashMap::new(),
             occupancy: occupancy.clone(),
             next_conn: 0,
@@ -209,12 +295,8 @@ impl Rooms {
             registry.forget(&id, &sender);
             tracing::info!(board = id, "room closed");
         });
-        // The reservation becomes the open room in one step under the lock.
-        reg.loading -= 1;
-        slot.held = false;
-        reg.open.insert(board.to_owned(), Handle { tx: tx.clone(), occupancy });
-        tracing::info!(board, "room opened");
-        Ok(tx)
+        reg.open.insert(board.to_owned(), Handle { tx: tx.clone(), occupancy, weight });
+        tx
     }
 
     /// The room if it's open, without loading it.
@@ -401,7 +483,7 @@ impl Room {
             .iter()
             .filter(|(c, p)| {
                 let mine: Vec<PeerPresence> = batch.iter().filter(|e| e.peer != c.0).cloned().collect();
-                !mine.is_empty() && p.out.try_send(Out::Frame(frame(&WireOut::Presence { peers: mine }))).is_err()
+                !mine.is_empty() && !p.offer(Out::Frame(frame(&WireOut::Presence { peers: mine })))
             })
             .map(|(c, _)| *c)
             .collect();
@@ -425,6 +507,7 @@ impl Room {
         let conn = ConnId(self.next_conn);
         self.next_conn += 1;
         let (out, rx) = mpsc::channel(OUTBOX_DEPTH);
+        let peer = Peer { link_hash, role: link_role, out, queued: Arc::default(), presence: None };
         self.authority.connect(conn, role);
         // Everyone already here, so the newcomer sees the room at once.
         let here: Vec<PeerPresence> = self
@@ -433,17 +516,24 @@ impl Room {
             .filter_map(|(c, p)| p.presence.clone().map(|s| PeerPresence { peer: c.0, role: p.role, state: Some(s) }))
             .collect();
         if !here.is_empty() {
-            let _ = out.try_send(Out::Frame(frame(&WireOut::Presence { peers: here })));
+            peer.offer(Out::Frame(frame(&WireOut::Presence { peers: here })));
         }
-        self.peers.insert(conn, Peer { link_hash, role: link_role, out, presence: None });
+        let queued = peer.queued.clone();
+        self.peers.insert(conn, peer);
         self.occupancy.store(self.peers.len(), Ordering::Relaxed);
-        if reply.send(Ok((conn, rx))).is_err() {
+        if reply.send(Ok((conn, rx, queued))).is_err() {
             self.forget_peer(conn);
         }
     }
 
     async fn message(&mut self, conn: ConnId, msg: ClientMsg) -> Result<(), StoreError> {
-        self.authority.set_storage_full(self.store.bytes() >= self.max_storage_bytes);
+        // Storage or memory full: refuse edits (`ServerFull`). Over the memory budget, ask an idle
+        // room to make way, so the refusal lasts only until one has.
+        let over_memory = matches!(msg, ClientMsg::Submit(_)) && self.rooms.resident() > self.rooms.caps.room_memory_bytes;
+        if over_memory && self.rooms.nudge_idle().is_some() {
+            tracing::info!(board = self.id, "room memory budget reached; unloading an idle room");
+        }
+        self.authority.set_storage_full(over_memory || self.store.bytes() >= self.max_storage_bytes);
         // Encode a submitted transaction as it would be stored: its stored size is what counts
         // against the board's byte quota, and if it's logged, these are the bytes written.
         let mut encoded = None;
@@ -459,9 +549,16 @@ impl Room {
         };
         for effect in &effects {
             match effect {
-                Effect::Logged { seq, .. } => {
+                Effect::Logged { seq, tx } => {
                     let (codec, stored) = encoded.take().ok_or_else(|| StoreError::Corrupt("logged without a submit".into()))?;
                     self.store.append_op(self.id.clone(), *seq, codec, stored).await?;
+                    self.since_weighed += 1;
+                    if self.since_weighed >= REWEIGH_EVERY {
+                        self.since_weighed = 0;
+                        self.weight.store(weigh(&self.authority), Ordering::Relaxed);
+                    } else {
+                        self.weight.fetch_add(mapcro_engine::encoded_len(tx), Ordering::Relaxed);
+                    }
                 }
                 Effect::Rejected { client, cseq, reason } => {
                     self.store.add_rejection(self.id.clone(), *client, *cseq, reason).await?;
@@ -493,7 +590,7 @@ impl Room {
                 Outgoing::CatchUp { from, to } => (Out::CatchUp { from, to }, false),
             };
             let Some(peer) = self.peers.get(&to) else { continue };
-            if peer.out.try_send(item).is_err() {
+            if !peer.offer(item) {
                 self.close(to, CloseReason::TooSlow);
                 continue;
             }
