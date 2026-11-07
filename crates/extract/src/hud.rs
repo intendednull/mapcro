@@ -3,9 +3,9 @@
 use std::path::Path;
 
 use crate::pack::HudSource;
-use crate::{panorama, resource, sha256_hex, Error, Result, Vpk};
+use crate::{allow, panorama, resource, sha256_hex, Error, Result, Vpk};
 
-const SOURCES: [(&str, &str, Kind); 4] = [
+const SOURCES: [(&str, &str, Kind); 10] = [
     (
         "hud/hud_minimap.vcss",
         "panorama/styles/hud_minimap.vcss_c",
@@ -26,6 +26,36 @@ const SOURCES: [(&str, &str, Kind); 4] = [
         "panorama/layout/hud.vxml_c",
         Kind::Layout,
     ),
+    (
+        "hud/citadel_hud_top_bar.vxml",
+        "panorama/layout/citadel_hud_top_bar.vxml_c",
+        Kind::Layout,
+    ),
+    (
+        "hud/citadel_hud_top_bar_player.vxml",
+        "panorama/layout/citadel_hud_top_bar_player.vxml_c",
+        Kind::Layout,
+    ),
+    (
+        "hud/citadel_hud_top_bar_team.vxml",
+        "panorama/layout/citadel_hud_top_bar_team.vxml_c",
+        Kind::Layout,
+    ),
+    (
+        "hud/citadel_hud_top_bar.vcss",
+        "panorama/styles/citadel_hud_top_bar.vcss_c",
+        Kind::Style,
+    ),
+    (
+        "hud/hero_badge.vxml",
+        "panorama/layout/hero_badge.vxml_c",
+        Kind::Layout,
+    ),
+    (
+        "hud/hero_badge.vcss",
+        "panorama/styles/hero_badge.vcss_c",
+        Kind::Style,
+    ),
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -34,7 +64,7 @@ enum Kind {
     Layout,
 }
 
-/// Write the four HUD source files and record them in `pack.json`.
+/// Write the ten HUD source files and record them in `pack.json`.
 pub fn extract(
     vpk: &Vpk,
     out_dir: &Path,
@@ -42,6 +72,9 @@ pub fn extract(
     files: &mut Vec<String>,
 ) -> Result<()> {
     for (key, source, kind) in SOURCES {
+        if !allow::is_hud_source_allowed(source) {
+            return Err(Error::PathNotAllowed(source.to_owned()));
+        }
         let Some(entry) = vpk.entry(source) else {
             continue;
         };

@@ -21,6 +21,7 @@ mod panorama;
 mod png_out;
 mod resource;
 mod steam;
+mod topbar;
 mod vpk;
 mod vtex;
 
@@ -133,6 +134,7 @@ pub fn extract(game_dir: &Path, out_dir: &Path) -> Result<ExtractReport> {
     pack.geometry_hash = entities.geometry_hash;
 
     icons::extract(&vpk, out_dir, &mut pack, &mut files)?;
+    topbar::extract(&vpk, out_dir, &mut pack, &mut files)?;
     hud::extract(&vpk, out_dir, &mut pack, &mut files)?;
 
     pack.sort_sources();
@@ -212,6 +214,19 @@ fn extract_heroes(
             files.push(file);
         }
 
+        if hero.is_playable()
+            && let Some(entry_path) = hero.topbar_entry.clone()
+        {
+            hero.topbar_blob = topbar::export_hero_portrait(
+                vpk,
+                out_dir,
+                hero.hero_id,
+                &entry_path,
+                pack,
+                files,
+            )?;
+        }
+
         output.push(Hero {
             hero_id: hero.hero_id,
             class_name: hero.class_name,
@@ -219,6 +234,7 @@ fn extract_heroes(
             dev_state: hero.dev_state,
             disabled: hero.disabled,
             minimap_blob: hero.minimap_blob,
+            topbar_blob: hero.topbar_blob,
         });
     }
 

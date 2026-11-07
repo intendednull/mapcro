@@ -15,6 +15,8 @@ pub struct Hero {
     pub disabled: bool,
     pub minimap_entry: Option<String>,
     pub minimap_blob: Option<String>,
+    pub topbar_entry: Option<String>,
+    pub topbar_blob: Option<String>,
 }
 
 impl Hero {
@@ -66,7 +68,11 @@ pub fn parse(root: &Value, names: &BTreeMap<String, String>) -> Result<Vec<Hero>
 
         let minimap_entry = record_field(record, "m_strMinimapImage")
             .and_then(Value::as_str)
-            .and_then(minimap_entry);
+            .and_then(portrait_entry);
+
+        let topbar_entry = record_field(record, "m_strTopBarVertical")
+            .and_then(Value::as_str)
+            .and_then(portrait_entry);
 
         let name = names.get(&format!("{class_name}:n")).cloned();
 
@@ -78,6 +84,8 @@ pub fn parse(root: &Value, names: &BTreeMap<String, String>) -> Result<Vec<Hero>
             disabled,
             minimap_entry,
             minimap_blob: None,
+            topbar_entry,
+            topbar_blob: None,
         });
     }
 
@@ -92,9 +100,10 @@ fn record_field<'a>(record: &'a [(String, Value)], key: &str) -> Option<&'a Valu
         .map(|(_, value)| value)
 }
 
-/// Turn a `m_strMinimapImage` value such as `file://{images}/heroes/inferno_mm.psd` into the VPK
-/// entry `panorama/images/heroes/inferno_mm_psd.vtex_c`.
-fn minimap_entry(raw: &str) -> Option<String> {
+/// Turn a `m_strMinimapImage` / `m_strTopBarVertical` value such as
+/// `file://{images}/heroes/inferno_mm.psd` into the VPK entry
+/// `panorama/images/heroes/inferno_mm_psd.vtex_c`.
+fn portrait_entry(raw: &str) -> Option<String> {
     let raw = raw.trim().trim_matches('"');
     let raw = raw.strip_prefix("panorama:").unwrap_or(raw);
     let relative = raw
@@ -114,17 +123,21 @@ fn minimap_entry(raw: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::minimap_entry;
+    use super::portrait_entry;
 
     #[test]
-    fn minimap_paths_become_vpk_entries() {
+    fn portrait_paths_become_vpk_entries() {
         assert_eq!(
-            minimap_entry("file://{images}/heroes/inferno_mm.psd").as_deref(),
+            portrait_entry("file://{images}/heroes/inferno_mm.psd").as_deref(),
             Some("panorama/images/heroes/inferno_mm_psd.vtex_c")
         );
         assert_eq!(
-            minimap_entry("panorama:\"file://{images}/heroes/hornet_mm.psd\"").as_deref(),
+            portrait_entry("panorama:\"file://{images}/heroes/hornet_mm.psd\"").as_deref(),
             Some("panorama/images/heroes/hornet_mm_psd.vtex_c")
+        );
+        assert_eq!(
+            portrait_entry("panorama:\"file://{images}/heroes/inferno_vertical.psd\"").as_deref(),
+            Some("panorama/images/heroes/inferno_vertical_psd.vtex_c")
         );
     }
 }

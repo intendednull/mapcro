@@ -7,10 +7,15 @@ use std::path::Path;
 
 use mapcro_extract::{Error, GameDir, SteamInfo, Vpk, decode_vtex, extract, write_png};
 use support::{
-    FixtureEntry, T, build_fixture, build_vtex, encode_kv3, known_pixels, kv3_resource, read_png,
+    FixtureEntry, T, build_fixture, build_vtex, encode_kv3, known_pixels, kv3_resource,
+    panorama_resource, read_png,
 };
 
 const HERO: &str = "panorama/images/heroes/test_mm_psd.vtex_c";
+const HERO_TOPBAR: &str = "panorama/images/heroes/test_vertical_psd.vtex_c";
+const TOPBAR_MASK: &str = "panorama/images/hero_badges/hero_image_mask_psd.vtex_c";
+const TOPBAR_SVG: &str = "panorama/images/hud/top_bar/icon_ultimate.vsvg_c";
+const HUD_STYLE: &str = "panorama/styles/hero_badge.vcss_c";
 const MID: &str = "panorama/images/minimap/base/minimap_midtown_mid_psd.vtex_c";
 const MID_TUNNELS: &str = "panorama/images/minimap/base/minimap_midtown_mid_tunnels_psd.vtex_c";
 const RAT_TUNNELS: &str = "panorama/images/minimap/base/minimap_midtown_rat_tunnels_psd.vtex_c";
@@ -38,6 +43,10 @@ fn hero_tree() -> T {
                 (
                     "m_strMinimapImage",
                     T::Str("file://{images}/heroes/test_mm.psd".into()),
+                ),
+                (
+                    "m_strTopBarVertical",
+                    T::Str("file://{images}/heroes/test_vertical.psd".into()),
                 ),
             ]),
         ),
@@ -122,6 +131,10 @@ fn extraction_entries() -> Vec<FixtureEntry> {
         FixtureEntry::new(MID_TUNNELS, build_vtex(4, 2, 28, &bgra)),
         FixtureEntry::new(RAT_TUNNELS, build_vtex(4, 2, 28, &bgra)),
         FixtureEntry::new(HERO, build_vtex(4, 2, 28, &bgra)),
+        FixtureEntry::new(HERO_TOPBAR, build_vtex(2, 2, 28, &bgra)),
+        FixtureEntry::new(TOPBAR_MASK, build_vtex(2, 2, 28, &bgra)),
+        FixtureEntry::new(TOPBAR_SVG, panorama_resource(b"<svg></svg>", 2)),
+        FixtureEntry::new(HUD_STYLE, panorama_resource(b"@define X: #fff;", 3)),
         FixtureEntry::new(HEROES, kv3_resource(&encode_kv3(&hero_tree(), 0))),
         FixtureEntry::new(
             HERO_NAMES,
@@ -291,15 +304,19 @@ fn extract_writes_pack_and_blobs() {
     let out = tempfile::tempdir().expect("out dir");
 
     let report = extract(&fixture.game, out.path()).expect("extract");
-    assert_eq!(report.files.len(), 7);
-    assert_eq!(report.blobs, 7);
-    assert_eq!(report.sources, 7);
+    assert_eq!(report.files.len(), 11);
+    assert_eq!(report.blobs, 10);
+    assert_eq!(report.sources, 11);
 
     for file in [
         "map/minimap_midtown_mid.png",
         "map/minimap_midtown_mid_tunnels.png",
         "map/minimap_midtown_rat_tunnels.png",
         "heroes/7.png",
+        "topbar/heroes/7.png",
+        "topbar/hero_image_mask_psd.png",
+        "topbar/icon_ultimate.svg",
+        "hud/hero_badge.vcss",
         "icons/base/minimap_midtown_mid_psd.png",
         "icons/base/minimap_midtown_mid_tunnels_psd.png",
         "icons/base/minimap_midtown_rat_tunnels_psd.png",
@@ -310,13 +327,13 @@ fn extract_writes_pack_and_blobs() {
     let pack: serde_json::Value =
         serde_json::from_slice(&std::fs::read(out.path().join("pack.json")).expect("read pack"))
             .expect("parse pack");
-    assert_eq!(pack["schema"].as_u64(), Some(2));
+    assert_eq!(pack["schema"].as_u64(), Some(3));
     assert_eq!(pack["extractor"]["name"].as_str(), Some("mapcro-extract"));
     assert_eq!(pack["game"]["client_version"].as_u64(), Some(1234));
     assert_eq!(pack["game"]["source_revision"].as_u64(), Some(5678));
     assert_eq!(pack["game"]["date"].as_str(), Some("Jan 02 2030"));
-    assert_eq!(pack["sources"].as_array().expect("sources").len(), 7);
-    assert_eq!(pack["blobs"].as_object().expect("blobs").len(), 7);
+    assert_eq!(pack["sources"].as_array().expect("sources").len(), 11);
+    assert_eq!(pack["blobs"].as_object().expect("blobs").len(), 10);
 
     let heroes = pack["heroes"].as_array().expect("heroes");
     assert_eq!(heroes.len(), 1);
@@ -326,6 +343,7 @@ fn extract_writes_pack_and_blobs() {
     assert_eq!(heroes[0]["dev_state"].as_str(), Some("EHeroDevState_Release"));
     assert_eq!(heroes[0]["disabled"].as_bool(), Some(false));
     assert_eq!(heroes[0]["minimap_blob"].as_str(), Some("heroes/7"));
+    assert_eq!(heroes[0]["topbar_blob"].as_str(), Some("topbar/heroes/7"));
 
     let entities = pack["entities"].as_array().expect("entities");
     assert_eq!(entities.len(), 2);
@@ -348,7 +366,11 @@ fn extract_writes_pack_and_blobs() {
     );
     assert_eq!(
         pack["hud_sources"].as_array().expect("hud_sources").len(),
-        0
+        1
+    );
+    assert_eq!(
+        pack["hud_sources"][0]["key"].as_str(),
+        Some("hud/hero_badge.vcss")
     );
 }
 
@@ -378,7 +400,23 @@ fn real_install() {
     assert!(pack["heroes"].as_array().expect("heroes").len() > 40);
     assert!(pack["entities"].as_array().expect("entities").len() > 100);
     assert!(pack["icons"].as_array().expect("icons").len() > 50);
-    assert_eq!(pack["hud_sources"].as_array().expect("hud").len(), 4);
+    assert_eq!(pack["hud_sources"].as_array().expect("hud").len(), 10);
+
+    let topbar_blobs = pack["heroes"]
+        .as_array()
+        .expect("heroes")
+        .iter()
+        .filter(|hero| hero["topbar_blob"].is_string())
+        .count();
+    assert_eq!(topbar_blobs, 44, "expected 44 hero top-bar portraits");
+
+    let fixed_topbar = pack["blobs"]
+        .as_object()
+        .expect("blobs")
+        .keys()
+        .filter(|key| key.starts_with("topbar/") && !key.starts_with("topbar/heroes/"))
+        .count();
+    assert_eq!(fixed_topbar, 10, "expected 10 fixed top-bar images");
 
     eprintln!(
         "real install: {} files, {} sources, {} blobs, pack at {}",

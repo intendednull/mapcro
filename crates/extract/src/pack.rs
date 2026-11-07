@@ -8,7 +8,7 @@ use crate::Result;
 use crate::steam::SteamInfo;
 
 /// Manifest schema version.
-pub const SCHEMA: u32 = 2;
+pub const SCHEMA: u32 = 3;
 
 #[derive(Debug, Serialize)]
 pub struct Pack {
@@ -68,6 +68,7 @@ pub struct Hero {
     pub dev_state: Option<String>,
     pub disabled: bool,
     pub minimap_blob: Option<String>,
+    pub topbar_blob: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

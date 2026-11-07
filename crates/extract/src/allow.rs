@@ -9,6 +9,57 @@ use std::path::{Path, PathBuf};
 
 use crate::{Error, Result};
 
+/// Exact VPK entries for the fixed top-bar art.
+pub const TOPBAR_FIXED: [&str; 10] = [
+    "panorama/images/hero_badges/hero_image_mask_psd.vtex_c",
+    "panorama/images/hud/top_bar/icon_ultimate.vsvg_c",
+    "panorama/images/hud/top_bar/icon_ultimate_off.vsvg_c",
+    "panorama/images/control_icons/lock_psd.vtex_c",
+    "panorama/images/hud/core/icon_team1_psd.vtex_c",
+    "panorama/images/hud/core/icon_team2_psd.vtex_c",
+    "panorama/images/masks/dust_01_psd.vtex_c",
+    "panorama/images/hud/healthbar/healthbar_backer_vert_border.vsvg_c",
+    "panorama/images/hud/healthbar/healthbar_backer_vert_mask.vsvg_c",
+    "panorama/images/hud/icons/skull.vsvg_c",
+];
+
+/// Exact VPK entries for the HUD source files.
+pub const HUD_SOURCES: [&str; 10] = [
+    "panorama/styles/hud_minimap.vcss_c",
+    "panorama/styles/hud.vcss_c",
+    "panorama/layout/hud_minimap.vxml_c",
+    "panorama/layout/hud.vxml_c",
+    "panorama/layout/citadel_hud_top_bar.vxml_c",
+    "panorama/layout/citadel_hud_top_bar_player.vxml_c",
+    "panorama/layout/citadel_hud_top_bar_team.vxml_c",
+    "panorama/styles/citadel_hud_top_bar.vcss_c",
+    "panorama/layout/hero_badge.vxml_c",
+    "panorama/styles/hero_badge.vcss_c",
+];
+
+/// Whether a VPK entry may be read for the top-bar art.
+///
+/// This is deliberately narrow: the ten fixed paths above, plus the
+/// `panorama/images/heroes/*_psd.vtex_c` hero-portrait pattern.
+pub fn is_topbar_entry_allowed(relative: &str) -> bool {
+    TOPBAR_FIXED.contains(&relative) || is_hero_portrait_entry(relative)
+}
+
+/// Whether a VPK entry may be read as a HUD source file.
+pub fn is_hud_source_allowed(relative: &str) -> bool {
+    HUD_SOURCES.contains(&relative)
+}
+
+fn is_hero_portrait_entry(relative: &str) -> bool {
+    let Some(rest) = relative.strip_prefix("panorama/images/heroes/") else {
+        return false;
+    };
+    let Some(stem) = rest.strip_suffix("_psd.vtex_c") else {
+        return false;
+    };
+    !stem.is_empty() && !stem.contains('/')
+}
+
 /// The game's `citadel` directory, restricted to the files the extractor needs.
 #[derive(Clone, Debug)]
 pub struct GameDir {
@@ -92,4 +143,42 @@ fn relative_path(relative: &str) -> Result<PathBuf> {
         path.push(part);
     }
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn topbar_allow_list_is_narrow() {
+        for path in TOPBAR_FIXED {
+            assert!(is_topbar_entry_allowed(path), "{path}");
+        }
+        assert!(is_topbar_entry_allowed(
+            "panorama/images/heroes/inferno_vertical_psd.vtex_c"
+        ));
+        assert!(is_topbar_entry_allowed(
+            "panorama/images/heroes/inferno_mm_psd.vtex_c"
+        ));
+
+        assert!(!is_topbar_entry_allowed(
+            "panorama/images/heroes/../evil_psd.vtex_c"
+        ));
+        assert!(!is_topbar_entry_allowed(
+            "panorama/images/heroes/sub/inferno_vertical_psd.vtex_c"
+        ));
+        assert!(!is_topbar_entry_allowed(
+            "panorama/images/minimap/ammo_box_psd.vtex_c"
+        ));
+        assert!(!is_topbar_entry_allowed("panorama/images/heroes/empty_psd.vtex_c/../x"));
+    }
+
+    #[test]
+    fn hud_source_allow_list_is_exact() {
+        for path in HUD_SOURCES {
+            assert!(is_hud_source_allowed(path), "{path}");
+        }
+        assert!(!is_hud_source_allowed("panorama/styles/other.vcss_c"));
+        assert!(!is_hud_source_allowed("panorama/styles/hud.vcss"));
+    }
 }
