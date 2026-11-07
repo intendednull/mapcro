@@ -1,0 +1,21 @@
+# Game assets extracted from a local install. Valve's files never enter this repo.
+/assets/
+/asset-packs/
+*.vpk
+*.vtex_c
+extracted/
+
+# Toolchains and builds
+node_modules/
+dist/
+target/
+result
+result-*
+.direnv/
+
+# Local state
+*.sqlite
+*.sqlite-*
+*.db
+.env
+.env.*
