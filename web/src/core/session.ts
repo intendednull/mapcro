@@ -45,6 +45,23 @@ export interface SessionOptions {
 
 const FINAL: CloseReason[] = ["unauthorized", "revoked"];
 
+/**
+ * Reconnect resend pacing. The server allows a burst of 300 frames per socket, then 60/s
+ * (crates/server/src/ws.rs), and closes a faster sender as abuse. Pending work after a long
+ * offline stretch can exceed that, so the first RESEND_BURST go at once and the rest at
+ * RESEND_PER_SEC, which leaves room for presence (at most 20/s) under the steady rate
+ * (soak 2026-11-07, long-offline-abuse).
+ */
+const RESEND_BURST = 200;
+const RESEND_PER_SEC = 30;
+
+/** Where a link's role is remembered, per board and per link (one device may hold several). */
+async function roleKey(board: string, token: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)));
+  const hex = Array.from(digest.slice(0, 8), (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${board}\u0000role\u0000${hex}`;
+}
+
 export class BoardSession {
   readonly records = new Map<RecordId, Entry>();
   status: SaveStatus = { kind: "saved" };
@@ -65,8 +82,13 @@ export class BoardSession {
   private presenceSentAt = 0;
 
   private replica: BoardReplica | undefined;
-  /** Set from the link's role on Ready. */
-  private readOnly = false;
+  /**
+   * Whether this link may edit. Read-only until the role is known: remembered from an earlier
+   * Ready on this device, or learned from this one. A restored view replica that accepted an edit
+   * before Ready would resend it forever (soak 2026-11-07, view-edit-before-ready).
+   */
+  private readOnly = true;
+  private roleStore: string | undefined;
   private socket: SocketLike | undefined;
   private live = false;
   private attempt = 0;
@@ -84,6 +106,9 @@ export class BoardSession {
       this.replica = BoardReplica.restore(saved);
       this.resetRecords(this.replica.view());
     }
+    this.roleStore = await roleKey(this.o.board, this.o.token);
+    const role = await this.o.persist.load(this.roleStore);
+    this.readOnly = role !== "owner" && role !== "edit";
     this.open();
   }
 
@@ -213,12 +238,18 @@ export class BoardSession {
         // this on the chain, so frames still leave in cseq order.
         const sock = this.socket;
         const state = this.replica.state();
+        const role = frame.role;
         this.chain = this.chain
           .then(() => this.o.persist.save(this.o.board, state))
-          .then(() => {
-            if (sock !== this.socket) return;
-            for (const f of u.frames) this.send(f);
-            this.send({ t: "presence", state: this.presence });
+          .then(() => (this.roleStore ? this.o.persist.save(this.roleStore, role) : undefined))
+          .then(async () => {
+            for (let i = 0; i < u.frames.length; i++) {
+              if (sock !== this.socket) return;
+              if (i >= RESEND_BURST) await new Promise((r) => setTimeout(r, 1000 / RESEND_PER_SEC));
+              if (sock !== this.socket) return;
+              this.send(u.frames[i]!);
+              if (i === 0) this.send({ t: "presence", state: this.presence });
+            }
           })
           .catch((e) => {
             this.problems.push(`could not save locally, reconnecting: ${e}`);
