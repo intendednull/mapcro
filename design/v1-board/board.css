@@ -590,7 +590,7 @@ kbd {
 .map .flip:hover circle { stroke: var(--text); }
 
 /* Cursors and hover states: each action announces itself before you press. */
-.map .terrain, .map .block, .map .lane, .map .path { cursor: crosshair; }   /* drag on empty map: arrow; double-click: callout */
+.map .terrain, .map .block, .map .lane, .map .path, .map .art-fo { cursor: default; }   /* Move: drag empty map to pan */
 .map .tok { cursor: grab; }
 .map .tok:active { cursor: grabbing; }
 .map .tok .body { transition: stroke 120ms; }
@@ -602,7 +602,7 @@ kbd {
 .map .co:hover rect { stroke: var(--text); }
 .map.readonly .tok, .map.readonly .objs > *, .map.readonly .terrain, .map.readonly .co { cursor: default; }
 
-.map .tok .rim { fill: none; stroke: var(--text); stroke-width: 6; opacity: 0.28; cursor: crosshair; }
+.map .tok .rim { fill: none; stroke: var(--text); stroke-width: 6; opacity: 0.28; }
 .map .tok .nub circle { fill: var(--text); stroke: #0b1714; stroke-width: 2; }
 .map .tok .nub path { fill: none; stroke: #0b1714; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .map .tok.hover .body { stroke: var(--text); }
@@ -675,3 +675,109 @@ kbd {
 .ph-art::after { content: var(--art-label, ""); }
 .ph-schem { display: var(--schem-display, inline); }
 .ph-badge:has(.ph-art) { border-style: dashed; }
+
+
+/* ---------- Tools (operator, 2026-11-06): a compact picker chooses the gesture ---------- */
+.toolbar { width: 640px; margin-top: 8px; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.tb {
+  position: relative; height: 34px;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 13px 0 9px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); color: var(--muted);
+  font-size: 12px; font-weight: 600;
+}
+.tb .ico { width: 16px; height: 16px; }
+.tb .k { position: absolute; top: 2px; right: 4px; font: 700 9px/1 var(--ui); font-style: normal; color: var(--faint); }
+.tb.on { background: var(--raised); color: var(--text); border-color: var(--brass); box-shadow: inset 0 -2px 0 var(--brass); }
+.tb.on .ico { stroke: var(--brass); }
+.tb.on .k { color: var(--brass); }
+.tb:hover { color: var(--text); }
+.tb.icon { padding: 0 8px; }
+.tb-sep { width: 1px; height: 22px; background: var(--line); margin: 0 6px; }
+.tb-hint { width: 640px; margin-top: 6px; text-align: center; font-size: 11.5px; color: var(--faint); }
+.tb-hint b { color: var(--muted); }
+
+/* A distinct cursor per tool. Move keeps the per-element cursors above. */
+.map[data-tool="draw"], .map[data-tool="draw"] * { cursor: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2228%22 height=%2228%22%3E%3Cpath d=%22M2 26l3-11L19 1l8 8-14 14z%22 fill=%22%23f4f1e8%22 stroke=%22%230b1714%22 stroke-width=%221.6%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E") 2 26, crosshair !important; }
+.map[data-tool="arrow"], .map[data-tool="arrow"] * { cursor: crosshair !important; }
+.map[data-tool="callout"], .map[data-tool="callout"] * { cursor: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2228%22 height=%2228%22%3E%3Cpath d=%22M2 2h22v15H11l-6 6v-6H2z%22 fill=%22%23f4f1e8%22 stroke=%22%230b1714%22 stroke-width=%221.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M13 6v7M9.5 9.5h7%22 stroke=%22%230b1714%22 stroke-width=%222%22 stroke-linecap=%22round%22/%3E%3C/svg%3E") 2 2, copy !important; }
+.map[data-tool="laser"], .map[data-tool="laser"] * { cursor: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2228%22 height=%2228%22%3E%3Ccircle cx=%2214%22 cy=%2214%22 r=%2211%22 fill=%22none%22 stroke=%22%23f08fb0%22 stroke-width=%222.5%22 opacity=%22.7%22/%3E%3Ccircle cx=%2214%22 cy=%2214%22 r=%224%22 fill=%22%23fff%22 stroke=%22%23f08fb0%22 stroke-width=%222%22/%3E%3C/svg%3E") 14 14, pointer !important; }
+.map[data-tool="erase"], .map[data-tool="erase"] * { cursor: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2228%22 height=%2228%22%3E%3Cg transform=%22rotate%28-35 14 14%29%22%3E%3Crect x=%228%22 y=%222%22 width=%2212%22 height=%2224%22 rx=%223%22 fill=%22%23f4f1e8%22 stroke=%22%230b1714%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M8 17h12%22 stroke=%22%230b1714%22 stroke-width=%221.6%22/%3E%3C/g%3E%3C/svg%3E") 6 24, not-allowed !important; }
+.map[data-tool="erase"] .ink:hover, .map[data-tool="erase"] .co:hover, .map[data-tool="erase"] .arw:hover { opacity: 0.4; }
+
+/* Freehand ink and the laser */
+.map .ink { fill: none; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; opacity: 0.92; }
+.map .ink.erasing { opacity: 0.35; stroke-dasharray: 3 9; }
+.map .laser path { fill: none; stroke: var(--c); stroke-linecap: round; filter: drop-shadow(0 0 6px var(--c)); }
+.map .laser .head { fill: #fff; stroke: var(--c); stroke-width: 4; filter: drop-shadow(0 0 10px var(--c)) drop-shadow(0 0 4px var(--c)); }
+.map .laser .cur text { font: 700 13px var(--ui); fill: #10201c; dominant-baseline: central; }
+.map .cg.laser-cg circle { fill: none; stroke: var(--p-juno); stroke-width: 2.5; }
+.map .cg.laser-cg circle + circle { fill: #fff; }
+
+/* Follow: binary, and always one click away */
+.follow-chip {
+  display: flex; align-items: center; gap: 9px;
+  height: 36px; padding: 0 5px 0 8px;
+  border-radius: 18px; border: 1px solid var(--line); background: var(--panel);
+  white-space: nowrap;
+}
+.follow-chip > .ico { width: 16px; height: 16px; stroke: var(--accent); }
+.follow-chip.on { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: color-mix(in srgb, var(--accent) 9%, var(--panel)); }
+.follow-chip b { font-weight: 650; }
+.follow-chip .where { color: var(--muted); }
+.follow-chip button.link { height: 26px; padding: 0 11px; border-radius: 13px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 12px; }
+.follow-chip .follow, .stop-toast .follow {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 28px; padding: 0 7px 0 11px; border-radius: 14px; border: 0;
+  background: var(--accent); color: #0b1d18; font-weight: 700; font-size: 12.5px;
+}
+.follow-chip .follow .ico { width: 15px; height: 15px; stroke: #0b1d18; }
+.follow-chip .follow kbd { color: #0b1d18; border-color: #0b1d1855; }
+.stop-toast {
+  position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 3;
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 7px 7px 14px; border-radius: 22px;
+  background: var(--raised); border: 1px solid var(--line); box-shadow: 0 10px 28px #000a;
+  white-space: nowrap; font-size: 12.5px;
+}
+.stop-toast > .ico { width: 16px; height: 16px; stroke: var(--muted); }
+.stop-toast .follow { padding: 0 12px; }
+
+/* Link tree in the share dialog */
+.link-row.child { padding-left: calc(var(--depth) * 22px); position: relative; }
+.link-row.child::before { content: ""; position: absolute; left: calc(var(--depth) * 22px - 14px); top: 0; height: 50%; width: 9px; border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.link-row.cut .lb b { text-decoration: line-through; text-decoration-color: var(--danger); }
+.link-row.cut { background: color-mix(in srgb, var(--danger) 5%, transparent); }
+.cutnote { font-size: 11px; color: #ffb9ab; margin-top: 2px; }
+.dialog { max-height: 880px; }
+
+/* Several presenters: follow anyone with edit rights */
+.person .nm { display: flex; flex-direction: column; line-height: 1.2; }
+.person .nm span { margin-left: 0; }
+.person .you-tag { font-weight: 400; font-size: 11px; }
+.person .nm .state { font-size: 11px; color: var(--muted); }
+.person .nm .state.following { color: var(--accent); }
+.person .nm .state.presenting { color: var(--p-coach); }
+.person .you-tag { color: var(--faint); }
+.pf-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 26px; padding: 0 10px; border-radius: 13px;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  background: transparent; color: var(--accent); font-size: 12px; font-weight: 650;
+}
+.pf-btn .ico { width: 13px; height: 13px; }
+.pf-btn.on { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.nofollow { font-size: 11px; color: var(--faint); }
+.follow-chip .chip-sep { width: 1px; height: 18px; background: var(--line); margin: 0 2px; }
+.follow-chip .also { font-size: 11.5px; color: var(--faint); }
+.follow-chip .switch {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 10px 0 4px; border-radius: 13px;
+  border: 1px solid var(--line); background: var(--bg-deep); color: var(--text); font-size: 12px;
+}
+
+/* Room for the tool picker under the map */
+.mapbox { width: 610px; height: 610px; }
+.stage-head, .toolbar, .tb-hint { width: 610px; }
+.stage { padding-top: calc(var(--space) * 1); }

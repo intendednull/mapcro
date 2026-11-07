@@ -8,7 +8,37 @@
     "concierge/artifacts/deadlock-coach/README.md, index.html, style.css (prototype; read for context only, nothing copied)"
   ],
   "game_assets": "None in committed files. Pages link ../_art/art.css, which is generated from the operator's local Deadlock install (build 6860) into design/_art/ (git-ignored, see design/_art/manifest.json). Without it the canvas drops the link and every page falls back to the original schematic map, glyphs and initial tokens.",
-  "network": "None. System font stacks only; pages use board.css, tweaks.css and the optional ../_art/art.css, all local.",
+  "network": "None. Pages use board.css, tweaks.css, the self-hosted fonts in design/fonts/ and the optional ../_art/art.css, all local.",
   "generator": "Written by a scratch Python generator outside the repo. The HTML here is the source of truth; edit it directly.",
-  "derived_data": "Objective positions and the schematic lane lines are placed from the map's entity origins through deadlock-api's transform (R=10752). Only coordinates are committed, never art."
+  "derived_data": "Objective positions and the schematic lane lines are placed from the map's entity origins through deadlock-api's transform (R=10752). Only coordinates are committed, never art.",
+  "fonts": {
+    "choice": "Federo (display: clocks, titles, wordmark) for its art-deco signage character; Atkinson Hyperlegible Next (UI) for legibility at small sizes. Both SIL OFL 1.1.",
+    "source_repo": "https://github.com/google/fonts",
+    "source_commit": "86aced91de05cd4f96a06838124cca45be337b2b",
+    "conversion": "Lossless TTF to WOFF2 with woff2_compress (nixpkgs#woff2). No subsetting or glyph changes.",
+    "files": [
+      {
+        "path": "design/fonts/federo/Federo-Regular.woff2",
+        "source_url": "https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/federo/Federo-Regular.ttf",
+        "source_sha256": "5284628c38309ec5046a6bf231e038eaf84c46df03602690607af56cac2b9bc7",
+        "sha256": "54448db8d998ad998db03cc41d97e7be98215ced38adfd2c7638929a18da1da1"
+      },
+      {
+        "path": "design/fonts/federo/OFL.txt",
+        "source_url": "https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/federo/OFL.txt",
+        "sha256": "e30f893523e50ebbe07acd783ae29c7d604e6208cae7646d993e8528ce13e35a"
+      },
+      {
+        "path": "design/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext-Variable.woff2",
+        "source_url": "https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/atkinsonhyperlegiblenext/AtkinsonHyperlegibleNext%5Bwght%5D.ttf",
+        "source_sha256": "5a455d1cfa099b601ab70751bb9673e8fe1854dc4500c80e1a220d0d75e31745",
+        "sha256": "a50b7dea39987eaf27775f1b2b66801dc46a3c735447e20381474d69f0456030"
+      },
+      {
+        "path": "design/fonts/atkinson-hyperlegible-next/OFL.txt",
+        "source_url": "https://raw.githubusercontent.com/google/fonts/86aced91de05cd4f96a06838124cca45be337b2b/ofl/atkinsonhyperlegiblenext/OFL.txt",
+        "sha256": "aca6a428580965d2297d1b718042dd427c2a9443ece3b0d02d758e161e0c4030"
+      }
+    ]
+  }
 }

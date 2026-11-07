@@ -2,11 +2,11 @@
   "version": 1,
   "title": "mapcro v1 board",
   "kind": "prototype",
-  "description": "First UI pass for mapcro, the shared Deadlock macro-coaching board: present a run of scenes and flip through them together. The map is the editor. The map art is an original schematic placeholder; a server's extracted map pack replaces it.",
+  "description": "First UI pass for mapcro, the shared Deadlock macro-coaching board: present a run of scenes and flip through them together. The map is the surface; a compact tool picker chooses the gesture. Real minimap art comes from the git-ignored design/_art/, with an original schematic fallback.",
   "artboards": [
     {
       "id": "board-presenting",
-      "title": "Board, desktop: presenting (3 following)",
+      "title": "Board, desktop: presenting, with ink and a live laser",
       "file": "board-presenting.html",
       "width": 1440,
       "height": 900,
@@ -22,7 +22,7 @@
     },
     {
       "id": "board-follower-drift",
-      "title": "Board, desktop: drifted out of follow",
+      "title": "Board, desktop: stopped following (panned)",
       "file": "board-follower-drift.html",
       "width": 1440,
       "height": 900,
@@ -30,8 +30,16 @@
     },
     {
       "id": "share-dialog",
-      "title": "Share dialog (owner only)",
+      "title": "Share dialog: owner, sees every link",
       "file": "share-dialog.html",
+      "width": 1440,
+      "height": 900,
+      "group": "Sharing and phone"
+    },
+    {
+      "id": "share-dialog-editor",
+      "title": "Share dialog: editor, own links",
+      "file": "share-dialog-editor.html",
       "width": 1440,
       "height": 900,
       "group": "Sharing and phone"
@@ -46,7 +54,7 @@
     },
     {
       "id": "gestures",
-      "title": "Map gestures: the map is the editor",
+      "title": "Tools and gestures",
       "file": "gestures.html",
       "width": 1000,
       "group": "Reference"
