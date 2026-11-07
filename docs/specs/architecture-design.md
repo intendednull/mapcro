@@ -162,7 +162,7 @@ presence   = other users' cursors and drag previews                   (ephemeral
      which the host keeps durably and appends on each `Effect::Logged`. Live entries
      wait behind the range in the outbox, so the client still hears rejections, then catch-up,
      then live traffic, the order `LIVE_AFTER_HELLO` and `REJECT_BEFORE_CATCHUP` model. The
-     outbox (4096 frames, 256 KiB) bounds only how far behind *live* traffic a client may fall before it is
+     outbox (4096 frames, 1 MiB) bounds only how far behind *live* traffic a client may fall before it is
      dropped. Before this, a board past 4096 ops dropped every fresh client (security review
      2026-11-07, H-A).
    Without this, an op applied between the reconnect and the `hello` reaches the client before its
@@ -304,14 +304,15 @@ at about 20 Hz; the server coalesces them per room and relays.
   Raising the cap opens it again. Lowering a cap below a stored board does the same to that board.
   When the open-room cap or the memory budget is reached, an idle room (nobody connected)
   unloads early to make way. If every room is in use, the join is refused with `busy` and the
-  client retries with backoff. A room's estimate (`Doc::approx_heap_bytes` plus a fixed base for
-  its tables and one outbox backlog) is taken at load and kept current as it's edited; an edit
+  client retries with backoff. A room's estimate (`Doc::approx_heap_bytes`, its tables, and its
+  current outbox backlog) is taken at load and kept current as it's edited; an edit
   that would take the server past the budget is refused as `ServerFull` while an idle room is
   asked to unload. The budget is calibrated with `MALLOC_ARENA_MAX=2`, which the module and the
   image set: glibc's default arenas measured ~1.5× the estimates resident, against ~1.3× with two.
   Broadcast frames are serialized once and shared by every peer's outbox, and each outbox is
-  capped at 4096 frames and 256 KiB, so a peer that stops reading is dropped before it pins
-  memory. On the host, systemd restarts a failed server with
+  capped at 4096 frames and 1 MiB (small frames meet the frame cap first), so a peer that stops
+  reading is dropped before it pins memory. Presence is skipped, not queued, for a peer more than
+  64 KiB behind. A room's weight counts its slowest peer's backlog as it stands. On the host, systemd restarts a failed server with
   exponential backoff (2 s doubling to 2 min) and gives up after 8 starts in 15 minutes, so a
   crash loop stops rather than spinning.
 

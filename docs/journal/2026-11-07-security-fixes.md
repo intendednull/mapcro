@@ -168,7 +168,7 @@ test checks the unit sets it.
 
 While measuring, one more hole: frames are shared between peers, but a peer that stops reading
 keeps every frame since then alive, up to 4096 of them at up to 64 KiB each. Outboxes are now
-capped at 256 KiB as well as 4096 frames.
+capped in bytes as well as frames (first at 256 KiB, which proved too tight; see below).
 
 ## The numbers, before and after
 
@@ -199,7 +199,8 @@ The worst case in that table is 180 MB, leaving 30% of 256M as headroom. The tar
   it's now 7 MB.
 - **Mutation runs:** compression off, codec tag ignored, quota counting JSON, the room keeping its
   history, catch-up reading from the wrong position, the budget always admitting, budget growth
-  unchecked, no idle nudge, no outbox byte cap. All nine failed their tests.
+  unchecked, no idle nudge, no outbox byte cap. All nine failed their tests, and the outbox
+  mutation was re-run against the rewritten slow-peer test.
 
 ## Exploits re-run, second round
 
@@ -208,9 +209,21 @@ The worst case in that table is 180 MB, leaving 30% of 256M as headroom. The tar
   board ends up with fewer entries than with the earlier build: 2000 to 2800, where that build
   managed 4983 under lighter load.
 
-That last one is open. The machine was shared and heavily loaded (load average 15 to 118), and
-results moved with the load. An old build managed 2777 in one run. A paired benchmark that waits
-for every acknowledgement found equal wall time for the old and new builds, with about 10% more
-server CPU per transaction on the new one. Bisecting points at the room-budget commit, but neither
-of its two likely causes changed the result when removed. It needs re-measuring on a quiet
-machine.
+That last one was two things. The first was a real bug, found while chasing it. The new
+256 KiB outbox byte cap was tighter than the 4096-frame cap for small frames (4096 frames of
+~200 B is ~800 KB). In a busy room, an honest writer that fell slightly behind was dropped as too
+slow, and the submits it had already sent were discarded with it. The long-history system test
+caught the same thing under load. The cap is now 1 MiB, so small frames meet the frame cap
+first, as before. Presence, which is per-peer and ephemeral, is skipped rather than queued for a
+peer more than 64 KiB behind, and a room's memory weight counts its slowest peer's actual backlog
+rather than a fixed worst case. The slow-peer test now shrinks its own receive buffer, so it
+reaches the cap in seconds even on a loaded machine.
+
+The second was the machine. Other agents' builds kept the load average between 15 and 118. A
+diagnostic run with every writer recording its acknowledgements showed all twelve still
+connected and nothing rejected. The server was simply behind, logging about 30 transactions a
+second with one fsync each. An old build managed 2777 in one such run. A paired benchmark that
+waits for every acknowledgement found the same wall time for old and new builds, with about 10%
+more server CPU per transaction on the new one (an extra serialization and the compression). So
+`catchup_tooslow`'s count measures disk contention here, not the code. Group commit (§9,
+promised, not built) is what would raise that ceiling.
