@@ -441,7 +441,7 @@ export class Peer {
         const all = scenes(s.records);
         const pick = all[Math.floor(ev.r[0]! * all.length)];
         this.scene = pick ? pick[0] : null;
-        s.setPresence({ scene: this.scene, view: { center: { x: 0, y: 0 }, zoom: 1000 + Math.floor(ev.r[1]! * 3000) } });
+        s.setPresence({ scene: this.scene, view: { center: { x: 0, y: 0 }, zoom: 1000 + Math.floor(ev.r[1]! * 3000), side: ev.r[1]! < 0.5 ? "Amber" : "Sapphire" } });
         return;
       }
       case "cursor":
