@@ -5,6 +5,8 @@
 // flight), reconnect with `hello(lastSeq)` + resend of pending work, and per-user undo.
 // Rejection is modelled too: re-creating a record someone else already restored is refused,
 // which is the state-dependent kind of rejection honest clients hit.
+// A fresh client (no stored copy, or storage cleared) may start from a snapshot of the board
+// rather than replay the log from the start (spec §5).
 // What it leaves out on purpose: game data, scenes, many records, presence, persistence.
 module sync {
   // Design switches, so the spec as first written and each fix can be checked side by side.
@@ -17,6 +19,13 @@ module sync {
   // REJECT_BEFORE_CATCHUP: a hello is answered with the client's outstanding rejections *before*
   //   the catch-up entries (engine finding 3: a lost rejection must not arrive after later acks).
   const REJECT_BEFORE_CATCHUP: bool
+  // SNAPSHOT_ON_JOIN: a fresh client starts from a snapshot of the server's board at some log
+  //   position k (the current one, or a slightly stale cached one) and says hello from k, rather
+  //   than replaying everything from 0. Off: k is always 0.
+  const SNAPSHOT_ON_JOIN: bool
+  // SNAPSHOT_SKEW: the seq the client is told its snapshot is at, minus where it really is.
+  //   0 is correct; 1 is the off-by-one the implementation must not make (the model catches it).
+  const SNAPSHOT_SKEW: int
 
   type ClientId = str
 
@@ -26,6 +35,7 @@ module sync {
   pure val VALUES: Set[int] = Set(1, 2)
   pure val MAX_TX = 3      // transactions (edits + undos) each client may create
   pure val MAX_DROPS = 1   // disconnects per client
+  pure val MAX_RELOADS = 1 // fresh reloads (storage cleared) per client
   pure val MAX_LOG = MAX_TX * 2   // upper bound on log length (2 clients); constant for Apalache
 
   // ---- Board: a single record that can be deleted and recreated.
@@ -65,6 +75,10 @@ module sync {
     connected: bool,
     drops: int,
     rejected: Set[int],        // cseqs the server refused
+    reloads: int,
+    // A fresh reload is a new identity in the real client (a new client id), so transactions
+    // below `epoch` were made by "someone else". Same id here keeps the state space small.
+    epoch: int,
   }
 
   // ---- Wire messages
@@ -92,7 +106,7 @@ module sync {
     board' = INIT_BOARD,
     cli' = CLIENTS.mapBy(_ => {
       confirmed: INIT_BOARD, lastSeq: 0, pending: List(), nextCseq: 0,
-      undoStack: List(), connected: true, drops: 0, rejected: Set(),
+      undoStack: List(), connected: true, drops: 0, rejected: Set(), reloads: 0, epoch: 0,
     }),
     up' = CLIENTS.mapBy(_ => List()),
     down' = CLIENTS.mapBy(_ => List()),
@@ -230,7 +244,7 @@ module sync {
       d.length() > 0,
       match d[0] {
         | DEntry(e) =>
-          val own = e.tx.client == c
+          val own = e.tx.client == c and e.tx.cseq >= s.epoch
           val acked = own and s.pending.length() > 0 and s.pending[0].cseq == e.tx.cseq
           all {
             cli' = cli.set(c, { ...s,
@@ -279,9 +293,32 @@ module sync {
     }
   }
 
+  // spec §5: a client with no stored copy (a new device, or one that cleared its storage) joins
+  // fresh. Only with no pending work: clearing storage with unsynced edits loses them, by the
+  // user's choice, which isn't the protocol's to prevent. Its old connection is gone. It starts
+  // from the server's board at log position k, taken atomically (the room holds the board), and
+  // says hello from there; entries after k come as catch-up, then live ones.
+  action freshReload(c: ClientId): bool = {
+    val s = cli.get(c)
+    nondet k = 0.to(MAX_LOG).oneOf()
+    all {
+      s.pending.length() == 0, s.reloads < MAX_RELOADS,
+      k <= log.length(), SNAPSHOT_ON_JOIN or k == 0,
+      cli' = cli.set(c, { ...s,
+        confirmed: applyTxs(INIT_BOARD, log.slice(0, k)),
+        lastSeq: k + SNAPSHOT_SKEW,
+        undoStack: List(), connected: true, reloads: s.reloads + 1, epoch: s.nextCseq,
+      }),
+      up' = up.set(c, List(Hello({ lastSeq: k + SNAPSHOT_SKEW, pendingFrom: s.nextCseq }))),
+      down' = down.set(c, List()),
+      live' = live.set(c, false),
+      log' = log, board' = board, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch,
+    }
+  }
+
   action step = {
     nondet c = CLIENTS.oneOf()
-    any { editSet(c), editDelete(c), editRecreate(c), undo(c), serverRecv(c), clientRecv(c), disconnect(c), reconnect(c) }
+    any { editSet(c), editDelete(c), editRecreate(c), undo(c), serverRecv(c), clientRecv(c), disconnect(c), reconnect(c), freshReload(c) }
   }
 
   // ---- Properties

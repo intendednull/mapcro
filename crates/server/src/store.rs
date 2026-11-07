@@ -365,7 +365,8 @@ impl Store {
         .await
     }
 
-    /// A board's base document as JSON, and the seq it's at.
+    /// A board's stored base document as JSON, and the seq it's at: what a fresh client starts
+    /// from when the board is too big to send as a snapshot (room.rs, `FreshBase::Stored`).
     pub async fn base_json(&self, board: String) -> Result<(String, u64), StoreError> {
         let reader = self.reader.clone();
         tokio::task::spawn_blocking(move || {

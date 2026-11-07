@@ -770,6 +770,14 @@ fn scene_of(r: &Replica) -> mapcro_schema::RecordId {
     r.view().iter_live().find(|(_, x)| matches!(x, Record::Scene(_))).map(|(id, _)| id).expect("scene")
 }
 
+/// A client that already holds a copy at `seq` (as a device that was here before would), so
+/// it gets catch-up from there rather than a snapshot.
+fn client_at(id: u128, doc: mapcro_schema::Doc, seq: u64) -> Client {
+    let mut c = Client::new(id);
+    c.replica = Some(Replica::new(ClientId(id), format!("secret-{id:032x}"), doc, seq));
+    c
+}
+
 async fn fresh_catch_up(port: u16, board: &str, token: &str, id: u128, upto: u64) -> Client {
     let mut f = Client::new(id);
     f.connect(port, board, token).await.expect("fresh client connects");
@@ -958,10 +966,17 @@ async fn storage_caps_refuse_new_boards_and_edits_clearly() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_fresh_client_catches_up_on_a_long_history() {
     // H-A: catch-up used to be queued whole into a 4096-deep outbox, so a board past ~4096 ops
-    // dropped every fresh client. It's streamed now, and live entries still follow it in order.
+    // dropped every client far behind. It's streamed now, from disk, and live entries still
+    // follow it in order. (A fresh client gets a snapshot instead; see
+    // `a_fresh_client_loads_the_board_not_its_history`.)
     let dir = tempfile::tempdir().expect("tempdir");
     let server = Server::start(dir.path(), None);
     let (board, owner) = server.create_board();
+    // A device that saw the board at the start, then went away.
+    let mut early = Client::new(0xd96);
+    early.connect(server.port, &board, &owner).await.expect("early");
+    let genesis = early.replica().confirmed().clone();
+    early.drop_connection();
     // 25 writers × 250 (inside each socket's burst allowance) = 6250 entries, five writers at a
     // time, each leaving when done so nobody has to keep up with the whole fill live.
     for wave in 0..5u128 {
@@ -985,19 +1000,30 @@ async fn a_fresh_client_catches_up_on_a_long_history() {
     while live.replica().last_seq() < total {
         live.pump_one().await.expect("catch-up");
     }
-    // A fresh device joins while edits keep landing.
-    let (port, b, o) = (server.port, board.clone(), owner.clone());
-    let fresh = tokio::spawn(async move { fresh_catch_up(port, &b, &o, 0xd98, total + 40).await });
+    // The early device comes back while edits keep landing: all 6250 entries, then live ones.
+    let (port, b, o, g) = (server.port, board.clone(), owner.clone(), genesis.clone());
+    let back = tokio::spawn(async move {
+        let mut c = client_at(0xd98, g, 0);
+        c.connect(port, &b, &o).await.expect("back");
+        while c.replica().last_seq() < total + 40 {
+            c.pump_one().await.expect("catch-up keeps the connection");
+        }
+        c
+    });
     assert!(edits_until_decided(&mut live, 40, move_op).await.is_empty());
-    let fresh = fresh.await.expect("fresh client");
-    assert_eq!(fresh.replica().last_seq(), total + 40);
-    assert_eq!(fresh.replica().confirmed(), live.replica().confirmed());
+    let back = back.await.expect("returning client");
+    assert_eq!(back.replica().last_seq(), total + 40);
+    assert_eq!(back.replica().confirmed(), live.replica().confirmed());
 
     // After a restart the room holds no history at all; catch-up comes from disk.
     live.drop_connection();
     let (d, port) = server.kill9();
     let server = Server::start(&d, Some(port));
-    let cold = fresh_catch_up(server.port, &board, &owner, 0xd97, total + 40).await;
+    let mut cold = client_at(0xd97, genesis, 0);
+    cold.connect(server.port, &board, &owner).await.expect("cold");
+    while cold.replica().last_seq() < total + 40 {
+        cold.pump_one().await.expect("catch-up from disk");
+    }
     assert_eq!(cold.replica().confirmed(), live.replica().confirmed());
 }
 
@@ -1145,10 +1171,12 @@ fn write_v3_database(path: &std::path::Path, board: &str, owner_hash: &str, base
     c.execute("INSERT INTO boards VALUES (?1, 0, ?2, 0)", rusqlite::params![board, doc]).expect("board");
     c.execute("INSERT INTO links (hash, board, role, label, created_at) VALUES (?1, ?2, 'owner', 'owner', 0)", rusqlite::params![owner_hash, board])
         .expect("link");
+    let t = c.unchecked_transaction().expect("transaction");
     for (i, tx) in log.iter().enumerate() {
         let json = serde_json::to_string(tx).expect("json");
-        c.execute("INSERT INTO ops VALUES (?1, ?2, ?3)", rusqlite::params![board, i as i64 + 1, json]).expect("op");
+        t.execute("INSERT INTO ops VALUES (?1, ?2, ?3)", rusqlite::params![board, i as i64 + 1, json]).expect("op");
     }
+    t.commit().expect("commit");
 }
 
 fn codecs(path: &std::path::Path) -> Vec<(String, i64)> {
@@ -1198,7 +1226,15 @@ async fn rows_from_before_compression_still_load() {
     let (d, port) = server.kill9();
     let server = Server::start(&d, Some(port));
     let mixed = fresh_catch_up(server.port, &board, &owner, 0x04d, 40).await;
-    assert_eq!(mixed.replica().confirmed(), a.replica().confirmed(), "mixed codecs load and catch up");
+    assert_eq!(mixed.replica().confirmed(), a.replica().confirmed(), "mixed codecs load");
+    // A device that had the board before any of it reads every row through catch-up: old JSON
+    // rows and new compressed ones.
+    let mut back = client_at(0x05d, base, 0);
+    back.connect(server.port, &board, &owner).await.expect("back");
+    while back.replica().last_seq() < 40 {
+        back.pump_one().await.expect("catch-up across codecs");
+    }
+    assert_eq!(back.replica().confirmed(), a.replica().confirmed(), "mixed codecs catch up");
 }
 
 fn rss_kb(server: &Server) -> u64 {
@@ -1423,4 +1459,132 @@ async fn a_silent_socket_is_closed_as_slow_not_unauthorized() {
         }
     };
     assert_eq!(closed, Some(WireOut::Closed { reason: CloseReason::TooSlow }));
+}
+
+// ---- fresh joins: a snapshot of the board, not its history ----
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fresh_client_loads_the_board_not_its_history() {
+    // A client with no copy used to replay the whole log (~0.7 ms an entry in the browser: 23 s
+    // for a 33k-entry board). Now Ready carries the board as it is, at the log position the room
+    // took it at, and the client catches up only what came after. The last entry before the join
+    // is a Create, which can't be applied twice: if the base and the catch-up disagreed by one,
+    // the client would either get it again (IdTaken, a protocol error) or claim to be ahead of the
+    // log (Fatal).
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mapcro.sqlite");
+    let mut n = 0u128;
+    let base = mapcro_schema::genesis(
+        || {
+            n += 1;
+            mapcro_schema::RecordId(0xf00 + n)
+        },
+        "Busy board",
+    );
+    // The history, built directly (a replica per edit would make this test slow, not the server).
+    let scene = base.iter_live().find(|(_, r)| matches!(r, Record::Scene(_))).map(|(id, _)| id).expect("scene");
+    let player = base.iter_live().find(|(_, r)| matches!(r, Record::PlayerState(_))).map(|(id, _)| id).expect("player");
+    const N: usize = 20_000;
+    let log: Vec<mapcro_schema::Tx> = (0..N)
+        .map(|i| {
+            let ops = if i + 1 == N {
+                let callout = mapcro_schema::Callout { scene, pos: WorldPos { x: 1, y: 2 }, text: "last".into() };
+                vec![Op::Create { id: mapcro_schema::RecordId(0xca11), record: Record::Callout(callout) }]
+            } else {
+                vec![Op::Set { id: player, value: FieldValue::PlayerPos(WorldPos { x: (i % 2000) as i32, y: 0 }) }]
+            };
+            mapcro_schema::Tx { client: ClientId(0xf01), cseq: i as u64, kind: mapcro_schema::TxKind::Edit, ops }
+        })
+        .collect();
+    let (board, owner) = ("BusyBoardBusyBoardBusy".to_owned(), "B".repeat(43));
+    write_v3_database(&path, &board, &sha256_hex(owner.as_bytes()), &base, &log);
+    let server = Server::start(dir.path(), None);
+
+    let started = Instant::now();
+    let mut fresh = Client::new(0xf02);
+    fresh.connect(server.port, &board, &owner).await.expect("fresh");
+    let base_seq = fresh.replica().last_seq();
+    assert!(base_seq > N as u64 - 10, "the base is the board now, not the start: seq {base_seq}");
+    // In sync: one more edit from someone else arrives as the next entry, and nothing else.
+    let mut other = Client::new(0xf03);
+    other.connect(server.port, &board, &owner).await.expect("other");
+    assert!(edits_until_decided(&mut other, 1, move_op).await.is_empty());
+    while fresh.replica().last_seq() < N as u64 + 1 {
+        fresh.pump_one().await.expect("a base and its catch-up meet exactly");
+    }
+    let received = fresh.replica().last_seq() - base_seq;
+    assert!(received < 10, "{received} entries after the base");
+    assert_eq!(fresh.replica().confirmed(), other.replica().confirmed());
+    assert!(started.elapsed() < Duration::from_secs(10), "joined and in sync in {:?}", started.elapsed());
+    eprintln!("fresh client on a {N}-entry board: base at {base_seq}, {received} entries after, in sync in {:?}", started.elapsed());
+    // Its own edits land normally.
+    assert!(edits_until_decided(&mut fresh, 3, move_op).await.is_empty());
+}
+
+/// A board whose history is `txs` transactions of five 512-point strokes each, written as a
+/// v3 database directly (quicker than through the server).
+fn inked_board(dir: &std::path::Path, txs: u32) -> (String, String, mapcro_schema::RecordId) {
+    let mut n = 0u128;
+    let base = mapcro_schema::genesis(
+        || {
+            n += 1;
+            mapcro_schema::RecordId(0xe00 + n)
+        },
+        "Inked board",
+    );
+    let scene = base.iter_live().find(|(_, r)| matches!(r, Record::Scene(_))).map(|(id, _)| id).expect("scene");
+    let log: Vec<mapcro_schema::Tx> = (0..txs)
+        .map(|i| mapcro_schema::Tx { client: ClientId(0xe01), cseq: i as u64, kind: mapcro_schema::TxKind::Edit, ops: stroke_ops(scene, i + 1, 5) })
+        .collect();
+    let (board, owner) = ("InkedBoardInkedBoardIn".to_owned(), "I".repeat(43));
+    write_v3_database(&dir.join("mapcro.sqlite"), &board, &sha256_hex(owner.as_bytes()), &base, &log);
+    (board, owner, scene)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_shared_snapshot_keeps_its_own_position() {
+    // Fresh joiners share the room's last snapshot while it's at most 256 entries old, so a
+    // burst of them on a big board costs one copy. A reused snapshot keeps the position it was
+    // taken at: a joiner after a few more edits gets it and catches up those edits. The last of
+    // them is a Create, which can't be applied twice.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (board, owner, scene) = inked_board(dir.path(), 90);
+    let server = Server::start(dir.path(), None);
+    let mut w = Client::new(0xe02);
+    w.connect(server.port, &board, &owner).await.expect("first joiner");
+    assert_eq!(w.replica().last_seq(), 90, "a fresh snapshot of the board now");
+    assert!(edits_until_decided(&mut w, 4, move_op).await.is_empty());
+    let callout = mapcro_schema::Callout { scene, pos: WorldPos { x: 3, y: 4 }, text: "new".into() };
+    let create = vec![Op::Create { id: mapcro_schema::RecordId(0xe0ca), record: Record::Callout(callout) }];
+    assert!(edits_until_decided(&mut w, 1, |_, _| create.clone()).await.is_empty());
+
+    let mut late = Client::new(0xe03);
+    late.connect(server.port, &board, &owner).await.expect("late");
+    assert_eq!(late.replica().last_seq(), 90, "the snapshot is reused, at its own position");
+    while late.replica().last_seq() < 95 {
+        late.pump_one().await.expect("catch-up from the snapshot's position");
+    }
+    assert_eq!(late.replica().confirmed(), w.replica().confirmed());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_board_too_big_for_one_frame_falls_back_to_catch_up() {
+    // A snapshot is one frame and costs its size several times over while it's sent, so a board
+    // over 8 MiB of JSON (here ~10 MB of ink) starts a fresh client from the stored base and
+    // pages the history instead, as before snapshots.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (board, owner, _) = inked_board(dir.path(), 160);
+    let server = Server::start(dir.path(), None);
+    let mut f = Client::new(0xe04);
+    f.connect(server.port, &board, &owner).await.expect("fresh");
+    assert_eq!(f.replica().last_seq(), 0, "the stored base, not a snapshot");
+    while f.replica().last_seq() < 160 {
+        f.pump_one().await.expect("paged catch-up");
+    }
+    let mut g = Client::new(0xe05);
+    g.connect(server.port, &board, &owner).await.expect("another");
+    while g.replica().last_seq() < 160 {
+        g.pump_one().await.expect("paged catch-up");
+    }
+    assert_eq!(f.replica().confirmed(), g.replica().confirmed());
 }

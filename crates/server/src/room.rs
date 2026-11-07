@@ -34,11 +34,21 @@ const REWEIGH_EVERY: u32 = 64;
 pub const IDLE_UNLOAD: std::time::Duration = std::time::Duration::from_secs(300);
 /// How long a load waits for an idle room it asked to unload.
 const EVICT_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+/// A fresh client's base may be this many entries behind the log; it catches up the rest. So a
+/// burst of joiners on a busy board shares one serialized snapshot.
+const SNAPSHOT_STALE_ENTRIES: u64 = 256;
+/// A board whose document is bigger than this as JSON isn't sent as a snapshot: a fresh client
+/// gets the stored base and catches up from the start, in pages. A snapshot is one frame, so
+/// it costs its size several times over while it's sent; the largest documents the schema
+/// allows (~64 MB of JSON) would not fit the memory budget that way.
+pub const SNAPSHOT_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 pub enum RoomCmd {
     Join {
         link_hash: String,
         role: LinkRole,
+        /// The client holds no copy: send it the board as it is now (spec §5, fresh join).
+        want_base: bool,
         reply: oneshot::Sender<Result<Joined, CloseReason>>,
     },
     Msg { conn: ConnId, msg: ClientMsg },
@@ -119,11 +129,21 @@ struct Room {
     flush_at: Option<tokio::time::Instant>,
     /// Asked to unload while empty.
     unload: bool,
+    /// The last snapshot handed to a fresh client: the log position it's at and the document as
+    /// JSON, or `None` if it was over `SNAPSHOT_MAX_BYTES`. Its size counts in the room's weight.
+    snapshot: Option<(u64, Option<Arc<str>>)>,
 }
 
-/// The base document isn't held here: a fresh client's comes straight from storage (ws.rs).
+/// Where a fresh client starts.
+pub enum FreshBase {
+    /// The board as it was at this log position, as JSON (spec §5, fresh join).
+    Snapshot(u64, Arc<str>),
+    /// The board is too big to send as one frame: the stored base, then catch-up from its seq.
+    Stored,
+}
+
 /// The counter is the outbox's queued bytes, which the socket task decrements as it sends.
-pub type Joined = (ConnId, mpsc::Receiver<Out>, Arc<AtomicUsize>);
+pub type Joined = (ConnId, mpsc::Receiver<Out>, Arc<AtomicUsize>, Option<FreshBase>);
 
 /// Sessions per room. Beyond this, joins are refused (security review M1).
 pub const MAX_SESSIONS: usize = 64;
@@ -295,6 +315,7 @@ impl Rooms {
             presence_dirty: Vec::new(),
             flush_at: None,
             unload: false,
+            snapshot: None,
         };
         let registry = self.clone();
         let sender = tx.clone();
@@ -319,11 +340,12 @@ impl Rooms {
         board: &str,
         link_hash: String,
         role: LinkRole,
+        want_base: bool,
     ) -> Result<(mpsc::Sender<RoomCmd>, Result<Joined, CloseReason>), RoomError> {
         for _ in 0..3 {
             let room = self.get(board).await?;
             let (reply, joined) = oneshot::channel();
-            let cmd = RoomCmd::Join { link_hash: link_hash.clone(), role, reply };
+            let cmd = RoomCmd::Join { link_hash: link_hash.clone(), role, want_base, reply };
             if room.send(cmd).await.is_ok()
                 && let Ok(j) = joined.await
             {
@@ -411,8 +433,8 @@ impl Room {
 
     async fn dispatch(&mut self, cmd: RoomCmd) -> Result<(), StoreError> {
         let result = match cmd {
-            RoomCmd::Join { link_hash, role, reply } => {
-                self.join(link_hash, role, reply);
+            RoomCmd::Join { link_hash, role, want_base, reply } => {
+                self.join(link_hash, role, want_base, reply);
                 Ok(())
             }
             RoomCmd::Msg { conn, msg } => self.message(conn, msg).await,
@@ -508,6 +530,7 @@ impl Room {
         &mut self,
         link_hash: String,
         role: LinkRole,
+        want_base: bool,
         reply: oneshot::Sender<Result<Joined, CloseReason>>,
     ) {
         let link_role = role;
@@ -533,8 +556,28 @@ impl Room {
         let queued = peer.queued.clone();
         self.peers.insert(conn, peer);
         self.occupancy.store(self.peers.len(), Ordering::Relaxed);
-        if reply.send(Ok((conn, rx, queued))).is_err() {
+        let base = want_base.then(|| self.base_snapshot());
+        if reply.send(Ok((conn, rx, queued, base))).is_err() {
             self.forget_peer(conn);
+        }
+    }
+
+    /// The board as a fresh client starts from: the document and the log position it's at,
+    /// taken together in this one step, so the client's hello (from that position) and its
+    /// catch-up meet exactly. Reuses the last snapshot, at the position it was taken at, while it's
+    /// at most `SNAPSHOT_STALE_ENTRIES` behind; the client catches up the difference.
+    fn base_snapshot(&mut self) -> FreshBase {
+        let len = self.authority.log_len();
+        let fresh_enough = matches!(&self.snapshot, Some((seq, _)) if len - *seq <= SNAPSHOT_STALE_ENTRIES);
+        if !fresh_enough {
+            let json = serde_json::to_string(self.authority.doc()).unwrap_or_default();
+            let doc = (json.len() <= SNAPSHOT_MAX_BYTES).then(|| Arc::<str>::from(json));
+            self.snapshot = Some((len, doc));
+            self.publish_weight();
+        }
+        match &self.snapshot {
+            Some((seq, Some(doc))) => FreshBase::Snapshot(*seq, doc.clone()),
+            _ => FreshBase::Stored,
         }
     }
 
@@ -618,7 +661,11 @@ impl Room {
     /// (live entries are shared, so that's about what all the outboxes hold together).
     fn publish_weight(&self) {
         let backlog = self.peers.values().map(|p| p.queued.load(Ordering::Relaxed)).max().unwrap_or(0);
-        self.weight.store(self.doc_weight + backlog, Ordering::Relaxed);
+        let snapshot = match &self.snapshot {
+            Some((_, Some(doc))) => doc.len(),
+            _ => 0,
+        };
+        self.weight.store(self.doc_weight + backlog + snapshot, Ordering::Relaxed);
     }
 
     fn close(&mut self, conn: ConnId, reason: CloseReason) {

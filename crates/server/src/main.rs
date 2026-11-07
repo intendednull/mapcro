@@ -28,6 +28,8 @@ pub struct AppState {
     /// Open WebSockets per client address key.
     pub sockets: Arc<std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, usize>>>,
     pub packs: Arc<packs::Packs>,
+    /// Bytes of fresh-join base frames being built and sent at once, in KiB (ws.rs).
+    pub base_sends: Arc<tokio::sync::Semaphore>,
 }
 
 fn header(name: &'static str, value: &'static str) -> SetResponseHeaderLayer<HeaderValue> {
@@ -94,6 +96,7 @@ async fn main() {
         store,
         limiter: Arc::new(api::CreateLimiter::default()),
         sockets: Arc::default(),
+        base_sends: Arc::new(tokio::sync::Semaphore::new(ws::BASE_SENDS_KIB)),
         config: Arc::new(config.clone()),
     };
 

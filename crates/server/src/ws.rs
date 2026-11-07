@@ -22,6 +22,9 @@ use tokio::time::{Instant, interval, timeout};
 pub const MAX_FRAME: usize = mapcro_schema::LIMITS.max_tx_bytes + 1024;
 /// A send that can't complete in this long means the client stopped reading.
 const SEND_TIMEOUT: Duration = Duration::from_secs(30);
+/// Fresh-join base frames being built and sent at once, server-wide, in KiB: 32 MiB. Each
+/// frame counts twice its size (the frame, and the socket's copy of it); joiners past it wait.
+pub const BASE_SENDS_KIB: usize = 32 * 1024;
 /// Catch-up is streamed in pages of about this many bytes, each read when the last is sent.
 const CATCH_UP_PAGE_BYTES: usize = 64 * 1024;
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -144,7 +147,7 @@ async fn session(app: AppState, mut socket: WebSocket) {
     };
 
     // 2. Join the room.
-    let (room, joined) = match app.rooms.join(&board, hash.clone(), link.role).await {
+    let (room, joined) = match app.rooms.join(&board, hash.clone(), link.role, known_seq.is_none()).await {
         Ok(j) => j,
         Err(crate::room::RoomError::Busy) => return send_closed(&mut socket, CloseReason::Busy).await,
         Err(e) => {
@@ -152,7 +155,7 @@ async fn session(app: AppState, mut socket: WebSocket) {
             return send_closed(&mut socket, CloseReason::StorageFailure).await;
         }
     };
-    let (conn, mut outbox, queued) = match joined {
+    let (conn, mut outbox, queued, base) = match joined {
         Ok(j) => j,
         Err(reason) => return send_closed(&mut socket, reason).await,
     };
@@ -166,19 +169,29 @@ async fn session(app: AppState, mut socket: WebSocket) {
             return send_closed(&mut socket, CloseReason::Revoked).await;
         }
     }
-    // A client with no copy gets the base document, read from storage as stored JSON and sent
-    // without parsing it (the room doesn't hold it).
-    let ready = if known_seq.is_none() {
-        match app.store.base_json(board.clone()).await {
-            Ok((doc, seq)) => Message::Text(crate::store::ready_frame(link.role, &doc, seq, conn.0).into()),
+    // A client with no copy gets the board as it is now, at the log position the room took it
+    // at (spec §5, fresh join). It says hello from there and catches up only what came after.
+    // A board too big for one frame sends the stored base instead, and catch-up from there.
+    let base = match base {
+        Some(crate::room::FreshBase::Snapshot(seq, doc)) => Some((doc, seq)),
+        Some(crate::room::FreshBase::Stored) => match app.store.base_json(board.clone()).await {
+            Ok((doc, seq)) => Some((doc.into(), seq)),
             Err(e) => {
                 tracing::error!(board, error = %e, "base document read failed");
                 let _ = room.send(RoomCmd::Leave { conn }).await;
                 return send_closed(&mut socket, CloseReason::StorageFailure).await;
             }
+        },
+        None => None,
+    };
+    let _permit; // held until the base frame is sent: base frames in flight are bounded
+    let ready = match base {
+        Some((doc, seq)) => {
+            let kib = (2 * doc.len() / 1024 + 1).min(BASE_SENDS_KIB) as u32;
+            _permit = app.base_sends.clone().acquire_many_owned(kib).await.ok();
+            Message::Text(crate::store::ready_frame(link.role, &doc, seq, conn.0).into())
         }
-    } else {
-        frame(&WireOut::Ready { role: link.role, base: None, peer: conn.0 })
+        None => frame(&WireOut::Ready { role: link.role, base: None, peer: conn.0 }),
     };
     if socket.send(ready).await.is_err() {
         let _ = room.send(RoomCmd::Leave { conn }).await;

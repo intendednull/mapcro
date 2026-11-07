@@ -49,6 +49,8 @@ pub struct Stats {
     pub disconnects: usize,
     pub server_restarts: usize,
     pub reloads: usize,
+    /// Clients that cleared their storage and joined again from a snapshot.
+    pub fresh_joins: usize,
     pub undo_fields_checked: usize,
 }
 
@@ -206,6 +208,9 @@ impl World {
         if self.rng.random_range(0..1000) < 5 {
             return self.reload(i);
         }
+        if self.rng.random_range(0..1000) < 3 {
+            return self.fresh_join(i);
+        }
         if self.rng.random_range(0..100) < config.fault_rate {
             if self.clients[i].conn.is_some() {
                 self.disconnect(i);
@@ -283,6 +288,31 @@ impl World {
         self.stats.reloads += 1;
         let name = self.clients[i].name.clone();
         self.log(format!("{name}: reload from persisted state"));
+        Ok(())
+    }
+
+    /// The tab clears its storage (only with nothing pending: clearing unsynced work loses it, by
+    /// the user's choice) and joins again as a new client, from a snapshot of the board, as the
+    /// server sends one (spec §5): the board at a log position the room took it at, the current
+    /// one or up to a few entries stale, and hello from there. Entries after it come as catch-up.
+    fn fresh_join(&mut self, i: usize) -> Result<(), String> {
+        let Driver::Replica { replica, .. } = &self.clients[i].driver else { return Ok(()) };
+        if replica.pending().next().is_some() {
+            return Ok(());
+        }
+        self.disconnect(i);
+        let len = self.authority.log_len();
+        let seq = len.saturating_sub(self.rng.random_range(0..=3));
+        let doc = if seq == len { self.authority.doc().clone() } else { self.oracle.at(seq).cloned().ok_or("no oracle state")? };
+        let id = ClientId(self.rng.random());
+        let secret = format!("{:032x}", self.rng.random::<u128>());
+        if let Driver::Replica { replica, .. } = &mut self.clients[i].driver {
+            **replica = Replica::new(id, secret, doc, seq);
+        }
+        self.stats.fresh_joins += 1;
+        let name = self.clients[i].name.clone();
+        self.log(format!("{name}: cleared storage; joins fresh from a snapshot at {seq} of {len}"));
+        self.reconnect(i);
         Ok(())
     }
 
