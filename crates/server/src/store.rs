@@ -43,12 +43,10 @@ fn db_size(c: &Connection) -> rusqlite::Result<u64> {
         .map(|n| n.max(0) as u64)
 }
 
-/// A board rebuilt from storage: its authority (document, clients, rejections; no log) and the
-/// base document fresh clients start from.
+/// A board rebuilt from storage: its authority (document, clients, rejections; no log, and no
+/// base document: fresh clients get that from storage too).
 pub struct LoadedBoard {
     pub authority: Authority,
-    pub base: Doc,
-    pub base_seq: u64,
 }
 
 /// A stored op decodes to at most this much JSON. Rows written since v4 are under
@@ -69,6 +67,13 @@ fn raw(v: ValueRef<'_>) -> rusqlite::Result<Vec<u8>> {
         ValueRef::Text(b) | ValueRef::Blob(b) => Ok(b.to_vec()),
         other => Err(rusqlite::Error::InvalidColumnType(0, "tx".into(), other.data_type())),
     }
+}
+
+/// The `Ready` frame for a client with no copy, around the stored base document's JSON. A test
+/// checks it equals what serde writes.
+pub fn ready_frame(role: LinkRole, doc_json: &str, seq: u64, peer: u64) -> String {
+    let role = serde_json::to_string(&role).unwrap_or_default();
+    format!(r#"{{"t":"ready","role":{role},"base":{{"doc":{doc_json},"seq":{seq}}},"peer":{peer}}}"#)
 }
 
 /// The `Entry` frame for a stored transaction, built around its JSON rather than by parsing
@@ -290,7 +295,7 @@ impl Store {
             let base = codec::decode(Codec::parse(&base_codec)?, &base, DOC_DECODE_LIMIT)?;
             let base: Doc = serde_json::from_slice(&base).map_err(corrupt)?;
             mapcro_schema::validate_doc(&base).map_err(|r| StoreError::Corrupt(format!("base document: {r}")))?;
-            let mut authority = Authority::with_quota(base.clone(), quota);
+            let mut authority = Authority::with_quota(base, quota);
             let mut stmt = c.prepare("SELECT seq, codec, tx FROM ops WHERE board = ?1 ORDER BY seq")?;
             let mut rows = stmt.query([&id])?;
             let mut expected = base_seq + 1;
@@ -341,9 +346,24 @@ impl Store {
                 let hash: [u8; 32] = hash.try_into().map_err(|_| StoreError::Corrupt("secret hash length".into()))?;
                 authority.replay_client(client, hash);
             }
-            Ok(Some(LoadedBoard { authority, base, base_seq: base_seq as u64 }))
+            Ok(Some(LoadedBoard { authority }))
         })
         .await
+    }
+
+    /// A board's base document as JSON, and the seq it's at.
+    pub async fn base_json(&self, board: String) -> Result<(String, u64), StoreError> {
+        let reader = self.reader.clone();
+        tokio::task::spawn_blocking(move || {
+            let c = reader.lock().map_err(|_| StoreError::Join)?;
+            let (doc, codec, seq) = c.query_row("SELECT base_doc, base_codec, base_seq FROM boards WHERE id = ?1", [&board], |r| {
+                Ok((raw(r.get_ref(0)?)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+            })?;
+            let json = codec::decode(Codec::parse(&codec)?, &doc, DOC_DECODE_LIMIT)?;
+            Ok((String::from_utf8(json).map_err(|e| StoreError::Corrupt(e.to_string()))?, seq as u64))
+        })
+        .await
+        .map_err(|_| StoreError::Join)?
     }
 
     /// Store log entry `seq`, already encoded (`codec::encode` of its JSON).
@@ -601,6 +621,22 @@ mod tests {
         assert_eq!(parent, None);
         // Opening again is a no-op.
         Store::open(&path).expect("idempotent");
+    }
+
+    #[test]
+    fn ready_frames_match_what_serde_writes() {
+        use mapcro_engine::wire::{Base, WireOut};
+        let mut n = 0;
+        let doc = mapcro_schema::genesis(
+            || {
+                n += 1;
+                mapcro_schema::RecordId(n)
+            },
+            "t",
+        );
+        let json = serde_json::to_string(&doc).expect("json");
+        let serde = serde_json::to_string(&WireOut::Ready { role: LinkRole::Edit, base: Some(Base { doc, seq: 0 }), peer: 9 }).expect("json");
+        assert_eq!(ready_frame(LinkRole::Edit, &json, 0, 9), serde);
     }
 
     #[test]

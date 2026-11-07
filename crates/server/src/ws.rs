@@ -140,7 +140,7 @@ async fn session(app: AppState, mut socket: WebSocket) {
     };
 
     // 2. Join the room.
-    let (room, joined) = match app.rooms.join(&board, hash.clone(), link.role, known_seq.is_none()).await {
+    let (room, joined) = match app.rooms.join(&board, hash.clone(), link.role).await {
         Ok(j) => j,
         Err(crate::room::RoomError::Busy) => return send_closed(&mut socket, CloseReason::Busy).await,
         Err(e) => {
@@ -148,7 +148,7 @@ async fn session(app: AppState, mut socket: WebSocket) {
             return send_closed(&mut socket, CloseReason::StorageFailure).await;
         }
     };
-    let (conn, mut outbox, base) = match joined {
+    let (conn, mut outbox) = match joined {
         Ok(j) => j,
         Err(reason) => return send_closed(&mut socket, reason).await,
     };
@@ -162,7 +162,21 @@ async fn session(app: AppState, mut socket: WebSocket) {
             return send_closed(&mut socket, CloseReason::Revoked).await;
         }
     }
-    if socket.send(frame(&WireOut::Ready { role: link.role, base, peer: conn.0 })).await.is_err() {
+    // A client with no copy gets the base document, read from storage as stored JSON and sent
+    // without parsing it (the room doesn't hold it).
+    let ready = if known_seq.is_none() {
+        match app.store.base_json(board.clone()).await {
+            Ok((doc, seq)) => Message::Text(crate::store::ready_frame(link.role, &doc, seq, conn.0).into()),
+            Err(e) => {
+                tracing::error!(board, error = %e, "base document read failed");
+                let _ = room.send(RoomCmd::Leave { conn }).await;
+                return send_closed(&mut socket, CloseReason::StorageFailure).await;
+            }
+        }
+    } else {
+        frame(&WireOut::Ready { role: link.role, base: None, peer: conn.0 })
+    };
+    if socket.send(ready).await.is_err() {
         let _ = room.send(RoomCmd::Leave { conn }).await;
         return;
     }

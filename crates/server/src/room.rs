@@ -4,7 +4,7 @@
 
 use crate::codec;
 use crate::store::{LoadCaps, Store, StoreError};
-use mapcro_engine::wire::{Base, CloseReason, LinkRole, PeerPresence, Presence, WireOut};
+use mapcro_engine::wire::{CloseReason, LinkRole, PeerPresence, Presence, WireOut};
 use mapcro_engine::{Authority, ClientMsg, ConnId, Effect, Outgoing, Quota, Role, ServerMsg};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -25,7 +25,6 @@ pub enum RoomCmd {
     Join {
         link_hash: String,
         role: LinkRole,
-        want_base: bool,
         reply: oneshot::Sender<Result<Joined, CloseReason>>,
     },
     Msg { conn: ConnId, msg: ClientMsg },
@@ -67,7 +66,6 @@ struct Room {
     id: String,
     store: Store,
     authority: Authority,
-    base: Base,
     peers: HashMap<ConnId, Peer>,
     /// `peers.len()`, published for the registry's eviction choice.
     occupancy: Arc<AtomicUsize>,
@@ -81,7 +79,8 @@ struct Room {
     unload: bool,
 }
 
-pub type Joined = (ConnId, mpsc::Receiver<Out>, Option<Base>);
+/// The base document isn't held here: a fresh client's comes straight from storage (ws.rs).
+pub type Joined = (ConnId, mpsc::Receiver<Out>);
 
 /// Sessions per room. Beyond this, joins are refused (security review M1).
 pub const MAX_SESSIONS: usize = 64;
@@ -193,7 +192,6 @@ impl Rooms {
             id: board.to_owned(),
             store: self.store.clone(),
             authority: stored.authority,
-            base: Base { doc: stored.base, seq: stored.base_seq },
             peers: HashMap::new(),
             occupancy: occupancy.clone(),
             next_conn: 0,
@@ -230,12 +228,11 @@ impl Rooms {
         board: &str,
         link_hash: String,
         role: LinkRole,
-        want_base: bool,
     ) -> Result<(mpsc::Sender<RoomCmd>, Result<Joined, CloseReason>), RoomError> {
         for _ in 0..3 {
             let room = self.get(board).await?;
             let (reply, joined) = oneshot::channel();
-            let cmd = RoomCmd::Join { link_hash: link_hash.clone(), role, want_base, reply };
+            let cmd = RoomCmd::Join { link_hash: link_hash.clone(), role, reply };
             if room.send(cmd).await.is_ok()
                 && let Ok(j) = joined.await
             {
@@ -323,8 +320,8 @@ impl Room {
 
     async fn dispatch(&mut self, cmd: RoomCmd) -> Result<(), StoreError> {
         let result = match cmd {
-            RoomCmd::Join { link_hash, role, want_base, reply } => {
-                self.join(link_hash, role, want_base, reply);
+            RoomCmd::Join { link_hash, role, reply } => {
+                self.join(link_hash, role, reply);
                 Ok(())
             }
             RoomCmd::Msg { conn, msg } => self.message(conn, msg).await,
@@ -417,7 +414,6 @@ impl Room {
         &mut self,
         link_hash: String,
         role: LinkRole,
-        want_base: bool,
         reply: oneshot::Sender<Result<Joined, CloseReason>>,
     ) {
         let link_role = role;
@@ -441,8 +437,7 @@ impl Room {
         }
         self.peers.insert(conn, Peer { link_hash, role: link_role, out, presence: None });
         self.occupancy.store(self.peers.len(), Ordering::Relaxed);
-        let base = want_base.then(|| self.base.clone());
-        if reply.send(Ok((conn, rx, base))).is_err() {
+        if reply.send(Ok((conn, rx))).is_err() {
             self.forget_peer(conn);
         }
     }
