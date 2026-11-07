@@ -24,7 +24,7 @@ function Fb(p: { shape: string; color: string; k: number }) {
   return <b class={`fb ${p.shape}`} style={{ "--c": p.color, "--k": String(p.k) }} />;
 }
 
-function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | undefined }) {
+function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | undefined; picked: boolean }) {
   const c = () => washFor(p.m, p.vp);
   const body = () => {
     const m = p.m;
@@ -57,7 +57,7 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
   };
   return (
     <div
-      class={cx("mk", p.m.kind, p.m.kind === "koth" && "koth", p.status === "Destroyed" && "down", p.status === "Hidden" && "gone")}
+      class={cx("mk", p.m.kind, p.m.kind === "koth" && "koth", p.status === "Destroyed" && "down", p.status === "Hidden" && "gone", p.picked && "picked")}
       data-status={p.status ?? "Active"}
       title={p.m.title}
       data-key={p.m.key}
@@ -135,6 +135,8 @@ export function MapView(p: {
   waveT?: (lane: string) => number | undefined;
   /** The lane being dragged: the map hides it while the board draws it above everything. */
   raisedLane?: string | undefined;
+  /** Objectives in your group selection. */
+  picked?: (key: string) => boolean;
 }) {
   useArtCss(() => p.art);
   let host!: HTMLDivElement;
@@ -190,6 +192,7 @@ export function MapView(p: {
                     vp={p.viewpoint}
                     // A rift is off unless someone turned it on; everything else is up unless destroyed.
                     status={m.kind === "koth" ? (p.status?.(m.key) === "Active" ? "Active" : "Destroyed") : p.status?.(m.key)}
+                    picked={!!p.picked?.(m.key)}
                   />
                 )}
               </For>

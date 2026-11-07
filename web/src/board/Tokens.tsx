@@ -67,6 +67,8 @@ export function Tokens(p: {
   svg: () => SVGSVGElement | undefined;
   selection: () => Set<RecordId>;
   setSelection: (s: Set<RecordId>) => void;
+  /** A press on a hero ends an objective group selection. */
+  onPress?: () => void;
 }) {
   const [drag, setDrag] = createSignal<Drag | undefined>();
   const slots = createMemo(() => new Map(p.state.roster().map((s) => [s.id, s.slot])));
@@ -106,6 +108,7 @@ export function Tokens(p: {
     if (!svg) return;
     e.preventDefault();
     e.stopPropagation();
+    p.onPress?.();
     const sel = p.selection();
     if (e.shiftKey) {
       // Shift-click adds a hero to the selection, or takes it out.

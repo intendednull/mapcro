@@ -36,3 +36,41 @@ describe("objective clicks", () => {
     expect(toggleOps(west, all, westOn, "s", mint)).toEqual([{ Set: { id: "r1", value: { ObjectiveStatus: "Destroyed" } } }]);
   });
 });
+
+import { groupToggleOps, marqueePick } from "../src/board/objectives";
+describe("objective groups", () => {
+  const camps = [1, 2, 3].map((i) => ({ kind: "camp" as const, key: `camp:neutral:lane0:${i}` }));
+  const keys = (ops: ReturnType<typeof groupToggleOps>) =>
+    ops.map((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState.key, o.Create.record.ObjectiveState.status] : "Set" in o && "ObjectiveStatus" in o.Set.value ? [o.Set.id, o.Set.value.ObjectiveStatus] : ["?"]));
+
+  it("a drag-select takes heroes if there are any inside, else every objective inside", () => {
+    const rect = { x0: 0, y0: 0, x1: 100, y1: 100 };
+    const objs = [{ key: "camp:a", at: { x: 10, y: 10 } }, { key: "camp:b", at: { x: 50, y: 50 } }, { key: "camp:c", at: { x: 500, y: 50 } }];
+    expect(marqueePick(rect, [{ id: "h1", at: { x: 20, y: 20 } }, { id: "h2", at: { x: 300, y: 1 } }], objs)).toEqual({ heroes: ["h1"], objectives: [] });
+    expect(marqueePick(rect, [{ id: "h2", at: { x: 300, y: 1 } }], objs)).toEqual({ heroes: [], objectives: ["camp:a", "camp:b"] });
+    expect(marqueePick(rect, [], [])).toEqual({ heroes: [], objectives: [] });
+  });
+
+  it("the clicked one sets the direction and the group ends uniform", () => {
+    // All alive: clicking one clears them all.
+    expect(keys(groupToggleOps(camps[0]!, camps, all, new Map(), "s", mint))).toEqual(camps.map((c) => [c.key, "Destroyed"]));
+    // Mixed, clicked one cleared: everything comes back; the ones already alive need no op.
+    const mixed: Current = new Map([[camps[0]!.key, { id: "c1", status: "Destroyed" }], [camps[2]!.key, { id: "c3", status: "Destroyed" }]]);
+    expect(keys(groupToggleOps(camps[0]!, camps, all, mixed, "s", mint))).toEqual([["c1", "Active"], ["c3", "Active"]]);
+    // Mixed, clicked one alive: everything is cleared.
+    expect(keys(groupToggleOps(camps[1]!, camps, all, mixed, "s", mint))).toEqual([[camps[1]!.key, "Destroyed"]]);
+  });
+
+  it("turning a group on lights one rift only: the clicked one, else the group's first", () => {
+    const group = [camps[0]!, west, east];
+    const allOff: Current = new Map([[camps[0]!.key, { id: "c1", status: "Destroyed" }]]);
+    expect(keys(groupToggleOps(east, group, all, allOff, "s", mint))).toEqual([["c1", "Active"], [east.key, "Active"]]);
+    expect(keys(groupToggleOps(camps[0]!, group, all, allOff, "s", mint))).toEqual([["c1", "Active"], [west.key, "Active"]]);
+    // A rift outside the group that is on goes off when one in the group comes on.
+    const eastOn: Current = new Map([...allOff, [east.key, { id: "r2", status: "Active" }]]);
+    expect(keys(groupToggleOps(camps[0]!, [camps[0]!, west], all, eastOn, "s", mint))).toEqual([["c1", "Active"], [west.key, "Active"], ["r2", "Destroyed"]]);
+    // Turning a group off turns its rifts off too.
+    const westOn: Current = new Map([[west.key, { id: "r1", status: "Active" }]]);
+    expect(keys(groupToggleOps(camps[0]!, group, all, westOn, "s", mint))).toEqual([[camps[0]!.key, "Destroyed"], ["r1", "Destroyed"]]);
+  });
+});

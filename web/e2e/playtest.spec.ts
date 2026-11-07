@@ -126,6 +126,8 @@ test.describe("on the fallback map", () => {
     expect(dy).toBeLessThan(-100);
     for (const [i, p] of after.entries()) expect(p.y - before[i]!.y).toBeCloseTo(dy, 0);
     await expect.poll(async () => Promise.all(amber.map((s) => tokenAt(b, s)))).toEqual(after);
+    // The group stays selected after the move, ready for another.
+    await expect(a.locator(".mapbox .tok.selected")).toHaveCount(6);
     await a.keyboard.press("Control+z");
     await expect.poll(async () => Promise.all(amber.map((s) => tokenAt(b, s)))).toEqual(before);
     // Esc clears the selection.

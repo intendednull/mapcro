@@ -236,3 +236,8 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .tb-score:has(.ie-input) { outline: calc(2 * var(--u)) solid var(--accent); outline-offset: calc(2 * var(--u)); }
 .tb-score.touched { outline: calc(2 * var(--u)) dashed #ffefd7aa; outline-offset: calc(2 * var(--u)); }
 .tb-tag { position: absolute; left: 50%; top: calc(100% + 4px); transform: translateX(-50%); z-index: 6; white-space: nowrap; padding: 1px 7px; border-radius: 4px; font: 700 11px var(--ui); color: #10201c; }
+
+/* Objectives selected as a group: the same dashed accent ring as selected heroes */
+.mk.picked::after { content: ""; position: absolute; inset: -14%; border-radius: 50%; border: calc(2 * var(--u, 1px)) dashed var(--accent); box-shadow: 0 0 calc(6 * var(--u, 1px)) color-mix(in srgb, var(--accent) 60%, transparent); pointer-events: none; }
+.mk.camp.picked::after { inset: -40%; }
+.mm-overlay.map .pick-ring { fill: none; stroke-width: 2; stroke-dasharray: 4 3; }

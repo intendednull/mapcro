@@ -236,10 +236,17 @@ export function Board(p: { board: string; token: string; art: Art }) {
   });
   // ---- Move: selected heroes, Space to pan, lane splits ----
   const [selection, setSelection] = createSignal<Set<RecordId>>(new Set());
+  // Objectives selected as a group, by key; others see whose (presence `picked`).
+  const [objSelection, setObjSelection] = createSignal<Set<string>>(new Set());
+  createEffect(() => state.presence({ picked: [...objSelection()] }));
   const [spaceHeld, setSpaceHeld] = createSignal(false);
+  // Selections belong to a scene: flipping clears them. (Keyed on the scene's id: the scene
+  // object itself is rebuilt on every edit, which once cleared the selection after each toggle.)
+  const sceneKey = createMemo(() => scene()?.id);
   createEffect(() => {
-    scene();
+    sceneKey();
     setSelection(new Set<RecordId>());
+    setObjSelection(new Set<string>());
   });
   onMount(() => {
     const typing = (e: KeyboardEvent) => {
@@ -248,7 +255,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
     };
     const kd = (e: KeyboardEvent) => {
       if (typing(e)) return;
-      if (e.key === "Escape") setSelection(new Set<RecordId>());
+      if (e.key === "Escape") {
+        setSelection(new Set<RecordId>());
+        setObjSelection(new Set<string>());
+      }
       if (e.code === "Space") {
         e.preventDefault();
         setSpaceHeld(true);
@@ -460,6 +470,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               status={(k) => objectives().get(k)?.status}
               waveT={splitOf}
               raisedLane={waveDrag()?.key}
+              picked={(k) => objSelection().has(k)}
               showHidden={state.canEdit()}
             >
               <Layers
@@ -481,6 +492,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 waveDrag={waveDrag}
                 setWaveDrag={setWaveDrag}
                 splitOf={splitOf}
+                objSelection={objSelection}
+                setObjSelection={setObjSelection}
                 compactCallouts={phone}
                 onPan={(dx, dy) => userView({ ...view(), x: view().x - dx, y: view().y - dy }, "panned the map")}
                 onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}

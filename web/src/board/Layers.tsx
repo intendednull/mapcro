@@ -24,7 +24,7 @@ import type { WorldPos } from "../gen/WorldPos";
 import { HUD_PX, type Marker, laneStroke } from "../map/model";
 import { pathOf, pointAt, project, splitAt } from "../map/lanes";
 import { LANE_GAP } from "../map/MapView";
-import { toggleOps } from "./objectives";
+import { groupToggleOps, marqueePick, toggleOps } from "./objectives";
 import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
@@ -77,6 +77,9 @@ export function Layers(p: {
   setWaveDrag: (w: { key: string; t: number; id: RecordId } | undefined) => void;
   /** Effective split per lane key (recorded, previewed, or the default). */
   splitOf: (key: string) => number;
+  /** Objectives selected as a group (Move, editors), by key. */
+  objSelection: () => Set<string>;
+  setObjSelection: (s: Set<string>) => void;
 }) {
   const st = p.state;
   const view = (w: WorldPos) => worldToView(w, p.vp);
@@ -106,6 +109,19 @@ export function Layers(p: {
   const [editing, setEditing] = createSignal<{ id: RecordId | undefined; pos: WorldPos; text: string }>();
   const [laser, setLaser] = createSignal<Timed[]>([]);
   const [box, setBox] = createSignal<{ a: Pt; b: Pt }>();
+  /** Others' objective selections (same scene): a ring on each, one name tag on the group. */
+  const othersPicks = createMemo(() =>
+    st.peerList().flatMap((peer) => {
+      const keys = new Set(peer.state?.picked ?? []);
+      if (!keys.size || peer.state?.scene !== p.scene) return [];
+      const at = p.art.model.markers
+        .filter((m) => keys.has(m.key))
+        .map((m) => ({ ...mapToView(m.at, p.vp), r: Math.max(14, m.px * HUD_PX * 0.3) * p.k }));
+      if (!at.length) return [];
+      const top = at.reduce((a, b) => (b.y < a.y ? b : a));
+      return [{ peer, at, tag: { x: top.x, y: top.y - top.r } }];
+    }),
+  );
   /** Others dragging a split that has no record yet: matched to a lane by where it is. */
   const remoteNew = createMemo(() => {
     const m = new Map<string, PeerPresence>();
@@ -180,6 +196,23 @@ export function Layers(p: {
     return best?.m;
   };
 
+  const clearObjects = () => {
+    if (p.objSelection().size) p.setObjSelection(new Set());
+  };
+  /** A click on an objective: the whole group if it's in your selection, else just it. */
+  const clickObjective = (m: Marker) => {
+    const scene = p.scene;
+    if (!scene) return;
+    const sel = p.objSelection();
+    if (sel.has(m.key)) {
+      const group = p.art.model.markers.filter((x) => sel.has(x.key));
+      const ops = groupToggleOps(m, group, p.art.model.markers, p.objectives(), scene, newRecordId);
+      if (ops.length) st.edit(ops); // one transaction: one undo puts the whole group back
+      return;
+    }
+    clearObjects();
+    toggleObjective(m);
+  };
   const toggleObjective = (m: Marker) => {
     const scene = p.scene;
     if (!scene) return;
@@ -229,7 +262,8 @@ export function Layers(p: {
         // A click (no drag) on the gap over an objective, like the mid boss on the mid lane's
         // centre, is a click on the objective.
         const m = travelled < 4 ? objectiveAt(start) : undefined;
-        if (m) return toggleObjective(m);
+        if (m) return clickObjective(m);
+        clearObjects();
         if (existing) {
           if (existing.t !== d.t) st.edit([{ Set: { id, value: { WavePos: d.t } } }]);
         } else st.edit([{ Create: { id, record: { Wave: { scene, lane: key, t: d.t } } } }]);
@@ -267,18 +301,31 @@ export function Layers(p: {
         setBox(undefined);
         if (!ok) return;
         if (!b || Math.hypot(pt.x - start.x, pt.y - start.y) < 4) {
-          if (!add) p.setSelection(new Set());
+          if (!add) {
+            p.setSelection(new Set());
+            p.setObjSelection(new Set());
+          }
           return;
         }
-        const [x0, x1] = [Math.min(b.a.x, b.b.x), Math.max(b.a.x, b.b.x)];
-        const [y0, y1] = [Math.min(b.a.y, b.b.y), Math.max(b.a.y, b.b.y)];
-        const next = new Set(base);
-        for (const pl of st.playersIn(p.scene)) {
-          if (!pl.state.placed) continue;
-          const v = view(pl.state.pos);
-          if (v.x >= x0 && v.x <= x1 && v.y >= y0 && v.y <= y1) next.add(pl.id);
+        const rect = { x0: Math.min(b.a.x, b.b.x), x1: Math.max(b.a.x, b.b.x), y0: Math.min(b.a.y, b.b.y), y1: Math.max(b.a.y, b.b.y) };
+        // Heroes inside win; with none inside, every objective inside is picked up.
+        const picked = marqueePick(
+          rect,
+          st.playersIn(p.scene).flatMap((pl) => (pl.state.placed ? [{ id: pl.id, at: view(pl.state.pos) }] : [])),
+          p.art.model.markers
+            .filter((m) => p.showHidden || p.objectives().get(m.key)?.status !== "Hidden")
+            .map((m) => ({ key: m.key, at: mapToView(m.at, p.vp) })),
+        );
+        if (picked.heroes.length) {
+          p.setObjSelection(new Set());
+          p.setSelection(new Set([...base, ...picked.heroes]));
+        } else if (picked.objectives.length) {
+          p.setSelection(new Set());
+          p.setObjSelection(new Set([...(add ? p.objSelection() : []), ...picked.objectives]));
+        } else if (!add) {
+          p.setSelection(new Set());
+          p.setObjSelection(new Set());
         }
-        p.setSelection(next);
       },
     );
   };
@@ -315,7 +362,7 @@ export function Layers(p: {
           e,
           () => {},
           (pt, ok) => {
-            if (ok && Math.hypot(pt.x - start.x, pt.y - start.y) < 8) toggleObjective(m);
+            if (ok && Math.hypot(pt.x - start.x, pt.y - start.y) < 8) clickObjective(m);
           },
         );
         return;
@@ -608,7 +655,15 @@ export function Layers(p: {
           />
         )}
       </Show>
-      <Tokens state={st} art={p.art} vp={p.vp} scene={p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} />
+      <Tokens state={st} art={p.art} vp={p.vp} scene={p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} onPress={clearObjects} />
+      <For each={othersPicks()}>
+        {(x) => (
+          <g class="picks" data-picks={x.peer.state!.name} style={{ "pointer-events": "none" }}>
+            <For each={x.at}>{(q) => <circle class="pick-ring" cx={q.x} cy={q.y} r={q.r} stroke={colorOf(x.peer.state!.color)} />}</For>
+            <NameTag at={x.tag} name={x.peer.state!.name} color={x.peer.state!.color} what={`${x.at.length} selected`} k={p.k} />
+          </g>
+        )}
+      </For>
       <g class="waves">
         <For each={p.art.model.lanes}>
           {(l) => {
