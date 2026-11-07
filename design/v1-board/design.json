@@ -45,6 +45,21 @@
       "group": "Sharing and phone"
     },
     {
+      "id": "clone-flow",
+      "title": "Clone to a new board (flow)",
+      "file": "clone-flow.html",
+      "width": 1440,
+      "group": "Sharing and phone"
+    },
+    {
+      "id": "join",
+      "title": "Join card: first visit",
+      "file": "join.html",
+      "width": 1440,
+      "height": 900,
+      "group": "Sharing and phone"
+    },
+    {
       "id": "phone-following",
       "title": "Phone: viewer following a presentation",
       "file": "phone-following.html",

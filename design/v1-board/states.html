@@ -60,6 +60,10 @@ body { background: var(--bg); }
     <div class="toast" data-dc-id="toast-undo-partial"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.01"/></svg><span>Undid 2 of 3 moves. Abrams was moved by <span class="av marrow">M</span><b>Marrow</b> after you.</span><button class="btn small ghost">OK</button></div>
   </div>
 
+  <div class="spec" data-dc-id="spec-clear-ink"><div class="what"><b>Clear ink</b><span>One undo step for every stroke on the scene. The toast stays 8 s.</span></div>
+    <div class="toast" data-dc-id="toast-clear-ink"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19c3-1 4-4 7-4s3 3 6 2"/><path d="M14 4l6 6M20 4l-6 6"/></svg><span>Cleared 7 ink strokes on scene 3.</span><button class="btn small" data-dc-id="toast-clear-ink-undo">Undo</button></div>
+  </div>
+
   <h2 data-dc-id="h-copy">Offline changes that couldn't merge</h2>
   <p>Nothing you do is dropped. If the server refuses offline work on reconnect, it becomes a separate local board.</p>
   <div class="banner copy" data-dc-id="banner-offline-copy"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h4"/></svg><div class="txt"><b>Your offline changes were saved as a copy</b><p>12 changes you made offline couldn't be merged into “Scrim prep vs Night Owls”, because the board changed shape while you were away. They're in <b style="display:inline">Scrim prep vs Night Owls (offline copy)</b> on this device.</p>
@@ -70,10 +74,10 @@ body { background: var(--bg); }
   <div class="banner oldmap" data-dc-id="banner-old-map"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/></svg><div class="txt"><b>This board was made on an earlier map</b><p>It was made on the map from 14 Oct. Since then, 2 objectives moved and 1 is gone; they're outlined on the board. Tokens stay exactly where you put them.</p>
     <div class="acts"><button class="btn small" data-dc-id="view-original-map">View on the map it was made for</button><button class="btn small ghost" data-dc-id="keep-current-map">Keep the current map</button></div></div></div>
 
-  <h2 data-dc-id="h-revoked">Link revoked</h2>
-  <p>Revocation closes live sessions right away. The page explains rather than just going blank.</p>
-  <div class="banner revoked" data-dc-id="banner-revoked"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4.5"/><path d="M11.2 11.8L20 3M16.5 6.5l2.5 2.5M14 9l2 2"/></svg><div class="txt"><b>This link no longer works</b><p>The board's owner revoked it. Ask them for a new link. Anything you changed before it was revoked is saved.</p>
-    <div class="acts"><button class="btn small" data-dc-id="make-copy">Make a local copy of what you saw</button></div></div></div>
+  <h2 data-dc-id="h-revoked">Link that doesn't open a board</h2>
+  <p>Links are never revoked; to stop sharing, people clone the board. A link can still be mistyped or cut short, so the page says what to check.</p>
+  <div class="banner revoked" data-dc-id="banner-revoked"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4.5"/><path d="M11.2 11.8L20 3M16.5 6.5l2.5 2.5M14 9l2 2"/></svg><div class="txt"><b>This link doesn't open a board</b><p>Check that you copied all of it: a mapcro link ends with a long code after “#”. If it's right, ask whoever sent it for a fresh one.</p>
+    <div class="acts"><button class="btn small" data-dc-id="make-copy">Open a new board</button></div></div></div>
 
   <h2 data-dc-id="h-legend">Map glyphs</h2>
   <p>Generic, original shapes on the placeholder map. A server's extracted map pack replaces the art, but these glyphs stay as the fallback for anything the pack is missing.</p>

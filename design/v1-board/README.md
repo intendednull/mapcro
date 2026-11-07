@@ -12,6 +12,8 @@ where you can pin comments on them.
 | Board, desktop: stopped following (panned) | `board-follower-drift.html` | 1440 × 900 |
 | Share dialog: owner, sees every link | `share-dialog.html` | 1440 × 900 |
 | Share dialog: editor, own links | `share-dialog-editor.html` | 1440 × 900 |
+| Clone to a new board (flow) | `clone-flow.html` | 1440 |
+| Join card: first visit | `join.html` | 1440 × 900 |
 | Phone: viewer following a presentation | `phone-following.html` | 390 × 844 |
 | Tools and gestures | `gestures.html` | 1000 |
 | State gallery | `states.html` | 1000 |
@@ -43,9 +45,28 @@ No network: the canvas blocks it, and nothing here asks for it.
 - **Several presenters.** Anyone with edit rights can be followed. The people list gives editors
   a one-click Follow, and viewers get none. The top bar names who you follow, with one-click
   switching ("Also presenting: vexa").
-- **Editors share.** Owners and editors both mint view and edit links. The owner sees every link,
-  arranged as a tree. Editors see the links they made and the ones shared from them. Revoking
-  cascades, and the confirmation counts what else it cuts off.
+- **Editors share; nobody revokes.** Owners and editors both mint view and edit links. The owner
+  sees every link, arranged as a tree, and editors see their own subtree. The dialogs only list
+  links. To stop sharing with someone, anyone with a link, viewers included, uses **Clone to a
+  new board**.
+  - The clone keeps the scenes, roster, positions, ink and notes. It leaves behind history,
+    links and presence.
+  - It posts to `POST /api/boards/{id}/clone` and lands you on the copy as its owner, with Share
+    ready.
+- **Ink, laser, clear.**
+  - Ink takes its colour from a palette that opens beside Draw, and the Draw button shows the
+    current colour.
+  - Laser holds briefly, then fades from its tail, and is never saved. Everyone has it: a view
+    link's picker is Look plus Laser, as on the phone board.
+  - **Clear ink** sits beside Erase. It removes every stroke on the scene in one undo step, and
+    its toast says Undo.
+- **Name tags on what people touch.** Dragging, selecting or editing an element shows the
+  person's name beside it in their presence colour, with a matching outline. Two people on one
+  element stack their tags; on the presenting board, vexa and Marrow share a callout. This draws
+  on presence `drag` and `focus`.
+- **Names are set on joining.** A one-field join card asks for a name and a colour, and Enter
+  joins. Both are remembered on the device, and the people list's **Name** button changes them.
+- **Fonts:** Federo, single weight, stays.
 
 ## Still a separate control (your call)
 
@@ -53,7 +74,8 @@ No network: the canvas blocks it, and nothing here asks for it.
 - **Scene note.** Free text for each scene has no place on the map.
 - **Restoring hidden objectives on touch.** The hover outline doesn't exist on touch, so a
   long-press or a "show hidden" toggle is needed.
-- **Share dialog.** Minting and revoking keys is a form by nature.
+- **Share and clone dialogs.** Minting a link and naming a copy are forms by nature.
+- **Ink palette.** A row of swatches that only shows while Draw is active.
 
 ## Local game art (optional, never committed)
 

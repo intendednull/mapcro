@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "title": "Minimap parity",
+  "kind": "prototype",
+  "description": "The in-game minimap HUD rebuilt from the game's own HUD stylesheets and map entities, to check the board's map rendering against a real screenshot. Map rendering only, no app chrome. Art comes from the git-ignored design/_art/parity/.",
+  "artboards": [
+    {
+      "id": "minimap-ingame-view",
+      "title": "Minimap, in-game view (reconstruction)",
+      "file": "minimap-ingame-view.html",
+      "width": 1000,
+      "height": 1060
+    },
+    {
+      "id": "compare",
+      "title": "Compare: screenshot overlay",
+      "file": "compare.html",
+      "width": 1000,
+      "height": 1060
+    }
+  ],
+  "tweaks": [
+    {
+      "id": "ref-opacity",
+      "label": "Overlay opacity",
+      "var": "--ref-opacity",
+      "type": "range",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "unit": "%",
+      "default": 50
+    },
+    {
+      "id": "ref-blend",
+      "label": "Difference blend",
+      "var": "--ref-blend",
+      "type": "toggle",
+      "on": "difference",
+      "off": "normal",
+      "default": false
+    },
+    {
+      "id": "ref-scale",
+      "label": "Overlay scale",
+      "var": "--ref-scale",
+      "type": "range",
+      "min": 25,
+      "max": 400,
+      "step": 0.1,
+      "unit": "%",
+      "default": 92.4
+    },
+    {
+      "id": "ref-x",
+      "label": "Overlay x",
+      "var": "--ref-x",
+      "type": "range",
+      "min": -1000,
+      "max": 1000,
+      "step": 1,
+      "unit": "px",
+      "default": -10
+    },
+    {
+      "id": "ref-y",
+      "label": "Overlay y",
+      "var": "--ref-y",
+      "type": "range",
+      "min": -1000,
+      "max": 1000,
+      "step": 1,
+      "unit": "px",
+      "default": -115
+    }
+  ]
+}

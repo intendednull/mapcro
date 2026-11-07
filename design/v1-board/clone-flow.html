@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clone to a new board</title>
+<link rel="stylesheet" href="board.css">
+
+<!-- Local game art, git-ignored. Missing on a fresh clone: every var(--art-*) then falls back to the schematic. -->
+<link rel="stylesheet" href="../_art/art.css">
+<link rel="stylesheet" href="tweaks.css">
+</head>
+<body>
+<div class="flow" data-dc-id="clone-flow">
+  <h1 data-dc-id="flow-title">Clone to a new board</h1>
+  <p data-dc-id="flow-intro">There's no revoking links. To stop sharing with someone, anyone with a link, viewers included, clones the board into a new one, and the new one has no links yet. The copy opens with you as its owner and Share ready.</p>
+  <ol class="steps">
+    <li data-dc-id="step-1"><span class="n">1</span><div><b>Clone sits beside Share</b><p>Every link role gets it, view links included.</p>
+      <div class="crop top-crop"><header class="top"><span class="save saved" data-dc-id="save-status"><svg class="ico glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Saved</span><div class="avatars" data-dc-id="presence-avatars"><span class="av coach" title="Coach">C</span><span class="av marrow" title="Marrow">M</span><span class="av juno" title="Juno">J</span><span class="av vexa" title="vexa">V</span><span class="av guest" title="Guest viewer">G</span></div><button class="btn ghost hot" data-dc-id="clone-button"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3"/><path d="M14 11v6M11 14h6"/></svg>Clone</button><button class="btn primary"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/></svg>Share</button></header></div></div></li>
+    <li data-dc-id="step-2"><span class="n">2</span><div><b>Name the copy</b><p>One field, then Clone and open. It posts to <code>/api/boards/{id}/clone</code>.</p>
+      <div class="dialog clone-dialog" role="dialog" aria-labelledby="clone-h" data-dc-id="clone-dialog">
+        <header><div><h2 id="clone-h" data-dc-id="clone-title">Clone to a new board</h2><p>You'll own the copy. Nobody else can open it until you share a link.</p></div></header>
+        <div class="body">
+          <div class="field"><label>Title</label><div class="input focus" data-dc-id="clone-name">Scrim prep vs Night Owls (copy)<span class="caret-h"></span></div></div>
+          <div class="keepdrop">
+            <div data-dc-id="clone-keeps"><h3>Comes with it</h3><ul><li class="keep"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>7 scenes, in order</span></li><li class="keep"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>The roster: 12 slots, names and heroes</span></li><li class="keep"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Hero positions and objective states</span></li><li class="keep"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Ink, arrows and callouts</span></li><li class="keep"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Scene notes</span></li></ul></div>
+            <div data-dc-id="clone-drops"><h3>Stays behind</h3><ul><li class="drop"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><span>History and undo</span></li><li class="drop"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><span>Links: nobody on this board can open the copy</span></li><li class="drop"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><span>Who's here and who's presenting</span></li></ul></div>
+          </div>
+        </div>
+        <footer><span></span><button class="btn ghost" data-dc-id="clone-cancel">Cancel</button><button class="btn primary" data-dc-id="clone-confirm">Clone and open <kbd>Enter</kbd></button></footer>
+      </div></div></li>
+    <li data-dc-id="step-3"><span class="n">3</span><div><b>Land on the copy as its owner</b><p>Same scenes, same positions, nobody else here. Share is one click away.</p>
+      <div class="crop landed">
+        <header class="top"><div class="wordmark"><svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="12,1.5 22.5,12 12,22.5 1.5,12" fill="none" stroke="var(--brass)" stroke-width="1.6"/><polygon points="12,7 17,12 12,17 7,12" fill="var(--brass)"/></svg><span>mapcro</span></div><div class="board-title"><b>Scrim prep vs Night Owls (copy)</b><span>7 scenes · you own it</span></div><div class="spacer"></div><span class="save saved" data-dc-id="copy-save-status"><svg class="ico glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Saved</span><div class="avatars"><span class="av marrow" title="You">M</span></div><button class="btn primary glow" data-dc-id="copy-share-button"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/></svg>Share</button></header>
+        <div class="landed-body">
+          <div class="mini-map"><svg class="mini" viewBox="0 0 1000 1000" aria-hidden="true">
+<rect class="terrain" width="1000" height="1000"/>
+<g class="schem">
+<rect class="base sapphire" x="210" y="30" width="580" height="190" rx="40"/>
+<rect class="base amber" x="210" y="780" width="580" height="190" rx="40"/>
+<polyline class="lane" points="359,806 208,720 119,586 173,408 248,266 478,193"/><polyline class="lane" points="522,806 762,735 827,592 878,414 800,278 641,193"/><polyline class="lane" points="440,754 440,662 500,583 500,417 560,338 560,246"/>
+</g>
+<foreignObject class="art-fo" x="0" y="0" width="1000" height="1000"><div xmlns="http://www.w3.org/1999/xhtml" class="art art-surface"></div></foreignObject>
+<rect class="shade" width="1000" height="1000"/>
+<path class="a amber" d="M500 586 L500 545"/><path class="a amber" d="M585 612 Q650 520 608 470"/><path class="a sapphire" d="M296 452 Q360 520 420 545"/><circle class="d amber" cx="425" cy="598" r="34"/><circle class="d amber" cx="500" cy="586" r="34"/><circle class="d amber" cx="585" cy="612" r="34"/><circle class="d amber" cx="372" cy="640" r="34"/><circle class="d amber" cx="618" cy="668" r="34"/><circle class="d amber" cx="470" cy="668" r="34"/><circle class="d sapphire" cx="478" cy="352" r="34"/><circle class="d sapphire" cx="566" cy="340" r="34"/><circle class="d sapphire" cx="520" cy="288" r="34"/><circle class="d sapphire" cx="296" cy="452" r="34"/><circle class="d sapphire" cx="712" cy="330" r="34"/><circle class="d sapphire" cx="420" cy="312" r="34"/></svg></div>
+          <div class="owner-note" data-dc-id="copy-owner-note"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4.5"/><path d="M11.2 11.8L20 3M16.5 6.5l2.5 2.5M14 9l2 2"/></svg><div><b>You own this copy</b><span>It has no links yet, so only you can open it. Share it to bring the right people in.</span></div><button class="btn primary small" data-dc-id="copy-share-now">Share</button></div>
+        </div>
+      </div></div></li>
+  </ol>
+</div>
+</body>
+</html>
