@@ -106,6 +106,9 @@ fn check_value(v: &FieldValue) -> Result<(), Reject> {
         V::NoteText(s) => check_text(s, LIMITS.max_note),
         V::SceneOrder(k) => if k.is_valid() { Ok(()) } else { Err(Reject::BadOrderKey) },
         V::PlayerPos(p) | V::ArrowFrom(p) | V::ArrowTo(p) | V::CalloutPos(p) => check_pos(*p),
+        // A match clock up to four hours; souls up to a million.
+        V::SceneClock(c) => if c.is_none_or(|c| c <= 4 * 3600) { Ok(()) } else { Err(Reject::OutOfBounds) },
+        V::PlayerSouls(n) => if n.is_none_or(|n| n <= 1_000_000) { Ok(()) } else { Err(Reject::OutOfBounds) },
         V::RosterHero(_) | V::PlayerAlive(_) | V::PlayerPlaced(_) | V::ObjectiveStatus(_) | V::ArrowTeam(_) => Ok(()),
     }
 }
@@ -118,6 +121,7 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
         Record::BoardMeta(_) | Record::RosterSlot(_) => Err(Reject::Immutable),
         Record::Scene(s) => {
             check_text(&s.name, LIMITS.max_name)?;
+            check_value(&FieldValue::SceneClock(s.clock))?;
             if s.order.is_valid() { Ok(()) } else { Err(Reject::BadOrderKey) }
         }
         Record::PlayerState(p) => {
@@ -127,6 +131,7 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
             if !matches!(doc.live(p.slot), Some(Record::RosterSlot(_))) {
                 return Err(Reject::NoSuchSlot);
             }
+            check_value(&FieldValue::PlayerSouls(p.souls))?;
             check_pos(p.pos)
         }
         Record::ObjectiveState(o) => {

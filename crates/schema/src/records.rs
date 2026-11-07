@@ -47,6 +47,9 @@ pub struct RosterSlot {
 pub struct Scene {
     pub name: String,
     pub order: OrderKey,
+    /// The match clock this scene shows, in seconds (the HUD's top-bar timer).
+    #[serde(default)]
+    pub clock: Option<u32>,
 }
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -57,6 +60,10 @@ pub struct PlayerState {
     pub pos: WorldPos,
     pub alive: bool,
     pub placed: bool,
+    /// Souls (net worth) shown under the portrait in the top bar. Team totals are summed, never
+    /// stored, so they can't disagree with the players.
+    #[serde(default)]
+    pub souls: Option<u32>,
 }
 
 impl PlayerState {
@@ -67,7 +74,7 @@ impl PlayerState {
             Team::Amber => -8000,
             Team::Sapphire => 8000,
         };
-        PlayerState { scene, slot, pos: WorldPos { x, y }, alive: true, placed: true }
+        PlayerState { scene, slot, pos: WorldPos { x, y }, alive: true, placed: true, souls: None }
     }
 }
 
@@ -155,9 +162,11 @@ pub enum FieldValue {
     RosterHero(Option<HeroId>),
     SceneName(String),
     SceneOrder(OrderKey),
+    SceneClock(Option<u32>),
     PlayerPos(WorldPos),
     PlayerAlive(bool),
     PlayerPlaced(bool),
+    PlayerSouls(Option<u32>),
     ObjectiveStatus(ObjectiveStatus),
     ArrowFrom(WorldPos),
     ArrowTo(WorldPos),
@@ -175,9 +184,11 @@ pub enum Field {
     RosterHero,
     SceneName,
     SceneOrder,
+    SceneClock,
     PlayerPos,
     PlayerAlive,
     PlayerPlaced,
+    PlayerSouls,
     ObjectiveStatus,
     ArrowFrom,
     ArrowTo,
@@ -188,15 +199,17 @@ pub enum Field {
 }
 
 impl Field {
-    pub const ALL: [Field; 15] = [
+    pub const ALL: [Field; 17] = [
         Field::Title,
         Field::RosterName,
         Field::RosterHero,
         Field::SceneName,
         Field::SceneOrder,
+        Field::SceneClock,
         Field::PlayerPos,
         Field::PlayerAlive,
         Field::PlayerPlaced,
+        Field::PlayerSouls,
         Field::ObjectiveStatus,
         Field::ArrowFrom,
         Field::ArrowTo,
@@ -215,9 +228,11 @@ impl FieldValue {
             FieldValue::RosterHero(_) => Field::RosterHero,
             FieldValue::SceneName(_) => Field::SceneName,
             FieldValue::SceneOrder(_) => Field::SceneOrder,
+            FieldValue::SceneClock(_) => Field::SceneClock,
             FieldValue::PlayerPos(_) => Field::PlayerPos,
             FieldValue::PlayerAlive(_) => Field::PlayerAlive,
             FieldValue::PlayerPlaced(_) => Field::PlayerPlaced,
+            FieldValue::PlayerSouls(_) => Field::PlayerSouls,
             FieldValue::ObjectiveStatus(_) => Field::ObjectiveStatus,
             FieldValue::ArrowFrom(_) => Field::ArrowFrom,
             FieldValue::ArrowTo(_) => Field::ArrowTo,
@@ -266,9 +281,11 @@ impl Record {
             (Record::RosterSlot(r), Field::RosterHero) => V::RosterHero(r.hero),
             (Record::Scene(r), Field::SceneName) => V::SceneName(r.name.clone()),
             (Record::Scene(r), Field::SceneOrder) => V::SceneOrder(r.order.clone()),
+            (Record::Scene(r), Field::SceneClock) => V::SceneClock(r.clock),
             (Record::PlayerState(r), Field::PlayerPos) => V::PlayerPos(r.pos),
             (Record::PlayerState(r), Field::PlayerAlive) => V::PlayerAlive(r.alive),
             (Record::PlayerState(r), Field::PlayerPlaced) => V::PlayerPlaced(r.placed),
+            (Record::PlayerState(r), Field::PlayerSouls) => V::PlayerSouls(r.souls),
             (Record::ObjectiveState(r), Field::ObjectiveStatus) => V::ObjectiveStatus(r.status),
             (Record::Arrow(r), Field::ArrowFrom) => V::ArrowFrom(r.from),
             (Record::Arrow(r), Field::ArrowTo) => V::ArrowTo(r.to),
@@ -289,9 +306,11 @@ impl Record {
             (Record::RosterSlot(r), V::RosterHero(v)) => r.hero = v,
             (Record::Scene(r), V::SceneName(v)) => r.name = v,
             (Record::Scene(r), V::SceneOrder(v)) => r.order = v,
+            (Record::Scene(r), V::SceneClock(v)) => r.clock = v,
             (Record::PlayerState(r), V::PlayerPos(v)) => r.pos = v,
             (Record::PlayerState(r), V::PlayerAlive(v)) => r.alive = v,
             (Record::PlayerState(r), V::PlayerPlaced(v)) => r.placed = v,
+            (Record::PlayerState(r), V::PlayerSouls(v)) => r.souls = v,
             (Record::ObjectiveState(r), V::ObjectiveStatus(v)) => r.status = v,
             (Record::Arrow(r), V::ArrowFrom(v)) => r.from = v,
             (Record::Arrow(r), V::ArrowTo(v)) => r.to = v,

@@ -191,7 +191,7 @@ pub fn genesis(mut next_id: impl FnMut() -> RecordId, title: &str) -> Doc {
         }
     }
     let scene = next_id();
-    doc.insert(scene, Record::Scene(Scene { name: "Scene 1".into(), order: OrderKey::first() }));
+    doc.insert(scene, Record::Scene(Scene { name: "Scene 1".into(), order: OrderKey::first(), clock: None }));
     for (slot_id, team, slot) in slots {
         doc.insert(next_id(), Record::PlayerState(PlayerState::starting(scene, slot_id, team, slot)));
     }
@@ -263,6 +263,16 @@ mod tests {
         let live: Vec<_> = doc.iter_live().collect();
         let live_before: Vec<_> = before.iter_live().collect();
         assert_eq!(live, live_before);
+    }
+
+    #[test]
+    fn records_saved_before_clock_and_souls_still_load() {
+        let old_scene = r#"{"Scene":{"name":"8:00 mid","order":"i"}}"#;
+        let old_player = r#"{"PlayerState":{"scene":"00000000000000000000000000000001","slot":"00000000000000000000000000000002","pos":{"x":1,"y":2},"alive":true,"placed":true}}"#;
+        let s: Record = serde_json::from_str(old_scene).expect("old scene loads");
+        let p: Record = serde_json::from_str(old_player).expect("old player loads");
+        assert!(matches!(s, Record::Scene(Scene { clock: None, .. })));
+        assert!(matches!(p, Record::PlayerState(PlayerState { souls: None, .. })));
     }
 
     #[test]

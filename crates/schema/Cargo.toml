@@ -11,6 +11,9 @@ serde.workspace = true
 thiserror.workspace = true
 ts-rs = { version = "12", optional = true }
 
+[dev-dependencies]
+serde_json = "1"
+
 [features]
 # Generate TypeScript bindings for the web client (`just ts`).
 ts = ["dep:ts-rs"]

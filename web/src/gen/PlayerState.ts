@@ -2,4 +2,9 @@
 import type { RecordId } from "./RecordId";
 import type { WorldPos } from "./WorldPos";
 
-export type PlayerState = { scene: RecordId, slot: RecordId, pos: WorldPos, alive: boolean, placed: boolean, };
+export type PlayerState = { scene: RecordId, slot: RecordId, pos: WorldPos, alive: boolean, placed: boolean, 
+/**
+ * Souls (net worth) shown under the portrait in the top bar. Team totals are summed, never
+ * stored, so they can't disagree with the players.
+ */
+souls: number | null, };
