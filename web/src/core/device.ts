@@ -30,6 +30,7 @@ export const colorOf = (i: number) => PALETTE[((i % PALETTE.length) + PALETTE.le
 const ME = "mapcro.me";
 const BOARDS = "mapcro.boards";
 const JOINED = "mapcro.joined";
+const COMMENTS = "mapcro.commentsOpen";
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -64,6 +65,16 @@ export function knownBoards(): KnownBoard[] {
 export function rememberBoard(b: Omit<KnownBoard, "seen">) {
   const rest = knownBoards().filter((k) => k.board !== b.board);
   write(BOARDS, [{ ...b, seen: Date.now() }, ...rest].slice(0, 50));
+}
+
+/** Whether this device shows a board's comments expanded (the Comments toggle). */
+export function commentsOpen(board: string): boolean {
+  return read<string[]>(COMMENTS, []).includes(board);
+}
+
+export function setCommentsOpen(board: string, open: boolean) {
+  const all = read<string[]>(COMMENTS, []).filter((b) => b !== board);
+  write(COMMENTS, open ? [...all, board].slice(-200) : all);
 }
 
 /** The join card shows once per board on a device; later visits go straight in. */

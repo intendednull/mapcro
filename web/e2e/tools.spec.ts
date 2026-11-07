@@ -2,7 +2,7 @@
 
 import { type Page, expect, test } from "@playwright/test";
 import { gesture, joinNew, mapPoint, viewLink } from "./helpers";
-import { Server, newBoardUrl } from "./server";
+import { Server, newBoardUrl, translate } from "./server";
 
 let server: Server;
 test.beforeAll(async () => {
@@ -39,34 +39,37 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   await expect(arrows(b)).toHaveCount(1);
   await expect(arrows(b).locator(".arw")).toHaveClass(/amber/);
 
-  // A callout, typed in place.
+  // A comment, typed in place: a bubble once placed.
   await a.keyboard.press("c");
   const at = await mapPoint(a, 0.55, 0.7);
   await a.mouse.click(at.x, at.y);
-  await a.getByTestId("callout-input").fill("Smoke on the bridge");
+  await a.getByTestId("comment-input").fill("Smoke on the bridge");
   await a.keyboard.press("Enter");
   await expect(callouts(b).locator("text")).toHaveText("Smoke on the bridge");
+  await expect(callouts(b)).toHaveAttribute("data-open", "false");
 
-  // Editing it shows the editor's name beside it for everyone else.
+  // Open it, then edit it with a double click: the others see the editor's name on it.
   await a.keyboard.press("v");
+  await callouts(a).locator(".bubble-body").click();
+  await expect(callouts(a)).toHaveAttribute("data-open", "true");
   await callouts(a).locator("text").dblclick();
-  await expect(a.getByTestId("callout-input")).toBeVisible();
-  await expect(callouts(b).locator('.p-tag[data-tag="Coach"]')).toContainText("Coach · editing");
-  await a.getByTestId("callout-input").fill("Smoke the bridge first");
+  await expect(a.getByTestId("comment-input")).toBeVisible();
+  await expect(callouts(b).locator('.p-tag[data-tag="Coach"]')).toContainText("Coach");
+  await a.getByTestId("comment-input").fill("Smoke the bridge first");
   await a.keyboard.press("Enter");
   await expect(callouts(b).locator("text").first()).toHaveText("Smoke the bridge first");
   await expect(callouts(b).locator(".p-tag")).toHaveCount(0);
-  // Drag it with Move: B watches it go, tagged, and it lands where A drops it.
-  const pin = (p: Page) => callouts(p).locator("circle.pin");
-  const before = await pin(b).getAttribute("cx");
-  const tb = (await callouts(a).locator("text").boundingBox())!;
+  // Drag the bubble with Move: B watches it go, tagged, and it lands where A drops it.
+  const spot = async (p: Page) => translate(await callouts(p).locator("g[transform]").first().getAttribute("transform"));
+  const before = await spot(b);
+  const bb = (await callouts(a).locator(".bubble-body").boundingBox())!;
   const dest = await mapPoint(a, 0.65, 0.85);
-  await a.mouse.move(tb.x + 10, tb.y + tb.height / 2);
+  await a.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2);
   await a.mouse.down();
   await a.mouse.move(dest.x, dest.y, { steps: 8 });
   await expect(callouts(b).locator('.p-tag[data-tag="Coach"]')).toContainText("Coach · moving");
   await a.mouse.up();
-  await expect.poll(async () => Number(await pin(b).getAttribute("cx"))).toBeGreaterThan(Number(before) + 30);
+  await expect.poll(async () => (await spot(b)).x).toBeGreaterThan(before.x + 30);
 
   // Erase: one scrub over the ink and the arrow is one transaction, so one undo brings both back.
   await a.keyboard.press("e");
@@ -117,10 +120,12 @@ test("objectives toggle on click (camps, mid boss, one rift at a time); a viewer
   const click = () => a.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 
   await click();
+  await expect(mk(a)).toHaveAttribute("data-status", "Destroyed");
   await expect(mk(v)).toHaveAttribute("data-status", "Destroyed");
   // Two states only: a second click brings it back (no hidden step).
   await click();
-  await expect(mk(v)).toHaveAttribute("data-status", "Active");
+  await expect(mk(a), "the clicking browser").toHaveAttribute("data-status", "Active");
+  await expect(mk(v), "the viewer").toHaveAttribute("data-status", "Active");
 
   // The mid boss and camps toggle the same way.
   for (const k of ["mid_boss:neutral:lane0:1", "camp:neutral:lane0:5"]) {
@@ -147,7 +152,7 @@ test("objectives toggle on click (camps, mid boss, one rift at a time); a viewer
   await expect(rift(v, east)).toHaveAttribute("data-status", "Destroyed");
   await expect(rift(v, west)).toHaveAttribute("data-status", "Destroyed");
   // The viewer's picker: Look and Laser only.
-  await expect(v.getByTestId("toolbar").locator(".tb")).toHaveCount(2);
+  await expect(v.getByTestId("toolbar").locator('[data-testid^="tool-"]')).toHaveCount(2);
   await expect(v.getByTestId("tool-move")).toContainText("Look");
   await v.keyboard.press("l");
   const p0 = await mapPoint(v, 0.3, 0.5);

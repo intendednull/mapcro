@@ -4,7 +4,7 @@
 import { For, Show, onCleanup, onMount } from "solid-js";
 import { PALETTE, colorOf } from "../core/device";
 import { cx } from "../ui/cx";
-import { ICON_CLEAR, ICON_REDO, ICON_UNDO, TOOLS, type Tool, VIEWER_TOOLS } from "./tools";
+import { ICON_CLEAR, ICON_COMMENTS, ICON_REDO, ICON_UNDO, TOOLS, type Tool, VIEWER_TOOLS } from "./tools";
 
 const Ico = (p: { d: string }) => <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" innerHTML={p.d} />;
 
@@ -20,6 +20,8 @@ export function Toolbar(p: {
   redo: () => void;
   clearInk: () => void;
   inkCount: number;
+  commentsOpen: boolean;
+  toggleComments: () => void;
 }) {
   const tools = () => (p.editor ? TOOLS : TOOLS.filter((t) => VIEWER_TOOLS.includes(t.tool)));
   onMount(() => {
@@ -85,6 +87,16 @@ export function Toolbar(p: {
             </>
           )}
         </For>
+        <button
+          class={cx("tb icon", p.commentsOpen && "on")}
+          data-testid="comments-toggle"
+          title="Comments"
+          aria-label="Comments"
+          aria-pressed={p.commentsOpen}
+          onClick={() => p.toggleComments()}
+        >
+          <Ico d={ICON_COMMENTS} />
+        </button>
         <Show when={p.editor}>
           <button class="tb icon" data-testid="clear-ink" title="Clear ink" aria-label="Clear ink" disabled={p.inkCount === 0} onClick={() => p.clearInk()}>
             <Ico d={ICON_CLEAR} />

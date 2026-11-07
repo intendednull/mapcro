@@ -170,7 +170,7 @@ export function PeopleList(p: {
       </Show>
       <For each={p.peers}>
         {(x) => (
-          <div class="person" data-person={nameOf(x)}>
+          <div class="person" data-person={nameOf(x)} data-focus={x.state?.focus ?? ""}>
             <Avatar name={nameOf(x)} color={x.state!.color} />
             <span class="nm">
               <b>{nameOf(x)}</b>

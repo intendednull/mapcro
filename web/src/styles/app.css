@@ -241,3 +241,14 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .mk.picked::after { content: ""; position: absolute; inset: -14%; border-radius: 50%; border: calc(2 * var(--u, 1px)) dashed var(--accent); box-shadow: 0 0 calc(6 * var(--u, 1px)) color-mix(in srgb, var(--accent) 60%, transparent); pointer-events: none; }
 .mk.camp.picked::after { inset: -40%; }
 .mm-overlay.map .pick-ring { fill: none; stroke-width: 2; stroke-dasharray: 4 3; }
+
+/* Comments: small bubbles by default; hover previews the text; open shows the card */
+.mm-overlay.map .co.bubble { cursor: pointer; }
+.mm-overlay.map .co.bubble .bubble-body { fill: var(--accent); stroke: #0b1714; stroke-width: 1.5; }
+.mm-overlay.map .co.bubble .bubble-dots { stroke: #0b1d18; stroke-width: 3; stroke-linecap: round; }
+.mm-overlay.map .co.bubble:hover .bubble-body { fill: color-mix(in srgb, var(--accent) 80%, #fff); }
+.mm-overlay.map .co.bubble .preview { display: none; pointer-events: none; }
+.mm-overlay.map .co.bubble:hover .preview { display: inline; }
+.mm-overlay.map .co.bubble .preview rect { fill: #0c1917; stroke: var(--accent); stroke-width: 1.2; }
+.mm-overlay.map .co.bubble .preview text { font: 600 15px var(--ui); fill: var(--text); dominant-baseline: central; }
+.mm-overlay.map .co.bubble.touched .bubble-body { stroke: var(--text); stroke-width: 2.5; }

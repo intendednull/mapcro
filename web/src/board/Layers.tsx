@@ -12,6 +12,7 @@
 // tokens, then lasers, cursors and name tags.
 
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { capture } from "../ui/capture";
 import { colorOf } from "../core/device";
 import type { Arrow } from "../gen/Arrow";
 import type { Callout } from "../gen/Callout";
@@ -40,6 +41,9 @@ const MAX_STROKE_POINTS = 512;
 const MAX_CALLOUT = 80;
 
 type Rec<T> = { id: RecordId; r: T };
+
+/** A small speech bubble whose tail points at the comment's spot (the origin). */
+const BUBBLE = "M0 0 L-4 -8 H-11 A5 5 0 0 1 -16 -13 V-25 A5 5 0 0 1 -11 -30 H11 A5 5 0 0 1 16 -25 V-13 A5 5 0 0 1 11 -8 H4 Z";
 
 function textWidth(s: string, px: number) {
   return Math.max(40, s.length * px * 0.56 + 28);
@@ -80,6 +84,10 @@ export function Layers(p: {
   /** Objectives selected as a group (Move, editors), by key. */
   objSelection: () => Set<string>;
   setObjSelection: (s: Set<string>) => void;
+  /** Comments: whether one shows as its full card, and this person's open one. */
+  isOpen: (id: RecordId) => boolean;
+  openComment: () => RecordId | undefined;
+  setOpenComment: (id: RecordId | undefined) => void;
 }) {
   const st = p.state;
   const view = (w: WorldPos) => worldToView(w, p.vp);
@@ -159,7 +167,7 @@ export function Layers(p: {
   const track = (e: PointerEvent, move: (pt: Pt, ev: PointerEvent) => void, up: (pt: Pt, ok: boolean) => void) => {
     const svg = p.svg();
     if (!svg) return;
-    svg.setPointerCapture(e.pointerId);
+    capture(svg, e.pointerId);
     const onMove = (ev: PointerEvent) => ev.pointerId === e.pointerId && move(svgPoint(svg, ev), ev);
     const onUp = (ev: PointerEvent) => {
       if (ev.pointerId !== e.pointerId) return;
@@ -334,6 +342,9 @@ export function Layers(p: {
     if (!p.scene) return;
     const svg = p.svg();
     if (!svg) return;
+    // A press anywhere but on a comment closes the open one.
+    const onComment = (e.target as Element).closest?.("[data-callout]")?.getAttribute("data-callout");
+    if (!onComment) p.setOpenComment(undefined);
     if (e.button === 1 || e.button === 2 || (e.button === 0 && p.spaceHeld())) {
       pan(e);
       return;
@@ -349,6 +360,7 @@ export function Layers(p: {
     }
     if (tool === "move") {
       if (!editor()) {
+        if (onComment) return; // the comment handles its own click
         pan(e); // Look: dragging the map pans
         return;
       }
@@ -475,6 +487,7 @@ export function Layers(p: {
     const ed = editing();
     setEditing(undefined);
     st.presence({ focus: null });
+    p.setOpenComment(undefined); // collapses after editing (unless all are open)
     if (!commit || !ed || !p.scene) return;
     const t = (text ?? "").trim().slice(0, MAX_CALLOUT);
     if (ed.id === undefined) {
@@ -487,14 +500,18 @@ export function Layers(p: {
   // receives a dblclick event.
   let lastTap: { id: RecordId; t: number } | undefined;
   const calloutDown = (c: Rec<Callout>, e: PointerEvent) => {
-    if (p.tool !== "move" || !editor() || e.button !== 0) return;
+    if (p.tool !== "move" || e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
+    if (!editor()) {
+      // Look: a click opens or closes a comment; nothing moves.
+      track(e, () => {}, (_, ok) => ok && p.setOpenComment(p.isOpen(c.id) ? undefined : c.id));
+      return;
+    }
     const svg = p.svg()!;
     const start = svgPoint(svg, e);
     const grab = view(c.r.pos);
     let moved = false;
-    st.presence({ focus: c.id });
     track(
       e,
       (pt) => {
@@ -502,16 +519,21 @@ export function Layers(p: {
         moved = true;
         const pos = world({ x: grab.x + pt.x - start.x, y: grab.y + pt.y - start.y });
         setDragCallout({ id: c.id, pos });
-        st.presence({ drag: { id: c.id, pos } });
+        st.presence({ drag: { id: c.id, pos }, focus: c.id });
       },
       (_, ok) => {
         const d = dragCallout();
         setDragCallout(undefined);
-        st.presence({ drag: null, focus: null });
+        // Focus goes back to whatever comment this person has open (followers mirror it).
+        st.presence({ drag: null, focus: p.openComment() ?? null });
         if (ok && moved && d) st.edit([{ Set: { id: c.id, value: { CalloutPos: d.pos } } }]);
         if (ok && !moved) {
+          // A bubble opens on a click; an open comment edits on a double click.
           const now = performance.now();
-          if (lastTap?.id === c.id && now - lastTap.t < 450) {
+          if (!p.isOpen(c.id)) {
+            lastTap = undefined; // the opening click isn't the first half of a double click
+            p.setOpenComment(c.id);
+          } else if (lastTap?.id === c.id && now - lastTap.t < 450) {
             lastTap = undefined;
             openEditor({ id: c.id, pos: c.r.pos, text: c.r.text });
           } else lastTap = { id: c.id, t: now };
@@ -581,11 +603,50 @@ export function Layers(p: {
                   <text>{callouts().findIndex((x) => x.id === c.id) + 1}</text>
                 </g>
               );
+            const open = () => p.isOpen(c.id) || hidden();
+            const tags = () => (
+              <For each={others()}>
+                {(o, i) => (
+                  <NameTag
+                    at={{ x: (open() ? bx() - 30 : pos().x - 14 * p.k), y: (open() ? by() + 10 : pos().y - 40 * p.k) - i() * 32 * p.k }}
+                    name={o.state!.name}
+                    color={o.state!.color}
+                    what={o.state!.drag?.id === c.id ? "moving" : undefined}
+                    k={p.k}
+                  />
+                )}
+              </For>
+            );
             return (
+              <Show
+                when={open()}
+                fallback={
+                  <g
+                    class={cx("co", "bubble", erasing().has(c.id) && "erasing", others().length > 0 && "touched")}
+                    data-erase={c.id}
+                    data-callout={c.id}
+                    data-open="false"
+                    onPointerDown={(e) => calloutDown(c, e)}
+                  >
+                    <g transform={`translate(${pos().x} ${pos().y}) scale(${p.k})`}>
+                      <path class="bubble-body" d={BUBBLE} />
+                      <path class="bubble-dots" d="M-7 -19h0.01M0 -19h0.01M7 -19h0.01" />
+                      <g class="preview" data-testid="comment-preview">
+                        <rect x="20" y="-34" width={textWidth(c.r.text, 15)} height="28" rx="5" />
+                        <text x="31" y="-20" style={{ "font-size": "15px" }}>
+                          {c.r.text}
+                        </text>
+                      </g>
+                    </g>
+                    {tags()}
+                  </g>
+                }
+              >
               <g
                 class={cx("co", erasing().has(c.id) && "erasing", others().length > 0 && "touched")}
                 data-erase={c.id}
                 data-callout={c.id}
+                data-open="true"
                 style={{ opacity: hidden() ? 0.25 : undefined }}
                 onPointerDown={(e) => calloutDown(c, e)}
               >
@@ -596,20 +657,11 @@ export function Layers(p: {
                   {c.r.text}
                 </text>
                 <For each={others()}>
-                  {(o, i) => (
-                    <>
-                      <rect class="p-outline" x={bx() - 4} y={by() - 4} width={w() + 8} height="45" rx="9" stroke={colorOf(o.state!.color)} />
-                      <NameTag
-                        at={{ x: bx() - 30, y: by() + 10 - i() * 32 }}
-                        name={o.state!.name}
-                        color={o.state!.color}
-                        what={o.state!.drag?.id === c.id ? "moving" : "editing"}
-                        k={1}
-                      />
-                    </>
-                  )}
+                  {(o) => <rect class="p-outline" x={bx() - 4} y={by() - 4} width={w() + 8} height="45" rx="9" stroke={colorOf(o.state!.color)} />}
                 </For>
+                {tags()}
               </g>
+              </Show>
             );
           }}
         </For>
@@ -618,16 +670,16 @@ export function Layers(p: {
             const pos = () => view(ed().pos);
             const x = () => Math.min(pos().x + 16, 1000 - 300);
             return (
-              <g class="co editing">
+              <g class="co editing" data-callout={ed().id ?? "new"}>
                 <circle class="pin" cx={pos().x} cy={pos().y} r="6" />
                 <foreignObject x={x()} y={pos().y - 60} width="300" height="44">
                   <input
                     class="callout-input"
-                    data-testid="callout-input"
-                    aria-label="Callout text"
+                    data-testid="comment-input"
+                    aria-label="Comment"
                     maxLength={MAX_CALLOUT}
                     value={ed().text}
-                    placeholder="Callout"
+                    placeholder="Comment"
                     ref={(el) => queueMicrotask(() => el.focus())}
                     onPointerDown={(e) => e.stopPropagation()}
                     onKeyDown={(e) => {

@@ -3,7 +3,7 @@
 
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { cx } from "../ui/cx";
-import { type Me, colorOf, hasJoined, loadMe, markJoined, rememberBoard, saveMe } from "../core/device";
+import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, loadMe, markJoined, rememberBoard, saveMe } from "../core/device";
 import type { RecordId } from "../gen/RecordId";
 import { MapView } from "../map/MapView";
 import type { Art } from "../map/pack";
@@ -221,6 +221,13 @@ export function Board(p: { board: string; token: string; art: Art }) {
   });
   // ---- Move: selected heroes, Space to pan, lane splits ----
   const [selection, setSelection] = createSignal<Set<RecordId>>(new Set());
+  // ---- comments: bubbles by default; your open one (presence `focus`, so followers see it
+  // open too), or all of them with the Comments toggle (per board, on this device) ----
+  const [openComment, setOpenComment] = createSignal<RecordId>();
+  const [allOpen, setAllOpen] = createSignal(commentsOpen(p.board));
+  createEffect(() => state.presence({ focus: openComment() ?? null }));
+  const followFocus = () => followed()?.state?.focus ?? undefined;
+  const isOpen = (id: RecordId) => allOpen() || openComment() === id || followFocus() === id;
   // Objectives selected as a group, by key; others see whose (presence `picked`).
   const [objSelection, setObjSelection] = createSignal<Set<string>>(new Set());
   createEffect(() => state.presence({ picked: [...objSelection()] }));
@@ -241,6 +248,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
     const kd = (e: KeyboardEvent) => {
       if (typing(e)) return;
       if (e.key === "Escape") {
+        setOpenComment(undefined);
         setSelection(new Set<RecordId>());
         setObjSelection(new Set<string>());
       }
@@ -478,6 +486,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 splitOf={splitOf}
                 objSelection={objSelection}
                 setObjSelection={setObjSelection}
+                isOpen={isOpen}
+                openComment={openComment}
+                setOpenComment={setOpenComment}
                 compactCallouts={phone}
                 onPan={(dx, dy) => userView({ ...view(), x: view().x - dx, y: view().y - dy }, "panned the map")}
                 onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
@@ -620,6 +631,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
             undo={() => state.undo()}
             redo={() => state.redo()}
             inkCount={inkIds().length}
+            commentsOpen={allOpen()}
+            toggleComments={() => {
+              setAllOpen(!allOpen());
+              setCommentsOpen(p.board, allOpen());
+            }}
             clearInk={() => {
               const ids = inkIds();
               if (!ids.length) return;

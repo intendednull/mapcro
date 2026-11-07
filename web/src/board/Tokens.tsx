@@ -3,6 +3,7 @@
 // move, with the dragger's name tag), and the drop commits one op (spec §4a).
 
 import { For, Show, createMemo, createSignal } from "solid-js";
+import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
 import { colorOf } from "../core/device";
 import type { PeerPresence } from "../gen/PeerPresence";
@@ -124,7 +125,7 @@ export function Tokens(p: {
       const from = posOf(id);
       return from ? [{ id, from }] : [];
     });
-    svg.setPointerCapture(e.pointerId);
+    capture(svg, e.pointerId);
     const start = clampToMap(viewToWorld(svgPoint(svg, e), p.vp));
     setDrag({ player: pl.id, pointer: e.pointerId, group, start, delta: { x: 0, y: 0 }, moved: false });
     p.state.presence({ focus: pl.id });
