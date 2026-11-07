@@ -1,5 +1,52 @@
 {
   "version": 1,
-  "nextNumber": 1,
-  "comments": []
+  "nextNumber": 4,
+  "comments": [
+    {
+      "id": "c-c18081587450",
+      "number": 2,
+      "body": "roster should show hero icons",
+      "anchor": {
+        "artboardId": "board-follower",
+        "dcId": "roster",
+        "path": "body > div:nth-of-type(1) > div:nth-of-type(1) > aside:nth-of-type(1) > section:nth-of-type(1)",
+        "tag": "section",
+        "text": "Roster shared by every scene Amber HZ vexa Haze AB Marrow Abrams DY Juno Dynamo VI kiwi Vindicta SE Tombstone Seven LG Pell Lady Geist Sapphire IN sorrel Infernus WR Bishop Wraith MG Nyx McGinnis PX L",
+        "html": "<section data-dc-id=\"roster\">\n  <h2>Roster <small>shared by every scene</small></h2>\n  <div class=\"teams\"><div data-dc-id=\"roster-amber\"><div class=\"team-head amber\"><i></i>Amber</div><div class=\"slot\" data-dc-id=\"slot-vexa\"><span class=\"chip amber\">HZ</span><span class=\"nm\"><b>vexa</b><span>Haze</span></span></div><div class=\"slot\" data-dc-id=\"slot-marrow\"><span class=\"chip amber\">AB</span><span class=\"nm\"><b>Marrow</b><span>Abrams</span></span></div><div class=\"slot\" data-dc-id=\"slot-juno\"><span class=\"chip amber\">DY</span><span class=\"nm\"><b>Juno</b><span>Dynamo</span></span></div><div class=\"slot\" data-dc-id=\"slot-kiwi\"><span class=\"chip amber\">VI</span><span class=\"nm\"><b>kiwi</b><span>Vindicta</span></span></div><div class=\"slot\" data-dc-id=\"slot-tomb\"><span class=\"chip amber\">SE</span><span class=\"nm\"><b>Tombstone</b><span>Seven</span></span></div><div class=\"slot\" data-dc-id=\"slot-pell\"><span class=\"chip amber\">LG</span><span class=\"nm\"><b>Pell</b><span>Lady Geist</span></span></div></div><div data-dc-id=\"roster-sapphire\"><div class=\"team-head sapphire\"><i></i>Sapphire</div><div class=\"slot\" data-dc-id=\"slot-sorrel\"><span class=\"chip sapphire\">IN</span><span class=\"nm\"><b>s",
+        "rect": {
+          "x": 1122.800048828125,
+          "y": 56,
+          "width": 317.20001220703125,
+          "height": 247.85000610351562
+        }
+      },
+      "status": "resolved",
+      "createdAt": 1794036495308,
+      "sentAt": 1794036557912,
+      "resolution": "Roster slots on every artboard now show each hero's minimap portrait from _art inside a 2 px team-colour ring; the initials chip stays underneath as the fallback."
+    },
+    {
+      "id": "c-c59e95865664",
+      "number": 3,
+      "body": "top bar is missing",
+      "anchor": {
+        "artboardId": "board-presenting",
+        "dcId": "stage",
+        "path": "body > div:nth-of-type(1) > div:nth-of-type(1) > main:nth-of-type(1)",
+        "tag": "main",
+        "text": "Scene 3 of 7 8:00 mid boss setup Smoke on the bridge Dome when boss is low Paradox flank? Guest viewer \u00b7 laser Juno \u00b7 moving vexa \u00b7 editing Marrow \u00b7 selected Juno vexa Move V Draw D Arrow A Callout C ",
+        "html": "<main class=\"stage\" data-dc-id=\"stage\">\n  <div class=\"stage-head\">\n    <div class=\"scene-title\" data-dc-id=\"scene-title\">\n      <span class=\"ord\">Scene 3 of 7</span>\n      <h1><span class=\"clock\">8:00</span> mid boss setup</h1>\n    </div>\n    <span class=\"ph-badge\" data-dc-id=\"placeholder-note\"><span class=\"ph-schem\">Placeholder map: your server's map pack replaces it</span><span class=\"ph-art\"></span></span>\n  </div>\n  <div class=\"mapbox\" data-dc-id=\"map\"><div class=\"mm-host live vp-amber\" data-viewpoint=\"amber\" data-ids=\"\" role=\"img\" aria-label=\"Board map\" style=\"--u: 1.525px; --mk-scale: 1;\"><button class=\"mm-flip\" data-dc-id=\"viewpoint-flip\" title=\"Flip to the other team's side (changes only your view)\"><svg viewBox=\"-16 -16 32 32\" aria-hidden=\"true\"><path d=\"M-10 -4 A11 11 0 0 1 9 -6 M9 -6 L9 -14 M9 -6 L1 -6 M10 4 A11 11 0 0 1 -9 6 M-9 6 L-9 14 M-9 6 L-1 6\"></path></svg></button><div class=\"mm-frame\" data-dc-id=\"map-frame\"><svg class=\"frame-fb\" viewBox=\"0 0 100 100\" aria-hidden=\"true\"><path d=\"M50 7 a43 43 0 1 1 -0.01 0Z M39 9 a11 11 0 0 1 22 0 M39 91 a11 11 0 0 0 22 0\"></path></svg><i class=\"frame-art\"></i></div><div class=\"mm-clip\"><div class=\"mm-zoom\" style=\"height: 549px; ",
+        "rect": {
+          "x": 0,
+          "y": 56,
+          "width": 1122,
+          "height": 737.6000366210938
+        }
+      },
+      "status": "resolved",
+      "createdAt": 1794036528296,
+      "sentAt": 1794036557912,
+      "resolution": "Added the shared in-game top bar (design/shared/topbar.js) above the map on board-presenting, and on board-follower, board-follower-drift and phone-following."
+    }
+  ]
 }

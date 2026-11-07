@@ -36,6 +36,31 @@ the in-game HUD rebuilt from the game's sources: see `design/parity/README.md` f
   side, rotated with icons upright. The join card's backdrop uses the neutral tints.
 - Scene thumbnails use the minimap's lite mode.
 
+## The in-game top bar
+
+`design/shared/topbar.js` and `.css` draw the game's top bar, rebuilt from its HUD sources
+(spec in `design/parity/README.md`). It appears above the map on board-presenting, board-follower
+and board-follower-drift. On phone-following it's compressed: the same bar at full width, with
+text-size floors and the ult ring below the souls box.
+
+- **Data:**
+  - Portraits from the roster.
+  - Souls from each player's `PlayerState.souls` in the current scene.
+  - Team totals summed, never stored.
+  - The clock from `Scene.clock`.
+  - The friendly team, the viewer's, on the left.
+- **Editing in place:**
+  - Click a souls number or the clock to edit it as text.
+  - Drag around the ult ring, or scroll on it, to set `PlayerState.ult_cooldown`; click marks it
+    ready.
+  - board-presenting shows one souls box mid-edit and Marrow's ring mid-drag at "60% left".
+- **Ult states across the 12 portraits:** ready, 10, 25, 40, 60, 75, 90, 100 and untracked.
+  Untracked is hidden, as in game, but the editable board shows a faint dashed empty ring.
+- **No health bars.** The board doesn't track health, so they're left out rather than invented.
+- **Dead players** get the game's treatment: grayscale portrait, souls and ult at 30%.
+- **Roster slots and map tokens** show the hero's minimap portrait from `_art`, in a team-colour
+  ring, with the initials underneath as the fallback.
+
 ## Operator decisions applied (2026-11-06, spec §4, §8, §11)
 
 - **Tools.** This reverses the earlier "no tool rail" rule. A compact picker under the map

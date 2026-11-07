@@ -669,7 +669,11 @@ kbd {
 .map .tok text { display: var(--schem-display, inline); }
 .map .tok.preview .body { stroke: var(--p-juno); }
 .map .tok.dead .body { fill: #33433e; stroke: #0b1714; }
-.portrait { background: var(--p) center / 112% no-repeat; border-radius: 50%; }
+.portrait { background-position: center; background-size: 112%; background-repeat: no-repeat; border-radius: 50%; }   /* image: ../_art/art.css .hero-mm[data-hero] */
+/* Roster chips: the hero's minimap portrait inside a 2 px team-colour ring; initials stay underneath as the fallback */
+.chip { position: relative; overflow: hidden; }
+.chip .hero-mm { position: absolute; inset: 2px; border-radius: 50%; display: var(--art-display, none);
+  background-color: #0d1a17; background-position: center; background-size: 118%; background-repeat: no-repeat; }
 
 .ph-art { display: var(--art-inline, none); }
 .ph-art::after { content: var(--art-label, ""); }
@@ -872,3 +876,9 @@ kbd {
 .p-map .mm-host { width: 374px; height: 374px; }
 .legend > span { display: inline-flex; align-items: center; gap: 8px; }
 .legend [data-mm-icon] { width: 30px; height: 30px; }
+
+/* ---------- The in-game top bar (design/shared/topbar.js) above the map ---------- */
+.stage > .tb-host { width: 1008px; flex: none; margin: 2px 0 4px; }
+.mapbox.with-bar { width: 480px; height: 480px; }
+.stage:has(.tb-host) .stage-head { width: 1008px; margin-bottom: 0; }
+.stage > .tb-host { margin-top: 12px; }

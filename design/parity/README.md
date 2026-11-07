@@ -1,4 +1,7 @@
-# parity: the in-game minimap, rebuilt from its sources
+# parity: the in-game minimap and top bar, rebuilt from their sources
+
+**Top bar:** `design/shared/topbar.{js,css}`, compared against `_art/reference/ingame-topbar.png`
+by `topbar-compare`. The spec follows the minimap's, at the end of this file.
 
 **One implementation, shared:** `design/shared/minimap.js` (renderer), `minimap.css` (styles,
 all sizes relative) and `minimap-data.js` (derived coordinates). This collection and every
@@ -174,3 +177,123 @@ become CSS shapes in the same tints. The lanes are unchanged.
 - `info_neutral_trooper_camp`, `citadel_shop_prop_dynamic`, `info_koth_spawn_location`,
   `citadel_item_powerup_spawner`, and the `info_team_spawn` centroid.
 - All from `maps/dl_midtown/entities/default_ents.vents_c`.
+
+## Top bar spec (for the app)
+
+**Sources:**
+- Layouts `citadel_hud_top_bar.vxml`, `_player.vxml`, `_team.vxml` and `hero_badge.vxml`.
+- Styles `citadel_hud_top_bar.vcss`, `hero_badge.vcss` and `citadel_base_styles.vcss`.
+- The decoded copies are in `_art/topbar/source/`; nothing from them is committed verbatim.
+
+**Units:** sizes are in Panorama px, and one px = bar width / 1260. The screenshot matches the
+classic `#TeamsContainer` at 1260 px, not the 1400 px `showNewTopbar` variant, at 1:1.
+
+### Layout
+
+- **Teams:** the friendly team (the viewer's) is on the left and the enemy on the right. Each team
+  block is 528 px wide: six 88 px columns, flowing left to right.
+- **Each column, measured from the bar's top:**
+
+| Element | Geometry | Style |
+|---|---|---|
+| Portrait | 70.4 px disc (`#424640` to `#252722`) at y 15–85. The hero's `m_strTopBarVertical` image (120×200) sits in a 70.4 × 117.3 box, bottom-aligned to the disc's bottom, opacity-masked by `hero_image_mask` | The bust spills above the rim |
+| Souls box | Top at y 76 (behind the portrait), padding 20 / 5 / 0 / 5, radius 0 0 3 3 | Team colour; text 15 px bold (numericOracle); shadow 2 2 0 `#00000050` |
+| Ult indicator | 22 px circle at y 125, centred | See below |
+
+- **Team colours:**
+  - Amber `#D4860B`, with `#201500` text.
+  - Sapphire `#4D75C3`, with `#FFFFFF` text.
+- **Clock:** centred, 8 px from the top.
+  - Box: `#00000090`, radius 5, padding 5.
+  - Label: 80 × 20, 14 px, offWhite at 0x90 alpha.
+- **Team totals:**
+  - Placement: a 300 px block centred 45 px from the top, holding two 145 px boxes.
+  - Fill: team colour, masked by `dust_01` for the rough edge.
+  - Label: 22 px bold.
+  - Team icon: `icon_team1` / `icon_team2`, 30 × 26, beside the label: right of it for the
+    friendly box, left of it for the enemy box.
+- **Souls format:**
+  - Under 1,000: the integer.
+  - From 1,000 to 9,999: one decimal plus a smaller "k" (`.demote`, 12 px).
+  - From 10,000 (team totals): an integer plus "k".
+  - The value is truncated, not rounded: 44,830 shows as "44k", as in the screenshot.
+- **Team totals are sums** of `PlayerState.souls`, never stored.
+- **Dead:**
+  - The portrait goes grayscale at 0.1 brightness.
+  - The souls box and the ult indicator drop to 30% opacity.
+  - The health bar is hidden.
+  - The respawn timer comes from code, and the board has no field for it, so it isn't drawn.
+
+### Art keys (`_art/topbar/`, from `pak01_dir.vpk`)
+
+`topbar.css` sets each image on a selector; there are no `url()`s in custom properties.
+
+| Key / selector | Entry | Used for |
+|---|---|---|
+| `.hero-vertical[data-hero=<key>]` | `panorama/images/heroes/<m_strTopBarVertical>_psd` (120×200), `<key>` = heroes.vdata key without `hero_` | Portrait |
+| `.tb-img` mask | `hero_badges/hero_image_mask_psd` (280×380) | Bust mask, 100% × 100% of the portrait box, bottom-aligned |
+| `.tb-ult.ready .tb-ult-icon` | `hud/top_bar/icon_ultimate.vsvg` | Ready eye |
+| `.tb-ult.cooldown .tb-ult-icon` | `hud/top_bar/icon_ultimate_off.vsvg` | Cooldown glyph |
+| `.tb-score-bg` mask | `masks/dust_01_psd` | Rough edge of the totals |
+| `.tb-score.<team> .tb-team-icon` | `hud/core/icon_team1_psd` / `icon_team2_psd` | Team emblem |
+| `.tb-health-back`, `.tb-health-fill` mask; `.tb-health-border` mask | `hud/healthbar/healthbar_backer_vert_mask.vsvg`, `…_border.vsvg` | Health bars (parity only) |
+
+The map tokens and roster chips use the minimap portraits instead: `.hero-mm[data-hero=<key>]`
+in `_art/art.css`, from `panorama/images/heroes/<m_strMinimapImage>_psd`.
+
+### Ult indicator geometry
+
+- **Ready:** the 22 px circle shows `icon_ultimate` at full opacity, with a black glow (0 0 4 px,
+  spread 3).
+- **Cooldown:**
+  - Disc: offBlack, black glow (0 0 8 px, spread 3).
+  - Elapsed arc: a conic gradient in the team colour, from `left`% to 100%, clockwise from
+    12 o'clock.
+  - Icon: `icon_ultimate_off`, inset 2 px, at 60% opacity.
+  - Remaining wedge: `#000000a0` from 0 to `left`%, inset 2 px.
+  - Here `left` = `ult_cooldown`.
+- **Edit affordance:** dragging around the ring maps the angle to a percentage (0° = 0%,
+  clockwise), scrolling steps by 5%, and a click sets 0 (ready).
+
+### What the indicators mean
+
+- **The round icon under the souls box is `.UltimateStatus`.**
+  - **Eye:** `icon_ultimate`, the ready state (`UltimateCooldownReady`).
+  - **Greyed glyph:** `icon_ultimate_off` at 60% opacity, on an offBlack disc with a
+    team-colour background. That's the unlocked, cooling-down state.
+  - **Not unlocked:** the whole indicator is hidden.
+- **The slanted pale card is the friendly `#HealthBar`:** 16 × 50, −10°, offWhite fill whose
+  height is the health fraction.
+- **The red bars are the enemy health bars:** +7°, `#FF5656`. Both show only when the game
+  marks health as visible (`HealthVisible`).
+- **The "k"** is the `.demote` span that code adds to the souls text (`html="true"`). The format
+  rules above are inferred from the screenshot and the sources.
+
+### Ult cooldown on the board (`PlayerState.ult_cooldown`)
+
+- **0** shows the ready eye.
+- **1–100** shows the cooldown state, plus two layers the stylesheet doesn't have:
+  - a dark wedge for the share of cooldown left, clockwise from 12 o'clock;
+  - a team-colour arc for the elapsed share.
+
+  The game itself only switches between the two icons. The screenshot's cooldown icons do show a
+  partial team-colour ring, and the arc reproduces it.
+- **null** (untracked) is hidden, which matches the game's locked state. On the editable board
+  it shows as a faint dashed empty ring, so it can be clicked.
+
+### Health
+
+The board doesn't track health, so it draws no health bars. Only this parity reconstruction draws
+them, from fixed sample values.
+
+### Top bar: where it still differs (most visible first)
+
+1. **Clock box:** about 6 px lower and darker than in game, where `world-blur` lightens what's
+   behind it.
+2. **Score boxes:** about 4 px taller, and the `dust_01` edge is softer.
+3. **Fonts:** VALVEOracle, VALVEPulp and Gulim aren't available, so the numbers use the
+   stacks' Noto Sans fallback.
+4. **Health bars** use plain fills where the game composes two textures, so the enemy bar's dark
+   backing reads slightly differently.
+5. **Kill-streak glow, voice bar and local-player coin highlight** are state-driven and aren't
+   drawn.

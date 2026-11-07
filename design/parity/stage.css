@@ -7,7 +7,6 @@
   --ref-scale: 92.4%;
   --ref-x: -10px;
   --ref-y: -115px;
-  --ref-img: var(--ref-ingame-hidden-king-base);
   --s: 2;
   color-scheme: dark;
 }
@@ -39,7 +38,7 @@ body { font: 13px/1.4 system-ui, "Noto Sans", sans-serif; color: #ddd; }
 .mm-location .building { text-transform: uppercase; opacity: 0.5; }
 .ref {
   position: absolute; inset: 0; pointer-events: none; display: var(--ref-display, none);
-  background: var(--ref-img) var(--ref-x) var(--ref-y) / var(--ref-scale) auto no-repeat;
+  background-position: var(--ref-x) var(--ref-y); background-size: var(--ref-scale) auto; background-repeat: no-repeat;   /* image: reference.css */
   opacity: var(--ref-opacity); mix-blend-mode: var(--ref-blend);
 }
 .ref-missing {
@@ -49,3 +48,10 @@ body { font: 13px/1.4 system-ui, "Noto Sans", sans-serif; color: #ddd; }
 }
 .ref-missing b { font-size: 14px; }
 .ref-missing code { font: 12px ui-monospace, monospace; color: #9fe0c8; }
+/* Top bar stage: 1:1 Panorama px, as in the 1454 px screenshot; the bar's TeamsContainer starts 18 px in. */
+.tb-stage { position: relative; width: 1454px; height: 244px; overflow: hidden; isolation: isolate;
+  background: linear-gradient(#000 0 42px, transparent 42px), linear-gradient(90deg, #3a2a20, #5a4636 30%, #4a4b52 55%, #343a46 80%, #2b2f38); }
+.tb-stage .tb-host { position: absolute; left: 18px; top: 21px; width: 1260px; }
+.ref.tbref { background-position: var(--tbref-x) var(--tbref-y); background-size: var(--tbref-scale) auto; }
+.ref-missing.small { bottom: auto; top: 60px; }
+:root { --tbref-scale: 100%; --tbref-x: 0px; --tbref-y: 0px; }

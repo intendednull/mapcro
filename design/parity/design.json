@@ -9,14 +9,32 @@
       "title": "Minimap, in-game view (reconstruction)",
       "file": "minimap-ingame-view.html",
       "width": 1000,
-      "height": 1060
+      "height": 1060,
+      "group": "Minimap"
     },
     {
       "id": "compare",
       "title": "Compare: screenshot overlay",
       "file": "compare.html",
       "width": 1000,
-      "height": 1060
+      "height": 1060,
+      "group": "Minimap"
+    },
+    {
+      "id": "topbar-ingame-view",
+      "title": "Top bar, in-game view (reconstruction)",
+      "file": "topbar-ingame-view.html",
+      "width": 1454,
+      "height": 244,
+      "group": "Top bar"
+    },
+    {
+      "id": "topbar-compare",
+      "title": "Top bar compare: screenshot overlay",
+      "file": "topbar-compare.html",
+      "width": 1454,
+      "height": 244,
+      "group": "Top bar"
     }
   ],
   "tweaks": [
@@ -72,6 +90,39 @@
       "step": 1,
       "unit": "px",
       "default": -115
+    },
+    {
+      "id": "tbref-scale",
+      "label": "Top bar overlay scale",
+      "var": "--tbref-scale",
+      "type": "range",
+      "min": 25,
+      "max": 400,
+      "step": 0.1,
+      "unit": "%",
+      "default": 100
+    },
+    {
+      "id": "tbref-x",
+      "label": "Top bar overlay x",
+      "var": "--tbref-x",
+      "type": "range",
+      "min": -500,
+      "max": 500,
+      "step": 1,
+      "unit": "px",
+      "default": 0
+    },
+    {
+      "id": "tbref-y",
+      "label": "Top bar overlay y",
+      "var": "--tbref-y",
+      "type": "range",
+      "min": -300,
+      "max": 300,
+      "step": 1,
+      "unit": "px",
+      "default": 0
     }
   ]
 }

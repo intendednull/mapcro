@@ -31,9 +31,11 @@
     if ((o.k === "t1" || o.k === "t2" || o.k === "barracks") && LANE[o.lane]) return LANE[o.lane];
     return OFFWHITE;
   }
+  // The image itself is set by ../_art/parity/parity.css on [data-img] (washed: image + own-alpha
+  // mask) or [data-pimg] (plain), so no url() ever sits in a custom property.
   function layer(img, w, extra) {
     var i = el("i", w ? "w" : "p");
-    i.style.setProperty("--img", "var(--pa-" + img + ")");
+    i.setAttribute(w ? "data-img" : "data-pimg", img);
     if (w) i.style.setProperty("--wash", w);
     if (extra) i.style.cssText += extra;
     return i;
@@ -175,7 +177,7 @@
       host.appendChild(f);
     }
     var clip = el("div", "mm-clip"), zoom = el("div", "mm-zoom"), rot = el("div", "mm-rot");
-    var terrain = el("i", "terrain");
+    var terrain = el("i", "terrain", { "data-pimg": "terrain-mid" });
     if (ids) { terrain.dataset.dcId = "map-terrain"; }
     rot.append(terrain, el("i", "mm-shade"), lanes(vp));
     var objs = el("div", "mm-objs");

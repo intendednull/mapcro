@@ -9,9 +9,8 @@
 .mm-frame { position: absolute; inset: 0; z-index: 0; }
 .mm-frame .frame-art {
   position: absolute; inset: 0; display: var(--pa-display, none);
-  background: var(--pa-compass-frame) center / contain no-repeat;
-  -webkit-mask: var(--pa-compass-frame-mask) center / contain no-repeat;
-  mask: var(--pa-compass-frame-mask) center / contain no-repeat;
+  background-position: center; background-size: contain; background-repeat: no-repeat;   /* images: parity.css */
+  -webkit-mask-position: center; mask-position: center; -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
 }
 .mm-frame .frame-fb { position: absolute; inset: 0; width: 100%; height: 100%; display: var(--pa-fb-display, block); }
 .mm-frame .frame-fb path { fill: rgba(16, 19, 13, 0.6); stroke: rgba(255, 239, 215, 0.2); stroke-width: 0.4; }
@@ -20,15 +19,14 @@
 .mm-clip { position: absolute; left: 5%; top: 5%; width: 90%; height: 90%; z-index: 1; }
 .mm-host.zoomed:not(.mm-crop) .mm-clip {
   overflow: hidden;
-  -webkit-mask: var(--pa-compass-frame-mask) 50% 50% / 111.11% 111.11% no-repeat;
-  mask: var(--pa-compass-frame-mask) 50% 50% / 111.11% 111.11% no-repeat;
+  -webkit-mask-position: 50% 50%; mask-position: 50% 50%; -webkit-mask-size: 111.11% 111.11%; mask-size: 111.11% 111.11%; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;   /* image: parity.css */
 }
 .mm-host.lite .mm-clip, .mm-host.mm-crop .mm-clip { left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; }
 .mm-zoom { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 .mm-rot { position: absolute; inset: 0; isolation: isolate; }
 .mm-host.vp-sapphire .mm-rot { transform: rotate(180deg); }   /* invert_map: Sapphire friendly at the bottom */
 
-.mm-rot .terrain { position: absolute; inset: 0; z-index: -3; display: var(--pa-display, none); background: var(--pa-terrain-mid) center / 100% 100% no-repeat; filter: brightness(calc(1 - var(--map-shade, 0))); }   /* board tweak "Map darkness"; 0 in game */
+.mm-rot .terrain { position: absolute; inset: 0; z-index: -3; display: var(--pa-display, none); background-position: center; background-size: 100% 100%; background-repeat: no-repeat; filter: brightness(calc(1 - var(--map-shade, 0))); }   /* board tweak "Map darkness"; 0 in game */
 .mm-rot .mm-shade { display: none; }
 .mm-host.lite .mm-rot { background: #17282400; }
 .mm-rot .lanes { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; overflow: visible; }
@@ -40,11 +38,11 @@
 .mk { position: absolute; transform: translate(-50%, -50%); scale: var(--mk-scale, 1); }   /* zoomed: icons keep their HUD size, as in game */
 .mm-host.vp-sapphire .mm-rot .mk { transform: translate(-50%, -50%) rotate(180deg); }
 .mk > i { position: absolute; inset: 0; display: var(--pa-display, none); pointer-events: none; }
-.mk > i.p { background: var(--img) center / 100% 100% no-repeat; }
+.mk > i.p { background-position: center; background-size: 100% 100%; background-repeat: no-repeat; }
 .mk > i.w {
-  background-image: var(--img); background-size: 100% 100%; background-repeat: no-repeat;
+  background-size: 100% 100%; background-repeat: no-repeat;
   background-color: var(--wash); background-blend-mode: multiply;            /* Panorama wash-color */
-  -webkit-mask: var(--img) center / 100% 100% no-repeat; mask: var(--img) center / 100% 100% no-repeat;
+  -webkit-mask-position: center; mask-position: center; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;   /* images: parity.css */
 }
 .mk.koth { border-radius: 50%; background: #000; border: calc(2 * var(--u, 1px)) solid #99FFD650; }   /* .capture_point */
 
