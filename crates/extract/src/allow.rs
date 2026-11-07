@@ -31,12 +31,16 @@ impl GameDir {
 
     /// Whether `relative` names one of the files the extractor is allowed to open.
     ///
-    /// Only the VPK directory file, its numbered chunks, the midtown map VPK and `steam.inf`
-    /// are allowed. In particular nothing under `cfg/`, `account_*` or `cache_*` is.
+    /// Only the VPK directory file, its numbered chunks, the midtown map VPK, `steam.inf` and the
+    /// English hero-name localisation file are allowed. In particular nothing under `cfg/`,
+    /// `account_*` or `cache_*` is.
     pub fn is_allowed(relative: &str) -> bool {
         if matches!(
             relative,
-            "steam.inf" | "maps/dl_midtown.vpk" | "pak01_dir.vpk"
+            "steam.inf"
+                | "maps/dl_midtown.vpk"
+                | "pak01_dir.vpk"
+                | "resource/localization/citadel_gc_hero_names/citadel_gc_hero_names_english.txt"
         ) {
             return true;
         }

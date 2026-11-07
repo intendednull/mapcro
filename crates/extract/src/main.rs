@@ -50,7 +50,7 @@ fn run() -> Result<(), String> {
     let report = extract(Path::new(&game), Path::new(&out)).map_err(|error| error.to_string())?;
 
     println!(
-        "wrote {} PNGs and {} ({} sources, {} blobs)",
+        "wrote {} files and {} ({} sources, {} blobs)",
         report.files.len(),
         report.pack.display(),
         report.sources,

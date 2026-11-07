@@ -1,31 +1,51 @@
 //! mapcro game-asset extractor.
 //!
-//! Reads a local Deadlock `citadel` install, extracts the minimap layers and hero portraits from
-//! `pak01_dir.vpk`, and writes a content-addressed `pack.json` plus PNGs. Only allow-listed
-//! files are opened, and no extracted art is ever written inside the repository.
+//! Reads a local Deadlock `citadel` install, extracts the minimap layers, hero portraits, hero
+//! records, map entities, HUD icons and HUD sources, and writes a content-addressed `pack.json`.
+//! Only allow-listed files are opened, and no extracted art is ever written inside the repository.
 //!
-//! The VPK reader and the Source 2 resource/texture decoder are standard-library Rust; the
-//! container layout is ported from ValveResourceFormat (MIT), credited in [`decode_vtex`].
+//! The VPK reader, binary KV3 reader and Source 2 resource/texture decoders are pure Rust; the
+//! container and KV3 layouts are ported from ValveResourceFormat (MIT), credited in [`kv3`] and
+//! [`vtex`].
 
 mod allow;
+mod entities;
 mod error;
+mod heroes;
+mod hud;
+mod icons;
+pub mod kv1;
+pub mod kv3;
 mod pack;
+mod panorama;
 mod png_out;
+mod resource;
 mod steam;
 mod vpk;
 mod vtex;
 
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 pub use allow::GameDir;
 pub use error::{Error, Result};
-pub use pack::{Blob, Extractor, Game, Pack, SCHEMA, Source};
+pub use kv3::Value;
+pub use pack::{
+    Blob, Entity, EntitySource, Extractor, Game, Hero, HudSource, Icon, Pack, SCHEMA, SkippedIcon,
+    Source,
+};
 pub use png_out::{encode_png, write_png};
 pub use steam::SteamInfo;
 pub use vpk::{Entry, Vpk};
-pub use vtex::{Texture, decode_vtex};
+pub use vtex::{Texture, decode_vtex, format_label};
 
 use sha2::{Digest, Sha256};
+
+const HEROES_PATH: &str = "scripts/heroes.vdata_c";
+const HERO_NAMES_PATH: &str =
+    "resource/localization/citadel_gc_hero_names/citadel_gc_hero_names_english.txt";
+const ENTITIES_VPK: &str = "maps/dl_midtown.vpk";
+const ENTITIES_PATH: &str = "maps/dl_midtown/entities/default_ents.vents_c";
 
 /// The three midtown minimap layers and their logical keys / output paths.
 const MINIMAP_LAYERS: [(&str, &str, &str); 3] = [
@@ -50,13 +70,13 @@ const MINIMAP_LAYERS: [(&str, &str, &str); 3] = [
 #[derive(Debug)]
 pub struct ExtractReport {
     pub pack: PathBuf,
-    /// PNG paths relative to the output directory.
+    /// PNG/SVG/text paths relative to the output directory.
     pub files: Vec<String>,
     pub sources: usize,
     pub blobs: usize,
 }
 
-/// Extract the minimap layers and every hero minimap portrait into `out_dir`.
+/// Extract the minimap layers, heroes, map entities, HUD icons and HUD sources into `out_dir`.
 pub fn extract(game_dir: &Path, out_dir: &Path) -> Result<ExtractReport> {
     guard_output(game_dir, out_dir)?;
 
@@ -81,25 +101,39 @@ pub fn extract(game_dir: &Path, out_dir: &Path) -> Result<ExtractReport> {
         )?;
     }
 
-    let mut heroes: Vec<(&str, &str)> = vpk
-        .entries()
-        .filter_map(|entry| hero_stem(&entry.path).map(|stem| (stem, entry.path.as_str())))
-        .collect();
-    heroes.sort_by(|left, right| left.0.cmp(right.0));
+    pack.heroes = extract_heroes(&vpk, &game, out_dir, &mut pack, &mut files)?;
 
-    for (stem, entry_path) in heroes {
-        let logical_key = format!("heroes/{stem}");
-        let file = format!("heroes/{stem}.png");
-        extract_one(
-            &vpk,
-            out_dir,
-            entry_path,
-            &logical_key,
-            &file,
-            &mut pack,
-            &mut files,
-        )?;
-    }
+    let entities = match Vpk::open(&game, ENTITIES_VPK) {
+        Ok(map) => extract_entities(&map, &mut pack)?,
+        Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            entities::Extraction {
+                entities: Vec::new(),
+                geometry_hash: entities::geometry_hash(&[]),
+            }
+        }
+        Err(error) => return Err(error),
+    };
+    pack.entities = entities
+        .entities
+        .into_iter()
+        .map(|entity| Entity {
+            key: entity.key,
+            kind: entity.kind,
+            team: entity.team,
+            lane: entity.lane,
+            world: entity.world,
+            src: EntitySource {
+                classname: entity.src.classname,
+                hammeruniqueid: entity.src.hammeruniqueid,
+                targetname: entity.src.targetname,
+            },
+            nodes: entity.nodes,
+        })
+        .collect();
+    pack.geometry_hash = entities.geometry_hash;
+
+    icons::extract(&vpk, out_dir, &mut pack, &mut files)?;
+    hud::extract(&vpk, out_dir, &mut pack, &mut files)?;
 
     pack.sort_sources();
     let pack_bytes = pack.to_json()?;
@@ -112,6 +146,137 @@ pub fn extract(game_dir: &Path, out_dir: &Path) -> Result<ExtractReport> {
         sources: pack.sources.len(),
         blobs: pack.blobs.len(),
     })
+}
+
+fn extract_heroes(
+    vpk: &Vpk,
+    game: &GameDir,
+    out_dir: &Path,
+    pack: &mut Pack,
+    files: &mut Vec<String>,
+) -> Result<Vec<Hero>> {
+    let Some(entry) = vpk.entry(HEROES_PATH) else {
+        return Ok(Vec::new());
+    };
+    let bytes = vpk.read_entry(entry)?;
+    let resource = resource::parse(&bytes)?;
+    let block = resource.block(b"DATA").ok_or(Error::MissingDataBlock)?;
+    let root = kv3::decode(block.data)?;
+
+    pack.add_source(
+        entry.archive_name(vpk.dir_name()),
+        entry.path.clone(),
+        entry.crc32,
+        entry.size(),
+    );
+
+    let names = match read_localisation(vpk, game, pack)? {
+        Some(text) => kv1::flatten(&text)?,
+        None => BTreeMap::new(),
+    };
+
+    let heroes = heroes::parse(&root, &names)?;
+    let mut output = Vec::with_capacity(heroes.len());
+
+    for mut hero in heroes {
+        if hero.is_playable()
+            && let Some(entry_path) = hero.minimap_entry.clone()
+            && let Some(portrait) = vpk.entry(&entry_path)
+        {
+            let bytes = vpk.read_entry(portrait)?;
+            let texture = decode_vtex(&bytes)?;
+            let blob_key = format!("heroes/{}", hero.hero_id);
+            let file = format!("{blob_key}.png");
+            let png = write_png(
+                &out_dir.join(&file),
+                texture.width,
+                texture.height,
+                &texture.rgba,
+            )?;
+            let sha256 = sha256_hex(&png);
+
+            pack.add_blob(
+                blob_key.clone(),
+                file.clone(),
+                sha256,
+                texture.width,
+                texture.height,
+            );
+            pack.add_source(
+                portrait.archive_name(vpk.dir_name()),
+                portrait.path.clone(),
+                portrait.crc32,
+                portrait.size(),
+            );
+            hero.minimap_blob = Some(blob_key);
+            files.push(file);
+        }
+
+        output.push(Hero {
+            hero_id: hero.hero_id,
+            class_name: hero.class_name,
+            name: hero.name,
+            dev_state: hero.dev_state,
+            disabled: hero.disabled,
+            minimap_blob: hero.minimap_blob,
+        });
+    }
+
+    Ok(output)
+}
+
+fn read_localisation(vpk: &Vpk, game: &GameDir, pack: &mut Pack) -> Result<Option<String>> {
+    if let Some(entry) = vpk.entry(HERO_NAMES_PATH) {
+        let bytes = vpk.read_entry(entry)?;
+        pack.add_source(
+            entry.archive_name(vpk.dir_name()),
+            entry.path.clone(),
+            entry.crc32,
+            entry.size(),
+        );
+        return String::from_utf8(bytes)
+            .map(Some)
+            .map_err(|_| Error::InvalidUtf8);
+    }
+
+    match game.path(HERO_NAMES_PATH) {
+        Ok(path) => {
+            let bytes = std::fs::read(path)?;
+            pack.add_source(
+                "loose".to_owned(),
+                HERO_NAMES_PATH.to_owned(),
+                crc32fast::hash(&bytes),
+                bytes.len() as u64,
+            );
+            String::from_utf8(bytes)
+                .map(Some)
+                .map_err(|_| Error::InvalidUtf8)
+        }
+        Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn extract_entities(map: &Vpk, pack: &mut Pack) -> Result<entities::Extraction> {
+    let Some(entry) = map.entry(ENTITIES_PATH) else {
+        return Ok(entities::Extraction {
+            entities: Vec::new(),
+            geometry_hash: entities::geometry_hash(&[]),
+        });
+    };
+    let bytes = map.read_entry(entry)?;
+    let resource = resource::parse(&bytes)?;
+    let block = resource.block(b"DATA").ok_or(Error::MissingDataBlock)?;
+    let root = kv3::decode(block.data)?;
+
+    pack.add_source(
+        entry.archive_name(map.dir_name()),
+        entry.path.clone(),
+        entry.crc32,
+        entry.size(),
+    );
+
+    entities::extract(&root)
 }
 
 fn extract_one(
@@ -155,17 +320,7 @@ fn extract_one(
     Ok(())
 }
 
-/// `panorama/images/heroes/<stem>_mm_psd.vtex_c`, with exactly one path level under `heroes/`.
-fn hero_stem(path: &str) -> Option<&str> {
-    let rest = path.strip_prefix("panorama/images/heroes/")?;
-    let stem = rest.strip_suffix("_mm_psd.vtex_c")?;
-    if stem.is_empty() || stem.contains('/') {
-        return None;
-    }
-    Some(stem)
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let digest = Sha256::digest(bytes);
     let mut out = String::with_capacity(digest.len() * 2);

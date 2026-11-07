@@ -117,6 +117,84 @@ pub enum Error {
 
     #[error("JSON serialization failed: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("PNG decoding failed: {0}")]
+    PngDecode(#[from] png::DecodingError),
+
+    #[error("texture data could not be decoded as {0}")]
+    TextureDecode(&'static str),
+
+    #[error("compressed mip table does not match the texture's mip count")]
+    CompressedMipCount,
+
+    #[error("compressed mip size table is out of bounds")]
+    CompressedMipTable,
+
+    #[error("unknown texture mip compression method {0}")]
+    UnknownMipCompression(u32),
+
+    #[error("not a binary KV3 block")]
+    Kv3BadMagic,
+
+    #[error("unsupported binary KV3 version {0}")]
+    UnsupportedKv3Version(u8),
+
+    #[error("unsupported KV3 compression method {0}")]
+    UnsupportedKv3Compression(u32),
+
+    #[error("truncated KV3 data")]
+    TruncatedKv3,
+
+    #[error("malformed KV3 data")]
+    MalformedKv3,
+
+    #[error("invalid KV3 value type {0}")]
+    InvalidKv3Type(u8),
+
+    #[error("KV3 nesting exceeds the 64 level limit")]
+    Kv3NestingTooDeep,
+
+    #[error("KV3 data exceeds the 64 MiB decompressed limit")]
+    Kv3TooLarge,
+
+    #[error("KV3 decompression failed")]
+    Kv3Decompress,
+
+    #[error("KV3 trailer is invalid: {0:#010x}")]
+    Kv3BadTrailer(u32),
+
+    #[error("KV3 binary blob is out of range")]
+    Kv3BlobOutOfRange,
+
+    #[error("KV3 string table is malformed")]
+    Kv3StringTable,
+
+    #[error("unexpected end of KV1 text")]
+    Kv1UnexpectedEnd,
+
+    #[error("malformed KV1 text")]
+    Kv1Malformed,
+
+    #[error("trailing data after KV1 value")]
+    Kv1Trailing,
+
+    #[error("hero record {0} has no usable m_HeroID")]
+    MissingHeroId(String),
+
+    #[error("entity origin is not a 3-component vector")]
+    MalformedOrigin,
+
+    #[error("panorama resource header is malformed")]
+    MalformedPanorama,
+
+    #[error("panorama layout has no m_AST/m_pRoot")]
+    MalformedLayout,
+
+    #[error("unexpected panorama layout node type {0}")]
+    UnknownLayoutNode(String),
+
+    #[error("text is not valid UTF-8")]
+    InvalidUtf8,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
