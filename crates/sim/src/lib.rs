@@ -34,7 +34,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { editors: 3, viewers: 1, attackers: 1, steps: 400, fault_rate: 4 }
+        Config { editors: 6, viewers: 1, attackers: 1, steps: 400, fault_rate: 4 }
     }
 }
 
@@ -44,6 +44,8 @@ pub struct Stats {
     pub edits: usize,
     pub undos: usize,
     pub rejected: usize,
+    /// Rejections of honest editors' work: concurrent conflicts, not view-only refusals.
+    pub editor_rejected: usize,
     pub disconnects: usize,
     pub undo_fields_checked: usize,
 }
@@ -281,11 +283,15 @@ impl World {
         let Some(msg) = self.clients[i].down.pop_front() else { return Ok(()) };
         let label = describe_server_msg(&msg);
         let name = self.clients[i].name.clone();
+        let is_editor = self.clients[i].role == Role::Edit;
         self.log(format!("{name} <- server: {label}"));
         match &mut self.clients[i].driver {
             Driver::Replica { replica, .. } => {
                 if let ServerMsg::Rejected { .. } = msg {
                     self.stats.rejected += 1;
+                    if is_editor {
+                        self.stats.editor_rejected += 1;
+                    }
                 }
                 replica.receive(msg).map_err(|e| format!("{name}: protocol error: {e}"))
             }

@@ -34,13 +34,14 @@ fn main() -> ExitCode {
     }
 
     let started = std::time::Instant::now();
-    let (mut entries, mut undo_checks, mut rejected, mut drops) = (0, 0, 0, 0);
+    let (mut entries, mut undo_checks, mut rejected, mut editor_rejected, mut drops) = (0, 0, 0, 0, 0);
     for &seed in &seeds {
         match run(seed, &config) {
             Ok(s) => {
                 entries += s.log_len;
                 undo_checks += s.undo_fields_checked;
                 rejected += s.rejected;
+                editor_rejected += s.editor_rejected;
                 drops += s.disconnects;
             }
             Err(f) => {
@@ -50,7 +51,7 @@ fn main() -> ExitCode {
         }
     }
     println!(
-        "ok: {} seeds × {} steps in {:.1?} ({entries} log entries, {undo_checks} undo field checks, {rejected} rejections, {drops} disconnects)",
+        "ok: {} seeds × {} steps in {:.1?} ({entries} log entries, {undo_checks} undo field checks, {rejected} rejections of which {editor_rejected} editor conflicts, {drops} disconnects)",
         seeds.len(),
         config.steps,
         started.elapsed()
