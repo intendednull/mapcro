@@ -186,3 +186,77 @@ pub fn genesis(mut next_id: impl FnMut() -> RecordId, title: &str) -> Doc {
     debug_assert!(validate::check_invariants(&doc).is_ok(), "genesis must satisfy the invariants");
     doc
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn board() -> (Doc, RecordId, RecordId) {
+        let mut n = 0u128;
+        let doc = genesis(
+            || {
+                n += 1;
+                RecordId(n)
+            },
+            "t",
+        );
+        let scene = doc.iter_live().find(|(_, r)| matches!(r, Record::Scene(_))).map(|(id, _)| id).expect("scene");
+        let player = doc.iter_live().find(|(_, r)| matches!(r, Record::PlayerState(_))).map(|(id, _)| id).expect("player");
+        (doc, scene, player)
+    }
+
+    fn tx(ops: Vec<Op>) -> Tx {
+        Tx { client: ClientId(1), cseq: 0, kind: TxKind::Edit, ops }
+    }
+
+    fn mv(id: RecordId, x: i32) -> Op {
+        Op::Set { id, value: FieldValue::PlayerPos(WorldPos { x, y: 0 }) }
+    }
+
+    #[test]
+    fn a_failing_op_rolls_back_the_ops_before_it() {
+        let (mut doc, _, player) = board();
+        let before = doc.clone();
+        let r = apply_tx(&mut doc, &tx(vec![mv(player, 5), mv(RecordId(999_999), 1)]));
+        assert_eq!(r, Err(Reject::NoSuchRecord));
+        assert_eq!(doc, before, "the first op's write must be undone");
+    }
+
+    #[test]
+    fn a_failed_invariant_rolls_back_the_whole_transaction() {
+        let (mut doc, scene, player) = board();
+        let before = doc.clone();
+        let note = |id| Op::Create { id: RecordId(id), record: Record::Note(Note { scene, text: "x".into() }) };
+        // Two notes in one scene: each create is valid alone; the invariant check rejects them.
+        let r = apply_tx(&mut doc, &tx(vec![mv(player, 7), note(1000), note(1001)]));
+        assert_eq!(r, Err(Reject::Duplicate));
+        assert_eq!(doc, before, "creates and the write before them must all be undone");
+        let r = apply_tx(&mut doc, &tx(vec![mv(player, 7), Op::Delete { id: scene }]));
+        assert_eq!(r, Err(Reject::LastScene));
+        assert_eq!(doc, before);
+    }
+
+    #[test]
+    fn inverse_undoes_exactly() {
+        let (mut doc, scene, player) = board();
+        let before = doc.clone();
+        let ops = vec![
+            mv(player, 42),
+            Op::Create { id: RecordId(2000), record: Record::Callout(Callout { scene, pos: WorldPos { x: 1, y: 2 }, text: "smoke".into() }) },
+        ];
+        let (_, inverse) = apply_tx_with_inverse(&mut doc, &tx(ops)).expect("valid");
+        apply_tx(&mut doc, &tx(inverse)).expect("inverse applies");
+        // The callout is tombstoned rather than removed (ids are never reused); everything else
+        // is exactly as before.
+        let live: Vec<_> = doc.iter_live().collect();
+        let live_before: Vec<_> = before.iter_live().collect();
+        assert_eq!(live, live_before);
+    }
+
+    #[test]
+    fn field_writes_skip_the_invariant_check_but_structure_does_not() {
+        assert!(!affects_invariants(&mv(RecordId(1), 0)));
+        assert!(affects_invariants(&Op::Delete { id: RecordId(1) }));
+        assert!(affects_invariants(&Op::Restore { id: RecordId(1) }));
+    }
+}
