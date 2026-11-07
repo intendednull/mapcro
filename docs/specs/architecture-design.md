@@ -42,6 +42,7 @@ Each scene owns:
 - `objective_state`: semantic objective key → `active | destroyed | hidden` (absent = game default)
 - `arrow`: from and to, optional waypoints, team colour, style
 - `callout`: position, text
+- `stroke`: freehand ink as a list of world points (capped), colour, width
 - `note`: the scene's free text
 
 Records are flat, typed and validated by one schema module shared by client and server. Kinds are
@@ -107,6 +108,19 @@ are avoided wherever possible:
 
 The chrome is the scene strip, presence and Share. This suits the op model: each gesture is one
 transaction and one undo step.
+
+**Tools (operator, 2026-11-06):** a small tool picker changes what the cursor does on the map:
+
+| Tool | What it does | Result |
+|---|---|---|
+| Move | the default: drag tokens and callouts, click objectives | ops |
+| Draw | freehand ink | a `stroke` record |
+| Arrow | drag out a rotation arrow | an `arrow` record |
+| Callout | click to place a label, typed in place | a `callout` record |
+| Laser | a glowing pointer trail others see, fading in about a second | presence only, never stored |
+| Erase | click or scrub over ink, arrows and callouts | deletes |
+
+The map is still the surface for every tool; the picker only chooses the gesture.
 
 ## 4a. Client state
 
@@ -192,8 +206,12 @@ at about 20 Hz; the server coalesces them per room and relays.
 
 - Viewers appear in the people list, and their cursors show. Their presence is rate-limited like
   everyone else's and is the only thing a view session may send.
-- **Follow mode:** a viewer can follow a presenter's scene, floor and viewport. This is the coaching
-  workflow. "Everyone follow me" is a request that each viewer accepts locally, not a forced state.
+- **Follow mode:** anyone can follow a presenter's scene, floor and viewport. This is the coaching
+  workflow (operator, 2026-11-06):
+  - **Following is one click,** and the presenter's name is always visible to click.
+  - **A follower who changes what they see stops following:** flipping a scene, panning, zooming or
+    switching floor. There's no half-state.
+  - **Presenters can't force or nudge anyone;** getting back in is just as easy.
 - Presence timeout: 30 s without a heartbeat removes the entry.
 
 ## 9. Persistence, snapshots and backups
@@ -242,8 +260,15 @@ at about 20 Hz; the server coalesces them per room and relays.
 ## 11. Links, capabilities and security
 
 **Capabilities.** Each board has three capability levels: `owner`, `edit` and `view`. Creating a board
-returns the owner capability, which is stored on the creator's device and is the only way to mint
-or revoke links. There are no accounts. Accounts can later bind owner capabilities to a person.
+returns the owner capability, stored on the creator's device. There are no accounts. Accounts can
+later bind owner capabilities to a person.
+
+- **Editors can share too (operator, 2026-11-06).** An edit link can mint view and edit links. It
+  can list and revoke the links it minted, and those minted from them in turn.
+- **The owner sees and revokes everything.**
+- **Revocation cascades:** revoking a link also revokes every link minted through it. A leaked edit
+  link can then be cleaned up in one step, together with anything its holder handed out.
+- View links can't mint.
 
 - Tokens are 256-bit random, base64url. The server stores only SHA-256(token), so a database leak
   yields no usable links.
