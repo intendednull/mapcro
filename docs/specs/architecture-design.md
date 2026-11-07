@@ -529,6 +529,32 @@ The harness is the judge of everything else, so Opus writes it and DeepSeek neve
   boards must migrate and load.
 - **Backup:** a backup is restored into a fresh server, and its boards must equal the originals.
 
+**2a. Many-peer soak** (`web/soak/`, `just soak`: the real server binary, real WebSockets, the
+real `BoardSession` over the WASM replica, IndexedDB through `fake-indexeddb`)
+
+- **Shape:** 40 peers by default (30 editors, 10 viewers) on one board, in worker threads, each a
+  real session with its own IndexedDB. A seeded schedule drives a few actions per second per
+  editor, with bursts: hero drags (a presence preview, then one transaction), group moves, souls,
+  clocks and ults, ink, arrows, callouts, notes, objectives, waves, scene add, reorder and delete,
+  undo and redo, cursors, lasers and follows, and contests where several editors write one field
+  within milliseconds of each other.
+- **Faults:** socket drops, tab reloads (the session is thrown away and rebuilt from its
+  IndexedDB; saves not yet started die with the tab), offline bursts that keep editing, a late
+  joiner from scratch on a large log, and the server `kill -9`'d and restarted mid-run.
+- **Checked at quiescence,** mirroring the simulation: every replica equals the log replayed and
+  a fresh client's board; every transaction a peer saw acked is logged exactly once, at that seq,
+  with the same contents; every rejected one is not logged and its peer heard the rejection; every
+  entry a peer was given matches the log; presence converges (each peer's last state reaches
+  everyone, nobody sees themselves, only editors can be followed); the final board passes
+  `validate_doc`. During the run, protocol errors (gaps, ack mismatches) and `Fatal`s fail it, and
+  views are sampled against `validate_doc`.
+- **At 64 peers** (the room's session cap, a constant) it runs at the default history caps and
+  checks that a 65th peer gets a clean `closed: full`. Otherwise it raises the history caps
+  through env, so long runs never fill the board.
+- **Reproducible decisions:** the same seed gives the same schedule (its fingerprint is printed);
+  network timing still varies. What it found, and the bugs planted to prove it discriminates, are
+  in the [journal](../journal/2026-11-07-soak.md).
+
 **3. Security tests**
 
 - **Adversarial raw-WebSocket client:** it tries a view token sending ops, revoked tokens, wrong
@@ -556,7 +582,7 @@ The harness is the judge of everything else, so Opus writes it and DeepSeek neve
 |---|---|---|
 | `just test` | unit tests plus 1k simulation seeds | under 30 s, the inner loop |
 | `just test-all` | adds system, security and e2e | |
-| `just soak` | the simulation for hours with fresh seeds | |
+| `just soak` | many peers on the real stack with faults and server crashes (`just soak <seed> <peers> <seconds>`) | about a minute by default |
 | `just sim --seed` | replays one seed | |
 
 CI runs `just test-all` through the Nix flake. `cargo-mutants` over `crates/engine` checks that the

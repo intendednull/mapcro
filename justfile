@@ -68,6 +68,14 @@ e2e *args: wasm
     cargo build -q -p mapcro-server
     cd web && npx vite build --logLevel warn && npx playwright test {{args}}
 
+# Many-peer soak on the real stack: the real server binary (release), real WebSockets, the
+# TypeScript session over the WASM replica, IndexedDB via fake-indexeddb; drops, reloads, offline
+# bursts and server kill -9s. Same seed, same schedule of actions. `just soak 0x2a 40 600`;
+# flags after the three (`just soak 1 64 60 --default-caps`; `--help` lists them).
+soak seed="random" peers="40" seconds="60" *flags: wasm
+    cargo build -q --release -p mapcro-server
+    cd web && node soak/bundle.mjs && node soak/.build/run.js --seed {{seed}} --peers {{peers}} --seconds {{seconds}} {{flags}}
+
 # The app, live-reloading: the server (state and packs under ~/.local/share/mapcro, outside the
 # repo) plus Vite on http://localhost:5173 proxying /api, /ws and /packs to it.
 dev port="8094": wasm
