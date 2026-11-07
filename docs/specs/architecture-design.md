@@ -8,7 +8,7 @@ mapcro is a shared Deadlock minimap for macro coaching. People place the 12 hero
 objectives, draw rotations, add callouts and notes, and step through scenarios. A board is shared
 by link, either to watch or to edit live. It works offline and saves locally. A small server on
 the operator's infra relays edits and stores shared boards. Game art comes only from the user's
-own install.
+install of whoever runs the server, extracted once and served to everyone.
 
 The design goal is reliability: an edit the UI calls *saved* is never lost, every client converges
 on the same board, and a bad client cannot corrupt a board for anyone else.
@@ -21,7 +21,7 @@ on the same board, and a bad client cannot corrupt a board for anyone else.
 | Players are array indices 0–11, objectives keyed by API ids | Every record has a stable random id. Heroes are referenced by game `hero_id`, objectives by semantic keys (§12) | Survives reorders, concurrent edits and game updates |
 | Positions in 0–1 minimap space of build 6851 | Positions in **world units** (game coordinates); the asset pack supplies the world→minimap transform | A minimap texture or crop change no longer moves every token |
 | Hard-coded guard: build 6851 only | Boards record the build they were made on; any asset pack renders them, with placeholders for missing entities | Game updates degrade gracefully instead of breaking boards |
-| Coordinates and hero list from deadlock-api.com, art from the install | Everything from the install, through one extractor | One source of truth, matched to the user's build |
+| Coordinates and hero list from deadlock-api.com, art from the install, embedded in the HTML | The server operator extracts everything from the install once; the server serves versioned packs | One source of truth; users never extract |
 | View state (viewpoint, floor) mixed into the saved scenario | Board state, per-user view state and presence are three separate stores | Viewers can look at Sapphire's side without flipping it for everyone |
 
 ## 2. The document model
@@ -92,7 +92,7 @@ Details are in the [sync research](../research/sync-and-collab-boards.md).
 person's words. The note field therefore uses text splice ops `(pos, deleteCount, insert)`, which the
 server transforms against concurrent splices: single-server OT for plain text, the same small
 algorithm ShareDB's text type uses. Callout text stays LWW because it is a short label. *(Open:
-whether notes are collaborative enough to justify this. See Q4.)*
+whether notes are collaborative enough to justify this. See Q2.)*
 
 ## 4. Client state
 
@@ -182,7 +182,7 @@ at about 20 Hz; the server coalesces them per room and relays.
   seq inside the retention window. A restore is a new transaction, so it can be undone.
 - **Backups:** continuous off-box replication of the SQLite file (Litestream to object storage), plus
   a nightly verified `.backup` snapshot. A restore is tested in CI against a fresh database.
-  *(Target bucket: Q6.)*
+  *(Target bucket: Q5.)*
 - **Room lifecycle:** a room loads on its first connection and unloads after 5 minutes with no
   connections, once a final snapshot is written. A graceful shutdown flushes every room.
 
@@ -225,9 +225,9 @@ or revoke links. There are no accounts. Accounts can later bind owner capabiliti
 | Malicious edit-link holder | Typed op validation, per-record and per-board size caps, per-session op rate limit, owner restores from version history |
 | Cross-site WebSocket hijacking | `Origin` allow-list on upgrade; no cookies, so no ambient authority |
 | XSS via names, notes, callouts | All user text rendered as text, never HTML; strict CSP; no user-supplied URLs or images |
-| Storage spam (anonymous board creation) | Per-IP creation rate limit, max board size, idle-board expiry (Q5) |
+| Storage spam (anonymous board creation) | Per-IP creation rate limit, max board size, idle-board expiry (Q3) |
 | Room flooding | Max sessions per room, presence rate limit, message size cap |
-| Hosting abusive content | No uploads at all in v1; text only, with caps |
+| Hosting abusive content | No user uploads at all; text only, with caps. Asset packs are placed in the data directory by the server operator, never through HTTP |
 
 No end-to-end encryption, unlike Excalidraw. E2EE would stop the server validating ops, which is
 the reliability and security boundary above. Boards are game strategy, so server trust plus TLS is
@@ -235,37 +235,32 @@ the right trade-off. A dedicated security review gates public exposure.
 
 ## 12. Game assets and the extraction pipeline
 
-**Rule: Valve's files never reach the repo, the server, a share link or an export.** They exist only
-in the user's browser storage, extracted from their own install. Boards carry only ids and world
-coordinates. (Every other Deadlock tool we found hosts Valve art. This is mapcro's deliberate
-difference; see the [extraction research](../research/deadlock-assets-and-extraction.md).)
+**Decision (operator, 2026-11-06):** mapcro is free forever. Art is extracted once, by whoever runs
+the server, and the server serves it, so users never extract anything. Art stays out of the git
+repo. The repo has no need for it, and keeping it out means a takedown request could only ever
+reach a server's art directory, never the source code.
 
-**One Rust extraction core, with two front ends.**
+**`mapcro-extract`** is a Rust CLI in the workspace. It reads a local install
+(`Deadlock/game/citadel`) and writes a versioned **asset pack**. The server operator then uploads or
+syncs that pack to the server's data directory. The server never needs the game installed.
 
-1. **In-browser extractor (primary), compiled to WASM.** The user picks their
-   `Deadlock/game/citadel` folder. Chromium uses `showDirectoryPicker` and keeps the handle, so
-   re-checking after a game update takes one click. Firefox and Safari use `<input webkitdirectory>`.
-   The extractor opens only allow-listed paths: the folder also holds account-id files, which are
-   never read. It reads the 8.4 MB VPK directory, then just the needed byte ranges from the 33 GB of
-   chunks, about 15–20 MB in all. Nothing is uploaded.
-2. **`mapcro-extract` CLI**, a native build of the same core. It is for headless use, debugging
-   and Proton paths. It writes the same pack file, which the browser imports.
+- It opens only allow-listed paths. The folder also holds per-account files, which are never read.
+- It reads the 8.4 MB VPK directory, then just the needed byte ranges, about 15–20 MB of a 33 GB
+  install.
+- The minimap layers and hero portraits are uncompressed BGRA textures. Hero data and map entities
+  are binary KV3, which no Rust library reads yet. We port the needed parts of ValveResourceFormat
+  (MIT, credited).
+- VRF's own CLI is the **test oracle**: a local check diffs our output against it on the real
+  install. CI uses only synthetic VPK fixtures generated by the tests.
 
-**Formats.** The minimap layers and hero portraits are uncompressed BGRA textures, which are easy.
-Hero data and map entities are binary KV3 inside Source 2 resource containers, and no Rust or JS
-library reads those yet. We port the needed parts of ValveResourceFormat (MIT, credited) to Rust.
-VRF's own CLI is our **test oracle**: a local check runs both against the real install and diffs
-the output. CI only ever uses synthetic VPK fixtures our tests generate.
+**What it derives from the install**, so deadlock-api is no longer needed:
 
-**What the extractor derives from the install**, so deadlock-api is no longer needed:
+- Heroes come from `scripts/heroes.vdata_c`, with names from the localisation files.
+- Objectives, camps, rifts, ziplines and sentries come from the map entity lump.
+- The world→minimap transform is fitted against extracted objectives. deadlock-api's hard-coded
+  radius of 10752 has no in-game source.
 
-- Heroes come from `scripts/heroes.vdata_c` (id, development state, minimap image), with names
-  from the localisation files.
-- Objectives, camps, rifts, ziplines and sentries come from the map entity lump, by classname.
-- The world→minimap transform comes from the pack. deadlock-api hard-codes a radius of 10752 with
-  no in-game source, so we fit it against extracted objectives and keep it in the pack.
-
-**Asset pack** (local only, content-addressed, so builds that change nothing share their blobs):
+**Asset pack** (content-addressed, so builds that change nothing share their blobs):
 
 ```
 pack.json   schema, extractor version,
@@ -278,78 +273,90 @@ pack.json   schema, extractor version,
 blobs/<sha256>.png
 ```
 
+The server serves packs at `/packs/<pack_id>/…`. Responses are immutable and cached forever,
+because the content is hashed. The server keeps every pack it has had, so an old board can still
+render on the art it was made with.
+
 **How boards reference the game.**
 
 - Positions are world coordinates.
 - Heroes are referenced by `hero_id`.
-- Objectives use a **semantic key**, such as `walker:amber:lane2`. The raw entity id is kept as
-  evidence, not identity.
-- Each board records the `client_version` and `geometry_hash` it was authored on.
+- Objectives use a **semantic key** such as `walker:amber:lane2`. The raw entity id is kept as
+  evidence.
+- Each board records the `pack_id` it was authored on, and opens on the newest pack by default.
 
-When a board opens with a different pack:
+When a board opens on a newer pack:
 
 - Keys resolve first. Failing that, an entity of the same kind within a tolerance matches.
-- Anything moved or orphaned is **shown** to the user, never silently re-snapped.
-- A full map rework (6711 was one) makes the board read "authored for an earlier map".
+- Anything moved or orphaned is shown, never silently re-snapped.
+- After a full map rework (6711 was one), the board offers "view on the map it was made for".
 
 **Version tracking.**
 
-- The server polls Steam's public `GetClientVersion` endpoint, which needs no key and carries no
-  art, and tells clients the live build.
-- The client compares the live build with its pack's `client_version`. On a mismatch, it re-reads
-  `steam.inf` and the source CRCs. Most builds change no map art, so a re-extract is usually a
-  no-op (6851 → 6860 left the minimap byte-identical).
-
-**Without a pack** (phone viewers, people without the game), the board renders on a neutral
-background with placeholder glyphs and hero names. Whether that background is a blank grid or
-original art we draw ourselves is Q3.
+- The server polls Steam's public `GetClientVersion` endpoint, which needs no key, and reports
+  "pack is behind the live game" on its status page and in its logs.
+- The operator re-runs the extractor. If the source CRCs are unchanged, the extractor says
+  "nothing changed" and makes no new pack. Most builds don't touch the map: 6851 → 6860 left the
+  minimap byte-identical.
+- Automating extraction on the server (deadlock-api does it with Steam credentials and
+  DepotDownloader) is possible later. It would bring in a credential, so it isn't planned.
 
 **Legal posture:**
 
-- Steam's agreement allows non-commercial fan use of game content, and it forbids redistribution
-  and reverse engineering.
-- Extracting on the user's own machine keeps redistribution off our servers, but the decoding
-  still happens on the user's machine.
-- mapcro stays non-commercial: no ads and no paid tiers.
-- It carries a clear "not affiliated with Valve" notice.
+- Hosting extracted art is what every Deadlock tool we found does.
+- Steam's agreement allows non-commercial fan use and forbids redistribution, so the risk is a
+  takedown of the art, not of mapcro.
+- mapcro stays free, carries a clear "not affiliated with Valve" notice, and keeps art out of the
+  repo.
 
 This is a risk posture, not legal advice.
 
 ## 13. Code and deploy shape
 
-The app is TypeScript end to end (npm workspaces, Nix flake dev shell), and the extractor is Rust. The deciding reason: the
-authority code must run in **both** the server and the browser (§6), and so must the schema and the
-migrations. One language means there is one implementation of each, not two kept in step. *(Q1 asks
-whether you'd rather have a Rust core.)*
+**Decision (operator, 2026-11-06): a Rust core.** One Cargo workspace holds the schema, the
+authority, the replica, undo and migrations. That same code runs natively in the server and as WASM
+in the browser, for local boards and the client replica. The UI stays TypeScript and talks to the
+core through a narrow, typed boundary.
 
 ```
-packages/schema    records, ops, invariants, migrations: pure, no I/O
-packages/engine    authority (validate, sequence, apply), client replica (confirmed/pending/rebase),
-                   undo, text OT, presence model: pure and deterministic
-apps/server        Node 24: HTTP + WebSocket (ws), SQLite (better-sqlite3), rooms, links, limits
-apps/web           Vite + React UI; SVG map renderer; IndexedDB store; asset-pack loader
-crates/extract     Rust extraction core → WASM (browser) and the `mapcro-extract` CLI (§12)
-design/            Paseo design-canvas collections for UI iteration
+crates/schema     records, ops, invariants, migrations: pure, no I/O
+crates/engine     authority (validate, sequence, apply), replica (confirmed/pending/rebase),
+                  undo, text OT: pure and deterministic
+crates/server     axum + WebSocket, rusqlite, one tokio task per room, links, limits, /healthz
+crates/wasm       wasm-bindgen wrapper of engine for the browser; TS types generated (tsify)
+crates/extract    mapcro-extract CLI (§12)
+web/              Vite + TypeScript UI, SVG map renderer, IndexedDB store, calls crates/wasm
+design/           Paseo design-canvas collections for UI iteration
 ```
 
-**Server process:** one Node process serves the built web client, `/api` (create a board, mint or
-revoke links, import), `/ws` (sync and presence) and `/healthz`. Each board is an in-memory room
-owned by that process. Ops for a board are applied one at a time, so the server has no concurrency
-races to reason about. Config comes from env (`PORT`, `DATA_DIR`, `PUBLIC_ORIGIN`). It fails fast on
-bad config and logs to stdout.
+**The WASM boundary** is designed so it never becomes a bottleneck or a source of bugs:
 
-**Infra:** the infra `node` template gives a `runtime = "systemd"` registry app behind Caddy, which
-proxies WebSockets without extra config, with the SQLite database in the unit's `StateDirectory`. The
-backup replication runs as a timer and service declared by mapcro's own NixOS module, with
-object-storage credentials passed by path through sops. Domain, port and backup target are
-deployment-time decisions (Q6). Nothing deploys without your OK at the time.
+- The core owns the board state. Every call takes a transaction or a server message and returns
+  the **changed records**. The JS store mirrors records for rendering and is never the source of
+  truth.
+- Edits are human-paced, so a call costs microseconds. Presence and drag previews bypass the core
+  entirely, because they are ephemeral.
+- Types crossing the boundary are generated from the Rust definitions, so TypeScript can't drift
+  from them.
 
-**Scale assumption:** one box, tens of concurrent rooms, under 50 people per room. Several
-processes or boxes would need room-to-process affinity; nothing in the model prevents that later.
+**Server process:**
+
+- One Rust binary serves the built web client, `/api`, `/ws`, `/packs` and `/healthz`.
+- Each open board is a tokio task that owns its state and processes messages one at a time from a
+  channel. Applies are serial per room, with no shared mutable state.
+- Config comes from env (`PORT`, `DATA_DIR`, `PUBLIC_ORIGIN`). It fails fast on bad config and logs
+  to stdout.
+
+**Infra:** the infra `rust-app` template fits directly. It is a `runtime = "systemd"` registry app
+behind Caddy, which proxies WebSockets without extra config. SQLite and packs live in the unit's
+`StateDirectory`. The backup timer is declared in mapcro's own NixOS module, with credentials passed
+by path through sops. Nothing deploys without your OK at the time.
+
+**Scale assumption:** one box, tens of concurrent rooms, under 50 people per room.
 
 ## 14. Testing reliability
 
-- **Deterministic sync simulation (the core gate).** A seeded harness runs one authority and N
+- **Deterministic sync simulation (the core gate).** A seeded, pure-Rust (proptest) harness runs one authority and N
   replicas over a fake network that delays, reorders, duplicates and drops messages, and
   disconnects clients at random. It generates random transactions, undos and offline periods. At
   quiescence, it asserts that every replica equals the authority, that every acknowledged
@@ -363,26 +370,18 @@ processes or boxes would need room-to-process affinity; nothing in the model pre
 - **End to end:** Playwright with two browser contexts on one board, including `setOffline`,
   reload with pending edits, and follow mode.
 - **Extraction:** CI runs against synthetic VPK fixtures generated by our own test code. No Valve
-  data is involved. A local-only check runs against the real install.
+  data is involved. A local-only check runs against the real install and diffs against VRF's CLI.
+- **WASM parity:** the same engine test vectors run natively and under `wasm-bindgen-test`.
 
 ## 15. Open questions for the operator
 
-1. **Language.** The recommendation is TypeScript for the app and server, so that one copy of the
-   schema, authority and migrations runs in both places, plus Rust for the extractor. The
-   alternative is a Rust core compiled to WASM for the app too, which brings typestate and enums
-   end to end at the cost of a WASM boundary on every op and slower UI iteration.
-2. **Extractor order.** The recommendation is browser-first (Rust → WASM), with VRF's CLI used only
-   as a test oracle. The quicker alternative for v1 is a CLI that wraps VRF, like the prototype,
-   whose output pack is imported into the browser, with the WASM extractor following later.
-3. **Board view without a pack** (phones, people without the game): a neutral grid with
-   placeholders, or original schematic map art we draw ourselves and commit (lanes and landmarks,
-   SimpleRadar-style)? The art is real work, but it makes shared links useful to everyone.
-4. **Notes.** Do scene notes need real simultaneous typing, with the text OT in §3? Or is
-   last-writer-wins plus a "someone else is editing" indicator enough for v1?
-5. **Anonymous storage.** Should idle boards expire, for example after 180 days with no opens? And
+Settled on 2026-11-06: a Rust core (§13), and server-hosted art that users never extract (§12).
+
+1. **UI language:** a TypeScript UI over the Rust core (recommended), or a full-Rust UI
+   (Leptos/Dioxus)?
+2. **Notes:** real simultaneous typing (the text OT in §3), or last-writer-wins plus a "someone else
+   is editing" indicator for v1?
+3. **Anonymous storage:** should idle boards expire, for example after 180 days with no opens? And
    are per-IP limits on board creation acceptable?
-6. **Deploy details** (needed later, not now): the domain (`mapcro.intendednull.com`?), the backup
-   target (Hetzner Object Storage or another bucket), and the licence (MIT or AGPL) before the first
-   push.
-7. **Scenes.** Is "a board is a sequence of scenes sharing one roster" the right model? Or should
-   each saved scenario be its own board?
+4. **Scenes:** is "a board is a sequence of scenes sharing one roster" the right model?
+5. **Later:** the domain, the backup bucket, and the licence (MIT or AGPL) before the first push.

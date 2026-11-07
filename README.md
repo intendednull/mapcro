@@ -8,10 +8,11 @@ objectives, draw rotations, step through scenes, and share a link to watch or ed
 
 ## Game assets
 
-mapcro ships **no Valve assets**. The map, icons and portraits are extracted on your machine from
-your own Deadlock install, and they stay there. This repo's `.gitignore` excludes extracted output.
-Deadlock and its assets are the property of Valve Corporation. mapcro is an unofficial fan tool
-with no affiliation with Valve.
+The repo contains **no Valve assets**. Whoever runs a mapcro server extracts the map, icons and
+portraits once from their own Deadlock install with `mapcro-extract`, and the server serves them.
+Users don't extract anything. `.gitignore` excludes extracted output. mapcro is free and
+non-commercial. Deadlock and its assets are the property of Valve Corporation, and mapcro is an
+unofficial fan tool with no affiliation with Valve.
 
 ## Docs
 
