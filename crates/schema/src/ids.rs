@@ -62,6 +62,18 @@ impl ObjectiveKey {
     }
 }
 
+/// A lane, named as the map's lane ziplines are (`lane1`, `lane4`, `lane6`). Validated: 1–16
+/// chars of `[a-z0-9_]`.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct LaneKey(pub String);
+
+impl LaneKey {
+    pub fn is_valid(&self) -> bool {
+        (1..=16).contains(&self.0.len()) && self.0.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    }
+}
+
 /// A fractional-index key ordering scenes: concurrent inserts between the same two scenes get
 /// distinct keys, so reorders never collide. Validated: 1–32 chars of `[0-9a-z]`, not ending in
 /// `0`, so there is always room on both sides.

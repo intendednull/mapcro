@@ -1,4 +1,4 @@
-use crate::ids::{HeroId, ObjectiveKey, OrderKey, RecordId};
+use crate::ids::{HeroId, LaneKey, ObjectiveKey, OrderKey, RecordId};
 use serde::{Deserialize, Serialize};
 
 pub const SLOTS_PER_TEAM: u8 = 6;
@@ -98,6 +98,20 @@ pub struct ObjectiveState {
     pub status: ObjectiveStatus,
 }
 
+/// Where a lane's creep waves meet (the lane equilibrium), at most one per lane per scene.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Wave {
+    pub scene: RecordId,
+    pub lane: LaneKey,
+    /// Position along the lane's zipline by arc length: 0 at the Amber end, 1000 at the
+    /// Sapphire end. Independent of viewpoint and of small changes to the map's geometry.
+    pub t: u16,
+}
+
+/// The largest `Wave::t`: the Sapphire end of the lane.
+pub const WAVE_T_MAX: u16 = 1000;
+
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Arrow {
@@ -148,6 +162,7 @@ pub enum Record {
     Callout(Callout),
     Note(Note),
     Stroke(Stroke),
+    Wave(Wave),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -161,6 +176,7 @@ pub enum RecordKind {
     Callout,
     Note,
     Stroke,
+    Wave,
 }
 
 /// A value for one mutable field. Each variant names its field, so a `Set` can never write a
@@ -188,6 +204,7 @@ pub enum FieldValue {
     CalloutPos(WorldPos),
     CalloutText(String),
     NoteText(String),
+    WavePos(u16),
 }
 
 /// The field a [`FieldValue`] writes, without its value.
@@ -212,10 +229,11 @@ pub enum Field {
     CalloutPos,
     CalloutText,
     NoteText,
+    WavePos,
 }
 
 impl Field {
-    pub const ALL: [Field; 19] = [
+    pub const ALL: [Field; 20] = [
         Field::Title,
         Field::RosterName,
         Field::RosterHero,
@@ -235,6 +253,7 @@ impl Field {
         Field::CalloutPos,
         Field::CalloutText,
         Field::NoteText,
+        Field::WavePos,
     ];
 }
 
@@ -260,6 +279,7 @@ impl FieldValue {
             FieldValue::CalloutPos(_) => Field::CalloutPos,
             FieldValue::CalloutText(_) => Field::CalloutText,
             FieldValue::NoteText(_) => Field::NoteText,
+            FieldValue::WavePos(_) => Field::WavePos,
         }
     }
 }
@@ -276,6 +296,7 @@ impl Record {
             Record::Callout(_) => RecordKind::Callout,
             Record::Note(_) => RecordKind::Note,
             Record::Stroke(_) => RecordKind::Stroke,
+            Record::Wave(_) => RecordKind::Wave,
         }
     }
 
@@ -288,6 +309,7 @@ impl Record {
             Record::Callout(r) => Some(r.scene),
             Record::Note(r) => Some(r.scene),
             Record::Stroke(r) => Some(r.scene),
+            Record::Wave(r) => Some(r.scene),
             Record::BoardMeta(_) | Record::RosterSlot(_) | Record::Scene(_) => None,
         }
     }
@@ -315,6 +337,7 @@ impl Record {
             (Record::Callout(r), Field::CalloutPos) => V::CalloutPos(r.pos),
             (Record::Callout(r), Field::CalloutText) => V::CalloutText(r.text.clone()),
             (Record::Note(r), Field::NoteText) => V::NoteText(r.text.clone()),
+            (Record::Wave(r), Field::WavePos) => V::WavePos(r.t),
             _ => return None,
         })
     }
@@ -342,6 +365,7 @@ impl Record {
             (Record::Callout(r), V::CalloutPos(v)) => r.pos = v,
             (Record::Callout(r), V::CalloutText(v)) => r.text = v,
             (Record::Note(r), V::NoteText(v)) => r.text = v,
+            (Record::Wave(r), V::WavePos(v)) => r.t = v,
             _ => return false,
         }
         true

@@ -12,10 +12,10 @@ mod validate;
 pub use doc::{Doc, Entry};
 #[cfg(feature = "ts")]
 pub use doc::DocPair;
-pub use ids::{ClientId, HeroId, ObjectiveKey, OrderKey, RecordId};
+pub use ids::{ClientId, HeroId, LaneKey, ObjectiveKey, OrderKey, RecordId};
 pub use records::{
     Arrow, BoardMeta, Callout, Field, FieldValue, Note, ObjectiveState, ObjectiveStatus, PlayerState,
-    Record, RecordKind, RosterSlot, Scene, Stroke, Team, WorldPos,
+    Record, RecordKind, RosterSlot, Scene, Stroke, Team, WAVE_T_MAX, Wave, WorldPos,
 };
 pub use validate::{Limits, Reject, LIMITS};
 
@@ -292,6 +292,25 @@ mod tests {
             };
             apply_tx(&mut doc.clone(), &tx(vec![op])).expect(k);
         }
+    }
+
+    #[test]
+    fn one_wave_per_lane_per_scene_and_its_position_is_bounded() {
+        let (mut doc, scene, _) = board();
+        let wave = |id: u128, lane: &str, t: u16| Op::Create {
+            id: RecordId(id),
+            record: Record::Wave(Wave { scene, lane: LaneKey(lane.into()), t }),
+        };
+        apply_tx(&mut doc, &tx(vec![wave(900, "lane1", 500), wave(901, "lane4", 0)])).expect("two lanes");
+        assert_eq!(apply_tx(&mut doc.clone(), &tx(vec![wave(902, "lane1", 10)])), Err(Reject::Duplicate));
+        assert_eq!(apply_tx(&mut doc.clone(), &tx(vec![wave(903, "lane6", WAVE_T_MAX + 1)])), Err(Reject::OutOfBounds));
+        assert_eq!(apply_tx(&mut doc.clone(), &tx(vec![wave(904, "Lane 6", 1)])), Err(Reject::BadObjectiveKey));
+        let set = |t| tx(vec![Op::Set { id: RecordId(900), value: FieldValue::WavePos(t) }]);
+        assert_eq!(apply_tx(&mut doc.clone(), &set(WAVE_T_MAX + 1)), Err(Reject::OutOfBounds));
+        apply_tx(&mut doc, &set(WAVE_T_MAX)).expect("the Sapphire end");
+        // Removed is "not tracked"; the lane can then be placed again.
+        apply_tx(&mut doc, &tx(vec![Op::Delete { id: RecordId(900) }])).expect("delete");
+        apply_tx(&mut doc, &tx(vec![wave(905, "lane1", 300)])).expect("placed again");
     }
 
     #[test]

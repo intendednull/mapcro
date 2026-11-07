@@ -180,14 +180,28 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
                 None => vec![Op::Create { id: new_id, record: Record::ObjectiveState(ObjectiveState { scene, key, status }) }],
             }
         }
-        6 => vec![Op::Create {
+        6 if rng.random() => vec![Op::Create {
             id: new_id,
             record: Record::Arrow(Arrow { scene, from: pos(rng), to: pos(rng), team: Some(Team::Amber) }),
         }],
+        6 => {
+            // Lane equilibrium: place or slide a lane's wave marker (two editors placing the
+            // same lane at once is a Duplicate conflict, as for objectives).
+            let lane = mapcro_schema::LaneKey(["lane1", "lane4", "lane6"][rng.random_range(0..3)].to_owned());
+            let t = rng.random_range(0..=mapcro_schema::WAVE_T_MAX);
+            let existing = r.view().iter_live().find_map(|(id, rec)| match rec {
+                Record::Wave(w) if w.scene == scene && w.lane == lane => Some(id),
+                _ => None,
+            });
+            match existing {
+                Some(id) => vec![Op::Set { id, value: FieldValue::WavePos(t) }],
+                None => vec![Op::Create { id: new_id, record: Record::Wave(mapcro_schema::Wave { scene, lane, t }) }],
+            }
+        }
         7 => vec![Op::Create { id: new_id, record: Record::Callout(Callout { scene, pos: pos(rng), text: text(rng, 80) }) }],
         8 => {
             let deletable =
-                live_ids(r, |x| matches!(x, Record::Arrow(_) | Record::Callout(_) | Record::ObjectiveState(_) | Record::Stroke(_)));
+                live_ids(r, |x| matches!(x, Record::Arrow(_) | Record::Callout(_) | Record::ObjectiveState(_) | Record::Stroke(_) | Record::Wave(_)));
             pick(rng, &deletable).map(|id| vec![Op::Delete { id }]).unwrap_or_default()
         }
         9 => {

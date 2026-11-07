@@ -103,6 +103,7 @@ fn record_heap_bytes(r: &Record) -> usize {
         Record::RosterSlot(s) => s.name.capacity(),
         Record::Scene(s) => s.name.capacity() + s.order.0.capacity(),
         Record::ObjectiveState(o) => o.key.0.capacity(),
+        Record::Wave(w) => w.lane.0.capacity(),
         Record::Callout(c) => c.text.capacity(),
         Record::Note(n) => n.text.capacity(),
         Record::Stroke(s) => s.points.capacity() * std::mem::size_of::<WorldPos>(),

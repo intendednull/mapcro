@@ -8,8 +8,9 @@ import type { PlayerState } from "./PlayerState";
 import type { RosterSlot } from "./RosterSlot";
 import type { Scene } from "./Scene";
 import type { Stroke } from "./Stroke";
+import type { Wave } from "./Wave";
 
 /**
  * Every record a board can hold.
  */
-export type Record = { "BoardMeta": BoardMeta } | { "RosterSlot": RosterSlot } | { "Scene": Scene } | { "PlayerState": PlayerState } | { "ObjectiveState": ObjectiveState } | { "Arrow": Arrow } | { "Callout": Callout } | { "Note": Note } | { "Stroke": Stroke };
+export type Record = { "BoardMeta": BoardMeta } | { "RosterSlot": RosterSlot } | { "Scene": Scene } | { "PlayerState": PlayerState } | { "ObjectiveState": ObjectiveState } | { "Arrow": Arrow } | { "Callout": Callout } | { "Note": Note } | { "Stroke": Stroke } | { "Wave": Wave };

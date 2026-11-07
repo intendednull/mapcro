@@ -137,6 +137,7 @@ fn check_value(v: &FieldValue) -> Result<(), Reject> {
         V::SceneOrder(k) => if k.is_valid() { Ok(()) } else { Err(Reject::BadOrderKey) },
         V::PlayerPos(p) | V::ArrowFrom(p) | V::ArrowTo(p) | V::CalloutPos(p) => check_pos(*p),
         // A match clock up to four hours; souls up to a million.
+        V::WavePos(t) => if *t <= crate::records::WAVE_T_MAX { Ok(()) } else { Err(Reject::OutOfBounds) },
         V::SceneClock(c) => if c.is_none_or(|c| c <= 4 * 3600) { Ok(()) } else { Err(Reject::OutOfBounds) },
         V::PlayerSouls(n) => if n.is_none_or(|n| n <= 1_000_000) { Ok(()) } else { Err(Reject::OutOfBounds) },
         V::PlayerUltCooldown(p) => if p.is_none_or(|p| p <= 100) { Ok(()) } else { Err(Reject::OutOfBounds) },
@@ -185,6 +186,13 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
             }
             check_text(&c.text, LIMITS.max_callout)?;
             check_pos(c.pos)
+        }
+        Record::Wave(w) => {
+            if !live_scene(w.scene) {
+                return Err(Reject::NoSuchScene);
+            }
+            check_value(&FieldValue::WavePos(w.t))?;
+            if w.lane.is_valid() { Ok(()) } else { Err(Reject::BadObjectiveKey) }
         }
         Record::Note(n) => {
             if !live_scene(n.scene) {
@@ -305,6 +313,7 @@ pub(crate) fn check_invariants(doc: &Doc) -> Result<(), Reject> {
     let mut players: BTreeMap<RecordId, BTreeSet<RecordId>> = BTreeMap::new();
     let mut notes = BTreeSet::new();
     let mut objectives = BTreeSet::new();
+    let mut waves = BTreeSet::new();
     for (_, entry) in doc.iter() {
         let Some(scene) = entry.record.scene() else { continue };
         // Children of a deleted scene are hidden with it, but keep their structure for Restore.
@@ -321,6 +330,11 @@ pub(crate) fn check_invariants(doc: &Doc) -> Result<(), Reject> {
             }
             Record::ObjectiveState(o) if !entry.deleted => {
                 if !objectives.insert((scene, o.key.clone())) {
+                    return Err(Reject::Duplicate);
+                }
+            }
+            Record::Wave(w) if !entry.deleted => {
+                if !waves.insert((scene, w.lane.clone())) {
                     return Err(Reject::Duplicate);
                 }
             }
