@@ -109,7 +109,7 @@ fn check_value(v: &FieldValue) -> Result<(), Reject> {
         // A match clock up to four hours; souls up to a million.
         V::SceneClock(c) => if c.is_none_or(|c| c <= 4 * 3600) { Ok(()) } else { Err(Reject::OutOfBounds) },
         V::PlayerSouls(n) => if n.is_none_or(|n| n <= 1_000_000) { Ok(()) } else { Err(Reject::OutOfBounds) },
-        V::RosterHero(_) | V::PlayerAlive(_) | V::PlayerPlaced(_) | V::ObjectiveStatus(_) | V::ArrowTeam(_) => Ok(()),
+        V::RosterHero(_) | V::PlayerAlive(_) | V::PlayerPlaced(_) | V::PlayerUlt(_) | V::ObjectiveStatus(_) | V::ArrowTeam(_) => Ok(()),
     }
 }
 
