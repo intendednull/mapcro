@@ -205,6 +205,11 @@ Presence is ephemeral and never enters the op log. Each entry carries a display 
 selection, the current scene, the floor, and any in-progress drag preview. The client sends updates
 at about 20 Hz; the server coalesces them per room and relays.
 
+- **Name tags on elements (operator, 2026-11-06):** whoever is interacting with an element
+  (dragging it, selecting it, editing its text) has their display name shown beside it, the way a
+  shared document shows collaborators' names. Presence carries `drag` and `focus` for this.
+- **Display name:** asked for on joining a board, remembered on the device, changeable any time.
+  It's presence only, never stored on the server.
 - Viewers appear in the people list, and their cursors show. Their presence is rate-limited like
   everyone else's and is the only thing a view session may send.
 - **Follow mode:** anyone can follow a presenter's scene, floor and viewport. This is the coaching

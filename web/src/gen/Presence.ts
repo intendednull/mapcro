@@ -27,6 +27,11 @@ laser: Array<WorldPos>,
  */
 drag: DragPreview | null, 
 /**
+ * The element this person is interacting with (selected, editing its text). Others see
+ * this person's name tag beside it, like collaborators' names in a shared document.
+ */
+focus: RecordId | null, 
+/**
  * The peer this person is following, if any.
  */
 following: number | null, };

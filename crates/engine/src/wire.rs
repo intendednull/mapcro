@@ -103,6 +103,9 @@ pub struct Presence {
     pub laser: Vec<WorldPos>,
     /// A drag in progress: which record, and where it is now (spec §4a: preview, then one op).
     pub drag: Option<DragPreview>,
+    /// The element this person is interacting with (selected, editing its text). Others see
+    /// this person's name tag beside it, like collaborators' names in a shared document.
+    pub focus: Option<RecordId>,
     /// The peer this person is following, if any.
     pub following: Option<u64>,
 }
