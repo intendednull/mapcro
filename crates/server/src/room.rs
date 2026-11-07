@@ -2,6 +2,7 @@
 //! so the engine needs no locking. Every acknowledgement or rejection is written to SQLite
 //! before anyone hears about it (spec §9, "durable before ack").
 
+use crate::codec;
 use crate::store::{LoadCaps, Store, StoreError};
 use mapcro_engine::wire::{Base, CloseReason, LinkRole, PeerPresence, Presence, WireOut};
 use mapcro_engine::{Authority, ClientMsg, ConnId, Effect, Outgoing, Quota, Role, ServerMsg};
@@ -15,8 +16,6 @@ use tokio::sync::{mpsc, oneshot};
 /// pace (security review 2026-11-07, H-A). Frames are shared between peers, so a full outbox
 /// costs pointers, not copies.
 const OUTBOX_DEPTH: usize = 4096;
-/// Catch-up is streamed in pages of about this many bytes, each fetched when the last is sent.
-const CATCH_UP_PAGE_BYTES: usize = 64 * 1024;
 /// A room with nobody in it unloads after this long (spec §9, room lifecycle).
 pub const IDLE_UNLOAD: std::time::Duration = std::time::Duration::from_secs(300);
 /// How long a load waits for an idle room it asked to unload.
@@ -35,8 +34,6 @@ pub enum RoomCmd {
     /// The board as it is now (for cloning).
     Snapshot { reply: oneshot::Sender<mapcro_schema::Doc> },
     Revoke { link_hash: String },
-    /// Entry frames from log position `from` up to `to`, as many as fit a page (at least one).
-    Entries { from: u64, to: u64, reply: oneshot::Sender<Vec<String>> },
     /// Unload now if nobody is in the room (the server is at its open-room cap).
     Unload,
 }
@@ -47,7 +44,8 @@ pub enum Out {
     Frame(Arc<str>),
     /// The server is closing the connection.
     Closed(CloseReason),
-    /// Stream log entries `from..=to` here, fetching them with `RoomCmd::Entries`.
+    /// Stream log entries `from..=to` here, reading them from storage (every one is durable by
+    /// the time this is queued).
     CatchUp { from: u64, to: u64 },
 }
 
@@ -136,8 +134,6 @@ pub enum RoomError {
     NotFound,
     #[error(transparent)]
     Store(#[from] StoreError),
-    #[error("stored log does not replay: {0}")]
-    Replay(mapcro_schema::Reject),
     #[error("room unavailable")]
     Unavailable,
     /// As many rooms are open as the server allows, and none of them is idle.
@@ -184,17 +180,7 @@ impl Rooms {
         let mut slot = self.reserve().await?;
         let q = self.caps.quota;
         let caps = LoadCaps { ops: q.max_log_ops, bytes: q.max_log_bytes, clients: q.max_clients, rejections: q.max_rejections };
-        let stored = self.store.load_board(board.to_owned(), caps).await?.ok_or(RoomError::NotFound)?;
-        let mut authority = Authority::with_quota(stored.base.clone(), q);
-        for tx in stored.log {
-            authority.replay(tx).map_err(RoomError::Replay)?;
-        }
-        for (client, cseq, reason) in stored.rejections {
-            authority.replay_rejection(client, cseq, reason);
-        }
-        for (client, secret_hash) in stored.clients {
-            authority.replay_client(client, secret_hash);
-        }
+        let stored = self.store.load_board(board.to_owned(), caps, q).await?.ok_or(RoomError::NotFound)?;
         // Two loads may race; the first to insert wins and the other's work is dropped.
         let mut reg = self.registry();
         if let Some(tx) = reg.open.get(board).filter(|h| !h.tx.is_closed()).map(|h| h.tx.clone()) {
@@ -206,7 +192,7 @@ impl Rooms {
         let room = Room {
             id: board.to_owned(),
             store: self.store.clone(),
-            authority,
+            authority: stored.authority,
             base: Base { doc: stored.base, seq: stored.base_seq },
             peers: HashMap::new(),
             occupancy: occupancy.clone(),
@@ -370,10 +356,6 @@ impl Room {
                 }
                 Ok(())
             }
-            RoomCmd::Entries { from, to, reply } => {
-                let _ = reply.send(self.entry_page(from, to));
-                Ok(())
-            }
             RoomCmd::Unload => {
                 self.unload = self.peers.is_empty();
                 Ok(())
@@ -383,22 +365,6 @@ impl Room {
             tracing::error!(board = self.id, error = %e, "storage write failed");
         }
         result
-    }
-
-    /// Entry frames from `from`, at least one, up to `to` or about a page of bytes.
-    fn entry_page(&self, from: u64, to: u64) -> Vec<String> {
-        let log = self.authority.log();
-        let mut page = Vec::new();
-        let mut bytes = 0;
-        let mut seq = from.max(1);
-        while seq <= to && (seq as usize) <= log.len() && (page.is_empty() || bytes < CATCH_UP_PAGE_BYTES) {
-            let msg = ServerMsg::Entry { seq, tx: log[seq as usize - 1].clone() };
-            let f = serde_json::to_string(&WireOut::Msg { msg }).unwrap_or_default();
-            bytes += f.len();
-            page.push(f);
-            seq += 1;
-        }
-        page
     }
 
     fn mark_presence(&mut self, conn: ConnId, role: LinkRole) {
@@ -483,12 +449,24 @@ impl Room {
 
     async fn message(&mut self, conn: ConnId, msg: ClientMsg) -> Result<(), StoreError> {
         self.authority.set_storage_full(self.store.bytes() >= self.max_storage_bytes);
-        let (outbox, effects) = self.authority.handle(conn, msg);
+        // Encode a submitted transaction as it would be stored: its stored size is what counts
+        // against the board's byte quota, and if it's logged, these are the bytes written.
+        let mut encoded = None;
+        let (outbox, effects) = match msg {
+            ClientMsg::Submit(tx) => {
+                let json = serde_json::to_vec(&tx).map_err(|e| StoreError::Corrupt(e.to_string()))?;
+                let (codec, stored) = codec::encode(&json);
+                let len = stored.len();
+                encoded = Some((codec, stored));
+                self.authority.handle_stored(conn, ClientMsg::Submit(tx), len)
+            }
+            other => self.authority.handle(conn, other),
+        };
         for effect in &effects {
             match effect {
-                Effect::Logged { seq } => {
-                    let tx = &self.authority.log()[*seq as usize - 1];
-                    self.store.append_op(self.id.clone(), *seq, tx).await?;
+                Effect::Logged { seq, .. } => {
+                    let (codec, stored) = encoded.take().ok_or_else(|| StoreError::Corrupt("logged without a submit".into()))?;
+                    self.store.append_op(self.id.clone(), *seq, codec, stored).await?;
                 }
                 Effect::Rejected { client, cseq, reason } => {
                     self.store.add_rejection(self.id.clone(), *client, *cseq, reason).await?;

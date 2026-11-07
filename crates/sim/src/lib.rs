@@ -100,9 +100,18 @@ pub struct World {
     pub(crate) genesis: Doc,
     pub(crate) stored_rejections: Vec<(ClientId, u64, Reject)>,
     pub(crate) stored_clients: Vec<(ClientId, [u8; 32])>,
+    /// The log as the server stores it: every `Effect::Logged`, in order. The authority keeps
+    /// none of it, so this is also what catch-up is served from.
+    pub(crate) stored_log: Vec<Tx>,
 }
 
 pub fn run(seed: u64, config: &Config) -> Result<Stats, Failure> {
+    run_logged(seed, config).map(|(stats, _, _)| stats)
+}
+
+/// Like [`run`], also returning the board's genesis document and its log: realistic stored
+/// data, for example to train the storage codec's dictionary (`just zdict`).
+pub fn run_logged(seed: u64, config: &Config) -> Result<(Stats, Doc, Vec<Tx>), Failure> {
     let mut world = World::new(seed, config);
     for step in 0..config.steps {
         world.step = step;
@@ -112,8 +121,8 @@ pub fn run(seed: u64, config: &Config) -> Result<Stats, Failure> {
     world.step = config.steps;
     world.quiesce().map_err(|m| world.fail(m))?;
     world.check_quiescent().map_err(|m| world.fail(m))?;
-    world.stats.log_len = world.authority.log().len();
-    Ok(world.stats)
+    world.stats.log_len = world.stored_log.len();
+    Ok((world.stats, world.genesis, world.stored_log))
 }
 
 impl World {
@@ -163,6 +172,7 @@ impl World {
             genesis: doc.clone(),
             stored_rejections: Vec::new(),
             stored_clients: Vec::new(),
+            stored_log: Vec::new(),
             authority: Authority::new(doc),
             clients,
             next_conn: 0,
@@ -233,8 +243,8 @@ impl World {
         for (client, h) in self.stored_clients.clone() {
             fresh.replay_client(client, h);
         }
-        for tx in self.authority.log().to_vec() {
-            if let Err(r) = fresh.replay(tx) {
+        for tx in self.stored_log.clone() {
+            if let Err(r) = fresh.replay(&tx, mapcro_engine::encoded_len(&tx)) {
                 // Surfaces as an oracle mismatch on the next check.
                 self.log(format!("replay failed: {r}"));
             }
@@ -312,7 +322,7 @@ impl World {
         let Some(conn) = self.clients[i].conn else { return Ok(()) };
         let Some(msg) = self.clients[i].up.pop_front() else { return Ok(()) };
         let before = self.authority.doc().clone();
-        let log_before = self.authority.log().len();
+        let log_before = self.stored_log.len();
         let label = describe_client_msg(&msg);
         let (out, effects) = self.authority.handle(conn, msg);
         for effect in effects {
@@ -322,17 +332,25 @@ impl World {
                 Effect::RejectionsResolved { client, below } => {
                     self.stored_rejections.retain(|(c, k, _)| *c != client || *k >= below);
                 }
-                Effect::Logged { .. } => {}
+                Effect::Logged { seq, tx } => {
+                    if seq != self.stored_log.len() as u64 + 1 {
+                        return Err(format!("logged seq {seq} after {}", self.stored_log.len()));
+                    }
+                    self.stored_log.push(tx);
+                }
             }
         }
         let name = self.clients[i].name.clone();
         self.log(format!("server <- {name}: {label}"));
 
         // New log entries: feed the oracle and run the undo check.
-        let new: Vec<Tx> = self.authority.log()[log_before..].to_vec();
+        if self.authority.log_len() != self.stored_log.len() as u64 {
+            return Err("the authority's log length differs from what it reported logging".into());
+        }
+        let new: Vec<Tx> = self.stored_log[log_before..].to_vec();
         for tx in &new {
             self.oracle.append(tx)?;
-            self.stats.undo_fields_checked += checks::check_undo_did_not_clobber(&before, self.authority.doc(), tx, self.authority.log())?;
+            self.stats.undo_fields_checked += checks::check_undo_did_not_clobber(&before, self.authority.doc(), tx, &self.stored_log)?;
         }
         if self.oracle.head() != self.authority.doc() {
             return Err("authority state differs from replaying its own log".into());
@@ -340,7 +358,7 @@ impl World {
 
         // A catch-up range is the log entries it names, delivered in its place (the server
         // streams them; here the link is a queue, so expanding them is the same thing).
-        let log = self.authority.log();
+        let log = &self.stored_log;
         let out: Vec<(ConnId, ServerMsg)> = out
             .into_iter()
             .flat_map(|(to, o)| match o {

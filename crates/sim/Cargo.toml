@@ -13,5 +13,9 @@ rand.workspace = true
 rand_chacha.workspace = true
 serde_json = "1"
 
+[dev-dependencies]
+# `examples/train_dict.rs` (`just zdict`); the same pin as the server's.
+zstd = { version = "=0.13.3", default-features = false, features = ["zdict_builder"] }
+
 [lints]
 workspace = true

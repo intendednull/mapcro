@@ -31,7 +31,7 @@ impl Behaviour {
 
 pub(crate) fn act(world: &mut World, i: usize) -> Result<(), String> {
     // Ids an attacker can learn: every entry carries its author's client id.
-    let known_ids: Vec<mapcro_schema::ClientId> = world.authority.log().iter().map(|t| t.client).collect();
+    let known_ids: Vec<mapcro_schema::ClientId> = world.stored_log.iter().map(|t| t.client).collect();
     let World { rng, clients, stats, .. } = world;
     let c = &mut clients[i];
     let line = match &mut c.driver {

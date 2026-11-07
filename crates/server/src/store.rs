@@ -1,8 +1,11 @@
 //! SQLite storage (spec §9). WAL with `synchronous=FULL`: when a write returns, it survives a
 //! crash or power loss. Rooms wait for that before acknowledging anything.
 
+use crate::codec::{self, Codec, CodecError};
 use mapcro_engine::wire::LinkRole;
+use mapcro_engine::{Authority, Quota};
 use mapcro_schema::{ClientId, Doc, Reject, Tx};
+use rusqlite::types::ValueRef;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -40,13 +43,38 @@ fn db_size(c: &Connection) -> rusqlite::Result<u64> {
         .map(|n| n.max(0) as u64)
 }
 
-/// Everything needed to rebuild a board's authority.
-pub struct StoredBoard {
+/// A board rebuilt from storage: its authority (document, clients, rejections; no log) and the
+/// base document fresh clients start from.
+pub struct LoadedBoard {
+    pub authority: Authority,
     pub base: Doc,
     pub base_seq: u64,
-    pub log: Vec<Tx>,
-    pub rejections: Vec<(ClientId, u64, Reject)>,
-    pub clients: Vec<(ClientId, [u8; 32])>,
+}
+
+/// A stored op decodes to at most this much JSON. Rows written since v4 are under
+/// `Limits::max_tx_bytes`; older ones were bounded by the old 256 KiB frame.
+const OP_DECODE_LIMIT: usize = 1024 * 1024;
+/// A stored base document decodes to at most this much JSON.
+const DOC_DECODE_LIMIT: usize = 64 * 1024 * 1024;
+
+impl From<CodecError> for StoreError {
+    fn from(e: CodecError) -> StoreError {
+        StoreError::Corrupt(e.to_string())
+    }
+}
+
+/// A TEXT (old rows) or BLOB (compressed rows) column's bytes.
+fn raw(v: ValueRef<'_>) -> rusqlite::Result<Vec<u8>> {
+    match v {
+        ValueRef::Text(b) | ValueRef::Blob(b) => Ok(b.to_vec()),
+        other => Err(rusqlite::Error::InvalidColumnType(0, "tx".into(), other.data_type())),
+    }
+}
+
+/// The `Entry` frame for a stored transaction, built around its JSON rather than by parsing
+/// and reserializing it. A test checks it equals what serde writes.
+pub fn entry_frame(seq: u64, tx_json: &str) -> String {
+    format!(r#"{{"t":"msg","msg":{{"Entry":{{"seq":{seq},"tx":{tx_json}}}}}}}"#)
 }
 
 pub struct LinkRow {
@@ -63,12 +91,15 @@ pub struct LinkRow {
 #[derive(Clone)]
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
+    /// A second connection for catch-up reads, so a long catch-up never waits behind (or holds
+    /// up) the writes rooms make durable. WAL lets it read committed rows concurrently.
+    reader: Arc<Mutex<Connection>>,
     /// The database's size as of the last write.
     bytes: Arc<AtomicU64>,
 }
 
 /// Database schema version. Each step in `migrate` takes the database one version forward.
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 /// v1 → v2: links remember which link minted them (editors can share; revocation cascades).
 fn migrate(conn: &Connection, from: i64) -> Result<(), StoreError> {
@@ -87,6 +118,11 @@ fn migrate(conn: &Connection, from: i64) -> Result<(), StoreError> {
                    secret_hash BLOB NOT NULL,
                    PRIMARY KEY (board, client)
                  ) WITHOUT ROWID;",
+            )?,
+            // v3 → v4: rows name their codec (`codec.rs`); existing rows are JSON and stay so.
+            3 => conn.execute_batch(
+                "ALTER TABLE ops ADD COLUMN codec TEXT NOT NULL DEFAULT 'json';
+                 ALTER TABLE boards ADD COLUMN base_codec TEXT NOT NULL DEFAULT 'json';",
             )?,
             other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
         }
@@ -171,7 +207,9 @@ impl Store {
             Some(v) => return Err(StoreError::Corrupt(format!("database schema {v}, this server knows {SCHEMA_VERSION}"))),
         }
         let bytes = Arc::new(AtomicU64::new(db_size(&conn)?));
-        Ok(Store { conn: Arc::new(Mutex::new(conn)), bytes })
+        let reader = Connection::open(path)?;
+        reader.execute_batch("PRAGMA query_only = ON; PRAGMA busy_timeout = 5000;")?;
+        Ok(Store { conn: Arc::new(Mutex::new(conn)), reader: Arc::new(Mutex::new(reader)), bytes })
     }
 
     /// The database's size in bytes as of the last write.
@@ -213,14 +251,17 @@ impl Store {
         max_boards: u64,
         max_bytes: u64,
     ) -> Result<(), StoreError> {
-        let base = serde_json::to_string(&base).map_err(corrupt)?;
+        let (base_codec, base) = codec::encode(&serde_json::to_vec(&base).map_err(corrupt)?);
         self.with(move |c| {
             let t = c.transaction()?;
             let boards: i64 = t.query_row("SELECT COUNT(*) FROM boards", [], |r| r.get(0))?;
             if boards as u64 >= max_boards || db_size(&t)? >= max_bytes {
                 return Err(StoreError::Full);
             }
-            t.execute("INSERT INTO boards (id, created_at, base_doc, base_seq) VALUES (?1, ?2, ?3, 0)", params![id, now, base])?;
+            t.execute(
+                "INSERT INTO boards (id, created_at, base_doc, base_seq, base_codec) VALUES (?1, ?2, ?3, 0, ?4)",
+                params![id, now, base, base_codec.as_str()],
+            )?;
             t.execute(
                 "INSERT INTO links (hash, board, role, label, created_at) VALUES (?1, ?2, 'owner', 'owner', ?3)",
                 params![owner_hash, id, now],
@@ -231,74 +272,121 @@ impl Store {
         .await
     }
 
-    /// Read a board to rebuild its room. Reads at most `caps` worth, one row at a time, and
-    /// refuses a board past them, so loading can't exhaust memory (security review 2026-11-07, C1).
-    pub async fn load_board(&self, id: String, caps: LoadCaps) -> Result<Option<StoredBoard>, StoreError> {
+    /// Rebuild a board's authority from storage. Reads one row at a time and keeps only the
+    /// document, not the log (the log stays on disk and catch-up reads it from there). Refuses a
+    /// board past `caps` rather than reading it, so loading can't exhaust memory (security
+    /// review 2026-11-07, C1). `caps.bytes` counts stored, compressed bytes, as the quota does.
+    pub async fn load_board(&self, id: String, caps: LoadCaps, quota: Quota) -> Result<Option<LoadedBoard>, StoreError> {
         let too_large = |what: &str, cap: usize| StoreError::TooLarge(format!("more than {cap} {what}"));
         self.with(move |c| {
-            let Some((base, base_seq)) = c
-                .query_row("SELECT base_doc, base_seq FROM boards WHERE id = ?1", [&id], |r| {
-                    Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            let Some((base, base_codec, base_seq)) = c
+                .query_row("SELECT base_doc, base_codec, base_seq FROM boards WHERE id = ?1", [&id], |r| {
+                    Ok((raw(r.get_ref(0)?)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
                 })
                 .optional()?
             else {
                 return Ok(None);
             };
-            let base: Doc = serde_json::from_str(&base).map_err(corrupt)?;
+            let base = codec::decode(Codec::parse(&base_codec)?, &base, DOC_DECODE_LIMIT)?;
+            let base: Doc = serde_json::from_slice(&base).map_err(corrupt)?;
             mapcro_schema::validate_doc(&base).map_err(|r| StoreError::Corrupt(format!("base document: {r}")))?;
-            let mut stmt = c.prepare("SELECT seq, tx FROM ops WHERE board = ?1 ORDER BY seq")?;
-            let mut log = Vec::new();
+            let mut authority = Authority::with_quota(base.clone(), quota);
+            let mut stmt = c.prepare("SELECT seq, codec, tx FROM ops WHERE board = ?1 ORDER BY seq")?;
+            let mut rows = stmt.query([&id])?;
             let mut expected = base_seq + 1;
-            let mut bytes = 0usize;
-            #[allow(clippy::explicit_counter_loop)] // the counter is checked against the row, not used as an index
-            for row in stmt.query_map([&id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))? {
-                let (seq, tx) = row?;
+            let (mut ops, mut bytes) = (0usize, 0usize);
+            while let Some(row) = rows.next()? {
+                let seq: i64 = row.get(0)?;
                 if seq != expected {
                     return Err(StoreError::Corrupt(format!("op log gap at {seq}, expected {expected}")));
                 }
                 expected += 1;
-                bytes += tx.len();
-                if log.len() >= caps.ops {
+                let stored = raw(row.get_ref(2)?)?;
+                ops += 1;
+                bytes += stored.len();
+                if ops > caps.ops {
                     return Err(too_large("logged transactions", caps.ops));
                 }
                 if bytes > caps.bytes {
                     return Err(too_large("bytes of history", caps.bytes));
                 }
-                log.push(serde_json::from_str(&tx).map_err(corrupt)?);
+                let json = codec::decode(Codec::parse(&row.get::<_, String>(1)?)?, &stored, OP_DECODE_LIMIT)?;
+                let tx: Tx = serde_json::from_slice(&json).map_err(corrupt)?;
+                authority
+                    .replay(&tx, stored.len())
+                    .map_err(|r| StoreError::Corrupt(format!("op {seq} does not replay: {r}")))?;
             }
+            drop(rows);
+            drop(stmt);
             let mut stmt = c.prepare("SELECT client, cseq, reason FROM rejections WHERE board = ?1")?;
-            let mut rejections = Vec::new();
+            let mut n = 0;
             for row in stmt.query_map([&id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))? {
                 let (client, cseq, reason) = row?;
-                if rejections.len() >= caps.rejections {
+                n += 1;
+                if n > caps.rejections {
                     return Err(too_large("stored rejections", caps.rejections));
                 }
                 let client: ClientId = serde_json::from_value(serde_json::Value::String(client)).map_err(corrupt)?;
-                rejections.push((client, cseq as u64, serde_json::from_str(&reason).map_err(corrupt)?));
+                authority.replay_rejection(client, cseq as u64, serde_json::from_str(&reason).map_err(corrupt)?);
             }
             let mut stmt = c.prepare("SELECT client, secret_hash FROM clients WHERE board = ?1")?;
-            let mut clients = Vec::new();
+            let mut n = 0;
             for row in stmt.query_map([&id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?)))? {
                 let (client, hash) = row?;
-                if clients.len() >= caps.clients {
+                n += 1;
+                if n > caps.clients {
                     return Err(too_large("clients", caps.clients));
                 }
                 let client: ClientId = serde_json::from_value(serde_json::Value::String(client)).map_err(corrupt)?;
                 let hash: [u8; 32] = hash.try_into().map_err(|_| StoreError::Corrupt("secret hash length".into()))?;
-                clients.push((client, hash));
+                authority.replay_client(client, hash);
             }
-            Ok(Some(StoredBoard { base, base_seq: base_seq as u64, log, rejections, clients }))
+            Ok(Some(LoadedBoard { authority, base, base_seq: base_seq as u64 }))
         })
         .await
     }
 
-    pub async fn append_op(&self, board: String, seq: u64, tx: &Tx) -> Result<(), StoreError> {
-        let tx = serde_json::to_string(tx).map_err(corrupt)?;
+    /// Store log entry `seq`, already encoded (`codec::encode` of its JSON).
+    pub async fn append_op(&self, board: String, seq: u64, codec: Codec, stored: Vec<u8>) -> Result<(), StoreError> {
         self.with(move |c| {
-            c.execute("INSERT INTO ops (board, seq, tx) VALUES (?1, ?2, ?3)", params![board, seq as i64, tx])?;
+            c.execute(
+                "INSERT INTO ops (board, seq, codec, tx) VALUES (?1, ?2, ?3, ?4)",
+                params![board, seq as i64, codec.as_str(), stored],
+            )?;
             Ok(())
         })
         .await
+    }
+
+    /// `Entry` frames for log positions `from..=to`, as many as fit about `max_bytes` (at least
+    /// one), for catch-up. Read on the reader connection, from rows already durable.
+    pub async fn entry_frames(&self, board: String, from: u64, to: u64, max_bytes: usize) -> Result<Vec<String>, StoreError> {
+        let reader = self.reader.clone();
+        tokio::task::spawn_blocking(move || {
+            let c = reader.lock().map_err(|_| StoreError::Join)?;
+            let mut stmt = c.prepare_cached("SELECT seq, codec, tx FROM ops WHERE board = ?1 AND seq >= ?2 AND seq <= ?3 ORDER BY seq")?;
+            let mut rows = stmt.query(params![board, from as i64, to as i64])?;
+            let (mut frames, mut bytes) = (Vec::new(), 0usize);
+            let mut expected = from as i64;
+            while let Some(row) = rows.next()? {
+                let seq: i64 = row.get(0)?;
+                if seq != expected {
+                    return Err(StoreError::Corrupt(format!("op log gap at {seq}, expected {expected}")));
+                }
+                expected += 1;
+                let json = codec::decode(Codec::parse(&row.get::<_, String>(1)?)?, &raw(row.get_ref(2)?)?, OP_DECODE_LIMIT)?;
+                let json = String::from_utf8(json).map_err(|e| StoreError::Corrupt(e.to_string()))?;
+                let frame = entry_frame(seq as u64, &json);
+                bytes += frame.len();
+                frames.push(frame);
+                if bytes >= max_bytes {
+                    break;
+                }
+            }
+            Ok(frames)
+        })
+        .await
+        .map_err(|_| StoreError::Join)?
     }
 
     pub async fn add_rejection(&self, board: String, client: ClientId, cseq: u64, reason: &Reject) -> Result<(), StoreError> {
@@ -513,6 +601,19 @@ mod tests {
         assert_eq!(parent, None);
         // Opening again is a no-op.
         Store::open(&path).expect("idempotent");
+    }
+
+    #[test]
+    fn entry_frames_match_what_serde_writes() {
+        use mapcro_engine::ServerMsg;
+        use mapcro_engine::wire::WireOut;
+        let tx: Tx = serde_json::from_str(
+            r#"{"client":"0000000000000000000000000000000a","cseq":3,"kind":{"Undo":{"of":2}},"ops":[{"Delete":{"id":"00000000000000000000000000000001"}}]}"#,
+        )
+        .expect("tx");
+        let json = serde_json::to_string(&tx).expect("json");
+        let serde = serde_json::to_string(&WireOut::Msg { msg: ServerMsg::Entry { seq: 42, tx } }).expect("json");
+        assert_eq!(entry_frame(42, &json), serde);
     }
 
     #[test]

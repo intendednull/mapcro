@@ -41,7 +41,7 @@ impl Oracle {
 
 impl World {
     pub(crate) fn check_step(&self) -> Result<(), String> {
-        let log = self.authority.log();
+        let log = &self.stored_log;
         for c in &self.clients {
             let Driver::Replica { replica, .. } = &c.driver else { continue };
             // confirmedIsLogPrefix
@@ -80,7 +80,7 @@ impl World {
 
     pub(crate) fn check_quiescent(&self) -> Result<(), String> {
         let head = self.authority.doc();
-        let len = self.authority.log().len() as u64;
+        let len = self.stored_log.len() as u64;
         for c in &self.clients {
             let Driver::Replica { replica, .. } = &c.driver else { continue };
             if replica.pending().next().is_some() {

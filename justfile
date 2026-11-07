@@ -36,6 +36,11 @@ test:
     cargo test -q --workspace
     cargo run -q --release -p mapcro-sim -- --seeds 1000
 
+# Train a storage dictionary from 300 simulation seeds (deterministic: same seeds, same bytes).
+# Never overwrite one that has shipped: a new dictionary is a new codec (`zstd-v2`, codec.rs).
+zdict out="crates/server/dict/ops-v1.zdict":
+    cargo run -q --release -p mapcro-sim --example train_dict -- {{out}}
+
 # Run the sync simulation (e.g. `just sim --seed 0x2a`, `just sim --seeds 10000 --steps 2000`).
 sim *args:
     cargo run -q --release -p mapcro-sim -- {{args}}

@@ -1,6 +1,7 @@
 //! mapcro-server. Config from env; binds 127.0.0.1:$PORT behind Caddy (infra contract).
 
 mod api;
+mod codec;
 mod config;
 mod links;
 mod packs;

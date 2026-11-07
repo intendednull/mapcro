@@ -11,7 +11,7 @@ use futures_util::{SinkExt, StreamExt};
 use crate::room::{Out, RoomCmd};
 use mapcro_engine::wire::{CloseReason, WireIn, WireOut};
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+
 use tokio::time::{Instant, interval, timeout};
 
 /// The largest frame a client may send: the largest legal transaction (`Limits::max_tx_bytes`)
@@ -22,6 +22,8 @@ use tokio::time::{Instant, interval, timeout};
 pub const MAX_FRAME: usize = mapcro_schema::LIMITS.max_tx_bytes + 1024;
 /// A send that can't complete in this long means the client stopped reading.
 const SEND_TIMEOUT: Duration = Duration::from_secs(30);
+/// Catch-up is streamed in pages of about this many bytes, each read when the last is sent.
+const CATCH_UP_PAGE_BYTES: usize = 64 * 1024;
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 const PING_EVERY: Duration = Duration::from_secs(15);
 const DEAD_AFTER: Duration = Duration::from_secs(40);
@@ -73,21 +75,25 @@ pub async fn upgrade(
     })
 }
 
-/// Stream log entries `from..=to` page by page, each sent before the next is fetched, so a
-/// long history goes out at the client's pace and never sits in the outbox (security review
-/// 2026-11-07, H-A). Live entries queue behind this in the outbox, so the client still sees
-/// rejections, then catch-up, then live traffic, the order the sync model checks.
+/// Stream log entries `from..=to` page by page from storage, each sent before the next is
+/// read, so a long history goes out at the client's pace, never sits in the outbox, and never
+/// sits in the room's memory (security review 2026-11-07, H-A). Live entries queue behind this
+/// in the outbox, so the client still sees rejections, then catch-up, then live traffic, the
+/// order the sync model checks. Every entry in the range was durable before the range was
+/// queued, so storage has all of it.
 async fn catch_up(
-    room: &mpsc::Sender<RoomCmd>,
+    store: &crate::store::Store,
+    board: &str,
     sink: &mut futures_util::stream::SplitSink<WebSocket, Message>,
     from: u64,
     to: u64,
 ) -> Result<(), Option<CloseReason>> {
     let mut next = from;
     while next <= to {
-        let (reply, page) = oneshot::channel();
-        room.send(RoomCmd::Entries { from: next, to, reply }).await.map_err(|_| Some(CloseReason::ShuttingDown))?;
-        let page = page.await.map_err(|_| Some(CloseReason::ShuttingDown))?;
+        let page = store.entry_frames(board.to_owned(), next, to, CATCH_UP_PAGE_BYTES).await.map_err(|e| {
+            tracing::error!(board, error = %e, "catch-up read failed");
+            Some(CloseReason::StorageFailure)
+        })?;
         if page.is_empty() {
             return Err(Some(CloseReason::StorageFailure)); // the log is shorter than the hello said
         }
@@ -178,7 +184,7 @@ async fn session(app: AppState, mut socket: WebSocket) {
                     break None;
                 }
                 Some(Out::CatchUp { from, to }) => {
-                    if let Err(reason) = catch_up(&room, &mut sink, from, to).await {
+                    if let Err(reason) = catch_up(&app.store, &board, &mut sink, from, to).await {
                         break reason;
                     }
                     // The catch-up may have taken a while; the client wasn't idle, we were busy.

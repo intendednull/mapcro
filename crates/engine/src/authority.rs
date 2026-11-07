@@ -39,7 +39,9 @@ struct ClientRecord {
 pub struct Quota {
     /// Logged transactions.
     pub max_log_ops: usize,
-    /// Logged transactions' JSON encoding, summed: what storage holds and a cold load reads.
+    /// Logged transactions' size as stored, summed: what storage holds and a cold load reads.
+    /// The host says what a transaction costs to store ([`Authority::handle_stored`]); by default
+    /// it's its JSON encoding.
     pub max_log_bytes: usize,
     /// Distinct client ids bound to a secret. Only editors register (view links never write).
     pub max_clients: usize,
@@ -50,19 +52,26 @@ pub struct Quota {
 }
 
 impl Default for Quota {
-    /// The spec's numbers (§9): 20,000 transactions (about 5.5 minutes at the per-session rate
-    /// limit, or a long coaching session of honest edits) and 4 MiB of history; 1024 editing
+    /// The spec's numbers (§9): 20,000 transactions and 4 MiB of history; 1024 editing
     /// clients; 4096 stored rejections (sixteen clients' worth of `MAX_REJECTIONS_PER_CLIENT`).
+    /// The server raises the history caps (config.rs) because it stores history compressed and
+    /// keeps none of it in memory.
     fn default() -> Quota {
         Quota { max_log_ops: 20_000, max_log_bytes: 4 * 1024 * 1024, max_clients: 1024, max_rejections: 4096 }
     }
 }
 
 /// The single source of truth for one board. Processes messages one at a time.
+///
+/// It holds the document, not the log: every logged transaction leaves as an
+/// [`Effect::Logged`], and the host keeps the log (on disk, for the server) and serves catch-up
+/// ranges from it. So a loaded board costs its document plus its client and connection tables,
+/// not its history.
 pub struct Authority {
     doc: Doc,
-    log: Vec<Tx>,
-    /// The log's JSON size, summed (what `Quota::max_log_bytes` caps).
+    /// Entries in the log.
+    log_len: u64,
+    /// The log's size as stored, summed (what `Quota::max_log_bytes` caps).
     log_bytes: usize,
     clients: BTreeMap<ClientId, ClientRecord>,
     /// Stored rejections across every client (what `Quota::max_rejections` caps).
@@ -79,9 +88,10 @@ pub struct Authority {
 pub enum Outgoing {
     Msg(ServerMsg),
     /// Log entries `from..=to`, as `ServerMsg::Entry`, in this position relative to the
-    /// connection's other messages: the catch-up for a hello. It's a range, not the entries, so a
-    /// transport can stream a long catch-up from [`Authority::log`] at the client's pace instead
-    /// of queueing the whole history at once (security review 2026-11-07, H-A).
+    /// connection's other messages: the catch-up for a hello. It's a range, not the entries: the
+    /// host streams it from its log at the client's pace instead of queueing the whole history at
+    /// once (security review 2026-11-07, H-A). Every entry in it has already been reported as
+    /// `Effect::Logged`, so a durable host has it on disk.
     CatchUp { from: u64, to: u64 },
 }
 
@@ -91,8 +101,8 @@ pub type Outbox = Vec<(ConnId, Outgoing)>;
 /// acknowledgement or rejection the client hears about must survive a crash.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
-    /// `log()[seq - 1]` is new.
-    Logged { seq: u64 },
+    /// `tx` is log entry `seq`, new. The host appends it to its log.
+    Logged { seq: u64, tx: Tx },
     Rejected { client: ClientId, cseq: u64, reason: Reject },
     /// A client id was claimed for the first time, with this secret hash.
     ClientRegistered { client: ClientId, secret_hash: [u8; 32] },
@@ -121,7 +131,7 @@ impl Authority {
     pub fn with_quota(doc: Doc, quota: Quota) -> Self {
         Authority {
             doc,
-            log: Vec::new(),
+            log_len: 0,
             log_bytes: 0,
             clients: BTreeMap::new(),
             rejections: 0,
@@ -136,27 +146,28 @@ impl Authority {
         self.storage_full = full;
     }
 
-    /// The log's JSON size, summed.
+    /// The log's size as stored, summed.
     pub fn log_bytes(&self) -> usize {
         self.log_bytes
+    }
+
+    /// Entries in the log: the seq of the newest.
+    pub fn log_len(&self) -> u64 {
+        self.log_len
     }
 
     pub fn doc(&self) -> &Doc {
         &self.doc
     }
 
-    /// The ordered log. Entry `seq` is `log[seq - 1]`.
-    pub fn log(&self) -> &[Tx] {
-        &self.log
-    }
-
-    /// Rebuild from storage: re-apply a logged transaction (in log order).
-    pub fn replay(&mut self, tx: Tx) -> Result<(), Reject> {
-        apply_tx(&mut self.doc, &tx)?;
+    /// Rebuild from storage: re-apply a logged transaction (in log order) that takes
+    /// `stored_len` bytes in storage. The transaction itself isn't kept.
+    pub fn replay(&mut self, tx: &Tx, stored_len: usize) -> Result<(), Reject> {
+        apply_tx(&mut self.doc, tx)?;
         let rec = self.clients.entry(tx.client).or_default();
         rec.next_cseq = rec.next_cseq.max(tx.cseq + 1);
-        self.log_bytes += encoded_len(&tx);
-        self.log.push(tx);
+        self.log_bytes += stored_len;
+        self.log_len += 1;
         Ok(())
     }
 
@@ -192,14 +203,26 @@ impl Authority {
     }
 
     /// Handle one message. Returns what to send, in order. A `Fatal` reply means the caller must
-    /// close that connection (this authority has already forgotten it).
+    /// close that connection (this authority has already forgotten it). A submitted transaction
+    /// counts its JSON encoding against the byte quota.
     pub fn handle(&mut self, conn: ConnId, msg: ClientMsg) -> (Outbox, Vec<Effect>) {
+        self.handle_inner(conn, msg, None)
+    }
+
+    /// Like [`handle`](Self::handle), for a host that stores transactions in another encoding: a
+    /// `Submit`'s transaction will take `stored_len` bytes in storage, and that's what counts
+    /// against the byte quota. Ignored for other messages.
+    pub fn handle_stored(&mut self, conn: ConnId, msg: ClientMsg, stored_len: usize) -> (Outbox, Vec<Effect>) {
+        self.handle_inner(conn, msg, Some(stored_len))
+    }
+
+    fn handle_inner(&mut self, conn: ConnId, msg: ClientMsg, stored_len: Option<usize>) -> (Outbox, Vec<Effect>) {
         let Some(state) = self.conns.get(&conn).copied() else {
             return (Vec::new(), Vec::new()); // message raced a disconnect
         };
         match (state, msg) {
             (Conn::Connecting { role }, ClientMsg::Hello(hello)) => self.hello(conn, role, hello),
-            (Conn::Live { role, client }, ClientMsg::Submit(tx)) => self.submit(conn, role, client, tx),
+            (Conn::Live { role, client }, ClientMsg::Submit(tx)) => self.submit(conn, role, client, tx, stored_len),
             (Conn::Connecting { .. }, ClientMsg::Submit(_)) => (self.fatal(conn, "submit before hello"), Vec::new()),
             (Conn::Live { .. }, ClientMsg::Hello(_)) => (self.fatal(conn, "second hello"), Vec::new()),
         }
@@ -211,7 +234,7 @@ impl Authority {
     }
 
     fn hello(&mut self, conn: ConnId, role: Role, hello: Hello) -> (Outbox, Vec<Effect>) {
-        let len = self.log.len() as u64;
+        let len = self.log_len;
         if hello.last_seq > len {
             return (self.fatal(conn, "client is ahead of the server's log"), Vec::new());
         }
@@ -273,7 +296,7 @@ impl Authority {
         (out, effects)
     }
 
-    fn submit(&mut self, conn: ConnId, role: Role, client: ClientId, tx: Tx) -> (Outbox, Vec<Effect>) {
+    fn submit(&mut self, conn: ConnId, role: Role, client: ClientId, tx: Tx, stored_len: Option<usize>) -> (Outbox, Vec<Effect>) {
         if tx.client != client {
             return (self.fatal(conn, "transaction from another client"), Vec::new());
         }
@@ -290,10 +313,11 @@ impl Authority {
             return (self.fatal(conn, "transaction sequence gap"), Vec::new());
         }
         // Admission before validity: size, then the board's and the server's room for it.
-        let size = encoded_len(&tx);
-        let result = if size > LIMITS.max_tx_bytes {
+        let json_len = encoded_len(&tx);
+        let size = stored_len.unwrap_or(json_len);
+        let result = if json_len > LIMITS.max_tx_bytes {
             Err(Reject::TxTooLarge)
-        } else if self.log.len() >= self.quota.max_log_ops || self.log_bytes.saturating_add(size) > self.quota.max_log_bytes {
+        } else if self.log_len >= self.quota.max_log_ops as u64 || self.log_bytes.saturating_add(size) > self.quota.max_log_bytes {
             Err(Reject::BoardFull)
         } else if self.storage_full {
             Err(Reject::ServerFull)
@@ -307,15 +331,15 @@ impl Authority {
         match result {
             Ok(()) => {
                 self.log_bytes += size;
-                self.log.push(tx.clone());
-                let seq = self.log.len() as u64;
+                self.log_len += 1;
+                let seq = self.log_len;
                 let out = self
                     .conns
                     .iter()
                     .filter(|(_, s)| matches!(s, Conn::Live { .. }))
                     .map(|(c, _)| (*c, Outgoing::Msg(ServerMsg::Entry { seq, tx: tx.clone() })))
                     .collect();
-                (out, vec![Effect::Logged { seq }])
+                (out, vec![Effect::Logged { seq, tx }])
             }
             Err(reason) => {
                 rec.rejected.insert(tx.cseq, reason.clone());

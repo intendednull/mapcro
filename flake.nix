@@ -16,7 +16,11 @@
       pkgs = import nixpkgs { inherit system; overlays = [ rust-overlay.overlays.default ]; };
       rust = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
       craneLib = (crane.mkLib pkgs).overrideToolchain (_: rust);
-      src = craneLib.cleanCargoSource ./.;
+      # Cargo sources, plus the server's storage dictionaries (`include_bytes!`).
+      src = pkgs.lib.cleanSourceWith {
+        src = ./.;
+        filter = path: type: (craneLib.filterCargoSources path type) || pkgs.lib.hasSuffix ".zdict" path;
+      };
       commonArgs = { inherit src; strictDeps = true; doCheck = false; };
 
       server = craneLib.buildPackage (commonArgs // {

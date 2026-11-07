@@ -809,7 +809,7 @@ async fn a_full_board_refuses_edits_and_stays_readable() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_byte_quota_counts_history_not_board_size() {
     // C1 as the review found it: rewriting one note keeps the board tiny while its history
-    // grows. The byte quota counts history.
+    // grows. The byte quota counts history, as stored (compressed).
     let dir = tempfile::tempdir().expect("tempdir");
     let server = Server::start_with(dir.path(), None, &[("BOARD_MAX_BYTES", "65536")]);
     let (board, owner) = server.create_board();
@@ -818,11 +818,25 @@ async fn the_byte_quota_counts_history_not_board_size() {
     let scene = scene_of(a.replica());
     let note = mapcro_schema::RecordId(0xc4c4);
     a.edit(vec![Op::Create { id: note, record: Record::Note(mapcro_schema::Note { scene, text: "x".into() }) }]).await;
-    let set = |_: &Replica, i: usize| vec![Op::Set { id: note, value: FieldValue::NoteText(format!("{i:04}{}", "a".repeat(3996))) }];
-    let rejected = edits_until_decided(&mut a, 20, set).await;
-    // About 4.1 KB per rewrite: fifteen fit in 64 KiB with the note's creation.
-    assert_eq!(a.replica().last_seq(), 16, "{rejected:?}");
-    assert!(rejected.iter().all(|r| *r == Reject::BoardFull) && rejected.len() == 5, "{rejected:?}");
+    // Pseudo-random letters: about 4.1 KB of JSON a rewrite, which compresses to about 60%.
+    let letters = |i: usize| -> String {
+        let mut x = 0x9e37_79b9_u32.wrapping_add(i as u32);
+        (0..4000)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                (b'a' + (x % 26) as u8) as char
+            })
+            .collect()
+    };
+    let set = |_: &Replica, i: usize| vec![Op::Set { id: note, value: FieldValue::NoteText(letters(i)) }];
+    let rejected = edits_until_decided(&mut a, 40, set).await;
+    // Counting JSON, fifteen rewrites would fit in 64 KiB; counting what's stored (compressed),
+    // more do, and then the board is full.
+    let accepted = a.replica().last_seq() - 1;
+    assert!((20..40).contains(&accepted), "{accepted} rewrites fit: {rejected:?}");
+    assert!(rejected.iter().all(|r| *r == Reject::BoardFull) && rejected.len() as u64 == 40 - accepted, "{rejected:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -976,6 +990,13 @@ async fn a_fresh_client_catches_up_on_a_long_history() {
     let fresh = fresh.await.expect("fresh client");
     assert_eq!(fresh.replica().last_seq(), total + 40);
     assert_eq!(fresh.replica().confirmed(), live.replica().confirmed());
+
+    // After a restart the room holds no history at all; catch-up comes from disk.
+    live.drop_connection();
+    let (d, port) = server.kill9();
+    let server = Server::start(&d, Some(port));
+    let cold = fresh_catch_up(server.port, &board, &owner, 0xd97, total + 40).await;
+    assert_eq!(cold.replica().confirmed(), live.replica().confirmed());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1096,4 +1117,148 @@ async fn stored_rejections_are_capped_per_board() {
     let mut c = raw_session(server.port, &board, &owner, 0xa3).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(submit_bad(&mut c, 0xa3, 0).await, rejected);
+}
+
+// ---- storage: compressed rows, the log on disk only ----
+
+/// A database exactly as schema v3 left it (before codecs): JSON text rows.
+fn write_v3_database(path: &std::path::Path, board: &str, owner_hash: &str, base: &mapcro_schema::Doc, log: &[mapcro_schema::Tx]) {
+    let c = rusqlite::Connection::open(path).expect("open");
+    c.execute_batch(
+        "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+         INSERT INTO meta VALUES ('schema_version', '3');
+         CREATE TABLE boards (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, base_doc TEXT NOT NULL, base_seq INTEGER NOT NULL);
+         CREATE TABLE ops (board TEXT NOT NULL REFERENCES boards(id), seq INTEGER NOT NULL, tx TEXT NOT NULL, PRIMARY KEY (board, seq)) WITHOUT ROWID;
+         CREATE TABLE rejections (board TEXT NOT NULL REFERENCES boards(id), client TEXT NOT NULL, cseq INTEGER NOT NULL, reason TEXT NOT NULL,
+                                  PRIMARY KEY (board, client, cseq)) WITHOUT ROWID;
+         CREATE TABLE links (hash TEXT PRIMARY KEY, board TEXT NOT NULL REFERENCES boards(id), role TEXT NOT NULL, label TEXT NOT NULL,
+                             created_at INTEGER NOT NULL, revoked_at INTEGER, minted_by TEXT REFERENCES links(hash));
+         CREATE INDEX links_by_board ON links(board);
+         CREATE INDEX links_by_parent ON links(minted_by);
+         CREATE TABLE clients (board TEXT NOT NULL REFERENCES boards(id), client TEXT NOT NULL, secret_hash BLOB NOT NULL,
+                               PRIMARY KEY (board, client)) WITHOUT ROWID;",
+    )
+    .expect("v3 schema");
+    let doc = serde_json::to_string(base).expect("json");
+    c.execute("INSERT INTO boards VALUES (?1, 0, ?2, 0)", rusqlite::params![board, doc]).expect("board");
+    c.execute("INSERT INTO links (hash, board, role, label, created_at) VALUES (?1, ?2, 'owner', 'owner', 0)", rusqlite::params![owner_hash, board])
+        .expect("link");
+    for (i, tx) in log.iter().enumerate() {
+        let json = serde_json::to_string(tx).expect("json");
+        c.execute("INSERT INTO ops VALUES (?1, ?2, ?3)", rusqlite::params![board, i as i64 + 1, json]).expect("op");
+    }
+}
+
+fn codecs(path: &std::path::Path) -> Vec<(String, i64)> {
+    let c = rusqlite::Connection::open(path).expect("open");
+    let mut s = c.prepare("SELECT codec, COUNT(*) FROM ops GROUP BY codec ORDER BY codec").expect("query");
+    s.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).expect("rows").map(|r| r.expect("row")).collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn rows_from_before_compression_still_load() {
+    // Schema v4 tags each row with its codec. A v3 database (JSON rows, JSON base document)
+    // migrates in place; its rows read as before, new rows are compressed, and both kinds
+    // load together after a restart.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mapcro.sqlite");
+    let mut n = 0u128;
+    let base = mapcro_schema::genesis(
+        || {
+            n += 1;
+            mapcro_schema::RecordId(0x01d0 + n)
+        },
+        "Old board",
+    );
+    let mut writer = Replica::new(ClientId(0x01d), "old-secret".into(), base.clone(), 0);
+    writer.connect();
+    let mut log = Vec::new();
+    for i in 0..30 {
+        let ops = move_op(&writer, i);
+        let Some(ClientMsg::Submit(tx)) = writer.edit(ops).expect("valid") else { panic!("a submit") };
+        log.push(tx.clone());
+        writer.receive(ServerMsg::Entry { seq: i as u64 + 1, tx }).expect("ack");
+    }
+    let (board, owner) = ("OldBoardOldBoardOldBoa".to_owned(), "O".repeat(43));
+    write_v3_database(&path, &board, &sha256_hex(owner.as_bytes()), &base, &log);
+
+    let server = Server::start(dir.path(), None);
+    let fresh = fresh_catch_up(server.port, &board, &owner, 0x02d, 30).await;
+    assert_eq!(fresh.replica().confirmed(), writer.confirmed(), "old rows replay to the same board");
+    let mut a = Client::new(0x03d);
+    a.connect(server.port, &board, &owner).await.expect("connect");
+    while a.replica().last_seq() < 30 {
+        a.pump_one().await.expect("catch-up");
+    }
+    assert!(edits_until_decided(&mut a, 10, move_op).await.is_empty());
+    assert_eq!(codecs(&path), [("json".to_owned(), 30), ("zstd-v1".to_owned(), 10)]);
+
+    let (d, port) = server.kill9();
+    let server = Server::start(&d, Some(port));
+    let mixed = fresh_catch_up(server.port, &board, &owner, 0x04d, 40).await;
+    assert_eq!(mixed.replica().confirmed(), a.replica().confirmed(), "mixed codecs load and catch up");
+}
+
+fn rss_kb(server: &Server) -> u64 {
+    let s = std::fs::read_to_string(format!("/proc/{}/status", server.child.id())).expect("status");
+    s.lines().find_map(|l| l.strip_prefix("VmRSS:")).and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok()).expect("VmRSS")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_loaded_room_does_not_hold_its_history() {
+    // The log lives on disk only: loading a board with a long history costs its document, not
+    // its history. One note rewritten 2000 times: the document stays tiny, the history is
+    // about 8 MB of JSON. Loading it must grow the server by much less than that.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = [("BOARD_MAX_BYTES", "67108864")];
+    let server = Server::start_with(dir.path(), None, &env);
+    let (board, owner) = server.create_board();
+    let mut first = Client::new(0x5a0);
+    first.connect(server.port, &board, &owner).await.expect("connect");
+    let scene = scene_of(first.replica());
+    let note = mapcro_schema::RecordId(0x5a5a);
+    first.edit(vec![Op::Create { id: note, record: Record::Note(mapcro_schema::Note { scene, text: "x".into() }) }]).await;
+    first.until_saved().await;
+    let rewrite = |r: &Replica, i: usize| {
+        let mut x = (r.client().0 as u32) ^ (i as u32).wrapping_mul(0x9e37_79b9);
+        let text: String = (0..4000)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                (b'a' + (x % 26) as u8) as char
+            })
+            .collect();
+        vec![Op::Set { id: note, value: FieldValue::NoteText(text) }]
+    };
+    // Eight writers in turn (each inside its socket's burst allowance), 25 rewrites at a time so
+    // the test client's rebasing stays cheap.
+    for w in 0..8u128 {
+        let mut c = Client::new(0x5b0 + w);
+        c.connect(server.port, &board, &owner).await.expect("writer");
+        while c.replica().last_seq() < 1 {
+            c.pump_one().await.expect("the note arrives");
+        }
+        for batch in 0..10 {
+            assert!(edits_until_decided(&mut c, 25, |r, i| rewrite(r, batch * 25 + i)).await.is_empty());
+        }
+    }
+    let total = 2001;
+    first.drop_connection();
+    let (d, port) = server.kill9();
+    let server = Server::start_with(&d, Some(port), &env);
+    let before = rss_kb(&server);
+    // Open the room without catch-up: a client that already has everything.
+    let mut ws = open_ws(server.port, ORIGIN).await.expect("ws");
+    send(&mut ws, &WireIn::Auth { board: board.clone(), token: owner.clone(), known_seq: Some(total) }).await;
+    assert!(matches!(recv(&mut ws).await, Some(WireOut::Ready { .. })));
+    assert_eq!(open_rooms(&server), 1);
+    let grew = rss_kb(&server).saturating_sub(before);
+    eprintln!("loading a room with {total} rewrites of a 4000-char note grew the server by {grew} kB");
+    // The history is ~8,000 KB of JSON (~4,800 KB stored). SQLite's page cache may keep up to
+    // 2,000 KB of what the load read; holding the log would add the whole history on top.
+    assert!(grew < 4_000, "loading the room grew the server by {grew} kB");
+    // And the history is all still there, from disk.
+    let fresh = fresh_catch_up(server.port, &board, &owner, 0x5ff, total).await;
+    assert_eq!(fresh.replica().last_seq(), total);
 }
