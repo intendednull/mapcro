@@ -54,7 +54,7 @@ test("a phone viewer follows, reads the callouts and note, flips on its own, and
   // Flipping on your own stops following; Follow comes back in one tap.
   await phone.getByTestId("p-prev").tap();
   await expect(phone.locator(".p-title")).toContainText("Scene 1 of 2");
-  await expect(phone.getByTestId("toast")).toContainText("stopped following Coach");
+  await expect(phone.getByTestId("toast")).toContainText("Stopped following Coach");
   await phone.getByTestId("toast-action").tap();
   await expect(phone.locator(".p-title")).toContainText("Scene 2 of 2");
 

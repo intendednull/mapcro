@@ -10,7 +10,7 @@ import { cx } from "../ui/cx";
 import { followable } from "./follow";
 
 const letter = (name: string) => (name.trim()[0] ?? "?").toUpperCase();
-const nameOf = (p: PeerPresence) => p.state?.name || "Someone joining";
+const nameOf = (p: PeerPresence) => p.state?.name || "Joining";
 
 export function Avatar(p: { name: string; color: number; sm?: boolean; title?: string }) {
   return (
@@ -96,7 +96,7 @@ export function FollowChip(p: {
           <span class="also">Also presenting</span>
           <For each={also()}>
             {(x) => (
-              <button class="switch" title={`Follow ${nameOf(x.peer)} instead`} onClick={() => p.follow(x.peer.peer)}>
+              <button class="switch" onClick={() => p.follow(x.peer.peer)}>
                 <Avatar name={nameOf(x.peer)} color={x.peer.state!.color} sm />
                 {nameOf(x.peer)}
               </button>
@@ -163,7 +163,7 @@ export function PeopleList(p: {
               {myState() || (p.myRole === "view" ? "view only" : p.myRole ?? "")}
             </span>
           </span>
-          <button class="pf-btn ghost" data-testid="rename" title="Change your name and colour" onClick={() => p.rename()}>
+          <button class="pf-btn ghost" data-testid="rename" onClick={() => p.rename()}>
             Name
           </button>
         </div>
@@ -178,7 +178,7 @@ export function PeopleList(p: {
                 {doing(x)}
               </span>
             </span>
-            <Show when={followable(x)} fallback={<span class="nofollow" title="View-only people can follow, but can't be followed">view only</span>}>
+            <Show when={followable(x)} fallback={<span class="nofollow">view only</span>}>
               <button
                 class={cx("pf-btn", p.following === x.peer && "on")}
                 data-testid={`follow-${nameOf(x)}`}

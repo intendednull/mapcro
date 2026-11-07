@@ -9,11 +9,10 @@ export function DeadLink() {
           <path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1M4 4l16 16" />
         </svg>
         <div class="txt">
-          <b>This link doesn't open a board</b>
-          <p>Check that you copied all of it: a mapcro link ends with a long code after “#”. If it's right, ask whoever sent it for a fresh one.</p>
+          <b>Invalid link</b>
           <div class="acts">
             <a class="btn small" href="/">
-              Open a new board
+              New board
             </a>
           </div>
         </div>

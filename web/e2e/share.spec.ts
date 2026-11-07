@@ -21,11 +21,11 @@ test("mint, share onward, see the tree, clone", async ({ browser }) => {
   // The owner mints an edit link.
   await a.getByTestId("share").click();
   const dlg = a.getByTestId("share-dialog");
-  await expect(dlg).toContainText("You own this board");
-  await dlg.getByLabel("Label, so you know who has it").fill("Marrow's laptop");
+  await expect(dlg.getByTestId("link-list")).toContainText("All links"); // the owner's view: every link
+  await dlg.getByLabel("Label").fill("Marrow's laptop");
   await dlg.getByRole("button", { name: "Can edit" }).click();
   await dlg.getByTestId("mint").click();
-  await expect(dlg.getByTestId("minted")).toContainText("Anyone who has it can edit");
+  await expect(dlg.getByTestId("minted-role")).toHaveText("Can edit");
   const editUrl = (await dlg.getByTestId("minted-url").textContent())!;
   expect(editUrl).toMatch(/\/b\/[A-Za-z0-9_-]{22}#[A-Za-z0-9_-]{43}$/);
   await a.keyboard.press("Escape");
@@ -36,22 +36,22 @@ test("mint, share onward, see the tree, clone", async ({ browser }) => {
   await expect(b.getByTestId("share")).toBeVisible();
   await b.getByTestId("share").click();
   const bd = b.getByTestId("share-dialog");
-  await expect(bd).toContainText("You're on an edit link");
-  await expect(bd.getByTestId("link-list")).toContainText("No links yet.");
-  await bd.getByLabel("Label, so you know who has it").fill("VOD watchers");
+  await expect(bd.getByTestId("link-list")).toContainText("Your links"); // an editor's view: its own
+  await expect(bd.locator(".link-row")).toHaveCount(0);
+  await bd.getByLabel("Label").fill("VOD watchers");
   await bd.getByTestId("mint").click();
-  await expect(bd.getByTestId("minted")).toContainText("watch this board live");
+  await expect(bd.getByTestId("minted-role")).toHaveText("View only");
   const viewUrl = (await bd.getByTestId("minted-url").textContent())!;
-  await expect(bd.locator('[data-link="VOD watchers"]')).toContainText("Made by you");
+  await expect(bd.locator('[data-link="VOD watchers"]')).toContainText("you ·");
 
   // The owner sees the tree: the view link nested under the edit link it came from. Only the
   // link minted on this device can be copied again (the server keeps hashes, not tokens).
   await a.getByTestId("share").click();
   const rowE = dlg.locator('[data-link="Marrow\'s laptop"]');
   const rowV = dlg.locator('[data-link="VOD watchers"]');
-  await expect(rowE).toContainText("Made by you");
+  await expect(rowE).toContainText("you ·");
   await expect(rowV).toHaveClass(/child/);
-  await expect(rowV).toContainText("Shared from “Marrow's laptop”");
+  await expect(rowV).toContainText("from “Marrow's laptop”");
   await expect(rowE.getByRole("button", { name: "Copy" })).toBeVisible();
   await expect(rowV.getByRole("button", { name: "Copy" })).toHaveCount(0);
   await a.screenshot({ path: "shots/slice6-share-owner.png" });

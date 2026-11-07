@@ -48,7 +48,7 @@ export function ShareDialog(p: { board: string; token: string; role: "owner" | "
       setLabel("");
       void refetch();
     } catch (err) {
-      setError(`Couldn't make the link: ${String(err)}`);
+      setError("Failed");
     }
   };
   const doCopy = async (key: string, url: string) => {
@@ -60,12 +60,7 @@ export function ShareDialog(p: { board: string; token: string; role: "owner" | "
       <div class="dialog" role="dialog" aria-labelledby="share-h" onKeyDown={(e) => e.key === "Escape" && p.onClose()}>
         <header>
           <div>
-            <h2 id="share-h">Share this board</h2>
-            <p>
-              {p.role === "owner"
-                ? "You own this board, so you see every link, including the ones editors shared onward. A link is the only way in: there are no accounts or passwords."
-                : "You're on an edit link, so you can share this board onward. You see the links you made and the ones shared from them; the owner sees every link."}
-            </p>
+            <h2 id="share-h">Share</h2>
           </div>
           <button class="x" aria-label="Close" onClick={() => p.onClose()}>
             <Ico d={X} />
@@ -75,18 +70,17 @@ export function ShareDialog(p: { board: string; token: string; role: "owner" | "
           <h3>New link</h3>
           <form class="mint" onSubmit={mint}>
             <div class="field">
-              <label for="mint-label">Label, so you know who has it</label>
+              <label for="mint-label">Label</label>
               <input
                 ref={input}
                 id="mint-label"
                 class="input"
                 maxLength={40}
-                placeholder="e.g. Night Owls scrim, coaches"
                 value={label()}
                 onInput={(e) => setLabel(e.currentTarget.value)}
               />
             </div>
-            <div class="seg role" role="radiogroup" aria-label="What the link can do">
+            <div class="seg role" role="radiogroup" aria-label="Role">
               <button type="button" class={cx(role() === "view" && "on")} aria-pressed={role() === "view"} onClick={() => setRole("view")}>
                 View only
               </button>
@@ -114,35 +108,26 @@ export function ShareDialog(p: { board: string; token: string; role: "owner" | "
                     {copied() === "minted" ? "Copied" : "Copy link"}
                   </button>
                 </div>
-                <div class="key">
+                <div class="key" data-testid="minted-role">
                   <Ico d={KEY_ICO} />
-                  <span>
-                    <b>This link is the key.</b>{" "}
-                    {m().role === "edit"
-                      ? "Anyone who has it can edit this board, with no sign-in, and share it onward. Send it only to the people you mean."
-                      : "Anyone who has it can watch this board live, with no sign-in. Send it only to the people you mean."}
-                  </span>
+                  <span class={cx("badge", m().role)}>{m().role === "edit" ? "Can edit" : "View only"}</span>
                 </div>
               </div>
             )}
           </Show>
           <div class="links" data-testid="link-list">
             <h3>
-              {p.role === "owner" ? "All links on this board" : "Links you've made"}{" "}
-              <small>{p.role === "owner" ? "you see every link because you own it" : "and the ones shared from them"}</small>
+              {p.role === "owner" ? "All links" : "Your links"}
             </h3>
-            <Show when={rows().length === 0 && !links.loading}>
-              <p class="muted">No links yet.</p>
-            </Show>
             <For each={rows()}>
               {(r) => {
                 const token = () => tokens()[r.link.link_id];
                 return (
                   <div class={cx("link-row", r.depth > 0 && "child", r.link.revoked && "revoked")} style={{ "--depth": String(r.depth) }} data-link={r.link.label}>
                     <div class="lb">
-                      <b>{r.link.label || "Unlabelled link"}</b>{" "}
+                      <b>{r.link.label || "Unlabelled"}</b>{" "}
                       <span class={cx("badge", r.link.role)}>{r.link.role === "edit" ? "Can edit" : "View only"}</span>
-                      <div>{r.mine ? `Made by you, ${day(r.link.created_at)}` : `Shared${r.from ? ` from “${r.from}”` : ""}, ${day(r.link.created_at)}`}</div>
+                      <div>{r.mine ? `you · ${day(r.link.created_at)}` : `${r.from ? `from “${r.from}” · ` : ""}${day(r.link.created_at)}`}</div>
                     </div>
                     <Show when={token()} fallback={<span />}>
                       <button class="btn small ghost" onClick={() => doCopy(r.link.link_id, shareUrl(location.origin, p.board, token()!))}>
@@ -158,11 +143,7 @@ export function ShareDialog(p: { board: string; token: string; role: "owner" | "
           </div>
         </div>
         <footer>
-          <span>
-            {p.role === "owner"
-              ? "Links can't be taken back. To stop sharing with someone, clone the board and don't send them the new link."
-              : "Links can't be taken back. To start fresh with a different group, clone the board: you'll own the copy."}
-          </span>
+          <span />
           <button class="btn small" data-testid="share-clone" onClick={() => p.onClone()}>
             Clone to a new board
           </button>

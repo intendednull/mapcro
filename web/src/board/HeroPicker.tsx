@@ -53,8 +53,7 @@ export function HeroPicker(p: { heroes: Hero[]; slot: Slot | undefined; onPick: 
       <div class="dialog hero-picker" role="dialog" aria-labelledby="hp-h" onKeyDown={key}>
         <header>
           <div>
-            <h2 id="hp-h">Pick a hero</h2>
-            <p>For {who()}. Type to search; arrows and Enter pick, Esc closes.</p>
+            <h2 id="hp-h">{who()}</h2>
           </div>
         </header>
         <div class="body">
@@ -62,15 +61,15 @@ export function HeroPicker(p: { heroes: Hero[]; slot: Slot | undefined; onPick: 
             ref={input}
             class="input"
             data-testid="hero-search"
-            placeholder="Search heroes"
-            aria-label="Search heroes"
+            placeholder="Search"
+            aria-label="Search"
             value={q()}
             onInput={(e) => {
               setQ(e.currentTarget.value);
               setAt(0);
             }}
           />
-          <Show when={p.heroes.length > 0} fallback={<p class="muted">This server has no asset pack, so there's no hero list to pick from.</p>}>
+          <Show when={p.heroes.length > 0} fallback={<p class="muted">No heroes</p>}>
             <div class="hero-grid" ref={grid} role="listbox" aria-label="Heroes">
               <For each={shown()}>
                 {(h, i) => (
@@ -93,7 +92,7 @@ export function HeroPicker(p: { heroes: Hero[]; slot: Slot | undefined; onPick: 
                 )}
               </For>
               <Show when={shown().length === 0}>
-                <p class="muted">No hero matches “{q()}”.</p>
+                <p class="muted">No match</p>
               </Show>
             </div>
           </Show>
@@ -102,7 +101,7 @@ export function HeroPicker(p: { heroes: Hero[]; slot: Slot | undefined; onPick: 
           <span />
           <Show when={p.slot?.slot.hero != null}>
             <button class="btn ghost small" onClick={() => p.onPick(null)}>
-              Clear hero
+              No hero
             </button>
           </Show>
           <button class="btn small" onClick={() => p.onClose()}>

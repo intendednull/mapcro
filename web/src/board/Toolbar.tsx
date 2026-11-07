@@ -46,7 +46,6 @@ export function Toolbar(p: {
     window.addEventListener("keydown", key);
     onCleanup(() => window.removeEventListener("keydown", key));
   });
-  const hint = () => TOOLS.find((t) => t.tool === p.tool)!;
   return (
     <>
       <div class={cx("toolbar", !p.editor && "viewer")} role="toolbar" aria-label="Tools" data-testid="toolbar">
@@ -56,7 +55,6 @@ export function Toolbar(p: {
               <button
                 class={cx("tb", p.tool === t.tool && "on")}
                 data-testid={`tool-${t.tool}`}
-                title={`${!p.editor && t.tool === "move" ? "Look" : t.label} (${t.key})`}
                 aria-pressed={p.tool === t.tool}
                 onClick={() => p.setTool(t.tool)}
               >
@@ -88,21 +86,19 @@ export function Toolbar(p: {
           )}
         </For>
         <Show when={p.editor}>
-          <button class="tb icon" data-testid="clear-ink" title="Clear ink on this scene (one undo step)" disabled={p.inkCount === 0} onClick={() => p.clearInk()}>
+          <button class="tb icon" data-testid="clear-ink" title="Clear ink" aria-label="Clear ink" disabled={p.inkCount === 0} onClick={() => p.clearInk()}>
             <Ico d={ICON_CLEAR} />
           </button>
           <span class="tb-sep" />
-          <button class="tb icon" data-testid="undo" title="Undo your last change (Ctrl+Z)" disabled={!p.canUndo} onClick={() => p.undo()}>
+          <button class="tb icon" data-testid="undo" title="Undo" aria-label="Undo" disabled={!p.canUndo} onClick={() => p.undo()}>
             <Ico d={ICON_UNDO} />
           </button>
-          <button class="tb icon" data-testid="redo" title="Redo (Ctrl+Shift+Z)" disabled={!p.canRedo} onClick={() => p.redo()}>
+          <button class="tb icon" data-testid="redo" title="Redo" aria-label="Redo" disabled={!p.canRedo} onClick={() => p.redo()}>
             <Ico d={ICON_REDO} />
           </button>
         </Show>
       </div>
-      <div class="tb-hint">
-        <b>{!p.editor && p.tool === "move" ? "Look" : hint().label}</b> {!p.editor && p.tool === "move" ? "Flip scenes and follow along; the laser is yours too." : hint().hint}
-      </div>
+
     </>
   );
 }

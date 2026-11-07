@@ -238,7 +238,7 @@ export function Tokens(p: {
                   transform={`translate(${r() * 0.78} ${-r() * 0.78}) scale(${p.k})`}
                   onPointerDown={(e) => toggleVision(pl, e)}
                 >
-                  <title>{pl.state.visible ? "In vision. Click to mark as not seen." : "Not seen: last known position. Click to mark as in vision."}</title>
+                  <title>{pl.state.visible ? "In vision" : "Not seen"}</title>
                   <circle r="9" />
                   <path d={EYE} />
                   <Show when={pl.state.visible}>

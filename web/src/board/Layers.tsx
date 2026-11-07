@@ -627,7 +627,7 @@ export function Layers(p: {
                     aria-label="Callout text"
                     maxLength={MAX_CALLOUT}
                     value={ed().text}
-                    placeholder="Type a callout, Enter to place"
+                    placeholder="Callout"
                     ref={(el) => queueMicrotask(() => el.focus())}
                     onPointerDown={(e) => e.stopPropagation()}
                     onKeyDown={(e) => {
@@ -689,7 +689,7 @@ export function Layers(p: {
                     r={14 * p.k}
                     onPointerDown={(e) => e.button === 0 && !p.spaceHeld() && dragWave(e, l.key, p.splitOf(l.key))}
                   >
-                    <title>Where the waves meet in this lane. Drag along the lane to move it.</title>
+                    <title>Wave</title>
                   </circle>
                 </Show>
                 <Show when={remote()}>

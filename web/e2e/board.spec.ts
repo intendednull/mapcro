@@ -31,14 +31,13 @@ test("create a board, join it, drag a hero, and see it in a second browser and a
   const a = await newDevice(browser);
   await a.goto(server.url);
   await a.getByLabel("Board title").fill("Scrim prep vs Night Owls");
-  await a.getByRole("button", { name: "Create a board" }).click();
+  await a.getByRole("button", { name: "New board" }).click();
   await a.waitForURL(/\/b\/[A-Za-z0-9_-]{22}#[A-Za-z0-9_-]{43}$/);
-  await expect(a.getByRole("heading", { name: /Joining “Scrim prep vs Night Owls”/ })).toBeVisible();
+  await expect(a.getByTestId("join-card").getByRole("heading", { name: "Scrim prep vs Night Owls" })).toBeVisible();
   await join(a, "Coach");
   await expect(a.getByTestId("board-title")).toHaveText("Scrim prep vs Night Owls");
   await expect(a.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
   // No pack on this server: the schematic map, and it says so.
-  await expect(a.getByTestId("placeholder-note")).toBeVisible();
   await expect(a.locator(".mapbox .mm-host")).toHaveAttribute("data-pack", "none");
   await expect(a.locator(".mapbox .mk.t2")).toHaveCount(6);
   await expect(a.locator(".tok")).toHaveCount(12);
@@ -46,7 +45,7 @@ test("create a board, join it, drag a hero, and see it in a second browser and a
   const link = a.url();
   const b = await newDevice(browser);
   await b.goto(link);
-  await expect(b.getByText("Coach is here.")).toBeVisible();
+  await expect(b.getByTestId("join-here").locator('[title="Coach"]')).toBeVisible();
   await join(b, "Marrow");
   await expect(a.getByTestId("people")).toContainText("Marrow");
 

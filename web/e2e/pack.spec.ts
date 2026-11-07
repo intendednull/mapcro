@@ -77,7 +77,6 @@ test.describe("with a synthetic pack", () => {
     expect((await a.locator(".mapbox .mm-rot .terrain").boundingBox())?.width).toBeGreaterThan(400);
     const packId = (await (await fetch(`${server.url}/api/packs`)).json())[0].pack_id as string;
     await expect(host).toHaveAttribute("data-pack", packId);
-    await expect(a.getByTestId("placeholder-note")).toHaveCount(0);
     const bg = await a.locator(".mapbox .mm-rot .terrain").evaluate((e) => getComputedStyle(e).backgroundImage);
     expect(bg).toContain(`/packs/${packId}/map/minimap_midtown_mid.png`);
     // Only the pack's entities: two walkers and the mid boss, at their transformed positions.

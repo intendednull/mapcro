@@ -22,7 +22,7 @@ export function Landing() {
       sessionStorage.setItem(FRESH_BOARD, board); // its first load rolls twelve random heroes
       location.assign(shareUrl(location.origin, board, owner_token));
     } catch (err) {
-      setError(`Couldn't create the board: ${String(err)}`);
+      setError("Failed");
       setBusy(false);
     }
   };
@@ -33,26 +33,24 @@ export function Landing() {
         <div class="spacer" />
       </header>
       <main class="landing-body">
-        <h1>A shared minimap for macro coaching.</h1>
-        <p class="muted">Place the heroes, mark the objectives, draw the rotations, and flip through scenes together. No accounts: whoever holds a link can open the board.</p>
         <form class="new-board" onSubmit={create} data-testid="new-board">
           <input
             class="input big"
-            placeholder="Board title, e.g. Scrim prep vs Night Owls"
+            placeholder="Board title"
             maxLength={80}
             value={title()}
             onInput={(e) => setTitle(e.currentTarget.value)}
             aria-label="Board title"
           />
           <button class="btn primary" type="submit" disabled={busy()}>
-            {busy() ? "Creating…" : "Create a board"}
+            {busy() ? "Creating…" : "New board"}
           </button>
         </form>
         <Show when={error()}>
           <p class="error">{error()}</p>
         </Show>
         <Show when={boards.length > 0}>
-          <h2>On this device</h2>
+          <h2>Your boards</h2>
           <ul class="known">
             <For each={boards}>
               {(b) => (
@@ -64,7 +62,7 @@ export function Landing() {
             </For>
           </ul>
         </Show>
-        <footer class="legal muted">mapcro is free and open source (MIT). Not affiliated with Valve. Game art, where shown, comes from this server's asset pack.</footer>
+        <footer class="legal muted">MIT · Not affiliated with Valve</footer>
       </main>
     </div>
   );

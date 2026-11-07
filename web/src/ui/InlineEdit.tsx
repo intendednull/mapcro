@@ -49,7 +49,6 @@ export function InlineEdit(p: {
           data-testid={p.testid}
           role={p.editable ? "button" : undefined}
           tabIndex={p.editable ? 0 : undefined}
-          title={p.editable ? `Click to edit the ${p.label}` : undefined}
           onClick={open}
           onKeyDown={(e) => e.key === "Enter" && open()}
         >

@@ -73,7 +73,7 @@ export function SceneStrip(p: {
     <footer class="strip" data-testid="scene-strip">
       <div class="strip-hint">
         <kbd>←</kbd>
-        <kbd>→</kbd> flip scenes
+        <kbd>→</kbd>
       </div>
       <button class="nav" aria-label="Previous scene" disabled={index() <= 0} onClick={() => flipBy(-1)}>
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">

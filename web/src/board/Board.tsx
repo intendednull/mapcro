@@ -46,7 +46,6 @@ function SaveStatus(p: { state: ReturnType<typeof createBoardState>; rejected: R
     else timer = setTimeout(() => setSlow(true), 400);
   });
   onCleanup(() => clearTimeout(timer));
-  const [why, setWhy] = createSignal(false);
   const v = () => statusView(p.state.status(), p.state.connection(), slow(), p.rejected);
   return (
     <span class={cx("save", v().kind === "connecting" ? "syncing" : v().kind === "closed" ? "rejected" : v().kind)} data-testid="save-status" data-state={v().kind} data-connection={p.state.connection().kind} data-can-edit={String(p.state.canEdit())} role="status">
@@ -66,25 +65,11 @@ function SaveStatus(p: { state: ReturnType<typeof createBoardState>; rejected: R
         </svg>
       </Show>
       {v().text}
-      <Show when={v().why}>
+      <Show when={v().kind === "rejected"}>
         {" "}
-        <button class="why" data-testid="why" onClick={() => setWhy(!why())}>
-          Why?
+        <button class="why" data-testid="dismiss-rejection" aria-label="Dismiss" title="Dismiss" onClick={() => p.dismiss()}>
+          ×
         </button>
-        <Show when={why()}>
-          <span class="why-pop" role="note">
-            {v().why}{" "}
-            <button
-              class="link"
-              onClick={() => {
-                setWhy(false);
-                p.dismiss();
-              }}
-            >
-              OK
-            </button>
-          </span>
-        </Show>
       </Show>
     </span>
   );
@@ -124,7 +109,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
   });
   createEffect(() => {
     const ps = state.problems();
-    for (const pr of ps.slice(toasted)) if (!rejection(pr) && !pr.startsWith("protocol error")) say(pr[0]!.toUpperCase() + pr.slice(1) + ".");
+    for (const pr of ps.slice(toasted)) if (!rejection(pr) && !pr.startsWith("protocol error")) say(pr[0]!.toUpperCase() + pr.slice(1).split(":")[0]!);
     toasted = ps.length;
   });
   const [justCloned, setJustCloned] = createSignal(sessionStorage.getItem(JUST_CLONED) === p.board);
@@ -154,7 +139,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
     if (following() === undefined) return;
     setFollowing(undefined);
     state.presence({ following: null });
-    if (why && was) say(`You ${why}, so you stopped following ${nameOfPeer(was)}.`, { label: "Follow again", run: () => follow(was.peer) });
+    if (why && was) say(`Stopped following ${nameOfPeer(was)}`, { label: "Follow again", run: () => follow(was.peer) });
   };
   createEffect(() => {
     const f = following();
@@ -163,7 +148,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
     if (!x) {
       setFollowing(undefined);
       state.presence({ following: null });
-      say("The person you followed left the board.");
+      say("Presenter left");
       return;
     }
     const s = x.state!;
@@ -417,7 +402,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           <button class={cx("tb", tool() === "laser" && "on")} data-testid="tool-laser" onClick={() => setTool("laser")}>
             <span>Laser</span>
           </button>
-          <button class="tb" data-testid="viewpoint-flip" aria-label="Flip to the other side" onClick={() => setViewpoint(viewpoint() === "amber" ? "sapphire" : "amber")}>
+          <button class="tb" data-testid="viewpoint-flip" aria-label="Flip view" title="Flip view" onClick={() => setViewpoint(viewpoint() === "amber" ? "sapphire" : "amber")}>
             <span>⟲</span>
           </button>
         </div>
@@ -451,7 +436,6 @@ export function Board(p: { board: string; token: string; art: Art }) {
             Next
           </button>
         </div>
-        <div class="p-hint">Swipe or tap to flip on your own. That stops following; tap Follow to come back.</div>
       </nav>
       {toastView()}
     </div>
@@ -503,7 +487,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
               class="mm-flip"
               hidden={phone}
               data-testid="viewpoint-flip"
-              title={`Flip to the ${viewpoint() === "amber" ? "Sapphire" : "Amber"} side (changes only your view)`}
+              title="Flip view"
+              aria-label="Flip view"
               onClick={() => setViewpoint(viewpoint() === "amber" ? "sapphire" : "amber")}
             >
               <svg viewBox="-16 -16 32 32" aria-hidden="true">
@@ -555,14 +540,14 @@ export function Board(p: { board: string; token: string; art: Art }) {
         <SaveStatus state={state} rejected={rejected()} dismiss={() => setSeenProblems(state.problems().length)} />
         <div class="avatars" data-testid="avatars">
           <Show when={me() && joined()}>
-            <span class="av ring" style={{ background: colorOf(me()!.color) }} title={`${me()!.name} (you)`}>
+            <span class="av ring" style={{ background: colorOf(me()!.color) }} title={me()!.name}>
               {avatarLetter(me()!.name)}
             </span>
           </Show>
-          <For each={people()}>{(peer) => <Avatar name={peer.state!.name || "?"} color={peer.state!.color} title={peer.state!.name || "Someone joining"} />}</For>
+          <For each={people()}>{(peer) => <Avatar name={peer.state!.name || "?"} color={peer.state!.color} title={peer.state!.name || "Joining"} />}</For>
         </div>
         <Show when={state.role()}>
-          <button class="btn ghost" data-testid="clone" title="Clone to a new board you own" onClick={() => setDialog("clone")}>
+          <button class="btn ghost" data-testid="clone" onClick={() => setDialog("clone")}>
             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
               <rect x="8" y="8" width="12" height="12" rx="2" />
               <path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3" />
@@ -621,11 +606,6 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 />
               </h1>
             </div>
-            <Show when={!p.art.packId}>
-              <span class="ph-badge" data-testid="placeholder-note">
-                Placeholder map: your server's map pack replaces it
-              </span>
-            </Show>
           </div>
           <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} />
           {mapBox(false)}
@@ -644,7 +624,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               const ids = inkIds();
               if (!ids.length) return;
               state.edit(ids.map((id) => ({ Delete: { id } })));
-              say(`Cleared ${ids.length} stroke${ids.length === 1 ? "" : "s"} on this scene`, { label: "Undo", run: () => state.undo() });
+              say("Ink cleared", { label: "Undo", run: () => state.undo() });
             }}
           />
           {toastView()}
@@ -652,7 +632,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
         <aside class="side">
           <section>
             <h2>
-              Roster <small>shared by every scene</small>
+              Roster
             </h2>
             <div class="teams">
               <For each={["Amber", "Sapphire"] as const}>
@@ -675,7 +655,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                             </span>
                             <span class="nm">
                               <b>{s.slot.name || `Player ${s.slot.slot + 1}`}</b>
-                              <Show when={state.canEdit() && heroList().length > 0} fallback={<span>{hero()?.name ?? "No hero yet"}</span>}>
+                              <Show when={state.canEdit() && heroList().length > 0} fallback={<span>{hero()?.name ?? "No hero"}</span>}>
                                 <select
                                   class="hero-pick"
                                   data-testid={`hero-pick-${team}-${s.slot.slot}`}
@@ -686,7 +666,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                                     state.edit([{ Set: { id: s.id, value: { RosterHero: v === "" ? null : Number(v) } } }]);
                                   }}
                                 >
-                                  <option value="">No hero yet</option>
+                                  <option value="">No hero</option>
                                   <For each={heroList()}>{(h) => <option value={h.id}>{h.name}</option>}</For>
                                 </select>
                               </Show>
@@ -719,12 +699,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </section>
           <section class="note-section">
             <h2>Scene note</h2>
-            <Show when={state.canEdit()} fallback={<div class="note">{note()?.text || <span class="muted">No note for this scene.</span>}</div>}>
+            <Show when={state.canEdit()} fallback={<div class="note">{note()?.text}</div>}>
               <textarea
                 class="note note-edit"
                 data-testid="scene-note-edit"
                 aria-label="Scene note"
-                placeholder="What should everyone know about this moment?"
                 maxLength={4000}
                 value={note()?.text ?? ""}
                 onFocus={() => state.presence({ focus: note()?.id ?? scene()?.id ?? null })}
@@ -771,7 +750,6 @@ export function Board(p: { board: string; token: string; art: Art }) {
         </svg>
         <div>
           <b>You own this copy</b>
-          <span>It has no links yet, so only you can open it. Share it to bring the right people in.</span>
         </div>
         <button class="btn primary small" onClick={() => (setJustCloned(false), setDialog("share"))}>
           Share

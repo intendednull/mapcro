@@ -22,7 +22,7 @@ test("an outage: offline with changes kept, a closed tab keeps them, and they sy
   await expect(status).toHaveText("Saved");
 
   await server.kill();
-  await expect(status).toHaveText("Offline: reconnecting");
+  await expect(status).toHaveText("Offline");
   const before = await tokenAt(a, "Amber-0");
   const tb = (await a.locator('.mapbox .tok[data-slot="Amber-0"]').boundingBox())!;
   const under = await a.evaluate(([x, y]) => {
@@ -37,10 +37,10 @@ test("an outage: offline with changes kept, a closed tab keeps them, and they sy
   const canEdit = await status.getAttribute("data-can-edit");
   const tool = await a.locator(".mapbox .mm-overlay.map").getAttribute("data-tool");
   await expect(status, `drag moved ${JSON.stringify(before)} -> ${JSON.stringify(after)}; connection ${conn}; can edit ${canEdit}; tool ${tool}; under the press: ${under}`).toHaveText(
-    "Offline: 1 change kept on this device",
+    "Offline: 1 kept",
   );
   await dragToken(a, "Amber-1", 0.6, 0.6);
-  await expect(status).toHaveText("Offline: 2 changes kept on this device");
+  await expect(status).toHaveText("Offline: 2 kept");
   const want = [await tokenAt(a, "Amber-0"), await tokenAt(a, "Amber-1")];
 
   // Close the tab while offline: the changes were written to this device before anything else.
@@ -59,24 +59,24 @@ test("an outage: offline with changes kept, a closed tab keeps them, and they sy
   await server.kill();
   await expect(b.getByTestId("save-status")).toContainText("Offline");
   await dragToken(again, "Sapphire-0", 0.5, 0.3);
-  await expect(again.getByTestId("save-status")).toHaveText("Offline: 1 change kept on this device");
+  await expect(again.getByTestId("save-status")).toHaveText("Offline: 1 kept");
   await again.screenshot({ path: "shots/slice8-offline.png" });
   await server.start();
   await expect(again.getByTestId("save-status")).toHaveText("Saved", { timeout: 20000 });
   await expect.poll(() => tokenAt(b, "Sapphire-0"), { timeout: 20000 }).toEqual(await tokenAt(again, "Sapphire-0"));
 });
 
-test("a link that doesn't open a board says what to check", async ({ browser }) => {
+test("a link that doesn't open a board says so", async ({ browser }) => {
   const url = await newBoardUrl(server, "links");
   const page = await (await browser.newContext()).newPage();
   // Cut short: it doesn't even parse.
   await page.goto(url.slice(0, -10));
-  await expect(page.getByTestId("dead-link")).toContainText("This link doesn't open a board");
+  await expect(page.getByTestId("dead-link")).toContainText("Invalid link");
   // Well-formed but not a key to this board: the server refuses it. (A fresh page: changing
   // only the hash doesn't reload a page.)
   const page2 = await page.context().newPage();
   await page2.goto(url.replace(/#.*/, `#${"A".repeat(43)}`));
-  await expect(page2.getByTestId("dead-link")).toContainText("ask whoever sent it for a fresh one");
+  await expect(page2.getByTestId("dead-link")).toContainText("Invalid link");
   await expect(page2.getByTestId("join-card")).toHaveCount(0);
   await expect(page2.getByTestId("save-status")).toHaveAttribute("data-state", "closed");
 });

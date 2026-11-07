@@ -49,7 +49,7 @@ test("cursors, the people list, follow, unfollow by changing your view, follow a
 
   // Changing what you see stops following, and says so; following again is one click.
   await v.keyboard.press("ArrowLeft");
-  await expect(v.getByTestId("toast")).toContainText("You flipped the scene, so you stopped following Coach.");
+  await expect(v.getByTestId("toast")).toContainText("Stopped following Coach");
   await expect(card(v, 0)).toHaveAttribute("aria-current", "true");
   await expect(a.getByTestId("presenting")).toHaveCount(0);
   await v.getByTestId("toast-action").click();
@@ -60,7 +60,7 @@ test("cursors, the people list, follow, unfollow by changing your view, follow a
   await v.mouse.down();
   await v.mouse.move(pv.x + 60, pv.y + 40, { steps: 5 });
   await v.mouse.up();
-  await expect(v.getByTestId("toast")).toContainText("panned the map");
+  await expect(v.getByTestId("toast")).toContainText("Stopped following Coach");
 
   // The editor sees who is presenting and follows with F.
   await expect(b.getByTestId("follow-chip")).toHaveCount(0); // nobody follows Coach right now
@@ -75,6 +75,6 @@ test("cursors, the people list, follow, unfollow by changing your view, follow a
 
   // When the presenter leaves, followers are told.
   await a.close();
-  await expect(b.getByTestId("toast")).toContainText("left the board", { timeout: 15000 });
+  await expect(b.getByTestId("toast")).toContainText("Presenter left", { timeout: 15000 });
   await expect(b.getByTestId("follow-chip")).toHaveCount(0);
 });

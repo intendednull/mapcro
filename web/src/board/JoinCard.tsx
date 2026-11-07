@@ -1,7 +1,7 @@
 // The one-field join card (design/v1-board/join.html): a display name and a colour, remembered
 // on this device. Presence only; the server never stores it (spec §8).
 
-import { For, createSignal, onMount } from "solid-js";
+import { For, Show, createSignal, onMount } from "solid-js";
 import { type Me, PALETTE } from "../core/device";
 import { Wordmark } from "../ui/Wordmark";
 
@@ -12,12 +12,6 @@ export function JoinCard(p: { title: string; others: string[]; initial: Me | und
   const [color, setColor] = createSignal(p.initial?.color ?? Math.floor(Math.random() * PALETTE.length));
   let input!: HTMLInputElement;
   onMount(() => input.focus());
-  const who = () => {
-    const o = p.others;
-    if (o.length === 0) return "Nobody else is here yet.";
-    if (o.length === 1) return `${o[0]} is here.`;
-    return `${o.slice(0, -1).join(", ")} and ${o[o.length - 1]} are here.`;
-  };
   return (
     <div class="scrim join-scrim" data-testid="join-card">
       <form
@@ -30,9 +24,13 @@ export function JoinCard(p: { title: string; others: string[]; initial: Me | und
         }}
       >
         <Wordmark />
-        <h2 id="join-h">Joining “{p.title || "this board"}”</h2>
-        <p>{who()}</p>
-        <label for="join-name">Your name</label>
+        <h2 id="join-h">{p.title || "Board"}</h2>
+        <Show when={p.others.length > 0}>
+          <div class="avatars join-here" data-testid="join-here">
+            <For each={p.others}>{(n) => <span class="av" title={n}>{(n.trim()[0] ?? "?").toUpperCase()}</span>}</For>
+          </div>
+        </Show>
+        <label for="join-name">Name</label>
         <input
           ref={input}
           id="join-name"
@@ -62,7 +60,6 @@ export function JoinCard(p: { title: string; others: string[]; initial: Me | und
         <button class="btn primary join-go" type="submit" disabled={!name().trim()}>
           Join <kbd>Enter</kbd>
         </button>
-        <small>Others see this on your cursor and beside whatever you touch. It's remembered on this device.</small>
       </form>
     </div>
   );

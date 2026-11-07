@@ -94,13 +94,7 @@ function UltRing(p: { state: BoardState; player: Player; editable: boolean; labe
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={u() ?? undefined}
-      title={
-        u() == null
-          ? "Ult not tracked. Drag around the ring or scroll to set it."
-          : u()! <= 0
-            ? "Ult ready"
-            : `Ult cooldown ${Math.round(u()!)}% left. Drag or scroll to change; click for ready.`
-      }
+      title={u() == null ? "Ult" : u()! <= 0 ? "Ult ready" : `Ult ${Math.round(u()!)}%`}
       onPointerDown={down}
       onWheel={wheel}
     >
@@ -190,8 +184,8 @@ export function TopBar(p: {
                 <button
                   class="tb-pick"
                   data-testid="pick-hero"
-                  title={`Pick ${label()}'s hero`}
-                  aria-label={`Pick ${label()}'s hero`}
+                  title="Pick hero"
+                  aria-label="Pick hero"
                   onClick={() => p.onPickHero?.(slot.id)}
                 />
               </Show>
@@ -200,7 +194,7 @@ export function TopBar(p: {
                 data-testid="tb-vision"
                 disabled={!editable()}
                 hidden={!editable() && player.state.visible}
-                title={player.state.visible ? "In vision. Click to mark as not seen." : "Not seen. Click to mark as in vision."}
+                title={player.state.visible ? "In vision" : "Not seen"}
                 aria-label={player.state.visible ? `${label()}: in vision` : `${label()}: not seen`}
                 aria-pressed={!player.state.visible}
                 onClick={() => p.state.edit([{ Set: { id: player.id, value: { PlayerVisible: !player.state.visible } } }])}

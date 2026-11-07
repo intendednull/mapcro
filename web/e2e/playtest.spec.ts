@@ -18,7 +18,7 @@ test.describe("with a hero pack", () => {
     const a = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
     await a.goto(server.url);
     await a.getByLabel("Board title").fill("Random");
-    await a.getByRole("button", { name: "Create a board" }).click();
+    await a.getByRole("button", { name: "New board" }).click();
     await a.locator("#join-name").fill("Coach");
     await a.keyboard.press("Enter");
     const portraits = (p: Page) => p.locator(".tb-player .tb-img").evaluateAll((els) => els.map((e) => (e as HTMLElement).style.backgroundImage));
