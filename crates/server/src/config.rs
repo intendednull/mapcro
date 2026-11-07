@@ -7,7 +7,7 @@ use std::path::PathBuf;
 pub struct Config {
     pub addr: SocketAddr,
     pub data_dir: PathBuf,
-    /// Origins allowed to open WebSockets, e.g. `https://mapcro.example`. Comma-separated.
+    /// Origins allowed to open WebSockets, e.g. `https://mapcro.dmgdeadlock.com`. Comma-separated.
     pub allowed_origins: Vec<String>,
     /// Built web client to serve, if any.
     pub web_dir: Option<PathBuf>,
@@ -31,7 +31,7 @@ impl Config {
             return Err(format!("DATA_DIR {} is not a directory", data_dir.display()));
         }
         let allowed_origins: Vec<String> = var("PUBLIC_ORIGIN")
-            .ok_or("PUBLIC_ORIGIN is required (e.g. https://mapcro.example)")?
+            .ok_or("PUBLIC_ORIGIN is required (e.g. https://mapcro.dmgdeadlock.com)")?
             .split(',')
             .map(|s| s.trim().trim_end_matches('/').to_owned())
             .collect();

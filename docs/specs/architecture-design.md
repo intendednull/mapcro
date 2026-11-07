@@ -526,4 +526,7 @@ Settled on 2026-11-06: a Rust core (§13), and server-hosted art that users neve
 3. **Anonymous storage:** should idle boards expire, for example after 180 days with no opens? And
    are per-IP limits on board creation acceptable?
 4. **Scenes:** is "a board is a sequence of scenes sharing one roster" the right model?
-5. **Later:** the domain, the backup bucket, and the licence (MIT or AGPL) before the first push.
+5. **Later:** the backup bucket. Decided: MIT licence; hosted at `https://mapcro.dmgdeadlock.com`
+   (2026-11-07). The apex `dmgdeadlock.com` is a separate live site, so DNS for the subdomain
+   only needs a new `A`/`AAAA` record pointing at the infra host, which must exist before the
+   first deploy (ACME). Deploying still needs the operator's explicit OK at the time.

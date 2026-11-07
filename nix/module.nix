@@ -15,7 +15,7 @@ in
     };
     publicOrigin = lib.mkOption {
       type = lib.types.str;
-      example = "https://mapcro.example.com";
+      example = "https://mapcro.dmgdeadlock.com";
       description = "Origin(s) allowed to open WebSockets, comma-separated. Must be https.";
     };
     webDir = lib.mkOption {
