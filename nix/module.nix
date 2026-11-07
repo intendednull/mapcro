@@ -4,7 +4,8 @@ self:
 { config, lib, pkgs, ... }:
 let
   cfg = config.services.mapcro;
-  pkg = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+  pkgsSelf = self.packages.${pkgs.stdenv.hostPlatform.system};
+  pkg = pkgsSelf.default;
 in
 {
   options.services.mapcro = {
@@ -20,8 +21,18 @@ in
     };
     webDir = lib.mkOption {
       type = lib.types.nullOr lib.types.path;
-      default = null;
-      description = "Built web client to serve (absent until the UI ships).";
+      default = pkgsSelf.web;
+      defaultText = lib.literalExpression "mapcro.packages.\${system}.web";
+      description = "Built web client to serve; null serves the API alone.";
+    };
+    packsDir = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = "/var/lib/mapcro/packs";
+      description = ''
+        Extracted asset packs, one per subdirectory (spec §12). The default sits under the
+        StateDirectory and is created empty at start; packs are indexed once at start, so a new
+        pack is served after `systemctl restart mapcro` (docs/deploy.md). null disables packs.
+      '';
     };
     createPerHour = lib.mkOption {
       type = lib.types.ints.positive;
@@ -54,12 +65,14 @@ in
         # glibc's default (8 per core) keeps freed load buffers in each thread's arena, which
         # measured ~1.5x the budget resident instead of ~1.3x (journal 2026-11-07-security-fixes).
         MALLOC_ARENA_MAX = "2";
-      } // lib.optionalAttrs (cfg.webDir != null) { WEB_DIR = toString cfg.webDir; };
+      } // lib.optionalAttrs (cfg.webDir != null) { WEB_DIR = toString cfg.webDir; }
+        // lib.optionalAttrs (cfg.packsDir != null) { PACKS_DIR = cfg.packsDir; };
       serviceConfig = {
         ExecStart = lib.getExe pkg;
         User = "mapcro";
         Group = "mapcro";
-        StateDirectory = "mapcro";
+        # The packs directory exists even when empty (the server fails fast on a missing PACKS_DIR).
+        StateDirectory = [ "mapcro" "mapcro/packs" ];
         StateDirectoryMode = "0700";
         Restart = "on-failure";
         # Exponential backoff: 2 s, doubling over five steps to at most two minutes.
