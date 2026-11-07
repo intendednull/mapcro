@@ -16,6 +16,8 @@ export function InlineEdit(p: {
   onCommit: (text: string) => boolean | void;
   onEditing?: (editing: boolean) => void;
   display?: (v: string) => JSX.Element;
+  /** Hands back a function that opens the editor, so a larger target can start the edit. */
+  bindOpen?: (open: () => void) => void;
 }) {
   const [editing, setEditing] = createSignal(false);
   const [bad, setBad] = createSignal(false);
@@ -25,6 +27,7 @@ export function InlineEdit(p: {
     setEditing(true);
     p.onEditing?.(true);
   };
+  p.bindOpen?.(() => !editing() && open());
   const close = () => {
     setEditing(false);
     p.onEditing?.(false);

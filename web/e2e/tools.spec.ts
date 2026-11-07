@@ -107,7 +107,7 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   await a.screenshot({ path: "shots/slice4-tools.png" });
 });
 
-test("objectives cycle on click; a viewer gets Look and Laser, and its laser reaches editors", async ({ browser }) => {
+test("objectives toggle on click (camps, mid boss, one rift at a time); a viewer gets Look and Laser, and its laser reaches editors", async ({ browser }) => {
   const url = await newBoardUrl(server, "objectives");
   const a = await joinNew(browser, url, "Coach");
   const v = await joinNew(browser, await viewLink(server.url, url), "Guest");
@@ -118,13 +118,34 @@ test("objectives cycle on click; a viewer gets Look and Laser, and its laser rea
 
   await click();
   await expect(mk(v)).toHaveAttribute("data-status", "Destroyed");
-  await click();
-  // Hidden: gone for the viewer, a ghost for the editor so it can be brought back.
-  await expect(mk(v)).toHaveCount(0);
-  await expect(mk(a)).toHaveClass(/gone/);
+  // Two states only: a second click brings it back (no hidden step).
   await click();
   await expect(mk(v)).toHaveAttribute("data-status", "Active");
 
+  // The mid boss and camps toggle the same way.
+  for (const k of ["mid_boss:neutral:lane0:1", "camp:neutral:lane0:5"]) {
+    const m = a.locator(`.mapbox .mk[data-key="${k}"]`);
+    const bb = (await m.boundingBox())!;
+    await a.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
+    await expect(v.locator(`.mapbox .mk[data-key="${k}"]`)).toHaveAttribute("data-status", "Destroyed");
+  }
+
+  // Rifts start off; at most one is on, and turning one on turns the other off.
+  const rift = (p: Page, k: string) => p.locator(`.mapbox .mk[data-key="${k}"]`);
+  const [west, east] = ["rift:neutral:lane1:1", "rift:neutral:lane6:1"];
+  const tap = async (k: string) => {
+    const bb = (await rift(a, k).boundingBox())!;
+    await a.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
+  };
+  for (const k of [west, east]) await expect(rift(v, k)).toHaveAttribute("data-status", "Destroyed");
+  await tap(west);
+  await expect(rift(v, west)).toHaveAttribute("data-status", "Active");
+  await tap(east);
+  await expect(rift(v, east)).toHaveAttribute("data-status", "Active");
+  await expect(rift(v, west)).toHaveAttribute("data-status", "Destroyed");
+  await tap(east); // both can be off
+  await expect(rift(v, east)).toHaveAttribute("data-status", "Destroyed");
+  await expect(rift(v, west)).toHaveAttribute("data-status", "Destroyed");
   // The viewer's picker: Look and Laser only.
   await expect(v.getByTestId("toolbar").locator(".tb")).toHaveCount(2);
   await expect(v.getByTestId("tool-move")).toContainText("Look");

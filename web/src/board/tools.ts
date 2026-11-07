@@ -2,7 +2,7 @@
 export type Tool = "move" | "draw" | "arrow" | "callout" | "laser" | "erase";
 
 export const TOOLS: Array<{ tool: Tool; label: string; key: string; hint: string; icon: string }> = [
-  { tool: "move", label: "Move", key: "V", hint: "Drag heroes and callouts; click an objective to cycle it; double-click a callout to edit.", icon: '<path d="M5 3l13 6.5-5.6 1.6L10 17z"/><path d="M12.5 11.2L18 17"/>' },
+  { tool: "move", label: "Move", key: "V", hint: "Drag heroes (drag empty map to select several); click an objective or a lane to toggle or move it; Space-drag or right-drag pans.", icon: '<path d="M5 3l13 6.5-5.6 1.6L10 17z"/><path d="M12.5 11.2L18 17"/>' },
   { tool: "draw", label: "Draw", key: "D", hint: "Freehand ink in the colour you pick, saved with the scene.", icon: '<path d="M4 20l4.5-1L19 8.5 15.5 5 5 15.5z"/><path d="M13.5 7l3.5 3.5"/>' },
   { tool: "arrow", label: "Arrow", key: "A", hint: "Drag out a rotation arrow. Start on a hero to give it that hero's team.", icon: '<path d="M4 20C7 12 11 8 19 5"/><path d="M13 4.5l6 .5-1.5 5.8"/>' },
   { tool: "callout", label: "Callout", key: "C", hint: "Click to place a label and type it; Enter places it.", icon: '<path d="M4 5h16v10h-9l-4 4v-4H4z"/><path d="M8 9h8M8 12h5"/>' },

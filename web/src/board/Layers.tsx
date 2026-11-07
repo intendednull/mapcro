@@ -21,9 +21,12 @@ import type { PeerPresence } from "../gen/PeerPresence";
 import type { RecordId } from "../gen/RecordId";
 import type { Stroke } from "../gen/Stroke";
 import type { WorldPos } from "../gen/WorldPos";
-import { HUD_PX } from "../map/model";
+import { HUD_PX, type Marker, laneStroke } from "../map/model";
+import { pathOf, pointAt, project, splitAt } from "../map/lanes";
+import { LANE_GAP } from "../map/MapView";
+import { toggleOps } from "./objectives";
 import type { Art } from "../map/pack";
-import { type Pt, type Viewpoint, clampToMap, mapToView, viewToWorld, worldToView } from "../map/transform";
+import { type Pt, type Viewpoint, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { cx } from "../ui/cx";
 import { LASER_MAX_POINTS, type Timed, arrowHead, fitStroke, laserOpacity, polyline, pruneLaser, shaftEnd } from "./geometry";
@@ -35,7 +38,6 @@ import { Cursors } from "./Presence";
 export const INK_WIDTH = 60; // tenths: 6 map units, the design's ink
 const MAX_STROKE_POINTS = 512;
 const MAX_CALLOUT = 80;
-const CYCLE: Record<ObjectiveStatus, ObjectiveStatus> = { Active: "Destroyed", Destroyed: "Hidden", Hidden: "Active" };
 
 type Rec<T> = { id: RecordId; r: T };
 
@@ -62,6 +64,19 @@ export function Layers(p: {
   onZoom: (at: Pt, factor: number) => void;
   /** Phone: callouts as numbered pins, their text listed under the map. */
   compactCallouts?: boolean;
+  /** Selected heroes (Move): a drag on any of them moves them all. */
+  selection: () => Set<RecordId>;
+  setSelection: (s: Set<RecordId>) => void;
+  /** Space is held: a drag pans. */
+  spaceHeld: () => boolean;
+  showHidden: boolean;
+  /** Lane splits recorded in this scene, by lane key. */
+  waves: () => Map<string, { id: RecordId; t: number }>;
+  /** The split this person is dragging right now. */
+  waveDrag: () => { key: string; t: number; id: RecordId } | undefined;
+  setWaveDrag: (w: { key: string; t: number; id: RecordId } | undefined) => void;
+  /** Effective split per lane key (recorded, previewed, or the default). */
+  splitOf: (key: string) => number;
 }) {
   const st = p.state;
   const view = (w: WorldPos) => worldToView(w, p.vp);
@@ -90,6 +105,18 @@ export function Layers(p: {
   const [dragCallout, setDragCallout] = createSignal<{ id: RecordId; pos: WorldPos }>();
   const [editing, setEditing] = createSignal<{ id: RecordId | undefined; pos: WorldPos; text: string }>();
   const [laser, setLaser] = createSignal<Timed[]>([]);
+  const [box, setBox] = createSignal<{ a: Pt; b: Pt }>();
+  /** Others dragging a split that has no record yet: matched to a lane by where it is. */
+  const remoteNew = createMemo(() => {
+    const m = new Map<string, PeerPresence>();
+    for (const x of st.peerList()) {
+      const d = x.state?.drag;
+      if (!d || st.records[d.id] || x.state?.scene !== p.scene) continue;
+      const at = worldToMap(d.pos);
+      for (const l of p.art.model.lanes) if (project(l.line, at).dist < 4) m.set(l.key, x);
+    }
+    return m;
+  });
 
   // ---- laser: a local trail of timed points, pruned on a ticker and shared as presence ----
   let laserTick: ReturnType<typeof setInterval> | undefined;
@@ -138,30 +165,133 @@ export function Layers(p: {
     return undefined;
   };
 
-  /** The objective marker under a point (view units), nearest first. */
+  /** The objective marker under a point (view units), nearest first. Camps, rifts, mid boss too. */
   const objectiveAt = (pt: Pt) => {
-    let best: { key: string; d: number } | undefined;
+    let best: { m: Marker; d: number } | undefined;
     for (const m of p.art.model.markers) {
-      if (m.kind === "camp" || m.kind === "koth" || m.kind === "midboss") continue;
+      if (!p.showHidden && p.objectives().get(m.key)?.status === "Hidden") continue;
       const at = mapToView(m.at, p.vp);
       const d = Math.hypot(at.x - pt.x, at.y - pt.y);
-      if (d <= Math.max(18, (m.px * HUD_PX) / 2.6) && (!best || d < best.d)) best = { key: m.key, d };
+      // About the drawn icon (the HUD images have wide transparent margins), so lanes and
+      // empty map between icons stay clickable.
+      const reach = Math.max(m.kind === "camp" ? 12 : 16, m.px * HUD_PX * 0.25) * Math.max(p.k, 0.5);
+      if (d <= reach && (!best || d < best.d)) best = { m, d };
     }
-    return best?.key;
+    return best?.m;
   };
 
-  const cycleObjective = (key: string) => {
+  const toggleObjective = (m: Marker) => {
     const scene = p.scene;
     if (!scene) return;
-    const cur = p.objectives().get(key);
-    if (cur) st.edit([{ Set: { id: cur.id, value: { ObjectiveStatus: CYCLE[cur.status] } } }]);
-    else st.edit([{ Create: { id: newRecordId(), record: { ObjectiveState: { scene, key, status: "Destroyed" } } } }]);
+    const ops = toggleOps(m, p.art.model.markers, p.objectives(), scene, newRecordId);
+    if (ops.length) st.edit(ops);
+  };
+
+  /** The lane under a point (view units) and the `t` there, if it's close to the line. */
+  const laneAt = (pt: Pt, reach: number) => {
+    const m = viewToMap(pt, p.vp);
+    let best: { key: string; t: number; dist: number } | undefined;
+    for (const l of p.art.model.lanes) {
+      const q = project(l.line, m);
+      if (q.dist <= reach && (!best || q.dist < best.dist)) best = { key: l.key, t: q.t, dist: q.dist };
+    }
+    return best;
+  };
+
+  /** Slide a lane's split: a live preview through presence, then one op on release. */
+  const dragWave = (e: PointerEvent, key: string, t0: number) => {
+    const lane = p.art.model.lanes.find((l) => l.key === key);
+    const scene = p.scene;
+    if (!lane || !scene) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const existing = p.waves().get(key);
+    const id = existing?.id ?? newRecordId();
+    const svg = p.svg()!;
+    const start = svgPoint(svg, e);
+    let travelled = 0;
+    const show = (t: number) => {
+      p.setWaveDrag({ key, t, id });
+      st.presence({ drag: { id, pos: clampToMap(mapToWorld(pointAt(lane.line, t))) }, focus: id });
+    };
+    show(t0);
+    track(
+      e,
+      (pt) => {
+        travelled = Math.max(travelled, Math.hypot(pt.x - start.x, pt.y - start.y));
+        show(project(lane.line, viewToMap(pt, p.vp)).t);
+      },
+      (_, ok) => {
+        const d = p.waveDrag();
+        p.setWaveDrag(undefined);
+        st.presence({ drag: null, focus: null });
+        if (!ok || !d) return;
+        // A click (no drag) on the gap over an objective, like the mid boss on the mid lane's
+        // centre, is a click on the objective.
+        const m = travelled < 4 ? objectiveAt(start) : undefined;
+        if (m) return toggleObjective(m);
+        if (existing) {
+          if (existing.t !== d.t) st.edit([{ Set: { id, value: { WavePos: d.t } } }]);
+        } else st.edit([{ Create: { id, record: { Wave: { scene, lane: key, t: d.t } } } }]);
+      },
+    );
+  };
+
+  /** Pan by dragging: middle or right button anywhere, Space+drag, or a viewer's Look drag. */
+  const pan = (e: PointerEvent) => {
+    const svg = p.svg()!;
+    e.preventDefault();
+    e.stopPropagation(); // a pan never also drags the hero under the pointer
+    const perPx = 1000 / svg.getBoundingClientRect().width;
+    let last = { x: e.clientX, y: e.clientY };
+    track(
+      e,
+      (_, ev) => {
+        p.onPan((ev.clientX - last.x) * perPx, (ev.clientY - last.y) * perPx);
+        last = { x: ev.clientX, y: ev.clientY };
+      },
+      () => {},
+    );
+  };
+
+  /** Move on empty map: drag a rectangle to select heroes (Shift adds); a click clears. */
+  const marquee = (e: PointerEvent, start: Pt) => {
+    e.preventDefault();
+    const add = e.shiftKey;
+    const base = add ? new Set(p.selection()) : new Set<RecordId>();
+    track(
+      e,
+      (pt) => setBox({ a: start, b: pt }),
+      (pt, ok) => {
+        const b = box();
+        setBox(undefined);
+        if (!ok) return;
+        if (!b || Math.hypot(pt.x - start.x, pt.y - start.y) < 4) {
+          if (!add) p.setSelection(new Set());
+          return;
+        }
+        const [x0, x1] = [Math.min(b.a.x, b.b.x), Math.max(b.a.x, b.b.x)];
+        const [y0, y1] = [Math.min(b.a.y, b.b.y), Math.max(b.a.y, b.b.y)];
+        const next = new Set(base);
+        for (const pl of st.playersIn(p.scene)) {
+          if (!pl.state.placed) continue;
+          const v = view(pl.state.pos);
+          if (v.x >= x0 && v.x <= x1 && v.y >= y0 && v.y <= y1) next.add(pl.id);
+        }
+        p.setSelection(next);
+      },
+    );
   };
 
   const down = (e: PointerEvent) => {
-    if (e.button !== 0 || !p.scene) return;
+    if (!p.scene) return;
     const svg = p.svg();
     if (!svg) return;
+    if (e.button === 1 || e.button === 2 || (e.button === 0 && p.spaceHeld())) {
+      pan(e);
+      return;
+    }
+    if (e.button !== 0) return;
     const start = svgPoint(svg, e);
     const tool = p.tool;
     if (tool === "laser") {
@@ -171,29 +301,32 @@ export function Layers(p: {
       return;
     }
     if (tool === "move") {
-      const key = editor() ? objectiveAt(start) : undefined;
-      e.preventDefault();
-      // Drag on empty map pans; a click on an objective (editors) cycles it.
-      const perPx = 1000 / svg.getBoundingClientRect().width;
-      let last = { x: e.clientX, y: e.clientY };
-      let travelled = 0;
-      const onMove = (ev: PointerEvent) => {
-        if (ev.pointerId !== e.pointerId) return;
-        const dx = ev.clientX - last.x;
-        const dy = ev.clientY - last.y;
-        travelled += Math.abs(dx) + Math.abs(dy);
-        last = { x: ev.clientX, y: ev.clientY };
-        if (travelled > 4) p.onPan(dx * perPx, dy * perPx);
-      };
-      svg.addEventListener("pointermove", onMove);
-      track(
-        e,
-        () => {},
-        (_, ok) => {
-          svg.removeEventListener("pointermove", onMove);
-          if (ok && key && travelled <= 4) cycleObjective(key);
-        },
-      );
+      if (!editor()) {
+        pan(e); // Look: dragging the map pans
+        return;
+      }
+      // Heroes, callouts and lane splits handle their own presses (Solid delegates those
+      // handlers to the document, so this native listener on the map sees the press first).
+      if ((e.target as Element).closest?.(".tok, .co, .wave-hit")) return;
+      const m = objectiveAt(start);
+      if (m) {
+        e.preventDefault();
+        track(
+          e,
+          () => {},
+          (pt, ok) => {
+            if (ok && Math.hypot(pt.x - start.x, pt.y - start.y) < 8) toggleObjective(m);
+          },
+        );
+        return;
+      }
+      // A click on a lane's zipline jumps its split there, and a drag slides it.
+      const lane = laneAt(start, 9 * Math.max(p.k, 0.6));
+      if (lane) {
+        dragWave(e, lane.key, lane.t);
+        return;
+      }
+      marquee(e, start);
       return;
     }
     if (!editor()) return;
@@ -463,7 +596,55 @@ export function Layers(p: {
           }}
         </Show>
       </g>
-      <Tokens state={st} art={p.art} vp={p.vp} scene={p.scene} tool={p.tool} k={p.k} svg={p.svg} />
+      <Show when={box()}>
+        {(b) => (
+          <rect
+            class="marquee"
+            data-testid="marquee"
+            x={Math.min(b().a.x, b().b.x)}
+            y={Math.min(b().a.y, b().b.y)}
+            width={Math.abs(b().b.x - b().a.x)}
+            height={Math.abs(b().b.y - b().a.y)}
+          />
+        )}
+      </Show>
+      <Tokens state={st} art={p.art} vp={p.vp} scene={p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} />
+      <g class="waves">
+        <For each={p.art.model.lanes}>
+          {(l) => {
+            const at = () => mapToView(pointAt(l.line, p.splitOf(l.key)), p.vp);
+            const raised = () => p.waveDrag()?.key === l.key;
+            const halves = () => splitAt(l.line, p.splitOf(l.key), LANE_GAP);
+            const remote = () => st.peerList().find((x) => x.state?.drag && x.state.drag.id === (p.waves().get(l.key)?.id ?? "") ) ?? remoteNew().get(l.key);
+            return (
+              <>
+                <Show when={raised()}>
+                  {/* The lane being dragged, above the heroes and objectives (only for its dragger). */}
+                  <g class="lane-raised" data-raised={l.key}>
+                    <path d={pathOf(halves().amber.map((q) => mapToView(q, p.vp)))} stroke={laneStroke(l.lane, "amber", p.vp)} />
+                    <path d={pathOf(halves().sapphire.map((q) => mapToView(q, p.vp)))} stroke={laneStroke(l.lane, "sapphire", p.vp)} />
+                  </g>
+                </Show>
+                <Show when={editor() && p.tool === "move"}>
+                  <circle
+                    class={cx("wave-hit", raised() && "active")}
+                    data-testid={`wave-gap-${l.key}`}
+                    cx={at().x}
+                    cy={at().y}
+                    r={14 * p.k}
+                    onPointerDown={(e) => e.button === 0 && !p.spaceHeld() && dragWave(e, l.key, p.splitOf(l.key))}
+                  >
+                    <title>Where the waves meet in this lane. Drag along the lane to move it.</title>
+                  </circle>
+                </Show>
+                <Show when={remote()}>
+                  {(x) => <NameTag at={{ x: at().x - 10 * p.k, y: at().y + 18 * p.k }} name={x().state!.name} color={x().state!.color} what="moving the wave" k={p.k} />}
+                </Show>
+              </>
+            );
+          }}
+        </For>
+      </g>
       <g class="lasers">
         <For each={remoteLasers()}>
           {(peer) => <LaserTrail points={peer.state!.laser.map(view)} color={colorOf(peer.state!.color)} name={peer.state!.name} />}

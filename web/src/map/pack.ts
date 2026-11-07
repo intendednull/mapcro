@@ -37,6 +37,8 @@ export interface Hero {
   portrait: string | undefined;
   /** Top-bar portrait (vertical bust), when the pack has one. */
   topbar: string | undefined;
+  /** In the game's pick list: schema-3 packs give playable heroes a top-bar portrait. */
+  playable: boolean;
 }
 
 export interface Art {
@@ -91,9 +93,10 @@ export function artFromManifest(base: string, packId: string, m: PackManifest): 
     if (u) images.set(name, u);
   }
   const heroes = new Map<number, Hero>();
+  const schema3 = (m.heroes ?? []).some((h) => "topbar_blob" in h);
   for (const h of m.heroes ?? []) {
     if (h.disabled) continue;
-    heroes.set(h.hero_id, { id: h.hero_id, name: h.name ?? h.class_name ?? `Hero ${h.hero_id}`, portrait: url(h.minimap_blob), topbar: url(h.topbar_blob) });
+    heroes.set(h.hero_id, { id: h.hero_id, name: h.name ?? h.class_name ?? `Hero ${h.hero_id}`, portrait: url(h.minimap_blob), topbar: url(h.topbar_blob), playable: schema3 ? !!h.topbar_blob : true });
   }
   const entities = m.entities ?? [];
   // A pack without map entities still has portraits; its map falls back to the schematic.

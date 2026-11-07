@@ -27,6 +27,7 @@ describe("add scene", () => {
       p1: { deleted: false, record: { PlayerState: { scene: "b", slot: "s1", pos: { x: 5, y: 6 }, alive: false, placed: true, souls: 900, ult_cooldown: 0, visible: true } } },
       p2: { deleted: false, record: { PlayerState: { scene: "a", slot: "s1", pos: { x: 1, y: 1 }, alive: true, placed: true, souls: null, ult_cooldown: null, visible: true } } },
       o1: { deleted: false, record: { ObjectiveState: { scene: "b", key: "walker:amber:lane1:1", status: "Destroyed" } } },
+      w1: { deleted: false, record: { Wave: { scene: "b", lane: "lane4", t: 640 } } },
       k1: { deleted: false, record: { Stroke: { scene: "b", points: [{ x: 0, y: 0 }], color: 1, width: 30 } } },
       gone: { deleted: true, record: { ObjectiveState: { scene: "b", key: "guardian:amber:lane1:1", status: "Hidden" } } },
     };
@@ -38,7 +39,9 @@ describe("add scene", () => {
     expect(s?.order! > "i" && s?.order! < "r").toBe(true);
     expect(s?.name).toBe("Scene 4");
     const kinds = rest.map((o) => ("Create" in o ? Object.keys(o.Create.record)[0] : "?"));
-    expect(kinds.sort()).toEqual(["ObjectiveState", "PlayerState"]);
+    expect(kinds.sort()).toEqual(["ObjectiveState", "PlayerState", "Wave"]);
+    const w = rest.find((o) => "Create" in o && "Wave" in o.Create.record);
+    expect(w && "Create" in w && "Wave" in w.Create.record && w.Create.record.Wave).toEqual({ scene: "new0", lane: "lane4", t: 640 });
     const p = rest.find((o) => "Create" in o && "PlayerState" in o.Create.record);
     expect(p && "Create" in p && "PlayerState" in p.Create.record && p.Create.record.PlayerState).toMatchObject({ scene: "new0", pos: { x: 5, y: 6 }, alive: false, souls: 900 });
   });

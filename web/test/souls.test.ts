@@ -11,6 +11,12 @@ describe("souls", () => {
   });
   it("read what people type", () => {
     expect(parseSouls("9040")).toBe(9040);
+    // A bare number under 1000 is thousands.
+    expect(parseSouls("8")).toBe(8000);
+    expect(parseSouls("20")).toBe(20000);
+    expect(parseSouls("7.5")).toBe(7500);
+    expect(parseSouls("999")).toBe(999000);
+    expect(parseSouls("1000")).toBe(1000);
     expect(parseSouls("9k")).toBe(9000);
     expect(parseSouls(" 9.5K ")).toBe(9500);
     expect(parseSouls("12,500")).toBe(12500);

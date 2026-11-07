@@ -49,6 +49,7 @@ export function createBoardState(board: string, token: string) {
   const [myPeer, setMyPeer] = createSignal<number | undefined>();
   const [problems, setProblems] = createSignal<string[]>([]);
   const [undoable, setUndoable] = createSignal({ undo: false, redo: false });
+  const [lastRole, setLastRole] = createSignal<LinkRole | undefined>();
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const session = new BoardSession({
@@ -62,6 +63,8 @@ export function createBoardState(board: string, token: string) {
       setPeers(reconcile(Object.fromEntries([...s.peers].map(([k, v]) => [String(k), v]))));
       setStatus({ ...s.status });
       setConnection({ ...s.connection } as Connection);
+      if (s.connection.kind === "live") setLastRole(s.connection.role);
+      if (s.connection.kind === "closed") setLastRole(undefined);
       setMyPeer(s.myPeer);
       if (s.canUndo !== undoable().undo || s.canRedo !== undoable().redo) setUndoable({ undo: s.canUndo, redo: s.canRedo });
       if (s.problems.length !== problems().length) setProblems([...s.problems]);
@@ -97,13 +100,9 @@ export function createBoardState(board: string, token: string) {
 
   // The role a link had when it last connected. It holds while offline, so editing offline
   // works (the edits wait on this device); a link the server refused for good has none.
-  let lastRole: LinkRole | undefined;
-  const role = () => {
-    const c = connection();
-    if (c.kind === "live") lastRole = c.role;
-    if (c.kind === "closed") lastRole = undefined;
-    return lastRole;
-  };
+  // (A signal set from the session's change callback, not a side effect of reading: an earlier
+  // version updated a plain variable inside this getter, which depended on who read it when.)
+  const role = () => lastRole();
 
   return {
     board,

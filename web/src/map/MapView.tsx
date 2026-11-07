@@ -6,6 +6,7 @@ import { For, type JSX, Show, createEffect, createMemo, createSignal, onCleanup,
 import { cx } from "../ui/cx";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import { type Marker, HUD_MAP_PX, isFriendly, laneStroke, washFor } from "./model";
+import { defaultSplit, pathOf, splitAt } from "./lanes";
 import { type Art, artCss } from "./pack";
 import type { Viewpoint } from "./transform";
 
@@ -73,20 +74,25 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
   );
 }
 
-function Lanes(p: { art: Art; vp: Viewpoint }) {
-  // Split at the map's centre line (world y = 0): Amber's half below, Sapphire's above.
-  const halves = [
-    { half: "amber" as const, vb: "0 500 1000 500", y: 500 },
-    { half: "sapphire" as const, vb: "0 0 1000 500", y: 0 },
-  ];
+/** Gap at the split, in map units of arc length: the contested zone between the waves. */
+export const LANE_GAP = 12;
+
+function Lanes(p: { art: Art; vp: Viewpoint; waveT: ((lane: string) => number | undefined) | undefined; raised: string | undefined }) {
+  // Each lane is drawn in two colours split where its waves meet (`Wave.t`; by default where it
+  // crosses the centre line): Amber's part from its end, Sapphire's from theirs.
   return (
     <svg class="lanes" viewBox="0 0 1000 1000" aria-hidden="true">
-      <For each={halves}>
-        {(h) => (
-          <svg x="0" y={h.y} width="1000" height="500" viewBox={h.vb}>
-            <For each={p.art.model.lanes}>{(l) => <path d={l.d} stroke={laneStroke(l.lane, h.half, p.vp)} data-lane={l.lane} />}</For>
-          </svg>
-        )}
+      <For each={p.art.model.lanes}>
+        {(l) => {
+          const t = () => p.waveT?.(l.key) ?? defaultSplit(l.line);
+          const halves = () => splitAt(l.line, t(), LANE_GAP);
+          return (
+            <g data-lane={l.lane} data-key={l.key} data-t={t()} class={cx(p.raised === l.key && "raised")}>
+              <path d={pathOf(halves().amber)} stroke={laneStroke(l.lane, "amber", p.vp)} data-half="amber" />
+              <path d={pathOf(halves().sapphire)} stroke={laneStroke(l.lane, "sapphire", p.vp)} data-half="sapphire" />
+            </g>
+          );
+        }}
       </For>
     </svg>
   );
@@ -125,6 +131,10 @@ export function MapView(p: {
   status?: (key: string) => ObjectiveStatus | undefined;
   /** Editors still see hidden objectives, as ghosts, so they can bring them back. */
   showHidden?: boolean;
+  /** Lane equilibrium: the split `t` for a lane key, if the scene has one. */
+  waveT?: (lane: string) => number | undefined;
+  /** The lane being dragged: the map hides it while the board draws it above everything. */
+  raisedLane?: string | undefined;
 }) {
   useArtCss(() => p.art);
   let host!: HTMLDivElement;
@@ -145,7 +155,7 @@ export function MapView(p: {
   return (
     <div
       ref={host}
-      class={cx("mm-host", `vp-${p.viewpoint}`, p.class, hasArt() && "pack-art", p.lite && "lite", view().w < 1000 && "zoomed", p.live && "live")}
+      class={cx("mm-host", `vp-${p.viewpoint}`, p.class, p.raisedLane && "lane-raised", hasArt() && "pack-art", p.lite && "lite", view().w < 1000 && "zoomed", p.live && "live")}
       data-viewpoint={p.viewpoint}
       data-pack={p.art.packId ?? "none"}
       style={{ "--u": `${u()}px`, "--mk-scale": String(view().w / 1000) }}
@@ -171,10 +181,17 @@ export function MapView(p: {
           <div class="mm-rot">
             <i class="terrain" data-pimg="terrain-mid" />
             <i class="mm-shade" />
-            <Lanes art={p.art} vp={p.viewpoint} />
+            <Lanes art={p.art} vp={p.viewpoint} waveT={p.waveT} raised={p.raisedLane} />
             <div class="mm-objs">
               <For each={markers().filter((m) => p.showHidden || p.status?.(m.key) !== "Hidden")}>
-                {(m) => <MarkerView m={m} vp={p.viewpoint} status={p.status?.(m.key)} />}
+                {(m) => (
+                  <MarkerView
+                    m={m}
+                    vp={p.viewpoint}
+                    // A rift is off unless someone turned it on; everything else is up unless destroyed.
+                    status={m.kind === "koth" ? (p.status?.(m.key) === "Active" ? "Active" : "Destroyed") : p.status?.(m.key)}
+                  />
+                )}
               </For>
             </div>
           </div>

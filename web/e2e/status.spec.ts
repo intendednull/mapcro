@@ -24,12 +24,19 @@ test("an outage: offline with changes kept, a closed tab keeps them, and they sy
   await server.kill();
   await expect(status).toHaveText("Offline: reconnecting");
   const before = await tokenAt(a, "Amber-0");
+  const tb = (await a.locator('.mapbox .tok[data-slot="Amber-0"]').boundingBox())!;
+  const under = await a.evaluate(([x, y]) => {
+    const e = document.elementFromPoint(x!, y!);
+    return `${e?.tagName}.${(e?.getAttribute("class") ?? "").slice(0, 40)} in ${e?.closest("[data-slot], .toast, .scrim, .toolbar")?.outerHTML.slice(0, 80)}`;
+  }, [tb.x + tb.width / 2, tb.y + tb.height / 2]);
   await dragToken(a, "Amber-0", 0.4, 0.6);
   // Seen once in ~6 full runs: the count stayed at 0. If it recurs, this says whether the drag
   // itself landed (the token moved) and what the connection was doing.
   const after = await tokenAt(a, "Amber-0");
   const conn = await status.getAttribute("data-connection");
-  await expect(status, `drag moved ${JSON.stringify(before)} -> ${JSON.stringify(after)}; connection ${conn}`).toHaveText(
+  const canEdit = await status.getAttribute("data-can-edit");
+  const tool = await a.locator(".mapbox .mm-overlay.map").getAttribute("data-tool");
+  await expect(status, `drag moved ${JSON.stringify(before)} -> ${JSON.stringify(after)}; connection ${conn}; can edit ${canEdit}; tool ${tool}; under the press: ${under}`).toHaveText(
     "Offline: 1 change kept on this device",
   );
   await dragToken(a, "Amber-1", 0.6, 0.6);

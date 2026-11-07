@@ -2,6 +2,7 @@
 // markers with their size, layer and tint, and lane lines. Pure, no DOM. The numbers come from
 // design/parity/README.md, "Renderer spec".
 
+import { type LaneLine, laneLine, samplePath } from "./lanes";
 import { type Pt, type Transform, type Viewpoint, DEFAULT_TRANSFORM, worldToMap } from "./transform";
 
 /** One entity as the extractor writes it into `pack.json` (schema 2). */
@@ -47,7 +48,11 @@ export interface Marker {
 
 export interface LanePath {
   lane: LaneColor;
+  /** The lane's key on the board (`Wave.lane`): `lane1`, `lane4` or `lane6`. */
+  key: string;
   d: string;
+  /** The path measured from its Amber end, for the lane equilibrium split. */
+  line: LaneLine;
 }
 
 export interface MapModel {
@@ -61,6 +66,7 @@ export const HUD_PX = 1000 / HUD_MAP_PX;
 
 const LANE_BY_ID: Record<string, LaneColor> = { lane1: "yellow", lane4: "blue", lane6: "purple" };
 const LANE_NAME: Record<LaneColor, string> = { yellow: "west", blue: "mid", purple: "east" };
+const LANE_KEY: Record<LaneColor, string> = { yellow: "lane1", blue: "lane4", purple: "lane6" };
 
 export const ENEMY = "#DC4C2F";
 export const OFFWHITE = "#FFEFD7";
@@ -168,7 +174,8 @@ export function lanesFrom(entities: PackEntity[], t: Transform = DEFAULT_TRANSFO
     if (e.kind !== "zipline" || !e.nodes || e.nodes.length < 2) continue;
     const lane = LANE_BY_ID[e.lane];
     if (!lane || !/Lane[146]$/.test(e.src?.targetname ?? "")) continue;
-    out.push({ lane, d: lanePathThrough(e.nodes.map(([x = 0, y = 0]) => worldToMap({ x, y }, t))) });
+    const d = lanePathThrough(e.nodes.map(([x = 0, y = 0]) => worldToMap({ x, y }, t)));
+    out.push({ lane, key: e.lane, d, line: laneLine(samplePath(d)) });
   }
   return out;
 }
@@ -182,7 +189,7 @@ export function modelFromFallback(f: FallbackData): MapModel {
     markers: markersFrom(f.entities),
     lanes: f.lanes.flatMap((l) => {
       const lane = (["yellow", "blue", "purple"] as const).find((c) => c === l.lane);
-      return lane ? [{ lane, d: l.d }] : [];
+      return lane ? [{ lane, key: LANE_KEY[lane], d: l.d, line: laneLine(samplePath(l.d)) }] : [];
     }),
   };
 }

@@ -44,11 +44,17 @@ export function NameTag(p: { at: Pt; name: string; color: number; what?: string 
 }
 
 interface Drag {
+  /** The token under the pointer. */
   player: RecordId;
   pointer: number;
-  pos: WorldPos;
+  /** Everyone moving: the grabbed token and the rest of the selection, with where they started. */
+  group: Array<{ id: RecordId; from: WorldPos }>;
+  start: WorldPos;
+  delta: { x: number; y: number };
   moved: boolean;
 }
+
+const EYE = "M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z";
 
 export function Tokens(p: {
   state: BoardState;
@@ -59,18 +65,35 @@ export function Tokens(p: {
   /** Marker scale for zoom: tokens keep their on-screen size. */
   k: number;
   svg: () => SVGSVGElement | undefined;
+  selection: () => Set<RecordId>;
+  setSelection: (s: Set<RecordId>) => void;
 }) {
   const [drag, setDrag] = createSignal<Drag | undefined>();
   const slots = createMemo(() => new Map(p.state.roster().map((s) => [s.id, s.slot])));
   const players = createMemo(() => p.state.playersIn(p.scene).filter((pl) => slots().has(pl.state.slot)));
+  const posOf = (id: RecordId) => {
+    const e = p.state.records[id];
+    return e && "PlayerState" in e.record ? e.record.PlayerState.pos : undefined;
+  };
+  const moved = (from: WorldPos, d: { x: number; y: number }) => clampToMap({ x: from.x + d.x, y: from.y + d.y });
 
-  /** Others' drags and focus, by the record they touch. Viewers' drags never arrive. */
+  /** Others' drags (and the groups moving with them) and focus, by the record they touch. */
   const touching = createMemo(() => {
-    const m = new Map<RecordId, PeerPresence[]>();
+    const m = new Map<RecordId, { peer: PeerPresence; at: WorldPos | undefined }[]>();
+    const add = (id: RecordId, peer: PeerPresence, at: WorldPos | undefined) => m.set(id, [...(m.get(id) ?? []), { peer, at }]);
     for (const peer of p.state.peerList()) {
       const s = peer.state!;
-      const id = s.drag?.id ?? s.focus;
-      if (id) m.set(id, [...(m.get(id) ?? []), peer]);
+      if (s.drag) {
+        add(s.drag.id, peer, s.drag.pos);
+        const from = posOf(s.drag.id);
+        if (from) {
+          const d = { x: s.drag.pos.x - from.x, y: s.drag.pos.y - from.y };
+          for (const id of s.drag_group ?? []) {
+            const q = posOf(id);
+            if (q) add(id, peer, moved(q, d));
+          }
+        }
+      } else if (s.focus) add(s.focus, peer, undefined);
     }
     return m;
   });
@@ -83,15 +106,33 @@ export function Tokens(p: {
     if (!svg) return;
     e.preventDefault();
     e.stopPropagation();
+    const sel = p.selection();
+    if (e.shiftKey) {
+      // Shift-click adds a hero to the selection, or takes it out.
+      const next = new Set(sel);
+      if (next.has(pl.id)) next.delete(pl.id);
+      else next.add(pl.id);
+      p.setSelection(next);
+      return;
+    }
+    const ids = sel.has(pl.id) ? [...sel] : [pl.id];
+    if (!sel.has(pl.id) && sel.size) p.setSelection(new Set());
+    const group = ids.flatMap((id) => {
+      const from = posOf(id);
+      return from ? [{ id, from }] : [];
+    });
     svg.setPointerCapture(e.pointerId);
-    setDrag({ player: pl.id, pointer: e.pointerId, pos: pl.state.pos, moved: false });
+    const start = clampToMap(viewToWorld(svgPoint(svg, e), p.vp));
+    setDrag({ player: pl.id, pointer: e.pointerId, group, start, delta: { x: 0, y: 0 }, moved: false });
     p.state.presence({ focus: pl.id });
     const move = (ev: PointerEvent) => {
       const d = drag();
       if (!d || ev.pointerId !== d.pointer) return;
-      const pos = clampToMap(viewToWorld(svgPoint(svg, ev), p.vp));
-      setDrag({ ...d, pos, moved: true });
-      p.state.presence({ drag: { id: d.player, pos }, cursor: pos });
+      const at = clampToMap(viewToWorld(svgPoint(svg, ev), p.vp));
+      const delta = { x: at.x - d.start.x, y: at.y - d.start.y };
+      setDrag({ ...d, delta, moved: true });
+      const me = d.group.find((g) => g.id === d.player)!;
+      p.state.presence({ drag: { id: d.player, pos: moved(me.from, delta) }, drag_group: d.group.filter((g) => g.id !== d.player).map((g) => g.id), cursor: at });
     };
     const up = (ev: PointerEvent) => {
       const d = drag();
@@ -99,13 +140,22 @@ export function Tokens(p: {
       svg.removeEventListener("pointermove", move);
       svg.removeEventListener("pointerup", up);
       svg.removeEventListener("pointercancel", up);
-      if (ev.type === "pointerup" && d.moved) p.state.edit([{ Set: { id: d.player, value: { PlayerPos: d.pos } } }]);
+      // The whole group lands as one transaction: one undo step.
+      if (ev.type === "pointerup" && d.moved)
+        p.state.edit(d.group.map((g) => ({ Set: { id: g.id, value: { PlayerPos: moved(g.from, d.delta) } } })));
       setDrag(undefined);
-      p.state.presence({ drag: null, focus: null });
+      p.state.presence({ drag: null, drag_group: [], focus: null });
     };
     svg.addEventListener("pointermove", move);
     svg.addEventListener("pointerup", up);
     svg.addEventListener("pointercancel", up);
+  };
+
+  const toggleVision = (pl: Player, e: PointerEvent) => {
+    if (!p.state.canEdit() || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    p.state.edit([{ Set: { id: pl.id, value: { PlayerVisible: !pl.state.visible } } }]);
   };
 
   return (
@@ -115,10 +165,16 @@ export function Tokens(p: {
           const slot = () => slots().get(pl.state.slot)!;
           const hero = () => (slot().hero != null ? p.art.heroes.get(slot().hero!) : undefined);
           const team = () => (slot().team === "Amber" ? "amber" : "sapphire");
-          const mine = () => (drag()?.player === pl.id ? drag() : undefined);
-          const others = () => touching().get(pl.id) ?? [];
-          const remoteDrag = () => others().find((o) => o.state?.drag?.id === pl.id);
-          const shown = () => mine()?.pos ?? remoteDrag()?.state?.drag?.pos ?? pl.state.pos;
+          const mine = () => {
+            const d = drag();
+            const g = d?.group.find((x) => x.id === pl.id);
+            return d && g ? moved(g.from, d.delta) : undefined;
+          };
+          const others = () => (touching().get(pl.id) ?? []).map((t) => t.peer);
+          const remote = () => (touching().get(pl.id) ?? []).find((t) => t.at);
+          const remoteDrag = () => remote()?.peer;
+          const shown = () => mine() ?? remote()?.at ?? pl.state.pos;
+          const selected = () => p.selection().has(pl.id);
           const at = () => worldToView(shown(), p.vp);
           const home = () => worldToView(pl.state.pos, p.vp);
           const r = () => TOKEN_R * p.k;
@@ -134,12 +190,16 @@ export function Tokens(p: {
                 )}
               </Show>
               <g
-                class={cx("tok", team(), !pl.state.alive && "dead", (!!remoteDrag() || !!mine()) && "preview", !!mine() && "dragging")}
+                class={cx("tok", team(), !pl.state.alive && "dead", !pl.state.visible && "ghost", selected() && "selected", (!!remoteDrag() || !!mine()) && "preview", !!mine() && "dragging")}
                 transform={`translate(${at().x} ${at().y})`}
                 data-slot={`${slot().team}-${slot().slot}`}
                 data-player={pl.id}
+                data-visible={String(pl.state.visible)}
                 onPointerDown={(e) => down(pl, e)}
               >
+                <Show when={selected()}>
+                  <circle class="sel" r={r() + 5 * p.k} />
+                </Show>
                 <title>{label()}</title>
                 <circle
                   class="body"
@@ -169,6 +229,22 @@ export function Tokens(p: {
                     />
                   )}
                 </Show>
+                <g
+                  class={cx("vis", !pl.state.visible && "off", p.state.canEdit() && "editable")}
+                  data-testid="vision"
+                  transform={`translate(${r() * 0.78} ${-r() * 0.78}) scale(${p.k})`}
+                  onPointerDown={(e) => toggleVision(pl, e)}
+                >
+                  <title>{pl.state.visible ? "In vision. Click to mark as not seen." : "Not seen: last known position. Click to mark as in vision."}</title>
+                  <circle r="9" />
+                  <path d={EYE} />
+                  <Show when={pl.state.visible}>
+                    <circle class="pupil" r="1.8" />
+                  </Show>
+                  <Show when={!pl.state.visible}>
+                    <path class="slash" d="M-6 6L6 -6" />
+                  </Show>
+                </g>
               </g>
               <For each={others()}>
                 {(o, i) => (
@@ -178,7 +254,7 @@ export function Tokens(p: {
                       at={{ x: at().x, y: at().y - i() * 32 * p.k }}
                       name={o.state!.name}
                       color={o.state!.color}
-                      what={o.state!.drag?.id === pl.id ? "moving" : undefined}
+                      what={o.state!.drag?.id === pl.id || o.state!.drag_group?.includes(pl.id) ? "moving" : undefined}
                       k={p.k}
                     />
                   </>

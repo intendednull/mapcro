@@ -94,7 +94,7 @@ test("souls, totals, clock and ult edited in place and seen by everyone", async 
 test("a viewer sees the bar but can't edit it", async ({ browser }) => {
   const url = await newBoardUrl(server, "topbar-view");
   const owner = await joinNew(browser, url, "Coach");
-  await typeSouls(owner, "Sapphire-0", "950");
+  await typeSouls(owner, "Sapphire-0", "9040");
   const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(url)!;
   const r = await fetch(`${server.url}/api/boards/${board}/links`, {
     method: "POST",
@@ -103,7 +103,7 @@ test("a viewer sees the bar but can't edit it", async ({ browser }) => {
   });
   const { token: view } = (await r.json()) as { token: string };
   const v = await joinNew(browser, `${server.url}/b/${board}#${view}`, "Guest");
-  await expect(souls(v, "Sapphire-0")).toHaveText("950");
+  await expect(souls(v, "Sapphire-0")).toHaveText("9.0k");
   await souls(v, "Sapphire-0").click();
   await expect(v.getByTestId("souls-input")).toHaveCount(0);
   // Untracked rings stay hidden for viewers, as in game.

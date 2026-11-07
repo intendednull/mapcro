@@ -13,8 +13,8 @@ export interface SceneRow {
 }
 
 /**
- * A new scene right after `after`, starting from its positions and objectives (the next frame
- * of a play usually starts where the last one ended). Ink, arrows and callouts stay behind.
+ * A new scene right after `after`, starting from its positions, objectives and lane splits (the
+ * next frame of a play usually starts where the last one ended). Ink, arrows and callouts stay.
  */
 export function addSceneOps(state: BoardState, scenes: SceneRow[], after: SceneRow | undefined, mint = newRecordId): { id: RecordId; ops: Op[] } {
   const i = after ? scenes.findIndex((s) => s.id === after.id) : scenes.length - 1;
@@ -29,6 +29,7 @@ export function addSceneOps(state: BoardState, scenes: SceneRow[], after: SceneR
     if (e.deleted) continue;
     const r = e.record;
     if ("PlayerState" in r && r.PlayerState.scene === from) ops.push({ Create: { id: mint(), record: { PlayerState: { ...r.PlayerState, scene: id } } } });
+    if ("Wave" in r && r.Wave.scene === from) ops.push({ Create: { id: mint(), record: { Wave: { ...r.Wave, scene: id } } } });
     if ("ObjectiveState" in r && r.ObjectiveState.scene === from)
       ops.push({ Create: { id: mint(), record: { ObjectiveState: { ...r.ObjectiveState, scene: id } } } });
   }

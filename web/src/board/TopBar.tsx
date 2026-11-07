@@ -115,7 +115,15 @@ function UltRing(p: { state: BoardState; player: Player; editable: boolean; labe
   );
 }
 
-export function TopBar(p: { state: BoardState; art: Art; vp: Viewpoint; scene: RecordId | undefined; compact?: boolean }) {
+export function TopBar(p: {
+  state: BoardState;
+  art: Art;
+  vp: Viewpoint;
+  scene: RecordId | undefined;
+  compact?: boolean;
+  /** A click on a portrait: pick that slot's hero. */
+  onPickHero?: (slot: RecordId) => void;
+}) {
   let host!: HTMLDivElement;
   const [unit, setUnit] = createSignal(1);
   onMount(() => {
@@ -145,14 +153,16 @@ export function TopBar(p: { state: BoardState; art: Art; vp: Viewpoint; scene: R
         {({ slot, player }) => {
           const hero = () => (slot.slot.hero != null ? p.art.heroes.get(slot.slot.hero) : undefined);
           const label = () => slot.slot.name || `${t} ${slot.slot.slot + 1}`;
+          let openSouls: (() => void) | undefined;
           return (
             <div
-              class={cx("tb-player", t.toLowerCase(), side, !player.state.alive && "dead")}
+              class={cx("tb-player", t.toLowerCase(), side, !player.state.alive && "dead", !player.state.visible && "unseen")}
               data-slot={`${t}-${slot.slot.slot}`}
               title={`${label()}${hero() ? `, ${hero()!.name}` : ""}`}
             >
-              <div class="tb-souls">
+              <div class="tb-souls" data-testid="souls-banner" onClick={() => openSouls?.()}>
                 <InlineEdit
+                  bindOpen={(o) => (openSouls = o)}
                   class="tb-souls-value"
                   label={`${label()} souls`}
                   testid="souls"
@@ -175,6 +185,32 @@ export function TopBar(p: { state: BoardState; art: Art; vp: Viewpoint; scene: R
                   {(src) => <i class="tb-img hero-vertical" style={{ "background-image": `url(${JSON.stringify(src())})` }} />}
                 </Show>
               </div>
+              <Show when={editable()}>
+                <button
+                  class="tb-pick"
+                  data-testid="pick-hero"
+                  title={`Pick ${label()}'s hero`}
+                  aria-label={`Pick ${label()}'s hero`}
+                  onClick={() => p.onPickHero?.(slot.id)}
+                />
+              </Show>
+              <button
+                class={cx("tb-vis", !player.state.visible && "off")}
+                data-testid="tb-vision"
+                disabled={!editable()}
+                hidden={!editable() && player.state.visible}
+                title={player.state.visible ? "In vision. Click to mark as not seen." : "Not seen. Click to mark as in vision."}
+                aria-label={player.state.visible ? `${label()}: in vision` : `${label()}: not seen`}
+                aria-pressed={!player.state.visible}
+                onClick={() => p.state.edit([{ Set: { id: player.id, value: { PlayerVisible: !player.state.visible } } }])}
+              >
+                <svg viewBox="-8 -8 16 16" aria-hidden="true">
+                  <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z" />
+                  <Show when={!player.state.visible} fallback={<circle r="1.8" />}>
+                    <path d="M-6 6L6 -6" />
+                  </Show>
+                </svg>
+              </button>
               <UltRing state={p.state} player={player} editable={editable()} label={label()} />
             </div>
           );

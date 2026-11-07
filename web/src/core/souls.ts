@@ -9,13 +9,17 @@ export function formatSouls(n: number | null | undefined): { value: string; k: b
   return { value: String(Math.floor(n / 1000)), k: true };
 }
 
-/** What people type: "9040", "9k", "9.0k", "12,500". `null` clears; `undefined` refuses. */
+/**
+ * What people type: "9040", "9k", "9.0k", "12,500". A bare number under 1000 means thousands,
+ * as people say it: "8" is 8k, "20" is 20k, "7.5" is 7.5k. `null` clears; `undefined` refuses.
+ */
 export function parseSouls(text: string): number | null | undefined {
   const t = text.trim().toLowerCase().replace(/[,_\s]/g, "");
   if (t === "" || t === "–" || t === "-") return null;
   const m = /^(\d+(?:\.\d+)?)(k?)$/.exec(t);
   if (!m) return undefined;
-  const v = Math.round(Number(m[1]) * (m[2] ? 1000 : 1));
+  const n = Number(m[1]);
+  const v = Math.round(n * (m[2] || n < 1000 ? 1000 : 1));
   return Number.isSafeInteger(v) && v <= 999_999 ? v : undefined;
 }
 

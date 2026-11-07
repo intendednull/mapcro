@@ -21,6 +21,10 @@ import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type ViewRect, clampView, fromViewport, presenters, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
 import { Layers, calloutOrder } from "./Layers";
+import { FRESH_BOARD, randomRosterOps } from "./roster";
+import { HeroPicker } from "./HeroPicker";
+import { defaultSplit, project } from "../map/lanes";
+import { worldToMap } from "../map/transform";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { ShareDialog } from "./ShareDialog";
 import { rejection, statusView } from "./status";
@@ -45,7 +49,7 @@ function SaveStatus(p: { state: ReturnType<typeof createBoardState>; rejected: R
   const [why, setWhy] = createSignal(false);
   const v = () => statusView(p.state.status(), p.state.connection(), slow(), p.rejected);
   return (
-    <span class={cx("save", v().kind === "connecting" ? "syncing" : v().kind === "closed" ? "rejected" : v().kind)} data-testid="save-status" data-state={v().kind} data-connection={p.state.connection().kind} role="status">
+    <span class={cx("save", v().kind === "connecting" ? "syncing" : v().kind === "closed" ? "rejected" : v().kind)} data-testid="save-status" data-state={v().kind} data-connection={p.state.connection().kind} data-can-edit={String(p.state.canEdit())} role="status">
       <Show when={v().kind === "saved"}>
         <svg class="ico glyph" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M5 12.5l4.5 4.5L19 7.5" />
@@ -230,6 +234,74 @@ export function Board(p: { board: string; token: string; art: Art }) {
       if ("ObjectiveState" in r) m.set(r.ObjectiveState.key, { id, status: r.ObjectiveState.status });
     return m;
   });
+  // ---- Move: selected heroes, Space to pan, lane splits ----
+  const [selection, setSelection] = createSignal<Set<RecordId>>(new Set());
+  const [spaceHeld, setSpaceHeld] = createSignal(false);
+  createEffect(() => {
+    scene();
+    setSelection(new Set<RecordId>());
+  });
+  onMount(() => {
+    const typing = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      return !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+    };
+    const kd = (e: KeyboardEvent) => {
+      if (typing(e)) return;
+      if (e.key === "Escape") setSelection(new Set<RecordId>());
+      if (e.code === "Space") {
+        e.preventDefault();
+        setSpaceHeld(true);
+      }
+    };
+    const ku = (e: KeyboardEvent) => e.code === "Space" && setSpaceHeld(false);
+    const blur = () => setSpaceHeld(false);
+    window.addEventListener("keydown", kd);
+    window.addEventListener("keyup", ku);
+    window.addEventListener("blur", blur);
+    onCleanup(() => {
+      window.removeEventListener("keydown", kd);
+      window.removeEventListener("keyup", ku);
+      window.removeEventListener("blur", blur);
+    });
+  });
+  const waves = createMemo(() => {
+    const m = new Map<string, { id: RecordId; t: number }>();
+    for (const [id, r] of state.inScene("Wave", scene()?.id)) if ("Wave" in r) m.set(r.Wave.lane, { id, t: r.Wave.t });
+    return m;
+  });
+  const [waveDrag, setWaveDrag] = createSignal<{ key: string; t: number; id: RecordId }>();
+  /** Others' live split drags, by lane: a known wave's id, or a new one matched by position. */
+  const remoteWaves = createMemo(() => {
+    const m = new Map<string, number>();
+    const byId = new Map([...waves()].map(([k, w]) => [w.id, k]));
+    for (const x of state.peerList()) {
+      const d = x.state?.drag;
+      if (!d || x.state?.scene !== scene()?.id) continue;
+      const at = worldToMap(d.pos);
+      for (const l of p.art.model.lanes) {
+        const q = project(l.line, at);
+        if (byId.get(d.id) === l.key || (!state.records[d.id] && q.dist < 4)) m.set(l.key, q.t);
+      }
+    }
+    return m;
+  });
+  const splitOf = (key: string) => {
+    const mine = waveDrag();
+    if (mine?.key === key) return mine.t;
+    const lane = p.art.model.lanes.find((l) => l.key === key);
+    return remoteWaves().get(key) ?? waves().get(key)?.t ?? (lane ? defaultSplit(lane.line) : 500);
+  };
+
+  // ---- a board this device just made gets twelve random heroes, once ----
+  const [heroPick, setHeroPick] = createSignal<RecordId>();
+  createEffect(() => {
+    if (sessionStorage.getItem(FRESH_BOARD) !== p.board || state.role() !== "owner" || state.roster().length !== 12) return;
+    sessionStorage.removeItem(FRESH_BOARD);
+    const ops = randomRosterOps(state.roster(), [...p.art.heroes.values()]);
+    if (ops.length) state.edit(ops);
+  });
+
   const heroList = createMemo(() => [...p.art.heroes.values()].sort((a, b) => a.name.localeCompare(b.name)));
   const sceneIndex = () => state.scenes().findIndex((s) => s.id === scene()?.id);
 
@@ -325,7 +397,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           {scene()?.scene.name}
         </h1>
       </div>
-      <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact />
+      <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact onPickHero={setHeroPick} />
       <div class="p-map-wrap">
         {mapBox(true)}
         <div class="p-tools" role="toolbar" aria-label="Tools">
@@ -383,9 +455,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
               view={view()}
               live={following() !== undefined}
               overlayRef={setOverlay}
-              overlayProps={{ "data-tool": tool() } as never}
+              overlayProps={{ "data-tool": tool(), "data-pan": spaceHeld() ? "on" : undefined, onContextMenu: (e: MouseEvent) => e.preventDefault() } as never}
               overlayClass={!state.canEdit() && "readonly"}
               status={(k) => objectives().get(k)?.status}
+              waveT={splitOf}
+              raisedLane={waveDrag()?.key}
               showHidden={state.canEdit()}
             >
               <Layers
@@ -399,6 +473,14 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 svg={overlay}
                 objectives={objectives}
                 k={(view().w / 1000) * (phone ? 1.4 : 1)}
+                selection={selection}
+                setSelection={setSelection}
+                spaceHeld={spaceHeld}
+                showHidden={state.canEdit()}
+                waves={waves}
+                waveDrag={waveDrag}
+                setWaveDrag={setWaveDrag}
+                splitOf={splitOf}
                 compactCallouts={phone}
                 onPan={(dx, dy) => userView({ ...view(), x: view().x - dx, y: view().y - dy }, "panned the map")}
                 onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
@@ -532,7 +614,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               </span>
             </Show>
           </div>
-          <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} />
+          <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} />
           {mapBox(false)}
           <Toolbar
             tool={tool()}
@@ -652,6 +734,18 @@ export function Board(p: { board: string; token: string; art: Art }) {
         role={state.role() === "owner" ? "owner" : "edit"}
         onClose={() => setDialog(undefined)}
         onClone={() => setDialog("clone")}
+      />
+    </Show>
+    <Show when={heroPick() && state.canEdit()}>
+      <HeroPicker
+        heroes={heroList().filter((h) => h.playable)}
+        slot={state.roster().find((x) => x.id === heroPick())}
+        onPick={(hero) => {
+          const id = heroPick();
+          setHeroPick(undefined);
+          if (id) state.edit([{ Set: { id, value: { RosterHero: hero } } }]);
+        }}
+        onClose={() => setHeroPick(undefined)}
       />
     </Show>
     <Show when={dialog() === "clone"}>

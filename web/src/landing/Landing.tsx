@@ -4,6 +4,7 @@ import { For, Show, createSignal } from "solid-js";
 import { Api, shareUrl } from "../core/api";
 import { knownBoards, rememberBoard } from "../core/device";
 import { Wordmark } from "../ui/Wordmark";
+import { FRESH_BOARD } from "../board/roster";
 
 export function Landing() {
   const [title, setTitle] = createSignal("");
@@ -18,6 +19,7 @@ export function Landing() {
       const t = title().trim() || "Untitled board";
       const { board, owner_token } = await new Api("").createBoard(t);
       rememberBoard({ board, token: owner_token, title: t });
+      sessionStorage.setItem(FRESH_BOARD, board); // its first load rolls twelve random heroes
       location.assign(shareUrl(location.origin, board, owner_token));
     } catch (err) {
       setError(`Couldn't create the board: ${String(err)}`);
