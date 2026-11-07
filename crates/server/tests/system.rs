@@ -21,12 +21,17 @@ struct Server {
 
 impl Server {
     fn start(dir: &std::path::Path, port: Option<u16>) -> Server {
+        Server::start_with(dir, port, &[])
+    }
+
+    fn start_with(dir: &std::path::Path, port: Option<u16>, env: &[(&str, &str)]) -> Server {
         let port = port.unwrap_or_else(|| TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).unwrap_or(0));
         let child = Command::new(env!("CARGO_BIN_EXE_mapcro-server"))
             .env("PORT", port.to_string())
             .env("DATA_DIR", dir)
             .env("PUBLIC_ORIGIN", ORIGIN)
             .env("RUST_LOG", "warn")
+            .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()
@@ -357,4 +362,39 @@ async fn bad_credentials_and_hostile_frames_are_refused() {
         other => panic!("expected Fatal, got {other:?}"),
     }
     assert_eq!(recv(ws).await, Some(WireOut::Closed { reason: CloseReason::Protocol }));
+}
+
+fn open_rooms(server: &Server) -> usize {
+    let body = ureq::get(&server.url("/healthz")).call().expect("healthz").body_mut().read_to_string().expect("body");
+    body.trim().strip_prefix("ok rooms=").and_then(|n| n.parse().ok()).expect("rooms count")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn idle_rooms_unload_and_reload_intact() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start_with(dir.path(), None, &[("ROOM_IDLE_SECS", "1")]);
+    let (board, owner) = server.create_board();
+    let mut a = Client::new(0x11);
+    a.connect(server.port, &board, &owner).await.expect("connect");
+    for i in 0..5 {
+        let ops = move_op(a.replica(), i);
+        a.edit(ops).await;
+    }
+    a.until_saved().await;
+    assert_eq!(open_rooms(&server), 1);
+    a.ws = None; // close the socket: the room is now empty
+    a.replica_mut().disconnect();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while open_rooms(&server) != 0 {
+        assert!(Instant::now() < deadline, "room never unloaded");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    // Reload from storage on the next join, with nothing lost.
+    let mut b = Client::new(0x12);
+    b.connect(server.port, &board, &owner).await.expect("connect after unload");
+    while b.replica().last_seq() < 5 {
+        b.pump_one().await.expect("catch-up");
+    }
+    assert_eq!(b.replica().confirmed(), a.replica().confirmed());
+    assert_eq!(open_rooms(&server), 1);
 }

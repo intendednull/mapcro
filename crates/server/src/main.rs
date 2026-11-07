@@ -48,7 +48,7 @@ async fn main() {
         }
     };
     let state = AppState {
-        rooms: room::Rooms::new(store.clone()),
+        rooms: room::Rooms::new(store.clone(), config.room_idle),
         store,
         limiter: Arc::new(api::CreateLimiter::default()),
         config: Arc::new(config.clone()),

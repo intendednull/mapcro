@@ -162,6 +162,7 @@ impl Store {
             let mut stmt = c.prepare("SELECT seq, tx FROM ops WHERE board = ?1 ORDER BY seq")?;
             let mut log = Vec::new();
             let mut expected = base_seq + 1;
+            #[allow(clippy::explicit_counter_loop)] // the counter is checked against the row, not used as an index
             for row in stmt.query_map([&id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))? {
                 let (seq, tx) = row?;
                 if seq != expected {

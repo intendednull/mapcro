@@ -12,6 +12,8 @@ use tokio::sync::{mpsc, oneshot};
 /// Outbound frames per connection. A client this far behind is dropped rather than letting it
 /// stall the room.
 const OUTBOX_DEPTH: usize = 4096;
+/// A room with nobody in it unloads after this long (spec §9, room lifecycle).
+pub const IDLE_UNLOAD: std::time::Duration = std::time::Duration::from_secs(300);
 
 pub enum RoomCmd {
     Join {
@@ -37,11 +39,13 @@ struct Room {
     base: Base,
     peers: HashMap<ConnId, Peer>,
     next_conn: u64,
+    idle: std::time::Duration,
 }
 
 #[derive(Clone)]
 pub struct Rooms {
     store: Store,
+    idle: std::time::Duration,
     open: Arc<Mutex<HashMap<String, mpsc::Sender<RoomCmd>>>>,
 }
 
@@ -53,11 +57,13 @@ pub enum RoomError {
     Store(#[from] StoreError),
     #[error("stored log does not replay: {0}")]
     Replay(mapcro_schema::Reject),
+    #[error("room unavailable")]
+    Unavailable,
 }
 
 impl Rooms {
-    pub fn new(store: Store) -> Rooms {
-        Rooms { store, open: Arc::new(Mutex::new(HashMap::new())) }
+    pub fn new(store: Store, idle: std::time::Duration) -> Rooms {
+        Rooms { store, idle, open: Arc::new(Mutex::new(HashMap::new())) }
     }
 
     /// The room for `board`, loading it from storage on first use.
@@ -86,8 +92,16 @@ impl Rooms {
             base: Base { doc: stored.base, seq: stored.base_seq },
             peers: HashMap::new(),
             next_conn: 0,
+            idle: self.idle,
         };
-        tokio::spawn(room.run(rx));
+        let registry = self.clone();
+        let sender = tx.clone();
+        let id = board.to_owned();
+        tokio::spawn(async move {
+            room.run(rx).await;
+            registry.forget(&id, &sender);
+            tracing::info!(board = id, "room closed");
+        });
         open.insert(board.to_owned(), tx.clone());
         tracing::info!(board, "room opened");
         Ok(tx)
@@ -99,6 +113,35 @@ impl Rooms {
         open.get(board).filter(|t| !t.is_closed()).cloned()
     }
 
+    /// Join a board's room. Retries if the room unloaded between lookup and join.
+    pub async fn join(
+        &self,
+        board: &str,
+        link_hash: String,
+        role: Role,
+        want_base: bool,
+    ) -> Result<(mpsc::Sender<RoomCmd>, (ConnId, mpsc::Receiver<WireOut>, Option<Base>)), RoomError> {
+        for _ in 0..3 {
+            let room = self.get(board).await?;
+            let (reply, joined) = oneshot::channel();
+            let cmd = RoomCmd::Join { link_hash: link_hash.clone(), role, want_base, reply };
+            if room.send(cmd).await.is_ok()
+                && let Ok(j) = joined.await
+            {
+                return Ok((room, j));
+            }
+            self.forget(board, &room);
+        }
+        Err(RoomError::Unavailable)
+    }
+
+    fn forget(&self, board: &str, room: &mpsc::Sender<RoomCmd>) {
+        let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+        if open.get(board).is_some_and(|t| t.same_channel(room)) {
+            open.remove(board);
+        }
+    }
+
     pub fn open_count(&self) -> usize {
         self.open.lock().map(|o| o.values().filter(|t| !t.is_closed()).count()).unwrap_or(0)
     }
@@ -106,7 +149,20 @@ impl Rooms {
 
 impl Room {
     async fn run(mut self, mut rx: mpsc::Receiver<RoomCmd>) {
-        while let Some(cmd) = rx.recv().await {
+        loop {
+            let cmd = if self.peers.is_empty() {
+                match tokio::time::timeout(self.idle, rx.recv()).await {
+                    Ok(Some(cmd)) => cmd,
+                    // Idle long enough, or every sender is gone: unload. Every acknowledged
+                    // edit is already on disk, so there is nothing to flush.
+                    Ok(None) | Err(_) => return,
+                }
+            } else {
+                match rx.recv().await {
+                    Some(cmd) => cmd,
+                    None => return,
+                }
+            };
             let result = match cmd {
                 RoomCmd::Join { link_hash, role, want_base, reply } => {
                     self.join(link_hash, role, want_base, reply);

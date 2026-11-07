@@ -13,6 +13,8 @@ pub struct Config {
     pub web_dir: Option<PathBuf>,
     /// Board creations allowed per client IP per hour.
     pub create_per_hour: u32,
+    /// How long an empty room stays loaded.
+    pub room_idle: std::time::Duration,
 }
 
 impl Config {
@@ -35,15 +37,19 @@ impl Config {
             }
         }
         let web_dir = var("WEB_DIR").map(PathBuf::from);
-        if let Some(w) = &web_dir {
-            if !w.join("index.html").is_file() {
-                return Err(format!("WEB_DIR {} has no index.html", w.display()));
-            }
+        if let Some(w) = &web_dir
+            && !w.join("index.html").is_file()
+        {
+            return Err(format!("WEB_DIR {} has no index.html", w.display()));
         }
         let create_per_hour = match var("CREATE_PER_HOUR") {
             Some(v) => v.parse().map_err(|_| "CREATE_PER_HOUR must be a number")?,
             None => 30,
         };
-        Ok(Config { addr: SocketAddr::new(host, port), data_dir, allowed_origins, web_dir, create_per_hour })
+        let room_idle = match var("ROOM_IDLE_SECS") {
+            Some(v) => std::time::Duration::from_secs(v.parse().map_err(|_| "ROOM_IDLE_SECS must be a number")?),
+            None => crate::room::IDLE_UNLOAD,
+        };
+        Ok(Config { addr: SocketAddr::new(host, port), data_dir, allowed_origins, web_dir, create_per_hour, room_idle })
     }
 }

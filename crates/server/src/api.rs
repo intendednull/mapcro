@@ -51,15 +51,14 @@ impl CreateLimiter {
 
 /// The client's address. Behind Caddy (loopback peer) trust its X-Forwarded-For; otherwise the peer.
 fn client_ip(peer: SocketAddr, headers: &HeaderMap) -> IpAddr {
-    if peer.ip().is_loopback() {
-        if let Some(ip) = headers
+    if peer.ip().is_loopback()
+        && let Some(ip) = headers
             .get("x-forwarded-for")
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.split(',').next_back())
             .and_then(|v| v.trim().parse().ok())
-        {
-            return ip;
-        }
+    {
+        return ip;
     }
     peer.ip()
 }
@@ -109,6 +108,7 @@ pub async fn create_board(
 }
 
 /// Checks the `Authorization: Bearer <owner token>` header against this board.
+#[allow(clippy::result_large_err)] // the error *is* the HTTP response
 async fn require_owner(app: &AppState, board: &str, headers: &HeaderMap) -> Result<(), Response> {
     let token = headers
         .get("authorization")
@@ -212,7 +212,7 @@ pub async fn revoke_link(
 
 pub async fn healthz(State(app): State<AppState>) -> Response {
     match app.store.ping().await {
-        Ok(()) => (StatusCode::OK, "ok").into_response(),
+        Ok(()) => (StatusCode::OK, format!("ok rooms={}", app.rooms.open_count())).into_response(),
         Err(e) => {
             tracing::error!(error = %e, "health check failed");
             (StatusCode::SERVICE_UNAVAILABLE, "storage unavailable").into_response()

@@ -10,7 +10,6 @@ use axum::response::{IntoResponse, Response};
 use futures_util::{SinkExt, StreamExt};
 use mapcro_engine::wire::{CloseReason, WireIn, WireOut};
 use std::time::Duration;
-use tokio::sync::oneshot;
 use tokio::time::{Instant, interval, timeout};
 
 const MAX_FRAME: usize = 256 * 1024;
@@ -62,26 +61,14 @@ async fn session(app: AppState, mut socket: WebSocket) {
     };
 
     // 2. Join the room.
-    let room = match app.rooms.get(&board).await {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!(board, error = %e, "room failed to open");
-            return send_closed(&mut socket, CloseReason::StorageFailure).await;
-        }
-    };
-    let (reply, joined) = oneshot::channel();
-    let join = crate::room::RoomCmd::Join {
-        link_hash: hash,
-        role: link.role.engine_role(),
-        want_base: known_seq.is_none(),
-        reply,
-    };
-    if room.send(join).await.is_err() {
-        return send_closed(&mut socket, CloseReason::StorageFailure).await;
-    }
-    let Ok((conn, mut outbox, base)) = joined.await else {
-        return send_closed(&mut socket, CloseReason::StorageFailure).await;
-    };
+    let (room, (conn, mut outbox, base)) =
+        match app.rooms.join(&board, hash, link.role.engine_role(), known_seq.is_none()).await {
+            Ok(j) => j,
+            Err(e) => {
+                tracing::error!(board, error = %e, "room failed to open");
+                return send_closed(&mut socket, CloseReason::StorageFailure).await;
+            }
+        };
     if socket.send(frame(&WireOut::Ready { role: link.role, base })).await.is_err() {
         let _ = room.send(crate::room::RoomCmd::Leave { conn }).await;
         return;
