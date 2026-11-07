@@ -328,7 +328,9 @@ async function main() {
     }
   }
   const { base, baseSeq, log } = read;
+  const f0 = Date.now();
   const fresh = await freshClient(server.ws, board, viewToken, head);
+  const freshMs = Date.now() - f0;
   const oracle = replay(base, log);
   checkFinal({ baseSeq, log, oracle, fresh, reports, subs }).forEach(fail);
   if (baseSeq > 0) console.log(`  note: the server's base is at seq ${baseSeq}; entries before it can't be checked`);
@@ -370,6 +372,7 @@ async function main() {
     peakServerRssMb: Math.round(server.peakRssKb / 1024),
     quiesceMs,
     lateJoiner: { joinedAtSeq: lateHeadAtJoin, caughtUpMs: lateCaughtUp ?? null },
+    freshClientMs: freshMs,
     scheduleLagMaxMs: Math.max(...parts.map((p) => p.lagMax)),
     wallMs: Date.now() - t00,
     failures: failures.length,
@@ -382,7 +385,7 @@ async function main() {
       `faults: drops ${stats.drops}, reloads ${stats.reloads}, offline bursts ${stats.offlineBursts}, server restarts ${stats.restarts}; connects ${stats.connects}, closes ${JSON.stringify(closes)}`,
       `presence: ${stats.presenceSent} sent, ${stats.presenceHeard} batches heard`,
       `ack latency p50 ${stats.ackP50Ms} ms, p99 ${stats.ackP99Ms} ms; peak server RSS ${stats.peakServerRssMb} MB; quiesce ${secs(quiesceMs)}`,
-      `late joiner: joined at seq ${lateHeadAtJoin}, caught up in ${lateCaughtUp === undefined ? "?" : secs(lateCaughtUp)}; schedule lag max ${stats.scheduleLagMaxMs} ms; wall ${secs(stats.wallMs)}`,
+      `late joiner: joined at seq ${lateHeadAtJoin}, caught up in ${lateCaughtUp === undefined ? "?" : secs(lateCaughtUp)}; a fresh client loaded all ${head} in ${secs(freshMs)}; schedule lag max ${stats.scheduleLagMaxMs} ms; wall ${secs(stats.wallMs)}`,
     ]
       .map((l) => `  ${l}`)
       .join("\n"),

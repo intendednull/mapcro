@@ -566,9 +566,10 @@ real `BoardSession` over the WASM replica, IndexedDB through `fake-indexeddb`)
   clocks and ults, ink, arrows, callouts, notes, objectives, waves, scene add, reorder and delete,
   undo and redo, cursors, lasers and follows, and contests where several editors write one field
   within milliseconds of each other.
-- **Faults:** socket drops, tab reloads (the session is thrown away and rebuilt from its
-  IndexedDB; saves not yet started die with the tab), offline bursts that keep editing, a late
-  joiner from scratch on a large log, and the server `kill -9`'d and restarted mid-run.
+- **Faults:** socket drops, tab reloads (the session is killed as a crash would kill it, so saves
+  that hadn't landed are lost, and a new one starts from its IndexedDB), offline bursts that keep
+  editing, a late joiner from scratch on a large log, and the server `kill -9`'d and restarted
+  mid-run.
 - **Checked at quiescence,** mirroring the simulation: every replica equals the log replayed and
   a fresh client's board; every transaction a peer saw acked is logged exactly once, at that seq,
   with the same contents; every rejected one is not logged and its peer heard the rejection; every

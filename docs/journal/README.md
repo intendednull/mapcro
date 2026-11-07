@@ -15,3 +15,4 @@ experiment writes its predictions down *before* it runs, so the result can show 
 | 2026-11-06 | [The first security review, and fixing it](2026-11-06-security-review.md) |
 | 2026-11-07 | [The web app, slice by slice](2026-11-07-web-app.md) |
 | 2026-11-07 | [The second security review, and fixing it](2026-11-07-security-fixes.md) |
+| 2026-11-07 | [A many-peer soak on the real stack](2026-11-07-soak.md) |

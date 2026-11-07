@@ -87,18 +87,62 @@ interface Internals {
 }
 const inner = (s: BoardSession) => s as unknown as Internals;
 
-/** The tab's IndexedDB. Killing the tab drops every save not yet started, as closing it would;
- * a save already under way finishes. A dead tab's chain never continues, so it sends nothing. */
+/** The tab's IndexedDB, with crash semantics. A write is durable once its save resolves; when
+ * the tab is killed, saves not yet started never happen and saves still in flight are lost (a
+ * crashed tab's uncommitted transactions are). A dead tab's chain never continues, so it sends
+ * nothing more. */
 class TabPersist implements Persist {
-  dead = false;
-  constructor(readonly idb: IdbPersist) {}
-  load(board: string) {
-    return this.idb.load(board);
+  private dead = false;
+  /** Per key, the value of the last save that resolved (or what was loaded). */
+  private readonly durable = new Map<string, string | undefined>();
+  private readonly inflight = new Map<Promise<void>, string>();
+  constructor(
+    readonly idb: IdbPersist,
+    private readonly trace: (s: string) => void,
+  ) {}
+  async load(key: string) {
+    const s = await this.idb.load(key);
+    if (!this.durable.has(key)) this.durable.set(key, s);
+    this.trace(`load ${s === undefined ? "nothing" : s.length < 64 ? JSON.stringify(s) : summarize(s)}`);
+    return s;
   }
-  save(board: string, state: string): Promise<void> {
-    if (this.dead) return new Promise(() => {});
-    return this.idb.save(board, state);
+  save(key: string, state: string): Promise<void> {
+    if (this.dead) {
+      this.trace(`save dropped (tab gone) ${summarize(state)}`);
+      return new Promise(() => {});
+    }
+    const p = this.idb.save(key, state).then(() => {
+      this.inflight.delete(p);
+      if (this.dead) return new Promise<void>(() => {}); // landed after the crash: rolled back below
+      this.durable.set(key, state);
+      this.trace(`saved ${state.length < 64 ? JSON.stringify(state) : summarize(state)}`);
+    });
+    this.inflight.set(p, key);
+    return p;
   }
+  /** Kill the tab. Resolves once storage holds only what had landed before the kill. */
+  async crash() {
+    this.dead = true;
+    const lost = [...this.inflight];
+    if (!lost.length) return;
+    this.trace(`crash: ${lost.length} save(s) in flight are lost`);
+    await Promise.race([Promise.all(lost.map(([p]) => p)), new Promise((r) => setTimeout(r, 0))]);
+    // The in-flight writes may land after this; queue the rollback behind them (IndexedDB runs
+    // transactions on one store in order), so the next tab loads what was durable.
+    for (const key of new Set(lost.map(([, k]) => k))) await this.idb.save(key, this.durable.get(key) as string);
+  }
+}
+
+/** The parts of a persisted replica state a trace needs, without parsing the whole document. */
+function summarize(state: string): string {
+  const num = (key: string) => {
+    const i = state.lastIndexOf(`"${key}":`);
+    return i < 0 ? "?" : /^\d+/.exec(state.slice(i + key.length + 3))?.[0];
+  };
+  const p = state.lastIndexOf('"pending":');
+  const n = state.lastIndexOf('"next_cseq":');
+  const pending = p >= 0 && n > p ? [...state.slice(p, n).matchAll(/"cseq":(\d+)/g)].map((m) => m[1]) : [];
+  return `last_seq ${num("last_seq")} next_cseq ${num("next_cseq")} pending [${pending.length > 6 ? `${pending.slice(0, 3).join(",")}..${pending.at(-1)} (${pending.length})` : pending.join(",")}]`;
 }
 
 /** No network: the connection attempt fails, as it does with the cable out. */
@@ -179,9 +223,13 @@ export class Peer {
   /** seq → fingerprint of the entry this peer was given there. */
   readonly entries = new Map<number, number>();
   private gestures = 0;
-  /** A Ready since this tab loaded: the UI enables editing only then (board/state.ts), and a
-   * view session restored from storage would take an edit before it (repro/). */
+  /** A Ready since this tab loaded: the UI enables editing only then (board/state.ts). Viewers
+   * try edits only after it, as the UI would; a restored view session that took one before Ready
+   * used to wedge (fixed in 0d7047f; web/test/soak-regressions.test.ts). */
   private readySinceLoad = false;
+  /** The last few hundred things this peer did and saw, printed with its first failure. */
+  private readonly ring: string[] = [];
+  private failed = false;
 
   constructor(
     readonly plan: PeerPlan,
@@ -189,6 +237,17 @@ export class Peer {
     readonly ctx: WorkerCtx,
   ) {
     this.ids = new Rng(plan.seed, 7);
+  }
+
+  trace(line: string) {
+    this.ring.push(`${((Date.now() - this.ctx.t0) / 1000).toFixed(3)} ${line}`);
+    if (this.ring.length > 400) this.ring.shift();
+  }
+
+  private fail(msg: string) {
+    if (this.failed) return this.ctx.fail(msg);
+    this.failed = true;
+    this.ctx.fail(`${msg}\n    peer ${this.plan.index} trace (last 60):\n${this.ring.slice(-60).map((l) => `      ${l}`).join("\n")}`);
   }
 
   get dbName() {
@@ -200,7 +259,8 @@ export class Peer {
   }
 
   async start() {
-    this.persist = new TabPersist(new IdbPersist(indexedDB, this.dbName));
+    this.trace("start (tab opens)");
+    this.persist = new TabPersist(new IdbPersist(indexedDB, this.dbName), (l) => this.trace(l));
     const s = new BoardSession({
       wsUrl: this.ctx.wsUrl,
       board: this.ctx.board,
@@ -231,15 +291,18 @@ export class Peer {
       this.stats.presenceSent += 1;
       return;
     }
+    if (f.t === "auth") this.trace(`send auth known_seq ${f.known_seq}`);
     if (f.t !== "msg") return;
     const m = f.msg;
     if ("Hello" in m) {
       tap.client = m.Hello.client;
+      this.trace(`send hello ${m.Hello.client.slice(0, 6)} last_seq ${m.Hello.last_seq} pending_from ${m.Hello.pending_from}`);
       this.clients.add(m.Hello.client);
       return;
     }
     const tx = m.Submit;
     const key = `${tx.client}:${tx.cseq}`;
+    this.trace(`send submit #${tx.cseq}`);
     const now = Date.now();
     tap.sent.set(key, now);
     const body = JSON.stringify({ kind: tx.kind, ops: tx.ops });
@@ -247,7 +310,7 @@ export class Peer {
     if (!known) {
       this.ctx.subs.set(key, { client: tx.client, cseq: tx.cseq, peer: this.plan.index, body, firstSent: now, ackSeq: null, rejected: null, told: false });
     } else if (known.body !== body) {
-      this.ctx.fail(`peer ${this.plan.index}: ${key} resent with different contents (a cseq reused?)`);
+      this.fail(`peer ${this.plan.index}: ${key} resent with different contents (a cseq reused?)`);
     }
   }
 
@@ -258,36 +321,45 @@ export class Peer {
         this.stats.presenceHeard += 1;
         return;
       case "closed":
+        this.trace(`closed ${f.reason}`);
         this.stats.closes[f.reason] = (this.stats.closes[f.reason] ?? 0) + 1;
         if (["abuse", "protocol", "storage_failure", "unauthorized", "revoked"].includes(f.reason)) {
-          this.ctx.fail(`peer ${this.plan.index}: server closed the connection: ${f.reason}`);
+          this.fail(`peer ${this.plan.index}: server closed the connection: ${f.reason}`);
         }
         return;
       case "ready":
+        this.trace(`ready${f.base ? ` with base at ${f.base.seq}` : ""}${delivered ? "" : " (not delivered)"}`);
         if (delivered) this.readySinceLoad = true;
         return;
       case "msg": {
         const m = f.msg;
         if ("Fatal" in m) {
-          this.ctx.fail(`peer ${this.plan.index}: server sent Fatal: ${m.Fatal}`);
+          // A reloaded tab's hello supersedes the old tab's connection if the server hasn't seen
+          // that one close yet: the Fatal lands on a socket the session has already let go.
+          if (!delivered && m.Fatal.startsWith("superseded")) this.trace(`fatal on a let-go socket: ${m.Fatal}`);
+          else this.fail(`peer ${this.plan.index}: server sent Fatal: ${m.Fatal}${delivered ? "" : " (on a socket it had let go)"}`);
           return;
         }
-        if (!delivered) return;
+        if (!delivered) {
+          if ("Rejected" in m) this.trace(`rejection #${m.Rejected.cseq} not delivered (socket let go)`);
+          return;
+        }
         if ("Entry" in m) {
           const { seq, tx } = m.Entry;
           const h = fnv(JSON.stringify(tx));
           const had = this.entries.get(seq);
           if (had === undefined) this.entries.set(seq, h);
-          else if (had !== h) this.ctx.fail(`peer ${this.plan.index}: given two different entries at seq ${seq}`);
+          else if (had !== h) this.fail(`peer ${this.plan.index}: given two different entries at seq ${seq}`);
           if (tx.client === tap.client) {
             const key = `${tx.client}:${tx.cseq}`;
+            this.trace(`ack #${tx.cseq} at seq ${seq}`);
             const sub = this.ctx.subs.get(key);
             if (!sub) {
-              this.ctx.fail(`peer ${this.plan.index}: acked ${key}, which it never sent`);
+              this.fail(`peer ${this.plan.index}: acked ${key}, which it never sent`);
               return;
             }
             if (sub.ackSeq !== null && sub.ackSeq !== seq) {
-              this.ctx.fail(`peer ${this.plan.index}: ${key} acked at seq ${sub.ackSeq} and again at ${seq}`);
+              this.fail(`peer ${this.plan.index}: ${key} acked at seq ${sub.ackSeq} and again at ${seq}`);
             }
             if (sub.ackSeq === null) {
               const sent = tap.sent.get(key);
@@ -297,10 +369,11 @@ export class Peer {
           }
         } else if ("Rejected" in m) {
           this.stats.rejectionsHeard += 1;
+          this.trace(`rejected #${m.Rejected.cseq} ${JSON.stringify(m.Rejected.reason)}`);
           const key = `${tap.client}:${m.Rejected.cseq}`;
           const sub = this.ctx.subs.get(key);
           if (!sub) {
-            this.ctx.fail(`peer ${this.plan.index}: rejection for ${key}, which it never sent`);
+            this.fail(`peer ${this.plan.index}: rejection for ${key}, which it never sent`);
             return;
           }
           sub.rejected = JSON.stringify(m.Rejected.reason);
@@ -319,9 +392,9 @@ export class Peer {
       const p = s.problems[this.problemsSeen]!;
       if (p.startsWith("protocol error")) {
         this.stats.protocolErrors += 1;
-        this.ctx.fail(`peer ${this.plan.index}: ${p}`);
+        this.fail(`peer ${this.plan.index}: ${p}`);
       } else if (p.startsWith("could not save locally")) {
-        this.ctx.fail(`peer ${this.plan.index}: ${p}`);
+        this.fail(`peer ${this.plan.index}: ${p}`);
       } else if (p === "this link is view-only") {
         this.stats.viewOnlyRefusals += 1;
       } else if (!p.startsWith("rejected:")) {
@@ -342,10 +415,12 @@ export class Peer {
     this.stats.actions += 1;
     switch (ev.k) {
       case "drop":
+        this.trace("fault: drop");
         this.stats.drops += 1;
         this.tap?.drop();
         return;
       case "offline":
+        this.trace(`fault: offline ${ev.ms} ms`);
         this.stats.offline += 1;
         this.offline = true;
         this.tap?.drop();
@@ -456,9 +531,10 @@ export class Peer {
     const old = this.session;
     if (!old || this.reloading) return;
     this.reloading = true;
+    this.trace(`fault: reload (down ${downMs} ms)`);
     this.stats.reloads += 1;
     this.sweepProblems();
-    this.persist!.dead = true;
+    const crashed = this.persist!.crash();
     old.stop();
     const i = inner(old);
     clearTimeout(i.saveSoon);
@@ -467,7 +543,7 @@ export class Peer {
     const idb = this.persist!.idb as unknown as { db: Promise<IDBDatabase> };
     this.session = undefined;
     this.tap = undefined;
-    await new Promise((r) => setTimeout(r, downMs));
+    await Promise.all([crashed, new Promise((r) => setTimeout(r, downMs))]);
     // The old tab's connection to the database goes with it.
     void idb.db.then((d) => setTimeout(() => d.close(), 2000));
     try {

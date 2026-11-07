@@ -119,6 +119,25 @@ export function checkFinal(f: Final, cap = 5): string[] {
   return out;
 }
 
+/** Presence as a comparable string: keys sorted, and an absent field the same as null or []
+ * (fields are added as optional, e.g. `picked`, and the server relays them with their default). */
+function canon(v: unknown): string {
+  const norm = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x.map(norm);
+    if (x && typeof x === "object") {
+      const out: Record<string, unknown> = {};
+      for (const k of Object.keys(x).sort()) {
+        const y = (x as Record<string, unknown>)[k];
+        if (y === null || y === undefined || (Array.isArray(y) && y.length === 0)) continue;
+        out[k] = norm(y);
+      }
+      return out;
+    }
+    return x;
+  };
+  return JSON.stringify(norm(v));
+}
+
 /** 4. Presence: each peer's last state is what every other peer holds for it; nobody sees
  * themselves; only editors can be followed; nobody who left lingers. */
 export function checkPresence(rs: PresenceReport[], cap = 8): string[] {
@@ -135,7 +154,7 @@ export function checkPresence(rs: PresenceReport[], cap = 8): string[] {
       if (a === b) continue;
       const got = a.peers.find((p) => p.peer === b.myPeer);
       if (!got) out.push(`presence: peer ${a.index} never got peer ${b.index}'s presence`);
-      else if (JSON.stringify(got.state) !== JSON.stringify(b.mine)) out.push(`presence: peer ${a.index} holds a stale state for peer ${b.index}`);
+      else if (canon(got.state) !== canon(b.mine)) out.push(`presence: peer ${a.index} holds a stale state for peer ${b.index}`);
       else if (got.role !== b.role) out.push(`presence: peer ${a.index} sees peer ${b.index} as ${got.role}, not ${b.role}`);
     }
     const expected = [...editors].filter((p) => p !== a.myPeer).sort((x, y) => x - y);
