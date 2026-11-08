@@ -208,22 +208,37 @@ export function createPlayerHost(board: string, token: string) {
    * This tab's turn to upload `bytes` (spec §6a, the queue): asked for, then asked again every
    * two seconds while waiting, which keeps it, showing how many are ahead. Resolves to `ready`,
    * `done` (the board has the match's fetched replay: nothing to send), or an error code
-   * (`aborted` when cancelled meanwhile, which gives the place up).
+   * (`aborted` when cancelled meanwhile, which gives the place, or a turn just given, up). A
+   * request that gets no answer is tried again a few times, further apart, before the wait
+   * ends as `offline`: the place outlasts them (`REPLAY_RESERVE_TTL_S`).
    */
   const turn = async (id: string, bytes: number, signal: AbortSignal): Promise<"ready" | "done" | { error: string }> => {
+    const pause = (ms: number) =>
+      new Promise<void>((done) => {
+        const t = setTimeout(done, ms);
+        signal.addEventListener("abort", () => (clearTimeout(t), done()), { once: true });
+      });
+    let misses = 0;
     for (;;) {
       if (signal.aborted) {
         void api.release(id);
         return { error: "aborted" };
       }
       const r = await api.reserve(id, bytes);
+      // Cancelled while it was asking: a turn it was just given goes back too.
+      if (signal.aborted) {
+        void api.release(id);
+        return { error: "aborted" };
+      }
+      if ("error" in r && r.error === "offline" && misses < OFFLINE_RETRIES.length) {
+        await pause(OFFLINE_RETRIES[misses++]!);
+        continue;
+      }
       if ("error" in r) return r;
+      misses = 0;
       if (r.state !== "waiting") return r.state;
       if (matchId() === id) setJob({ state: "waiting", source: "upload", ahead: r.ahead });
-      await new Promise<void>((done) => {
-        const t = setTimeout(done, 2000);
-        signal.addEventListener("abort", () => (clearTimeout(t), done()), { once: true });
-      });
+      await pause(2000);
     }
   };
 
@@ -574,6 +589,9 @@ export interface EventPing {
   event: MatchEvent;
   life: number;
 }
+/** Waits before asking for a turn again after a request got no answer (a blip, a restart): 14 s
+ * in all, well inside the 90 s a place is kept unasked. */
+const OFFLINE_RETRIES = [2000, 4000, 8000];
 const MAX_PINGS = 24;
 /** A ping lasts 1.5 s, shorter at 4× and 8× (1.06 s, 0.75 s), so a fast run doesn't pile up. */
 export const pingLife = (speed: number) => Math.round(1500 / Math.sqrt(Math.max(1, speed / 2)));

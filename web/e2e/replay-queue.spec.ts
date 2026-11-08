@@ -98,6 +98,12 @@ const failed = async (id: number) => {
   writeFileSync(join(queue, "outbox", `${j}.failed`), "old_map");
   await expect.poll(() => readdirSync(join(queue, "inbox")).includes(`${j}.dem`), { timeout: 15_000 }).toBe(false);
 };
+/** A parse that made a timeline: only these give the wait estimate its samples. */
+const parsed = async (id: number) => {
+  const j = await job(id);
+  writeFileSync(join(queue, "outbox", `${j}.json`), JSON.stringify(timeline(id)));
+  await expect.poll(() => readdirSync(join(queue, "inbox")).includes(`${j}.dem`), { timeout: 15_000 }).toBe(false);
+};
 
 async function player(browser: Browser, title: string) {
   const a = await joinNew(browser, await newBoardUrl(server, title), "Coach");
@@ -123,17 +129,18 @@ test("an upload behind other jobs says how many are ahead and the wait, then par
   await parsing(OTHER + 1);
   await a.waitForTimeout(1500);
   await expect(chip).toHaveText("Queued · 4 ahead");
+  // A refusal ends in no time: it isn't a parse time.
   await failed(OTHER);
   await expect(chip).toHaveText("Queued · 3 ahead");
   await parsing(OTHER + 2);
-  await failed(OTHER + 1);
+  await parsed(OTHER + 1);
   await parsing(OTHER + 3);
-  await failed(OTHER + 2);
+  await parsed(OTHER + 2);
+  await expect(chip).toHaveText("Queued · 1 ahead");
+  await parsed(OTHER + 3);
   // Three parses done: the server has an estimate.
-  await expect(chip).toHaveText("Queued · 1 ahead · ~1 min");
-  await shot(a, "queue-queued-eta");
-  await failed(OTHER + 3);
   await expect(chip).toHaveText("Queued · ~1 min");
+  await shot(a, "queue-queued-eta");
   await parsing(KNOWN);
   await expect(chip).toHaveText("Parsing replay…");
   await shot(a, "queue-parsing");
@@ -193,4 +200,62 @@ test("a backlog past the line's cap is refused, honestly", async ({ browser }) =
   await shot(a, "queue-busy");
   for (let i = 0; i < 3; i++) await o.release(OTHER + 40 + i, `10.9.2.${10 + i}`);
   for (let i = 0; i < 5; i++) await failed(OTHER + 30 + i);
+});
+
+/** Fill the queue so the next upload waits; returns the cleanup (past the first `done`). */
+async function fill(base: number, net: string) {
+  const o = await other();
+  for (let i = 0; i < 5; i++) await o.upload(base + i, `${net}.${i + 1}`);
+  return async (done = 0) => {
+    for (let i = done; i < 5; i++) await failed(base + i);
+  };
+}
+
+test("Cancel while a reserve is under way gives back the turn it brings", async ({ browser }) => {
+  const clear = await fill(OTHER + 60, "10.9.4");
+  const a = await player(browser, "Cancel in flight");
+  const chip = a.getByTestId("match-tier");
+  await pick(a);
+  await expect(chip).toHaveText("Waiting for a slot");
+  // Room comes; the next ask is held on its way back, and Cancel is pressed meanwhile.
+  let held: (() => void) | undefined;
+  await a.route("**/reserve", async (r) => {
+    if (r.request().method() !== "POST" || held) return r.fallback();
+    const res = await r.fetch();
+    if ((await res.json()).state !== "ready") return r.fulfill({ response: res });
+    await new Promise<void>((go) => (held = go));
+    await r.fulfill({ response: res });
+  });
+  await failed(OTHER + 60);
+  await expect.poll(() => !!held, { timeout: 10_000 }).toBe(true);
+  await a.getByTestId("upload-cancel").click();
+  const gave = a.waitForRequest((q) => q.method() === "DELETE" && q.url().endsWith("/reserve"), { timeout: 10_000 });
+  held!();
+  await gave;
+  await expect(a.getByTestId("match-notice-text")).toHaveText("Upload cancelled.");
+  // The turn went back: the next person's is ready at once.
+  const o = await other();
+  expect((await o.reserve(OTHER + 69, "10.9.4.9")).state).toBe("ready");
+  await o.release(OTHER + 69, "10.9.4.9");
+  await clear(1);
+});
+
+test("a reserve request that gets no answer is tried again: the wait goes on, its place kept", async ({ browser }) => {
+  const clear = await fill(OTHER + 50, "10.9.3");
+  const a = await player(browser, "Blip");
+  const chip = a.getByTestId("match-tier");
+  await pick(a);
+  await expect(chip).toHaveText("Waiting for a slot");
+  // The next ask is lost (a dropped connection, a restart): the wait doesn't end there.
+  let lost = 0;
+  await a.route("**/reserve", (r) => (r.request().method() === "POST" && lost++ === 0 ? r.abort("failed") : r.fallback()));
+  await expect.poll(() => lost, { timeout: 10_000 }).toBeGreaterThan(1);
+  await expect(chip).toHaveText("Waiting for a slot");
+  await expect(a.getByTestId("match-notice-text")).toHaveCount(0);
+  await shot(a, "queue-waiting-after-blip");
+  // Its turn still comes, and sends the file.
+  await failed(OTHER + 50);
+  await expect(chip).toHaveText(/^Queued · 4 ahead( · ~1 min)?$/, { timeout: 15_000 });
+  await clear(1);
+  await failed(KNOWN);
 });
