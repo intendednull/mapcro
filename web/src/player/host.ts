@@ -240,7 +240,12 @@ export function createPlayerHost(board: string, token: string) {
       const was = heard?.pb;
       const expect = was && tAt({ ...was, at: heard!.at }, at, duration());
       if (!was || was.match_id !== theirs.match_id || Math.abs(theirs.t - expect!) > 1 + 0.25 * theirs.speed) jumped();
-      heard = { v, at, pb: theirs };
+      // A copy: `theirs` is the peers store's own object, which the next presence updates in
+      // place, so a kept reference would read the new `t` as the old one's. Every presence
+      // over ¾ s apart then looked like a jump: the follower's run broke on each heartbeat
+      // (dropping an event it crossed in that frame), and a real seek right after a heartbeat
+      // didn't, so the catch-up pinged what the presenter skipped.
+      heard = { v, at, pb: { ...theirs } };
     }
     if (!theirs.player) return setMode("sandbox");
     setMode("player");
