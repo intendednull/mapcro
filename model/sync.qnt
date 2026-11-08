@@ -34,6 +34,11 @@ module sync {
   // REBASE_DROPS_DECIDED: the rebased client drops its pending transactions the server says are
   //   decided. Off is the bug: they stay pending for ever (or are applied twice).
   const REBASE_DROPS_DECIDED: bool
+  // PRUNE_KEEPS_NEXT: when a hello prunes the rejections its client has heard, the server keeps
+  //   that client's next expected cseq durably (client_seqs). Off is the bug the review found: a
+  //   restart rebuilds it from the log and the stored rejections, one short if the last decided
+  //   transaction was a pruned rejection, and the client's next submit is a sequence gap.
+  const PRUNE_KEEPS_NEXT: bool
 
   type ClientId = str
 
@@ -45,6 +50,7 @@ module sync {
   pure val MAX_DROPS = 1   // disconnects per client
   pure val MAX_RELOADS = 1 // fresh reloads (storage cleared) per client
   pure val MAX_COMPACTS = 1 // times the server compacts its log
+  pure val MAX_RESTARTS = 1 // server restarts (it rebuilds from what's durable)
   pure val MAX_LOG = MAX_TX * 2   // upper bound on log length (2 clients); constant for Apalache
 
   // ---- Board: a single record that can be deleted and recreated.
@@ -108,6 +114,11 @@ module sync {
   var ackMismatch: bool                // ghost: a client got its own ack out of pending order
   var floor: int                       // server side: entries at or below this are compacted away
   var compacts: int
+  var srvNext: ClientId -> int         // server side, in memory: every cseq below it is decided
+  var clientSeqs: ClientId -> int      // server side, durable: next cseqs kept (compaction, prune)
+  var baseAt: int                      // server side, durable: the log position of the stored base
+  var restarts: int
+  var gapped: bool                     // ghost: an honest client's submit was a sequence gap
 
   def view(c: ClientId): Board = applyTxs(cli.get(c).confirmed, cli.get(c).pending)
   pure def inLog(l: List[Tx], c: ClientId, k: int): bool =
@@ -128,6 +139,11 @@ module sync {
     ackMismatch' = false,
     floor' = 0,
     compacts' = 0,
+    srvNext' = CLIENTS.mapBy(_ => 0),
+    clientSeqs' = CLIENTS.mapBy(_ => 0),
+    baseAt' = 0,
+    restarts' = 0,
+    gapped' = false,
   }
 
   // ---- Client: create a transaction (optimistic; sent now if connected, else on reconnect)
@@ -138,7 +154,7 @@ module sync {
       s.nextCseq < MAX_TX,
       cli' = cli.set(c, { ...s, pending: s.pending.append(tx), nextCseq: s.nextCseq + 1, undoStack: stack }),
       up' = if (s.connected) up.setBy(c, q => q.append(Submit(tx))) else up,
-      down' = down, log' = log, board' = board, live' = live, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts,
+      down' = down, log' = log, board' = board, live' = live, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts, srvNext' = srvNext, clientSeqs' = clientSeqs, baseAt' = baseAt, restarts' = restarts, gapped' = gapped,
     }
   }
 
@@ -184,14 +200,14 @@ module sync {
               submit(c, SetField({ field: u.field, value: u.before }), true, u.after, rest)
             else all {   // someone changed it since: skip, but still pop the entry
               cli' = cli.set(c, { ...s, undoStack: rest }),
-              up' = up, down' = down, log' = log, board' = board, live' = live, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts,
+              up' = up, down' = down, log' = log, board' = board, live' = live, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts, srvNext' = srvNext, clientSeqs' = clientSeqs, baseAt' = baseAt, restarts' = restarts, gapped' = gapped,
             }
         | UndoDelete(fs) =>
             if (SERVER_SIDE_UNDO) submit(c, Restore, true, -1, rest)
             else if (not(b.exists)) submit(c, Create(fs), true, -1, rest)
             else all {
               cli' = cli.set(c, { ...s, undoStack: rest }),
-              up' = up, down' = down, log' = log, board' = board, live' = live, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts,
+              up' = up, down' = down, log' = log, board' = board, live' = live, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts, srvNext' = srvNext, clientSeqs' = clientSeqs, baseAt' = baseAt, restarts' = restarts, gapped' = gapped,
             }
       },
     }
@@ -208,8 +224,7 @@ module sync {
             val catchUp = range(0, MAX_LOG).foldl(List(), (acc, i) =>
               if (i >= h.lastSeq and i < log.length()) acc.append(DEntry({ seq: i + 1, tx: log[i] })) else acc)
             // or a rebase: the board now, and the client's oldest cseq the server hasn't decided
-            val decidedBelow = range(0, MAX_TX).foldl(0, (d, k) =>
-              if (d == k and (inLog(log, c, k) or srvRejected.get(c).contains(k))) k + 1 else d)
+            val decidedBelow = srvNext.get(c)
             val rebase = List(DRebase({ board: board, seq: log.length(), decidedBelow: decidedBelow }))
             // below the floor the entries are gone, so it must rebase; above, it may (far behind)
             nondet chooseRebase = Set(true, false).oneOf()
@@ -223,19 +238,30 @@ module sync {
                 if (REJECT_BEFORE_CATCHUP) rejections.concat(reply) else reply.concat(rejections))),
               up' = up.set(c, q.tail()),
               live' = live.set(c, true),
-              log' = log, board' = board, cli' = cli, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts,
+              // the client has heard every rejection below pendingFrom: forget them
+              srvRejected' = srvRejected.setBy(c, r => r.filter(k => k >= h.pendingFrom)),
+              clientSeqs' = if (PRUNE_KEEPS_NEXT) clientSeqs.setBy(c, n => if (n > srvNext.get(c)) n else srvNext.get(c)) else clientSeqs,
+              log' = log, board' = board, cli' = cli, clobbered' = clobbered, ackMismatch' = ackMismatch,
+              floor' = floor, compacts' = compacts, srvNext' = srvNext, baseAt' = baseAt, restarts' = restarts, gapped' = gapped,
             }
           }
         | Submit(tx) =>
-            if (inLog(log, tx.client, tx.cseq) or srvRejected.get(c).contains(tx.cseq)) all {   // already decided: ignore
+            if (tx.cseq < srvNext.get(c)) all {   // already decided: ignore
               up' = up.set(c, q.tail()),
-              down' = down, log' = log, board' = board, cli' = cli, live' = live, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts,
+              down' = down, log' = log, board' = board, cli' = cli, live' = live, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts, srvNext' = srvNext, clientSeqs' = clientSeqs, baseAt' = baseAt, restarts' = restarts, gapped' = gapped,
+            } else if (tx.cseq > srvNext.get(c)) all {   // a sequence gap: the real server closes
+              gapped' = true,
+              up' = up.set(c, q.tail()),
+              down' = down, log' = log, board' = board, cli' = cli, live' = live, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch,
+              floor' = floor, compacts' = compacts, srvNext' = srvNext, clientSeqs' = clientSeqs, baseAt' = baseAt, restarts' = restarts,
             } else if (match tx.op { | Create(_) => board.exists | _ => false }) all {
               // refused: tell the sender only
               srvRejected' = srvRejected.setBy(c, r => r.union(Set(tx.cseq))),
               down' = down.setBy(c, d => d.append(DRej(tx.cseq))),
               up' = up.set(c, q.tail()),
-              log' = log, board' = board, cli' = cli, live' = live, clobbered' = clobbered, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts,
+              srvNext' = srvNext.set(c, tx.cseq + 1),
+              log' = log, board' = board, cli' = cli, live' = live, clobbered' = clobbered, ackMismatch' = ackMismatch,
+              floor' = floor, compacts' = compacts, clientSeqs' = clientSeqs, baseAt' = baseAt, restarts' = restarts, gapped' = gapped,
             } else {
               val e = DEntry({ seq: log.length() + 1, tx: tx })
               // Did this undo overwrite something its own edit didn't write?
@@ -254,7 +280,9 @@ module sync {
                 up' = up.set(c, q.tail()),
                 cli' = cli, live' = live,
                 clobbered' = (clobbered or wouldClobber),
-                srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts,
+                srvNext' = srvNext.set(c, tx.cseq + 1),
+                srvRejected' = srvRejected, ackMismatch' = ackMismatch,
+                floor' = floor, compacts' = compacts, clientSeqs' = clientSeqs, baseAt' = baseAt, restarts' = restarts, gapped' = gapped,
               }
             }
       },
@@ -277,7 +305,7 @@ module sync {
               lastSeq: e.seq,
               pending: if (acked) s.pending.tail() else s.pending,
             }),
-            ackMismatch' = (ackMismatch or (own and not(acked))), floor' = floor, compacts' = compacts,
+            ackMismatch' = (ackMismatch or (own and not(acked))), floor' = floor, compacts' = compacts, srvNext' = srvNext, clientSeqs' = clientSeqs, baseAt' = baseAt, restarts' = restarts, gapped' = gapped,
             down' = down.set(c, d.tail()),
             up' = up, log' = log, board' = board, live' = live, clobbered' = clobbered, srvRejected' = srvRejected,
           }
@@ -292,7 +320,7 @@ module sync {
             }),
             down' = down.set(c, d.tail()),
             up' = up, log' = log, board' = board, live' = live, clobbered' = clobbered,
-            srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts,
+            srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts, srvNext' = srvNext, clientSeqs' = clientSeqs, baseAt' = baseAt, restarts' = restarts, gapped' = gapped,
           }
         | DRej(k) => all {
             cli' = cli.set(c, { ...s,
@@ -301,7 +329,7 @@ module sync {
             }),
             down' = down.set(c, d.tail()),
             up' = up, log' = log, board' = board, live' = live, clobbered' = clobbered,
-            srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts,
+            srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts, srvNext' = srvNext, clientSeqs' = clientSeqs, baseAt' = baseAt, restarts' = restarts, gapped' = gapped,
           }
       },
     }
@@ -315,7 +343,7 @@ module sync {
       cli' = cli.set(c, { ...s, connected: false, drops: s.drops + 1 }),
       up' = up.set(c, List()), down' = down.set(c, List()),
       live' = live.set(c, false),
-      log' = log, board' = board, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts,
+      log' = log, board' = board, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts, srvNext' = srvNext, clientSeqs' = clientSeqs, baseAt' = baseAt, restarts' = restarts, gapped' = gapped,
     }
   }
 
@@ -327,7 +355,7 @@ module sync {
       cli' = cli.set(c, { ...s, connected: true }),
       live' = live,   // not live until the server processes the hello (if LIVE_AFTER_HELLO)
       up' = up.set(c, List(Hello({ lastSeq: s.lastSeq, pendingFrom: if (s.pending.length() > 0) s.pending[0].cseq else s.nextCseq })).concat(s.pending.foldl(List(), (acc, t) => acc.append(Submit(t))))),
-      down' = down, log' = log, board' = board, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts,
+      down' = down, log' = log, board' = board, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts, srvNext' = srvNext, clientSeqs' = clientSeqs, baseAt' = baseAt, restarts' = restarts, gapped' = gapped,
     }
   }
 
@@ -350,7 +378,7 @@ module sync {
       up' = up.set(c, List(Hello({ lastSeq: k + SNAPSHOT_SKEW, pendingFrom: s.nextCseq }))),
       down' = down.set(c, List()),
       live' = live.set(c, false),
-      log' = log, board' = board, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts,
+      log' = log, board' = board, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch, floor' = floor, compacts' = compacts, srvNext' = srvNext, clientSeqs' = clientSeqs, baseAt' = baseAt, restarts' = restarts, gapped' = gapped,
     }
   }
 
@@ -361,14 +389,38 @@ module sync {
     all {
       REBASE, compacts < MAX_COMPACTS, k > floor, k <= log.length(),
       floor' = k, compacts' = compacts + 1,
+      // the base is the board now, and every client's next cseq is kept with it
+      baseAt' = log.length(), clientSeqs' = srvNext,
       log' = log, board' = board, cli' = cli, up' = up, down' = down, live' = live,
       clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch,
+      srvNext' = srvNext, restarts' = restarts, gapped' = gapped,
+    }
+  }
+
+  // The server restarts: every connection drops, and it rebuilds each client's next cseq from
+  // what's durable only: the log after the base, the stored rejections, and client_seqs.
+  pure def maxNext(a: int, b: int): int = if (a > b) a else b
+  action restart: bool = {
+    val rebuilt = CLIENTS.mapBy(c => {
+      val fromLog = range(0, MAX_LOG).foldl(0, (m, i) =>
+        if (i >= baseAt and i < log.length() and log[i].client == c) maxNext(m, log[i].cseq + 1) else m)
+      val fromRej = range(0, MAX_TX).foldl(0, (m, k) => if (srvRejected.get(c).contains(k)) maxNext(m, k + 1) else m)
+      maxNext(clientSeqs.get(c), maxNext(fromLog, fromRej))
+    })
+    all {
+      restarts < MAX_RESTARTS,
+      srvNext' = rebuilt,
+      cli' = CLIENTS.mapBy(c => { ...cli.get(c), connected: false }),
+      up' = CLIENTS.mapBy(_ => List()), down' = CLIENTS.mapBy(_ => List()), live' = CLIENTS.mapBy(_ => false),
+      restarts' = restarts + 1,
+      log' = log, board' = board, clobbered' = clobbered, srvRejected' = srvRejected, ackMismatch' = ackMismatch,
+      floor' = floor, compacts' = compacts, clientSeqs' = clientSeqs, baseAt' = baseAt, gapped' = gapped,
     }
   }
 
   action step = {
     nondet c = CLIENTS.oneOf()
-    any { editSet(c), editDelete(c), editRecreate(c), undo(c), serverRecv(c), clientRecv(c), disconnect(c), reconnect(c), freshReload(c), compact }
+    any { editSet(c), editDelete(c), editRecreate(c), undo(c), serverRecv(c), clientRecv(c), disconnect(c), reconnect(c), freshReload(c), compact, restart }
   }
 
   // ---- Properties
@@ -405,6 +457,9 @@ module sync {
   // A refused transaction never lands, and a client never thinks a landed one was refused.
   val rejectedNeverLogged = CLIENTS.forall(c => cli.get(c).rejected.forall(k => not(inLog(log, c, k))))
 
-  val safety = exactlyOnce and noLostEdits and confirmedIsLogPrefix and quiescentConverges and noClobber
+  // An honest client's submit is never a sequence gap (the real server would close it, for ever).
+  val noGap = not(gapped)
+
+  val safety = noGap and exactlyOnce and noLostEdits and confirmedIsLogPrefix and quiescentConverges and noClobber
     and acksInOrder and rejectedNeverLogged
 }
