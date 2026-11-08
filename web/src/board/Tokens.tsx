@@ -2,7 +2,7 @@
 // editor drags a token; while dragging, its position travels through presence (others watch it
 // move, with the dragger's name tag), and the drop commits one op (spec §4a).
 
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import { formatClock, parseClock } from "../core/clock";
 import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
@@ -174,20 +174,31 @@ export function Tokens(p: {
       ...(alive && pl.state.respawn != null ? [{ Set: { id: pl.id, value: { PlayerRespawn: null } } } as const] : []),
     ]);
   };
+  // K acts on the hero under the pointer: the hover is a hint, and is checked against what is
+  // actually under the pointer at the key press (a token that moved, unmounted or flipped
+  // scenes leaves no stale target). Never under a match preview, like the skull button.
   const [hovered, setHovered] = createSignal<RecordId>();
   const [timing, setTiming] = createSignal<RecordId>();
+  createEffect(on(() => p.scene, () => setHovered(undefined), { defer: true }));
   onMount(() => {
+    let at: { x: number; y: number } | undefined;
+    const move = (e: PointerEvent) => (at = { x: e.clientX, y: e.clientY });
     const key = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "k" || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      if (e.key.toLowerCase() !== "k" || e.ctrlKey || e.metaKey || e.altKey || e.repeat || !at || p.preview?.()) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      const pl = players().find((x) => x.id === hovered());
+      const under = document.elementsFromPoint(at.x, at.y).map((el) => el.closest?.(".tok[data-player]")?.getAttribute("data-player")).find(Boolean);
+      const pl = under === hovered() ? players().find((x) => x.id === under) : undefined;
       if (!pl) return;
       e.preventDefault();
       toggleAlive(pl);
     };
+    window.addEventListener("pointermove", move, true);
     window.addEventListener("keydown", key);
-    onCleanup(() => window.removeEventListener("keydown", key));
+    onCleanup(() => {
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("keydown", key);
+    });
   });
   const setRespawn = (pl: Player, text: string) => {
     setTiming(undefined);
@@ -258,6 +269,7 @@ export function Tokens(p: {
                 onPointerDown={(e) => down(pl(), e)}
                 onPointerEnter={() => setHovered(pl().id)}
                 onPointerLeave={() => hovered() === pl().id && setHovered(undefined)}
+                ref={() => onCleanup(() => hovered() === pl().id && setHovered(undefined))}
               >
                 <Show when={selected()}>
                   <circle class="sel" r={r() + 5 * p.k} />

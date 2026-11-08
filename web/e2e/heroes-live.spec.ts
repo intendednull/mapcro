@@ -49,6 +49,25 @@ test("K kills and revives a hovered hero; dead looks unlike unseen; a respawn ti
   await expect(b.getByTestId("respawn")).toContainText("respawn 0:45");
 });
 
+test("K acts only on the hero under the pointer, not one that moved away from it", async ({ browser }) => {
+  const url = await newBoardUrl(server, "k under pointer");
+  const a = await joinNew(browser, url, "Coach");
+  const b = await joinNew(browser, url, "Marrow");
+  const t = (await tok(a, "Amber-1").boundingBox())!;
+  await a.mouse.move(t.x + t.width / 2, t.y + t.height / 2); // A hovers Amber-1 …
+  await dragToken(b, "Amber-1", 0.7, 0.3); // … and B moves it out from under A's pointer
+  await expect.poll(async () => (await tokenAt(a, "Amber-1")).x).toBeGreaterThan(600);
+  await a.waitForTimeout(500); // the glide-free remote move has landed
+  await a.keyboard.press("k");
+  await a.waitForTimeout(400);
+  await expect(tok(b, "Amber-1")).not.toHaveClass(/dead/);
+  // The hero that is under the pointer now, if any, is the one K acts on.
+  const u = (await tok(a, "Amber-1").boundingBox())!;
+  await a.mouse.move(u.x + u.width / 2, u.y + u.height / 2);
+  await a.keyboard.press("k");
+  await expect(tok(b, "Amber-1")).toHaveClass(/dead/);
+});
+
 test("flipping scenes, heroes glide to their new spots, for followers too", async ({ browser }) => {
   const url = await newBoardUrl(server, "glide");
   const a = await joinNew(browser, url, "Coach");
