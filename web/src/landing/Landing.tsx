@@ -87,7 +87,7 @@ export function Landing() {
             aria-label="Match id"
           />
           <label class="btn ghost" title="A .dem from your replays folder">
-            {file() ? file()!.name : "Replay…"}
+            {file() ? file()!.name : "Select replay file"}
             <input type="file" accept=".dem" hidden data-testid="open-match-file" onChange={(e) => setFile(e.currentTarget.files?.[0])} />
           </label>
           <button class="btn primary" type="submit" data-testid="open-match-go" disabled={!!opening()}>
