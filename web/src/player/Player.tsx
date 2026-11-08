@@ -9,7 +9,7 @@ import type { BoardState } from "../board/state";
 import type { SceneRow } from "../board/scenes";
 import type { RecordId } from "../gen/RecordId";
 import type { Op } from "../gen/Op";
-import { type MatchEvent, clockLabel, objectiveHealthAt, playersAt, tierOf, wavesAt } from "../match/timeline";
+import { type MatchEvent, clockLabel, objectiveHealthAt, playersAt, tierOf } from "../match/timeline";
 import { UltRing } from "../match/preview";
 import { matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
 import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensureLiveOps, liveIds, takeAnnotationsOps } from "./live";
@@ -44,7 +44,6 @@ export function Player(p: {
   const markers = () => p.art.model.markers;
   const lanes = () => p.art.model.lanes.map((l) => l.key);
 
-  const stale = createMemo(() => (h.tl() ? [...wavesAt(h.tl()!, h.t()).values()].some((w) => w.stale) : false));
   const user = (f: () => void) => {
     p.onUserPlayback();
     f();
@@ -285,11 +284,6 @@ export function Player(p: {
               <span class="match-clock" data-testid="match-clock">
                 {clockLabel(h.t())} / {clockLabel(m().duration_s)}
               </span>
-              <Show when={stale()}>
-                <span class="match-note" data-testid="match-stale">
-                  Waves held
-                </span>
-              </Show>
               <Show when={canEdit()}>
                 <button class="btn primary small" type="button" data-testid="match-save" onClick={saveOne}>
                   Save scene
@@ -352,7 +346,7 @@ export function TierChip(p: { host: PlayerHost }) {
   );
 }
 
-const WHAT_SUMMARY_LACKS = "No health, ult timers, lane waves, rifts or powerups";
+const WHAT_SUMMARY_LACKS = "No health, ult timers, zipline colours, camps, rifts or powerups";
 
 /** Where a jump landed: a ring that pulses there for a few seconds (map → view units). */
 export function Highlight(p: { at: { x: number; y: number } | undefined; vp: "amber" | "sapphire" | "neutral" }) {

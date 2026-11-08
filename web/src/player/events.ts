@@ -3,7 +3,7 @@
 
 import type { Marker } from "../map/model";
 import { type Pt, worldToMap } from "../map/transform";
-import { type MatchEvent, type Timeline, clockLabel, tierOf } from "../match/timeline";
+import { type MatchEvent, type Timeline, clockLabel, markerKey, tierOf } from "../match/timeline";
 
 export type EventGroup = "death" | "ult" | "objective" | "mid_boss" | "rift" | "powerup" | "souls";
 
@@ -157,10 +157,12 @@ export const eventKey = (e: MatchEvent) => `${e.t}:${e.kind}:${e.team ?? ""}:${e
 export const jumpTime = (e: Pick<MatchEvent, "t">, lead: number) => Math.max(0, e.t - Math.max(0, lead));
 
 /** Where it happened, in map units: its own place, else its objective's marker. */
-export function placeOf(e: MatchEvent, markers: Array<Pick<Marker, "key" | "at">>): Pt | undefined {
+export function placeOf(e: MatchEvent, markers: Array<Pick<Marker, "key" | "at" | "kind" | "team">>): Pt | undefined {
   if (e.x != null && e.y != null) return worldToMap({ x: e.x, y: e.y });
   if (!e.key) return undefined;
-  const m = markers.find((x) => x.key === e.key) ?? markers.find((x) => e.key && x.key.startsWith(`${e.key}:`));
+  // The board's marker for the key, though a pack may spell it differently (`markerKey`).
+  const k = markerKey(e.key, markers);
+  const m = (k ? markers.find((x) => x.key === k) : undefined) ?? markers.find((x) => e.key && x.key.startsWith(`${e.key}:`));
   return m?.at;
 }
 

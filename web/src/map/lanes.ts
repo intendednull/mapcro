@@ -101,10 +101,24 @@ export function defaultSplit(l: LaneLine): number {
 
 /** The two halves at `t`, with a gap of `gap` map units of arc length centred on the split. */
 export function splitAt(l: LaneLine, t: number, gap: number): { amber: Pt[]; sapphire: Pt[] } {
+  return splitEdges(l, t, t, gap);
+}
+
+/**
+ * Amber's part over `[0, amber]`, Sapphire's over `[sapphire, 1000]` (the zipline colours), the
+ * gap between uncoloured and never narrower than `gap` map units of arc length, which then
+ * centres on the two edges' middle.
+ */
+export function splitEdges(l: LaneLine, amberT: number, sapphireT: number, gap: number): { amber: Pt[]; sapphire: Pt[] } {
   const tot = total(l);
   if (tot === 0) return { amber: [], sapphire: [] };
-  const s = (Math.max(0, Math.min(T_MAX, t)) / T_MAX) * tot;
-  const lo = Math.max(0, s - gap / 2), hi = Math.min(tot, s + gap / 2);
+  const at = (t: number) => (Math.max(0, Math.min(T_MAX, t)) / T_MAX) * tot;
+  let a = at(amberT), b = at(Math.max(amberT, sapphireT));
+  if (b - a < gap) {
+    const mid = (a + b) / 2;
+    [a, b] = [mid - gap / 2, mid + gap / 2];
+  }
+  const lo = Math.max(0, a), hi = Math.min(tot, b);
   const amber: Pt[] = [], sapphire: Pt[] = [];
   l.points.forEach((p, i) => {
     if (l.cum[i]! < lo) amber.push(p);

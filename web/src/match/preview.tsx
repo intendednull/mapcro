@@ -2,6 +2,7 @@
 
 import { Show } from "solid-js";
 import { cx } from "../ui/cx";
+import type { CampAt } from "./timeline";
 
 export interface MatchPreview {
   /** By "amber-0" … "sapphire-5": the hero there and where it is (`null`: dead, hidden). */
@@ -10,8 +11,10 @@ export interface MatchPreview {
   down: Set<string>;
   /** Replay tier: rifts and powerups at this moment, by key (absent: the board's own). */
   sites: Map<string, "Active" | "Destroyed">;
-  /** Replay tier: lane splits (`Wave.t`) at this moment, by lane key. */
-  waves: Map<string, number>;
+  /** Replay tier: each lane's zipline colours at this moment, by lane key (`Wave.t`'s scale). */
+  lanes: Map<string, { amber: number; sapphire: number }>;
+  /** Replay tier: camps and the mid boss at this moment, by marker key. */
+  camps: Map<string, CampAt>;
   /** Replay tier, with Health on: objectives' health by key (absent: none drawn). */
   health?: Map<string, { pct: number; stage?: number }>;
 }

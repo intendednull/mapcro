@@ -1,9 +1,11 @@
 // A match timeline from our server and the board state it gives at a moment: where each hero is,
 // who is dead, which objectives are down; and, from a replay (crates/replay), ult cooldowns,
-// rifts, powerups and lane-wave splits. Two tiers, one shape: the metadata timeline
-// (crates/server/src/matches.rs) lacks the replay's extra fields. Pure.
+// rifts, powerups, zipline colours and jungle camps. Two tiers, one shape: the metadata
+// timeline (crates/server/src/matches.rs) lacks the replay's extra fields. Pure.
 
 import type { Marker } from "../map/model";
+import { FALLBACK } from "../map/fallback-data";
+import { worldToMap } from "../map/transform";
 
 export interface TimelinePlayer {
   team: "amber" | "sapphire";
@@ -37,7 +39,10 @@ export interface Timeline {
   build?: number;
   rifts?: Array<{ key: string; start_s: number; end_s: number }>;
   powerups?: Array<{ key: string; available: number[]; stale: Stale }>;
-  waves?: Array<{ lane: string; t: Array<number | null>; stale: Stale }>;
+  /** Replay tier: each lane's zipline colours, `[second, amber_t, sapphire_t]` where they move. */
+  zips?: Array<{ lane: string; at: Array<[number, number, number]> }>;
+  /** Replay tier: camps and the mid boss: first spawn, then `[cleared_s, respawn_s]` intervals. */
+  camps?: Array<{ key: string; first_s: number; cleared: Array<[number, number]> }>;
   /** Both tiers, each with what it has (crates/replay/src/timeline.rs `Event`). */
   events?: MatchEvent[];
   /** Replay tier: lane troopers every `every_s` seconds, packed per team (player/troopers.ts). */
@@ -152,16 +157,15 @@ export function objectiveHealthAt(tl: Timeline, t: number): Map<string, { pct: n
   return out;
 }
 
-const inStale = (st: Stale, s: number) => st.some(([a, b]) => s >= a && s < b);
-
 /**
- * Rifts and powerups at t as board statuses (replay tier; empty otherwise): the rift up at t is
- * Active and the other rifts off (Destroyed); a powerup is Active while available, else
- * Destroyed (taken, or not spawned yet).
+ * Rifts, powerups and camps at t as board statuses, by marker key (replay tier; empty
+ * otherwise): the rift up at t is Active and the other rifts off (Destroyed); a powerup is
+ * Active while available, else Destroyed (taken, or not spawned yet); a camp is Active while
+ * up, else Destroyed (cleared, or not spawned yet). The mid boss is `downAt`'s.
  */
-export function sitesAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "key" | "kind">>): Map<string, "Active" | "Destroyed"> {
+export function sitesAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "key" | "kind" | "team" | "at">>): Map<string, "Active" | "Destroyed"> {
   const out = new Map<string, "Active" | "Destroyed">();
-  if (!tl.rifts && !tl.powerups) return out;
+  if (!tl.rifts && !tl.powerups && !tl.camps) return out;
   const s = Math.floor(t);
   const known = new Set(markers.map((m) => m.key));
   for (const m of markers) if (m.kind === "koth") out.set(m.key, "Destroyed");
@@ -170,35 +174,93 @@ export function sitesAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "ke
     const v = p.available[Math.max(0, Math.min(p.available.length - 1, s))];
     if (v !== undefined && known.has(p.key)) out.set(p.key, v ? "Active" : "Destroyed");
   }
+  for (const c of tl.camps ?? []) {
+    if (!c.key.startsWith("camp:")) continue;
+    const key = markerKey(c.key, markers);
+    if (key) out.set(key, campAt(c, t).state === "alive" ? "Active" : "Destroyed");
+  }
   return out;
 }
 
-/** Lane splits (`Wave.t`) at t by lane key, and whether each is held through a gap. */
-export function wavesAt(tl: Timeline, t: number): Map<string, { t: number; stale: boolean }> {
-  const out = new Map<string, { t: number; stale: boolean }>();
+/** Each lane's zipline colours at t (replay tier): Amber owns `[0, amber]`, Sapphire `[sapphire, 1000]`. */
+export function lanesAt(tl: Timeline, t: number): Map<string, { amber: number; sapphire: number }> {
+  const out = new Map<string, { amber: number; sapphire: number }>();
   const s = Math.floor(t);
-  for (const w of tl.waves ?? []) {
-    const v = w.t[Math.max(0, Math.min(w.t.length - 1, s))];
-    if (v != null) out.set(w.lane, { t: v, stale: inStale(w.stale, s) });
+  for (const z of tl.zips ?? []) {
+    let v: [number, number, number] | undefined;
+    for (const e of z.at) {
+      if (e[0] > s) break;
+      v = e;
+    }
+    if (v) out.set(z.lane, { amber: v[1], sapphire: v[2] });
   }
   return out;
+}
+
+/** A camp (or the mid boss) at t: up, cleared until `at`, or waiting for its first spawn at `at`. */
+export type CampAt = { state: "alive" } | { state: "cleared"; at: number } | { state: "unspawned"; at: number };
+
+type TimelineCamp = NonNullable<Timeline["camps"]>[number];
+
+export function campAt(c: TimelineCamp, t: number): CampAt {
+  if (t < c.first_s) return { state: "unspawned", at: c.first_s };
+  const down = c.cleared.find(([a, b]) => t >= a && t < b);
+  return down ? { state: "cleared", at: down[1] } : { state: "alive" };
+}
+
+/** Camps at t by the timeline's keys (replay tier; empty otherwise). */
+export function campsAt(tl: Timeline, t: number): Map<string, CampAt> {
+  return new Map((tl.camps ?? []).map((c) => [c.key, campAt(c, t)]));
+}
+
+const MARKER_KIND: Record<string, Marker["kind"]> = { guardian: "t1", walker: "t2", base_guardian: "barracks", shrine: "shrine", patron: "t3", mid_boss: "midboss", camp: "camp", rift: "koth", powerup: "powerup" };
+
+/**
+ * The board marker a timeline key names. The worker keys sites by the built-in map
+ * (map/fallback-data.ts) and the metadata by Valve's lanes, while a pack can key the same site
+ * differently (`patron:sapphire:lane3:1` against `lane0`, camps by lane): the key itself, else
+ * the marker of the same kind on the built-in site's spot, else, for the one-per-team patron
+ * and the mid boss, the same kind and team.
+ */
+export function markerKey(key: string, markers: Array<Pick<Marker, "key" | "kind" | "team" | "at">>): string | undefined {
+  if (markers.some((m) => m.key === key)) return key;
+  const [k = "", team = ""] = key.split(":");
+  const kind = MARKER_KIND[k];
+  if (!kind) return undefined;
+  const site = FALLBACK.entities.find((e) => e.key === key || e.key === `${key}:1`);
+  if (site && site.world.length >= 2) {
+    const at = worldToMap({ x: site.world[0]!, y: site.world[1]! });
+    let best: { key: string; d: number } | undefined;
+    for (const m of markers) {
+      if (m.kind !== kind) continue;
+      const d = Math.hypot(m.at.x - at.x, m.at.y - at.y);
+      if (d < 3 && (!best || d < best.d)) best = { key: m.key, d };
+    }
+    if (best) return best.key;
+  }
+  if (kind === "t3" || kind === "midboss") return markers.find((m) => m.kind === kind && (kind === "midboss" || m.team === team))?.key;
+  return undefined;
 }
 
 /**
  * Board objective keys down at t: everything destroyed at or before t, plus the mid boss
  * from a kill until the next one (its respawn time isn't in the match data).
  */
-export function downAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane">>): Set<string> {
+export function downAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane" | "at">>): Set<string> {
   const down = new Set<string>();
   const laneColour: Record<number, string> = { 1: "yellow", 4: "blue", 6: "purple" };
-  const kind: Record<string, Marker["kind"]> = { guardian: "t1", walker: "t2", base_guardian: "barracks", shrine: "shrine", patron: "t3" };
   for (const o of tl.objectives) {
     if (o.destroyed_s > t) continue;
-    // The pack's key when it has one; else the marker of the same kind, team and lane.
-    const m =
-      markers.find((x) => x.key === o.key) ??
-      markers.find((x) => x.kind === kind[o.kind] && x.team === o.team && (o.kind === "patron" || x.lane === laneColour[o.lane]));
-    if (m) down.add(m.key);
+    // The marker the key names; else the marker of the same kind, team and lane.
+    const key =
+      markerKey(o.key, markers) ?? markers.find((x) => x.kind === MARKER_KIND[o.kind] && x.team === o.team && x.lane === laneColour[o.lane])?.key;
+    if (key) down.add(key);
+  }
+  // A replay knows the mid boss's respawn (its camp timer); the metadata only its kills.
+  const boss = tl.camps?.find((c) => c.key.startsWith("mid_boss:"));
+  if (boss) {
+    if (campAt(boss, t).state !== "alive") for (const m of markers) if (m.kind === "midboss") down.add(m.key);
+    return down;
   }
   const kills = tl.mid_boss.map((b) => b.destroyed_s).sort((a, b) => a - b);
   const killed = kills.some((k, i) => k <= t && (kills[i + 1] === undefined || t < kills[i + 1]!));

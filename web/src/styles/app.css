@@ -386,3 +386,10 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .obj-hp-fill { stroke: #ffefd7; stroke-linecap: round; }
 .obj-hp-fill.low { stroke: #ff5656; }
 .obj-hp-stage { font: 700 11px var(--ui); fill: #ffefd7; paint-order: stroke; stroke: #000; stroke-width: 3px; text-anchor: middle; pointer-events: none; }
+
+/* Player, replay tier: jungle camps (player/Camps.tsx). Cleared is the board's own .down look;
+   not yet spawned is fainter still. The tooltip shows only on hover (a tap on the phone). */
+.mk[data-camp="unspawned"] { opacity: 0.28; filter: grayscale(1) brightness(0.5); }
+.camp-tip { pointer-events: none; }
+.camp-tip rect { fill: #0b1714e6; stroke: #ffffff33; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.camp-tip text { fill: #fff; text-anchor: middle; font-weight: 600; font-variant-numeric: tabular-nums; }

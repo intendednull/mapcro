@@ -10,7 +10,7 @@ import type { Marker } from "../map/model";
 import type { Slot } from "../board/state";
 import type { SceneRow } from "../board/scenes";
 import { clampToMap } from "../map/transform";
-import { type Timeline, clockLabel, downAt, playersAt, sitesAt, wavesAt } from "./timeline";
+import { type Timeline, clockLabel, downAt, lanesAt, playersAt, sitesAt } from "./timeline";
 
 export const slotKey = (team: string, slot: number) => `${team === "Amber" || team === "amber" ? "amber" : "sapphire"}-${slot}`;
 
@@ -29,7 +29,7 @@ export function matchSceneOps(
   current: SceneRow | undefined,
   tl: Timeline,
   t: number,
-  markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane">>,
+  markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane" | "at">>,
   mint: () => RecordId,
   lanes: string[] = [],
   opts: SceneOpts = {},
@@ -62,7 +62,8 @@ export function matchSceneOps(
     const isRift = key.startsWith("rift:");
     if ((isRift && status === "Active") || (!isRift && status === "Destroyed")) ops.push({ Create: { id: mint(), record: { ObjectiveState: { scene: id, key, status } } } });
   }
-  for (const [lane, w] of wavesAt(tl, second)) if (lanes.length === 0 || lanes.includes(lane)) ops.push({ Create: { id: mint(), record: { Wave: { scene: id, lane, t: w.t } } } });
+  // A scene has one split per lane: the middle of the zipline colours' gap (spec §6b).
+  for (const [lane, w] of lanesAt(tl, second)) if (lanes.length === 0 || lanes.includes(lane)) ops.push({ Create: { id: mint(), record: { Wave: { scene: id, lane, t: Math.round((w.amber + w.sapphire) / 2) } } } });
   if (opts.roster !== false) for (const c of rosterChanges(roster, tl)) ops.push({ Set: { id: c.id, value: { RosterHero: c.hero } } });
   return { id, ops, order };
 }
@@ -96,7 +97,7 @@ export function matchScenesOps(
   current: SceneRow | undefined,
   tl: Timeline,
   moments: Array<{ t: number; name: string }>,
-  markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane">>,
+  markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane" | "at">>,
   mint: () => RecordId,
   lanes: string[] = [],
 ): { ids: RecordId[]; ops: Op[]; groups: Op[][] } {

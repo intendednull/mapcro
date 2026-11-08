@@ -24,6 +24,7 @@ import { CloneDialog, JUST_CLONED } from "./CloneDialog";
 import type { MatchPreview } from "../match/preview";
 import { Highlight, ObjectiveHealth, Player, PlayerSide, PlayerSwitch, TrooperDots } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
+import { CampTips } from "../player/Camps";
 import { liveLayer } from "../player/layer";
 import { PlayerTopBar } from "../player/PlayerTopBar";
 import { Layers, calloutOrder } from "./Layers";
@@ -357,9 +358,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
     const mine = waveDrag();
     if (mine?.key === key) return mine.t;
     const lane = p.art.model.lanes.find((l) => l.key === key);
-    // Player shows only the match's splits (replay tier), never the scene's (spec §6b).
+    // Player shows only the match's lanes (replay tier: the zipline colours, drawn by `laneEdges`;
+    // this is their gap's middle), never the scene's (spec §6b).
     const pv = matchPreview();
-    if (pv) return pv.waves.get(key) ?? (lane ? defaultSplit(lane.line) : 500);
+    const edges = pv?.lanes.get(key);
+    if (pv) return edges ? (edges.amber + edges.sapphire) / 2 : lane ? defaultSplit(lane.line) : 500;
     return remoteSmooth().get(key)?.() ?? waves().get(key)?.t ?? (lane ? defaultSplit(lane.line) : 500);
   };
 
@@ -622,6 +625,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 return pv.down.has(k) ? "Destroyed" : "Active";
               }}
               waveT={splitOf}
+              laneEdges={(k) => matchPreview()?.lanes.get(k)}
+              camp={(k) => matchPreview()?.camps.get(k)?.state}
               raisedLane={waveDrag()?.key}
               picked={(k) => objSelection().has(k)}
               showHidden={state.canEdit()}
@@ -663,6 +668,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 onPan={(dx, dy) => userView({ ...view(), x: view().x - dx, y: view().y - dy }, "panned the map")}
                 onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
               />
+              <Show when={inPlayer()}>
+                <CampTips art={p.art} vp={viewpoint()} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
+              </Show>
               <Highlight at={inPlayer() ? player.ring() : undefined} vp={viewpoint()} />
             </MapView>
             {/* The phone has its own Flip in its tool strip: one control, one test id. */}

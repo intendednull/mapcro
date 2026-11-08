@@ -57,6 +57,8 @@ describe("player events", () => {
     const markers = modelFromFallback(FALLBACK).markers;
     expect(placeOf(ev[0]!, markers)).toEqual({ x: (100 + 10752) / 21504 * 1000, y: (10752 + 200) / 21504 * 1000 });
     expect(placeOf(ev[1]!, markers)).toEqual(markers.find((m) => m.key === "walker:sapphire:lane6:1")!.at);
+    // The metadata names the patron by Valve's lane; this board's marker is keyed lane0.
+    expect(placeOf({ t: 9, kind: "objective", key: "patron:sapphire:lane3:1" }, markers)).toEqual(markers.find((m) => m.key === "patron:sapphire:lane0:1")!.at);
     expect(sceneName(shortLabel(ev[0]!, n))).toBe("Infernus died");
     expect(sceneName("A very long hero name has died here")).toBe("A very long hero name h…");
     expect(sceneName("A very long hero name has died here").length).toBe(24);

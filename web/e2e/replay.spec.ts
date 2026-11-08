@@ -1,7 +1,7 @@
 // Match import's replay tier on the real server (spec §6a). An editor uploads a small fake
 // `.dem` with progress; the test plays the sandboxed worker (the on-disk queue is the contract;
 // a real demo can't be committed) and finishes the job with a synthetic replay timeline. The
-// panel swaps to the replay tier; scrubbing previews ults, rifts, powerups and lane waves; "Save
+// panel swaps to the replay tier; scrubbing previews ults, rifts, powerups and zipline colours; "Save
 // as scene" writes them all, and a second browser sees them.
 
 import { createServer } from "node:http";
@@ -64,10 +64,10 @@ function timeline() {
       { key: "powerup:neutral:lane1:1", available: range((s) => (s >= 80 && s < 110 ? 1 : 0)), stale: [] },
       { key: "powerup:neutral:lane6:1", available: range((s) => (s >= 80 ? 1 : 0)), stale: [[150, N + 1]] },
     ],
-    waves: [
-      { lane: "lane1", t: range((s) => (s < 30 ? null : 400 + s)), stale: [[0, 30]] },
-      { lane: "lane4", t: range((s) => 300 + 2 * s), stale: [] },
-      { lane: "lane6", t: range(() => 650), stale: [[100, 140]] },
+    zips: [
+      { lane: "lane1", at: [[0, 0, 1000], [30, 420, 620]] },
+      { lane: "lane4", at: [[0, 450, 550], [110, 500, 580]] },
+      { lane: "lane6", at: [[0, 600, 700]] },
     ],
   };
 }
@@ -90,7 +90,7 @@ async function scrubTo(p: Page, t: number) {
 const status = (p: Page, k: string) => p.locator(`.mapbox .mk[data-key="${k}"]`);
 const split = (p: Page, lane: string) => p.locator(`.mapbox g[data-key="${lane}"]`);
 
-test("upload a replay, scrub ults, rifts, powerups and waves, save them as a scene", async ({ browser }) => {
+test("upload a replay, scrub ults, rifts, powerups and zipline colours, save them as a scene", async ({ browser }) => {
   const url = await newBoardUrl(server, "Replay night");
   const a = await joinNew(browser, url, "Coach");
   const b = await joinNew(browser, url, "Marrow");
@@ -124,15 +124,15 @@ test("upload a replay, scrub ults, rifts, powerups and waves, save them as a sce
   await expect(status(a, "rift:neutral:lane6:1")).toHaveAttribute("data-status", "Active");
   await expect(status(a, "rift:neutral:lane1:1")).toHaveAttribute("data-status", "Destroyed");
   await expect(status(a, "powerup:neutral:lane1:1")).toHaveAttribute("data-status", "Active");
-  await expect(split(a, "lane4")).toHaveAttribute("data-t", "500");
-  await expect(split(a, "lane6")).toHaveAttribute("data-t", "650");
-  await expect(a.getByTestId("match-stale")).toHaveText("Waves held");
+  await expect(split(a, "lane4")).toHaveAttribute("data-amber", "450");
+  await expect(split(a, "lane4")).toHaveAttribute("data-sapphire", "550");
+  await expect(split(a, "lane6")).toHaveAttribute("data-amber", "600");
   await expect(status(b, "rift:neutral:lane6:1")).toHaveAttribute("data-status", "Destroyed");
 
   await scrubTo(a, 120);
   await expect(ult).toHaveAttribute("data-ult", "40");
   await expect(status(a, "powerup:neutral:lane1:1")).toHaveAttribute("data-status", "Destroyed");
-  await expect(a.getByTestId("match-stale")).toHaveText("Waves held");
+  await expect(split(a, "lane4")).toHaveAttribute("data-sapphire", "580");
   await a.screenshot({ path: "shots/match-replay.png" });
   await a.getByTestId("match-save").click();
   await a.getByTestId("mode-sandbox").click();
@@ -146,6 +146,7 @@ test("upload a replay, scrub ults, rifts, powerups and waves, save them as a sce
   await expect(status(b, "rift:neutral:lane6:1")).toHaveAttribute("data-status", "Active");
   await expect(status(b, "powerup:neutral:lane1:1")).toHaveAttribute("data-status", "Destroyed");
   await expect(status(b, "powerup:neutral:lane6:1")).toHaveAttribute("data-status", "Active");
+  // One split per lane in a scene: the middle of the zipline colours' gap.
   await expect(split(b, "lane4")).toHaveAttribute("data-t", "540");
   await expect(split(b, "lane1")).toHaveAttribute("data-t", "520");
   await expect(split(b, "lane6")).toHaveAttribute("data-t", "650");

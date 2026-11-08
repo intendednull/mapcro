@@ -74,7 +74,7 @@ test("the chip names the tier; an upload upgrades it in place, keeping the time,
   await expect(chip(a)).toHaveText("API summary");
   await expect(a.getByTestId("match-upload")).toHaveText("Upload replay file");
   await chip(a).click();
-  await expect(a.getByTestId("tier-why")).toHaveText("No health, ult timers, lane waves, rifts or powerups");
+  await expect(a.getByTestId("tier-why")).toHaveText("No health, ult timers, zipline colours, camps, rifts or powerups");
   await a.screenshot({ path: "shots/tier-api-summary.png" });
   await scrubTo(a, 300);
   const b = await joinNew(browser, url, "Marrow");

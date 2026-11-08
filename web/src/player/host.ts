@@ -3,7 +3,7 @@
 // board creates one; Player renders it; following reads and writes its playback.
 
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
-import { type MatchEvent, type Timeline, downAt, objectiveHealthAt, playersAt, sitesAt, wavesAt } from "../match/timeline";
+import { type CampAt, type MatchEvent, type Timeline, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, sitesAt } from "../match/timeline";
 import type { MatchPreview } from "../match/preview";
 import { slotKey } from "../match/save";
 import type { Marker } from "../map/model";
@@ -292,14 +292,24 @@ export function createPlayerHost(board: string, token: string) {
     mirror,
     forget,
     /** The match at playback time t as the board draws it; empty with no timeline (finding 7). */
-    preview: (markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane">>): MatchPreview => {
+    preview: (markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane" | "at">>): MatchPreview => {
       const m = tl();
-      if (!m) return { players: new Map(), down: new Set(), sites: new Map(), waves: new Map() };
+      if (!m) return { players: new Map(), down: new Set(), sites: new Map(), lanes: new Map(), camps: new Map() };
       const at = t();
       const health = showHealth() && m.tier === "replay";
       const players = new Map(playersAt(m, at).map((x) => [slotKey(x.team, x.slot), { hero: x.hero_id, pos: x.pos, health: health ? x.health : null }]));
-      const waves = new Map([...wavesAt(m, at)].map(([k, w]) => [k, w.t]));
-      return { players, down: downAt(m, at, markers), sites: sitesAt(m, at, markers), waves, ...(health ? { health: objectiveHealthAt(m, at) } : {}) };
+      // Everything by the board's marker keys: a pack can key a site differently from the
+      // timeline (match/timeline.ts `markerKey`).
+      const byMarker = <V,>(src: Map<string, V>) => {
+        const out = new Map<string, V>();
+        for (const [k, v] of src) {
+          const key = markerKey(k, markers);
+          if (key) out.set(key, v);
+        }
+        return out;
+      };
+      const camps: Map<string, CampAt> = byMarker(campsAt(m, at));
+      return { players, down: downAt(m, at, markers), sites: sitesAt(m, at, markers), lanes: lanesAt(m, at), camps, ...(health ? { health: byMarker(objectiveHealthAt(m, at)) } : {}) };
     },
   };
 }

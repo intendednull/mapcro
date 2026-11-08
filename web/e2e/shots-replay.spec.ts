@@ -37,5 +37,18 @@ test("a real replay at a few moments", async ({ browser }) => {
     }, t);
     await a.waitForTimeout(300);
     await a.screenshot({ path: `shots/replay-real-${t}.png` });
+    // What the map draws for each lane's zipline colours, to check against the parse.
+    const lanes = await a.locator("[data-testid=map] svg.lanes g[data-key]").evaluateAll((gs) => gs.map((g) => `${g.getAttribute("data-key")} ${g.getAttribute("data-amber")}-${g.getAttribute("data-sapphire")}`));
+    console.log(`${t}s lanes: ${lanes.join(", ")}`);
+    // A cleared camp's tooltip, on hover.
+    const cleared = a.locator('[data-testid=map] .mk[data-camp="cleared"]').first();
+    if (await cleared.count()) {
+      const b = (await cleared.boundingBox())!;
+      await a.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+      await expect(a.getByTestId("camp-tip")).toBeVisible();
+      console.log(`${t}s ${await cleared.getAttribute("data-key")}: ${await a.getByTestId("camp-tip").textContent()}`);
+      await a.locator("[data-testid=map]").screenshot({ path: `shots/replay-real-${t}-camp.png` });
+      await a.mouse.move(5, 5);
+    }
   }
 });

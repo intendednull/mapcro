@@ -6,7 +6,7 @@ import { For, type JSX, Show, createEffect, createMemo, createSignal, onCleanup,
 import { cx } from "../ui/cx";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import { type Marker, HUD_MAP_PX, isFriendly, laneStroke, washFor } from "./model";
-import { defaultSplit, pathOf, splitAt } from "./lanes";
+import { defaultSplit, pathOf, splitAt, splitEdges } from "./lanes";
 import { type Art, artCss } from "./pack";
 import { FIT_VIEW, MARGIN, type Viewpoint } from "./transform";
 
@@ -26,7 +26,7 @@ function Fb(p: { shape: string; color: string; k: number; part?: string }) {
   return <b class={cx("fb", p.shape, p.part)} style={{ "--c": p.color, "--k": String(p.k) }} />;
 }
 
-function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | undefined; picked: boolean }) {
+function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | undefined; picked: boolean; camp?: string | undefined }) {
   const c = () => washFor(p.m, p.vp);
   const body = () => {
     const m = p.m;
@@ -68,6 +68,7 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
       data-status={p.status ?? "Active"}
       title={p.m.title}
       data-key={p.m.key}
+      data-camp={p.camp}
       style={{
         left: `${p.m.at.x / 10}%`,
         top: `${p.m.at.y / 10}%`,
@@ -84,17 +85,24 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
 /** Gap at the split, in map units of arc length: the contested zone between the waves. */
 export const LANE_GAP = 12;
 
-function Lanes(p: { art: Art; vp: Viewpoint; waveT: ((lane: string) => number | undefined) | undefined; raised: string | undefined }) {
+type Edges = { amber: number; sapphire: number };
+
+function Lanes(p: { art: Art; vp: Viewpoint; waveT: ((lane: string) => number | undefined) | undefined; edges: ((lane: string) => Edges | undefined) | undefined; raised: string | undefined }) {
   // Each lane is drawn in two colours split where its waves meet (`Wave.t`; by default where it
-  // crosses the centre line): Amber's part from its end, Sapphire's from theirs.
+  // crosses the centre line): Amber's part from its end, Sapphire's from theirs. A replay gives
+  // the zipline colours' two edges instead, with the gap between left uncoloured.
   return (
     <svg class="lanes" viewBox="0 0 1000 1000" aria-hidden="true">
       <For each={p.art.model.lanes}>
         {(l) => {
-          const t = () => p.waveT?.(l.key) ?? defaultSplit(l.line);
-          const halves = () => splitAt(l.line, t(), LANE_GAP);
+          const edges = () => p.edges?.(l.key);
+          const t = () => (edges() ? undefined : (p.waveT?.(l.key) ?? defaultSplit(l.line)));
+          const halves = () => {
+            const e = edges();
+            return e ? splitEdges(l.line, e.amber, e.sapphire, LANE_GAP) : splitAt(l.line, t()!, LANE_GAP);
+          };
           return (
-            <g data-lane={l.lane} data-key={l.key} data-t={t()} class={cx(p.raised === l.key && "raised")}>
+            <g data-lane={l.lane} data-key={l.key} data-t={t()} data-amber={edges()?.amber} data-sapphire={edges()?.sapphire} class={cx(p.raised === l.key && "raised")}>
               <path d={pathOf(halves().amber)} stroke={laneStroke(l.lane, "amber", p.vp)} data-half="amber" />
               <path d={pathOf(halves().sapphire)} stroke={laneStroke(l.lane, "sapphire", p.vp)} data-half="sapphire" />
             </g>
@@ -144,6 +152,10 @@ export function MapView(p: {
   raisedLane?: string | undefined;
   /** Objectives in your group selection. */
   picked?: (key: string) => boolean;
+  /** Player, replay tier: a lane's zipline colours, which replace its split. */
+  laneEdges?: (lane: string) => Edges | undefined;
+  /** Player, replay tier: a camp's state ("alive", "cleared", "unspawned"), as `data-camp`. */
+  camp?: (key: string) => string | undefined;
 }) {
   useArtCss(() => p.art);
   let host!: HTMLDivElement;
@@ -206,7 +218,7 @@ export function MapView(p: {
           <div class="mm-rot">
             <i class="terrain" data-pimg="terrain-mid" />
             <i class="mm-shade" />
-            <Lanes art={p.art} vp={p.viewpoint} waveT={p.waveT} raised={p.raisedLane} />
+            <Lanes art={p.art} vp={p.viewpoint} waveT={p.waveT} edges={p.laneEdges} raised={p.raisedLane} />
             <div class="mm-objs">
               <For each={markers().filter((m) => p.showHidden || p.status?.(m.key) !== "Hidden")}>
                 {(m) => (
@@ -216,6 +228,7 @@ export function MapView(p: {
                     // A rift is off unless someone turned it on; everything else is up unless destroyed.
                     status={m.kind === "koth" ? (p.status?.(m.key) === "Active" ? "Active" : "Destroyed") : p.status?.(m.key)}
                     picked={!!p.picked?.(m.key)}
+                    camp={p.camp?.(m.key)}
                   />
                 )}
               </For>
