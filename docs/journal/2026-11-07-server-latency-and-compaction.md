@@ -75,3 +75,76 @@ commit" passed it twice:
 Now the mutation fails: after the restart, a client holds acks for entries the server never
 wrote, and it's refused as ahead of the log. A second test, from per-commit sizes the feature
 records, shows 306 engine messages going into 9 commits. Capping batches at one message fails it.
+
+## 3. Snapshots and compaction (H3)
+
+The real fix for unbounded history. Until now the log was the board's whole history; the caps
+stopped a board growing, at the price of a board that eventually fills.
+
+**The protocol change, modelled first.** Fresh joins already start from a snapshot. The hard
+case is a client *with* a copy whose `last_seq` is below what the server still keeps: its catch-up
+is gone, and it may hold pending transactions that the server already applied (it just never
+heard the acks). Adopting a base naively leaves those pending for ever, since their acks are
+before the base. The answer is `Rebase { doc, seq, decided_below }`:
+- the board now, and its log position;
+- the client's oldest transaction the server hasn't decided.
+
+The client adopts the board and drops its pending work below `decided_below`. Each of those is
+in the board, or was refused, and its rejection came just before. It keeps the rest on top.
+
+In `model/sync.qnt`:
+- `compact` raises a floor (once per run).
+- A hello from below the floor must get a rebase; one from above may get one either way.
+- `decided_below` is computed from what the server logged or refused.
+
+All seven properties held over 200,000 samples each. A variant where the client keeps its decided
+work (`rebaseKeepsDecided.qnt`) fails `acksInOrder` in 67 ms. TLC at the reduced bounds:
+
+- At 2 transactions per client, with 1 drop, 1 fresh reload and 1 compaction, it explored
+  **38,977,061 distinct states with no violation**. I stopped it with 14.7 million still queued:
+  each hello now branches on catch-up or rebase, and it was holding 4 cores of a shared machine.
+- With fresh reloads off (their path was checked exhaustively at the same bounds earlier, 17.2
+  million states), the run was exhaustive: **14,917,578 distinct states (75.1 million
+  generated), depth 24, no error**, in 7 m 36 s on 4 workers. That's every interleaving of
+  compaction and rebases with edits, undos, drops, reconnects and rejections at that size.
+
+**Engine and sim.**
+- The authority keeps a floor and rebuilds from a snapshot plus each client's kept next cseq.
+- Its quota counts only what's kept.
+- The replica adopts a rebase.
+- The sim compacts at random (1,550 times in 1,000 seeds, 4,107 rebases) and restarts from its
+  stored base.
+- Three sim mutations each fail a seed:
+  - the replica keeping decided work: "acknowledgement for cseq 2 but the oldest pending is 0";
+  - `decided_below + 1`: "transaction #2 vanished";
+  - `decided_below − 1`: an ack mismatch.
+
+**Server.**
+- *When:* after a commit, once 10,000 entries have been logged since the base, or the kept bytes
+  reach half the quota.
+- *What:* the room writes the board as the new base and keeps the newest 2,000 entries (and a
+  quarter of the byte quota) for catch-up, in one transaction.
+- *Kept across it:* each client's next expected cseq goes in a new `client_seqs` table (schema v5).
+  Without it, a resend of a compacted transaction would look new.
+- *Loads:* a cold load replays from the base.
+- *Rebase frames:* they go outside the outbox's byte cap. A board-sized frame would otherwise get
+  the client dropped as too slow on every reconnect.
+- *Config:* `BOARD_COMPACT_OPS` and `BOARD_KEEP_OPS` are read in room.rs, because config.rs had
+  another agent's work in progress.
+
+**Tests.**
+- `compaction_keeps_history_bounded_and_old_copies_rebase`, with compaction every 40 entries and a
+  10-entry tail:
+  1. Client A's five edits land, but it leaves without hearing an ack.
+  2. B makes 100 more.
+  3. The database holds the base at 105 and only entries 96–105.
+  4. After a restart, A comes back from seq 0, is rebased, and the log has exactly 105 entries,
+     then 107 after A's next two edits.
+  - Three mutations fail it. Dropping `client_seqs` when writing or when loading lands A's five
+    edits twice (110). Serving catch-up below the floor breaks on the missing rows.
+- The web session test: a tab with a stored copy at seq 0 and two unsent edits reloads after
+  compaction, is rebased through the WASM replica, and its edits land once.
+
+**Caps.** `BOARD_MAX_OPS` and `BOARD_MAX_BYTES` now count what's kept since the floor. Compaction
+holds that to about 12,000 entries and under half the byte quota, so `BoardFull` no longer
+happens in use. The caps stay as a backstop for cold-load time.
