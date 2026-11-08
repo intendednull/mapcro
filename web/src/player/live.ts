@@ -9,6 +9,7 @@
 import type { Op } from "../gen/Op";
 import type { RecordId } from "../gen/RecordId";
 import type { Slot } from "../board/state";
+import { LIMITS } from "../gen/limits";
 
 /** The annotation kinds a saved scene takes over from the live layer. */
 export const ANNOTATIONS = ["Stroke", "Arrow", "Callout"] as const;
@@ -103,4 +104,4 @@ export function chunks(groups: Op[][], cap: number): Op[][] {
 }
 
 /** The schema's per-transaction op cap (crates/schema/src/validate.rs `max_ops_per_tx`). */
-export const MAX_OPS_PER_TX = 256;
+export const MAX_OPS_PER_TX = LIMITS.max_ops_per_tx;

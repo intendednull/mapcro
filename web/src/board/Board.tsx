@@ -42,6 +42,7 @@ import { Palette } from "./Palette";
 import { isUnnamed, sceneName } from "./scenes";
 import { smoothed } from "./smooth";
 import type { Tool } from "./tools";
+import { LIMITS } from "../gen/limits";
 
 
 function SaveStatus(p: { state: ReturnType<typeof createBoardState>; rejected: Reject | undefined; dismiss: () => void }) {
@@ -264,7 +265,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const clearIds = (what: ClearKind) =>
     what === "ink" ? inkIds() : what === "arrows" ? arrowIds() : what === "comments" ? commentIds() : [...inkIds(), ...arrowIds(), ...commentIds()];
   /** The schema's cap on ops per transaction (`LIMITS.max_ops_per_tx`). */
-  const MAX_OPS_PER_TX = 256;
+  const MAX_OPS_PER_TX = LIMITS.max_ops_per_tx;
   const CLEARED: Record<ClearKind, string> = { ink: "Ink cleared", arrows: "Arrows cleared", comments: "Comments cleared", all: "Scene cleared" };
   const objectives = createMemo(() => {
     const m = new Map<string, { id: RecordId; status: ObjectiveStatus }>();
@@ -798,7 +799,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                   editable={state.canEdit()}
                   value={isUnnamed(scene()?.scene.name ?? "") ? "" : scene()!.scene.name}
                   placeholder={`Scene ${sceneIndex() + 1}`}
-                  maxLength={24}
+                  maxLength={LIMITS.max_name}
                   onEditing={(on) => state.presence({ focus: on ? (scene()?.id ?? null) : null })}
                   onCommit={(t) => {
                     const s = scene();
@@ -948,7 +949,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 class="note note-edit"
                 data-testid="scene-note-edit"
                 aria-label="Scene note"
-                maxLength={4000}
+                maxLength={LIMITS.max_note}
                 value={noteDraft() ?? note()?.text ?? ""}
                 onFocus={() => state.presence({ focus: noteFocus() })}
                 onInput={(e) => setNoteDraft(e.currentTarget.value)}

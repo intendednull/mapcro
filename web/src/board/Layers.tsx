@@ -40,10 +40,11 @@ import type { BoardState } from "./state";
 import type { Tool } from "./tools";
 import { NameTag, Tokens, svgPoint } from "./Tokens";
 import { Cursors } from "./Presence";
+import { LIMITS } from "../gen/limits";
 
 export const INK_WIDTH = 60; // tenths: 6 map units, the design's ink
-const MAX_STROKE_POINTS = 512;
-const MAX_CALLOUT = 80;
+const MAX_STROKE_POINTS = LIMITS.max_stroke_points;
+const MAX_CALLOUT = LIMITS.max_callout;
 
 type Rec<T> = { id: RecordId; r: T };
 

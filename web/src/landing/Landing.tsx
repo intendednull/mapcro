@@ -7,6 +7,7 @@ import { knownBoards, rememberBoard } from "../core/device";
 import { Wordmark } from "../ui/Wordmark";
 import { FRESH_BOARD } from "../board/roster";
 import { Api as PlayerApi, modeRefusal } from "../player/api";
+import { LIMITS } from "../gen/limits";
 
 export function Landing() {
   const [title, setTitle] = createSignal("");
@@ -107,7 +108,7 @@ export function Landing() {
           <input
             class="input big"
             placeholder="Board title"
-            maxLength={80}
+            maxLength={LIMITS.max_title}
             value={title()}
             onInput={(e) => setTitle(e.currentTarget.value)}
             aria-label="Board title"

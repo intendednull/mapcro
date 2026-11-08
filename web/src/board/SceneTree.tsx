@@ -17,6 +17,7 @@ import { cx } from "../ui/cx";
 import { addSceneOps, deleteSceneOps, isUnnamed, moveSceneOps } from "./scenes";
 import type { BoardState } from "./state";
 import { visibleRows } from "./tree";
+import { LIMITS } from "../gen/limits";
 
 function Mini(p: { state: BoardState; art: Art; vp: Viewpoint; scene: RecordId }) {
   const slots = () => new Map(p.state.roster().map((s) => [s.id, s.slot.team]));
@@ -256,7 +257,7 @@ export function SceneTree(p: {
                       value={isUnnamed(s().scene.name) ? "" : s().scene.name}
                       placeholder={`Scene ${no()}`}
                       editable={p.state.canEdit() && renaming() === s().id}
-                      maxLength={64}
+                      maxLength={LIMITS.max_name}
                       label="Scene name"
                       testid="scene-row-name"
                       bindOpen={(o) => (openName = o)}

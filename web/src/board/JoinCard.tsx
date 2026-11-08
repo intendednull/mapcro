@@ -4,8 +4,9 @@
 import { For, Show, createSignal, onMount } from "solid-js";
 import { type Me, PALETTE } from "../core/device";
 import { Wordmark } from "../ui/Wordmark";
+import { LIMITS } from "../gen/limits";
 
-export const MAX_NAME = 24;
+export const MAX_NAME = LIMITS.max_name;
 
 export function JoinCard(p: { title: string; others: string[]; initial: Me | undefined; onJoin: (m: Me) => void }) {
   const [name, setName] = createSignal(p.initial?.name ?? "");

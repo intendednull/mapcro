@@ -11,6 +11,7 @@ import type { Slot } from "../board/state";
 import type { SceneRow } from "../board/scenes";
 import { clampToMap } from "../map/transform";
 import { type Timeline, clockLabel, downAt, lanesAt, playersAt, sitesAt } from "./timeline";
+import { LIMITS } from "../gen/limits";
 
 export const slotKey = (team: string, slot: number) => `${team === "Amber" || team === "amber" ? "amber" : "sapphire"}-${slot}`;
 
@@ -84,7 +85,7 @@ export interface SceneOpts {
  * the time (operator, 2026-11-08); within the schema's 24 characters.
  */
 export function sceneName(label: string, _second?: number): string {
-  return label.length > 24 ? `${label.slice(0, 23)}…` : label;
+  return label.length > LIMITS.max_name ? `${label.slice(0, LIMITS.max_name - 1)}…` : label;
 }
 
 /**

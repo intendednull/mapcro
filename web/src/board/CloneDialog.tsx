@@ -4,13 +4,14 @@
 import { createSignal, onMount } from "solid-js";
 import { Api, shareUrl } from "../core/api";
 import { markJoined, rememberBoard } from "../core/device";
+import { LIMITS } from "../gen/limits";
 
 const Ico = (p: { d: string }) => <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" innerHTML={p.d} />;
 
 export const JUST_CLONED = "mapcro.justCloned";
 
 export function CloneDialog(p: { board: string; token: string; title: string; onClose: () => void }) {
-  const [title, setTitle] = createSignal(`${p.title} (copy)`.slice(0, 80));
+  const [title, setTitle] = createSignal(`${p.title} (copy)`.slice(0, LIMITS.max_title));
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal("");
   let input!: HTMLInputElement;
@@ -41,7 +42,7 @@ export function CloneDialog(p: { board: string; token: string; title: string; on
         <div class="body">
           <div class="field">
             <label for="clone-title">Title</label>
-            <input ref={input} id="clone-title" class="input" maxLength={80} value={title()} onInput={(e) => setTitle(e.currentTarget.value)} />
+            <input ref={input} id="clone-title" class="input" maxLength={LIMITS.max_title} value={title()} onInput={(e) => setTitle(e.currentTarget.value)} />
           </div>
           {error() && <p class="error">{error()}</p>}
         </div>

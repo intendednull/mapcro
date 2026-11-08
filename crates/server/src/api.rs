@@ -180,7 +180,7 @@ pub async fn mint_link(
     if body.role == LinkRole::Owner {
         return err(StatusCode::BAD_REQUEST, "owner links cannot be minted");
     }
-    let Some(label) = clean_label(&body.label, 40) else {
+    let Some(label) = clean_label(&body.label, mapcro_schema::LIMITS.max_label) else {
         return err(StatusCode::BAD_REQUEST, "invalid label");
     };
     let token = links::new_token();

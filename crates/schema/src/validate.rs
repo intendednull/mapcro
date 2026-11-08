@@ -16,6 +16,8 @@ pub struct Limits {
     pub max_title: usize,
     pub max_callout: usize,
     pub max_note: usize,
+    /// A share link's label (the server's, not the document's).
+    pub max_label: usize,
     pub max_stroke_points: usize,
     /// World coordinates are clamped to ±this (the map radius is ~10,752 units).
     pub max_coord: i32,
@@ -45,6 +47,7 @@ pub const LIMITS: Limits = Limits {
     max_title: 80,
     max_callout: 80,
     max_note: 4000,
+    max_label: 40,
     max_stroke_points: 512,
     max_coord: 16384,
     max_tx_bytes: 64 * 1024,
@@ -52,6 +55,51 @@ pub const LIMITS: Limits = Limits {
 
 // Every legal op fits in a transaction on its own.
 const _: () = assert!(LIMITS.max_op_bytes() <= LIMITS.max_tx_bytes);
+
+impl Limits {
+    /// These limits as a TypeScript module, `web/src/gen/limits.ts` (`just ts` writes it), so
+    /// every text input caps itself at what the server accepts (QA 2026-11-08: a scene rename
+    /// took 64 characters against 24, and the server dropped it as "Text too long").
+    pub fn to_ts(&self) -> String {
+        let fields = [
+            ("max_ops_per_tx", self.max_ops_per_tx),
+            ("max_records", self.max_records),
+            ("max_scenes", self.max_scenes),
+            ("max_name", self.max_name),
+            ("max_title", self.max_title),
+            ("max_callout", self.max_callout),
+            ("max_note", self.max_note),
+            ("max_label", self.max_label),
+            ("max_stroke_points", self.max_stroke_points),
+            ("max_tx_bytes", self.max_tx_bytes),
+        ];
+        let mut out = String::from("// Generated from crates/schema/src/validate.rs `LIMITS` by `just ts`. Do not edit.\n\n/** The schema's limits, in characters (Unicode scalar values) where they're text. */\nexport const LIMITS = {\n");
+        for (k, v) in fields {
+            out.push_str(&format!("  {k}: {v},\n"));
+        }
+        out.push_str(&format!("  max_coord: {},\n}} as const;\n", self.max_coord));
+        out
+    }
+}
+
+#[cfg(test)]
+mod limits_ts {
+    use super::LIMITS;
+    const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../web/src/gen/limits.ts");
+
+    #[cfg(feature = "ts")]
+    #[test]
+    fn export_bindings_limits() {
+        std::fs::create_dir_all(std::path::Path::new(PATH).parent().expect("dir")).expect("gen dir");
+        std::fs::write(PATH, LIMITS.to_ts()).expect("write limits.ts");
+    }
+
+    #[cfg(not(feature = "ts"))]
+    #[test]
+    fn the_web_client_has_these_limits() {
+        assert_eq!(std::fs::read_to_string(PATH).expect("web/src/gen/limits.ts"), LIMITS.to_ts(), "stale: run `just ts`");
+    }
+}
 
 /// Why a transaction was refused. Typed so the client can explain it and tests can assert it.
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]

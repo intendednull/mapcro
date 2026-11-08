@@ -6,6 +6,7 @@ import { For, Show, createResource, createSignal, onMount } from "solid-js";
 import { Api, shareUrl } from "../core/api";
 import { cx } from "../ui/cx";
 import { linkIdOf, linkTree, mintedTokens, rememberMinted } from "./share";
+import { LIMITS } from "../gen/limits";
 
 const X = '<path d="M6 6l12 12M18 6L6 18"/>';
 const KEY_ICO = '<circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2 2M14 9l2 2"/>';
@@ -75,7 +76,7 @@ export function ShareDialog(p: { board: string; token: string; role: "owner" | "
                 ref={input}
                 id="mint-label"
                 class="input"
-                maxLength={40}
+                maxLength={LIMITS.max_label}
                 value={label()}
                 onInput={(e) => setLabel(e.currentTarget.value)}
               />

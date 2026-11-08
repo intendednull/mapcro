@@ -88,6 +88,15 @@ test("nest, reorder and collapse scenes; everyone sees the same tree; ← → wa
   await a.getByTestId("scene-row-name-input").fill("Bridge fight");
   await a.keyboard.press("Enter");
   await expect.poll(() => tree(b)).toEqual(["Early@0", "Bridge fight@1", "Rotate@1", "Late@2"]);
+  // A rename stops at the schema's 24 characters as you type, so the server takes it (QA
+  // 2026-11-08: the row took 64, and the server dropped the rename as "Text too long").
+  await rows(a).filter({ hasText: "Bridge fight" }).locator(".name").dblclick();
+  await a.getByTestId("scene-row-name-input").fill("");
+  await a.getByTestId("scene-row-name-input").pressSequentially("Bridge fight, mid boss pit rotation");
+  await expect(a.getByTestId("scene-row-name-input")).toHaveValue("Bridge fight, mid boss p");
+  await a.keyboard.press("Enter");
+  await expect.poll(() => tree(b)).toEqual(["Early@0", "Bridge fight, mid boss p@1", "Rotate@1", "Late@2"]);
+  await expect(a.getByTestId("dismiss-rejection")).toHaveCount(0);
 
   // A hover shows the scene's minimap.
   await rows(a).filter({ hasText: "Late" }).hover();
