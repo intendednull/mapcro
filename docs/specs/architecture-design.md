@@ -331,7 +331,21 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   snapshot. (Measured: a room over 8 MB of history grew the server by 3.5 MB, against 11.6 MB when
   it held the log.)
 - **Durable before ack.** A transaction is committed to `ops` before the client hears "accepted".
-  Commits are grouped per event-loop tick, so throughput doesn't cost durability.
+  **Commits are grouped:** the room applies a submit or hello, and every engine message already
+  queued behind it, in memory, writes all their effects in one SQLite transaction (one fsync),
+  and only then sends anything any of them produced: acks, broadcasts, rejections, catch-up
+  ranges. Nothing waits to fill a batch. At low load a batch is one message; under load it's
+  whatever queued during the last fsync, up to 256. A batch stops at the first other command (a
+  join, a clone's snapshot, a revoke, presence), which runs after the commit, so a fresh join's
+  snapshot or a catch-up range never includes anything that isn't on disk. Measured: 1000
+  transactions from 4 writers, each waiting for its acks, took 3.3 s before and 0.06 s after,
+  and server CPU per transaction fell from ~500 µs to ~40 µs.
+  - **Crash points prove it.** A test-only feature (`--features failpoints`, never in a release
+    build) aborts the server just before a commit or just after one, before its acks go out. It
+    first waits 200 ms, as a slow fsync would, so an early ack would have time to land. The system
+    tests kill the server mid-burst at each point, then check that every edit is in the log
+    exactly once. A server that acked before committing fails it: after the restart its clients
+    hold entries the log doesn't have.
 - **Snapshots:** after 500 ops, or when a room goes idle, the server writes a full snapshot.
   Ops older than the retention window (30 days, tunable) are pruned down to the snapshot boundary.
 - **Tombstones:** deleted ids stay tombstoned while the retention window lasts, so offline clients

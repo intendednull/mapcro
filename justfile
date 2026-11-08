@@ -34,6 +34,8 @@ model-trace invariant="noClobber" seed="0x345c":
 # Everyday tests: unit tests plus 1,000 simulation seeds.
 test:
     cargo test -q --workspace
+    # Crash points between a commit and its acks (test-only feature; never in a release build).
+    cargo test -q -p mapcro-server --features failpoints --test system -- a_crash_between transactions_arriving
     cargo run -q --release -p mapcro-sim -- --seeds 1000
 
 # Train a storage dictionary from 300 simulation seeds (deterministic: same seeds, same bytes).
