@@ -98,6 +98,8 @@ test("on a phone every control is reachable and the scrubber has a row of its ow
     const hit = await phone.evaluate(([x, y]) => document.elementFromPoint(x!, y!)?.closest("[data-testid]")?.getAttribute("data-testid"), [b.x + b.width / 2, b.y + b.height / 2]);
     expect(hit, id).toBe(id);
   }
+  // The Look/Laser toolbar sits under the map, not over it (QA 2026-11-08: it hid Amber's base).
+  expect(overlap(await box(phone.locator(".p-tools")), await box(phone.locator(".p-map").first()))).toBe(false);
   await phone.screenshot({ path: "shots/dock-phone-match.png", fullPage: true });
   await phone.getByTestId("mode-sandbox").tap();
   await expect(phone.getByTestId("player")).toHaveAttribute("data-state", "scene");

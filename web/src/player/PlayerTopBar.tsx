@@ -134,10 +134,12 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
     </div>
   );
 
+  /** Any player names to show: the bar then keeps room for them under it (QA 2026-11-08). */
+  const named = () => !!p.host.tl()?.players.some((q) => q.name);
   return (
     <div
       ref={el}
-      class={cx("tb-host", "pl-topbar", p.art.images.has("tb-mask") && "pack-art", p.compact && "compact")}
+      class={cx("tb-host", "pl-topbar", p.art.images.has("tb-mask") && "pack-art", p.compact && "compact", named() && "named")}
       style={{ "--u": `${unit()}px` }}
       data-testid="topbar"
       data-mode="player"

@@ -61,6 +61,15 @@ const misfits = (p: Page) =>
       const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       if (!hit || !(el === hit || el.contains(hit))) out.push(`${name} covered by ${hit?.className || hit?.tagName}`);
     }
+    // The scrubber's scene marks overlap nothing but the scrubber (QA: they sat on the tier chip).
+    for (const m of bar.querySelectorAll<HTMLElement>(".pl-mark")) {
+      const r = m.getBoundingClientRect();
+      for (const el of controls) {
+        if (el.dataset.testid === "match-time") continue;
+        const o = el.getBoundingClientRect();
+        if (r.left < o.right && o.left < r.right && r.top < o.bottom && o.top < r.bottom) out.push(`a scene mark overlaps ${el.dataset.testid ?? el.className}`);
+      }
+    }
     return { out, n: controls.length };
   });
 
@@ -94,6 +103,7 @@ for (const [w, h] of [[1280, 768], [1440, 900], [1920, 1080]] as const) {
     await expect(a.getByTestId("match-play")).toHaveText("Pause");
     await check("playing-8x");
     await a.getByTestId("match-play").click();
+    // Scenes saved early in the match put their marks under the head row's tier chip.
     for (const t of [60, 300, 540]) {
       await a.getByTestId("match-time").evaluate((el, t) => {
         (el as HTMLInputElement).value = String(t);

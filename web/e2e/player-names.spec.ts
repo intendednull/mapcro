@@ -54,6 +54,16 @@ test("names show by their heroes: top bar, roster, events", async ({ browser }) 
   // Slot order: the server sorts each team by player slot (1–6 Amber, 7–12 Sapphire).
   await expect(a.locator('.tb-player[data-slot="Amber-0"] [data-testid=tb-name]')).toHaveText("Coach");
   await expect(a.locator('.tb-player[data-slot="Sapphire-5"] [data-testid=tb-name]')).toHaveText("Moss");
+  // The names sit under the bar, never under the map (QA 2026-11-08: the map's disc covered them).
+  const covered = await a.evaluate(() => {
+    const map = document.querySelector(".stage .mapfit")!;
+    const top = map.getBoundingClientRect().top;
+    return [...document.querySelectorAll("[data-testid=tb-name]")].filter((n) => {
+      const r = n.getBoundingClientRect();
+      return r.bottom > top || map.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+    }).map((n) => n.textContent);
+  });
+  expect(covered).toEqual([]);
   await a.getByTestId("events-search").fill("juno");
   await expect(a.getByTestId("event").first()).toContainText("Juno");
   await a.getByTestId("events-search").fill("");
