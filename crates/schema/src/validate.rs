@@ -141,6 +141,8 @@ fn check_value(v: &FieldValue) -> Result<(), Reject> {
         V::SceneClock(c) => if c.is_none_or(|c| c <= 4 * 3600) { Ok(()) } else { Err(Reject::OutOfBounds) },
         V::PlayerSouls(n) => if n.is_none_or(|n| n <= 1_000_000) { Ok(()) } else { Err(Reject::OutOfBounds) },
         V::PlayerUltCooldown(p) => if p.is_none_or(|p| p <= 100) { Ok(()) } else { Err(Reject::OutOfBounds) },
+        // A respawn timer up to ten minutes.
+        V::PlayerRespawn(s) => if s.is_none_or(|s| s <= 600) { Ok(()) } else { Err(Reject::OutOfBounds) },
         V::RosterHero(_) | V::PlayerAlive(_) | V::PlayerPlaced(_) | V::PlayerVisible(_) | V::ObjectiveStatus(_) | V::ArrowTeam(_) => Ok(()),
     }
 }
@@ -165,6 +167,7 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
             }
             check_value(&FieldValue::PlayerSouls(p.souls))?;
             check_value(&FieldValue::PlayerUltCooldown(p.ult_cooldown))?;
+            check_value(&FieldValue::PlayerRespawn(p.respawn))?;
             check_pos(p.pos)
         }
         Record::ObjectiveState(o) => {

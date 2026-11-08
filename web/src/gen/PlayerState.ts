@@ -17,4 +17,10 @@ ult_cooldown: number | null,
  * Whether the team has vision on this hero. Without it the board shows a ghost at the
  * last known position. Older records load as visible.
  */
-visible: boolean, };
+visible: boolean, 
+/**
+ * Seconds until a dead hero respawns, as the coach sets it by hand (the game's timer
+ * depends on too much to compute). `None`: no timer shown. Older records load without one.
+ * Optional in TypeScript, so clients that never set it can leave it out.
+ */
+respawn?: number | null, };

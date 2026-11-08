@@ -25,6 +25,9 @@ pub enum ObjectiveStatus {
     Active,
     Destroyed,
     Hidden,
+    /// A two-stage objective (the Patron) with its first stage down: the shield is gone and
+    /// the core fights on. Other objectives never take it.
+    Stage2,
 }
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -72,6 +75,12 @@ pub struct PlayerState {
     /// last known position. Older records load as visible.
     #[serde(default = "visible_by_default")]
     pub visible: bool,
+    /// Seconds until a dead hero respawns, as the coach sets it by hand (the game's timer
+    /// depends on too much to compute). `None`: no timer shown. Older records load without one.
+    /// Optional in TypeScript, so clients that never set it can leave it out.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub respawn: Option<u16>,
 }
 
 fn visible_by_default() -> bool {
@@ -86,7 +95,7 @@ impl PlayerState {
             Team::Amber => -8000,
             Team::Sapphire => 8000,
         };
-        PlayerState { scene, slot, pos: WorldPos { x, y }, alive: true, placed: true, souls: None, ult_cooldown: None, visible: true }
+        PlayerState { scene, slot, pos: WorldPos { x, y }, alive: true, placed: true, souls: None, ult_cooldown: None, visible: true, respawn: None }
     }
 }
 
@@ -197,6 +206,7 @@ pub enum FieldValue {
     PlayerSouls(Option<u32>),
     PlayerUltCooldown(Option<u8>),
     PlayerVisible(bool),
+    PlayerRespawn(Option<u16>),
     ObjectiveStatus(ObjectiveStatus),
     ArrowFrom(WorldPos),
     ArrowTo(WorldPos),
@@ -222,6 +232,7 @@ pub enum Field {
     PlayerSouls,
     PlayerUltCooldown,
     PlayerVisible,
+    PlayerRespawn,
     ObjectiveStatus,
     ArrowFrom,
     ArrowTo,
@@ -233,7 +244,7 @@ pub enum Field {
 }
 
 impl Field {
-    pub const ALL: [Field; 20] = [
+    pub const ALL: [Field; 21] = [
         Field::Title,
         Field::RosterName,
         Field::RosterHero,
@@ -246,6 +257,7 @@ impl Field {
         Field::PlayerSouls,
         Field::PlayerUltCooldown,
         Field::PlayerVisible,
+        Field::PlayerRespawn,
         Field::ObjectiveStatus,
         Field::ArrowFrom,
         Field::ArrowTo,
@@ -272,6 +284,7 @@ impl FieldValue {
             FieldValue::PlayerSouls(_) => Field::PlayerSouls,
             FieldValue::PlayerUltCooldown(_) => Field::PlayerUltCooldown,
             FieldValue::PlayerVisible(_) => Field::PlayerVisible,
+            FieldValue::PlayerRespawn(_) => Field::PlayerRespawn,
             FieldValue::ObjectiveStatus(_) => Field::ObjectiveStatus,
             FieldValue::ArrowFrom(_) => Field::ArrowFrom,
             FieldValue::ArrowTo(_) => Field::ArrowTo,
@@ -330,6 +343,7 @@ impl Record {
             (Record::PlayerState(r), Field::PlayerSouls) => V::PlayerSouls(r.souls),
             (Record::PlayerState(r), Field::PlayerUltCooldown) => V::PlayerUltCooldown(r.ult_cooldown),
             (Record::PlayerState(r), Field::PlayerVisible) => V::PlayerVisible(r.visible),
+            (Record::PlayerState(r), Field::PlayerRespawn) => V::PlayerRespawn(r.respawn),
             (Record::ObjectiveState(r), Field::ObjectiveStatus) => V::ObjectiveStatus(r.status),
             (Record::Arrow(r), Field::ArrowFrom) => V::ArrowFrom(r.from),
             (Record::Arrow(r), Field::ArrowTo) => V::ArrowTo(r.to),
@@ -358,6 +372,7 @@ impl Record {
             (Record::PlayerState(r), V::PlayerSouls(v)) => r.souls = v,
             (Record::PlayerState(r), V::PlayerUltCooldown(v)) => r.ult_cooldown = v,
             (Record::PlayerState(r), V::PlayerVisible(v)) => r.visible = v,
+            (Record::PlayerState(r), V::PlayerRespawn(v)) => r.respawn = v,
             (Record::ObjectiveState(r), V::ObjectiveStatus(v)) => r.status = v,
             (Record::Arrow(r), V::ArrowFrom(v)) => r.from = v,
             (Record::Arrow(r), V::ArrowTo(v)) => r.to = v,

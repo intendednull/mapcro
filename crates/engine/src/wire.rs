@@ -120,6 +120,31 @@ pub struct Presence {
     pub focus: Option<RecordId>,
     /// The peer this person is following, if any.
     pub following: Option<u64>,
+    /// A stroke being drawn right now, so others see it as it's drawn. It becomes a Stroke
+    /// record on release. Optional in TypeScript, like `picked`.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub ink: Option<LiveInk>,
+    /// The latest ping (a middle click): where, and a counter so the same spot can ping again.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub ping: Option<Ping>,
+}
+
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiveInk {
+    /// The stroke's colour (the ink palette index it will be saved with).
+    pub color: u8,
+    /// Oldest point first.
+    pub points: Vec<WorldPos>,
+}
+
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ping {
+    pub at: WorldPos,
+    pub n: u32,
 }
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -152,7 +177,20 @@ fn amber_side() -> mapcro_schema::Team {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DragPreview {
     pub id: RecordId,
+    /// Where the record is now: its position, or for an arrow or stroke moved whole, where its
+    /// first point is now; with `end`, where that end of the arrow is.
     pub pos: WorldPos,
+    /// One end of an arrow dragged by itself. Absent for everything else.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub end: Option<ArrowEnd>,
+}
+
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ArrowEnd {
+    From,
+    To,
 }
 
 /// One peer in a presence batch. `peer` is per connection (not the client id), and `role` is
@@ -166,6 +204,8 @@ pub struct PeerPresence {
 }
 
 pub const MAX_LASER_POINTS: usize = 48;
+/// A live stroke carries at most what a Stroke record may hold.
+pub const MAX_INK_POINTS: usize = mapcro_schema::LIMITS.max_stroke_points;
 /// A group move carries at most the whole roster.
 pub const MAX_DRAG_GROUP: usize = 12;
 /// More than every objective, camp and rift on the map.
@@ -181,6 +221,8 @@ impl Presence {
             && self.color < 16
             && self.laser.len() <= MAX_LASER_POINTS
             && self.laser.iter().all(ok_pos)
+            && self.ink.as_ref().is_none_or(|i| i.color < 16 && i.points.len() <= MAX_INK_POINTS && i.points.iter().all(ok_pos))
+            && self.ping.as_ref().is_none_or(|p| ok_pos(&p.at))
             && self.cursor.as_ref().is_none_or(ok_pos)
             && self.drag.as_ref().is_none_or(|d| ok_pos(&d.pos))
             && self.drag_group.len() <= MAX_DRAG_GROUP
