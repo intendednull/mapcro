@@ -313,11 +313,13 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
       300 an hour (docs/deploy.md).
     - **Player:** the tier chip reads "Queued · N ahead" while it waits for a download, then
       "Fetching replay…", "Queued · N ahead" (with "~N min" when the server has an estimate)
-      and "Parsing replay…", and upgrades in place. A fetch that fails or can't start settles on "API summary", and the bar says
-      why with what to do (§6b, Getting a replay in): "Replay not found yet. Try again later,
-      or upload the replay file." (no salts or no demo; **Try again** is Fetch replay, past the
-      remembered failure), "Replay expired. Upload the replay file.", or "Busy. Try again in a
-      few minutes." (the backoff).
+      and "Parsing replay…", and upgrades in place. A fetch that fails or can't start settles on
+      "API summary", and the tab that opened the match is asked what to do in the full-replay
+      prompt (§6b, Getting a replay in).
+    - **Why no fetch is coming, in the job state (2026-11-08):** with no job, the status says
+      `failed` with the remembered reason, `upstream_limited` while backing off, `busy` for
+      10 min to the board whose open our caps skipped (that board only), and `expired` for a
+      match past the three weeks by its cached metadata, whether or not anything opened it.
 - **Job state:** `GET /api/boards/{board}/replays/{id}` answers `none`, `waiting` (an upload's
   reservation in line), `uploading`, `fetching`, `queued`, `parsing`, `done` or `failed` with a
   short reason. `waiting` and `queued` carry `ahead`, the jobs before it; `queued` carries
@@ -611,13 +613,32 @@ makes a board with that match attached and lands in Player; **New board** is tod
     board, which attaches the match once the server has the upload under way (past its first
     MiB), so no fetch from Valve starts. "Your boards" keeps it only once attached. Back from
     the board reloads.
+  - **The full-replay prompt (operator-approved design and words, 2026-11-08;
+    `player/ReplayPrompt.tsx`):** when Valve's replay can't come, a dialog over the map, the
+    API summary playing behind it: "Full replay unavailable", a reason line, "The API summary
+    has heroes, souls and events, but no troopers, health or camps.", **Try again**, **Upload
+    replay file**, **Use API summary**, and Where's my replay?. Reasons: "Valve doesn't have
+    the replay yet." (`no_replay`), "Valve keeps replays about 3 weeks, and this one has
+    expired." (`expired`; no Try again), "Replay downloads are busy right now." (backoff, caps,
+    full line), "deadlock-api is down right now.", "The download couldn't be read." (a fetched
+    file that failed). An expired match asks on open, the rest when the fetch fails; until then
+    the chip reads "Fetching replay…".
+    - Only the tab that opened the match sees it (the landing's Open match or Player's Load, a
+      tab-local mark in sessionStorage, so its reload asks again); others on the board, followers
+      and viewers see the chip. Not over the join card.
+    - Try again fetches again (the prompt returns if that fails); Upload is the usual upload;
+      Use API summary (or Esc) closes it and is remembered for the match in this browser
+      (localStorage). The "API summary" chip reopens it for the tab that opened the match
+      ("Full replay unavailable: upload or try again"); for others it shows the hint.
+    - The fetch failures it covers have no notice under the transport; uploads' and parses'
+      failures keep theirs.
   - **Messages** (`player/notice.ts`), each an outcome and an action:
     - The match id isn't found (deadlock-api has no metadata yet): "Match not found yet." /
       "New matches can take a while to reach deadlock-api. Try again later.", with **Try
       again** and **Upload replay file**; the id stays in the field. The landing makes no board
       for it until a replay comes.
-    - deadlock-api rate-limiting or backing off: "Busy. Try again in a few minutes."; down:
-      "deadlock-api is down. Try again later, or upload the replay file."
+    - Loading the match while deadlock-api rate-limits or backs off: "Busy. Try again in a few
+      minutes."; down: "deadlock-api is down. Try again later, or upload the replay file."
     - The parse's: "Not a replay. Pick the match's .dem file.", "Too large. …", "Corrupt.
       Download the replay again in Deadlock, then upload it.", "Timed out. Upload the replay
       again.", "Parse failed. …", "Old map. Only matches on the current map open.", "Brawl not

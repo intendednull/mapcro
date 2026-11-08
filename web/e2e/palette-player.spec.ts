@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { gesture, joinNew, mapPoint } from "./helpers";
+import { gesture, joinNew, mapPoint, useSummary } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -41,6 +41,7 @@ test("in Player, the palette colours ink, arrows and comments", async ({ browser
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toBeVisible();
+  await useSummary(a);
   await a.getByTestId("palette").click();
   await a.getByRole("radio", { name: "Colour: Ice" }).click();
   await a.keyboard.press("d");

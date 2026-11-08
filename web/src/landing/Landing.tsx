@@ -3,7 +3,7 @@
 
 import { For, Show, createSignal } from "solid-js";
 import { Api, shareUrl } from "../core/api";
-import { knownBoards, rememberBoard } from "../core/device";
+import { knownBoards, markOpened, rememberBoard } from "../core/device";
 import { Wordmark } from "../ui/Wordmark";
 import { FRESH_BOARD } from "../board/roster";
 import { MODE_CODES, lookup } from "../player/api";
@@ -89,6 +89,8 @@ export function Landing() {
       const r = await fetch(`/api/boards/${m.board}/matches/${id}`, { method: "PUT", headers: { authorization: `Bearer ${m.token}` } });
       if (!r.ok) throw new Error("attach");
       remember();
+      // This tab opened it: if the full replay can't come, the board asks it (spec §6b).
+      markOpened(m.board, id);
       location.assign(shareUrl(location.origin, m.board, m.token));
     } catch {
       fail("Failed. Try again.");

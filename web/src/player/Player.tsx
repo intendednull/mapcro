@@ -14,8 +14,8 @@ import { UltRing } from "../match/preview";
 import { matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
 import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensureLiveOps, liveIds, takeAnnotationsOps } from "./live";
 import { FETCH_WHY, busy, jobLabel, queueLabel } from "./api";
-import { idFromName, isDem, looksLikeDemo, sizeLabel } from "./notice";
-import { DropOverlay, NOT_DEM, ReplayHelp, createDemDrop } from "./ReplayHelp";
+import { PROMPT, sizeLabel } from "./notice";
+import { DropOverlay, ReplayHelp, createDemDrop } from "./ReplayHelp";
 import { SPEEDS } from "./clock";
 import { troopersAt } from "./troopers";
 import { mapToView, worldToMap, worldToView } from "../map/transform";
@@ -116,15 +116,7 @@ export function Player(p: {
   // ---- the replay file: picked or dropped (spec §6b) ----
   /** An editor can give this match a replay: it has none, and nothing's on its way. */
   const canUpload = () => canEdit() && !!h.matchId() && (!h.tl() || tierOf(h.tl()!) !== "replay") && !!h.job() && h.job()!.state !== "off" && !busy(h.job()) && !h.uploading();
-  const take = async (f: File) => {
-    if (!isDem(f.name)) return h.setStatus(NOT_DEM);
-    // The game names a replay after its match: refuse another match's file.
-    const named = idFromName(f.name);
-    if (named && h.matchId() && named !== h.matchId()) return h.setStatus(`That file is match ${named}, not ${h.matchId()}`);
-    h.setStatus("");
-    if (!(await looksLikeDemo(f))) return h.refuse("not_a_replay");
-    void h.upload(f);
-  };
+  const take = (f: File) => h.take(f);
   // Dropped anywhere on the board while Player shows a match without its replay.
   const dragging = createDemDrop({ enabled: () => watching() && canUpload(), onFile: (f) => void take(f), onRefuse: (t) => h.setStatus(t) });
 
@@ -476,8 +468,9 @@ export function TierChip(p: { host: PlayerHost }) {
         data-testid="match-tier"
         data-tier={replay() ? "replay" : "metadata"}
         data-why={fetchWhy() ?? ""}
-        title={hint()}
-        onClick={() => setWhy(!why())}
+        title={h.canPrompt() ? PROMPT.chip : hint()}
+        // The tab that opened the match gets its prompt back (spec §6b); everyone else, the hint.
+        onClick={() => (h.canPrompt() ? h.prompt.open() : setWhy(!why()))}
       >
         {text()}
       </button>

@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, useSummary } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -72,14 +72,18 @@ test("the chip names the tier; an upload upgrades it in place, keeping the time,
   await a.getByTestId("match-load").click();
   const chip = (p: Page) => p.getByTestId("match-tier");
   await expect(chip(a)).toHaveText("API summary");
+  await useSummary(a);
   await expect(a.getByTestId("match-upload")).toHaveText("Upload replay file");
-  await chip(a).click();
-  await expect(a.getByTestId("tier-why")).toContainText("No health, ult timers, zipline colours, camps, rifts or powerups");
-  await a.screenshot({ path: "shots/tier-api-summary.png" });
+  // For the coach who opened it, the chip brings the full-replay prompt back (spec §6b).
+  await expect(chip(a)).toHaveAttribute("title", "Full replay unavailable: upload or try again");
   await scrubTo(a, 300);
   const b = await joinNew(browser, url, "Marrow");
   await b.getByTestId("follow-Coach").click();
   await expect(chip(b)).toHaveText("API summary");
+  // For everyone else it says what the summary lacks.
+  await chip(b).click();
+  await expect(b.getByTestId("tier-why")).toContainText("No health, ult timers, zipline colours, camps, rifts or powerups");
+  await b.screenshot({ path: "shots/tier-api-summary.png" });
   await expect(b.getByTestId("match-clock")).toHaveText("5:00 / 21:40");
 
   // Another match's file is refused by its name.

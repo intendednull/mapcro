@@ -1,7 +1,7 @@
 // Opening a match by id fetches its full replay on its own (operator, 2026-11-08): the tier chip
 // reads "Fetching replay…", then "Queued" (and "Parsing replay…" once the worker starts it), then upgrades in place to "Full replay". A
-// match Valve has no replay for settles on "API summary", says why (in the bar and the chip's
-// hint), and offers "Try again" and "Upload replay file". A fake deadlock-api and CDN; the test plays the worker.
+// match Valve has no replay for settles on "API summary", and the tab that opened it gets the
+// full-replay prompt (replay-prompt.spec.ts has the rest of it). A fake deadlock-api and CDN; the test plays the worker.
 
 import { createServer } from "node:http";
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -101,17 +101,15 @@ test("opening a match fetches its replay: the chip goes from fetching to Full re
   expect(hits.filter((h) => h === `/v1/matches/${ID}/salts`)).toHaveLength(1);
 });
 
-test("a match Valve has no replay for settles on the summary, says why, and offers the upload", async ({ browser }) => {
+test("a match Valve has no replay for settles on the summary and asks the tab that opened it", async ({ browser }) => {
   const a = await openFromLanding(browser, NONE);
   const chip = a.getByTestId("match-tier");
   await expect(chip).toHaveAttribute("data-why", "Replay not found yet");
   await expect(chip).toHaveText("API summary");
-  await expect(a.getByTestId("match-notice-text")).toHaveText("Replay not found yet. Try again later, or upload the replay file.");
-  await expect(a.getByTestId("match-retry")).toHaveText("Try again");
-  await expect(a.getByTestId("match-upload")).toHaveText("Upload replay file");
-  await expect(a.getByTestId("match-upload")).toHaveClass(/primary/);
-  await chip.click();
-  await expect(a.getByTestId("tier-reason")).toHaveText("Replay not found yet");
+  await expect(a.getByTestId("replay-prompt-why")).toHaveText("Valve doesn't have the replay yet.");
+  await expect(a.getByTestId("replay-prompt-retry")).toHaveText("Try again");
+  await expect(a.getByTestId("replay-prompt-upload")).toHaveText("Upload replay file");
+  await expect(a.getByTestId("match-notice")).toHaveCount(0);
   await a.screenshot({ path: "shots/autofetch-none.png" });
   // Opened again (a new board): deadlock-api isn't asked again.
   const b = await openFromLanding(browser, NONE);

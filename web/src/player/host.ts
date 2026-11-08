@@ -8,12 +8,13 @@ import type { MatchPreview } from "../match/preview";
 import { slotKey } from "../match/save";
 import type { Marker } from "../map/model";
 import { Api, type JobState, MODE_CODES, busy } from "./api";
-import { type Notice, type Step, noticeFor } from "./notice";
+import { type Notice, type Step, type Unavailable, idFromName, isDem, looksLikeDemo, noticeFor, unavailableFor } from "./notice";
+import { NOT_DEM } from "./ReplayHelp";
 import { type Handoff, takeHandoff } from "./handoff";
 import { type Playback, clampT, follow, rebase, tAt } from "./clock";
 import { type Pt, worldToMap } from "../map/transform";
 import { eventKey } from "./events";
-import { playerNamesShown, setPlayerNamesShown } from "../core/device";
+import { chooseSummary, markOpened, openedHere, playerNamesShown, setPlayerNamesShown, summaryChosen } from "../core/device";
 
 export type Mode = "player" | "sandbox";
 
@@ -204,12 +205,26 @@ export function createPlayerHost(board: string, token: string) {
     setTl(undefined);
     setJob(undefined);
     setProblem(undefined);
+    setOpener(undefined);
+    setPrompted(false);
+    setArmed(false);
     setStatus("Loading");
     setMode("player");
     try {
       // The timeline first: a match refused for its mode is never attached (2026-11-08).
       await loadTimeline(id, false);
-      if (opts.attach && matchId() === id && !MODE_CODES.has(problem()?.code ?? "") && (await api.attach(id))) setMatches([Number(id), ...matches().filter((m) => m !== Number(id))]);
+      let attached = false;
+      if (opts.attach && matchId() === id && !MODE_CODES.has(problem()?.code ?? "") && (await api.attach(id))) {
+        attached = true;
+        setMatches([Number(id), ...matches().filter((m) => m !== Number(id))]);
+      }
+      // This tab opened the match (Load here, or the landing's Open match before the reload):
+      // the prompt is its to see (spec §6b), unless this browser chose the summary already.
+      if (matchId() === id && (attached || openedHere(board, id))) {
+        markOpened(board, id);
+        setOpener(id);
+        setArmed(!summaryChosen(id));
+      }
       // A newer open() may have replaced this match meanwhile: don't seek it (finding 10).
       if (opts.at !== undefined && matchId() === id) control.seek(opts.at);
       await watch(id);
@@ -329,6 +344,17 @@ export function createPlayerHost(board: string, token: string) {
     } else if (problem()?.step === "load") setProblem(undefined); // the replay stands alone
     await watch(id);
   };
+  /** A replay file picked or dropped for the open match (spec §6b): checked, then uploaded. */
+  const take = async (f: File) => {
+    if (!isDem(f.name)) return setStatus(NOT_DEM);
+    // The game names a replay after its match: refuse another match's file.
+    const named = idFromName(f.name);
+    const id = matchId();
+    if (named && id && named !== id) return setStatus(`That file is match ${named}, not ${id}`);
+    setStatus("");
+    if (!(await looksLikeDemo(f))) return refuse("not_a_replay");
+    void upload(f);
+  };
   const cancelUpload = () => inflight?.ctl.abort();
   /** An upload refused before it started (the file isn't a replay). */
   const refuse = (code: string) => setProblem({ code, step: "upload" });
@@ -344,6 +370,57 @@ export function createPlayerHost(board: string, token: string) {
     if (e) return setProblem({ code: e, step: "fetch" });
     setStatus("");
     await watch(id);
+  };
+
+  /**
+   * The full-replay prompt (spec §6b): why the replay isn't coming from Valve, for the tab that
+   * opened the match (`opener`). It opens on its own once (`armed`: on open, and after Try
+   * again), when the fetch fails or the match is past Valve's three weeks; the chip reopens it.
+   */
+  const [opener, setOpener] = createSignal<string>();
+  const [armed, setArmed] = createSignal(false);
+  const [prompted, setPrompted] = createSignal(false);
+  const unavailable = createMemo((): Unavailable | undefined => {
+    const j = job();
+    const m = tl();
+    if (!m || m.tier === "replay" || uploading() || busy(j)) return undefined;
+    const p = problem();
+    if (p) return p.step === "fetch" ? unavailableFor(p.code) : undefined;
+    return j?.state === "failed" && j.source === "cdn" && j.reason ? unavailableFor(j.reason) : undefined;
+  });
+  /** This tab can see the prompt: it opened the match, and the replay can't come. */
+  const canPrompt = () => !!unavailable() && !!opener() && opener() === matchId();
+  createEffect(() => {
+    if (armed() && canPrompt()) {
+      setArmed(false);
+      setPrompted(true);
+    }
+  });
+  // An upload started (from the prompt or anywhere) answers it.
+  createEffect(() => uploading() && setPrompted(false));
+  const prompt = {
+    shown: () => prompted() && canPrompt(),
+    open: () => setPrompted(true),
+    /** Use API summary: closed, and not again on its own for this match in this browser. */
+    dismiss: () => {
+      const id = matchId();
+      if (id) chooseSummary(id);
+      setArmed(false);
+      setPrompted(false);
+    },
+    /** Try again: closed, the fetch started again, and the prompt back if that fails too. */
+    retry: async () => {
+      const id = matchId();
+      if (!id) return;
+      setPrompted(false);
+      setArmed(false);
+      setJob({ state: "fetching", source: "cdn" });
+      await fetchReplay();
+      if (matchId() !== id) return;
+      // Refused at once: the server's own state again, for the chip.
+      if (problem()) await watch(id);
+      setArmed(true);
+    },
   };
 
   /** Try the failed step again: the match's metadata (`attach` for an editor), or the fetch. */
@@ -366,6 +443,8 @@ export function createPlayerHost(board: string, token: string) {
     const p = problem();
     const failedUpload = j?.state === "failed" && j.source === "upload" ? j.reason : undefined;
     const pick = failedUpload && p?.step !== "upload" ? { code: failedUpload, step: "upload" as Step } : p ?? (j?.state === "failed" && j.reason ? { code: j.reason, step: "fetch" as Step } : undefined);
+    // Why Valve's replay isn't coming is the prompt's to say (and the chip's), not a notice.
+    if (pick?.step === "fetch" && unavailableFor(pick.code)) return undefined;
     const n = pick && noticeFor(pick.code, pick.step);
     return n && { ...n, step: pick.step };
   });
@@ -558,6 +637,9 @@ export function createPlayerHost(board: string, token: string) {
     problem,
     notice,
     retry,
+    unavailable,
+    canPrompt,
+    prompt,
     playback,
     setPlayback,
     t,
@@ -565,6 +647,7 @@ export function createPlayerHost(board: string, token: string) {
     control,
     open,
     upload,
+    take,
     fetchReplay,
     init,
     highlight,

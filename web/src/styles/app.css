@@ -435,6 +435,18 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-bar .replay-help-steps { top: auto; bottom: calc(100% + 6px); left: auto; right: 0; }
 .replay-help.inline { display: block; margin-top: 8px; font-size: 13px; }
 .replay-help.inline .replay-help-steps { position: static; width: auto; max-width: none; margin-top: 8px; box-shadow: none; }
+/* The full-replay prompt (spec §6b): a dialog centred over the map, the match playing behind. */
+.board-app .stage > .mapfit { position: relative; }
+.rp-scrim { position: absolute; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px; background: color-mix(in srgb, #030a09 38%, transparent); }
+.rp-dialog { width: min(480px, 100%); }
+.rp-dialog header { padding: 18px 22px 12px; }
+.rp-dialog h2 { font-size: 22px; }
+.rp-dialog .body { padding: 14px 22px 18px; }
+.rp-why { margin: 0 0 8px; font-size: 14px; font-weight: 600; color: var(--text); }
+.rp-lacks { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
+.rp-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.rp-acts .btn { white-space: nowrap; }
+.rp-dialog .replay-help.inline { margin-top: 14px; }
 .drop-overlay { position: fixed; inset: 0; z-index: 200; pointer-events: none; display: grid; place-items: center; background: color-mix(in srgb, var(--bg-deep) 72%, transparent); outline: 3px dashed var(--brass); outline-offset: -12px; }
 .drop-card { display: grid; gap: 4px; text-align: center; padding: 18px 26px; border-radius: 12px; background: var(--panel); border: 1px solid var(--brass-dim); }
 .drop-card b { font: 600 17px var(--ui); color: var(--text); }
@@ -468,4 +480,12 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
   .open-match { flex-wrap: wrap; }
   .open-match .input { flex: 1 0 100%; }
   .open-match .btn { flex: 1; }
+}
+
+/* The prompt on a phone: over the whole screen, its buttons one under another. */
+@media (max-width: 699px) {
+  .rp-scrim { position: fixed; z-index: 60; }
+  .rp-dialog { width: 100% !important; }
+  .rp-acts { flex-direction: column; align-items: stretch; }
+  .rp-acts .btn { justify-content: center; height: 40px; }
 }

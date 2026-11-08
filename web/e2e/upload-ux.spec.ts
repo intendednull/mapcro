@@ -211,11 +211,18 @@ test("Player: a replay Valve hasn't got says so, Try again asks again, and a dro
   await a.getByTestId("match-id").fill(String(KNOWN));
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
-  // The board's own upload (the landing test's) doesn't count here: this board fetched.
-  await expect(a.getByTestId("match-notice-text")).toHaveText("Replay not found yet. Try again later, or upload the replay file.");
-  await expect(a.getByTestId("match-retry")).toHaveText("Try again");
-  await expect(a.getByTestId("match-upload")).toHaveText("Upload replay file");
+  // The board's own upload (the landing test's) doesn't count here: this board fetched. The
+  // tab that loaded it is asked (spec §6b, the full-replay prompt); Try again asks again.
+  await expect(a.getByTestId("replay-prompt-why")).toHaveText("Valve doesn't have the replay yet.");
+  await expect(a.getByTestId("match-notice")).toHaveCount(0);
   await shot(a, "player-no-replay");
+  const salts = () => hits.filter((h) => h === `/v1/matches/${KNOWN}/salts`).length;
+  const before = salts();
+  await a.getByTestId("replay-prompt-retry").click();
+  await expect.poll(salts, { message: "Try again goes past the server's memory of the failure" }).toBe(before + 1);
+  await expect(a.getByTestId("replay-prompt-why")).toHaveText("Valve doesn't have the replay yet.");
+  await a.getByTestId("replay-prompt-summary").click();
+  await expect(a.getByTestId("match-upload")).toHaveText("Upload replay file");
   await a.setViewportSize({ width: 1280, height: 768 });
   await a.getByTestId("replay-help-open").click();
   const steps = (await a.getByTestId("replay-help-steps").boundingBox())!;
@@ -224,11 +231,6 @@ test("Player: a replay Valve hasn't got says so, Try again asks again, and a dro
   await shot(a, "player-no-replay-help-1280");
   await a.getByTestId("replay-help-open").click();
   await a.setViewportSize({ width: 1440, height: 900 });
-  const salts = () => hits.filter((h) => h === `/v1/matches/${KNOWN}/salts`).length;
-  const before = salts();
-  await a.getByTestId("match-retry").click();
-  await expect.poll(salts, { message: "Try again goes past the server's memory of the failure" }).toBe(before + 1);
-  await expect(a.getByTestId("match-notice-text")).toHaveText("Replay not found yet. Try again later, or upload the replay file.");
 
   // Dropped on the stage: another match's file, then not a replay, then the right one.
   await drop(a, ".stage", "999.dem");
@@ -338,9 +340,9 @@ test("an expired replay says to upload it", async ({ browser }) => {
   await p.getByTestId("open-match-go").click();
   await enter(p);
   await expect(p.getByTestId("match-tier")).toHaveText("API summary");
-  await expect(p.getByTestId("match-notice-text")).toHaveText("Replay expired. Upload the replay file.");
-  await expect(p.getByTestId("match-upload")).toBeVisible();
-  await expect(p.getByTestId("match-retry")).toHaveCount(0);
+  await expect(p.getByTestId("replay-prompt-why")).toHaveText("Valve keeps replays about 3 weeks, and this one has expired.");
+  await expect(p.getByTestId("replay-prompt-upload")).toBeVisible();
+  await expect(p.getByTestId("replay-prompt-retry")).toHaveCount(0);
   await shot(p, "player-expired");
   expect(hits).not.toContain(`/v1/matches/${OLD}/salts`);
 });
@@ -351,12 +353,11 @@ test("deadlock-api backing off reads as busy", async ({ browser }) => {
   await p.getByTestId("open-match-id").fill(String(LIMITED));
   await p.getByTestId("open-match-go").click();
   await enter(p);
-  await expect(p.getByTestId("match-notice-text")).toHaveText("Busy. Try again in a few minutes.", { timeout: 15_000 });
-  await expect(p.getByTestId("match-retry")).toBeVisible();
-  await expect(p.getByTestId("match-upload")).toBeVisible();
+  await expect(p.getByTestId("replay-prompt-why")).toHaveText("Replay downloads are busy right now.", { timeout: 15_000 });
+  await expect(p.getByTestId("replay-prompt-upload")).toBeVisible();
   await shot(p, "player-busy");
-  await p.getByTestId("match-retry").click();
-  await expect(p.getByTestId("match-notice-text")).toHaveText("Busy. Try again in a few minutes.");
+  await p.getByTestId("replay-prompt-retry").click();
+  await expect(p.getByTestId("replay-prompt-why")).toHaveText("Replay downloads are busy right now.");
 });
 
 // The real thing (never committed data; skipped without MAPCRO_REAL_DEM): a 504 MB replay of a

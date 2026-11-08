@@ -24,6 +24,7 @@ import { CloneDialog, JUST_CLONED } from "./CloneDialog";
 import type { MatchPreview } from "../match/preview";
 import { EventPings, Highlight, Player, PlayerSide, PlayerSwitch, TrooperDots } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
+import { ReplayPrompt } from "../player/ReplayPrompt";
 import { CampTips } from "../player/Camps";
 import { liveLayer } from "../player/layer";
 import { PlayerTopBar } from "../player/PlayerTopBar";
@@ -504,6 +505,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
       </Show>
       <div class="p-map-wrap">
         {mapBox(true)}
+        {/* Not over the join card (it would take the focus from your name). */}
+        <Show when={joined()}>
+          <ReplayPrompt host={player} />
+        </Show>
         <div class="p-tools" role="toolbar" aria-label="Tools">
           <button class={cx("tb", tool() === "move" && "on")} data-testid="tool-move" onClick={() => setTool("move")}>
             <span>{state.canEdit() ? "Move" : "Look"}</span>
@@ -815,7 +820,12 @@ export function Board(p: { board: string; token: string; art: Art }) {
             <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} />
           </Show>
           {/* The map takes all the room left, as the largest square that fits. */}
-          <div class="mapfit">{mapBox(false)}</div>
+          <div class="mapfit">
+            {mapBox(false)}
+            <Show when={joined()}>
+              <ReplayPrompt host={player} />
+            </Show>
+          </div>
           {/* One dock under the map, in the page's flow: the tools, then Player's bar. They can't
               overlap whatever their heights; the map shrinks to leave them room. */}
           <div class="dock" data-testid="dock">

@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { gesture, joinNew } from "./helpers";
+import { gesture, joinNew, useSummary } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -216,6 +216,7 @@ test("ink over playback is live, kept only by saving a scene, and cleared when t
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
+  await useSummary(a);
   await scrubTo(a, 400);
 
   await a.keyboard.press("d");
@@ -261,6 +262,7 @@ test("entering Player alone clears last session's ink, not what you draw straigh
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
+  await useSummary(a);
   await a.keyboard.press("d");
   await gesture(a, [[0.3, 0.3], [0.4, 0.35]]);
   await expect(strokes(a)).toHaveCount(1);

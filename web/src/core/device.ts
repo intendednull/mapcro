@@ -120,3 +120,34 @@ export function playerNamesShown(): boolean {
 export function setPlayerNamesShown(on: boolean) {
   write(NAMES, on);
 }
+
+const SUMMARY = "mapcro.summaryChosen";
+const OPENED = "mapcro.opened";
+
+/** Whether this browser chose "Use API summary" for a match (spec §6b, the replay prompt): its
+ * prompt doesn't come back on its own. */
+export function summaryChosen(id: string): boolean {
+  return read<string[]>(SUMMARY, []).includes(id);
+}
+
+export function chooseSummary(id: string) {
+  const all = read<string[]>(SUMMARY, []).filter((x) => x !== id);
+  write(SUMMARY, [...all, id].slice(-200));
+}
+
+/** This tab opened (or attached) the match on the board: the landing's Open match or Player's
+ * Load. Tab-local (sessionStorage), so a reload keeps it and nobody else on the board has it. */
+export function markOpened(board: string, id: string) {
+  try {
+    const all = (JSON.parse(sessionStorage.getItem(OPENED) ?? "[]") as string[]).filter((x) => x !== `${board}/${id}`);
+    sessionStorage.setItem(OPENED, JSON.stringify([...all, `${board}/${id}`].slice(-50)));
+  } catch {}
+}
+
+export function openedHere(board: string, id: string): boolean {
+  try {
+    return (JSON.parse(sessionStorage.getItem(OPENED) ?? "[]") as string[]).includes(`${board}/${id}`);
+  } catch {
+    return false;
+  }
+}

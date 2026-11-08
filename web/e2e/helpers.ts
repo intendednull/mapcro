@@ -70,3 +70,10 @@ export async function editLink(serverUrl: string, ownerUrl: string): Promise<str
 
 /** The main map's view rectangle, "x y w" in view units. */
 export const viewOf = async (page: Page) => (await page.getByTestId("map").getAttribute("data-view"))!.split(" ").map(Number) as [number, number, number];
+
+/** Close the full-replay prompt (spec §6b) that a Load opens when Valve has no replay, as a
+ * coach who goes on with the API summary does: Use API summary. */
+export async function useSummary(page: Page) {
+  await page.getByTestId("replay-prompt-summary").click();
+  await expect(page.getByTestId("replay-prompt")).toHaveCount(0);
+}

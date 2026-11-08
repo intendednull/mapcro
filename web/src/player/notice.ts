@@ -24,10 +24,6 @@ export function noticeFor(code: string, step: Step): Notice | undefined {
   switch (code) {
     case "not_found":
       return { text: "Match not found yet.", line: "New matches can take a while to reach deadlock-api. Try again later.", actions: ["retry", "upload"] };
-    case "no_replay":
-      return { text: "Replay not found yet. Try again later, or upload the replay file.", actions: ["retry", "upload"] };
-    case "expired":
-      return { text: "Replay expired. Upload the replay file.", actions: ["upload"] };
     case "upstream_limited":
     case "rate_limited":
     case "busy":
@@ -49,9 +45,7 @@ export function noticeFor(code: string, step: Step): Notice | undefined {
     case "corrupt":
       return { text: "Corrupt. Download the replay again in Deadlock, then upload it.", actions: ["upload"] };
     case "timeout":
-      return step === "upload"
-        ? { text: "Timed out. Upload the replay again.", actions: ["upload"] }
-        : { text: "Timed out. Try again.", actions: ["retry"] };
+      return { text: "Timed out. Upload the replay again.", actions: ["upload"] };
     case "parse_failed":
       return { text: "Parse failed. Upload the replay again, or try another match.", actions: ["upload"] };
     case "old_map":
@@ -72,6 +66,60 @@ export function noticeFor(code: string, step: Step): Notice | undefined {
       return { text: "Failed. Try again.", actions: [step === "upload" ? "upload" : "retry"] };
   }
 }
+
+/**
+ * Why the full replay isn't coming from Valve (spec §6b, the prompt): not there yet, past Valve's
+ * three weeks, our downloads busy, deadlock-api down, or the download couldn't be read. A fetch
+ * that fails this way asks the tab that opened the match, in a dialog, instead of a notice.
+ */
+export type Unavailable = "not_yet" | "expired" | "busy" | "down" | "unreadable";
+
+/** The prompt's reason for a fetch's error code; nothing for codes that keep their notice (an
+ * old map, a mode refused, offline, view only, replays off). */
+export function unavailableFor(code: string): Unavailable | undefined {
+  switch (code) {
+    case "no_replay":
+    case "not_found":
+      return "not_yet";
+    case "expired":
+      return "expired";
+    case "upstream_limited":
+    case "rate_limited":
+    case "busy":
+    case "queue_full":
+      return "busy";
+    case "upstream_down":
+    case "upstream_shape":
+      return "down";
+    case "parse_failed":
+    case "corrupt":
+    case "timeout":
+    case "not_a_replay":
+    case "too_large":
+    case "internal":
+    case "failed":
+      return "unreadable";
+    default:
+      return undefined;
+  }
+}
+
+/** The prompt's words (operator-approved, 2026-11-08: don't change them without asking). */
+export const PROMPT = {
+  title: "Full replay unavailable",
+  lacks: "The API summary has heroes, souls and events, but no troopers, health or camps.",
+  chip: "Full replay unavailable: upload or try again",
+  reason: {
+    not_yet: "Valve doesn't have the replay yet.",
+    expired: "Valve keeps replays about 3 weeks, and this one has expired.",
+    busy: "Replay downloads are busy right now.",
+    down: "deadlock-api is down right now.",
+    unreadable: "The download couldn't be read.",
+  } satisfies Record<Unavailable, string>,
+};
+
+/** Can trying the fetch again help? Not for an expired replay. */
+export const canRetry = (u: Unavailable) => u !== "expired";
 
 /** A size in MB, as the file manager shows it (decimal). */
 export const mb = (bytes: number) => Math.round(bytes / 1e6);
