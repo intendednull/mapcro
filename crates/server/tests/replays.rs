@@ -91,6 +91,43 @@ impl Server {
         (r.status().as_u16(), r.body_mut().read_json().unwrap_or_default())
     }
 
+    /// An upload from the client at `ip` (the proxy's `X-Forwarded-For`, as Caddy sends it).
+    fn upload_as(&self, board: &str, token: &str, id: &str, body: &[u8], ip: &str) -> (u16, serde_json::Value) {
+        let mut r = agent()
+            .post(&self.url(&format!("/api/boards/{board}/replays/{id}/upload")))
+            .header("authorization", &format!("Bearer {token}"))
+            .header("x-forwarded-for", ip)
+            .header("content-type", "application/octet-stream")
+            .send(body)
+            .expect("request");
+        (r.status().as_u16(), r.body_mut().read_json().unwrap_or_default())
+    }
+
+    /// Ask for (or keep) a place in line for an upload of `bytes`, as the client at `ip`.
+    fn reserve(&self, board: &str, token: &str, id: &str, bytes: u64, ip: &str) -> (u16, serde_json::Value) {
+        let mut r = agent()
+            .post(&self.url(&format!("/api/boards/{board}/replays/{id}/reserve")))
+            .header("authorization", &format!("Bearer {token}"))
+            .header("x-forwarded-for", ip)
+            .header("content-type", "application/json")
+            .send(serde_json::json!({ "bytes": bytes }).to_string())
+            .expect("request");
+        (r.status().as_u16(), r.body_mut().read_json().unwrap_or_default())
+    }
+
+    /// The parse order the server wrote for the worker.
+    fn order(&self) -> Vec<String> {
+        std::fs::read_to_string(self.q("inbox").join(mapcro_replay::ORDER_FILE)).unwrap_or_default().lines().map(str::to_owned).collect()
+    }
+
+    fn until_order(&self, want: &[String]) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while self.order() != want {
+            assert!(Instant::now() < deadline, "order {:?}, want {want:?}", self.order());
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
     fn call(&self, method: &str, path: &str, token: &str) -> (u16, serde_json::Value) {
         let a = agent();
         let url = self.url(path);
@@ -120,8 +157,11 @@ impl Server {
     }
 }
 
+/// A queue directory's files, but the server's parse order (`inbox/.order`, always there).
 fn files(dir: &Path) -> Vec<String> {
-    let mut v: Vec<String> = std::fs::read_dir(dir).map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+    let mut v: Vec<String> = std::fs::read_dir(dir)
+        .map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n != mapcro_replay::ORDER_FILE).collect())
+        .unwrap_or_default();
     v.sort();
     v
 }
@@ -275,7 +315,7 @@ fn uploads_need_an_editor_link_a_demo_and_room() {
     let job = format!("{id}-{}", scope(&board));
     assert_eq!(files(&server.q("inbox")), [format!("{job}.dem")]);
     assert_eq!(std::fs::read(server.q("inbox").join(format!("{job}.dem"))).expect("queued").len(), 50_000);
-    assert_eq!(server.status(&board, &view, id), serde_json::json!({ "state": "queued", "source": "upload" }), "view links read the state");
+    assert_eq!(server.status(&board, &view, id), serde_json::json!({ "state": "queued", "source": "upload", "ahead": 0 }), "view links read the state");
     assert_eq!(server.upload(&board, &owner, id, &fake_demo(100)).0, 409, "one job per board and match at a time");
     assert_eq!(server.status(&other, &other_owner, id)["state"], "none", "another board doesn't see it");
 
@@ -730,4 +770,173 @@ fn the_api_key_is_sent_only_when_configured() {
     without.call("POST", &format!("/api/boards/{b}/replays/32/fetch"), &owner);
     until_hits(&up, "/v1/matches/32/salts", 1);
     assert!(!up.headers("/v1/matches/32/salts").iter().any(|h| h.starts_with("x-api-key")));
+}
+
+// ---- the queue: capacity, fairness, reservations (spec §6a, "The queue") ----
+
+fn job(id: &str, board: &str) -> String {
+    format!("{id}-{}", scope(board))
+}
+
+/// Two parse at once (the worker's `REPLAY_WORKERS`): both read as parsing, and the job behind
+/// them counts both ahead of it.
+#[test]
+fn two_parse_at_once_and_the_rest_count_them_ahead() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[("REPLAY_WORKERS", "2")]);
+    let (board, owner, _) = server.board();
+    for (id, ip) in [("1", "10.0.0.1"), ("2", "10.0.0.2"), ("3", "10.0.0.3")] {
+        assert_eq!(server.upload_as(&board, &owner, id, &fake_demo(1000), ip).0, 202, "match {id}");
+    }
+    server.until_order(&[job("1", &board), job("2", &board), job("3", &board)]);
+    for id in ["1", "2"] {
+        std::fs::write(server.q("outbox").join(format!("{}.parsing", job(id, &board))), b"").expect("parsing");
+    }
+    server.until_order(&[job("3", &board)]);
+    assert_eq!(server.status(&board, &owner, "1")["state"], "parsing");
+    assert_eq!(server.status(&board, &owner, "2")["state"], "parsing");
+    let s = server.status(&board, &owner, "3");
+    assert_eq!((s["state"].as_str(), s["ahead"].as_u64()), (Some("queued"), Some(2)), "{s}");
+    assert!(s.get("eta_s").is_none(), "no estimate before any parse finished: {s}");
+    finish(&server, &job("1", &board), Err("old_map"));
+    server.until_state(&board, &owner, "1", "failed");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while server.status(&board, &owner, "3")["ahead"] != 1 {
+        assert!(Instant::now() < deadline, "{}", server.status(&board, &owner, "3"));
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// One client's many jobs don't keep another's first one waiting: the parse order takes turns.
+#[test]
+fn the_parse_order_takes_turns_across_clients() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[]);
+    let (board, owner, _) = server.board();
+    for id in ["11", "12", "13"] {
+        assert_eq!(server.upload_as(&board, &owner, id, &fake_demo(1000), "10.0.0.1").0, 202, "A's match {id}");
+    }
+    assert_eq!(server.upload_as(&board, &owner, "21", &fake_demo(1000), "10.0.0.2").0, 202, "B's");
+    server.until_order(&[job("11", &board), job("21", &board), job("12", &board), job("13", &board)]);
+    assert_eq!(server.status(&board, &owner, "21")["ahead"], 1);
+    assert_eq!(server.status(&board, &owner, "13")["ahead"], 3);
+    // A's first is parsing: B's goes next, then A's.
+    std::fs::write(server.q("outbox").join(format!("{}.parsing", job("11", &board))), b"").expect("parsing");
+    server.until_order(&[job("21", &board), job("12", &board), job("13", &board)]);
+}
+
+/// Recent parse times make an estimate, once there are a few.
+#[test]
+fn the_wait_is_estimated_from_recent_parses() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[]);
+    let (board, owner, _) = server.board();
+    for (i, id) in ["31", "32", "33"].iter().enumerate() {
+        assert_eq!(server.upload_as(&board, &owner, id, &fake_demo(1000), &format!("10.0.1.{i}")).0, 202);
+        work(&server, &job(id, &board), Err("old_map"));
+        server.until_state(&board, &owner, id, "failed");
+    }
+    assert_eq!(server.upload_as(&board, &owner, "34", &fake_demo(1000), "10.0.1.9").0, 202);
+    let s = server.status(&board, &owner, "34");
+    assert_eq!(s["state"], "queued");
+    let eta = s["eta_s"].as_u64().unwrap_or_else(|| panic!("an estimate: {s}"));
+    assert!((1..=5).contains(&eta), "three parses of about a second each, nothing ahead: {s}");
+}
+
+/// When the queue's bytes are spoken for, an upload waits in line for a turn instead of being
+/// refused; it's sent when its turn comes; a client that goes away loses its place.
+#[test]
+fn uploads_wait_for_room_in_line_and_a_lapsed_reservation_frees_its_place() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[("REPLAY_MAX_QUEUE_BYTES", "250000"), ("REPLAY_RESERVE_TTL_S", "2")]);
+    let (board, owner, _) = server.board();
+    let ready = |id: &str, ip: &str| server.reserve(&board, &owner, id, 100_000, ip);
+    assert_eq!(ready("41", "10.0.2.1").1["state"], "ready");
+    assert_eq!(ready("42", "10.0.2.2").1["state"], "ready");
+    // The budget holds two: the third and fourth wait, in turn.
+    assert_eq!(ready("43", "10.0.2.3").1, serde_json::json!({ "state": "waiting", "source": "upload", "ahead": 0 }));
+    assert_eq!(ready("44", "10.0.2.4").1["ahead"], 1);
+    assert_eq!(server.status(&board, &owner, "44"), serde_json::json!({ "state": "waiting", "source": "upload", "ahead": 1 }));
+    // Out of turn, an upload is refused, and nothing reaches the disk.
+    let (code, body) = server.upload_as(&board, &owner, "44", &fake_demo(100_000), "10.0.2.4");
+    assert_eq!((code, body["error"].as_str()), (503, Some("queue_full")));
+    let (code, body) = server.upload_as(&board, &owner, "49", &fake_demo(100_000), "10.0.2.9");
+    assert_eq!((code, body["error"].as_str()), (503, Some("queue_full")), "nor without a reservation");
+    assert_eq!(ready("41", "10.0.2.1").1["state"], "ready", "its turn is kept while it asks");
+    assert_eq!(server.upload_as(&board, &owner, "41", &fake_demo(100_000), "10.0.2.1").0, 202);
+    // 43 stops asking (its tab closed); 44 keeps asking and takes the turn when room comes.
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        assert_eq!(ready("42", "10.0.2.2").1["state"], "ready", "42 keeps its turn while it asks");
+        let s = ready("44", "10.0.2.4").1;
+        if s["ahead"] == 0 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "43's place never lapsed: {s}");
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    assert_eq!(server.status(&board, &owner, "43")["state"], "none", "a lapsed reservation is gone");
+    // 42 never sent its file either: its turn lapses too, and 44's comes.
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while ready("44", "10.0.2.4").1["state"] != "ready" {
+        assert!(Instant::now() < deadline, "42's unused turn never lapsed");
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    assert_eq!(server.upload_as(&board, &owner, "44", &fake_demo(100_000), "10.0.2.4").0, 202);
+    let held: u64 = files(&server.q("inbox")).iter().map(|f| std::fs::metadata(server.q("inbox").join(f)).map_or(0, |m| m.len())).sum();
+    assert_eq!(held, 200_000, "the queue never holds more than its budget");
+    // A parse collected frees room: the next reservation is ready at once.
+    work(&server, &job("41", &board), Err("old_map"));
+    server.until_state(&board, &owner, "41", "failed");
+    assert_eq!(ready("45", "10.0.2.5").1["state"], "ready");
+}
+
+/// A reservation can be given up (Cancel), and the next in line moves up; a board whose match
+/// was fetched already needs no upload; a line past its cap refuses, honestly.
+#[test]
+fn reservations_cancel_dedupe_and_have_a_last_resort() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[("REPLAY_MAX_QUEUE_BYTES", "150000"), ("REPLAY_MAX_WAITING", "2")]);
+    let (board, owner, view) = server.board();
+    assert_eq!(server.reserve(&board, &owner, "51", 100_000, "10.0.3.1").1["state"], "ready");
+    assert_eq!(server.reserve(&board, &owner, "52", 100_000, "10.0.3.2").1["ahead"], 0);
+    assert_eq!(server.reserve(&board, &owner, "53", 100_000, "10.0.3.3").1["ahead"], 1);
+    let (code, body) = server.reserve(&board, &owner, "54", 100_000, "10.0.3.4");
+    assert_eq!((code, body["error"].as_str()), (503, Some("queue_full")), "past the line's cap");
+    assert_eq!(server.reserve(&board, &view, "54", 100_000, "10.0.3.4").0, 403, "view links can't reserve");
+    assert_eq!(server.reserve(&board, &owner, "54", 900_000_000, "10.0.3.4").0, 413, "over the upload cap");
+    let release = |id: &str| agent().delete(&server.url(&format!("/api/boards/{board}/replays/{id}/reserve"))).header("authorization", &format!("Bearer {owner}")).call().expect("release").status().as_u16();
+    assert_eq!(release("52"), 204);
+    assert_eq!(server.status(&board, &owner, "52")["state"], "none");
+    assert_eq!(server.reserve(&board, &owner, "53", 100_000, "10.0.3.3").1["ahead"], 0, "53 moves up");
+    // A reserved upload can't send more than it said; the failed try uses up its turn, and the
+    // next in line takes it.
+    assert_eq!(server.upload_as(&board, &owner, "51", &fake_demo(100_001), "10.0.3.1").0, 413);
+    assert_eq!(server.reserve(&board, &owner, "53", 100_000, "10.0.3.3").1["state"], "ready");
+    assert_eq!(server.reserve(&board, &owner, "51", 100_000, "10.0.3.1").1["ahead"], 0, "51 starts over at the back");
+    // The match's replay came from Valve already: the board uses it, nothing is sent.
+    std::fs::create_dir_all(server.data.path().join("replays")).expect("cache dir");
+    std::fs::write(server.data.path().join("replays/55-cdn.json"), serde_json::to_vec(&timeline(55)).expect("json")).expect("cached");
+    assert_eq!(server.reserve(&board, &owner, "55", 100_000, "10.0.3.5").1, serde_json::json!({ "state": "done", "source": "cdn" }));
+}
+
+/// Fetches wait in the same line for the queue's room as uploads (they share the parser), and
+/// say where they are meanwhile.
+#[test]
+fn a_fetch_waits_in_line_for_room_beside_uploads() {
+    let demo = bz2(&fake_demo(20_000));
+    let routes = HashMap::from([("/v1/matches/61/salts".to_owned(), (200, salts_for(61, 5))), ("/cdn/404/1422450/61_5.dem.bz2".to_owned(), (200, demo))]);
+    let up = upstream(routes);
+    let server = Server::start(up.port, &[("REPLAY_MAX_QUEUE_BYTES", "150000"), ("REPLAY_MAX_DOWNLOAD_BYTES", "100000")]);
+    let (board, owner, _) = server.board();
+    assert_eq!(server.upload_as(&board, &owner, "60", &fake_demo(100_000), "10.0.4.1").0, 202);
+    assert_eq!(server.call("POST", &format!("/api/boards/{board}/replays/61/fetch"), &owner).0, 202);
+    let s = server.status(&board, &owner, "61");
+    assert_eq!((s["state"].as_str(), s["source"].as_str(), s["ahead"].as_u64()), (Some("queued"), Some("cdn"), Some(0)), "{s}");
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(up.hits("/v1/matches/61/salts"), 0, "it waits for room before asking anyone");
+    work(&server, &job("60", &board), Err("old_map"));
+    until_hits(&up, "/v1/matches/61/salts", 1);
+    server.until_state(&board, &owner, "61", "queued");
+    assert_eq!(files(&server.q("inbox")), ["61-cdn.bz2"]);
 }

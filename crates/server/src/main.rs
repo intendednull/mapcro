@@ -6,6 +6,7 @@ mod config;
 mod links;
 mod matches;
 mod packs;
+mod replay_queue;
 mod replays;
 mod room;
 mod store;

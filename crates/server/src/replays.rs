@@ -24,6 +24,7 @@
 //! demo is deleted when its parse ends.
 
 use crate::api::{client_ip, client_key};
+use crate::replay_queue::{self, Client, Kind, Room, Stats, Waiting};
 use crate::{AppState, links};
 use axum::Router;
 use axum::body::Body;
@@ -48,9 +49,16 @@ pub struct Settings {
     pub cdn_base: Option<String>,
     pub max_upload: u64,
     pub max_download: u64,
-    /// Bytes the queue (inbox and work, plus uploads in flight) may hold.
+    /// Bytes the queue (inbox and work, plus transfers in flight at their size) may hold.
     pub max_queue_bytes: u64,
+    /// Jobs on disk or on their way there (queued, parsing, transferring).
     pub max_queued: usize,
+    /// Transfers waiting in line past this are refused (`queue_full`): the last resort.
+    pub max_waiting: usize,
+    /// A reservation nobody asks about for this long lapses (its client went away).
+    pub reserve_ttl: Duration,
+    /// Jobs the worker parses at once (its `REPLAY_WORKERS`), for the wait estimate.
+    pub workers: usize,
     /// Bytes of cached timelines; the oldest go first past it.
     pub max_cache_bytes: u64,
     pub uploads_at_once: usize,
@@ -80,10 +88,15 @@ fn settings() -> &'static Settings {
             // A 35-minute demo is ~480 MB; the largest seen, 557 MB (research §3.3).
             max_upload: num("REPLAY_MAX_UPLOAD_BYTES", 800 * MIB),
             max_download: num("REPLAY_MAX_DOWNLOAD_BYTES", 800 * MIB),
-            max_queue_bytes: num("REPLAY_MAX_QUEUE_BYTES", 3 * 1024 * MIB),
-            max_queued: num("REPLAY_MAX_QUEUED", 6) as usize,
+            // Fetches arrive compressed (~330 MB for a 35-minute match), uploads raw (~500 MB):
+            // 8 GiB is ~16 to 24 jobs, a few minutes of parsing (journal 2026-11-08-replay-capacity).
+            max_queue_bytes: num("REPLAY_MAX_QUEUE_BYTES", 8 * 1024 * MIB),
+            max_queued: num("REPLAY_MAX_QUEUED", 24) as usize,
+            max_waiting: num("REPLAY_MAX_WAITING", 64) as usize,
+            reserve_ttl: Duration::from_secs(num("REPLAY_RESERVE_TTL_S", 20)),
+            workers: num("REPLAY_WORKERS", 2).max(1) as usize,
             max_cache_bytes: num("REPLAY_MAX_CACHE_BYTES", 1024 * MIB),
-            uploads_at_once: num("REPLAY_UPLOADS_AT_ONCE", 2) as usize,
+            uploads_at_once: num("REPLAY_UPLOADS_AT_ONCE", 4) as usize,
             downloads_at_once: num("REPLAY_DOWNLOADS_AT_ONCE", 2) as usize,
             per_client: num("REPLAY_PER_CLIENT_PER_HOUR", 6) as usize,
             idle: Duration::from_secs(num("REPLAY_IDLE_S", 60)),
@@ -94,12 +107,31 @@ fn settings() -> &'static Settings {
 }
 
 /// What the server remembers about jobs between polls (lost on restart, which is harmless:
-/// a lost failure reads as "none" and can be retried).
+/// a lost failure reads as "none" and can be retried, and a queued file is parsed in arrival
+/// order).
 #[derive(Default)]
 struct Jobs {
     fetching: HashSet<String>,
     uploading: HashSet<String>,
     uploads_by_client: HashMap<IpAddr, usize>,
+    /// Transfers waiting for room, in arrival order: reservations for uploads, and fetches.
+    line: Vec<Waiting>,
+    /// Reservations whose turn came, held for their upload to start: bytes, client, last asked.
+    granted: HashMap<String, Grant>,
+    /// Bytes each transfer under way may write (an upload's size, a download's cap).
+    flight: HashMap<String, u64>,
+    /// Each job's client and arrival, for the fair order, from its arrival until it's collected.
+    owner: HashMap<String, (Client, u64)>,
+    seq: u64,
+    /// When the collector first saw each job parsing.
+    parse_started: HashMap<String, Instant>,
+    /// The queue as the collector last saw it: queued jobs in the fair order (as the worker runs
+    /// them), and how many are parsing.
+    queued_order: Vec<String>,
+    parsing_now: usize,
+    /// The line in the fair order, as the last `schedule` left it.
+    line_order: Vec<String>,
+    stats: Stats,
     failed: HashMap<String, (&'static str, Instant)>,
     /// Uploads started, per client.
     starts: HashMap<IpAddr, Vec<Instant>>,
@@ -113,6 +145,12 @@ struct Jobs {
     /// deadlock-api's salts endpoint said 429: no fetch asks it before this, and the last wait,
     /// which the next 429 doubles.
     backoff: Option<(Instant, Duration)>,
+}
+
+struct Grant {
+    bytes: u64,
+    client: Client,
+    touched: Instant,
 }
 
 fn jobs() -> &'static Mutex<Jobs> {
@@ -134,18 +172,22 @@ const REPLAY_KEPT_S: u64 = 21 * 24 * 3600;
 const BACKOFF_FIRST: Duration = Duration::from_secs(60);
 const BACKOFF_MAX: Duration = HOUR;
 
-/// Take one upload start for `client`, or say it's over its hourly limit.
-fn admit(j: &mut Jobs, client: IpAddr) -> Result<(), &'static str> {
-    let s = settings();
+/// Whether `client` has used its upload starts for the hour.
+fn over_limit(j: &mut Jobs, client: IpAddr) -> bool {
     let now = Instant::now();
     j.starts.retain(|_, v| {
         v.retain(|t| now.duration_since(*t) < HOUR);
         !v.is_empty()
     });
-    if j.starts.get(&client).map_or(0, Vec::len) >= s.per_client {
+    j.starts.get(&client).map_or(0, Vec::len) >= settings().per_client
+}
+
+/// Take one upload start for `client`, or say it's over its hourly limit.
+fn admit(j: &mut Jobs, client: IpAddr) -> Result<(), &'static str> {
+    if over_limit(j, client) {
         return Err("rate_limited");
     }
-    j.starts.entry(client).or_default().push(now);
+    j.starts.entry(client).or_default().push(Instant::now());
     Ok(())
 }
 
@@ -176,6 +218,7 @@ pub fn routes() -> Router<AppState> {
             Router::new()
                 .route("/api/boards/{board}/replays/{id}", get(status))
                 .route("/api/boards/{board}/replays/{id}/fetch", post(fetch))
+                .route("/api/boards/{board}/replays/{id}/reserve", post(reserve).delete(release))
                 .route("/api/boards/{board}/matches/{id}", get(timeline).put(attach))
                 .route("/api/boards/{board}/matches", get(attached))
                 .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024)),
@@ -250,9 +293,13 @@ async fn editor(app: &AppState, board: &str, headers: &HeaderMap) -> Result<(), 
 #[derive(Debug, PartialEq)]
 enum State_ {
     None,
+    /// An upload's reservation in line, with how many are ahead (0 once its turn came).
+    Waiting(usize),
     Fetching,
     Uploading,
-    Queued,
+    /// Waiting for the parser (or, for a fetch, its download): how many are ahead, and the
+    /// estimated seconds until its timeline is ready when recent times allow one.
+    Queued(usize, Option<u64>),
     Parsing,
     Done,
     Failed(&'static str),
@@ -260,6 +307,20 @@ enum State_ {
 
 fn exists_any(dir: &FsPath, job: &str) -> bool {
     EXTS.iter().any(|e| dir.join(format!("{job}.{e}")).exists())
+}
+
+/// A queued file's place for the parser: those parsing and those before it in the fair order.
+fn parse_place(j: &Jobs, job: &str) -> (usize, Option<u64>) {
+    let s = settings();
+    let ahead = j.parsing_now + j.queued_order.iter().position(|q| q == job).unwrap_or(j.queued_order.len());
+    (ahead, j.stats.parse_mean().map(|p| replay_queue::parse_eta(ahead, s.workers, p)))
+}
+
+/// A transfer's place in line: how many are ahead of it, and how many of those are fetches.
+fn line_place(j: &Jobs, job: &str) -> Option<(usize, usize)> {
+    let i = j.line_order.iter().position(|q| q == job)?;
+    let fetches = j.line_order[..i].iter().filter(|q| j.line.iter().any(|w| &w.job == *q && w.kind == Kind::Fetch)).count();
+    Some((i, fetches))
 }
 
 fn job_state(app: &AppState, job: &str) -> State_ {
@@ -272,6 +333,18 @@ fn job_state(app: &AppState, job: &str) -> State_ {
         if j.uploading.contains(job) {
             return State_::Uploading;
         }
+        if j.granted.contains_key(job) {
+            return State_::Waiting(0);
+        }
+        if let Some(w) = j.line.iter().find(|w| w.job == job) {
+            let (ahead, fetches) = line_place(&j, job).unwrap_or((j.line.len(), 0));
+            if w.kind == Kind::Upload {
+                return State_::Waiting(ahead);
+            }
+            let s = settings();
+            let eta = j.stats.download_mean().zip(j.stats.parse_mean()).map(|(d, p)| replay_queue::fetch_eta(fetches, s.downloads_at_once, d, j.parsing_now + j.queued_order.len(), s.workers, p));
+            return State_::Queued(ahead, eta);
+        }
         if j.fetching.contains(job) {
             return State_::Fetching;
         }
@@ -283,7 +356,11 @@ fn job_state(app: &AppState, job: &str) -> State_ {
         let out = root.join("outbox");
         // Started, or finished and waiting for the collector (within a second).
         let started = ["parsing", "json", "failed"].iter().any(|e| out.join(format!("{job}.{e}")).exists());
-        return if started { State_::Parsing } else { State_::Queued };
+        if started {
+            return State_::Parsing;
+        }
+        let (ahead, eta) = parse_place(&lock(), job);
+        return State_::Queued(ahead, eta);
     }
     State_::None
 }
@@ -291,25 +368,37 @@ fn job_state(app: &AppState, job: &str) -> State_ {
 fn state_json(s: &State_, source: &str) -> serde_json::Value {
     match s {
         State_::None => serde_json::json!({ "state": "none" }),
+        State_::Waiting(ahead) => serde_json::json!({ "state": "waiting", "source": source, "ahead": ahead }),
         State_::Fetching => serde_json::json!({ "state": "fetching", "source": source }),
         State_::Uploading => serde_json::json!({ "state": "uploading", "source": source }),
-        State_::Queued => serde_json::json!({ "state": "queued", "source": source }),
+        State_::Queued(ahead, eta) => {
+            let mut v = serde_json::json!({ "state": "queued", "source": source, "ahead": ahead });
+            if let Some(eta) = eta {
+                v["eta_s"] = (*eta).into();
+            }
+            v
+        }
         State_::Parsing => serde_json::json!({ "state": "parsing", "source": source }),
         State_::Done => serde_json::json!({ "state": "done", "source": source }),
         State_::Failed(why) => serde_json::json!({ "state": "failed", "reason": why, "source": source }),
     }
 }
 
-/// Bytes in the queue's inbox and work directories (partial uploads included).
-fn queue_bytes(root: &FsPath) -> (u64, usize) {
+/// Bytes in the queue's inbox and work directories, and the complete files queued. A transfer
+/// under way (in `flight`) counts at its size elsewhere, so its partial file doesn't here.
+fn queue_usage(root: &FsPath, flight: &HashMap<String, u64>) -> (u64, usize) {
     let mut bytes = 0;
     let mut queued = 0;
     for d in ["inbox", "work"] {
         let Ok(rd) = std::fs::read_dir(root.join(d)) else { continue };
         for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if d == "inbox" && name.starts_with('.') && flight.contains_key(name.trim_start_matches('.').split('.').next().unwrap_or("")) {
+                continue;
+            }
             if let Ok(m) = e.metadata() {
                 bytes += m.len();
-                if d == "inbox" && !e.file_name().to_string_lossy().starts_with('.') {
+                if d == "inbox" && !name.starts_with('.') {
                     queued += 1;
                 }
             }
@@ -318,24 +407,68 @@ fn queue_bytes(root: &FsPath) -> (u64, usize) {
     (bytes, queued)
 }
 
-/// Room in the queue for one more transfer of up to `cap` bytes.
-fn room(root: &FsPath, cap: u64) -> Result<(), (StatusCode, &'static str)> {
-    let j = lock();
-    room_with(&j, root, cap)
+/// Each client's jobs past the line (transferring, queued or parsing): a fair turn counts them.
+fn prior(j: &Jobs) -> HashMap<Client, usize> {
+    let waiting: HashSet<&str> = j.line.iter().map(|w| w.job.as_str()).collect();
+    let mut n: HashMap<Client, usize> = HashMap::new();
+    for (job, (client, _)) in &j.owner {
+        if !waiting.contains(job.as_str()) {
+            *n.entry(client.clone()).or_default() += 1;
+        }
+    }
+    n
 }
 
-fn room_with(j: &Jobs, root: &FsPath, cap: u64) -> Result<(), (StatusCode, &'static str)> {
+/// Lapse reservations nobody asks about, then start what the room holds, in the fair order:
+/// a fetch moves to downloading, a reservation is granted (held for its upload to start).
+fn schedule(j: &mut Jobs, root: &FsPath) {
     let s = settings();
-    let (bytes, queued) = queue_bytes(root);
-    let in_flight = (j.uploading.len() + j.downloading.len()) as u64;
-    if queued >= s.max_queued {
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "queue_full"));
+    let now = Instant::now();
+    for i in replay_queue::lapsed(&j.line, now, s.reserve_ttl).into_iter().rev() {
+        let w = j.line.remove(i);
+        j.owner.remove(&w.job);
+        tracing::info!(job = w.job, "replay reservation lapsed");
     }
-    // Transfers in flight count at their cap: their bytes are still arriving.
-    if bytes + (in_flight + 1) * cap > s.max_queue_bytes {
-        return Err((StatusCode::INSUFFICIENT_STORAGE, "queue_full"));
+    let lapsed: Vec<String> = j.granted.iter().filter(|(_, g)| now.saturating_duration_since(g.touched) >= s.reserve_ttl).map(|(k, _)| k.clone()).collect();
+    for job in lapsed {
+        j.granted.remove(&job);
+        j.owner.remove(&job);
+        tracing::info!(job, "replay reservation lapsed after its turn");
     }
-    Ok(())
+    let (bytes, queued) = queue_usage(root, &j.flight);
+    let held: u64 = j.flight.values().sum::<u64>() + j.granted.values().map(|g| g.bytes).sum::<u64>();
+    let room = Room {
+        bytes: s.max_queue_bytes.saturating_sub(bytes + held),
+        jobs: s.max_queued.saturating_sub(queued + j.flight.len() + j.granted.len()),
+        uploads: s.uploads_at_once.saturating_sub(j.uploading.len() + j.granted.len()),
+        downloads: s.downloads_at_once.saturating_sub(j.downloading.len()),
+    };
+    let prior = prior(j);
+    let order = replay_queue::fair(&j.line, |w| (w.client.as_str(), w.seq), &prior);
+    let busy: HashSet<Client> = j.uploads_by_client.keys().map(IpAddr::to_string).chain(j.granted.values().map(|g| g.client.clone())).collect();
+    let mut start = replay_queue::admit(&j.line, &order, room, &busy);
+    j.line_order = order.iter().filter(|i| !start.contains(i)).map(|&i| j.line[i].job.clone()).collect();
+    start.sort_unstable();
+    for i in start.into_iter().rev() {
+        let w = j.line.remove(i);
+        match w.kind {
+            Kind::Upload => {
+                j.granted.insert(w.job, Grant { bytes: w.bytes, client: w.client, touched: now });
+            }
+            Kind::Fetch => {
+                j.flight.insert(w.job.clone(), w.bytes);
+                j.downloading.insert(w.job);
+            }
+        }
+    }
+}
+
+/// A new arrival's client and place in arrival order.
+fn arrive(j: &mut Jobs, job: &str, client: &Client) -> u64 {
+    j.seq += 1;
+    let seq = j.seq;
+    j.owner.insert(job.to_owned(), (client.clone(), seq));
+    seq
 }
 
 // ---- handlers ----
@@ -421,7 +554,12 @@ pub async fn attached(State(app): State<AppState>, Path(board): Path<String>, he
 
 /// `PUT /api/boards/{board}/matches/{id}`: an editor attaches a match to the board (it moves to
 /// the front if it was there already).
-pub async fn attach(State(app): State<AppState>, Path((board, id)): Path<(String, String)>, headers: HeaderMap) -> Response {
+pub async fn attach(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Path((board, id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
     if let Err(r) = editor(&app, &board, &headers).await {
         return r;
     }
@@ -445,7 +583,7 @@ pub async fn attach(State(app): State<AppState>, Path((board, id)): Path<(String
     .await;
     match written {
         Ok(Ok(())) => {
-            auto_fetch(&app, &board, &id).await;
+            auto_fetch(&app, &board, &id, client_key(client_ip(peer, &headers)).to_string()).await;
             json(serde_json::json!({ "matches": ids }))
         }
         _ => err(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
@@ -456,7 +594,7 @@ pub async fn attach(State(app): State<AppState>, Path((board, id)): Path<(String
 /// starts unless the replay is there or coming (fetched, or this board's upload), the match is
 /// past Valve's three weeks, its fetch can't work for now (`negative`), or deadlock-api is
 /// backing us off. The mode refusal came first (`attach`). One job for every board.
-async fn auto_fetch(app: &AppState, board: &str, id: &str) {
+async fn auto_fetch(app: &AppState, board: &str, id: &str, client: Client) {
     let Some(root) = root(app).map(FsPath::to_owned) else { return };
     let job = job_name(id, "cdn");
     if job_state(app, &job) != State_::None {
@@ -482,6 +620,7 @@ async fn auto_fetch(app: &AppState, board: &str, id: &str) {
         return;
     }
     j.fetching.insert(job.clone());
+    enqueue_fetch(&mut j, &root, &job, &client);
     drop(j);
     tracing::info!(job, "replay fetch started on open");
     spawn_fetch(root, id.to_owned(), job);
@@ -512,32 +651,57 @@ pub async fn upload(
     }
     let job = job_name(&id, &scope_of(&board));
     match job_state(&app, &job) {
-        State_::Uploading | State_::Queued | State_::Parsing | State_::Fetching => return err(StatusCode::CONFLICT, "in_progress"),
+        State_::Uploading | State_::Queued(..) | State_::Parsing | State_::Fetching => return err(StatusCode::CONFLICT, "in_progress"),
         _ => {}
     }
     let client = client_key(client_ip(peer, &headers));
-    if let Err((code, why)) = room(&root, s.max_upload) {
-        return err(code, why);
-    }
-    {
+    let cap = {
         let mut j = lock();
-        if j.uploading.len() >= s.uploads_at_once || j.uploads_by_client.get(&client).copied().unwrap_or(0) >= 1 {
+        if j.uploads_by_client.get(&client).copied().unwrap_or(0) >= 1 {
             return err(StatusCode::TOO_MANY_REQUESTS, "busy");
         }
         if j.uploading.contains(&job) {
             return err(StatusCode::CONFLICT, "in_progress");
         }
-        if let Err(why) = admit(&mut j, client) {
-            return err(StatusCode::TOO_MANY_REQUESTS, why);
+        if over_limit(&mut j, client) {
+            return err(StatusCode::TOO_MANY_REQUESTS, "rate_limited");
+        }
+        // Its reservation's turn came (the client reserved first, spec §6a), or it takes a turn
+        // now if one is free for it; else the line is ahead of it.
+        let cap = match j.granted.get(&job) {
+            Some(g) => g.bytes.min(s.max_upload),
+            None => {
+                if j.line.iter().any(|w| w.job == job) {
+                    return err(StatusCode::SERVICE_UNAVAILABLE, "queue_full");
+                }
+                let bytes = declared.unwrap_or(s.max_upload);
+                let seq = arrive(&mut j, &job, &client.to_string());
+                j.line.push(Waiting { job: job.clone(), client: client.to_string(), kind: Kind::Upload, seq, bytes, touched: Instant::now() });
+                schedule(&mut j, &root);
+                if !j.granted.contains_key(&job) {
+                    j.line.retain(|w| w.job != job);
+                    j.owner.remove(&job);
+                    j.line_order.retain(|q| *q != job);
+                    return err(StatusCode::SERVICE_UNAVAILABLE, "queue_full");
+                }
+                bytes
+            }
+        };
+        let _ = admit(&mut j, client); // under the limit, checked above
+        let g = j.granted.remove(&job);
+        if !j.owner.contains_key(&job) {
+            arrive(&mut j, &job, &g.map_or_else(|| client.to_string(), |g| g.client));
         }
         j.uploading.insert(job.clone());
+        j.flight.insert(job.clone(), cap);
         *j.uploads_by_client.entry(client).or_default() += 1;
         j.failed.remove(&job);
-    }
+        cap
+    };
     // Released however the upload ends, a dropped connection included (hyper drops this
     // future): the slot frees and a partial file goes.
-    let slot = UploadSlot { job: job.clone(), client, part: root.join("inbox").join(format!(".{job}.part")) };
-    let result = receive(&root, &job, body, s).await;
+    let slot = UploadSlot { job: job.clone(), client, root: root.clone() };
+    let result = receive(&root, &job, body, s, cap).await;
     drop(slot);
     match result {
         Ok(bytes) => {
@@ -550,29 +714,137 @@ pub async fn upload(
     }
 }
 
+/// A client may hold this many reservations waiting at once (its tabs and boards together).
+const PER_CLIENT_WAITING: usize = 4;
+
+#[derive(Deserialize)]
+struct ReserveBody {
+    bytes: u64,
+}
+
+/// `POST /api/boards/{board}/replays/{id}/reserve` `{"bytes": n}`: an editor's place in line
+/// for an upload of `n` bytes (spec §6a). The client asks again every few seconds, which keeps
+/// the reservation; one not asked about for `REPLAY_RESERVE_TTL_S` lapses. It answers `ready`
+/// (send the file now), `waiting` with how many are ahead, or `done` when the board already
+/// has the match's fetched replay (nothing to send).
+pub async fn reserve(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Path((board, id)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    if let Err(r) = editor(&app, &board, &headers).await {
+        return r;
+    }
+    if !crate::matches::valid_id(&id) {
+        return err(StatusCode::BAD_REQUEST, "bad_id");
+    }
+    if let Some(why) = crate::matches::refused(&app, &id).await {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, why);
+    }
+    let Some(root) = root(&app).map(FsPath::to_owned) else { return err(StatusCode::SERVICE_UNAVAILABLE, "replays_off") };
+    let Ok(ReserveBody { bytes }) = serde_json::from_slice(&body) else { return err(StatusCode::BAD_REQUEST, "bad_request") };
+    let s = settings();
+    if bytes > s.max_upload {
+        return err(StatusCode::PAYLOAD_TOO_LARGE, "too_large");
+    }
+    if bytes < 8 {
+        return err(StatusCode::UNSUPPORTED_MEDIA_TYPE, "not_a_replay");
+    }
+    // The match's replay from Valve is here already: the board uses it (spec §6a, Dedupe).
+    if job_state(&app, &job_name(&id, "cdn")) == State_::Done {
+        return json(state_json(&State_::Done, "cdn"));
+    }
+    let job = job_name(&id, &scope_of(&board));
+    match job_state(&app, &job) {
+        State_::Uploading | State_::Queued(..) | State_::Parsing => return err(StatusCode::CONFLICT, "in_progress"),
+        _ => {}
+    }
+    let ip = client_key(client_ip(peer, &headers));
+    let client = ip.to_string();
+    let mut j = lock();
+    let now = Instant::now();
+    if let Some(g) = j.granted.get_mut(&job) {
+        g.touched = now;
+        g.bytes = g.bytes.max(bytes);
+        return json(serde_json::json!({ "state": "ready", "source": "upload" }));
+    }
+    if let Some(w) = j.line.iter_mut().find(|w| w.job == job) {
+        w.touched = now;
+        w.bytes = bytes;
+    } else {
+        if over_limit(&mut j, ip) {
+            return err(StatusCode::TOO_MANY_REQUESTS, "rate_limited");
+        }
+        if j.line.iter().filter(|w| w.kind == Kind::Upload && w.client == client).count() >= PER_CLIENT_WAITING {
+            return err(StatusCode::TOO_MANY_REQUESTS, "busy");
+        }
+        // The last resort: a line this long won't move for a long while.
+        if j.line.len() >= s.max_waiting {
+            return err(StatusCode::SERVICE_UNAVAILABLE, "queue_full");
+        }
+        let seq = arrive(&mut j, &job, &client);
+        j.line.push(Waiting { job: job.clone(), client, kind: Kind::Upload, seq, bytes, touched: now });
+        j.failed.remove(&job);
+    }
+    schedule(&mut j, &root);
+    if j.granted.contains_key(&job) {
+        return json(serde_json::json!({ "state": "ready", "source": "upload" }));
+    }
+    let ahead = line_place(&j, &job).map_or(j.line.len(), |(a, _)| a);
+    json(state_json(&State_::Waiting(ahead), "upload"))
+}
+
+/// `DELETE /api/boards/{board}/replays/{id}/reserve`: the editor gave up waiting (cancelled).
+pub async fn release(State(app): State<AppState>, Path((board, id)): Path<(String, String)>, headers: HeaderMap) -> Response {
+    if let Err(r) = editor(&app, &board, &headers).await {
+        return r;
+    }
+    if !crate::matches::valid_id(&id) {
+        return err(StatusCode::BAD_REQUEST, "bad_id");
+    }
+    let Some(root) = root(&app).map(FsPath::to_owned) else { return err(StatusCode::SERVICE_UNAVAILABLE, "replays_off") };
+    let job = job_name(&id, &scope_of(&board));
+    let mut j = lock();
+    let had = j.granted.remove(&job).is_some() || j.line.iter().any(|w| w.job == job && w.kind == Kind::Upload);
+    j.line.retain(|w| !(w.job == job && w.kind == Kind::Upload));
+    if had {
+        j.owner.remove(&job);
+        schedule(&mut j, &root);
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
 /// An upload in flight: its place in the limits, and its partial file.
 struct UploadSlot {
     job: String,
     client: IpAddr,
-    part: PathBuf,
+    root: PathBuf,
 }
 
 impl Drop for UploadSlot {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.part);
+        let _ = std::fs::remove_file(self.root.join("inbox").join(format!(".{}.part", self.job)));
         let mut j = lock();
         j.uploading.remove(&self.job);
+        j.flight.remove(&self.job);
+        if !exists_any(&self.root.join("inbox"), &self.job) {
+            j.owner.remove(&self.job); // it never reached the queue
+        }
         if let Some(n) = j.uploads_by_client.get_mut(&self.client) {
             *n = n.saturating_sub(1);
             if *n == 0 {
                 j.uploads_by_client.remove(&self.client);
             }
         }
+        // Its room is free (or its file now holds it): the next in line may start.
+        schedule(&mut j, &self.root);
     }
 }
 
 /// Stream `body` to `inbox/.<job>.part` under the caps, check the magic, then queue it.
-async fn receive(root: &FsPath, job: &str, body: Body, s: &Settings) -> Result<u64, (StatusCode, &'static str)> {
+async fn receive(root: &FsPath, job: &str, body: Body, s: &Settings, cap: u64) -> Result<u64, (StatusCode, &'static str)> {
     let inbox = root.join("inbox");
     let part = inbox.join(format!(".{job}.part"));
     // Never through a link, never over a file that's there (security review 2026-11-08, M1).
@@ -595,7 +867,7 @@ async fn receive(root: &FsPath, job: &str, body: Body, s: &Settings) -> Result<u
                 Ok(Some(Ok(c))) => c,
             };
             n += chunk.len() as u64;
-            if n > s.max_upload {
+            if n > cap {
                 return Err((StatusCode::PAYLOAD_TOO_LARGE, "too_large"));
             }
             if head.len() < 8 {
@@ -630,6 +902,7 @@ async fn receive(root: &FsPath, job: &str, body: Body, s: &Settings) -> Result<u
 /// (salts from deadlock-api), for every board. "Fetch replay": it tries again past a failure.
 pub async fn fetch(
     State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Path((board, id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
@@ -661,13 +934,22 @@ pub async fn fetch(
         j.failed.remove(&job);
         j.negative.remove(&id);
         j.fetching.insert(job.clone());
+        enqueue_fetch(&mut j, &root, &job, &client_key(client_ip(peer, &headers)).to_string());
     }
     spawn_fetch(root, id, job);
     (StatusCode::ACCEPTED, axum::Json(state_json(&State_::Fetching, "cdn"))).into_response()
 }
 
-/// Run a fetch already in `fetching`: wait in line for a download slot and the queue's room (a
-/// burst waits rather than being refused), then salts, then the demo. Its failure is recorded.
+/// A fetch joins the line (fair across clients, beside uploads) and starts if there's room.
+fn enqueue_fetch(j: &mut Jobs, root: &FsPath, job: &str, client: &Client) {
+    let seq = arrive(j, job, client);
+    j.line.push(Waiting { job: job.to_owned(), client: client.clone(), kind: Kind::Fetch, seq, bytes: settings().max_download, touched: Instant::now() });
+    schedule(j, root);
+}
+
+/// Run a fetch already in `fetching` and in line: wait for its turn (a download slot and the
+/// queue's room; a burst waits rather than being refused), then salts, then the demo. Its
+/// failure is recorded.
 fn spawn_fetch(root: PathBuf, id: String, job: String) {
     tokio::spawn(async move {
         let s = settings();
@@ -675,19 +957,23 @@ fn spawn_fetch(root: PathBuf, id: String, job: String) {
         let outcome = loop {
             {
                 let mut j = lock();
-                if j.downloading.len() < s.downloads_at_once && room_with(&j, &root, s.max_download).is_ok() {
+                if j.downloading.contains(&job) {
                     if limited(&j) {
                         break Err(("upstream_limited", None));
                     }
-                    j.downloading.insert(job.clone());
                     break Ok(());
                 }
+                if !j.line.iter().any(|w| w.job == job) {
+                    break Err(("internal", None)); // dropped from the line
+                }
+                if Instant::now() > deadline {
+                    j.line.retain(|w| w.job != job);
+                    break Err(("queue_full", None));
+                }
             }
-            if Instant::now() > deadline {
-                break Err(("queue_full", None));
-            }
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            tokio::time::sleep(Duration::from_millis(250)).await;
         };
+        let began = Instant::now();
         let outcome = match outcome {
             Ok(()) => {
                 let (r2, id2, j2) = (root.clone(), id.clone(), job.clone());
@@ -700,6 +986,15 @@ fn spawn_fetch(root: PathBuf, id: String, job: String) {
         let mut j = lock();
         j.fetching.remove(&job);
         j.downloading.remove(&job);
+        j.flight.remove(&job);
+        match &outcome {
+            Ok(_) => j.stats.downloaded(began.elapsed().as_secs_f64()),
+            Err(_) => {
+                j.owner.remove(&job);
+            }
+        }
+        // Its slot is free: the next in line may start.
+        schedule(&mut j, &root);
         match outcome {
             Ok(bytes) => tracing::info!(job, bytes, "replay fetched"),
             Err((why, retry_after)) => {
@@ -915,6 +1210,11 @@ fn collect(root: &FsPath, cache: &FsPath) {
             for x in EXTS {
                 let _ = std::fs::remove_file(root.join("inbox").join(format!("{job}.{x}")));
             }
+            let mut j = lock();
+            // Seen parsing for a while, or finished between two looks (under a second).
+            let took = j.parse_started.remove(&job).map_or(1.0, |t| t.elapsed().as_secs_f64().max(1.0));
+            j.stats.parsed(took);
+            j.owner.remove(&job);
         }
     }
     // A queued job the worker never took (it's down) and partial transfers nobody finished.
@@ -927,7 +1227,7 @@ fn collect(root: &FsPath, cache: &FsPath) {
             let p = e.path();
             let name = e.file_name().to_string_lossy().into_owned();
             let job = name.trim_start_matches('.').split('.').next().unwrap_or("").to_owned();
-            if busy.contains(&job) || age(&p) < s.stale {
+            if name == mapcro_replay::ORDER_FILE || busy.contains(&job) || age(&p) < s.stale {
                 continue;
             }
             let _ = std::fs::remove_file(&p);
@@ -937,7 +1237,79 @@ fn collect(root: &FsPath, cache: &FsPath) {
         }
     }
     lock().failed.retain(|_, (_, at)| at.elapsed() < FAILED_FOR);
+    order(root);
     trim_cache(cache, s.max_cache_bytes);
+}
+
+/// The queue as it stands: note what's parsing and since when, put the queued files in the fair
+/// order and write it for the worker (`inbox/.order`), forget jobs that left, and start what the
+/// room now holds.
+fn order(root: &FsPath) {
+    let inbox = root.join("inbox");
+    let queued: Vec<(String, SystemTime)> = std::fs::read_dir(&inbox)
+        .map(|rd| {
+            rd.flatten()
+                .filter_map(|e| {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    let (job, ext) = name.rsplit_once('.')?;
+                    (EXTS.contains(&ext) && mapcro_replay::valid_job(job)).then(|| (job.to_owned(), e.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH)))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let out = root.join("outbox");
+    let started = |job: &str| ["parsing", "json", "failed"].iter().any(|e| out.join(format!("{job}.{e}")).exists());
+    let (parsing, waiting): (Vec<_>, Vec<_>) = queued.into_iter().partition(|(job, _)| started(job));
+    let mut j = lock();
+    let now = Instant::now();
+    for (job, _) in &parsing {
+        j.parse_started.entry(job.clone()).or_insert(now);
+    }
+    let on_disk: HashSet<&str> = parsing.iter().chain(&waiting).map(|(job, _)| job.as_str()).collect();
+    let live: HashSet<String> = j.line.iter().map(|w| w.job.clone()).chain(j.granted.keys().cloned()).chain(j.uploading.iter().cloned()).chain(j.fetching.iter().cloned()).collect();
+    j.owner.retain(|job, _| on_disk.contains(job.as_str()) || live.contains(job));
+    j.parse_started.retain(|job, _| on_disk.contains(job.as_str()));
+    // A file the server knows nothing of (queued before a restart) is its own client, in the
+    // order its file arrived.
+    let keyed: Vec<(String, Client, u64)> = waiting
+        .iter()
+        .map(|(job, at)| match j.owner.get(job) {
+            Some((c, seq)) => (job.clone(), c.clone(), *seq),
+            None => (job.clone(), format!("job:{job}"), at.duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)),
+        })
+        .collect();
+    let mut prior: HashMap<Client, usize> = HashMap::new();
+    for (job, _) in &parsing {
+        if let Some((c, _)) = j.owner.get(job) {
+            *prior.entry(c.clone()).or_default() += 1;
+        }
+    }
+    let order: Vec<String> = replay_queue::fair(&keyed, |(_, c, seq)| (c.as_str(), *seq), &prior).into_iter().map(|i| keyed[i].0.clone()).collect();
+    let changed = order != j.queued_order;
+    j.queued_order = order.clone();
+    j.parsing_now = parsing.len();
+    schedule(&mut j, root);
+    drop(j);
+    if changed || !inbox.join(mapcro_replay::ORDER_FILE).exists() {
+        let mut text = order.join("\n");
+        text.push('\n');
+        if let Err(e) = publish(&inbox, mapcro_replay::ORDER_FILE, text.as_bytes()) {
+            tracing::warn!(error = %e, "replay order not written");
+        }
+    }
+}
+
+/// Write `name` in `dir` the way the queue's files are written: a new file, never through a
+/// link, group-readable, renamed in.
+fn publish(dir: &FsPath, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let tmp = dir.join(format!("{name}.tmp"));
+    let _ = std::fs::remove_file(&tmp);
+    let mut f = new_file(&tmp)?;
+    f.set_permissions(group_readable())?;
+    f.write_all(bytes)?;
+    drop(f);
+    std::fs::rename(&tmp, dir.join(name))
 }
 
 /// Past the cache's byte cap, the least recently written timelines go.
