@@ -44,10 +44,10 @@ test("a Brawl or unknown-mode match is refused in Player and never attached", as
   const url = await newBoardUrl(server, "Modes");
   const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
-  for (const [id, label] of [[BRAWL, "Brawl not supported"], [ODD, "Mode not supported"]] as const) {
+  for (const [id, label] of [[BRAWL, "Brawl not supported. Open a standard match."], [ODD, "Mode not supported. Open a standard match."]] as const) {
     await a.getByTestId("match-id").fill(id);
     await a.getByTestId("match-load").click();
-    await expect(a.getByTestId("match-status")).toHaveText(label);
+    await expect(a.getByTestId("match-notice-text")).toHaveText(label);
   }
   await a.screenshot({ path: "shots/mode-brawl-refused.png" });
   const board = new URL(url).pathname.split("/").pop()!;
@@ -73,7 +73,7 @@ test("Open match with a Brawl id makes no board", async ({ browser }) => {
   await page.goto(server.url);
   await page.getByTestId("open-match-id").fill(BRAWL);
   await page.getByTestId("open-match-go").click();
-  await expect(page.locator(".landing .error")).toHaveText("Brawl not supported");
+  await expect(page.locator(".landing .error")).toHaveText("Brawl not supported. Open a standard match.");
   await expect(page).toHaveURL(server.url + "/");
   await page.reload();
   await expect(page.locator(".known")).toHaveCount(0);

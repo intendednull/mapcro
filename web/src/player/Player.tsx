@@ -14,6 +14,8 @@ import { UltRing } from "../match/preview";
 import { matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
 import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensureLiveOps, liveIds, takeAnnotationsOps } from "./live";
 import { FETCH_WHY, busy, jobLabel } from "./api";
+import { idFromName, isDem, looksLikeDemo, sizeLabel } from "./notice";
+import { DropOverlay, NOT_DEM, ReplayHelp, createDemDrop } from "./ReplayHelp";
 import { SPEEDS } from "./clock";
 import { troopersAt } from "./troopers";
 import { mapToView, worldToMap, worldToView } from "../map/transform";
@@ -107,6 +109,21 @@ export function Player(p: {
   };
   const back = () => user(() => h.setMode("player"));
 
+  // ---- the replay file: picked or dropped (spec §6b) ----
+  /** An editor can give this match a replay: it has none, and nothing's on its way. */
+  const canUpload = () => canEdit() && !!h.matchId() && (!h.tl() || tierOf(h.tl()!) !== "replay") && !!h.job() && h.job()!.state !== "off" && !busy(h.job()) && !h.uploading();
+  const take = async (f: File) => {
+    if (!isDem(f.name)) return h.setStatus(NOT_DEM);
+    // The game names a replay after its match: refuse another match's file.
+    const named = idFromName(f.name);
+    if (named && h.matchId() && named !== h.matchId()) return h.setStatus(`That file is match ${named}, not ${h.matchId()}`);
+    h.setStatus("");
+    if (!(await looksLikeDemo(f))) return h.refuse("not_a_replay");
+    void h.upload(f);
+  };
+  // Dropped anywhere on the board while Player shows a match without its replay.
+  const dragging = createDemDrop({ enabled: () => watching() && canUpload(), onFile: (f) => void take(f), onRefuse: (t) => h.setStatus(t) });
+
   // ← → step through events while watching (the scene tree steps scenes while viewing one).
   const events = createMemo(() => [...(h.tl()?.events ?? [])].sort((a, b) => a.t - b.t));
   onMount(() => {
@@ -190,13 +207,14 @@ export function Player(p: {
           <span class="match-job pl-hidden" data-testid="match-job">
             {jobLabel(h.job(), h.progress())}
           </span>
-          <Show when={canEdit() && h.matchId() && (!h.tl() || tierOf(h.tl()!) !== "replay") && h.job() && h.job()!.state !== "off" && !busy(h.job())}>
-            <button class="btn primary small" type="button" data-testid="match-upload" onClick={() => file.click()} title={REPLAY_HINT}>
+          <Show when={canUpload() && !h.notice()}>
+            <button class="btn primary small" type="button" data-testid="match-upload" onClick={() => file.click()}>
               Upload replay file
             </button>
             <button class="btn ghost small" type="button" data-testid="match-fetch" onClick={() => void h.fetchReplay()} title="Fetch the replay from Valve">
               Fetch replay
             </button>
+            <ReplayHelp id={h.matchId()} />
           </Show>
           <span class="spacer" />
           <input
@@ -208,14 +226,50 @@ export function Player(p: {
             onChange={(e) => {
               const f = e.currentTarget.files?.[0];
               e.currentTarget.value = "";
-              if (!f) return;
-              // The game names a replay after its match: refuse another match's file.
-              const named = /^(\d+)/.exec(f.name)?.[1]?.replace(/^0+/, "");
-              if (named && h.matchId() && named !== h.matchId()) return h.setStatus(`That file is match ${named}`);
-              void h.upload(f);
+              if (f) void take(f);
             }}
           />
         </form>
+        <Show when={watching() && h.uploading() && h.sent()}>
+          {(u) => (
+            <div class="pl-upload" data-testid="upload-progress">
+              <span class="pl-upload-label">Uploading</span>
+              <progress class="pl-upload-bar" data-testid="upload-bar" max={u().total} value={u().loaded} />
+              <span class="pl-upload-size" data-testid="upload-size">
+                {h.progress()}% · {sizeLabel(u().loaded, u().total)}
+              </span>
+              <button class="btn ghost small" type="button" data-testid="upload-cancel" onClick={() => h.cancelUpload()}>
+                Cancel
+              </button>
+            </div>
+          )}
+        </Show>
+        <Show when={watching() && h.notice()}>
+          {(n) => (
+            <div class="pl-notice" data-testid="match-notice" role="status">
+              <span class="pl-notice-text">
+                <b data-testid="match-notice-text">{n().text}</b>
+                <Show when={n().line}>
+                  <span class="pl-notice-line" data-testid="match-notice-line">
+                    {n().line}
+                  </span>
+                </Show>
+              </span>
+              <Show when={n().actions.includes("retry") && (canEdit() || n().step === "load")}>
+                <button class="btn small" type="button" data-testid="match-retry" onClick={() => h.retry(canEdit())}>
+                  Try again
+                </button>
+              </Show>
+              <Show when={n().actions.includes("upload") && canUpload()}>
+                <button class="btn primary small" type="button" data-testid="match-upload" onClick={() => file.click()}>
+                  Upload replay file
+                </button>
+                <ReplayHelp id={h.matchId()} />
+              </Show>
+            </div>
+          )}
+        </Show>
+        <DropOverlay over={dragging()} id={h.matchId()} />
         <Show when={watching() && h.tl()}>
           {(m) => (
             <div class="pl-transport">
@@ -319,9 +373,6 @@ export function Player(p: {
     </>
   );
 }
-
-/** Where Deadlock keeps replays (the landing page's "Select replay file" says the same). */
-export const REPLAY_HINT = "Deadlock saves replays in …/steamapps/common/Deadlock/game/citadel/replays/ (the file name is the match id)";
 
 /**
  * Which tier the match is loaded at, in words (operator, 2026-11-08): "Full replay" or "API

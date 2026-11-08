@@ -57,7 +57,7 @@ test("import, scrub, save two moments; a second browser sees them; undo reverts 
   await expect(a.getByTestId("match-status")).toHaveText("Invalid id");
   await a.getByTestId("match-id").fill("404");
   await a.getByTestId("match-load").click();
-  await expect(a.getByTestId("match-status")).toHaveText("Not found");
+  await expect(a.getByTestId("match-notice-text")).toHaveText("Match not found yet.");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-clock")).toHaveText("10:00 / 21:40");

@@ -84,7 +84,7 @@ test("the chip names the tier; an upload upgrades it in place, keeping the time,
 
   // Another match's file is refused by its name.
   await a.getByTestId("match-file").setInputFiles({ name: "999.dem", mimeType: "application/octet-stream", buffer: Buffer.from("PBDEMS2\0x", "binary") });
-  await expect(a.getByTestId("match-status")).toHaveText("That file is match 999");
+  await expect(a.getByTestId("match-status")).toHaveText(`That file is match 999, not ${ID}`);
 
   const demo = Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(64 * 1024, 7)]);
   await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: demo });

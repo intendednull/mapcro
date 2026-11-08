@@ -98,12 +98,12 @@ test("upload a replay, scrub ults, rifts, powerups and zipline colours, save the
   await a.getByTestId("mode-player").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
-  await expect(a.getByTestId("match-status")).toHaveText("Not found");
+  await expect(a.getByTestId("match-notice-text")).toHaveText("Match not found yet.");
   await expect(a.getByTestId("match-upload")).toBeVisible();
 
   // Not a demo: refused before it's queued.
   await a.getByTestId("match-file").setInputFiles({ name: "x.dem", mimeType: "application/octet-stream", buffer: Buffer.from("MZ not a demo at all") });
-  await expect(a.getByTestId("match-status")).toHaveText("Not a replay");
+  await expect(a.getByTestId("match-notice-text")).toHaveText("Not a replay. Pick the match's .dem file.");
 
   const demo = Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(256 * 1024, 7)]);
   await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: demo });

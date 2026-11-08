@@ -54,7 +54,7 @@ test("Player with no timeline shows an empty map, never the scene, and nothing m
   const a = await joinNew(browser, await newBoardUrl(server, "Empty"), "Coach");
   await expect(a.locator(".mapbox .tok")).toHaveCount(12);
   await openMatch(a, "404");
-  await expect(a.getByTestId("match-status")).toHaveText("Not found");
+  await expect(a.getByTestId("match-notice-text")).toHaveText("Match not found yet.");
   await expect(a.locator(".mapbox .tok")).toHaveCount(0);
   await expect(a.locator(".stage-head")).toBeHidden();
   await expect(a.getByTestId("scene-note-edit")).toBeHidden();

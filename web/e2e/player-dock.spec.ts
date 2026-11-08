@@ -145,7 +145,8 @@ test("a failed Open match isn't added to Your boards", async ({ browser }) => {
   await page.goto(server.url);
   await page.getByTestId("open-match-file").setInputFiles({ name: "122134063.dem", mimeType: "application/octet-stream", buffer: Buffer.from("not a demo at all") });
   await page.getByTestId("open-match-go").click();
-  await expect(page.locator(".landing .error")).toHaveText("Not a replay");
+  await expect(page.locator(".landing .error")).toHaveText("Not a replay. Pick the match's .dem file.");
+  await expect(page).toHaveURL(server.url + "/");
   await page.reload();
   await expect(page.locator(".known")).toHaveCount(0);
 });

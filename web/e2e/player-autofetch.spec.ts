@@ -1,7 +1,7 @@
 // Opening a match by id fetches its full replay on its own (operator, 2026-11-08): the tier chip
 // reads "Fetching replay…", then "Parsing replay…", then upgrades in place to "Full replay". A
-// match Valve has no replay for settles on "API summary", says why in the chip's hint, and
-// offers "Upload replay file". A fake deadlock-api and CDN; the test plays the worker.
+// match Valve has no replay for settles on "API summary", says why (in the bar and the chip's
+// hint), and offers "Try again" and "Upload replay file". A fake deadlock-api and CDN; the test plays the worker.
 
 import { createServer } from "node:http";
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -103,15 +103,17 @@ test("opening a match fetches its replay: the chip goes from fetching to Full re
 test("a match Valve has no replay for settles on the summary, says why, and offers the upload", async ({ browser }) => {
   const a = await openFromLanding(browser, NONE);
   const chip = a.getByTestId("match-tier");
-  await expect(chip).toHaveAttribute("data-why", "Replay not available from Valve");
+  await expect(chip).toHaveAttribute("data-why", "Replay not found yet");
   await expect(chip).toHaveText("API summary");
+  await expect(a.getByTestId("match-notice-text")).toHaveText("Replay not found yet. Try again later, or upload the replay file.");
+  await expect(a.getByTestId("match-retry")).toHaveText("Try again");
   await expect(a.getByTestId("match-upload")).toHaveText("Upload replay file");
   await expect(a.getByTestId("match-upload")).toHaveClass(/primary/);
   await chip.click();
-  await expect(a.getByTestId("tier-reason")).toHaveText("Replay not available from Valve");
+  await expect(a.getByTestId("tier-reason")).toHaveText("Replay not found yet");
   await a.screenshot({ path: "shots/autofetch-none.png" });
   // Opened again (a new board): deadlock-api isn't asked again.
   const b = await openFromLanding(browser, NONE);
-  await expect(b.getByTestId("match-tier")).toHaveAttribute("data-why", "Replay not available from Valve");
+  await expect(b.getByTestId("match-tier")).toHaveAttribute("data-why", "Replay not found yet");
   expect(hits.filter((h) => h === `/v1/matches/${NONE}/salts`)).toHaveLength(1);
 });

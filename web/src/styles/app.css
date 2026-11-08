@@ -414,3 +414,54 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .camp-tip { pointer-events: none; }
 .camp-tip rect { fill: #0b1714e6; stroke: #ffffff33; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .camp-tip text { fill: #fff; text-anchor: middle; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Getting a replay file in (spec §6b, 2026-11-08): the "Where's my replay?" steps, the drop
+   overlay, the upload's progress and what went wrong. */
+.replay-help { position: relative; display: inline-block; font-size: 12px; }
+.replay-help > summary { list-style: none; cursor: pointer; color: var(--muted); text-decoration: underline dotted; text-underline-offset: 3px; white-space: nowrap; }
+.replay-help > summary::-webkit-details-marker { display: none; }
+.replay-help > summary:hover, .replay-help[open] > summary { color: var(--text); }
+.replay-help-steps { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; margin: 0; padding: 10px 12px 10px 30px; width: max-content; max-width: min(380px, calc(100vw - 24px)); background: var(--raised); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 32px #000a; display: grid; gap: 7px; color: var(--text); }
+.replay-help-steps li { line-height: 1.3; }
+.replay-help-steps li b { display: block; font-weight: 600; }
+.replay-help-steps li span { color: var(--muted); }
+.replay-help-steps code { font: 600 11.5px ui-monospace, monospace; color: var(--brass); }
+.replay-help-steps .replay-help-drop { list-style: none; margin-left: -18px; color: var(--muted); }
+/* Player's bar sits at the bottom: its steps open upward, from the link's right edge. */
+.pl-bar .replay-help-steps { top: auto; bottom: calc(100% + 6px); left: auto; right: 0; }
+.replay-help.inline { display: block; margin-top: 8px; font-size: 13px; }
+.replay-help.inline .replay-help-steps { position: static; width: auto; max-width: none; margin-top: 8px; box-shadow: none; }
+.drop-overlay { position: fixed; inset: 0; z-index: 200; pointer-events: none; display: grid; place-items: center; background: color-mix(in srgb, var(--bg-deep) 72%, transparent); outline: 3px dashed var(--brass); outline-offset: -12px; }
+.drop-card { display: grid; gap: 4px; text-align: center; padding: 18px 26px; border-radius: 12px; background: var(--panel); border: 1px solid var(--brass-dim); }
+.drop-card b { font: 600 17px var(--ui); color: var(--text); }
+.drop-card span { font: 600 12.5px ui-monospace, monospace; color: var(--brass); }
+.pl-upload { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.pl-upload-label { font-weight: 600; color: var(--brass); }
+.pl-upload-bar { flex: 1 1 160px; max-width: 420px; height: 8px; appearance: none; border: 0; border-radius: 999px; background: var(--line-soft); overflow: hidden; }
+.pl-upload-bar::-webkit-progress-bar { background: var(--line-soft); border-radius: 999px; }
+.pl-upload-bar::-webkit-progress-value { background: var(--brass); border-radius: 999px; }
+.pl-upload-bar::-moz-progress-bar { background: var(--brass); border-radius: 999px; }
+.pl-upload-size { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.pl-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: 12.5px; }
+.pl-notice-text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.pl-notice-text b { color: var(--warn); font-weight: 600; }
+.pl-notice-line { color: var(--muted); }
+.entry-notice { margin-top: 10px; display: grid; gap: 4px; padding: 10px 12px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); }
+.entry-notice b { color: var(--warn); font-weight: 600; }
+.entry-notice-line { color: var(--muted); font-size: 13.5px; }
+.entry-notice-actions { display: flex; gap: 8px; margin-top: 6px; }
+.entry-notice-actions .btn { height: 36px; padding: 0 14px; }
+.open-match + input + .error, .landing-body > [data-testid="open-match-error"] { margin: 8px 0 0; }
+@media (max-width: 699px) {
+  /* On the phone the steps open in the bar's flow, a row of their own, never off the screen. */
+  .replay-help[open] { flex: 1 0 100%; }
+  .replay-help .replay-help-steps { position: static; width: auto; max-width: none; margin-top: 6px; box-shadow: none; }
+}
+/* Nothing to drag from on a touch screen. */
+@media (pointer: coarse) { .replay-help-drop { display: none; } }
+@media (max-width: 699px) {
+  /* The match id gets the whole row; the file and Open match share the next. */
+  .open-match { flex-wrap: wrap; }
+  .open-match .input { flex: 1 0 100%; }
+  .open-match .btn { flex: 1; }
+}

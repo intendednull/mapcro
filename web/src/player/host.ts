@@ -7,7 +7,9 @@ import { type CampAt, type MatchEvent, type Timeline, campsAt, downAt, lanesAt, 
 import type { MatchPreview } from "../match/preview";
 import { slotKey } from "../match/save";
 import type { Marker } from "../map/model";
-import { Api, type JobState, MODE_REFUSED, busy } from "./api";
+import { Api, type JobState, MODE_CODES, busy } from "./api";
+import { type Notice, type Step, noticeFor } from "./notice";
+import { type Handoff, takeHandoff } from "./handoff";
 import { type Playback, clampT, follow, rebase, tAt } from "./clock";
 import { type Pt, worldToMap } from "../map/transform";
 import { eventKey } from "./events";
@@ -70,7 +72,16 @@ export function createPlayerHost(board: string, token: string) {
   const [tl, setTl] = createSignal<Timeline>();
   const [status, setStatus] = createSignal("");
   const [job, setJob] = createSignal<JobState>();
-  const [progress, setProgress] = createSignal<number>();
+  /** What went wrong with the open match: its metadata, its fetch, or an upload (a code). */
+  const [problem, setProblem] = createSignal<{ code: string; step: Step }>();
+  /** This tab's upload in flight: the match, the bytes sent and the total. */
+  const [sent, setSent] = createSignal<{ id: string; loaded: number; total: number }>();
+  let inflight: { id: string; ctl: AbortController } | undefined;
+  /** The upload's percent, for this match. */
+  const progress = () => {
+    const s = sent();
+    return s && s.id === matchId() ? Math.floor((s.loaded / Math.max(1, s.total)) * 100) : undefined;
+  };
   const [playback, setPlayback] = createSignal<Playback>({ t: 0, playing: false, speed: 1, at: performance.now() });
   const [now, setNow] = createSignal(performance.now());
   const [highlight, setHighlight] = createSignal<{ event: MatchEvent; place: Pt | undefined; key: number }>();
@@ -121,6 +132,8 @@ export function createPlayerHost(board: string, token: string) {
   const watch = async (id: string) => {
     clearTimeout(poll);
     try {
+      // This tab's own upload is the truth while it runs; its end watches again.
+      if (inflight?.id === id) return void setJob({ state: "uploading", source: "upload" });
       const j = await api.job(id);
       if (!j || matchId() !== id) return;
       const was = job()?.state;
@@ -136,12 +149,15 @@ export function createPlayerHost(board: string, token: string) {
     const r = await api.timeline(id);
     if (matchId() !== id) return;
     if ("error" in r) {
-      setStatus(r.error);
+      setStatus("");
+      // An upload's failure says more (a handed-off upload can fail before this answers).
+      if (problem()?.step !== "upload") setProblem({ code: r.error, step: "load" });
       return;
     }
     const had = !!tl();
     setTl(r);
     setStatus("");
+    if (problem()?.step === "load") setProblem(undefined);
     if (!(keep && had)) {
       jumped();
       setPinned(undefined);
@@ -172,12 +188,13 @@ export function createPlayerHost(board: string, token: string) {
     setMatchId(id);
     setTl(undefined);
     setJob(undefined);
+    setProblem(undefined);
     setStatus("Loading");
     setMode("player");
     try {
       // The timeline first: a match refused for its mode is never attached (2026-11-08).
       await loadTimeline(id, false);
-      if (opts.attach && matchId() === id && !MODE_REFUSED.has(status()) && (await api.attach(id))) setMatches([Number(id), ...matches().filter((m) => m !== Number(id))]);
+      if (opts.attach && matchId() === id && !MODE_CODES.has(problem()?.code ?? "") && (await api.attach(id))) setMatches([Number(id), ...matches().filter((m) => m !== Number(id))]);
       // A newer open() may have replaced this match meanwhile: don't seek it (finding 10).
       if (opts.at !== undefined && matchId() === id) control.seek(opts.at);
       await watch(id);
@@ -186,29 +203,117 @@ export function createPlayerHost(board: string, token: string) {
     }
   };
 
-  const upload = async (f: Blob) => {
+  /**
+   * Upload a replay of the open match, with progress, while the board stays in use (one at a
+   * time from this tab; `cancelUpload` stops it). With `attach`, the match is attached once the
+   * server has the upload under way, so attaching doesn't also start a fetch from Valve.
+   */
+  const upload = async (f: Blob, opts: { attach?: boolean; opened?: () => void } = {}) => {
     const id = matchId();
-    if (!id) return;
+    if (!id || inflight) return;
+    const ctl = new AbortController();
+    inflight = { id, ctl };
     setJob({ state: "uploading", source: "upload" });
     setStatus("");
-    setProgress(0);
-    const e = await api.upload(id, f, setProgress);
-    setProgress(undefined);
-    if (e) setStatus(e);
+    setProblem(undefined);
+    setSent({ id, loaded: 0, total: f.size });
+    let ended = false;
+    let failed = false;
+    let attaching: Promise<void> | undefined;
+    const attach = () =>
+      (attaching ??= (async () => {
+        for (let i = 0; i < 20 && !ended; i++) {
+          const j = await api.job(id).catch(() => undefined);
+          if (j?.source === "upload" && j.state !== "none") break;
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        if (failed || !(await api.attach(id).catch(() => false))) return;
+        setMatches([Number(id), ...matches().filter((m) => m !== Number(id))]);
+        opts.opened?.();
+      })());
+    const e = await api.upload(
+      id,
+      f,
+      (loaded, total) => {
+        setSent({ id, loaded, total });
+        // Past the first MiB the server has seen the file's header (a non-replay is refused
+        // there), so a match isn't attached for a file that was never a replay.
+        if (opts.attach && loaded >= Math.min(total, 1 << 20) && loaded < total) void attach();
+      },
+      ctl.signal,
+    );
+    ended = true;
+    failed = !!e;
+    inflight = undefined;
+    setSent(undefined);
+    if (opts.attach && !e) await attach();
+    else await attaching;
+    if (matchId() !== id) return;
+    if (e) {
+      setJob(undefined);
+      setProblem({ code: e, step: "upload" });
+    } else if (problem()?.step === "load") setProblem(undefined); // the replay stands alone
     await watch(id);
   };
+  const cancelUpload = () => inflight?.ctl.abort();
+  /** An upload refused before it started (the file isn't a replay). */
+  const refuse = (code: string) => setProblem({ code, step: "upload" });
+  /** This tab is uploading the open match. */
+  const uploading = () => sent()?.id === matchId() && !!matchId();
 
   const fetchReplay = async () => {
     const id = matchId();
     if (!id) return;
+    setProblem(undefined);
     const e = await api.fetchReplay(id);
-    if (e) return setStatus(e);
+    if (matchId() !== id) return;
+    if (e) return setProblem({ code: e, step: "fetch" });
     setStatus("");
     await watch(id);
   };
 
+  /** Try the failed step again: the match's metadata (`attach` for an editor), or the fetch. */
+  const retry = (attach: boolean) => {
+    const id = matchId();
+    if (!id) return;
+    if (problem()?.step === "load" || !tl()) return void open(id, { attach });
+    return void fetchReplay();
+  };
+
+  /**
+   * What to tell the user about the open match (operator, 2026-11-08): nothing while a replay
+   * is on its way or shown; else an upload's or parse's failure, what failed last, or why the
+   * fetch from Valve isn't coming.
+   */
+  const notice = createMemo((): (Notice & { step: Step }) | undefined => {
+    const j = job();
+    const m = tl();
+    if (uploading() || busy(j) || (m && m.tier === "replay")) return undefined;
+    const p = problem();
+    const failedUpload = j?.state === "failed" && j.source === "upload" ? j.reason : undefined;
+    const pick = failedUpload && p?.step !== "upload" ? { code: failedUpload, step: "upload" as Step } : p ?? (j?.state === "failed" && j.reason ? { code: j.reason, step: "fetch" as Step } : undefined);
+    const n = pick && noticeFor(pick.code, pick.step);
+    return n && { ...n, step: pick.step };
+  });
+
+  /** A replay the landing page handed this board: upload it in Player, then attach the match. */
+  const startHandoff = async (h: Handoff) => {
+    setMatchId(h.id);
+    setTl(undefined);
+    setJob(undefined);
+    setProblem(undefined);
+    setStatus("");
+    setMode("player");
+    const up = upload(h.file, { attach: true, opened: h.opened });
+    // The summary, if deadlock-api has one, to watch meanwhile.
+    await loadTimeline(h.id, false).catch(() => undefined);
+    await up;
+  };
+
   /** Load the board's matches; a board with one opens in Player. */
   const init = async () => {
+    const handed = takeHandoff(board);
+    if (handed) return startHandoff(handed);
     const ms = await api.matches().catch(() => []);
     setMatches(ms);
     if (ms.length && !matchId()) await open(String(ms[0]), { attach: false });
@@ -369,6 +474,13 @@ export function createPlayerHost(board: string, token: string) {
     setStatus,
     job,
     progress,
+    sent,
+    uploading,
+    cancelUpload,
+    refuse,
+    problem,
+    notice,
+    retry,
     playback,
     setPlayback,
     t,
