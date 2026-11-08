@@ -167,3 +167,54 @@ group commit and the earlier work:
   due. The byte-quota test runs with compaction off (`BOARD_COMPACT_OPS=0`), so it still checks
   the backstop. A new test, `compaction_means_a_board_never_fills`, takes the same 60 rewrites
   with compaction on: all accepted, under 64 KiB kept. Dropping the batch rule fails it.
+
+## The independent review, and fixing it
+
+A fresh reviewer read fb7cd15..282a14d. Verdict: ship with fixes. It found no break of
+durable-before-ack, no double-apply and no lost pending work. Five findings were fixed, each with
+a failing test first, then the fix, then the fix taken out again to show the test notices:
+
+1. **Catch-up raced compaction.** A catch-up is a range the socket reads later. Compaction could
+   delete its start, either in the hello's own batch or while a slow client paged through it, and
+   the read failed as a storage error. Two failpoint tests (`--features failpoints`) force the
+   order with test-only pauses before a commit and before each page. Now the range is recognised
+   as compacted, the connection closes as `too_slow` without an error, and the reconnect is
+   rebased.
+   - The same-batch test turned out to have two right answers. Under load, the editor's
+     transactions can reach the room ahead of the stale hello, on their own socket, and then the
+     hello is simply rebased. It accepts either outcome, never a storage failure. The slow-pager
+     test is the one that always takes the race path. Reverting the fix fails both.
+2. **A pruned rejection lost the client's next cseq on restart.** The device was then wedged
+   with "transaction sequence gap" on every reconnect. The prune now records next_cseq in
+   `client_seqs` in the same transaction.
+   - The model has learnt the prune and a restart (see below).
+3. **The migration wasn't atomic.** A crash between a step and its version bump left a database
+   the server couldn't open. Each step and its bump are now one transaction, and table-creating
+   steps say IF NOT EXISTS. Tested from the real v4 fixture left half-migrated.
+5. **A compaction error closed the room**, a reconnect loop if it persisted. Now it's logged and
+   retried later. While it fails, compaction isn't "due", so batches don't shrink to one message.
+6. **The floor could move backwards** when the keep budget covered every row (floor 0). The store
+   keeps it below the oldest kept row, and the authority takes the maximum, so either layer alone
+   holds.
+
+Finding 4 (each stale hello clones the board for its rebase, uncounted in memory) is in the
+backlog: the fix is to serialize once per position and count it, like the fresh-join snapshot.
+
+**The model, extended for finding 2.**
+- The server now deduplicates by its in-memory next cseq per client, prunes heard rejections on a
+  hello, and can restart.
+- A restart rebuilds next cseqs from what's durable only: the log after the base, stored
+  rejections and `client_seqs`.
+- `PRUNE_KEEPS_NEXT` switches the fix, and `noGap` (an honest submit is never a sequence gap) is
+  the eighth property.
+- All eight hold over 200,000 samples each. `pruneLosesNext.qnt`, the bug, survived 200,000
+  samples and then 1,000,000 of up to 45 steps: the path needs a refusal, a reconnect, a restart
+  and one more edit in a particular order, about 20 steps that random runs almost never take.
+  TLC, which goes breadth-first: (TLC RESULT)
+
+The review's other model gaps stay open and are worth knowing:
+- The model never truncates its log, so compaction is only a floor that forces rebases.
+- Catch-up is materialized when the hello is handled, so a lazily read range that compaction
+  overtakes isn't in the model. Finding 1's fix makes that case a disconnect, which the model does
+  cover.
+- MAX_COMPACTS is 1.

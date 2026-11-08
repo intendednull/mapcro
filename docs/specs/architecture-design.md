@@ -186,6 +186,11 @@ presence   = other users' cursors and drag previews                   (ephemeral
        are never acked.
      - A rebase is the whole board in one frame, so it goes outside the outbox's byte cap, under
        the server-wide cap on big frames in flight.
+     - **A catch-up can be overtaken.** Catch-up is a range the socket reads lazily, and compaction
+       may delete its start after the range was queued (in the hello's own batch, or while a slow
+       client pages through it). A range that starts below what's kept closes the connection as
+       `too_slow`, logged at info, not an error. The client's reconnect, from where it got to, is
+       below the floor and is rebased.
 2. The server answers the hello first with any of the client's rejections from `pending_from` on,
    so a rejection lost in a disconnect is heard before any later ack. (Found while designing the
    engine and confirmed by the model's `acksInOrder` property.) Then it sends the ops after
@@ -499,12 +504,20 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   2,000 (`BOARD_KEEP_OPS`) and a quarter of the byte quota, for clients slightly behind, and
   deletes the rest. The same transaction records each client's next expected cseq (`client_seqs`,
   schema v5). The entries that showed it may be gone, and without it a resend of a compacted
-  transaction would be applied again. A cold load replays from the base. Catch-up is served from
+  transaction would be applied again. So does pruning a client's heard rejections: its last
+  decided transaction may have been a refusal, and the prune deletes the only record of it. A cold load replays from the base. Catch-up is served from
   the oldest kept entry on; a hello from below that is rebased (§5). The new base doubles as the
   fresh-join snapshot. Stored rejections are already pruned as soon as their client has heard them.
   - So a board's history no longer grows without bound. What's kept is at most ~12,000 entries
     (and ~15 MiB at the default quota), plus the base, whatever the board's age.
   - Version history and a retention window aren't built: compaction keeps only the tail.
+  - The floor (below it, a rebase) only rises. When the keep budget covers every row, it stays
+    just below the oldest row still kept.
+  - Compaction is housekeeping after a committed batch. If it fails, the error is logged and the
+    room carries on (the history caps backstop it), retrying after another tenth of the interval.
+- **Migrations are atomic per step.** Each schema step and its version bump are one transaction,
+  and steps that create tables say IF NOT EXISTS, so a crash mid-migration leaves the database at
+  one version or the next.
 - **Tombstones:** deleted ids stay tombstoned in the board (and so in every base), so a rebased
   client's pending work still finds what it refers to.
 - **Version history** (not built) would come from the log within a retention window; compaction
