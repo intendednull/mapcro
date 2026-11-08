@@ -448,15 +448,20 @@ board server (`MemoryMax=256M`; a 480 MB demo's pages alone exceed it).
 
   A job is `<match id>-<scope>`, where the scope is `cdn` or 16 hex digits of the board id's
   hash. The worker deletes its decompressed copy as soon as the parse ends; the server deletes
-  the original when it collects the result, within a second, either way. A worker that crashed
-  mid-job fails it on restart. The board server never parses: its health check doesn't depend
+  the original when it collects the result, within a second, either way. A worker restarted
+  mid-job (a deploy, a crash) puts the job back in the queue once, marked in `work/`
+  (`<job>.requeued`); a job it was on when it went down a second time fails (`parse_failed`),
+  so a demo that brings the worker down isn't tried for ever. The board server never parses: its health check doesn't depend
   on the worker, so a crashed worker can't fail a deploy.
 - **The board server's side** (`crates/server/src/replays.rs`): it collects results every
   second, only for jobs it queued itself (a result for any other job is dropped, so a worker
   can't publish a timeline nobody asked for, nor one under the shared `cdn` scope for an
   upload), checks each against the timeline's shape and size, and caches it as
   `DATA_DIR/replays/<job>.json`. It drops jobs still queued after an hour (`timeout`) and
-  partial transfers, and keeps the cache under 1 GiB by dropping the oldest timelines.
+  partial transfers. A job being parsed is the worker's, under its own wall clock: its hour
+  counts from when its parse was first seen, not from its arrival, so a long wait in the queue
+  never deletes a demo under the parser. It keeps the cache under 1 GiB by dropping the oldest
+  timelines.
 
 ### The queue (2026-11-08: a few dozen people uploading or fetching at once)
 
@@ -476,16 +481,29 @@ board server (`MemoryMax=256M`; a 480 MB demo's pages alone exceed it).
 - **Uploads reserve first.** `POST …/reserve {"bytes": n}` answers `ready` (send now),
   `waiting` with `ahead`, or `done` when the board has the match's fetched replay already
   (nothing to send: it uses the `cdn` timeline). The client asks again every 2 s, which keeps
-  its place; a place or a given turn nobody asks about for 20 s lapses
-  (`REPLAY_RESERVE_TTL_S`), and `DELETE …/reserve` (Cancel) gives it up. The upload then may not
-  pass the size reserved. An upload without a reservation is taken only if its turn is free
-  now. A client may hold 4 places waiting; past 64 in line (`MAX_WAITING`) a new one is refused
-  (`503 queue_full`, "Busy. Try again in a few minutes."): the last resort.
+  its place; a place nobody asks about for 90 s lapses (`REPLAY_RESERVE_TTL_S`: a hidden tab's
+  timers run about once a minute in Chrome), and `DELETE …/reserve` (Cancel) gives it up,
+  a turn given while the Cancel's ask was under way included. A request that gets no answer
+  is asked again after 2, 4 and 8 s before the wait ends as `offline`.
+- **A turn must be used.** A turn given holds an upload slot and its bytes, so asking alone
+  doesn't keep it: its upload must start within 75 s (`REPLAY_GRANT_USE_S`, past a hidden
+  tab's minute), or it goes and the client starts over at the back. Every turn given counts
+  against the client's 6 an hour (`REPLAY_PER_CLIENT_PER_HOUR`), used or not, and so does
+  each place it holds waiting: a client can't ask for more turns than it may use. The upload
+  then may not pass the size reserved. An upload without a reservation is taken only if its
+  turn is free now (and that turn counts). A client may hold 4 places waiting; past 64 in
+  line (`MAX_WAITING`) a new one is refused (`503 queue_full`, "Busy. Try again in a few
+  minutes."): the last resort.
+- **Fetches waiting are capped too.** A client may have 4 fetches waiting in line
+  (`429 busy`), and the line's 64 holds for them as for uploads (`503 queue_full`); a fetch on
+  open that can't join simply doesn't start. A fetch waiting is told when its download may
+  start (no polling).
 - **Parse order.** The collector writes the queued files' fair order to `inbox/.order` every
   second (server-written, worker-read, like the rest of the inbox); the worker runs them in it.
   A file the server knows nothing of (queued before a restart) is its own client, by age.
 - **Position and wait.** `ahead` for a queued file is the jobs parsing plus those before it in
-  the order. The estimate needs three recent samples (the last 20 kept): a parse, from the
+  the order. The estimate needs three recent samples (the last 20 kept): a parse that made a
+  timeline (a refusal or a crash ends at once, and would make the wait look short), from the
   collector first seeing its marker to collecting it; a download, from its start to the file
   being queued. A queued job's wait is the rounds before it (`ahead` ÷ workers, plus its own)
   times the mean parse; a fetch in line adds its download's turn and the download. Player
@@ -878,9 +896,11 @@ proof-of-work or accounts if rotation is seen in practice.
   `inbox/.<job>.part`, never into memory. Caps: 800 MiB per upload (`413`, by `Content-Length`
   up front and while streaming, and never past the size its reservation named), 60 s without a
   byte or 30 min in all (`408`), four uploads at once and one per client, 6 uploads per client
-  address per hour (`429`), at most 24 jobs and 8 GiB in the queue counting transfers in flight
+  address per hour (`429`; turns given count, used or not, and places waiting), a turn unused
+  75 s after it's given lapses, at most 24 jobs and 8 GiB in the queue counting transfers in flight
   at their size; past those an upload waits in line for its turn (§6a, The queue: 4 places
-  waiting per client, 64 in all, past which `503 queue_full`).
+  waiting per client, 64 in all, past which `503 queue_full`; fetches: 4 waiting per client
+  (`429 busy`), within the same 64).
   The first 8 bytes must be `PBDEMS2\0` (`415 not_a_replay`); nothing else is read. A refused
   or broken upload leaves no file, a dropped connection included.
 - **Boundary 2, upstreams → the board server.** deadlock-api's salts response is capped at

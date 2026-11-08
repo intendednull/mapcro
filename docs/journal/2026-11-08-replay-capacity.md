@@ -155,6 +155,51 @@ to about 87 s.
   `TasksMax=16` and `REPLAY_WORKERS=2` on the worker, and the budgets in the server's
   environment. A reservation answers `ready`, and the synthetic job round-trips.
 
+## Review fixes (same day)
+
+An independent review of the queue found six things, all real on reading the code:
+
+- **A turn could be held for ever without uploading.** A granted reservation stayed alive
+  while it was asked about every 20 s, holding one of the 4 upload slots and up to 800 MB, and
+  the hourly limit counted only uploads started. Four IPv6 /64s (the address key groups by /64)
+  could hold every slot. Now a turn must be used within 75 s of being given, asked about or
+  not (`REPLAY_GRANT_USE_S`), or it goes and the client starts over at the back. Every turn
+  given counts against the client's 6 an hour, used or not, and so do its places waiting. To
+  hold the 4 slots all hour now takes 4 × 3600 ÷ 75 = 192 turns, so 32 /64s.
+- **Fetches skipped the line's cap.** `/fetch` had no per-client or total cap, and each fetch
+  waiting polled the global lock every 250 ms with a scan of the line. Now a client may have
+  4 fetches waiting (`429 busy`), the line's 64 counts them, and a fetch waiting is told its
+  turn by a oneshot channel. With the line capped at 64, re-sorting it for the fair order on
+  each event is cheap, so that stays.
+- **A hidden tab lost its place for ever.** Chrome runs a tab's timers about once a minute after
+  5 minutes hidden, past the 20 s TTL. The TTL is now 90 s. The turn's 75 s use window also
+  has to outlast that minute, or a hidden tab would miss every turn it was given. So it's
+  shorter than the TTL, but not short.
+- **The stale sweep could delete a demo mid-parse.** It aged a job from its arrival, and 24
+  jobs × 300 s ÷ 2 workers is the 3600 s limit. Now a job being parsed ages from its parse.
+- **A worker restart failed the jobs it was on.** A deploy marked up to 2 good demos
+  `parse_failed`. Now it puts each back once (`work/<job>.requeued`, the worker's own
+  scratch: it can't write the inbox, and the server drops unknown outbox files). A job on when
+  the worker went down a second time fails.
+- **Failed parses fed the estimate.** A refusal ends at once, and pulled `eta_s` low. Only parses
+  that made a timeline are samples now.
+- **The client:** Cancel pressed while an ask was under way that then came back `ready` never
+  gave the turn back; now it does. One ask with no answer ended the wait and lost the place;
+  now it asks again after 2, 4 and 8 s first.
+
+Not done: a per-board cap on waiting. Boards are free to make, so it adds nothing a per-client
+cap doesn't. The real limit is the address key: someone with many /64s (a /48 has 65,536)
+still has many clients. Grouping wider would put strangers behind one NAT-like key. That's the
+operator's call.
+
+Each fix has a test that fails without it. Server (`tests/replays.rs`): a turn asked about but
+unused lapses and counts for the hour; fetches waiting are capped per client and in all; a
+parse under way isn't swept for its wait; failures make no estimate. Unit: the TTL and the use
+window outlast a hidden tab's minute. Worker: a restart puts the job back once. e2e
+(`replay-queue.spec.ts`): a lost ask is tried again and the wait goes on; Cancel during an ask
+gives back the turn it brings. The e2e that read "~1 min" after three refused parses now
+finishes them with timelines.
+
 ## Not verified
 
 - **Valve's zstd window size**, so the worst-case anonymous memory of a fetched demo. The cap

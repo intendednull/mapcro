@@ -84,7 +84,12 @@ the browser for its turn ("Waiting for a slot · N ahead") rather than being ref
 cached under `/var/lib/mapcro/replays`, capped at 1 GiB. Lower `queueBytes` on a smaller disk;
 the line only grows longer. `replay.uploadsAtOnce` (4) and `replay.downloadsAtOnce` (2) bound
 the transfers, and `replay.maxWaiting` (64) is the line past which a new one is refused ("Busy.
-Try again in a few minutes.").
+Try again in a few minutes."); a client may hold 4 uploads and 4 fetches waiting. Two server
+settings the module leaves at their defaults: `REPLAY_RESERVE_TTL_S` (90), how long a place in
+line is kept without being asked about (past a hidden tab's minute between timers), and
+`REPLAY_GRANT_USE_S` (75), how soon a turn given must be used. Each turn given counts against
+`REPLAY_PER_CLIENT_PER_HOUR` (6), used or not. A worker restarted mid-parse (a deploy) puts the
+job back once rather than failing it.
 
 ## Behind Caddy
 
