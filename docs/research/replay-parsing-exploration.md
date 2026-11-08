@@ -233,3 +233,128 @@ Item events are the 309/360 messages above. All events are at their event tick; 
 ## Files
 
 `out2/122134063/lane_fronts_from_prior.csv`, `out2/122134063/lane_fronts_arc.csv`; analysis scripts `lane_prior.py`, `lane_arc.py`, `front_smooth.py`, `health_prior.py`; probe source `probe/src/bin/explore2.rs`.
+
+## Round 3: jungle camps (2026-11-08)
+
+**Date:** 2026-11-08 · **Scope:** read-only, every-tick probe of every entity class · **Probe:** `/tmp/camp-probe` (`src/main.rs`, `src/bin/mode.rs`, `py/*.py`) · **Output:** `/tmp/camp-probe/out/{129738985,108440637,122134063}/`.
+
+### Verdict
+
+**Camp state is fully available on current builds, with or without vision.**
+
+The game rules carry one respawn timer per camp. These timers are networked every tick, whatever the players can see, and their origins match our pack's 51 camp sites **at 0.0 units**. The neutral entities are networked the whole match as well, so partial clears are visible too. On the older build 6701 the timer vector doesn't exist yet. There, the alive/cleared state still comes from the FOW camp icons and the entity lifecycle, but the respawn time has to be inferred.
+
+**Correction to round 2 §5.** 122134063 is a **Street Brawl** demo (`m_pGameRules.m_eGameMode = 4`; boon's `game_modes.rs` gives 1 = `6v6`, 4 = `street_brawl`). Brawl has no camps: `CNPC_TrooperNeutral` is in the class table but never instantiated in any of its 57,615 ticks, and all 52 timers stay −1 until the post-game. The "missing" neutrals were the game mode, not PVS. Brawl demos must be excluded from camp, lane and trooper analysis, and probably from the 6v6-only tier altogether. The other demos checked are all 6v6 (`m_eGameMode = 1`): 129738985 (build 6839, current map), 108440637 (6701), 107550569 (6698) and 106114966 (6694).
+
+### 1. Full-match class census (every tick)
+
+**129738985** (6v6, build 6839, 173,229 ticks, game ends at 2640 s, recording ends at 2680 s). Columns: first and last seen as match-clock seconds, max simultaneous `active` count, distinct `(index, serial)`.
+
+| Class | First | Last | Max active | Distinct | Note |
+|---|---|---|---|---|---|
+| `CNPC_TrooperNeutral` | 120.0 s | end | **138** (146 in container) | **146** | the camp creeps; the same entity respawns in place |
+| `CNPC_Neutral_SinnersSacrifice` | 480.0 s | end | 15 | 15 | the `vaults` tier (first spawn and respawn match the vault timers) |
+| `CCitadelItemPunchableNeutralGold` | 407.9 s | 2489 s | 2 | 29 | gold drop from vaults, transient |
+| `CNPC_MidBoss` | start | 2388 s | 1 | 2 | also has timer slot 1 (below) |
+| `CNPC_Neutral_Bug` | start | end | 60 | 76 | ambient critters, not camps |
+| `CItemXP` | 32 s | end | 17 | 71 | soul orbs |
+
+- Present in the schema but **never instantiated**: `CNPC_Neutral_Flying_Pigeon`, `CNPC_Neutral_Hideout_Cat`, `CNPC_Neutral_Hideout_Rabbit`, `CNPC_Neutral_SinnersSacrifice_Hideout`, `CTriggerNeutralShield`.
+- `CNPC_TrooperNeutralNodeMover` is **not in the schema at all** (build 6839).
+- No class has "Camp", "Jungle" or "Spawner" in a camp sense. The map's `info_neutral_trooper_camp` is server-only: its FOW entries point at entity indices that are never networked.
+- **108440637** (6701): `CNPC_TrooperNeutral` 146 distinct, max 113 active, first at tick 9603; `SinnersSacrifice` 12; `PunchableNeutralGold` 17. The shapes match 129738985.
+
+### 2. Camp state: `CCitadelGameRules` timers
+
+Fields on `CCitadelGameRulesProxy`, all three of length 52:
+- `m_pGameRules.m_vecNeutralCampTimerOrigins`: `VectorWS`, world coordinates, no cell decoding.
+- `m_pGameRules.m_vecNeutralCampNextSpawnTimes`: `float32`.
+- `m_pGameRules.m_vecNeutralCampTimerIsMidBoss`: `bool`.
+
+Element paths are `<field>.<i>`.
+
+**Index → pack key.**
+- Slot 0 is `camp:neutral:lane0:1`.
+- Slot 1 is the **mid boss**: origin (−2, −1, −832), `IsMidBoss = true`.
+- Slot *i* ≥ 2 is `camp:neutral:lane0:<i>`.
+- All 51 origins sit 0.0 units from our pack sites, in both 122134063 and 129738985.
+
+**Semantics** (checked against the entities):
+- `NextSpawnTimes[i] = −1` means the camp is alive.
+- A value *T* > 0 means the camp was cleared and respawns at *T*.
+- At tick 2 every slot is set to its first spawn time. It goes back to −1 on the spawn tick, and is set to *T* on the tick the last creep dies.
+- *T* is already in match-clock seconds: camp 3 has *T* = 480.000 and spawns at 480.05 s on the corrected clock. It isn't `GameTime_t`, so don't subtract `m_flGameStartTime`, and pauses are already taken out: this match paused for about 26.6 s between 150 s and 273 s, and the 480 s spawn still lands on the pause-corrected clock.
+- **Clear tick vs. the last member's death:** −1 tick in 112 cases, 0 in 57, of 186 that could be matched. The rest are entity-to-camp mismatches.
+
+**Timings** from 129738985, constant per tier:
+
+| Tier (pack) | First spawn | Respawn after clear |
+|---|---|---|
+| weak | 120 s | **85 s** (48/48) |
+| medium | 300 s | **290 s** (89/89) |
+| strong | 480 s | **335 s** (35/35) |
+| vaults | 480 s | **300 s** (53/53) |
+| mid boss (slot 1) | at start | 420 s, then 360 s (`k_EUserMsg_MidBossSpawned` at tick 147931 matches) |
+
+**Counts (129738985):** 278 clears and 278 respawns over 52 slots, 2–16 clears per camp, about 5.4 per camp on average. Weak camps 45 and 50 are cleared 16 times each.
+
+**Sample timeline.** Camp `camp:neutral:lane0:3` (strong, 3 creeps). The alive count comes from the entities, the timer from the rules.
+```
+   0.00 s  timer next_spawn=480.0          (not yet spawned)
+ 480.05 s  alive 3/3, timer -1             (spawned)
+ 665.28 s  alive 2/3
+ 673.22 s  alive 1/3
+ 677.44 s  alive 0/3, timer 1012.4         (cleared; respawn = clear + 335 s)
+1012.45 s  alive 3/3, timer -1             (respawned)
+1029.38 s  alive 2/3  ...  1048.03 s  alive 0/3, timer 1383.0
+1383.05 s  alive 3/3, timer -1
+```
+
+**Partial clears** (member alive count between 0 and full):
+- 961 intervals, median **0 s** (several creeps die on one tick), p90 2.2 s; only 12 last more than 30 s.
+- **Members per camp:** usually 3 `CNPC_TrooperNeutral`; tiers vary. A creep's `m_iMaxHealth` grows with match time (camp 3's big creep goes 1455 → 2057 over the match).
+- **Assignment method:** each creep is assigned to its camp by matching its (re)spawn tick to the camp's timer spawn tick, then taking the nearest origin. Nearest-site clustering alone is unreliable, because some sites are only about 550 units apart.
+
+### 3. Visibility
+
+**This 6v6 recording is not PVS-limited for camps (or heroes).**
+- `Entity.active == false` on a neutral means **dead and dormant**, not out of view.
+- **No out-of-view dormancies:** of 622 neutral dormancies in 129738985, **0** happened at full HP. 428 happened at 0 HP. The other 194 kept a stale positive HP, because the killing blow and the dormancy land on the same tick. Treat an inactive neutral as dead and ignore its `m_iHealth`.
+- **Re-entries are respawns:** all 614 reactivations come back at full HP on the camp's respawn tick.
+- **Distance from heroes doesn't matter:** in camp-seconds where the timer says alive, ≥1 alive creep was networked in 16,094/16,099 with the nearest hero under 2000 units, and in **8,499/8,550 with the nearest hero over 5000 units**.
+- **Heroes:** all 12 `CCitadelPlayerPawn` are active in every second.
+- **Lane troopers** are present in every second.
+- The stream has `hltv_versioninfo`, so this is a full-world HLTV-style recording.
+- 108440637 matches: 2 of 447 neutral dormancies at full HP, and 0 re-entries below full HP.
+- **Caveat on earlier PVS claims:** §5 and §10's PVS caveats came from the Brawl demo and the two old demos, and should be rechecked against this result.
+
+**FOW.**
+- `CCitadelTeam.m_vecFOWEntities` holds **52 camp icons** in every team's list, with `m_eClass` by tier: 34 = weak (4), 35 = medium (24), 36 = strong (12), 37 = vaults (11), 38 = mid boss (1).
+- Their `m_nEntIndex` points at the never-networked `info_neutral_trooper_camp` entities. `m_nPositionX/Y` are 0–255 minimap coordinates.
+- **`m_bVisibleOnMap` is the camp-alive flag, not team vision:**
+  - It toggles exactly 277 times for teams 1, 2 and 3 alike.
+  - Each toggle lands within about one second **after** the matching timer transition (244 spawn and 199 clear toggles 1–64 ticks later, 27 more within ±1 tick).
+- No FOW entry references a `CNPC_TrooperNeutral`.
+- On 6701 the same icon classes exist and toggle (193 per team, identical across teams). That is the **only** camp-state signal on that build besides the entities.
+
+### 4. Other signals
+
+- **Who took the camp:** `k_EUserMsg_CurrencyChanged` (msg 345, `CCitadelUserMsg_CurrencyChanged`). `currency_source = 15` with a `victim` handle that resolves to `CNPC_TrooperNeutral`, plus `userid` (player slot), `delta` (souls), `victim_pos`. 632 such events per currency type (0 and 3) in 129738985. That gives the killer slot, and so the team, per creep. The team mapping isn't checked against every clear yet. This message isn't in 108440637.
+- **Per-player neutral soul totals:** `CCitadelPlayerController.m_PlayerDataGlobal.m_iCreepGoldNeutral`, in both builds.
+- **No dedicated event:** there is no camp-cleared or camp-spawned game event or user message. The only spawn-type message is `k_EUserMsg_MidBossSpawned` (349).
+- **Soul drops:** `CItemXP` (soul orbs) and `k_EUserMsg_SoulBagPickup` show up near kills, but they aren't camp-specific.
+
+### 5. Cost
+
+- **Events:** per-camp state is about **5.4 clears per camp per match** (278 in a 44-minute game). Each clear's respawn time is known when it happens, so the respawn needn't be stored separately.
+- **As JSON:** `camps: [{key, cleared: [[clear_s, respawn_s], …], by_team?: […]}]` is roughly **5–6 KB** per match uncompressed, about 1% of the current timeline.
+- **Partial-clear alive counts** would add about 1,400 member changes (about 12 KB). Partials are brief (p90 2.2 s), so skip them.
+- **Parse cost:** the full probe (every class, every tick) took 163–340 s under load. A production pass needs only `CCitadelGameRulesProxy`, which the parser already reads, so the timer vector costs almost nothing extra: 52 keys per tick, resolved once.
+
+### Recommendation for the replay tier
+
+1. **Builds with the timer vector (current: 6813 and 6839 have it, 6701 doesn't):** from `m_vecNeutralCampNextSpawnTimes` emit, per pack camp, the intervals (`cleared_s`, `respawn_s`), plus each camp's first spawn time. On the board, a camp is **alive** (−1 after its first spawn), **cleared, back at T** (show a countdown), or **not yet spawned, at T**. This is exact, applies to every camp all match, and doesn't depend on vision. Take the slot → key mapping from the origins, matched within a few units, rather than hard-coding the index order. Treat slot 1 (`IsMidBoss`) as the mid-boss respawn timer.
+2. **Optional:** the clearing team, from `CurrencyChanged` source 15 → victim → userid slot → team.
+3. **Older builds (< about 6813):** take alive/cleared from the FOW camp icons' `m_bVisibleOnMap` (up to about 1 s late) or from the entity lifecycle, and **infer** the respawn from the per-tier delays above. Mark it as inferred, because those delays may differ by patch.
+4. **"Unknown" isn't needed on 6v6 recordings like these**, because every camp's state is known all match. Keep the mode check (`m_eGameMode`) in front: reject or tag Brawl, which has no camps.
+5. Ignore partial clears and the stale `m_iHealth` on dormant neutrals.
