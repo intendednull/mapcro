@@ -636,7 +636,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               showHidden={state.canEdit()}
             >
               <Show when={inPlayer()}>
-                <TrooperDots host={player} vp={viewpoint()} />
+                <TrooperDots host={player} vp={viewpoint()} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               </Show>
               <Layers
                 state={state}

@@ -2,7 +2,7 @@
 // playback time t (the board renders the preview this produces); this draws the transport, the
 // roster with ult rings, the match source controls and the events list. Labels only.
 
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Art } from "../map/pack";
 import { cx } from "../ui/cx";
 import type { BoardState } from "../board/state";
@@ -519,20 +519,28 @@ export function PlayerSide(p: Props) {
   );
 }
 
-/** The replay's lane troopers as small team dots, under the heroes (spec §6b; a wave debug view). */
-export function TrooperDots(p: { host: PlayerHost; vp: "amber" | "sapphire" | "neutral" }) {
+/**
+ * The replay's lane troopers, as the in-game minimap draws them: small dots in the team's colour
+ * with a dark rim, under the heroes, sliding between samples and gone when they die (spec §6b).
+ * Like the map's icons they keep their size on screen as you zoom (`k`). Drawn with `Index`, so
+ * a frame moves the same circles rather than making new ones (100+ at 8×).
+ */
+export function TrooperDots(p: { host: PlayerHost; vp: "amber" | "sapphire" | "neutral"; k?: number }) {
   const dots = createMemo(() => {
     const m = p.host.tl();
     return m && p.host.showTroopers() ? troopersAt(m, p.host.t()) : [];
   });
+  const r = () => TROOPER_R * (p.k ?? 1);
   return (
     <g class="pl-troopers" data-testid="troopers">
-      <For each={dots()}>
+      <Index each={dots()}>
         {(d) => {
-          const at = () => worldToView({ x: d.x, y: d.y }, p.vp);
-          return <circle class={cx("pl-trooper", d.team)} data-testid="trooper" cx={at().x} cy={at().y} r="7" />;
+          const at = () => worldToView(d(), p.vp);
+          return <circle class={`pl-trooper ${d().team}`} data-testid="trooper" cx={at().x} cy={at().y} r={r()} />;
         }}
-      </For>
+      </Index>
     </g>
   );
 }
+/** A trooper's radius in map units at the default view: about a third of a hero token's. */
+const TROOPER_R = 5;

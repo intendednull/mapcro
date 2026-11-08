@@ -35,7 +35,40 @@ function sample(tl: Timeline, team: "amber" | "sapphire", k: number): Array<[num
   return v;
 }
 
-/** Every trooper at t: slid between the two samples around t when it's in both. */
+/** Every trooper between samples `k` and `k + 1`: where it is in each (absent: not there). */
+interface Pair {
+  team: "amber" | "sapphire";
+  id: number;
+  a: [number, number] | undefined;
+  b: [number, number] | undefined;
+}
+// The pairs for the last sample interval asked for, per timeline: playback asks for the same one
+// some 60 times a second, so it's matched up once (a 100+ trooper frame at 8× stays cheap).
+const pairCache = new WeakMap<object, { k: number; pairs: Pair[] }>();
+function pairsAt(tl: Timeline, k: number): Pair[] {
+  const tr = tl.troopers!;
+  const hit = pairCache.get(tr);
+  if (hit?.k === k) return hit.pairs;
+  const pairs: Pair[] = [];
+  for (const team of ["amber", "sapphire"] as const) {
+    const a = sample(tl, team, k);
+    const b = sample(tl, team, k + 1);
+    const later = new Map(b.map((p) => [p[0], p]));
+    for (const [id, x, y] of a) {
+      const n = later.get(id);
+      pairs.push({ team, id, a: [x, y], b: n ? [n[1], n[2]] : undefined });
+    }
+    const earlier = new Set(a.map((p) => p[0]));
+    for (const [id, x, y] of b) if (!earlier.has(id)) pairs.push({ team, id, a: undefined, b: [x, y] });
+  }
+  pairCache.set(tr, { k, pairs });
+  return pairs;
+}
+
+/**
+ * Every trooper at t: slid between the two samples around t when it's in both; one in only the
+ * first (it died) shows until halfway, one in only the second (it spawned) from halfway.
+ */
 export function troopersAt(tl: Timeline, t: number): Dot[] {
   const tr = tl.troopers;
   if (!tr) return [];
@@ -43,19 +76,10 @@ export function troopersAt(tl: Timeline, t: number): Dot[] {
   const k0 = Math.max(0, Math.floor(t / every));
   const f = Math.max(0, Math.min(1, t / every - k0));
   const out: Dot[] = [];
-  for (const team of ["amber", "sapphire"] as const) {
-    const a = sample(tl, team, k0);
-    const b = sample(tl, team, k0 + 1);
-    const later = new Map(b.map((p) => [p[0], p]));
-    for (const [id, x, y] of a) {
-      const n = later.get(id);
-      if (n) out.push({ team, id, x: x + (n[1] - x) * f, y: y + (n[2] - y) * f });
-      else if (f < 0.5) out.push({ team, id, x, y });
-    }
-    if (f >= 0.5) {
-      const earlier = new Set(a.map((p) => p[0]));
-      for (const [id, x, y] of b) if (!earlier.has(id)) out.push({ team, id, x, y });
-    }
+  for (const { team, id, a, b } of pairsAt(tl, k0)) {
+    if (a && b) out.push({ team, id, x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f });
+    else if (a && f < 0.5) out.push({ team, id, x: a[0], y: a[1] });
+    else if (b && f >= 0.5) out.push({ team, id, x: b[0], y: b[1] });
   }
   return out;
 }
