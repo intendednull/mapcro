@@ -167,7 +167,7 @@ test("a follower mirrors the presenter's playback and mode; its own scrub stops 
   await expect.poll(() => clock(b)).toBe(stopped);
   // The presenter's mode carries.
   await a.getByTestId("mode-sandbox").click();
-  await expect(b.getByTestId("player")).toHaveCount(0);
+  await expect(b.getByTestId("player")).toHaveAttribute("data-state", "scene");
   await a.getByTestId("mode-player").click();
   await expect(b.getByTestId("player")).toBeVisible();
   // The follower's own scrub stops following, and says so.
@@ -238,7 +238,8 @@ test("ink over playback is live, kept only by saving a scene, and cleared when t
   await expect(strokes(b)).toHaveCount(1);
   await expect(b.getByTestId("scene-card").nth(1)).toHaveAttribute("aria-label", /Match 130816395 @ 6:40$/);
 
-  // Unsaved ink stays while someone is in Player, and goes when the last one leaves.
+  // Unsaved ink stays while someone is in Player, and through viewing a scene and coming
+  // Back; it goes when the board is opened again with nobody watching the match.
   await b.getByTestId("mode-player").click();
   await a.keyboard.press("d");
   await gesture(a, [[0.6, 0.6], [0.65, 0.62]]);
@@ -247,5 +248,9 @@ test("ink over playback is live, kept only by saving a scene, and cleared when t
   await expect(strokes(b)).toHaveCount(1);
   await b.getByTestId("mode-sandbox").click();
   await a.getByTestId("mode-player").click();
-  await expect(strokes(a)).toHaveCount(0);
+  await expect(strokes(a)).toHaveCount(1);
+  await a.getByTestId("mode-sandbox").click();
+  await a.reload();
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "match");
+  await expect(strokes(a)).toHaveCount(0, { timeout: 5000 });
 });

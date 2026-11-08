@@ -111,7 +111,7 @@ test("a scene picked in Player is shown: Sandbox on that scene, for followers to
   const seen: string[] = [];
   for (const i of [1, 2, 3]) {
     await cards.nth(i).click();
-    await expect(a.getByTestId("player")).toHaveCount(0);
+    await expect(a.getByTestId("player")).toHaveAttribute("data-state", "scene");
     await expect(a.getByTestId("mode-player")).toBeVisible();
     // Tokens glide to the scene's places: wait for them to settle, then compare.
     let last = "";
@@ -123,7 +123,7 @@ test("a scene picked in Player is shown: Sandbox on that scene, for followers to
     }, { intervals: [300] }).toBe(true);
     seen.push(last);
     // The follower is on the same scene, in Sandbox, with the same places.
-    await expect(b.getByTestId("player")).toHaveCount(0);
+    await expect(b.getByTestId("player")).toHaveAttribute("data-state", "scene");
     await expect.poll(async () => JSON.stringify(await spots(b))).toBe(last);
   }
   await a.screenshot({ path: "shots/player-pick-scene.png" });

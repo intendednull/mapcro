@@ -105,7 +105,7 @@ test("import, scrub, save two moments; a second browser sees them; undo reverts 
 
   // Sandbox clears the preview; undo reverts the last save.
   await a.getByTestId("mode-sandbox").click();
-  await expect(a.getByTestId("player")).toHaveCount(0);
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "scene");
   await expect(a.getByTestId("mode-player")).toBeVisible();
   await a.getByTestId("undo").click();
   await expect(cards).toHaveCount(2);

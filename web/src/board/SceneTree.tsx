@@ -53,6 +53,10 @@ export function SceneTree(p: {
   onMatch?: () => void;
   /** The phone shows it as a drawer: closed after a flip. */
   drawer?: boolean;
+  /** Player (spec §6b): a scene saved from the open match gets a "▶ m:ss" chip that jumps there. */
+  chip?: (id: RecordId) => { label: string; go: () => void } | undefined;
+  /** Whether ← → step scenes (Player takes them for events while watching the match). */
+  keys?: () => boolean;
   onClose?: () => void;
 }) {
   const [folded, setFolded] = createSignal(false);
@@ -102,6 +106,7 @@ export function SceneTree(p: {
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
+      if (p.keys && !p.keys()) return;
       if (e.key === "ArrowLeft") flipBy(-1);
       else if (e.key === "ArrowRight") flipBy(1);
       else return;
@@ -248,6 +253,21 @@ export function SceneTree(p: {
                     />
                   </span>
                   <span class="clock">{formatClock(s().scene.clock)}</span>
+                  <Show when={p.chip?.(s().id)}>
+                    {(c) => (
+                      <button
+                        class="scene-chip"
+                        data-testid="scene-chip"
+                        title="Play the match from here"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          c().go();
+                        }}
+                      >
+                        {c().label}
+                      </button>
+                    )}
+                  </Show>
                   <span class="here">
                     <For each={here(s().id)}>
                       {(x) => (

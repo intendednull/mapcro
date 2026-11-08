@@ -71,6 +71,13 @@ export function takeAnnotationsOps(rows: Rows, live: RecordId, scene: RecordId, 
   return ops;
 }
 
+/** Copy a scene's annotations into `to` (new ids; the scene keeps its own). */
+export function copyAnnotationsOps(rows: Rows, from: RecordId, to: RecordId, mint: () => RecordId): Op[] {
+  return ANNOTATIONS.flatMap((kind) =>
+    rows(kind, from).map(([, rec]) => ({ Create: { id: mint(), record: { [kind]: { ...(rec[kind] as Record<string, unknown>), scene: to } } as never } }) as Op),
+  );
+}
+
 /** Clear the live layer. */
 export function clearAnnotationsOps(rows: Rows, live: RecordId): Op[] {
   return ANNOTATIONS.flatMap((kind) => rows(kind, live).map(([id]) => ({ Delete: { id } }) as Op));

@@ -12,12 +12,15 @@ export function EventsList(p: {
   tier: string;
   canSave: boolean;
   onJump: (e: MatchEvent, lead: number) => void;
+  lead: () => number;
+  setLead: (n: number) => void;
   /** Saves the events' scenes; resolves to the keys of the events whose scenes were made. */
   onSave: (events: MatchEvent[], lead: number) => Set<string>;
 }) {
   const [query, setQuery] = createSignal("");
   const [on, setOn] = createSignal(new Set<EventGroup>());
-  const [lead, setLead] = createSignal(5);
+  const lead = () => p.lead();
+  const setLead = (n: number) => p.setLead(n);
   // Ticked events by a stable key, not a position: a replay arriving reorders the list.
   const [picked, setPicked] = createSignal(new Set<string>());
   const all = createMemo(() => p.tl.events ?? []);

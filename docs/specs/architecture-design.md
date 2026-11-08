@@ -408,6 +408,26 @@ makes a board with that match attached and lands in Player; **New board** is tod
 - **Annotation over playback (operator, 2026-11-08, decided):** you can annotate a live player,
   but to keep it you save it as a scene. Draw, arrows, comments, the laser and pings work in
   Player as ephemeral layers, cleared when the scene is saved or you leave Player.
+- **Scenes and the match (operator, 2026-11-08).** On a board with a match the transport bar never
+  goes: the map shows the match at t or a scene, and the bar says which and offers the way to the
+  other.
+  - **Watching the match:** play, ±10 s, speed, the scrubber, Save scene, and "Scenes" to view
+    the current scene. Its top bar is the match's at t (portraits, souls and totals, ult rings
+    on the replay tier, the dead, the clock), read-only; a tier without a field shows it
+    untracked, never as a wrong value.
+  - **Viewing a scene:** the bar stays, dimmed, reading `Scene "<name>" · m:ss` (the time only
+    for a scene saved from this match). **▶ Play from here** (scenes saved from this match)
+    copies the scene's drawings, with new ids and by silent edits, over the match's live layer,
+    then plays the match from the scene's moment: the plan over what happened; heroes,
+    objectives and waves are the match's, and Clear or edits there never touch the scene.
+    **↩ Back to m:ss** returns to the match where it was, paused or playing as it was.
+  - The scrubber marks each scene saved from this match (a diamond, unlike the event ticks):
+    click to view it. Its row in the scene tree has a **▶ m:ss** chip that jumps the match there
+    without leaving it; clicking the row views the scene.
+  - ← → step scenes while viewing one, and step events (with the jump's lead) while watching.
+  - Followers follow the switch, the scene and the time. On the phone the bar sits above the
+    scene nav. Boards without a match have no bar.
+  - The jump ring follows the event's hero until the event, then stays on its place.
 - **Save scene** at t makes a normal sandbox scene: everything the timeline gives (positions,
   deaths, souls, objectives, and from a replay ults, the rift that's up, taken powerups and lane
   splits), plus the ephemeral annotations turned into strokes, arrows and comments. The scene

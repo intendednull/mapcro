@@ -514,6 +514,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           {note()!.text}
         </p>
       </Show>
+      {playerBar()}
       <nav class="p-nav" onPointerDown={swipe}>
         <div class="row">
           <button class="btn" data-testid="p-prev" disabled={sceneIndex() <= 0} onClick={() => flipBy(-1)}>
@@ -532,9 +533,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
       </nav>
       <Show when={sceneDrawer()}>
         <div class="drawer-scrim" onClick={() => setSceneDrawer(false)} />
-        <SceneTree state={state} art={p.art} vp={viewpoint()} board={p.board} current={scene()?.id} onFlip={pickScene} drawer onClose={() => setSceneDrawer(false)} />
+        <SceneTree state={state} art={p.art} vp={viewpoint()} board={p.board} current={scene()?.id} onFlip={pickScene} chip={sceneChip} keys={() => !inPlayer()} drawer onClose={() => setSceneDrawer(false)} />
       </Show>
-      {playerBar()}
       {toastView()}
     </div>
   );
@@ -548,11 +548,40 @@ export function Board(p: { board: string; token: string; art: Art }) {
     onCleanup(() => ro.disconnect());
   };
   /** Player's transport (desktop and phone), or the way back to it from Sandbox. */
+  // On a board with a match the bar never goes: it watches the match, or says which scene is
+  // shown and how to get back (spec §6b).
   const playerBar = () => (
-    <Show when={inPlayer()} fallback={<PlayerSwitch host={player} state={state} onSwitch={() => stopFollowing("switched to Player")} />}>
-      <Player host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={userFlip} onUserPlayback={() => stopFollowing("changed the playback")} />
+    <Show when={inPlayer() || player.matchId()} fallback={<PlayerSwitch host={player} state={state} onSwitch={() => stopFollowing("switched to Player")} />}>
+      <Player
+        host={player}
+        state={state}
+        art={p.art}
+        board={p.board}
+        scene={scene()}
+        mint={newRecordId}
+        onSaved={userFlip}
+        onView={(id) => {
+          stopFollowing("viewed a scene");
+          pickScene(id);
+        }}
+        onUserPlayback={() => stopFollowing("changed the playback")}
+      />
     </Show>
   );
+  /** A scene saved from the open match: its tree row's chip jumps the match there. */
+  const sceneChip = (id: RecordId) => {
+    const src = state.scenes().find((s) => s.id === id)?.scene.source;
+    const m = player.matchId();
+    if (!src || !m || src.match_id !== Number(m)) return undefined;
+    return {
+      label: `▶ ${formatClock(src.t)}`,
+      go: () => {
+        stopFollowing("changed the playback");
+        player.setMode("player");
+        player.control.seek(src.t);
+      },
+    };
+  };
   const mapBox = (phone: boolean) => (
           <div ref={measureMap} class={phone ? "p-map" : "mapbox"} data-testid="map" data-view={`${Math.round(view().x)} ${Math.round(view().y)} ${Math.round(view().w)}`}>
             <MapView
@@ -700,6 +729,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
           board={p.board}
           current={scene()?.id}
           onFlip={pickScene}
+          chip={sceneChip}
+          keys={() => !inPlayer()}
           {...(state.canEdit() ? { onMatch: () => player.setMode("player") } : {})}
         />
         <main class="stage">

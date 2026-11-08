@@ -25,7 +25,28 @@ export interface PlaybackPresence {
 export function createPlayerHost(board: string, token: string) {
   const api = new Api(board, token);
   const [matches, setMatches] = createSignal<number[]>([]);
-  const [mode, setMode] = createSignal<Mode>("sandbox");
+  const [mode, setModeRaw] = createSignal<Mode>("sandbox");
+  /**
+   * Watching the match ("player") or viewing a scene ("sandbox"; spec §6b). Leaving the match
+   * holds its playback where it was, paused, and coming back resumes it as it was.
+   */
+  const [held, setHeld] = createSignal<{ t: number; playing: boolean }>();
+  const setMode = (m: Mode) => {
+    if (m === mode()) return;
+    const n = performance.now();
+    if (m === "sandbox") {
+      const p = rebase(playback(), n, duration());
+      setHeld({ t: p.t, playing: p.playing });
+      setPlayback({ ...p, playing: false });
+    } else {
+      const h = held();
+      if (h) setPlayback({ ...playback(), t: h.t, playing: h.playing, at: n });
+      setHeld(undefined);
+    }
+    setModeRaw(m);
+  };
+  /** The events list's lead, shared with the arrow keys (spec §6b). */
+  const [lead, setLead] = createSignal(5);
   const [matchId, setMatchId] = createSignal<string>();
   const [tl, setTl] = createSignal<Timeline>();
   const [status, setStatus] = createSignal("");
@@ -216,6 +237,9 @@ export function createPlayerHost(board: string, token: string) {
     matches,
     mode,
     setMode,
+    held,
+    lead,
+    setLead,
     matchId,
     tl,
     status,

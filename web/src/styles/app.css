@@ -302,10 +302,19 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-empty { font-size: 12px; color: var(--faint); padding: 6px 2px; }
 .pl-events-foot { display: flex; gap: 6px; }
 @media (max-width: 699px) {
-  .pl-bar { width: calc(100% - 16px); bottom: 8px; padding: 6px 8px; }
+  /* On the phone the bar sits in the page's flow, above the scene nav, never over it. */
+  .pl-bar { position: static; transform: none; width: auto; margin: 6px 8px; padding: 6px 8px; }
   .pl-head .pl-id { width: 96px; }
   .pl-transport { flex-wrap: wrap; }
 }
+.pl-bar.scene { opacity: 0.92; background: color-mix(in srgb, var(--panel) 80%, transparent); }
+.pl-scene-row { display: flex; align-items: center; gap: 8px; }
+.pl-scene-row .spacer { flex: 1; }
+.pl-scene-label { font: 600 12.5px var(--ui); color: var(--faint); }
+.pl-marks { position: absolute; left: 7px; right: 7px; top: -14px; height: 10px; pointer-events: none; }
+.pl-mark { position: absolute; width: 9px; height: 9px; transform: translateX(-50%) rotate(45deg); background: var(--brass); border: 1px solid #0008; padding: 0; cursor: pointer; pointer-events: auto; }
+.pl-mark:hover { background: #fff; }
+.scene-chip { font: 600 10.5px var(--ui); padding: 0 6px; border-radius: 999px; border: 1px solid var(--brass-dim); color: var(--brass); background: transparent; cursor: pointer; }
 .pl-switch { position: fixed; right: 12px; bottom: 116px; z-index: 44; }
 /* The pulse scales each circle about its own centre: without fill-box an SVG element scales
    about the view's centre, which pulled the ring off its place (review: "the ping is off"). */

@@ -141,7 +141,7 @@ test("a phone follows a presenter in Player, with the transport (1)", async ({ b
   await scrubTo(a, 600);
   await expect(phone.getByTestId("match-clock")).toHaveText("10:00 / 21:40");
   await a.getByTestId("mode-sandbox").click();
-  await expect(phone.getByTestId("player")).toHaveCount(0);
+  await expect(phone.getByTestId("player")).toHaveAttribute("data-state", "scene");
 });
 
 test("stale ink is cleared when someone enters Player alone, kept while someone is there (5)", async ({ browser }) => {
@@ -157,11 +157,14 @@ test("stale ink is cleared when someone enters Player alone, kept while someone 
   await expect(b.getByTestId("player")).toBeVisible();
   await b.waitForTimeout(2000);
   await expect(strokes(b)).toHaveCount(1);
-  // Both leave; one comes back alone: last session's ink is gone.
-  await a.getByTestId("mode-sandbox").click();
+  // Back from a scene keeps it (spec §6b: Back returns to the match as it was).
   await b.getByTestId("mode-sandbox").click();
-  await b.waitForTimeout(500);
   await b.getByTestId("mode-player").click();
+  await expect(strokes(b)).toHaveCount(1);
+  // Everyone leaves; one opens the board again alone: last session's ink is gone.
+  await a.close();
+  await b.reload();
+  await expect(b.getByTestId("player")).toHaveAttribute("data-state", "match");
   await expect(strokes(b)).toHaveCount(0, { timeout: 5000 });
 });
 

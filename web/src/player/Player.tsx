@@ -2,7 +2,7 @@
 // playback time t (the board renders the preview this produces); this draws the transport, the
 // roster with ult rings, the match source controls and the events list. Labels only.
 
-import { For, Show, createMemo } from "solid-js";
+import { For, Show, createMemo, onCleanup, onMount } from "solid-js";
 import type { Art } from "../map/pack";
 import { cx } from "../ui/cx";
 import type { BoardState } from "../board/state";
@@ -12,7 +12,7 @@ import type { Op } from "../gen/Op";
 import { type MatchEvent, clockLabel, playersAt, tierOf, wavesAt } from "../match/timeline";
 import { UltRing } from "../match/preview";
 import { matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
-import { MAX_OPS_PER_TX, chunks, takeAnnotationsOps } from "./live";
+import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensureLiveOps, liveIds, takeAnnotationsOps } from "./live";
 import { busy, jobLabel } from "./api";
 import { SPEEDS } from "./clock";
 import { EventsList } from "./Events";
@@ -23,7 +23,11 @@ export function Player(p: {
   host: PlayerHost;
   state: BoardState;
   art: Art;
+  board: string;
+  /** The scene the board shows (the one viewed, when not watching). */
   scene: SceneRow | undefined;
+  /** View a scene (spec §6b: the map shows it, the bar stays). */
+  onView: (id: RecordId) => void;
   mint: () => RecordId;
   /** A saved scene to show (the first, for several). */
   onSaved: (id: RecordId) => void;
@@ -64,19 +68,101 @@ export function Player(p: {
     }
     p.onSaved(id);
   };
+  const watching = () => h.mode() === "player";
+  /** The viewed scene's moment in this match, if it has one. */
+  const sourceHere = () => {
+    const src = p.scene?.scene.source;
+    const m = h.tl();
+    return src && m && src.match_id === m.match_id ? src : undefined;
+  };
+  /** Scenes saved from this match: markers on the scrubber. */
+  const marks = createMemo(() => {
+    const m = h.tl();
+    return m ? p.state.scenes().flatMap((s) => (s.scene.source?.match_id === m.match_id ? [{ id: s.id, t: s.scene.source.t, name: s.scene.name }] : [])) : [];
+  });
+  /**
+   * Play from here (spec §6b): the scene's drawings, copied (new ids, silent edits) over
+   * whatever was in the match's live layer, then the match from the scene's moment, playing.
+   * The heroes, objectives and waves are the match's: the plan over what happened.
+   */
+  const playFrom = () => {
+    const src = sourceHere();
+    const s = p.scene;
+    if (!src || !s) return;
+    if (canEdit() && p.state.roster().length === 12) {
+      const roster = p.state.roster();
+      const live = liveIds(p.board, src.match_id, roster).scene;
+      const groups: Op[][] = [ensureLiveOps(p.state.records as never, p.board, src.match_id, roster)];
+      const there = p.state.liveScene(src.match_id);
+      if (there) groups.push(...clearAnnotationsOps(rows, there).map((o) => [o]));
+      groups.push(...copyAnnotationsOps(rows, s.id, live, p.mint).map((o) => [o]));
+      for (const tx of chunks(groups.filter((g) => g.length), MAX_OPS_PER_TX)) p.state.editSilent(tx);
+    }
+    user(() => {
+      h.setMode("player");
+      h.control.seek(src.t);
+      h.control.play(true);
+    });
+  };
+  const back = () => user(() => h.setMode("player"));
+
+  // ← → step through events while watching (the scene tree steps scenes while viewing one).
+  const events = createMemo(() => [...(h.tl()?.events ?? [])].sort((a, b) => a.t - b.t));
+  onMount(() => {
+    const key = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (!watching() || (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)))) return;
+      if (e.altKey || e.ctrlKey || e.metaKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+      const t = h.t();
+      const lead = h.lead();
+      const next = e.key === "ArrowRight" ? events().find((x) => jumpTime(x, lead) > t + 0.5) : [...events()].reverse().find((x) => jumpTime(x, lead) < t - 0.5);
+      e.preventDefault();
+      if (next) jumpTo(next, lead);
+    };
+    window.addEventListener("keydown", key);
+    onCleanup(() => window.removeEventListener("keydown", key));
+  });
+  const jumpTo = (e: MatchEvent, lead: number) => {
+    user(() => {
+      h.control.play(false);
+      h.control.seek(jumpTime(e, lead));
+    });
+    h.flash(e, placeOf(e, markers()));
+  };
+
   return (
     <>
-      <div class="pl-bar" data-testid="player" role="region" aria-label="Player">
+      <div class={cx("pl-bar", !watching() && "scene")} data-testid="player" data-state={watching() ? "match" : "scene"} role="region" aria-label="Player">
+        <Show when={!watching()}>
+          <div class="pl-scene-row">
+            <span class="pl-scene-label" data-testid="pl-scene">
+              Scene “{p.scene?.scene.name ?? ""}”
+              <Show when={sourceHere()}>{(src) => <> · {clockLabel(src().t)}</>}</Show>
+            </span>
+            <span class="spacer" />
+            <Show when={sourceHere() && h.tl()}>
+              <button class="btn primary small" type="button" data-testid="play-from-here" onClick={playFrom}>
+                ▶ Play from here
+              </button>
+            </Show>
+            <Show when={h.tl()}>
+              <button class="btn small" type="button" data-testid="mode-player" onClick={back}>
+                ↩ Back to {clockLabel(h.held()?.t ?? h.t())}
+              </button>
+            </Show>
+          </div>
+        </Show>
         <form
           class="pl-head"
+          classList={{ "pl-hidden": !watching() }}
           onSubmit={(e) => {
             e.preventDefault();
             p.onUserPlayback();
             void h.open(idInput.value.trim(), { attach: canEdit() });
           }}
         >
-          <button class="btn ghost small" type="button" data-testid="mode-sandbox" onClick={() => user(() => h.setMode("sandbox"))} title="Edit scenes freely">
-            Sandbox
+          <button class="btn ghost small" type="button" data-testid="mode-sandbox" onClick={() => user(() => { const s = p.scene; h.setMode("sandbox"); if (s) p.onView(s.id); })} title="View the current scene">
+            Scenes
           </button>
           <Show when={canEdit()} fallback={<span class="pl-match">{h.matchId() ? `Match ${h.matchId()}` : ""}</span>}>
             <input ref={idInput} class="input pl-id" data-testid="match-id" inputMode="numeric" placeholder="Match id" aria-label="Match id" value={h.matchId() ?? ""} />
@@ -113,7 +199,7 @@ export function Player(p: {
             }}
           />
         </form>
-        <Show when={h.tl()}>
+        <Show when={watching() && h.tl()}>
           {(m) => (
             <div class="pl-transport">
               <button class="btn small" type="button" data-testid="match-back" aria-label="Back 10 s" title="−10 s" onClick={() => user(() => h.control.seek(h.t() - 10))}>
@@ -131,6 +217,25 @@ export function Player(p: {
               <div class="pl-scrub">
                 <div class="pl-ticks" aria-hidden="true">
                   <For each={m().events ?? []}>{(e) => <i class={cx("pl-tick", e.kind)} style={{ left: `${(e.t / Math.max(1, m().duration_s)) * 100}%` }} />}</For>
+                </div>
+                <div class="pl-marks">
+                  <For each={marks()}>
+                    {(k) => (
+                      <button
+                        type="button"
+                        class="pl-mark"
+                        data-testid="scene-mark"
+                        data-t={k.t}
+                        title={k.name}
+                        aria-label={`Scene ${k.name}`}
+                        style={{ left: `${(k.t / Math.max(1, m().duration_s)) * 100}%` }}
+                        onClick={() => {
+                          p.onUserPlayback();
+                          p.onView(k.id);
+                        }}
+                      />
+                    )}
+                  </For>
                 </div>
                 <input
                   class="match-range"
@@ -291,7 +396,7 @@ export function PlayerSide(p: Props) {
                   )}
                 </For>
               </div>
-              <EventsList tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} />
+              <EventsList tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} />
               <span class="match-credit" data-testid="match-credit">
                 {tierOf(m()) === "replay" ? (h.job()?.source === "cdn" ? "Replay: Valve, via deadlock-api.com" : "Replay: uploaded") : "Match data: deadlock-api.com"}
               </span>

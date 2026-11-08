@@ -28,9 +28,13 @@ export function liveLayer(state: BoardState, h: PlayerHost, board: string, inPla
     if (ops.length) state.editSilent(ops);
   });
   const alone = () => !state.peerList().some((x) => x.peer !== state.myPeer() && x.state?.playback?.player);
+  // Only the first entry into a match's Player in this session clears stale ink: coming back
+  // to it (Back, Play from here) keeps what's there.
+  const entered = new Set<number>();
   createEffect(
     on([inPlayer, match], ([inside, m]) => {
-      if (!inside || m === undefined) return;
+      if (!inside || m === undefined || entered.has(m)) return;
+      entered.add(m);
       const timer = setTimeout(() => {
         if (!inPlayer() || match() !== m || !state.canEdit() || !alone()) return;
         // Alone in Player: last session's ink goes, and so do other matches' layers (each would
