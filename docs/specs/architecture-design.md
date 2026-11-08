@@ -120,7 +120,7 @@ transaction and one undo step.
 | Draw | freehand ink in a palette colour | a `stroke` record |
 | Arrow | drag out a rotation arrow | an `arrow` record |
 | Callout | click to place a label, typed in place | a `callout` record |
-| Laser | drawing that fades: the trail holds briefly, then fades away. Everyone gets it, viewers included (operator, 2026-11-06) | presence only, never stored |
+| Laser | drawing that fades: the trail holds briefly, then fades away. Each press-to-release is its own trail: pressing again while one fades starts a new one, never joined to it (presence `laser_starts`, 2026-11-08). Everyone gets it, viewers included (operator, 2026-11-06) | presence only, never stored |
 | Erase | click or scrub over ink, arrows and callouts | deletes |
 | Clear ink | a button: removes every stroke on this scene, as one undoable step | one transaction of deletes |
 
@@ -319,8 +319,13 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
   - Player shows, while Health is on (a transport toggle, on by default):
     - a thin bar under each top-bar portrait, in team colour, red at 30% or under, empty when
       dead
-    - an arc round each hero token
-    - a ring round an objective's icon while it's damaged, with the patron's stage under it
+    - an arc round each hero token, 5 px at the default zoom
+    - each objective's own icon filling from the bottom up to its health, as in game (operator,
+      2026-11-08, replacing a ring round it): the HUD art's fill layer is clipped over the rows
+      its shape covers in the image, so the empty part shows the dark frame under it. The patron
+      fills its shield in stage 1 and its core in stage 2, when the shield is gone; the mid boss,
+      with no fill art, fills over a dark copy of its icon. Destroyed keeps its look; Sandbox
+      has no health, so everything shows full.
   - The API summary shows none of these, and its tier chip says so.
 - **What the replay timeline adds** (`crates/replay/src/timeline.rs`, the metadata timeline's
   shape plus fields; 1 Hz, about 140 KB for a 15-minute match):
@@ -442,7 +447,22 @@ makes a board with that match attached and lands in Player; **New board** is tod
   phone, says "Respawns in m:ss (at m:ss)" or "Spawns at m:ss"; nothing counts down otherwise.
   The mid boss is the same, from its timer, and is down from its clear to its respawn.
 - **The transport:** play and pause, speed (0.5×, 1×, 2×, 4×, 8×), a scrubber with a tick per
-  event, ±10 s, and the match clock.
+  event, ±10 s, the match clock, and the replay tier's toggles (Troopers, Health), with Pings.
+- **Troopers** (replay tier, on by default): each lane trooper as a small dot in its team's
+  colour with a dark rim, under the heroes, sliding between the 1 Hz samples and gone when it
+  dies; like the map's icons it keeps its size on screen as you zoom. The game's files don't
+  settle the minimap's trooper look (`hud_minimap.vcss` gives `.npc` only a position
+  transition; the `npc_marker_*` icons are flat placeholder squares), so it's matched by eye.
+  At 8× with a follower the dots cost nothing measurable (perf-replay.spec.ts, 2026-11-08).
+- **Event pings** (2026-11-08): while playback runs, each event it passes that the list shows
+  under its filters and search gets a ring where it happened: a death on the victim's place,
+  an objective on its icon, an ult on its hero. One ring per event, once, in the team's colour,
+  1.5 s (1.06 s at 4×, 0.75 s at 8×); subtler than a jump's ring. Only a continuous forward run
+  pings: a seek, scrub, jump, new match or mode switch, or five seconds without a frame (a tab
+  back from the background), fires nothing for what it skipped. A follower pings from its own
+  clock; it counts the presenter's jump when their playback isn't where their last one would be
+  now, and never pings an event twice for a small correction back. "Pings" in the transport
+  turns them off.
 - **Events** (both tiers, each with what it has; `Event` in `crates/replay/src/timeline.rs`):
   deaths (who; the killer and the place when the data has them, else where the hero was last
   seen), objectives, mid boss kills, rifts up and captured, powerups up and taken (replay only, on
@@ -452,7 +472,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
   moving 5,000 within a minute and holding ten seconds on; none in the first two minutes, when
   starting souls arrive player by player). The sidebar lists them with their tier, searchable by
   hero, player name, type, team and time, with filter chips by type. **Jump** pauses at the event
-  less a lead (5 s, adjustable) and pulses a ring where it happened. **Save scenes** makes one
+  less a lead (5 s, adjustable) and pulses a ring where it happened; the list marks the event
+  jumped to (not an earlier one the lead lands after) until playback passes the next listed
+  event or you seek elsewhere (operator bug, 2026-11-08). **Save scenes** makes one
   scene per ticked event at its jump time, "<event> @ mm:ss", in one transaction (one undo).
 - **Following** carries Player: presence's `playback` holds the mode, the match, t, playing and
   speed, sent on every change and every 2 s while playing. A follower adopts them, keeping its own

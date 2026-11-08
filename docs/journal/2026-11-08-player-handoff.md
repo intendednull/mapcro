@@ -208,3 +208,10 @@ should name what's missing.
 
 Queue item 2, the zipline lead in item 3 and item 4 (now moot) are done, and the patron-key and
 78-vs-74 questions are answered: see [the lane data entry](2026-11-08-lane-data.md).
+
+## Update (player-visuals, later the same day)
+
+Queue item 1 (event pings) and item 3's performance are done, and so are the two health open
+questions: objectives now fill their icon instead of a ring (operator), and the token arc is
+heavier. Item 3's trooper look waits on an in-game reference. See [the player visuals
+entry](2026-11-08-player-visuals.md).
