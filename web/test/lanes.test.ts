@@ -3,7 +3,8 @@
 import { describe, expect, it } from "vitest";
 import { FALLBACK } from "../src/map/fallback-data";
 import { defaultSplit, laneLine, pointAt, project, samplePath, splitAt } from "../src/map/lanes";
-import { mapToView, viewToMap } from "../src/map/transform";
+import { mapToView, viewToMap, worldToMap } from "../src/map/transform";
+import { modelFromFallback } from "../src/map/model";
 
 // A straight lane from the Amber end (bottom) to the Sapphire end, given top-first.
 const straight = laneLine([{ x: 500, y: 100 }, { x: 500, y: 900 }]);
@@ -55,5 +56,13 @@ describe("lanes", () => {
     expect(pts[0]).toEqual({ x: 0, y: 0 });
     expect(pts.at(-1)).toEqual({ x: 100, y: 0 });
     expect(pts.length).toBeGreaterThan(30);
+  });
+
+  it("project world points the way the replay worker does (crates/replay/src/map.rs, same golden)", () => {
+    const { lanes } = modelFromFallback(FALLBACK);
+    const at = worldToMap({ x: -2000, y: 3000 });
+    expect(["lane4", "lane6", "lane1"].map((k) => project(lanes.find((l) => l.key === k)!.line, at).t)).toEqual([606, 882, 795]);
+    const mid = lanes.find((l) => l.key === "lane4")!.line;
+    expect(project(mid, worldToMap({ x: 0, y: 0 })).dist).toBeLessThan(1);
   });
 });
