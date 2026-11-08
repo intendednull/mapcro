@@ -372,6 +372,14 @@ export function Board(p: { board: string; token: string; art: Art }) {
   });
 
   const heroList = createMemo(() => [...p.art.heroes.values()].sort((a, b) => a.name.localeCompare(b.name)));
+  /** Heroes held by other slots than `slot`, with who holds them: a hero is unique in a match. */
+  const takenBy = (slot: RecordId | undefined) =>
+    new Map(
+      state
+        .roster()
+        .filter((s) => s.id !== slot && s.slot.hero != null)
+        .map((s) => [s.slot.hero!, `${s.slot.team} ${s.slot.name || `Player ${s.slot.slot + 1}`}`] as const),
+    );
   const sceneIndex = () => state.scenes().findIndex((s) => s.id === scene()?.id);
 
   // ---- the phone layout (design/v1-board/phone-following.html) below 700 px ----
@@ -872,7 +880,13 @@ export function Board(p: { board: string; token: string; art: Art }) {
                                   }}
                                 >
                                   <option value="">No hero</option>
-                                  <For each={heroList()}>{(h) => <option value={h.id}>{h.name}</option>}</For>
+                                  <For each={heroList()}>
+                                    {(h) => (
+                                      <option value={h.id} disabled={takenBy(s.id).has(h.id)}>
+                                        {takenBy(s.id).has(h.id) ? `${h.name} (${takenBy(s.id).get(h.id)})` : h.name}
+                                      </option>
+                                    )}
+                                  </For>
                                 </select>
                               </Show>
                             </span>
@@ -947,6 +961,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
       <HeroPicker
         heroes={heroList().filter((h) => h.playable)}
         slot={state.roster().find((x) => x.id === heroPick())}
+        takenBy={takenBy(heroPick())}
         onPick={(hero) => {
           const id = heroPick();
           setHeroPick(undefined);

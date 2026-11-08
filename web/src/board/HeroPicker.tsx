@@ -12,7 +12,18 @@ import type { Slot } from "./state";
 const COLS = 6;
 
 
-export function HeroPicker(p: { heroes: Hero[]; slot: Slot | undefined; onPick: (h: HeroId | null) => void; onClose: () => void }) {
+/**
+ * A hero is unique in a match, across both teams: `takenBy` names who has each hero (other
+ * slots only). A taken hero is shown, disabled, with its holder; picking it does nothing.
+ */
+export function HeroPicker(p: {
+  heroes: Hero[];
+  slot: Slot | undefined;
+  takenBy: Map<HeroId, string>;
+  onPick: (h: HeroId | null) => void;
+  onClose: () => void;
+}) {
+  const pick = (h: Hero) => !p.takenBy.has(h.id) && p.onPick(h.id);
   const [q, setQ] = createSignal("");
   const [at, setAt] = createSignal(0);
   const shown = createMemo(() => matchHeroes(p.heroes, q()));
@@ -30,7 +41,7 @@ export function HeroPicker(p: { heroes: Hero[]; slot: Slot | undefined; onPick: 
     if (e.key === "Enter") {
       e.preventDefault();
       const h = shown()[at()];
-      if (h) p.onPick(h.id);
+      if (h) pick(h);
       return;
     }
     const d = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -COLS, ArrowDown: COLS }[e.key];
@@ -74,13 +85,16 @@ export function HeroPicker(p: { heroes: Hero[]; slot: Slot | undefined; onPick: 
               <For each={shown()}>
                 {(h, i) => (
                   <button
-                    class={cx("hero-cell", i() === at() && "on", p.slot?.slot.hero === h.id && "current")}
+                    class={cx("hero-cell", i() === at() && "on", p.slot?.slot.hero === h.id && "current", p.takenBy.has(h.id) && "taken")}
                     role="option"
                     aria-selected={i() === at()}
+                    aria-disabled={p.takenBy.has(h.id)}
+                    disabled={p.takenBy.has(h.id)}
+                    title={p.takenBy.has(h.id) ? `${h.name}: ${p.takenBy.get(h.id)} has this hero` : h.name}
                     data-i={i()}
                     data-hero={h.name}
                     onPointerEnter={() => setAt(i())}
-                    onClick={() => p.onPick(h.id)}
+                    onClick={() => pick(h)}
                   >
                     <span class="hero-face">
                       <Show when={h.topbar ?? h.portrait} fallback={<b>{initials(h.name)}</b>}>
@@ -88,6 +102,7 @@ export function HeroPicker(p: { heroes: Hero[]; slot: Slot | undefined; onPick: 
                       </Show>
                     </span>
                     <span class="hero-name">{h.name}</span>
+                    <Show when={p.takenBy.get(h.id)}>{(w) => <span class="hero-taken">{w()}</span>}</Show>
                   </button>
                 )}
               </For>

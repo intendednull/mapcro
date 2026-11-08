@@ -37,16 +37,20 @@ test.describe("with a hero pack", () => {
     await a.keyboard.press("Backspace");
     await a.keyboard.press("Backspace");
     await expect(a.locator(".hero-cell")).toHaveCount(14);
-    await a.keyboard.press("ArrowRight");
-    await a.keyboard.press("ArrowDown"); // index 7: "Testhero H"
+    // Twelve of fourteen are taken (a hero is unique in a match): pick a free one by keyboard.
+    await expect(a.locator(".hero-cell.taken")).toHaveCount(11); // the other eleven slots' heroes
+    const free = (await a.locator(".hero-cell:not(.taken):not(.current)").first().getAttribute("data-hero"))!;
+    const n = Number(free.slice(-1).charCodeAt(0) - 64);
+    await a.getByTestId("hero-search").fill("");
+    await a.keyboard.type(free.toLowerCase());
     await a.keyboard.press("Enter");
     await expect(a.getByTestId("hero-picker")).toHaveCount(0);
-    await expect(col(b).locator(".tb-img")).toHaveAttribute("style", /topbar\/heroes\/8\.png/);
+    await expect(col(b).locator(".tb-img")).toHaveAttribute("style", new RegExp(`topbar/heroes/${n}\\.png`));
     // Esc closes without changing anything.
     await col(a).getByTestId("pick-hero").click();
     await a.keyboard.press("Escape");
     await expect(a.getByTestId("hero-picker")).toHaveCount(0);
-    await expect(col(b).locator(".tb-img")).toHaveAttribute("style", /topbar\/heroes\/8\.png/);
+    await expect(col(b).locator(".tb-img")).toHaveAttribute("style", new RegExp(`topbar/heroes/${n}\\.png`));
 
     // Viewers can't pick.
     const v = await joinNew(browser, await viewLink(server.url, a.url()), "Guest");

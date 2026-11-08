@@ -995,3 +995,7 @@ kbd {
    note still do. */
 .board-app .stage, .board-app .scenes, .board-app .mapbox { -webkit-user-select: none; user-select: none; }
 .board-app .stage :is(input, textarea, [contenteditable="true"]), .board-app .scenes :is(input, textarea) { -webkit-user-select: text; user-select: text; }
+
+/* A hero another slot has: shown, dimmed, with its holder; not pickable. */
+.hero-cell.taken { opacity: 0.4; cursor: not-allowed; }
+.hero-cell .hero-taken { font: 500 10px var(--ui); color: var(--faint); }
