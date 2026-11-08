@@ -219,4 +219,41 @@ describe("board sessions against the real server", () => {
       small.child.kill("SIGKILL");
     }
   });
+
+  it("a copy older than the server keeps is rebased, and its pending work lands once", async () => {
+    // Compaction (spec §9): the server keeps only its newest entries. A tab that comes back
+    // with an older copy gets the board as it is, keeps its unsent edits on top, and sends them.
+    const small = new Server(mkdtempSync(join(tmpdir(), "mapcro-web-")), await freePort(), { BOARD_COMPACT_OPS: "20", BOARD_KEEP_OPS: "5" });
+    await small.start();
+    try {
+      const api = new Api(small.http);
+      const { board, owner_token } = await api.createBoard("compacted");
+      const persist = new IdbPersist(indexedDB, `mapcro-test-rebase-${board}`);
+      const a = session(small, board, owner_token, persist);
+      await a.start();
+      await until(() => a.connection.kind === "live", "a live");
+      const [p0, p1] = players(a);
+      a.stop(); // offline, with a copy at seq 0
+      a.edit(move(p1!, 1234));
+      a.edit(move(p1!, 1235));
+      await new Promise((r) => setTimeout(r, 100)); // let the IndexedDB write commit
+
+      const b = session(small, board, owner_token);
+      await b.start();
+      await until(() => b.connection.kind === "live", "b live");
+      for (let i = 0; i < 60; i++) b.edit(move(p0!, i));
+      await until(() => b.status.kind === "saved", "b saved");
+
+      const again = session(small, board, owner_token, persist);
+      await again.start();
+      await until(() => again.status.kind === "saved" && pos(b, p1!) === 1235, "a's edits land after the rebase");
+      await until(() => view(again) === view(b), "views equal");
+      expect(pos(again, p0!)).toBe(59);
+      expect(again.problems.filter((p) => p.startsWith("protocol error"))).toEqual([]);
+      again.stop();
+      b.stop();
+    } finally {
+      small.child.kill("SIGKILL");
+    }
+  });
 });

@@ -187,6 +187,7 @@ impl Client {
     }
 
     /// Make an edit; false if sending it found the connection gone (it stays pending).
+    #[cfg(feature = "failpoints")]
     async fn try_edit(&mut self, ops: Vec<Op>) -> bool {
         let msg = self.replica_mut().edit(ops).expect("valid edit");
         match (msg, self.ws.as_mut()) {
@@ -196,6 +197,7 @@ impl Client {
     }
 
     /// Process whatever arrives for `d`. False if the connection was lost.
+    #[cfg(feature = "failpoints")]
     async fn pump_for(&mut self, d: Duration) -> bool {
         let end = tokio::time::Instant::now() + d;
         loop {

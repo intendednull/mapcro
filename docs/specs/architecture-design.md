@@ -171,15 +171,21 @@ presence   = other users' cursors and drag previews                   (ephemeral
      stored base and page through the history as before. Outbound frames have no server-side cap.
      Browsers accept a frame of any size; a client built on tungstenite needs `max_message_size`
      above 8 MiB (its default is 64 MiB).
-   - **A client with a copy (`known_seq` set) still gets catch-up, however far behind.** Adopting
-     a base would be cheaper for a long gap, but a replica may hold pending transactions that the
-     base already contains. The replica can only drop a pending transaction when it sees its ack,
-     and those acks are before the base. It would resend them, the server would ignore them as
-     already decided, and they'd stay pending for ever. Doing it right needs the base to say which
-     of this client's transactions it holds (its next expected cseq) and which were refused. That's
-     a protocol change for the model first, and it isn't needed yet: devices that come back have
-     a recent copy. Undo needs nothing new either: a fresh client has no history, and a
-     reconnecting one keeps its own.
+   - **A client with a copy (`known_seq` set) gets catch-up if the server still keeps the
+     entries after its `last_seq`, and a rebase if they've been compacted away (§9).** The hello is
+     answered, after the client's rejections as always, with
+     `Rebase { doc, seq, decided_below }`: the board now, its log position, and the client's
+     oldest transaction the server hasn't decided. The client adopts the board and drops every
+     pending transaction below `decided_below`. Each of those is either in the board (applied, its
+     ack long gone) or was refused, and that rejection came just before. The rest stay pending on
+     top, and the server takes them as it would after any reconnect: they were resent with the
+     hello. Undo history is kept, as across a reconnect; undo is evaluated by the server (§7).
+     - The model checks it: `compact` raises a floor, a hello from below it must get a rebase, and
+       one from above may. All seven properties hold. `model/rebaseKeepsDecided.qnt`, a client that
+       adopts the board but keeps its decided work pending, fails `acksInOrder`: those transactions
+       are never acked.
+     - A rebase is the whole board in one frame, so it goes outside the outbox's byte cap, under
+       the server-wide cap on big frames in flight.
 2. The server answers the hello first with any of the client's rejections from `pending_from` on,
    so a rejection lost in a disconnect is heard before any later ack. (Found while designing the
    engine and confirmed by the model's `acksInOrder` property.) Then it sends the ops after
@@ -428,13 +434,23 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
     tests kill the server mid-burst at each point, then check that every edit is in the log
     exactly once. A server that acked before committing fails it: after the restart its clients
     hold entries the log doesn't have.
-- **Snapshots:** after 500 ops, or when a room goes idle, the server writes a full snapshot.
-  Ops older than the retention window (30 days, tunable) are pruned down to the snapshot boundary.
-- **Tombstones:** deleted ids stay tombstoned while the retention window lasts, so offline clients
-  can still rebase against them. A client whose `lastSeq` is older than the pruned boundary gets a
-  full snapshot and a rebase instead of a diff.
-- **Version history comes from the log for free.** Any board can be viewed or restored at a past
-  seq inside the retention window. A restore is a new transaction, so it can be undone.
+- **Compaction.** After a commit, once 10,000 entries have been logged since the base
+  (`BOARD_COMPACT_OPS`), or the kept entries reach half the byte quota, the room makes the board
+  as it is the new base (`base_doc` at `base_seq`). It keeps only the newest entries, at most
+  2,000 (`BOARD_KEEP_OPS`) and a quarter of the byte quota, for clients slightly behind, and
+  deletes the rest. The same transaction records each client's next expected cseq (`client_seqs`,
+  schema v5). The entries that showed it may be gone, and without it a resend of a compacted
+  transaction would be applied again. A cold load replays from the base. Catch-up is served from
+  the oldest kept entry on; a hello from below that is rebased (§5). The new base doubles as the
+  fresh-join snapshot. Stored rejections are already pruned as soon as their client has heard them.
+  - So a board's history no longer grows without bound. What's kept is at most ~12,000 entries
+    (and ~15 MiB at the default quota), plus the base, whatever the board's age.
+  - Version history and a retention window aren't built: compaction keeps only the tail.
+- **Tombstones:** deleted ids stay tombstoned in the board (and so in every base), so a rebased
+  client's pending work still finds what it refers to.
+- **Version history** (not built) would come from the log within a retention window; compaction
+  would then keep that window rather than a fixed tail. A restore would be a new transaction, so
+  it could be undone.
 - **Backups:** continuous off-box replication of the SQLite file (Litestream to object storage), plus
   a nightly verified `.backup` snapshot. A restore is tested in CI against a fresh database.
   *(Target bucket: Q5.)*
@@ -445,20 +461,16 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   (logged, or rejected), and the room writes it before sending anything. If storage fails, the room
   closes rather than acknowledge what it couldn't save (crash-only). Rejections are stored as well,
   so a restart doesn't turn a client's next edit into a sequence gap.
-- **Not yet built:** snapshots and compaction. A load currently replays the full log; that is fine
-  for boards within the caps below (measured: the largest documents' 54 MB of history loads in
-  about a third of a second). Compaction needs a protocol addition: a replica far
-  behind must rebase its pending work onto a fresh base. That change goes into the model first.
-- **Until then, history is capped (interim, security review 2026-11-07, C1).** Without compaction
-  the op log is the board's whole history, and one anonymous client could grow it until a cold
-  load ran the server out of memory. The caps, each overridable by environment variable:
+- **The history caps are now a backstop.** Compaction keeps the log's tail well under them, so a
+  board no longer fills (`BoardFull`) in use. They still bound what a cold load reads if
+  compaction were to fall behind. The caps, each overridable by environment variable:
 
   | Cap | Default | Env | Why this number |
   |---|---|---|---|
   | Transaction size (JSON) | 64 KiB | (schema `Limits::max_tx_bytes`) | Twice the largest legal op: an undo of a full note carries 4000 chars twice, at most 4 bytes each, about 32 KB. A test builds the worst ops and checks the bound |
   | WebSocket frame | 65 KiB | (derived) | `max_tx_bytes` plus 1 KiB for the frame around it. A tx just over the limit gets a typed `TxTooLarge`; only frames no honest client sends close the socket. Was 256 KiB |
-  | Transactions per board | 100,000 | `BOARD_MAX_OPS` | Was 20,000. History is now on disk only, so this bounds disk and cold-load time, not memory. 100,000 is many coaching sessions of honest edits (notes save on blur) |
-  | History bytes per board (as stored) | 20 MiB | `BOARD_MAX_BYTES` | Was 4 MiB of JSON. Counted compressed: a realistic edit stores at ~107 bytes (288 as JSON), so 100,000 realistic edits take ~11 MB and the op cap binds first. Adversarial history (60 KB of random text per edit) fills it at ~35 MB of JSON, 22 MB on disk |
+  | Transactions kept per board | 100,000 | `BOARD_MAX_OPS` | Counts what's kept since the compaction floor, so in use it stays near the 2,000-entry tail plus up to 10,000 since the last base. A backstop for cold-load time |
+  | History bytes kept per board (as stored) | 20 MiB | `BOARD_MAX_BYTES` | Counted compressed and on what's kept. Compaction runs at half of it and keeps a quarter, so even adversarial history (60 KB of random text per edit) compacts long before it binds |
   | Editing clients per board | 1024 | `BOARD_MAX_CLIENTS` | Distinct devices that have edited. View links register nothing (§11) |
   | Stored rejections per board | 4096 | `BOARD_MAX_REJECTIONS` | Sixteen clients' worth of the 256 each may leave; past it, a refused transaction closes its sender instead of being stored |
   | Boards in memory | 256 | `MAX_OPEN_ROOMS` | Was 32. A room no longer holds its history: a board full of history costs ~1.6 MB, a small one ~0.3 MB. 256 small rooms opened at once are 87 MB |
