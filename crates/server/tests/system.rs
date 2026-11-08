@@ -186,6 +186,42 @@ impl Client {
         }
     }
 
+    /// Make an edit; false if sending it found the connection gone (it stays pending).
+    async fn try_edit(&mut self, ops: Vec<Op>) -> bool {
+        let msg = self.replica_mut().edit(ops).expect("valid edit");
+        match (msg, self.ws.as_mut()) {
+            (Some(m), Some(ws)) => ws.send(Message::Text(serde_json::to_string(&WireIn::Msg { msg: m }).unwrap_or_default().into())).await.is_ok(),
+            _ => true,
+        }
+    }
+
+    /// Process whatever arrives for `d`. False if the connection was lost.
+    async fn pump_for(&mut self, d: Duration) -> bool {
+        let end = tokio::time::Instant::now() + d;
+        loop {
+            let Some(ws) = self.ws.as_mut() else { return false };
+            let frame = match tokio::time::timeout_at(end, ws.next()).await {
+                Err(_) => return true, // quiet: still connected
+                Ok(Some(Ok(Message::Text(t)))) => serde_json::from_str::<WireOut>(t.as_str()).ok(),
+                Ok(Some(Ok(Message::Ping(_) | Message::Pong(_)))) => continue,
+                _ => return false,
+            };
+            match frame {
+                Some(WireOut::Msg { msg }) => {
+                    if self.replica_mut().receive(msg).is_err() {
+                        return false;
+                    }
+                }
+                Some(WireOut::Presence { peers }) => {
+                    for p in peers {
+                        self.peers.insert(p.peer, p);
+                    }
+                }
+                _ => return false,
+            }
+        }
+    }
+
     fn drop_connection(&mut self) {
         self.ws = None;
         if let Some(r) = self.replica.as_mut() {
@@ -1682,12 +1718,17 @@ async fn a_crash_between_write_and_ack_loses_nothing_and_doubles_nothing() {
         let per = 60;
         let mut died = false;
         for i in 0..per {
+            let mut lost = false;
             for c in cs.iter_mut() {
                 let ops = move_op(c.replica(), i);
-                c.edit(ops).await;
+                lost |= !c.try_edit(ops).await;
             }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-            if ureq::get(&server.url("/healthz")).call().is_err() {
+            // Read as we go: an ack that arrives is applied (and would be lost if the server
+            // had sent it before its commit).
+            for c in cs.iter_mut() {
+                lost |= !c.pump_for(Duration::from_millis(5)).await;
+            }
+            if lost || ureq::get(&server.url("/healthz")).call().is_err() {
                 died = true;
                 // The rest are made offline and sent on reconnect.
                 for j in i + 1..per {
