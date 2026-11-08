@@ -414,6 +414,7 @@ All checked 2026-11-07.
 | B7 | **No z in the metadata paths,** so tunnel and rat-tunnel heroes draw on the street layer. | Valve | `CMsgMatchPlayerPathsData.Path` gaining a z field (B1's proto file) |
 | B8 | **Souls only every 3–5 minutes** in the metadata. | Valve | `PlayerStats` cadence in a fresh match; the demo has it per tick |
 | B9 | **Demo coordinate encoding changes at map reworks.** Build 6712 doubled `max_coord`, and upstream haste still assumes the old value. | Valve; parser maintainers | `CSVCMsg_GameSessionConfiguration.max_coord` in a new demo; [boon releases](https://github.com/pnxenopoulos/boon/releases); [haste commits](https://github.com/blukai/haste/commits/main) |
+| B10 | **Rift state isn't in the match metadata.** `ECitadelObjective` has no rift (KOTH) entries (guardians, walkers, base guardians, shrines, patron, core only), and a full `/v1/matches/130816395/metadata` response has no rift, KOTH or similar field; the only "urn" hits are a hero ability. Rifts would need the demo (the entities at our two `info_koth_spawn_location` sites), so they stay manual in v1. | Valve | `ECitadelObjective` or `CMsgMatchMetaDataContents` gaining rift entries in [citadel_gcmessages_common.proto](https://github.com/SteamDatabase/GameTracking-Deadlock/blob/master/Protobufs/citadel_gcmessages_common.proto); checked 2026-11-08 |
 
 ## 8. Open questions for the operator
 
