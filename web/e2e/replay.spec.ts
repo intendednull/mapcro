@@ -5,7 +5,7 @@
 // as scene" writes them all, and a second browser sees them.
 
 import { createServer } from "node:http";
-import { existsSync, mkdtempSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "@playwright/test";
@@ -72,14 +72,12 @@ function timeline() {
   };
 }
 
-/** Play the worker: take the job from the inbox, delete its demo, write the timeline. */
+/** Play the worker (it only reads the inbox): post the timeline to its outbox. */
 async function work() {
   let job = "";
   await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f.startsWith(`${ID}-`) && f.endsWith(".dem")) ?? "")).not.toBe("");
   const name = job.replace(/\.dem$/, "");
-  renameSync(join(queue, "inbox", job), join(queue, "work", job));
-  unlinkSync(join(queue, "work", job));
-  writeFileSync(join(queue, "done", `${name}.json`), JSON.stringify(timeline()));
+  writeFileSync(join(queue, "outbox", `${name}.json`), JSON.stringify(timeline()));
   return name;
 }
 
@@ -115,6 +113,7 @@ test("upload a replay, scrub ults, rifts, powerups and waves, save them as a sce
   await expect(a.getByTestId("match-job")).toHaveText("");
   await expect(a.getByTestId("match-clock")).toHaveText("3:20 / 3:20");
   expect(existsSync(join(server.dataDir, "replays", `${job}.json`))).toBe(true);
+  await expect.poll(() => readdirSync(join(queue, "inbox")).length, { message: "the demo goes with its result" }).toBe(0);
   await expect(a.getByTestId("match-panel")).toContainText("Replay: uploaded");
 
   // Scrubbing previews the replay's extras here only.
