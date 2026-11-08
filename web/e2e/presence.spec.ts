@@ -1,6 +1,6 @@
 // Slice 5: presence and follow, on the real server: an owner presenting, an editor, a viewer.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { editLink, joinNew, mapPoint, viewLink, viewOf } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

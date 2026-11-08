@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { ROOT, Server } from "./server";
 
 const ID = 130816395;

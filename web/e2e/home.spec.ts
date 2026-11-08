@@ -1,7 +1,7 @@
 // The way back: the mapcro mark on a board links to the front page, where you open another match
 // or board (desktop and phone).
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { joinNew } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

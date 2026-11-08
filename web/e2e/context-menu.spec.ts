@@ -2,7 +2,7 @@
 // the map, and a pan ending over a button must not open the menu there. Text fields keep it.
 // A cancelled `contextmenu` event is what keeps the native menu shut, so that is what's checked.
 
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "./fixtures";
 import { joinNew, mapPoint, viewOf } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

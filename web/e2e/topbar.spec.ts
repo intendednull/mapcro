@@ -1,6 +1,6 @@
 // Slice 3: the in-game top bar, edited in place, on the real server with two browsers.
 
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "./fixtures";
 import { joinNew } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

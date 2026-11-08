@@ -1,7 +1,7 @@
 // Map markers: icons stay on their points at any zoom, in either viewpoint; the Patron has two
 // stages and each team's is its own.
 
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "./fixtures";
 import { joinNew, mapPoint } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

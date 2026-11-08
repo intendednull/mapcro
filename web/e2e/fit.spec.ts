@@ -1,7 +1,7 @@
 // The default view (operator, 2026-11-07): the playable circle fills the map's box at any
 // size, and zooming in, out to the notes margin, and panning still work from there.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { joinNew, mapPoint } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

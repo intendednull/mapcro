@@ -1,6 +1,6 @@
 // Slice 8: honest status against a real server that goes away and comes back.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { dragToken, joinNew, mapPoint, tokenAt } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

@@ -2,7 +2,7 @@
 // joined with a display name; a hero dragged in one browser shows up live in the other (with
 // the dragger's name tag), and survives a reload and a fresh device.
 
-import { type Browser, type Page, expect, test } from "@playwright/test";
+import { type Browser, type Page, expect, test } from "./fixtures";
 import { Server, translate } from "./server";
 
 let server: Server;

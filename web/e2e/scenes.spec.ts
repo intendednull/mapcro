@@ -2,7 +2,7 @@
 // flip with clicks and arrow keys, edit the clock and name in place, drag to reorder; every
 // browser agrees and a reload keeps it. Which scene you look at is yours alone.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { dragToken, joinNew, tokenAt } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

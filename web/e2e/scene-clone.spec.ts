@@ -1,7 +1,7 @@
 // Clone a scene from its row (operator, 2026-11-08): the copy lands right after that row, as its
 // sibling, with that scene's heroes, in one undoable step; on the phone the row's buttons show.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { dragToken, joinNew, tokenAt } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

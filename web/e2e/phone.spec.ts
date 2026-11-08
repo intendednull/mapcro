@@ -1,7 +1,7 @@
 // Slice 7: the phone layout (design/v1-board/phone-following.html): a viewer on a phone
 // following a presenter on a desktop, against the real server.
 
-import { devices, expect, test } from "@playwright/test";
+import { devices, expect, test } from "./fixtures";
 import { gesture, joinNew, mapPoint, viewLink } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

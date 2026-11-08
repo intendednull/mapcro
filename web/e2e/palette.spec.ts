@@ -2,7 +2,7 @@
 // Laser, remembered per person per board, on the phone too. Each kind in two colours, as drawn
 // for the person making it and for a second browser.
 
-import { type Locator, type Page, expect, test } from "@playwright/test";
+import { type Locator, type Page, expect, test } from "./fixtures";
 import { gesture, joinNew, mapPoint } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

@@ -1,7 +1,7 @@
 // Two people in one scene note: whoever else is in it is tagged, an incoming save doesn't wipe
 // what you've typed and not saved, and on blur the last writer wins.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { joinNew } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

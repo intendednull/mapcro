@@ -1,7 +1,7 @@
 // Slice 6: share and clone on the real server. The owner mints an edit link, the editor shares
 // a view link onward, the owner sees both as a tree, and a viewer clones the board into its own.
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { dragToken, joinNew, tokenAt } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

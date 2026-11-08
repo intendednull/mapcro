@@ -4,7 +4,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import WebSocket from "ws";
 import { initSync, newRecordId } from "../src/wasm/mapcro_wasm.js";
 import { MemoryPersist } from "../src/core/persist";

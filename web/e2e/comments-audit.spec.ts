@@ -1,6 +1,6 @@
 // Visual audit of every comment state with real art (operator, 2026-11-07). Writes
 // shots/comments-audit/<name>.png. Needs MAPCRO_SHOT_PACKS (a PACKS_DIR outside the repo).
-import { type Page, devices, expect, test } from "@playwright/test";
+import { type Page, devices, expect, test } from "./fixtures";
 import { editLink, joinNew, mapPoint } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

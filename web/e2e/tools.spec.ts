@@ -1,6 +1,6 @@
 // Slice 4: the tools, on the real server with two editors and a viewer.
 
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "./fixtures";
 import { gesture, joinNew, mapPoint, viewLink } from "./helpers";
 import { Server, newBoardUrl, translate } from "./server";
 

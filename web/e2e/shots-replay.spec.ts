@@ -5,7 +5,7 @@
 import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { joinNew } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

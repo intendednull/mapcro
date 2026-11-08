@@ -1,7 +1,7 @@
 // Scenes as a tree in the left sidebar: add as child, drag to nest and reorder (one step per
 // drop), the same tree for everyone, collapse that's yours, and ← → walking the tree in order.
 
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "./fixtures";
 import { joinNew } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

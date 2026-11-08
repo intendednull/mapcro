@@ -2,7 +2,7 @@
 // with a live preview for the others, Clear clears one kind or all, and the notes margin round
 // the map takes them too.
 
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "./fixtures";
 import { gesture, joinNew, mapPoint } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

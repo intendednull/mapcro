@@ -1,7 +1,7 @@
 // Heroes and live layers: kill and revive a hero (K or its skull), an optional respawn timer,
 // heroes gliding between scenes, strokes seen while drawn, and middle-click pings.
 
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "./fixtures";
 import { dragToken, joinNew, mapPoint, tokenAt } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

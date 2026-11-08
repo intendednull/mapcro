@@ -1,7 +1,7 @@
 // The operator's first playtest (2026-11-07), on the real server: hero select, random heroes on
 // new boards, vision, souls, drag-select and group moves, panning, and lane splits.
 
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "./fixtures";
 import { SMOOTH_MS } from "../src/board/smooth";
 import { joinNew, mapPoint, tokenAt, viewLink, viewOf } from "./helpers";
 import { Server, newBoardUrl } from "./server";

@@ -7,7 +7,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { join } from "node:path";
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "./fixtures";
 import { ROOT, Server } from "./server";
 
 let server: Server;

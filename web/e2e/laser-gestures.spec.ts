@@ -6,7 +6,7 @@
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "./fixtures";
 import { gesture, joinNew, mapPoint, viewLink } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 

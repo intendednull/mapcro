@@ -1,6 +1,6 @@
 // Unnamed scenes are named by their place in the list (QA 2026-11-07).
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { joinNew } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 import { heroPack } from "./synthetic";

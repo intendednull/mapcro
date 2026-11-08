@@ -1,6 +1,6 @@
 // Screenshots for review: the board, the share dialog and the phone layout. Run with
 // MAPCRO_SHOTS=<name> (e.g. before / after) to write web/shots/<name>-*.png.
-import { devices, expect, test } from "@playwright/test";
+import { devices, expect, test } from "./fixtures";
 import { joinNew } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 

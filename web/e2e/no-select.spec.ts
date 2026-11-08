@@ -1,6 +1,6 @@
 // Dragging on the board never selects page text; fields still select (QA 2026-11-07).
 
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { joinNew } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 import { heroPack } from "./synthetic";

@@ -1,7 +1,7 @@
 // Comments (operator, 2026-11-07): bubbles by default, opened in place, a per-device
 // "Comments" toggle, followers see the presenter's open one; drag and erase still work.
 
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "./fixtures";
 import { editLink, joinNew, mapPoint } from "./helpers";
 import { Server, newBoardUrl, translate } from "./server";
 

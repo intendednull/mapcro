@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { type Browser, type Page, expect, test } from "@playwright/test";
+import { type Browser, type Page, expect, test } from "./fixtures";
 import { Server, translate } from "./server";
 
 // A 1×1 PNG (not game art).

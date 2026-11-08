@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Locator, type Page, devices, expect, test } from "@playwright/test";
+import { type Locator, type Page, devices, expect, test } from "./fixtures";
 import { joinNew } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 

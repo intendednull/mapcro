@@ -1,6 +1,6 @@
 // Marquee-selecting objectives (operator, 2026-11-07), on the real server with two editors.
 
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, expect, test } from "./fixtures";
 import { dragToken, joinNew, mapPoint } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
