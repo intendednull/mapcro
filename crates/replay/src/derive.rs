@@ -444,19 +444,28 @@ fn events(obs: &Obs, m: &Map, players: &[Player], objectives: &[Objective], mid_
             }
         }
     }
-    for (sec, s) in obs.seconds.iter().enumerate() {
-        for a in &s.abilities {
-            let Some(team) = team_name(a.team) else { continue };
-            let slot = players.iter().find(|p| p.team == team && p.hero_id == a.hero_id).map(|p| p.slot);
-            let name: String = a.name.to_ascii_lowercase().chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').take(64).collect();
+    // Ult casts: the game's ImportantAbilityUsed messages cover every ability, so a cast counts
+    // as the ult when the hero's ult cooldown starts with it (within two seconds); its name
+    // comes from the message. A cooldown starting with no message seen is still a cast.
+    let casts: Vec<(usize, &AbilityObs)> = obs.seconds.iter().enumerate().flat_map(|(sec, s)| s.abilities.iter().map(move |a| (sec, a))).collect();
+    for p in players {
+        for sec in 1..p.ult.len() {
+            let (before, now) = (p.ult[sec - 1], p.ult[sec]);
+            if !(now.is_some_and(|u| u >= 90) && before.is_none_or(|b| b < 90)) {
+                continue;
+            }
+            let cast = casts.iter().filter(|(s, a)| a.hero_id == p.hero_id && team_name(a.team) == Some(p.team.as_str()) && *s + 2 >= sec && *s <= sec).min_by_key(|(s, _)| sec - *s);
+            let t = cast.map_or(sec, |(s, _)| *s);
+            let name = cast.map(|(_, a)| a.name.to_ascii_lowercase().chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').take(64).collect::<String>()).filter(|n| !n.is_empty());
+            let pos = cast.and_then(|(_, a)| a.pos);
             out.push(Event {
-                team: Some(team.to_owned()),
-                slot,
-                hero_id: Some(a.hero_id),
-                x: a.pos.map(|p| p[0].round() as i32),
-                y: a.pos.map(|p| p[1].round() as i32),
-                ability: (!name.is_empty()).then_some(name),
-                ..event(sec as u32, "ult")
+                team: Some(p.team.clone()),
+                slot: Some(p.slot),
+                hero_id: Some(p.hero_id),
+                x: pos.map(|q| q[0].round() as i32).or(p.x.get(t).copied().flatten()),
+                y: pos.map(|q| q[1].round() as i32).or(p.y.get(t).copied().flatten()),
+                ability: name,
+                ..event(t as u32, "ult")
             });
         }
     }
@@ -697,9 +706,17 @@ mod tests {
         for x in &mut s {
             x.heroes = vec![hero(1, 2, true, [0.0, 0.0]), hero(2, 3, true, [0.0, 0.0])];
         }
+        // Sapphire's hero casts two abilities; only the one its ult cooldown starts with is the ult.
+        s[1].abilities = vec![AbilityObs { hero_id: 12, team: 3, pos: Some([1.0, 1.0]), name: "ability_haze_dagger".into() }];
         s[2].abilities = vec![AbilityObs { hero_id: 12, team: 3, pos: Some([10.4, -20.0]), name: "Ability_Haze_Bullet<Dance>".into() }];
+        for (i, x) in s.iter_mut().enumerate() {
+            x.heroes[1].ult_trained = true;
+            (x.heroes[1].ult_start, x.heroes[1].ult_end) = if i >= 2 { (x.now, x.now + 100.0) } else { (0.0, 0.0) };
+        }
         let t = derive(&obs(s), map::current()).expect("timeline");
-        let u = t.events.iter().find(|e| e.kind == "ult").expect("ult");
+        let ults: Vec<&Event> = t.events.iter().filter(|e| e.kind == "ult").collect();
+        assert_eq!(ults.len(), 1, "{ults:?}");
+        let u = ults[0];
         assert_eq!((u.t, u.team.as_deref(), u.slot, u.hero_id, u.x, u.ability.as_deref()), (2, Some("sapphire"), Some(0), Some(12), Some(10), Some("ability_haze_bulletdance")));
         assert_eq!(crate::timeline::validate(&serde_json::to_vec(&t).expect("json")).map(|_| ()), Ok(()));
     }
