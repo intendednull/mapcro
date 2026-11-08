@@ -14,7 +14,7 @@ We can't answer "did anything break this week", "how long does a full replay tak
 "how close are we to deadlock-api's limits or our disk".
 
 This spec lists the questions first and then the data that answers them. It has four parts: a
-collector inside the server, a private stats page, alerts, and the privacy rules.
+collector inside the server, a command-line way for the lead to query it, alerts, and the privacy rules.
 
 ## 1. The questions
 
@@ -156,14 +156,28 @@ step reached (waiting for slot, uploading, queued or parsing).
   - the size stays at a few MB a year
 - **`/metrics`:** Prometheus text format, served only on a separate loopback port that Caddy never
   proxies. Shared monitoring on `web` can use it later (an infra decision, via the concierge).
-- **Stats page:** `/stats`, private to the operator. It is reached with a secret token kept in a
-  root-only file (`STATS_TOKEN_FILE`, via `LoadCredential`, as with the deadlock-api key file)
-  and is never in the repo. It is one self-contained page with:
-  - **Today:** at a glance, with errors first.
-  - **Funnels:** time to usable and time to full, by path.
-  - **Usage:** over time.
-  - **Limits:** each resource as a bar against its cap.
-  - **Recent failures:** the log from §2.
+- **No web page for now (operator, 2026-11-08).** The lead agent is the main reader and uses the
+  data to steer development, so access is built for an agent first. A human view can come later
+  on top of the same queries.
+- **`mapcro-server stats`:** a read-only subcommand that queries the metrics tables in the
+  server's database. It is run on `web` over the existing deploy SSH as
+  `sudo -u mapcro mapcro-server stats …`, or locally against a dev database. Each query prints
+  a short text summary by default and full data with `--json`:
+  - `stats summary [--since 24h]`: health first (errors and failures by kind, worker incidents,
+    deadlock-api trouble), then usage and the slowest funnels, each compared with the previous
+    period.
+  - `stats failures [--since 7d] [--kind …]`: the recent-failures log, grouped, with counts and
+    the first and last time seen.
+  - `stats funnel [--path cached|fetched|uploaded]`: time to usable and time to full, as
+    p50/p90/p99 per day, with abandons by step.
+  - `stats limits`: each resource against its cap now, plus its peak and trend (the queue, disk,
+    database, memory, deadlock-api).
+  - `stats usage [--by day|week]`: people, boards, matches by tier and path, and feature use.
+  - `stats series <metric> [--since …]`: the raw series of one metric.
+- **A `just stats …` recipe** wraps the SSH call, so it is one command from the dev box.
+- **The lead's routine:** check `stats summary` after every deploy and at the start of a session.
+  Read `stats failures` before triaging bugs. Use the numbers when choosing work: what's breaking
+  most, what's slowest, and what's nearest a limit.
 - **The worker** stays sandboxed (PrivateNetwork). It reports only through its result files.
 
 ## 5. Privacy
@@ -199,18 +213,20 @@ open question (§8). Its webhook or token lives in a root-only file and moves by
    queue, jobs, deadlock-api and cgroup memory.
 2. **The worker's per-job record** (phase times and peak RSS).
 3. **Browser beacons:** errors first, then the match funnel timings and the prompt choices.
-4. **The `/stats` page.**
+4. **`mapcro-server stats` and `just stats`.** Build them alongside step 1, so each step's data
+   can be read as soon as it lands.
 5. **Alerts and the daily digest**, once the channel is decided.
 
 Each step comes with tests. Counters and buckets get unit tests. An e2e run checks that a forced
 browser error and an opened match produce the right counts. A VM test checks that `/metrics`
-can't be reached through Caddy and that `/stats` refuses a request without the token.
+can't be reached through Caddy.
 
 ## 8. Open questions for the operator
 
 1. **Where alerts go:** email (to which address?), Discord or Slack webhook, ntfy, or through the
    concierge?
-2. **Shared monitoring:** should `/metrics` also feed a Prometheus/Grafana on `web` for every app,
-   or is mapcro's own `/stats` page enough for now? This is an infra and concierge call.
+2. **Shared monitoring:** should `/metrics` also feed a Prometheus/Grafana on `web` for every app?
+   This is an infra and concierge call; until then, `mapcro-server stats` is the way in. A human
+   view is deferred (operator, 2026-11-08).
 3. **Retention:** is 400 days of hourly rollups right?
 4. **Feature usage counts (§1 C.5):** worth having, or more than we need?
