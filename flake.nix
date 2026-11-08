@@ -150,8 +150,13 @@
 
           # The replay worker: its own sandboxed unit, sharing only the queue with the server.
           machine.wait_for_unit("mapcro-replay.service")
-          for prop in ["PrivateNetwork=yes", "User=mapcro-replay", "OOMPolicy=continue", "MemoryMax=1073741824", "CPUQuotaPerSecUSec=1s", "ProtectSystem=strict"]:
+          # Two parses at once by default: a core and 384M each (journal 2026-11-08-replay-capacity).
+          for prop in ["PrivateNetwork=yes", "User=mapcro-replay", "OOMPolicy=continue", "MemoryMax=805306368", "MemorySwapMax=0", "CPUQuotaPerSecUSec=2s", "TasksMax=16", "ProtectSystem=strict"]:
               machine.succeed(f"systemctl show mapcro-replay.service -p {prop.split('=')[0]} | grep -qx {prop}")
+          machine.succeed("systemctl show mapcro-replay.service -p Environment | grep -q REPLAY_WORKERS=2")
+          # The server knows the worker count (for the wait estimate) and the queue's budgets.
+          for env in ["REPLAY_WORKERS=2", "REPLAY_MAX_QUEUE_BYTES=8589934592", "REPLAY_MAX_QUEUED=24", "REPLAY_UPLOADS_AT_ONCE=4", "REPLAY_DOWNLOADS_AT_ONCE=2", "REPLAY_MAX_WAITING=64"]:
+              machine.succeed(f"systemctl show mapcro.service -p Environment | grep -q {env}")
           machine.succeed("stat -c '%a %U %G' /var/lib/mapcro-replay/inbox | grep -qx '2750 mapcro mapcro-replay'")
           machine.succeed("stat -c '%a %U %G' /var/lib/mapcro-replay/outbox | grep -qx '2770 mapcro-replay mapcro-replay'")
           # The worker can't write the server's inbox (security review 2026-11-08, M1).
@@ -164,9 +169,12 @@
           auth = f"-H 'authorization: Bearer {board['owner_token']}'"
           base = f"http://127.0.0.1:8094/api/boards/{board['board']}/replays/100747544"
           machine.succeed("echo UEJERU1TMgAAAAAAAAAAAAEAJAoBeDIfL3Nydi9jaXRhZGVsX3Y2NjgzL2dhbWUvY2l0YWRlbAAAAA== | base64 -d > /tmp/old.dem")
+          # Reserved first, as the client does: a free queue is ready at once.
+          machine.succeed(f"curl -fsS {auth} -H 'content-type: application/json' -d '{{\"bytes\":64}}' {base}/reserve | grep -q ready")
           machine.succeed(f"curl -fsS {auth} --data-binary @/tmp/old.dem {base}/upload | grep -q queued")
           machine.wait_until_succeeds(f"curl -fsS {auth} {base} | grep -q old_map", timeout=60)
-          machine.wait_until_succeeds("test -z \"$(ls -A /var/lib/mapcro-replay/inbox)$(ls -A /var/lib/mapcro-replay/work)$(ls -A /var/lib/mapcro-replay/outbox)\"")
+          # Nothing is left but the server's parse order (now empty).
+          machine.wait_until_succeeds("test -z \"$(ls -A /var/lib/mapcro-replay/inbox | grep -vx .order)$(ls -A /var/lib/mapcro-replay/work)$(ls -A /var/lib/mapcro-replay/outbox)\"")
           # Bad magic is refused before it is queued.
           machine.succeed(f"test \"$(curl -s -o /dev/null -w '%{{http_code}}' {auth} --data-binary @/etc/hostname {base}/upload)\" = 415")
           # The server's health doesn't depend on the worker's.

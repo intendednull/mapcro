@@ -65,18 +65,64 @@ in
           health doesn't depend on the worker's.
         '';
       };
+      workers = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 2;
+        description = ''
+          Demos parsed at once, each in its own child under its own wall clock. A parse is CPU
+          bound on one core (a 504 MB demo: ~5 s), so on the 3-core `web` host 2 leaves a core
+          for everything else (journal 2026-11-08-replay-capacity).
+        '';
+      };
       memoryMax = lib.mkOption {
         type = lib.types.str;
-        default = "1G";
+        default = "${toString (cfg.replay.workers * 384)}M";
+        defaultText = lib.literalExpression ''"''${toString (workers * 384)}M"'';
         description = ''
-          The worker's memory cap. Measured on a 478 MB demo: 19 MB anonymous plus the demo's
-          own pages (it is memory-mapped, 470 MB, reclaimable) (journal 2026-11-07-replay-tier).
+          The worker's memory cap, 384M a parse by default. Measured on the real 504 MB demo: 26 MB
+          anonymous, the rest the memory-mapped demo's clean pages, which the cap reclaims rather
+          than OOM-kills on (under a 64M cap one still parses, 18% slower). The headroom covers a
+          zstd window (at most 128 MiB) and keeps the page cache from thrashing.
         '';
       };
       cpuQuota = lib.mkOption {
         type = lib.types.str;
-        default = "100%";
-        description = "The worker's CPU cap: one core. A 478 MB demo parses in ~5 s.";
+        default = "${toString (cfg.replay.workers * 100)}%";
+        defaultText = lib.literalExpression ''"''${toString (workers * 100)}%"'';
+        description = "The worker's CPU cap: one core a parse, at a low CPU weight.";
+      };
+      queueBytes = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 8 * 1024 * 1024 * 1024;
+        defaultText = lib.literalExpression "8 GiB";
+        description = ''
+          Bytes the queue may hold: queued demos (fetched ones compressed, ~330 MB; uploads raw,
+          ~500 MB) and transfers under way at their size. Expanded demos being parsed count too,
+          up to 1 GiB each, so the disk peak is about this plus one per worker.
+        '';
+      };
+      queuedJobs = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 24;
+        description = "Jobs on disk or on their way there at once; more wait in line.";
+      };
+      uploadsAtOnce = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 4;
+        description = "Uploads streaming at once (one per client); more wait in line.";
+      };
+      downloadsAtOnce = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 2;
+        description = "Downloads from Valve's CDN at once; more wait in line.";
+      };
+      maxWaiting = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 64;
+        description = ''
+          Transfers waiting in line past which a new one is refused ("Busy. Try again in a few
+          minutes."): the last resort for a backlog that won't clear soon.
+        '';
       };
       jobTimeoutSec = lib.mkOption {
         type = lib.types.ints.positive;
@@ -120,7 +166,15 @@ in
         MALLOC_ARENA_MAX = "2";
       } // lib.optionalAttrs (cfg.webDir != null) { WEB_DIR = toString cfg.webDir; }
         // lib.optionalAttrs (cfg.packsDir != null) { PACKS_DIR = cfg.packsDir; }
-        // lib.optionalAttrs cfg.replay.enable { REPLAY_DIR = queue; }
+        // lib.optionalAttrs cfg.replay.enable {
+          REPLAY_DIR = queue;
+          REPLAY_WORKERS = toString cfg.replay.workers;
+          REPLAY_MAX_QUEUE_BYTES = toString cfg.replay.queueBytes;
+          REPLAY_MAX_QUEUED = toString cfg.replay.queuedJobs;
+          REPLAY_UPLOADS_AT_ONCE = toString cfg.replay.uploadsAtOnce;
+          REPLAY_DOWNLOADS_AT_ONCE = toString cfg.replay.downloadsAtOnce;
+          REPLAY_MAX_WAITING = toString cfg.replay.maxWaiting;
+        }
         # The key's path, not its value: systemd hands the file to this unit as a credential.
         // lib.optionalAttrs (cfg.deadlockApiKeyFile != null) { DEADLOCK_API_KEY_FILE = "%d/deadlock-api-key"; };
       serviceConfig = {
@@ -156,8 +210,8 @@ in
     };
 
     # The replay worker: parses untrusted demos, so it gets as little as it can work with. No
-    # network, no view of the board server's state or processes, a memory and CPU cap, one job
-    # at a time, each in a child under a wall clock (crates/replay/src/worker.rs). Not wanted by
+    # network, no view of the board server's state or processes, a memory and CPU cap, `workers`
+    # jobs at a time, each in a child under its own wall clock (crates/replay/src/worker.rs). Not wanted by
     # the board server: if it crashes or is stopped, uploads queue and the server stays healthy.
     systemd.services.mapcro-replay = lib.mkIf cfg.replay.enable {
       description = "mapcro replay worker (parses demos into match timelines)";
@@ -168,6 +222,7 @@ in
       environment = {
         REPLAY_JOB_TIMEOUT_S = toString cfg.replay.jobTimeoutSec;
         REPLAY_MAX_DEM_BYTES = toString (1024 * 1024 * 1024);
+        REPLAY_WORKERS = toString cfg.replay.workers;
       };
       serviceConfig = {
         ExecStart = "${lib.getExe replayPkg} work ${queue}";
@@ -185,7 +240,7 @@ in
         CPUWeight = 20;
         Nice = 10;
         IOSchedulingClass = "idle";
-        TasksMax = 16;
+        TasksMax = 8 + 4 * cfg.replay.workers;
         LimitNOFILE = 64;
         # No file it writes (the expanded demo, the timeline) can pass the demo cap.
         LimitFSIZE = 1100 * 1024 * 1024;
