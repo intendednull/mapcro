@@ -3,7 +3,7 @@
 
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { Viewport } from "../gen/Viewport";
-import { MARGIN, type Viewpoint, viewToWorld, worldToView } from "../map/transform";
+import { FIT_VIEW, MARGIN, type Viewpoint, viewToWorld, worldToView } from "../map/transform";
 
 export interface ViewRect {
   x: number;
@@ -11,7 +11,7 @@ export interface ViewRect {
   w: number;
 }
 
-export const FIT: ViewRect = { x: 0, y: 0, w: 1000 };
+export const FIT: ViewRect = { ...FIT_VIEW };
 export const MIN_W = 160; // the deepest zoom: about 6×
 /** The widest view: the map and its notes margin all round. */
 export const MAX_W = 1000 + 2 * MARGIN;

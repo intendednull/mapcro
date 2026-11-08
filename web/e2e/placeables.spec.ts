@@ -198,7 +198,7 @@ test("the notes margin: zoom out past the map, draw and comment there; it stays 
   // Back at fit the margin is out of view, and nothing spills over the top bar.
   await b.reload();
   await expect(strokes(b)).toHaveCount(1);
-  await expect(b.getByTestId("map")).toHaveAttribute("data-view", "0 0 1000");
+  await expect(b.getByTestId("map")).toHaveAttribute("data-view", "36 36 928"); // the default view
   const top = (await b.getByTestId("map").boundingBox())!;
   const hit = await b.evaluate(([x, y]) => document.elementFromPoint(x!, y!)?.closest("[data-testid=map]") === null, [top.x + top.width / 2, top.y - 6]);
   expect(hit).toBe(true);

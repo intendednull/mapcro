@@ -8,7 +8,7 @@ import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import { type Marker, HUD_MAP_PX, isFriendly, laneStroke, washFor } from "./model";
 import { defaultSplit, pathOf, splitAt } from "./lanes";
 import { type Art, artCss } from "./pack";
-import { MARGIN, type Viewpoint } from "./transform";
+import { FIT_VIEW, MARGIN, type Viewpoint } from "./transform";
 
 /** A neutral cream: the spawners give any powerup, so no buff's own colour. */
 const POWERUP = "#FFEFD7";
@@ -160,10 +160,13 @@ export function MapView(p: {
   // Inside the map square, the HUD look: a fixed frame, and zoomed in, the map clipped to its
   // disc. Out past the map (its notes margin), the map and its frame move and zoom together
   // like any other thing on the board, and nothing is clipped to the disc.
-  const free = () => {
+  // Zoomed in past the default view, inside the map: the HUD look. At the default view and
+  // out from it, the map and its frame are one picture, clipped by the box.
+  const hud = () => {
     const v = view();
-    return v.w > 1000 || v.x < 0 || v.y < 0 || v.x + v.w > 1000 || v.y + v.w > 1000;
+    return v.w < FIT_VIEW.w - 0.5 && v.x >= 0 && v.y >= 0 && v.x + v.w <= 1000 && v.y + v.w <= 1000;
   };
+  const free = () => !p.lite && !hud();
   const frame = () => (
     <>
       <svg class="frame-fb" viewBox="0 0 100 100" aria-hidden="true">
@@ -179,7 +182,7 @@ export function MapView(p: {
   return (
     <div
       ref={host}
-      class={cx("mm-host", `vp-${p.viewpoint}`, p.class, p.raisedLane && "lane-raised", hasArt() && "pack-art", p.lite && "lite", view().w < 1000 && !free() && "zoomed", free() && "free", p.live && "live")}
+      class={cx("mm-host", `vp-${p.viewpoint}`, p.class, p.raisedLane && "lane-raised", hasArt() && "pack-art", p.lite && "lite", hud() && "zoomed", free() && "free", p.live && "live")}
       data-viewpoint={p.viewpoint}
       data-pack={p.art.packId ?? "none"}
       style={{ "--u": `${u()}px`, "--mk-scale": String(Math.min(1, view().w / 1000)) }}

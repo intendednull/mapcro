@@ -30,7 +30,7 @@ describe("follow", () => {
     expect(fromViewport(null, "amber")).toEqual(FIT);
   });
   it("zooms about the pointer and stays on the map and its notes margin", () => {
-    const z = zoomAt(FIT, { x: 250, y: 250 }, 0.5);
+    const z = zoomAt({ x: 0, y: 0, w: 1000 }, { x: 250, y: 250 }, 0.5);
     expect(z).toEqual({ w: 500, x: 125, y: 125 });
     // Out past fit to the whole board: the map and a quarter of it all round.
     expect(zoomAt(z, { x: 0, y: 0 }, 10)).toEqual({ w: 1500, x: -250, y: -250 });

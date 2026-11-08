@@ -61,6 +61,17 @@ export function viewToWorld(v: Pt, vp: Viewpoint, t: Transform = DEFAULT_TRANSFO
  * reaches 1.5× the map's radius, inside the schema's ±16384. */
 export const MARGIN = 250;
 
+/**
+ * The default view (operator, 2026-11-07: the map as large as the box allows): the playable
+ * circle, which is the map square's inscribed circle, filling 97% of the map's box. The box
+ * shows the view plus the HUD frame's band (the view maps to its middle 90%), so the view is a
+ * little narrower than the map. The art beyond the circle is clipped. The box is square, so in
+ * view units this is the same at any size.
+ */
+const FIT_FILL = 0.97;
+const FIT_W = (MAP * 0.9) / FIT_FILL;
+export const FIT_VIEW = { x: (MAP - FIT_W) / 2, y: (MAP - FIT_W) / 2, w: FIT_W } as const;
+
 /** Keep a placed thing (ink, arrow, comment, pointer) on the map or its notes margin. */
 export function clampToBoard(w: WorldPos, t: Transform = DEFAULT_TRANSFORM): WorldPos {
   const r = t.r * (1 + (2 * MARGIN) / MAP);
