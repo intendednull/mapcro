@@ -6,7 +6,7 @@
 //   replica, then Solid's store update and the DOM writes it causes, all inside it.
 // - The WASM exports (wrapped at instantiation): time per call, by export name.
 // - JSON.parse inside a frame handler: its share of the handler.
-// - IndexedDB put → transaction complete: the save before each send, with its size.
+// - IndexedDB put → transaction complete: the save (or journal entry) before each send, with its size.
 // - A MutationObserver on the document: how many attributes and nodes one frame touched.
 // - requestAnimationFrame after a frame, then a task after that frame: when it can be painted.
 //
@@ -201,7 +201,11 @@
   // --- IndexedDB saves ----------------------------------------------------------------------
   const put = IDBObjectStore.prototype.put;
   IDBObjectStore.prototype.put = function (value, key) {
-    const rec = { t: now(), bytes: typeof value === "string" ? value.length : -1, key: String(key).slice(0, 40) };
+    let bytes = -1;
+    try {
+      bytes = typeof value === "string" ? value.length : JSON.stringify(value).length; // a journal entry is an object
+    } catch {}
+    const rec = { t: now(), bytes, key: String(key).slice(0, 40) };
     const req = put.call(this, value, key);
     try {
       const tx = this.transaction;

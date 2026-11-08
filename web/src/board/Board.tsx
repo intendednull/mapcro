@@ -2,6 +2,7 @@
 // panel. The map is the interface: edits happen on it directly.
 
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
 import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, loadMe, markJoined, rememberBoard, saveMe } from "../core/device";
 import type { RecordId } from "../gen/RecordId";
@@ -344,7 +345,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
     if (n) state.edit([{ Set: { id: n.id, value: { NoteText: text } } }]);
     else if (text.trim()) state.edit([{ Create: { id: newRecordId(), record: { Note: { scene: s.id, text } } } }]);
   };
-  const calloutList = createMemo(() => calloutOrder(state.inScene("Callout", scene()?.id)));
+  const calloutList = createMemo(() => calloutOrder(state.rowsIn<Callout>("Callout", scene()?.id)));
 
   const flipBy = (d: number) => {
     const all = state.scenes();
@@ -434,7 +435,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
             {(c, i) => (
               <li>
                 <b>{i() + 1}</b>
-                {c.text}
+                {c.r.text}
               </li>
             )}
           </For>

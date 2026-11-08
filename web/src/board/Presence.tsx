@@ -8,6 +8,7 @@ import type { RecordId } from "../gen/RecordId";
 import { type Viewpoint, worldToView } from "../map/transform";
 import { cx } from "../ui/cx";
 import { followable } from "./follow";
+import { smoothed } from "./smooth";
 
 const letter = (name: string) => (name.trim()[0] ?? "?").toUpperCase();
 const nameOf = (p: PeerPresence) => p.state?.name || "Joining";
@@ -30,7 +31,8 @@ export function Cursors(p: { peers: PeerPresence[]; scene: RecordId | undefined;
     <g class="cursors">
       <For each={shown()}>
         {(x) => {
-          const at = () => worldToView(x.state!.cursor!, p.vp);
+          const cursor = smoothed(() => x.state?.cursor ?? undefined);
+          const at = () => worldToView(cursor() ?? x.state!.cursor!, p.vp);
           const name = () => nameOf(x);
           return (
             <g class="cur" data-cursor={name()} transform={`translate(${at().x} ${at().y}) scale(${1.2 * p.k})`} style={{ "pointer-events": "none" }}>

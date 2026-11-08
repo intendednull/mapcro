@@ -38,6 +38,13 @@ export interface SessionOptions {
   persist: Persist;
   openSocket: (url: string) => SocketLike;
   onChange?: (s: BoardSession) => void;
+  /**
+   * Exactly the records that changed (`null`: gone), or the whole board when `reset`. Lets a UI
+   * touch only what changed instead of re-reading every record (perf report 2026-11-07).
+   */
+  onRecords?: (changed: Array<[RecordId, Entry | null]>, reset: boolean) => void;
+  /** The peers in a presence batch (a `null` state: gone), or `reset` when the room restarts. */
+  onPeers?: (changed: PeerPresence[], reset: boolean) => void;
   /** Backoff bounds, overridable for tests. */
   minDelayMs?: number;
   maxDelayMs?: number;
@@ -46,11 +53,19 @@ export interface SessionOptions {
 const FINAL: CloseReason[] = ["unauthorized", "revoked"];
 
 /**
+ * Presence send cadence. The server coalesces presence in 50 ms batches, the latest state per
+ * peer winning. Sent every 50 ms, arrival jitter put two of one person's updates in one batch
+ * often (11 to 22% of a remote drag's steps were 100 ms in the 2026-11-07 perf runs): the first
+ * was dropped and others saw the drag jump. A little over the batch, no two land in one.
+ */
+export const PRESENCE_MS = 60;
+
+/**
  * Reconnect resend pacing. The server allows a burst of 300 frames per socket, then 60/s
  * (crates/server/src/ws.rs), and closes a faster sender as abuse. Pending work after a long
  * offline stretch can exceed that, so the first RESEND_BURST go at once and the rest at
- * RESEND_PER_SEC, which leaves room for presence (at most 20/s) under the steady rate
- * (soak 2026-11-07, long-offline-abuse).
+ * RESEND_PER_SEC, which leaves room for presence (at most 1000 / PRESENCE_MS per second) under
+ * the steady rate (soak 2026-11-07, long-offline-abuse).
  */
 const RESEND_BURST = 200;
 const RESEND_PER_SEC = 30;
@@ -96,7 +111,13 @@ export class BoardSession {
   private stopped = false;
   /** Saves and sends run in order through this chain, so frames leave in cseq order. */
   private chain: Promise<void> = Promise.resolve();
+  /** Whole-state saves, one at a time and in the order taken, so storage never goes back. */
+  private saves: Promise<void> = Promise.resolve();
+  /** The next cseq after every transaction journaled so far, and whose they are. */
+  private journaled = 0;
+  private client: string | undefined;
   private saveSoon: ReturnType<typeof setTimeout> | undefined;
+  private dirtySince: number | undefined;
 
   constructor(private readonly o: SessionOptions) {}
 
@@ -124,11 +145,11 @@ export class BoardSession {
     this.local((r) => r.edit(JSON.stringify(ops)));
   }
 
-  /** Update what others see of us. Sent at most every 50 ms; the latest state always wins. */
+  /** Update what others see of us. Sent at most every PRESENCE_MS; the latest state always wins. */
   setPresence(patch: Partial<Presence>): void {
     this.presence = { ...this.presence, ...patch };
     if (this.presenceTimer !== undefined) return;
-    const wait = Math.max(0, this.presenceSentAt + 50 - Date.now());
+    const wait = Math.max(0, this.presenceSentAt + PRESENCE_MS - Date.now());
     this.presenceTimer = setTimeout(() => {
       this.presenceTimer = undefined;
       this.presenceSentAt = Date.now();
@@ -159,18 +180,58 @@ export class BoardSession {
     }
     const u = this.apply(call(r));
     if (u.refused) this.problems.push(u.refused);
-    const state = r.state();
+    if (u.frames.length === 0) {
+      // Offline (or refused): nothing to send. An offline edit is saved whole, and the
+      // reconnect's resend waits for it (the save queue runs in order).
+      if (u.changed.length) this.saveState().catch((e) => this.problems.push(`could not save locally: ${e}`));
+      return;
+    }
     const sock = this.socket;
+    const txs = u.frames.flatMap((f) => (f.t === "msg" && "Submit" in f.msg ? [f.msg.Submit] : []));
+    const journal = this.o.persist.savePending;
     // Durable first, then send. Frames go only on the socket that is live now; if it drops,
-    // the next `connect()` resends all pending work anyway.
+    // the next `connect()` resends all pending work anyway. With a journal, the durable part is
+    // the transaction alone, and its write starts now; the whole state follows lazily.
+    let durable: Promise<void>;
+    if (journal && txs.length === u.frames.length) {
+      durable = journal.call(this.o.persist, this.o.board, txs).catch(async (e) => {
+        // Never send past a hole in the journal: save everything whole first.
+        this.problems.push(`could not journal locally: ${e}`);
+        await this.saveState();
+      });
+      for (const tx of txs) {
+        this.journaled = Math.max(this.journaled, tx.cseq + 1);
+        this.client = tx.client;
+      }
+      this.persistSoon();
+    } else durable = this.saveState();
     this.chain = this.chain
-      .then(() => this.o.persist.save(this.o.board, state))
+      .then(() => durable)
       .then(() => {
         if (sock === this.socket && this.live) for (const f of u.frames) this.send(f);
       })
       .catch((e) => {
-        this.problems.push(`could not save locally: ${e}`);
+        this.problems.push(`could not save locally, reconnecting: ${e}`);
+        if (sock === this.socket) this.retry();
       });
+  }
+
+  /**
+   * Save the whole replica state as it is now, behind any earlier whole save, then drop the
+   * journal entries it holds. Resolves once the state is durable.
+   */
+  private saveState(): Promise<void> {
+    const r = this.replica;
+    if (!r) return Promise.resolve();
+    const state = r.state();
+    const below = this.journaled;
+    const client = this.client;
+    this.dirtySince = undefined;
+    const saved = this.saves.then(() => this.o.persist.save(this.o.board, state));
+    this.saves = saved
+      .then(() => (client !== undefined && below > 0 ? this.o.persist.dropPending?.(this.o.board, client, below) : undefined))
+      .catch(() => {});
+    return saved;
   }
 
   private apply(json: string): Update {
@@ -179,6 +240,7 @@ export class BoardSession {
       if (entry) this.records.set(id, entry);
       else this.records.delete(id);
     }
+    if (u.changed.length) this.o.onRecords?.(u.changed, false);
     this.status = u.status;
     this.canUndo = u.canUndo;
     this.canRedo = u.canRedo;
@@ -188,7 +250,9 @@ export class BoardSession {
 
   private resetRecords(viewJson: string) {
     this.records.clear();
-    for (const [id, entry] of JSON.parse(viewJson) as Array<[RecordId, Entry]>) this.records.set(id, entry);
+    const all = JSON.parse(viewJson) as Array<[RecordId, Entry]>;
+    for (const [id, entry] of all) this.records.set(id, entry);
+    this.o.onRecords?.(all, true);
   }
 
   private send(frame: WireIn) {
@@ -237,10 +301,10 @@ export class BoardSession {
         // reload would forget (soak 2026-11-07, resend-before-durable). Later edits queue behind
         // this on the chain, so frames still leave in cseq order.
         const sock = this.socket;
-        const state = this.replica.state();
+        const saved = this.saveState();
         const role = frame.role;
         this.chain = this.chain
-          .then(() => this.o.persist.save(this.o.board, state))
+          .then(() => saved)
           .then(() => (this.roleStore ? this.o.persist.save(this.roleStore, role) : undefined))
           .then(async () => {
             for (let i = 0; i < u.frames.length; i++) {
@@ -258,6 +322,7 @@ export class BoardSession {
         this.live = true;
         this.readOnly = frame.role === "view";
         this.peers.clear(); // the room sends everyone present right after Ready
+        this.o.onPeers?.([], true);
         this.myPeer = frame.peer;
         this.attempt = 0;
         this.connection = { kind: "live", role: frame.role };
@@ -278,7 +343,8 @@ export class BoardSession {
           if (p.state) this.peers.set(p.peer, p);
           else this.peers.delete(p.peer);
         }
-        this.o.onChange?.(this);
+        if (this.o.onPeers) this.o.onPeers(frame.peers, false);
+        else this.o.onChange?.(this);
         return;
       }
       case "closed": {
@@ -296,15 +362,22 @@ export class BoardSession {
     }
   }
 
-  /** Confirmed progress is worth saving too (a reload then needs less catch-up), but lazily. */
+  /**
+   * Save the whole state lazily: 300 ms after things go quiet, and at least every 2 s while they
+   * don't. Confirmed progress means less catch-up after a reload; after journaled edits it keeps
+   * the journal short.
+   */
   private persistSoon() {
+    const now = Date.now();
+    this.dirtySince ??= now;
     clearTimeout(this.saveSoon);
-    this.saveSoon = setTimeout(() => {
-      const r = this.replica;
-      if (!r) return;
-      const state = r.state();
-      this.chain = this.chain.then(() => this.o.persist.save(this.o.board, state)).catch(() => {});
-    }, 300);
+    this.saveSoon = setTimeout(
+      () => {
+        this.saveSoon = undefined;
+        this.saveState().catch(() => {});
+      },
+      Math.max(0, Math.min(300, this.dirtySince + 2000 - now)),
+    );
   }
 
   private markOffline() {

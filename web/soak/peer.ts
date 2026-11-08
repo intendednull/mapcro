@@ -9,6 +9,7 @@ import { BoardSession, type SocketLike } from "../src/core/session";
 import type { Presence } from "../src/gen/Presence";
 import type { PeerPresence } from "../src/gen/PeerPresence";
 import type { RecordId } from "../src/gen/RecordId";
+import type { Tx } from "../src/gen/Tx";
 import type { WireIn } from "../src/gen/WireIn";
 import type { WireOut } from "../src/gen/WireOut";
 import { build, live, sceneOf, scenes } from "./actions";
@@ -96,6 +97,8 @@ class TabPersist implements Persist {
   /** Per key, the value of the last save that resolved (or what was loaded). */
   private readonly durable = new Map<string, string | undefined>();
   private readonly inflight = new Map<Promise<void>, string>();
+  /** Journal writes in flight, rolled back by a crash like any other write. */
+  private readonly journaling = new Map<Promise<void>, { board: string; txs: Tx[] }>();
   constructor(
     readonly idb: IdbPersist,
     private readonly trace: (s: string) => void,
@@ -120,9 +123,34 @@ class TabPersist implements Persist {
     this.inflight.set(p, key);
     return p;
   }
+  savePending(board: string, txs: Tx[]): Promise<void> {
+    const what = txs.map((t) => t.cseq).join(",");
+    if (this.dead) {
+      this.trace(`journal dropped (tab gone) cseq ${what}`);
+      return new Promise(() => {});
+    }
+    const p = this.idb.savePending(board, txs).then(() => {
+      this.journaling.delete(p);
+      if (this.dead) return new Promise<void>(() => {}); // landed after the crash: rolled back below
+      this.trace(`journaled cseq ${what}`);
+    });
+    this.journaling.set(p, { board, txs });
+    return p;
+  }
+  dropPending(board: string, client: string, below: number): Promise<void> {
+    // Either outcome of a crash is fine: the entries dropped are held by a state that landed.
+    if (this.dead) return new Promise(() => {});
+    return this.idb.dropPending(board, client, below);
+  }
   /** Kill the tab. Resolves once storage holds only what had landed before the kill. */
   async crash() {
     this.dead = true;
+    const lostJournal = [...this.journaling];
+    if (lostJournal.length) {
+      this.trace(`crash: ${lostJournal.length} journal write(s) in flight are lost`);
+      await Promise.race([Promise.all(lostJournal.map(([p]) => p)), new Promise((r) => setTimeout(r, 0))]);
+      for (const [, j] of lostJournal) await this.idb.deletePending(j.board, j.txs);
+    }
     const lost = [...this.inflight];
     if (!lost.length) return;
     this.trace(`crash: ${lost.length} save(s) in flight are lost`);

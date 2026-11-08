@@ -1,5 +1,5 @@
 **Date:** 2026-11-07
-**Status:** measurement and diagnosis only; nothing in the app or server was changed
+**Status:** measurement and diagnosis; client fixes for bottlenecks 1, 2, 3 (client half) and 6 measured in "After the client fixes" below
 **Code measured:** `7d6cb40` (a `git archive` snapshot, so other agents' in-flight edits didn't leak in)
 **Harness:** `web/perf/` and `just perf` (this commit)
 
@@ -530,6 +530,108 @@ Not the server, the disk or the network. With 3 people on production, an ack tak
 A busy machine makes all four worse, because all four are main-thread work.
 
 Fixes 1 to 3 are client-side and small, and none touches the sync protocol.
+
+## After the client fixes
+
+Same harness and setups, same machine, run back to back. "Before" is the client at `333ffe7`. For the 40-peer row, a `git archive` build of `333ffe7` was served with `--web-dir`. "After" is the client with the fixes below. Both used the same release server, without the timing patch, so the server rows are empty. Every run was VALID: 1-minute load at most 7.6.
+
+| Run | Command |
+|---|---|
+| 3 editors | `just perf local --fs disk --browsers 3 --seconds 60 --storm 10 --max-load 12` |
+| big board | `just perf local --fs disk --browsers 3 --seconds 45 --storm 10 --prefill 1000 --max-load 12` |
+| 40 peers | `just perf local --fs disk --browsers 3 --peers 40 --seconds 60 --storm 10 --max-load 12` |
+
+Results are in `/tmp/mapcro-perf/out/{b0,a1,a2,a3}-disk-3`, `{b0,a3}-disk-3-big` and `{b0,a3}-disk-40` (not committed). The steps were: a1 = fixes 1 and 2, a2 = plus fix 3, a3 = plus fix 6.
+
+**What changed**
+
+| # | Fix | Where |
+|---|---|---|
+| 1 | Records live in a store keyed by id. Each kind's live ids are their own signal. Rows are one cached object per id that reads `records[id]`. A per-scene player memo returns the same array when nothing changed | `web/src/board/state.ts`, `Layers.tsx`, `Board.tsx`, `TopBar.tsx` |
+| 2 | The session reports exactly `Update.changed` (`onRecords`) and each presence batch (`onPeers`). The store applies only those ids; presence never touches records | `web/src/core/session.ts`, `state.ts` |
+| 3 | Remote drag ghosts (tokens, callouts) and cursors glide to each new position over 100 ms, at render time only. Presence is sent every 60 ms instead of 50, a little over the server's 50 ms batch | `web/src/board/smooth.ts`, `session.ts` (`PRESENCE_MS`) |
+| 6 | A live edit's transaction is journaled alone (an IndexedDB `pending` store keyed `[board, client, cseq]`) before it is sent. The whole state is saved lazily (300 ms after quiet, at least every 2 s) and drops the entries it holds. `load` folds the journal in | `web/src/core/persist.ts`, `session.ts` |
+
+The server's half of fix 3 is not done: flushing on the leading edge, or a fixed tick, is in `room.rs`.
+
+**3 editors, 150-create board (b0 → a1 → a2 → a3), ms**
+
+| Stage | Before p50 / p95 | a1 | a2 | After p50 / p95 |
+|---|---:|---:|---:|---:|
+| A input → frame sent | 14.2 / 51.4 | 8.8 / 19.9 | 13.1 / 20.2 | 13.0 / 20.2 |
+|   A own apply + render | 2.9 / 20.5 | 1.0 / 1.4 | | 0.6 / 0.9 |
+|   A IndexedDB commit before send | 9.9 / 29.0 | 7.1 / 18.1 | 11.5 / 17.4 | 11.9 / 17.6 (journal entry) |
+| B frame handler | 3.0 / 24.8 | 0.8 / 1.3 | | 0.8 / 1.1 |
+| B received → painted | 9.4 / 46.3 | 7.0 / 17.2 | | 11.1 / 16.0 |
+| **A input → B painted** | **31.4 / 107** | 25.5 / 54.1 | 29.8 / 46.5 | **29.4 / 49.8** |
+| Remote create handler (`Create:Stroke`) | 23.0, 1,431 nodes | 1.0, 3 nodes | | 1.0, 3 nodes |
+| Remote create handler (`Create:ObjectiveState`) | 23.3, 1,434 nodes | 1.0, 0 nodes | | 1.0, 0 nodes |
+| Presence handler | 2.6 / 4.2 | 0.2 / 2.0 | | 0.2 / 1.5 |
+| Gap between a remote drag's updates | 67.8 / 100 | 66.5 / 100 | 60.3 / 75.2 | 60.3 / 76.8 |
+|   share of gaps over 90 ms | 11.5% | 22.5% | 1.5% | 1.7% |
+| Presence A sent → B received | 25.3 / 51.9 | 23.0 / 51.9 | 49.9 / 53.0 | 50.6 / 53.1 |
+| Join: 150 catch-up entries | 1.5 s of handlers, 125,000 nodes | 0.08 s, 468 nodes | | 0.07 s, 468 nodes |
+
+**Big board, 1,000 creates (278 KiB state), ms**
+
+| Stage | Before p50 / p95 | After p50 / p95 |
+|---|---:|---:|
+| A input → frame sent | 19.9 / 76.1 | 16.0 / 33.5 |
+|   `Create:Stroke` only | 82.0 / 106 | 37.1 / 38.1 |
+|   A own render of a stroke | 31.3 / 34.9 | 1.8 / 2.2 |
+|   A IndexedDB commit before send | 16.5 / 46.2 | 13.7 / 28.0 |
+| B Solid store + DOM writes | 0.7 / 26.0 | 0.7 / 1.2 |
+| **A input → B painted** | **37.0 / 117** | **35.2 / 62.7** |
+| Remote `Create:Stroke` handler | 28.1, 1,134 nodes | 2.3, 3 nodes |
+| Gap between a remote drag's updates | 66.9 / 100 | 62.0 / 82.0 |
+
+**40 peers (3 browser editors and 40 Node peers), ms**
+
+| Stage | Before p50 / p95 | After p50 / p95 |
+|---|---:|---:|
+| A input → frame sent | 34.5 / 148 | 18.2 / 27.5 |
+|   A IndexedDB commit before send | 23.5 / 115 | 15.9 / 24.2 |
+| B frame handler | 6.8 / 47.2 | 1.0 / 1.8 |
+| B received → painted | 20.5 / 118 | 12.7 / 20.3 |
+| **A input → B painted** | **77.1 / 290** (p99 487) | **37.8 / 71.3** (p99 83.7) |
+| Remote `Create:Stroke` handler | 37.0, 2,167 nodes | 1.5, 3 nodes |
+| Presence handler | 6.6 / 11.8 | 2.1 / 3.7 |
+| Presence received → painted | 16.5 / 76.3 | 14.3 / 20.9 |
+| Gap between a remote drag's updates | 59.7 / 121 | 60.4 / 84.4 |
+| Long tasks after join, per browser | 41–54 (2.4–3.1 s) | 0 |
+| Long tasks in the storm, per browser | 30–45, longest 79 | 0 |
+| Storm trace (5 s, observer): main thread busy | 3,611 | 2,118 |
+|   scripting | 2,069 | 423 |
+|   GC | 77 | 13 |
+|   frame interval p99, frames over 50 ms | 117 ms, 21 | 16.8 ms, 0 |
+
+The one long task left per browser, 72–80 ms, is page load and WASM start-up before the first frame, in both runs.
+
+**Reading it**
+
+- **Creating a record touches only its own nodes.** A remote stroke adds 3 nodes, not 1,100 to 2,900, at 1.0–2.3 ms on every board size. The sender's own render of a stroke dropped from 31 to 1.8 ms on the big board.
+- **Joins.** Replaying 150 catch-up entries takes 70 ms of handlers instead of 1.5 s.
+- **Frames.** A received frame costs about 1 ms whatever the board size: no more whole-board `reconcile`. At 40 peers, scripting in the storm fell by 80%, and long tasks went from 30–45 to none.
+- **Input to remote paint.** p95 fell from 107 to 50 ms with 3 editors, 117 to 63 on the big board, and 290 to 71 at 40 peers.
+- **The journal saves less than hoped on a small board.** A 300-byte journal entry commits in the same 12 ms p50 as a 55 KiB state. Chrome's IndexedDB commit is dominated by its flush, not by size. The gain shows on big boards (p95 46 → 28 ms) and at 40 peers (p95 115 → 24 ms), and `state()` is off the send path. Getting under that floor would mean relaxed durability, and with it the invariant.
+- **Drag cadence is a trade.**
+  - At 60 ms, the steps stay under 90 ms (gaps over 90 ms: 22.5% → 1.5%; p95 100 → 77 ms).
+  - The cost is latency: each update now usually opens its own server batch, so sent → received went from 23–25 to 50 ms p50.
+  - The 100 ms glide hides both, but the ghost trails the hand by about 150 ms.
+  - The server-side flush (leading edge, or a fixed tick) would take the 50 ms back. That is `room.rs`, not done here.
+- **Painting went up a little** (243 → 334 ms in the 40-peer storm trace). The glides draw every frame (499 frames against 354 in the same window).
+
+**Invariant: a pending transaction is durable before it is sent.**
+- Each live send waits for its own journal entry.
+- An offline edit, and the reconnect resend, wait for a whole save, as before.
+- If a journal write fails, the whole state is saved before anything more is sent.
+- `load` folds in this client's entries from `next_cseq` up to the first gap. A missing entry means that transaction was never sent, because sends go in cseq order behind their own writes. Undo history is pruned to what the stored state can account for, so nothing is undone twice.
+- Tests:
+  - `web/test/journal.test.ts`: the fold, the IndexedDB layout and its upgrade, "not sent before its entry lands", and "a tab that dies before its whole save restores and syncs".
+  - `web/test/resend-durable.test.ts` and the soak regressions pass unchanged.
+- The soak's crash model now also loses journal writes in flight. `just soak 0x2a 40 60`: OK, with 52 reloads, 83 drops and 3 server kills. 3,341 transactions were logged of 3,386 sent, with every ack seen.
+
+Harness change: `probe.js` sizes object values (journal entries) as JSON. It used to record them as −1.
 
 ## Harness notes
 

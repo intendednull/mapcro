@@ -13,6 +13,7 @@ import type { RecordId } from "../gen/RecordId";
 import type { WorldPos } from "../gen/WorldPos";
 import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampToMap, viewToWorld, worldToView } from "../map/transform";
+import { smoothed } from "./smooth";
 import type { BoardState, Player, Slot } from "./state";
 
 export const TOKEN_R = 23;
@@ -183,7 +184,8 @@ export function Tokens(p: {
           const others = () => (touching().get(pl.id) ?? []).map((t) => t.peer);
           const remote = () => (touching().get(pl.id) ?? []).find((t) => t.at);
           const remoteDrag = () => remote()?.peer;
-          const shown = () => pv()?.pos ?? mine() ?? remote()?.at ?? pl.state.pos;
+          const remoteAt = smoothed(() => remote()?.at);
+          const shown = () => pv()?.pos ?? mine() ?? remoteAt() ?? pl.state.pos;
           const selected = () => p.selection().has(pl.id);
           const at = () => worldToView(shown(), p.vp);
           const home = () => worldToView(pl.state.pos, p.vp);

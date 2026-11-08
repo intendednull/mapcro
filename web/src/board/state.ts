@@ -2,12 +2,13 @@
 // mirrored into fine-grained stores for rendering. The UI never writes these stores; it calls
 // `edit` and `presence`, and the session's change callback reconciles.
 
-import { createMemo, createSignal } from "solid-js";
+import { type Accessor, type Setter, batch, createMemo, createRoot, createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import init from "../wasm/mapcro_wasm.js";
 import { BoardSession, type Connection, type SocketLike } from "../core/session";
 import { IdbPersist, MemoryPersist, type Persist } from "../core/persist";
 import type { SaveStatus } from "../core/update";
+import type { BoardMeta } from "../gen/BoardMeta";
 import type { Entry } from "../gen/Entry";
 import type { LinkRole } from "../gen/LinkRole";
 import type { Op } from "../gen/Op";
@@ -41,15 +42,85 @@ function persistence(): Persist {
   }
 }
 
+/** A record's kind: its one key (`{ "Stroke": {...} }` is a Stroke). */
+const kindOf = (e: Entry) => Object.keys(e.record)[0] ?? "";
+
+/** A row in a list: a stable object per record id, whose `r` reads the live record. */
+export interface Row<T> {
+  readonly id: RecordId;
+  readonly r: T;
+}
+
 export function createBoardState(board: string, token: string) {
+  // Records live in a store keyed by id, updated only where the replica says something changed
+  // (perf report 2026-11-07, findings 1 and 2): a new stroke touches one key, not the board.
   const [records, setRecords] = createStore<Record<RecordId, Entry>>({});
-  const [peers, setPeers] = createStore<Record<number, PeerPresence>>({});
+  const [peers, setPeers] = createStore<Record<string, PeerPresence>>({});
   const [status, setStatus] = createSignal<SaveStatus>({ kind: "saved" });
   const [connection, setConnection] = createSignal<Connection>({ kind: "connecting", attempt: 0 });
   const [myPeer, setMyPeer] = createSignal<number | undefined>();
   const [problems, setProblems] = createSignal<string[]>([]);
   const [undoable, setUndoable] = createSignal({ undo: false, redo: false });
   const [lastRole, setLastRole] = createSignal<LinkRole | undefined>();
+
+  // Live ids per kind, each its own signal: a new stroke wakes what lists strokes, and nothing
+  // that lists heroes, scenes or the roster.
+  const kinds = new Map<string, { get: Accessor<RecordId[]>; set: Setter<RecordId[]> }>();
+  const kindSignal = (kind: string) => {
+    let k = kinds.get(kind);
+    if (!k) {
+      const [get, set] = createSignal<RecordId[]>([]);
+      k = { get, set };
+      kinds.set(kind, k);
+    }
+    return k;
+  };
+  const known = new Map<RecordId, { kind: string; live: boolean }>();
+
+  // Stable rows: one object per record id, so keyed lists keep their DOM.
+  const rows = new Map<string, Row<unknown>>();
+  function row<T>(kind: string, id: RecordId): Row<T> {
+    const key = `${kind}\u0000${id}`;
+    let w = rows.get(key);
+    if (!w) {
+      w = {
+        id,
+        get r() {
+          const e = records[id];
+          return e ? (e.record as unknown as Record<string, unknown>)[kind] : undefined;
+        },
+      };
+      rows.set(key, w);
+    }
+    return w as Row<T>;
+  }
+
+  const applyChanged = (changed: Array<[RecordId, Entry | null]>, reset: boolean) =>
+    batch(() => {
+      const touched = new Set<string>();
+      if (reset) {
+        const all = Object.fromEntries(changed.filter(([, e]) => e).map(([id, e]) => [id, e!]));
+        setRecords(reconcile(all));
+        known.clear();
+        for (const k of kinds.keys()) touched.add(k);
+      } else {
+        for (const [id, e] of changed) setRecords(id, e ? reconcile(e) : undefined!);
+      }
+      for (const [id, e] of changed) {
+        const before = known.get(id);
+        const kind = e ? kindOf(e) : (before?.kind ?? "");
+        const live = !!e && !e.deleted;
+        if (!before || before.live !== live) touched.add(kind);
+        if (e) known.set(id, { kind, live });
+        else known.delete(id);
+      }
+      for (const kind of touched) {
+        const ids: RecordId[] = [];
+        for (const [id, k] of known) if (k.kind === kind && k.live) ids.push(id);
+        ids.sort();
+        kindSignal(kind).set(ids);
+      }
+    });
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const session = new BoardSession({
@@ -58,45 +129,83 @@ export function createBoardState(board: string, token: string) {
     token,
     persist: persistence(),
     openSocket: (url) => new WebSocket(url) as unknown as SocketLike,
+    onRecords: applyChanged,
+    onPeers: (changed, reset) =>
+      batch(() => {
+        if (reset) setPeers(reconcile({}));
+        for (const p of changed) setPeers(String(p.peer), p.state ? reconcile(p) : undefined!);
+      }),
     onChange: (s) => {
-      setRecords(reconcile(Object.fromEntries(s.records)));
-      setPeers(reconcile(Object.fromEntries([...s.peers].map(([k, v]) => [String(k), v]))));
-      setStatus({ ...s.status });
-      setConnection({ ...s.connection } as Connection);
-      if (s.connection.kind === "live") setLastRole(s.connection.role);
-      if (s.connection.kind === "closed") setLastRole(undefined);
+      // Status only: records and peers arrive through their own callbacks.
+      const st = s.status;
+      const cur = status();
+      if (st.kind !== cur.kind || ("pending" in st ? st.pending : 0) !== ("pending" in cur ? cur.pending : 0)) setStatus({ ...st });
+      const c = s.connection;
+      if (JSON.stringify(c) !== JSON.stringify(connection())) setConnection({ ...c } as Connection);
+      if (c.kind === "live") setLastRole(c.role);
+      if (c.kind === "closed") setLastRole(undefined);
       setMyPeer(s.myPeer);
       if (s.canUndo !== undoable().undo || s.canRedo !== undoable().redo) setUndoable({ undo: s.canUndo, redo: s.canRedo });
       if (s.problems.length !== problems().length) setProblems([...s.problems]);
     },
   });
 
-  const live = (kind: string) =>
-    Object.entries(records).flatMap(([id, e]) => (!e.deleted && kind in e.record ? [[id, e.record] as const] : []));
+  /** Live records of a kind, as stable rows (ordered by id). */
+  function live<T>(kind: string): Row<T>[] {
+    return kindSignal(kind).get().map((id) => row<T>(kind, id));
+  }
 
-  const title = createMemo(() => {
-    const m = live("BoardMeta")[0];
-    return m && "BoardMeta" in m[1] ? m[1].BoardMeta.title : "";
-  });
+  const title = createMemo(() => live<BoardMeta>("BoardMeta")[0]?.r?.title ?? "");
 
   const scenes = createMemo(() =>
-    live("Scene")
-      .flatMap(([id, r]) => ("Scene" in r ? [{ id, scene: r.Scene as Scene }] : []))
+    live<Scene>("Scene")
+      .map((w) => sceneRow(w.id))
       .sort((a, b) => (a.scene.order < b.scene.order ? -1 : a.scene.order > b.scene.order ? 1 : a.id < b.id ? -1 : 1)),
   );
 
   const roster = createMemo(() =>
-    live("RosterSlot")
-      .flatMap(([id, r]) => ("RosterSlot" in r ? [{ id, slot: r.RosterSlot }] : []))
+    live<RosterSlot>("RosterSlot")
+      .map((w) => slotRow(w.id))
       .sort((a, b) => (a.slot.team === b.slot.team ? a.slot.slot - b.slot.slot : a.slot.team === "Amber" ? -1 : 1)),
   );
 
-  const playersIn = (scene: RecordId | undefined): Player[] =>
-    scene === undefined
-      ? []
-      : live("PlayerState").flatMap(([id, r]) =>
-          "PlayerState" in r && r.PlayerState.scene === scene ? [{ id, state: r.PlayerState }] : [],
-        );
+  // Rows in the shapes the components use, also one object per id.
+  const named = new Map<string, unknown>();
+  function sceneRow(id: RecordId): { id: RecordId; scene: Scene } {
+    const k = `scene\u0000${id}`;
+    if (!named.has(k)) named.set(k, { id, get scene() { return (records[id]?.record as { Scene: Scene }).Scene; } });
+    return named.get(k) as { id: RecordId; scene: Scene };
+  }
+  function slotRow(id: RecordId): Slot {
+    const k = `slot\u0000${id}`;
+    if (!named.has(k)) named.set(k, { id, get slot() { return (records[id]?.record as { RosterSlot: RosterSlot }).RosterSlot; } });
+    return named.get(k) as Slot;
+  }
+  function playerRow(id: RecordId): Player {
+    const k = `player\u0000${id}`;
+    if (!named.has(k)) named.set(k, { id, get state() { return (records[id]?.record as { PlayerState: PlayerState }).PlayerState; } });
+    return named.get(k) as Player;
+  }
+
+  // Players by scene: one memo per scene, so a scene's list reruns only when its players change.
+  const playerLists = new Map<RecordId, Accessor<Player[]>>();
+  const playersIn = (scene: RecordId | undefined): Player[] => {
+    if (scene === undefined) return [];
+    let m = playerLists.get(scene);
+    if (!m) {
+      m = createRoot(() =>
+        createMemo(() => live<PlayerState>("PlayerState").filter((w) => w.r?.scene === scene).map((w) => playerRow(w.id)), undefined, {
+          equals: sameItems,
+        }),
+      );
+      playerLists.set(scene, m);
+    }
+    return m();
+  };
+
+  /** Live records of one kind in one scene, as stable rows. */
+  const rowsIn = <T extends { scene: RecordId }>(kind: string, scene: RecordId | undefined): Row<T>[] =>
+    scene === undefined ? [] : live<T>(kind).filter((w) => w.r?.scene === scene);
 
   // The role a link had when it last connected. It holds while offline, so editing offline
   // works (the edits wait on this device); a link the server refused for good has none.
@@ -128,9 +237,10 @@ export function createBoardState(board: string, token: string) {
     redo: () => session.redo(),
     canUndo: () => undoable().undo,
     canRedo: () => undoable().redo,
-    /** Live records of one kind in one scene. */
+    rowsIn,
+    /** Live records of one kind in one scene, as `[id, record]` pairs (the record is live). */
     inScene: <K extends string>(kind: K, scene: RecordId | undefined) =>
-      scene === undefined ? [] : live(kind).filter(([, r]) => (Object.values(r)[0] as { scene?: string }).scene === scene),
+      rowsIn<{ scene: RecordId }>(kind, scene).map((w) => [w.id, records[w.id]!.record] as const),
     presence: (p: Partial<Presence>) => session.setPresence(p),
     peerList: () => Object.values(peers).filter((p) => p.state !== null),
     start: async () => {
@@ -139,4 +249,9 @@ export function createBoardState(board: string, token: string) {
     },
     stop: () => session.stop(),
   };
+}
+
+/** Memo equality for lists of stable rows: the same rows in the same order. */
+function sameItems<T>(a: T[], b: T[]): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
 }

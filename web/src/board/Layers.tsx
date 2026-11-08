@@ -33,6 +33,7 @@ import { type Pt, type Viewpoint, clampToMap, mapToView, mapToWorld, viewToMap, 
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { cx } from "../ui/cx";
 import { LASER_MAX_POINTS, type Timed, arrowHead, fitStroke, laserOpacity, polyline, pruneLaser, shaftEnd } from "./geometry";
+import { smoothed } from "./smooth";
 import type { BoardState } from "./state";
 import type { Tool } from "./tools";
 import { NameTag, Tokens, svgPoint } from "./Tokens";
@@ -96,9 +97,10 @@ export function Layers(p: {
   const world = (v: Pt) => clampToMap(viewToWorld(v, p.vp));
   const editor = () => st.canEdit();
 
-  const strokes = createMemo(() => st.inScene("Stroke", p.scene).map(([id, r]) => ({ id, r: (r as { Stroke: Stroke }).Stroke })));
-  const arrows = createMemo(() => st.inScene("Arrow", p.scene).map(([id, r]) => ({ id, r: (r as { Arrow: Arrow }).Arrow })));
-  const callouts = createMemo(() => calloutOrder(st.inScene("Callout", p.scene)).map((c) => ({ id: c.id, r: c.r })));
+  // Stable rows (one object per record), so a new stroke adds one node and moves nothing else.
+  const strokes = createMemo(() => st.rowsIn<Stroke>("Stroke", p.scene));
+  const arrows = createMemo(() => st.rowsIn<Arrow>("Arrow", p.scene));
+  const callouts = createMemo(() => calloutOrder(st.rowsIn<Callout>("Callout", p.scene)));
   const teamOfSlot = createMemo(() => new Map(st.roster().map((s) => [s.id, s.slot.team])));
 
   // Others' drags and focus by record (callouts here; tokens do their own).
@@ -612,7 +614,7 @@ export function Layers(p: {
         <For each={callouts()}>
           {(c) => {
             const others = () => touching().get(c.id) ?? [];
-            const remote = () => others().find((o) => o.state?.drag?.id === c.id)?.state?.drag?.pos;
+            const remote = smoothed(() => others().find((o) => o.state?.drag?.id === c.id)?.state?.drag?.pos);
             const pos = () => view(dragCallout()?.id === c.id ? dragCallout()!.pos : (remote() ?? c.r.pos));
             const hidden = () => editing()?.id === c.id;
             if (p.compactCallouts)
@@ -796,9 +798,6 @@ function LaserTrail(p: { points: Pt[]; color: string; name?: string; mine?: bool
 export { LASER_MAX_POINTS };
 
 /** Callouts in a stable order (by id), so the phone's numbered pins match its list. */
-export function calloutOrder(rows: Array<readonly [RecordId, unknown]>): Array<{ id: RecordId; r: Callout; text: string }> {
-  return rows
-    .flatMap(([id, r]) => (r && typeof r === "object" && "Callout" in r ? [{ id, r: (r as { Callout: Callout }).Callout }] : []))
-    .sort((a, b) => (a.id < b.id ? -1 : 1))
-    .map((c) => ({ ...c, text: c.r.text }));
+export function calloutOrder<T extends { id: RecordId }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => (a.id < b.id ? -1 : 1));
 }

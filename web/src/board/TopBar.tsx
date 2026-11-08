@@ -13,7 +13,7 @@ import type { RecordId } from "../gen/RecordId";
 import type { Art } from "../map/pack";
 import type { Viewpoint } from "../map/transform";
 import { InlineEdit } from "../ui/InlineEdit";
-import type { BoardState, Player } from "./state";
+import type { BoardState, Player, Slot } from "./state";
 import { initials } from "./Tokens";
 
 const BAR = 1260;
@@ -133,13 +133,19 @@ export function TopBar(p: {
   const friend = () => (p.vp === "sapphire" ? "Sapphire" : "Amber");
   const enemy = () => (friend() === "Amber" ? "Sapphire" : "Amber");
   const players = createMemo(() => new Map(p.state.playersIn(p.scene).map((pl) => [pl.state.slot, pl])));
+  // One object per (slot, player) pair, so the columns keep their DOM across edits.
+  const pairs = new Map<string, { slot: Slot; player: Player }>();
   const team = (t: "Amber" | "Sapphire") =>
     p.state
       .roster()
       .filter((s) => s.slot.team === t)
       .flatMap((s) => {
         const pl = players().get(s.id);
-        return pl ? [{ slot: s, player: pl }] : [];
+        if (!pl) return [];
+        const k = `${s.id}:${pl.id}`;
+        let pair = pairs.get(k);
+        if (!pair) pairs.set(k, (pair = { slot: s, player: pl }));
+        return [pair];
       });
   const total = (t: "Amber" | "Sapphire") => teamTotal(team(t).map((x) => x.player.state.souls));
   const editable = () => p.state.canEdit();
