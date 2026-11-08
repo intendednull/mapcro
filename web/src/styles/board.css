@@ -98,7 +98,9 @@ kbd {
   font: 600 21px/1 var(--display);
   letter-spacing: 0.04em;
   color: var(--text);
+  text-decoration: none;
 }
+.wordmark:hover span { color: var(--brass); }
 .wordmark svg { width: 18px; height: 18px; }
 .board-title {
   display: flex; align-items: baseline; gap: 10px;
