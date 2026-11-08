@@ -128,3 +128,108 @@ First release build of the probe: 1 m 14 s. Peak memory is dominated by the pars
 
 ## 11. Artifacts
 Probe crate: `/tmp/mapcro-demo-explore/probe`; raw outputs: `/tmp/mapcro-demo-explore/out/{122134063,108440637,100747544}/`; helper scripts: `coordcheck.py`, `oldcheck.py`, `summary.py`, `powercheck.py`.
+
+## Follow-up (2026-11-08, second pass, partly static: the box was busy, so no new parse ran)
+
+
+**Date:** 2026-11-07 · **Scope:** 122134063 + 108440637, read-only · **Output:** `/tmp/mapcro-demo-explore/out2/`.
+
+**Status:** the shared box stayed busy for this whole pass (`/tmp/mapcro-busy.sh` returned 0; another project's verify ran, load 12–20). Per the rules I did **not** start a new build or parse. The lane-front numbers below are re-analysed from the earlier 1 Hz `out/122134063/troopers.csv`; items 3–7 are from boon 0.19 source, with the exact classes/fields named. The `explore2` binary is drafted but uncompiled.
+
+## Clock correction
+
+The corrected match clock is
+
+`game_time_s = (tick + server_start_tick − total_paused_ticks) × 0.015625 − m_flGameStartTime`
+
+- 122134063: `server_start_tick = 3121` → **+48.77 s**; recording end moves from 881.234 s to **930.0 s**. The game itself ends earlier when `m_pGameRules.m_iWinningTeam` is set (≈890 s); the recording runs ~40 s past it, so the east rift spawner is post-game.
+- 108440637: `server_start_tick = 2460` → **+38.44 s**; add the same term, and subtract `m_nTotalPausedTicks` (586 ticks = 9.16 s).
+- Use `m_iWinningTeam` for the real end; `playback_time` is the recording length, not the match length.
+
+## 1. Lane creep detail
+
+**Available.** Class `CNPC_Trooper`; fields `m_iHealth`, `m_iMaxHealth`, `m_iTeamNum`, `m_iLane`, `m_lifeState`, and position via `CBodyComponent.m_skeletonInstance.m_vecOrigin.m_cellX/Y/Z` + `.m_vecX/Y/Z`. Every tick (64 Hz); boon's Python `troopers` dataset emits alive troopers per tick (~5M+ rows for a full match, opt-in). `CNPC_TrooperBoss` is tracked separately as `trooper_boss`.
+
+**Empirical (122134063, earlier 1 Hz pass):** 12,017 rows, lanes 1/4/6, teams 2/3; only **750 of 901 seconds** had any trooper in PVS.
+
+**Lane front.** Method: project each trooper onto our pack zipline polyline for its lane (`pack.json` `zipline` nodes), take the closest cross-team pair in arc length, and use the midpoint. Results (1 Hz, only seconds where both teams are present):
+
+| Lane | Seconds with front | Median cross-team gap | Raw p95 1 s jump | 5 s median p95 jump | Max jump |
+|---|---|---|---|---|---|
+| 1 | 362 | 706 units | 1129 units | 801 units | 5053 units |
+| 4 | 301 | 553 units | 869 units | 710 units | 3821 units |
+| 6 | 63 | 3444 units | 1689 units | 1023 units | 4629 units |
+
+- The front is computable but **not robust raw**: wave deaths/spawns make the closest pair jump by 1–5k units. A 5 s median smooth helps, but lane 6 is too sparse (63 s).
+- **Wave composition:** count rises are +3 troopers at ~1152-tick (**18 s**) cadence on lanes 1 and 4 (e.g. lane 1 at ticks 10305, 11457, 12609…). That is consistent with 3-trooper waves, but first-seen counts are PVS-limited and cannot prove true spawn composition.
+- Files: `out2/122134063/lane_fronts_from_prior.csv`, `lane_fronts_arc.csv`.
+
+## 2. Player health, max health, barrier
+
+**Available:** `CCitadelPlayerPawn.m_iHealth` and `m_iMaxHealth`, every tick. Earlier 1 Hz output: 6,727 hero rows, health 0–5,872, max health 730–5,871, 101 dead rows. Health/max health are reliable.
+
+**Barrier is not a direct pawn field.** boon derives it from the `ActiveModifiers` string table: entry `modifier_barrier_tracker` (modifier_subclass `4267845006`), `float1` = capacity, `float2` = remaining. The Rust route is `Parser::visit_modifier_changes`; boon Python exposes it as `player_ticks.barrier`. We did not implement it in this pass.
+
+**Shields** appear only in damage events (`CCitadelUserMsgDamage` / `CMsgCitadelUserMsgDamage`): `victim_shield_new`, `victim_shield_max`, `damage_absorbed`. There is no continuous per-player shield field in `player_ticks`; the shield columns are per-hit snapshots.
+
+## 3. Items
+
+**Available.** Current inventory: `CCitadelPlayerController.m_PlayerDataGlobal.m_vecUpgrades` (`CNetworkUtlVectorBase<CUtlStringToken>`), readable with `boon::replay_inputs::UpgradeReader`. It returns the current item/ability tokens each tick.
+
+**Purchase/sell events:** `KEUserMsgAbilitiesChanged` (msg_type **309**, `CCitadelUserMsgAbilitiesChanged`): `purchaser_player_slot`, `ability_id`, `change` (`purchased`, `upgraded`, `sold`, `swapped`, `leveled_up`, `failure`). Also `CCitadelUserMessageItemPurchaseNotification` (msg_type **360**): `userid`, `ability_id`, `sell`, `quickbuy`. boon's Python `item_purchases` dataset uses 309 and emits `tick, steam_id, hero_id, ability_id, change`.
+
+**Names:** the demo gives **MurmurHash tokens / ability ids only**, not display names. Map them with the game's item data / boon-data catalog (`abilities.json`), keyed by client build. The demo does not carry the item names in a usable form.
+
+## 4. Soul investments
+
+**Partially available.** `CCitadelPlayerPawn.m_nCurrencies` and `m_nSpentCurrencies` are `int32[6]` arrays. boon exposes element 0 as `souls` and `spent_souls`; the earlier 122134063 pass read souls 0–48,000 but **`spent_souls` was 0 on all 6,727 rows**, so element 0 is not a reliable “spent” total in that demo.
+
+Net worth split: `CCitadelPlayerController.m_PlayerDataGlobal.m_iGoldNetWorth` and `m_iAPNetWorth` are available. No weapon/vitality/spirit category field was found in boon source or docs. A category breakdown would have to be derived from `m_vecUpgrades` + item costs/classification from game data; the demo itself does not label the three categories.
+
+## 5. Neutral camp state
+
+**Class:** `CNPC_TrooperNeutral` (boon also mentions `CNPC_TrooperNeutralNodeMover`). Fields: `m_iHealth`, `m_iMaxHealth`, `m_iTeamNum`, `m_lifeState`, position via the same body-origin path. boon's Python `neutrals` dataset emits a row only when an alive neutral's state changes (health/position), not every tick.
+
+**Camp spawner / respawn timers:** no camp-spawner class or respawn-time field was found in boon's neutral code. `m_flRespawnTime` exists on player pawns, not camps. So “camp cleared + next respawn” is not directly exposed; you can infer alive/cleared from neutral health/lifestate near the camp site, but not the timer.
+
+**PVS caveat:** our earlier 4-tick class census of 122134063 showed `CNPC_Neutral_Bug` and `CNPC_Ratking_Rat`, but **not** `CNPC_TrooperNeutral`; camps out of player vision are absent. This needs a full-match census on a demo where players actually visit camps.
+
+## 6. Vision
+
+**Team minimap FOW is available.** `CCitadelTeam.m_vecFOWEntities` is an array of `FOWEntry` with:
+
+| Field | Meaning |
+|---|---|
+| `m_nEntIndex` | source entity index |
+| `m_nTeam` | target team |
+| `m_eClass` | icon class; `1` = enemy hero |
+| `m_bVisibleOnMap` | whether the icon is shown |
+| `m_nPositionX`, `m_nPositionY` | minimap coordinates 0–255, only while shown |
+| `m_nTickHidden` | recorded hidden-tick value; units not converted |
+
+boon's `EnemyMinimap` / `enemy_minimap_ticks` reads these and emits `observer_team`, `target_team`, `target_hero_id`, `target_steam_id`, `visible_on_map`, `map_x/y`, `last_seen_tick/x/y`. This is **team-level enemy-hero minimap visibility**, not full FOV, line-of-sight, wards, or creep visibility. No per-entity `m_iTeamVisibility`-like field was found in boon's code.
+
+## 7. Ability and item usage events
+
+**Yes, ult casts are events on top of cooldown fields.** `KEUserMsgImportantAbilityUsed` (msg_type **365**, `CCitadelUserMessageImportantAbilityUsed`): `player` (handle), `caster` (handle), `ability_name` (string). boon's Python `abilities` dataset emits `tick, hero_id, ability`. The controller also has `m_PlayerDataGlobal.m_bUltimateTrained`, `m_flUltimateCooldownStart`, `m_flUltimateCooldownEnd`; `ability_ticks` tracks cooldown/charge changes, `ability_upgrades` tracks skill points.
+
+Item events are the 309/360 messages above. All events are at their event tick; entity fields are 64 Hz, so 1 Hz downsampling is a choice, not a limit.
+
+## Update frequency summary
+
+| Data | Source | Rate |
+|---|---|---|
+| positions, health, souls, cooldowns | entity fields | every tick (64 Hz) |
+| trooper/neutral state | entity fields | every tick; boon `troopers` per tick, `neutrals` on change |
+| item inventory | `m_vecUpgrades` | every tick |
+| purchases/sells, ability casts | user-message events | event tick |
+| FOW icons | `CCitadelTeam.m_vecFOWEntities` | every tick |
+
+## Blocked / next
+
+- **Blocked by shared box:** `/tmp/mapcro-busy.sh` stayed 0 (another project's verify) with load 12–20; no new build or parse was allowed. The `explore2` binary (barrier timeline, item tokens, soul arrays, neutral/camp matching, FOW, event decode) is drafted but not compiled; build with `cargo build --release -j 2` and run on 122134063/108440637 once the box is free.
+- Highest-value follow-ups: run `explore2` on both demos; full-match neutral class census; confirm whether `m_nSpentCurrencies` elements 1–5 are ever nonzero; map item tokens with boon-data.
+
+## Files
+
+`out2/122134063/lane_fronts_from_prior.csv`, `out2/122134063/lane_fronts_arc.csv`; analysis scripts `lane_prior.py`, `lane_arc.py`, `front_smooth.py`, `health_prior.py`; probe source `probe/src/bin/explore2.rs`.
