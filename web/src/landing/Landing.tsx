@@ -32,17 +32,25 @@ export function Landing() {
   const [matchId, setMatchId] = createSignal("");
   const [file, setFile] = createSignal<File>();
   const [opening, setOpening] = createSignal("");
+  // A board made by an attempt that failed later (an upload refused) is reused on retry.
+  let made: { board: string; token: string; id: string } | undefined;
   const openMatch = async (e: Event) => {
     e.preventDefault();
-    const id = (matchId().trim() || /^(\d+)/.exec(file()?.name ?? "")?.[1] || "").replace(/^0+/, "");
+    const fromFile = /^(\d+)/.exec(file()?.name ?? "")?.[1]?.replace(/^0+/, "");
+    const typed = matchId().trim().replace(/^0+/, "");
+    if (typed && fromFile && typed !== fromFile) return setError("Id and replay differ");
+    const id = typed || fromFile || "";
     if (!/^[1-9]\d{0,11}$/.test(id)) return setError("Invalid id");
     setError("");
     setOpening("Opening");
     try {
-      const t = `Match ${id}`;
-      const { board, owner_token } = await new Api("").createBoard(t);
-      rememberBoard({ board, token: owner_token, title: t });
-      const api = new PlayerApi(board, owner_token);
+      if (made?.id !== id) {
+        const t = `Match ${id}`;
+        const { board, owner_token } = await new Api("").createBoard(t);
+        rememberBoard({ board, token: owner_token, title: t });
+        made = { board, token: owner_token, id };
+      }
+      const api = new PlayerApi(made.board, made.token);
       if (!(await api.attach(id))) throw new Error("attach");
       const f = file();
       if (f) {
@@ -52,7 +60,7 @@ export function Landing() {
           return setError(err);
         }
       }
-      location.assign(shareUrl(location.origin, board, owner_token));
+      location.assign(shareUrl(location.origin, made.board, made.token));
     } catch {
       setOpening("");
       setError("Failed");

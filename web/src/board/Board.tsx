@@ -24,6 +24,7 @@ import { CloneDialog, JUST_CLONED } from "./CloneDialog";
 import type { MatchPreview } from "../match/preview";
 import { Highlight, Player, PlayerSide, PlayerSwitch } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
+import { liveLayer } from "../player/layer";
 import { Layers, calloutOrder } from "./Layers";
 import { FRESH_BOARD, randomRosterOps } from "./roster";
 import { HeroPicker } from "./HeroPicker";
@@ -104,7 +105,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const player = createPlayerHost(p.board, p.token);
   onMount(() => void player.init());
   const inPlayer = () => player.mode() === "player";
-  const [matchPreview, setMatchPreview] = createSignal<MatchPreview>();
+  // Player draws the match alone, an empty map while there's no timeline (review finding 7).
+  const matchPreview = createMemo<MatchPreview | undefined>(() => (inPlayer() ? player.preview(p.art.model.markers) : undefined));
+  const liveScene = liveLayer(state, player, p.board, inPlayer);
+  /** Where annotation goes: the scene, or in Player the match's live layer, never a fallback. */
+  const annScene = () => (inPlayer() ? liveScene() : scene()?.id);
   // Problems the session reports: rejections show in the save status until dismissed; local
   // refusals (nothing to undo, couldn't save locally) are a toast.
   const [seenProblems, setSeenProblems] = createSignal(0);
@@ -148,6 +153,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
     const was = followed();
     if (following() === undefined) return;
     setFollowing(undefined);
+    player.forget();
     state.presence({ following: null });
     if (why && was) say(`Stopped following ${nameOfPeer(was)}`, { label: "Follow again", run: () => follow(was.peer) });
   };
@@ -162,7 +168,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
       return;
     }
     const s = x.state!;
-    if (s.scene && s.scene !== sceneId()) setSceneId(s.scene);
+    // A presenter in Player is on the live layer, which isn't a scene to flip to.
+    if (s.scene && s.scene !== sceneId() && state.scenes().some((x) => x.id === s.scene)) setSceneId(s.scene);
     // The presenter's side too: their map turned the same way (older peers: Amber).
     const side = sideOf(s.view);
     if (side && side !== viewpoint()) setViewpoint(side);
@@ -213,8 +220,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
   onCleanup(() => state.stop());
 
   createEffect(() => {
-    const s = scene();
-    if (s) state.presence({ scene: s.id });
+    // In Player, presence is on the live layer, so cursors, lasers, pings and ink in progress
+    // show to the others in Player (review finding 3).
+    const s = annScene();
+    state.presence({ scene: s ?? null });
   });
   createEffect(() => {
     const t = state.title();
@@ -233,9 +242,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
   };
 
   const people = () => state.peerList();
-  const inkIds = createMemo(() => state.inScene("Stroke", scene()?.id).map(([id]) => id));
-  const arrowIds = createMemo(() => state.inScene("Arrow", scene()?.id).map(([id]) => id));
-  const commentIds = createMemo(() => state.inScene("Callout", scene()?.id).map(([id]) => id));
+  // Clear acts on what's drawn: in Player, the live layer, never the hidden scene (finding 2).
+  const inkIds = createMemo(() => state.inScene("Stroke", annScene()).map(([id]) => id));
+  const arrowIds = createMemo(() => state.inScene("Arrow", annScene()).map(([id]) => id));
+  const commentIds = createMemo(() => state.inScene("Callout", annScene()).map(([id]) => id));
   const clearIds = (what: ClearKind) =>
     what === "ink" ? inkIds() : what === "arrows" ? arrowIds() : what === "comments" ? commentIds() : [...inkIds(), ...arrowIds(), ...commentIds()];
   const CLEARED: Record<ClearKind, string> = { ink: "Ink cleared", arrows: "Arrows cleared", comments: "Comments cleared", all: "Scene cleared" };
@@ -456,7 +466,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
           {scene()?.scene.name}
         </h1>
       </div>
-      <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact onPickHero={setHeroPick} />
+      <Show when={!inPlayer()}>
+        <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact onPickHero={setHeroPick} />
+      </Show>
       <div class="p-map-wrap">
         {mapBox(true)}
         <div class="p-tools" role="toolbar" aria-label="Tools">
@@ -508,6 +520,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
         <div class="drawer-scrim" onClick={() => setSceneDrawer(false)} />
         <SceneTree state={state} art={p.art} vp={viewpoint()} board={p.board} current={scene()?.id} onFlip={userFlip} drawer onClose={() => setSceneDrawer(false)} />
       </Show>
+      {playerBar()}
       {toastView()}
     </div>
   );
@@ -520,6 +533,12 @@ export function Board(p: { board: string; token: string; art: Art }) {
     ro.observe(el);
     onCleanup(() => ro.disconnect());
   };
+  /** Player's transport (desktop and phone), or the way back to it from Sandbox. */
+  const playerBar = () => (
+    <Show when={inPlayer()} fallback={<PlayerSwitch host={player} state={state} onSwitch={() => stopFollowing("switched to Player")} />}>
+      <Player host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={userFlip} onUserPlayback={() => stopFollowing("changed the playback")} />
+    </Show>
+  );
   const mapBox = (phone: boolean) => (
           <div ref={measureMap} class={phone ? "p-map" : "mapbox"} data-testid="map" data-view={`${Math.round(view().x)} ${Math.round(view().y)} ${Math.round(view().w)}`}>
             <MapView
@@ -551,7 +570,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 art={p.art}
                 vp={viewpoint()}
                 // In Player, annotation goes to the live layer (spec §6b).
-                scene={inPlayer() ? (state.liveScene() ?? scene()?.id) : scene()?.id}
+                scene={annScene()}
+                tokenScene={scene()?.id}
                 tool={tool()}
                 ink={ink()}
                 myColor={me()?.color ?? 0}
@@ -669,7 +689,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           {...(state.canEdit() ? { onMatch: () => player.setMode("player") } : {})}
         />
         <main class="stage">
-          <div class="stage-head">
+          <div class="stage-head" classList={{ "pl-hidden": inPlayer() }}>
             <div class="scene-title">
               <span class="ord">
                 Scene {sceneIndex() + 1} of {state.scenes().length}
@@ -809,7 +829,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               rename={() => setJoined(false)}
             />
           </section>
-          <section class="note-section">
+          <section class="note-section" classList={{ "pl-hidden": inPlayer() }}>
             <h2>
               Scene note
               <For each={noteEditors()}>
@@ -839,9 +859,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </section>
         </aside>
       </div>
-      <Show when={inPlayer()} fallback={<PlayerSwitch host={player} state={state} onSwitch={() => stopFollowing("switched to Player")} />}>
-        <Player host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onPreview={setMatchPreview} onSaved={userFlip} onUserPlayback={() => stopFollowing("changed the playback")} />
-      </Show>
+      {playerBar()}
     </div>
     </Show>
     <Show when={dialog() === "share" && state.canEdit()}>

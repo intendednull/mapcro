@@ -64,13 +64,15 @@ describe("player events", () => {
 });
 
 import { matchSceneOps, matchScenesOps, sourceOf } from "../src/match/save";
-import { clearAnnotationsOps, liveSceneOps, takeAnnotationsOps } from "../src/player/live";
+import type { Op } from "../src/gen/Op";
+import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, ensureLiveOps, idFrom, liveIds, takeAnnotationsOps } from "../src/player/live";
+import { eventKey } from "../src/player/events";
 
 describe("player scenes", () => {
   const roster = [0, 1].map((i) => ({ id: `slot${i}`, slot: { team: "Amber" as const, slot: i, hero: 1, name: "" } }));
   const timeline = { ...tl, duration_s: 900, tier: "replay" as const };
 
-  it("store their source, and several are one transaction in order", () => {
+  it("store their source at their own moment, in order, one group per scene", () => {
     let n = 0;
     const mint = () => `id${n++}`;
     const one = matchSceneOps(roster as never, [], undefined, timeline, 125.6, [], mint, [], { source: sourceOf(timeline) });
@@ -78,19 +80,47 @@ describe("player scenes", () => {
     const many = matchScenesOps(roster as never, [], undefined, timeline, [{ t: 10, name: "A" }, { t: 20, name: "B" }], [], mint);
     const scenes = many.ops.flatMap((o) => ("Create" in o && "Scene" in o.Create.record ? [o.Create.record.Scene] : []));
     expect(scenes.map((s) => s.name)).toEqual(["A @ 0:10", "B @ 0:20"]);
+    expect(scenes.map((s) => s.source?.t)).toEqual([10, 20]);
     expect(scenes[0]!.order < scenes[1]!.order).toBe(true);
     expect(scenes.every((s) => s.source?.tier === "replay")).toBe(true);
+    expect(many.groups).toHaveLength(2);
   });
 
-  it("the live layer is a hidden scene; saving moves its ink, clearing deletes it", () => {
+  it("many scenes go in transactions within the op cap, never splitting a scene", () => {
+    // 15 late-game scenes of 40 ops each: 600 ops, more than two transactions' worth.
+    const group = (i: number): Op[] => Array.from({ length: 40 }, (_, k) => ({ Delete: { id: `g${i}-${k}` } }));
+    const groups = Array.from({ length: 15 }, (_, i) => group(i));
+    const txs = chunks(groups, MAX_OPS_PER_TX);
+    expect(txs.every((t) => t.length <= MAX_OPS_PER_TX)).toBe(true);
+    expect(txs.flat()).toEqual(groups.flat());
+    expect(txs.map((t) => t.length)).toEqual([240, 240, 120]);
+  });
+
+  it("the live layer has fixed ids per board and match; it's made, restored, moved and cleared", () => {
     let n = 0;
     const mint = () => `id${n++}`;
-    const live = liveSceneOps(roster as never, [], mint);
-    expect(live.ops[0]).toMatchObject({ Create: { record: { Scene: { live: true } } } });
-    expect(live.ops.filter((o) => "Create" in o && "PlayerState" in o.Create.record)).toHaveLength(2);
-    const rows = (kind: string) => (kind === "Stroke" ? [["s1", { Stroke: { scene: live.id, points: [], color: 1, width: 3 } }] as const] : []);
-    const moved = takeAnnotationsOps(rows as never, live.id, "scene9", mint);
+    expect(idFrom("x")).toMatch(/^[0-9a-f]{32}$/);
+    const a = liveIds("boardA", 7, roster as never);
+    expect(liveIds("boardA", 7, roster as never)).toEqual(a);
+    expect(liveIds("boardA", 8, roster as never).scene).not.toBe(a.scene);
+    expect(liveIds("boardB", 7, roster as never).scene).not.toBe(a.scene);
+    const made = ensureLiveOps({}, "boardA", 7, roster as never);
+    expect(made[0]).toMatchObject({ Create: { id: a.scene, record: { Scene: { live: true, source: { match_id: 7 } } } } });
+    expect(made.filter((o) => "Create" in o && "PlayerState" in o.Create.record)).toHaveLength(2);
+    // An undo took it away: it comes back by Restore, same ids.
+    const gone = Object.fromEntries([a.scene, ...a.players.map(([id]) => id)].map((id) => [id, { deleted: true }]));
+    expect(ensureLiveOps(gone, "boardA", 7, roster as never)).toEqual([{ Restore: { id: a.scene } }, ...a.players.map(([id]) => ({ Restore: { id } }))]);
+    const there = Object.fromEntries([a.scene, ...a.players.map(([id]) => id)].map((id) => [id, {}]));
+    expect(ensureLiveOps(there, "boardA", 7, roster as never)).toEqual([]);
+    const rows = (kind: string) => (kind === "Stroke" ? [["s1", { Stroke: { scene: a.scene, points: [], color: 1, width: 3 } }] as const] : []);
+    const moved = takeAnnotationsOps(rows as never, a.scene, "scene9", mint);
     expect(moved).toEqual([{ Create: { id: expect.any(String), record: { Stroke: { scene: "scene9", points: [], color: 1, width: 3 } } } }, { Delete: { id: "s1" } }]);
-    expect(clearAnnotationsOps(rows as never, live.id)).toEqual([{ Delete: { id: "s1" } }]);
+    expect(clearAnnotationsOps(rows as never, a.scene)).toEqual([{ Delete: { id: "s1" } }]);
+  });
+
+  it("events keep their key when a replay reorders the list", () => {
+    const e = { t: 300, kind: "objective" as const, team: "sapphire", key: "walker:sapphire:lane6:1" };
+    expect(eventKey(e)).toBe(eventKey({ ...e }));
+    expect(eventKey(e)).not.toBe(eventKey({ ...e, t: 301 }));
   });
 });

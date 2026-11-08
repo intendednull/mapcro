@@ -22,10 +22,24 @@ export function tAt(p: Playback, now: number, duration: number): number {
 /** The same playback, re-sampled at `now` (before changing speed or pausing). */
 export const rebase = (p: Playback, now: number, duration: number): Playback => ({ ...p, t: tAt(p, now, duration), at: now });
 
-/** A follower's clock against a presenter's: adopt their state; keep ours if within `slack` s. */
-export function follow(mine: Playback, theirs: { t: number; playing: boolean; speed: number }, now: number, duration: number, slack = 0.75): Playback {
+/**
+ * A follower's clock against a presenter's (spec §6b). `theirs.t` is where the presenter was when
+ * it arrived (`at`), so it's carried forward to `now`. A pause, a speed change or a jump is
+ * adopted at once; while both play at the same speed, drift within `slack` seconds of match time
+ * per unit of speed is left alone, so small network jitter doesn't make the follower stutter.
+ */
+export function follow(
+  mine: Playback,
+  theirs: { t: number; playing: boolean; speed: number; at: number },
+  now: number,
+  duration: number,
+  slack = 0.75,
+): Playback {
+  const there = tAt({ t: theirs.t, playing: theirs.playing, speed: theirs.speed, at: theirs.at }, now, duration);
   const here = tAt(mine, now, duration);
   const same = mine.playing === theirs.playing && mine.speed === theirs.speed;
-  if (same && Math.abs(here - theirs.t) <= slack) return mine;
-  return { t: clampT(theirs.t, duration), playing: theirs.playing, speed: theirs.speed, at: now };
+  if (same && Math.abs(here - there) <= slack * Math.max(1, theirs.speed)) return mine;
+  // At the end the presenter has stopped: so does the follower, at the end.
+  const playing = theirs.playing && there < duration;
+  return { t: clampT(there, duration), playing, speed: theirs.speed, at: now };
 }

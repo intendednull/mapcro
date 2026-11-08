@@ -283,7 +283,8 @@ export function SceneTree(p: {
             <Mini state={p.state} art={p.art} vp={p.vp} scene={peek()!.id} />
           </div>
         </Show>
-        <Show when={p.state.canEdit() && order().length < 64}>
+        {/* One scene slot stays free for Player's live layer (spec §6b; max_scenes 64). */}
+        <Show when={p.state.canEdit() && order().length < 63}>
           <div class="scenes-add">
             <button class="btn small" data-testid="scene-add" title="A new scene after this one, from its positions" onClick={() => add(false)}>
               <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">

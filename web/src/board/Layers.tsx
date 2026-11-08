@@ -53,6 +53,8 @@ export function Layers(p: {
   art: Art;
   vp: Viewpoint;
   scene: RecordId | undefined;
+  /** The scene whose player rows the tokens use, if not `scene` (Player: the shown scene). */
+  tokenScene?: RecordId | undefined;
   tool: Tool;
   ink: number;
   myColor: number;
@@ -808,7 +810,7 @@ export function Layers(p: {
           />
         )}
       </Show>
-      <Tokens state={st} art={p.art} vp={p.vp} scene={p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} onPress={clearObjects} preview={p.preview} />
+      <Tokens state={st} art={p.art} vp={p.vp} scene={p.tokenScene ?? p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} onPress={clearObjects} preview={p.preview} />
       <For each={othersPicks()}>
         {(x) => (
           <g class="picks" data-picks={x.peer.state!.name} style={{ "pointer-events": "none" }}>

@@ -135,6 +135,9 @@ export function search(events: MatchEvent[], n: Named, query: string, on: Set<Ev
   return events.filter((e) => (on.size === 0 || on.has(groupOf(e))) && words.every((w) => haystack(e, n).includes(w)));
 }
 
+/** A key that names an event across timeline tiers and reloads: when, what, and about whom. */
+export const eventKey = (e: MatchEvent) => `${e.t}:${e.kind}:${e.team ?? ""}:${e.slot ?? ""}:${e.key ?? ""}:${e.hero_id ?? ""}`;
+
 /** Where to scrub to: `lead` seconds before the event, never before the start. */
 export const jumpTime = (e: Pick<MatchEvent, "t">, lead: number) => Math.max(0, e.t - Math.max(0, lead));
 

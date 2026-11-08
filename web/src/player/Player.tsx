@@ -2,20 +2,21 @@
 // playback time t (the board renders the preview this produces); this draws the transport, the
 // roster with ult rings, the match source controls and the events list. Labels only.
 
-import { For, Show, createEffect, createMemo, onCleanup } from "solid-js";
+import { For, Show, createMemo } from "solid-js";
 import type { Art } from "../map/pack";
 import { cx } from "../ui/cx";
 import type { BoardState } from "../board/state";
 import type { SceneRow } from "../board/scenes";
 import type { RecordId } from "../gen/RecordId";
-import { type MatchEvent, clockLabel, downAt, playersAt, sitesAt, tierOf, wavesAt } from "../match/timeline";
-import { type MatchPreview, UltRing } from "../match/preview";
+import type { Op } from "../gen/Op";
+import { type MatchEvent, clockLabel, playersAt, tierOf, wavesAt } from "../match/timeline";
+import { UltRing } from "../match/preview";
 import { matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
-import { clearAnnotationsOps, liveSceneOps, takeAnnotationsOps } from "./live";
+import { MAX_OPS_PER_TX, chunks, takeAnnotationsOps } from "./live";
 import { busy, jobLabel } from "./api";
 import { SPEEDS } from "./clock";
 import { EventsList } from "./Events";
-import { jumpTime, namesFor, placeOf, shortLabel, tierLabel } from "./events";
+import { eventKey, jumpTime, namesFor, placeOf, shortLabel, tierLabel } from "./events";
 import type { PlayerHost } from "./host";
 
 export function Player(p: {
@@ -24,7 +25,6 @@ export function Player(p: {
   art: Art;
   scene: SceneRow | undefined;
   mint: () => RecordId;
-  onPreview: (v: MatchPreview | undefined) => void;
   /** A saved scene to show (the first, for several). */
   onSaved: (id: RecordId) => void;
   /** You changed the playback yourself (following stops). */
@@ -37,48 +37,31 @@ export function Player(p: {
   const markers = () => p.art.model.markers;
   const lanes = () => p.art.model.lanes.map((l) => l.key);
 
-  // The map follows the playback; the preview is local, and goes with Player.
-  createEffect(() => {
-    const m = h.tl();
-    if (!m) return p.onPreview(undefined);
-    const t = h.t();
-    const players = new Map(playersAt(m, t).map((x) => [slotKey(x.team, x.slot), { hero: x.hero_id, pos: x.pos }]));
-    const waves = new Map([...wavesAt(m, t)].map(([k, w]) => [k, w.t]));
-    p.onPreview({ players, down: downAt(m, t, markers()), sites: sitesAt(m, t, markers()), waves });
-  });
-  onCleanup(() => p.onPreview(undefined));
-
   const stale = createMemo(() => (h.tl() ? [...wavesAt(h.tl()!, h.t()).values()].some((w) => w.stale) : false));
   const user = (f: () => void) => {
     p.onUserPlayback();
     f();
   };
-
-  // The live annotation layer: made by the first editor in Player, cleared by the last to leave.
-  let making = false;
-  createEffect(() => {
-    if (!canEdit() || p.state.liveScene() || making || p.state.roster().length !== 12 || !p.state.scenes().length) return;
-    making = true;
-    p.state.edit(liveSceneOps(p.state.roster(), p.state.scenes(), p.mint).ops);
-  });
   const rows = (kind: string, scene: RecordId) => p.state.inScene(kind, scene) as never;
-  onCleanup(() => {
-    const live = p.state.liveScene();
-    const others = p.state.peerList().some((x) => x.peer !== p.state.myPeer() && x.state?.playback?.player);
-    if (live && canEdit() && !others) {
-      const ops = clearAnnotationsOps(rows, live);
-      if (ops.length) p.state.edit(ops);
-    }
-  });
 
-  /** One scene at t: the timeline's state, the scene's source, and the live annotations. */
+  /**
+   * One scene at t: the timeline's state and its source, then the live annotations moved into
+   * it, in transactions within the op cap (review 2026-11-08, finding 6).
+   */
   const saveOne = () => {
     const m = h.tl();
     if (!m) return;
     const { id, ops } = matchSceneOps(p.state.roster(), p.state.scenes(), p.scene, m, h.t(), markers(), p.mint, lanes(), { source: sourceOf(m) });
-    const live = p.state.liveScene();
-    if (live) ops.push(...takeAnnotationsOps(rows, live, id, p.mint));
-    p.state.edit(ops); // one transaction: one undo
+    if (!p.state.edit(ops)) return h.setStatus("Not saved");
+    const live = p.state.liveScene(h.tl()?.match_id);
+    if (live) {
+      const moves = takeAnnotationsOps(rows, live, id, p.mint);
+      const pairs: Op[][] = [];
+      for (let i = 0; i < moves.length; i += 2) pairs.push(moves.slice(i, i + 2));
+      const txs = chunks(pairs, MAX_OPS_PER_TX);
+      const kept = txs.filter((tx) => p.state.edit(tx)).length;
+      if (kept < txs.length) h.setStatus("Some ink not moved");
+    }
     p.onSaved(id);
   };
   return (
@@ -245,14 +228,36 @@ export function PlayerSide(p: Props) {
     p.onUserPlayback();
     f();
   };
-  const saveMany = (events: MatchEvent[], lead: number) => {
+  /**
+   * One scene per event, in transactions within the op cap (one undo each; review 2026-11-08,
+   * finding 6). Scenes in a refused transaction aren't made; the rest stand, and it says so.
+   */
+  const saveMany = (events: MatchEvent[], lead: number): Set<string> => {
     const m = h.tl();
     const n = names();
-    if (!m || !n || !events.length) return;
-    const moments = [...events].sort((a, b) => a.t - b.t).map((e) => ({ t: jumpTime(e, lead), name: shortLabel(e, n) }));
-    const { ids, ops } = matchScenesOps(p.state.roster(), p.state.scenes(), p.scene, m, moments, markers(), p.mint, lanes());
-    p.state.edit(ops); // one transaction: one undo removes them all
-    if (ids[0]) p.onSaved(ids[0]);
+    const saved = new Set<string>();
+    if (!m || !n || !events.length) return saved;
+    const sorted = [...events].sort((a, b) => a.t - b.t);
+    const moments = sorted.map((e) => ({ t: jumpTime(e, lead), name: shortLabel(e, n) }));
+    const { ids, groups } = matchScenesOps(p.state.roster(), p.state.scenes(), p.scene, m, moments, markers(), p.mint, lanes());
+    // Chunk whole scenes, remembering which events each transaction carries.
+    let i = 0;
+    let first: RecordId | undefined;
+    for (const tx of chunks(groups, MAX_OPS_PER_TX)) {
+      const inTx: number[] = [];
+      let count = 0;
+      while (i < groups.length && count + groups[i]!.length <= tx.length) {
+        count += groups[i]!.length;
+        inTx.push(i++);
+      }
+      if (p.state.edit(tx)) {
+        for (const k of inTx) saved.add(eventKey(sorted[k]!));
+        first ??= ids[inTx[0] ?? 0];
+      }
+    }
+    if (saved.size < events.length) h.setStatus(`Saved ${saved.size} of ${events.length}`);
+    if (first) p.onSaved(first);
+    return saved;
   };
   const jump = (e: MatchEvent, lead: number) => {
     user(() => {

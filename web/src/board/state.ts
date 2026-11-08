@@ -242,8 +242,11 @@ export function createBoardState(board: string, token: string) {
     metaId,
     scenes,
     sceneTree,
-    /** Player's live annotation layer, if the board has one (the lowest id, if two were made). */
-    liveScene: createMemo(() => live<Scene>("Scene").filter((w) => w.r.live).map((w) => w.id).sort()[0]),
+    /** Player's live annotation layer for a match, if it exists (spec §6b; player/live.ts). */
+    liveScene: (match: number | undefined) =>
+      match === undefined ? undefined : live<Scene>("Scene").find((w) => w.r.live && w.r.source?.match_id === match)?.id,
+    /** Every match's live layer. */
+    liveScenes: () => live<Scene>("Scene").flatMap((w) => (w.r.live ? [{ id: w.id, match: w.r.source?.match_id }] : [])),
     roster,
     playersIn,
     role,

@@ -87,8 +87,8 @@ export function sceneName(label: string, second: number): string {
 }
 
 /**
- * One scene per moment, in order after the current scene, as one transaction (one undo): the
- * roster is set to the match's heroes once.
+ * One scene per moment, in order after the current scene: the roster is set to the match's
+ * heroes once. `groups` holds each scene's ops, to be sent in transactions within the op cap.
  */
 export function matchScenesOps(
   roster: Slot[],
@@ -99,17 +99,17 @@ export function matchScenesOps(
   markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane">>,
   mint: () => RecordId,
   lanes: string[] = [],
-): { ids: RecordId[]; ops: Op[] } {
+): { ids: RecordId[]; ops: Op[]; groups: Op[][] } {
   const ids: RecordId[] = [];
-  const ops: Op[] = [];
+  const groups: Op[][] = [];
   let after: string | undefined;
   moments.forEach((m, n) => {
     const r = matchSceneOps(roster, scenes, current, tl, m.t, markers, mint, lanes, { name: m.name, ...(after ? { after } : {}), roster: n === 0, source: sourceOf(tl) });
     ids.push(r.id);
-    ops.push(...r.ops);
+    groups.push(r.ops);
     after = r.order;
   });
-  return { ids, ops };
+  return { ids, ops: groups.flat(), groups };
 }
 
 /** A timeline's scene source (spec §6b). */

@@ -3,7 +3,10 @@
 // board creates one; Player renders it; following reads and writes its playback.
 
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
-import type { Timeline } from "../match/timeline";
+import { type Timeline, downAt, playersAt, sitesAt, wavesAt } from "../match/timeline";
+import type { MatchPreview } from "../match/preview";
+import { slotKey } from "../match/save";
+import type { Marker } from "../map/model";
 import { Api, type JobState, busy } from "./api";
 import { type Playback, clampT, follow, rebase, tAt } from "./clock";
 import type { Pt } from "../map/transform";
@@ -106,7 +109,8 @@ export function createPlayerHost(board: string, token: string) {
     try {
       if (opts.attach && (await api.attach(id))) setMatches([Number(id), ...matches().filter((m) => m !== Number(id))]);
       await loadTimeline(id, false);
-      if (opts.at !== undefined) control.seek(opts.at);
+      // A newer open() may have replaced this match meanwhile: don't seek it (finding 10).
+      if (opts.at !== undefined && matchId() === id) control.seek(opts.at);
       await watch(id);
     } catch {
       setStatus("Offline");
@@ -147,25 +151,37 @@ export function createPlayerHost(board: string, token: string) {
    */
   const presence = (): PlaybackPresence | undefined => {
     const id = matchId();
-    if (!id) return undefined;
+    // In Player with no match yet, still say so (match 0): others see you're in Player.
+    if (!id && mode() !== "player") return undefined;
     const pb = playback();
-    return { player: mode() === "player", match_id: Number(id), t: Math.round(tAt(pb, performance.now(), duration()) * 100) / 100, playing: pb.playing, speed: pb.speed };
+    return { player: mode() === "player", match_id: id ? Number(id) : 0, t: Math.round(tAt(pb, performance.now(), duration()) * 100) / 100, playing: pb.playing, speed: pb.speed };
   };
 
-  /** A follower mirrors a presenter's mode, match and playback, correcting drift. */
+  /**
+   * A follower mirrors a presenter's mode, match and playback (spec §6b). Presence is resent
+   * whole whenever anything in it changes, so the same playback arrives again and again with a
+   * `t` that's older each time: a value is stamped when it first arrives and carried forward
+   * from then; a repeat changes nothing (review 2026-11-08, finding 4).
+   */
+  let heard: { v: string; at: number } | undefined;
   const mirror = (theirs: PlaybackPresence | null | undefined) => {
     if (!theirs) return;
+    const v = JSON.stringify(theirs);
+    if (heard?.v !== v) heard = { v, at: performance.now() };
     if (!theirs.player) return setMode("sandbox");
     setMode("player");
+    if (theirs.match_id === 0) return;
     const id = String(theirs.match_id);
     if (id !== matchId()) {
       void open(id, { attach: false, at: theirs.t });
       return;
     }
     if (!tl()) return;
-    const next = follow(playback(), theirs, performance.now(), duration());
+    const next = follow(playback(), { ...theirs, at: heard.at }, performance.now(), duration());
     if (next !== playback()) setPlayback(next);
   };
+  /** Following stopped: the next presenter's values are new. */
+  const forget = () => (heard = undefined);
 
   let hl = 0;
   const flash = (at: Pt | undefined) => {
@@ -199,6 +215,16 @@ export function createPlayerHost(board: string, token: string) {
     flash,
     presence,
     mirror,
+    forget,
+    /** The match at playback time t as the board draws it; empty with no timeline (finding 7). */
+    preview: (markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane">>): MatchPreview => {
+      const m = tl();
+      if (!m) return { players: new Map(), down: new Set(), sites: new Map(), waves: new Map() };
+      const at = t();
+      const players = new Map(playersAt(m, at).map((x) => [slotKey(x.team, x.slot), { hero: x.hero_id, pos: x.pos }]));
+      const waves = new Map([...wavesAt(m, at)].map(([k, w]) => [k, w.t]));
+      return { players, down: downAt(m, at, markers), sites: sitesAt(m, at, markers), waves };
+    },
   };
 }
 
