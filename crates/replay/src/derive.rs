@@ -147,6 +147,23 @@ fn lane_number(key: &str) -> u32 {
     key.split(':').nth(2).and_then(|l| l.strip_prefix("lane")).and_then(|n| n.parse().ok()).unwrap_or(0)
 }
 
+/// A death undone in place: back alive within [`REVIVE_S`] seconds, within [`REVIVE_MATCH`] world
+/// units of where the hero fell. On 129738985 four "deaths" are 3 s gaps like this; the
+/// metadata doesn't count them, and real respawns take ≥ 10 s and start at the base, ≥ 10,000
+/// units away (journal 2026-11-08, lane data).
+const REVIVE_S: usize = 5;
+const REVIVE_MATCH: f64 = 2500.0;
+
+fn revived(p: &Player, death: u32) -> bool {
+    let d = death as usize;
+    let fell = (0..d).rev().find_map(|i| p.x[i].zip(p.y[i]));
+    let back = (d..p.x.len().min(d + REVIVE_S + 1)).find_map(|i| p.x[i].zip(p.y[i]));
+    match (fell, back) {
+        (Some(a), Some(b)) => f64::from(a.0 - b.0).hypot(f64::from(a.1 - b.1)) <= REVIVE_MATCH,
+        _ => false,
+    }
+}
+
 /// Ult cooldown remaining, in percent: 0 ready, 100 just used.
 pub fn ult_percent(trained: bool, start: f32, end: f32, now: f32) -> Option<u8> {
     if !trained {
@@ -283,6 +300,8 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
                     was_alive = Some(alive);
                 }
             }
+            let deaths = std::mem::take(&mut p.deaths);
+            p.deaths = deaths.into_iter().filter(|&d| !revived(&p, d)).collect();
             players.push(p);
         }
     }
@@ -726,8 +745,9 @@ mod tests {
     fn players_by_team_and_slot_with_exact_alive_and_deaths() {
         let mut s = seconds(4);
         for (i, x) in s.iter_mut().enumerate() {
-            // Controller 5 is Sapphire; 1 and 3 are Amber, in index order. 3 dies at second 2.
-            x.heroes = vec![hero(5, 3, true, [1.0, 2.0]), hero(3, 2, i != 2, [100.4, -200.6]), hero(1, 2, true, [0.0, 0.0])];
+            // Controller 5 is Sapphire; 1 and 3 are Amber, in index order. 3 dies at second 2
+            // and is back at the base at 3.
+            x.heroes = vec![hero(5, 3, true, [1.0, 2.0]), hero(3, 2, i != 2, if i == 3 { [-9000.0, -9000.0] } else { [100.4, -200.6] }), hero(1, 2, true, [0.0, 0.0])];
             x.heroes[1].name = Some(" Coach\u{7} ".into());
             x.heroes[1].ult_trained = i >= 1;
             // Second 3 reads 0/0, a gap: the cooldown holds.
@@ -740,8 +760,8 @@ mod tests {
         let slots: Vec<(String, u32, u32)> = t.players.iter().map(|p| (p.team.clone(), p.slot, p.hero_id)).collect();
         assert_eq!(slots, [("amber".into(), 0, 11), ("amber".into(), 1, 13), ("sapphire".into(), 0, 15)]);
         let p = &t.players[1];
-        assert_eq!(p.x, [Some(100), Some(100), None, Some(100)]);
-        assert_eq!(p.y, [Some(-201), Some(-201), None, Some(-201)]);
+        assert_eq!(p.x, [Some(100), Some(100), None, Some(-9000)]);
+        assert_eq!(p.y, [Some(-201), Some(-201), None, Some(-9000)]);
         assert_eq!(p.health, [50, 50, 0, 50]);
         assert_eq!(p.deaths, [2]);
         assert_eq!(p.name.as_deref(), Some("Coach"));
@@ -838,7 +858,7 @@ mod tests {
     fn events_cover_deaths_objectives_rifts_and_powerups() {
         let mut s = seconds(6);
         for (i, x) in s.iter_mut().enumerate() {
-            x.heroes = vec![hero(1, 2, i != 3, [100.0 + i as f32, 200.0])];
+            x.heroes = vec![hero(1, 2, i != 3, [if i > 3 { -9000.0 } else { 100.0 + i as f32 }, 200.0])];
             x.objectives.push(ObjObs { ent: (10, 1), kind: "walker", pos: [-6272.0, -4736.0], health: if i < 4 { 100 } else { 0 }, max_health: 100, phase: 0 });
             x.powerups.push(PowerupObs { pos: [-3936.0, 136.0], active: (2..4).contains(&i) });
         }
@@ -984,6 +1004,21 @@ mod tests {
         // Amber won: Sapphire's patron falls at the end, though the parse never saw it at 0.
         let fell = t.objectives.iter().find(|o| o.key == site.key).expect("patron down");
         assert_eq!((fell.destroyed_s, fell.team.as_str()), (3, "sapphire"));
+    }
+
+    #[test]
+    fn a_revive_in_place_is_not_a_death() {
+        let mut s = seconds(30);
+        for (i, x) in s.iter_mut().enumerate() {
+            // Down 3 s at 5 and back where it fell; down at 12 and back at the base 12 s later.
+            let alive = !(5..8).contains(&i) && !(12..24).contains(&i);
+            let pos = if i >= 24 { [-9000.0, -9000.0] } else { [100.0, 100.0] };
+            x.heroes = vec![hero(1, 2, alive, pos)];
+        }
+        let t = derive(&obs(s), map::current()).expect("timeline");
+        assert_eq!(t.players[0].deaths, [12]);
+        assert_eq!(t.players[0].x[6], None, "still hidden while down");
+        assert_eq!(t.events.iter().filter(|e| e.kind == "death").map(|e| e.t).collect::<Vec<_>>(), [12]);
     }
 
     #[test]
