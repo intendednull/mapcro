@@ -222,7 +222,7 @@ export function Player(p: {
               <button class="btn small" type="button" data-testid="match-back" aria-label="Back 10 s" title="−10 s" onClick={() => user(() => h.control.seek(h.t() - 10))}>
                 −10
               </button>
-              <button class="btn small" type="button" data-testid="match-play" aria-label={h.playback().playing ? "Pause" : "Play"} onClick={() => user(() => h.control.play(!h.playback().playing))}>
+              <button class="btn small pl-play" type="button" data-testid="match-play" aria-label={h.playback().playing ? "Pause" : "Play"} onClick={() => user(() => h.control.play(!h.playback().playing))}>
                 {h.playback().playing ? "Pause" : "Play"}
               </button>
               <button class="btn small" type="button" data-testid="match-forward" aria-label="Forward 10 s" title="+10 s" onClick={() => user(() => h.control.seek(h.t() + 10))}>
@@ -266,6 +266,9 @@ export function Player(p: {
                   onInput={(e) => user(() => h.control.seek(Number(e.currentTarget.value)))}
                 />
               </div>
+              {/* The toggles, the clock and Save scene go to a row of their own, as one, when the
+                  bar is too narrow for them beside the scrubber (QA 2026-11-08). */}
+              <div class="pl-tail">
               <Show when={m().troopers}>
                 <button
                   type="button"
@@ -308,6 +311,7 @@ export function Player(p: {
                   Save scene
                 </button>
               </Show>
+              </div>
             </div>
           )}
         </Show>
