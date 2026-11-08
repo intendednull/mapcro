@@ -374,12 +374,16 @@ makes a board with that match attached and lands in Player; **New board** is tod
   state (alive, seen, placed, objective, rift or wave records) shows through in Player, and none of
   Player's shows through in Sandbox. Switching modes, scenes or matches leaves nothing behind
   (operator report 2026-11-08: heroes drawn dark where the scene had them dead).
+- **Lane splits** on the replay tier are a 5 s median of the seconds a front was seen (raw fronts
+  jump ~1,100 units a second as waves die and spawn; exploration round 2).
 - **The transport:** play and pause, speed (0.5×, 1×, 2×, 4×, 8×), a scrubber with a tick per
   event, ±10 s, and the match clock. "Waves held" while a lane's split is held through a gap.
 - **Events** (both tiers, each with what it has; `Event` in `crates/replay/src/timeline.rs`):
   deaths (who; the killer and the place when the data has them, else where the hero was last
   seen), objectives, mid boss kills, rifts up and captured, powerups up and taken (replay only, on
-  seconds the spawner is in the recording), and souls swings (the Amber-minus-Sapphire lead
+  seconds the spawner is in the recording), ult casts (replay only: a rise of the hero's ult
+  cooldown, named by the game's `ImportantAbilityUsed` message, which covers every important
+  ability, so it alone isn't an ult), and souls swings (the Amber-minus-Sapphire lead
   moving 5,000 within a minute and holding ten seconds on; none in the first two minutes, when
   starting souls arrive player by player). The sidebar lists them with their tier, searchable by
   hero, player name, type, team and time, with filter chips by type. **Jump** pauses at the event
