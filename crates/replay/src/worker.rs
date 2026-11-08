@@ -608,5 +608,12 @@ mod tests {
         recover(&q);
         assert_eq!(std::fs::read_to_string(q.join("outbox/2-cdn.failed")).expect("failed"), reason::PARSE_FAILED);
         assert!(!q.join("work/2-cdn.requeued").exists());
+        // One that finished before the restart keeps its result: nothing is failed beside it.
+        std::fs::write(q.join("inbox/3-cdn.dem"), b"demo").expect("job");
+        std::fs::write(q.join("work/3-cdn.requeued"), b"").expect("mark");
+        on("3-cdn");
+        std::fs::write(q.join("outbox/3-cdn.json"), b"{}").expect("result");
+        recover(&q);
+        assert!(!q.join("outbox/3-cdn.failed").exists() && q.join("outbox/3-cdn.json").exists());
     }
 }
