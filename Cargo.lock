@@ -892,7 +892,9 @@ name = "mapcro-replay"
 version = "0.0.0"
 dependencies = [
  "boon-deadlock",
+ "boon-proto",
  "bzip2",
+ "prost",
  "serde",
  "serde_json",
  "tempfile",

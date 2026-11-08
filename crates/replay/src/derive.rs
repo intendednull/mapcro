@@ -24,6 +24,16 @@ pub struct Sample {
     /// While the cash-in is live: the scoring team (≤ 0 contested, 2 Amber, 3 Sapphire).
     pub rift_scoring: i64,
     pub powerups: Vec<PowerupObs>,
+    /// Important abilities (ults) cast since the last sample.
+    pub abilities: Vec<AbilityObs>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AbilityObs {
+    pub hero_id: u32,
+    pub team: i64,
+    pub pos: Option<[f32; 2]>,
+    pub name: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -323,6 +333,7 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         let lane_no: i64 = lane.key.trim_start_matches("lane").parse().unwrap_or(-1);
         let mut t = Vec::with_capacity(n);
         let mut stale = Vec::with_capacity(n);
+        let mut raw: Vec<Option<u16>> = Vec::with_capacity(n);
         let mut last: Option<u16> = None;
         for s in &obs.seconds {
             let (mut amber, mut sapphire): (Option<u16>, Option<u16>) = (None, None);
@@ -344,8 +355,15 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
                 (None, None) => None,
             };
             stale.push(now.is_none());
-            if now.is_some() {
-                last = now;
+            raw.push(now);
+        }
+        // The fronts jump as waves die and spawn (p95 ~1,100 units a second, exploration
+        // round 2): a 5 s median of the seen seconds settles them; gaps hold the last value.
+        for i in 0..raw.len() {
+            if raw[i].is_some() {
+                let mut w: Vec<u16> = raw[i.saturating_sub(2)..(i + 3).min(raw.len())].iter().flatten().copied().collect();
+                w.sort_unstable();
+                last = Some(w[w.len() / 2]);
             }
             t.push(last);
         }
@@ -424,6 +442,22 @@ fn events(obs: &Obs, m: &Map, players: &[Player], objectives: &[Objective], mid_
                 let kind = if p.available[i] == 1 { "powerup_spawn" } else { "powerup_taken" };
                 out.push(Event { key: Some(p.key.clone()), x, y, ..event(i as u32, kind) });
             }
+        }
+    }
+    for (sec, s) in obs.seconds.iter().enumerate() {
+        for a in &s.abilities {
+            let Some(team) = team_name(a.team) else { continue };
+            let slot = players.iter().find(|p| p.team == team && p.hero_id == a.hero_id).map(|p| p.slot);
+            let name: String = a.name.to_ascii_lowercase().chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').take(64).collect();
+            out.push(Event {
+                team: Some(team.to_owned()),
+                slot,
+                hero_id: Some(a.hero_id),
+                x: a.pos.map(|p| p[0].round() as i32),
+                y: a.pos.map(|p| p[1].round() as i32),
+                ability: (!name.is_empty()).then_some(name),
+                ..event(sec as u32, "ult")
+            });
         }
     }
     let souls: Vec<(String, Vec<[u32; 2]>)> = players.iter().map(|p| (p.team.clone(), p.souls.clone())).collect();
@@ -596,7 +630,15 @@ mod tests {
         let w = t.waves.iter().find(|w| w.lane == "lane4").expect("mid");
         let meet = ((u32::from(t_of(-400.0)) + u32::from(t_of(400.0))) / 2) as u16;
         assert!(t_of(-400.0) < t_of(400.0));
-        assert_eq!(w.t, [None, Some(meet), Some(t_of(800.0)), Some(t_of(800.0)), Some(t_of(0.0))]);
+        // A 5 s median of the seen seconds (an even count takes the upper middle).
+        let med = |mut v: Vec<u16>| {
+            v.sort_unstable();
+            v[v.len() / 2]
+        };
+        let a = med(vec![meet, t_of(800.0)]);
+        let b = med(vec![meet, t_of(800.0), t_of(0.0)]);
+        let c = med(vec![t_of(800.0), t_of(0.0)]);
+        assert_eq!(w.t, [None, Some(a), Some(b), Some(b), Some(c)]);
         assert_eq!(w.stale, [[0, 1], [3, 4]]);
         let lanes: Vec<&str> = t.waves.iter().map(|w| w.lane.as_str()).collect();
         assert_eq!(lanes, ["lane1", "lane4", "lane6"]);
@@ -631,6 +673,35 @@ mod tests {
         assert_eq!(capture.team.as_deref(), Some("sapphire"));
         let death = &t.events[2];
         assert_eq!((death.slot, death.hero_id, death.y), (Some(0), Some(11), Some(200)));
+    }
+
+    #[test]
+    fn a_one_second_spike_in_a_front_is_smoothed_away() {
+        let m = map::current();
+        let mid = m.lanes.iter().find(|l| l.key == "lane4").expect("mid");
+        let mut s = seconds(5);
+        s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
+        for (i, x) in s.iter_mut().enumerate() {
+            let y = if i == 2 { 3000.0 } else { 0.0 };
+            x.troopers = vec![TrooperObs { team: 2, lane: 4, pos: [0.0, y] }];
+        }
+        let t = derive(&obs(s), m).expect("timeline");
+        let w = t.waves.iter().find(|w| w.lane == "lane4").expect("mid");
+        let calm = mid.project(map::world_to_map(0.0, 0.0)).0;
+        assert_eq!(w.t, vec![Some(calm); 5]);
+    }
+
+    #[test]
+    fn ult_casts_are_events_with_the_caster() {
+        let mut s = seconds(3);
+        for x in &mut s {
+            x.heroes = vec![hero(1, 2, true, [0.0, 0.0]), hero(2, 3, true, [0.0, 0.0])];
+        }
+        s[2].abilities = vec![AbilityObs { hero_id: 12, team: 3, pos: Some([10.4, -20.0]), name: "Ability_Haze_Bullet<Dance>".into() }];
+        let t = derive(&obs(s), map::current()).expect("timeline");
+        let u = t.events.iter().find(|e| e.kind == "ult").expect("ult");
+        assert_eq!((u.t, u.team.as_deref(), u.slot, u.hero_id, u.x, u.ability.as_deref()), (2, Some("sapphire"), Some(0), Some(12), Some(10), Some("ability_haze_bulletdance")));
+        assert_eq!(crate::timeline::validate(&serde_json::to_vec(&t).expect("json")).map(|_| ()), Ok(()));
     }
 
     #[test]

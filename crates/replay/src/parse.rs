@@ -2,7 +2,8 @@
 //! on current demos (docs/research/replay-parsing-exploration.md §2–§7). Steam ids are never
 //! read.
 
-use crate::derive::{HeroObs, ObjObs, Obs, PowerupObs, Sample, TrooperObs};
+use crate::derive::{AbilityObs, HeroObs, ObjObs, Obs, PowerupObs, Sample, TrooperObs};
+use prost::Message;
 use crate::{FIRST_CURRENT_BUILD, content_build, reason};
 use boon::{Parser, world_position};
 use std::collections::{HashMap, HashSet};
@@ -141,9 +142,16 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
     let mut keys: Option<Keys> = None;
     let mut seconds: Vec<Sample> = Vec::new();
     let mut over = false;
+    // Ult casts arrive as user messages between samples; they go with the next sample.
+    let mut casts: Vec<AbilityObs> = Vec::new();
     parser
-        .run_to_end_filtered(&classes, |ctx| {
+        .run_to_end_with_events_filtered(&classes, |ctx, events| {
             let k = keys.get_or_insert_with(|| Keys::resolve(ctx));
+            for e in events.iter().filter(|e| e.msg_type == IMPORTANT_ABILITY_USED) {
+                if let Some(a) = ability_used(ctx, k, &e.payload) {
+                    casts.push(a);
+                }
+            }
             let rules = ctx.entities().iter().find(|(_, e)| e.class_name.as_ref() == RULES).map(|(_, e)| e);
             let Some(rules) = rules else { return };
             // The match is over once it has a winner; the recording runs on for a while.
@@ -162,7 +170,8 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
             if start <= 0.0 || game < seconds.len() as f64 || game > f64::from(crate::timeline::MAX_DURATION_S) {
                 return;
             }
-            let s = sample(ctx, k, rules, now as f32);
+            let mut s = sample(ctx, k, rules, now as f32);
+            s.abilities = std::mem::take(&mut casts);
             // Fill every second up to this one (a gap in ticks repeats the sample).
             while (seconds.len() as f64) <= game {
                 seconds.push(s.clone());
@@ -170,6 +179,33 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         })
         .map_err(|_| reason::PARSE_FAILED)?;
     Ok(Obs { match_id, build, seconds })
+}
+
+/// `KEUserMsgImportantAbilityUsed`: an ult (or other important ability) cast (exploration
+/// round 2, §7).
+const IMPORTANT_ABILITY_USED: u32 = 365;
+
+fn ability_used(ctx: &boon::Context, k: &Keys, payload: &[u8]) -> Option<AbilityObs> {
+    let m = boon_proto::proto::CCitadelUserMessageImportantAbilityUsed::decode(payload).ok()?;
+    let ents = ctx.entities();
+    let name = m.ability_name?;
+    // The caster's pawn, else the player's controller.
+    for h in [m.caster, m.player].into_iter().flatten() {
+        let Some(e) = ents.get_by_handle(h) else { continue };
+        match e.class_name.as_ref() {
+            PAWN => {
+                let hero_id = e.get_i64(k.pawn_hero) as u32;
+                return (hero_id != 0).then(|| AbilityObs { hero_id, team: e.get_i64(k.pawn.team), pos: Some(k.pawn.pos(e)), name: name.clone() });
+            }
+            CONTROLLER => {
+                let hero_id = e.get_i64(k.ctrl_hero) as u32;
+                let pawn = e.get_handle(k.ctrl_pawn).and_then(|p| ents.get_by_handle(p)).filter(|p| p.class_name.as_ref() == PAWN);
+                return (hero_id != 0).then(|| AbilityObs { hero_id, team: e.get_i64(k.ctrl_team), pos: pawn.map(|p| k.pawn.pos(p)), name: name.clone() });
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn sample(ctx: &boon::Context, k: &Keys, rules: &boon::entity::Entity, now: f32) -> Sample {

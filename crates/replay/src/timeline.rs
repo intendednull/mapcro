@@ -133,6 +133,9 @@ pub struct Event {
     /// A size: the souls swing, for `souls_swing`.
     #[serde(default)]
     pub amount: Option<u32>,
+    /// The ability's internal name, for `ult` (the game's `ImportantAbilityUsed`).
+    #[serde(default)]
+    pub ability: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -142,7 +145,12 @@ pub struct Who {
     pub hero_id: u32,
 }
 
-pub const EVENT_KINDS: [&str; 8] = ["death", "objective", "mid_boss", "rift_up", "rift_capture", "powerup_spawn", "powerup_taken", "souls_swing"];
+pub const EVENT_KINDS: [&str; 9] = ["death", "objective", "mid_boss", "rift_up", "rift_capture", "powerup_spawn", "powerup_taken", "souls_swing", "ult"];
+
+/// An ability's internal name as the timeline keeps it: `[a-z0-9_]`, at most 64.
+pub fn plausible_ability(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 64 && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
 
 /// A team's souls lead moving by at least this much within [`SWING_WINDOW`] is an event.
 pub const SWING_SOULS: i64 = 5000;
@@ -182,6 +190,7 @@ pub fn souls_swings(players: &[(String, Vec<[u32; 2]>)], duration_s: u32) -> Vec
                 x: None,
                 y: None,
                 amount: Some(moved.unsigned_abs().min(u64::from(u32::MAX)) as u32),
+                ability: None,
             });
             quiet_until = t + SWING_WINDOW;
         }
@@ -191,7 +200,7 @@ pub fn souls_swings(players: &[(String, Vec<[u32; 2]>)], duration_s: u32) -> Vec
 
 /// A bare event of `kind` at `t`; callers fill in the rest.
 pub fn event(t: u32, kind: &str) -> Event {
-    Event { t, kind: kind.into(), team: None, slot: None, hero_id: None, by: None, key: None, x: None, y: None, amount: None }
+    Event { t, kind: kind.into(), team: None, slot: None, hero_id: None, by: None, key: None, x: None, y: None, amount: None, ability: None }
 }
 
 /// What the server accepts from a worker (spec §11, replay limits).
@@ -278,6 +287,7 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
                 && e.by.as_ref().is_none_or(|b| team_ok(&b.team) && b.slot < 8)
                 && e.key.as_deref().is_none_or(plausible_key)
                 && e.x.into_iter().chain(e.y).all(|v| v.abs() <= 32768)
+                && e.ability.as_deref().is_none_or(plausible_ability)
         });
     if ok { Ok(t) } else { Err("out of shape") }
 }
@@ -349,6 +359,7 @@ mod tests {
             Box::new(|t| t.events[0].t = 9),
             Box::new(|t| t.events[0].team = Some("x".into())),
             Box::new(|t| t.events[0].key = Some("../x".into())),
+            Box::new(|t| t.events[0].ability = Some("<b>".into())),
         ];
         for (i, f) in bad.iter().enumerate() {
             let mut t = tiny();
