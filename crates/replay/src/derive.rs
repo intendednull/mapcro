@@ -451,10 +451,17 @@ fn events(obs: &Obs, m: &Map, players: &[Player], objectives: &[Objective], mid_
     for p in players {
         for sec in 1..p.ult.len() {
             let (before, now) = (p.ult[sec - 1], p.ult[sec]);
-            if !(now.is_some_and(|u| u >= 90) && before.is_none_or(|b| b < 90)) {
+            // A rise seen from a known cooldown: a hero reappearing after a gap (or turning
+            // up mid-cooldown) isn't a cast (review 2026-11-08, finding 14).
+            if !(now.is_some_and(|u| u >= 90) && before.is_some_and(|b| b < 90)) {
                 continue;
             }
-            let cast = casts.iter().filter(|(s, a)| a.hero_id == p.hero_id && team_name(a.team) == Some(p.team.as_str()) && *s + 2 >= sec && *s <= sec).min_by_key(|(s, _)| sec - *s);
+            // Of the casts in the window, one that names itself the ult ("…_ult…", "…ultimate…")
+            // wins; else the latest.
+            let cast = casts
+                .iter()
+                .filter(|(s, a)| a.hero_id == p.hero_id && team_name(a.team) == Some(p.team.as_str()) && *s + 2 >= sec && *s <= sec)
+                .min_by_key(|(s, a)| (!a.name.to_ascii_lowercase().contains("ult"), sec - *s));
             let t = cast.map_or(sec, |(s, _)| *s);
             let name = cast.map(|(_, a)| a.name.to_ascii_lowercase().chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').take(64).collect::<String>()).filter(|n| !n.is_empty());
             let pos = cast.and_then(|(_, a)| a.pos);
@@ -713,9 +720,21 @@ mod tests {
             x.heroes[1].ult_trained = true;
             (x.heroes[1].ult_start, x.heroes[1].ult_end) = if i >= 2 { (x.now, x.now + 100.0) } else { (0.0, 0.0) };
         }
-        let t = derive(&obs(s), map::current()).expect("timeline");
+        let t = derive(&obs(s.clone()), map::current()).expect("timeline");
         let ults: Vec<&Event> = t.events.iter().filter(|e| e.kind == "ult").collect();
         assert_eq!(ults.len(), 1, "{ults:?}");
+        // A cast that names itself the ult wins over a later one in the window.
+        let mut s2 = s.clone();
+        s2[1].abilities = vec![AbilityObs { hero_id: 12, team: 3, pos: None, name: "ability_haze_ultimate".into() }];
+        let t2 = derive(&obs(s2), map::current()).expect("timeline");
+        assert_eq!(t2.events.iter().find(|e| e.kind == "ult").and_then(|e| e.ability.as_deref()), Some("ability_haze_ultimate"));
+        // A hero first seen with its cooldown running: no cast.
+        let mut s3 = s.clone();
+        for x in s3.iter_mut().take(2) {
+            x.heroes.retain(|h| h.team != 3);
+        }
+        let t3 = derive(&obs(s3), map::current()).expect("timeline");
+        assert!(t3.events.iter().all(|e| e.kind != "ult"));
         let u = ults[0];
         assert_eq!((u.t, u.team.as_deref(), u.slot, u.hero_id, u.x, u.ability.as_deref()), (2, Some("sapphire"), Some(0), Some(12), Some(10), Some("ability_haze_bulletdance")));
         assert_eq!(crate::timeline::validate(&serde_json::to_vec(&t).expect("json")).map(|_| ()), Ok(()));
