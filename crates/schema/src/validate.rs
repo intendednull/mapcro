@@ -288,12 +288,15 @@ pub(crate) fn apply_op(doc: &mut Doc, op: &Op) -> Result<OpOutcome, Reject> {
                 return Err(Reject::MismatchedSetIf);
             }
             check_value(value)?;
-            check_parent(doc, *id, value)?;
-            let entry = doc.entry_mut(*id).ok_or(Reject::NoSuchRecord)?;
+            let entry = doc.get(*id).ok_or(Reject::NoSuchRecord)?;
             let current = entry.record.get(value.field()).ok_or(Reject::WrongField)?;
+            // A SetIf whose expectation fails is skipped before the board-level checks: an undo
+            // that no longer applies must not be refused for what it would have written.
             if entry.deleted || current != *expect {
                 return Ok(OpOutcome::Skipped);
             }
+            check_parent(doc, *id, value)?;
+            let entry = doc.entry_mut(*id).ok_or(Reject::NoSuchRecord)?;
             entry.record.set(value.clone());
             Ok(OpOutcome::Applied)
         }

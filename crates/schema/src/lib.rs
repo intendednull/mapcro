@@ -295,6 +295,54 @@ mod tests {
         assert!(matches!(old, Record::Scene(Scene { parent: None, .. })));
     }
 
+    /// Two scenes copied from `a` (each with its player states), as children of `parents`.
+    fn add_scenes(doc: &mut Doc, a: RecordId, specs: &[(u128, Option<RecordId>)]) {
+        let base: Vec<PlayerState> = doc
+            .iter_live()
+            .filter_map(|(_, r)| match r {
+                Record::PlayerState(p) if p.scene == a => Some(p.clone()),
+                _ => None,
+            })
+            .collect();
+        for (s, parent) in specs {
+            let mut ops = vec![Op::Create {
+                id: RecordId(*s),
+                record: Record::Scene(Scene { name: "s".into(), order: OrderKey::first(), clock: None, source: None, live: false, parent: *parent }),
+            }];
+            ops.extend(base.iter().enumerate().map(|(i, p)| Op::Create {
+                id: RecordId(s * 100 + i as u128),
+                record: Record::PlayerState(PlayerState { scene: RecordId(*s), ..p.clone() }),
+            }));
+            assert_eq!(apply_tx(doc, &tx(ops)).map(|_| ()), Ok(()));
+        }
+    }
+
+    #[test]
+    fn the_cycle_check_walks_through_deleted_scenes() {
+        // a ─ b ─ c; b deleted (c still points at it). a under c would close a loop through b.
+        let (mut doc, a, _) = board();
+        let (b, c) = (RecordId(2000), RecordId(3000));
+        add_scenes(&mut doc, a, &[(2000, Some(a)), (3000, Some(b))]);
+        assert_eq!(apply_tx(&mut doc, &tx(vec![Op::Delete { id: b }])).map(|_| ()), Ok(()));
+        let up = Op::Set { id: a, value: FieldValue::SceneParent(Some(c)) };
+        assert_eq!(apply_tx(&mut doc, &tx(vec![up])), Err(Reject::SceneCycle));
+    }
+
+    #[test]
+    fn an_undo_of_a_nest_that_would_be_skipped_is_not_rejected() {
+        // x was under p; I nest x under q; a peer then moves x to the top and deletes p. My undo
+        // (SetIf expect q → p) no longer matches, so it's skipped, not refused for p being gone.
+        let (mut doc, a, _) = board();
+        let (p, q, x) = (RecordId(2000), RecordId(3000), RecordId(4000));
+        add_scenes(&mut doc, a, &[(2000, None), (3000, None), (4000, Some(p))]);
+        let nest = Op::Set { id: x, value: FieldValue::SceneParent(Some(q)) };
+        let (_, undo) = apply_tx_with_inverse(&mut doc, &tx(vec![nest])).expect("nest");
+        let peer = vec![Op::Set { id: x, value: FieldValue::SceneParent(None) }, Op::Delete { id: p }];
+        assert_eq!(apply_tx(&mut doc, &tx(peer)).map(|_| ()), Ok(()));
+        assert_eq!(apply_tx(&mut doc, &tx(undo)), Ok(vec![OpOutcome::Skipped]));
+        assert!(matches!(doc.live(x), Some(Record::Scene(Scene { parent: None, .. }))));
+    }
+
     #[test]
     fn inverse_undoes_exactly() {
         let (mut doc, scene, player) = board();
