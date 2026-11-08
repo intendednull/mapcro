@@ -260,22 +260,24 @@ export function createPlayerHost(board: string, token: string) {
   /**
    * Event pings (spec §6b): each event the playback passes while it runs, under the list's
    * filters and search, gets its own short ring. Only a continuous forward run counts: a seek,
-   * scrub or jump fires nothing for what it skipped, and a step larger than a couple of frames'
-   * worth (a tab back from the background) is a jump too. A follower's small corrections keep a
-   * high-water mark, so stepping back a little never pings the same event twice.
+   * scrub or jump fires nothing for what it skipped, and nor does a step after five seconds
+   * without a frame (a tab back from the background), however far it went. A follower's small
+   * corrections keep a high-water mark, so stepping back a little never pings an event twice.
+   * (A cap on the step in match seconds dropped real events when a busy box stalled a frame.)
    */
-  let mark = { t: 0, jumps: -1 };
+  let mark = { t: 0, jumps: -1, wall: 0 };
   let pingN = 0;
   createEffect(() => {
     const cur = t();
     const pb = playback();
+    const wall = performance.now();
     const from = mark.t;
     const same = mark.jumps === jumps;
-    const cap = 2 * Math.max(1, pb.speed);
-    if (same && pb.playing && cur <= from && from - cur < cap) return;
-    mark = { t: cur, jumps };
+    if (same && pb.playing && cur <= from && from - cur < 2 * Math.max(1, pb.speed)) return;
+    const stalled = wall - mark.wall > 5000;
+    mark = { t: cur, jumps, wall };
     const m = untrack(tl);
-    if (!same || !pb.playing || !m || cur - from > cap || !untrack(showPings) || untrack(mode) !== "player") return;
+    if (!same || stalled || !pb.playing || !m || !untrack(showPings) || untrack(mode) !== "player") return;
     const hit = (untrack(pingable) ?? m.events ?? []).filter((e) => e.t > from && e.t <= cur);
     if (!hit.length) return;
     const life = pingLife(pb.speed);

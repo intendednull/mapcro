@@ -137,8 +137,8 @@ test("events ping at their place as playback passes them, for a follower too; ne
   await expect.poll(() => clock(a), { timeout: 5000 }).toBeGreaterThanOrEqual(25);
   await a.getByTestId("match-play").click();
 
-  for (const p of [a, b]) {
-    await expect.poll(async () => (await pinged(p)).map((x) => x.t).sort(), { timeout: 5000 }).toEqual(["14", "16", "18"]);
+  for (const [who, p] of [["presenter", a], ["follower", b]] as const) {
+    await expect.poll(async () => (await pinged(p)).map((x) => x.t).sort(), { timeout: 5000, message: `the ${who}'s pings` }).toEqual(["14", "16", "18"]);
     const log = await pinged(p);
     // Each ring sits where its event happened: the deaths on the heroes standing there, the
     // objective on its icon.
