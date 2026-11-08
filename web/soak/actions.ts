@@ -188,7 +188,7 @@ export function build(k: string, r: number[], records: Records, scene: RecordId,
     case "objective": {
       const key = at(OBJECTIVES, r0)!;
       const o = kindIn("ObjectiveState").find(([, s]) => s.key === key);
-      const cycle = { Active: "Destroyed", Destroyed: "Hidden", Hidden: "Active" } as const;
+      const cycle = { Active: "Destroyed", Stage2: "Destroyed", Destroyed: "Hidden", Hidden: "Active" } as const;
       if (o) return { ops: [{ Set: { id: o[0], value: { ObjectiveStatus: cycle[o[1].status] } } }] };
       return { ops: [{ Create: { id: ids.hex128(), record: { ObjectiveState: { scene, key, status: "Destroyed" } } } }] };
     }
