@@ -575,9 +575,10 @@ impl Room {
             RoomCmd::Presence { conn, mut state } => {
                 if let Some(peer) = self.peers.get_mut(&conn) {
                     if peer.role == LinkRole::View {
-                        // A view link can't move anything, so it has no drag to preview.
-                        // (Its laser is relayed: everyone gets the laser.)
+                        // A view link can't move or draw anything, so it has no drag or live
+                        // ink to preview. (Its laser and pings are relayed: everyone gets those.)
                         state.drag = None;
+                        state.ink = None;
                     }
                     peer.presence = Some(state);
                     let role = peer.role;

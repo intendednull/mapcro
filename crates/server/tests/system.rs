@@ -647,12 +647,19 @@ async fn presence_is_relayed_with_server_stamped_roles() {
     let fan = until_peer(&mut coach, |p| p.state.as_ref().is_some_and(|s| s.name == "Fan")).await;
     assert_eq!(fan.role, LinkRole::View);
     assert_eq!(fan.state.as_ref().map(|s| s.laser.len()), Some(3), "viewers get the laser too");
+    // A view link can't draw: its live ink is dropped. Its ping still goes out.
+    let ink = mapcro_engine::wire::LiveInk { color: 2, points: vec![cursor; 4] };
+    let ping = mapcro_engine::wire::Ping { at: cursor, n: 1 };
+    send_presence(&mut viewer, Presence { name: "Fan2".into(), ink: Some(ink), ping: Some(ping), ..Default::default() }).await;
+    let fan = until_peer(&mut coach, |p| p.state.as_ref().is_some_and(|s| s.name == "Fan2")).await;
+    assert_eq!(fan.state.as_ref().and_then(|s| s.ink.clone()), None, "a viewer's ink isn't relayed");
+    assert_eq!(fan.state.as_ref().and_then(|s| s.ping), Some(ping), "a viewer's ping is");
 
     // A newcomer sees everyone already present straight away.
     let mut late = Client::new(0x73);
     late.connect(server.port, &board, &owner).await.expect("late");
     until_peer(&mut late, |p| p.state.as_ref().is_some_and(|s| s.name == "Coach")).await;
-    until_peer(&mut late, |p| p.state.as_ref().is_some_and(|s| s.name == "Fan")).await;
+    until_peer(&mut late, |p| p.state.as_ref().is_some_and(|s| s.name == "Fan2")).await;
 
     // Leaving clears it for the others.
     let coach_peer = seen.peer;
