@@ -1643,3 +1643,120 @@ async fn presence_goes_out_on_the_leading_edge_and_bursts_coalesce() {
     assert!(frames <= 3, "a burst of 20 updates became {frames} frames");
     eprintln!("presence: median wait {median:?}; a burst of 20 went out as {frames} frames");
 }
+
+// ---- group commit (spec §9): crash points, `--features failpoints` only ----
+
+/// Three editors, each with `n` paced edits (so the room commits many small batches), after one
+/// saved edit each (so their ids are registered before the burst).
+#[cfg(feature = "failpoints")]
+async fn three_editors(port: u16, board: &str, owner: &str) -> Vec<Client> {
+    let mut cs = Vec::new();
+    for id in [0xc01, 0xc02, 0xc03] {
+        let mut c = Client::new(id);
+        c.connect(port, board, owner).await.expect("editor");
+        assert!(edits_until_decided(&mut c, 1, move_op).await.is_empty());
+        cs.push(c);
+    }
+    cs
+}
+
+#[cfg(feature = "failpoints")]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_crash_between_write_and_ack_loses_nothing_and_doubles_nothing() {
+    // Group commit writes a batch of transactions in one fsync and acks them after it. Kill the
+    // server exactly before a commit (nothing of that batch is on disk, nothing acked) and
+    // exactly after one (all of it on disk, nothing acked yet). Either way, after a restart every
+    // edit is in the log exactly once: none acked is lost (a client holding an entry the server
+    // lost would be "ahead of the log"), and none is applied twice (the resend is a duplicate).
+    for point in ["before_commit", "after_commit"] {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let spec = format!("{point}:20");
+        let server = Server::start_with(dir.path(), None, &[("MAPCRO_FAILPOINT", spec.as_str())]);
+        let (board, owner) = server.create_board();
+        let mut probe = Client::new(0xc00);
+        probe.connect(server.port, &board, &owner).await.expect("probe");
+        let genesis = probe.replica().confirmed().clone();
+        probe.drop_connection();
+        let mut cs = three_editors(server.port, &board, &owner).await;
+        // Paced edits from all three, until the failpoint kills the server.
+        let per = 60;
+        let mut died = false;
+        for i in 0..per {
+            for c in cs.iter_mut() {
+                let ops = move_op(c.replica(), i);
+                c.edit(ops).await;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            if ureq::get(&server.url("/healthz")).call().is_err() {
+                died = true;
+                // The rest are made offline and sent on reconnect.
+                for j in i + 1..per {
+                    for c in cs.iter_mut() {
+                        c.drop_connection();
+                        let ops = move_op(c.replica(), j);
+                        c.edit(ops).await;
+                    }
+                }
+                break;
+            }
+        }
+        assert!(died, "{point}: the failpoint never fired");
+        let (d, port) = server.kill9();
+        for c in cs.iter_mut() {
+            c.drop_connection();
+        }
+        let server = Server::start(&d, Some(port));
+        for c in cs.iter_mut() {
+            c.connect(server.port, &board, &owner).await.expect("reconnect: nothing acked was lost");
+            c.until_saved().await;
+        }
+        let made = 3 * (per as u64 + 1);
+        let fresh = fresh_catch_up(server.port, &board, &owner, 0xc0f, made).await;
+        for c in &mut cs {
+            while c.replica().last_seq() < made {
+                c.pump_one().await.expect("caught up");
+            }
+            assert_eq!(c.replica().last_seq(), made, "{point}: every edit exactly once");
+            assert_eq!(c.replica().confirmed(), fresh.replica().confirmed(), "{point}: everyone converges");
+        }
+        // Exactly once, counted: a client at seq 0 reads the whole log.
+        let mut reader = client_at(0xc0e, genesis, 0);
+        reader.connect(server.port, &board, &owner).await.expect("reader");
+        while reader.replica().last_seq() < made {
+            reader.pump_one().await.expect("whole log");
+        }
+        assert_eq!(reader.replica().confirmed(), fresh.replica().confirmed(), "{point}: the log replays to the board");
+        eprintln!("{point}: killed mid-burst; {made} edits, each in the log once");
+    }
+}
+
+#[cfg(feature = "failpoints")]
+#[tokio::test(flavor = "multi_thread")]
+async fn transactions_arriving_together_share_one_commit() {
+    // Group commit: what queues while one batch is being made durable goes in the next, so a
+    // burst from several editors costs a few fsyncs, not one per transaction.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let stats = dir.path().join("commits.txt");
+    let server = Server::start_with(dir.path(), None, &[("MAPCRO_COMMIT_STATS", stats.to_str().expect("utf8"))]);
+    let (board, owner) = server.create_board();
+    let mut cs = three_editors(server.port, &board, &owner).await;
+    for c in cs.iter_mut() {
+        for i in 0..100 {
+            let ops = move_op(c.replica(), i);
+            c.edit(ops).await;
+        }
+    }
+    for c in cs.iter_mut() {
+        c.until_saved().await;
+    }
+    let sizes: Vec<usize> = std::fs::read_to_string(&stats)
+        .expect("stats")
+        .lines()
+        .filter_map(|l| l.split(' ').next()?.parse().ok())
+        .collect();
+    let total: usize = sizes.iter().sum();
+    let biggest = sizes.iter().max().copied().unwrap_or(0);
+    eprintln!("{total} engine messages in {} commits, the biggest {biggest}", sizes.len());
+    assert!(biggest > 1, "every commit held one message: {sizes:?}");
+    assert!(sizes.len() < total, "{} commits for {total} messages", sizes.len());
+}

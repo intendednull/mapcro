@@ -61,6 +61,22 @@ impl From<CodecError> for StoreError {
     }
 }
 
+/// One durable effect of a room's batch (`Store::commit`).
+pub enum Write {
+    /// Log entry `seq`, encoded (`codec::encode` of its JSON).
+    Op { seq: u64, codec: Codec, stored: Vec<u8> },
+    Rejection { client: ClientId, cseq: u64, reason: Reject },
+    Client { client: ClientId, secret_hash: [u8; 32] },
+    PruneRejections { client: ClientId, below: u64 },
+}
+
+enum Row {
+    Op(u64, Codec, Vec<u8>),
+    Rejection(String, u64, String),
+    Client(String, [u8; 32]),
+    Prune(String, u64),
+}
+
 /// A TEXT (old rows) or BLOB (compressed rows) column's bytes.
 fn raw(v: ValueRef<'_>) -> rusqlite::Result<Vec<u8>> {
     match v {
@@ -381,13 +397,42 @@ impl Store {
         .map_err(|_| StoreError::Join)?
     }
 
-    /// Store log entry `seq`, already encoded (`codec::encode` of its JSON).
-    pub async fn append_op(&self, board: String, seq: u64, codec: Codec, stored: Vec<u8>) -> Result<(), StoreError> {
+    /// Make a batch of a room's effects durable together: one SQLite transaction, so one fsync
+    /// (spec §9, group commit). The room sends nothing that depends on them until this returns.
+    pub async fn commit(&self, board: String, writes: Vec<Write>) -> Result<(), StoreError> {
+        let id = |client: ClientId| serde_json::to_value(client).map_err(corrupt).map(|v| v.as_str().unwrap_or_default().to_owned());
+        let mut rows = Vec::with_capacity(writes.len());
+        for w in writes {
+            rows.push(match w {
+                Write::Op { seq, codec, stored } => Row::Op(seq, codec, stored),
+                Write::Rejection { client, cseq, reason } => Row::Rejection(id(client)?, cseq, serde_json::to_string(&reason).map_err(corrupt)?),
+                Write::Client { client, secret_hash } => Row::Client(id(client)?, secret_hash),
+                Write::PruneRejections { client, below } => Row::Prune(id(client)?, below),
+            });
+        }
         self.with(move |c| {
-            c.execute(
-                "INSERT INTO ops (board, seq, codec, tx) VALUES (?1, ?2, ?3, ?4)",
-                params![board, seq as i64, codec.as_str(), stored],
-            )?;
+            let t = c.transaction()?;
+            for row in rows {
+                match row {
+                    Row::Op(seq, codec, stored) => {
+                        t.prepare_cached("INSERT INTO ops (board, seq, codec, tx) VALUES (?1, ?2, ?3, ?4)")?
+                            .execute(params![board, seq as i64, codec.as_str(), stored])?;
+                    }
+                    Row::Rejection(client, cseq, reason) => {
+                        t.prepare_cached("INSERT OR IGNORE INTO rejections (board, client, cseq, reason) VALUES (?1, ?2, ?3, ?4)")?
+                            .execute(params![board, client, cseq as i64, reason])?;
+                    }
+                    Row::Client(client, hash) => {
+                        t.prepare_cached("INSERT OR IGNORE INTO clients (board, client, secret_hash) VALUES (?1, ?2, ?3)")?
+                            .execute(params![board, client, hash.to_vec()])?;
+                    }
+                    Row::Prune(client, below) => {
+                        t.prepare_cached("DELETE FROM rejections WHERE board = ?1 AND client = ?2 AND cseq < ?3")?
+                            .execute(params![board, client, below as i64])?;
+                    }
+                }
+            }
+            t.commit()?;
             Ok(())
         })
         .await
@@ -422,40 +467,6 @@ impl Store {
         })
         .await
         .map_err(|_| StoreError::Join)?
-    }
-
-    pub async fn add_rejection(&self, board: String, client: ClientId, cseq: u64, reason: &Reject) -> Result<(), StoreError> {
-        let reason = serde_json::to_string(reason).map_err(corrupt)?;
-        let client = serde_json::to_value(client).map_err(corrupt)?.as_str().unwrap_or_default().to_owned();
-        self.with(move |c| {
-            c.execute(
-                "INSERT OR IGNORE INTO rejections (board, client, cseq, reason) VALUES (?1, ?2, ?3, ?4)",
-                params![board, client, cseq as i64, reason],
-            )?;
-            Ok(())
-        })
-        .await
-    }
-
-    pub async fn add_client(&self, board: String, client: ClientId, secret_hash: [u8; 32]) -> Result<(), StoreError> {
-        let client = serde_json::to_value(client).map_err(corrupt)?.as_str().unwrap_or_default().to_owned();
-        self.with(move |c| {
-            c.execute(
-                "INSERT OR IGNORE INTO clients (board, client, secret_hash) VALUES (?1, ?2, ?3)",
-                params![board, client, secret_hash.to_vec()],
-            )?;
-            Ok(())
-        })
-        .await
-    }
-
-    pub async fn prune_rejections(&self, board: String, client: ClientId, below: u64) -> Result<(), StoreError> {
-        let client = serde_json::to_value(client).map_err(corrupt)?.as_str().unwrap_or_default().to_owned();
-        self.with(move |c| {
-            c.execute("DELETE FROM rejections WHERE board = ?1 AND client = ?2 AND cseq < ?3", params![board, client, below as i64])?;
-            Ok(())
-        })
-        .await
     }
 
     /// Replace the owner token: the old one stops working at once. Returns false if `old` isn't

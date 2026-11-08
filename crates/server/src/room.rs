@@ -3,7 +3,7 @@
 //! before anyone hears about it (spec §9, "durable before ack").
 
 use crate::codec;
-use crate::store::{LoadCaps, Store, StoreError};
+use crate::store::{LoadCaps, Store, StoreError, Write};
 use mapcro_engine::wire::{CloseReason, LinkRole, PeerPresence, Presence, WireOut};
 use mapcro_engine::{Authority, ClientMsg, ConnId, Effect, Outgoing, Quota, Role, ServerMsg};
 use std::collections::HashMap;
@@ -60,6 +60,41 @@ pub enum RoomCmd {
     /// Unload now if nobody is in the room (the server is at its open-room or memory cap).
     Unload,
 }
+
+/// Engine messages handled per durable write, at most (spec §9, group commit).
+const MAX_BATCH: usize = 256;
+
+/// A test-only crash point (`--features failpoints`, never in a release build): abort the process
+/// at the Nth time `name` is reached, as `MAPCRO_FAILPOINT=name:N` says. An abort skips every
+/// destructor and flush, like a kill -9 at exactly that line.
+#[cfg(feature = "failpoints")]
+fn failpoint(name: &str) {
+    static HITS: AtomicUsize = AtomicUsize::new(0);
+    let Ok(spec) = std::env::var("MAPCRO_FAILPOINT") else { return };
+    let Some((at, n)) = spec.split_once(':') else { return };
+    if at == name && HITS.fetch_add(1, Ordering::SeqCst) + 1 == n.parse::<usize>().unwrap_or(0) {
+        eprintln!("failpoint {name} hit {n} times: aborting");
+        std::process::abort();
+    }
+}
+
+#[cfg(not(feature = "failpoints"))]
+fn failpoint(_: &str) {}
+
+/// Test-only (`--features failpoints`): append each commit's size, in engine messages and
+/// durable writes, to the file `MAPCRO_COMMIT_STATS` names, so a test can see the batches.
+#[cfg(feature = "failpoints")]
+fn record_commit(messages: usize, writes: usize) {
+    use std::io::Write as _;
+    if let Some(path) = std::env::var_os("MAPCRO_COMMIT_STATS")
+        && let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path)
+    {
+        let _ = writeln!(f, "{messages} {writes}");
+    }
+}
+
+#[cfg(not(feature = "failpoints"))]
+fn record_commit(_: usize, _: usize) {}
 
 /// What a connection's socket task sends, in order.
 pub enum Out {
@@ -401,7 +436,7 @@ impl Room {
             if let Some(at) = self.flush_at {
                 tokio::select! {
                     cmd = rx.recv() => match cmd {
-                        Some(cmd) => { if self.dispatch(cmd).await.is_err() { return self.fail_all(); } }
+                        Some(cmd) => { if self.dispatch(cmd, &mut rx).await.is_err() { return self.fail_all(); } }
                         None => return,
                     },
                     _ = tokio::time::sleep_until(at) => self.flush_presence(),
@@ -424,7 +459,7 @@ impl Room {
                     None => return,
                 }
             };
-            if self.dispatch(cmd).await.is_err() {
+            if self.dispatch(cmd, &mut rx).await.is_err() {
                 return self.fail_all();
             }
             if self.unload {
@@ -443,13 +478,35 @@ impl Room {
         }
     }
 
-    async fn dispatch(&mut self, cmd: RoomCmd) -> Result<(), StoreError> {
+    /// Handle one command; engine messages go in a batch with any queued behind them, and a
+    /// command that ends a batch is handled right after it.
+    async fn dispatch(&mut self, cmd: RoomCmd, rx: &mut mpsc::Receiver<RoomCmd>) -> Result<(), StoreError> {
+        let mut cmd = cmd;
+        loop {
+            if let RoomCmd::Msg { conn, msg } = cmd {
+                match self.batch((conn, msg), rx).await {
+                    Ok(Some(next)) => {
+                        cmd = next;
+                        continue;
+                    }
+                    Ok(None) => return Ok(()),
+                    Err(e) => {
+                        tracing::error!(board = self.id, error = %e, "storage write failed");
+                        return Err(e);
+                    }
+                }
+            }
+            return self.dispatch_one(cmd).await;
+        }
+    }
+
+    async fn dispatch_one(&mut self, cmd: RoomCmd) -> Result<(), StoreError> {
         let result = match cmd {
             RoomCmd::Join { link_hash, role, want_base, reply } => {
                 self.join(link_hash, role, want_base, reply);
                 Ok(())
             }
-            RoomCmd::Msg { conn, msg } => self.message(conn, msg).await,
+            RoomCmd::Msg { .. } => Ok(()), // engine messages go through `batch` (see `dispatch`)
             RoomCmd::Presence { conn, mut state } => {
                 if let Some(peer) = self.peers.get_mut(&conn) {
                     if peer.role == LinkRole::View {
@@ -621,7 +678,43 @@ impl Room {
         }
     }
 
-    async fn message(&mut self, conn: ConnId, msg: ClientMsg) -> Result<(), StoreError> {
+    /// Handle a run of engine messages with one durable write (spec §9, group commit): apply
+    /// `first` and every message already queued behind it, in order, in memory; write all their
+    /// effects in one transaction (one fsync); then, and only then, send what any of them
+    /// produced. A batch stops at the first other command, which is returned to be handled
+    /// after the commit: a join's snapshot, a clone or a catch-up range must never see what isn't
+    /// on disk yet.
+    async fn batch(&mut self, first: (ConnId, ClientMsg), rx: &mut mpsc::Receiver<RoomCmd>) -> Result<Option<RoomCmd>, StoreError> {
+        let mut writes = Vec::new();
+        let mut outboxes = Vec::new();
+        self.apply(first.0, first.1, &mut writes, &mut outboxes)?;
+        let mut rest = None;
+        while outboxes.len() < MAX_BATCH {
+            match rx.try_recv() {
+                Ok(RoomCmd::Msg { conn, msg }) => self.apply(conn, msg, &mut writes, &mut outboxes)?,
+                Ok(other) => {
+                    rest = Some(other);
+                    break;
+                }
+                Err(_) => break,
+            }
+        }
+        if !writes.is_empty() {
+            let n = writes.len();
+            failpoint("before_commit");
+            self.store.commit(self.id.clone(), writes).await?;
+            failpoint("after_commit");
+            record_commit(outboxes.len(), n);
+        }
+        for outbox in outboxes {
+            self.deliver(outbox);
+        }
+        self.publish_weight();
+        Ok(rest)
+    }
+
+    /// One engine message, in memory: the authority's decision, and the durable writes it needs.
+    fn apply(&mut self, conn: ConnId, msg: ClientMsg, writes: &mut Vec<Write>, outboxes: &mut Vec<mapcro_engine::Outbox>) -> Result<(), StoreError> {
         // Storage or memory full: refuse edits (`ServerFull`). Over the memory budget, ask an idle
         // room to make way, so the refusal lasts only until one has.
         let over_memory = matches!(msg, ClientMsg::Submit(_)) && self.rooms.resident() > self.rooms.caps.room_memory_bytes;
@@ -642,30 +735,30 @@ impl Room {
             }
             other => self.authority.handle(conn, other),
         };
-        for effect in &effects {
-            match effect {
+        for effect in effects {
+            writes.push(match effect {
                 Effect::Logged { seq, tx } => {
                     let (codec, stored) = encoded.take().ok_or_else(|| StoreError::Corrupt("logged without a submit".into()))?;
-                    self.store.append_op(self.id.clone(), *seq, codec, stored).await?;
                     self.since_weighed += 1;
                     if self.since_weighed >= REWEIGH_EVERY {
                         self.since_weighed = 0;
                         self.doc_weight = weigh(&self.authority);
                     } else {
-                        self.doc_weight += mapcro_engine::encoded_len(tx);
+                        self.doc_weight += mapcro_engine::encoded_len(&tx);
                     }
+                    Write::Op { seq, codec, stored }
                 }
-                Effect::Rejected { client, cseq, reason } => {
-                    self.store.add_rejection(self.id.clone(), *client, *cseq, reason).await?;
-                }
-                Effect::ClientRegistered { client, secret_hash } => {
-                    self.store.add_client(self.id.clone(), *client, *secret_hash).await?;
-                }
-                Effect::RejectionsResolved { client, below } => {
-                    self.store.prune_rejections(self.id.clone(), *client, *below).await?;
-                }
-            }
+                Effect::Rejected { client, cseq, reason } => Write::Rejection { client, cseq, reason },
+                Effect::ClientRegistered { client, secret_hash } => Write::Client { client, secret_hash },
+                Effect::RejectionsResolved { client, below } => Write::PruneRejections { client, below },
+            });
         }
+        outboxes.push(outbox);
+        Ok(())
+    }
+
+    /// Send what a message produced (after its effects are durable).
+    fn deliver(&mut self, outbox: mapcro_engine::Outbox) {
         // A broadcast is the same message to every peer in a row: serialize it once and share it.
         let mut last: Option<(ServerMsg, Arc<str>)> = None;
         for (to, out) in outbox {
@@ -693,8 +786,6 @@ impl Room {
                 self.close(to, CloseReason::Protocol);
             }
         }
-        self.publish_weight();
-        Ok(())
     }
 
     /// Publish the room's weight: its document and tables, plus the largest outbox backlog
