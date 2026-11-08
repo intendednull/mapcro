@@ -7,7 +7,7 @@
 //! are networked whatever the players see (exploration rounds 3 and 4).
 
 use crate::map::{self, Map};
-use crate::timeline::{Camp, Event, MidBoss, Objective, Player, Powerup, Rift, Timeline, ZipTrack, TIER, event, souls_swings};
+use crate::timeline::{Camp, Event, FORMAT, MidBoss, Objective, Player, Powerup, Rift, TIER, Timeline, Urn, UrnAt, UrnSpawn, ZipTrack, event, souls_swings};
 #[cfg(test)]
 use crate::timeline::decode_troopers;
 use std::collections::BTreeMap;
@@ -79,6 +79,27 @@ pub struct HeroObs {
     pub ult_trained: bool,
     pub ult_start: f32,
     pub ult_end: f32,
+    /// The pawn's `m_flRespawnTime` (on [`Sample::now`]'s clock) while dead; 0 when unset
+    /// (exploration round 5).
+    pub respawn_at: f32,
+}
+
+/// The Soul Urn's state where it changes, read every tick (exploration round 6): the urn on the
+/// ground is a `CCitadelItemPickupIdol` entity; picked up, the entity goes and the delivery
+/// point (`CCitadelIdolReturnTrigger`) takes the carrier's team; delivered, the point closes.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UrnObs {
+    /// Match-clock seconds.
+    pub game: f32,
+    /// Where the urn is, while it's on the ground.
+    pub ground: Option<[f32; 2]>,
+    /// The carrying team (the open delivery point's `m_iTeamNum`: 2 Amber, 3 Sapphire), 0 none.
+    pub carrier_team: i64,
+    /// The carrier ([`HeroObs::id`]): the carrying team's nearest living hero to where the urn
+    /// lay when it was picked up.
+    pub carrier: Option<i32>,
+    /// The open delivery point (`m_bDisabled` false), where.
+    pub delivery: Option<[f32; 2]>,
 }
 
 #[derive(Clone, Debug)]
@@ -123,6 +144,8 @@ pub struct Obs {
     pub seconds: Vec<Sample>,
     pub zip_nodes: Vec<ZipNode>,
     pub camp_slots: Vec<CampSlot>,
+    /// The urn's changes, in order.
+    pub urn: Vec<UrnObs>,
 }
 
 /// How far (world units) a demo entity may be from our site to take its key. Current-map
@@ -134,6 +157,9 @@ const ZIP_MATCH: f64 = 5.0;
 /// How far (world units) a camp timer's origin may be from our camp site. They match at 0.0;
 /// some sites are only ~550 apart.
 const CAMP_MATCH: f64 = 64.0;
+/// How far (world units) an urn spawn or delivery point may be from our urn site. The return
+/// triggers sit on them exactly; the urn spawns 11 units off (exploration round 6).
+const URN_MATCH: f64 = 400.0;
 
 fn team_name(t: i64) -> Option<&'static str> {
     match t {
@@ -250,8 +276,10 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         return Err(Refused::Empty);
     }
     let mut players = Vec::new();
+    let mut ids_by_slot: BTreeMap<(String, u32), i32> = BTreeMap::new();
     for team in [2i64, 3] {
         for (slot, (&id, _)) in ids.iter().filter(|(_, t)| **t == team).enumerate() {
+            ids_by_slot.insert((team_name(team).unwrap_or("amber").to_owned(), slot as u32), id);
             let mut p = Player {
                 team: team_name(team).unwrap_or("amber").to_owned(),
                 slot: slot as u32,
@@ -263,7 +291,10 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
                 deaths: Vec::new(),
                 souls: Vec::new(),
                 ult: Vec::with_capacity(n),
+                respawn: Vec::new(),
             };
+            // While dead: the second the game says the hero comes back (the pawn's timer).
+            let mut due: Vec<Option<f32>> = Vec::with_capacity(n);
             let mut was_alive = None;
             // A cooldown that reads 0/0 is a gap in the recording (it reads so for tens of
             // seconds around full packets, then resumes): hold the last one seen.
@@ -293,6 +324,7 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
                         p.souls.push([sec as u32, h.net_worth]);
                     }
                 }
+                due.push(h.filter(|h| !h.alive && h.respawn_at > 0.0).map(|h| sec as f32 + (h.respawn_at - s.now)));
                 if was_alive == Some(true) && !alive && h.is_some() {
                     p.deaths.push(sec as u32);
                 }
@@ -302,6 +334,7 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
             }
             let deaths = std::mem::take(&mut p.deaths);
             p.deaths = deaths.into_iter().filter(|&d| !revived(&p, d)).collect();
+            p.respawn = respawns(&p, &due);
             players.push(p);
         }
     }
@@ -423,6 +456,11 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
     let events = events(obs, m, &players, &objectives, &mid_boss, &rifts, &powerups, duration_s);
     let objective_health = objective_health(obs, m);
     let troopers = Some(troopers_at(obs, TROOPER_EVERY_S));
+    let carriers: BTreeMap<i32, (String, u32, u32)> = players.iter().filter_map(|p| Some((*ids_by_slot.get(&(p.team.clone(), p.slot))?, (p.team.clone(), p.slot, p.hero_id)))).collect();
+    let (urn, urn_events) = urn(obs, m, &carriers, duration_s);
+    let mut events = events;
+    events.extend(urn_events);
+    events.sort_by(|a, b| (a.t, &a.kind).cmp(&(b.t, &b.kind)));
     Ok(Timeline {
         match_id: obs.match_id,
         start_time: 0,
@@ -441,7 +479,97 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         events,
         troopers,
         objective_health,
+        urn,
+        format: FORMAT,
     })
+}
+
+/// `[died_s, back_s]` for each death: the second the hero is next seen alive, else, when the
+/// recording ends first, the pawn's own respawn timer as last seen while dead. The two agree
+/// to 0.1 s on 129738985, except twice when the game cut the wait short (exploration round 5).
+fn respawns(p: &Player, due: &[Option<f32>]) -> Vec<[u32; 2]> {
+    let mut out = Vec::new();
+    for &d in &p.deaths {
+        let i = d as usize;
+        let seen = (i..p.x.len()).find(|&j| p.x[j].is_some()).map(|j| j as u32);
+        let timer = due[i.min(due.len())..].iter().take_while(|v| v.is_some()).flatten().last().map(|v| v.ceil().max(0.0) as u32);
+        if let Some(back) = seen.or(timer).filter(|b| *b > d) {
+            out.push([d, back]);
+        }
+    }
+    out
+}
+
+/// The urn's spawns, states and events (exploration round 6) from its tick-exact changes:
+/// nothing → on the ground with no delivery point open is a spawn; on the ground → carried a
+/// pickup; carried → on the ground a drop; carried → nothing as the point closes a delivery.
+fn urn(obs: &Obs, m: &Map, carriers: &BTreeMap<i32, (String, u32, u32)>, duration_s: u32) -> (Option<Urn>, Vec<Event>) {
+    if obs.urn.is_empty() {
+        return (None, Vec::new());
+    }
+    let site = |p: [f32; 2]| m.nearest("urn", f64::from(p[0]), f64::from(p[1]), URN_MATCH).map(|s| s.key.clone());
+    let xy = |p: Option<[f32; 2]>| (p.map(|q| q[0].round() as i32), p.map(|q| q[1].round() as i32));
+    let who = |c: &UrnObs| c.carrier.and_then(|id| carriers.get(&id)).filter(|w| team_name(c.carrier_team) == Some(w.0.as_str()));
+    let state = |c: &UrnObs| if c.ground.is_some() { "ground" } else if team_name(c.carrier_team).is_some() { "carried" } else { "none" };
+    let (mut spawns, mut at, mut events) = (Vec::<UrnSpawn>::new(), Vec::<UrnAt>::new(), Vec::new());
+    let mut prev = UrnObs::default();
+    for c in &obs.urn {
+        let t = (c.game.max(0.0) as u32).min(duration_s);
+        let (was, now) = (state(&prev), state(c));
+        let holder = who(&prev);
+        let team_of = |w: Option<&(String, u32, u32)>, team: i64| w.map(|w| w.0.clone()).or(team_name(team).map(str::to_owned));
+        match (was, now) {
+            ("none", "ground") if c.delivery.is_none() && prev.delivery.is_none() => {
+                if let Some(key) = c.ground.and_then(site)
+                    && spawns.last().is_none_or(|l| l.t < t)
+                {
+                    spawns.push(UrnSpawn { t, key });
+                }
+            }
+            ("ground", "carried") => {
+                let w = who(c);
+                let (x, y) = xy(prev.ground);
+                events.push(Event { team: team_of(w, c.carrier_team), slot: w.map(|w| w.1), hero_id: w.map(|w| w.2), x, y, ..event(t, "urn_pickup") });
+            }
+            ("carried", "ground") | ("none", "ground") => {
+                let (x, y) = xy(c.ground);
+                events.push(Event { team: team_of(holder, prev.carrier_team), slot: holder.map(|w| w.1), hero_id: holder.map(|w| w.2), x, y, ..event(t, "urn_drop") });
+            }
+            ("carried", "none") if prev.delivery.is_some() && c.delivery.is_none() => {
+                let key = prev.delivery.and_then(site);
+                let (x, y) = key.as_deref().map_or((None, None), |k| site_xy(m, k));
+                events.push(Event { team: team_of(holder, prev.carrier_team), slot: holder.map(|w| w.1), hero_id: holder.map(|w| w.2), key, x, y, ..event(t, "urn_delivered") });
+            }
+            _ => {}
+        }
+        let w = who(c);
+        let (x, y) = xy(c.ground);
+        let entry = UrnAt {
+            t,
+            state: now.to_owned(),
+            x,
+            y,
+            // Carried: the carrier's team; on the ground after a drop, the dropper's.
+            team: if now == "carried" { team_of(w, c.carrier_team) } else if now == "ground" && c.delivery.is_some() { team_of(holder, prev.carrier_team).or(at.last().and_then(|l| l.team.clone())) } else { None },
+            slot: if now == "carried" { w.map(|w| w.1) } else { None },
+            delivery: c.delivery.and_then(site),
+        };
+        // One entry per second: the last state in it.
+        if at.last().is_some_and(|l| l.t == t) {
+            at.pop();
+        }
+        if at.last().is_none_or(|l| (&l.state, l.x, l.y, &l.team, l.slot, &l.delivery) != (&entry.state, entry.x, entry.y, &entry.team, entry.slot, &entry.delivery)) {
+            at.push(entry);
+        }
+        prev = c.clone();
+    }
+    // Nothing before the first spawn: the urn starts as "none".
+    let first = at.iter().position(|a| a.state != "none").unwrap_or(at.len());
+    at.drain(..first);
+    if spawns.is_empty() && at.is_empty() {
+        return (None, events);
+    }
+    (Some(Urn { spawns, at }), events)
 }
 
 /// Each lane's zipline colours (exploration round 4): every node's `t` along our lane, then each
@@ -1043,6 +1171,113 @@ mod tests {
         assert_eq!(decode_troopers(&tr.sapphire[0]), Some(vec![(5, 9, 9)]));
         assert_eq!(tr.amber[1], "", "a gap is an empty sample");
         assert_eq!(decode_troopers(&tr.amber[2]), Some(vec![(70001u32 as u16, 150, -150)]));
+    }
+
+    #[test]
+    fn a_respawn_is_when_the_hero_is_back_else_the_pawn_s_timer() {
+        let mut s = seconds(12);
+        for (i, x) in s.iter_mut().enumerate() {
+            // Dies at 2 and is back at the base at 6, though its timer said 8 (the game cut the
+            // wait short: seen wins); dies again at 9 and the recording ends with it dead, its
+            // timer at now 100 + 9 + 20.4 (second 29.4: back at 30).
+            let alive = !(2..6).contains(&i) && i < 9;
+            let mut h = hero(1, 2, alive, if i >= 6 { [-9000.0, -9000.0] } else { [0.0, 0.0] });
+            h.respawn_at = if alive { 0.0 } else if i >= 9 { 129.4 } else { 108.0 };
+            x.heroes = vec![h];
+        }
+        let t = derive(&obs(s), map::current()).expect("timeline");
+        assert_eq!(t.players[0].deaths, [2, 9]);
+        assert_eq!(t.players[0].respawn, [[2, 6], [9, 30]]);
+    }
+
+    #[test]
+    fn a_revive_in_place_has_no_respawn() {
+        let mut s = seconds(8);
+        for (i, x) in s.iter_mut().enumerate() {
+            let mut h = hero(1, 2, !(3..5).contains(&i), [0.0, 0.0]);
+            h.respawn_at = if (3..5).contains(&i) { 200.0 } else { 0.0 };
+            x.heroes = vec![h];
+        }
+        let t = derive(&obs(s), map::current()).expect("timeline");
+        assert_eq!(t.players[0].deaths, Vec::<u32>::new());
+        assert_eq!(t.players[0].respawn, Vec::<[u32; 2]>::new());
+    }
+
+    /// The urn's life on 129738985 around 30:00, shortened: it spawns over the west site, the
+    /// east point opens as it lands, Amber picks it up, drops it, picks it up and delivers it.
+    #[test]
+    fn the_urn_spawns_is_carried_dropped_and_delivered() {
+        let mut s = seconds(40);
+        for x in &mut s {
+            x.heroes = vec![hero(1, 2, true, [0.0, 0.0]), hero(3, 2, true, [0.0, 0.0]), hero(7, 3, true, [0.0, 0.0])];
+        }
+        let mut o = obs(s);
+        let west = Some([-6584.0, 0.0]);
+        let east = Some([6304.0, -96.0]);
+        let u = |game: f32, ground: Option<[f32; 2]>, carrier_team: i64, carrier: Option<i32>, delivery: Option<[f32; 2]>| UrnObs { game, ground, carrier_team, carrier, delivery };
+        o.urn = vec![
+            u(5.0, west, 0, None, None),
+            u(17.5, west, 0, None, east),
+            u(18.2, None, 2, Some(3), east),
+            u(24.4, Some([4267.0, -3082.0]), 0, None, east),
+            // Picked up again within the second the drop's: one entry, the later state.
+            u(24.9, None, 2, Some(1), east),
+            u(31.0, None, 0, None, None),
+        ];
+        let t = derive(&o, map::current()).expect("timeline");
+        let urn = t.urn.as_ref().expect("urn");
+        assert_eq!(urn.spawns, [UrnSpawn { t: 5, key: "urn:neutral:lane1:1".into() }]);
+        type AtRow<'a> = (u32, &'a str, Option<i32>, Option<&'a str>, Option<u32>, Option<&'a str>);
+        type EvRow<'a> = (u32, &'a str, Option<&'a str>, Option<u32>, Option<u32>, Option<i32>, Option<&'a str>);
+        let at: Vec<AtRow> =
+            urn.at.iter().map(|a| (a.t, a.state.as_str(), a.x, a.team.as_deref(), a.slot, a.delivery.as_deref())).collect();
+        let e = Some("urn:neutral:lane6:1");
+        assert_eq!(
+            at,
+            [
+                (5, "ground", Some(-6584), None, None, None),
+                (17, "ground", Some(-6584), None, None, e),
+                (18, "carried", None, Some("amber"), Some(1), e),
+                (24, "carried", None, Some("amber"), Some(0), e),
+                (31, "none", None, None, None, None),
+            ]
+        );
+        let ev: Vec<EvRow> = t
+            .events
+            .iter()
+            .filter(|e| e.kind.starts_with("urn_"))
+            .map(|e| (e.t, e.kind.as_str(), e.team.as_deref(), e.slot, e.hero_id, e.x, e.key.as_deref()))
+            .collect();
+        assert_eq!(
+            ev,
+            [
+                (18, "urn_pickup", Some("amber"), Some(1), Some(13), Some(-6584), None),
+                (24, "urn_drop", Some("amber"), Some(1), Some(13), Some(4267), None),
+                (24, "urn_pickup", Some("amber"), Some(0), Some(11), Some(4267), None),
+                (31, "urn_delivered", Some("amber"), Some(0), Some(11), Some(6304), e),
+            ]
+        );
+        let bytes = serde_json::to_vec(&t).expect("json");
+        assert_eq!(crate::timeline::validate(&bytes), Ok(t));
+    }
+
+    #[test]
+    fn an_urn_dropped_on_the_ground_is_the_dropper_s_colour() {
+        let mut s = seconds(20);
+        for x in &mut s {
+            x.heroes = vec![hero(7, 3, true, [0.0, 0.0])];
+        }
+        let mut o = obs(s);
+        let east = Some([6304.0, -96.0]);
+        o.urn = vec![
+            UrnObs { game: 2.0, ground: Some([-6584.0, 0.0]), ..Default::default() },
+            UrnObs { game: 4.0, ground: None, carrier_team: 3, carrier: Some(7), delivery: east },
+            UrnObs { game: 6.0, ground: Some([100.0, 100.0]), delivery: east, ..Default::default() },
+            UrnObs { game: 8.0, ground: Some([300.0, 100.0]), delivery: east, ..Default::default() },
+        ];
+        let t = derive(&o, map::current()).expect("timeline");
+        let teams: Vec<(u32, &str, Option<&str>)> = t.urn.as_ref().expect("urn").at.iter().map(|a| (a.t, a.state.as_str(), a.team.as_deref())).collect();
+        assert_eq!(teams, [(2, "ground", None), (4, "carried", Some("sapphire")), (6, "ground", Some("sapphire")), (8, "ground", Some("sapphire"))]);
     }
 
     #[test]

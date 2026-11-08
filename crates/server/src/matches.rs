@@ -197,6 +197,9 @@ struct Death {
     death_pos: Option<Pos>,
     #[serde(default)]
     killer_player_slot: Option<u32>,
+    /// How long the hero stayed dead: matches the path's zero-health run (130816395).
+    #[serde(default)]
+    death_duration_s: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -288,6 +291,10 @@ pub struct TimelinePlayer {
     pub deaths: Vec<u32>,
     /// `[game second, net worth]`, every 3–5 minutes.
     pub souls: Vec<[u32; 2]>,
+    /// `[died_s, back_s]` per death, from the match data's death durations (the replay
+    /// timeline's `Player.respawn`). Absent in timelines cached before it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub respawn: Vec<[u32; 2]>,
     /// The player's public Steam name (deadlock-api's profiles), sanitised; absent if the lookup
     /// failed. Never an id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -478,6 +485,7 @@ pub fn derive(raw: &[u8]) -> Result<Timeline, String> {
             health,
             deaths,
             souls: p.stats.iter().map(|s| [s.time_stamp_s, s.net_worth]).collect(),
+            respawn: respawns(&p.death_details, m.duration_s),
             name: None,
         });
     }
@@ -519,6 +527,25 @@ pub fn derive(raw: &[u8]) -> Result<Timeline, String> {
             e
         },
     })
+}
+
+/// `[died_s, back_s]` for each death the match data gives a duration for, in the shape the
+/// replay timeline checks. `death_duration_s` is the dead run's length on the hero's path
+/// (130816395: all 13 checked).
+fn respawns(deaths: &[Death], duration_s: u32) -> Vec<[u32; 2]> {
+    let mut sorted: Vec<&Death> = deaths.iter().collect();
+    sorted.sort_by_key(|d| d.game_time_s);
+    let mut out: Vec<[u32; 2]> = Vec::new();
+    for d in sorted {
+        let Some(dur) = d.death_duration_s.filter(|s| *s > 0 && *s <= 3600) else { continue };
+        let died = d.game_time_s.min(duration_s);
+        if out.last().is_none_or(|l| l[0] < died) {
+            // The paths show a death from the sample after it (`anchors`), and the hero back
+            // the same sample later: so the countdown ends as the hero reappears.
+            out.push([died, died + dur + 1]);
+        }
+    }
+    out
 }
 
 fn site_xy(key: &str) -> (Option<i32>, Option<i32>) {

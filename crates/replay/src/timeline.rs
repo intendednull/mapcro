@@ -11,6 +11,12 @@ use serde::{Deserialize, Serialize};
 
 pub const TIER: &str = "replay";
 
+/// The worker's output format, stamped in every timeline it writes. Bump it when the worker's
+/// output gains or changes a layer, so a cached timeline from an older worker can be told apart
+/// (docs/backlog.md, "Replay timeline format versions"). 0: written before the stamp.
+/// 1: respawn times and the urn (exploration rounds 5 and 6).
+pub const FORMAT: u32 = 1;
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Timeline {
     pub match_id: u64,
@@ -45,7 +51,53 @@ pub struct Timeline {
     /// Replay tier: objectives' health over time.
     #[serde(default)]
     pub objective_health: Vec<ObjectiveHealth>,
+    /// Replay tier: the Soul Urn (exploration round 6). Absent in timelines from before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub urn: Option<Urn>,
+    /// [`FORMAT`] of the worker that wrote it; 0 if it predates the stamp.
+    #[serde(default)]
+    pub format: u32,
 }
+
+/// The Soul Urn over the match (exploration round 6): where each one spawned, and its state
+/// wherever it changes.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Urn {
+    /// Each urn's spawn, in order: the second and the urn site (`urn:` key) it spawned over.
+    pub spawns: Vec<UrnSpawn>,
+    /// The urn's state from its first spawn, one entry per second it changes (the last state in
+    /// that second).
+    pub at: Vec<UrnAt>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UrnSpawn {
+    pub t: u32,
+    pub key: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UrnAt {
+    pub t: u32,
+    /// One of [`URN_STATES`]: on the ground (at `x`, `y`), carried (by `team`, `slot`), or none
+    /// in the match (delivered, or not spawned yet).
+    pub state: String,
+    #[serde(default)]
+    pub x: Option<i32>,
+    #[serde(default)]
+    pub y: Option<i32>,
+    /// Carried: the carrier's team. On the ground after a drop: the team that dropped it.
+    #[serde(default)]
+    pub team: Option<String>,
+    /// Carried: the carrier's slot in `team`.
+    #[serde(default)]
+    pub slot: Option<u32>,
+    /// The urn site (`urn:` key) it is to be delivered to, while that point is open.
+    #[serde(default)]
+    pub delivery: Option<String>,
+}
+
+pub const URN_STATES: [&str; 3] = ["ground", "carried", "none"];
 
 /// One objective's health in percent: `[second, pct]` where it changes.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -113,6 +165,10 @@ pub struct Player {
     /// Ult cooldown remaining in percent at each second (0 = ready); `null` while untrained.
     /// Maps to `PlayerState.ult_cooldown`.
     pub ult: Vec<Option<u8>>,
+    /// `[died_s, back_s]` per death: when the hero respawns (exploration round 5). Absent in
+    /// timelines from before it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub respawn: Vec<[u32; 2]>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -215,7 +271,7 @@ pub struct Who {
     pub hero_id: u32,
 }
 
-pub const EVENT_KINDS: [&str; 9] = ["death", "objective", "mid_boss", "rift_up", "rift_capture", "powerup_spawn", "powerup_taken", "souls_swing", "ult"];
+pub const EVENT_KINDS: [&str; 12] = ["death", "objective", "mid_boss", "rift_up", "rift_capture", "powerup_spawn", "powerup_taken", "souls_swing", "ult", "urn_pickup", "urn_drop", "urn_delivered"];
 
 /// An ability's internal name as the timeline keeps it: `[a-z0-9_]`, at most 64.
 pub fn plausible_ability(s: &str) -> bool {
@@ -313,6 +369,14 @@ fn plausible_key(k: &str) -> bool {
         && parts.get(3).is_none_or(|n| !n.is_empty() && n.len() <= 3 && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
+/// A player's `[died_s, back_s]` list: in order, each death in the match and its respawn after
+/// it, no later than the longest respawn past the end.
+pub fn respawns_ok(r: &[[u32; 2]], duration_s: u32) -> bool {
+    r.len() <= duration_s as usize + 1
+        && r.iter().all(|[a, b]| a < b && *a <= duration_s && *b <= duration_s.saturating_add(MAX_RESPAWN_S))
+        && r.windows(2).all(|w| w[0][0] < w[1][0])
+}
+
 fn ranges_ok(r: &[[u32; 2]], n: u32) -> bool {
     r.len() <= 4096 && r.iter().all(|[a, b]| a < b && *b <= n)
 }
@@ -341,6 +405,7 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
                 && p.deaths.len() <= n
                 && p.souls.len() <= n
                 && p.name.as_ref().is_none_or(|s| s.chars().count() <= MAX_NAME && !s.chars().any(bad_name_char))
+                && respawns_ok(&p.respawn, t.duration_s)
         })
         && t.objectives.len() <= MAX_LIST
         && t.objectives.iter().all(|o| plausible_key(&o.key) && o.kind.len() <= 32 && o.team.len() <= 16 && o.destroyed_s <= t.duration_s)
@@ -380,6 +445,22 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
                 && rising(&o.stage)
                 && o.stage.iter().all(|[s, g]| *s <= t.duration_s && (1..=2).contains(g))
         })
+        && t.urn.as_ref().is_none_or(|u| {
+            let urn_key = |k: &str| plausible_key(k) && k.starts_with("urn:");
+            u.spawns.len() <= MAX_LIST
+                && u.spawns.iter().all(|s| s.t <= t.duration_s && urn_key(&s.key))
+                && u.spawns.windows(2).all(|w| w[0].t < w[1].t)
+                && u.at.len() <= MAX_EVENTS
+                && u.at.windows(2).all(|w| w[0].t < w[1].t)
+                && u.at.iter().all(|a| {
+                    a.t <= t.duration_s
+                        && URN_STATES.contains(&a.state.as_str())
+                        && a.team.as_deref().is_none_or(|s| s == "amber" || s == "sapphire")
+                        && a.slot.is_none_or(|s| s < 8)
+                        && a.x.into_iter().chain(a.y).all(|v| v.abs() <= 32768)
+                        && a.delivery.as_deref().is_none_or(urn_key)
+                })
+        })
         && t.events.len() <= MAX_EVENTS
         && t.events.iter().all(|e| {
             let team_ok = |s: &str| s == "amber" || s == "sapphire" || s == "neutral";
@@ -418,6 +499,7 @@ mod tests {
                 deaths: vec![1],
                 souls: vec![[0, 500]],
                 ult: vec![None, Some(50), Some(0)],
+                respawn: vec![[1, 2]],
             }],
             objectives: vec![Objective { key: "walker:amber:lane1:1".into(), kind: "walker".into(), team: "amber".into(), lane: 1, destroyed_s: 2 }],
             mid_boss: vec![],
@@ -429,6 +511,15 @@ mod tests {
             events: vec![Event { team: Some("amber".into()), slot: Some(0), hero_id: Some(1), x: Some(3), y: Some(3), ..event(1, "death") }],
             objective_health: vec![ObjectiveHealth { key: "walker:amber:lane1:1".into(), at: vec![[0, 100], [2, 40]], stage: vec![] }],
             troopers: Some(Troopers { every_s: 1, amber: vec![encode_troopers(&[(7, 100, -200)]), String::new(), String::new()], sapphire: vec![String::new(); 3] }),
+            urn: Some(Urn {
+                spawns: vec![UrnSpawn { t: 0, key: "urn:neutral:lane1:1".into() }],
+                at: vec![
+                    UrnAt { t: 0, state: "ground".into(), x: Some(-6584), y: Some(0), team: None, slot: None, delivery: Some("urn:neutral:lane6:1".into()) },
+                    UrnAt { t: 1, state: "carried".into(), x: None, y: None, team: Some("amber".into()), slot: Some(0), delivery: Some("urn:neutral:lane6:1".into()) },
+                    UrnAt { t: 2, state: "none".into(), x: None, y: None, team: None, slot: None, delivery: None },
+                ],
+            }),
+            format: FORMAT,
         }
     }
 
@@ -485,6 +576,18 @@ mod tests {
             Box::new(|t| t.troopers.as_mut().map_or((), |x| x.amber[1] = "not base64!".into())),
             Box::new(|t| t.troopers.as_mut().map_or((), |x| x.amber[1] = encode_troopers(&[(1, 20000, 0)]))),
             Box::new(|t| t.troopers.as_mut().map_or((), |x| x.sapphire[0] = encode_troopers(&vec![(1, 0, 0); MAX_TROOPERS + 1]))),
+            Box::new(|t| t.players[0].respawn = vec![[1, 1]]),
+            Box::new(|t| t.players[0].respawn = vec![[9, 10]]),
+            Box::new(|t| t.players[0].respawn = vec![[1, 2 + 3600 + 1]]),
+            Box::new(|t| t.players[0].respawn = vec![[1, 2], [0, 2]]),
+            Box::new(|t| t.urn.as_mut().map_or((), |u| u.spawns[0].key = "rift:neutral:lane1:1".into())),
+            Box::new(|t| t.urn.as_mut().map_or((), |u| u.spawns[0].t = 9)),
+            Box::new(|t| t.urn.as_mut().map_or((), |u| u.at[1].state = "<b>".into())),
+            Box::new(|t| t.urn.as_mut().map_or((), |u| u.at[1].team = Some("neutral".into()))),
+            Box::new(|t| t.urn.as_mut().map_or((), |u| u.at[1].slot = Some(8))),
+            Box::new(|t| t.urn.as_mut().map_or((), |u| u.at[1].t = 0)),
+            Box::new(|t| t.urn.as_mut().map_or((), |u| u.at[0].x = Some(40000))),
+            Box::new(|t| t.urn.as_mut().map_or((), |u| u.at[0].delivery = Some("camp:neutral:lane0:3".into()))),
         ];
         for (i, f) in bad.iter().enumerate() {
             let mut t = tiny();
@@ -492,6 +595,17 @@ mod tests {
             assert!(validate(&serde_json::to_vec(&t).expect("json")).is_err(), "case {i}");
         }
         assert!(validate(b"{").is_err());
+    }
+
+    #[test]
+    fn a_timeline_from_before_the_urn_and_respawns_still_loads() {
+        let mut v = serde_json::to_value(tiny()).expect("json");
+        let o = v.as_object_mut().expect("object");
+        o.remove("urn");
+        o.remove("format");
+        o["players"][0].as_object_mut().expect("player").remove("respawn");
+        let t = validate(&serde_json::to_vec(&v).expect("json")).expect("an old timeline loads");
+        assert_eq!((t.urn, t.format, t.players[0].respawn.len()), (None, 0, 0));
     }
 
     #[test]

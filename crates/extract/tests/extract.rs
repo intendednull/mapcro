@@ -119,6 +119,25 @@ fn entity_tree() -> T {
                         ]),
                     )]),
                 )]),
+                T::Object(vec![(
+                    "keyValues3Data",
+                    T::Object(vec![(
+                        "values",
+                        T::Object(vec![
+                            ("classname", T::Str("citadel_trigger_idol_return".into())),
+                            ("teamnumber", T::Str("0".into())),
+                            (
+                                "origin",
+                                T::Array(vec![
+                                    T::Double(-6592.0),
+                                    T::Double(-8.0),
+                                    T::Double(192.0),
+                                ]),
+                            ),
+                            ("hammeruniqueid", T::Str("u1".into())),
+                        ]),
+                    )]),
+                )]),
             ]),
         ),
     ])
@@ -346,11 +365,14 @@ fn extract_writes_pack_and_blobs() {
     assert_eq!(heroes[0]["topbar_blob"].as_str(), Some("topbar/heroes/7"));
 
     let entities = pack["entities"].as_array().expect("entities");
-    assert_eq!(entities.len(), 2);
+    assert_eq!(entities.len(), 3);
     assert_eq!(entities[0]["key"].as_str(), Some("patron:amber:lane1:1"));
-    assert_eq!(entities[1]["key"].as_str(), Some("zipline:neutral:lane1:1"));
+    // The Soul Urn's delivery point, a neutral site on the nearest lane.
+    assert_eq!(entities[1]["key"].as_str(), Some("urn:neutral:lane1:1"));
+    assert_eq!(entities[1]["world"][0].as_f64(), Some(-6592.0));
+    assert_eq!(entities[2]["key"].as_str(), Some("zipline:neutral:lane1:1"));
     assert_eq!(
-        entities[1]["nodes"].as_array().expect("nodes").len(),
+        entities[2]["nodes"].as_array().expect("nodes").len(),
         1,
         "zipline node was not joined"
     );
@@ -402,6 +424,9 @@ fn real_install() {
     let powerups: Vec<&serde_json::Value> =
         pack["entities"].as_array().expect("entities").iter().filter(|e| e["kind"] == "powerup").collect();
     assert_eq!(powerups.len(), 2, "two mirrored powerup spawners");
+    let urns: Vec<&str> =
+        pack["entities"].as_array().expect("entities").iter().filter(|e| e["kind"] == "urn").filter_map(|e| e["key"].as_str()).collect();
+    assert_eq!(urns, ["urn:neutral:lane1:1", "urn:neutral:lane6:1"], "the Soul Urn's two delivery points, west and east");
     assert!(pack["icons"].as_array().expect("icons").len() > 50);
     assert_eq!(pack["hud_sources"].as_array().expect("hud").len(), 10);
 

@@ -26,6 +26,9 @@ for (const c of d.camps) if (c.t !== "midboss") add("camp", "neutral", "lane0", 
 add("rift", "neutral", "lane1", d.koth);
 // The two powerup spawners (the pack's kind "powerup"), west then east.
 for (const [i, pu] of d.powerups.entries()) add("powerup", "neutral", i === 0 ? "lane1" : "lane6", pu);
+// The two Soul Urn sites (the pack's kind "urn": the delivery points, the urn spawning over
+// one of them), west then east; from the map's citadel_trigger_idol_return entities.
+for (const [i, u] of (d.urns ?? []).entries()) add("urn", "neutral", i === 0 ? "lane1" : "lane6", u);
 // The design shows the one active site; the map has two, mirrored across the centre (the
 // extractor's pack lists both at x = ±7648). Either can be the active one on a board.
 add("rift", "neutral", "lane6", { x: 100 - d.koth.x, y: d.koth.y });

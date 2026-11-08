@@ -267,6 +267,21 @@ fn a_real_match_maps_its_objectives_and_re_anchors_drifting_paths() {
         let y = p["y"][0].as_i64().expect("alive at 0");
         if p["team"] == "amber" { assert!(y < -9_000) } else { assert!(y > 9_000) }
     }
+    // Respawns from the death durations: one per death, and the hero is back on its path then.
+    let (mut deaths, mut back_on_path) = (0, 0);
+    for p in t["players"].as_array().expect("players") {
+        let respawn = p["respawn"].as_array().expect("respawn");
+        assert_eq!(respawn.len(), p["deaths"].as_array().map_or(0, Vec::len));
+        for r in respawn {
+            let (died, back) = (r[0].as_u64().expect("died") as usize, r[1].as_u64().expect("back") as usize);
+            assert!(back > died);
+            deaths += 1;
+            // The first second back on the path, within 2 s (re-anchored paths stretch a little).
+            let seen = (died + 1..back + 10).find(|&i| p["x"][i].is_number()).unwrap_or(0);
+            back_on_path += usize::from(seen.abs_diff(back) <= 2);
+        }
+    }
+    assert!(deaths > 20 && back_on_path * 10 >= deaths * 9, "{back_on_path} of {deaths}");
 }
 
 #[test]

@@ -328,6 +328,8 @@ fn entity_kind(entity: &RawEntity) -> Option<&'static str> {
         "info_neutral_trooper_camp" => Some("camp"),
         "info_koth_spawn_location" => Some("rift"),
         "citadel_item_powerup_spawner" => Some("powerup"),
+        // The Soul Urn's two delivery points; the urn spawns over one and goes to the other.
+        "citadel_trigger_idol_return" => Some("urn"),
         "npc_base_defense_sentry" => Some("sentry"),
         "info_team_spawn" => Some("team_spawn"),
         _ => None,

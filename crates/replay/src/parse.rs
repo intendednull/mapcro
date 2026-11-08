@@ -2,7 +2,7 @@
 //! on current demos (docs/research/replay-parsing-exploration.md §2–§7). Steam ids are never
 //! read.
 
-use crate::derive::{AbilityObs, CampSlot, HeroObs, ObjObs, Obs, PowerupObs, Sample, TrooperObs, ZipNode};
+use crate::derive::{AbilityObs, CampSlot, HeroObs, ObjObs, Obs, PowerupObs, Sample, TrooperObs, UrnObs, ZipNode};
 use prost::Message;
 use crate::{FIRST_CURRENT_BUILD, content_build, reason};
 use boon::{Parser, world_position};
@@ -16,6 +16,11 @@ const KOTH: &str = "CCitadelItemKothSpawner";
 const PICKUP: &str = "CCitadel_PickupItemSpawner";
 const TROOPER: &str = "CNPC_Trooper";
 const ZIP_NODE: &str = "CCitadelZipLineNode";
+/// The Soul Urn on the ground, and its two delivery points (exploration round 6).
+const IDOL: &str = "CCitadelItemPickupIdol";
+const IDOL_RETURN: &str = "CCitadelIdolReturnTrigger";
+/// The urn moving less than this (world units) isn't a change worth a record.
+const URN_MOVE: f32 = 64.0;
 const CAMP_TIMES: &str = "m_pGameRules.m_vecNeutralCampNextSpawnTimes";
 const CAMP_ORIGINS: &str = "m_pGameRules.m_vecNeutralCampTimerOrigins";
 const CAMP_IS_MID: &str = "m_pGameRules.m_vecNeutralCampTimerIsMidBoss";
@@ -31,6 +36,8 @@ const OBJECTIVES: [(&str, &str); 6] = [
     ("CCitadel_Destroyable_Building", "shrine"),
 ];
 const ORIGIN: &str = "CBodyComponent.m_skeletonInstance.m_vecOrigin";
+/// A class without a skeleton (the urn's delivery points) has its origin on the body itself.
+const BODY_ORIGIN: &str = "CBodyComponent";
 
 type K = Option<u64>;
 
@@ -48,11 +55,16 @@ struct Body {
 
 impl Body {
     fn of(ctx: &boon::Context, class: &str) -> Body {
+        let skeleton = ctx.serializers().get(class).and_then(|s| s.resolve_field_key(&format!("{ORIGIN}.m_cellX"))).is_some();
+        Body::at(ctx, class, if skeleton { ORIGIN } else { BODY_ORIGIN })
+    }
+
+    fn at(ctx: &boon::Context, class: &str, origin: &str) -> Body {
         let Some(s) = ctx.serializers().get(class) else { return Body::default() };
         let k = |p: &str| s.resolve_field_key(p);
         Body {
-            cell: [k(&format!("{ORIGIN}.m_cellX")), k(&format!("{ORIGIN}.m_cellY")), k(&format!("{ORIGIN}.m_cellZ"))],
-            vec: [k(&format!("{ORIGIN}.m_vecX")), k(&format!("{ORIGIN}.m_vecY")), k(&format!("{ORIGIN}.m_vecZ"))],
+            cell: [k(&format!("{origin}.m_cellX")), k(&format!("{origin}.m_cellY")), k(&format!("{origin}.m_cellZ"))],
+            vec: [k(&format!("{origin}.m_vecX")), k(&format!("{origin}.m_vecY")), k(&format!("{origin}.m_vecZ"))],
             health: k("m_iHealth"),
             max_health: k("m_iMaxHealth"),
             life: k("m_lifeState"),
@@ -70,6 +82,7 @@ impl Body {
 struct Keys {
     pawn: Body,
     pawn_hero: K,
+    pawn_respawn: K,
     ctrl_team: K,
     ctrl_pawn: K,
     ctrl_hero: K,
@@ -92,6 +105,9 @@ struct Keys {
     trooper: Body,
     zip: Body,
     zip_lane: K,
+    idol: Body,
+    idol_return: Body,
+    idol_return_off: K,
     camp_count: K,
     /// Per camp slot: next spawn time, origin, is-mid-boss.
     camp: Vec<[K; 3]>,
@@ -104,6 +120,7 @@ impl Keys {
         Keys {
             pawn: Body::of(ctx, PAWN),
             pawn_hero: field(PAWN, "m_CCitadelHeroComponent.m_spawnedHero.m_nHeroID"),
+            pawn_respawn: field(PAWN, "m_flRespawnTime"),
             ctrl_team: field(CONTROLLER, "m_iTeamNum"),
             ctrl_pawn: field(CONTROLLER, "m_hPawn"),
             ctrl_hero: field(CONTROLLER, "m_PlayerDataGlobal.m_nHeroID"),
@@ -126,6 +143,9 @@ impl Keys {
             trooper: Body::of(ctx, TROOPER),
             zip: Body::of(ctx, ZIP_NODE),
             zip_lane: field(ZIP_NODE, "m_iPrimaryLane"),
+            idol: Body::of(ctx, IDOL),
+            idol_return: Body::of(ctx, IDOL_RETURN),
+            idol_return_off: field(IDOL_RETURN, "m_bDisabled"),
             camp_count: field(RULES, CAMP_TIMES),
             camp: (0..MAX_CAMP_SLOTS).map(|i| [field(RULES, &format!("{CAMP_TIMES}.{i}")), field(RULES, &format!("{CAMP_ORIGINS}.{i}")), field(RULES, &format!("{CAMP_IS_MID}.{i}"))]).collect(),
             objectives: OBJECTIVES.iter().map(|(c, k)| (*c, (Body::of(ctx, c), *k))).collect(),
@@ -156,7 +176,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         return Err(reason::OLD_MAP);
     }
     let parser = Parser::from_file(path).map_err(|_| reason::NOT_A_REPLAY)?;
-    let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, TROOPER, ZIP_NODE].into_iter().collect();
+    let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, TROOPER, ZIP_NODE, IDOL, IDOL_RETURN].into_iter().collect();
     classes.extend(OBJECTIVES.iter().map(|(c, _)| *c));
     let mut keys: Option<Keys> = None;
     let mut seconds: Vec<Sample> = Vec::new();
@@ -169,6 +189,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
     let mut zip_index: HashMap<i32, usize> = HashMap::new();
     let mut zip_nodes: Vec<ZipNode> = Vec::new();
     let mut camp_slots: Vec<CampSlot> = Vec::new();
+    let mut urn: Vec<UrnObs> = Vec::new();
     parser
         .run_to_end_with_events_filtered(&classes, |ctx, events| {
             let k = keys.get_or_insert_with(|| Keys::resolve(ctx));
@@ -202,6 +223,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
             // Camp timers change on any tick: read them on every one, from the horn.
             if start > 0.0 && game >= 0.0 {
                 camp_timers(k, rules, game as f32, &mut camp_slots);
+                urn_tick(ctx, k, game as f32, &mut urn);
             }
             if start <= 0.0 || game < seconds.len() as f64 || game > f64::from(crate::timeline::MAX_DURATION_S) {
                 return;
@@ -216,7 +238,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         })
         .map_err(|_| reason::PARSE_FAILED)?;
     // Nodes first seen after a sample was taken make earlier samples short: those hold.
-    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots })
+    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn })
 }
 
 /// Every zipline node's team now, in `nodes` order; a node seen for the first time is added
@@ -254,6 +276,57 @@ fn camp_timers(k: &Keys, rules: &boon::entity::Entity, game: f32, slots: &mut Ve
             slot.changes.push((game, v));
         }
     }
+}
+
+/// Record the urn where it changes (exploration round 6). Picked up, the carrier is the carrying
+/// team's nearest living hero to where the urn lay.
+fn urn_tick(ctx: &boon::Context, k: &Keys, game: f32, out: &mut Vec<UrnObs>) {
+    let ents = ctx.entities();
+    let mut now = UrnObs { game, ..Default::default() };
+    for (_, e) in ents.iter() {
+        let class = e.class_name.as_ref();
+        if class == IDOL && e.active && now.ground.is_none() {
+            now.ground = Some(k.idol.pos(e));
+        } else if class == IDOL_RETURN && !e.get_bool(k.idol_return_off) && now.delivery.is_none() {
+            now.delivery = Some(k.idol_return.pos(e));
+            now.carrier_team = e.get_i64(k.idol_return.team);
+        }
+    }
+    let last = out.last().cloned().unwrap_or_default();
+    let moved = match (last.ground, now.ground) {
+        (Some(a), Some(b)) => (a[0] - b[0]).hypot(a[1] - b[1]) >= URN_MOVE,
+        (a, b) => a.is_some() != b.is_some(),
+    };
+    if !moved && last.carrier_team == now.carrier_team && last.delivery.is_some() == now.delivery.is_some() {
+        return;
+    }
+    now.carrier = if now.carrier_team > 0 && now.ground.is_none() && last.carrier_team == now.carrier_team && last.ground.is_none() {
+        last.carrier
+    } else if matches!(now.carrier_team, 2 | 3) && now.ground.is_none() {
+        let from = last.ground.or(out.iter().rev().find_map(|u| u.ground));
+        from.and_then(|from| nearest_hero(ctx, k, now.carrier_team, from))
+    } else {
+        None
+    };
+    out.push(now);
+}
+
+/// The controller index of `team`'s living hero nearest `at`.
+fn nearest_hero(ctx: &boon::Context, k: &Keys, team: i64, at: [f32; 2]) -> Option<i32> {
+    let ents = ctx.entities();
+    let mut best: Option<(f32, i32)> = None;
+    for (_, e) in ents.iter().filter(|(_, e)| e.class_name.as_ref() == CONTROLLER && e.get_i64(k.ctrl_team) == team) {
+        let Some(p) = e.get_handle(k.ctrl_pawn).and_then(|h| ents.get_by_handle(h)).filter(|p| p.class_name.as_ref() == PAWN) else { continue };
+        if !(p.active && p.get_i64(k.pawn.life) == 0 && p.get_i64(k.pawn.health) > 0) {
+            continue;
+        }
+        let q = k.pawn.pos(p);
+        let d = (q[0] - at[0]).hypot(q[1] - at[1]);
+        if best.is_none_or(|b| d < b.0) {
+            best = Some((d, e.index));
+        }
+    }
+    best.map(|b| b.1)
 }
 
 /// `KEUserMsgImportantAbilityUsed`: an ult (or other important ability) cast (exploration
@@ -309,6 +382,7 @@ fn sample(ctx: &boon::Context, k: &Keys, rules: &boon::entity::Entity, now: f32)
                 ult_trained: e.get_bool(k.ult_trained),
                 ult_start: e.get_f32(k.ult_start),
                 ult_end: e.get_f32(k.ult_end),
+                respawn_at: pawn.map_or(0.0, |p| p.get_f32(k.pawn_respawn)),
             });
         } else if !e.active {
             continue;
