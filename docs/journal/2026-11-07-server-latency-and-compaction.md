@@ -225,3 +225,15 @@ The review's other model gaps stay open and are worth knowing:
   overtakes isn't in the model. Finding 1's fix makes that case a disconnect, which the model does
   cover.
 - MAX_COMPACTS is 1.
+
+**The soak on the final head caught a gap in the soak itself (ade123e).**
+- `just soak 0x2a 40 600` reached head 29,282 and then failed with "log reader timed out at 0 of
+  29282".
+- Its final check reads the whole log from seq 0. Compaction is on by default at 10,000 ops and
+  had moved the floor, so the server correctly rebased the reader. The reader didn't know about
+  Rebase, so it waited out its 180 s timer.
+- No earlier soak ran long enough to compact.
+- The soak now runs with `BOARD_COMPACT_OPS=0`, because its checks need full history, and a
+  rebased reader fails at once with a clear error.
+- So the soak doesn't exercise compaction; the system tests and the sim do. A soak that checks
+  peers against a rebased reader's doc would close that gap, and it's in the backlog.
