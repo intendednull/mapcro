@@ -283,6 +283,10 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-transport { flex-wrap: wrap; row-gap: 8px; }
 .pl-transport .pl-scrub { flex: 1 1 280px; min-width: 280px; }
 .pl-tail { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
+/* The display toggles (Troopers, Health, Names, Pings) read as on or off at a glance, like the
+   events list's chips: brass when on, faint when off. */
+.pl-tail .btn.ghost[aria-pressed="true"] { color: var(--brass); border-color: var(--brass-dim); background: var(--raised); }
+.pl-tail .btn.ghost[aria-pressed="false"] { color: var(--faint); }
 /* As wide for "Pause" as for "Play", so pressing it never re-flows the row. */
 .pl-play { min-width: 60px; justify-content: center; }
 .pl-head { flex-wrap: wrap; row-gap: 6px; }
