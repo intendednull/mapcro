@@ -2,11 +2,12 @@
 //! build it by hand.
 //!
 //! The demo only records entities near players (PVS), so absence is "not visible", never
-//! "gone": objectives count as destroyed only on a seen positive-to-zero health change, waves and
-//! powerups hold their last seen value and mark the gap stale.
+//! "gone": objectives count as destroyed only on a seen positive-to-zero health change, and
+//! powerups hold their last seen value and mark the gap stale. Zipline colours and camp timers
+//! are networked whatever the players see (exploration rounds 3 and 4).
 
 use crate::map::{self, Map};
-use crate::timeline::{Event, MidBoss, Objective, Player, Powerup, Rift, Timeline, WaveTrack, TIER, event, souls_swings};
+use crate::timeline::{Camp, Event, MidBoss, Objective, Player, Powerup, Rift, Timeline, ZipTrack, TIER, event, souls_swings};
 #[cfg(test)]
 use crate::timeline::decode_troopers;
 use std::collections::BTreeMap;
@@ -28,6 +29,29 @@ pub struct Sample {
     pub powerups: Vec<PowerupObs>,
     /// Important abilities (ults) cast since the last sample.
     pub abilities: Vec<AbilityObs>,
+    /// Each zipline node's `m_iTeamNum` (2 Amber, 3 Sapphire, 0 or 4 neither), in
+    /// [`Obs::zip_nodes`] order; empty when the sample has none.
+    pub zip_teams: Vec<u8>,
+}
+
+/// A zipline node (`CCitadelZipLineNode`): static, so read once.
+#[derive(Clone, Debug)]
+pub struct ZipNode {
+    /// `m_iPrimaryLane`: 1, 4 or 6, our lane keys' numbers.
+    pub lane: i64,
+    pub pos: [f32; 2],
+}
+
+/// One of the game rules' neutral camp timers (`m_vecNeutralCampTimer*`, exploration round 3).
+#[derive(Clone, Debug, Default)]
+pub struct CampSlot {
+    /// World position: the camp's site, to 0.0 units on the current map.
+    pub origin: [f32; 2],
+    /// `m_vecNeutralCampTimerIsMidBoss`.
+    pub mid_boss: bool,
+    /// `(game second, m_vecNeutralCampNextSpawnTimes)` whenever the timer changes: −1 alive, T > 0
+    /// cleared (or not yet spawned) and up at match-clock T.
+    pub changes: Vec<(f32, f32)>,
 }
 
 #[derive(Clone, Debug)]
@@ -87,6 +111,7 @@ pub struct PowerupObs {
     pub active: bool,
 }
 
+#[derive(Default)]
 pub struct Obs {
     pub match_id: u64,
     pub build: u32,
@@ -96,13 +121,19 @@ pub struct Obs {
     pub winner: i64,
     /// Index = game second, from 0.
     pub seconds: Vec<Sample>,
+    pub zip_nodes: Vec<ZipNode>,
+    pub camp_slots: Vec<CampSlot>,
 }
 
 /// How far (world units) a demo entity may be from our site to take its key. Current-map
 /// demos land at 0 (exploration §8); the old map's patrons and shrines are ~1280 off.
 const SITE_MATCH: f64 = 400.0;
-/// A trooper further than this from its lane (map units, ~1,300 world units) isn't on it.
-const LANE_MATCH: f64 = 60.0;
+/// A zipline node further than this from its lane (map units) isn't on it. Current-map nodes
+/// sit at 0.0 (exploration round 4).
+const ZIP_MATCH: f64 = 5.0;
+/// How far (world units) a camp timer's origin may be from our camp site. They match at 0.0;
+/// some sites are only ~550 apart.
+const CAMP_MATCH: f64 = 64.0;
 
 fn team_name(t: i64) -> Option<&'static str> {
     match t {
@@ -367,49 +398,8 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         powerups.push(Powerup { key: key.to_owned(), available, stale: runs(&stale) });
     }
 
-    // ---- waves: where the two fronts meet along each lane ----
-    let mut waves = Vec::new();
-    for lane in &m.lanes {
-        let lane_no: i64 = lane.key.trim_start_matches("lane").parse().unwrap_or(-1);
-        let mut t = Vec::with_capacity(n);
-        let mut stale = Vec::with_capacity(n);
-        let mut raw: Vec<Option<u16>> = Vec::with_capacity(n);
-        let mut last: Option<u16> = None;
-        for s in &obs.seconds {
-            let (mut amber, mut sapphire): (Option<u16>, Option<u16>) = (None, None);
-            for tr in s.troopers.iter().filter(|tr| tr.lane == lane_no) {
-                let (tt, d) = lane.project(map::world_to_map(tr.pos[0] as f64, tr.pos[1] as f64));
-                if d > LANE_MATCH {
-                    continue;
-                }
-                match tr.team {
-                    2 => amber = Some(amber.map_or(tt, |a| a.max(tt))),
-                    3 => sapphire = Some(sapphire.map_or(tt, |v| v.min(tt))),
-                    _ => {}
-                }
-            }
-            let now = match (amber, sapphire) {
-                (Some(a), Some(b)) => Some(((u32::from(a) + u32::from(b)) / 2) as u16),
-                (Some(a), None) => Some(a),
-                (None, Some(b)) => Some(b),
-                (None, None) => None,
-            };
-            stale.push(now.is_none());
-            raw.push(now);
-        }
-        // The fronts jump as waves die and spawn (p95 ~1,100 units a second, exploration
-        // round 2): a 5 s median of the seen seconds settles them; gaps hold the last value.
-        for i in 0..raw.len() {
-            if raw[i].is_some() {
-                let mut w: Vec<u16> = raw[i.saturating_sub(2)..(i + 3).min(raw.len())].iter().flatten().copied().collect();
-                w.sort_unstable();
-                last = Some(w[w.len() / 2]);
-            }
-            t.push(last);
-        }
-        waves.push(WaveTrack { lane: lane.key.to_owned(), t, stale: runs(&stale) });
-    }
-    waves.sort_by(|a, b| a.lane.cmp(&b.lane));
+    let zips = zips(obs, m);
+    let camps = camps(obs, m);
 
     let events = events(obs, m, &players, &objectives, &mid_boss, &rifts, &powerups, duration_s);
     let objective_health = objective_health(obs, m);
@@ -427,11 +417,121 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         reanchored: 0,
         rifts,
         powerups,
-        waves,
+        zips,
+        camps,
         events,
         troopers,
         objective_health,
     })
+}
+
+/// Each lane's zipline colours (exploration round 4): every node's `t` along our lane, then each
+/// second Amber's edge, the furthest Amber node (0 if none), and Sapphire's, the nearest Sapphire
+/// node (1000 if none), written where either moves. The colours are always one run per team
+/// along a lane; were they ever to cross, both edges meet at their midpoint.
+fn zips(obs: &Obs, m: &Map) -> Vec<ZipTrack> {
+    let placed: Vec<Option<(usize, u16)>> = obs
+        .zip_nodes
+        .iter()
+        .map(|z| {
+            let key = format!("lane{}", z.lane);
+            let li = m.lanes.iter().position(|l| l.key == key)?;
+            let (t, d) = m.lanes[li].project(map::world_to_map(f64::from(z.pos[0]), f64::from(z.pos[1])));
+            (d <= ZIP_MATCH).then_some((li, t))
+        })
+        .collect();
+    let mut out = Vec::new();
+    for (li, lane) in m.lanes.iter().enumerate() {
+        if !placed.iter().flatten().any(|(l, _)| *l == li) {
+            continue;
+        }
+        let mut at: Vec<[u32; 3]> = Vec::new();
+        for (sec, s) in obs.seconds.iter().enumerate() {
+            if s.zip_teams.len() != placed.len() {
+                continue;
+            }
+            let (mut amber, mut sapphire) = (0u32, 1000u32);
+            for (node, team) in placed.iter().zip(&s.zip_teams) {
+                let Some((l, t)) = node else { continue };
+                if *l != li {
+                    continue;
+                }
+                match team {
+                    2 => amber = amber.max(u32::from(*t)),
+                    3 => sapphire = sapphire.min(u32::from(*t)),
+                    _ => {}
+                }
+            }
+            if amber > sapphire {
+                let mid = (amber + sapphire) / 2;
+                (amber, sapphire) = (mid, mid);
+            }
+            if at.last().is_none_or(|l| l[1] != amber || l[2] != sapphire) {
+                at.push([sec as u32, amber, sapphire]);
+            }
+        }
+        if !at.is_empty() {
+            out.push(ZipTrack { lane: lane.key.to_owned(), at });
+        }
+    }
+    out.sort_by(|a, b| a.lane.cmp(&b.lane));
+    out
+}
+
+/// Camps and the mid boss from the game rules' timers (exploration round 3), each matched to our
+/// site by its origin, never by its slot. A timer reads −1 while the camp is up and T > 0 while
+/// it waits to (re)spawn at match-clock T; 0 means nothing.
+fn camps(obs: &Obs, m: &Map) -> Vec<Camp> {
+    let mut out: Vec<Camp> = Vec::new();
+    let sec = |v: f32| v.max(0.0).round() as u32;
+    for slot in &obs.camp_slots {
+        let kind = if slot.mid_boss { "mid_boss" } else { "camp" };
+        let Some(site) = m.nearest(kind, f64::from(slot.origin[0]), f64::from(slot.origin[1]), CAMP_MATCH) else { continue };
+        if out.iter().any(|c| c.key == site.key) {
+            continue;
+        }
+        let (mut first, mut due, mut alive, mut since) = (None::<u32>, None::<u32>, false, 0.0f32);
+        let mut cleared: Vec<[u32; 2]> = Vec::new();
+        for &(g, v) in &slot.changes {
+            if v < 0.0 {
+                if !alive {
+                    since = g;
+                }
+                if first.is_none() {
+                    // The spawn time it was waiting for, else when it was first seen up.
+                    first = Some(due.unwrap_or(sec(g)).min(sec(g)));
+                }
+                alive = true;
+            } else if v > 0.0 {
+                if alive && g - since < 1.0 && cleared.is_empty() {
+                    // Every timer reads −1 for the first tick of the recording, then its first
+                    // spawn time: no camp is up and cleared within a second.
+                    (first, alive) = (None, false);
+                }
+                if first.is_none() {
+                    due = Some(sec(v));
+                } else if alive {
+                    let at = sec(g).max(first.unwrap_or(0));
+                    // Seconds are rounded: a respawn and the next clear can share one.
+                    if let Some(l) = cleared.last_mut() {
+                        l[1] = l[1].min(at).max(l[0] + 1);
+                    }
+                    if cleared.last().is_none_or(|l| l[1] <= at) {
+                        cleared.push([at, sec(v).max(at + 1)]);
+                    }
+                    alive = false;
+                } else if let Some(l) = cleared.last_mut() {
+                    // Still down, and its respawn moved.
+                    l[1] = sec(v).max(l[0] + 1);
+                }
+            }
+        }
+        // A camp that never came up in the recording still says when it would.
+        let Some(first_s) = first.or(due) else { continue };
+        out.push(Camp { key: site.key.clone(), first_s, cleared });
+    }
+    out.sort_by(|a, b| a.key.cmp(&b.key));
+    out
 }
 
 /// Each objective's health in percent, by board key, as `[second, pct]` whenever it moves by
@@ -594,7 +694,7 @@ mod tests {
     }
 
     fn obs(seconds: Vec<Sample>) -> Obs {
-        Obs { match_id: 42, build: 6813, game_mode: 1, winner: 0, seconds }
+        Obs { match_id: 42, build: 6813, game_mode: 1, winner: 0, seconds, ..Default::default() }
     }
 
     #[test]
@@ -735,45 +835,6 @@ mod tests {
     }
 
     #[test]
-    fn waves_meet_between_the_fronts_and_hold_when_unseen() {
-        let m = map::current();
-        let mid = m.lanes.iter().find(|l| l.key == "lane4").expect("mid");
-        // World points on the mid lane: the map centre, and a little toward each base.
-        let on = |y: f32| [0.0f32, y];
-        let t_of = |y: f32| mid.project(map::world_to_map(0.0, y as f64)).0;
-        let mut s = seconds(5);
-        s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
-        // 0: nothing seen yet. 1: both fronts. 2: Amber only. 3: none (held, stale). 4: both again.
-        s[1].troopers = vec![
-            TrooperObs { id: 0, team: 2, lane: 4, pos: on(-1000.0) },
-            TrooperObs { id: 0, team: 2, lane: 4, pos: on(-400.0) },
-            TrooperObs { id: 0, team: 3, lane: 4, pos: on(400.0) },
-            TrooperObs { id: 0, team: 3, lane: 4, pos: on(2000.0) },
-            // Another lane's trooper doesn't count, nor one far off the lane.
-            TrooperObs { id: 0, team: 3, lane: 1, pos: on(-3000.0) },
-            TrooperObs { id: 0, team: 3, lane: 4, pos: [5000.0, -3000.0] },
-        ];
-        s[2].troopers = vec![TrooperObs { id: 0, team: 2, lane: 4, pos: on(800.0) }];
-        s[4].troopers = vec![TrooperObs { id: 0, team: 2, lane: 4, pos: on(0.0) }, TrooperObs { id: 0, team: 3, lane: 4, pos: on(0.0) }];
-        let t = derive(&obs(s), m).expect("timeline");
-        let w = t.waves.iter().find(|w| w.lane == "lane4").expect("mid");
-        let meet = ((u32::from(t_of(-400.0)) + u32::from(t_of(400.0))) / 2) as u16;
-        assert!(t_of(-400.0) < t_of(400.0));
-        // A 5 s median of the seen seconds (an even count takes the upper middle).
-        let med = |mut v: Vec<u16>| {
-            v.sort_unstable();
-            v[v.len() / 2]
-        };
-        let a = med(vec![meet, t_of(800.0)]);
-        let b = med(vec![meet, t_of(800.0), t_of(0.0)]);
-        let c = med(vec![t_of(800.0), t_of(0.0)]);
-        assert_eq!(w.t, [None, Some(a), Some(b), Some(b), Some(c)]);
-        assert_eq!(w.stale, [[0, 1], [3, 4]]);
-        let lanes: Vec<&str> = t.waves.iter().map(|w| w.lane.as_str()).collect();
-        assert_eq!(lanes, ["lane1", "lane4", "lane6"]);
-    }
-
-    #[test]
     fn events_cover_deaths_objectives_rifts_and_powerups() {
         let mut s = seconds(6);
         for (i, x) in s.iter_mut().enumerate() {
@@ -805,19 +866,59 @@ mod tests {
     }
 
     #[test]
-    fn a_one_second_spike_in_a_front_is_smoothed_away() {
+    fn zipline_edges_are_the_furthest_node_of_each_team() {
         let m = map::current();
         let mid = m.lanes.iter().find(|l| l.key == "lane4").expect("mid");
+        // Four nodes on the mid lane, Amber end first, then one off the lane.
+        let r = 10752.0f32;
+        let world = |q: map::Pt| [(q.x as f32) / 1000.0 * 2.0 * r - r, r - (q.y as f32) / 1000.0 * 2.0 * r];
+        let on: Vec<[f32; 2]> = [40, 48, 52, 60].iter().map(|pc| world(mid.points[mid.points.len() * pc / 100])).collect();
+        let t_of = |i: usize| u32::from(mid.project(map::world_to_map(f64::from(on[i][0]), f64::from(on[i][1]))).0);
+        let mut zip_nodes: Vec<ZipNode> = on.iter().map(|p| ZipNode { lane: 4, pos: *p }).collect();
+        zip_nodes.push(ZipNode { lane: 4, pos: [5000.0, -3000.0] });
         let mut s = seconds(5);
         s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
-        for (i, x) in s.iter_mut().enumerate() {
-            let y = if i == 2 { 3000.0 } else { 0.0 };
-            x.troopers = vec![TrooperObs { id: 0, team: 2, lane: 4, pos: [0.0, y] }];
-        }
-        let t = derive(&obs(s), m).expect("timeline");
-        let w = t.waves.iter().find(|w| w.lane == "lane4").expect("mid");
-        let calm = mid.project(map::world_to_map(0.0, 0.0)).0;
-        assert_eq!(w.t, vec![Some(calm); 5]);
+        // 0: neutral middle. 1: Amber takes the second, Sapphire holds the last two. 2: no nodes in the
+        // sample (held). 3: unchanged. 4: Sapphire takes everything; the off-lane node counts
+        // for nobody.
+        s[0].zip_teams = vec![2, 4, 4, 3, 2];
+        s[1].zip_teams = vec![2, 2, 3, 3, 2];
+        s[3].zip_teams = vec![2, 2, 3, 3, 3];
+        s[4].zip_teams = vec![3, 3, 3, 3, 2];
+        let t = derive(&Obs { zip_nodes, ..obs(s) }, m).expect("timeline");
+        assert_eq!(t.zips.len(), 1, "only lanes with nodes");
+        let z = &t.zips[0];
+        assert_eq!(z.lane, "lane4");
+        assert!(t_of(0) < t_of(1) && t_of(1) < t_of(2) && t_of(2) < t_of(3));
+        assert_eq!(z.at, [[0, t_of(0), t_of(3)], [1, t_of(1), t_of(2)], [4, 0, t_of(0)]]);
+        assert_eq!(crate::timeline::validate(&serde_json::to_vec(&t).expect("json")).map(|_| ()), Ok(()));
+    }
+
+    #[test]
+    fn camps_take_their_key_from_the_origin_and_clear_until_the_timer() {
+        let m = map::current();
+        let mut s = seconds(1200);
+        s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
+        let camp_slots = vec![
+            // Slot 0 sits on camp 3 (strong): first up at 480, cleared at 677.4, back at 1012.4.
+            // The recording's first tick reads −1 for every timer.
+            CampSlot { origin: [-4916.0, -1792.0], mid_boss: false, changes: vec![(0.0, -1.0), (0.0, 480.0), (480.05, -1.0), (677.44, 1012.44), (1012.45, -1.0)] },
+            // The mid boss (its origin a couple of units off the centre): up from the start.
+            CampSlot { origin: [-2.0, -1.0], mid_boss: true, changes: vec![(0.0, -1.0), (0.0, 0.0), (0.02, -1.0), (864.7, 1284.7)] },
+            // An origin on no site, and a camp that never spawns in the recording.
+            CampSlot { origin: [9999.0, 9999.0], mid_boss: false, changes: vec![(0.0, 120.0)] },
+            CampSlot { origin: [6304.0, 964.0], mid_boss: false, changes: vec![(0.0, 2000.0)] },
+        ];
+        let t = derive(&Obs { camp_slots, ..obs(s) }, m).expect("timeline");
+        assert_eq!(
+            t.camps,
+            [
+                Camp { key: "camp:neutral:lane0:3".into(), first_s: 480, cleared: vec![[677, 1012]] },
+                Camp { key: "camp:neutral:lane0:45".into(), first_s: 2000, cleared: vec![] },
+                Camp { key: "mid_boss:neutral:lane0:1".into(), first_s: 0, cleared: vec![[865, 1285]] },
+            ]
+        );
+        assert_eq!(crate::timeline::validate(&serde_json::to_vec(&t).expect("json")).map(|_| ()), Ok(()));
     }
 
     #[test]

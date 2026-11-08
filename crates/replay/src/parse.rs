@@ -2,7 +2,7 @@
 //! on current demos (docs/research/replay-parsing-exploration.md §2–§7). Steam ids are never
 //! read.
 
-use crate::derive::{AbilityObs, HeroObs, ObjObs, Obs, PowerupObs, Sample, TrooperObs};
+use crate::derive::{AbilityObs, CampSlot, HeroObs, ObjObs, Obs, PowerupObs, Sample, TrooperObs, ZipNode};
 use prost::Message;
 use crate::{FIRST_CURRENT_BUILD, content_build, reason};
 use boon::{Parser, world_position};
@@ -15,6 +15,12 @@ const RULES: &str = "CCitadelGameRulesProxy";
 const KOTH: &str = "CCitadelItemKothSpawner";
 const PICKUP: &str = "CCitadel_PickupItemSpawner";
 const TROOPER: &str = "CNPC_Trooper";
+const ZIP_NODE: &str = "CCitadelZipLineNode";
+const CAMP_TIMES: &str = "m_pGameRules.m_vecNeutralCampNextSpawnTimes";
+const CAMP_ORIGINS: &str = "m_pGameRules.m_vecNeutralCampTimerOrigins";
+const CAMP_IS_MID: &str = "m_pGameRules.m_vecNeutralCampTimerIsMidBoss";
+/// More slots than this isn't the map we know (52 on the current one).
+const MAX_CAMP_SLOTS: usize = 64;
 /// Demo class → our site kind.
 const OBJECTIVES: [(&str, &str); 6] = [
     ("CNPC_TrooperBoss", "guardian"),
@@ -84,6 +90,11 @@ struct Keys {
     pickup: Body,
     pickup_active: K,
     trooper: Body,
+    zip: Body,
+    zip_lane: K,
+    camp_count: K,
+    /// Per camp slot: next spawn time, origin, is-mid-boss.
+    camp: Vec<[K; 3]>,
     objectives: HashMap<&'static str, (Body, &'static str)>,
 }
 
@@ -113,6 +124,10 @@ impl Keys {
             pickup: Body::of(ctx, PICKUP),
             pickup_active: field(PICKUP, "m_bPowerupActive"),
             trooper: Body::of(ctx, TROOPER),
+            zip: Body::of(ctx, ZIP_NODE),
+            zip_lane: field(ZIP_NODE, "m_iPrimaryLane"),
+            camp_count: field(RULES, CAMP_TIMES),
+            camp: (0..MAX_CAMP_SLOTS).map(|i| [field(RULES, &format!("{CAMP_TIMES}.{i}")), field(RULES, &format!("{CAMP_ORIGINS}.{i}")), field(RULES, &format!("{CAMP_IS_MID}.{i}"))]).collect(),
             objectives: OBJECTIVES.iter().map(|(c, k)| (*c, (Body::of(ctx, c), *k))).collect(),
         }
     }
@@ -141,7 +156,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         return Err(reason::OLD_MAP);
     }
     let parser = Parser::from_file(path).map_err(|_| reason::NOT_A_REPLAY)?;
-    let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, TROOPER].into_iter().collect();
+    let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, TROOPER, ZIP_NODE].into_iter().collect();
     classes.extend(OBJECTIVES.iter().map(|(c, _)| *c));
     let mut keys: Option<Keys> = None;
     let mut seconds: Vec<Sample> = Vec::new();
@@ -150,6 +165,10 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
     let mut winner = 0;
     // Ult casts arrive as user messages between samples; they go with the next sample.
     let mut casts: Vec<AbilityObs> = Vec::new();
+    // Zipline nodes by entity index, in first-seen order; camp timers by slot.
+    let mut zip_index: HashMap<i32, usize> = HashMap::new();
+    let mut zip_nodes: Vec<ZipNode> = Vec::new();
+    let mut camp_slots: Vec<CampSlot> = Vec::new();
     parser
         .run_to_end_with_events_filtered(&classes, |ctx, events| {
             let k = keys.get_or_insert_with(|| Keys::resolve(ctx));
@@ -180,18 +199,61 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
             let start = f64::from(rules.get_f32(k.game_start));
             let now = (f64::from(ctx.tick() + server_start) - paused) * interval;
             let game = now - start;
+            // Camp timers change on any tick: read them on every one, from the horn.
+            if start > 0.0 && game >= 0.0 {
+                camp_timers(k, rules, game as f32, &mut camp_slots);
+            }
             if start <= 0.0 || game < seconds.len() as f64 || game > f64::from(crate::timeline::MAX_DURATION_S) {
                 return;
             }
             let mut s = sample(ctx, k, rules, now as f32);
             s.abilities = std::mem::take(&mut casts);
+            s.zip_teams = zip_teams(ctx, k, &mut zip_index, &mut zip_nodes);
             // Fill every second up to this one (a gap in ticks repeats the sample).
             while (seconds.len() as f64) <= game {
                 seconds.push(s.clone());
             }
         })
         .map_err(|_| reason::PARSE_FAILED)?;
-    Ok(Obs { match_id, build, game_mode, winner, seconds })
+    // Nodes first seen after a sample was taken make earlier samples short: those hold.
+    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots })
+}
+
+/// Every zipline node's team now, in `nodes` order; a node seen for the first time is added
+/// (positions and lanes are static).
+fn zip_teams(ctx: &boon::Context, k: &Keys, index: &mut HashMap<i32, usize>, nodes: &mut Vec<ZipNode>) -> Vec<u8> {
+    let mut seen: Vec<(usize, u8)> = Vec::new();
+    for (_, e) in ctx.entities().iter().filter(|(_, e)| e.class_name.as_ref() == ZIP_NODE) {
+        let i = *index.entry(e.index).or_insert_with(|| {
+            nodes.push(ZipNode { lane: e.get_i64(k.zip_lane), pos: k.zip.pos(e) });
+            nodes.len() - 1
+        });
+        seen.push((i, e.get_i64(k.zip.team).clamp(0, 255) as u8));
+    }
+    if seen.is_empty() {
+        return Vec::new();
+    }
+    let mut teams = vec![0u8; nodes.len()];
+    for (i, t) in seen {
+        teams[i] = t;
+    }
+    teams
+}
+
+/// Record each camp slot's timer where it changed (exploration round 3).
+fn camp_timers(k: &Keys, rules: &boon::entity::Entity, game: f32, slots: &mut Vec<CampSlot>) {
+    let n = (rules.get_i64(k.camp_count).max(0) as usize).min(k.camp.len());
+    for (i, [time, origin, mid]) in k.camp.iter().enumerate().take(n) {
+        if slots.len() <= i {
+            let o = rules.get_vector3(*origin);
+            slots.push(CampSlot { origin: [o[0], o[1]], mid_boss: rules.get_bool(*mid), changes: Vec::new() });
+        }
+        let v = rules.get_f32(*time);
+        let slot = &mut slots[i];
+        if slot.changes.last().is_none_or(|(_, last)| *last != v) {
+            slot.changes.push((game, v));
+        }
+    }
 }
 
 /// `KEUserMsgImportantAbilityUsed`: an ult (or other important ability) cast (exploration

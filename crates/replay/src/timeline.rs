@@ -2,7 +2,7 @@
 //!
 //! It extends the metadata timeline (`crates/server/src/matches.rs`) field for field, so the
 //! client reads both the same way, and adds what only a demo has: ult cooldowns, rifts,
-//! powerups and lane waves. One sample per game second, index = second, `0..=duration_s`.
+//! powerups, zipline colours and jungle camps. One sample per game second, index = second, `0..=duration_s`.
 //!
 //! **Personal data:** a player is a team, a slot, a hero and, if the demo carries one, the
 //! in-game name. Steam and account ids are never read from the demo, so they can't be written.
@@ -30,11 +30,16 @@ pub struct Timeline {
     /// Rift (`rift:` key) up from `start_s` to `end_s` (exclusive). At most one at a time.
     pub rifts: Vec<Rift>,
     pub powerups: Vec<Powerup>,
-    pub waves: Vec<WaveTrack>,
+    /// Replay tier: each lane's zipline colours, the game's own (spec §6b, "Lanes").
+    #[serde(default)]
+    pub zips: Vec<ZipTrack>,
+    /// Replay tier: jungle camps and the mid boss, alive or cleared (spec §6b, "Camps").
+    #[serde(default)]
+    pub camps: Vec<Camp>,
     /// What happened when, for the events list (spec §6a, "Events").
     #[serde(default)]
     pub events: Vec<Event>,
-    /// Lane troopers as seen in the recording (replay tier; a debug view of the waves).
+    /// Lane troopers as seen in the recording (replay tier).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub troopers: Option<Troopers>,
     /// Replay tier: objectives' health over time.
@@ -142,14 +147,28 @@ pub struct Powerup {
     pub stale: Vec<[u32; 2]>,
 }
 
+/// One lane's zipline colours as the game networks them (`CCitadelZipLineNode.m_iTeamNum`,
+/// exploration round 4): Amber owns the rope over `[0, amber_t]`, Sapphire over
+/// `[sapphire_t, 1000]`, and the gap between is uncoloured. `t` is `Wave.t`'s scale.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct WaveTrack {
+pub struct ZipTrack {
     /// `lane1`, `lane4` or `lane6`, as `Wave.lane`.
     pub lane: String,
-    /// `Wave.t` (0 Amber end … 1000 Sapphire end) at each second; `null` before any trooper.
-    pub t: Vec<Option<u16>>,
-    /// `[from, to)` seconds with no trooper on the lane in the recording: the value is held.
-    pub stale: Vec<[u32; 2]>,
+    /// `[second, amber_t, sapphire_t]` from second 0, then wherever either edge moves. Amber's
+    /// edge is 0 when it owns no node, Sapphire's 1000.
+    pub at: Vec<[u32; 3]>,
+}
+
+/// A jungle camp (or the mid boss) from the game rules' respawn timers (exploration round 3):
+/// not yet spawned before `first_s`, then alive except while cleared.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Camp {
+    /// The camp's (`camp:`) or the mid boss's (`mid_boss:`) site key.
+    pub key: String,
+    /// The second it first spawns (0: up from the start).
+    pub first_s: u32,
+    /// `[cleared_s, respawn_s]`, in order. The respawn can fall after the match ends.
+    pub cleared: Vec<[u32; 2]>,
 }
 
 /// One match event. The metadata timeline (crates/server/src/matches.rs) uses the same shape
@@ -278,6 +297,10 @@ pub fn clean_name(raw: &str) -> Option<String> {
     (!s.is_empty()).then_some(s)
 }
 const MAX_EVENTS: usize = 4096;
+/// 51 camps and the mid boss on the current map.
+const MAX_CAMPS: usize = 64;
+/// How far past the end a camp's next spawn may fall (the longest respawn is ~7 minutes).
+const MAX_RESPAWN_S: u32 = 3600;
 
 fn plausible_key(k: &str) -> bool {
     // `kind:team:laneN` with an optional `:index`, as the pack writes it.
@@ -326,8 +349,19 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
         && t.rifts.iter().all(|r| plausible_key(&r.key) && r.key.starts_with("rift:") && r.start_s < r.end_s && r.end_s <= n as u32)
         && t.powerups.len() <= 8
         && t.powerups.iter().all(|p| plausible_key(&p.key) && p.key.starts_with("powerup:") && p.available.len() == n && p.available.iter().all(|a| *a <= 1) && ranges_ok(&p.stale, n as u32))
-        && t.waves.len() <= 8
-        && t.waves.iter().all(|w| plausible_key(&format!("lane:x:{}", w.lane)) && w.t.len() == n && w.t.iter().all(|v| v.is_none_or(|v| v <= 1000)) && ranges_ok(&w.stale, n as u32))
+        && t.zips.len() <= 8
+        && t.zips.iter().all(|z| {
+            plausible_key(&format!("lane:x:{}", z.lane)) && z.at.len() <= n && z.at.windows(2).all(|w| w[0][0] < w[1][0]) && z.at.iter().all(|[s, a, b]| *s <= t.duration_s && a <= b && *b <= 1000)
+        })
+        && t.camps.len() <= MAX_CAMPS
+        && t.camps.iter().all(|c| {
+            plausible_key(&c.key)
+                && (c.key.starts_with("camp:") || c.key.starts_with("mid_boss:"))
+                && c.first_s <= t.duration_s.saturating_add(MAX_RESPAWN_S)
+                && c.cleared.len() <= n
+                && c.cleared.iter().all(|[a, b]| c.first_s <= *a && a < b && *a <= t.duration_s && *b <= t.duration_s.saturating_add(MAX_RESPAWN_S))
+                && c.cleared.windows(2).all(|w| w[0][1] <= w[1][0])
+        })
         && t.troopers.as_ref().is_none_or(|tr| {
             let samples = (n as u32).div_ceil(tr.every_s.max(1)) as usize;
             (1..=4).contains(&tr.every_s)
@@ -390,7 +424,8 @@ mod tests {
             reanchored: 0,
             rifts: vec![Rift { key: "rift:neutral:lane6:1".into(), start_s: 1, end_s: 3 }],
             powerups: vec![Powerup { key: "powerup:neutral:lane1:1".into(), available: vec![0, 1, 0], stale: vec![[0, 1]] }],
-            waves: vec![WaveTrack { lane: "lane4".into(), t: vec![None, Some(500), Some(520)], stale: vec![[2, 3]] }],
+            zips: vec![ZipTrack { lane: "lane4".into(), at: vec![[0, 425, 574], [2, 500, 520]] }],
+            camps: vec![Camp { key: "camp:neutral:lane0:3".into(), first_s: 1, cleared: vec![[1, 2], [2, 400]] }],
             events: vec![Event { team: Some("amber".into()), slot: Some(0), hero_id: Some(1), x: Some(3), y: Some(3), ..event(1, "death") }],
             objective_health: vec![ObjectiveHealth { key: "walker:amber:lane1:1".into(), at: vec![[0, 100], [2, 40]], stage: vec![] }],
             troopers: Some(Troopers { every_s: 1, amber: vec![encode_troopers(&[(7, 100, -200)]), String::new(), String::new()], sapphire: vec![String::new(); 3] }),
@@ -422,9 +457,19 @@ mod tests {
             Box::new(|t| t.rifts[0].key = "walker:amber:lane1:1".into()),
             Box::new(|t| t.rifts[0].end_s = 9),
             Box::new(|t| t.powerups[0].available[1] = 2),
-            Box::new(|t| t.waves[0].t[1] = Some(1001)),
-            Box::new(|t| t.waves[0].stale = vec![[2, 2]]),
-            Box::new(|t| t.waves[0].lane = "../x".into()),
+            Box::new(|t| t.zips[0].at[1] = [2, 500, 1001]),
+            Box::new(|t| t.zips[0].at[1] = [2, 600, 520]),
+            Box::new(|t| t.zips[0].at[1] = [0, 500, 520]),
+            Box::new(|t| t.zips[0].at[1] = [9, 500, 520]),
+            Box::new(|t| t.zips[0].lane = "../x".into()),
+            Box::new(|t| t.camps[0].key = "walker:amber:lane1:1".into()),
+            Box::new(|t| t.camps[0].key = "camp:<b>:lane0:3".into()),
+            Box::new(|t| t.camps[0].cleared[0] = [2, 2]),
+            Box::new(|t| t.camps[0].cleared[0] = [0, 2]),
+            Box::new(|t| t.camps[0].cleared[1] = [9, 400]),
+            Box::new(|t| t.camps[0].cleared[1] = [2, 2 + 3600 + 1]),
+            Box::new(|t| t.camps[0].cleared = vec![[1, 3], [2, 4]]),
+            Box::new(|t| t.camps = vec![t.camps[0].clone(); MAX_CAMPS + 1]),
             Box::new(|t| t.duration_s = MAX_DURATION_S + 1),
             Box::new(|t| t.events[0].kind = "<b>".into()),
             Box::new(|t| t.events[0].t = 9),
