@@ -108,7 +108,7 @@ test("a bubble drags with Move and erases with Erase", async ({ browser }) => {
   await expect(comment(b)).toHaveCount(0);
 });
 
-test("cards stay inside the map, at a readable size at any zoom, in the comment colour", async ({ browser }) => {
+test("cards stay inside the map, at a readable size at any zoom, in their palette colour", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "cards"), "Coach");
   const long = "Smoke the bridge, then rotate east through the vault and hold";
   await place(a, [0.03, 0.5], long); // at the left edge: the card used to run off the map
@@ -135,8 +135,9 @@ test("cards stay inside the map, at a readable size at any zoom, in the comment 
   await a.mouse.move(m.x, m.y);
   await a.mouse.wheel(0, -500);
   await expect.poll(async () => Math.abs((await textPx()) - atFit)).toBeLessThan(2);
-  // One colour no map element uses.
+  // The colour picked in the palette when it was made (operator, 2026-11-07).
   await a.getByTestId("comments-toggle").click();
   const fill = await comment(a).first().locator(".bubble-body").evaluate((e) => getComputedStyle(e).fill);
-  expect(fill).toBe("rgb(255, 43, 214)");
+  const swatch = await a.getByTestId("palette").locator(".ink-dot").evaluate((e) => getComputedStyle(e).backgroundColor);
+  expect(fill).toBe(swatch);
 });
