@@ -1,6 +1,6 @@
 // Text edited where it's shown: click to type, Enter or leaving commits, Escape cancels.
 
-import { type JSX, Show, createSignal } from "solid-js";
+import { type JSX, Show, createMemo, createSignal } from "solid-js";
 import { cx } from "../ui/cx";
 
 export function InlineEdit(p: {
@@ -21,8 +21,14 @@ export function InlineEdit(p: {
 }) {
   const [editing, setEditing] = createSignal(false);
   const [bad, setBad] = createSignal(false);
+  // The handlers read these memos, never `p.value` or `p.editable` themselves: a caller's
+  // expression prop (`a ? b : c`, `a && b`) compiles to a getter that makes a memo on each read,
+  // and read from an event handler, outside any owner, that memo is never disposed (Solid warns
+  // "computations created outside a `createRoot`"; QA 2026-11-08). These are made once, here.
+  const value = createMemo(() => p.value);
+  const editable = createMemo(() => p.editable);
   const open = () => {
-    if (!p.editable) return;
+    if (!editable()) return;
     setBad(false);
     setEditing(true);
     p.onEditing?.(true);
@@ -34,7 +40,7 @@ export function InlineEdit(p: {
   };
   const commit = (el: HTMLInputElement) => {
     if (!editing()) return;
-    if (el.value !== p.value && p.onCommit(el.value) === false) {
+    if (el.value !== value() && p.onCommit(el.value) === false) {
       setBad(true);
       return;
     }
@@ -45,14 +51,14 @@ export function InlineEdit(p: {
       when={editing()}
       fallback={
         <span
-          class={cx("ie", p.class, p.editable && "editable", !p.value && "empty")}
+          class={cx("ie", p.class, editable() && "editable", !value() && "empty")}
           data-testid={p.testid}
-          role={p.editable ? "button" : undefined}
-          tabIndex={p.editable ? 0 : undefined}
+          role={editable() ? "button" : undefined}
+          tabIndex={editable() ? 0 : undefined}
           onClick={open}
           onKeyDown={(e) => e.key === "Enter" && open()}
         >
-          {p.value ? (p.display ? p.display(p.value) : p.value) : (p.placeholder ?? "")}
+          {value() ? (p.display ? p.display(value()) : value()) : (p.placeholder ?? "")}
         </span>
       }
     >
@@ -60,9 +66,9 @@ export function InlineEdit(p: {
         class={cx("ie-input", p.class, bad() && "bad")}
         data-testid={p.testid && `${p.testid}-input`}
         aria-label={p.label}
-        value={p.value}
+        value={value()}
         maxLength={p.maxLength}
-        size={Math.max(4, p.value.length + 1)}
+        size={Math.max(4, value().length + 1)}
         ref={(el) => queueMicrotask(() => (el.focus(), el.select()))}
         onKeyDown={(e) => {
           e.stopPropagation();
