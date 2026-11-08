@@ -29,6 +29,15 @@
 `CCitadelGameRulesProxy`: `m_pGameRules.m_flGameStartTime`, `m_bGamePaused`, `m_nTotalPausedTicks`, `m_tNextMidBossSpawnTime`.
 `game_time_s = tick × 0.015625 − total_paused_ticks × 0.015625 − game_start_time`; output `clock.csv` at 1 Hz.
 
+> **Correction (2026-11-07, replay tier).** This formula runs early by the header's
+> `server_start_tick` × 0.015625 (48.8 s for 122134063): `GameTime_t` values, the game start
+> included, count server ticks, and the recording starts that far into the server's life. The
+> right clock is `(tick + server_start_tick − total_paused_ticks) × 0.015625 − game_start_time`,
+> checked against deadlock-api's metadata for 122134063 (deaths and objectives within 1 s, the
+> same 890 s duration; ult cooldown starts sit 48.7 s after `tick × 0.015625`). The game ends
+> when `m_iWinningTeam` is set; the recording runs ~40 s past it. Times below use the old clock:
+> add 48.8 s for 122134063 (so its "last ~40 s" rift spawner is post-game).
+
 - 122134063: ends **881.234 s**, 0 paused ticks. 108440637: ends **1855.391 s**, **586 paused ticks (~9.16 s)**. 100747544: ends **2024.875 s**, 0 pauses. `m_bGamePaused` was never true at a 1 Hz sample; use `m_nTotalPausedTicks`.
 
 ## 3. Per hero, 1 Hz

@@ -227,7 +227,7 @@ and shared boards therefore follow one code path and one set of tests.
   the durable, portable save, independent of browser storage.
 - The app asks for `navigator.storage.persist()` so the browser doesn't evict local boards.
 
-## 6a. Match import (v1)
+## 6a. Match import
 
 **Decision (operator, 2026-11-07):** a scene can come from a real match. The research is
 [match replay](../research/match-replay.md); this is its v1 path.
@@ -253,10 +253,92 @@ and shared boards therefore follow one code path and one set of tests.
     nearest sample at or before t), and objective states.
   - If the board's heroes differ from the match's, the same transaction sets the roster to the
     match's ("Roster → match heroes"). One undo reverts all of it.
-- **Not in v1:** ults, lane waves and z (they stay manual), and demo parsing. A match older than
-  the pack is drawn on it with an "Older map" label.
+- **Not in the metadata tier:** ults, lane waves, rifts, powerups and z. A match older than the
+  pack is drawn on it with an "Older map" label.
 - The mid boss's respawn time isn't in the match data. The preview shows it down from a kill
   until the next kill.
+
+### Tiers: the replay is the rich one (operator, 2026-11-07)
+
+One panel, two tiers. When a replay timeline exists for the board and match, it's used;
+otherwise the metadata timeline is. A small label names the tier in use ("Replay" or
+"Metadata"). `GET /api/boards/{board}/matches/{id}` (any link to the board) makes the choice:
+the board's own upload first, then a timeline fetched from Valve's CDN, then the metadata (v1,
+above). The old `GET /api/matches/{id}` still serves the metadata alone.
+
+- **Where a replay comes from,** uploads first:
+  - **Upload:** an editor picks a `.dem` from the game's replays folder.
+    `POST /api/boards/{board}/replays/{id}/upload`, raw bytes, with upload progress.
+  - **Fetch:** `POST /api/boards/{board}/replays/{id}/fetch` asks deadlock-api's salts endpoint
+    for the match's cluster and replay salt, then downloads
+    `http://replay{cluster}.valve.net/1422450/{id}_{salt}.dem.bz2` (zstd since 2026-07-20; the
+    magic decides).
+- **Job state:** `GET /api/boards/{board}/replays/{id}` answers `none`, `uploading`,
+  `fetching`, `queued`, `parsing`, `done` or `failed` with a short reason (`old_map`,
+  `not_a_replay`, `too_large`, `timeout`, `parse_failed`, `no_replay`, `upstream_down`,
+  `upstream_limited`). The panel polls it and shows labels only; a job that finishes swaps the
+  replay timeline in, keeping the scrubber where it was.
+- **Current map only:** a demo whose header's `game_directory` names a content build before 6712,
+  or whose objectives don't sit on the current map's sites, fails as `old_map` ("Old map"). The
+  header's `build_num` and `map_name` say nothing about the map (exploration §1). Pre-6712 demos
+  also decode 16,384 units low on every axis; neither that correction nor old-era packs are
+  built.
+- **What the replay timeline adds** (`crates/replay/src/timeline.rs`, the metadata timeline's
+  shape plus fields; 1 Hz, about 140 KB for a 15-minute match):
+  - Positions with the exact life state (the pawn's `m_lifeState` and health), deaths, souls
+    (net worth, when it changes; the demo updates it about as rarely as the metadata does), and
+    in-game names where the demo has them.
+  - **Ult cooldown** left in percent at each second, which is `PlayerState.ult_cooldown`. A
+    cooldown that reads 0/0 in the recording (it does, for tens of seconds around full packets)
+    holds the last one seen.
+  - **Rifts:** the `rift:` key that is up at t, from the spawner's position or the live
+    cash-in's.
+  - **Powerups:** available or taken per `powerup:` key at each second.
+  - **Lane waves:** for each lane and second, where Amber's front (its furthest trooper along
+    the lane) and Sapphire's meet, as `Wave.t`, the board's own projection onto the lane curve
+    (ported from `web/src/map/lanes.ts`, with a shared golden test). One front alone gives its
+    own position.
+  - **PVS gaps:** a demo records only entities near players. Waves and powerups with nothing in
+    the recording hold their last value, and the timeline lists those seconds as stale ("Waves
+    held"). An objective counts as destroyed only when its health is seen to fall and nothing
+    on its site is seen alive after.
+- **The game clock:** `(tick + server_start_tick − paused ticks) × tick interval −
+  m_flGameStartTime`, until the game rules name a winner. Checked against the metadata of match
+  122134063: deaths and objectives within a second, the same 890 s duration. The exploration's
+  formula, without `server_start_tick`, ran 48 s early.
+- **Save as scene** also writes each player's ult cooldown, the rift that's up (rifts default
+  off), taken powerups (they default available) and a `Wave` per lane.
+- **Preview while scrubbing:** ult rings beside each hero in the panel, the rift and powerup
+  states on the map, and the lane splits; local only, like the rest of the preview.
+
+### The replay worker: isolation and limits
+
+Parsing untrusted files happens in a separate process on a shared production box, never in the
+board server (`MemoryMax=256M`; a 480 MB demo's pages alone exceed it).
+
+- **`mapcro-replay`** (`crates/replay`, boon 0.19.0 pinned, MIT) runs as its own systemd service
+  in the same NixOS module, as its own user. It has no network (`PrivateNetwork`,
+  `RestrictAddressFamilies=none`, `IPAddressDeny=any`), sees nothing of `/var/lib` but its
+  queue, can't see other processes, and has a full systemd sandbox (no capabilities, a system
+  call filter, `MemoryDenyWriteExecute`, `LimitFSIZE` at the demo cap).
+- **Caps:** `MemoryMax=1G` with no swap, `CPUQuota=100%` (one core) at a low CPU weight and
+  idle I/O, one job at a time, each in a child process under a 300 s wall clock. A child killed
+  at the memory cap fails its job as `too_large` (`OOMPolicy=continue`); the worker carries on.
+- **Measured** on this machine, release build: the current-map demo (97 MB, 15 min) parses in
+  0.9 s with 11 MB anonymous memory plus 98 MB of the memory-mapped demo; a 478 MB demo in 4.6 s
+  with 19 MB anonymous plus 470 MB mapped. Mapped pages are clean and reclaimable, so the 1G
+  cap leaves room for the largest demos and a decompression.
+- **The queue** is `/var/lib/mapcro-replay` (`REPLAY_DIR`), setgid group `mapcro-replay`, which
+  the board server's user joins: `inbox/` (the server renames in complete, magic-checked files,
+  group-readable), `work/` (one job), `done/<job>.json`, `failed/<job>` (a reason code). A job
+  is `<match id>-<scope>`, where the scope is `cdn` or 16 hex digits of the board id's hash. The
+  worker deletes the demo (and its decompressed copy) as soon as the parse ends, either way, and
+  fails jobs it finds in `work/` after a crash. The board server never parses: its health check
+  doesn't depend on the worker, so a crashed worker can't fail a deploy.
+- **The board server's side** (`crates/server/src/replays.rs`): it collects results every
+  second, checks each against the timeline's shape and size, and caches it as
+  `DATA_DIR/replays/<job>.json`. It drops jobs still queued after an hour (`timeout`) and
+  partial transfers, and keeps the cache under 1 GiB by dropping the oldest timelines.
 
 ## 7. Per-user undo
 
@@ -458,7 +540,8 @@ later bind owner capabilities to a person.
 | Storage spam (anonymous board creation) | Per-IP creation rate limit plus a global hourly cap, max board size and history quota, total board and database caps (§9), idle-board expiry (Q3, not built) |
 | Room flooding | Max sessions per room, sockets per address, presence rate limit, message size cap, open-room cap and room memory budget with early unload of idle rooms, outbox caps in frames and bytes |
 | View link as a write primitive | A view connection registers no client id and stores nothing; only an id someone registered by editing is checked against its secret (security review 2026-11-07, H-B) |
-| Hosting abusive content | No user uploads at all; text only, with caps. Asset packs are placed in the data directory by the server operator, never through HTTP |
+| Hosting abusive content | Text only, with caps. Replay uploads are parsed into a timeline and deleted, never served back (§6a). Asset packs are placed in the data directory by the server operator, never through HTTP |
+| Malicious replay files | Parsed only by the sandboxed worker (§6a): no network, own user, only the queue in view, memory, CPU, file-size and wall-clock caps, one job at a time; its output is shape-checked before it's cached |
 
 **Address rotation (IPv6 /64), accepted.** Per-address limits key on an IPv4 address or an IPv6
 /64, and someone with a routed /56 or /48 holds many /64s. That is left as is (security review
@@ -481,6 +564,41 @@ proof-of-work or accounts if rotation is seen in practice.
   Names would have meant a second call to a profile endpoint, and the operator allowed names only
   if the match call itself returns them. It doesn't, so v1 imports no names and leaves
   `RosterName` alone. A player is a team, a slot and a hero.
+
+**Match import's replay tier (§6a): trust boundaries and limits.** For the security review:
+
+- **Boundary 1, the HTTP edge → the board server.** Upload bodies are untrusted bytes. Only the
+  upload route lifts the global 16 KiB body limit; it needs an owner or edit link to the board
+  (`401` without, `403` for view links or other boards), and streams to
+  `inbox/.<job>.part`, never into memory. Caps: 800 MiB per upload (`413`, by `Content-Length`
+  up front and while streaming), 60 s without a byte or 30 min in all (`408`), two uploads at
+  once and one per client, 6 uploads or fetches per client address per hour (`429`), at most
+  6 queued jobs and 3 GiB in the queue counting transfers in flight at their cap (`503`/`507`).
+  The first 8 bytes must be `PBDEMS2\0` (`415 not_a_replay`); nothing else is read. A refused
+  or broken upload leaves no file.
+- **Boundary 2, upstreams → the board server.** deadlock-api's salts response is capped at
+  64 KiB, and only `cluster_id` and `replay_salt`, as numbers, are taken from it: the CDN URL is
+  built from them, so the response can't point the server anywhere else (no SSRF), and
+  redirects aren't followed. The demo download streams to disk under an 800 MiB cap and a
+  30 min timeout, and must start with bzip2, zstd or demo magic. 20 fetches server-wide per
+  hour; a failed fetch isn't retried for an hour.
+- **Boundary 3, the queue → the worker.** Everything in the inbox is hostile. The worker
+  decompresses under a 1 GiB cap (bzip2 in Rust; zstd with a 128 MiB window limit) and parses in
+  a child process inside the sandbox above. Its only outputs are a file in `done/` and a reason
+  code in `failed/`.
+- **Boundary 4, the worker → the board server.** The worker's output is untrusted too: at most
+  16 MiB, deserialised into the typed timeline, and checked (array lengths match the duration,
+  teams and keys have the pack's shape, numbers are in range, names are short and free of
+  control characters, the match id is the job's) before it is re-serialised into the cache. An
+  unknown reason code reads as `parse_failed`.
+- **Scope.** A demo carries no match id, so an upload's claim to be match N can't be checked:
+  an uploaded timeline is served only to the board that uploaded it, and a new upload replaces
+  it. A timeline fetched from Valve by match id is shared by every board.
+- **Privacy, as in v1:** the worker never reads Steam or account ids (`m_steamID` is not among
+  the fields it resolves), so no timeline can hold one. In-game names are kept when the demo
+  carries them. Demos are deleted when their parse ends; only the derived timeline is kept.
+- **Caddy:** the edge must pass request bodies up to 800 MiB and not time a slow upload out
+  first (docs/deploy.md).
 
 No end-to-end encryption, unlike Excalidraw. E2EE would stop the server validating ops, which is
 the reliability and security boundary above. Boards are game strategy, so server trust plus TLS is
