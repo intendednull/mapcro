@@ -100,7 +100,6 @@ export function Board(p: { board: string; token: string; art: Art }) {
   onCleanup(() => clearTimeout(toastTimer));
   const [overlay, setOverlay] = createSignal<SVGSVGElement>();
   const [dialog, setDialog] = createSignal<"share" | "clone">();
-  // ---- match import: the panel, and its local (unsynced) preview on the map ----
   // ---- Player (spec §6b): a board with a match opens on it; its preview drives the map ----
   const player = createPlayerHost(p.board, p.token);
   onMount(() => void player.init());
