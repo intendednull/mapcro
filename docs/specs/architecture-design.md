@@ -329,22 +329,74 @@ board server (`MemoryMax=256M`; a 480 MB demo's pages alone exceed it).
   call filter, `MemoryDenyWriteExecute`, `LimitFSIZE` at the demo cap).
 - **Caps:** `MemoryMax=1G` with no swap, `CPUQuota=100%` (one core) at a low CPU weight and
   idle I/O, one job at a time, each in a child process under a 300 s wall clock. A child killed
-  at the memory cap fails its job as `too_large` (`OOMPolicy=continue`); the worker carries on.
+  at the memory cap fails its job as `too_large` (`OOMPolicy=continue`), one killed by SIGBUS
+  (the mapped demo changed under it) as `corrupt`; the worker carries on.
 - **Measured** on this machine, release build: the current-map demo (97 MB, 15 min) parses in
   0.9 s with 11 MB anonymous memory plus 98 MB of the memory-mapped demo; a 478 MB demo in 4.6 s
   with 19 MB anonymous plus 470 MB mapped. Mapped pages are clean and reclaimable, so the 1G
   cap leaves room for the largest demos and a decompression.
-- **The queue** is `/var/lib/mapcro-replay` (`REPLAY_DIR`), setgid group `mapcro-replay`, which
-  the board server's user joins: `inbox/` (the server renames in complete, magic-checked files,
-  group-readable), `work/` (one job), `done/<job>.json`, `failed/<job>` (a reason code). A job
-  is `<match id>-<scope>`, where the scope is `cdn` or 16 hex digits of the board id's hash. The
-  worker deletes the demo (and its decompressed copy) as soon as the parse ends, either way, and
-  fails jobs it finds in `work/` after a crash. The board server never parses: its health check
-  doesn't depend on the worker, so a crashed worker can't fail a deploy.
+- **The queue** is `/var/lib/mapcro-replay` (`REPLAY_DIR`), group `mapcro-replay`, which the
+  board server's user joins. Neither side can write where the other writes (security review
+  2026-11-08, M1/M2):
+  - `inbox/` (2750, the server's): complete, magic-checked files, written as `.<job>.part`
+    with O_EXCL|O_NOFOLLOW and renamed in. The worker can only read it (and its unit mounts it
+    read-only).
+  - `outbox/` (2770, the worker's): `<job>.parsing` while it works, then `<job>.json` or
+    `<job>.failed` (a reason code). The server reads results without following links and
+    removes them.
+  - `work/` (0700, the worker's alone): a decompressed demo, a result being written.
+
+  A job is `<match id>-<scope>`, where the scope is `cdn` or 16 hex digits of the board id's
+  hash. The worker deletes its decompressed copy as soon as the parse ends; the server deletes
+  the original when it collects the result, within a second, either way. A worker that crashed
+  mid-job fails it on restart. The board server never parses: its health check doesn't depend
+  on the worker, so a crashed worker can't fail a deploy.
 - **The board server's side** (`crates/server/src/replays.rs`): it collects results every
-  second, checks each against the timeline's shape and size, and caches it as
+  second, only for jobs it queued itself (a result for any other job is dropped, so a worker
+  can't publish a timeline nobody asked for, nor one under the shared `cdn` scope for an
+  upload), checks each against the timeline's shape and size, and caches it as
   `DATA_DIR/replays/<job>.json`. It drops jobs still queued after an hour (`timeout`) and
   partial transfers, and keeps the cache under 1 GiB by dropping the oldest timelines.
+
+## 6b. Player
+
+**Decision (operator, 2026-11-08):** a board with a match opens in **Player**, which replaces the
+import panel. Two entry points: the landing page's **Open match** (a match id, or a replay upload)
+makes a board with that match attached and lands in Player; **New board** is today's sandbox.
+
+- **The board's matches.** The server keeps the matches a board has opened, newest first, at most
+  20, beside the board rather than in its document (`DATA_DIR/attached/<hash of the board id>.json`):
+  `GET /api/boards/{board}/matches` (any link) lists them, `PUT /api/boards/{board}/matches/{id}`
+  (owner or edit link) attaches one. A board with one opens in Player on its newest.
+- **Player draws only the timeline at t; Sandbox only the scene's records.** The map shows the match
+  at playback time t: heroes interpolated between 1 Hz samples and hidden while dead, objectives,
+  and from a replay rifts, powerups and lane splits; ult rings sit in Player's roster. No scene
+  state (alive, seen, placed, objective, rift or wave records) shows through in Player, and none of
+  Player's shows through in Sandbox. Switching modes, scenes or matches leaves nothing behind
+  (operator report 2026-11-08: heroes drawn dark where the scene had them dead).
+- **The transport:** play and pause, speed (0.5×, 1×, 2×, 4×, 8×), a scrubber with a tick per
+  event, ±10 s, and the match clock. "Waves held" while a lane's split is held through a gap.
+- **Events** (both tiers, each with what it has; `Event` in `crates/replay/src/timeline.rs`):
+  deaths (who; the killer and the place when the data has them, else where the hero was last
+  seen), objectives, mid boss kills, rifts up and captured, powerups up and taken (replay only, on
+  seconds the spawner is in the recording), and souls swings (the Amber-minus-Sapphire lead
+  moving 5,000 within a minute and holding ten seconds on; none in the first two minutes, when
+  starting souls arrive player by player). The sidebar lists them with their tier, searchable by
+  hero, player name, type, team and time, with filter chips by type. **Jump** pauses at the event
+  less a lead (5 s, adjustable) and pulses a ring where it happened. **Save scenes** makes one
+  scene per ticked event at its jump time, "<event> @ mm:ss", in one transaction (one undo).
+- **Following** carries Player: presence's `playback` holds the mode, the match, t, playing and
+  speed, sent on every change and every 2 s while playing. A follower adopts them, keeping its own
+  clock while it is within 0.75 s of the presenter's. Changing your own playback, mode or match
+  stops following, as changing the view does.
+- **Annotation over playback (operator, 2026-11-08, decided):** you can annotate a live player,
+  but to keep it you save it as a scene. Draw, arrows, comments, the laser and pings work in
+  Player as ephemeral layers, cleared when the scene is saved or you leave Player.
+- **Save scene** at t makes a normal sandbox scene: everything the timeline gives (positions,
+  deaths, souls, objectives, and from a replay ults, the rift that's up, taken powerups and lane
+  splits), plus the ephemeral annotations turned into strokes, arrows and comments. The scene
+  stores its source (match id, t, tier), so a later "resume from here" can open Player at that
+  moment.
 
 ## 7. Per-user undo
 
@@ -596,13 +648,14 @@ proof-of-work or accounts if rotation is seen in practice.
   hour; a failed fetch isn't retried for an hour.
 - **Boundary 3, the queue → the worker.** Everything in the inbox is hostile. The worker
   decompresses under a 1 GiB cap (bzip2 in Rust; zstd with a 128 MiB window limit) and parses in
-  a child process inside the sandbox above. Its only outputs are a file in `done/` and a reason
-  code in `failed/`.
+  a child process inside the sandbox above. Its only outputs are files in its own `outbox/`; it
+  can't write the inbox, so it can't plant a link the server would follow (M1).
 - **Boundary 4, the worker → the board server.** The worker's output is untrusted too: at most
   4 MiB, deserialised into the typed timeline, and checked (array lengths match the duration,
-  teams and keys have the pack's shape, numbers are in range, names are short and free of
-  control characters, the match id is the job's) before it is re-serialised into the cache. An
-  unknown reason code reads as `parse_failed`.
+  teams and keys have the pack's shape, numbers are in range, names are at most 32 characters
+  and free of control characters, bidi overrides and `<>&"` (L3), the match id is the job's)
+  before it is re-serialised into the cache. It's accepted only for a job the server queued
+  (M2), read without following links. An unknown reason code reads as `parse_failed`.
 - **Scope.** A demo carries no match id, so an upload's claim to be match N can't be checked:
   an uploaded timeline is served only to the board that uploaded it, and a new upload replaces
   it. A timeline fetched from Valve by match id is shared by every board.

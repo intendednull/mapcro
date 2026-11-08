@@ -13,8 +13,11 @@
 //! timeline is visible only on the board that uploaded it. A timeline fetched from Valve's CDN by
 //! match id is shared by every board.
 //!
-//! **Queue** (`REPLAY_DIR`, shared with the worker): `inbox/` (complete, magic-checked files,
-//! written as `.<job>.part` and renamed), `work/`, `done/`, `failed/`. A job is
+//! **Queue** (`REPLAY_DIR`, shared with the worker; crates/replay/src/worker.rs): `inbox/` is
+//! the server's alone (complete, magic-checked files, written as `.<job>.part`, opened with
+//! O_EXCL|O_NOFOLLOW, and renamed); the worker only reads it. `outbox/` is the worker's: a
+//! `.parsing` marker, then `<job>.json` or `<job>.failed`. A result counts only for a job whose
+//! file the server put in `inbox/` (security review 2026-11-08, M1/M2). A job is
 //! `<match id>-<scope>`: `cdn`, or 16 hex digits of the board id's hash.
 //!
 //! **Privacy:** nothing here reads a demo; the worker never reads Steam or account ids, and the
@@ -144,7 +147,8 @@ pub fn routes() -> Router<AppState> {
             Router::new()
                 .route("/api/boards/{board}/replays/{id}", get(status))
                 .route("/api/boards/{board}/replays/{id}/fetch", post(fetch))
-                .route("/api/boards/{board}/matches/{id}", get(timeline))
+                .route("/api/boards/{board}/matches/{id}", get(timeline).put(attach))
+                .route("/api/boards/{board}/matches", get(attached))
                 .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024)),
         )
 }
@@ -175,14 +179,12 @@ fn json(body: serde_json::Value) -> Response {
     (StatusCode::OK, [(header::CACHE_CONTROL, "no-store")], axum::Json(body)).into_response()
 }
 
-#[cfg(unix)]
-fn group_readable(path: &FsPath) {
+/// The worker reads queued files as a member of the queue's group (nix/module.nix): set on the
+/// open file, never by path.
+fn group_readable() -> std::fs::Permissions {
     use std::os::unix::fs::PermissionsExt;
-    // The worker reads queued files as a member of the queue's group (nix/module.nix).
-    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o640));
+    std::fs::Permissions::from_mode(0o640)
 }
-#[cfg(not(unix))]
-fn group_readable(_: &FsPath) {}
 
 /// The caller's role on `board`, from `Authorization: Bearer <token>`.
 #[allow(clippy::result_large_err)] // the error *is* the HTTP response
@@ -249,13 +251,10 @@ fn job_state(app: &AppState, job: &str) -> State_ {
         }
     }
     if exists_any(&root.join("inbox"), job) {
-        return State_::Queued;
-    }
-    if exists_any(&root.join("work"), job) || root.join("done").join(format!("{job}.json")).exists() || root.join("work").join(format!("{job}.json")).exists() {
-        return State_::Parsing;
-    }
-    if root.join("failed").join(job).exists() {
-        return State_::Parsing; // the collector picks it up within a second
+        let out = root.join("outbox");
+        // Started, or finished and waiting for the collector (within a second).
+        let started = ["parsing", "json", "failed"].iter().any(|e| out.join(format!("{job}.{e}")).exists());
+        return if started { State_::Parsing } else { State_::Queued };
     }
     State_::None
 }
@@ -353,6 +352,55 @@ pub async fn timeline(
     crate::matches::get(State(app), ConnectInfo(peer), headers, Path(id)).await
 }
 
+/// The matches a board has opened, newest first (spec §6b): kept by the server beside the board,
+/// not in its document, so attaching one needs no schema change. At most this many.
+const ATTACHED_MAX: usize = 20;
+
+fn attached_path(app: &AppState, board: &str) -> PathBuf {
+    app.config.data_dir.join("attached").join(format!("{}.json", scope_of(board)))
+}
+
+async fn read_attached(app: &AppState, board: &str) -> Vec<u64> {
+    let Ok(bytes) = tokio::fs::read(attached_path(app, board)).await else { return Vec::new() };
+    let ids: Vec<u64> = serde_json::from_slice(&bytes).unwrap_or_default();
+    ids.into_iter().take(ATTACHED_MAX).collect()
+}
+
+/// `GET /api/boards/{board}/matches`: the matches this board has opened, newest first.
+pub async fn attached(State(app): State<AppState>, Path(board): Path<String>, headers: HeaderMap) -> Response {
+    if let Err(r) = role(&app, &board, &headers).await {
+        return r;
+    }
+    json(serde_json::json!({ "matches": read_attached(&app, &board).await }))
+}
+
+/// `PUT /api/boards/{board}/matches/{id}`: an editor attaches a match to the board (it moves to
+/// the front if it was there already).
+pub async fn attach(State(app): State<AppState>, Path((board, id)): Path<(String, String)>, headers: HeaderMap) -> Response {
+    if let Err(r) = editor(&app, &board, &headers).await {
+        return r;
+    }
+    if !crate::matches::valid_id(&id) {
+        return err(StatusCode::BAD_REQUEST, "bad_id");
+    }
+    let Ok(n) = id.parse::<u64>() else { return err(StatusCode::BAD_REQUEST, "bad_id") };
+    let mut ids = read_attached(&app, &board).await;
+    ids.retain(|x| *x != n);
+    ids.insert(0, n);
+    ids.truncate(ATTACHED_MAX);
+    let path = attached_path(&app, &board);
+    let bytes = serde_json::to_vec(&ids).unwrap_or_default();
+    let written = tokio::task::spawn_blocking(move || {
+        std::fs::create_dir_all(path.parent().unwrap_or(FsPath::new(".")))?;
+        write_atomic(&path, &bytes)
+    })
+    .await;
+    match written {
+        Ok(Ok(())) => json(serde_json::json!({ "matches": ids })),
+        _ => err(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
+    }
+}
+
 /// `POST /api/boards/{board}/replays/{id}/upload`: an editor's `.dem`, streamed to the queue.
 pub async fn upload(
     State(app): State<AppState>,
@@ -438,10 +486,12 @@ impl Drop for UploadSlot {
 async fn receive(root: &FsPath, job: &str, body: Body, s: &Settings) -> Result<u64, (StatusCode, &'static str)> {
     let inbox = root.join("inbox");
     let part = inbox.join(format!(".{job}.part"));
-    let mut file = tokio::fs::File::create(&part).await.map_err(|e| {
+    // Never through a link, never over a file that's there (security review 2026-11-08, M1).
+    let mut file = tokio::fs::OpenOptions::new().write(true).create_new(true).custom_flags(libc::O_NOFOLLOW).open(&part).await.map_err(|e| {
         tracing::error!(error = %e, "replay inbox not writable");
         (StatusCode::INTERNAL_SERVER_ERROR, "internal")
     })?;
+    file.set_permissions(group_readable()).await.map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal"))?;
     let deadline = tokio::time::Instant::now() + s.transfer;
     let mut stream = body.into_data_stream();
     let mut n: u64 = 0;
@@ -477,7 +527,6 @@ async fn receive(root: &FsPath, job: &str, body: Body, s: &Settings) -> Result<u
     drop(file);
     match outcome {
         Ok(()) => {
-            group_readable(&part);
             tokio::fs::rename(&part, inbox.join(format!("{job}.dem"))).await.map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal"))?;
             Ok(n)
         }
@@ -581,7 +630,8 @@ fn download(root: &FsPath, id: &str, job: &str) -> Result<u64, &'static str> {
     }
     let part = root.join("inbox").join(format!(".{job}.part"));
     let result = (|| {
-        let mut file = std::fs::File::create(&part).map_err(|_| "internal")?;
+        let mut file = new_file(&part).map_err(|_| "internal")?;
+        file.set_permissions(group_readable()).map_err(|_| "internal")?;
         let mut reader = r.body_mut().with_config().limit(s.max_download).reader();
         let mut head = [0u8; 8];
         let mut got = 0;
@@ -611,7 +661,6 @@ fn download(root: &FsPath, id: &str, job: &str) -> Result<u64, &'static str> {
     })();
     match result {
         Ok((ext, n)) => {
-            group_readable(&part);
             std::fs::rename(&part, root.join("inbox").join(format!("{job}.{ext}"))).map_err(|_| "internal")?;
             Ok(n)
         }
@@ -628,7 +677,7 @@ fn download(root: &FsPath, id: &str, job: &str) -> Result<u64, &'static str> {
 /// right owners), then collect results every second.
 pub fn spawn(app: AppState) {
     let Some(root) = root(&app).map(FsPath::to_owned) else { return };
-    for d in ["inbox", "work", "done", "failed"] {
+    for d in ["inbox", "outbox", "work"] {
         let _ = std::fs::create_dir_all(root.join(d));
     }
     let _ = std::fs::create_dir_all(cache_dir(&app));
@@ -641,6 +690,25 @@ pub fn spawn(app: AppState) {
             let _ = tokio::task::spawn_blocking(move || collect(&root, &cache)).await;
         }
     });
+}
+
+/// A new file, never through a symbolic link or over an existing file.
+fn new_file(path: &FsPath) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new().write(true).create_new(true).custom_flags(libc::O_NOFOLLOW).open(path)
+}
+
+/// A worker's file, not through a link, at most `max` bytes.
+fn read_capped(path: &FsPath, max: u64) -> Option<Vec<u8>> {
+    use std::io::Read;
+    use std::os::unix::fs::OpenOptionsExt;
+    let f = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(path).ok()?;
+    if !f.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut out = Vec::new();
+    f.take(max + 1).read_to_end(&mut out).ok()?;
+    (out.len() as u64 <= max).then_some(out)
 }
 
 fn age(path: &FsPath) -> Duration {
@@ -658,46 +726,50 @@ fn collect(root: &FsPath, cache: &FsPath) {
     let fail = |job: &str, why: &'static str| {
         lock().failed.insert(job.to_owned(), (why, Instant::now()));
     };
-    if let Ok(rd) = std::fs::read_dir(root.join("done")) {
+    if let Ok(rd) = std::fs::read_dir(root.join("outbox")) {
         for e in rd.flatten() {
             let p = e.path();
-            let Some(job) = p.file_name().and_then(|f| f.to_str()).and_then(|f| f.strip_suffix(".json")).map(str::to_owned) else { continue };
-            if !mapcro_replay::valid_job(&job) {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let Some((job, ext)) = name.rsplit_once('.').map(|(j, x)| (j.to_owned(), x.to_owned())) else { continue };
+            if name.starts_with('.') || ext == "parsing" {
+                continue; // being written, or in progress
+            }
+            // Only results for jobs this server queued, bound to the job's own scope: a worker
+            // can't publish a timeline nobody asked for (security review 2026-11-08, M2).
+            if !mapcro_replay::valid_job(&job) || !(ext == "json" || ext == "failed") || !exists_any(&root.join("inbox"), &job) {
+                tracing::warn!(file = name, "replay worker output for no queued job, dropped");
                 let _ = std::fs::remove_file(&p);
                 continue;
             }
-            let ok = std::fs::metadata(&p).is_ok_and(|m| m.len() <= mapcro_replay::timeline::MAX_BYTES);
-            let checked = ok
-                .then(|| std::fs::read(&p).ok())
-                .flatten()
-                .ok_or("too large")
-                .and_then(|b| mapcro_replay::timeline::validate(&b))
-                .and_then(|t| if t.match_id == mapcro_replay::job_match_id(&job) { Ok(t) } else { Err("wrong match") });
-            match checked.and_then(|t| serde_json::to_vec(&t).map_err(|_| "json")) {
-                Ok(bytes) => match write_atomic(&cache.join(format!("{job}.json")), &bytes) {
-                    Ok(()) => tracing::info!(job, bytes = bytes.len(), "replay timeline cached"),
-                    Err(e) => {
-                        tracing::error!(error = %e, job, "replay cache not written");
+            let bytes = read_capped(&p, mapcro_replay::timeline::MAX_BYTES);
+            if ext == "failed" {
+                let said = bytes.unwrap_or_default();
+                let why = mapcro_replay::reason::ALL.iter().copied().find(|r| r.as_bytes() == said.trim_ascii()).unwrap_or(mapcro_replay::reason::PARSE_FAILED);
+                fail(&job, why);
+            } else {
+                let checked = bytes
+                    .ok_or("unreadable or too large")
+                    .and_then(|b| mapcro_replay::timeline::validate(&b))
+                    .and_then(|t| if t.match_id == mapcro_replay::job_match_id(&job) { Ok(t) } else { Err("wrong match") });
+                match checked.and_then(|t| serde_json::to_vec(&t).map_err(|_| "json")) {
+                    Ok(bytes) => match write_atomic(&cache.join(format!("{job}.json")), &bytes) {
+                        Ok(()) => tracing::info!(job, bytes = bytes.len(), "replay timeline cached"),
+                        Err(e) => {
+                            tracing::error!(error = %e, job, "replay cache not written");
+                            fail(&job, mapcro_replay::reason::PARSE_FAILED);
+                        }
+                    },
+                    Err(why) => {
+                        tracing::warn!(job, why, "replay worker output refused");
                         fail(&job, mapcro_replay::reason::PARSE_FAILED);
                     }
-                },
-                Err(why) => {
-                    tracing::warn!(job, why, "replay worker output refused");
-                    fail(&job, mapcro_replay::reason::PARSE_FAILED);
                 }
             }
+            // The job is over: its result and its demo go.
             let _ = std::fs::remove_file(&p);
-        }
-    }
-    if let Ok(rd) = std::fs::read_dir(root.join("failed")) {
-        for e in rd.flatten() {
-            let p = e.path();
-            if let Some(job) = p.file_name().and_then(|f| f.to_str()).filter(|j| mapcro_replay::valid_job(j)) {
-                let said = std::fs::read(&p).unwrap_or_default();
-                let why = mapcro_replay::reason::ALL.iter().copied().find(|r| r.as_bytes() == said.trim_ascii()).unwrap_or(mapcro_replay::reason::PARSE_FAILED);
-                fail(job, why);
+            for x in EXTS {
+                let _ = std::fs::remove_file(root.join("inbox").join(format!("{job}.{x}")));
             }
-            let _ = std::fs::remove_file(&p);
         }
     }
     // A queued job the worker never took (it's down) and partial transfers nobody finished.

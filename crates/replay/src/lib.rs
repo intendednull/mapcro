@@ -40,7 +40,9 @@ pub mod reason {
     pub const TOO_LARGE: &str = "too_large";
     pub const TIMEOUT: &str = "timeout";
     pub const PARSE_FAILED: &str = "parse_failed";
-    pub const ALL: [&str; 5] = [OLD_MAP, NOT_A_REPLAY, TOO_LARGE, TIMEOUT, PARSE_FAILED];
+    /// The demo changed or shrank while being read (SIGBUS on the memory map).
+    pub const CORRUPT: &str = "corrupt";
+    pub const ALL: [&str; 6] = [OLD_MAP, NOT_A_REPLAY, TOO_LARGE, TIMEOUT, PARSE_FAILED, CORRUPT];
 }
 
 /// A queue job's name: `<match id>-<scope>`, `[0-9a-z-]`, at most 64 bytes (worker.rs).

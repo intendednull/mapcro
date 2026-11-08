@@ -152,7 +152,10 @@
           machine.wait_for_unit("mapcro-replay.service")
           for prop in ["PrivateNetwork=yes", "User=mapcro-replay", "OOMPolicy=continue", "MemoryMax=1073741824", "CPUQuotaPerSecUSec=1s", "ProtectSystem=strict"]:
               machine.succeed(f"systemctl show mapcro-replay.service -p {prop.split('=')[0]} | grep -qx {prop}")
-          machine.succeed("stat -c '%a %U %G' /var/lib/mapcro-replay/inbox | grep -qx '2770 mapcro-replay mapcro-replay'")
+          machine.succeed("stat -c '%a %U %G' /var/lib/mapcro-replay/inbox | grep -qx '2750 mapcro mapcro-replay'")
+          machine.succeed("stat -c '%a %U %G' /var/lib/mapcro-replay/outbox | grep -qx '2770 mapcro-replay mapcro-replay'")
+          # The worker can't write the server's inbox (security review 2026-11-08, M1).
+          machine.fail("runuser -u mapcro-replay -- touch /var/lib/mapcro-replay/inbox/x")
           machine.succeed("systemctl show mapcro-replay.service -p TemporaryFileSystem | grep -q /var/lib")
           # A tiny synthetic job round-trips: an editor uploads a demo whose header names a
           # pre-6712 build; the worker refuses it as an old map and its file is gone.
@@ -163,7 +166,7 @@
           machine.succeed("echo UEJERU1TMgAAAAAAAAAAAAEAJAoBeDIfL3Nydi9jaXRhZGVsX3Y2NjgzL2dhbWUvY2l0YWRlbAAAAA== | base64 -d > /tmp/old.dem")
           machine.succeed(f"curl -fsS {auth} --data-binary @/tmp/old.dem {base}/upload | grep -q queued")
           machine.wait_until_succeeds(f"curl -fsS {auth} {base} | grep -q old_map", timeout=60)
-          machine.succeed("test -z \"$(ls -A /var/lib/mapcro-replay/inbox)$(ls -A /var/lib/mapcro-replay/work)\"")
+          machine.wait_until_succeeds("test -z \"$(ls -A /var/lib/mapcro-replay/inbox)$(ls -A /var/lib/mapcro-replay/work)$(ls -A /var/lib/mapcro-replay/outbox)\"")
           # Bad magic is refused before it is queued.
           machine.succeed(f"test \"$(curl -s -o /dev/null -w '%{{http_code}}' {auth} --data-binary @/etc/hostname {base}/upload)\" = 415")
           # The server's health doesn't depend on the worker's.

@@ -30,6 +30,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures-util = "0.3"
 # The replay timeline's format and checks only: the parser runs in the worker, never here.
 mapcro-replay = { path = "../replay", default-features = false }
+# O_NOFOLLOW for the replay queue's files.
+libc = "0.2"
 # Match import's upstream calls (deadlock-api.com), run on the blocking pool.
 ureq = { version = "3", features = ["json"] }
 

@@ -198,16 +198,19 @@ fn timeline(id: u64) -> Timeline {
     }
 }
 
-/// Play the worker for `job`: take it from the inbox, then finish it with `result`.
+/// Play the worker for `job` (it only reads the inbox): mark it started, then post `result`.
 fn work(server: &Server, job: &str, result: Result<&[u8], &str>) {
-    let src = server.q("inbox").join(format!("{job}.dem"));
-    let dst = server.q("work").join(format!("{job}.dem"));
-    std::fs::rename(&src, &dst).expect("the job is queued");
-    std::fs::remove_file(&dst).expect("the worker deletes the demo");
+    assert!(["dem", "bz2", "zst"].iter().any(|e| server.q("inbox").join(format!("{job}.{e}")).exists()), "the job is queued");
+    std::fs::write(server.q("outbox").join(format!("{job}.parsing")), b"").expect("parsing");
+    finish(server, job, result);
+}
+
+fn finish(server: &Server, job: &str, result: Result<&[u8], &str>) {
     match result {
-        Ok(bytes) => std::fs::write(server.q("done").join(format!("{job}.json")), bytes).expect("done"),
-        Err(why) => std::fs::write(server.q("failed").join(job), why).expect("failed"),
+        Ok(bytes) => std::fs::write(server.q("outbox").join(format!("{job}.json")), bytes).expect("done"),
+        Err(why) => std::fs::write(server.q("outbox").join(format!("{job}.failed")), why).expect("failed"),
     }
+    let _ = std::fs::remove_file(server.q("outbox").join(format!("{job}.parsing")));
 }
 
 fn scope(board: &str) -> String {
@@ -295,13 +298,13 @@ fn a_job_runs_to_a_cached_timeline_that_only_its_board_sees() {
     assert_eq!(server.call("GET", &format!("/api/boards/{board}/matches/{id}"), &view), (404, serde_json::json!({ "error": "not_found" })));
 
     assert_eq!(server.upload(&board, &owner, id, &fake_demo(1000)).0, 202);
-    std::fs::rename(server.q("inbox").join(format!("{job}.dem")), server.q("work").join(format!("{job}.dem"))).expect("take");
+    std::fs::write(server.q("outbox").join(format!("{job}.parsing")), b"").expect("parsing");
     assert_eq!(server.status(&board, &owner, id)["state"], "parsing");
-    std::fs::remove_file(server.q("work").join(format!("{job}.dem"))).expect("the worker deletes the demo");
     let t = timeline(130816395);
-    std::fs::write(server.q("done").join(format!("{job}.json")), serde_json::to_vec(&t).expect("json")).expect("done");
+    finish(&server, &job, Ok(&serde_json::to_vec(&t).expect("json")));
     assert_eq!(server.until_state(&board, &owner, id, "done")["source"], "upload");
-    assert!(files(&server.q("done")).is_empty(), "collected");
+    assert!(files(&server.q("outbox")).is_empty(), "collected");
+    assert!(files(&server.q("inbox")).is_empty(), "the demo goes when its result is collected");
     assert_eq!(files(&server.data.path().join("replays")), [format!("{job}.json")], "cached");
 
     // Tier selection: this board gets the replay, a view link included; another board doesn't.
@@ -388,9 +391,7 @@ fn fetches_take_salts_then_the_cdn_under_caps() {
     assert_eq!(up.hits("/v1/matches/12/salts"), 1);
 
     // The worker's result is shared: done for both boards.
-    std::fs::rename(server.q("inbox").join("11-cdn.bz2"), server.q("work").join("11-cdn.bz2")).expect("take");
-    std::fs::remove_file(server.q("work").join("11-cdn.bz2")).expect("delete");
-    std::fs::write(server.q("done").join("11-cdn.json"), serde_json::to_vec(&timeline(11)).expect("json")).expect("done");
+    work(&server, "11-cdn", Ok(&serde_json::to_vec(&timeline(11)).expect("json")));
     server.until_state(&board, &owner, "11", "done");
     assert_eq!(server.call("GET", &format!("/api/boards/{other}/matches/11"), &other_owner).1["tier"], "replay");
 }
@@ -434,4 +435,76 @@ fn stale_jobs_and_partial_uploads_are_cleaned_up() {
         assert!(Instant::now() < deadline, "{:?}", files(&server.q("inbox")));
         std::thread::sleep(Duration::from_millis(50));
     }
+}
+
+#[test]
+fn a_board_keeps_the_matches_it_opened() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[]);
+    let (board, owner, view) = server.board();
+    let put = |id: &str, token: &str| {
+        let mut r = agent().put(&server.url(&format!("/api/boards/{board}/matches/{id}"))).header("authorization", &format!("Bearer {token}")).send_empty().expect("request");
+        (r.status().as_u16(), r.body_mut().read_json::<serde_json::Value>().unwrap_or_default())
+    };
+    assert_eq!(server.call("GET", &format!("/api/boards/{board}/matches"), &view), (200, serde_json::json!({ "matches": [] })));
+    assert_eq!(put("111", &view).0, 403, "view links can't attach");
+    assert_eq!(put("0x", &owner).0, 400);
+    assert_eq!(put("111", &owner).0, 200);
+    assert_eq!(put("222", &owner).1, serde_json::json!({ "matches": [222, 111] }));
+    assert_eq!(put("111", &owner).1, serde_json::json!({ "matches": [111, 222] }), "newest first, once");
+    assert_eq!(server.call("GET", &format!("/api/boards/{board}/matches"), &view).1, serde_json::json!({ "matches": [111, 222] }));
+    let (other, other_owner, _) = server.board();
+    assert_eq!(server.call("GET", &format!("/api/boards/{other}/matches"), &other_owner).1, serde_json::json!({ "matches": [] }));
+    for i in 0..25 {
+        put(&(1000 + i).to_string(), &owner);
+    }
+    assert_eq!(server.call("GET", &format!("/api/boards/{board}/matches"), &owner).1["matches"].as_array().map(Vec::len), Some(20));
+}
+
+/// Security review 2026-11-08, M1: a link planted where the server writes a partial upload is
+/// never followed, and nothing outside the queue is touched.
+#[test]
+fn a_planted_link_in_the_inbox_is_never_followed() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[]);
+    let (board, owner, _) = server.board();
+    let target = server.data.path().join("server_owned_file");
+    std::fs::write(&target, b"ORIGINAL SERVER DATA").expect("target");
+    let job = format!("123456-{}", scope(&board));
+    std::os::unix::fs::symlink(&target, server.q("inbox").join(format!(".{job}.part"))).expect("plant");
+    let (code, _) = server.upload(&board, &owner, "123456", &fake_demo(1000));
+    assert_ne!(code, 202);
+    assert_eq!(std::fs::read(&target).expect("target"), b"ORIGINAL SERVER DATA");
+    // The refused upload clears the planted link (unlinked, not followed), so the next works.
+    assert_eq!(server.upload(&board, &owner, "123456", &fake_demo(1000)).0, 202);
+    assert_eq!(std::fs::read(&target).expect("target"), b"ORIGINAL SERVER DATA");
+}
+
+/// Security review 2026-11-08, M2: results for jobs the server never queued are dropped, never
+/// cached, so a worker can't publish a timeline for a match (or the shared CDN scope) at will.
+#[test]
+fn results_for_unqueued_jobs_are_dropped() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[]);
+    let (board, owner, _) = server.board();
+    let forged = serde_json::to_vec(&timeline(77)).expect("json");
+    std::fs::write(server.q("outbox").join("77-cdn.json"), &forged).expect("forge cdn");
+    std::fs::write(server.q("outbox").join(format!("77-{}.json", scope(&board))), &forged).expect("forge upload");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !files(&server.q("outbox")).is_empty() {
+        assert!(Instant::now() < deadline, "{:?}", files(&server.q("outbox")));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(files(&server.data.path().join("replays")).is_empty(), "nothing cached");
+    assert_eq!(server.status(&board, &owner, "77")["state"], "none");
+    // A queued upload's result can't be published under the CDN scope either.
+    assert_eq!(server.upload(&board, &owner, "77", &fake_demo(1000)).0, 202);
+    std::fs::write(server.q("outbox").join("77-cdn.json"), &forged).expect("forge cdn");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while server.q("outbox").join("77-cdn.json").exists() {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!server.data.path().join("replays/77-cdn.json").exists());
+    assert_eq!(server.status(&board, &owner, "77")["state"], "queued");
 }

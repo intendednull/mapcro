@@ -7,7 +7,7 @@ use std::process::Command;
 
 fn queue() -> tempfile::TempDir {
     let d = tempfile::tempdir().expect("dir");
-    for s in ["inbox", "work", "done", "failed"] {
+    for s in ["inbox", "outbox", "work"] {
         std::fs::create_dir(d.path().join(s)).expect("mkdir");
     }
     d
@@ -61,15 +61,21 @@ fn jobs_fail_with_their_reason_and_their_demos_go() {
     // Not a job name: left alone, never run.
     std::fs::write(p.join("inbox/.6-cdn.part"), b"partial").expect("partial");
     run(p, &[]);
-    let reason = |job: &str| std::fs::read_to_string(p.join("failed").join(job)).unwrap_or_default();
+    let reason = |job: &str| std::fs::read_to_string(p.join("outbox").join(format!("{job}.failed"))).unwrap_or_default();
     assert_eq!(reason("100747544-cdn"), "old_map");
     assert!(["parse_failed", "not_a_replay"].contains(&reason("2-aaaaaaaaaaaaaaaa").as_str()), "{}", reason("2-aaaaaaaaaaaaaaaa"));
     assert_eq!(reason("3-cdn"), "not_a_replay");
     assert_eq!(reason("4-cdn"), "not_a_replay");
     assert_eq!(reason("5-cdn"), "old_map");
-    assert_eq!(files(&p.join("inbox")), [".6-cdn.part"]);
-    assert!(files(&p.join("work")).is_empty(), "every demo is deleted when its parse ends");
-    assert!(files(&p.join("done")).is_empty());
+    // The worker only reads the inbox (the server deletes a job's file when it collects it);
+    // its own scratch is empty, and only results are in its outbox.
+    assert_eq!(files(&p.join("inbox")).len(), 6);
+    assert!(files(&p.join("work")).is_empty(), "every expanded demo is deleted when its parse ends");
+    assert!(files(&p.join("outbox")).iter().all(|f| f.ends_with(".failed")), "{:?}", files(&p.join("outbox")));
+    // A second run doesn't redo jobs whose results wait for the server.
+    let before: Vec<_> = files(&p.join("outbox"));
+    run(p, &[]);
+    assert_eq!(files(&p.join("outbox")), before);
 }
 
 #[test]
@@ -81,10 +87,12 @@ fn a_job_over_its_limits_fails_and_a_crashed_run_is_recovered() {
     std::fs::write(p.join("inbox/1-cdn.bz2"), bz.finish().expect("bz2")).expect("bomb");
     // Left over from a worker that died mid-parse.
     std::fs::write(p.join("work/2-cdn.dem"), b"PBDEMS2\0").expect("left over");
+    std::fs::write(p.join("outbox/2-cdn.parsing"), b"").expect("marker");
     run(p, &[("REPLAY_MAX_DEM_BYTES", "1000")]);
-    assert_eq!(std::fs::read_to_string(p.join("failed/1-cdn")).expect("failed"), "too_large");
-    assert_eq!(std::fs::read_to_string(p.join("failed/2-cdn")).expect("recovered"), "parse_failed");
+    assert_eq!(std::fs::read_to_string(p.join("outbox/1-cdn.failed")).expect("failed"), "too_large");
+    assert_eq!(std::fs::read_to_string(p.join("outbox/2-cdn.failed")).expect("recovered"), "parse_failed");
     assert!(files(&p.join("work")).is_empty());
+    assert!(!p.join("outbox/2-cdn.parsing").exists());
 }
 
 #[test]
@@ -93,6 +101,6 @@ fn a_job_past_its_wall_clock_is_killed() {
     let p = q.path();
     std::fs::write(p.join("inbox/1-cdn.dem"), header_only("citadel_v6813")).expect("job");
     run(p, &[("REPLAY_JOB_TIMEOUT_S", "0")]);
-    assert_eq!(std::fs::read_to_string(p.join("failed/1-cdn")).expect("failed"), "timeout");
+    assert_eq!(std::fs::read_to_string(p.join("outbox/1-cdn.failed")).expect("failed"), "timeout");
     assert!(files(&p.join("work")).is_empty());
 }

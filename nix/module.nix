@@ -7,9 +7,10 @@ let
   pkgsSelf = self.packages.${pkgs.stdenv.hostPlatform.system};
   pkg = pkgsSelf.default;
   replayPkg = pkgsSelf.replay;
-  # The replay worker's queue (spec §6a): shared by the server (writes inbox/, reads results)
-  # and the worker (everything else), through the mapcro-replay group. Setgid, so every file in
-  # it belongs to that group whoever writes it.
+  # The replay worker's queue (spec §6a), through the mapcro-replay group: neither side can write
+  # where the other writes (security review 2026-11-08, M1/M2). inbox/ is the server's (the
+  # worker reads it), outbox/ the worker's (the server reads results and removes them), work/
+  # the worker's alone. Setgid, so files belong to the group whoever writes them.
   queue = "/var/lib/mapcro-replay";
 in
 {
@@ -80,7 +81,12 @@ in
     users.groups.mapcro = { };
     users.users.mapcro-replay = lib.mkIf cfg.replay.enable { isSystemUser = true; group = "mapcro-replay"; };
     users.groups.mapcro-replay = lib.mkIf cfg.replay.enable { };
-    systemd.tmpfiles.rules = lib.optionals cfg.replay.enable (map (d: "d ${queue}${d} 2770 mapcro-replay mapcro-replay -") [ "" "/inbox" "/work" "/done" "/failed" ]);
+    systemd.tmpfiles.rules = lib.optionals cfg.replay.enable [
+      "d ${queue} 0750 root mapcro-replay -"
+      "d ${queue}/inbox 2750 mapcro mapcro-replay -"
+      "d ${queue}/outbox 2770 mapcro-replay mapcro-replay -"
+      "d ${queue}/work 0700 mapcro-replay mapcro-replay -"
+    ];
     systemd.services.mapcro = {
       description = "mapcro board server";
       wantedBy = [ "multi-user.target" ];
@@ -169,9 +175,11 @@ in
         LimitNOFILE = 64;
         # No file it writes (the expanded demo, the timeline) can pass the demo cap.
         LimitFSIZE = 1100 * 1024 * 1024;
-        # Nothing but the queue: /var/lib is empty but for it, and there is no network at all.
+        # Nothing but the queue: /var/lib is empty but for it (the inbox read-only), and there
+        # is no network at all.
         TemporaryFileSystem = [ "/var/lib" ];
-        BindPaths = [ queue ];
+        BindReadOnlyPaths = [ "${queue}/inbox" ];
+        BindPaths = [ "${queue}/outbox" "${queue}/work" ];
         PrivateNetwork = true;
         RestrictAddressFamilies = [ "none" ];
         IPAddressDeny = "any";

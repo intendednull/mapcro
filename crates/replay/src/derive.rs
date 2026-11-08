@@ -198,9 +198,8 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
                     if h.hero_id != 0 {
                         p.hero_id = h.hero_id;
                     }
-                    if let Some(name) = h.name.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-                        let clean: String = name.chars().filter(|c| !c.is_control()).take(32).collect();
-                        p.name = Some(clean);
+                    if let Some(name) = h.name.as_deref().and_then(crate::timeline::clean_name) {
+                        p.name = Some(name);
                     }
                     if p.souls.last().is_none_or(|l| l[1] != h.net_worth) {
                         p.souls.push([sec as u32, h.net_worth]);

@@ -201,7 +201,22 @@ pub const MAX_BYTES: u64 = 4 * 1024 * 1024;
 pub const MAX_DURATION_S: u32 = 4 * 3600;
 const MAX_PLAYERS: usize = 16;
 const MAX_LIST: usize = 256;
-const MAX_NAME: usize = 64;
+/// In-game names, in characters (Steam allows 32).
+pub const MAX_NAME: usize = 32;
+
+/// Characters a name may not carry (security review 2026-11-08, L3): control characters, bidi
+/// overrides and isolates (which reorder text around them), and HTML's metacharacters, so the
+/// server's output is safe on its own, not only because the client escapes it.
+pub fn bad_name_char(c: char) -> bool {
+    c.is_control() || matches!(c, '\u{200E}' | '\u{200F}' | '\u{061C}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '<' | '>' | '&' | '"')
+}
+
+/// A name as the timeline keeps it: those characters dropped, trimmed, at most [`MAX_NAME`].
+pub fn clean_name(raw: &str) -> Option<String> {
+    let s: String = raw.chars().filter(|c| !bad_name_char(*c)).collect();
+    let s: String = s.trim().chars().take(MAX_NAME).collect();
+    (!s.is_empty()).then_some(s)
+}
 const MAX_EVENTS: usize = 4096;
 
 fn plausible_key(k: &str) -> bool {
@@ -242,7 +257,7 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
                 && p.x.iter().chain(&p.y).all(|v| v.is_none_or(|v| v.abs() <= 32768))
                 && p.deaths.len() <= n
                 && p.souls.len() <= n
-                && p.name.as_ref().is_none_or(|s| s.chars().count() <= MAX_NAME && !s.chars().any(char::is_control))
+                && p.name.as_ref().is_none_or(|s| s.chars().count() <= MAX_NAME && !s.chars().any(bad_name_char))
         })
         && t.objectives.len() <= MAX_LIST
         && t.objectives.iter().all(|o| plausible_key(&o.key) && o.kind.len() <= 32 && o.team.len() <= 16 && o.destroyed_s <= t.duration_s)
@@ -317,6 +332,9 @@ mod tests {
             Box::new(|t| t.players[0].health[0] = 101),
             Box::new(|t| t.players[0].ult[0] = Some(200)),
             Box::new(|t| t.players[0].name = Some("a\u{7}b".into())),
+            Box::new(|t| t.players[0].name = Some("<img src=x>".into())),
+            Box::new(|t| t.players[0].name = Some("ab\u{202E}cd".into())),
+            Box::new(|t| t.players[0].name = Some("x".repeat(33))),
             Box::new(|t| t.players[0].team = "<b>".into()),
             Box::new(|t| t.objectives[0].key = "walker:amber:lane1:1<script>".into()),
             Box::new(|t| t.objectives[0].destroyed_s = 99),
@@ -350,6 +368,13 @@ mod tests {
         // One team's update a few seconds before the other's is no swing.
         let staggered = [p("amber", &[[0, 0], [180, 9000]]), p("sapphire", &[[0, 0], [184, 9000]])];
         assert_eq!(souls_swings(&staggered, 500), []);
+    }
+
+    #[test]
+    fn names_lose_control_bidi_and_html_characters() {
+        assert_eq!(clean_name(" Co\u{202E}a<b>ch&\"\u{7} "), Some("Coabch".into()));
+        assert_eq!(clean_name("\u{2066}\u{2069}"), None);
+        assert_eq!(clean_name(&"é".repeat(40)).map(|s| s.chars().count()), Some(32));
     }
 
     #[test]
