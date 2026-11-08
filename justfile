@@ -76,6 +76,15 @@ soak seed="random" peers="40" seconds="60" *flags: wasm
     cargo build -q --release -p mapcro-server
     cd web && node soak/bundle.mjs && node soak/.build/run.js --seed {{seed}} --peers {{peers}} --seconds {{seconds}} {{flags}}
 
+# Performance: where the time goes from one person's input to another's paint, on the drag
+# preview path, and in the server (web/perf/). Real browsers (Playwright) plus Node peers on a
+# release server; results, traces and profiles go to /tmp/mapcro-perf/out, never the repo.
+# Server stage timings need web/perf/server-timing.patch applied to the binary under test.
+# `just perf local --fs tmpfs --peers 40 --storm 10`, `just perf live`, `just perf --help`.
+perf *args: wasm
+    cargo build -q --release -p mapcro-server
+    cd web && npx vite build --logLevel warn && node perf/bundle.mjs && node perf/.build/run.js {{args}}
+
 # The app, live-reloading: the server (state and packs under ~/.local/share/mapcro, outside the
 # repo) plus Vite on http://localhost:5173 proxying /api, /ws and /packs to it.
 dev port="8094": wasm

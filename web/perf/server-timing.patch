@@ -1,0 +1,214 @@
+Server stage timings for web/perf (target `mapcro_perf`, RUST_LOG=warn,mapcro_perf=info).
+Measurement only; never committed to the app. Base: 7d6cb40. Apply to a copy:
+  git archive 7d6cb40 | tar -x -C /tmp/x && cd /tmp/x && git apply web/perf/server-timing.patch
+
+--- a/crates/server/src/room.rs
++++ b/crates/server/src/room.rs
+@@ -51,7 +51,7 @@
+         want_base: bool,
+         reply: oneshot::Sender<Result<Joined, CloseReason>>,
+     },
+-    Msg { conn: ConnId, msg: ClientMsg },
++    Msg { conn: ConnId, msg: ClientMsg, at: std::time::Instant },
+     Presence { conn: ConnId, state: Presence },
+     Leave { conn: ConnId },
+     /// The board as it is now (for cloning).
+@@ -132,6 +132,10 @@
+     /// The last snapshot handed to a fresh client: the log position it's at and the document as
+     /// JSON, or `None` if it was over `SNAPSHOT_MAX_BYTES`. Its size counts in the room's weight.
+     snapshot: Option<(u64, Option<Arc<str>>)>,
++    perf_tx: (u64, u64, u64, usize, u64),
++    perf_busy: [u64; 5],
++    perf_count: [u64; 5],
++    perf_since: Option<std::time::Instant>,
+ }
+ 
+ /// Where a fresh client starts.
+@@ -316,6 +320,10 @@
+             flush_at: None,
+             unload: false,
+             snapshot: None,
++            perf_tx: (0, 0, 0, 0, 0),
++            perf_busy: [0; 5],
++            perf_count: [0; 5],
++            perf_since: None,
+         };
+         let registry = self.clone();
+         let sender = tx.clone();
+@@ -392,7 +400,16 @@
+                         Some(cmd) => { if self.dispatch(cmd).await.is_err() { return self.fail_all(); } }
+                         None => return,
+                     },
+-                    _ = tokio::time::sleep_until(at) => self.flush_presence(),
++                    _ = tokio::time::sleep_until(at) => {
++                        let t0 = std::time::Instant::now();
++                        let late_us = t0.saturating_duration_since(at.into_std()).as_micros() as u64;
++                        let (frames, bytes, batch) = self.flush_presence();
++                        let us = t0.elapsed().as_micros() as u64;
++                        self.perf_busy[4] += us;
++                        self.perf_count[4] += 1;
++                        tracing::info!(target: "mapcro_perf", kind = "flush", us, late_us, batch, frames, bytes, peers = self.peers.len(), "perf");
++                        self.perf_report();
++                    }
+                 }
+                 if self.unload {
+                     return;
+@@ -432,12 +449,42 @@
+     }
+ 
+     async fn dispatch(&mut self, cmd: RoomCmd) -> Result<(), StoreError> {
++        let kind = match &cmd { RoomCmd::Msg { .. } => 0, RoomCmd::Presence { .. } => 1, RoomCmd::Join { .. } => 2, _ => 3 };
++        let t0 = std::time::Instant::now();
++        let r = self.dispatch_inner(cmd).await;
++        self.perf_busy[kind] += t0.elapsed().as_micros() as u64;
++        self.perf_count[kind] += 1;
++        self.perf_report();
++        r
++    }
++
++    fn perf_report(&mut self) {
++        let now = std::time::Instant::now();
++        let since = now.duration_since(*self.perf_since.get_or_insert(now));
++        if since.as_millis() < 1000 { return; }
++        tracing::info!(target: "mapcro_perf", kind = "busy", window_us = since.as_micros() as u64, msg_us = self.perf_busy[0], presence_us = self.perf_busy[1], join_us = self.perf_busy[2], other_us = self.perf_busy[3], flush_us = self.perf_busy[4], msgs = self.perf_count[0], presences = self.perf_count[1], flushes = self.perf_count[4], peers = self.peers.len(), "perf");
++        self.perf_busy = [0; 5];
++        self.perf_count = [0; 5];
++        self.perf_since = Some(now);
++    }
++
++    async fn dispatch_inner(&mut self, cmd: RoomCmd) -> Result<(), StoreError> {
+         let result = match cmd {
+             RoomCmd::Join { link_hash, role, want_base, reply } => {
+                 self.join(link_hash, role, want_base, reply);
+                 Ok(())
+             }
+-            RoomCmd::Msg { conn, msg } => self.message(conn, msg).await,
++            RoomCmd::Msg { conn, msg, at } => {
++                let queue_us = at.elapsed().as_micros() as u64;
++                let submit = matches!(msg, ClientMsg::Submit(_));
++                let t = std::time::Instant::now();
++                let r = self.message(conn, msg).await;
++                if submit {
++                    let p = std::mem::take(&mut self.perf_tx);
++                    tracing::info!(target: "mapcro_perf", kind = "tx", queue_us, total_us = t.elapsed().as_micros() as u64, apply_us = p.0, store_us = p.1, fanout_us = p.2, recipients = p.3, seq = p.4, peers = self.peers.len(), "perf");
++                }
++                r
++            }
+             RoomCmd::Presence { conn, mut state } => {
+                 if let Some(peer) = self.peers.get_mut(&conn) {
+                     if peer.role == LinkRole::View {
+@@ -495,8 +542,9 @@
+         self.occupancy.store(self.peers.len(), Ordering::Relaxed);
+     }
+ 
+-    fn flush_presence(&mut self) {
++    fn flush_presence(&mut self) -> (usize, usize, usize) {
+         self.flush_at = None;
++        let (mut frames, mut bytes) = (0usize, 0usize);
+         let batch: Vec<PeerPresence> = std::mem::take(&mut self.presence_dirty)
+             .into_iter()
+             .map(|(peer, role)| PeerPresence {
+@@ -506,7 +554,7 @@
+             })
+             .collect();
+         if batch.is_empty() {
+-            return;
++            return (0, 0, 0);
+         }
+         // Everyone gets the batch minus their own entry.
+         let slow: Vec<ConnId> = self
+@@ -517,13 +565,18 @@
+                     return false; // behind: skip this batch rather than queue it
+                 }
+                 let mine: Vec<PeerPresence> = batch.iter().filter(|e| e.peer != c.0).cloned().collect();
+-                !mine.is_empty() && !p.offer(Out::Frame(frame(&WireOut::Presence { peers: mine })))
++                if mine.is_empty() { return false; }
++                let f = frame(&WireOut::Presence { peers: mine });
++                frames += 1;
++                bytes += f.len();
++                !p.offer(Out::Frame(f))
+             })
+             .map(|(c, _)| *c)
+             .collect();
+         for conn in slow {
+             self.close(conn, CloseReason::TooSlow);
+         }
++        (frames, bytes, batch.len())
+     }
+ 
+     fn join(
+@@ -592,6 +645,7 @@
+         // Encode a submitted transaction as it would be stored: its stored size is what counts
+         // against the board's byte quota, and if it's logged, these are the bytes written.
+         let mut encoded = None;
++        let t_apply = std::time::Instant::now();
+         let (outbox, effects) = match msg {
+             ClientMsg::Submit(tx) => {
+                 let json = serde_json::to_vec(&tx).map_err(|e| StoreError::Corrupt(e.to_string()))?;
+@@ -602,6 +656,8 @@
+             }
+             other => self.authority.handle(conn, other),
+         };
++        let apply_us = t_apply.elapsed().as_micros() as u64;
++        let t_store = std::time::Instant::now();
+         for effect in &effects {
+             match effect {
+                 Effect::Logged { seq, tx } => {
+@@ -626,6 +682,10 @@
+                 }
+             }
+         }
++        let store_us = t_store.elapsed().as_micros() as u64;
++        let logged_seq = effects.iter().find_map(|e| if let Effect::Logged { seq, .. } = e { Some(*seq) } else { None }).unwrap_or(0);
++        let t_fan = std::time::Instant::now();
++        let recipients = outbox.len();
+         // A broadcast is the same message to every peer in a row: serialize it once and share it.
+         let mut last: Option<(ServerMsg, Arc<str>)> = None;
+         for (to, out) in outbox {
+@@ -654,6 +714,7 @@
+             }
+         }
+         self.publish_weight();
++        self.perf_tx = (apply_us, store_us, t_fan.elapsed().as_micros() as u64, recipients, logged_seq);
+         Ok(())
+     }
+ 
+--- a/crates/server/src/ws.rs
++++ b/crates/server/src/ws.rs
+@@ -240,7 +240,7 @@
+                         tokens -= 1.0;
+                         match serde_json::from_str::<WireIn>(&t) {
+                             Ok(WireIn::Msg { msg }) => {
+-                                if room.send(RoomCmd::Msg { conn, msg }).await.is_err() {
++                                if room.send(RoomCmd::Msg { conn, msg, at: std::time::Instant::now() }).await.is_err() {
+                                     break Some(CloseReason::StorageFailure);
+                                 }
+                             }
+--- a/crates/server/src/store.rs
++++ b/crates/server/src/store.rs
+@@ -383,14 +383,21 @@
+ 
+     /// Store log entry `seq`, already encoded (`codec::encode` of its JSON).
+     pub async fn append_op(&self, board: String, seq: u64, codec: Codec, stored: Vec<u8>) -> Result<(), StoreError> {
+-        self.with(move |c| {
+-            c.execute(
++        let t0 = std::time::Instant::now();
++        let bytes = stored.len();
++        let r = self.with(move |c| {
++            let t1 = std::time::Instant::now();
++            let wait_us = t1.duration_since(t0).as_micros() as u64;
++            let r = c.execute(
+                 "INSERT INTO ops (board, seq, codec, tx) VALUES (?1, ?2, ?3, ?4)",
+                 params![board, seq as i64, codec.as_str(), stored],
+-            )?;
++            );
++            tracing::info!(target: "mapcro_perf", kind = "append", wait_us, exec_us = t1.elapsed().as_micros() as u64, bytes, "perf");
++            r?;
+             Ok(())
+         })
+-        .await
++        .await;
++        r
+     }
+ 
+     /// `Entry` frames for log positions `from..=to`, as many as fit about `max_bytes` (at least
