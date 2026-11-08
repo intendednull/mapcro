@@ -1801,3 +1801,62 @@ async fn transactions_arriving_together_share_one_commit() {
     assert!(biggest > 1, "every commit held one message: {sizes:?}");
     assert!(sizes.len() < total, "{} commits for {total} messages", sizes.len());
 }
+
+// ---- compaction (spec §9) ----
+
+fn base_and_ops(path: &std::path::Path, board: &str) -> (i64, i64, Option<i64>) {
+    let c = rusqlite::Connection::open(path).expect("open");
+    let base: i64 = c.query_row("SELECT base_seq FROM boards WHERE id = ?1", [board], |r| r.get(0)).expect("board");
+    let (n, min): (i64, Option<i64>) = c.query_row("SELECT COUNT(*), MIN(seq) FROM ops WHERE board = ?1", [board], |r| Ok((r.get(0)?, r.get(1)?))).expect("ops");
+    (base, n, min)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn compaction_keeps_history_bounded_and_old_copies_rebase() {
+    // The log is compacted: the board becomes the base, the newest entries stay, older ones go.
+    // A client whose copy is older than what's kept gets a rebase: the board now, and which of
+    // its transactions that already holds. Here client A's five edits are applied but it never
+    // hears the acks; by the time it's back, those entries are compacted away (and the server
+    // restarted). It must drop them as decided, not resend them as new: every edit exactly once.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mapcro.sqlite");
+    let env = [("BOARD_COMPACT_OPS", "40"), ("BOARD_KEEP_OPS", "10")];
+    let server = Server::start_with(dir.path(), None, &env);
+    let (board, owner) = server.create_board();
+    let mut b = Client::new(0xb0b);
+    b.connect(server.port, &board, &owner).await.expect("b");
+    let mut a = Client::new(0xa0a);
+    a.connect(server.port, &board, &owner).await.expect("a");
+    for i in 0..5 {
+        let ops = move_op(a.replica(), i);
+        a.edit(ops).await;
+    }
+    // B sees all five land; A leaves without reading a single ack.
+    while b.replica().last_seq() < 5 {
+        b.pump_one().await.expect("b hears a's edits");
+    }
+    a.drop_connection();
+    assert_eq!(a.replica().pending().count(), 5, "a never heard its acks");
+    assert!(edits_until_decided(&mut b, 100, move_op).await.is_empty());
+    let (base, kept, oldest) = base_and_ops(&path, &board);
+    assert!(base >= 80 && kept <= 50, "base {base}, {kept} entries kept from {oldest:?}");
+
+    let (d, port) = server.kill9();
+    b.drop_connection();
+    let server = Server::start_with(&d, Some(port), &env);
+    a.connect(server.port, &board, &owner).await.expect("a is rebased, not refused");
+    a.until_saved().await;
+    b.connect(server.port, &board, &owner).await.expect("b");
+    b.until_saved().await;
+    assert_eq!(a.replica().last_seq(), 105, "a's five edits are in the board once, not resent as new");
+    assert_eq!(a.replica().confirmed(), b.replica().confirmed());
+    // And A carries on normally.
+    assert!(edits_until_decided(&mut a, 2, move_op).await.is_empty());
+    while b.replica().last_seq() < 107 {
+        b.pump_one().await.expect("b hears a");
+    }
+    assert_eq!(a.replica().confirmed(), b.replica().confirmed());
+    let fresh = fresh_catch_up(server.port, &board, &owner, 0xf0f, 107).await;
+    assert_eq!(fresh.replica().confirmed(), b.replica().confirmed());
+    eprintln!("compaction: base at {base}, {kept} entries kept (from {oldest:?}); a rebased and in sync at 107");
+}

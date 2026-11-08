@@ -108,6 +108,10 @@ pub enum Out {
     /// Stream log entries `from..=to` here, reading them from storage (every one is durable by
     /// the time this is queued).
     CatchUp { from: u64, to: u64 },
+    /// A frame that may be big (a rebase: the whole board). Not counted against the outbox's
+    /// byte cap, which would drop the client for it on every reconnect; the socket sends it under
+    /// the server-wide cap on big frames in flight instead.
+    Large(Arc<str>),
 }
 
 fn frame(out: &WireOut) -> Arc<str> {
@@ -132,7 +136,7 @@ impl Peer {
     fn offer(&self, item: Out) -> bool {
         let size = match &item {
             Out::Frame(f) => f.len(),
-            Out::Closed(_) | Out::CatchUp { .. } => 0,
+            Out::Closed(_) | Out::CatchUp { .. } | Out::Large(_) => 0,
         };
         if self.queued.load(Ordering::Relaxed) + size > OUTBOX_BYTES {
             return false;
@@ -181,6 +185,9 @@ struct Room {
     /// The last snapshot handed to a fresh client: the log position it's at and the document as
     /// JSON, or `None` if it was over `SNAPSHOT_MAX_BYTES`. Its size counts in the room's weight.
     snapshot: Option<(u64, Option<Arc<str>>)>,
+    /// The log position the stored base document is at (the last compaction).
+    base_seq: u64,
+    compaction: Compaction,
 }
 
 /// Where a fresh client starts.
@@ -230,7 +237,25 @@ pub struct Rooms {
     store: Store,
     idle: std::time::Duration,
     caps: Caps,
+    compaction: Compaction,
     reg: Arc<Mutex<Registry>>,
+}
+
+/// When a room compacts its board's log, and what it keeps (spec §9). Read from the environment
+/// here rather than config.rs: `BOARD_COMPACT_OPS` (10,000) and `BOARD_KEEP_OPS` (2,000).
+#[derive(Clone, Copy, Debug)]
+pub struct Compaction {
+    /// Compact once this many entries have been logged since the base.
+    pub every_ops: u64,
+    /// Entries kept for clients slightly behind (catch-up rather than a rebase).
+    pub keep_ops: usize,
+}
+
+impl Compaction {
+    fn from_env() -> Compaction {
+        let num = |k: &str, d: u64| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
+        Compaction { every_ops: num("BOARD_COMPACT_OPS", 10_000).max(1), keep_ops: num("BOARD_KEEP_OPS", 2_000) as usize }
+    }
 }
 
 /// A slot for one room being loaded; released on drop unless the room opened.
@@ -262,7 +287,7 @@ pub enum RoomError {
 
 impl Rooms {
     pub fn new(store: Store, idle: std::time::Duration, caps: Caps) -> Rooms {
-        Rooms { store, idle, caps, reg: Arc::default() }
+        Rooms { store, idle, caps, compaction: Compaction::from_env(), reg: Arc::default() }
     }
 
     fn registry(&self) -> std::sync::MutexGuard<'_, Registry> {
@@ -313,6 +338,7 @@ impl Rooms {
         let caps = LoadCaps { ops: q.max_log_ops, bytes: q.max_log_bytes, clients: q.max_clients, rejections: q.max_rejections };
         let stored = self.store.load_board(board.to_owned(), caps, q).await?.ok_or(RoomError::NotFound)?;
         let weight = Arc::new(AtomicUsize::new(weigh(&stored.authority)));
+        let base_seq = stored.base_seq;
         let mut room = Some(stored.authority);
         // Admit it within the memory budget, unloading idle rooms to make room if needed.
         for _ in 0..8 {
@@ -327,7 +353,7 @@ impl Rooms {
                 let resident: usize = reg.open.values().map(|h| h.weight.load(Ordering::Relaxed)).sum();
                 if reg.open.is_empty() || resident + weight.load(Ordering::Relaxed) <= self.caps.room_memory_bytes {
                     let authority = room.take().ok_or(RoomError::Unavailable)?;
-                    let tx = self.spawn(board, authority, weight.clone(), &mut reg);
+                    let tx = self.spawn(board, authority, base_seq, weight.clone(), &mut reg);
                     // The reservation became the open room in one step under the lock.
                     reg.loading -= 1;
                     slot.held = false;
@@ -345,7 +371,7 @@ impl Rooms {
         Err(RoomError::Busy)
     }
 
-    fn spawn(&self, board: &str, authority: Authority, weight: Arc<AtomicUsize>, reg: &mut Registry) -> mpsc::Sender<RoomCmd> {
+    fn spawn(&self, board: &str, authority: Authority, base_seq: u64, weight: Arc<AtomicUsize>, reg: &mut Registry) -> mpsc::Sender<RoomCmd> {
         let (tx, rx) = mpsc::channel(1024);
         let occupancy = Arc::new(AtomicUsize::new(0));
         let room = Room {
@@ -366,6 +392,8 @@ impl Rooms {
             last_flush: None,
             unload: false,
             snapshot: None,
+            base_seq,
+            compaction: self.compaction,
         };
         let registry = self.clone();
         let sender = tx.clone();
@@ -712,8 +740,35 @@ impl Room {
         for outbox in outboxes {
             self.deliver(outbox);
         }
+        self.maybe_compact().await?;
         self.publish_weight();
         Ok(rest)
+    }
+
+    /// Compact the log once enough has been logged since the base, or its kept bytes reach half
+    /// the board's byte quota (spec §9): the board as it is becomes the base, the newest entries
+    /// stay for catch-up, and clients older than them are rebased. So a board's history no longer
+    /// grows without bound, and the quotas only backstop the kept tail. Runs after a commit, so
+    /// the board it writes is all on disk already.
+    async fn maybe_compact(&mut self) -> Result<(), StoreError> {
+        let len = self.authority.log_len();
+        let quota = self.rooms.caps.quota;
+        let due = len > self.base_seq
+            && (len - self.base_seq >= self.compaction.every_ops || self.authority.log_bytes() >= quota.max_log_bytes / 2);
+        if !due {
+            return Ok(());
+        }
+        let json = serde_json::to_string(self.authority.doc()).map_err(|e| StoreError::Corrupt(e.to_string()))?;
+        let (codec, stored) = codec::encode(json.as_bytes());
+        let seqs: Vec<_> = self.authority.client_seqs().collect();
+        let keep_bytes = quota.max_log_bytes / 4;
+        let (floor, kept) = self.store.compact(self.id.clone(), codec, stored, len, self.compaction.keep_ops, keep_bytes, seqs).await?;
+        self.authority.compacted(floor, kept);
+        self.base_seq = len;
+        // The new base is also a fresh joiner's snapshot.
+        self.snapshot = Some((len, (json.len() <= SNAPSHOT_MAX_BYTES).then(|| Arc::<str>::from(json))));
+        tracing::info!(board = self.id, base = len, floor, kept, "compacted");
+        Ok(())
     }
 
     /// One engine message, in memory: the authority's decision, and the durable writes it needs.
@@ -766,6 +821,7 @@ impl Room {
         let mut last: Option<(ServerMsg, Arc<str>)> = None;
         for (to, out) in outbox {
             let (item, fatal) = match out {
+                Outgoing::Msg(msg @ ServerMsg::Rebase { .. }) => (Out::Large(frame(&WireOut::Msg { msg })), false),
                 Outgoing::Msg(msg) => {
                     let fatal = matches!(msg, ServerMsg::Fatal(_));
                     let f = match &last {

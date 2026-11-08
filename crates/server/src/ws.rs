@@ -216,6 +216,14 @@ async fn session(app: AppState, mut socket: WebSocket) {
                     queued.fetch_sub(f.len(), std::sync::atomic::Ordering::Relaxed);
                     if !matches!(timeout(SEND_TIMEOUT, sink.send(Message::Text(f.as_ref().into()))).await, Ok(Ok(()))) { break None; }
                 }
+                Some(Out::Large(f)) => {
+                    // A rebase: the whole board, sent under the cap on big frames in flight.
+                    let kib = (2 * f.len() / 1024 + 1).min(BASE_SENDS_KIB) as u32;
+                    let permit = app.base_sends.clone().acquire_many_owned(kib).await.ok();
+                    let sent = timeout(SEND_TIMEOUT, sink.send(Message::Text(f.as_ref().into()))).await;
+                    drop(permit);
+                    if !matches!(sent, Ok(Ok(()))) { break None; }
+                }
                 Some(Out::Closed(reason)) => {
                     let _ = sink.send(frame(&WireOut::Closed { reason })).await;
                     break None;

@@ -47,6 +47,8 @@ fn db_size(c: &Connection) -> rusqlite::Result<u64> {
 /// base document: fresh clients get that from storage too).
 pub struct LoadedBoard {
     pub authority: Authority,
+    /// The log position the stored base document is at.
+    pub base_seq: u64,
 }
 
 /// A stored op decodes to at most this much JSON. Rows written since v4 are under
@@ -120,7 +122,7 @@ pub struct Store {
 }
 
 /// Database schema version. Each step in `migrate` takes the database one version forward.
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 /// v1 → v2: links remember which link minted them (editors can share; revocation cascades).
 fn migrate(conn: &Connection, from: i64) -> Result<(), StoreError> {
@@ -144,6 +146,17 @@ fn migrate(conn: &Connection, from: i64) -> Result<(), StoreError> {
             3 => conn.execute_batch(
                 "ALTER TABLE ops ADD COLUMN codec TEXT NOT NULL DEFAULT 'json';
                  ALTER TABLE boards ADD COLUMN base_codec TEXT NOT NULL DEFAULT 'json';",
+            )?,
+            // v4 → v5: each client's next expected cseq, kept when compaction drops the log
+            // entries that showed it (spec §9). Without it a resend of an old transaction would
+            // be applied twice.
+            4 => conn.execute_batch(
+                "CREATE TABLE client_seqs (
+                   board TEXT NOT NULL REFERENCES boards(id),
+                   client TEXT NOT NULL,
+                   next_cseq INTEGER NOT NULL,
+                   PRIMARY KEY (board, client)
+                 ) WITHOUT ROWID;",
             )?,
             other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
         }
@@ -325,9 +338,11 @@ impl Store {
             let base = codec::decode(Codec::parse(&base_codec)?, &base, DOC_DECODE_LIMIT)?;
             let base: Doc = serde_json::from_slice(&base).map_err(corrupt)?;
             mapcro_schema::validate_doc(&base).map_err(|r| StoreError::Corrupt(format!("base document: {r}")))?;
-            let mut authority = Authority::with_quota(base, quota);
-            let mut stmt = c.prepare("SELECT seq, codec, tx FROM ops WHERE board = ?1 ORDER BY seq")?;
-            let mut rows = stmt.query([&id])?;
+            // The base is the board at `base_seq`; replay what came after. Older rows still kept
+            // (the tail compaction leaves for catch-up) are already in the base.
+            let mut authority = Authority::from_snapshot(base, base_seq as u64, quota);
+            let mut stmt = c.prepare("SELECT seq, codec, tx FROM ops WHERE board = ?1 AND seq > ?2 ORDER BY seq")?;
+            let mut rows = stmt.query(params![id, base_seq])?;
             let mut expected = base_seq + 1;
             let (mut ops, mut bytes) = (0usize, 0usize);
             while let Some(row) = rows.next()? {
@@ -376,7 +391,18 @@ impl Store {
                 let hash: [u8; 32] = hash.try_into().map_err(|_| StoreError::Corrupt("secret hash length".into()))?;
                 authority.replay_client(client, hash);
             }
-            Ok(Some(LoadedBoard { authority }))
+            let mut stmt = c.prepare("SELECT client, next_cseq FROM client_seqs WHERE board = ?1")?;
+            for row in stmt.query_map([&id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+                let (client, next) = row?;
+                let client: ClientId = serde_json::from_value(serde_json::Value::String(client)).map_err(corrupt)?;
+                authority.replay_next_cseq(client, next as u64);
+            }
+            // What's kept: catch-up is served from the oldest kept entry on; below it, a rebase.
+            let (min_seq, kept_bytes): (Option<i64>, i64) =
+                c.query_row("SELECT MIN(seq), COALESCE(SUM(length(tx)), 0) FROM ops WHERE board = ?1", [&id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            let floor = min_seq.map_or(base_seq, |m| (m - 1).min(base_seq));
+            authority.compacted(floor as u64, kept_bytes as usize);
+            Ok(Some(LoadedBoard { authority, base_seq: base_seq as u64 }))
         })
         .await
     }
@@ -434,6 +460,64 @@ impl Store {
             }
             t.commit()?;
             Ok(())
+        })
+        .await
+    }
+
+    /// Compact a board's log (spec §9): its base becomes `doc` (encoded) at `base_seq`, and the
+    /// log keeps only its newest entries, at most `keep_ops` of them and `keep_bytes`, for
+    /// clients slightly behind; older ones go. Each client's next expected cseq is kept, since the
+    /// entries that showed it may go. One transaction. Returns the floor (entries at or below it
+    /// are gone) and the bytes kept.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn compact(
+        &self,
+        board: String,
+        codec: Codec,
+        doc: Vec<u8>,
+        base_seq: u64,
+        keep_ops: usize,
+        keep_bytes: usize,
+        client_seqs: Vec<(ClientId, u64)>,
+    ) -> Result<(u64, usize), StoreError> {
+        let mut seqs = Vec::with_capacity(client_seqs.len());
+        for (client, next) in client_seqs {
+            let client = serde_json::to_value(client).map_err(corrupt)?.as_str().unwrap_or_default().to_owned();
+            seqs.push((client, next));
+        }
+        self.with(move |c| {
+            let t = c.transaction()?;
+            t.execute(
+                "UPDATE boards SET base_doc = ?2, base_codec = ?3, base_seq = ?4 WHERE id = ?1",
+                params![board, doc, codec.as_str(), base_seq as i64],
+            )?;
+            // Newest first: keep entries while both budgets allow.
+            let mut floor = 0u64;
+            let (mut n, mut bytes) = (0usize, 0usize);
+            {
+                let mut stmt = t.prepare("SELECT seq, length(tx) FROM ops WHERE board = ?1 AND seq <= ?2 ORDER BY seq DESC")?;
+                let mut rows = stmt.query(params![board, base_seq as i64])?;
+                while let Some(row) = rows.next()? {
+                    let (seq, len): (i64, i64) = (row.get(0)?, row.get(1)?);
+                    if n + 1 > keep_ops || bytes + len as usize > keep_bytes {
+                        floor = seq as u64;
+                        break;
+                    }
+                    n += 1;
+                    bytes += len as usize;
+                }
+            }
+            t.execute("DELETE FROM ops WHERE board = ?1 AND seq <= ?2", params![board, floor as i64])?;
+            for (client, next) in seqs {
+                t.prepare_cached(
+                    "INSERT INTO client_seqs (board, client, next_cseq) VALUES (?1, ?2, ?3)
+                     ON CONFLICT (board, client) DO UPDATE SET next_cseq = MAX(next_cseq, excluded.next_cseq)",
+                )?
+                .execute(params![board, client, next as i64])?;
+            }
+            let kept: i64 = t.query_row("SELECT COALESCE(SUM(length(tx)), 0) FROM ops WHERE board = ?1", [&board], |r| r.get(0))?;
+            t.commit()?;
+            Ok((floor, kept as usize))
         })
         .await
     }
