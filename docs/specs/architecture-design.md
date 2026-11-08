@@ -575,7 +575,7 @@ proof-of-work or accounts if rotation is seen in practice.
   once and one per client, 6 uploads or fetches per client address per hour (`429`), at most
   6 queued jobs and 3 GiB in the queue counting transfers in flight at their cap (`503`/`507`).
   The first 8 bytes must be `PBDEMS2\0` (`415 not_a_replay`); nothing else is read. A refused
-  or broken upload leaves no file.
+  or broken upload leaves no file, a dropped connection included.
 - **Boundary 2, upstreams → the board server.** deadlock-api's salts response is capped at
   64 KiB, and only `cluster_id` and `replay_salt`, as numbers, are taken from it: the CDN URL is
   built from them, so the response can't point the server anywhere else (no SSRF), and
@@ -587,7 +587,7 @@ proof-of-work or accounts if rotation is seen in practice.
   a child process inside the sandbox above. Its only outputs are a file in `done/` and a reason
   code in `failed/`.
 - **Boundary 4, the worker → the board server.** The worker's output is untrusted too: at most
-  16 MiB, deserialised into the typed timeline, and checked (array lengths match the duration,
+  4 MiB, deserialised into the typed timeline, and checked (array lengths match the duration,
   teams and keys have the pack's shape, numbers are in range, names are short and free of
   control characters, the match id is the job's) before it is re-serialised into the cache. An
   unknown reason code reads as `parse_failed`.

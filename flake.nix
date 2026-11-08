@@ -163,7 +163,7 @@
           machine.succeed("echo UEJERU1TMgAAAAAAAAAAAAEAJAoBeDIfL3Nydi9jaXRhZGVsX3Y2NjgzL2dhbWUvY2l0YWRlbAAAAA== | base64 -d > /tmp/old.dem")
           machine.succeed(f"curl -fsS {auth} --data-binary @/tmp/old.dem {base}/upload | grep -q queued")
           machine.wait_until_succeeds(f"curl -fsS {auth} {base} | grep -q old_map", timeout=60)
-          machine.succeed("test -z \"$(ls -A /var/lib/mapcro-replay/inbox /var/lib/mapcro-replay/work)\"")
+          machine.succeed("test -z \"$(ls -A /var/lib/mapcro-replay/inbox)$(ls -A /var/lib/mapcro-replay/work)\"")
           # Bad magic is refused before it is queued.
           machine.succeed(f"test \"$(curl -s -o /dev/null -w '%{{http_code}}' {auth} --data-binary @/etc/hostname {base}/upload)\" = 415")
           # The server's health doesn't depend on the worker's.

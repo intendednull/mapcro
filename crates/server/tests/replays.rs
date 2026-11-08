@@ -233,14 +233,20 @@ fn uploads_need_an_editor_link_a_demo_and_room() {
     // Over the cap: refused up front by its length, and mid-stream when sent chunked.
     assert_eq!(server.upload(&board, &owner, id, &fake_demo(100_001)).0, 413);
     let big = fake_demo(300_000);
-    let mut r = agent()
+    // The server may answer 413 and close while the client is still sending: either way, refused.
+    match agent()
         .post(&server.url(&format!("/api/boards/{board}/replays/{id}/upload")))
         .header("authorization", &format!("Bearer {owner}"))
         .send(ureq::SendBody::from_reader(&mut &big[..]))
-        .expect("request");
-    assert_eq!(r.status().as_u16(), 413, "chunked over the cap");
-    let _ = r.body_mut().read_to_string();
-    assert_eq!(files(&server.q("inbox")), Vec::<String>::new(), "refused uploads leave nothing behind");
+    {
+        Ok(r) => assert_eq!(r.status().as_u16(), 413, "chunked over the cap"),
+        Err(e) => assert!(matches!(e, ureq::Error::Io(_)), "{e}"),
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !files(&server.q("inbox")).is_empty() {
+        assert!(Instant::now() < deadline, "refused uploads leave nothing behind: {:?}", files(&server.q("inbox")));
+        std::thread::sleep(Duration::from_millis(20));
+    }
 
     let (code, body) = server.upload(&board, &owner, id, &fake_demo(50_000));
     assert_eq!((code, body["state"].as_str()), (202, Some("queued")));
@@ -386,6 +392,31 @@ fn fetches_take_salts_then_the_cdn_under_caps() {
     std::fs::write(server.q("done").join("11-cdn.json"), serde_json::to_vec(&timeline(11)).expect("json")).expect("done");
     server.until_state(&board, &owner, "11", "done");
     assert_eq!(server.call("GET", &format!("/api/boards/{other}/matches/11"), &other_owner).1["tier"], "replay");
+}
+
+#[test]
+fn a_dropped_upload_frees_its_slot_and_leaves_nothing() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[]);
+    let (board, owner, _) = server.board();
+    // Half a body, then the connection goes.
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", server.port)).expect("connect");
+    let head = format!("POST /api/boards/{board}/replays/8/upload HTTP/1.1\r\nhost: x\r\nauthorization: Bearer {owner}\r\ncontent-length: 100000\r\n\r\n");
+    s.write_all(head.as_bytes()).expect("head");
+    s.write_all(&fake_demo(5000)).expect("some body");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while server.status(&board, &owner, "8")["state"] != "uploading" {
+        assert!(Instant::now() < deadline, "never uploading");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    drop(s);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while server.status(&board, &owner, "8")["state"] != "none" || !files(&server.q("inbox")).is_empty() {
+        assert!(Instant::now() < deadline, "{} {:?}", server.status(&board, &owner, "8"), files(&server.q("inbox")));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // The same client may upload again at once.
+    assert_eq!(server.upload(&board, &owner, "8", &fake_demo(100)).0, 202);
 }
 
 #[test]

@@ -397,17 +397,11 @@ pub async fn upload(
         *j.uploads_by_client.entry(client).or_default() += 1;
         j.failed.remove(&job);
     }
+    // Released however the upload ends, a dropped connection included (hyper drops this
+    // future): the slot frees and a partial file goes.
+    let slot = UploadSlot { job: job.clone(), client, part: root.join("inbox").join(format!(".{job}.part")) };
     let result = receive(&root, &job, body, s).await;
-    {
-        let mut j = lock();
-        j.uploading.remove(&job);
-        if let Some(n) = j.uploads_by_client.get_mut(&client) {
-            *n -= 1;
-            if *n == 0 {
-                j.uploads_by_client.remove(&client);
-            }
-        }
-    }
+    drop(slot);
     match result {
         Ok(bytes) => {
             // A new upload replaces this board's older timeline for the match.
@@ -416,6 +410,27 @@ pub async fn upload(
             (StatusCode::ACCEPTED, axum::Json(serde_json::json!({ "state": "queued", "source": "upload" }))).into_response()
         }
         Err((code, why)) => err(code, why),
+    }
+}
+
+/// An upload in flight: its place in the limits, and its partial file.
+struct UploadSlot {
+    job: String,
+    client: IpAddr,
+    part: PathBuf,
+}
+
+impl Drop for UploadSlot {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.part);
+        let mut j = lock();
+        j.uploading.remove(&self.job);
+        if let Some(n) = j.uploads_by_client.get_mut(&self.client) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                j.uploads_by_client.remove(&self.client);
+            }
+        }
     }
 }
 

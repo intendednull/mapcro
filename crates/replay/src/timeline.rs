@@ -99,7 +99,9 @@ pub struct WaveTrack {
 }
 
 /// What the server accepts from a worker (spec §11, replay limits).
-pub const MAX_BYTES: u64 = 16 * 1024 * 1024;
+/// A 15-minute match is ~140 KB; a 60-minute one well under 1 MiB. The server parses it inside
+/// its 256M budget, so the cap stays small.
+pub const MAX_BYTES: u64 = 4 * 1024 * 1024;
 pub const MAX_DURATION_S: u32 = 4 * 3600;
 const MAX_PLAYERS: usize = 16;
 const MAX_LIST: usize = 256;
