@@ -253,3 +253,28 @@ test("ink over playback is live, kept only by saving a scene, and cleared when t
   await expect(a.getByTestId("player")).toHaveAttribute("data-state", "match");
   await expect(strokes(a)).toHaveCount(0, { timeout: 5000 });
 });
+
+test("entering Player alone clears last session's ink, not what you draw straight away", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Fresh ink"), "Coach");
+  const strokes = (p: Page) => p.locator(".mapbox [data-stroke]");
+  await a.getByTestId("mode-player").click();
+  await a.getByTestId("match-id").fill(ID);
+  await a.getByTestId("match-load").click();
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
+  await a.keyboard.press("d");
+  await gesture(a, [[0.3, 0.3], [0.4, 0.35]]);
+  await expect(strokes(a)).toHaveCount(1);
+  const old = await strokes(a).getAttribute("data-stroke");
+  // A new visit, alone: the old stroke is stale; one drawn before the settle ends isn't (it was
+  // swept with it, 2026-11-08). The old one going is the sign the settle has run.
+  await a.reload();
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "match");
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
+  // The role comes with the connection; until then a stroke isn't drawn.
+  await expect(a.getByTestId("save-status")).toHaveAttribute("data-can-edit", "true");
+  await a.keyboard.press("d");
+  await gesture(a, [[0.6, 0.6], [0.65, 0.62]]);
+  await expect(strokes(a).and(a.locator(`[data-stroke="${old}"]`))).toHaveCount(0, { timeout: 5000 });
+  await expect(strokes(a)).toHaveCount(1);
+  await expect(strokes(a)).not.toHaveAttribute("data-stroke", old!);
+});

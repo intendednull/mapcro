@@ -57,6 +57,8 @@ export function createBoardState(board: string, token: string) {
   // Records live in a store keyed by id, updated only where the replica says something changed
   // (perf report 2026-11-07, findings 1 and 2): a new stroke touches one key, not the board.
   const [records, setRecords] = createStore<Record<RecordId, Entry>>({});
+  /** Records this tab's user created (through `edit`, this page load). */
+  const made = new Set<RecordId>();
   const [peers, setPeers] = createStore<Record<string, PeerPresence>>({});
   const [status, setStatus] = createSignal<SaveStatus>({ kind: "saved" });
   const [connection, setConnection] = createSignal<Connection>({ kind: "connecting", attempt: 0 });
@@ -260,7 +262,12 @@ export function createBoardState(board: string, token: string) {
       const r = role();
       return r === "owner" || r === "edit";
     },
-    edit: (ops: Op[]) => session.edit(ops),
+    edit: (ops: Op[]) => {
+      for (const op of ops) if ("Create" in op) made.add(op.Create.id);
+      return session.edit(ops);
+    },
+    /** Whether this tab's user made the record (an `edit` this page load): never stale ink. */
+    madeHere: (id: RecordId) => made.has(id),
     /** An edit that isn't the user's to undo: Player's live layer (spec §6b). */
     editSilent: (ops: Op[]) => session.editSilent(ops),
     undo: () => session.undo(),

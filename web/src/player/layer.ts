@@ -38,9 +38,11 @@ export function liveLayer(state: BoardState, h: PlayerHost, board: string, inPla
       const timer = setTimeout(() => {
         if (!inPlayer() || match() !== m || !state.canEdit() || !alone()) return;
         // Alone in Player: last session's ink goes, and so do other matches' layers (each would
-        // hold a scene slot for good).
+        // hold a scene slot for good). Not what this tab drew meanwhile: drawing straight away,
+        // the first stroke can land before the settle ends (e2e flake, 2026-11-08).
         const live = state.liveScene(m);
-        const ops = live ? clearAnnotationsOps((kind, scene) => state.inScene(kind, scene) as never, live) : [];
+        const stale = (kind: string, scene: RecordId) => state.inScene(kind, scene).filter(([id]) => !state.madeHere(id));
+        const ops = live ? clearAnnotationsOps(stale as never, live) : [];
         for (const other of state.liveScenes().filter((x) => x.match !== m)) ops.push({ Delete: { id: other.id } });
         if (ops.length) state.editSilent(ops);
       }, SETTLE_MS);
