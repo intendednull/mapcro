@@ -14,11 +14,13 @@ use tokio::sync::{mpsc, oneshot};
 /// Outbound frames per connection, and their bytes. A client this far behind live traffic is
 /// dropped rather than letting it stall the room or pin memory. Catch-up doesn't count against
 /// either: it's streamed at the client's pace (security review 2026-11-07, H-A). Small frames
-/// meet the frame cap first (4096 of ~200 B is ~800 KB), big ones the byte cap (16 of 64 KiB).
-/// Live entries are shared between peers, so a room's outboxes hold about its slowest peer's
-/// backlog, and that backlog counts towards the room's memory weight.
+/// meet the frame cap first (4096 of ~200 B is ~800 KB), big ones the byte cap (64 of 64 KiB).
+/// 4 MiB holds many group-commit batches (each at most `MAX_BATCH_BYTES`), so a burst of large
+/// edits acked together doesn't drop a client that's only briefly not reading; at 1 MiB, one
+/// such burst could. Live entries are shared between peers, so a room's outboxes hold about its
+/// slowest peer's backlog, and that backlog counts towards the room's memory weight.
 const OUTBOX_DEPTH: usize = 4096;
-pub const OUTBOX_BYTES: usize = 1024 * 1024;
+pub const OUTBOX_BYTES: usize = 4 * 1024 * 1024;
 /// Presence is skipped, not queued, for a peer already this far behind: it's ephemeral and the
 /// next batch supersedes it, and each peer's presence frame is its own (not shared).
 const PRESENCE_SKIP_BYTES: usize = 64 * 1024;
@@ -63,6 +65,9 @@ pub enum RoomCmd {
 
 /// Engine messages handled per durable write, at most (spec §9, group commit).
 const MAX_BATCH: usize = 256;
+/// And at most about this many bytes of submitted transactions per batch, so the acks and
+/// broadcasts one commit releases stay a small part of any peer's outbox.
+const MAX_BATCH_BYTES: usize = 256 * 1024;
 
 /// A test-only crash point (`--features failpoints`, never in a release build): abort the process
 /// at the Nth time `name` is reached, as `MAPCRO_FAILPOINT=name:N` says. An abort skips every
@@ -242,7 +247,8 @@ pub struct Rooms {
 }
 
 /// When a room compacts its board's log, and what it keeps (spec §9). Read from the environment
-/// here rather than config.rs: `BOARD_COMPACT_OPS` (10,000) and `BOARD_KEEP_OPS` (2,000).
+/// here rather than config.rs: `BOARD_COMPACT_OPS` (10,000; 0 turns compaction off, leaving
+/// only the history caps) and `BOARD_KEEP_OPS` (2,000).
 #[derive(Clone, Copy, Debug)]
 pub struct Compaction {
     /// Compact once this many entries have been logged since the base.
@@ -254,7 +260,7 @@ pub struct Compaction {
 impl Compaction {
     fn from_env() -> Compaction {
         let num = |k: &str, d: u64| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
-        Compaction { every_ops: num("BOARD_COMPACT_OPS", 10_000).max(1), keep_ops: num("BOARD_KEEP_OPS", 2_000) as usize }
+        Compaction { every_ops: num("BOARD_COMPACT_OPS", 10_000), keep_ops: num("BOARD_KEEP_OPS", 2_000) as usize }
     }
 }
 
@@ -718,11 +724,12 @@ impl Room {
     async fn batch(&mut self, first: (ConnId, ClientMsg), rx: &mut mpsc::Receiver<RoomCmd>) -> Result<Option<RoomCmd>, StoreError> {
         let mut writes = Vec::new();
         let mut outboxes = Vec::new();
-        self.apply(first.0, first.1, &mut writes, &mut outboxes)?;
+        let mut bytes = self.apply(first.0, first.1, &mut writes, &mut outboxes)?;
         let mut rest = None;
-        while outboxes.len() < MAX_BATCH {
+        // A batch also ends once compaction is due, so it runs before the quota could bite.
+        while outboxes.len() < MAX_BATCH && bytes < MAX_BATCH_BYTES && !self.compaction_due() {
             match rx.try_recv() {
-                Ok(RoomCmd::Msg { conn, msg }) => self.apply(conn, msg, &mut writes, &mut outboxes)?,
+                Ok(RoomCmd::Msg { conn, msg }) => bytes += self.apply(conn, msg, &mut writes, &mut outboxes)?,
                 Ok(other) => {
                     rest = Some(other);
                     break;
@@ -750,14 +757,19 @@ impl Room {
     /// stay for catch-up, and clients older than them are rebased. So a board's history no longer
     /// grows without bound, and the quotas only backstop the kept tail. Runs after a commit, so
     /// the board it writes is all on disk already.
-    async fn maybe_compact(&mut self) -> Result<(), StoreError> {
+    fn compaction_due(&self) -> bool {
         let len = self.authority.log_len();
-        let quota = self.rooms.caps.quota;
-        let due = len > self.base_seq
-            && (len - self.base_seq >= self.compaction.every_ops || self.authority.log_bytes() >= quota.max_log_bytes / 2);
-        if !due {
+        self.compaction.every_ops > 0
+            && len > self.base_seq
+            && (len - self.base_seq >= self.compaction.every_ops || self.authority.log_bytes() >= self.rooms.caps.quota.max_log_bytes / 2)
+    }
+
+    async fn maybe_compact(&mut self) -> Result<(), StoreError> {
+        if !self.compaction_due() {
             return Ok(());
         }
+        let len = self.authority.log_len();
+        let quota = self.rooms.caps.quota;
         let json = serde_json::to_string(self.authority.doc()).map_err(|e| StoreError::Corrupt(e.to_string()))?;
         let (codec, stored) = codec::encode(json.as_bytes());
         let seqs: Vec<_> = self.authority.client_seqs().collect();
@@ -772,7 +784,8 @@ impl Room {
     }
 
     /// One engine message, in memory: the authority's decision, and the durable writes it needs.
-    fn apply(&mut self, conn: ConnId, msg: ClientMsg, writes: &mut Vec<Write>, outboxes: &mut Vec<mapcro_engine::Outbox>) -> Result<(), StoreError> {
+    /// Returns the submitted transaction's JSON size (0 for other messages), for the batch's cap.
+    fn apply(&mut self, conn: ConnId, msg: ClientMsg, writes: &mut Vec<Write>, outboxes: &mut Vec<mapcro_engine::Outbox>) -> Result<usize, StoreError> {
         // Storage or memory full: refuse edits (`ServerFull`). Over the memory budget, ask an idle
         // room to make way, so the refusal lasts only until one has.
         let over_memory = matches!(msg, ClientMsg::Submit(_)) && self.rooms.resident() > self.rooms.caps.room_memory_bytes;
@@ -783,9 +796,11 @@ impl Room {
         // Encode a submitted transaction as it would be stored: its stored size is what counts
         // against the board's byte quota, and if it's logged, these are the bytes written.
         let mut encoded = None;
+        let mut size = 0;
         let (outbox, effects) = match msg {
             ClientMsg::Submit(tx) => {
                 let json = serde_json::to_vec(&tx).map_err(|e| StoreError::Corrupt(e.to_string()))?;
+                size = json.len();
                 let (codec, stored) = codec::encode(&json);
                 let len = stored.len();
                 encoded = Some((codec, stored));
@@ -812,7 +827,7 @@ impl Room {
             });
         }
         outboxes.push(outbox);
-        Ok(())
+        Ok(size)
     }
 
     /// Send what a message produced (after its effects are durable).

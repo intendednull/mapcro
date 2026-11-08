@@ -859,7 +859,9 @@ async fn the_byte_quota_counts_history_not_board_size() {
     // C1 as the review found it: rewriting one note keeps the board tiny while its history
     // grows. The byte quota counts history, as stored (compressed).
     let dir = tempfile::tempdir().expect("tempdir");
-    let server = Server::start_with(dir.path(), None, &[("BOARD_MAX_BYTES", "65536")]);
+    // Compaction off: this checks the quota itself, the backstop (see
+    // `compaction_means_a_board_never_fills` for what happens with it on).
+    let server = Server::start_with(dir.path(), None, &[("BOARD_MAX_BYTES", "65536"), ("BOARD_COMPACT_OPS", "0")]);
     let (board, owner) = server.create_board();
     let mut a = Client::new(0xc4);
     a.connect(server.port, &board, &owner).await.expect("connect");
@@ -1399,8 +1401,8 @@ async fn open_rooms_fit_a_memory_budget() {
 async fn a_peer_that_stops_reading_is_dropped_by_bytes_queued() {
     // Live frames are shared between peers, but a peer that stops reading would keep every
     // frame since alive. Its outbox is capped in bytes (1 MiB), not just frames (4096). The slow
-    // viewer's receive buffer is kept small, so ~9 MB of edits (150 frames) is more than the
-    // sockets absorb, and it's dropped as too slow well before it's sent everything.
+    // viewer's receive buffer is kept small, so ~15 MB of edits (250 frames) is more than the
+    // 4 MiB cap and the sockets absorb, and it's dropped as too slow before it's sent everything.
     use tokio_tungstenite::tungstenite::Message as M;
     let dir = tempfile::tempdir().expect("tempdir");
     let server = Server::start(dir.path(), None);
@@ -1433,7 +1435,7 @@ async fn a_peer_that_stops_reading_is_dropped_by_bytes_queued() {
             })
             .collect()
     };
-    for batch in 0..6 {
+    for batch in 0..10 {
         let ops = |_: &Replica, i: usize| (0..15).map(|k| Op::Set { id: note, value: FieldValue::NoteText(letters(batch * 1000 + i * 15 + k)) }).collect();
         assert!(edits_until_decided(&mut w, 25, ops).await.is_empty());
     }
@@ -1450,8 +1452,8 @@ async fn a_peer_that_stops_reading_is_dropped_by_bytes_queued() {
             _ => break None,
         }
     };
-    assert_eq!(end, Some(CloseReason::TooSlow), "got {entries} of 151 entries");
-    assert!(entries < 151);
+    assert_eq!(end, Some(CloseReason::TooSlow), "got {entries} of 251 entries");
+    assert!(entries < 251);
 }
 
 /// After a deploy every browser must get the new app: pages are never served from a cached
@@ -1920,4 +1922,41 @@ async fn a_real_v4_database_migrates_and_its_board_compacts_and_rebases() {
     assert_eq!(old.replica().last_seq(), entries + 27, "its two offline edits landed once");
     assert_eq!(old.replica().confirmed(), w.replica().confirmed());
     eprintln!("v4 fixture: migrated, {entries} rows kept; compacted to base {base} (oldest kept {oldest:?}); the v4 client rebased");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn compaction_means_a_board_never_fills() {
+    // With compaction on, the history caps are a backstop: the same rewrites that fill a
+    // 64 KiB quota with compaction off (`the_byte_quota_counts_history_not_board_size`) are all
+    // accepted, and what's kept stays under the quota.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mapcro.sqlite");
+    let server = Server::start_with(dir.path(), None, &[("BOARD_MAX_BYTES", "65536")]);
+    let (board, owner) = server.create_board();
+    let mut a = Client::new(0xc4d);
+    a.connect(server.port, &board, &owner).await.expect("connect");
+    let scene = scene_of(a.replica());
+    let note = mapcro_schema::RecordId(0xc4c5);
+    a.edit(vec![Op::Create { id: note, record: Record::Note(mapcro_schema::Note { scene, text: "x".into() }) }]).await;
+    let letters = |i: usize| -> String {
+        let mut x = 0x9e37_79b9_u32.wrapping_add(i as u32);
+        (0..4000)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                (b'a' + (x % 26) as u8) as char
+            })
+            .collect()
+    };
+    let set = |_: &Replica, i: usize| vec![Op::Set { id: note, value: FieldValue::NoteText(letters(i)) }];
+    let rejected = edits_until_decided(&mut a, 60, set).await;
+    assert!(rejected.is_empty(), "a board with compaction never fills: {rejected:?}");
+    let kept: i64 = rusqlite::Connection::open(&path)
+        .expect("open")
+        .query_row("SELECT COALESCE(SUM(length(tx)), 0) FROM ops WHERE board = ?1", [&board], |r| r.get(0))
+        .expect("kept");
+    assert!(kept < 65536, "{kept} bytes kept");
+    let fresh = fresh_catch_up(server.port, &board, &owner, 0xc4e, 61).await;
+    assert_eq!(fresh.replica().confirmed(), a.replica().confirmed());
 }
