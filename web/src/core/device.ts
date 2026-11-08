@@ -27,6 +27,29 @@ export const PALETTE = [
 
 export const colorOf = (i: number) => PALETTE[((i % PALETTE.length) + PALETTE.length) % PALETTE.length]!.hex;
 
+/** Dark or light ink for marks drawn on a colour, whichever reads better (WCAG luminance). */
+export function inkOn(hex: string): string {
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  const l = 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
+  // Contrast against near-black (#14100c, L≈0.005) vs white (L=1).
+  return (l + 0.05) / 0.055 >= 1.05 / (l + 0.05) ? "#14100c" : "#ffffff";
+}
+
+/** The colour a person last picked on a board (Draw, Arrow, Comment, Laser), if any. */
+export function loadColour(board: string): number | undefined {
+  try {
+    const v = localStorage.getItem(`mapcro.colour.${board}`);
+    return v === null ? undefined : Number(v);
+  } catch {
+    return undefined;
+  }
+}
+export function saveColour(board: string, i: number) {
+  try {
+    localStorage.setItem(`mapcro.colour.${board}`, String(i));
+  } catch {}
+}
+
 const ME = "mapcro.me";
 const BOARDS = "mapcro.boards";
 const JOINED = "mapcro.joined";

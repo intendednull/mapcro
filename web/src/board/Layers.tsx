@@ -13,7 +13,7 @@
 
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import { capture } from "../ui/capture";
-import { colorOf } from "../core/device";
+import { colorOf, inkOn } from "../core/device";
 import type { Arrow } from "../gen/Arrow";
 import type { Callout } from "../gen/Callout";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
@@ -162,7 +162,7 @@ export function Layers(p: {
   const pushLaser = (pt: Pt) => {
     const now = performance.now();
     setLaser(pruneLaser([...laser(), { p: pt, t: now }], now));
-    st.presence({ laser: laser().map((q) => world(q.p)) });
+    st.presence({ laser: laser().map((q) => world(q.p)), laser_color: p.ink });
     if (!laserTick)
       laserTick = setInterval(() => {
         const next = pruneLaser(laser(), performance.now());
@@ -582,7 +582,7 @@ export function Layers(p: {
           const a = arrowing();
           setArrowing(undefined);
           if (!ok || !a || Math.hypot(a.to.x - a.from.x, a.to.y - a.from.y) < 12) return;
-          st.edit([{ Create: { id: newRecordId(), record: { Arrow: { scene: target, from: world(a.from), to: world(a.to), team: a.team } } } }]);
+          st.edit([{ Create: { id: newRecordId(), record: { Arrow: { scene: target, from: world(a.from), to: world(a.to), team: a.team, color: p.ink } } } }]);
         },
       );
     } else if (tool === "callout") {
@@ -673,7 +673,7 @@ export function Layers(p: {
     if (!commit || !ed || !scene) return;
     const t = (text ?? "").trim().slice(0, MAX_CALLOUT);
     if (ed.id === undefined) {
-      if (t) st.edit([{ Create: { id: newRecordId(), record: { Callout: { scene, pos: ed.pos, text: t } } } }]);
+      if (t) st.edit([{ Create: { id: newRecordId(), record: { Callout: { scene, pos: ed.pos, text: t, color: p.ink } } } }]);
     } else if (!t) st.edit([{ Delete: { id: ed.id } }]);
     else if (t !== ed.text) st.edit([{ Set: { id: ed.id, value: { CalloutText: t } } }]);
   };
@@ -751,8 +751,8 @@ export function Layers(p: {
             return (
               <g class={cx("arrow", erasing().has(a.id) && "erasing", (movingArrow()?.id === a.id || !!mover()) && "moving")} data-erase={a.id} data-arrow={a.id}>
                 <path class="hit" d={`M${f().x} ${f().y} L${t().x} ${t().y}`} />
-                <path class={cx("arw", arrowClass(a.r.team))} d={polyline([f(), shaftEnd(f(), t(), 10)])} />
-                <polygon class={cx("head", arrowClass(a.r.team))} points={arrowHead(f(), t(), 22)} />
+                <path class={cx("arw", arrowClass(a.r.team))} d={polyline([f(), shaftEnd(f(), t(), 10)])} style={a.r.color != null ? { stroke: colorOf(a.r.color) } : {}} />
+                <polygon class={cx("head", arrowClass(a.r.team))} points={arrowHead(f(), t(), 22)} style={a.r.color != null ? { fill: colorOf(a.r.color) } : {}} />
                 <Show when={editor() && p.tool === "move"}>
                   <circle class="arrow-end" data-arrow-end="From" cx={f().x} cy={f().y} r={9 * p.k} />
                   <circle class="arrow-end" data-arrow-end="To" cx={t().x} cy={t().y} r={9 * p.k} />
@@ -767,8 +767,8 @@ export function Layers(p: {
         <Show when={arrowing()}>
           {(a) => (
             <g class="arrow preview">
-              <path class={cx("arw", arrowClass(a().team))} d={polyline([a().from, shaftEnd(a().from, a().to, 10)])} />
-              <polygon class={cx("head", arrowClass(a().team))} points={arrowHead(a().from, a().to, 22)} />
+              <path class={cx("arw", arrowClass(a().team))} d={polyline([a().from, shaftEnd(a().from, a().to, 10)])} style={{ stroke: colorOf(p.ink) }} />
+              <polygon class={cx("head", arrowClass(a().team))} points={arrowHead(a().from, a().to, 22)} style={{ fill: colorOf(p.ink) }} />
             </g>
           )}
         </Show>
@@ -837,9 +837,12 @@ export function Layers(p: {
             const remote = smoothed(() => others().find((o) => o.state?.drag?.id === c.id)?.state?.drag?.pos);
             const pos = () => view(dragCallout()?.id === c.id ? dragCallout()!.pos : (remote() ?? c.r.pos));
             const hidden = () => editing()?.id === c.id;
+            // A palette colour, if it has one: the bubble, pin and card take it, and their marks
+            // and text take whichever of dark or light reads on it.
+            const tint = () => (c.r.color != null ? { "--comment": colorOf(c.r.color), "--comment-ink": inkOn(colorOf(c.r.color)) } : {});
             if (p.compactCallouts)
               return (
-                <g class="co-pin" data-callout={c.id} transform={`translate(${pos().x} ${pos().y}) scale(${p.k})`}>
+                <g class={cx("co-pin", c.r.color != null && "tinted")} data-callout={c.id} style={tint()} transform={`translate(${pos().x} ${pos().y}) scale(${p.k})`}>
                   <circle r="16" />
                   <text>{callouts().findIndex((x) => x.id === c.id) + 1}</text>
                 </g>
@@ -877,7 +880,8 @@ export function Layers(p: {
                 when={open()}
                 fallback={
                   <g
-                    class={cx("co", "bubble", erasing().has(c.id) && "erasing", others().length > 0 && "touched")}
+                    class={cx("co", "bubble", c.r.color != null && "tinted", erasing().has(c.id) && "erasing", others().length > 0 && "touched")}
+                    style={tint()}
                     data-erase={c.id}
                     data-callout={c.id}
                     data-open="false"
@@ -895,11 +899,11 @@ export function Layers(p: {
                 }
               >
                 <g
-                  class={cx("co", "open", erasing().has(c.id) && "erasing", others().length > 0 && "touched")}
+                  class={cx("co", "open", c.r.color != null && "tinted", erasing().has(c.id) && "erasing", others().length > 0 && "touched")}
                   data-erase={c.id}
                   data-callout={c.id}
                   data-open="true"
-                  style={{ opacity: hidden() ? 0.25 : undefined }}
+                  style={{ ...tint(), opacity: hidden() ? 0.25 : undefined }}
                   onPointerDown={(e) => calloutDown(c, e)}
                 >
                   <path class="leader" d={`M${pos().x} ${pos().y} L${Math.min(Math.max(pos().x, box().x), box().x + box().w)} ${Math.min(Math.max(pos().y, box().y), box().y + box().h)}`} style={{ "stroke-width": `${1.5 * sc()}` }} />
@@ -986,10 +990,10 @@ export function Layers(p: {
       </g>
       <g class="lasers">
         <For each={remoteLasers()}>
-          {(peer) => <LaserTrail points={peer.state!.laser.map(view)} color={colorOf(peer.state!.color)} name={peer.state!.name} />}
+          {(peer) => <LaserTrail points={peer.state!.laser.map(view)} color={colorOf(peer.state!.laser_color ?? peer.state!.color)} name={peer.state!.name} />}
         </For>
         <Show when={laser().length > 0}>
-          <LaserTrail points={laser().map((q) => q.p)} color={colorOf(p.myColor)} mine />
+          <LaserTrail points={laser().map((q) => q.p)} color={colorOf(p.ink)} mine />
         </Show>
       </g>
       <g class="pings">

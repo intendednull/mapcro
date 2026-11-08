@@ -139,6 +139,8 @@ fn check_value(v: &FieldValue) -> Result<(), Reject> {
         V::NoteText(s) => check_text(s, LIMITS.max_note),
         V::SceneOrder(k) => if k.is_valid() { Ok(()) } else { Err(Reject::BadOrderKey) },
         V::PlayerPos(p) | V::ArrowFrom(p) | V::ArrowTo(p) | V::CalloutPos(p) => check_pos(*p),
+        // A palette index, like a stroke's colour.
+        V::ArrowColor(c) | V::CalloutColor(c) => if c.is_none_or(|c| c < 16) { Ok(()) } else { Err(Reject::OutOfBounds) },
         // A shift, not a place: at most the board's width either way.
         V::StrokeOffset(d) => {
             let m = 2 * LIMITS.max_coord;
@@ -199,6 +201,7 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
             if !live_scene(a.scene) {
                 return Err(Reject::NoSuchScene);
             }
+            check_value(&FieldValue::ArrowColor(a.color))?;
             check_pos(a.from)?;
             check_pos(a.to)
         }
@@ -207,6 +210,7 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
                 return Err(Reject::NoSuchScene);
             }
             check_text(&c.text, LIMITS.max_callout)?;
+            check_value(&FieldValue::CalloutColor(c.color))?;
             check_pos(c.pos)
         }
         Record::Wave(w) => {

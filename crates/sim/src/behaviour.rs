@@ -182,7 +182,7 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
         }
         6 if rng.random() => vec![Op::Create {
             id: new_id,
-            record: Record::Arrow(Arrow { scene, from: pos(rng), to: pos(rng), team: Some(Team::Amber) }),
+            record: Record::Arrow(Arrow { scene, from: pos(rng), to: pos(rng), team: Some(Team::Amber), color: None }),
         }],
         6 => {
             // Lane equilibrium: place or slide a lane's wave marker (two editors placing the
@@ -198,7 +198,7 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
                 None => vec![Op::Create { id: new_id, record: Record::Wave(mapcro_schema::Wave { scene, lane, t }) }],
             }
         }
-        7 => vec![Op::Create { id: new_id, record: Record::Callout(Callout { scene, pos: pos(rng), text: text(rng, 80) }) }],
+        7 => vec![Op::Create { id: new_id, record: Record::Callout(Callout { scene, pos: pos(rng), text: text(rng, 80), color: None }) }],
         8 => {
             let deletable =
                 live_ids(r, |x| matches!(x, Record::Arrow(_) | Record::Callout(_) | Record::ObjectiveState(_) | Record::Stroke(_) | Record::Wave(_)));
@@ -309,7 +309,7 @@ fn attack(rng: &mut ChaCha8Rng, client: mapcro_schema::ClientId, cseq: u64) -> (
     let scene = RecordId(rng.random());
     let (ops, what) = match rng.random_range(0..10) {
         0 => (vec![Op::Set { id, value: FieldValue::PlayerPos(WorldPos { x: i32::MAX, y: 0 }) }], "out-of-bounds write"),
-        1 => (vec![Op::Create { id, record: Record::Callout(Callout { scene, pos: WorldPos { x: 0, y: 0 }, text: "x".repeat(500) }) }], "huge text"),
+        1 => (vec![Op::Create { id, record: Record::Callout(Callout { scene, pos: WorldPos { x: 0, y: 0 }, text: "x".repeat(500), color: None }) }], "huge text"),
         2 => (vec![Op::Create { id, record: Record::Scene(Scene { name: "bad\u{7}".into(), order: OrderKey::first(), clock: None, source: None, live: false, parent: None }) }], "control chars / incomplete scene"),
         3 => (vec![Op::SetIf { id, expect: FieldValue::Title("a".into()), value: FieldValue::NoteText("b".into()) }], "mismatched set_if"),
         4 => (vec![Op::Delete { id }], "delete unknown"),

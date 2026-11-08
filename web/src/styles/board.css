@@ -979,3 +979,14 @@ kbd {
 
 /* A deploy happened under this tab: one line, one button. */
 .update-banner { position: fixed; z-index: 80; top: 64px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 14px; font: 600 13px var(--ui); color: var(--text); background: var(--bg-deep, #0b1714); border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 8px 22px #0009; }
+
+/* The colour palette: a swatch button; the palette opens beside it, in the toolbar's flow. */
+.palette { display: inline-flex; align-items: center; }
+.palette .tb.swatch .ink-dot { width: 16px; height: 16px; margin: 0; box-shadow: 0 0 0 1.5px #0b1714, 0 0 0 3px var(--brass-dim); }
+.palette .ink-palette { margin-left: -1px; }
+.p-tools .palette .ink-palette { border-left: 1px solid var(--brass-dim); border-radius: 8px; margin-left: 4px; }
+
+/* A comment in a palette colour (style sets --comment and --comment-ink): its card takes the
+   colour too, with text in the ink that reads on it. Without one, the usual comment look. */
+.mm-overlay.map .co.tinted .card-bg { fill: var(--comment); stroke: var(--comment-ink); }
+.mm-overlay.map .co.tinted text { fill: var(--comment-ink); }

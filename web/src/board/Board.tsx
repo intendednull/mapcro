@@ -4,7 +4,7 @@
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
-import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, loadMe, markJoined, rememberBoard, saveMe } from "../core/device";
+import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe } from "../core/device";
 import type { RecordId } from "../gen/RecordId";
 import { MapView } from "../map/MapView";
 import type { Art } from "../map/pack";
@@ -37,6 +37,7 @@ import { rejection, statusView } from "./status";
 import type { Reject } from "../gen/Reject";
 import { Avatar, FollowChip, PeopleList, PresentingPill } from "./Presence";
 import { type ClearKind, Toolbar } from "./Toolbar";
+import { Palette } from "./Palette";
 import { smoothed } from "./smooth";
 import type { Tool } from "./tools";
 
@@ -91,7 +92,12 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const [viewpoint, setViewpoint] = createSignal<Viewpoint>("amber");
   const [sceneId, setSceneId] = createSignal<RecordId | undefined>();
   const [tool, setTool] = createSignal<Tool>("move");
-  const [ink, setInk] = createSignal(loadMe()?.color ?? 1);
+  // The palette colour for Draw, Arrow, Comment and Laser: per person, per board.
+  const [ink, setInkSignal] = createSignal(loadColour(p.board) ?? loadMe()?.color ?? 1);
+  const setInk = (i: number) => {
+    setInkSignal(i);
+    saveColour(p.board, i);
+  };
   const [toast, setToast] = createSignal<{ text: string; action?: { label: string; run: () => void } }>();
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   const say = (text: string, action?: { label: string; run: () => void }) => {
@@ -492,6 +498,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           <button class={cx("tb", tool() === "laser" && "on")} data-testid="tool-laser" onClick={() => setTool("laser")}>
             <span>Laser</span>
           </button>
+          <Palette value={ink()} set={setInk} />
           <button class="tb" data-testid="viewpoint-flip" aria-label="Flip view" title="Flip view" onClick={flipSide}>
             <span>⟲</span>
           </button>
@@ -501,7 +508,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
         <ol class="p-callouts" data-testid="callout-list">
           <For each={calloutList()}>
             {(c, i) => (
-              <li>
+              <li style={c.r.color != null ? { "--comment": colorOf(c.r.color), "--comment-ink": inkOn(colorOf(c.r.color)) } : {}}>
                 <b>{i() + 1}</b>
                 {c.r.text}
               </li>

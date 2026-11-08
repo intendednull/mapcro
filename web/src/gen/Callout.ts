@@ -2,4 +2,8 @@
 import type { RecordId } from "./RecordId";
 import type { WorldPos } from "./WorldPos";
 
-export type Callout = { scene: RecordId, pos: WorldPos, text: string, };
+export type Callout = { scene: RecordId, pos: WorldPos, text: string, 
+/**
+ * A palette colour (index, < 16, like ink). `None`: the comment colour, as before colours.
+ */
+color?: number | null, };

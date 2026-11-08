@@ -311,7 +311,7 @@ mod silent_tests {
     }
 
     fn note(id: u128, text: &str) -> Op {
-        Op::Create { id: RecordId(id), record: Record::Callout(Callout { scene: SCENE, pos: WorldPos { x: 0, y: 0 }, text: text.into() }) }
+        Op::Create { id: RecordId(id), record: Record::Callout(Callout { scene: SCENE, pos: WorldPos { x: 0, y: 0 }, text: text.into(), color: None }) }
     }
 
     fn text(r: &Replica, id: u128) -> Option<String> {

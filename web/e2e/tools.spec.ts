@@ -22,8 +22,8 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
 
   // Draw in a palette colour.
   await a.keyboard.press("d");
-  await expect(a.getByTestId("ink-palette")).toBeVisible();
-  await a.getByRole("radio", { name: "Ink: Lime" }).click();
+  await a.getByTestId("palette").click();
+  await a.getByRole("radio", { name: "Colour: Lime" }).click();
   await gesture(a, [[0.3, 0.3], [0.4, 0.35], [0.5, 0.3]]);
   await expect(strokes(b)).toHaveCount(1);
   await expect(strokes(b).locator("path.ink")).toHaveAttribute("stroke", "#c5e07a");

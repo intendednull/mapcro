@@ -155,6 +155,10 @@ pub struct Arrow {
     pub from: WorldPos,
     pub to: WorldPos,
     pub team: Option<Team>,
+    /// A palette colour (index, < 16, like ink). `None`: the team's colour, as before colours.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub color: Option<u8>,
 }
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -163,6 +167,10 @@ pub struct Callout {
     pub scene: RecordId,
     pub pos: WorldPos,
     pub text: String,
+    /// A palette colour (index, < 16, like ink). `None`: the comment colour, as before colours.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub color: Option<u8>,
 }
 
 /// Freehand ink (the Draw tool). Drawn once and erased whole; never edited point by point, but
@@ -251,6 +259,8 @@ pub enum FieldValue {
     NoteText(String),
     WavePos(u16),
     StrokeOffset(WorldPos),
+    ArrowColor(Option<u8>),
+    CalloutColor(Option<u8>),
 }
 
 /// The field a [`FieldValue`] writes, without its value.
@@ -279,10 +289,12 @@ pub enum Field {
     NoteText,
     WavePos,
     StrokeOffset,
+    ArrowColor,
+    CalloutColor,
 }
 
 impl Field {
-    pub const ALL: [Field; 23] = [
+    pub const ALL: [Field; 25] = [
         Field::Title,
         Field::RosterName,
         Field::RosterHero,
@@ -306,6 +318,8 @@ impl Field {
         Field::NoteText,
         Field::WavePos,
         Field::StrokeOffset,
+        Field::ArrowColor,
+        Field::CalloutColor,
     ];
 }
 
@@ -335,6 +349,8 @@ impl FieldValue {
             FieldValue::NoteText(_) => Field::NoteText,
             FieldValue::WavePos(_) => Field::WavePos,
             FieldValue::StrokeOffset(_) => Field::StrokeOffset,
+            FieldValue::ArrowColor(_) => Field::ArrowColor,
+            FieldValue::CalloutColor(_) => Field::CalloutColor,
         }
     }
 }
@@ -396,6 +412,8 @@ impl Record {
             (Record::Note(r), Field::NoteText) => V::NoteText(r.text.clone()),
             (Record::Wave(r), Field::WavePos) => V::WavePos(r.t),
             (Record::Stroke(r), Field::StrokeOffset) => V::StrokeOffset(r.offset),
+            (Record::Arrow(r), Field::ArrowColor) => V::ArrowColor(r.color),
+            (Record::Callout(r), Field::CalloutColor) => V::CalloutColor(r.color),
             _ => return None,
         })
     }
@@ -427,6 +445,8 @@ impl Record {
             (Record::Note(r), V::NoteText(v)) => r.text = v,
             (Record::Wave(r), V::WavePos(v)) => r.t = v,
             (Record::Stroke(r), V::StrokeOffset(v)) => r.offset = v,
+            (Record::Arrow(r), V::ArrowColor(v)) => r.color = v,
+            (Record::Callout(r), V::CalloutColor(v)) => r.color = v,
             _ => return false,
         }
         true

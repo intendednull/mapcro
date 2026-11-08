@@ -136,6 +136,10 @@ pub struct Presence {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub ping: Option<Ping>,
+    /// The laser's palette colour (index, < 16). Absent: the person's own colour.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub laser_color: Option<u8>,
     /// Player (spec §6b): the mode and, in Player, the match playback, so followers mirror
     /// it. Absent: an older client, or a board without a match.
     #[serde(default)]
@@ -248,6 +252,7 @@ impl Presence {
             && self.laser.iter().all(ok_pos)
             && self.ink.as_ref().is_none_or(|i| i.color < 16 && i.points.len() <= MAX_INK_POINTS && i.points.iter().all(ok_pos))
             && self.ping.as_ref().is_none_or(|p| ok_pos(&p.at))
+            && self.laser_color.is_none_or(|c| c < 16)
             && self.playback.as_ref().is_none_or(|b| b.t.is_finite() && (0.0..=86_400.0).contains(&b.t) && b.speed.is_finite() && (0.0..=16.0).contains(&b.speed) && b.match_id < 1_000_000_000_000)
             && self.cursor.as_ref().is_none_or(ok_pos)
             && self.drag.as_ref().is_none_or(|d| ok_pos(&d.pos))

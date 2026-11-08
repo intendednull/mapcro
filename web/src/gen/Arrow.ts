@@ -3,4 +3,8 @@ import type { RecordId } from "./RecordId";
 import type { Team } from "./Team";
 import type { WorldPos } from "./WorldPos";
 
-export type Arrow = { scene: RecordId, from: WorldPos, to: WorldPos, team: Team | null, };
+export type Arrow = { scene: RecordId, from: WorldPos, to: WorldPos, team: Team | null, 
+/**
+ * A palette colour (index, < 16, like ink). `None`: the team's colour, as before colours.
+ */
+color?: number | null, };

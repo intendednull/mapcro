@@ -1535,7 +1535,7 @@ async fn a_fresh_client_loads_the_board_not_its_history() {
     let log: Vec<mapcro_schema::Tx> = (0..N)
         .map(|i| {
             let ops = if i + 1 == N {
-                let callout = mapcro_schema::Callout { scene, pos: WorldPos { x: 1, y: 2 }, text: "last".into() };
+                let callout = mapcro_schema::Callout { scene, pos: WorldPos { x: 1, y: 2 }, text: "last".into(), color: None };
                 vec![Op::Create { id: mapcro_schema::RecordId(0xca11), record: Record::Callout(callout) }]
             } else {
                 vec![Op::Set { id: player, value: FieldValue::PlayerPos(WorldPos { x: (i % 2000) as i32, y: 0 }) }]
@@ -1601,7 +1601,7 @@ async fn a_shared_snapshot_keeps_its_own_position() {
     w.connect(server.port, &board, &owner).await.expect("first joiner");
     assert_eq!(w.replica().last_seq(), 90, "a fresh snapshot of the board now");
     assert!(edits_until_decided(&mut w, 4, move_op).await.is_empty());
-    let callout = mapcro_schema::Callout { scene, pos: WorldPos { x: 3, y: 4 }, text: "new".into() };
+    let callout = mapcro_schema::Callout { scene, pos: WorldPos { x: 3, y: 4 }, text: "new".into(), color: None };
     let create = vec![Op::Create { id: mapcro_schema::RecordId(0xe0ca), record: Record::Callout(callout) }];
     assert!(edits_until_decided(&mut w, 1, |_, _| create.clone()).await.is_empty());
 

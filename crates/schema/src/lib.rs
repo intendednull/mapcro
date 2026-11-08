@@ -346,12 +346,30 @@ mod tests {
     }
 
     #[test]
+    fn arrows_and_comments_take_a_palette_colour() {
+        let (mut doc, scene, _) = board();
+        let arrow = |id: u128, color| Op::Create {
+            id: RecordId(id),
+            record: Record::Arrow(Arrow { scene, from: WorldPos { x: 0, y: 0 }, to: WorldPos { x: 9, y: 9 }, team: None, color }),
+        };
+        let callout = |id: u128, color| Op::Create { id: RecordId(id), record: Record::Callout(Callout { scene, pos: WorldPos::default(), text: "x".into(), color }) };
+        assert_eq!(apply_tx(&mut doc, &tx(vec![arrow(5000, Some(15)), callout(5001, Some(3))])).map(|_| ()), Ok(()));
+        assert_eq!(apply_tx(&mut doc, &tx(vec![arrow(5002, Some(16))])), Err(Reject::OutOfBounds));
+        assert_eq!(apply_tx(&mut doc, &tx(vec![callout(5003, Some(200))])), Err(Reject::OutOfBounds));
+        let recolour = Op::Set { id: RecordId(5001), value: FieldValue::CalloutColor(Some(16)) };
+        assert_eq!(apply_tx(&mut doc, &tx(vec![recolour])), Err(Reject::OutOfBounds));
+        // Older records load with no colour: their kind's usual look.
+        let old: Record = serde_json::from_str(r#"{"Arrow":{"scene":"00000000000000000000000000000001","from":{"x":0,"y":0},"to":{"x":1,"y":1},"team":null}}"#).expect("old arrow");
+        assert!(matches!(old, Record::Arrow(Arrow { color: None, .. })));
+    }
+
+    #[test]
     fn inverse_undoes_exactly() {
         let (mut doc, scene, player) = board();
         let before = doc.clone();
         let ops = vec![
             mv(player, 42),
-            Op::Create { id: RecordId(2000), record: Record::Callout(Callout { scene, pos: WorldPos { x: 1, y: 2 }, text: "smoke".into() }) },
+            Op::Create { id: RecordId(2000), record: Record::Callout(Callout { scene, pos: WorldPos { x: 1, y: 2 }, text: "smoke".into(), color: None }) },
         ];
         let (_, inverse) = apply_tx_with_inverse(&mut doc, &tx(ops)).expect("valid");
         apply_tx(&mut doc, &tx(inverse)).expect("inverse applies");

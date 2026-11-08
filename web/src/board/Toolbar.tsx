@@ -2,7 +2,7 @@
 // Ctrl+Z undo, Ctrl+Shift+Z or Ctrl+Y redo. A view link gets Look and Laser only.
 
 import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
-import { PALETTE, colorOf } from "../core/device";
+import { Palette } from "./Palette";
 import { cx } from "../ui/cx";
 import { ICON_CLEAR, ICON_COMMENTS, ICON_REDO, ICON_UNDO, TOOLS, type Tool, VIEWER_TOOLS } from "./tools";
 
@@ -78,31 +78,12 @@ export function Toolbar(p: {
               >
                 <Ico d={t.icon} />
                 <span>{!p.editor && t.tool === "move" ? "Look" : t.label}</span>
-                <Show when={t.tool === "draw"}>
-                  <i class="ink-dot" style={{ background: colorOf(p.ink) }} />
-                </Show>
                 <i class="k">{t.key}</i>
               </button>
-              <Show when={t.tool === "draw" && p.tool === "draw"}>
-                <span class="ink-palette" role="radiogroup" aria-label="Ink colour" data-testid="ink-palette">
-                  <For each={PALETTE}>
-                    {(c, i) => (
-                      <button
-                        class={cx("sw-btn", p.ink === i() && "on")}
-                        style={{ "--c": c.hex }}
-                        title={c.name}
-                        role="radio"
-                        aria-checked={p.ink === i()}
-                        aria-label={`Ink: ${c.name}`}
-                        onClick={() => p.setInk(i())}
-                      />
-                    )}
-                  </For>
-                </span>
-              </Show>
             </>
           )}
         </For>
+        <Palette value={p.ink} set={p.setInk} />
         <button
           class={cx("tb icon", p.commentsOpen && "on")}
           data-testid="comments-toggle"

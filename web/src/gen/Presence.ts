@@ -60,6 +60,10 @@ ink?: LiveInk | null,
  */
 ping?: Ping | null, 
 /**
+ * The laser's palette colour (index, < 16). Absent: the person's own colour.
+ */
+laser_color?: number | null, 
+/**
  * Player (spec §6b): the mode and, in Player, the match playback, so followers mirror
  * it. Absent: an older client, or a board without a match.
  */
