@@ -9,17 +9,25 @@ import type { WorldPos } from "../gen/WorldPos";
 
 export const SMOOTH_MS = 100;
 
-/** The pure part: a position easing linearly toward its latest target. */
+/**
+ * The pure part: a position easing linearly toward its latest target. The ease's clock starts at
+ * the first frame drawn after a new target, not when the target arrived: a page that stalls (a
+ * loaded box, a long task) then still shows the glide after the stall instead of jumping to the
+ * end, at the cost of trailing by up to one more frame.
+ */
 export class Glide {
   private from: WorldPos | undefined;
   private to: WorldPos | undefined;
   private t0 = 0;
+  /** A new target no frame has drawn yet: shown at `from` until `frame` starts the clock. */
+  private pending = false;
   constructor(readonly ms = SMOOTH_MS) {}
 
   /** A new target at `now` (`undefined`: gone). Returns whether there is motion to animate. */
   set(to: WorldPos | undefined, now: number): boolean {
     if (!to) {
       this.from = this.to = undefined;
+      this.pending = false;
       return false;
     }
     const cur = this.at(now);
@@ -27,13 +35,24 @@ export class Glide {
     // First sight snaps: there is no "from" to glide in from.
     this.from = cur ?? this.to;
     this.t0 = now;
-    return cur !== undefined && (cur.x !== to.x || cur.y !== to.y);
+    this.pending = cur !== undefined && (cur.x !== to.x || cur.y !== to.y);
+    return this.pending;
+  }
+
+  /** Where a frame drawn at `now` shows it; the first frame after a new target starts its ease. */
+  frame(now: number): WorldPos | undefined {
+    if (this.pending) {
+      this.pending = false;
+      this.t0 = now;
+    }
+    return this.at(now);
   }
 
   /** Where it is shown at `now`. */
   at(now: number): WorldPos | undefined {
     const { from, to } = this;
     if (!to || !from) return to;
+    if (this.pending) return from;
     const a = (now - this.t0) / this.ms;
     if (a >= 1) return to;
     const k = Math.max(0, a);
@@ -42,7 +61,7 @@ export class Glide {
 
   /** Whether it has arrived (no frame to draw). */
   done(now: number): boolean {
-    return !this.to || now - this.t0 >= this.ms;
+    return !this.to || (!this.pending && now - this.t0 >= this.ms);
   }
 }
 
@@ -66,7 +85,7 @@ export function smoothed(target: () => WorldPos | undefined, ms = SMOOTH_MS, on?
   };
   const tick = () => {
     const now = performance.now();
-    setPos(g.at(now));
+    setPos(g.frame(now));
     raf = g.done(now) ? 0 : requestAnimationFrame(tick);
   };
   let key: unknown = on?.();

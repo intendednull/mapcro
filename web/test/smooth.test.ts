@@ -7,7 +7,7 @@ describe("remote motion glides", () => {
     expect(g.set({ x: 0, y: 0 }, 0)).toBe(false);
     expect(g.at(0)).toEqual({ x: 0, y: 0 });
     expect(g.set({ x: 100, y: 0 }, 1000)).toBe(true);
-    expect(g.at(1000)).toEqual({ x: 0, y: 0 });
+    expect(g.frame(1000)).toEqual({ x: 0, y: 0 });
     expect(g.at(1050)).toEqual({ x: 50, y: 0 });
     expect(g.done(1050)).toBe(false);
     expect(g.at(1100)).toEqual({ x: 100, y: 0 });
@@ -18,10 +18,29 @@ describe("remote motion glides", () => {
     const g = new Glide(100);
     g.set({ x: 0, y: 0 }, 0);
     g.set({ x: 100, y: 0 }, 0);
+    g.frame(0);
     g.set({ x: 100, y: 100 }, 50); // shown at (50, 0) then
-    expect(g.at(50)).toEqual({ x: 50, y: 0 });
+    expect(g.frame(50)).toEqual({ x: 50, y: 0 });
     expect(g.at(100)).toEqual({ x: 75, y: 50 });
     expect(g.at(150)).toEqual({ x: 100, y: 100 });
+  });
+
+  it("the ease starts at the first frame drawn, so a stalled page still shows it", () => {
+    const g = new Glide(100);
+    g.set({ x: 0, y: 0 }, 0);
+    g.set({ x: 100, y: 0 }, 1000);
+    // No frame for 300 ms: still shown where it was, with motion to draw.
+    expect(g.at(1300)).toEqual({ x: 0, y: 0 });
+    expect(g.done(1300)).toBe(false);
+    expect(g.frame(1300)).toEqual({ x: 0, y: 0 });
+    expect(g.frame(1350)).toEqual({ x: 50, y: 0 });
+    expect(g.frame(1400)).toEqual({ x: 100, y: 0 });
+    expect(g.done(1400)).toBe(true);
+    // A new target before the first frame glides from where it is shown.
+    g.set({ x: 0, y: 0 }, 2000);
+    g.set({ x: 0, y: 100 }, 2010);
+    expect(g.frame(2050)).toEqual({ x: 100, y: 0 });
+    expect(g.frame(2100)).toEqual({ x: 50, y: 50 });
   });
 
   it("gone is gone at once, and a return snaps instead of gliding from the old place", () => {
