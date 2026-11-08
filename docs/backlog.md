@@ -31,6 +31,15 @@ the same migrations (spec §6).
 Replays from before build 6712 are refused as "Old map". Supporting them needs the 16384 coordinate
 correction (`docs/research/replay-parsing-exploration.md`) plus asset packs from that era.
 
+## Replay timeline format versions (2026-11-08)
+
+Cached replay timelines carry no format version. When the worker's output changes (the 2026-11-08
+lane data change replaced `waves` with `zips` and `camps`), older caches keep loading in the old shape
+and miss the new layers until re-parsed. Fix: stamp a format version in the timeline. A stale CDN
+timeline is re-fetched and re-parsed. A stale upload is served as is, with the "Upload replay file"
+upgrade offered, since the server deletes uploaded demos after parsing. This matters once the replay
+tier is in production, which it isn't yet.
+
 ## Server
 
 - Presence relay is O(n²) in bytes per room (perf report finding 4). It's fine at our scale.
