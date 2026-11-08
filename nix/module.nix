@@ -45,6 +45,16 @@ in
       default = 30;
       description = "Boards one client IP may create per hour.";
     };
+    deadlockApiKeyFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "/run/secrets/deadlock-api-key";
+      description = ''
+        A file holding a deadlock-api key, passed to the server as a systemd credential (never
+        in the environment or the store). With it, deadlock-api allows 300 Steam-sourced salts
+        lookups an hour instead of 3 per address. null: no key.
+      '';
+    };
     replay = {
       enable = lib.mkOption {
         type = lib.types.bool;
@@ -110,7 +120,9 @@ in
         MALLOC_ARENA_MAX = "2";
       } // lib.optionalAttrs (cfg.webDir != null) { WEB_DIR = toString cfg.webDir; }
         // lib.optionalAttrs (cfg.packsDir != null) { PACKS_DIR = cfg.packsDir; }
-        // lib.optionalAttrs cfg.replay.enable { REPLAY_DIR = queue; };
+        // lib.optionalAttrs cfg.replay.enable { REPLAY_DIR = queue; }
+        # The key's path, not its value: systemd hands the file to this unit as a credential.
+        // lib.optionalAttrs (cfg.deadlockApiKeyFile != null) { DEADLOCK_API_KEY_FILE = "%d/deadlock-api-key"; };
       serviceConfig = {
         ExecStart = lib.getExe pkg;
         User = "mapcro";
@@ -138,6 +150,8 @@ in
         # The queue only; the server sets its files group-readable (replays.rs).
         ReadWritePaths = [ queue ];
         SupplementaryGroups = [ "mapcro-replay" ];
+      } // lib.optionalAttrs (cfg.deadlockApiKeyFile != null) {
+        LoadCredential = [ "deadlock-api-key:${cfg.deadlockApiKeyFile}" ];
       };
     };
 

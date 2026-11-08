@@ -291,6 +291,26 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     for the match's cluster and replay salt, then downloads
     `http://replay{cluster}.valve.net/1422450/{id}_{salt}.dem.bz2` (zstd since 2026-07-20; the
     magic decides).
+  - **Fetched on open (operator, 2026-11-08):** attaching a match to a board (the landing's Open
+    match by id, Player's Load) starts that fetch on its own, unless the `cdn` timeline is
+    cached or its job is under way (one job for every board: a second board joins it), the
+    board's own upload is under way or done, the match is past Valve's three weeks from its
+    start (`expired`, from the cached metadata; a match without it isn't tried), its fetch
+    failed lately, or deadlock-api is backing us off. The mode refusal comes first.
+    - **Remembered failures:** no salts or no demo (`no_replay`) and a failed download are kept
+      per match for 6 h, so opening it again doesn't ask deadlock-api (its Steam-sourced salts
+      allow 3 an hour per address). **Fetch replay** stays, and goes past this.
+    - **Pacing:** no fetch cap of ours. deadlock-api's own answers pace them: a `429` from the
+      salts endpoint backs every fetch off for its `Retry-After`, else 60 s doubling to an hour,
+      and a press of Fetch replay meanwhile is refused (`429 upstream_limited`). Fetches wait in
+      line for a download slot (2 at once) and the queue's room rather than being refused.
+    - **API key:** optional, from the file `DEADLOCK_API_KEY_FILE` names (never a value in the
+      environment), sent as `X-API-KEY` on deadlock-api calls; it raises Steam-sourced salts to
+      300 an hour (docs/deploy.md).
+    - **Player:** the tier chip reads "Fetching replay…", then "Parsing replay…", and upgrades
+      in place. A fetch that fails or can't start settles on "API summary" with Upload replay
+      file as the primary action, and the chip's hint names why: "Replay not available from
+      Valve", "Replay expired" or "Fetch limit reached, try later".
 - **Job state:** `GET /api/boards/{board}/replays/{id}` answers `none`, `uploading`,
   `fetching`, `queued`, `parsing`, `done` or `failed` with a short reason (`old_map`,
   `brawl`, `unsupported_mode`, `not_a_replay`, `too_large`, `timeout`, `parse_failed`, `no_replay`, `upstream_down`,
@@ -768,7 +788,7 @@ proof-of-work or accounts if rotation is seen in practice.
   (`401` without, `403` for view links or other boards), and streams to
   `inbox/.<job>.part`, never into memory. Caps: 800 MiB per upload (`413`, by `Content-Length`
   up front and while streaming), 60 s without a byte or 30 min in all (`408`), two uploads at
-  once and one per client, 6 uploads or fetches per client address per hour (`429`), at most
+  once and one per client, 6 uploads per client address per hour (`429`), at most
   6 queued jobs and 3 GiB in the queue counting transfers in flight at their cap (`503`/`507`).
   The first 8 bytes must be `PBDEMS2\0` (`415 not_a_replay`); nothing else is read. A refused
   or broken upload leaves no file, a dropped connection included.
@@ -776,8 +796,9 @@ proof-of-work or accounts if rotation is seen in practice.
   64 KiB, and only `cluster_id` and `replay_salt`, as numbers, are taken from it: the CDN URL is
   built from them, so the response can't point the server anywhere else (no SSRF), and
   redirects aren't followed. The demo download streams to disk under an 800 MiB cap and a
-  30 min timeout, and must start with bzip2, zstd or demo magic. 20 fetches server-wide per
-  hour; a failed fetch isn't retried for an hour.
+  30 min timeout, and must start with bzip2, zstd or demo magic. Two downloads at once; more
+  wait in line for a slot and the queue's room. deadlock-api paces fetches itself (a `429`
+  backs off, §6a); a match whose fetch failed isn't fetched on open again for 6 h.
 - **Boundary 3, the queue → the worker.** Everything in the inbox is hostile. The worker
   decompresses under a 1 GiB cap (bzip2 in Rust; zstd with a 128 MiB window limit) and parses in
   a child process inside the sandbox above. Its only outputs are files in its own `outbox/`; it

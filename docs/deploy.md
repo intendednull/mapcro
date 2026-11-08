@@ -40,6 +40,16 @@ The host sets `publicOrigin`. The module sets:
 | `PUBLIC_ORIGIN` | `services.mapcro.publicOrigin`, required |
 | `MALLOC_ARENA_MAX` | `2`, which the room memory budget is calibrated against |
 | `REPLAY_DIR` | `/var/lib/mapcro-replay`, the replay worker's queue, when `services.mapcro.replay.enable` (default true) |
+| `DEADLOCK_API_KEY_FILE` | `%d/deadlock-api-key`, when `services.mapcro.deadlockApiKeyFile` is set (default null): a deadlock-api key, below |
+
+**deadlock-api key (optional).** Without one, deadlock-api's salts endpoint allows 3
+Steam-sourced lookups an hour per address, which the replay fetch on open (spec §6a) can meet.
+With one it's 300 an hour. Put the key in a root-only file outside the repo and the store, and
+set `services.mapcro.deadlockApiKeyFile` to its path: systemd hands it to the unit as a
+credential (`LoadCredential`), and the server reads it once at start from the path in
+`DEADLOCK_API_KEY_FILE` and sends it as `X-API-KEY`. The value never enters the environment,
+the logs or the repo. An unreadable or empty file logs a warning and the server calls
+deadlock-api without a key. Restart `mapcro` after changing the file.
 
 `StateDirectory = mapcro mapcro/packs` creates both directories at start, owned by `mapcro` with
 mode 0700, so the packs directory exists even when empty. The server fails fast if `PACKS_DIR` is

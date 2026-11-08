@@ -13,7 +13,7 @@ import { type MatchEvent, clockLabel, playersAt, tierOf } from "../match/timelin
 import { UltRing } from "../match/preview";
 import { matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
 import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensureLiveOps, liveIds, takeAnnotationsOps } from "./live";
-import { busy, jobLabel } from "./api";
+import { FETCH_WHY, busy, jobLabel } from "./api";
 import { SPEEDS } from "./clock";
 import { troopersAt } from "./troopers";
 import { mapToView, worldToMap, worldToView } from "../map/transform";
@@ -348,6 +348,12 @@ export function TierChip(p: { host: PlayerHost }) {
     if (j?.state === "queued" || j?.state === "parsing") return "Parsing replay…";
     return replay() ? "Full replay" : "API summary";
   };
+  /** Why the full replay isn't coming, when the fetch said (a label). */
+  const fetchWhy = () => {
+    const j = h.job();
+    return !replay() && j?.state === "failed" && j.source === "cdn" ? FETCH_WHY[j.reason ?? ""] : undefined;
+  };
+  const hint = () => (replay() ? "Parsed from the replay file" : [fetchWhy(), WHAT_SUMMARY_LACKS].filter(Boolean).join(" · "));
   return (
     <span class="pl-tier-wrap">
       <button
@@ -355,13 +361,21 @@ export function TierChip(p: { host: PlayerHost }) {
         class={cx("pl-tier", replay() ? "replay" : "summary", busy(h.job()) && "busy", fresh() && "fresh")}
         data-testid="match-tier"
         data-tier={replay() ? "replay" : "metadata"}
-        title={replay() ? "Parsed from the replay file" : WHAT_SUMMARY_LACKS}
+        data-why={fetchWhy() ?? ""}
+        title={hint()}
         onClick={() => setWhy(!why())}
       >
         {text()}
       </button>
       <Show when={why() && !replay()}>
         <span class="pl-tier-why" data-testid="tier-why">
+          <Show when={fetchWhy()}>
+            {(w) => (
+              <b class="pl-tier-reason" data-testid="tier-reason">
+                {w()}
+              </b>
+            )}
+          </Show>
           {WHAT_SUMMARY_LACKS}
         </span>
       </Show>

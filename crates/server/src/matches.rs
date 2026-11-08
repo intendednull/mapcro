@@ -40,6 +40,38 @@ struct Settings {
     timeout: Duration,
 }
 
+/// deadlock-api's key, if the operator gave one: read once from the file `DEADLOCK_API_KEY_FILE`
+/// names (never a value in the environment or the repo), sent as `X-API-KEY` on every call to
+/// deadlock-api (its openapi.json's `api_key_header`). It raises the salts endpoint's
+/// Steam-sourced limit from 3 to 300 an hour. Absent by default; the value is never logged.
+pub fn api_key() -> Option<&'static str> {
+    static K: OnceLock<Option<String>> = OnceLock::new();
+    K.get_or_init(|| {
+        let path = std::env::var_os("DEADLOCK_API_KEY_FILE").filter(|p| !p.is_empty())?;
+        match std::fs::read_to_string(&path) {
+            Ok(k) if !k.trim().is_empty() && k.trim().bytes().all(|b| b.is_ascii_graphic()) => Some(k.trim().to_owned()),
+            Ok(_) => {
+                tracing::warn!("DEADLOCK_API_KEY_FILE holds no usable key; calling deadlock-api without one");
+                None
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "DEADLOCK_API_KEY_FILE unreadable; calling deadlock-api without a key");
+                None
+            }
+        }
+    })
+    .as_deref()
+}
+
+/// A GET to deadlock-api, with the key when there is one.
+pub fn api_get(agent: &ureq::Agent, url: &str) -> ureq::RequestBuilder<ureq::typestate::WithoutBody> {
+    let r = agent.get(url);
+    match api_key() {
+        Some(k) => r.header("X-API-KEY", k),
+        None => r,
+    }
+}
+
 fn settings() -> &'static Settings {
     static S: OnceLock<Settings> = OnceLock::new();
     S.get_or_init(|| {
@@ -387,7 +419,7 @@ fn names(raw: &[u8]) -> HashMap<(String, u32), String> {
     let s = settings();
     let ids: Vec<String> = accounts.iter().map(|(_, a)| a.to_string()).collect();
     let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(s.timeout)).http_status_as_error(false).max_redirects(0).user_agent("mapcro (https://mapcro.dmgdeadlock.com)").build().into();
-    let Ok(mut r) = agent.get(&format!("{}/v1/players/steam?account_ids={}", s.base, ids.join(","))).call() else { return HashMap::new() };
+    let Ok(mut r) = api_get(&agent, &format!("{}/v1/players/steam?account_ids={}", s.base, ids.join(","))).call() else { return HashMap::new() };
     if r.status().as_u16() != 200 {
         return HashMap::new();
     }
@@ -569,7 +601,7 @@ fn fetch(id: &str) -> Fetched {
         .build()
         .into();
     let url = format!("{}/v1/matches/{id}/metadata?disable_steam=true", s.base);
-    let mut r = match agent.get(&url).call() {
+    let mut r = match api_get(&agent, &url).call() {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!(error = %e, "match upstream unreachable");
@@ -610,6 +642,16 @@ fn cache_path(app: &AppState, id: &str) -> PathBuf {
 /// and a board can't attach it.
 fn refused_path(app: &AppState, id: &str) -> PathBuf {
     app.config.data_dir.join("matches").join(format!("{id}.refused"))
+}
+
+/// The match's start (unix seconds) from its cached metadata, if it's cached.
+pub async fn cached_start(app: &AppState, id: &str) -> Option<u64> {
+    #[derive(Deserialize)]
+    struct Start {
+        start_time: u64,
+    }
+    let bytes = tokio::fs::read(cache_path(app, id)).await.ok()?;
+    Some(serde_json::from_slice::<Start>(&bytes).ok()?.start_time)
 }
 
 /// The reason a match was refused for its mode, if it was.

@@ -8,7 +8,7 @@ export const ERRORS: Record<string, string> = {
   not_found: "Not found",
   rate_limited: "Rate limited",
   busy: "Busy",
-  upstream_limited: "Rate limited",
+  upstream_limited: "Fetch limit reached, try later",
   upstream_down: "Upstream down",
   upstream_shape: "Upstream down",
   too_large: "Too large",
@@ -44,9 +44,17 @@ export const REASONS: Record<string, string> = {
   brawl: "Brawl not supported",
   unsupported_mode: "Mode not supported",
   no_replay: "No replay",
+  expired: "Replay expired",
   upstream_down: "Upstream down",
-  upstream_limited: "Rate limited",
+  upstream_limited: "Fetch limit reached",
   upstream_shape: "Upstream down",
+};
+
+/** Why the replay isn't being fetched, for the tier chip's hint (operator, 2026-11-08). */
+export const FETCH_WHY: Record<string, string> = {
+  no_replay: "Replay not available from Valve",
+  expired: "Replay expired",
+  upstream_limited: "Fetch limit reached, try later",
 };
 
 export interface JobState {

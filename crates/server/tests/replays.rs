@@ -126,49 +126,64 @@ fn files(dir: &Path) -> Vec<String> {
     v
 }
 
-/// A fake deadlock-api and Valve CDN on one port: `routes` by path, hits counted by path.
+/// A fake deadlock-api and Valve CDN on one port: `routes` by path, hits counted by path, and
+/// each path's last request headers kept (lowercased).
 struct Upstream {
     port: u16,
     hits: Arc<Mutex<HashMap<String, usize>>>,
+    seen: Arc<Mutex<HashMap<String, Vec<String>>>>,
 }
 
 fn upstream(routes: HashMap<String, (u16, Vec<u8>)>) -> Upstream {
+    upstream_with(routes, HashMap::new())
+}
+
+/// `extra`: response header lines by path (a 429's `retry-after`).
+fn upstream_with(routes: HashMap<String, (u16, Vec<u8>)>, extra: HashMap<String, String>) -> Upstream {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let port = listener.local_addr().expect("addr").port();
     let hits: Arc<Mutex<HashMap<String, usize>>> = Arc::default();
-    let h = hits.clone();
-    let routes = Arc::new(routes);
+    let seen: Arc<Mutex<HashMap<String, Vec<String>>>> = Arc::default();
+    let (h, sn) = (hits.clone(), seen.clone());
+    let (routes, extra) = (Arc::new(routes), Arc::new(extra));
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
-            let (routes, hits) = (routes.clone(), h.clone());
+            let (routes, extra, hits, seen) = (routes.clone(), extra.clone(), h.clone(), sn.clone());
             std::thread::spawn(move || {
                 let mut reader = BufReader::new(stream.try_clone().expect("clone"));
                 let mut line = String::new();
                 if reader.read_line(&mut line).is_err() {
                     return;
                 }
+                let mut headers = Vec::new();
                 loop {
                     let mut header = String::new();
                     if reader.read_line(&mut header).map(|n| n == 0).unwrap_or(true) || header == "\r\n" {
                         break;
                     }
+                    headers.push(header.trim().to_lowercase());
                 }
                 let path = line.split_whitespace().nth(1).unwrap_or("").to_owned();
+                seen.lock().expect("lock").insert(path.clone(), headers);
                 *hits.lock().expect("lock").entry(path.clone()).or_default() += 1;
                 let (status, body) = routes.get(&path).cloned().unwrap_or((404, b"{}".to_vec()));
+                let more = extra.get(&path).map(|h| format!("{h}\r\n")).unwrap_or_default();
                 let mut out = stream;
-                let head = format!("HTTP/1.1 {status} X\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len());
+                let head = format!("HTTP/1.1 {status} X\r\ncontent-length: {}\r\n{more}connection: close\r\n\r\n", body.len());
                 let _ = out.write_all(head.as_bytes());
                 let _ = out.write_all(&body);
             });
         }
     });
-    Upstream { port, hits }
+    Upstream { port, hits, seen }
 }
 
 impl Upstream {
     fn hits(&self, path: &str) -> usize {
         self.hits.lock().expect("lock").get(path).copied().unwrap_or(0)
+    }
+    fn headers(&self, path: &str) -> Vec<String> {
+        self.seen.lock().expect("lock").get(path).cloned().unwrap_or_default()
     }
 }
 
@@ -389,9 +404,10 @@ fn fetches_take_salts_then_the_cdn_under_caps() {
         assert_eq!(server.until_state(&board, &owner, id, "failed")["reason"], why, "match {id}");
     }
     assert_eq!(files(&server.q("inbox")), ["11-cdn.bz2"], "failed downloads leave nothing behind");
-    // A failure isn't retried within the hour.
+    // "Fetch replay" tries a failure again (opening the match on its own doesn't, below).
     server.call("POST", &format!("/api/boards/{board}/replays/12/fetch"), &owner);
-    assert_eq!(up.hits("/v1/matches/12/salts"), 1);
+    assert_eq!(server.until_state(&board, &owner, "12", "failed")["reason"], "too_large");
+    assert_eq!(up.hits("/v1/matches/12/salts"), 2);
 
     // The worker's result is shared: done for both boards.
     work(&server, "11-cdn", Ok(&serde_json::to_vec(&timeline(11)).expect("json")));
@@ -561,4 +577,157 @@ fn a_brawl_match_cached_before_the_refusal_is_refused_not_served() {
     let put = agent().put(&server.url(&format!("/api/boards/{board}/matches/79"))).header("authorization", &format!("Bearer {owner}")).send_empty().expect("request").status().as_u16();
     assert_eq!(put, 422);
     assert_eq!(server.call("GET", &format!("/api/boards/{board}/matches"), &owner).1, serde_json::json!({ "matches": [] }));
+}
+
+// ---- opening a match fetches its replay (operator, 2026-11-08) ----
+
+const DAY: u64 = 24 * 3600;
+
+fn now_s() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_secs()
+}
+
+fn salts_for(id: u64, salt: u64) -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({ "match_id": id, "cluster_id": 404, "replay_salt": salt, "metadata_salt": 9 })).expect("json")
+}
+
+impl Server {
+    /// The match's metadata as `/api/matches/{id}` caches it, started `ago` seconds back.
+    fn meta(&self, id: u64, ago: u64) {
+        let dir = self.data.path().join("matches");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let m = serde_json::json!({ "match_id": id, "start_time": now_s() - ago, "duration_s": 60, "source": "deadlock-api.com", "players": [], "objectives": [], "mid_boss": [], "reanchored": 0, "events": [], "game_mode": 1 });
+        std::fs::write(dir.join(format!("{id}.json")), serde_json::to_vec(&m).expect("json")).expect("meta");
+    }
+    /// Open the match on a board, as the landing's Open match and Player's Load do.
+    fn open(&self, board: &str, token: &str, id: u64) {
+        let r = agent().put(&self.url(&format!("/api/boards/{board}/matches/{id}"))).header("authorization", &format!("Bearer {token}")).send_empty().expect("request");
+        assert_eq!(r.status().as_u16(), 200, "attached");
+    }
+}
+
+fn until_hits(up: &Upstream, path: &str, n: usize) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while up.hits(path) < n {
+        assert!(Instant::now() < deadline, "{path}: {} hits, want {n}", up.hits(path));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn opening_a_match_fetches_its_replay_once_for_every_board() {
+    let demo = bz2(&fake_demo(20_000));
+    let routes = HashMap::from([("/v1/matches/21/salts".to_owned(), (200, salts_for(21, 77))), ("/cdn/404/1422450/21_77.dem.bz2".to_owned(), (200, demo))]);
+    let up = upstream(routes);
+    let server = Server::start(up.port, &[]);
+    let (a, a_owner, _) = server.board();
+    let (b, b_owner, _) = server.board();
+    server.meta(21, DAY);
+    // Two boards open it at once: one job, one request.
+    server.open(&a, &a_owner, 21);
+    server.open(&b, &b_owner, 21);
+    assert_eq!(server.until_state(&a, &a_owner, "21", "queued")["source"], "cdn");
+    assert_eq!(server.status(&b, &b_owner, "21")["state"], "queued");
+    assert_eq!(up.hits("/v1/matches/21/salts"), 1);
+    assert_eq!(files(&server.q("inbox")), ["21-cdn.bz2"]);
+    work(&server, "21-cdn", Ok(&serde_json::to_vec(&timeline(21)).expect("json")));
+    server.until_state(&b, &b_owner, "21", "done");
+    assert_eq!(server.call("GET", &format!("/api/boards/{b}/matches/21"), &b_owner).1["tier"], "replay");
+    // Opened again once it's there: nothing more is asked.
+    server.open(&a, &a_owner, 21);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(up.hits("/v1/matches/21/salts"), 1);
+}
+
+#[test]
+fn a_fetch_that_cant_work_is_remembered_and_old_matches_arent_tried() {
+    let up = upstream(HashMap::new()); // every salts call: 404
+    let server = Server::start(up.port, &[]);
+    let (a, a_owner, _) = server.board();
+    let (b, b_owner, _) = server.board();
+    // No replay at Valve: remembered for the match, across boards and opens.
+    server.meta(22, DAY);
+    server.open(&a, &a_owner, 22);
+    assert_eq!(server.until_state(&a, &a_owner, "22", "failed")["reason"], "no_replay");
+    server.open(&a, &a_owner, 22);
+    server.open(&b, &b_owner, 22);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(up.hits("/v1/matches/22/salts"), 1, "not asked again");
+    assert_eq!(server.status(&b, &b_owner, "22")["reason"], "no_replay");
+    // "Fetch replay" asks anyway.
+    assert_eq!(server.call("POST", &format!("/api/boards/{b}/replays/22/fetch"), &b_owner).0, 202);
+    until_hits(&up, "/v1/matches/22/salts", 2);
+    // Past Valve's three weeks: never asked; the chip says why.
+    server.meta(23, 22 * DAY);
+    server.open(&a, &a_owner, 23);
+    assert_eq!(server.status(&a, &a_owner, "23")["reason"], "expired");
+    // Not imported (no metadata cached): no age to go by, so nothing on its own.
+    server.open(&a, &a_owner, 24);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!((up.hits("/v1/matches/23/salts"), up.hits("/v1/matches/24/salts")), (0, 0));
+    assert_eq!(server.status(&a, &a_owner, "24")["state"], "none");
+}
+
+#[test]
+fn a_429_backs_every_fetch_off_and_says_why() {
+    let routes = HashMap::from([("/v1/matches/25/salts".to_owned(), (429, b"{}".to_vec())), ("/v1/matches/26/salts".to_owned(), (200, salts_for(26, 5)))]);
+    let up = upstream(routes);
+    let server = Server::start(up.port, &[]);
+    let (a, owner, _) = server.board();
+    server.meta(25, DAY);
+    server.meta(26, DAY);
+    server.open(&a, &owner, 25);
+    assert_eq!(server.until_state(&a, &owner, "25", "failed")["reason"], "upstream_limited");
+    // Backing off (60 s, no Retry-After): another match isn't asked for, on open or on a press.
+    server.open(&a, &owner, 26);
+    assert_eq!(server.status(&a, &owner, "26")["reason"], "upstream_limited");
+    assert_eq!(server.call("POST", &format!("/api/boards/{a}/replays/26/fetch"), &owner), (429, serde_json::json!({ "error": "upstream_limited" })));
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(up.hits("/v1/matches/26/salts"), 0);
+
+    // With Retry-After it waits just that.
+    let up = upstream_with(
+        HashMap::from([("/v1/matches/27/salts".to_owned(), (429, b"{}".to_vec()))]),
+        HashMap::from([("/v1/matches/27/salts".to_owned(), "retry-after: 1".to_owned())]),
+    );
+    let server = Server::start(up.port, &[]);
+    let (a, owner, _) = server.board();
+    assert_eq!(server.call("POST", &format!("/api/boards/{a}/replays/27/fetch"), &owner).0, 202);
+    assert_eq!(server.until_state(&a, &owner, "27", "failed")["reason"], "upstream_limited");
+    assert_eq!(server.call("POST", &format!("/api/boards/{a}/replays/27/fetch"), &owner).0, 429);
+    std::thread::sleep(Duration::from_millis(1200));
+    assert_eq!(server.call("POST", &format!("/api/boards/{a}/replays/27/fetch"), &owner).0, 202, "cleared");
+    until_hits(&up, "/v1/matches/27/salts", 2);
+}
+
+#[test]
+fn fetches_have_no_cap_of_ours() {
+    let up = upstream(HashMap::new());
+    // Uploads keep theirs (2 an hour here); fetches, from one client, aren't counted at all.
+    let server = Server::start(up.port, &[("REPLAY_PER_CLIENT_PER_HOUR", "2")]);
+    let (a, owner, _) = server.board();
+    for id in 100..130 {
+        assert_eq!(server.call("POST", &format!("/api/boards/{a}/replays/{id}/fetch"), &owner).0, 202, "match {id}");
+    }
+    for id in 100..130 {
+        until_hits(&up, &format!("/v1/matches/{id}/salts"), 1);
+    }
+}
+
+#[test]
+fn the_api_key_is_sent_only_when_configured() {
+    let dir = tempfile::tempdir().expect("tmp");
+    let key = dir.path().join("key");
+    std::fs::write(&key, "test-key-0123\n").expect("key");
+    let up = upstream(HashMap::new());
+    let with = Server::start(up.port, &[("DEADLOCK_API_KEY_FILE", key.to_str().expect("path"))]);
+    let (a, owner, _) = with.board();
+    with.call("POST", &format!("/api/boards/{a}/replays/31/fetch"), &owner);
+    until_hits(&up, "/v1/matches/31/salts", 1);
+    assert!(up.headers("/v1/matches/31/salts").contains(&"x-api-key: test-key-0123".to_owned()), "{:?}", up.headers("/v1/matches/31/salts"));
+    let without = Server::start(up.port, &[]);
+    let (b, owner, _) = without.board();
+    without.call("POST", &format!("/api/boards/{b}/replays/32/fetch"), &owner);
+    until_hits(&up, "/v1/matches/32/salts", 1);
+    assert!(!up.headers("/v1/matches/32/salts").iter().any(|h| h.starts_with("x-api-key")));
 }

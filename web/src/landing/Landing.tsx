@@ -57,7 +57,8 @@ export function Landing() {
         made = { board, token: owner_token, id };
       }
       const api = new PlayerApi(made.board, made.token);
-      if (!(await api.attach(id))) throw new Error("attach");
+      // The upload goes first: attaching starts a fetch from Valve unless an upload is under
+      // way (operator, 2026-11-08), and with the file here, it shouldn't.
       const f = file();
       if (f) {
         const err = await api.upload(id, f, (pct) => setOpening(`Uploading ${pct}%`));
@@ -66,6 +67,7 @@ export function Landing() {
           return setError(err);
         }
       }
+      if (!(await api.attach(id))) throw new Error("attach");
       // Only a match that opened goes in "Your boards" (QA, item 8).
       rememberBoard({ board: made.board, token: made.token, title: `Match ${id}` });
       location.assign(shareUrl(location.origin, made.board, made.token));

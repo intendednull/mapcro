@@ -54,9 +54,12 @@ pub struct Settings {
     /// Bytes of cached timelines; the oldest go first past it.
     pub max_cache_bytes: u64,
     pub uploads_at_once: usize,
-    /// Uploads and fetches per client per hour, and fetches server-wide per hour.
+    /// CDN downloads at once; more wait in line (as do any the queue has no room for).
+    pub downloads_at_once: usize,
+    /// Uploads per client per hour. Fetches have no cap of ours: deadlock-api's own answers
+    /// pace them (a 429 backs off), and the queue's room bounds what we hold (operator,
+    /// 2026-11-08).
     pub per_client: usize,
-    pub fetches_per_hour: usize,
     /// No body bytes for this long ends an upload.
     pub idle: Duration,
     /// A whole upload or download.
@@ -81,8 +84,8 @@ fn settings() -> &'static Settings {
             max_queued: num("REPLAY_MAX_QUEUED", 6) as usize,
             max_cache_bytes: num("REPLAY_MAX_CACHE_BYTES", 1024 * MIB),
             uploads_at_once: num("REPLAY_UPLOADS_AT_ONCE", 2) as usize,
+            downloads_at_once: num("REPLAY_DOWNLOADS_AT_ONCE", 2) as usize,
             per_client: num("REPLAY_PER_CLIENT_PER_HOUR", 6) as usize,
-            fetches_per_hour: num("REPLAY_FETCHES_PER_HOUR", 20) as usize,
             idle: Duration::from_secs(num("REPLAY_IDLE_S", 60)),
             transfer: Duration::from_secs(num("REPLAY_TRANSFER_S", 1800)),
             stale: Duration::from_secs(num("REPLAY_STALE_S", 3600)),
@@ -98,9 +101,18 @@ struct Jobs {
     uploading: HashSet<String>,
     uploads_by_client: HashMap<IpAddr, usize>,
     failed: HashMap<String, (&'static str, Instant)>,
-    /// Uploads and fetches started, per client, and fetches server-wide.
+    /// Uploads started, per client.
     starts: HashMap<IpAddr, Vec<Instant>>,
-    fetches: Vec<Instant>,
+    /// Fetches downloading now (the rest of `fetching` wait in line for room).
+    downloading: HashSet<String>,
+    /// Matches whose fetch can't work for a while, by match id: no salts or demo, the download
+    /// failed, or the match is past Valve's three weeks. Until then, opening the match doesn't
+    /// ask deadlock-api again (its Steam-sourced salts allow 3 an hour per address). "Fetch
+    /// replay" goes past it.
+    negative: HashMap<String, (&'static str, Instant)>,
+    /// deadlock-api's salts endpoint said 429: no fetch asks it before this, and the last wait,
+    /// which the next 429 doubles.
+    backoff: Option<(Instant, Duration)>,
 }
 
 fn jobs() -> &'static Mutex<Jobs> {
@@ -114,27 +126,44 @@ fn lock() -> std::sync::MutexGuard<'static, Jobs> {
 
 const HOUR: Duration = Duration::from_secs(3600);
 const FAILED_FOR: Duration = Duration::from_secs(3600);
+/// How long a match's fetch that can't work isn't tried again on its own.
+const NEGATIVE_FOR: Duration = Duration::from_secs(6 * 3600);
+/// Valve keeps a replay three weeks from the match's start; past that, opening it doesn't try.
+const REPLAY_KEPT_S: u64 = 21 * 24 * 3600;
+/// A 429 without `Retry-After` waits this, doubling, up to an hour.
+const BACKOFF_FIRST: Duration = Duration::from_secs(60);
+const BACKOFF_MAX: Duration = HOUR;
 
-/// Take one start for `client` (and one server-wide fetch), or say which limit refused it.
-fn admit(j: &mut Jobs, client: IpAddr, fetch: bool) -> Result<(), &'static str> {
+/// Take one upload start for `client`, or say it's over its hourly limit.
+fn admit(j: &mut Jobs, client: IpAddr) -> Result<(), &'static str> {
     let s = settings();
     let now = Instant::now();
     j.starts.retain(|_, v| {
         v.retain(|t| now.duration_since(*t) < HOUR);
         !v.is_empty()
     });
-    j.fetches.retain(|t| now.duration_since(*t) < HOUR);
     if j.starts.get(&client).map_or(0, Vec::len) >= s.per_client {
         return Err("rate_limited");
     }
-    if fetch && j.fetches.len() >= s.fetches_per_hour {
-        return Err("busy");
-    }
     j.starts.entry(client).or_default().push(now);
-    if fetch {
-        j.fetches.push(now);
-    }
     Ok(())
+}
+
+/// The salts endpoint is backing off: its 429 hasn't cleared yet.
+fn limited(j: &Jobs) -> bool {
+    j.backoff.is_some_and(|(until, _)| Instant::now() < until)
+}
+
+/// A 429 from the salts endpoint: wait what it said, else twice the last wait (60 s first).
+fn back_off(j: &mut Jobs, retry_after: Option<Duration>) {
+    let last = j.backoff.map(|(_, d)| d);
+    let wait = retry_after.unwrap_or_else(|| last.map_or(BACKOFF_FIRST, |d| d * 2)).min(BACKOFF_MAX);
+    j.backoff = Some((Instant::now() + wait, wait));
+}
+
+/// Why a match's fetch can't work for now, if it can't.
+fn negative(j: &Jobs, id: &str) -> Option<&'static str> {
+    j.negative.get(id).filter(|(_, until)| Instant::now() < *until).map(|(why, _)| *why)
 }
 
 // ---- paths ----
@@ -291,12 +320,14 @@ fn queue_bytes(root: &FsPath) -> (u64, usize) {
 
 /// Room in the queue for one more transfer of up to `cap` bytes.
 fn room(root: &FsPath, cap: u64) -> Result<(), (StatusCode, &'static str)> {
+    let j = lock();
+    room_with(&j, root, cap)
+}
+
+fn room_with(j: &Jobs, root: &FsPath, cap: u64) -> Result<(), (StatusCode, &'static str)> {
     let s = settings();
     let (bytes, queued) = queue_bytes(root);
-    let in_flight = {
-        let j = lock();
-        (j.uploading.len() + j.fetching.len()) as u64
-    };
+    let in_flight = (j.uploading.len() + j.downloading.len()) as u64;
     if queued >= s.max_queued {
         return Err((StatusCode::SERVICE_UNAVAILABLE, "queue_full"));
     }
@@ -325,7 +356,17 @@ pub async fn status(State(app): State<AppState>, Path((board, id)): Path<(String
     if up != State_::None {
         return json(state_json(&up, "upload"));
     }
-    json(state_json(&job_state(&app, &job_name(&id, "cdn")), "cdn"))
+    let mut cdn = job_state(&app, &job_name(&id, "cdn"));
+    if cdn == State_::None {
+        // Why it isn't fetching on its own: the chip's hint says so.
+        let j = lock();
+        if let Some(why) = negative(&j, &id) {
+            cdn = State_::Failed(why);
+        } else if limited(&j) {
+            cdn = State_::Failed("upstream_limited");
+        }
+    }
+    json(state_json(&cdn, "cdn"))
 }
 
 /// `GET /api/boards/{board}/matches/{id}`: the richest timeline there is for this board: its
@@ -403,9 +444,47 @@ pub async fn attach(State(app): State<AppState>, Path((board, id)): Path<(String
     })
     .await;
     match written {
-        Ok(Ok(())) => json(serde_json::json!({ "matches": ids })),
+        Ok(Ok(())) => {
+            auto_fetch(&app, &board, &id).await;
+            json(serde_json::json!({ "matches": ids }))
+        }
         _ => err(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
     }
+}
+
+/// Opening a match tries for its full replay on its own (operator, 2026-11-08): the CDN fetch
+/// starts unless the replay is there or coming (fetched, or this board's upload), the match is
+/// past Valve's three weeks, its fetch can't work for now (`negative`), or deadlock-api is
+/// backing us off. The mode refusal came first (`attach`). One job for every board.
+async fn auto_fetch(app: &AppState, board: &str, id: &str) {
+    let Some(root) = root(app).map(FsPath::to_owned) else { return };
+    let job = job_name(id, "cdn");
+    if job_state(app, &job) != State_::None {
+        return;
+    }
+    if job_state(app, &job_name(id, &scope_of(board))) != State_::None {
+        return; // this board's own upload, done or under way (or just failed)
+    }
+    {
+        let j = lock();
+        if j.fetching.contains(&job) || negative(&j, id).is_some() || limited(&j) {
+            return;
+        }
+    }
+    let Some(start) = crate::matches::cached_start(app, id).await else { return };
+    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let mut j = lock();
+    if now.saturating_sub(start) > REPLAY_KEPT_S {
+        j.negative.insert(id.to_owned(), ("expired", Instant::now() + NEGATIVE_FOR));
+        return;
+    }
+    if j.fetching.contains(&job) || negative(&j, id).is_some() || limited(&j) {
+        return;
+    }
+    j.fetching.insert(job.clone());
+    drop(j);
+    tracing::info!(job, "replay fetch started on open");
+    spawn_fetch(root, id.to_owned(), job);
 }
 
 /// `POST /api/boards/{board}/replays/{id}/upload`: an editor's `.dem`, streamed to the queue.
@@ -448,7 +527,7 @@ pub async fn upload(
         if j.uploading.contains(&job) {
             return err(StatusCode::CONFLICT, "in_progress");
         }
-        if let Err(why) = admit(&mut j, client, false) {
+        if let Err(why) = admit(&mut j, client) {
             return err(StatusCode::TOO_MANY_REQUESTS, why);
         }
         j.uploading.insert(job.clone());
@@ -548,10 +627,9 @@ async fn receive(root: &FsPath, job: &str, body: Body, s: &Settings) -> Result<u
 }
 
 /// `POST /api/boards/{board}/replays/{id}/fetch`: fetch the match's demo from Valve's CDN
-/// (salts from deadlock-api), for every board.
+/// (salts from deadlock-api), for every board. "Fetch replay": it tries again past a failure.
 pub async fn fetch(
     State(app): State<AppState>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Path((board, id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
@@ -566,40 +644,84 @@ pub async fn fetch(
     }
     let Some(root) = root(&app).map(FsPath::to_owned) else { return err(StatusCode::SERVICE_UNAVAILABLE, "replays_off") };
     let job = job_name(&id, "cdn");
-    let st = job_state(&app, &job);
-    if st != State_::None {
-        // Done, in progress, or failed within the hour: say so instead of fetching again.
-        return (StatusCode::ACCEPTED, axum::Json(state_json(&st, "cdn"))).into_response();
-    }
-    let s = settings();
-    if let Err((code, why)) = room(&root, s.max_download) {
-        return err(code, why);
+    match job_state(&app, &job) {
+        // A failure is tried again: pressing "Fetch replay" goes past the negative cache.
+        State_::None | State_::Failed(_) => {}
+        st => return (StatusCode::ACCEPTED, axum::Json(state_json(&st, "cdn"))).into_response(),
     }
     {
         let mut j = lock();
         if j.fetching.contains(&job) {
             return (StatusCode::ACCEPTED, axum::Json(state_json(&State_::Fetching, "cdn"))).into_response();
         }
-        if let Err(why) = admit(&mut j, client_key(client_ip(peer, &headers)), true) {
-            return err(StatusCode::TOO_MANY_REQUESTS, why);
+        // deadlock-api's rate limit is the one limit a press doesn't go past.
+        if limited(&j) {
+            return err(StatusCode::TOO_MANY_REQUESTS, "upstream_limited");
         }
+        j.failed.remove(&job);
+        j.negative.remove(&id);
         j.fetching.insert(job.clone());
     }
-    let match_id = id.clone();
+    spawn_fetch(root, id, job);
+    (StatusCode::ACCEPTED, axum::Json(state_json(&State_::Fetching, "cdn"))).into_response()
+}
+
+/// Run a fetch already in `fetching`: wait in line for a download slot and the queue's room (a
+/// burst waits rather than being refused), then salts, then the demo. Its failure is recorded.
+fn spawn_fetch(root: PathBuf, id: String, job: String) {
     tokio::spawn(async move {
-        let j2 = job.clone();
-        let outcome = tokio::task::spawn_blocking(move || download(&root, &match_id, &j2)).await.unwrap_or(Err("upstream_down"));
+        let s = settings();
+        let deadline = Instant::now() + s.stale;
+        let outcome = loop {
+            {
+                let mut j = lock();
+                if j.downloading.len() < s.downloads_at_once && room_with(&j, &root, s.max_download).is_ok() {
+                    if limited(&j) {
+                        break Err(("upstream_limited", None));
+                    }
+                    j.downloading.insert(job.clone());
+                    break Ok(());
+                }
+            }
+            if Instant::now() > deadline {
+                break Err(("queue_full", None));
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        };
+        let outcome = match outcome {
+            Ok(()) => {
+                let (r2, id2, j2) = (root.clone(), id.clone(), job.clone());
+                tokio::task::spawn_blocking(move || salts(&id2).and_then(|(cluster, salt)| download(&r2, &id2, &j2, cluster, salt).map_err(|why| (why, None))))
+                    .await
+                    .unwrap_or(Err(("upstream_down", None)))
+            }
+            Err(e) => Err(e),
+        };
         let mut j = lock();
         j.fetching.remove(&job);
+        j.downloading.remove(&job);
         match outcome {
             Ok(bytes) => tracing::info!(job, bytes, "replay fetched"),
-            Err(why) => {
+            Err((why, retry_after)) => {
                 tracing::info!(job, why, "replay fetch failed");
-                j.failed.insert(job, (why, Instant::now()));
+                // The status reads each from where it's kept: the backoff, the match's negative
+                // cache, or (ours, not the match's) the job's failure.
+                match why {
+                    "upstream_limited" => {
+                        if retry_after.is_some() || !limited(&j) {
+                            back_off(&mut j, retry_after);
+                        }
+                    }
+                    "queue_full" | "internal" => {
+                        j.failed.insert(job, (why, Instant::now()));
+                    }
+                    _ => {
+                        j.negative.insert(id, (why, Instant::now() + NEGATIVE_FOR));
+                    }
+                }
             }
         }
     });
-    (StatusCode::ACCEPTED, axum::Json(state_json(&State_::Fetching, "cdn"))).into_response()
 }
 
 #[derive(Deserialize)]
@@ -618,18 +740,27 @@ fn agent(timeout: Duration) -> ureq::Agent {
         .into()
 }
 
-/// Salts, then the demo, streamed to `inbox/.<job>.part` under the size cap. Blocking.
-fn download(root: &FsPath, id: &str, job: &str) -> Result<u64, &'static str> {
+/// The match's replay salts from deadlock-api, or why not (with a 429's `Retry-After`). Blocking.
+fn salts(id: &str) -> Result<(u32, u64), (&'static str, Option<Duration>)> {
     let s = settings();
-    let mut r = agent(Duration::from_secs(20)).get(&format!("{}/v1/matches/{id}/salts", s.api_base)).call().map_err(|_| "upstream_down")?;
+    let mut r = crate::matches::api_get(&agent(Duration::from_secs(20)), &format!("{}/v1/matches/{id}/salts", s.api_base)).call().map_err(|_| ("upstream_down", None))?;
     match r.status().as_u16() {
         200 => {}
-        404 => return Err("no_replay"),
-        429 => return Err("upstream_limited"),
-        _ => return Err("upstream_down"),
+        404 => return Err(("no_replay", None)),
+        429 => {
+            let after = r.headers().get(header::RETRY_AFTER).and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<u64>().ok()).map(Duration::from_secs);
+            return Err(("upstream_limited", after));
+        }
+        _ => return Err(("upstream_down", None)),
     }
-    let salts: Salts = r.body_mut().with_config().limit(64 * 1024).read_json().map_err(|_| "upstream_shape")?;
-    let (Some(cluster), Some(salt)) = (salts.cluster_id, salts.replay_salt) else { return Err("no_replay") };
+    let salts: Salts = r.body_mut().with_config().limit(64 * 1024).read_json().map_err(|_| ("upstream_shape", None))?;
+    let (Some(cluster), Some(salt)) = (salts.cluster_id, salts.replay_salt) else { return Err(("no_replay", None)) };
+    Ok((cluster, salt))
+}
+
+/// The demo, streamed to `inbox/.<job>.part` under the size cap. Blocking.
+fn download(root: &FsPath, id: &str, job: &str, cluster: u32, salt: u64) -> Result<u64, &'static str> {
+    let s = settings();
     // Built from two numbers, never taken from the response: it can only name Valve's CDN.
     let url = match &s.cdn_base {
         Some(base) => format!("{base}/{cluster}/1422450/{id}_{salt}.dem.bz2"),
