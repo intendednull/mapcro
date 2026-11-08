@@ -110,9 +110,11 @@ impl Peer {
 
 /// Presence goes out at most once per this long, one frame per peer. A change after a quiet
 /// spell goes out at once (the leading edge); changes inside the window wait for its end and go
-/// out together. So a client sending every 60 ms never waits for a batch, and a burst still
-/// costs one frame per peer per 50 ms (perf report 2026-11-07, "After the client fixes").
-const PRESENCE_BATCH: std::time::Duration = std::time::Duration::from_millis(50);
+/// out together. The window is room-wide, so with several people moving an update can wait for
+/// someone else's: 20 ms bounds that wait and the jitter it adds to a drag's 60 ms steps, while
+/// capping what a receiver handles at 50 frames a second (perf report 2026-11-07, "After the
+/// client fixes"; at 50 ms, sent-to-received was 51 ms p50, and 25 ms with a 50 ms leading edge).
+const PRESENCE_BATCH: std::time::Duration = std::time::Duration::from_millis(20);
 
 struct Room {
     id: String,
