@@ -115,14 +115,31 @@ fn next(root: &Path, tried: &HashSet<String>) -> Option<PathBuf> {
     jobs.into_iter().next().map(|(_, _, p)| p)
 }
 
-/// After a crash: the job it was on fails, and its scratch files go.
+/// `work/<job>.requeued`: the job was put back once after a restart (the worker's own scratch:
+/// it can't write the inbox, and the server drops unknown files in the outbox).
+fn requeued(root: &Path, job: &str) -> PathBuf {
+    root.join("work").join(format!("{job}.requeued"))
+}
+
+fn queued(root: &Path, job: &str) -> bool {
+    ["dem", "bz2", "zst"].iter().any(|e| root.join("inbox").join(format!("{job}.{e}")).exists())
+}
+
+/// After a restart: a job it was on goes back in the queue once (a deploy restarts the worker
+/// mid-parse, and the demo is fine), and fails if it was put back already (it may be what
+/// brought the worker down). Its scratch files go.
 pub fn recover(root: &Path) {
     if let Ok(rd) = std::fs::read_dir(root.join("outbox")) {
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
             if let Some(job) = name.strip_suffix(".parsing") {
                 if valid_job(job) && !finished(root, job) {
-                    fail(root, job, reason::PARSE_FAILED);
+                    let again = !requeued(root, job).exists() && queued(root, job) && std::fs::write(requeued(root, job), b"").is_ok();
+                    if again {
+                        eprintln!("mapcro-replay: {job} put back after a restart");
+                    } else {
+                        fail(root, job, reason::PARSE_FAILED);
+                    }
                 }
                 let _ = std::fs::remove_file(e.path());
             }
@@ -130,6 +147,11 @@ pub fn recover(root: &Path) {
     }
     if let Ok(rd) = std::fs::read_dir(root.join("work")) {
         for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            // A put-back job's mark stays while it waits to run again.
+            if name.strip_suffix(".requeued").is_some_and(|job| queued(root, job) && !finished(root, job)) {
+                continue;
+            }
             let _ = std::fs::remove_file(e.path());
         }
     }
@@ -209,6 +231,7 @@ fn finish(root: &Path, r: Running, result: Result<(), &'static str>) {
         }
     }
     let _ = std::fs::remove_file(&r.out);
+    let _ = std::fs::remove_file(requeued(root, job));
     let _ = std::fs::remove_file(&r.marker);
 }
 
@@ -551,5 +574,39 @@ mod tests {
         assert_eq!(name(next(&q, &tried)).as_deref(), Some("6-cdn"));
         let tried: HashSet<String> = ["7-cdn".to_owned(), "6-cdn".to_owned()].into();
         assert_eq!(name(next(&q, &tried)).as_deref(), Some("5-cdn"), "unlisted jobs still run");
+    }
+
+    /// A restart mid-parse (a deploy) puts the job back once, and it runs again to its result;
+    /// a job that was on when the worker went down a second time fails, so a demo that brings
+    /// the worker down isn't tried forever.
+    #[cfg(unix)]
+    #[test]
+    fn a_restart_puts_the_job_back_once() {
+        let dir = tempfile::tempdir().expect("dir");
+        let q = queue_in(dir.path());
+        let exe = stand_in(dir.path());
+        let on = |job: &str| {
+            std::fs::write(q.join("outbox").join(format!("{job}.parsing")), b"").expect("parsing");
+            std::fs::write(q.join("work").join(format!("{job}.json")), b"half").expect("scratch");
+        };
+        std::fs::write(q.join("inbox/1-cdn.dem"), b"demo").expect("job");
+        on("1-cdn");
+        recover(&q);
+        assert!(!q.join("outbox/1-cdn.failed").exists(), "a first restart doesn't fail it");
+        assert!(!q.join("outbox/1-cdn.parsing").exists() && !q.join("work/1-cdn.json").exists());
+        serve_with(&q, &exe, &Limits::default(), true).expect("serve");
+        assert!(q.join("outbox/1-cdn.json").exists(), "it ran again to its result");
+        assert!(!q.join("work/1-cdn.requeued").exists(), "its mark goes with its result");
+        // Put back once already, and on again when the worker went down: it fails this time.
+        std::fs::write(q.join("inbox/2-cdn.dem"), b"demo").expect("job");
+        on("2-cdn");
+        recover(&q);
+        assert!(q.join("work/2-cdn.requeued").exists());
+        recover(&q);
+        assert!(q.join("work/2-cdn.requeued").exists(), "a restart while it waits costs nothing");
+        on("2-cdn");
+        recover(&q);
+        assert_eq!(std::fs::read_to_string(q.join("outbox/2-cdn.failed")).expect("failed"), reason::PARSE_FAILED);
+        assert!(!q.join("work/2-cdn.requeued").exists());
     }
 }
