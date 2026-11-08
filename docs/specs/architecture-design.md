@@ -42,7 +42,10 @@ Each scene owns:
 - `objective_state`: semantic objective key → `active | destroyed | hidden` (absent = game default)
 - `arrow`: from and to, optional waypoints, team colour, style
 - `callout`: position, text
-- `stroke`: freehand ink as a list of world points (capped), colour, width
+- `stroke`: freehand ink as a list of world points (capped), colour, width, and an `offset` added
+  to every point when drawn. Moving a stroke is one last-writer-wins `set` of its offset, skipped
+  on a deleted stroke like any other field write. It is never a delete and re-create, which would
+  bring back a stroke a peer had deleted. Older strokes load with offset 0.
 - `note`: the scene's free text
 
 Records are flat, typed and validated by one schema module shared by client and server. Kinds are
@@ -148,7 +151,11 @@ presence   = other users' cursors and drag previews                   (ephemeral
 
 ## 5. Offline and reconnect
 
-1. Connect. The socket's first frame is `auth { board, token, known_seq }`. The server answers
+1. Connect. The socket's first frame is `auth { board, token, known_seq, build? }`. `build` is the
+   client's protocol build, `BUILD_ID`. It is a hash of the schema's and the engine's sources,
+   computed by `crates/schema/build.rs` and shared by the server and the browser's WASM. If it
+   differs from the server's, the server answers `closed: outdated`. A missing `build` (older
+   clients, tools) skips the check. The server answers
    `ready { role, base? }`, sending a base document only to a client that has none. Then the
    engine's `hello { client, last_seq, pending_from }`, where `pending_from` is the client's oldest
    unacknowledged cseq.
@@ -577,8 +584,11 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   checked in.
 - The server migrates a stored board lazily on first load. It keeps the pre-migration snapshot, so
   a bad migration is reversible.
-- **Mixed versions are refused, not reconciled.** The server serves the web client. A client older
-  than the server's schema gets "mapcro updated, reloading". Its pending ops survive the reload,
+- **Mixed versions are refused, not reconciled.** The server serves the web client. A client from
+  another build gets `closed: outdated` at auth (§5). A client that can't parse a server message
+  is treated the same way. Either way the session stops instead of retrying the same entry. The
+  tab reloads once per build, guarded in sessionStorage. If it is still outdated after that, it
+  shows "Update available" with a Reload button rather than looping. Its pending ops survive the reload,
   migrated where possible and otherwise kept as an offline copy (§5). This is deliberately simpler
   than tldraw's support for mixed-version writers. We control both ends, so we don't need it.
 - `.mapcro.json` imports run through the same migrations, so files from any past version open.
