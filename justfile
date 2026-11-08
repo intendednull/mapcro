@@ -7,7 +7,7 @@ model-sim samples="20000":
     #!/usr/bin/env bash
     set -euo pipefail
     cd {{model}}
-    for inv in exactlyOnce noLostEdits confirmedIsLogPrefix quiescentConverges noClobber acksInOrder rejectedNeverLogged; do
+    for inv in noGap exactlyOnce noLostEdits confirmedIsLogPrefix quiescentConverges noClobber acksInOrder rejectedNeverLogged; do
       printf '%-22s ' "$inv"
       npx quint run fixed.qnt --main fixed --invariant "$inv" --max-samples {{samples}} --max-steps 25 --backend=rust \
         | grep -E 'violation|No violation'
