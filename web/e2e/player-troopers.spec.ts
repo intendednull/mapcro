@@ -46,7 +46,7 @@ function timeline() {
   const side = (team: "amber" | "sapphire") =>
     range((s) => (s >= 60 && s < 70 ? "" : pack([0, 1, 2, 3].map((i) => [i + (team === "amber" ? 0 : 10), (i - 1.5) * 150, team === "amber" ? -6000 + s * 40 : 6000 - s * 40] as [number, number, number]))));
   return {
-    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0,
+    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0, format: 1,
     players: (["amber", "sapphire"] as const).flatMap((team) =>
       [0, 1, 2, 3, 4, 5].map((slot) => ({ team, slot, hero_id: 1 + slot, name: null, x: range(() => slot * 300), y: range(() => (team === "amber" ? -8000 : 8000)), health: range(() => 100), deaths: [], souls: [[0, 500]], ult: range(() => 0) })),
     ),

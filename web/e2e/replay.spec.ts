@@ -55,7 +55,7 @@ function timeline() {
     })),
   );
   return {
-    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0,
+    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0, format: 1,
     players,
     objectives: [{ key: "walker:sapphire:lane4:1", kind: "walker", team: "sapphire", lane: 4, destroyed_s: 150 }],
     mid_boss: [],

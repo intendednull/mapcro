@@ -49,7 +49,13 @@ export interface JobState {
   ahead?: number;
   /** Queued: the server's estimate of the seconds until it's ready, when it has one. */
   eta_s?: number;
+  /** Done, from this board's upload, but parsed by an older worker: uploading the file again
+   * gives the newer layers (its demo went with its parse, so it can't be parsed again). */
+  stale?: boolean;
 }
+
+/** This board's upload, parsed by an older worker (spec §6a, format versions). */
+export const staleUpload = (j: JobState | undefined) => j?.state === "done" && j.source === "upload" && !!j.stale;
 
 /** A reservation's answer: send the file now, wait (how many are ahead), or nothing to send (the
  * board has the match's fetched replay already). */

@@ -38,7 +38,7 @@ const range = <T,>(f: (s: number) => T) => Array.from({ length: N + 1 }, (_, s) 
 /** Amber's first hero loses health from 100 to 20 over the match and dies at 100 s. */
 function timeline() {
   return {
-    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0,
+    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0, format: 1,
     players: (["amber", "sapphire"] as const).flatMap((team) =>
       [0, 1, 2, 3, 4, 5].map((slot) => {
         const tracked = team === "amber" && slot === 0;

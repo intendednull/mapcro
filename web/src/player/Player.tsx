@@ -13,7 +13,7 @@ import { type MatchEvent, clockLabel, playersAt, tierOf } from "../match/timelin
 import { UltRing } from "../match/preview";
 import { matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
 import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensureLiveOps, liveIds, takeAnnotationsOps } from "./live";
-import { FETCH_WHY, busy, jobLabel, queueLabel } from "./api";
+import { FETCH_WHY, busy, jobLabel, queueLabel, staleUpload } from "./api";
 import { PROMPT, sizeLabel } from "./notice";
 import { DropOverlay, ReplayHelp, createDemDrop } from "./ReplayHelp";
 import { SPEEDS } from "./clock";
@@ -115,7 +115,8 @@ export function Player(p: {
 
   // ---- the replay file: picked or dropped (spec §6b) ----
   /** An editor can give this match a replay: it has none, and nothing's on its way. */
-  const canUpload = () => canEdit() && !!h.matchId() && (!h.tl() || tierOf(h.tl()!) !== "replay") && !!h.job() && h.job()!.state !== "off" && !busy(h.job()) && !h.uploading();
+  // A stale upload (an older parse) is upgraded by uploading the file again.
+  const canUpload = () => canEdit() && !!h.matchId() && (!h.tl() || tierOf(h.tl()!) !== "replay" || staleUpload(h.job())) && !!h.job() && h.job()!.state !== "off" && !busy(h.job()) && !h.uploading();
   const take = (f: File) => h.take(f);
   // Dropped anywhere on the board while Player shows a match without its replay.
   const dragging = createDemDrop({ enabled: () => watching() && canUpload(), onFile: (f) => void take(f), onRefuse: (t) => h.setStatus(t) });
@@ -447,7 +448,8 @@ export function TierChip(p: { host: PlayerHost }) {
   const text = () => {
     const j = h.job();
     if (j?.state === "uploading") return h.progress() === undefined ? "Uploading…" : `Uploading ${h.progress()}%`;
-    if (j?.state === "fetching") return "Fetching replay…";
+    // A stale fetched replay being fetched again in the newer format: shown meanwhile.
+    if (j?.state === "fetching") return replay() ? "Updating replay…" : "Fetching replay…";
     // Where it is in the queue (spec §6a): "Queued · 3 ahead · ~1 min", "Waiting for a slot · 2 ahead".
     const q = queueLabel(j);
     if (q) return q;
@@ -459,7 +461,7 @@ export function TierChip(p: { host: PlayerHost }) {
     const j = h.job();
     return !replay() && j?.state === "failed" && j.source === "cdn" ? FETCH_WHY[j.reason ?? ""] : undefined;
   };
-  const hint = () => (replay() ? "Parsed from the replay file" : [fetchWhy(), WHAT_SUMMARY_LACKS].filter(Boolean).join(" · "));
+  const hint = () => (replay() ? (staleUpload(h.job()) ? `Parsed from the replay file · ${OLDER_PARSE}` : "Parsed from the replay file") : [fetchWhy(), WHAT_SUMMARY_LACKS].filter(Boolean).join(" · "));
   return (
     <span class="pl-tier-wrap">
       <button
@@ -468,6 +470,7 @@ export function TierChip(p: { host: PlayerHost }) {
         data-testid="match-tier"
         data-tier={replay() ? "replay" : "metadata"}
         data-why={fetchWhy() ?? ""}
+        data-stale={staleUpload(h.job()) ? "true" : undefined}
         title={h.canPrompt() ? PROMPT.chip : hint()}
         // The tab that opened the match gets its prompt back (spec §6b); everyone else, the hint.
         onClick={() => (h.canPrompt() ? h.prompt.open() : setWhy(!why()))}
@@ -491,6 +494,8 @@ export function TierChip(p: { host: PlayerHost }) {
 }
 
 const WHAT_SUMMARY_LACKS = "No health, ult timers, zipline colours, camps, rifts or powerups";
+/** A stale upload's hint (spec §6a, format versions): the newer layers come with the file. */
+const OLDER_PARSE = "An older parse: upload the replay file again for the newest layers";
 
 /** Where a jump landed: a ring that pulses there for a few seconds (map → view units). */
 export function Highlight(p: { at: { x: number; y: number } | undefined; vp: "amber" | "sapphire" | "neutral" }) {

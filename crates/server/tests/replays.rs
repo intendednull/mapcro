@@ -1075,3 +1075,111 @@ fn a_parse_under_way_is_not_swept_for_its_wait() {
     // A parse that runs past the stale age (the worker is gone) is swept after all.
     assert_eq!(server.until_state(&board, &owner, "95", "failed")["reason"], "timeout");
 }
+
+/// A timeline as a worker before the format stamp wrote it (format 0), cached for `job`.
+fn cache_old(server: &Server, id: u64, job: &str) {
+    let mut v = serde_json::to_value(timeline(id)).expect("json");
+    v.as_object_mut().expect("object").remove("format");
+    v["players"][0]["name"] = "Old".into();
+    let dir = server.data.path().join("replays");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    std::fs::write(dir.join(format!("{job}.json")), serde_json::to_vec(&v).expect("json")).expect("cache");
+}
+
+/// Backlog, "Replay timeline format versions": a fetched timeline older than the worker's
+/// format is fetched and parsed again once, on open, while the old one is served; the new one
+/// replaces it.
+#[test]
+fn a_stale_fetched_timeline_is_fetched_again_once_and_replaced() {
+    let demo = bz2(&fake_demo(20_000));
+    let routes = HashMap::from([("/v1/matches/25/salts".to_owned(), (200, salts_for(25, 78))), ("/cdn/404/1422450/25_78.dem.bz2".to_owned(), (200, demo))]);
+    let up = upstream(routes);
+    let server = Server::start(up.port, &[]);
+    let (a, a_owner, _) = server.board();
+    let (b, b_owner, b_view) = server.board();
+    server.meta(25, DAY);
+    cache_old(&server, 25, "25-cdn");
+    let served = |board: &str, token: &str| server.call("GET", &format!("/api/boards/{board}/matches/25"), token).1;
+    server.open(&a, &a_owner, 25);
+    // Its status follows the new job, so the client watches it; the old timeline is served meanwhile.
+    assert_eq!(server.until_state(&a, &a_owner, "25", "queued")["source"], "cdn");
+    assert_eq!(server.status(&b, &b_view, "25")["state"], "queued");
+    let old = served(&b, &b_view);
+    assert_eq!((old["players"][0]["name"].as_str(), old.get("format")), (Some("Old"), None), "the old one, at once");
+    // Opened again, on any board: once a match.
+    server.open(&b, &b_owner, 25);
+    server.open(&a, &a_owner, 25);
+    assert_eq!(up.hits("/v1/matches/25/salts"), 1);
+    work(&server, "25-cdn", Ok(&serde_json::to_vec(&timeline(25)).expect("json")));
+    server.until_state(&a, &a_owner, "25", "done");
+    let new = served(&a, &a_owner);
+    assert_eq!((new["players"][0]["name"].as_str(), new["format"].as_u64()), (Some("Coach"), Some(u64::from(mapcro_replay::timeline::FORMAT))), "replaced");
+    server.open(&a, &a_owner, 25);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(up.hits("/v1/matches/25/salts"), 1, "current now: not fetched again");
+}
+
+/// A refetch that fails keeps the old timeline, done, and isn't tried on the next open (a
+/// failed parse, which the match's negative cache doesn't keep).
+#[test]
+fn a_stale_fetched_timeline_whose_refetch_fails_stays() {
+    let demo = bz2(&fake_demo(20_000));
+    let routes = HashMap::from([("/v1/matches/28/salts".to_owned(), (200, salts_for(28, 81))), ("/cdn/404/1422450/28_81.dem.bz2".to_owned(), (200, demo))]);
+    let up = upstream(routes);
+    let server = Server::start(up.port, &[]);
+    let (a, a_owner, _) = server.board();
+    server.meta(28, DAY);
+    cache_old(&server, 28, "28-cdn");
+    server.open(&a, &a_owner, 28);
+    server.until_state(&a, &a_owner, "28", "queued");
+    work(&server, "28-cdn", Err("parse_failed"));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !files(&server.q("inbox")).is_empty() {
+        assert!(Instant::now() < deadline, "collected");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(server.until_state(&a, &a_owner, "28", "done")["source"], "cdn");
+    assert_eq!(server.call("GET", &format!("/api/boards/{a}/matches/28"), &a_owner).1["players"][0]["name"], "Old");
+    server.open(&a, &a_owner, 28);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(up.hits("/v1/matches/28/salts"), 1);
+}
+
+/// Past Valve's three weeks there's nothing to fetch: the old timeline stays, untried.
+#[test]
+fn a_stale_fetched_timeline_past_the_three_weeks_is_kept() {
+    let routes = HashMap::from([("/v1/matches/26/salts".to_owned(), (200, salts_for(26, 79)))]);
+    let up = upstream(routes);
+    let server = Server::start(up.port, &[]);
+    let (a, a_owner, _) = server.board();
+    server.meta(26, 22 * DAY);
+    cache_old(&server, 26, "26-cdn");
+    server.open(&a, &a_owner, 26);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(up.hits("/v1/matches/26/salts"), 0);
+    assert_eq!(server.status(&a, &a_owner, "26"), serde_json::json!({ "state": "done", "source": "cdn" }));
+    assert_eq!(server.call("GET", &format!("/api/boards/{a}/matches/26"), &a_owner).1["players"][0]["name"], "Old");
+}
+
+/// A stale upload can't be parsed again (its demo went with its parse): it's served, never
+/// fetched, and its status says `stale` so the client offers "Upload replay file".
+#[test]
+fn a_stale_upload_is_served_and_offered_for_upload_not_fetched() {
+    let routes = HashMap::from([("/v1/matches/27/salts".to_owned(), (200, salts_for(27, 80)))]);
+    let up = upstream(routes);
+    let server = Server::start(up.port, &[]);
+    let (a, a_owner, a_view) = server.board();
+    let job = format!("27-{}", scope(&a));
+    server.meta(27, DAY);
+    cache_old(&server, 27, &job);
+    server.open(&a, &a_owner, 27);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(up.hits("/v1/matches/27/salts"), 0, "not fetched");
+    assert_eq!(server.status(&a, &a_view, "27"), serde_json::json!({ "state": "done", "source": "upload", "stale": true }));
+    assert_eq!(server.call("GET", &format!("/api/boards/{a}/matches/27"), &a_view).1["players"][0]["name"], "Old");
+    // Uploading it again is the way up, and its new parse isn't stale.
+    assert_eq!(server.reserve(&a, &a_owner, "27", 1000, "203.0.113.9").1["state"], "ready");
+    assert_eq!(server.upload_as(&a, &a_owner, "27", &fake_demo(1000), "203.0.113.9").0, 202);
+    work(&server, &job, Ok(&serde_json::to_vec(&timeline(27)).expect("json")));
+    assert_eq!(server.until_state(&a, &a_owner, "27", "done"), serde_json::json!({ "state": "done", "source": "upload" }));
+}

@@ -156,6 +156,10 @@ struct Jobs {
     /// Opens whose fetch didn't start on its own for our caps (`fetch_refused`), by the board's
     /// job for the match: its status says `busy` for a while, so the opener hears why.
     skipped: HashMap<String, Instant>,
+    /// Matches whose CDN timeline was cached in an older format and was fetched again on open
+    /// (`auto_fetch`): once a match, whatever came of it, so opening it again doesn't (lost on
+    /// restart, which costs at most one more fetch).
+    refreshed: HashSet<String>,
 }
 
 struct Grant {
@@ -344,11 +348,12 @@ fn line_place(j: &Jobs, job: &str) -> Option<(usize, usize)> {
     Some((i, fetches))
 }
 
+/// A job's state. Work under way comes before a cached timeline: a stale CDN timeline fetched
+/// again (`auto_fetch`) is served meanwhile, and its status follows the new job, so the client
+/// watches it and swaps the new timeline in when it's `done`.
 fn job_state(app: &AppState, job: &str) -> State_ {
     let Some(root) = root(app) else { return State_::None };
-    if cache_dir(app).join(format!("{job}.json")).exists() {
-        return State_::Done;
-    }
+    let cached = cache_dir(app).join(format!("{job}.json")).exists();
     {
         let j = lock();
         if j.uploading.contains(job) {
@@ -369,7 +374,8 @@ fn job_state(app: &AppState, job: &str) -> State_ {
         if j.fetching.contains(job) {
             return State_::Fetching;
         }
-        if let Some((why, _)) = j.failed.get(job) {
+        // A failed refetch leaves the timeline it would have replaced: that's still done.
+        if let Some((why, _)) = j.failed.get(job).filter(|_| !cached) {
             return State_::Failed(why);
         }
     }
@@ -383,7 +389,32 @@ fn job_state(app: &AppState, job: &str) -> State_ {
         let (ahead, eta) = parse_place(&lock(), job);
         return State_::Queued(ahead, eta);
     }
+    if cached {
+        return State_::Done;
+    }
     State_::None
+}
+
+/// Where a job's timeline is cached.
+fn cached_path(app: &AppState, job: &str) -> PathBuf {
+    cache_dir(app).join(format!("{job}.json"))
+}
+
+/// A cached timeline's format stamp (0 before the stamp), if it can be read.
+async fn cached_format(app: &AppState, job: &str) -> Option<u32> {
+    #[derive(Deserialize)]
+    struct Stamp {
+        #[serde(default)]
+        format: u32,
+    }
+    let bytes = tokio::fs::read(cached_path(app, job)).await.ok()?;
+    serde_json::from_slice::<Stamp>(&bytes).ok().map(|s| s.format)
+}
+
+/// Whether a cached timeline predates the worker's current format (backlog, "Replay timeline
+/// format versions"): it lacks the layers added since.
+async fn stale(app: &AppState, job: &str) -> bool {
+    cached_format(app, job).await.is_some_and(|f| f < mapcro_replay::timeline::FORMAT)
 }
 
 fn state_json(s: &State_, source: &str) -> serde_json::Value {
@@ -516,9 +547,16 @@ pub async fn status(State(app): State<AppState>, Path((board, id)): Path<(String
     if root(&app).is_none() {
         return json(serde_json::json!({ "state": "off" }));
     }
-    let up = job_state(&app, &job_name(&id, &scope_of(&board)));
+    let mine = job_name(&id, &scope_of(&board));
+    let up = job_state(&app, &mine);
     if up != State_::None {
-        return json(state_json(&up, "upload"));
+        let mut v = state_json(&up, "upload");
+        // An older parse of this board's upload: its demo is gone, so uploading it again is the
+        // way to the newer layers (the client offers "Upload replay file").
+        if up == State_::Done && stale(&app, &mine).await {
+            v["stale"] = true.into();
+        }
+        return json(v);
     }
     let mut cdn = job_state(&app, &job_name(&id, "cdn"));
     if cdn == State_::None {
@@ -556,7 +594,7 @@ pub async fn timeline(
     }
     if root(&app).is_some() {
         for scope in [scope_of(&board), "cdn".to_owned()] {
-            if let Ok(bytes) = tokio::fs::read(cache_dir(&app).join(format!("{}.json", job_name(&id, &scope)))).await {
+            if let Ok(bytes) = tokio::fs::read(cached_path(&app, &job_name(&id, &scope))).await {
                 return ([(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-store")], bytes).into_response();
             }
         }
@@ -638,12 +676,24 @@ fn expired(start: u64) -> bool {
 /// starts unless the replay is there or coming (fetched, or this board's upload), the match is
 /// past Valve's three weeks, its fetch can't work for now (`negative`), or deadlock-api is
 /// backing us off. The mode refusal came first (`attach`). One job for every board.
+///
+/// A fetched timeline in an older format than the worker's is fetched and parsed again, once a
+/// match, the same way (the same line, caps and fairness), while the old one is served; the new
+/// one replaces it when it's parsed. Past the three weeks the old one stays.
 async fn auto_fetch(app: &AppState, board: &str, id: &str, client: Client) {
     let Some(root) = root(app).map(FsPath::to_owned) else { return };
     let job = job_name(id, "cdn");
-    if job_state(app, &job) != State_::None {
-        return;
-    }
+    let refresh = match job_state(app, &job) {
+        State_::None => false,
+        State_::Done => {
+            let tried = lock().refreshed.contains(id);
+            if tried || !stale(app, &job).await {
+                return;
+            }
+            true
+        }
+        _ => return,
+    };
     if job_state(app, &job_name(id, &scope_of(board))) != State_::None {
         return; // this board's own upload, done or under way (or just failed)
     }
@@ -669,10 +719,13 @@ async fn auto_fetch(app: &AppState, board: &str, id: &str, client: Client) {
         return;
     }
     j.skipped.remove(&mine);
+    if refresh && !j.refreshed.insert(id.to_owned()) {
+        return; // another open got there first
+    }
     j.fetching.insert(job.clone());
     let turn = enqueue_fetch(&mut j, &root, &job, &client);
     drop(j);
-    tracing::info!(job, "replay fetch started on open");
+    tracing::info!(job, refresh, "replay fetch started on open");
     spawn_fetch(root, id.to_owned(), job, turn);
 }
 
@@ -802,8 +855,9 @@ pub async fn reserve(
     if bytes < 8 {
         return err(StatusCode::UNSUPPORTED_MEDIA_TYPE, "not_a_replay");
     }
-    // The match's replay from Valve is here already: the board uses it (spec §6a, Dedupe).
-    if job_state(&app, &job_name(&id, "cdn")) == State_::Done {
+    // The match's replay from Valve is here already, or being fetched again in a newer format:
+    // the board uses it (spec §6a, Dedupe).
+    if cached_path(&app, &job_name(&id, "cdn")).exists() {
         return json(state_json(&State_::Done, "cdn"));
     }
     let job = job_name(&id, &scope_of(&board));

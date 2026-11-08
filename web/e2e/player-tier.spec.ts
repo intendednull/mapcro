@@ -43,7 +43,7 @@ const heroes = { amber: [67, 7, 20, 77, 27, 80], sapphire: [17, 63, 6, 13, 12, 7
 /** A replay timeline for the fixture's match, as the worker writes it. */
 function replayTimeline() {
   return {
-    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0,
+    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0, format: 1,
     players: (["amber", "sapphire"] as const).flatMap((team) =>
       heroes[team].map((hero_id, slot) => ({
         team, slot, hero_id, name: null,
