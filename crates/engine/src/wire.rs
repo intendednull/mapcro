@@ -155,7 +155,7 @@ pub struct Presence {
 
 /// One person's Player state, relayed in presence (spec §6b).
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Playback {
     /// In Player (true) or Sandbox (false).
     pub player: bool,
@@ -164,7 +164,25 @@ pub struct Playback {
     pub t: f32,
     pub playing: bool,
     pub speed: f32,
+    /// The event this person last jumped to, while it's still pinned: followers ring it and
+    /// mark the same row (QA 2026-11-08). Absent from older clients.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub jump: Option<Jump>,
 }
+
+/// A jump to an event (spec §6b), as presence carries it.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Jump {
+    /// The event's key in the client's events list (`eventKey`).
+    pub key: String,
+    /// Match seconds the jump landed at: a new jump to the same event lands again.
+    pub at: f32,
+}
+
+/// An event key is a handful of short fields; 96 is several times the longest.
+pub const MAX_JUMP_KEY: usize = 96;
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -262,7 +280,14 @@ impl Presence {
             && self.ink.as_ref().is_none_or(|i| i.color < 16 && i.points.len() <= MAX_INK_POINTS && i.points.iter().all(ok_pos))
             && self.ping.as_ref().is_none_or(|p| ok_pos(&p.at))
             && self.laser_color.is_none_or(|c| c < 16)
-            && self.playback.as_ref().is_none_or(|b| b.t.is_finite() && (0.0..=86_400.0).contains(&b.t) && b.speed.is_finite() && (0.0..=16.0).contains(&b.speed) && b.match_id < 1_000_000_000_000)
+            && self.playback.as_ref().is_none_or(|b| {
+                let clock = |t: f32| t.is_finite() && (0.0..=86_400.0).contains(&t);
+                clock(b.t)
+                    && b.speed.is_finite()
+                    && (0.0..=16.0).contains(&b.speed)
+                    && b.match_id < 1_000_000_000_000
+                    && b.jump.as_ref().is_none_or(|j| clock(j.at) && j.key.len() <= MAX_JUMP_KEY && !j.key.chars().any(char::is_control))
+            })
             && self.cursor.as_ref().is_none_or(ok_pos)
             && self.drag.as_ref().is_none_or(|d| ok_pos(&d.pos))
             && self.drag_group.len() <= MAX_DRAG_GROUP
@@ -291,5 +316,20 @@ mod tests {
         assert!(!laser(10, vec![0]).is_valid());
         assert!(!laser(10, vec![10]).is_valid());
         assert!(!laser(0, vec![1]).is_valid());
+    }
+
+    #[test]
+    fn a_jump_in_playback_is_bounded() {
+        let with = |key: &str, at: f32| Presence {
+            playback: Some(Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: Some(Jump { key: key.to_owned(), at }) }),
+            ..Default::default()
+        };
+        assert!(with("35:death:amber:2:::7", 30.0).is_valid());
+        assert!(with(&"k".repeat(MAX_JUMP_KEY), 0.0).is_valid());
+        assert!(!with(&"k".repeat(MAX_JUMP_KEY + 1), 30.0).is_valid());
+        assert!(!with("a\nb", 30.0).is_valid());
+        assert!(!with("k", f32::NAN).is_valid());
+        assert!(!with("k", -1.0).is_valid());
+        assert!(!with("k", 86_401.0).is_valid());
     }
 }

@@ -10,6 +10,7 @@ import type { Marker } from "../map/model";
 import { Api, type JobState, MODE_REFUSED, busy } from "./api";
 import { type Playback, clampT, follow, rebase, tAt } from "./clock";
 import { type Pt, worldToMap } from "../map/transform";
+import { eventKey } from "./events";
 
 export type Mode = "player" | "sandbox";
 
@@ -20,6 +21,8 @@ export interface PlaybackPresence {
   t: number;
   playing: boolean;
   speed: number;
+  /** The event jumped to while it's pinned: its `eventKey`, and the match time it landed at. */
+  jump?: { key: string; at: number } | null;
 }
 
 export function createPlayerHost(board: string, token: string) {
@@ -220,7 +223,15 @@ export function createPlayerHost(board: string, token: string) {
     // In Player with no match yet, still say so (match 0): others see you're in Player.
     if (!id && mode() !== "player") return undefined;
     const pb = playback();
-    return { player: mode() === "player", match_id: id ? Number(id) : 0, t: Math.round(tAt(pb, performance.now(), duration()) * 100) / 100, playing: pb.playing, speed: pb.speed };
+    const jumpedTo = pin();
+    return {
+      player: mode() === "player",
+      match_id: id ? Number(id) : 0,
+      t: Math.round(tAt(pb, performance.now(), duration()) * 100) / 100,
+      playing: pb.playing,
+      speed: pb.speed,
+      jump: jumpedTo ? { key: eventKey(jumpedTo.event), at: jumpedTo.at } : null,
+    };
   };
 
   /**
@@ -239,13 +250,20 @@ export function createPlayerHost(board: string, token: string) {
       // seek is ±10 s or more, network jitter a fraction of a second times the speed.
       const was = heard?.pb;
       const expect = was && tAt({ ...was, at: heard!.at }, at, duration());
-      if (!was || was.match_id !== theirs.match_id || Math.abs(theirs.t - expect!) > 1 + 0.25 * theirs.speed) jumped();
+      const seeked = !was || was.match_id !== theirs.match_id || Math.abs(theirs.t - expect!) > 1 + 0.25 * theirs.speed;
+      if (seeked) jumped();
+      // The presenter's jump (QA 2026-11-08: a follower saw no ring and marked another row): a
+      // new one, or the same one again (their seek back to it), rings here and pins its row;
+      // none means they seeked elsewhere, and the row unpins.
+      const j = theirs.jump;
+      if (!j) setPinned(undefined);
+      else if (seeked || j.key !== was?.jump?.key || j.at !== was?.jump?.at) setHeardJump({ key: j.key, at: j.at, n: (untrack(heardJump)?.n ?? 0) + 1 });
       // A copy: `theirs` is the peers store's own object, which the next presence updates in
       // place, so a kept reference would read the new `t` as the old one's. Every presence
       // over ¾ s apart then looked like a jump: the follower's run broke on each heartbeat
       // (dropping an event it crossed in that frame), and a real seek right after a heartbeat
       // didn't, so the catch-up pinged what the presenter skipped.
-      heard = { v, at, pb: { ...theirs } };
+      heard = { v, at, pb: { ...theirs, jump: theirs.jump ? { ...theirs.jump } : null } };
     }
     if (!theirs.player) return setMode("sandbox");
     setMode("player");
@@ -295,17 +313,21 @@ export function createPlayerHost(board: string, token: string) {
   /**
    * The event you jumped to: the list marks it, not the earlier one the lead lands after, until
    * playback passes the next listed event or you seek elsewhere (operator bug, 2026-11-08).
+   * With the match time the jump landed at: presence carries both, so followers pin it too.
    */
-  const [pinned, setPinned] = createSignal<MatchEvent>();
+  const [pin, setPinned] = createSignal<{ event: MatchEvent; at: number }>();
+  const pinned = () => pin()?.event;
+  /** A presenter's jump a follower heard, for Player to ring where it happened (`n` counts). */
+  const [heardJump, setHeardJump] = createSignal<{ key: string; at: number; n: number }>();
   /**
    * Mark where an event happens (its own place, else its objective's): the ring follows the
    * event's hero until the event, then stays on the place (review: the jump lands seconds
    * early, when the hero is elsewhere). It goes a few seconds after the playback passes it.
    */
-  const flash = (event: MatchEvent, place: Pt | undefined) => {
+  const flash = (event: MatchEvent, place: Pt | undefined, at = untrack(t)) => {
     const key = ++hl;
     setHighlight({ event, place, key });
-    setPinned(event);
+    setPinned({ event, at });
   };
   createEffect(() => {
     const h = highlight();
@@ -359,6 +381,7 @@ export function createPlayerHost(board: string, token: string) {
     highlight,
     flash,
     pinned,
+    heardJump,
     ring,
     presence,
     mirror,
@@ -399,7 +422,7 @@ const MAX_PINGS = 24;
 export const pingLife = (speed: number) => Math.round(1500 / Math.sqrt(Math.max(1, speed / 2)));
 
 /**
- * Send the playback in presence (spec §6b): whenever the mode, match or playback changes, and
+ * Send the playback in presence (spec §6b): whenever the mode, match, playback or jump changes, and
  * every two seconds while it plays, so followers can correct drift.
  */
 export function playbackPresence(h: PlayerHost, send: (p: PlaybackPresence | undefined) => void) {
@@ -407,6 +430,7 @@ export function playbackPresence(h: PlayerHost, send: (p: PlaybackPresence | und
     h.mode();
     h.matchId();
     h.playback();
+    h.pinned();
     send(h.presence());
   });
   const beat = setInterval(() => {

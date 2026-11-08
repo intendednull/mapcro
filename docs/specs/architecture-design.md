@@ -480,7 +480,11 @@ makes a board with that match attached and lands in Player; **New board** is tod
   event or you seek elsewhere (operator bug, 2026-11-08). **Save scenes** makes one
   scene per ticked event at its jump time, "<event> @ mm:ss", in one transaction (one undo).
 - **Following** carries Player: presence's `playback` holds the mode, the match, t, playing and
-  speed, sent on every change and every 2 s while playing. A follower adopts them, keeping its own
+  speed, sent on every change and every 2 s while playing. It also holds the **jump** while it's
+  pinned: the event's key in the list and the match time the jump landed at (the key at most 96
+  bytes and the time a clock value, in the server's `is_valid`). A follower rings the same event
+  at the same place and marks the same row; a new jump, or the presenter's seek back to the same
+  one, rings again, and none (they seeked elsewhere) unpins the row (QA 2026-11-08). A follower adopts them, keeping its own
   clock while it is within 0.75 s of the presenter's. Changing your own playback, mode or match
   stops following, as changing the view does.
 - **Annotation over playback (operator, 2026-11-08, decided):** you can annotate a live player,

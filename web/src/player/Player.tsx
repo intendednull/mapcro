@@ -2,7 +2,7 @@
 // playback time t (the board renders the preview this produces); this draws the transport, the
 // roster with ult rings, the match source controls and the events list. Labels only.
 
-import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import type { Art } from "../map/pack";
 import { cx } from "../ui/cx";
 import type { BoardState } from "../board/state";
@@ -130,6 +130,16 @@ export function Player(p: {
     });
     h.flash(e, placeOf(e, markers()));
   };
+  // A presenter's jump, heard while following: the same ring at the same place, and the same
+  // row pinned (QA 2026-11-08). Once its timeline is here (a new match loads first).
+  let rung = 0;
+  createEffect(() => {
+    const j = h.heardJump();
+    const e = j && j.n !== rung ? events().find((x) => eventKey(x) === j.key) : undefined;
+    if (!j || !e) return;
+    rung = j.n;
+    untrack(() => h.flash(e, placeOf(e, markers()), j.at));
+  });
 
   return (
     <>
