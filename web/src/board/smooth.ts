@@ -48,8 +48,15 @@ export class Glide {
 
 const hidden = () => typeof document !== "undefined" && document.visibilityState === "hidden";
 
-/** `target`, eased over `ms` with requestAnimationFrame. Call inside a component or root. */
-export function smoothed(target: () => WorldPos | undefined, ms = SMOOTH_MS): () => WorldPos | undefined {
+/** How long heroes glide from one scene's positions to the next's when the scene flips. */
+export const FLIP_MS = 350;
+
+/**
+ * `target`, eased over `ms` with requestAnimationFrame. Call inside a component or root. With
+ * `on`, it glides only when `on()` changed since the last target (a scene flip), and otherwise
+ * follows the target exactly.
+ */
+export function smoothed(target: () => WorldPos | undefined, ms = SMOOTH_MS, on?: () => unknown): () => WorldPos | undefined {
   const g = new Glide(ms);
   const [pos, setPos] = createSignal<WorldPos | undefined>();
   let raf = 0;
@@ -62,13 +69,17 @@ export function smoothed(target: () => WorldPos | undefined, ms = SMOOTH_MS): ()
     setPos(g.at(now));
     raf = g.done(now) ? 0 : requestAnimationFrame(tick);
   };
+  let key: unknown = on?.();
   createComputed(() => {
     const t = target();
     const to = t ? { x: t.x, y: t.y } : undefined; // read x and y: a store may update them in place
+    const k = on?.();
     untrack(() => {
       const now = performance.now();
+      const changed = k !== key;
+      key = k;
       // A hidden tab draws no frames, so it takes the target as is.
-      if (hidden()) g.set(undefined, now);
+      if (hidden() || (on && !changed)) g.set(undefined, now);
       const moving = g.set(to, now);
       setPos(g.at(now));
       if (moving && !raf) raf = requestAnimationFrame(tick);

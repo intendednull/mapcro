@@ -11,7 +11,7 @@
 // Layer order (design/parity/README.md, layer 10): arrows, ink and callouts, drag ghosts, hero
 // tokens, then lasers, cursors and name tags.
 
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import { capture } from "../ui/capture";
 import { colorOf } from "../core/device";
 import type { Arrow } from "../gen/Arrow";
@@ -29,7 +29,7 @@ import { groupToggleOps, marqueePick, toggleOps } from "./objectives";
 import { CARD, cardBox } from "./commentLayout";
 import type { MatchPreview } from "../match/MatchPanel";
 import type { Art } from "../map/pack";
-import { type Pt, type Viewpoint, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
+import { type Pt, type Viewpoint, clampShift, clampToBoard, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { cx } from "../ui/cx";
 import { LASER_MAX_POINTS, type Timed, arrowHead, fitStroke, laserOpacity, polyline, pruneLaser, shaftEnd } from "./geometry";
@@ -94,7 +94,14 @@ export function Layers(p: {
 }) {
   const st = p.state;
   const view = (w: WorldPos) => worldToView(w, p.vp);
-  const world = (v: Pt) => clampToMap(viewToWorld(v, p.vp));
+  // Ink, arrows, comments and pointers may go in the notes margin round the map.
+  const world = (v: Pt) => clampToBoard(viewToWorld(v, p.vp));
+  /** World units between two view points (unclamped). */
+  const worldDelta = (a: Pt, b: Pt) => {
+    const wa = viewToWorld(a, p.vp);
+    const wb = viewToWorld(b, p.vp);
+    return { x: wb.x - wa.x, y: wb.y - wa.y };
+  };
   const editor = () => st.canEdit();
 
   // Stable rows (one object per record), so a new stroke adds one node and moves nothing else.
@@ -185,13 +192,14 @@ export function Layers(p: {
     svg.addEventListener("pointercancel", onUp);
   };
 
-  const erasableAt = (ev: PointerEvent) => {
-    for (const el of document.elementsFromPoint(ev.clientX, ev.clientY)) {
+  const erasableAtPoint = (x: number, y: number) => {
+    for (const el of document.elementsFromPoint(x, y)) {
       const id = (el as HTMLElement).closest?.("[data-erase]")?.getAttribute("data-erase");
       if (id) return id;
     }
     return undefined;
   };
+  const erasableAt = (ev: PointerEvent) => erasableAtPoint(ev.clientX, ev.clientY);
 
   /** The objective marker under a point (view units), nearest first. Camps, rifts, mid boss too. */
   const objectiveAt = (pt: Pt) => {
@@ -284,21 +292,129 @@ export function Layers(p: {
   };
 
   /** Pan by dragging: middle or right button anywhere, Space+drag, or a viewer's Look drag. */
-  const pan = (e: PointerEvent) => {
+  const pan = (e: PointerEvent, onClick?: (at: Pt) => void) => {
     const svg = p.svg()!;
     e.preventDefault();
     e.stopPropagation(); // a pan never also drags the hero under the pointer
-    const perPx = 1000 / svg.getBoundingClientRect().width;
-    let last = { x: e.clientX, y: e.clientY };
+    const perPx = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width;
+    const at = svgPoint(svg, e);
+    const first = { x: e.clientX, y: e.clientY };
+    let last = first;
+    let far = 0;
     track(
       e,
       (_, ev) => {
+        far = Math.max(far, Math.hypot(ev.clientX - first.x, ev.clientY - first.y));
         p.onPan((ev.clientX - last.x) * perPx, (ev.clientY - last.y) * perPx);
         last = { x: ev.clientX, y: ev.clientY };
       },
-      () => {},
+      (_, ok) => {
+        if (ok && far < 4) onClick?.(at);
+      },
     );
   };
+
+  // ---- pings: a middle click, a ring in your colour with your name, through presence ----
+  const [pings, setPings] = createSignal<Array<{ key: string; at: WorldPos; color: number; name: string }>>([]);
+  const PING_MS = 1600;
+  const showPing = (q: { key: string; at: WorldPos; color: number; name: string }) => {
+    setPings([...pings().filter((x) => x.key !== q.key), q]);
+    setTimeout(() => setPings(pings().filter((x) => x !== q)), PING_MS);
+  };
+  let pingN = 0;
+  let pingClear: ReturnType<typeof setTimeout> | undefined;
+  const ping = (at: Pt) => {
+    const w = world(at);
+    pingN += 1;
+    st.presence({ ping: { at: w, n: pingN } });
+    showPing({ key: `me:${pingN}`, at: w, color: p.myColor, name: "" });
+    clearTimeout(pingClear);
+    pingClear = setTimeout(() => st.presence({ ping: null }), PING_MS);
+  };
+  onCleanup(() => clearTimeout(pingClear));
+  const seenPing = new Map<number, number>();
+  createEffect(() => {
+    for (const x of st.peerList()) {
+      const pg = x.state?.ping;
+      if (!pg || x.state?.scene !== p.scene || seenPing.get(x.peer) === pg.n) continue;
+      seenPing.set(x.peer, pg.n);
+      untrack(() => showPing({ key: `${x.peer}:${pg.n}`, at: pg.at, color: x.state!.color, name: x.state!.name }));
+    }
+  });
+
+  // ---- moving placed things (Move): arrows whole or by one end, strokes whole ----
+  const [movingArrow, setMovingArrow] = createSignal<{ id: RecordId; from: WorldPos; to: WorldPos }>();
+  const [movingStroke, setMovingStroke] = createSignal<{ id: RecordId; d: { x: number; y: number } }>();
+  /** A press that didn't move: what a press on the map there would have done (an objective). */
+  const pressThrough = (at: Pt) => {
+    const m = objectiveAt(at);
+    if (m) clickObjective(m);
+  };
+  const moveArrow = (e: PointerEvent, a: Rec<Arrow>, end: "From" | "To" | undefined) => {
+    e.preventDefault();
+    const start = svgPoint(p.svg()!, e);
+    const { from: f0, to: t0 } = a.r;
+    let moved = false;
+    track(
+      e,
+      (pt) => {
+        if (!moved && Math.hypot(pt.x - start.x, pt.y - start.y) < 4) return;
+        moved = true;
+        const d = worldDelta(start, pt);
+        const shift = (q: WorldPos, s: { x: number; y: number }) => ({ x: q.x + s.x, y: q.y + s.y });
+        let from = f0;
+        let to = t0;
+        if (end === "From") from = clampToBoard(shift(f0, d));
+        else if (end === "To") to = clampToBoard(shift(t0, d));
+        else {
+          const s = clampShift([f0, t0], d);
+          from = shift(f0, s);
+          to = shift(t0, s);
+        }
+        setMovingArrow({ id: a.id, from, to });
+        st.presence({ drag: { id: a.id, pos: end === "To" ? to : from, ...(end ? { end } : {}) }, focus: a.id });
+      },
+      (pt, ok) => {
+        const m = movingArrow();
+        setMovingArrow(undefined);
+        if (moved) st.presence({ drag: null, focus: null });
+        if (ok && moved && m) {
+          const ops: Op[] = [];
+          if (m.from.x !== f0.x || m.from.y !== f0.y) ops.push({ Set: { id: a.id, value: { ArrowFrom: m.from } } });
+          if (m.to.x !== t0.x || m.to.y !== t0.y) ops.push({ Set: { id: a.id, value: { ArrowTo: m.to } } });
+          if (ops.length) st.edit(ops);
+        } else if (ok && !moved) pressThrough(pt);
+      },
+    );
+  };
+  const moveStroke = (e: PointerEvent, s: Rec<Stroke>) => {
+    e.preventDefault();
+    const start = svgPoint(p.svg()!, e);
+    const pts = s.r.points;
+    let moved = false;
+    track(
+      e,
+      (pt) => {
+        if (!moved && Math.hypot(pt.x - start.x, pt.y - start.y) < 4) return;
+        moved = true;
+        const d = clampShift(pts, worldDelta(start, pt));
+        setMovingStroke({ id: s.id, d });
+        st.presence({ drag: { id: s.id, pos: { x: pts[0]!.x + d.x, y: pts[0]!.y + d.y } }, focus: s.id });
+      },
+      (pt, ok) => {
+        const m = movingStroke();
+        setMovingStroke(undefined);
+        if (moved) st.presence({ drag: null, focus: null });
+        if (ok && moved && m && (m.d.x || m.d.y)) {
+          // A stroke has no position field: moving it replaces it, in one transaction (one undo).
+          const points = pts.map((q) => ({ x: q.x + m.d.x, y: q.y + m.d.y }));
+          st.edit([{ Delete: { id: s.id } }, { Create: { id: newRecordId(), record: { Stroke: { ...s.r, points } } } }]);
+        } else if (ok && !moved) pressThrough(pt);
+      },
+    );
+  };
+  /** Others moving a placed thing: who, and where its anchor is now (smoothed per record below). */
+  const moverOf = (id: RecordId) => st.peerList().find((x) => x.state?.drag?.id === id && x.state.scene === p.scene);
 
   /** Move on empty map: drag a rectangle to select heroes (Shift adds); a click clears. */
   const marquee = (e: PointerEvent, start: Pt) => {
@@ -349,7 +465,12 @@ export function Layers(p: {
     // A press anywhere but on a comment closes the open one.
     const onComment = (e.target as Element).closest?.("[data-callout]")?.getAttribute("data-callout");
     if (!onComment) p.setOpenComment(undefined);
-    if (e.button === 1 || e.button === 2 || (e.button === 0 && p.spaceHeld())) {
+    if (e.button === 1) {
+      // Middle: a click pings (anyone, viewers too), a drag pans.
+      pan(e, ping);
+      return;
+    }
+    if (e.button === 2 || (e.button === 0 && p.spaceHeld())) {
       pan(e);
       return;
     }
@@ -371,6 +492,20 @@ export function Layers(p: {
       // Heroes, callouts and lane splits handle their own presses (Solid delegates those
       // handlers to the document, so this native listener on the map sees the press first).
       if ((e.target as Element).closest?.(".tok, .co, .wave-hit")) return;
+      const target = e.target as Element;
+      const arrowId = target.closest?.("[data-arrow]")?.getAttribute("data-arrow");
+      const arrow = arrowId ? arrows().find((x) => x.id === arrowId) : undefined;
+      if (arrow) {
+        const end = target.closest?.("[data-arrow-end]")?.getAttribute("data-arrow-end");
+        moveArrow(e, arrow, end === "From" || end === "To" ? end : undefined);
+        return;
+      }
+      const strokeId = target.closest?.("[data-stroke]")?.getAttribute("data-stroke");
+      const stroke = strokeId ? strokes().find((x) => x.id === strokeId) : undefined;
+      if (stroke) {
+        moveStroke(e, stroke);
+        return;
+      }
       const m = objectiveAt(start);
       if (m) {
         e.preventDefault();
@@ -396,12 +531,19 @@ export function Layers(p: {
     if (tool === "draw") {
       e.preventDefault();
       setDrawing([start]);
+      // Others see the stroke as it's drawn (through presence, like the laser), then the record.
+      const live = () => st.presence({ ink: { color: p.ink, points: fitStroke(drawing() ?? [], MAX_STROKE_POINTS).map(world) } });
+      live();
       track(
         e,
-        (pt) => setDrawing([...(drawing() ?? []), pt]),
+        (pt) => {
+          setDrawing([...(drawing() ?? []), pt]);
+          live();
+        },
         (_, ok) => {
           const pts = drawing() ?? [];
           setDrawing(undefined);
+          st.presence({ ink: null });
           if (!ok || pts.length === 0) return;
           const fitted = fitStroke(pts, MAX_STROKE_POINTS);
           // A tap is a dot: the schema wants at least two points, so the dot repeats its one.
@@ -470,6 +612,29 @@ export function Layers(p: {
       e.preventDefault();
       p.onZoom(svgPoint(svg, e), Math.exp(Math.max(-1, Math.min(1, e.deltaY / 300))));
     };
+    // Hover + E deletes the placed thing under the pointer, whatever the tool (operator,
+    // 2026-11-07). Ahead of the toolbar's E (Erase), which still applies over empty map.
+    let hover: { x: number; y: number } | undefined;
+    const track = (e: PointerEvent) => (hover = { x: e.clientX, y: e.clientY });
+    const untrackHover = () => (hover = undefined);
+    const del = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "e" || e.ctrlKey || e.metaKey || e.altKey || e.repeat || !hover || !editor()) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      const id = erasableAtPoint(hover.x, hover.y);
+      if (!id) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      st.edit([{ Delete: { id } }]);
+    };
+    window.addEventListener("keydown", del, true);
+    svg.addEventListener("pointermove", track);
+    svg.addEventListener("pointerleave", untrackHover);
+    onCleanup(() => {
+      window.removeEventListener("keydown", del, true);
+      svg.removeEventListener("pointermove", track);
+      svg.removeEventListener("pointerleave", untrackHover);
+    });
     svg.addEventListener("pointerdown", down);
     svg.addEventListener("pointermove", cursor);
     svg.addEventListener("pointerleave", leave);
@@ -549,19 +714,39 @@ export function Layers(p: {
   const arrowClass = (team: Arrow["team"]) => (team === "Amber" ? "amber" : team === "Sapphire" ? "sapphire" : "neutral");
 
   const remoteLasers = createMemo(() => st.peerList().filter((x) => (x.state?.laser.length ?? 0) > 0 && x.state?.scene === p.scene));
+  const remoteInks = createMemo(() => st.peerList().filter((x) => (x.state?.ink?.points.length ?? 0) > 0 && x.state?.scene === p.scene));
 
   return (
     <>
       <g class="arrows">
         <For each={arrows()}>
           {(a) => {
-            const f = () => view(a.r.from);
-            const t = () => view(a.r.to);
+            const mover = () => moverOf(a.id);
+            const anchor = smoothed(() => mover()?.state?.drag?.pos);
+            const ends = () => {
+              const mine = movingArrow();
+              if (mine?.id === a.id) return mine;
+              const end = mover()?.state?.drag?.end;
+              const q = anchor();
+              if (!q) return a.r;
+              if (end === "From") return { from: q, to: a.r.to };
+              if (end === "To") return { from: a.r.from, to: q };
+              return { from: q, to: { x: a.r.to.x + q.x - a.r.from.x, y: a.r.to.y + q.y - a.r.from.y } };
+            };
+            const f = () => view(ends().from);
+            const t = () => view(ends().to);
             return (
-              <g class={cx("arrow", erasing().has(a.id) && "erasing")} data-erase={a.id} data-arrow={a.id}>
+              <g class={cx("arrow", erasing().has(a.id) && "erasing", (movingArrow()?.id === a.id || !!mover()) && "moving")} data-erase={a.id} data-arrow={a.id}>
                 <path class="hit" d={`M${f().x} ${f().y} L${t().x} ${t().y}`} />
                 <path class={cx("arw", arrowClass(a.r.team))} d={polyline([f(), shaftEnd(f(), t(), 10)])} />
                 <polygon class={cx("head", arrowClass(a.r.team))} points={arrowHead(f(), t(), 22)} />
+                <Show when={editor() && p.tool === "move"}>
+                  <circle class="arrow-end" data-arrow-end="From" cx={f().x} cy={f().y} r={9 * p.k} />
+                  <circle class="arrow-end" data-arrow-end="To" cx={t().x} cy={t().y} r={9 * p.k} />
+                </Show>
+                <Show when={mover()}>
+                  {(o) => <NameTag at={{ x: (f().x + t().x) / 2, y: (f().y + t().y) / 2 }} name={o().state!.name} color={o().state!.color} what="moving" k={p.k} />}
+                </Show>
               </g>
             );
           }}
@@ -578,16 +763,38 @@ export function Layers(p: {
       <g class="inks">
         <For each={strokes()}>
           {(s) => {
-            const d = () => polyline(s.r.points.map(view));
+            const mover = () => moverOf(s.id);
+            const anchor = smoothed(() => mover()?.state?.drag?.pos);
+            const shift = () => {
+              const mine = movingStroke();
+              if (mine?.id === s.id) return mine.d;
+              const q = anchor();
+              const p0 = s.r.points[0];
+              return q && p0 ? { x: q.x - p0.x, y: q.y - p0.y } : { x: 0, y: 0 };
+            };
+            const pts = () => s.r.points.map((q) => view({ x: q.x + shift().x, y: q.y + shift().y }));
+            const d = () => polyline(pts());
             return (
-              <g data-erase={s.id} data-stroke={s.id} class={cx(erasing().has(s.id) && "erasing")}>
+              <g data-erase={s.id} data-stroke={s.id} class={cx(erasing().has(s.id) && "erasing", (movingStroke()?.id === s.id || !!mover()) && "moving")}>
                 <path class="hit" d={d()} />
                 <path class={cx("ink", erasing().has(s.id) && "erasing")} d={d()} stroke={colorOf(s.r.color)} style={{ "stroke-width": `${s.r.width / 10}` }} />
+                <Show when={mover()}>{(o) => <NameTag at={pts()[0]!} name={o().state!.name} color={o().state!.color} what="moving" k={p.k} />}</Show>
               </g>
             );
           }}
         </For>
         <Show when={drawing()}>{(pts) => <path class="ink preview" d={polyline(pts())} stroke={colorOf(p.ink)} style={{ "stroke-width": `${INK_WIDTH / 10}` }} />}</Show>
+        <For each={remoteInks()}>
+          {(x) => {
+            const pts = () => (x.state?.ink?.points ?? []).map(view);
+            return (
+              <g class="live-ink" data-live-ink={x.state!.name}>
+                <path class="ink preview" d={polyline(pts())} stroke={colorOf(x.state?.ink?.color ?? 0)} style={{ "stroke-width": `${INK_WIDTH / 10}` }} />
+                <Show when={pts().at(-1)}>{(q) => <NameTag at={q()} name={x.state!.name} color={x.state!.color} what="drawing" k={p.k} />}</Show>
+              </g>
+            );
+          }}
+        </For>
       </g>
       <Show when={box()}>
         {(b) => (
@@ -771,6 +978,23 @@ export function Layers(p: {
         <Show when={laser().length > 0}>
           <LaserTrail points={laser().map((q) => q.p)} color={colorOf(p.myColor)} mine />
         </Show>
+      </g>
+      <g class="pings">
+        <For each={pings()}>
+          {(q) => {
+            const at = () => view(q.at);
+            return (
+              <g class="ping" data-ping={q.name || "me"} style={{ "--c": colorOf(q.color) }}>
+                <circle class="ping-ring" cx={at().x} cy={at().y} r={26 * p.k} />
+                <circle class="ping-ring late" cx={at().x} cy={at().y} r={26 * p.k} />
+                <circle class="ping-dot" cx={at().x} cy={at().y} r={5 * p.k} />
+                <Show when={q.name}>
+                  <NameTag at={at()} name={q.name} color={q.color} k={p.k} />
+                </Show>
+              </g>
+            );
+          }}
+        </For>
       </g>
       <Cursors peers={st.peerList()} scene={p.scene} vp={p.vp} k={p.k} />
     </>

@@ -29,11 +29,14 @@ describe("follow", () => {
     expect(s.x).toBeCloseTo(1000 - 200 - 400, 0);
     expect(fromViewport(null, "amber")).toEqual(FIT);
   });
-  it("zooms about the pointer and stays on the map", () => {
+  it("zooms about the pointer and stays on the map and its notes margin", () => {
     const z = zoomAt(FIT, { x: 250, y: 250 }, 0.5);
     expect(z).toEqual({ w: 500, x: 125, y: 125 });
-    expect(zoomAt(z, { x: 0, y: 0 }, 10)).toEqual(FIT);
-    expect(clampView({ x: 900, y: -50, w: 300 })).toEqual({ x: 700, y: 0, w: 300 });
+    // Out past fit to the whole board: the map and a quarter of it all round.
+    expect(zoomAt(z, { x: 0, y: 0 }, 10)).toEqual({ w: 1500, x: -250, y: -250 });
+    expect(clampView({ x: 900, y: -50, w: 300 })).toEqual({ x: 900, y: -50, w: 300 });
+    expect(clampView({ x: 1100, y: -400, w: 300 })).toEqual({ x: 950, y: -250, w: 300 });
+    expect(clampView({ x: 0, y: 0, w: 4000 })).toEqual({ x: -250, y: -250, w: 1500 });
   });
   it("carries the presenter's side, and older peers without one are Amber", () => {
     expect(toViewport(FIT, "sapphire").side).toBe("Sapphire");

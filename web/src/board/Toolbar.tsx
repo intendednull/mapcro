@@ -1,12 +1,20 @@
 // The compact tool picker under the map (design/v1-board, "Tools"). Keys: V D A C L E;
 // Ctrl+Z undo, Ctrl+Shift+Z or Ctrl+Y redo. A view link gets Look and Laser only.
 
-import { For, Show, onCleanup, onMount } from "solid-js";
+import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { PALETTE, colorOf } from "../core/device";
 import { cx } from "../ui/cx";
 import { ICON_CLEAR, ICON_COMMENTS, ICON_REDO, ICON_UNDO, TOOLS, type Tool, VIEWER_TOOLS } from "./tools";
 
 const Ico = (p: { d: string }) => <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" innerHTML={p.d} />;
+
+export type ClearKind = "ink" | "arrows" | "comments" | "all";
+const CLEARS: Array<{ kind: ClearKind; label: string }> = [
+  { kind: "ink", label: "Ink" },
+  { kind: "arrows", label: "Arrows" },
+  { kind: "comments", label: "Comments" },
+  { kind: "all", label: "All" },
+];
 
 export function Toolbar(p: {
   tool: Tool;
@@ -18,12 +26,20 @@ export function Toolbar(p: {
   canRedo: boolean;
   undo: () => void;
   redo: () => void;
-  clearInk: () => void;
-  inkCount: number;
+  /** Clear one kind of placed thing on the scene (or all of them), as one undoable step. */
+  clear: (what: ClearKind) => void;
+  counts: Record<ClearKind, number>;
   commentsOpen: boolean;
   toggleComments: () => void;
 }) {
   const tools = () => (p.editor ? TOOLS : TOOLS.filter((t) => VIEWER_TOOLS.includes(t.tool)));
+  const [clearOpen, setClearOpen] = createSignal(false);
+  let clearBox: HTMLSpanElement | undefined;
+  onMount(() => {
+    const away = (e: PointerEvent) => clearOpen() && !clearBox?.contains(e.target as Node) && setClearOpen(false);
+    window.addEventListener("pointerdown", away, true);
+    onCleanup(() => window.removeEventListener("pointerdown", away, true));
+  });
   onMount(() => {
     const key = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -98,9 +114,40 @@ export function Toolbar(p: {
           <Ico d={ICON_COMMENTS} />
         </button>
         <Show when={p.editor}>
-          <button class="tb icon" data-testid="clear-ink" title="Clear ink" aria-label="Clear ink" disabled={p.inkCount === 0} onClick={() => p.clearInk()}>
-            <Ico d={ICON_CLEAR} />
-          </button>
+          <span class="clear-menu" ref={clearBox}>
+            <button
+              class={cx("tb icon", clearOpen() && "on")}
+              data-testid="clear-menu"
+              title="Clear"
+              aria-label="Clear"
+              aria-haspopup="menu"
+              aria-expanded={clearOpen()}
+              disabled={p.counts.all === 0}
+              onClick={() => setClearOpen(!clearOpen())}
+            >
+              <Ico d={ICON_CLEAR} />
+            </button>
+            <Show when={clearOpen()}>
+              <div class="clear-pop" role="menu" data-testid="clear-pop">
+                <For each={CLEARS}>
+                  {(c) => (
+                    <button
+                      role="menuitem"
+                      data-testid={`clear-${c.kind}`}
+                      disabled={p.counts[c.kind] === 0}
+                      onClick={() => {
+                        setClearOpen(false);
+                        p.clear(c.kind);
+                      }}
+                    >
+                      {c.label}
+                      <span class="n">{p.counts[c.kind]}</span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </span>
           <span class="tb-sep" />
           <button class="tb icon" data-testid="undo" title="Undo" aria-label="Undo" disabled={!p.canUndo} onClick={() => p.undo()}>
             <Ico d={ICON_UNDO} />

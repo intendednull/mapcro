@@ -33,7 +33,7 @@ import { ShareDialog } from "./ShareDialog";
 import { rejection, statusView } from "./status";
 import type { Reject } from "../gen/Reject";
 import { Avatar, FollowChip, PeopleList, PresentingPill } from "./Presence";
-import { Toolbar } from "./Toolbar";
+import { type ClearKind, Toolbar } from "./Toolbar";
 import { smoothed } from "./smooth";
 import type { Tool } from "./tools";
 
@@ -228,6 +228,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
 
   const people = () => state.peerList();
   const inkIds = createMemo(() => state.inScene("Stroke", scene()?.id).map(([id]) => id));
+  const arrowIds = createMemo(() => state.inScene("Arrow", scene()?.id).map(([id]) => id));
+  const commentIds = createMemo(() => state.inScene("Callout", scene()?.id).map(([id]) => id));
+  const clearIds = (what: ClearKind) =>
+    what === "ink" ? inkIds() : what === "arrows" ? arrowIds() : what === "comments" ? commentIds() : [...inkIds(), ...arrowIds(), ...commentIds()];
+  const CLEARED: Record<ClearKind, string> = { ink: "Ink cleared", arrows: "Arrows cleared", comments: "Comments cleared", all: "Scene cleared" };
   const objectives = createMemo(() => {
     const m = new Map<string, { id: RecordId; status: ObjectiveStatus }>();
     for (const [id, r] of state.inScene("ObjectiveState", scene()?.id))
@@ -535,7 +540,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 myColor={me()?.color ?? 0}
                 svg={overlay}
                 objectives={objectives}
-                k={(view().w / 1000) * (phone ? 1.4 : 1)}
+                k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)}
                 selection={selection}
                 setSelection={setSelection}
                 spaceHeld={spaceHeld}
@@ -689,17 +694,17 @@ export function Board(p: { board: string; token: string; art: Art }) {
             canRedo={state.canRedo()}
             undo={() => state.undo()}
             redo={() => state.redo()}
-            inkCount={inkIds().length}
+            counts={{ ink: inkIds().length, arrows: arrowIds().length, comments: commentIds().length, all: clearIds("all").length }}
             commentsOpen={allOpen()}
             toggleComments={() => {
               setAllOpen(!allOpen());
               setCommentsOpen(p.board, allOpen());
             }}
-            clearInk={() => {
-              const ids = inkIds();
+            clear={(what) => {
+              const ids = clearIds(what);
               if (!ids.length) return;
               state.edit(ids.map((id) => ({ Delete: { id } })));
-              say("Ink cleared", { label: "Undo", run: () => state.undo() });
+              say(CLEARED[what], { label: "Undo", run: () => state.undo() });
             }}
           />
           {toastView()}

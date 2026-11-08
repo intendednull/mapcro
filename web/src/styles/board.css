@@ -884,3 +884,43 @@ kbd {
 .stage > .tb-host { margin-top: 12px; }
 .side h2 .note-tag { margin-left: auto; padding: 1px 7px; border-radius: 4px; font: 700 11px var(--ui); color: #10201c; white-space: nowrap; }
 .side h2 .note-tag + .note-tag { margin-left: 6px; }
+
+/* Clear: a small menu over the button. */
+.clear-menu { position: relative; display: inline-flex; }
+.clear-pop { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 30; display: flex; flex-direction: column; min-width: 128px; padding: 4px; background: var(--bg-deep, #0b1714); border: 1px solid var(--line); border-radius: 7px; box-shadow: 0 6px 18px #0008; }
+.clear-pop button { display: flex; justify-content: space-between; gap: 12px; padding: 6px 10px; font: 500 13px var(--ui); color: var(--text); background: none; border: 0; border-radius: 5px; cursor: pointer; text-align: left; }
+.clear-pop button:hover:not(:disabled) { background: var(--line-soft, #ffffff12); }
+.clear-pop button:disabled { opacity: 0.4; cursor: default; }
+.clear-pop .n { color: var(--faint); font-variant-numeric: tabular-nums; }
+
+/* Placed things in Move: ends of an arrow to grab, a thing being moved, live ink, pings. */
+.mm-overlay.map .arrow-end { fill: transparent; stroke: transparent; pointer-events: all; cursor: grab; }
+.mm-overlay.map .arrow:hover .arrow-end { fill: #ffffff22; stroke: var(--text); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.mm-overlay.map[data-tool="move"] .arrow .hit, .mm-overlay.map[data-tool="move"] [data-stroke] .hit { cursor: grab; }
+.mm-overlay.map .arrow.moving, .mm-overlay.map [data-stroke].moving { opacity: 0.85; }
+.mm-overlay.map .live-ink, .mm-overlay.map .pings { pointer-events: none; }
+.mm-overlay.map .live-ink .ink { opacity: 0.75; }
+.ping-ring { fill: none; stroke: var(--c); stroke-width: 3; vector-effect: non-scaling-stroke; transform-box: fill-box; transform-origin: center; animation: ping-ring 1.6s ease-out forwards; }
+.ping-ring.late { animation-delay: 0.35s; opacity: 0; }
+.ping-dot { fill: var(--c); animation: ping-fade 1.6s ease-in forwards; }
+.ping .p-tag { animation: ping-fade 1.6s ease-in forwards; }
+@keyframes ping-ring { from { transform: scale(0.2); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
+@keyframes ping-fade { 0%, 70% { opacity: 1; } to { opacity: 0; } }
+
+/* Dead heroes: desaturated, dimmed, a skull badge (no-vision ghosts keep the dashed ring and
+   the eye-slash). The skull button (top left, on hover) kills or revives; so does K. */
+.mm-overlay.map .tok.dead > image { opacity: 0.5; }
+.mm-overlay.map .tok.dead > .body { opacity: 0.6; }
+.mm-overlay.map .tok .skull { fill: var(--text); fill-rule: evenodd; }
+.mm-overlay.map .tok .dead-badge circle { fill: #0b1714; stroke: #c9c3b6; stroke-width: 1.2; }
+.mm-overlay.map .tok .dead-badge { pointer-events: none; }
+.mm-overlay.map .tok .life circle { fill: #0b1714; stroke: var(--text); stroke-width: 1.5; }
+.mm-overlay.map .tok .life { opacity: 0; transition: opacity 120ms; }
+.mm-overlay.map .tok:hover .life.editable { opacity: 1; cursor: pointer; }
+.mm-overlay.map .tok:not(:hover) .life { pointer-events: none; }
+.mm-overlay.map .respawn-label rect { fill: #0b1714e6; stroke: #c9c3b6; stroke-width: 1; }
+.mm-overlay.map .respawn-label text { fill: var(--text); font: 600 12px var(--ui); text-anchor: middle; dominant-baseline: central; }
+.mm-overlay.map .respawn-label.unset { opacity: 0; }
+.mm-overlay.map .respawn-label.unset.editable:hover, .mm-overlay.map .tok.dead:hover + .respawn .respawn-label.unset.editable { opacity: 0.8; }
+.mm-overlay.map .respawn-label.editable { cursor: text; }
+.mm-overlay.map .respawn-input { width: 100%; height: 100%; box-sizing: border-box; font: 600 12px var(--ui); text-align: center; color: var(--text); background: #0b1714; border: 1px solid var(--accent); border-radius: 4px; padding: 0; outline: none; }

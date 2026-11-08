@@ -35,8 +35,12 @@
 .mm-objs { position: absolute; inset: 0; }
 
 /* .map_button, positioned by its centre; counter-rotated so icons stay upright */
-.mk { position: absolute; transform: translate(-50%, -50%); scale: var(--mk-scale, 1); }   /* zoomed: icons keep their HUD size, as in game */
-.mm-host.vp-sapphire .mm-rot .mk { transform: translate(-50%, -50%) rotate(180deg); }
+/* Zoomed, icons keep their HUD size, as in game. The scale goes inside `transform`, after the
+   centring translate, so it scales about the icon's centre on its point. As a separate `scale`
+   property it applied after the translate, about the layout box's centre, so icons drifted off
+   their points by (1 - scale) / 2 of their size as you zoomed in. */
+.mk { position: absolute; transform: translate(-50%, -50%) scale(var(--mk-scale, 1)); }
+.mm-host.vp-sapphire .mm-rot .mk { transform: translate(-50%, -50%) rotate(180deg) scale(var(--mk-scale, 1)); }
 .mk > i { position: absolute; inset: 0; display: var(--pa-display, none); pointer-events: none; }
 .mk > i.p { background-position: center; background-size: 100% 100%; background-repeat: no-repeat; }
 .mk > i.w {
@@ -67,3 +71,16 @@
 /* Legend icons: <span data-mm-icon="t2" data-wash="#DC4C2F"></span> */
 [data-mm-icon] { position: relative; display: inline-block; width: 26px; height: 26px; vertical-align: middle; --u: 0.6px; }
 [data-mm-icon] .mk { transform: translate(-50%, -50%); }
+
+/* The Patron in stage 2: its shield (the arch) is down, the core fights on. */
+.mk.stage2 .st1 { display: none; }
+.mk.stage2 { filter: drop-shadow(0 0 calc(4 * var(--u, 1px)) var(--brass, #d9b24a)); }
+
+/* The board's layers reach into the notes margin round the map (a quarter of the map a side),
+   drawn past the overlay's box (overflow: visible); the margin's rect takes presses there. */
+.mm-overlay .notes-area { fill: none; stroke: none; pointer-events: all; }
+.mm-host.free .mm-overlay .notes-area { fill: rgba(255, 239, 215, 0.025); stroke: rgba(255, 239, 215, 0.18); stroke-width: 1.5; stroke-dasharray: 8 8; vector-effect: non-scaling-stroke; }
+/* Past the map, the frame moves with it (the HUD frame is 400 of which the map is 360). */
+.mm-zoom > .mm-frame.moving { inset: auto; left: -5.5556%; top: -5.5556%; width: 111.111%; height: 111.111%; z-index: 0; }
+/* Nothing on the board reaches past its box: not over the top bar, the tools or the panel. */
+.mapbox > .mm-host, .p-map .mm-host { overflow: hidden; }

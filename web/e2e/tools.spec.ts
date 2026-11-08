@@ -72,6 +72,8 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   await expect.poll(async () => (await spot(b)).x).toBeGreaterThan(before.x + 30);
 
   // Erase: one scrub over the ink and the arrow is one transaction, so one undo brings both back.
+  // (E over a comment would delete just that comment: the pointer leaves the map first.)
+  await a.mouse.move(5, 5);
   await a.keyboard.press("e");
   const s = (await strokes(a).locator("path.ink").boundingBox())!;
   const ar = (await arrows(a).locator(".arw").boundingBox())!;
@@ -94,6 +96,7 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   await a.keyboard.press("d");
   await gesture(a, [[0.6, 0.2], [0.7, 0.25]]);
   await expect(strokes(b)).toHaveCount(2);
+  await a.getByTestId("clear-menu").click();
   await a.getByTestId("clear-ink").click();
   await expect(strokes(b)).toHaveCount(0);
   await expect(arrows(b)).toHaveCount(1);

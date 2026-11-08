@@ -12,7 +12,13 @@ export type Current = Map<string, { id: RecordId; status: ObjectiveStatus }>;
 /** Whether a marker is "on" (active, alive) in a scene. Rifts default to off; the rest to on. */
 export function isOn(m: Pick<Marker, "kind" | "key">, cur: Current): boolean {
   const s = cur.get(m.key)?.status;
-  return m.kind === "koth" ? s === "Active" : s === undefined || s === "Active";
+  return m.kind === "koth" ? s === "Active" : s === undefined || s === "Active" || s === "Stage2";
+}
+
+/** The Patron's two stages (operator, 2026-11-07): a click goes stage 1 → stage 2 → destroyed
+ * → stage 1. */
+export function nextPatron(s: ObjectiveStatus | undefined): ObjectiveStatus {
+  return s === undefined || s === "Active" || s === "Hidden" ? "Stage2" : s === "Stage2" ? "Destroyed" : "Active";
 }
 
 export function toggleOps(m: Pick<Marker, "kind" | "key">, markers: Array<Pick<Marker, "kind" | "key">>, cur: Current, scene: RecordId, mint: () => RecordId): Op[] {
@@ -22,6 +28,7 @@ export function toggleOps(m: Pick<Marker, "kind" | "key">, markers: Array<Pick<M
     return [{ Create: { id: mint(), record: { ObjectiveState: { scene, key, status } } } }];
   };
   const on = isOn(m, cur);
+  if (m.kind === "t3") return set(m.key, nextPatron(cur.get(m.key)?.status));
   if (m.kind !== "koth") return set(m.key, on ? "Destroyed" : "Active");
   if (on) return set(m.key, "Destroyed");
   // Only one rift at a time: the others go off with this one coming on.

@@ -56,6 +56,31 @@ export function viewToWorld(v: Pt, vp: Viewpoint, t: Transform = DEFAULT_TRANSFO
   return mapToWorld(viewToMap(v, vp), t);
 }
 
+/** The notes margin around the map, in view units (a quarter of the map each side): ink,
+ * arrows and comments may go there; heroes and objectives stay on the map. In world units it
+ * reaches 1.5× the map's radius, inside the schema's ±16384. */
+export const MARGIN = 250;
+
+/** Keep a placed thing (ink, arrow, comment, pointer) on the map or its notes margin. */
+export function clampToBoard(w: WorldPos, t: Transform = DEFAULT_TRANSFORM): WorldPos {
+  const r = t.r * (1 + (2 * MARGIN) / MAP);
+  const c = (v: number, mid: number) => Math.max(mid - r, Math.min(mid + r, v));
+  return { x: Math.round(c(w.x, t.cx)), y: Math.round(c(w.y, t.cy)) };
+}
+
+/** The largest part of the shift `d` that keeps every point on the board (map and margin). */
+export function clampShift(points: WorldPos[], d: { x: number; y: number }, t: Transform = DEFAULT_TRANSFORM): { x: number; y: number } {
+  if (!points.length) return { x: 0, y: 0 };
+  const r = t.r * (1 + (2 * MARGIN) / MAP);
+  const xs = points.map((q) => q.x);
+  const ys = points.map((q) => q.y);
+  const c = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  return {
+    x: Math.round(c(d.x, t.cx - r - Math.min(...xs), t.cx + r - Math.max(...xs))),
+    y: Math.round(c(d.y, t.cy - r - Math.min(...ys), t.cy + r - Math.max(...ys))),
+  };
+}
+
 /** Keep a dragged position on the map square (the schema allows a little more, ±16384). */
 export function clampToMap(w: WorldPos, t: Transform = DEFAULT_TRANSFORM): WorldPos {
   const c = (v: number, mid: number) => Math.max(mid - t.r, Math.min(mid + t.r, v));

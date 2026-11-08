@@ -2,7 +2,8 @@
 // editor drags a token; while dragging, its position travels through presence (others watch it
 // move, with the dragger's name tag), and the drop commits one op (spec §4a).
 
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { formatClock, parseClock } from "../core/clock";
 import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
 import type { MatchPreview } from "../match/MatchPanel";
@@ -13,7 +14,7 @@ import type { RecordId } from "../gen/RecordId";
 import type { WorldPos } from "../gen/WorldPos";
 import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampToMap, viewToWorld, worldToView } from "../map/transform";
-import { smoothed } from "./smooth";
+import { FLIP_MS, smoothed } from "./smooth";
 import type { BoardState, Player, Slot } from "./state";
 
 export const TOKEN_R = 23;
@@ -59,6 +60,8 @@ interface Drag {
 }
 
 const EYE = "M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z";
+/** A small skull: dome, eyes and jaw (eyes and nose are holes, evenodd). */
+const SKULL = "M0 -6a6 6 0 0 1 6 6c0 2-1 3-2 3.6V6H-4V3.6C-5 3-6 2-6 0a6 6 0 0 1 6-6zM-2.4 -1.2a1.5 1.5 0 1 0 0.01 0zM2.4 -1.2a1.5 1.5 0 1 0 0.01 0zM0 1.6l-0.9 1.4h1.8z";
 
 export function Tokens(p: {
   state: BoardState;
@@ -79,6 +82,8 @@ export function Tokens(p: {
   const [drag, setDrag] = createSignal<Drag | undefined>();
   const slots = createMemo(() => new Map(p.state.roster().map((s) => [s.id, s.slot])));
   const players = createMemo(() => p.state.playersIn(p.scene).filter((pl) => slots().has(pl.state.slot)));
+  const bySlot = createMemo(() => new Map(players().map((pl) => [pl.state.slot, pl])));
+  const slotIds = createMemo(() => players().map((pl) => pl.state.slot), undefined, { equals: (a, b) => a.length === b.length && a.every((x, i) => x === b[i]) });
   const posOf = (id: RecordId) => {
     const e = p.state.records[id];
     return e && "PlayerState" in e.record ? e.record.PlayerState.pos : undefined;
@@ -160,6 +165,38 @@ export function Tokens(p: {
     svg.addEventListener("pointercancel", up);
   };
 
+  /** Dead or alive (K on a hovered hero, or its skull button). Coming back clears the timer. */
+  const toggleAlive = (pl: Player) => {
+    if (!p.state.canEdit() || p.preview?.()) return;
+    const alive = !pl.state.alive;
+    p.state.edit([
+      { Set: { id: pl.id, value: { PlayerAlive: alive } } },
+      ...(alive && pl.state.respawn != null ? [{ Set: { id: pl.id, value: { PlayerRespawn: null } } } as const] : []),
+    ]);
+  };
+  const [hovered, setHovered] = createSignal<RecordId>();
+  const [timing, setTiming] = createSignal<RecordId>();
+  onMount(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "k" || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      const pl = players().find((x) => x.id === hovered());
+      if (!pl) return;
+      e.preventDefault();
+      toggleAlive(pl);
+    };
+    window.addEventListener("keydown", key);
+    onCleanup(() => window.removeEventListener("keydown", key));
+  });
+  const setRespawn = (pl: Player, text: string) => {
+    setTiming(undefined);
+    const v = parseClock(text);
+    if (v === undefined) return;
+    const s = v === null ? null : Math.min(600, v);
+    if (s !== (pl.state.respawn ?? null)) p.state.edit([{ Set: { id: pl.id, value: { PlayerRespawn: s } } }]);
+  };
+
   const toggleVision = (pl: Player, e: PointerEvent) => {
     if (!p.state.canEdit() || e.button !== 0 || p.preview?.()) return;
     e.preventDefault();
@@ -169,35 +206,41 @@ export function Tokens(p: {
 
   return (
     <g class="tokens">
-      <For each={players()}>
-        {(pl) => {
-          const slot = () => slots().get(pl.state.slot)!;
+      <For each={slotIds()}>
+        {(slotId) => {
+          // Keyed by roster slot, not by record: a flip keeps each hero's node, and it glides.
+          let last: Player | undefined;
+          const pl = () => (last = bySlot().get(slotId) ?? last)!;
+          const slot = () => slots().get(pl().state.slot)!;
           const pv = () => p.preview?.()?.players.get(slotKey(slot().team, slot().slot));
           // A match preview (Player) draws only the timeline at t, never the scene's records:
           // alive and seen by the match, placed where the match has them (spec §6b).
           const live = () => !!p.preview?.();
-          const alive = () => (live() ? true : pl.state.alive);
-          const visible = () => (live() ? true : pl.state.visible);
+          const alive = () => (live() ? true : pl().state.alive);
+          const visible = () => (live() ? true : pl().state.visible);
           const heroId = () => pv()?.hero ?? slot().hero;
           const hero = () => (heroId() != null ? p.art.heroes.get(heroId()!) : undefined);
           const team = () => (slot().team === "Amber" ? "amber" : "sapphire");
           const mine = () => {
             const d = drag();
-            const g = d?.group.find((x) => x.id === pl.id);
+            const g = d?.group.find((x) => x.id === pl().id);
             return d && g ? moved(g.from, d.delta) : undefined;
           };
-          const others = () => (touching().get(pl.id) ?? []).map((t) => t.peer);
-          const remote = () => (touching().get(pl.id) ?? []).find((t) => t.at);
+          const others = () => (touching().get(pl().id) ?? []).map((t) => t.peer);
+          const remote = () => (touching().get(pl().id) ?? []).find((t) => t.at);
           const remoteDrag = () => remote()?.peer;
           const remoteAt = smoothed(() => remote()?.at);
-          const shown = () => pv()?.pos ?? mine() ?? remoteAt() ?? pl.state.pos;
-          const selected = () => p.selection().has(pl.id);
+          const target = () => pv()?.pos ?? mine() ?? remoteAt() ?? pl().state.pos;
+          // A scene flip: from the last scene's spot to this one's (render only).
+          const flipped = smoothed(target, FLIP_MS, () => p.scene);
+          const shown = () => flipped() ?? target();
+          const selected = () => p.selection().has(pl().id);
           const at = () => worldToView(shown(), p.vp);
-          const home = () => worldToView(pl.state.pos, p.vp);
+          const home = () => worldToView(pl().state.pos, p.vp);
           const r = () => TOKEN_R * p.k;
           const label = () => `${slot().name || `${slot().team} ${slot().slot + 1}`}${hero() ? `, ${hero()!.name}` : ""}`;
           return (
-            <Show when={live() ? !!pv()?.pos : pl.state.placed}>
+            <Show when={live() ? !!pv()?.pos : pl().state.placed}>
               <Show when={remoteDrag()}>
                 {(o) => (
                   <g class="drag-trail" style={{ "--c": colorOf(o().state!.color) }}>
@@ -210,9 +253,11 @@ export function Tokens(p: {
                 class={cx("tok", team(), !alive() && "dead", !visible() && "ghost", selected() && "selected", (!!remoteDrag() || !!mine()) && "preview", !!mine() && "dragging")}
                 transform={`translate(${at().x} ${at().y})`}
                 data-slot={`${slot().team}-${slot().slot}`}
-                data-player={pl.id}
+                data-player={pl().id}
                 data-visible={String(visible())}
-                onPointerDown={(e) => down(pl, e)}
+                onPointerDown={(e) => down(pl(), e)}
+                onPointerEnter={() => setHovered(pl().id)}
+                onPointerLeave={() => hovered() === pl().id && setHovered(undefined)}
               >
                 <Show when={selected()}>
                   <circle class="sel" r={r() + 5 * p.k} />
@@ -250,7 +295,7 @@ export function Tokens(p: {
                   class={cx("vis", !visible() && "off", p.state.canEdit() && !live() && "editable")}
                   data-testid="vision"
                   transform={`translate(${r() * 0.78} ${-r() * 0.78}) scale(${p.k})`}
-                  onPointerDown={(e) => toggleVision(pl, e)}
+                  onPointerDown={(e) => toggleVision(pl(), e)}
                 >
                   <title>{visible() ? "In vision" : "Not seen"}</title>
                   <circle r="9" />
@@ -262,7 +307,65 @@ export function Tokens(p: {
                     <path class="slash" d="M-6 6L6 -6" />
                   </Show>
                 </g>
+                <g
+                  class={cx("life", p.state.canEdit() && !live() && "editable")}
+                  data-testid="life"
+                  transform={`translate(${-r() * 0.78} ${-r() * 0.78}) scale(${p.k})`}
+                  onPointerDown={(e) => {
+                    if (e.button !== 0 || !p.state.canEdit() || live()) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleAlive(pl());
+                  }}
+                >
+                  <title>{alive() ? "Kill (K)" : "Revive (K)"}</title>
+                  <circle r="9" />
+                  <path class="skull" d={SKULL} />
+                </g>
+                <Show when={!alive()}>
+                  <g class="dead-badge" transform={`translate(0 ${r() * 0.55}) scale(${p.k})`}>
+                    <circle r="8" />
+                    <path class="skull" d={SKULL} />
+                  </g>
+                </Show>
               </g>
+              <Show when={!alive() && !live()}>
+                <g class="respawn" data-testid="respawn" transform={`translate(${at().x} ${at().y + r() + 14 * p.k}) scale(${p.k})`}>
+                  <Show
+                    when={timing() === pl().id}
+                    fallback={
+                      <g
+                        class={cx("respawn-label", p.state.canEdit() && "editable", pl().state.respawn == null && "unset")}
+                        onPointerDown={(e) => {
+                          if (e.button !== 0 || !p.state.canEdit()) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setTiming(pl().id);
+                        }}
+                      >
+                        <rect x="-44" y="-10" width="88" height="20" rx="4" />
+                        <text>{pl().state.respawn != null ? `respawn ${formatClock(pl().state.respawn)}` : "respawn"}</text>
+                      </g>
+                    }
+                  >
+                    <foreignObject x="-44" y="-12" width="88" height="24">
+                      <input
+                        class="respawn-input"
+                        data-testid="respawn-input"
+                        aria-label="Respawn in (m:ss)"
+                        value={formatClock(pl().state.respawn)}
+                        ref={(el) => queueMicrotask(() => el.select())}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") setRespawn(pl(), e.currentTarget.value);
+                          if (e.key === "Escape") setTiming(undefined);
+                          e.stopPropagation();
+                        }}
+                        onBlur={(e) => timing() === pl().id && setRespawn(pl(), e.currentTarget.value)}
+                      />
+                    </foreignObject>
+                  </Show>
+                </g>
+              </Show>
               <For each={others()}>
                 {(o, i) => (
                   <>
@@ -271,7 +374,7 @@ export function Tokens(p: {
                       at={{ x: at().x, y: at().y - i() * 32 * p.k }}
                       name={o.state!.name}
                       color={o.state!.color}
-                      what={o.state!.drag?.id === pl.id || o.state!.drag_group?.includes(pl.id) ? "moving" : undefined}
+                      what={o.state!.drag?.id === pl().id || o.state!.drag_group?.includes(pl().id) ? "moving" : undefined}
                       k={p.k}
                     />
                   </>

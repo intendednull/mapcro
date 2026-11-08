@@ -101,6 +101,7 @@ test("a bubble drags with Move and erases with Erase", async ({ browser }) => {
   await a.mouse.up();
   await expect.poll(async () => (await spot(b)).x).toBeLessThan(before.x - 50);
   await expect(comment(a)).toHaveAttribute("data-open", "false"); // a drag doesn't open it
+  await a.mouse.move(5, 5); // E over the comment would delete it outright (hover + E)
   await a.keyboard.press("e");
   const nb = (await comment(a).locator(".bubble-body").boundingBox())!;
   await a.mouse.click(nb.x + nb.width / 2, nb.y + nb.height / 2);

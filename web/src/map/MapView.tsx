@@ -8,22 +8,22 @@ import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import { type Marker, HUD_MAP_PX, isFriendly, laneStroke, washFor } from "./model";
 import { defaultSplit, pathOf, splitAt } from "./lanes";
 import { type Art, artCss } from "./pack";
-import type { Viewpoint } from "./transform";
+import { MARGIN, type Viewpoint } from "./transform";
 
 /** A neutral cream: the spawners give any powerup, so no buff's own colour. */
 const POWERUP = "#FFEFD7";
 const CAMP_IMG = { weak: "neutral-small", medium: "neutral-medium", strong: "neutral-large", vaults: "neutral-vault" } as const;
 
-function Layer(p: { img: string; wash?: string; style?: JSX.CSSProperties }) {
+function Layer(p: { img: string; wash?: string; style?: JSX.CSSProperties; part?: string }) {
   return p.wash ? (
-    <i class="w" data-img={p.img} style={{ "--wash": p.wash, ...p.style }} />
+    <i class={cx("w", p.part)} data-img={p.img} style={{ "--wash": p.wash, ...p.style }} />
   ) : (
-    <i class="p" data-pimg={p.img} style={p.style} />
+    <i class={cx("p", p.part)} data-pimg={p.img} style={p.style} />
   );
 }
 
-function Fb(p: { shape: string; color: string; k: number }) {
-  return <b class={`fb ${p.shape}`} style={{ "--c": p.color, "--k": String(p.k) }} />;
+function Fb(p: { shape: string; color: string; k: number; part?: string }) {
+  return <b class={cx("fb", p.shape, p.part)} style={{ "--c": p.color, "--k": String(p.k) }} />;
 }
 
 function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | undefined; picked: boolean }) {
@@ -39,12 +39,15 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
       case "shrine":
         return [<Fb shape="diamond-o" color={c()} k={0.4} />, <Layer img="boss-health-t2" wash={c()} />, <Layer img="boss-health-fill-t2" wash={c()} />];
       case "t3": {
+        // Two stages: the shield (the arch, stage 1) over the core (the diamond, stage 2). In
+        // stage 2 the shield is gone (`.stage2` hides the `st1` parts).
         const friend = isFriendly(m, p.vp);
         const rot: JSX.CSSProperties = friend ? { transform: "rotate(180deg)" } : {};
         return [
-          <Fb shape={friend ? "arch-down" : "arch"} color={c()} k={0.62} />,
-          <Layer img="boss-health-final" wash={c()} style={rot} />,
-          <Layer img="boss-health-final-fill" wash={c()} style={rot} />,
+          <Fb shape={friend ? "arch-down" : "arch"} color={c()} k={0.62} part="st1" />,
+          <Fb shape="diamond" color={c()} k={0.3} part="st2" />,
+          <Layer img="boss-health-final" wash={c()} style={rot} part="st1" />,
+          <Layer img="boss-health-final-fill" wash={c()} style={rot} part="st1" />,
           <Layer img="boss-health-final-stage2" wash={c()} />,
           <Layer img="boss-health-final-stage2-fill" wash={c()} />,
         ];
@@ -61,7 +64,7 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
   };
   return (
     <div
-      class={cx("mk", p.m.kind, p.m.kind === "koth" && "koth", p.status === "Destroyed" && "down", p.status === "Hidden" && "gone", p.picked && "picked")}
+      class={cx("mk", p.m.kind, p.m.kind === "koth" && "koth", p.status === "Destroyed" && "down", p.status === "Hidden" && "gone", p.status === "Stage2" && "stage2", p.picked && "picked")}
       data-status={p.status ?? "Active"}
       title={p.m.title}
       data-key={p.m.key}
@@ -154,6 +157,21 @@ export function MapView(p: {
     onCleanup(() => ro.disconnect());
   });
   const view = () => p.view ?? { x: 0, y: 0, w: 1000 };
+  // Inside the map square, the HUD look: a fixed frame, and zoomed in, the map clipped to its
+  // disc. Out past the map (its notes margin), the map and its frame move and zoom together
+  // like any other thing on the board, and nothing is clipped to the disc.
+  const free = () => {
+    const v = view();
+    return v.w > 1000 || v.x < 0 || v.y < 0 || v.x + v.w > 1000 || v.y + v.w > 1000;
+  };
+  const frame = () => (
+    <>
+      <svg class="frame-fb" viewBox="0 0 100 100" aria-hidden="true">
+        <path d="M50 7 a43 43 0 1 1 -0.01 0Z M39 9 a11 11 0 0 1 22 0 M39 91 a11 11 0 0 0 22 0" />
+      </svg>
+      <i class="frame-art" />
+    </>
+  );
   const markers = createMemo(() =>
     p.lite ? p.art.model.markers.filter((m) => m.kind !== "barracks" && m.kind !== "shrine" && m.kind !== "camp" && m.kind !== "koth" && m.kind !== "powerup") : p.art.model.markers,
   );
@@ -161,18 +179,13 @@ export function MapView(p: {
   return (
     <div
       ref={host}
-      class={cx("mm-host", `vp-${p.viewpoint}`, p.class, p.raisedLane && "lane-raised", hasArt() && "pack-art", p.lite && "lite", view().w < 1000 && "zoomed", p.live && "live")}
+      class={cx("mm-host", `vp-${p.viewpoint}`, p.class, p.raisedLane && "lane-raised", hasArt() && "pack-art", p.lite && "lite", view().w < 1000 && !free() && "zoomed", free() && "free", p.live && "live")}
       data-viewpoint={p.viewpoint}
       data-pack={p.art.packId ?? "none"}
-      style={{ "--u": `${u()}px`, "--mk-scale": String(view().w / 1000) }}
+      style={{ "--u": `${u()}px`, "--mk-scale": String(Math.min(1, view().w / 1000)) }}
     >
-      <Show when={!p.lite}>
-        <div class="mm-frame">
-          <svg class="frame-fb" viewBox="0 0 100 100" aria-hidden="true">
-            <path d="M50 7 a43 43 0 1 1 -0.01 0Z M39 9 a11 11 0 0 1 22 0 M39 91 a11 11 0 0 0 22 0" />
-          </svg>
-          <i class="frame-art" />
-        </div>
+      <Show when={!p.lite && !free()}>
+        <div class="mm-frame">{frame()}</div>
       </Show>
       <div class="mm-clip">
         <div
@@ -184,6 +197,9 @@ export function MapView(p: {
             top: `${(-view().y / view().w) * 100}%`,
           }}
         >
+          <Show when={!p.lite && free()}>
+            <div class="mm-frame moving">{frame()}</div>
+          </Show>
           <div class="mm-rot">
             <i class="terrain" data-pimg="terrain-mid" />
             <i class="mm-shade" />
@@ -202,7 +218,15 @@ export function MapView(p: {
               </For>
             </div>
           </div>
-          <svg ref={p.overlayRef} viewBox="0 0 1000 1000" {...p.overlayProps} class={cx("mm-overlay", p.lite ? "mini" : "map", p.overlayClass)}>
+          <svg
+            ref={p.overlayRef}
+            viewBox="0 0 1000 1000"
+            {...p.overlayProps}
+            class={cx("mm-overlay", p.lite ? "mini" : "map", p.overlayClass)}
+          >
+            <Show when={!p.lite}>
+              <rect class="notes-area" x={-MARGIN} y={-MARGIN} width={1000 + 2 * MARGIN} height={1000 + 2 * MARGIN} />
+            </Show>
             {p.children}
           </svg>
         </div>

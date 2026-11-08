@@ -3,7 +3,7 @@
 
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { Viewport } from "../gen/Viewport";
-import { type Viewpoint, viewToWorld, worldToView } from "../map/transform";
+import { MARGIN, type Viewpoint, viewToWorld, worldToView } from "../map/transform";
 
 export interface ViewRect {
   x: number;
@@ -13,6 +13,8 @@ export interface ViewRect {
 
 export const FIT: ViewRect = { x: 0, y: 0, w: 1000 };
 export const MIN_W = 160; // the deepest zoom: about 6×
+/** The widest view: the map and its notes margin all round. */
+export const MAX_W = 1000 + 2 * MARGIN;
 
 /** Anyone with edit rights can be followed; view-only people can't (the server stamps roles). */
 export const followable = (p: PeerPresence) => p.state !== null && p.role !== "view";
@@ -25,14 +27,16 @@ export function presenters(peers: PeerPresence[], me: number | undefined, iFollo
   return peers.filter((p) => followable(p) && p.peer !== me && (count.get(p.peer) ?? 0) > 0).map((p) => ({ peer: p, followers: count.get(p.peer)! }));
 }
 
+/** A view inside the board: the map and its notes margin (operator, 2026-11-07). */
 export function clampView(v: ViewRect): ViewRect {
-  const w = Math.max(MIN_W, Math.min(1000, v.w));
-  return { w, x: Math.max(0, Math.min(1000 - w, v.x)), y: Math.max(0, Math.min(1000 - w, v.y)) };
+  const w = Math.max(MIN_W, Math.min(MAX_W, v.w));
+  const c = (u: number) => Math.max(-MARGIN, Math.min(1000 + MARGIN - w, u));
+  return { w, x: c(v.x), y: c(v.y) };
 }
 
 /** Zoom by `factor` (>1 zooms out) keeping the view point `at` fixed on screen. */
 export function zoomAt(v: ViewRect, at: { x: number; y: number }, factor: number): ViewRect {
-  const w = Math.max(MIN_W, Math.min(1000, v.w * factor));
+  const w = Math.max(MIN_W, Math.min(MAX_W, v.w * factor));
   const k = w / v.w;
   return clampView({ w, x: at.x - (at.x - v.x) * k, y: at.y - (at.y - v.y) * k });
 }

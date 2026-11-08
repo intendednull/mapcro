@@ -19,6 +19,19 @@ describe("objective clicks", () => {
     const hidden: Current = new Map([[walker.key, { id: "w", status: "Hidden" }]]);
     expect(toggleOps(walker, all, hidden, "s", mint)).toEqual([{ Set: { id: "w", value: { ObjectiveStatus: "Active" } } }]);
   });
+  it("a patron goes stage 1 → stage 2 → destroyed → stage 1, and only the clicked patron", () => {
+    const amber = { kind: "t3" as const, key: "patron:amber:lane0:1" };
+    const sapphire = { kind: "t3" as const, key: "patron:sapphire:lane0:1" };
+    const both = [...all, amber, sapphire];
+    const first = toggleOps(amber, both, new Map(), "s", mint);
+    expect(first).toEqual([{ Create: { id: expect.any(String), record: { ObjectiveState: { scene: "s", key: amber.key, status: "Stage2" } } } }]);
+    const stage2: Current = new Map([[amber.key, { id: "a", status: "Stage2" }]]);
+    expect(isOn(amber, stage2)).toBe(true);
+    expect(toggleOps(amber, both, stage2, "s", mint)).toEqual([{ Set: { id: "a", value: { ObjectiveStatus: "Destroyed" } } }]);
+    const down: Current = new Map([[amber.key, { id: "a", status: "Destroyed" }], [sapphire.key, { id: "b", status: "Stage2" }]]);
+    expect(toggleOps(amber, both, down, "s", mint)).toEqual([{ Set: { id: "a", value: { ObjectiveStatus: "Active" } } }]);
+    expect(toggleOps(sapphire, both, down, "s", mint)).toEqual([{ Set: { id: "b", value: { ObjectiveStatus: "Destroyed" } } }]);
+  });
   it("camps and the mid boss toggle the same way", () => {
     for (const m of [camp, mid]) {
       expect(isOn(m, new Map())).toBe(true);
