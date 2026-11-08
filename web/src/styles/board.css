@@ -990,3 +990,8 @@ kbd {
    colour too, with text in the ink that reads on it. Without one, the usual comment look. */
 .mm-overlay.map .co.tinted .card-bg { fill: var(--comment); stroke: var(--comment-ink); }
 .mm-overlay.map .co.tinted text { fill: var(--comment-ink); }
+
+/* Drags on the board (beside the map, across the bars) never select page text; fields and the
+   note still do. */
+.board-app .stage, .board-app .scenes, .board-app .mapbox { -webkit-user-select: none; user-select: none; }
+.board-app .stage :is(input, textarea, [contenteditable="true"]), .board-app .scenes :is(input, textarea) { -webkit-user-select: text; user-select: text; }
