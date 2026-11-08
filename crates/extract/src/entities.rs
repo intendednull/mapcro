@@ -327,6 +327,7 @@ fn entity_kind(entity: &RawEntity) -> Option<&'static str> {
         }
         "info_neutral_trooper_camp" => Some("camp"),
         "info_koth_spawn_location" => Some("rift"),
+        "citadel_item_powerup_spawner" => Some("powerup"),
         "npc_base_defense_sentry" => Some("sentry"),
         "info_team_spawn" => Some("team_spawn"),
         _ => None,

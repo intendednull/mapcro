@@ -399,6 +399,9 @@ fn real_install() {
             .expect("parse pack");
     assert!(pack["heroes"].as_array().expect("heroes").len() > 40);
     assert!(pack["entities"].as_array().expect("entities").len() > 100);
+    let powerups: Vec<&serde_json::Value> =
+        pack["entities"].as_array().expect("entities").iter().filter(|e| e["kind"] == "powerup").collect();
+    assert_eq!(powerups.len(), 2, "two mirrored powerup spawners");
     assert!(pack["icons"].as_array().expect("icons").len() > 50);
     assert_eq!(pack["hud_sources"].as_array().expect("hud").len(), 10);
 
