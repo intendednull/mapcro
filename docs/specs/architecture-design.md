@@ -140,6 +140,11 @@ presence   = other users' cursors and drag previews                   (ephemeral
   they flush on the next connect.
 - **Save status is honest:** *Saved* (no pending), *Syncing (n)*, *Offline: n changes kept on this
   device*, and *Rejected* with the reason.
+- **A new device starts from the board, not its history.** A client with no stored copy builds its
+  replica from the board as the server holds it now (`confirmed` at some seq N, nothing pending,
+  no undo history) and replays only what came after N (§5). It never pays for history it didn't
+  see: a fresh client on a 33k-entry board used to replay all of it, ~0.7 ms an entry in the
+  browser.
 
 ## 5. Offline and reconnect
 
@@ -147,6 +152,34 @@ presence   = other users' cursors and drag previews                   (ephemeral
    `ready { role, base? }`, sending a base document only to a client that has none. Then the
    engine's `hello { client, last_seq, pending_from }`, where `pending_from` is the client's oldest
    unacknowledged cseq.
+   - **A fresh join gets the board as it is.** `base` is `{ doc, seq }`: the room's current
+     document and the log length it's at, read together in the room's one step that handles the
+     join, so they can't disagree. The client builds its replica at `seq` and says hello from it.
+     Whatever was logged between the join and the hello arrives as ordinary catch-up (point 2),
+     behind any rejections and ahead of live entries, so the FIFO order is unchanged and the engine
+     didn't change at all: the base only moves where the client's `last_seq` starts. The Quint
+     model checks it (`freshReload` in `model/sync.qnt`: a new identity starting from a snapshot
+     at any k up to the log length). `model/snapshotSkew.qnt` shows the one way to get it wrong,
+     a base labelled one entry later than it is, failing `confirmedIsLogPrefix`.
+   - **One snapshot serves a burst of joiners.** The room keeps the last snapshot it sent, as
+     JSON, counted in its memory weight (§9), and reuses it at the position it was taken at while
+     it's at most 256 entries behind; those joiners catch up the difference.
+   - **Size.** A base is one frame, and while it's sent it costs its size several times over (the
+     JSON, the frame, the socket's buffer). Base frames being sent are capped server-wide at
+     32 MiB, so joiners past that wait their turn. A board whose document is over 8 MiB as JSON,
+     which takes thousands of large strokes, isn't sent as a snapshot: its fresh clients get the
+     stored base and page through the history as before. Outbound frames have no server-side cap.
+     Browsers accept a frame of any size; a client built on tungstenite needs `max_message_size`
+     above 8 MiB (its default is 64 MiB).
+   - **A client with a copy (`known_seq` set) still gets catch-up, however far behind.** Adopting
+     a base would be cheaper for a long gap, but a replica may hold pending transactions that the
+     base already contains. The replica can only drop a pending transaction when it sees its ack,
+     and those acks are before the base. It would resend them, the server would ignore them as
+     already decided, and they'd stay pending for ever. Doing it right needs the base to say which
+     of this client's transactions it holds (its next expected cseq) and which were refused. That's
+     a protocol change for the model first, and it isn't needed yet: devices that come back have
+     a recent copy. Undo needs nothing new either: a fresh client has no history, and a
+     reconnecting one keeps its own.
 2. The server answers the hello first with any of the client's rejections from `pending_from` on,
    so a rejection lost in a disconnect is heard before any later ack. (Found while designing the
    engine and confirmed by the model's `acksInOrder` property.) Then it sends the ops after
@@ -265,6 +298,11 @@ at about 20 Hz; the server coalesces them per room and relays.
     presenters at once. View-only people can follow but can't be followed. Presence carries each
     person's role, and the server stamps it from their link, so it can't be forged.
 - Presence timeout: 30 s without a heartbeat removes the entry.
+- **A peer that falls behind isn't sent presence it can't keep up with, but it isn't left stale
+  either.** A batch is skipped for a peer more than 64 KiB behind. The room remembers whose
+  changes that peer missed, and once its backlog drains it sends their current state (or their
+  leaving). Presence is only sent on change, so without this a skipped peer kept old states for
+  good. The soak found it.
 
 ## 9. Persistence, snapshots and backups
 
@@ -284,9 +322,10 @@ at about 20 Hz; the server coalesces them per room and relays.
 - **The log lives on disk only.** The authority keeps the document, not the log: each accepted
   transaction leaves as an `Effect::Logged`, the room writes it, and catch-up pages are read back
   from SQLite on a second, read-only connection (§5). A cold load replays the rows one at a time
-  to rebuild the document and keeps none of them. The base document isn't held either; a fresh
-  client's comes from storage. A loaded room costs its document plus its client and connection
-  tables. (Measured: a room over 8 MB of history grew the server by 3.5 MB, against 11.6 MB when
+  to rebuild the document and keeps none of them. A fresh client starts from the room's current
+  document (§5), so the stored base is read only for boards too big to send as one frame. A
+  loaded room costs its document plus its client and connection tables, and its last fresh-join
+  snapshot. (Measured: a room over 8 MB of history grew the server by 3.5 MB, against 11.6 MB when
   it held the log.)
 - **Durable before ack.** A transaction is committed to `ops` before the client hears "accepted".
   Commits are grouped per event-loop tick, so throughput doesn't cost durability.
