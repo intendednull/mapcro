@@ -28,8 +28,16 @@ const ROOT = process.env.MAPCRO_ROOT ?? resolve(HERE, "../../..");
 const WASM = join(ROOT, "web/src/wasm/mapcro_wasm_bg.wasm");
 const BIN = process.env.MAPCRO_SERVER_BIN ?? join(process.env.CARGO_TARGET_DIR ?? join(ROOT, "target"), "release/mapcro-server");
 
-/** History caps raised so a long soak never fills the board; the session cap (64) is a constant. */
-const SOAK_CAPS = { BOARD_MAX_OPS: "2000000", BOARD_MAX_BYTES: String(1 << 30), BOARD_MAX_REJECTIONS: "1000000", BOARD_MAX_CLIENTS: "100000" };
+/** History caps raised so a long soak never fills the board; the session cap (64) is a constant.
+ * Compaction is off: the final checks read the whole log from seq 0, which compaction would cut
+ * (the system tests and the sim cover compaction). */
+const SOAK_CAPS = {
+  BOARD_MAX_OPS: "2000000",
+  BOARD_MAX_BYTES: String(1 << 30),
+  BOARD_MAX_REJECTIONS: "1000000",
+  BOARD_MAX_CLIENTS: "100000",
+  BOARD_COMPACT_OPS: "0",
+};
 
 const HELP = `just soak [seed] [peers] [seconds] [-- flags]
   --seed N|0xN     schedule seed (default: from the clock; printed)
@@ -165,6 +173,8 @@ async function readLog(wsUrl: string, board: string, token: string, head: number
       } else if (f.t === "msg" && "Entry" in f.msg) {
         log.push({ seq: f.msg.Entry.seq, tx: f.msg.Entry.tx as Tx });
         if (f.msg.Entry.seq >= head) done();
+      } else if (f.t === "msg" && "Rebase" in f.msg) {
+        fail(new Error(`log reader was rebased to seq ${f.msg.Rebase.seq}: the board compacted`));
       } else if (f.t === "closed") fail(new Error(`log reader closed: ${f.reason}`));
     });
     ws.on("error", (e) => fail(e));
