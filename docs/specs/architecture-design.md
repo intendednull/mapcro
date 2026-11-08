@@ -285,7 +285,9 @@ the board's own upload first, then a timeline fetched from Valve's CDN, then the
 above). The old `GET /api/matches/{id}` still serves the metadata alone.
 
 - **Where a replay comes from,** uploads first:
-  - **Upload:** an editor picks a `.dem` from the game's replays folder.
+  - **Upload:** an editor picks or drops a `.dem` from the game's replays folder (§6b, Getting
+    a replay in). It needs no metadata: a match deadlock-api doesn't know yet opens on its
+    replay alone.
     `POST /api/boards/{board}/replays/{id}/upload`, raw bytes, with upload progress.
   - **Fetch:** `POST /api/boards/{board}/replays/{id}/fetch` asks deadlock-api's salts endpoint
     for the match's cluster and replay salt, then downloads
@@ -308,9 +310,11 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
       environment), sent as `X-API-KEY` on deadlock-api calls; it raises Steam-sourced salts to
       300 an hour (docs/deploy.md).
     - **Player:** the tier chip reads "Fetching replay…", then "Parsing replay…", and upgrades
-      in place. A fetch that fails or can't start settles on "API summary" with Upload replay
-      file as the primary action, and the chip's hint names why: "Replay not available from
-      Valve", "Replay expired" or "Fetch limit reached, try later".
+      in place. A fetch that fails or can't start settles on "API summary", and the bar says
+      why with what to do (§6b, Getting a replay in): "Replay not found yet. Try again later,
+      or upload the replay file." (no salts or no demo; **Try again** is Fetch replay, past the
+      remembered failure), "Replay expired. Upload the replay file.", or "Busy. Try again in a
+      few minutes." (the backoff).
 - **Job state:** `GET /api/boards/{board}/replays/{id}` answers `none`, `uploading`,
   `fetching`, `queued`, `parsing`, `done` or `failed` with a short reason (`old_map`,
   `brawl`, `unsupported_mode`, `not_a_replay`, `too_large`, `timeout`, `parse_failed`, `no_replay`, `upstream_down`,
@@ -507,6 +511,41 @@ makes a board with that match attached and lands in Player; **New board** is tod
   one, rings again, and none (they seeked elsewhere) unpins the row (QA 2026-11-08). A follower adopts them, keeping its own
   clock while it is within 0.75 s of the presenter's. Changing your own playback, mode or match
   stops following, as changing the view does.
+- **Getting a replay in (operator, 2026-11-08: people can't find their replay files, and
+  deadlock-api can't always fetch one).** Labels and short lines only.
+  - **Where's my replay?** sits beside every upload (the landing's file controls, Player's
+    Upload replay file), as steps through the game and Steam rather than a path; a browser
+    can't open its file dialog anywhere in particular. 1. Download it in Deadlock: Match History
+    → the match → Replay. 2. Steam: right-click Deadlock → Properties… → Installed Files →
+    Browse…. 3. game → citadel → replays → `<match id>.dem`. The labels are the game's and
+    Steam's own English strings (`Citadel_Profile_MatchHistory`, `Citadel_Replay_Download`,
+    `AppProperties_LocalFilesPage`, `AppProperties_LocalFilesBrowse`). No OS paths (operator).
+  - **Drop:** a `.dem` dropped anywhere on the landing, or on a board in Player while its match
+    has no replay (the API summary, or no metadata at all), uploads it, behind an overlay while
+    dragging. The file name gives the match id; another match's file is refused ("That file is
+    match X, not Y"), and so is a file that isn't `.dem` or doesn't start as a demo does
+    (`PBDEMS2\0`, read before uploading). A drop anywhere else is caught, so the tab never
+    leaves the board to open the file.
+  - **Progress:** a bar with the percent and the size ("212 / 504 MB", decimal MB), then the
+    chip's "Parsing replay…", then "Full replay". **Cancel** aborts it; the server drops the
+    partial file, and the board says "Upload cancelled." with the upload offered again. The
+    board stays in use meanwhile (one upload at a time from a tab).
+  - **From the landing:** a replay (picked or dropped) makes the board and opens it without a
+    page load, handing it the file (`player/handoff.ts`, `core/nav.ts`): the upload runs on the
+    board, which attaches the match once the server has the upload under way (past its first
+    MiB), so no fetch from Valve starts. "Your boards" keeps it only once attached. Back from
+    the board reloads.
+  - **Messages** (`player/notice.ts`), each an outcome and an action:
+    - The match id isn't found (deadlock-api has no metadata yet): "Match not found yet." /
+      "New matches can take a while to reach deadlock-api. Try again later.", with **Try
+      again** and **Upload replay file**; the id stays in the field. The landing makes no board
+      for it until a replay comes.
+    - deadlock-api rate-limiting or backing off: "Busy. Try again in a few minutes."; down:
+      "deadlock-api is down. Try again later, or upload the replay file."
+    - The parse's: "Not a replay. Pick the match's .dem file.", "Too large. …", "Corrupt.
+      Download the replay again in Deadlock, then upload it.", "Timed out. Upload the replay
+      again.", "Parse failed. …", "Old map. Only matches on the current map open.", "Brawl not
+      supported. Open a standard match.", "Mode not supported. Open a standard match."
 - **Annotation over playback (operator, 2026-11-08, decided):** you can annotate a live player,
   but to keep it you save it as a scene. Draw, arrows, comments, the laser and pings work in
   Player as ephemeral layers, cleared when the scene is saved or you leave Player.
