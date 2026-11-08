@@ -104,8 +104,17 @@ export class IdbPersist implements Persist {
         if (!db.objectStoreNames.contains("replicas")) db.createObjectStore("replicas");
         if (!db.objectStoreNames.contains("pending")) db.createObjectStore("pending");
       };
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        const db = req.result;
+        // A newer tab needs to upgrade the database: let it, instead of blocking it forever.
+        // This tab's next write then fails, and the session reports it.
+        db.onversionchange = () => db.close();
+        resolve(db);
+      };
       req.onerror = () => reject(req.error);
+      // An older tab still holds the database open and won't let go (tabs from before
+      // onversionchange existed). Fail loudly instead of waiting forever with no word.
+      req.onblocked = () => reject(new Error("blocked: close other mapcro tabs"));
     });
   }
 

@@ -11,7 +11,7 @@ import type { WireOut } from "../gen/WireOut";
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { Presence } from "../gen/Presence";
 import { BoardReplica, newClientId, newClientSecret } from "../wasm/mapcro_wasm.js";
-import type { Persist } from "./persist";
+import { MemoryPersist, type Persist } from "./persist";
 import type { SaveStatus, Update } from "./update";
 
 /** The subset of the WebSocket API the session uses (browser WebSocket or the `ws` package). */
@@ -118,17 +118,30 @@ export class BoardSession {
   private client: string | undefined;
   private saveSoon: ReturnType<typeof setTimeout> | undefined;
   private dirtySince: number | undefined;
+  /** Local storage couldn't be opened; this session keeps everything in memory. */
+  storageUnavailable = false;
 
-  constructor(private readonly o: SessionOptions) {}
+  constructor(private o: SessionOptions) {}
 
   async start(): Promise<void> {
-    const saved = await this.o.persist.load(this.o.board);
+    this.roleStore = await roleKey(this.o.board, this.o.token);
+    let saved: string | undefined;
+    let role: string | undefined;
+    try {
+      saved = await this.o.persist.load(this.o.board);
+      role = await this.o.persist.load(this.roleStore);
+    } catch (e) {
+      // Local storage can't be opened (another tab holds an older version open, private mode,
+      // quota). Connect anyway on memory only, and say so: edits still sync, but a reload before
+      // they're acked would lose them.
+      this.problems.push(`local storage unavailable: ${e instanceof Error ? e.message : e}`);
+      this.storageUnavailable = true;
+      this.o = { ...this.o, persist: new MemoryPersist() };
+    }
     if (saved !== undefined) {
       this.replica = BoardReplica.restore(saved);
       this.resetRecords(this.replica.view());
     }
-    this.roleStore = await roleKey(this.o.board, this.o.token);
-    const role = await this.o.persist.load(this.roleStore);
     this.readOnly = role !== "owner" && role !== "edit";
     this.open();
   }
