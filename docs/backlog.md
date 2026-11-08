@@ -3,6 +3,17 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Parse replays in the browser (2026-11-08)
+
+Build the replay parser to WebAssembly and parse an uploaded `.dem` in the user's browser, then send
+the small timeline instead of a 500 MB upload. That removes our upload bandwidth and parse CPU for
+uploads. A browser-parsed timeline is untrusted, so it applies only to the board that sent it,
+never the shared per-match cache. Open questions: does boon build for wasm32 (it mmaps the file
+today), and are the time and memory acceptable for a 500 MB demo on a phone. Also weigh
+deadlock-api's `/v1/matches/demo/query` (they parse; 200 req/h per IP), though they're at capacity.
+Notes: `docs/research/browser-side-replays.md`. Deferred by the operator in favour of moving the
+deadlock-api calls to the browser first.
+
 ## A settings page (2026-11-08)
 
 As display preferences pile up, give them one home. Today they sit on Player's transport bar:
