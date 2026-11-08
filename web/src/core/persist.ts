@@ -47,6 +47,8 @@ export function foldPending(state: string, journal: Tx[]): { state: string; fold
     s.pending.push(tx);
     s.next_cseq = tx.cseq + 1;
     const k = tx.kind;
+    // A silent edit (Player's live layer) is journaled as an Edit too, so after a crash it clears
+    // redo here where live it wouldn't: crash-only, and no data is lost.
     if (k === "Edit") s.redo = [];
     else if ("Undo" in k) s.undo = s.undo.filter((e) => e.cseq !== k.Undo.of);
     else s.redo = s.redo.filter((e) => e.cseq !== k.Redo.of);

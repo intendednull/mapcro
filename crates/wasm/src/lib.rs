@@ -99,6 +99,15 @@ impl BoardReplica {
         self.update(&before, result.as_ref().ok().cloned().flatten(), result.err().map(|e| e.to_string()))
     }
 
+    /// `Op[]` as JSON, applied as one transaction that isn't the user's to undo (spec §6b, the
+    /// live annotation layer): no undo step, and redo is kept.
+    pub fn edit_silent(&mut self, ops_json: &str) -> Result<String, JsError> {
+        let ops: Vec<Op> = serde_json::from_str(ops_json).map_err(js_err)?;
+        let before = self.inner.view().clone();
+        let result = self.inner.edit_silent(ops);
+        self.update(&before, result.as_ref().ok().cloned().flatten(), result.err().map(|e| e.to_string()))
+    }
+
     pub fn undo(&mut self) -> Result<String, JsError> {
         let before = self.inner.view().clone();
         let result = self.inner.undo();

@@ -154,8 +154,14 @@ export class BoardSession {
     this.markOffline();
   }
 
-  edit(ops: Op[]): void {
-    this.local((r) => r.edit(JSON.stringify(ops)));
+  /** Apply an edit; false if it was refused locally (the server may still refuse it later). */
+  edit(ops: Op[]): boolean {
+    return this.local((r) => r.edit(JSON.stringify(ops)));
+  }
+
+  /** An edit that isn't the user's to undo (spec §6b: Player's live layer); redo is kept. */
+  editSilent(ops: Op[]): boolean {
+    return this.local((r) => r.edit_silent(JSON.stringify(ops)));
   }
 
   /** Update what others see of us. Sent at most every PRESENCE_MS; the latest state always wins. */
@@ -183,13 +189,13 @@ export class BoardSession {
     this.local((r) => r.redo());
   }
 
-  private local(call: (r: BoardReplica) => string): void {
+  private local(call: (r: BoardReplica) => string): boolean {
     const r = this.replica;
-    if (!r) return; // not loaded yet: the UI is read-only until the first Ready
+    if (!r) return false; // not loaded yet: the UI is read-only until the first Ready
     if (this.readOnly) {
       // View links never edit; the server would treat it as abuse and drop the connection.
       this.problems.push("this link is view-only");
-      return;
+      return false;
     }
     const u = this.apply(call(r));
     if (u.refused) this.problems.push(u.refused);
@@ -197,7 +203,7 @@ export class BoardSession {
       // Offline (or refused): nothing to send. An offline edit is saved whole, and the
       // reconnect's resend waits for it (the save queue runs in order).
       if (u.changed.length) this.saveState().catch((e) => this.problems.push(`could not save locally: ${e}`));
-      return;
+      return !u.refused;
     }
     const sock = this.socket;
     const txs = u.frames.flatMap((f) => (f.t === "msg" && "Submit" in f.msg ? [f.msg.Submit] : []));
@@ -227,6 +233,7 @@ export class BoardSession {
         this.problems.push(`could not save locally, reconnecting: ${e}`);
         if (sock === this.socket) this.retry();
       });
+    return !u.refused;
   }
 
   /**

@@ -172,6 +172,20 @@ impl Replica {
         Ok(msg)
     }
 
+    /// Make an edit that isn't one of yours to undo (spec §6b: Player's live annotation layer,
+    /// made and cleared by the app, not the user). To the undo and redo stacks it's like a
+    /// remote peer's edit: no undo entry, and redo is kept. On the wire it's an ordinary edit.
+    pub fn edit_silent(&mut self, ops: Vec<Op>) -> Result<Option<ClientMsg>, Reject> {
+        let tx = Tx { client: self.client, cseq: self.next_cseq, kind: TxKind::Edit, ops };
+        let mut view = self.view.clone();
+        apply_tx_with_inverse(&mut view, &tx)?;
+        self.view = view;
+        self.next_cseq += 1;
+        let msg = self.connected.then(|| ClientMsg::Submit(tx.clone()));
+        self.pending.push_back(tx);
+        Ok(msg)
+    }
+
     /// Undo this client's most recent transaction that still has an undo entry.
     pub fn undo(&mut self) -> Result<Option<ClientMsg>, UndoError> {
         let entry = self.undo.pop().ok_or(UndoError::Empty)?;
@@ -273,5 +287,82 @@ impl Replica {
             let _ = apply_tx(&mut view, tx);
         }
         self.view = view;
+    }
+}
+
+#[cfg(test)]
+mod silent_tests {
+    use super::*;
+    use mapcro_schema::{Callout, FieldValue, Record, RecordId, WorldPos, genesis};
+
+    const SCENE: RecordId = RecordId(14); // genesis: meta 1, slots 2..=13, then the scene
+
+    fn replica() -> Replica {
+        let mut n = 0u128;
+        let doc = genesis(
+            || {
+                n += 1;
+                RecordId(n)
+            },
+            "t",
+        );
+        assert!(matches!(doc.live(SCENE), Some(Record::Scene(_))));
+        Replica::new(ClientId(7), "secret".into(), doc, 0)
+    }
+
+    fn note(id: u128, text: &str) -> Op {
+        Op::Create { id: RecordId(id), record: Record::Callout(Callout { scene: SCENE, pos: WorldPos { x: 0, y: 0 }, text: text.into() }) }
+    }
+
+    fn text(r: &Replica, id: u128) -> Option<String> {
+        match r.view().live(RecordId(id)) {
+            Some(Record::Callout(c)) => Some(c.text.clone()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn an_undo_after_a_silent_edit_undoes_the_users_edit_only() {
+        let mut r = replica();
+        r.edit(vec![note(100, "mine")]).expect("edit");
+        r.edit_silent(vec![note(101, "the app's")]).expect("silent");
+        r.undo().expect("undo");
+        assert_eq!(text(&r, 100), None);
+        assert_eq!(text(&r, 101).as_deref(), Some("the app's"));
+        assert!(!r.can_undo(), "the silent edit left no undo entry");
+    }
+
+    #[test]
+    fn a_silent_edit_keeps_redo() {
+        let mut r = replica();
+        r.edit(vec![note(100, "mine")]).expect("edit");
+        r.undo().expect("undo");
+        assert!(r.can_redo());
+        r.edit_silent(vec![note(101, "the app's")]).expect("silent");
+        assert!(r.can_redo(), "unlike an edit, a silent edit keeps redo");
+        r.redo().expect("redo");
+        assert_eq!(text(&r, 100).as_deref(), Some("mine"));
+    }
+
+    #[test]
+    fn a_redo_over_a_silent_write_behaves_as_over_a_remote_one() {
+        // Two replicas: one sees a silent write, the other the same write as a remote peer's.
+        let start = || {
+            let mut r = replica();
+            r.edit(vec![note(100, "x")]).expect("create");
+            r.edit(vec![Op::Set { id: RecordId(100), value: FieldValue::CalloutText("a".into()) }]).expect("set");
+            r.undo().expect("undo");
+            r
+        };
+        let (mut a, mut b) = (start(), start());
+        a.edit_silent(vec![Op::Set { id: RecordId(100), value: FieldValue::CalloutText("b".into()) }]).expect("silent");
+        // The "remote" write: applied to b's view as another client's would be.
+        let mut view = b.view.clone();
+        let remote = Tx { client: ClientId(99), cseq: 1, kind: TxKind::Edit, ops: vec![Op::Set { id: RecordId(100), value: FieldValue::CalloutText("b".into()) }] };
+        apply_tx(&mut view, &remote).expect("remote");
+        b.view = view;
+        let (ra, rb) = (a.redo().map(|_| ()), b.redo().map(|_| ()));
+        assert_eq!(ra.is_ok(), rb.is_ok());
+        assert_eq!(text(&a, 100), text(&b, 100));
     }
 }

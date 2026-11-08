@@ -252,6 +252,8 @@ export function createBoardState(board: string, token: string) {
       return r === "owner" || r === "edit";
     },
     edit: (ops: Op[]) => session.edit(ops),
+    /** An edit that isn't the user's to undo: Player's live layer (spec §6b). */
+    editSilent: (ops: Op[]) => session.editSilent(ops),
     undo: () => session.undo(),
     redo: () => session.redo(),
     canUndo: () => undoable().undo,
