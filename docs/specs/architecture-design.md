@@ -279,7 +279,10 @@ fields it changed, with their before and after values:
 Presence is ephemeral and never enters the op log. Each entry carries a display name and colour
 (chosen once, kept locally), the cursor in world coordinates (so it is right in either viewpoint),
 selection, the current scene, the floor, and any in-progress drag preview. The client sends updates
-at about 20 Hz; the server coalesces them per room and relays.
+at about 20 Hz; the server coalesces them per room and relays. A change after a quiet spell goes
+out at once (the leading edge); changes within 20 ms of the last relay wait for the window to end
+and go out together, one frame per peer. Measured with 3 browsers, sent-to-received went from
+51 ms p50 (a trailing 50 ms batch) to 3.7 ms, and a receiver handles at most 50 frames a second.
 
 - **Name tags on elements (operator, 2026-11-06):** whoever is interacting with an element
   (dragging it, selecting it, editing its text) has their display name shown beside it, the way a
