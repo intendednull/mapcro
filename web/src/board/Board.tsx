@@ -248,6 +248,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const commentIds = createMemo(() => state.inScene("Callout", annScene()).map(([id]) => id));
   const clearIds = (what: ClearKind) =>
     what === "ink" ? inkIds() : what === "arrows" ? arrowIds() : what === "comments" ? commentIds() : [...inkIds(), ...arrowIds(), ...commentIds()];
+  /** The schema's cap on ops per transaction (`LIMITS.max_ops_per_tx`). */
+  const MAX_OPS_PER_TX = 256;
   const CLEARED: Record<ClearKind, string> = { ink: "Ink cleared", arrows: "Arrows cleared", comments: "Comments cleared", all: "Scene cleared" };
   const objectives = createMemo(() => {
     const m = new Map<string, { id: RecordId; status: ObjectiveStatus }>();
@@ -750,10 +752,20 @@ export function Board(p: { board: string; token: string; art: Art }) {
               setCommentsOpen(p.board, allOpen());
             }}
             clear={(what) => {
+              // In transactions that each fit the cap (one undo step each); the toast speaks for
+              // what committed, and its Undo takes back exactly those steps.
               const ids = clearIds(what);
-              if (!ids.length) return;
-              state.edit(ids.map((id) => ({ Delete: { id } })));
-              say(CLEARED[what], { label: "Undo", run: () => state.undo() });
+              let done = 0;
+              let steps = 0;
+              for (let i = 0; i < ids.length; i += MAX_OPS_PER_TX) {
+                const part = ids.slice(i, i + MAX_OPS_PER_TX);
+                if (!state.edit(part.map((id) => ({ Delete: { id } })))) break;
+                done += part.length;
+                steps += 1;
+              }
+              if (!steps) return; // refused: the problem toast says why
+              const text = done < ids.length ? `${CLEARED[what]}: ${done} of ${ids.length}` : CLEARED[what];
+              say(text, { label: "Undo", run: () => Array.from({ length: steps }).forEach(() => state.undo()) });
             }}
           />
           {toastView()}
