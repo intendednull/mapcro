@@ -65,6 +65,8 @@ pub struct ObjObs {
     pub kind: &'static str,
     pub pos: [f32; 2],
     pub health: i64,
+    /// 0 when the recording doesn't say (no health bar then).
+    pub max_health: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -86,6 +88,8 @@ pub struct PowerupObs {
 pub struct Obs {
     pub match_id: u64,
     pub build: u32,
+    /// The game rules' `m_eGameMode`, the last non-zero value seen (0: never set).
+    pub game_mode: i64,
     /// Index = game second, from 0.
     pub seconds: Vec<Sample>,
 }
@@ -143,9 +147,26 @@ pub enum Refused {
     OldMap,
     /// No game seconds, or no heroes.
     Empty,
+    /// Not the standard 6v6 mode: Street Brawl, or one we don't know (the game rules' value).
+    UnsupportedMode(i64),
+}
+
+impl Refused {
+    /// The job's failure reason (`crate::reason`).
+    pub fn reason(&self) -> &'static str {
+        match self {
+            Refused::OldMap => crate::reason::OLD_MAP,
+            Refused::Empty => crate::reason::NOT_A_REPLAY,
+            Refused::UnsupportedMode(crate::STREET_BRAWL) => crate::reason::BRAWL,
+            Refused::UnsupportedMode(_) => crate::reason::UNSUPPORTED_MODE,
+        }
+    }
 }
 
 pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
+    if obs.game_mode != crate::STANDARD_GAME_MODE {
+        return Err(Refused::UnsupportedMode(obs.game_mode));
+    }
     let n = obs.seconds.len();
     if n == 0 {
         return Err(Refused::Empty);
@@ -376,6 +397,7 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
     waves.sort_by(|a, b| a.lane.cmp(&b.lane));
 
     let events = events(obs, m, &players, &objectives, &mid_boss, &rifts, &powerups, duration_s);
+    let objective_health = objective_health(obs, m);
     let troopers = Some(troopers_at(obs, TROOPER_EVERY_S));
     Ok(Timeline {
         match_id: obs.match_id,
@@ -393,7 +415,39 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         waves,
         events,
         troopers,
+        objective_health,
     })
+}
+
+/// Each objective's health in percent, by board key, as `[second, pct]` whenever it moves by
+/// a point or more (and when it's first seen). Seconds out of the recording hold. A base
+/// guardian pair is the mean of the members seen.
+fn objective_health(obs: &Obs, m: &Map) -> Vec<crate::timeline::ObjectiveHealth> {
+    let mut tracks: BTreeMap<String, Vec<[u32; 2]>> = BTreeMap::new();
+    for (sec, s) in obs.seconds.iter().enumerate() {
+        let mut now: BTreeMap<String, (i64, i64)> = BTreeMap::new();
+        for o in s.objectives.iter().filter(|o| o.max_health > 0) {
+            let key = if o.kind == "mid_boss" {
+                m.keys_of("mid_boss").first().map(|k| (*k).to_owned())
+            } else {
+                m.nearest(o.kind, f64::from(o.pos[0]), f64::from(o.pos[1]), SITE_MATCH).map(|site| {
+                    if o.kind == "base_guardian" { site.key.rsplit_once(':').map_or(site.key.clone(), |(k, _)| k.to_owned()) } else { site.key.clone() }
+                })
+            };
+            let Some(key) = key else { continue };
+            let e = now.entry(key).or_insert((0, 0));
+            e.0 += o.health.clamp(0, o.max_health);
+            e.1 += o.max_health;
+        }
+        for (key, (h, max)) in now {
+            let pct = (h * 100 / max.max(1)).clamp(0, 100) as u32;
+            let track = tracks.entry(key).or_default();
+            if track.last().is_none_or(|l| l[1] != pct) {
+                track.push([sec as u32, pct]);
+            }
+        }
+    }
+    tracks.into_iter().map(|(key, at)| crate::timeline::ObjectiveHealth { key, at }).collect()
 }
 
 /// How often the trooper dots are sampled: 1 Hz (the 15-minute match's are ~100 KB of JSON).
@@ -516,7 +570,21 @@ mod tests {
     }
 
     fn obs(seconds: Vec<Sample>) -> Obs {
-        Obs { match_id: 42, build: 6813, seconds }
+        Obs { match_id: 42, build: 6813, game_mode: 1, seconds }
+    }
+
+    #[test]
+    fn only_the_standard_mode_is_read() {
+        let mut s = seconds(2);
+        s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
+        assert!(derive(&obs(s.clone()), map::current()).is_ok());
+        // Street Brawl, an unknown mode, and a demo that never set one.
+        for mode in [4, 99, 0] {
+            let o = Obs { game_mode: mode, ..obs(s.clone()) };
+            assert_eq!(derive(&o, map::current()).err(), Some(Refused::UnsupportedMode(mode)), "mode {mode}");
+        }
+        assert_eq!(Refused::UnsupportedMode(4).reason(), "brawl");
+        assert_eq!(Refused::UnsupportedMode(99).reason(), "unsupported_mode");
     }
 
     #[test]
@@ -564,13 +632,13 @@ mod tests {
         let walker = [-6272.0, -4736.0]; // walker:amber:lane1:1
         let guardian = [0.0, 1792.0]; // guardian:sapphire:lane4:1
         for (i, x) in s.iter_mut().enumerate() {
-            x.objectives.push(ObjObs { ent: (10, 1), kind: "walker", pos: walker, health: if i < 3 { 100 } else { 0 } });
+            x.objectives.push(ObjObs { ent: (10, 1), kind: "walker", pos: walker, health: if i < 3 { 100 } else { 0 }, max_health: 100 });
             // Seen only at zero (a PVS gap from the start): never "destroyed".
-            x.objectives.push(ObjObs { ent: (11, 1), kind: "guardian", pos: guardian, health: 0 });
+            x.objectives.push(ObjObs { ent: (11, 1), kind: "guardian", pos: guardian, health: 0, max_health: 100 });
             // Both of Amber's mid base guardians; the pair is down when the second falls.
-            x.objectives.push(ObjObs { ent: (20, 1), kind: "base_guardian", pos: [-1280.0, -5456.0], health: if i < 2 { 1 } else { 0 } });
-            x.objectives.push(ObjObs { ent: (21, 1), kind: "base_guardian", pos: [-1290.0, -5450.0], health: if i < 4 { 1 } else { 0 } });
-            x.objectives.push(ObjObs { ent: (30, 1), kind: "mid_boss", pos: [0.0, 0.0], health: if i < 1 { 1 } else { 0 } });
+            x.objectives.push(ObjObs { ent: (20, 1), kind: "base_guardian", pos: [-1280.0, -5456.0], health: if i < 2 { 1 } else { 0 }, max_health: 100 });
+            x.objectives.push(ObjObs { ent: (21, 1), kind: "base_guardian", pos: [-1290.0, -5450.0], health: if i < 4 { 1 } else { 0 }, max_health: 100 });
+            x.objectives.push(ObjObs { ent: (30, 1), kind: "mid_boss", pos: [0.0, 0.0], health: if i < 1 { 1 } else { 0 }, max_health: 100 });
         }
         s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
         let t = derive(&obs(s), map::current()).expect("timeline");
@@ -586,13 +654,13 @@ mod tests {
         s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
         for (i, x) in s.iter_mut().enumerate() {
             // A zero read at second 1, alive again after (exploration's 122134063, tick 8055).
-            x.objectives.push(ObjObs { ent: (10, 1), kind: "guardian", pos: mid, health: if i == 1 { 0 } else { 100 } });
+            x.objectives.push(ObjObs { ent: (10, 1), kind: "guardian", pos: mid, health: if i == 1 { 0 } else { 100 }, max_health: 100 });
         }
         // Amber's west guardian reads zero under one serial, then lives on under another.
         let west = [-8192.0, -1856.0];
-        s[1].objectives.push(ObjObs { ent: (11, 1), kind: "guardian", pos: west, health: 50 });
-        s[2].objectives.push(ObjObs { ent: (11, 1), kind: "guardian", pos: west, health: 0 });
-        s[3].objectives.push(ObjObs { ent: (11, 2), kind: "guardian", pos: west, health: 50 });
+        s[1].objectives.push(ObjObs { ent: (11, 1), kind: "guardian", pos: west, health: 50, max_health: 100 });
+        s[2].objectives.push(ObjObs { ent: (11, 1), kind: "guardian", pos: west, health: 0, max_health: 100 });
+        s[3].objectives.push(ObjObs { ent: (11, 2), kind: "guardian", pos: west, health: 50, max_health: 100 });
         let t = derive(&obs(s), map::current()).expect("timeline");
         assert_eq!(t.objectives, []);
     }
@@ -603,7 +671,7 @@ mod tests {
         s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
         // The old map: patrons and shrines ~1280 off (exploration §8).
         for (i, k) in ["patron", "shrine", "shrine", "walker"].iter().enumerate() {
-            s[0].objectives.push(ObjObs { ent: (i as i32, 1), kind: k, pos: [3000.0 + i as f32 * 2000.0, 9000.0], health: 10 });
+            s[0].objectives.push(ObjObs { ent: (i as i32, 1), kind: k, pos: [3000.0 + i as f32 * 2000.0, 9000.0], health: 10, max_health: 100 });
         }
         assert_eq!(derive(&obs(s), map::current()).err(), Some(Refused::OldMap));
         assert_eq!(derive(&obs(vec![]), map::current()).err(), Some(Refused::Empty));
@@ -686,7 +754,7 @@ mod tests {
         let mut s = seconds(6);
         for (i, x) in s.iter_mut().enumerate() {
             x.heroes = vec![hero(1, 2, i != 3, [100.0 + i as f32, 200.0])];
-            x.objectives.push(ObjObs { ent: (10, 1), kind: "walker", pos: [-6272.0, -4736.0], health: if i < 4 { 100 } else { 0 } });
+            x.objectives.push(ObjObs { ent: (10, 1), kind: "walker", pos: [-6272.0, -4736.0], health: if i < 4 { 100 } else { 0 }, max_health: 100 });
             x.powerups.push(PowerupObs { pos: [-3936.0, 136.0], active: (2..4).contains(&i) });
         }
         s[1].rift_spawner = Some([7648.0, 0.0]);
@@ -759,6 +827,19 @@ mod tests {
         let u = ults[0];
         assert_eq!((u.t, u.team.as_deref(), u.slot, u.hero_id, u.x, u.ability.as_deref()), (2, Some("sapphire"), Some(0), Some(12), Some(10), Some("ability_haze_bulletdance")));
         assert_eq!(crate::timeline::validate(&serde_json::to_vec(&t).expect("json")).map(|_| ()), Ok(()));
+    }
+
+    #[test]
+    fn objective_health_by_key_changes_only() {
+        let mut s = seconds(4);
+        s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
+        let walker = [-6272.0, -4736.0];
+        for (i, h) in [3000, 3000, 2970, 1500].into_iter().enumerate() {
+            s[i].objectives.push(ObjObs { ent: (10, 1), kind: "walker", pos: walker, health: h, max_health: 3000 });
+        }
+        let t = derive(&obs(s), map::current()).expect("timeline");
+        let w = t.objective_health.iter().find(|o| o.key == "walker:amber:lane1:1").expect("walker");
+        assert_eq!(w.at, [[0, 100], [2, 99], [3, 50]]);
     }
 
     #[test]

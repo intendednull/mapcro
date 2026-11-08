@@ -293,7 +293,7 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     magic decides).
 - **Job state:** `GET /api/boards/{board}/replays/{id}` answers `none`, `uploading`,
   `fetching`, `queued`, `parsing`, `done` or `failed` with a short reason (`old_map`,
-  `not_a_replay`, `too_large`, `timeout`, `parse_failed`, `no_replay`, `upstream_down`,
+  `brawl`, `unsupported_mode`, `not_a_replay`, `too_large`, `timeout`, `parse_failed`, `no_replay`, `upstream_down`,
   `upstream_limited`). The panel polls it and shows labels only; a job that finishes swaps the
   replay timeline in, keeping the scrubber where it was.
 - **Current map only:** a demo whose header's `game_directory` names a content build before 6712,
@@ -301,6 +301,13 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
   header's `build_num` and `map_name` say nothing about the map (exploration §1). Pre-6712 demos
   also decode 16,384 units low on every axis; neither that correction nor old-era packs are
   built.
+- **Standard mode only** (2026-11-08): the map, lanes and objectives describe the 6v6 mode
+  alone. A demo whose game rules' `m_eGameMode` isn't 1 fails as `brawl` ("Brawl not supported",
+  Street Brawl's 4) or `unsupported_mode` ("Mode not supported"). The metadata's
+  `match_info.game_mode` refuses the same way on import (422, same codes); the server remembers
+  the refusal (`DATA_DIR/matches/<id>.refused`), so it isn't fetched again and no board can
+  attach the match or take a replay of it. Only the metadata records a refusal: a replay is
+  untrusted. Metadata without a `game_mode` imports as before.
 - **What the replay timeline adds** (`crates/replay/src/timeline.rs`, the metadata timeline's
   shape plus fields; 1 Hz, about 140 KB for a 15-minute match):
   - Positions with the exact life state (the pawn's `m_lifeState` and health), deaths, souls

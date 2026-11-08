@@ -153,7 +153,7 @@ fn synthetic(id: u64) -> Vec<u8> {
     }
     serde_json::to_vec(&serde_json::json!({
         "match_info": {
-            "duration_s": 120, "start_time": 1_793_753_219u64, "match_id": id,
+            "duration_s": 120, "start_time": 1_793_753_219u64, "match_id": id, "game_mode": 1, "match_mode": 1,
             "players": players,
             "objectives": [
                 { "team_objective_id": 5, "team": 0, "first_damage_time_s": 30, "destroyed_time_s": 60 },

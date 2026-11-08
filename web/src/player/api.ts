@@ -12,12 +12,26 @@ export const ERRORS: Record<string, string> = {
   upstream_down: "Upstream down",
   upstream_shape: "Upstream down",
   too_large: "Too large",
+  brawl: "Brawl not supported",
+  unsupported_mode: "Mode not supported",
   queue_full: "Busy",
   in_progress: "In progress",
   not_a_replay: "Not a replay",
   view_only: "View only",
   replays_off: "Replays off",
 };
+
+/** The labels of a match refused for its game mode (only the standard 6v6 is understood). */
+export const MODE_REFUSED = new Set([ERRORS.brawl!, ERRORS.unsupported_mode!]);
+
+/** Why the match's metadata refuses it for its mode, as a label; nothing when it doesn't (or
+ * can't say: not found, upstream down). */
+export async function modeRefusal(id: string): Promise<string | undefined> {
+  const r = await fetch(`/api/matches/${id}`).catch(() => undefined);
+  if (r?.status !== 422) return undefined;
+  const body = (await r.json().catch(() => ({}))) as { error?: string };
+  return body.error === "brawl" || body.error === "unsupported_mode" ? ERRORS[body.error] : undefined;
+}
 
 /** A replay job's failure as a label. */
 export const REASONS: Record<string, string> = {
@@ -27,6 +41,8 @@ export const REASONS: Record<string, string> = {
   timeout: "Timed out",
   parse_failed: "Parse failed",
   corrupt: "Corrupt",
+  brawl: "Brawl not supported",
+  unsupported_mode: "Mode not supported",
   no_replay: "No replay",
   upstream_down: "Upstream down",
   upstream_limited: "Rate limited",

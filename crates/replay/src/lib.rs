@@ -32,6 +32,12 @@ pub const ZSTD_MAGIC: &[u8; 4] = &[0x28, 0xB5, 0x2F, 0xFD];
 /// Sleeps, 2026-09-29). Older demos are refused as `old_map` (research §3.5, exploration §8).
 pub const FIRST_CURRENT_BUILD: u32 = 6712;
 
+/// The game rules' `m_eGameMode` for the standard 6v6 match (`k_ECitadelGameMode_Normal`); Street
+/// Brawl is [`STREET_BRAWL`]. Any other mode is refused.
+pub const STANDARD_GAME_MODE: i64 = 1;
+/// `k_ECitadelGameMode_StreetBrawl` (4v4).
+pub const STREET_BRAWL: i64 = 4;
+
 /// Short reasons a job fails with. The server shows these as labels; nothing else leaves the
 /// worker.
 pub mod reason {
@@ -42,7 +48,11 @@ pub mod reason {
     pub const PARSE_FAILED: &str = "parse_failed";
     /// The demo changed or shrank while being read (SIGBUS on the memory map).
     pub const CORRUPT: &str = "corrupt";
-    pub const ALL: [&str; 6] = [OLD_MAP, NOT_A_REPLAY, TOO_LARGE, TIMEOUT, PARSE_FAILED, CORRUPT];
+    /// Not the standard 6v6 mode: our map, lanes and objectives don't describe it (2026-11-08).
+    /// Street Brawl has its own label; any other mode is `unsupported_mode`.
+    pub const UNSUPPORTED_MODE: &str = "unsupported_mode";
+    pub const BRAWL: &str = "brawl";
+    pub const ALL: [&str; 8] = [OLD_MAP, NOT_A_REPLAY, TOO_LARGE, TIMEOUT, PARSE_FAILED, CORRUPT, UNSUPPORTED_MODE, BRAWL];
 }
 
 /// A queue job's name: `<match id>-<scope>`, `[0-9a-z-]`, at most 64 bytes (worker.rs).

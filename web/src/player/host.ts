@@ -7,7 +7,7 @@ import { type MatchEvent, type Timeline, downAt, playersAt, sitesAt, wavesAt } f
 import type { MatchPreview } from "../match/preview";
 import { slotKey } from "../match/save";
 import type { Marker } from "../map/model";
-import { Api, type JobState, busy } from "./api";
+import { Api, type JobState, MODE_REFUSED, busy } from "./api";
 import { type Playback, clampT, follow, rebase, tAt } from "./clock";
 import { type Pt, worldToMap } from "../map/transform";
 
@@ -151,8 +151,9 @@ export function createPlayerHost(board: string, token: string) {
     setStatus("Loading");
     setMode("player");
     try {
-      if (opts.attach && (await api.attach(id))) setMatches([Number(id), ...matches().filter((m) => m !== Number(id))]);
+      // The timeline first: a match refused for its mode is never attached (2026-11-08).
       await loadTimeline(id, false);
+      if (opts.attach && matchId() === id && !MODE_REFUSED.has(status()) && (await api.attach(id))) setMatches([Number(id), ...matches().filter((m) => m !== Number(id))]);
       // A newer open() may have replaced this match meanwhile: don't seek it (finding 10).
       if (opts.at !== undefined && matchId() === id) control.seek(opts.at);
       await watch(id);

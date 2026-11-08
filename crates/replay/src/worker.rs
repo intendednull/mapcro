@@ -196,10 +196,7 @@ fn run_child(exe: &Path, input: &Path, out: &Path, match_id: u64, limits: &Limit
 pub fn job(input: &Path, out: &Path, match_id: u64, max_dem_bytes: u64) -> Result<(), &'static str> {
     let dem = expand(input, &out.with_extension("dem"), max_dem_bytes)?;
     let obs = crate::parse::observe(&dem, match_id)?;
-    let t = crate::derive::derive(&obs, crate::map::current()).map_err(|e| match e {
-        crate::derive::Refused::OldMap => reason::OLD_MAP,
-        crate::derive::Refused::Empty => reason::NOT_A_REPLAY,
-    })?;
+    let t = crate::derive::derive(&obs, crate::map::current()).map_err(|e| e.reason())?;
     let bytes = serde_json::to_vec(&t).map_err(|_| reason::PARSE_FAILED)?;
     if bytes.len() as u64 > crate::timeline::MAX_BYTES {
         return Err(reason::TOO_LARGE);

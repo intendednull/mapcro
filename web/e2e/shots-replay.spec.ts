@@ -10,8 +10,8 @@ import { joinNew } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
 const src = process.env.MAPCRO_SHOT_REPLAY;
-const ID = process.env.MAPCRO_SHOT_REPLAY_ID ?? "122134063";
-const TIMES = (process.env.MAPCRO_SHOT_TIMES ?? "300,500,700").split(",").map(Number);
+const ID = process.env.MAPCRO_SHOT_REPLAY_ID ?? "129738985";
+const TIMES = (process.env.MAPCRO_SHOT_TIMES ?? "600,1200,1800,2400").split(",").map(Number);
 let server: Server;
 
 test.skip(!src, "set MAPCRO_SHOT_REPLAY to a parsed timeline");

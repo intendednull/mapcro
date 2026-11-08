@@ -75,6 +75,7 @@ struct Keys {
     paused_ticks: K,
     game_start: K,
     winner: K,
+    game_mode: K,
     koth_started: K,
     koth_loc: K,
     koth_team: K,
@@ -102,6 +103,7 @@ impl Keys {
             paused_ticks: field(RULES, "m_pGameRules.m_nTotalPausedTicks"),
             game_start: field(RULES, "m_pGameRules.m_flGameStartTime"),
             winner: field(RULES, "m_pGameRules.m_iWinningTeam"),
+            game_mode: field(RULES, "m_pGameRules.m_eGameMode"),
             koth_started: field(RULES, "m_pGameRules.m_timeKothCashInStarted"),
             koth_loc: field(RULES, "m_pGameRules.m_vKothCashInCurrentLocation"),
             koth_team: field(RULES, "m_pGameRules.m_nKothScoringTeam"),
@@ -142,6 +144,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
     let mut keys: Option<Keys> = None;
     let mut seconds: Vec<Sample> = Vec::new();
     let mut over = false;
+    let mut game_mode = 0;
     // Ult casts arrive as user messages between samples; they go with the next sample.
     let mut casts: Vec<AbilityObs> = Vec::new();
     parser
@@ -154,6 +157,10 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
             }
             let rules = ctx.entities().iter().find(|(_, e)| e.class_name.as_ref() == RULES).map(|(_, e)| e);
             let Some(rules) = rules else { return };
+            game_mode = match rules.get_i64(k.game_mode) {
+                0 => game_mode,
+                m => m,
+            };
             // The match is over once it has a winner; the recording runs on for a while.
             over |= rules.get_i64(k.winner) > 0;
             if over {
@@ -178,7 +185,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
             }
         })
         .map_err(|_| reason::PARSE_FAILED)?;
-    Ok(Obs { match_id, build, seconds })
+    Ok(Obs { match_id, build, game_mode, seconds })
 }
 
 /// `KEUserMsgImportantAbilityUsed`: an ult (or other important ability) cast (exploration
@@ -250,7 +257,7 @@ fn sample(ctx: &boon::Context, k: &Keys, rules: &boon::entity::Entity, now: f32)
             if e.get_i64(body.max_health) == 0 {
                 continue;
             }
-            s.objectives.push(ObjObs { ent: (e.index, e.serial), kind, pos: body.pos(e), health: e.get_i64(body.health) });
+            s.objectives.push(ObjObs { ent: (e.index, e.serial), kind, pos: body.pos(e), health: e.get_i64(body.health), max_health: e.get_i64(body.max_health) });
         }
     }
     let cash_in = rules.get_f32(k.koth_started);

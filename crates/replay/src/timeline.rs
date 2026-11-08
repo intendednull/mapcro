@@ -37,6 +37,16 @@ pub struct Timeline {
     /// Lane troopers as seen in the recording (replay tier; a debug view of the waves).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub troopers: Option<Troopers>,
+    /// Replay tier: objectives' health over time.
+    #[serde(default)]
+    pub objective_health: Vec<ObjectiveHealth>,
+}
+
+/// One objective's health in percent: `[second, pct]` where it changes.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ObjectiveHealth {
+    pub key: String,
+    pub at: Vec<[u32; 2]>,
 }
 
 /// Every lane trooper alive in the recording, sampled every `every_s` seconds from 0. Sample
@@ -322,6 +332,8 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
                 && tr.sapphire.len() == samples
                 && tr.amber.iter().chain(&tr.sapphire).all(|x| decode_troopers(x).is_some_and(|v| v.iter().all(|(_, x, y)| x.unsigned_abs() <= 16384 && y.unsigned_abs() <= 16384)))
         })
+        && t.objective_health.len() <= 64
+        && t.objective_health.iter().all(|o| plausible_key(&o.key) && o.at.len() <= n && o.at.iter().all(|[s, p]| *s <= t.duration_s && *p <= 100))
         && t.events.len() <= MAX_EVENTS
         && t.events.iter().all(|e| {
             let team_ok = |s: &str| s == "amber" || s == "sapphire" || s == "neutral";
@@ -368,6 +380,7 @@ mod tests {
             powerups: vec![Powerup { key: "powerup:neutral:lane1:1".into(), available: vec![0, 1, 0], stale: vec![[0, 1]] }],
             waves: vec![WaveTrack { lane: "lane4".into(), t: vec![None, Some(500), Some(520)], stale: vec![[2, 3]] }],
             events: vec![Event { team: Some("amber".into()), slot: Some(0), hero_id: Some(1), x: Some(3), y: Some(3), ..event(1, "death") }],
+            objective_health: vec![ObjectiveHealth { key: "walker:amber:lane1:1".into(), at: vec![[0, 100], [2, 40]] }],
             troopers: Some(Troopers { every_s: 1, amber: vec![encode_troopers(&[(7, 100, -200)]), String::new(), String::new()], sapphire: vec![String::new(); 3] }),
         }
     }
@@ -406,6 +419,9 @@ mod tests {
             Box::new(|t| t.events[0].team = Some("x".into())),
             Box::new(|t| t.events[0].key = Some("../x".into())),
             Box::new(|t| t.events[0].ability = Some("<b>".into())),
+            Box::new(|t| t.objective_health[0].at[1] = [2, 101]),
+            Box::new(|t| t.objective_health[0].at[1] = [9, 40]),
+            Box::new(|t| t.objective_health[0].key = "x".into()),
             Box::new(|t| t.troopers.as_mut().map_or((), |x| x.amber.pop().map_or((), |_| ()))),
             Box::new(|t| t.troopers.as_mut().map_or((), |x| x.amber[1] = "not base64!".into())),
             Box::new(|t| t.troopers.as_mut().map_or((), |x| x.amber[1] = encode_troopers(&[(1, 20000, 0)]))),

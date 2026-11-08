@@ -196,6 +196,7 @@ fn timeline(id: u64) -> Timeline {
         waves: vec![WaveTrack { lane: "lane4".into(), t: vec![Some(480), Some(500)], stale: vec![] }],
         events: vec![],
         troopers: None,
+        objective_health: vec![],
     }
 }
 
@@ -508,4 +509,31 @@ fn results_for_unqueued_jobs_are_dropped() {
     }
     assert!(!server.data.path().join("replays/77-cdn.json").exists());
     assert_eq!(server.status(&board, &owner, "77")["state"], "queued");
+}
+
+/// 2026-11-08: only the standard 6v6 mode is understood. A Street Brawl or unknown-mode match is
+/// refused at import with its reason, isn't fetched again, and no board can attach it.
+#[test]
+fn a_non_standard_mode_is_refused_and_never_attached() {
+    let meta = |id: u64, mode: i64| serde_json::to_vec(&serde_json::json!({ "match_info": { "match_id": id, "duration_s": 60, "start_time": 0, "game_mode": mode, "match_mode": 1, "players": [] } })).expect("json");
+    let path = |id: u64| format!("/v1/matches/{id}/metadata?disable_steam=true");
+    let mut routes = HashMap::new();
+    routes.insert(path(77), (200, meta(77, 4)));
+    routes.insert(path(78), (200, meta(78, 99)));
+    let up = upstream(routes);
+    let server = Server::start(up.port, &[]);
+    let (board, owner, _) = server.board();
+    let get = |id: &str| server.call("GET", &format!("/api/matches/{id}"), "");
+    let put = |id: &str| agent().put(&server.url(&format!("/api/boards/{board}/matches/{id}"))).header("authorization", &format!("Bearer {owner}")).send_empty().expect("request").status().as_u16();
+    assert_eq!(get("77"), (422, serde_json::json!({ "error": "brawl" })));
+    assert_eq!(get("78"), (422, serde_json::json!({ "error": "unsupported_mode" })));
+    // Remembered: asked again, the upstream isn't.
+    assert_eq!(get("77").1["error"], "brawl");
+    assert_eq!(up.hits(&path(77)), 1);
+    assert_eq!(put("77"), 422);
+    assert_eq!(put("78"), 422);
+    // Nor is a replay of it taken.
+    assert_eq!(server.upload(&board, &owner, "77", &fake_demo(100)), (422, serde_json::json!({ "error": "brawl" })));
+    assert_eq!(server.call("POST", &format!("/api/boards/{board}/replays/78/fetch"), &owner), (422, serde_json::json!({ "error": "unsupported_mode" })));
+    assert_eq!(server.call("GET", &format!("/api/boards/{board}/matches"), &owner).1, serde_json::json!({ "matches": [] }));
 }

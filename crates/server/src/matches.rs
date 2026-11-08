@@ -116,6 +116,28 @@ struct MatchInfo {
 }
 
 #[derive(Deserialize)]
+struct ModeOnly {
+    match_info: ModeInfo,
+}
+#[derive(Deserialize)]
+struct ModeInfo {
+    /// `ECitadelGameMode`: 1 is the standard 6v6, 4 Street Brawl. Absent in older shapes.
+    #[serde(default)]
+    game_mode: Option<i64>,
+}
+
+/// Why a match's mode is refused (2026-11-08): our map, lanes and objectives describe only the
+/// standard 6v6 mode. `None` for a standard match, or one whose metadata doesn't say.
+pub fn mode_refusal(raw: &[u8]) -> Option<&'static str> {
+    let mode = serde_json::from_slice::<ModeOnly>(raw).ok()?.match_info.game_mode?;
+    match mode {
+        mapcro_replay::STANDARD_GAME_MODE => None,
+        mapcro_replay::STREET_BRAWL => Some(mapcro_replay::reason::BRAWL),
+        _ => Some(mapcro_replay::reason::UNSUPPORTED_MODE),
+    }
+}
+
+#[derive(Deserialize)]
 struct Player {
     player_slot: u32,
     team: u32,
@@ -565,6 +587,27 @@ fn cache_path(app: &AppState, id: &str) -> PathBuf {
     app.config.data_dir.join("matches").join(format!("{id}.json"))
 }
 
+/// A match refused for its mode keeps the reason here (a few bytes), so it isn't fetched again
+/// and a board can't attach it.
+fn refused_path(app: &AppState, id: &str) -> PathBuf {
+    app.config.data_dir.join("matches").join(format!("{id}.refused"))
+}
+
+/// The reason a match was refused for its mode, if it was.
+pub async fn refused(app: &AppState, id: &str) -> Option<&'static str> {
+    let said = tokio::fs::read(refused_path(app, id)).await.ok()?;
+    [mapcro_replay::reason::BRAWL, mapcro_replay::reason::UNSUPPORTED_MODE].into_iter().find(|r| r.as_bytes() == said.trim_ascii())
+}
+
+/// Remember a mode refusal. Only the metadata says so: a replay is untrusted, and a crafted one
+/// must not lock a standard match out of every board.
+pub async fn remember_refusal(app: &AppState, id: &str, why: &'static str) {
+    let path = refused_path(app, id);
+    if tokio::task::spawn_blocking(move || write_cache(&path, why.as_bytes())).await.map_or(true, |r| r.is_err()) {
+        tracing::warn!(match_id = id, "mode refusal not written");
+    }
+}
+
 /// Write the cache file atomically: a temporary file in the same directory, then a rename.
 fn write_cache(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     let dir = path.parent().ok_or_else(|| std::io::Error::other("no parent"))?;
@@ -583,6 +626,9 @@ pub fn valid_id(id: &str) -> bool {
 pub async fn get(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Path(id): Path<String>) -> Response {
     if !valid_id(&id) {
         return err(StatusCode::BAD_REQUEST, "bad_id");
+    }
+    if let Some(why) = refused(&app, &id).await {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, why);
     }
     let path = cache_path(&app, &id);
     // Caches written before events existed are fetched again, once.
@@ -607,6 +653,11 @@ pub async fn get(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<Soc
         Fetched::Down => return err(StatusCode::BAD_GATEWAY, "upstream_down"),
         Fetched::TooLarge => return err(StatusCode::BAD_GATEWAY, "too_large"),
     };
+    if let Some(why) = mode_refusal(&raw) {
+        tracing::info!(match_id = id, why, "match refused for its mode");
+        remember_refusal(&app, &id, why).await;
+        return err(StatusCode::UNPROCESSABLE_ENTITY, why);
+    }
     let timeline = match tokio::task::spawn_blocking(move || {
         derive(&raw).map(|mut t| {
             let found = names(&raw);

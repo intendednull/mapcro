@@ -6,7 +6,7 @@ import { Api, shareUrl } from "../core/api";
 import { knownBoards, rememberBoard } from "../core/device";
 import { Wordmark } from "../ui/Wordmark";
 import { FRESH_BOARD } from "../board/roster";
-import { Api as PlayerApi } from "../player/api";
+import { Api as PlayerApi, modeRefusal } from "../player/api";
 
 export function Landing() {
   const [title, setTitle] = createSignal("");
@@ -44,6 +44,12 @@ export function Landing() {
     setError("");
     setOpening("Opening");
     try {
+      // A Brawl (or other non-standard) match gets no board (2026-11-08).
+      const refused = await modeRefusal(id);
+      if (refused) {
+        setOpening("");
+        return setError(refused);
+      }
       if (made?.id !== id) {
         const t = `Match ${id}`;
         const { board, owner_token } = await new Api("").createBoard(t);

@@ -388,6 +388,9 @@ pub async fn attach(State(app): State<AppState>, Path((board, id)): Path<(String
         return err(StatusCode::BAD_REQUEST, "bad_id");
     }
     let Ok(n) = id.parse::<u64>() else { return err(StatusCode::BAD_REQUEST, "bad_id") };
+    if let Some(why) = crate::matches::refused(&app, &id).await {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, why);
+    }
     let mut ids = read_attached(&app, &board).await;
     ids.retain(|x| *x != n);
     ids.insert(0, n);
@@ -418,6 +421,9 @@ pub async fn upload(
     }
     if !crate::matches::valid_id(&id) {
         return err(StatusCode::BAD_REQUEST, "bad_id");
+    }
+    if let Some(why) = crate::matches::refused(&app, &id).await {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, why);
     }
     let Some(root) = root(&app).map(FsPath::to_owned) else { return err(StatusCode::SERVICE_UNAVAILABLE, "replays_off") };
     let s = settings();
@@ -554,6 +560,9 @@ pub async fn fetch(
     }
     if !crate::matches::valid_id(&id) {
         return err(StatusCode::BAD_REQUEST, "bad_id");
+    }
+    if let Some(why) = crate::matches::refused(&app, &id).await {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, why);
     }
     let Some(root) = root(&app).map(FsPath::to_owned) else { return err(StatusCode::SERVICE_UNAVAILABLE, "replays_off") };
     let job = job_name(&id, "cdn");
