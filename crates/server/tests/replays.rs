@@ -2,7 +2,7 @@
 //! lifecycle through the on-disk queue (the test plays the worker: the queue is the contract),
 //! the cache, tier selection, and the CDN fetch through a fake deadlock-api and a fake CDN.
 
-use mapcro_replay::timeline::{Player, Timeline, WaveTrack};
+use mapcro_replay::timeline::{Camp, Player, Timeline, ZipTrack};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -193,7 +193,8 @@ fn timeline(id: u64) -> Timeline {
         reanchored: 0,
         rifts: vec![],
         powerups: vec![],
-        waves: vec![WaveTrack { lane: "lane4".into(), t: vec![Some(480), Some(500)], stale: vec![] }],
+        zips: vec![ZipTrack { lane: "lane4".into(), at: vec![[0, 480, 520]] }],
+        camps: vec![Camp { key: "camp:neutral:lane0:3".into(), first_s: 0, cleared: vec![[1, 300]] }],
         events: vec![],
         troopers: None,
         objective_health: vec![],
