@@ -13,6 +13,7 @@ import { type Handoff, takeHandoff } from "./handoff";
 import { type Playback, clampT, follow, rebase, tAt } from "./clock";
 import { type Pt, worldToMap } from "../map/transform";
 import { eventKey } from "./events";
+import { playerNamesShown, setPlayerNamesShown } from "../core/device";
 
 export type Mode = "player" | "sandbox";
 
@@ -57,6 +58,19 @@ export function createPlayerHost(board: string, token: string) {
   const [showHealth, setShowHealth] = createSignal(true);
   /** Event pings while playing (spec §6b), on by default. */
   const [showPings, setShowPings] = createSignal(true);
+  /**
+   * Players' names (spec §6b "Names"), on by default; off, nothing on screen names a player (for
+   * recording without them). This browser's alone: remembered here, never in presence.
+   */
+  const [showNames, setShowNamesRaw] = createSignal(playerNamesShown());
+  const setShowNames = (on: boolean) => {
+    setPlayerNamesShown(on);
+    setShowNamesRaw(on);
+  };
+  /** The player's name in a slot when names are shown and the timeline has one: the top bar and
+   * the events read names here, the tokens through `preview` (which checks `showNames` too). */
+  const playerName = (team: string | null | undefined, slot: number | null | undefined): string | undefined =>
+    (showNames() && tl()?.players.find((p) => p.team === team && p.slot === slot)?.name) || undefined;
   /** The events the list shows under its filters and search (absent: every event). */
   const [pingable, setPingable] = createSignal<MatchEvent[]>();
   const [pings, setPings] = createSignal<EventPing[]>([]);
@@ -524,6 +538,9 @@ export function createPlayerHost(board: string, token: string) {
     setShowHealth,
     showPings,
     setShowPings,
+    showNames,
+    setShowNames,
+    playerName,
     setPingable,
     pings,
     lead,
@@ -564,7 +581,7 @@ export function createPlayerHost(board: string, token: string) {
       if (!m) return { players: new Map(), down: new Set(), sites: new Map(), lanes: new Map(), camps: new Map() };
       const at = t();
       const health = showHealth() && m.tier === "replay";
-      const players = new Map(playersAt(m, at).map((x) => [slotKey(x.team, x.slot), { hero: x.hero_id, pos: x.pos, health: health ? x.health : null }]));
+      const players = new Map(playersAt(m, at).map((x) => [slotKey(x.team, x.slot), { hero: x.hero_id, name: showNames() ? x.name : null, pos: x.pos, health: health ? x.health : null }]));
       // Everything by the board's marker keys: a pack can key a site differently from the
       // timeline (match/timeline.ts `markerKey`).
       const byMarker = <V,>(src: Map<string, V>) => {

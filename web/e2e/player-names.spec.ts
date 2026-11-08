@@ -1,6 +1,8 @@
 // Player names (operator, 2026-11-08): the metadata tier looks the players' public Steam names up
 // once (deadlock-api's profiles, by the match's account ids, which the server never keeps) and
-// shows them by the heroes: in the top bar, the roster and the events. With MAPCRO_SHOT_PACKS set
+// shows them by the heroes: in the top bar, the roster, the events and the tokens' hover titles.
+// The Names toggle (operator, 2026-11-08: content creators hide them for videos) hides every one,
+// for this browser only. With MAPCRO_SHOT_PACKS set
 // (`MAPCRO_SHOT_PACKS=~/.local/share/mapcro/packs`), the screenshots use the real art.
 
 import { createServer } from "node:http";
@@ -68,4 +70,66 @@ test("names show by their heroes: top bar, roster, events", async ({ browser }) 
   await expect(a.getByTestId("event").first()).toContainText("Juno");
   await a.getByTestId("events-search").fill("");
   await a.screenshot({ path: "shots/player-names.png" });
+});
+
+/** Every player name anywhere on the page: its text, tooltips (title attributes and SVG titles)
+ * and aria-labels. */
+const namesOnPage = (p: import("@playwright/test").Page) =>
+  p.evaluate((names) => {
+    const svgTitles = [...document.querySelectorAll("title")].map((t) => t.textContent ?? "");
+    const attrs = [...document.querySelectorAll("[title], [aria-label]")].flatMap((el) => [el.getAttribute("title") ?? "", el.getAttribute("aria-label") ?? ""]);
+    const all = [document.body.innerText, ...svgTitles, ...attrs].join("\n");
+    return names.filter((n) => new RegExp(`\\b${n}\\b`).test(all));
+  }, NAMES);
+
+test("a token's hover title names its player; Names off hides every name, here only, and stays off", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Anonymous");
+  const a = await joinNew(browser, url, "Viewer");
+  await a.getByTestId("mode-player").click();
+  await a.getByTestId("match-id").fill(ID);
+  await a.getByTestId("match-load").click();
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
+  const b = await joinNew(browser, url, "Second");
+  await b.getByTestId("follow-Viewer").click();
+  await expect(b.getByTestId("follow-chip")).toContainText("Following Viewer");
+
+  // On (the default): the token's hover title leads with the player's name (then the hero, with
+  // the art).
+  const toggle = a.getByTestId("names-toggle");
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(a.locator('.tok[data-slot="Amber-0"] > title')).toHaveText(/^Coach(, |$)/);
+  await expect(a.locator('.tb-player[data-slot="Amber-0"] [data-testid=tb-name]')).toHaveText("Coach");
+  await expect(a.getByTestId("event").filter({ hasText: "Juno" }).first()).toBeVisible();
+  expect(await namesOnPage(a)).toEqual(expect.arrayContaining(["Coach", "Juno", "Moss"]));
+  await a.screenshot({ path: "shots/player-names-on.png" });
+
+  // Off: no name in the top bar, the events, the tokens' titles, or anywhere else on the page.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(a.getByTestId("tb-name")).toHaveCount(0);
+  await expect(a.locator('.tok[data-slot="Amber-0"] > title')).toHaveText(/^Amber 1(, |$)/);
+  await expect(a.getByTestId("event").first()).toBeVisible();
+  expect(await namesOnPage(a)).toEqual([]);
+  // Searching by a hidden name doesn't reveal it.
+  await a.getByTestId("events-search").fill("juno");
+  await expect(a.getByTestId("event")).toHaveCount(0);
+  await a.getByTestId("events-search").fill("");
+  await a.screenshot({ path: "shots/player-names-off.png" });
+
+  // The follower still sees the names: the toggle is this browser's alone.
+  await expect(b.locator('.tb-player[data-slot="Amber-0"] [data-testid=tb-name]')).toHaveText("Coach");
+  await expect(b.getByTestId("names-toggle")).toHaveAttribute("aria-pressed", "true");
+
+  // A reload keeps it off.
+  await a.reload();
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
+  await expect(a.getByTestId("names-toggle")).toHaveAttribute("aria-pressed", "false");
+  await expect(a.getByTestId("event").first()).toBeVisible();
+  expect(await namesOnPage(a)).toEqual([]);
+
+  // On again: back everywhere.
+  await a.getByTestId("names-toggle").click();
+  await expect(a.locator('.tb-player[data-slot="Amber-0"] [data-testid=tb-name]')).toHaveText("Coach");
+  await expect(a.locator('.tok[data-slot="Amber-0"] > title')).toHaveText(/^Coach(, |$)/);
+  await expect(a.getByTestId("event").filter({ hasText: "Juno" }).first()).toBeVisible();
 });

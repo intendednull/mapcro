@@ -75,6 +75,8 @@ export interface PlayerAt {
   team: "amber" | "sapphire";
   slot: number;
   hero_id: number;
+  /** The player's in-game name, when the timeline has one (never an id). */
+  name: string | null;
   /** World position at t; `null` while dead. */
   pos: { x: number; y: number } | null;
   /** Where the hero was last seen alive at or before t (for a dead hero's token). */
@@ -123,6 +125,7 @@ export function playersAt(tl: Timeline, t: number): PlayerAt[] {
     team: p.team,
     slot: p.slot,
     hero_id: p.hero_id,
+    name: p.name ?? null,
     pos: positionAt(p, t),
     last: lastSeen(p, t),
     souls: soulsAt(p, t),

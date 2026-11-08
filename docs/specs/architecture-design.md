@@ -540,6 +540,10 @@ makes a board with that match attached and lands in Player; **New board** is tod
   The mid boss is the same, from its timer, and is down from its clear to its respawn.
 - **The transport:** play and pause, speed (0.5×, 1×, 2×, 4×, 8×), a scrubber with a tick per
   event, ±10 s, the match clock, and the replay tier's toggles (Troopers, Health), with Pings.
+- **Names** (2026-11-08, operator: content creators hide usernames in videos): a transport toggle,
+  shown when the timeline has players' names, on by default. Off, no player name is on screen
+  (top bar, events and their search, tokens' hover titles; the hero or slot label stands in).
+  It is this browser's alone: kept in localStorage for every board, never in presence.
 - **Troopers** (replay tier, on by default): each lane trooper as a small dot in its team's
   colour with a dark rim, under the heroes, sliding between the 1 Hz samples and gone when it
   dies; like the map's icons it keeps its size on screen as you zoom. The game's files don't

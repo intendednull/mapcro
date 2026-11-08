@@ -269,7 +269,8 @@ export function Tokens(p: {
           const at = () => worldToView(shown(), p.vp);
           const home = () => worldToView(pl().state.pos, p.vp);
           const r = () => TOKEN_R * p.k;
-          const label = () => `${slot().name || `${slot().team} ${slot().slot + 1}`}${hero() ? `, ${hero()!.name}` : ""}`;
+          // In Player, the match's player name (spec §6b); else the board's slot name.
+          const label = () => `${pv()?.name || slot().name || `${slot().team} ${slot().slot + 1}`}${hero() ? `, ${hero()!.name}` : ""}`;
           return (
             <Show when={live() ? !!pv()?.pos : pl().state.placed}>
               <Show when={remoteDrag()}>

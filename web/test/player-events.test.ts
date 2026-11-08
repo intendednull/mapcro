@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { FALLBACK } from "../src/map/fallback-data";
 import { modelFromFallback } from "../src/map/model";
 import type { MatchEvent, Timeline } from "../src/match/timeline";
-import { groupOf, jumpTime, label, namesFor, placeOf, search, shortLabel } from "../src/player/events";
+import { groupOf, jumpTime, label, labelParts, namesFor, placeOf, search, shortLabel } from "../src/player/events";
 import { sceneName } from "../src/match/save";
 
 const tl = {
@@ -49,6 +49,14 @@ describe("player events", () => {
     expect(ts("2:05")).toEqual([125]);
     expect(ts("", ["rift", "powerup"])).toEqual([410, 500]);
     expect(ts("amber", ["souls"])).toEqual([600]);
+  });
+
+  it("with names hidden (Names off), no label or search finds a player by name", () => {
+    const hidden = namesFor(tl, (id) => ({ 1: "Infernus", 2: "Haze" })[id] ?? `Hero ${id}`, () => undefined);
+    expect(labelParts(ev[0]!, n).map((x) => x.text).join("")).toBe("Infernus Coach killed by Haze");
+    expect(labelParts(ev[0]!, hidden).map((x) => x.text).join("")).toBe("Infernus killed by Haze");
+    expect(search(ev, hidden, "coach", new Set()).length).toBe(0);
+    expect(search(ev, hidden, "infernus", new Set()).map((e) => e.t)).toEqual([125]);
   });
 
   it("jumps a lead before, finds the place, and names scenes within 24 characters", () => {

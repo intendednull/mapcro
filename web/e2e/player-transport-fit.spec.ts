@@ -1,7 +1,8 @@
 // Every transport control fits in the bar and nothing covers it (QA 2026-11-08: at 1280×768 the
 // clock read "11:" and Save scene sat under the right panel; at 1440×900 the row ran 8 px over
-// with "Pause" or at 2× and up). At three desktop sizes, paused, playing at 8×, and viewing a
-// scene; a replay-tier match (every toggle) of 44 minutes (the widest clock).
+// with "Pause" or at 2× and up). At a phone's width and three desktop sizes, paused, playing at
+// 8×, and viewing a scene; a replay-tier match with player names (every toggle, Names too) of 44
+// minutes (the widest clock).
 
 import { createServer } from "node:http";
 import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
@@ -37,7 +38,7 @@ function timeline() {
   return {
     match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0,
     players: (["amber", "sapphire"] as const).flatMap((team) =>
-      [0, 1, 2, 3, 4, 5].map((slot) => ({ team, slot, hero_id: 1 + slot, name: null, x: range(() => slot * 300), y: range(() => (team === "amber" ? -8000 : 8000)), health: range(() => 100), deaths: [], souls: [[0, 500]], ult: range(() => 0) })),
+      [0, 1, 2, 3, 4, 5].map((slot) => ({ team, slot, hero_id: 1 + slot, name: `Player ${team} ${slot}`, x: range(() => slot * 300), y: range(() => (team === "amber" ? -8000 : 8000)), health: range(() => 100), deaths: [], souls: [[0, 500]], ult: range(() => 0) })),
     ),
     objectives: [], mid_boss: [], rifts: [], powerups: [], waves: [],
     events: [60, 300, 900, 1500, 2400].map(ev),
@@ -73,7 +74,7 @@ const misfits = (p: Page) =>
     return { out, n: controls.length };
   });
 
-for (const [w, h] of [[1280, 768], [1440, 900], [1920, 1080]] as const) {
+for (const [w, h] of [[390, 844], [1280, 768], [1440, 900], [1920, 1080]] as const) {
   test(`at ${w}×${h} every transport control fits, paused, at 8× playing, and on a scene`, async ({ browser }) => {
     const a = await (await browser.newContext({ viewport: { width: w, height: h } })).newPage();
     await a.goto(await newBoardUrl(server, "Transport"));
@@ -89,6 +90,7 @@ for (const [w, h] of [[1280, 768], [1440, 900], [1920, 1080]] as const) {
     writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify(timeline()));
     await expect(a.getByTestId("match-tier")).toHaveText("Full replay");
     await expect(a.getByTestId("troopers-toggle")).toBeVisible();
+    await expect(a.getByTestId("names-toggle")).toBeVisible();
     await expect(a.getByTestId("match-clock")).toHaveText("10:00 / 44:00");
 
     const check = async (state: string) => {

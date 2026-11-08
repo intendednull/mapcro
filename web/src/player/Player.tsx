@@ -357,6 +357,18 @@ export function Player(p: {
                   Health
                 </button>
               </Show>
+              <Show when={m().players.some((x) => x.name)}>
+                <button
+                  type="button"
+                  class={cx("btn ghost small", h.showNames() && "on")}
+                  data-testid="names-toggle"
+                  aria-pressed={h.showNames()}
+                  title="Players' names, here only (off for recording without them)"
+                  onClick={() => h.setShowNames(!h.showNames())}
+                >
+                  Names
+                </button>
+              </Show>
               <button
                 type="button"
                 class={cx("btn ghost small", h.showPings() && "on")}
@@ -548,7 +560,8 @@ export function PlayerSide(p: Props) {
   const markers = () => p.art.model.markers;
   const lanes = () => p.art.model.lanes.map((l) => l.key);
   const heroName = (id: number) => p.art.heroes.get(id)?.name ?? `Hero ${id}`;
-  const names = createMemo(() => (h.tl() ? namesFor(h.tl()!, heroName) : undefined));
+  // Re-made when Names flips, so the list's labels and search follow it.
+  const names = createMemo(() => (h.tl() ? (h.showNames(), namesFor(h.tl()!, heroName, h.playerName)) : undefined));
   const at = createMemo(() => (h.tl() ? new Map(playersAt(h.tl()!, h.t()).map((x) => [slotKey(x.team, x.slot), x])) : new Map()));
   const user = (f: () => void) => {
     p.onUserPlayback();

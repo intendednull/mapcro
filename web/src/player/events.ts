@@ -46,10 +46,12 @@ export interface Named {
   player: (team: string | null | undefined, slot: number | null | undefined) => string | undefined;
 }
 
-export function namesFor(tl: Timeline, heroName: (id: number) => string): Named {
+/** `player` overrides the timeline's own names (Player's host, which hides them while Names is
+ * off: then no label, and no search, finds a player by name). */
+export function namesFor(tl: Timeline, heroName: (id: number) => string, player?: Named["player"]): Named {
   return {
     hero: (id) => (id == null ? "" : heroName(id)),
-    player: (t, s) => tl.players.find((p) => p.team === t && p.slot === s)?.name ?? undefined,
+    player: player ?? ((t, s) => tl.players.find((p) => p.team === t && p.slot === s)?.name ?? undefined),
   };
 }
 

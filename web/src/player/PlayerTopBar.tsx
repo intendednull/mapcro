@@ -78,7 +78,7 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
           const hero = () => (x() ? p.art.heroes.get(x()!.hero_id) : undefined);
           const label = () => s.slot.name || `${t} ${s.slot.slot + 1}`;
           const dead = () => !!x() && x()!.pos === null;
-          const nameOf = () => p.host.tl()?.players.find((q) => q.team === t.toLowerCase() && q.slot === s.slot.slot)?.name ?? undefined;
+          const nameOf = () => p.host.playerName(t.toLowerCase(), s.slot.slot);
           return (
             <div
               class={cx("tb-player", t.toLowerCase(), side, dead() && "dead")}
@@ -135,7 +135,7 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
   );
 
   /** Any player names to show: the bar then keeps room for them under it (QA 2026-11-08). */
-  const named = () => !!p.host.tl()?.players.some((q) => q.name);
+  const named = () => p.host.showNames() && !!p.host.tl()?.players.some((q) => q.name);
   return (
     <div
       ref={el}

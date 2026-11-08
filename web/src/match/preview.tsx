@@ -5,8 +5,9 @@ import { cx } from "../ui/cx";
 import type { CampAt } from "./timeline";
 
 export interface MatchPreview {
-  /** By "amber-0" … "sapphire-5": the hero there and where it is (`null`: dead, hidden). */
-  players: Map<string, { hero: number; pos: { x: number; y: number } | null; health?: number | null }>;
+  /** By "amber-0" … "sapphire-5": the hero there, its player's name if known, and where it is
+   * (`null`: dead, hidden). */
+  players: Map<string, { hero: number; name?: string | null; pos: { x: number; y: number } | null; health?: number | null }>;
   /** Board objective keys down at this moment. */
   down: Set<string>;
   /** Replay tier: rifts and powerups at this moment, by key (absent: the board's own). */

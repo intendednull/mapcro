@@ -54,6 +54,7 @@ const ME = "mapcro.me";
 const BOARDS = "mapcro.boards";
 const JOINED = "mapcro.joined";
 const COMMENTS = "mapcro.commentsOpen";
+const NAMES = "mapcro.playerNames";
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -108,4 +109,14 @@ export function hasJoined(board: string): boolean {
 export function markJoined(board: string) {
   const j = read<string[]>(JOINED, []);
   if (!j.includes(board)) write(JOINED, [...j, board].slice(-200));
+}
+
+/** Whether this browser shows players' names in Player (the Names toggle, spec §6b): for every
+ * board, on unless turned off here. Never shared with other viewers. */
+export function playerNamesShown(): boolean {
+  return read<boolean>(NAMES, true) !== false;
+}
+
+export function setPlayerNamesShown(on: boolean) {
+  write(NAMES, on);
 }
