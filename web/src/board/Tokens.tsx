@@ -161,7 +161,7 @@ export function Tokens(p: {
   };
 
   const toggleVision = (pl: Player, e: PointerEvent) => {
-    if (!p.state.canEdit() || e.button !== 0) return;
+    if (!p.state.canEdit() || e.button !== 0 || p.preview?.()) return;
     e.preventDefault();
     e.stopPropagation();
     p.state.edit([{ Set: { id: pl.id, value: { PlayerVisible: !pl.state.visible } } }]);
@@ -173,6 +173,11 @@ export function Tokens(p: {
         {(pl) => {
           const slot = () => slots().get(pl.state.slot)!;
           const pv = () => p.preview?.()?.players.get(slotKey(slot().team, slot().slot));
+          // A match preview (Player) draws only the timeline at t, never the scene's records:
+          // alive and seen by the match, placed where the match has them (spec §6b).
+          const live = () => !!p.preview?.();
+          const alive = () => (live() ? true : pl.state.alive);
+          const visible = () => (live() ? true : pl.state.visible);
           const heroId = () => pv()?.hero ?? slot().hero;
           const hero = () => (heroId() != null ? p.art.heroes.get(heroId()!) : undefined);
           const team = () => (slot().team === "Amber" ? "amber" : "sapphire");
@@ -192,7 +197,7 @@ export function Tokens(p: {
           const r = () => TOKEN_R * p.k;
           const label = () => `${slot().name || `${slot().team} ${slot().slot + 1}`}${hero() ? `, ${hero()!.name}` : ""}`;
           return (
-            <Show when={pl.state.placed && (!p.preview?.() || pv()?.pos)}>
+            <Show when={live() ? !!pv()?.pos : pl.state.placed}>
               <Show when={remoteDrag()}>
                 {(o) => (
                   <g class="drag-trail" style={{ "--c": colorOf(o().state!.color) }}>
@@ -202,11 +207,11 @@ export function Tokens(p: {
                 )}
               </Show>
               <g
-                class={cx("tok", team(), !pl.state.alive && "dead", !pl.state.visible && "ghost", selected() && "selected", (!!remoteDrag() || !!mine()) && "preview", !!mine() && "dragging")}
+                class={cx("tok", team(), !alive() && "dead", !visible() && "ghost", selected() && "selected", (!!remoteDrag() || !!mine()) && "preview", !!mine() && "dragging")}
                 transform={`translate(${at().x} ${at().y})`}
                 data-slot={`${slot().team}-${slot().slot}`}
                 data-player={pl.id}
-                data-visible={String(pl.state.visible)}
+                data-visible={String(visible())}
                 onPointerDown={(e) => down(pl, e)}
               >
                 <Show when={selected()}>
@@ -237,23 +242,23 @@ export function Tokens(p: {
                       y={-r() + 2 * p.k}
                       width={2 * r() - 4 * p.k}
                       height={2 * r() - 4 * p.k}
-                      style={{ "clip-path": "circle(50%) fill-box", "pointer-events": "none", filter: pl.state.alive ? "none" : "grayscale(1) brightness(0.5)" }}
+                      style={{ "clip-path": "circle(50%) fill-box", "pointer-events": "none", filter: alive() ? "none" : "grayscale(1) brightness(0.5)" }}
                     />
                   )}
                 </Show>
                 <g
-                  class={cx("vis", !pl.state.visible && "off", p.state.canEdit() && "editable")}
+                  class={cx("vis", !visible() && "off", p.state.canEdit() && !live() && "editable")}
                   data-testid="vision"
                   transform={`translate(${r() * 0.78} ${-r() * 0.78}) scale(${p.k})`}
                   onPointerDown={(e) => toggleVision(pl, e)}
                 >
-                  <title>{pl.state.visible ? "In vision" : "Not seen"}</title>
+                  <title>{visible() ? "In vision" : "Not seen"}</title>
                   <circle r="9" />
                   <path d={EYE} />
-                  <Show when={pl.state.visible}>
+                  <Show when={visible()}>
                     <circle class="pupil" r="1.8" />
                   </Show>
-                  <Show when={!pl.state.visible}>
+                  <Show when={!visible()}>
                     <path class="slash" d="M-6 6L6 -6" />
                   </Show>
                 </g>
