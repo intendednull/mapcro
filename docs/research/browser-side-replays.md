@@ -22,6 +22,24 @@ The browser forwards no data. The server's own calls stay on deadlock-api's stor
 If we ever near those limits, either ask deadlock-api for an increase or move the calls into the
 browser: forward the salts, and keep forwarded metadata per board (sections 4–5's fallback).
 
+## Step 0 result: priming not confirmed (2026-11-08)
+
+Before building, we probed three fresh standard matches (133942291, 133942783, 133944663) taken
+from `/v1/matches/active`. Only 2 Steam-capable calls were used. Logs: /tmp/api-priming-step0/.
+
+- **Metadata:** deadlock-api had already stored it within minutes of the match ending, with
+  nobody priming it. One Steam-capable call made in the first minute returned 404, because Valve
+  didn't have it yet either. So priming metadata adds little, and it doesn't fix "Match not found
+  yet" in the first minutes.
+- **Salts:** each match had a stored row with `cluster_id` and `metadata_salt` but no
+  `replay_salt`. A Steam-capable call returned the same row: deadlock-api answers from its
+  database when a row exists and doesn't go to Steam to fill in the missing salt. Over about 13
+  minutes no `replay_salt` appeared.
+- **Not measured:** whether `replay_salt` arrives later, and what a match with no salts row at
+  all does.
+
+The priming build is on hold until the operator decides. Today's server path is unchanged.
+
 ## 1. What the server calls today
 
 | Call | Where | Used for |
