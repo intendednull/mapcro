@@ -6,4 +6,9 @@ export type WireIn = { "t": "auth", board: string, token: string,
 /**
  * `None` if the client holds no copy of this board yet and needs a base document.
  */
-known_seq: number | null, } | { "t": "msg", msg: ClientMsg, } | { "t": "presence", state: Presence, };
+known_seq: number | null, 
+/**
+ * The client's protocol build (`mapcro_schema::BUILD_ID` of its WASM). Another build
+ * than the server's is closed as `Outdated`; absent (older clients, tools): no check.
+ */
+build?: string, } | { "t": "msg", msg: ClientMsg, } | { "t": "presence", state: Presence, };

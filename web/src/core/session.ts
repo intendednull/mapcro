@@ -10,7 +10,7 @@ import type { WireIn } from "../gen/WireIn";
 import type { WireOut } from "../gen/WireOut";
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { Presence } from "../gen/Presence";
-import { BoardReplica, newClientId, newClientSecret } from "../wasm/mapcro_wasm.js";
+import { BoardReplica, buildId, newClientId, newClientSecret } from "../wasm/mapcro_wasm.js";
 import { MemoryPersist, type Persist } from "./persist";
 import type { SaveStatus, Update } from "./update";
 
@@ -47,6 +47,14 @@ export interface SessionOptions {
   onPeers?: (changed: PeerPresence[], reset: boolean) => void;
   /** Backoff bounds, overridable for tests. */
   minDelayMs?: number;
+  /** The protocol build sent with Auth (default: this WASM's `buildId()`). */
+  build?: string;
+  /**
+   * This tab is from another build than the server (a deploy happened), or got a message it
+   * can't read: the session has stopped; reload to get the new build. Pending work is safe
+   * in storage. Without it the session just stops, closed as outdated.
+   */
+  onOutdated?: () => void;
   maxDelayMs?: number;
 }
 
@@ -288,13 +296,20 @@ export class BoardSession {
     this.live = false;
     sock.onopen = () => {
       const known_seq = this.replica ? this.replica.lastSeq() : null;
-      sock.send(JSON.stringify({ t: "auth", board: this.o.board, token: this.o.token, known_seq } satisfies WireIn));
+      sock.send(JSON.stringify({ t: "auth", board: this.o.board, token: this.o.token, known_seq, build: this.o.build ?? buildId() } satisfies WireIn));
     };
     sock.onmessage = (ev) => {
       if (sock !== this.socket) return;
       try {
         this.onFrame(JSON.parse(String(ev.data)) as WireOut);
       } catch (e) {
+        // A message this build can't read comes from a newer server: retrying would read the
+        // same entry again, for ever. Stop and reload instead (review 2026-11-07).
+        if (e instanceof SyntaxError || String(e).includes("unreadable:")) {
+          this.problems.push(`can't read the server's messages: ${e}`);
+          this.outdated();
+          return;
+        }
         // A protocol error (gap, ack mismatch): start over on a fresh connection. Pending work
         // is untouched, so nothing is lost.
         this.problems.push(`protocol error, reconnecting: ${e}`);
@@ -368,6 +383,10 @@ export class BoardSession {
         return;
       }
       case "closed": {
+        if (frame.reason === "outdated") {
+          this.outdated();
+          return;
+        }
         if (FINAL.includes(frame.reason)) {
           this.stopped = true;
           this.connection = { kind: "closed", reason: frame.reason };
@@ -413,6 +432,17 @@ export class BoardSession {
       s.onmessage = null;
       s.close();
     }
+  }
+
+  /** Another build than the server's: stop for good, and say so (the app reloads). */
+  private outdated() {
+    this.stopped = true;
+    clearTimeout(this.timer);
+    this.connection = { kind: "closed", reason: "outdated" };
+    this.dropSocket();
+    this.markOffline();
+    this.o.onChange?.(this);
+    this.o.onOutdated?.();
   }
 
   private retry() {

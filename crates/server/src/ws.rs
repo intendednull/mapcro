@@ -138,9 +138,13 @@ async fn session(app: AppState, mut socket: WebSocket) {
         Ok(None | Some(Err(_))) => return,
         Ok(Some(Ok(_))) => return send_closed(&mut socket, CloseReason::Unauthorized).await,
     };
-    let Ok(WireIn::Auth { board, token, known_seq }) = serde_json::from_str::<WireIn>(&first) else {
+    let Ok(WireIn::Auth { board, token, known_seq, build }) = serde_json::from_str::<WireIn>(&first) else {
         return send_closed(&mut socket, CloseReason::Unauthorized).await;
     };
+    // A tab from before a deploy reads this build's messages wrong: tell it to reload.
+    if build.as_deref().is_some_and(|b| b != mapcro_schema::BUILD_ID) {
+        return send_closed(&mut socket, CloseReason::Outdated).await;
+    }
     if !links::plausible_board_id(&board) || !links::plausible_token(&token) {
         return send_closed(&mut socket, CloseReason::Unauthorized).await;
     }

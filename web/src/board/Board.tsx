@@ -401,6 +401,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const calloutList = createMemo(() => calloutOrder(state.rowsIn<Callout>("Callout", scene()?.id)));
 
   const [sceneDrawer, setSceneDrawer] = createSignal(false);
+  /** This tab is from another build than the server's (see core/reload.ts). */
+  const outdated = () => {
+    const c = state.connection();
+    return c.kind === "closed" && c.reason === "outdated";
+  };
   const flipBy = (d: number) => {
     const all = state.scenes();
     const next = all[sceneIndex() + d];
@@ -914,8 +919,16 @@ export function Board(p: { board: string; token: string; art: Art }) {
         </button>
       </div>
     </Show>
-    <Show when={state.connection().kind === "closed"}>
+    <Show when={state.connection().kind === "closed" && !outdated()}>
       <DeadLink />
+    </Show>
+    <Show when={outdated()}>
+      <div class="update-banner" role="alert" data-testid="update-available">
+        Update available
+        <button class="btn small" data-testid="update-reload" onClick={() => location.reload()}>
+          Reload
+        </button>
+      </div>
     </Show>
     <Show when={!joined() && state.connection().kind !== "closed"}>
       <JoinCard title={state.title()} others={people().map((x) => x.state!.name).filter(Boolean)} initial={me()} onJoin={join} />

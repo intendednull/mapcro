@@ -974,3 +974,6 @@ kbd {
 .drawer-scrim { position: fixed; inset: 0; z-index: 60; background: #0008; }
 .scenes.drawer { position: fixed; z-index: 61; left: 0; top: 0; bottom: 0; width: min(300px, 86vw); background: var(--bg-deep, #0b1714); box-shadow: 8px 0 24px #000a; }
 .p-nav .p-scenes { margin-top: 6px; width: 100%; }
+
+/* A deploy happened under this tab: one line, one button. */
+.update-banner { position: fixed; z-index: 80; top: 64px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 14px; font: 600 13px var(--ui); color: var(--text); background: var(--bg-deep, #0b1714); border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 8px 22px #0009; }

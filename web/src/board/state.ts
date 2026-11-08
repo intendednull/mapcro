@@ -4,7 +4,8 @@
 
 import { type Accessor, type Setter, batch, createMemo, createRoot, createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
-import init from "../wasm/mapcro_wasm.js";
+import init, { buildId } from "../wasm/mapcro_wasm.js";
+import { outdatedAction } from "../core/reload";
 import { BoardSession, type Connection, type SocketLike } from "../core/session";
 import { IdbPersist, MemoryPersist, type Persist } from "../core/persist";
 import type { SaveStatus } from "../core/update";
@@ -129,6 +130,11 @@ export function createBoardState(board: string, token: string) {
     board,
     token,
     persist: persistence(),
+    // A deploy happened under this tab: reload once to the new build (edits are kept in
+    // storage); if that didn't help, the board offers the reload.
+    onOutdated: () => {
+      if (typeof sessionStorage !== "undefined" && outdatedAction(buildId(), sessionStorage) === "reload") location.reload();
+    },
     openSocket: (url) => new WebSocket(url) as unknown as SocketLike,
     onRecords: applyChanged,
     onPeers: (changed, reset) =>

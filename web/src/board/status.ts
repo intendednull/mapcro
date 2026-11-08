@@ -56,7 +56,7 @@ export function explain(r: Reject): string {
  * @param rejected the newest rejection the user hasn't dismissed
  */
 export function statusView(s: SaveStatus, c: Connection, syncingShown: boolean, rejected: Reject | undefined): StatusView {
-  if (c.kind === "closed") return { kind: "closed", text: c.reason === "revoked" ? "Link revoked" : "Invalid link" };
+  if (c.kind === "closed") return { kind: "closed", text: c.reason === "revoked" ? "Link revoked" : c.reason === "outdated" ? "Update available" : "Invalid link" };
   if (rejected) return { kind: "rejected", text: REASONS[rejected] };
   if (s.kind === "offline" || c.kind === "waiting") {
     const n = s.kind === "saved" ? 0 : s.pending;

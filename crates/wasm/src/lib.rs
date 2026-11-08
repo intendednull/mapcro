@@ -15,6 +15,12 @@ fn js_err(e: impl std::fmt::Display) -> JsError {
     JsError::new(&e.to_string())
 }
 
+/// A server message this build can't read (a newer build's records or messages): the tab
+/// should reload, not retry. The session looks for this prefix.
+fn unreadable(e: impl std::fmt::Display) -> JsError {
+    JsError::new(&format!("unreadable: {e}"))
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Update<'a> {
@@ -65,7 +71,7 @@ impl BoardReplica {
     #[wasm_bindgen(constructor)]
     pub fn new(client: &str, secret: &str, base_json: &str) -> Result<BoardReplica, JsError> {
         let client: ClientId = serde_json::from_value(serde_json::Value::String(client.into())).map_err(js_err)?;
-        let base: mapcro_engine::wire::Base = serde_json::from_str(base_json).map_err(js_err)?;
+        let base: mapcro_engine::wire::Base = serde_json::from_str(base_json).map_err(unreadable)?;
         mapcro_schema::validate_doc(&base.doc).map_err(js_err)?;
         Ok(BoardReplica { inner: Replica::new(client, secret.to_owned(), base.doc, base.seq) })
     }
@@ -136,7 +142,7 @@ impl BoardReplica {
     /// A `WireOut` frame of kind `msg`. A protocol error means: drop the socket and reconnect;
     /// pending work is untouched.
     pub fn receive(&mut self, frame_json: &str) -> Result<String, JsError> {
-        let frame: WireOut = serde_json::from_str(frame_json).map_err(js_err)?;
+        let frame: WireOut = serde_json::from_str(frame_json).map_err(unreadable)?;
         let WireOut::Msg { msg } = frame else {
             return Err(JsError::new("receive() takes only `msg` frames"));
         };
@@ -180,6 +186,12 @@ pub fn new_client_secret() -> Result<String, JsError> {
 }
 
 /// A new random record id, for creating records in the UI.
+/// This build's protocol id (`mapcro_schema::BUILD_ID`), sent with Auth.
+#[wasm_bindgen(js_name = buildId)]
+pub fn build_id() -> String {
+    mapcro_schema::BUILD_ID.to_owned()
+}
+
 #[wasm_bindgen(js_name = newRecordId)]
 pub fn new_record_id() -> Result<String, JsError> {
     new_client_id()

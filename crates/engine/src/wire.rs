@@ -36,6 +36,11 @@ pub enum WireIn {
         token: String,
         /// `None` if the client holds no copy of this board yet and needs a base document.
         known_seq: Option<u64>,
+        /// The client's protocol build (`mapcro_schema::BUILD_ID` of its WASM). Another build
+        /// than the server's is closed as `Outdated`; absent (older clients, tools): no check.
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        build: Option<String>,
     },
     Msg { msg: ClientMsg },
     /// This client's presence, replacing its previous one. Ephemeral: never stored.
@@ -86,6 +91,8 @@ pub enum CloseReason {
     TooMany,
     /// The server has as many boards open as it allows, all in use. Try again later.
     Busy,
+    /// The client is from another build than the server (a deploy happened): reload.
+    Outdated,
 }
 
 /// What one person is doing right now (spec §8). Sent by its owner at up to ~20 Hz; relayed to

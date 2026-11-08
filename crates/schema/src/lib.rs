@@ -19,6 +19,8 @@ pub use records::{
 };
 pub use validate::{Limits, Reject, LIMITS};
 
+include!(concat!(env!("OUT_DIR"), "/build_id.rs"));
+
 use serde::{Deserialize, Serialize};
 
 /// One change to the board. Field-level, so concurrent edits to different fields never conflict.
