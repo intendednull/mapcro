@@ -71,6 +71,28 @@ export const LASER_MAX_POINTS = 48; // the server's cap on presence `laser`
 export interface Timed {
   p: Pt;
   t: number;
+  /** Which press-to-release gesture the point belongs to: each is its own trail. */
+  g?: number;
+}
+
+/** Where each gesture after the first starts in a trail (presence `laser_starts`). */
+export function laserStarts(trail: Timed[]): number[] {
+  const out: number[] = [];
+  for (let i = 1; i < trail.length; i++) if (trail[i]!.g !== trail[i - 1]!.g) out.push(i);
+  return out;
+}
+
+/** A trail cut into its gestures at `starts` (indices, rising; bad ones ignored). */
+export function laserRuns<T>(points: T[], starts: readonly number[] = []): T[][] {
+  const runs: T[][] = [];
+  let from = 0;
+  for (const i of starts) {
+    if (i <= from || i >= points.length) continue;
+    runs.push(points.slice(from, i));
+    from = i;
+  }
+  if (from < points.length) runs.push(points.slice(from));
+  return runs;
 }
 
 /** Drop what has fully faded, and keep at most the newest `max` points. */

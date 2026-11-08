@@ -27,6 +27,12 @@ view: Viewport | null, cursor: WorldPos | null,
  */
 laser: Array<WorldPos>, 
 /**
+ * Where each laser gesture after the first starts: indices into `laser`, rising, each in
+ * `1..laser.len()`. One press-to-release is one trail: without this, a new press was drawn
+ * joined to the last one as it faded. Optional in TypeScript, like `picked`.
+ */
+laser_starts?: Array<number>, 
+/**
  * A drag in progress: which record, and where it is now (spec §4a: preview, then one op).
  */
 drag: DragPreview | null, 

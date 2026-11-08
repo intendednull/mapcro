@@ -110,6 +110,12 @@ pub struct Presence {
     pub cursor: Option<WorldPos>,
     /// The laser pointer's recent trail, oldest first.
     pub laser: Vec<WorldPos>,
+    /// Where each laser gesture after the first starts: indices into `laser`, rising, each in
+    /// `1..laser.len()`. One press-to-release is one trail: without this, a new press was drawn
+    /// joined to the last one as it faded. Optional in TypeScript, like `picked`.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<u8>>", optional))]
+    pub laser_starts: Vec<u8>,
     /// A drag in progress: which record, and where it is now (spec §4a: preview, then one op).
     pub drag: Option<DragPreview>,
     /// Other records moving with `drag` by the same offset: a group move of selected heroes.
@@ -250,6 +256,9 @@ impl Presence {
             && self.color < 16
             && self.laser.len() <= MAX_LASER_POINTS
             && self.laser.iter().all(ok_pos)
+            && self.laser_starts.len() < MAX_LASER_POINTS
+            && self.laser_starts.windows(2).all(|w| w[0] < w[1])
+            && self.laser_starts.iter().all(|&i| i >= 1 && usize::from(i) < self.laser.len())
             && self.ink.as_ref().is_none_or(|i| i.color < 16 && i.points.len() <= MAX_INK_POINTS && i.points.iter().all(ok_pos))
             && self.ping.as_ref().is_none_or(|p| ok_pos(&p.at))
             && self.laser_color.is_none_or(|c| c < 16)
@@ -260,5 +269,27 @@ impl Presence {
             && self.picked.len() <= MAX_PICKED
             && self.picked.iter().all(mapcro_schema::ObjectiveKey::is_valid)
             && self.view.as_ref().is_none_or(|v| ok_pos(&v.center) && (100..=20_000).contains(&v.zoom))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn laser(n: usize, starts: Vec<u8>) -> Presence {
+        Presence { laser: vec![WorldPos { x: 0, y: 0 }; n], laser_starts: starts, ..Default::default() }
+    }
+
+    #[test]
+    fn laser_starts_are_rising_indices_inside_the_trail() {
+        assert!(laser(0, vec![]).is_valid());
+        assert!(laser(10, vec![3, 7]).is_valid());
+        assert!(laser(MAX_LASER_POINTS, (1..MAX_LASER_POINTS as u8).collect()).is_valid());
+        // Not rising, at the trail's start, past its end, or with no trail at all.
+        assert!(!laser(10, vec![7, 3]).is_valid());
+        assert!(!laser(10, vec![3, 3]).is_valid());
+        assert!(!laser(10, vec![0]).is_valid());
+        assert!(!laser(10, vec![10]).is_valid());
+        assert!(!laser(0, vec![1]).is_valid());
     }
 }

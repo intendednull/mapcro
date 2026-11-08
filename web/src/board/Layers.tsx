@@ -11,7 +11,7 @@
 // Layer order (design/parity/README.md, layer 10): arrows, ink and callouts, drag ghosts, hero
 // tokens, then lasers, cursors and name tags.
 
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import { capture } from "../ui/capture";
 import { colorOf, inkOn } from "../core/device";
 import type { Arrow } from "../gen/Arrow";
@@ -32,7 +32,7 @@ import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampShift, clampToBoard, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { cx } from "../ui/cx";
-import { LASER_MAX_POINTS, type Timed, arrowHead, fitStroke, laserOpacity, polyline, pruneLaser, shaftEnd } from "./geometry";
+import { LASER_MAX_POINTS, type Timed, arrowHead, fitStroke, laserOpacity, laserRuns, laserStarts, polyline, pruneLaser, shaftEnd } from "./geometry";
 import { PRESENCE_MS } from "../core/session";
 import { liveInk, moveStrokeOps, strokePoints } from "./placed";
 import { smoothed } from "./smooth";
@@ -158,17 +158,21 @@ export function Layers(p: {
   });
 
   // ---- laser: a local trail of timed points, pruned on a ticker and shared as presence ----
+  // Each press-to-release is its own gesture: a new press starts a fresh trail, never joined to
+  // the one still fading (operator bug, 2026-11-08). Peers get the cuts as `laser_starts`.
   let laserTick: ReturnType<typeof setInterval> | undefined;
-  const pushLaser = (pt: Pt) => {
+  let gesture = 0;
+  const pushLaser = (pt: Pt, fresh = false) => {
     const now = performance.now();
-    setLaser(pruneLaser([...laser(), { p: pt, t: now }], now));
-    st.presence({ laser: laser().map((q) => world(q.p)), laser_color: p.ink });
+    if (fresh) gesture++;
+    setLaser(pruneLaser([...laser(), { p: pt, t: now, g: gesture }], now));
+    st.presence({ laser: laser().map((q) => world(q.p)), laser_starts: laserStarts(laser()), laser_color: p.ink });
     if (!laserTick)
       laserTick = setInterval(() => {
         const next = pruneLaser(laser(), performance.now());
         if (next.length !== laser().length) {
           setLaser(next);
-          st.presence({ laser: next.map((q) => world(q.p)) });
+          st.presence({ laser: next.map((q) => world(q.p)), laser_starts: laserStarts(next) });
         }
         if (next.length === 0) {
           clearInterval(laserTick);
@@ -480,7 +484,7 @@ export function Layers(p: {
     const tool = p.tool;
     if (tool === "laser") {
       e.preventDefault();
-      pushLaser(start);
+      pushLaser(start, true);
       track(e, (pt) => pushLaser(pt), () => {});
       return;
     }
@@ -727,6 +731,8 @@ export function Layers(p: {
 
   const arrowClass = (team: Arrow["team"]) => (team === "Amber" ? "amber" : team === "Sapphire" ? "sapphire" : "neutral");
 
+  /** My laser, one trail per gesture. */
+  const myLaser = createMemo(() => laserRuns(laser().map((q) => q.p), laserStarts(laser())));
   const remoteLasers = createMemo(() => st.peerList().filter((x) => (x.state?.laser.length ?? 0) > 0 && x.state?.scene === p.scene));
   const remoteInks = createMemo(() => st.peerList().filter((x) => (x.state?.ink?.points.length ?? 0) > 0 && x.state?.scene === p.scene));
 
@@ -991,11 +997,16 @@ export function Layers(p: {
       </g>
       <g class="lasers">
         <For each={remoteLasers()}>
-          {(peer) => <LaserTrail points={peer.state!.laser.map(view)} color={colorOf(peer.state!.laser_color ?? peer.state!.color)} name={peer.state!.name} />}
+          {(peer) => {
+            const runs = createMemo(() => laserRuns(peer.state!.laser.map(view), peer.state!.laser_starts ?? []));
+            return (
+              <Index each={runs()}>
+                {(run, i) => <LaserTrail points={run()} color={colorOf(peer.state!.laser_color ?? peer.state!.color)} name={peer.state!.name} head={i === runs().length - 1} />}
+              </Index>
+            );
+          }}
         </For>
-        <Show when={laser().length > 0}>
-          <LaserTrail points={laser().map((q) => q.p)} color={colorOf(p.ink)} mine />
-        </Show>
+        <Index each={myLaser()}>{(run, i) => <LaserTrail points={run()} color={colorOf(p.ink)} mine head={i === myLaser().length - 1} />}</Index>
       </g>
       <g class="pings">
         <For each={pings()}>
@@ -1019,7 +1030,8 @@ export function Layers(p: {
   );
 }
 
-function LaserTrail(p: { points: Pt[]; color: string; name?: string; mine?: boolean }) {
+/** One gesture's trail; the head dot only on the newest (`head`). */
+function LaserTrail(p: { points: Pt[]; color: string; name?: string; mine?: boolean; head?: boolean }) {
   const segs = () => p.points.slice(1).map((q, i) => ({ a: p.points[i]!, b: q, i }));
   const head = () => p.points[p.points.length - 1];
   return (
@@ -1032,7 +1044,7 @@ function LaserTrail(p: { points: Pt[]; color: string; name?: string; mine?: bool
           />
         )}
       </For>
-      <Show when={head()}>{(h) => <circle class="head" cx={h().x} cy={h().y} r="7" />}</Show>
+      <Show when={p.head !== false && head()}>{(h) => <circle class="head" cx={h().x} cy={h().y} r="7" />}</Show>
     </g>
   );
 }
