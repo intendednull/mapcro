@@ -9,7 +9,7 @@ import type { BoardState } from "../board/state";
 import type { SceneRow } from "../board/scenes";
 import type { RecordId } from "../gen/RecordId";
 import type { Op } from "../gen/Op";
-import { type MatchEvent, clockLabel, objectiveHealthAt, playersAt, tierOf } from "../match/timeline";
+import { type MatchEvent, clockLabel, playersAt, tierOf } from "../match/timeline";
 import { UltRing } from "../match/preview";
 import { matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
 import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensureLiveOps, liveIds, takeAnnotationsOps } from "./live";
@@ -17,7 +17,6 @@ import { busy, jobLabel } from "./api";
 import { SPEEDS } from "./clock";
 import { troopersAt } from "./troopers";
 import { mapToView, worldToView } from "../map/transform";
-import { HUD_MAP_PX } from "../map/model";
 import { EventsList } from "./Events";
 import { eventKey, jumpTime, namesFor, placeOf, shortLabel, tierLabel } from "./events";
 import type { PlayerHost } from "./host";
@@ -481,45 +480,6 @@ export function TrooperDots(p: { host: PlayerHost; vp: "amber" | "sapphire" | "n
         {(d) => {
           const at = () => worldToView({ x: d.x, y: d.y }, p.vp);
           return <circle class={cx("pl-trooper", d.team)} data-testid="trooper" cx={at().x} cy={at().y} r="7" />;
-        }}
-      </For>
-    </g>
-  );
-}
-
-/**
- * Objectives' health (replay tier, Health on): a ring round an objective's icon while it's
- * damaged, red when low; the patron's stage under it (operator, 2026-11-08).
- */
-export function ObjectiveHealth(p: { host: PlayerHost; art: Art; vp: "amber" | "sapphire" | "neutral" }) {
-  const rings = createMemo(() => {
-    const m = p.host.tl();
-    if (!m || m.tier !== "replay" || !p.host.showHealth()) return [];
-    const hp = objectiveHealthAt(m, p.host.t());
-    return p.art.model.markers.flatMap((mk) => {
-      const h = hp.get(mk.key);
-      return h && h.pct < 100 ? [{ mk, ...h }] : [];
-    });
-  });
-  return (
-    <g class="pl-obj-health" data-testid="objective-health">
-      <For each={rings()}>
-        {(x) => {
-          const at = () => mapToView(x.mk.at, p.vp);
-          // Just outside the icon: markers draw at about 40% of their HUD box.
-          const r = () => (x.mk.px / HUD_MAP_PX) * 1000 * 0.2 + 3;
-          const c = () => 2 * Math.PI * r();
-          return (
-            <g transform={`translate(${at().x} ${at().y})`} data-testid="obj-health" data-key={x.mk.key} data-health={x.pct} data-stage={x.stage ?? ""}>
-              <circle class="obj-hp obj-hp-bg" r={r()} stroke-width="4" />
-              <circle class={cx("obj-hp obj-hp-fill", x.pct <= 30 && "low")} r={r()} stroke-width="4" transform="rotate(-90)" stroke-dasharray={`${(c() * x.pct) / 100} ${c()}`} />
-              <Show when={x.stage}>
-                <text class="obj-hp-stage" y={r() + 12}>
-                  Stage {x.stage}
-                </text>
-              </Show>
-            </g>
-          );
         }}
       </For>
     </g>

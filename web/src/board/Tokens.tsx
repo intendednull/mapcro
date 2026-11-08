@@ -289,18 +289,19 @@ export function Tokens(p: {
                 <Show when={pv()?.health != null}>
                   {(_) => {
                     // Player, replay tier: health as an arc round the token (operator, 2026-11-08).
-                    const hr = () => r() + 3.5 * p.k;
+                    // Heavier than the body's stroke so it reads at the default zoom (handoff).
+                    const hr = () => r() + 4.5 * p.k;
                     const c = () => 2 * Math.PI * hr();
                     const hp = () => pv()?.health ?? 0;
                     return (
                       <g data-testid="tok-health" data-health={hp()}>
-                        <circle class="tok-hp tok-hp-bg" r={hr()} style={{ "stroke-width": `${3 * p.k}` }} />
+                        <circle class="tok-hp tok-hp-bg" r={hr()} style={{ "stroke-width": `${5 * p.k}` }} />
                         <circle
                           class={cx("tok-hp tok-hp-fill", team(), hp() <= 30 && "low")}
                           r={hr()}
                           transform="rotate(-90)"
                           stroke-dasharray={`${(c() * hp()) / 100} ${c()}`}
-                          style={{ "stroke-width": `${3 * p.k}` }}
+                          style={{ "stroke-width": `${5 * p.k}` }}
                         />
                       </g>
                     );

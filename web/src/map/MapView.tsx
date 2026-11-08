@@ -14,30 +14,54 @@ import { FIT_VIEW, MARGIN, type Viewpoint } from "./transform";
 const POWERUP = "#FFEFD7";
 const CAMP_IMG = { weak: "neutral-small", medium: "neutral-medium", strong: "neutral-large", vaults: "neutral-vault" } as const;
 
-function Layer(p: { img: string; wash?: string; style?: JSX.CSSProperties; part?: string }) {
+function Layer(p: { img: string; wash?: string; style?: JSX.CSSProperties; part?: string; span?: readonly [number, number] }) {
   return p.wash ? (
-    <i class={cx("w", p.part)} data-img={p.img} style={{ "--wash": p.wash, ...p.style }} />
+    <i class={cx("w", p.part)} data-img={p.img} data-span={p.span?.join(" ")} style={{ "--wash": p.wash, ...p.style }} />
   ) : (
-    <i class={cx("p", p.part)} data-pimg={p.img} style={p.style} />
+    <i class={cx("p", p.part)} data-pimg={p.img} data-span={p.span?.join(" ")} style={p.style} />
   );
+}
+
+/**
+ * Where each fill image's shape sits in its box, top to bottom (its opaque rows): the diamonds
+ * fill only the middle of theirs, so a clip over the whole box read 67% as nearly full.
+ */
+const SPAN = { t1: [0.281, 0.719], t2: [0.281, 0.719], shield: [0.133, 0.492], core: [0.383, 0.625], midboss: [0.172, 0.813] } as const;
+
+/**
+ * The clip that fills a layer's shape from the bottom up to `hp` percent. A layer drawn rotated
+ * (a friendly Patron's shield) is clipped from its own top, which shows at the bottom.
+ */
+function hpClip(hp: number | undefined, span: readonly [number, number], flip = false): JSX.CSSProperties {
+  if (hp === undefined) return {};
+  const [top, bottom] = span;
+  const lit = ((bottom - top) * hp) / 100;
+  return { "clip-path": flip ? `inset(0 0 ${((1 - top - lit) * 100).toFixed(2)}% 0)` : `inset(${((bottom - lit) * 100).toFixed(2)}% 0 0 0)` };
 }
 
 function Fb(p: { shape: string; color: string; k: number; part?: string }) {
   return <b class={cx("fb", p.shape, p.part)} style={{ "--c": p.color, "--k": String(p.k) }} />;
 }
 
-function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | undefined; picked: boolean; camp?: string | undefined }) {
+/**
+ * `health` (Player, replay tier): the icon fills from the bottom up to it, as in game; the
+ * HUD's own fill layer (`hp-fill`) is clipped and the empty part shows its dark frame. Absent:
+ * full, as in Sandbox (operator, 2026-11-08).
+ */
+function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | undefined; picked: boolean; health?: number | undefined; camp?: string | undefined }) {
   const c = () => washFor(p.m, p.vp);
+  // Destroyed keeps its own look.
+  const hp = () => (p.health === undefined || p.status === "Destroyed" ? undefined : Math.max(0, Math.min(100, p.health)));
   const body = () => {
     const m = p.m;
     switch (m.kind) {
       case "t1":
       case "barracks":
-        return [<Fb shape="diamond" color={c()} k={0.34} />, <Layer img="boss-health" wash={c()} />, <Layer img="boss-health-fill" wash={c()} />];
+        return [<Fb shape="diamond" color={c()} k={0.34} part="hp-fb" />, <Layer img="boss-health" wash={c()} />, <Layer img="boss-health-fill" wash={c()} part="hp-fill" span={SPAN.t1} style={hpClip(hp(), SPAN.t1)} />];
       case "t2":
-        return [<Fb shape="diamond" color={c()} k={0.4} />, <Layer img="boss-health-t2" wash={c()} />, <Layer img="boss-health-fill-t2" wash={c()} />];
+        return [<Fb shape="diamond" color={c()} k={0.4} part="hp-fb" />, <Layer img="boss-health-t2" wash={c()} />, <Layer img="boss-health-fill-t2" wash={c()} part="hp-fill" span={SPAN.t2} style={hpClip(hp(), SPAN.t2)} />];
       case "shrine":
-        return [<Fb shape="diamond-o" color={c()} k={0.4} />, <Layer img="boss-health-t2" wash={c()} />, <Layer img="boss-health-fill-t2" wash={c()} />];
+        return [<Fb shape="diamond-o" color={c()} k={0.4} />, <Layer img="boss-health-t2" wash={c()} />, <Layer img="boss-health-fill-t2" wash={c()} part="hp-fill" span={SPAN.t2} style={hpClip(hp(), SPAN.t2)} />];
       case "t3": {
         // Two stages: the shield (the arch, stage 1) over the core (the diamond, stage 2). In
         // stage 2 the shield is gone (`.stage2` hides the `st1` parts).
@@ -45,15 +69,18 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
         const rot: JSX.CSSProperties = friend ? { transform: "rotate(180deg)" } : {};
         return [
           <Fb shape={friend ? "arch-down" : "arch"} color={c()} k={0.62} part="st1" />,
-          <Fb shape="diamond" color={c()} k={0.3} part="st2" />,
+          <Fb shape="diamond" color={c()} k={0.3} part="st2 hp-core-fb" />,
           <Layer img="boss-health-final" wash={c()} style={rot} part="st1" />,
-          <Layer img="boss-health-final-fill" wash={c()} style={rot} part="st1" />,
+          // Stage 1: the shield fills to the health; the core under it stays whole.
+          <Layer img="boss-health-final-fill" wash={c()} style={{ ...rot, ...hpClip(hp(), SPAN.shield, friend) }} part="st1 hp-fill" span={SPAN.shield} />,
           <Layer img="boss-health-final-stage2" wash={c()} />,
-          <Layer img="boss-health-final-stage2-fill" wash={c()} />,
+          // Stage 2: the shield is gone and the core fills to the health.
+          <Layer img="boss-health-final-stage2-fill" wash={c()} part="hp-core" span={SPAN.core} style={hpClip(p.status === "Stage2" ? hp() : undefined, SPAN.core)} />,
         ];
       }
       case "midboss":
-        return [<Fb shape="star" color="#d9b24a" k={0.5} />, <Layer img="super-neutral-marker" />];
+        // No fill layer in the HUD's art: a dark copy under, the icon itself clipped over it.
+        return [<Fb shape="star" color="#d9b24a" k={0.5} part="hp-fb" />, <Layer img="super-neutral-marker" part="hp-back" />, <Layer img="super-neutral-marker" part="hp-fill" span={SPAN.midboss} style={hpClip(hp(), SPAN.midboss)} />];
       case "camp":
         return [<Fb shape={m.tier === "vaults" ? "sq" : "tri"} color="#9fc6bb" k={0.35} />, <Layer img={CAMP_IMG[m.tier ?? "medium"]} />];
       case "koth":
@@ -68,8 +95,10 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
       data-status={p.status ?? "Active"}
       title={p.m.title}
       data-key={p.m.key}
+      data-health={hp() === undefined ? undefined : Math.round(hp()!)}
       data-camp={p.camp}
       style={{
+        "--hp": hp() === undefined ? undefined : `${hp()}%`,
         left: `${p.m.at.x / 10}%`,
         top: `${p.m.at.y / 10}%`,
         width: `${(p.m.px / HUD_MAP_PX) * 100}%`,
@@ -152,6 +181,8 @@ export function MapView(p: {
   raisedLane?: string | undefined;
   /** Objectives in your group selection. */
   picked?: (key: string) => boolean;
+  /** Objectives' health in percent (Player, replay tier); absent: full. */
+  health?: (key: string) => number | undefined;
   /** Player, replay tier: a lane's zipline colours, which replace its split. */
   laneEdges?: (lane: string) => Edges | undefined;
   /** Player, replay tier: a camp's state ("alive", "cleared", "unspawned"), as `data-camp`. */
@@ -228,6 +259,7 @@ export function MapView(p: {
                     // A rift is off unless someone turned it on; everything else is up unless destroyed.
                     status={m.kind === "koth" ? (p.status?.(m.key) === "Active" ? "Active" : "Destroyed") : p.status?.(m.key)}
                     picked={!!p.picked?.(m.key)}
+                    health={p.health?.(m.key)}
                     camp={p.camp?.(m.key)}
                   />
                 )}

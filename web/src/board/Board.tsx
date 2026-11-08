@@ -22,7 +22,7 @@ import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type ViewRect, clampView, fromViewport, presenters, sideOf, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
 import type { MatchPreview } from "../match/preview";
-import { Highlight, ObjectiveHealth, Player, PlayerSide, PlayerSwitch, TrooperDots } from "../player/Player";
+import { Highlight, Player, PlayerSide, PlayerSwitch, TrooperDots } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
 import { CampTips } from "../player/Camps";
 import { liveLayer } from "../player/layer";
@@ -622,8 +622,12 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 const site = pv.sites.get(k);
                 if (site) return site;
                 if (k.startsWith("rift:")) return "Destroyed";
-                return pv.down.has(k) ? "Destroyed" : "Active";
+                if (pv.down.has(k)) return "Destroyed";
+                // The patron's stage from the replay: its shield (stage 1) or its core (stage 2).
+                return pv.health?.get(k)?.stage === 2 ? "Stage2" : "Active";
               }}
+              // Replay tier, Health on: each objective's icon filled to its health (operator, 2026-11-08).
+              health={(k) => matchPreview()?.health?.get(k)?.pct}
               waveT={splitOf}
               laneEdges={(k) => matchPreview()?.lanes.get(k)}
               camp={(k) => matchPreview()?.camps.get(k)?.state}
@@ -633,7 +637,6 @@ export function Board(p: { board: string; token: string; art: Art }) {
             >
               <Show when={inPlayer()}>
                 <TrooperDots host={player} vp={viewpoint()} />
-                <ObjectiveHealth host={player} art={p.art} vp={viewpoint()} />
               </Show>
               <Layers
                 state={state}

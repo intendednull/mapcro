@@ -72,6 +72,14 @@
 [data-mm-icon] { position: relative; display: inline-block; width: 26px; height: 26px; vertical-align: middle; --u: 0.6px; }
 [data-mm-icon] .mk { transform: translate(-50%, -50%); }
 
+/* Objectives' health (Player, replay tier; operator, 2026-11-08): MapView clips each icon's
+   fill layer to fill its shape from the bottom up, as in game, so the empty part shows the dark
+   frame under it. The mid boss has no fill art: a dark copy of its icon sits under the clip. */
+.mk > i.hp-back { display: none; }
+.mk[data-health] > i.hp-back { display: var(--pa-display, none); filter: grayscale(1) brightness(0.3); }
+/* Without the pack's art: the shape filled to the health, the rest dark. */
+.mk[data-health] > .fb.hp-fb, .mk.stage2[data-health] > .fb.hp-core-fb { background: linear-gradient(to top, var(--c) var(--hp), color-mix(in srgb, var(--c) 22%, #000) var(--hp)); }
+
 /* The Patron in stage 2: its shield (the arch) is down, the core fights on. */
 .mk.stage2 .st1 { display: none; }
 .mk.stage2 { filter: drop-shadow(0 0 calc(4 * var(--u, 1px)) var(--brass, #d9b24a)); }
