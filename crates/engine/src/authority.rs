@@ -157,7 +157,8 @@ impl Authority {
     /// The host compacted its log: entries at or below `floor` are gone, and what it keeps
     /// takes `kept_bytes` (what the byte quota now counts).
     pub fn compacted(&mut self, floor: u64, kept_bytes: usize) {
-        self.floor = floor.min(self.log_len);
+        // Never backwards: entries below an earlier floor are gone whatever the host says now.
+        self.floor = self.floor.max(floor).min(self.log_len);
         self.log_bytes = kept_bytes;
     }
 

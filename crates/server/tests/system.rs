@@ -2017,3 +2017,166 @@ async fn a_migration_interrupted_by_a_crash_still_boots() {
     let v: String = rusqlite::Connection::open(&path).expect("open").query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("v");
     assert_eq!(v, "5");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_compaction_floor_never_moves_back() {
+    // Review 2026-11-07, finding 6: a compaction whose keep budget covers every row returned a
+    // floor of 0, and the server then served catch-up from rows long gone.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start_with(dir.path(), None, &[("BOARD_COMPACT_OPS", "20"), ("BOARD_KEEP_OPS", "2")]);
+    let (board, owner) = server.create_board();
+    let mut w = Client::new(0x6a1);
+    let mut c = Client::new(0x6a2);
+    w.connect(server.port, &board, &owner).await.expect("w");
+    c.connect(server.port, &board, &owner).await.expect("c");
+    assert!(edits_until_decided(&mut w, 3, move_op).await.is_empty());
+    while c.replica().last_seq() < 3 {
+        c.pump_one().await.expect("c");
+    }
+    c.drop_connection(); // a copy at seq 3
+    assert!(edits_until_decided(&mut w, 27, move_op).await.is_empty()); // compacts past it
+    let (d, port) = server.kill9();
+    w.drop_connection();
+    // A bigger keep budget than there are rows: the next compaction keeps them all.
+    let server = Server::start_with(&d, Some(port), &[("BOARD_COMPACT_OPS", "20"), ("BOARD_KEEP_OPS", "1000")]);
+    w.connect(server.port, &board, &owner).await.expect("w again");
+    assert!(edits_until_decided(&mut w, 25, move_op).await.is_empty());
+    c.connect(server.port, &board, &owner).await.expect("c comes back from below the floor");
+    while c.replica().last_seq() < w.replica().last_seq() {
+        c.pump_one().await.expect("c is rebased, not served catch-up from rows that are gone");
+    }
+    assert_eq!(c.replica().confirmed(), w.replica().confirmed());
+}
+
+#[cfg(feature = "failpoints")]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_compaction_leaves_the_room_up() {
+    // Review finding 5: compaction runs after a commit, so its failure loses nothing. It used to
+    // close the room (crash-only), which on a persistent error means a reconnect loop.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start_with(dir.path(), None, &[("BOARD_COMPACT_OPS", "10"), ("MAPCRO_INJECT", "compact_error")]);
+    let (board, owner) = server.create_board();
+    let mut w = Client::new(0x5c1);
+    w.connect(server.port, &board, &owner).await.expect("w");
+    assert!(edits_until_decided(&mut w, 30, move_op).await.is_empty(), "edits keep landing");
+    let fresh = fresh_catch_up(server.port, &board, &owner, 0x5c2, 30).await;
+    assert_eq!(fresh.replica().confirmed(), w.replica().confirmed());
+}
+
+/// How a stale hello ends: the connection closes (and why), or it's rebased straight away.
+#[cfg(feature = "failpoints")]
+#[derive(Debug, PartialEq)]
+enum StaleHello {
+    Closed(CloseReason),
+    Rebased,
+}
+
+#[cfg(feature = "failpoints")]
+async fn stale_hello_outcome(ws: &mut Ws) -> Option<StaleHello> {
+    loop {
+        match recv(ws).await? {
+            WireOut::Closed { reason } => return Some(StaleHello::Closed(reason)),
+            WireOut::Msg { msg: ServerMsg::Rebase { .. } } => return Some(StaleHello::Rebased),
+            _ => continue,
+        }
+    }
+}
+
+#[cfg(feature = "failpoints")]
+#[tokio::test(flavor = "multi_thread")]
+async fn compaction_in_the_same_batch_as_a_stale_hello_rebases_not_errors() {
+    // Review finding 1: a catch-up is a range the socket reads later. Compaction in the same
+    // batch as the hello deleted rows the range named, and the read failed as a storage error.
+    // Now it's "too slow" (no error), and the client's reconnect is rebased.
+    // Commits pause 600 ms (so the hello and the edits that trigger compaction share a batch),
+    // and the catch-up read waits 2 s (so compaction has happened by then, whichever batch the
+    // hello landed in).
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = [("BOARD_COMPACT_OPS", "20"), ("BOARD_KEEP_OPS", "2"), ("MAPCRO_PAUSE_COMMIT_MS", "600"), ("MAPCRO_PAUSE_CATCHUP_MS", "2000")];
+    let server = Server::start_with(dir.path(), None, &env);
+    let (board, owner) = server.create_board();
+    let mut w = Client::new(0x1a1);
+    let mut c = Client::new(0x1a2);
+    w.connect(server.port, &board, &owner).await.expect("w");
+    c.connect(server.port, &board, &owner).await.expect("c");
+    assert!(edits_until_decided(&mut w, 5, move_op).await.is_empty());
+    while c.replica().last_seq() < 5 {
+        c.pump_one().await.expect("c");
+    }
+    c.drop_connection(); // a copy at seq 5
+    assert!(edits_until_decided(&mut w, 12, move_op).await.is_empty()); // 17: not due yet
+    // C authenticates; then the room is kept busy (a commit pausing) while C's hello and the
+    // edits that make compaction due queue behind it, and so share the next batch.
+    let mut raw = open_ws(server.port, ORIGIN).await.expect("ws");
+    send(&mut raw, &WireIn::Auth { board: board.clone(), token: owner.clone(), known_seq: Some(5) }).await;
+    assert!(matches!(recv(&mut raw).await, Some(WireOut::Ready { .. })));
+    let ops = move_op(w.replica(), 100);
+    w.edit(ops).await;
+    tokio::time::sleep(Duration::from_millis(200)).await; // that edit's commit is now pausing
+    let hello = mapcro_engine::Hello { client: c.id, secret: format!("secret-{:032x}", c.id.0), last_seq: 5, pending_from: 0 };
+    send(&mut raw, &WireIn::Msg { msg: ClientMsg::Hello(hello) }).await;
+    for i in 0..5 {
+        let ops = move_op(w.replica(), 101 + i);
+        w.edit(ops).await;
+    }
+    // Usually the hello shares the batch and its catch-up is overtaken: closed as too slow. Under
+    // load W's edits can reach the room first, on their own socket, and then the hello is simply
+    // rebased. Either is right; a storage failure never is.
+    let outcome = stale_hello_outcome(&mut raw).await;
+    eprintln!("stale hello: {outcome:?}");
+    assert!(
+        matches!(outcome, Some(StaleHello::Closed(CloseReason::TooSlow) | StaleHello::Rebased)),
+        "compacted away: retry or rebase, not {outcome:?}"
+    );
+    w.until_saved().await;
+    c.connect(server.port, &board, &owner).await.expect("c is rebased");
+    while c.replica().last_seq() < w.replica().last_seq() {
+        c.pump_one().await.expect("in sync");
+    }
+    assert_eq!(c.replica().confirmed(), w.replica().confirmed());
+}
+
+#[cfg(feature = "failpoints")]
+#[tokio::test(flavor = "multi_thread")]
+async fn compaction_during_a_slow_paged_catch_up_rebases_not_errors() {
+    // Review finding 1, the other half: a catch-up several pages long, read slowly, and
+    // compaction lands between pages.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = [("BOARD_COMPACT_OPS", "40"), ("BOARD_KEEP_OPS", "2"), ("MAPCRO_PAUSE_CATCHUP_MS", "300")];
+    let server = Server::start_with(dir.path(), None, &env);
+    let (board, owner) = server.create_board();
+    let mut w = Client::new(0x1b1);
+    let mut c = Client::new(0x1b2);
+    w.connect(server.port, &board, &owner).await.expect("w");
+    c.connect(server.port, &board, &owner).await.expect("c");
+    assert!(edits_until_decided(&mut w, 1, move_op).await.is_empty());
+    while c.replica().last_seq() < 1 {
+        c.pump_one().await.expect("c");
+    }
+    c.drop_connection(); // a copy at seq 1
+    let scene = scene_of(w.replica());
+    // 20 entries of a 512-point stroke each (~12 KB): about four 64 KiB pages of catch-up.
+    for i in 0..20 {
+        assert!(edits_until_decided(&mut w, 1, |_, _| stroke_ops(scene, 0x1b00 + i, 1)).await.is_empty());
+    }
+    c.connect(server.port, &board, &owner).await.expect("c");
+    while c.replica().last_seq() < 2 {
+        c.pump_one().await.expect("the first page arrives");
+    }
+    // Now compact past where C's catch-up has got to.
+    assert!(edits_until_decided(&mut w, 25, move_op).await.is_empty());
+    let mut end = Ok(());
+    while c.replica().last_seq() < w.replica().last_seq() {
+        end = c.pump_one().await;
+        if end.is_err() {
+            break;
+        }
+    }
+    assert_eq!(end, Err(Some(CloseReason::TooSlow)), "compacted away mid-stream: retry, not a storage failure");
+    c.drop_connection();
+    c.connect(server.port, &board, &owner).await.expect("c is rebased");
+    while c.replica().last_seq() < w.replica().last_seq() {
+        c.pump_one().await.expect("in sync");
+    }
+    assert_eq!(c.replica().confirmed(), w.replica().confirmed());
+}

@@ -93,9 +93,17 @@ async fn catch_up(
 ) -> Result<(), Option<CloseReason>> {
     let mut next = from;
     while next <= to {
-        let page = store.entry_frames(board.to_owned(), next, to, CATCH_UP_PAGE_BYTES).await.map_err(|e| {
-            tracing::error!(board, error = %e, "catch-up read failed");
-            Some(CloseReason::StorageFailure)
+        crate::room::pause("catchup").await;
+        let page = store.entry_frames(board.to_owned(), next, to, CATCH_UP_PAGE_BYTES).await.map_err(|e| match e {
+            // Compacted since the range was queued: the client reconnects and is rebased.
+            crate::store::StoreError::Compacted => {
+                tracing::info!(board, from = next, "catch-up overtaken by compaction; client will be rebased");
+                Some(CloseReason::TooSlow)
+            }
+            e => {
+                tracing::error!(board, error = %e, "catch-up read failed");
+                Some(CloseReason::StorageFailure)
+            }
         })?;
         if page.is_empty() {
             return Err(Some(CloseReason::StorageFailure)); // the log is shorter than the hello said

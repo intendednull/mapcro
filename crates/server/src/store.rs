@@ -26,6 +26,10 @@ pub enum StoreError {
     /// The server is at its board-count or storage cap.
     #[error("server storage is full")]
     Full,
+    /// Catch-up asked for entries that compaction has since dropped (review finding 1). Not a
+    /// fault: the client reconnects and is rebased.
+    #[error("those entries were compacted away")]
+    Compacted,
 }
 
 /// Caps on what a board may hold, checked as it loads.
@@ -505,7 +509,9 @@ impl Store {
                 params![board, doc, codec.as_str(), base_seq as i64],
             )?;
             // Newest first: keep entries while both budgets allow.
-            let mut floor = 0u64;
+            // If every row fits the budget, the floor stays where earlier compactions left it: just
+            // below the oldest row still kept, never back to 0 (review finding 6).
+            let mut floor = base_seq;
             let (mut n, mut bytes) = (0usize, 0usize);
             {
                 let mut stmt = t.prepare("SELECT seq, length(tx) FROM ops WHERE board = ?1 AND seq <= ?2 ORDER BY seq DESC")?;
@@ -518,6 +524,7 @@ impl Store {
                     }
                     n += 1;
                     bytes += len as usize;
+                    floor = seq as u64 - 1;
                 }
             }
             t.execute("DELETE FROM ops WHERE board = ?1 AND seq <= ?2", params![board, floor as i64])?;
@@ -547,6 +554,10 @@ impl Store {
             let mut expected = from as i64;
             while let Some(row) = rows.next()? {
                 let seq: i64 = row.get(0)?;
+                if seq != expected && expected == from as i64 {
+                    // The range starts below what's kept: compacted since it was queued.
+                    return Err(StoreError::Compacted);
+                }
                 if seq != expected {
                     return Err(StoreError::Corrupt(format!("op log gap at {seq}, expected {expected}")));
                 }
@@ -559,6 +570,9 @@ impl Store {
                 if bytes >= max_bytes {
                     break;
                 }
+            }
+            if frames.is_empty() {
+                return Err(StoreError::Compacted); // nothing from `from` on: compacted past it
             }
             Ok(frames)
         })

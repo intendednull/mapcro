@@ -104,6 +104,30 @@ fn record_commit(messages: usize, writes: usize) {
 #[cfg(not(feature = "failpoints"))]
 fn record_commit(_: usize, _: usize) {}
 
+/// Test-only (`--features failpoints`): wait `MAPCRO_PAUSE_<NAME>_MS` here, to fix the order of
+/// events a test needs (a slow fsync, a slow catch-up reader).
+#[cfg(feature = "failpoints")]
+pub(crate) async fn pause(name: &str) {
+    let key = format!("MAPCRO_PAUSE_{}_MS", name.to_ascii_uppercase());
+    if let Some(ms) = std::env::var(key).ok().and_then(|v| v.parse::<u64>().ok()) {
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+    }
+}
+
+#[cfg(not(feature = "failpoints"))]
+pub(crate) async fn pause(_: &str) {}
+
+/// Test-only (`--features failpoints`): whether `MAPCRO_INJECT` lists `name`, a failure to fake.
+#[cfg(feature = "failpoints")]
+fn injected(name: &str) -> bool {
+    std::env::var("MAPCRO_INJECT").is_ok_and(|v| v.split(',').any(|n| n == name))
+}
+
+#[cfg(not(feature = "failpoints"))]
+fn injected(_: &str) -> bool {
+    false
+}
+
 /// What a connection's socket task sends, in order.
 pub enum Out {
     /// A serialized frame, shared by every peer it goes to.
@@ -192,6 +216,9 @@ struct Room {
     snapshot: Option<(u64, Option<Arc<str>>)>,
     /// The log position the stored base document is at (the last compaction).
     base_seq: u64,
+    /// After a failed compaction, the log length to try again at (so a persistent failure
+    /// neither ends every batch nor logs on every one).
+    compact_retry_at: u64,
     compaction: Compaction,
 }
 
@@ -399,6 +426,7 @@ impl Rooms {
             unload: false,
             snapshot: None,
             base_seq,
+            compact_retry_at: 0,
             compaction: self.compaction,
         };
         let registry = self.clone();
@@ -739,6 +767,7 @@ impl Room {
         }
         if !writes.is_empty() {
             let n = writes.len();
+            pause("commit").await;
             failpoint("before_commit");
             self.store.commit(self.id.clone(), writes).await?;
             failpoint("after_commit");
@@ -747,7 +776,12 @@ impl Room {
         for outbox in outboxes {
             self.deliver(outbox);
         }
-        self.maybe_compact().await?;
+        // The batch is committed; compaction is housekeeping. If it fails, say so and carry on:
+        // the history caps are the backstop (review finding 5).
+        if let Err(e) = self.maybe_compact().await {
+            self.compact_retry_at = self.authority.log_len() + (self.compaction.every_ops / 10).max(1);
+            tracing::error!(board = self.id, error = %e, retry_at = self.compact_retry_at, "compaction failed; continuing without it");
+        }
         self.publish_weight();
         Ok(rest)
     }
@@ -760,6 +794,7 @@ impl Room {
     fn compaction_due(&self) -> bool {
         let len = self.authority.log_len();
         self.compaction.every_ops > 0
+            && len >= self.compact_retry_at
             && len > self.base_seq
             && (len - self.base_seq >= self.compaction.every_ops || self.authority.log_bytes() >= self.rooms.caps.quota.max_log_bytes / 2)
     }
@@ -767,6 +802,9 @@ impl Room {
     async fn maybe_compact(&mut self) -> Result<(), StoreError> {
         if !self.compaction_due() {
             return Ok(());
+        }
+        if injected("compact_error") {
+            return Err(StoreError::Corrupt("injected compaction failure".into()));
         }
         let len = self.authority.log_len();
         let quota = self.rooms.caps.quota;
