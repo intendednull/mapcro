@@ -922,8 +922,8 @@ kbd {
 .mm-overlay.map .tok:not(:hover) .life { pointer-events: none; }
 .mm-overlay.map .respawn-label rect { fill: #0b1714e6; stroke: #c9c3b6; stroke-width: 1; }
 .mm-overlay.map .respawn-label text { fill: var(--text); font: 600 12px var(--ui); text-anchor: middle; dominant-baseline: central; }
-.mm-overlay.map .respawn-label.unset { opacity: 0; }
-.mm-overlay.map .respawn-label.unset.editable:hover, .mm-overlay.map .tok.dead:hover + .respawn .respawn-label.unset.editable { opacity: 0.8; }
+.mm-overlay.map .respawn-label.unset { opacity: 0; pointer-events: none; }
+.mm-overlay.map .respawn-label.unset.editable.hint { opacity: 0.8; pointer-events: auto; }
 .mm-overlay.map .respawn-label.editable { cursor: text; }
 .mm-overlay.map .respawn-input { width: 100%; height: 100%; box-sizing: border-box; font: 600 12px var(--ui); text-align: center; color: var(--text); background: #0b1714; border: 1px solid var(--accent); border-radius: 4px; padding: 0; outline: none; }
 

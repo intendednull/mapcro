@@ -31,9 +31,15 @@ test("K kills and revives a hovered hero; dead looks unlike unseen; a respawn ti
   await expect(tok(b, "Amber-2").locator(".dead-badge")).toHaveCount(0);
   await expect(tok(b, "Amber-2").locator(".vis .slash")).toHaveCount(1);
 
-  // The timer: optional, typed by hand.
+  // The timer: optional, typed by hand. Unset, its label is a hint that shows from its own hero;
+  // a real click (no force) proves nothing covers it, the hero below it included.
   const label = a.getByTestId("respawn").locator(".respawn-label");
-  await label.click({ force: true });
+  // From anywhere else the hint stays out of the way: its spot belongs to the hero below.
+  const box = (await label.boundingBox())!;
+  const mid = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  expect(await a.evaluate((pt) => document.elementFromPoint(pt.x, pt.y)?.closest(".tok")?.getAttribute("data-slot"), mid)).toBe("Amber-4");
+  await tok(a, "Amber-1").hover();
+  await label.click();
   await a.getByTestId("respawn-input").fill("0:45");
   await a.keyboard.press("Enter");
   await expect(b.getByTestId("respawn")).toContainText("respawn 0:45");

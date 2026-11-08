@@ -3,6 +3,7 @@
 // move, with the dragger's name tag), and the drop commits one op (spec §4a).
 
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
+import { Portal } from "solid-js/web";
 import { formatClock, parseClock } from "../core/clock";
 import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
@@ -179,10 +180,23 @@ export function Tokens(p: {
   // scenes leaves no stale target). Never under a match preview, like the skull button.
   const [hovered, setHovered] = createSignal<RecordId>();
   const [timing, setTiming] = createSignal<RecordId>();
+  // A dead hero's unset respawn label is an invisible hint over the hero below it in the default
+  // layout: it shows, and takes the pointer, only once the pointer came to it from its own hero
+  // (armed on entering the token, kept while the pointer stays over the token, its label or the
+  // gap between), so the hero below stays grabbable from anywhere else.
+  const [armed, setArmed] = createSignal<RecordId>();
+  let root: SVGGElement | undefined;
   createEffect(on(() => p.scene, () => setHovered(undefined), { defer: true }));
   onMount(() => {
     let at: { x: number; y: number } | undefined;
-    const move = (e: PointerEvent) => (at = { x: e.clientX, y: e.clientY });
+    const move = (e: PointerEvent) => {
+      at = { x: e.clientX, y: e.clientY };
+      const id = armed();
+      if (!id) return;
+      const box = [root?.querySelector(`.tok[data-player="${id}"]`), labels.querySelector(`[data-player="${id}"]`)].flatMap((el) => (el ? [el.getBoundingClientRect()] : []));
+      const inside = box.length > 0 && e.clientX >= Math.min(...box.map((b) => b.left)) && e.clientX <= Math.max(...box.map((b) => b.right)) && e.clientY >= Math.min(...box.map((b) => b.top)) && e.clientY <= Math.max(...box.map((b) => b.bottom));
+      if (!inside) setArmed(undefined);
+    };
     const key = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() !== "k" || e.ctrlKey || e.metaKey || e.altKey || e.repeat || !at || p.preview?.()) return;
       const t = e.target as HTMLElement | null;
@@ -215,8 +229,14 @@ export function Tokens(p: {
     p.state.edit([{ Set: { id: pl.id, value: { PlayerVisible: !pl.state.visible } } }]);
   };
 
+  // Each dead hero's respawn label hangs below its token, where the next row of heroes stands
+  // in the default layout: drawn in its own layer above every token, so no neighbour, whatever
+  // its place in the roster, covers it and takes its click.
+  const labels = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  labels.setAttribute("class", "respawns");
+
   return (
-    <g class="tokens">
+    <g class="tokens" ref={root}>
       <For each={slotIds()}>
         {(slotId) => {
           // Keyed by roster slot, not by record: a flip keeps each hero's node, and it glides.
@@ -267,7 +287,10 @@ export function Tokens(p: {
                 data-player={pl().id}
                 data-visible={String(visible())}
                 onPointerDown={(e) => down(pl(), e)}
-                onPointerEnter={() => setHovered(pl().id)}
+                onPointerEnter={() => {
+                  setHovered(pl().id);
+                  setArmed(pl().id);
+                }}
                 onPointerLeave={() => hovered() === pl().id && setHovered(undefined)}
                 ref={() => onCleanup(() => hovered() === pl().id && setHovered(undefined))}
               >
@@ -363,41 +386,43 @@ export function Tokens(p: {
                 </Show>
               </g>
               <Show when={!alive() && !live()}>
-                <g class="respawn" data-testid="respawn" transform={`translate(${at().x} ${at().y + r() + 14 * p.k}) scale(${p.k})`}>
-                  <Show
-                    when={timing() === pl().id}
-                    fallback={
-                      <g
-                        class={cx("respawn-label", p.state.canEdit() && "editable", pl().state.respawn == null && "unset")}
-                        onPointerDown={(e) => {
-                          if (e.button !== 0 || !p.state.canEdit()) return;
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setTiming(pl().id);
-                        }}
-                      >
-                        <rect x="-44" y="-10" width="88" height="20" rx="4" />
-                        <text>{pl().state.respawn != null ? `respawn ${formatClock(pl().state.respawn)}` : "respawn"}</text>
-                      </g>
-                    }
-                  >
-                    <foreignObject x="-44" y="-12" width="88" height="24">
-                      <input
-                        class="respawn-input"
-                        data-testid="respawn-input"
-                        aria-label="Respawn in (m:ss)"
-                        value={formatClock(pl().state.respawn)}
-                        ref={(el) => queueMicrotask(() => el.select())}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") setRespawn(pl(), e.currentTarget.value);
-                          if (e.key === "Escape") setTiming(undefined);
-                          e.stopPropagation();
-                        }}
-                        onBlur={(e) => timing() === pl().id && setRespawn(pl(), e.currentTarget.value)}
-                      />
-                    </foreignObject>
-                  </Show>
-                </g>
+                <Portal mount={labels} isSVG>
+                  <g class="respawn" data-testid="respawn" data-player={pl().id} transform={`translate(${at().x} ${at().y + r() + 14 * p.k}) scale(${p.k})`}>
+                    <Show
+                      when={timing() === pl().id}
+                      fallback={
+                        <g
+                          class={cx("respawn-label", p.state.canEdit() && "editable", pl().state.respawn == null && "unset", armed() === pl().id && "hint")}
+                          onPointerDown={(e) => {
+                            if (e.button !== 0 || !p.state.canEdit()) return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setTiming(pl().id);
+                          }}
+                        >
+                          <rect x="-44" y="-10" width="88" height="20" rx="4" />
+                          <text>{pl().state.respawn != null ? `respawn ${formatClock(pl().state.respawn)}` : "respawn"}</text>
+                        </g>
+                      }
+                    >
+                      <foreignObject x="-44" y="-12" width="88" height="24">
+                        <input
+                          class="respawn-input"
+                          data-testid="respawn-input"
+                          aria-label="Respawn in (m:ss)"
+                          value={formatClock(pl().state.respawn)}
+                          ref={(el) => queueMicrotask(() => el.select())}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") setRespawn(pl(), e.currentTarget.value);
+                            if (e.key === "Escape") setTiming(undefined);
+                            e.stopPropagation();
+                          }}
+                          onBlur={(e) => timing() === pl().id && setRespawn(pl(), e.currentTarget.value)}
+                        />
+                      </foreignObject>
+                    </Show>
+                  </g>
+                </Portal>
               </Show>
               <For each={others()}>
                 {(o, i) => (
@@ -417,6 +442,7 @@ export function Tokens(p: {
           );
         }}
       </For>
+      {labels}
     </g>
   );
 }
