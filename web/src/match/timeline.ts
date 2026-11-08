@@ -1,5 +1,7 @@
-// A match timeline from our server (crates/server/src/matches.rs) and the board state it gives
-// at a moment: where each hero is, who is dead, which objectives are down. Pure.
+// A match timeline from our server and the board state it gives at a moment: where each hero is,
+// who is dead, which objectives are down; and, from a replay (crates/replay), ult cooldowns,
+// rifts, powerups and lane-wave splits. Two tiers, one shape: the metadata timeline
+// (crates/server/src/matches.rs) lacks the replay's extra fields. Pure.
 
 import type { Marker } from "../map/model";
 
@@ -12,7 +14,14 @@ export interface TimelinePlayer {
   health: number[];
   deaths: number[];
   souls: Array<[number, number]>;
+  /** Replay tier: the in-game name, if the demo carries one (never an id). */
+  name?: string | null;
+  /** Replay tier: ult cooldown left in percent each second (0 ready); `null` untrained. */
+  ult?: Array<number | null>;
 }
+
+/** `[from, to)` seconds where a replay value is held through a gap in the recording. */
+export type Stale = Array<[number, number]>;
 
 export interface Timeline {
   match_id: number;
@@ -23,7 +32,15 @@ export interface Timeline {
   objectives: Array<{ key: string; kind: string; team: string; lane: number; destroyed_s: number }>;
   mid_boss: Array<{ destroyed_s: number; team_killed: string }>;
   reanchored: number;
+  /** `"replay"` for the replay tier; absent for the metadata tier. */
+  tier?: "replay";
+  build?: number;
+  rifts?: Array<{ key: string; start_s: number; end_s: number }>;
+  powerups?: Array<{ key: string; available: number[]; stale: Stale }>;
+  waves?: Array<{ lane: string; t: Array<number | null>; stale: Stale }>;
 }
+
+export const tierOf = (tl: Timeline): "replay" | "metadata" => (tl.tier === "replay" ? "replay" : "metadata");
 
 export interface PlayerAt {
   team: "amber" | "sapphire";
@@ -34,6 +51,8 @@ export interface PlayerAt {
   /** Where the hero was last seen alive at or before t (for a dead hero's token). */
   last: { x: number; y: number } | null;
   souls: number | null;
+  /** Ult cooldown left in percent; `null` when the tier doesn't know (or it's untrained). */
+  ult: number | null;
 }
 
 /** Position at a fractional second: linear between the two samples when both are alive. */
@@ -75,7 +94,40 @@ export function playersAt(tl: Timeline, t: number): PlayerAt[] {
     pos: positionAt(p, t),
     last: lastSeen(p, t),
     souls: soulsAt(p, t),
+    ult: p.ult?.[Math.max(0, Math.min(p.ult.length - 1, Math.floor(t)))] ?? null,
   }));
+}
+
+const inStale = (st: Stale, s: number) => st.some(([a, b]) => s >= a && s < b);
+
+/**
+ * Rifts and powerups at t as board statuses (replay tier; empty otherwise): the rift up at t is
+ * Active and the other rifts off (Destroyed); a powerup is Active while available, else
+ * Destroyed (taken, or not spawned yet).
+ */
+export function sitesAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "key" | "kind">>): Map<string, "Active" | "Destroyed"> {
+  const out = new Map<string, "Active" | "Destroyed">();
+  if (!tl.rifts && !tl.powerups) return out;
+  const s = Math.floor(t);
+  const known = new Set(markers.map((m) => m.key));
+  for (const m of markers) if (m.kind === "koth") out.set(m.key, "Destroyed");
+  for (const r of tl.rifts ?? []) if (known.has(r.key) && s >= r.start_s && s < r.end_s) out.set(r.key, "Active");
+  for (const p of tl.powerups ?? []) {
+    const v = p.available[Math.max(0, Math.min(p.available.length - 1, s))];
+    if (v !== undefined && known.has(p.key)) out.set(p.key, v ? "Active" : "Destroyed");
+  }
+  return out;
+}
+
+/** Lane splits (`Wave.t`) at t by lane key, and whether each is held through a gap. */
+export function wavesAt(tl: Timeline, t: number): Map<string, { t: number; stale: boolean }> {
+  const out = new Map<string, { t: number; stale: boolean }>();
+  const s = Math.floor(t);
+  for (const w of tl.waves ?? []) {
+    const v = w.t[Math.max(0, Math.min(w.t.length - 1, s))];
+    if (v != null) out.set(w.lane, { t: v, stale: inStale(w.stale, s) });
+  }
+  return out;
 }
 
 /**

@@ -276,4 +276,11 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .match-team.sapphire .match-hero { color: var(--sapphire); }
 .match-note { font-size: 11.5px; color: var(--brass); border: 1px solid var(--brass-dim); border-radius: 4px; padding: 1px 6px; }
 .match-credit { font-size: 11px; color: var(--faint); }
+.match-tier, .match-job:not(:empty) { font-size: 11px; border-radius: 4px; padding: 1px 6px; border: 1px solid var(--line); color: var(--faint); }
+.match-tier.replay { color: var(--brass); border-color: var(--brass-dim); }
+.match-hero { display: inline-flex; align-items: center; gap: 4px; }
+.match-ult { width: 13px; height: 13px; flex: none; }
+.match-ult-bg { fill: #0006; stroke: currentColor; stroke-width: 1.5; opacity: 0.45; }
+.match-ult.ready .match-ult-bg { opacity: 1; }
+.match-ult-left { fill: none; stroke: #ddd; stroke-width: 2.5; }
 .card.add.match { min-width: 96px; max-width: 120px; flex: 0 0 auto; }

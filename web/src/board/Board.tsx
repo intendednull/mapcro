@@ -320,7 +320,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
     const mine = waveDrag();
     if (mine?.key === key) return mine.t;
     const lane = p.art.model.lanes.find((l) => l.key === key);
-    return remoteSmooth().get(key)?.() ?? waves().get(key)?.t ?? (lane ? defaultSplit(lane.line) : 500);
+    // A match preview shows the match's splits (replay tier) over the board's.
+    return matchPreview()?.waves.get(key) ?? remoteSmooth().get(key)?.() ?? waves().get(key)?.t ?? (lane ? defaultSplit(lane.line) : 500);
   };
 
   // ---- a board this device just made gets twelve random heroes, once ----
@@ -511,8 +512,12 @@ export function Board(p: { board: string; token: string; art: Art }) {
               status={(k) => {
                 const pv = matchPreview();
                 const own = objectives().get(k)?.status;
-                // The match preview shows what was down at that moment; rifts keep the board's.
-                if (!pv || k.startsWith("rift:")) return own;
+                // The match preview shows what was down at that moment, and from a replay the
+                // rifts and powerups too; without those, rifts keep the board's.
+                if (!pv) return own;
+                const site = pv.sites.get(k);
+                if (site) return site;
+                if (k.startsWith("rift:")) return own;
                 return pv.down.has(k) ? "Destroyed" : "Active";
               }}
               waveT={splitOf}
@@ -808,11 +813,13 @@ export function Board(p: { board: string; token: string; art: Art }) {
       <Show when={matchOpen() && state.canEdit()}>
         <MatchPanel
           art={p.art}
+          board={p.board}
+          token={p.token}
           roster={state.roster()}
           onPreview={setMatchPreview}
           onClose={() => setMatchOpen(false)}
           onSave={(tl, t) => {
-            const { id, ops } = matchSceneOps(state.roster(), state.scenes(), scene(), tl, t, p.art.model.markers, newRecordId);
+            const { id, ops } = matchSceneOps(state.roster(), state.scenes(), scene(), tl, t, p.art.model.markers, newRecordId, p.art.model.lanes.map((l) => l.key));
             state.edit(ops); // one transaction: one undo removes the scene and the roster change
             userFlip(id);
           }}
