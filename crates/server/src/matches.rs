@@ -113,6 +113,9 @@ struct MatchInfo {
     #[serde(default)]
     mid_boss: Vec<MidBoss>,
     match_paths: Option<Paths>,
+    /// `ECitadelGameMode`, absent in older shapes (read as standard).
+    #[serde(default)]
+    game_mode: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -129,7 +132,10 @@ struct ModeInfo {
 /// Why a match's mode is refused (2026-11-08): our map, lanes and objectives describe only the
 /// standard 6v6 mode. `None` for a standard match, or one whose metadata doesn't say.
 pub fn mode_refusal(raw: &[u8]) -> Option<&'static str> {
-    let mode = serde_json::from_slice::<ModeOnly>(raw).ok()?.match_info.game_mode?;
+    refusal_for(serde_json::from_slice::<ModeOnly>(raw).ok()?.match_info.game_mode?)
+}
+
+fn refusal_for(mode: i64) -> Option<&'static str> {
     match mode {
         mapcro_replay::STANDARD_GAME_MODE => None,
         mapcro_replay::STREET_BRAWL => Some(mapcro_replay::reason::BRAWL),
@@ -228,6 +234,11 @@ pub struct Timeline {
     /// kills and big souls swings, in the replay timeline's shape (spec §6a, "Events").
     #[serde(default)]
     pub events: Vec<mapcro_replay::timeline::Event>,
+    /// The match's `ECitadelGameMode` (standard when the metadata didn't say). A cache without
+    /// it predates the mode refusal and is fetched again, so a Brawl match cached then is
+    /// refused now rather than served (QA 2026-11-08).
+    #[serde(default)]
+    pub game_mode: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -464,6 +475,7 @@ pub fn derive(raw: &[u8]) -> Result<Timeline, String> {
         objectives,
         mid_boss,
         reanchored,
+        game_mode: Some(m.game_mode.unwrap_or(mapcro_replay::STANDARD_GAME_MODE)),
         events: {
             let mut e = events;
             for o in &objectives_for_events(&m) {
@@ -583,6 +595,13 @@ fn fetch(id: &str) -> Fetched {
     }
 }
 
+/// What a cached timeline must carry to be served as it is.
+#[derive(Deserialize)]
+struct CachedHead {
+    events: Option<serde::de::IgnoredAny>,
+    game_mode: Option<i64>,
+}
+
 fn cache_path(app: &AppState, id: &str) -> PathBuf {
     app.config.data_dir.join("matches").join(format!("{id}.json"))
 }
@@ -631,10 +650,18 @@ pub async fn get(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<Soc
         return err(StatusCode::UNPROCESSABLE_ENTITY, why);
     }
     let path = cache_path(&app, &id);
-    // Caches written before events existed are fetched again, once.
+    // A cache is served only if it has events and says its mode, and the mode is standard. One
+    // written before either existed is fetched again, once: the fresh one has both, or the
+    // match is refused (production kept Brawl matches cached before the refusal, QA 2026-11-08).
     if let Ok(bytes) = tokio::fs::read(&path).await
-        && bytes.windows(9).any(|w| w == b"\"events\":")
+        && let Ok(head) = serde_json::from_slice::<CachedHead>(&bytes)
+        && head.events.is_some()
+        && let Some(mode) = head.game_mode
     {
+        if let Some(why) = refusal_for(mode) {
+            remember_refusal(&app, &id, why).await;
+            return err(StatusCode::UNPROCESSABLE_ENTITY, why);
+        }
         return json(bytes);
     }
     match admit(client_key(client_ip(peer, &headers))) {
@@ -656,6 +683,7 @@ pub async fn get(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<Soc
     if let Some(why) = mode_refusal(&raw) {
         tracing::info!(match_id = id, why, "match refused for its mode");
         remember_refusal(&app, &id, why).await;
+        let _ = tokio::fs::remove_file(&path).await;
         return err(StatusCode::UNPROCESSABLE_ENTITY, why);
     }
     let timeline = match tokio::task::spawn_blocking(move || {

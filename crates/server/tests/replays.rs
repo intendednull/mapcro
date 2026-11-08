@@ -538,3 +538,27 @@ fn a_non_standard_mode_is_refused_and_never_attached() {
     assert_eq!(server.call("POST", &format!("/api/boards/{board}/replays/78/fetch"), &owner), (422, serde_json::json!({ "error": "unsupported_mode" })));
     assert_eq!(server.call("GET", &format!("/api/boards/{board}/matches"), &owner).1, serde_json::json!({ "matches": [] }));
 }
+
+/// QA 2026-11-08: a Brawl match cached before the mode refusal existed. The cache is our derived
+/// shape, which then had no mode, so it was served and a board opened on it. A cache without a
+/// mode is stale: fetched again once, it's refused, and no board can attach it.
+#[test]
+fn a_brawl_match_cached_before_the_refusal_is_refused_not_served() {
+    let path = "/v1/matches/79/metadata?disable_steam=true".to_owned();
+    let meta = serde_json::to_vec(&serde_json::json!({ "match_info": { "match_id": 79, "duration_s": 60, "start_time": 0, "game_mode": 4, "match_mode": 1, "players": [] } })).expect("json");
+    let up = upstream(HashMap::from([(path.clone(), (200, meta))]));
+    let server = Server::start(up.port, &[]);
+    let legacy = serde_json::json!({ "match_id": 79, "start_time": 0, "duration_s": 60, "source": "deadlock-api.com", "players": [], "objectives": [], "mid_boss": [], "reanchored": 0, "events": [] });
+    let cache = server.data.path().join("matches/79.json");
+    std::fs::create_dir_all(cache.parent().expect("dir")).expect("mkdir");
+    std::fs::write(&cache, serde_json::to_vec(&legacy).expect("json")).expect("legacy cache");
+    let (board, owner, _) = server.board();
+    // The board's own route (what Player opens) and the public one both refuse it.
+    assert_eq!(server.call("GET", &format!("/api/boards/{board}/matches/79"), &owner), (422, serde_json::json!({ "error": "brawl" })));
+    assert_eq!(server.call("GET", "/api/matches/79", ""), (422, serde_json::json!({ "error": "brawl" })));
+    assert_eq!(up.hits(&path), 1, "fetched again once, then remembered");
+    assert!(!cache.exists(), "the stale cache is gone");
+    let put = agent().put(&server.url(&format!("/api/boards/{board}/matches/79"))).header("authorization", &format!("Bearer {owner}")).send_empty().expect("request").status().as_u16();
+    assert_eq!(put, 422);
+    assert_eq!(server.call("GET", &format!("/api/boards/{board}/matches"), &owner).1, serde_json::json!({ "matches": [] }));
+}

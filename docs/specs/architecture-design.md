@@ -307,7 +307,10 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
   `match_info.game_mode` refuses the same way on import (422, same codes); the server remembers
   the refusal (`DATA_DIR/matches/<id>.refused`), so it isn't fetched again and no board can
   attach the match or take a replay of it. Only the metadata records a refusal: a replay is
-  untrusted. Metadata without a `game_mode` imports as before.
+  untrusted. Metadata without a `game_mode` imports as before. The cached timeline keeps the
+  mode (standard when the metadata didn't say), and a cache without one (written before the
+  refusal existed) is fetched again once, then refused or served (QA 2026-11-08: a Brawl match
+  cached earlier still opened a board).
 - **Health** (replay tier, 2026-11-08):
   - The worker writes each hero's health in percent every second, 0 when dead, since a dead
     pawn can keep a stale value.

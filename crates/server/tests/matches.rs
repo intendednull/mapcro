@@ -366,3 +366,22 @@ fn a_failed_names_lookup_imports_without_names() {
     let t: serde_json::Value = serde_json::from_str(&body).expect("json");
     assert!(t["players"].as_array().expect("players").iter().all(|p| p.get("name").is_none()));
 }
+
+/// A cache written before the mode was kept (QA 2026-11-08) is fetched again once; the fresh one
+/// says its mode and is served from then on.
+#[test]
+fn a_cache_without_its_mode_is_fetched_again_once() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let up = upstream(routes());
+    let s = Server::start(dir.path(), up.port, &[]);
+    std::fs::create_dir_all(dir.path().join("matches")).expect("mkdir");
+    let legacy = serde_json::json!({ "match_id": 111, "start_time": 0, "duration_s": 120, "source": "deadlock-api.com", "players": [], "objectives": [], "mid_boss": [], "reanchored": 0, "events": [] });
+    std::fs::write(dir.path().join("matches/111.json"), serde_json::to_vec(&legacy).expect("json")).expect("legacy");
+    let (status, body) = s.get("111");
+    assert_eq!(status, 200, "{body}");
+    let t: serde_json::Value = serde_json::from_str(&body).expect("json");
+    assert_eq!((t["game_mode"].as_i64(), t["players"].as_array().map(Vec::len)), (Some(1), Some(12)), "the fresh one, not the legacy one");
+    assert_eq!(up.hits("111"), 1);
+    assert_eq!(s.get("111"), (200, body));
+    assert_eq!(up.hits("111"), 1, "then a cache hit");
+}
