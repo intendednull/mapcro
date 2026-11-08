@@ -90,6 +90,23 @@ describe("board sessions against the real server", () => {
   });
   afterAll(() => server.child.kill("SIGKILL"));
 
+  it("a browser whose local storage won't open still joins, edits, and says why", async () => {
+    // An older mapcro tab can hold IndexedDB open at an old version and block the upgrade.
+    const blocked: Persist = {
+      load: () => Promise.reject(new Error("blocked: close other mapcro tabs")),
+      save: () => Promise.reject(new Error("blocked: close other mapcro tabs")),
+    };
+    const { board, owner_token } = await api.createBoard("blocked-storage");
+    const s = session(server, board, owner_token, blocked);
+    await s.start();
+    await until(() => s.connection.kind === "live", "live despite storage");
+    expect(s.storageUnavailable).toBe(true);
+    expect(s.problems.some((p) => p.includes("close other mapcro tabs"))).toBe(true);
+    s.edit(move(players(s)[0]!, 42));
+    await until(() => s.status.kind === "saved", "edit acked");
+    s.stop();
+  });
+
   it("two editors converge", async () => {
     const { board, owner_token } = await api.createBoard("converge");
     const { token } = await api.mintLink(board, owner_token, "edit", "teammate");
