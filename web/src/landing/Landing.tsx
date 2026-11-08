@@ -75,6 +75,7 @@ export function Landing() {
       </header>
       <main class="landing-body">
         <h1>A shared minimap for macro coaching.</h1>
+        <p class="entry-label">Load a game</p>
         <form class="new-board open-match" onSubmit={openMatch} data-testid="open-match">
           <input
             class="input big"
@@ -93,6 +94,8 @@ export function Landing() {
             {opening() || "Open match"}
           </button>
         </form>
+        <p class="entry-or">or</p>
+        <p class="entry-label">Start fresh</p>
         <form class="new-board" onSubmit={create} data-testid="new-board">
           <input
             class="input big"

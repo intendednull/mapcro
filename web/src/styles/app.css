@@ -33,6 +33,9 @@
 .new-board { display: flex; gap: 10px; margin-top: 28px; }
 .new-board .input { flex: 1; }
 .new-board .btn { height: 46px; padding: 0 18px; font-size: 14px; }
+.entry-label { font: 600 13px var(--ui); color: var(--muted); margin: 28px 0 0; }
+.entry-label + .new-board { margin-top: 8px; }
+.entry-or { font: 400 13px var(--ui); color: var(--muted); text-align: center; margin: 20px 0 -12px; }
 .known { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .known li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: 7px; background: var(--panel); }
 .known a { color: var(--text); text-decoration: none; font-weight: 600; }
