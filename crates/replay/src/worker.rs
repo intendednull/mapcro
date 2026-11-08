@@ -31,16 +31,7 @@ impl Default for Limits {
     }
 }
 
-pub fn valid_job(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 64
-        && name.bytes().all(|b| b.is_ascii_digit() || b.is_ascii_lowercase() || b == b'-')
-        && name.split('-').next().is_some_and(|m| !m.is_empty() && m.len() <= 12 && m.bytes().all(|b| b.is_ascii_digit()))
-}
-
-pub fn match_id(job: &str) -> u64 {
-    job.split('-').next().and_then(|m| m.parse().ok()).unwrap_or(0)
-}
+pub use crate::{job_match_id as match_id, valid_job};
 
 pub fn dirs(root: &Path) -> [PathBuf; 4] {
     ["inbox", "work", "done", "failed"].map(|d| root.join(d))

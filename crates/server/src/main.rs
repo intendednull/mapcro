@@ -6,6 +6,7 @@ mod config;
 mod links;
 mod matches;
 mod packs;
+mod replays;
 mod room;
 mod store;
 mod ws;
@@ -99,6 +100,7 @@ async fn main() {
         base_sends: Arc::new(tokio::sync::Semaphore::new(ws::BASE_SENDS_KIB)),
         config: Arc::new(config.clone()),
     };
+    replays::spawn(state.clone());
 
     let mut app = Router::new()
         .route("/healthz", get(api::healthz))
@@ -135,6 +137,8 @@ async fn main() {
     }
     let app = app
         .layer(RequestBodyLimitLayer::new(16 * 1024))
+        // After the 16 KiB limit, so replay uploads stream under their own cap (replays.rs).
+        .merge(replays::routes())
         .layer(header("referrer-policy", "no-referrer"))
         .layer(header("x-content-type-options", "nosniff"))
         .layer(header("strict-transport-security", "max-age=63072000; includeSubDomains"))

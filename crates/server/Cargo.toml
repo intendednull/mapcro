@@ -18,7 +18,7 @@ serde_json = "1"
 zstd = { version = "=0.13.3", default-features = false }
 thiserror.workspace = true
 axum = { version = "0.8", features = ["ws"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "fs", "io-util"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "set-header", "limit"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
@@ -28,11 +28,14 @@ getrandom = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures-util = "0.3"
+# The replay timeline's format and checks only: the parser runs in the worker, never here.
+mapcro-replay = { path = "../replay", default-features = false }
 # Match import's upstream calls (deadlock-api.com), run on the blocking pool.
 ureq = { version = "3", features = ["json"] }
 
 [dev-dependencies]
 sha2 = "0.10"
+bzip2 = "0.6"
 tokio-tungstenite = "0.27"
 ureq = { version = "3", features = ["json"] }
 tempfile = "3"

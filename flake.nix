@@ -29,6 +29,13 @@
         meta.mainProgram = "mapcro-server";
       });
 
+      # The replay worker (spec §6a): its own package and service, never linked into the server.
+      replay = craneLib.buildPackage (commonArgs // {
+        pname = "mapcro-replay";
+        cargoExtraArgs = "-p mapcro-replay";
+        meta.mainProgram = "mapcro-replay";
+      });
+
       # The browser replica: the same steps as `just wasm` (wasm32 build, then wasm-bindgen at the
       # version the crate pins), plus wasm-opt. Output: mapcro_wasm.js and mapcro_wasm_bg.wasm.
       wasmArgs = commonArgs // {
@@ -93,7 +100,7 @@
     {
       packages.${system} = {
         default = server;
-        inherit server wasm web;
+        inherit server replay wasm web;
         oci = pkgs.dockerTools.streamLayeredImage {
           name = "mapcro";
           tag = "latest";
@@ -140,6 +147,32 @@
           machine.succeed("systemctl show mapcro.service -p StartLimitBurst | grep -qx StartLimitBurst=8")
           machine.succeed("systemctl show mapcro.service -p RestartSteps | grep -qx RestartSteps=5")
           machine.succeed("systemctl show mapcro.service -p Environment | grep -q MALLOC_ARENA_MAX=2")
+
+          # The replay worker: its own sandboxed unit, sharing only the queue with the server.
+          machine.wait_for_unit("mapcro-replay.service")
+          for prop in ["PrivateNetwork=yes", "User=mapcro-replay", "OOMPolicy=continue", "MemoryMax=1073741824", "CPUQuotaPerSecUSec=1s", "ProtectSystem=strict"]:
+              machine.succeed(f"systemctl show mapcro-replay.service -p {prop.split('=')[0]} | grep -qx {prop}")
+          machine.succeed("stat -c '%a %U %G' /var/lib/mapcro-replay/inbox | grep -qx '2770 mapcro-replay mapcro-replay'")
+          machine.succeed("systemctl show mapcro-replay.service -p TemporaryFileSystem | grep -q /var/lib")
+          # A tiny synthetic job round-trips: an editor uploads a demo whose header names a
+          # pre-6712 build; the worker refuses it as an old map and its file is gone.
+          import json
+          board = json.loads(machine.succeed("curl -fsS -X POST -H 'content-type: application/json' -d '{}' http://127.0.0.1:8094/api/boards"))
+          auth = f"-H 'authorization: Bearer {board['owner_token']}'"
+          base = f"http://127.0.0.1:8094/api/boards/{board['board']}/replays/100747544"
+          machine.succeed("echo UEJERU1TMgAAAAAAAAAAAAEAJAoBeDIfL3Nydi9jaXRhZGVsX3Y2NjgzL2dhbWUvY2l0YWRlbAAAAA== | base64 -d > /tmp/old.dem")
+          machine.succeed(f"curl -fsS {auth} --data-binary @/tmp/old.dem {base}/upload | grep -q queued")
+          machine.wait_until_succeeds(f"curl -fsS {auth} {base} | grep -q old_map", timeout=60)
+          machine.succeed("test -z \"$(ls -A /var/lib/mapcro-replay/inbox /var/lib/mapcro-replay/work)\"")
+          # Bad magic is refused before it is queued.
+          machine.succeed(f"test \"$(curl -s -o /dev/null -w '%{{http_code}}' {auth} --data-binary @/etc/hostname {base}/upload)\" = 415")
+          # The server's health doesn't depend on the worker's.
+          machine.systemctl("stop mapcro-replay.service")
+          machine.succeed("curl -fsS http://127.0.0.1:8094/healthz")
+          machine.succeed(f"curl -fsS {auth} --data-binary @/tmp/old.dem {base}/upload | grep -q queued")
+          machine.succeed("ls /var/lib/mapcro-replay/inbox | grep -q '^100747544-.*\\.dem$'")
+          machine.systemctl("start mapcro-replay.service")
+          machine.wait_until_succeeds(f"curl -fsS {auth} {base} | grep -q old_map", timeout=60)
         '';
       };
 

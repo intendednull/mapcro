@@ -915,9 +915,11 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
+ "bzip2",
  "futures-util",
  "getrandom 0.3.4",
  "mapcro-engine",
+ "mapcro-replay",
  "mapcro-schema",
  "rusqlite",
  "serde",

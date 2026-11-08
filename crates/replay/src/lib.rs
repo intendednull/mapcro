@@ -43,6 +43,19 @@ pub mod reason {
     pub const ALL: [&str; 5] = [OLD_MAP, NOT_A_REPLAY, TOO_LARGE, TIMEOUT, PARSE_FAILED];
 }
 
+/// A queue job's name: `<match id>-<scope>`, `[0-9a-z-]`, at most 64 bytes (worker.rs).
+pub fn valid_job(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name.bytes().all(|b| b.is_ascii_digit() || b.is_ascii_lowercase() || b == b'-')
+        && name.split('-').next().is_some_and(|m| !m.is_empty() && m.len() <= 12 && m.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// The match id a job name starts with.
+pub fn job_match_id(job: &str) -> u64 {
+    job.split('-').next().and_then(|m| m.parse().ok()).unwrap_or(0)
+}
+
 /// The content build in a demo header's `game_directory` (`…/citadel_v6813/…`). The header's
 /// `build_num` is the engine build, not the map's (exploration §1).
 pub fn content_build(game_directory: &str) -> Option<u32> {

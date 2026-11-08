@@ -41,6 +41,9 @@ pub struct Config {
     /// The database's size cap in bytes (`MAX_STORAGE_BYTES`, 2 GiB). Past it, creation is
     /// refused with 507 and edits with `ServerFull`.
     pub max_storage_bytes: u64,
+    /// The replay worker's queue (`REPLAY_DIR`, spec §6a), shared with the `mapcro-replay`
+    /// service. Unset: no replay tier; match import serves the metadata alone.
+    pub replay_dir: Option<PathBuf>,
 }
 
 /// Defaults; see the field docs above for what each bounds and how it was measured.
@@ -113,6 +116,12 @@ impl Config {
         let room_memory_bytes = num(&var, "ROOM_MEMORY_BYTES", ROOM_MEMORY_BYTES)?;
         let max_boards = num(&var, "MAX_BOARDS", 5000)?;
         let max_storage_bytes = num(&var, "MAX_STORAGE_BYTES", 2 * 1024 * 1024 * 1024)?;
+        let replay_dir = var("REPLAY_DIR").map(PathBuf::from);
+        if let Some(r) = &replay_dir
+            && !r.is_dir()
+        {
+            return Err(format!("REPLAY_DIR {} is not a directory", r.display()));
+        }
         Ok(Config {
             addr: SocketAddr::new(host, port),
             data_dir,
@@ -127,6 +136,7 @@ impl Config {
             room_memory_bytes,
             max_boards,
             max_storage_bytes,
+            replay_dir,
         })
     }
 }
