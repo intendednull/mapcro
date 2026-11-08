@@ -265,10 +265,16 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
             ops
         }
         16 => set(Some(scene), FieldValue::SceneClock(Some(rng.random_range(0..3600)))),
+        // Move a stroke (one small write; skipped if someone deleted it meanwhile).
+        15 if rng.random_range(0..3) == 0 && !live_ids(r, |x| matches!(x, Record::Stroke(_))).is_empty() => {
+            let strokes = live_ids(r, |x| matches!(x, Record::Stroke(_)));
+            let d = WorldPos { x: rng.random_range(-2000..=2000), y: rng.random_range(-2000..=2000) };
+            set(pick(rng, &strokes), FieldValue::StrokeOffset(d))
+        }
         15 => {
             let n = rng.random_range(2..40);
             let points = (0..n).map(|_| pos(rng)).collect();
-            vec![Op::Create { id: new_id, record: Record::Stroke(mapcro_schema::Stroke { scene, points, color: rng.random_range(0..16), width: 20 }) }]
+            vec![Op::Create { id: new_id, record: Record::Stroke(mapcro_schema::Stroke { scene, points, color: rng.random_range(0..16), width: 20, offset: WorldPos::default() }) }]
         }
         _ => {
             let order = OrderKey::between(None, first_order(r).as_ref());

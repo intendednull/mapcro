@@ -33,6 +33,7 @@ import { type Pt, type Viewpoint, clampShift, clampToBoard, clampToMap, mapToVie
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { cx } from "../ui/cx";
 import { LASER_MAX_POINTS, type Timed, arrowHead, fitStroke, laserOpacity, polyline, pruneLaser, shaftEnd } from "./geometry";
+import { moveStrokeOps, strokePoints } from "./placed";
 import { smoothed } from "./smooth";
 import type { BoardState } from "./state";
 import type { Tool } from "./tools";
@@ -392,7 +393,7 @@ export function Layers(p: {
   const moveStroke = (e: PointerEvent, s: Rec<Stroke>) => {
     e.preventDefault();
     const start = svgPoint(p.svg()!, e);
-    const pts = s.r.points;
+    const pts = strokePoints(s.r);
     let moved = false;
     track(
       e,
@@ -407,11 +408,8 @@ export function Layers(p: {
         const m = movingStroke();
         setMovingStroke(undefined);
         if (moved) st.presence({ drag: null, focus: null });
-        if (ok && moved && m && (m.d.x || m.d.y)) {
-          // A stroke has no position field: moving it replaces it, in one transaction (one undo).
-          const points = pts.map((q) => ({ x: q.x + m.d.x, y: q.y + m.d.y }));
-          st.edit([{ Delete: { id: s.id } }, { Create: { id: newRecordId(), record: { Stroke: { ...s.r, points } } } }]);
-        } else if (ok && !moved) pressThrough(pt);
+        if (ok && moved && m && (m.d.x || m.d.y)) st.edit(moveStrokeOps(s.id, s.r, m.d));
+        else if (ok && !moved) pressThrough(pt);
       },
     );
   };
@@ -771,10 +769,10 @@ export function Layers(p: {
               const mine = movingStroke();
               if (mine?.id === s.id) return mine.d;
               const q = anchor();
-              const p0 = s.r.points[0];
+              const p0 = strokePoints(s.r)[0];
               return q && p0 ? { x: q.x - p0.x, y: q.y - p0.y } : { x: 0, y: 0 };
             };
-            const pts = () => s.r.points.map((q) => view({ x: q.x + shift().x, y: q.y + shift().y }));
+            const pts = () => strokePoints(s.r).map((q) => view({ x: q.x + shift().x, y: q.y + shift().y }));
             const d = () => polyline(pts());
             return (
               <g data-erase={s.id} data-stroke={s.id} class={cx(erasing().has(s.id) && "erasing", (movingStroke()?.id === s.id || !!mover()) && "moving")}>

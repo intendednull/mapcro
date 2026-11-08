@@ -434,7 +434,7 @@ mod tests {
             Op::SetIf { id: note, expect: FieldValue::NoteText(widest.clone()), value: FieldValue::NoteText(widest.clone()) },
             Op::Create {
                 id: RecordId(u128::MAX - 1),
-                record: Record::Stroke(Stroke { scene, points: vec![corner; LIMITS.max_stroke_points], color: 15, width: 200 }),
+                record: Record::Stroke(Stroke { scene, points: vec![corner; LIMITS.max_stroke_points], color: 15, width: 200, offset: WorldPos { x: -2 * LIMITS.max_coord, y: -2 * LIMITS.max_coord } }),
             },
         ];
         for op in ops {
@@ -454,7 +454,7 @@ mod tests {
         let small = doc.approx_heap_bytes();
         let points = vec![WorldPos { x: 1, y: 2 }; LIMITS.max_stroke_points];
         let strokes: Vec<Op> = (0..100)
-            .map(|k| Op::Create { id: RecordId(10_000 + k), record: Record::Stroke(Stroke { scene, points: points.clone(), color: 1, width: 20 }) })
+            .map(|k| Op::Create { id: RecordId(10_000 + k), record: Record::Stroke(Stroke { scene, points: points.clone(), color: 1, width: 20, offset: WorldPos::default() }) })
             .collect();
         apply_tx(&mut doc, &tx(strokes)).expect("valid");
         let grew = doc.approx_heap_bytes() - small;

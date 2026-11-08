@@ -139,6 +139,11 @@ fn check_value(v: &FieldValue) -> Result<(), Reject> {
         V::NoteText(s) => check_text(s, LIMITS.max_note),
         V::SceneOrder(k) => if k.is_valid() { Ok(()) } else { Err(Reject::BadOrderKey) },
         V::PlayerPos(p) | V::ArrowFrom(p) | V::ArrowTo(p) | V::CalloutPos(p) => check_pos(*p),
+        // A shift, not a place: at most the board's width either way.
+        V::StrokeOffset(d) => {
+            let m = 2 * LIMITS.max_coord;
+            if (-m..=m).contains(&d.x) && (-m..=m).contains(&d.y) { Ok(()) } else { Err(Reject::OutOfBounds) }
+        }
         // A match clock up to four hours; souls up to a million.
         V::WavePos(t) => if *t <= crate::records::WAVE_T_MAX { Ok(()) } else { Err(Reject::OutOfBounds) },
         V::SceneClock(c) => if c.is_none_or(|c| c <= 4 * 3600) { Ok(()) } else { Err(Reject::OutOfBounds) },
@@ -227,6 +232,7 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
             if s.color >= 16 || s.width == 0 || s.width > 200 {
                 return Err(Reject::BadStroke);
             }
+            check_value(&FieldValue::StrokeOffset(s.offset))?;
             s.points.iter().try_for_each(|p| check_pos(*p))
         }
     }

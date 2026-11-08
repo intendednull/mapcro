@@ -1361,7 +1361,7 @@ fn stroke_ops(scene: mapcro_schema::RecordId, seed: u32, n: usize) -> Vec<Op> {
         .map(|k| {
             let points = (0..512).map(|_| WorldPos { x: next(), y: next() }).collect();
             let id = mapcro_schema::RecordId(((seed as u128) << 32) | k as u128 | 1 << 100);
-            Op::Create { id, record: Record::Stroke(mapcro_schema::Stroke { scene, points, color: 3, width: 30 }) }
+            Op::Create { id, record: Record::Stroke(mapcro_schema::Stroke { scene, points, color: 3, width: 30, offset: WorldPos::default() }) }
         })
         .collect()
 }

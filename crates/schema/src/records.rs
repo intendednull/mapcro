@@ -13,7 +13,7 @@ pub enum Team {
 /// A position in game world units, rounded to integers. Integers keep equality exact (so
 /// `SetIf` comparisons are well defined) and identical across native and WASM.
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WorldPos {
     pub x: i32,
     pub y: i32,
@@ -165,7 +165,8 @@ pub struct Callout {
     pub text: String,
 }
 
-/// Freehand ink (the Draw tool). Drawn once and erased whole; never edited point by point.
+/// Freehand ink (the Draw tool). Drawn once and erased whole; never edited point by point, but
+/// moved whole by `offset`.
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stroke {
@@ -176,6 +177,12 @@ pub struct Stroke {
     pub color: u8,
     /// Line width in tenths of a screen pixel at fit zoom.
     pub width: u8,
+    /// Where the stroke has been moved to: added to every point when drawn. A move is one small
+    /// last-writer-wins write, skipped if the stroke was deleted (not a delete and re-create,
+    /// which brought deleted strokes back). Older strokes load unmoved.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<WorldPos>", optional))]
+    pub offset: WorldPos,
 }
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -243,6 +250,7 @@ pub enum FieldValue {
     CalloutText(String),
     NoteText(String),
     WavePos(u16),
+    StrokeOffset(WorldPos),
 }
 
 /// The field a [`FieldValue`] writes, without its value.
@@ -270,10 +278,11 @@ pub enum Field {
     CalloutText,
     NoteText,
     WavePos,
+    StrokeOffset,
 }
 
 impl Field {
-    pub const ALL: [Field; 22] = [
+    pub const ALL: [Field; 23] = [
         Field::Title,
         Field::RosterName,
         Field::RosterHero,
@@ -296,6 +305,7 @@ impl Field {
         Field::CalloutText,
         Field::NoteText,
         Field::WavePos,
+        Field::StrokeOffset,
     ];
 }
 
@@ -324,6 +334,7 @@ impl FieldValue {
             FieldValue::CalloutText(_) => Field::CalloutText,
             FieldValue::NoteText(_) => Field::NoteText,
             FieldValue::WavePos(_) => Field::WavePos,
+            FieldValue::StrokeOffset(_) => Field::StrokeOffset,
         }
     }
 }
@@ -384,6 +395,7 @@ impl Record {
             (Record::Callout(r), Field::CalloutText) => V::CalloutText(r.text.clone()),
             (Record::Note(r), Field::NoteText) => V::NoteText(r.text.clone()),
             (Record::Wave(r), Field::WavePos) => V::WavePos(r.t),
+            (Record::Stroke(r), Field::StrokeOffset) => V::StrokeOffset(r.offset),
             _ => return None,
         })
     }
@@ -414,6 +426,7 @@ impl Record {
             (Record::Callout(r), V::CalloutText(v)) => r.text = v,
             (Record::Note(r), V::NoteText(v)) => r.text = v,
             (Record::Wave(r), V::WavePos(v)) => r.t = v,
+            (Record::Stroke(r), V::StrokeOffset(v)) => r.offset = v,
             _ => return false,
         }
         true

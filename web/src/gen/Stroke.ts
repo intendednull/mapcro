@@ -3,7 +3,8 @@ import type { RecordId } from "./RecordId";
 import type { WorldPos } from "./WorldPos";
 
 /**
- * Freehand ink (the Draw tool). Drawn once and erased whole; never edited point by point.
+ * Freehand ink (the Draw tool). Drawn once and erased whole; never edited point by point, but
+ * moved whole by `offset`.
  */
 export type Stroke = { scene: RecordId, 
 /**
@@ -17,4 +18,10 @@ color: number,
 /**
  * Line width in tenths of a screen pixel at fit zoom.
  */
-width: number, };
+width: number, 
+/**
+ * Where the stroke has been moved to: added to every point when drawn. A move is one small
+ * last-writer-wins write, skipped if the stroke was deleted (not a delete and re-create,
+ * which brought deleted strokes back). Older strokes load unmoved.
+ */
+offset?: WorldPos, };
