@@ -9,6 +9,19 @@ Sources: deadlock-api's `openapi.json` (snapshot read 2026-11-08), CORS prefligh
 `https://api.deadlock-api.com`, one metadata GET of match 129738985, and one GET of
 `/v1/matches/demo/schema`. No Steam-sourced lookups were spent.
 
+## Decision (operator, 2026-11-08)
+
+Build section 4's priming flow for both the salts and the metadata. The server asks deadlock-api
+with `disable_steam=true`. When the match isn't stored yet, the user's browser makes the
+Steam-capable call itself, spending its own 3/h. The server then fetches the stored copy, and the
+shared per-match cache stays trustworthy.
+
+The browser forwards no data. The server's own calls stay on deadlock-api's stored tiers (salts
+100/s per IP, metadata 100/s from cache and 100/10 s from S3), far above our use.
+
+If we ever near those limits, either ask deadlock-api for an increase or move the calls into the
+browser: forward the salts, and keep forwarded metadata per board (sections 4–5's fallback).
+
 ## 1. What the server calls today
 
 | Call | Where | Used for |
