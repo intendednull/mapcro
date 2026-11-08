@@ -8,6 +8,7 @@ import { colorOf } from "../core/device";
 import { formatClock } from "../core/clock";
 import type { Op } from "../gen/Op";
 import type { RecordId } from "../gen/RecordId";
+import type { Scene } from "../gen/Scene";
 import { MapView } from "../map/MapView";
 import type { Art } from "../map/pack";
 import { type Viewpoint, worldToView } from "../map/transform";
@@ -86,6 +87,12 @@ export function SceneTree(p: {
     const { id, ops } = addSceneOps(p.state, cur, asChild);
     p.state.edit(ops);
     if (asChild && cur && collapsed().has(cur.id)) toggle(cur.id);
+    p.onFlip(id);
+  };
+  /** A copy of `row`'s scene (its heroes, objectives and splits), right after it, as its sibling. */
+  const clone = (row: { id: RecordId; scene: Scene }) => {
+    const { id, ops } = addSceneOps(p.state, row, false, undefined, isUnnamed(row.scene.name) ? "" : `${row.scene.name} copy`);
+    p.state.edit(ops);
     p.onFlip(id);
   };
   const remove = (id: RecordId) => {
@@ -284,22 +291,44 @@ export function SceneTree(p: {
                       )}
                     </For>
                   </span>
-                  <Show when={p.state.canEdit() && order().length > 1}>
-                    <button
-                      class="row-del"
-                      data-testid="scene-delete"
-                      aria-label="Delete scene"
-                      title="Delete scene"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        remove(s().id);
-                      }}
-                    >
-                      <svg viewBox="0 0 12 12" aria-hidden="true">
-                        <path d="M3 3l6 6M9 3L3 9" />
-                      </svg>
-                    </button>
-                  </Show>
+                  {/* Clone and delete: always in the same last column, so they line up on every
+                      row, nested or not (shown on hover or focus, always on the active row and on
+                      the phone). */}
+                  <span class="row-acts">
+                    <Show when={p.state.canEdit() && order().length < 63}>
+                      <button
+                        class="row-act"
+                        data-testid="scene-clone"
+                        aria-label="Duplicate scene"
+                        title="Duplicate scene"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          clone(s());
+                        }}
+                      >
+                        <svg viewBox="0 0 12 12" aria-hidden="true">
+                          <rect x="3.5" y="3.5" width="6" height="6" rx="1" />
+                          <path d="M2.5 7.5v-5h5" />
+                        </svg>
+                      </button>
+                    </Show>
+                    <Show when={p.state.canEdit() && order().length > 1}>
+                      <button
+                        class="row-act row-del"
+                        data-testid="scene-delete"
+                        aria-label="Delete scene"
+                        title="Delete scene"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          remove(s().id);
+                        }}
+                      >
+                        <svg viewBox="0 0 12 12" aria-hidden="true">
+                          <path d="M3 3l6 6M9 3L3 9" />
+                        </svg>
+                      </button>
+                    </Show>
+                  </span>
                 </li>
               );
             }}

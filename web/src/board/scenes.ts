@@ -35,7 +35,7 @@ function treeOf(state: BoardState) {
  * objectives and lane splits (the next frame of a play usually starts where the last one
  * ended). Ink, arrows and callouts stay.
  */
-export function addSceneOps(state: BoardState, from: SceneRow | undefined, asChild = false, mint = newRecordId): { id: RecordId; ops: Op[] } {
+export function addSceneOps(state: BoardState, from: SceneRow | undefined, asChild = false, mint = newRecordId, name = ""): { id: RecordId; ops: Op[] } {
   const { parentOf, kids } = treeOf(state);
   const parent = from ? (asChild ? from.id : (parentOf.get(from.id) ?? null)) : null;
   const sibs = kids(parent);
@@ -47,7 +47,7 @@ export function addSceneOps(state: BoardState, from: SceneRow | undefined, asChi
     {
       Create: {
         id,
-        record: { Scene: { name: "", order: keyBetween(lo, hi), clock: from?.scene.clock ?? null, ...(parent ? { parent } : {}) } },
+        record: { Scene: { name, order: keyBetween(lo, hi), clock: from?.scene.clock ?? null, ...(parent ? { parent } : {}) } },
       },
     },
   ];

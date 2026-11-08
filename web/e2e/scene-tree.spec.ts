@@ -93,6 +93,7 @@ test("nest, reorder and collapse scenes; everyone sees the same tree; ← → wa
   await rows(a).filter({ hasText: "Late" }).hover();
   await expect(a.getByTestId("scene-peek")).toBeVisible();
   await a.screenshot({ path: "shots/scene-tree.png" });
+  await rows(a).filter({ hasText: "Bridge fight" }).hover();
   await a.getByTestId("scene-tree").screenshot({ path: "shots/scene-sidebar-sandbox.png" });
   await expect(a.getByTestId("scene-from-match")).toHaveCount(0);
   await a.getByTestId("scene-tree-fold").click();

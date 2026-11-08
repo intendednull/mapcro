@@ -59,5 +59,16 @@ test("in Player, the palette colours ink, arrows and comments", async ({ browser
   await a.screenshot({ path: "shots/palette-player.png" });
   // The scenes sidebar in Player: the header's "+", no bottom buttons.
   await expect(a.getByTestId("scene-from-match")).toHaveCount(0);
+  // Two scenes saved from the match: their rows carry the "▶ m:ss" chip beside the clone and ×.
+  await a.getByTestId("match-save").click();
+  await expect(a.getByTestId("scene-chip")).toHaveCount(1);
+  await a.getByTestId("match-save").click();
+  await expect(a.getByTestId("scene-chip")).toHaveCount(2);
+  const row = a.getByTestId("scene-card").filter({ has: a.getByTestId("scene-chip") }).first();
+  await row.hover();
+  // Nothing overlaps: name, chip and the row's buttons sit side by side.
+  const [chip, clone, del] = await Promise.all(["scene-chip", "scene-clone", "scene-delete"].map((t) => row.getByTestId(t).boundingBox()));
+  expect(chip!.x + chip!.width).toBeLessThanOrEqual(clone!.x + 0.5);
+  expect(clone!.x + clone!.width).toBeLessThanOrEqual(del!.x + 0.5);
   await a.getByTestId("scene-tree").screenshot({ path: "shots/scene-sidebar-player.png" });
 });

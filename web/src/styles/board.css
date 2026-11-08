@@ -941,7 +941,7 @@ kbd {
 .scenes-fold .ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .scene-rows { list-style: none; margin: 0; padding: 2px 6px; overflow-y: auto; flex: 1; min-height: 0; }
 .scene-row {
-  position: relative; display: grid; grid-template-columns: 16px auto 1fr auto auto 16px; align-items: center; gap: 5px;
+  position: relative; display: grid; grid-template-columns: 16px auto minmax(0, 1fr) auto auto auto 38px; align-items: center; gap: 5px;
   height: 30px; padding: 0 4px 0 calc(4px + var(--depth, 0) * 14px); border-radius: 6px; cursor: pointer; user-select: none;
   font: 500 13px var(--ui); color: var(--muted);
 }
@@ -963,10 +963,20 @@ kbd {
 .scene-row .clock { font: 500 11px var(--ui); color: var(--brass); font-variant-numeric: tabular-nums; }
 .scene-row .here { display: flex; }
 .scene-row .here .av { margin-left: -4px; box-shadow: 0 0 0 1.5px var(--bg); }
-.scene-row .row-del { width: 16px; height: 16px; padding: 0; display: grid; place-items: center; background: none; border: 0; color: var(--faint); cursor: pointer; opacity: 0; }
-.scene-row:hover .row-del { opacity: 1; }
+/* Every cell has its column, so optional ones (the clock, Player's chip, avatars) never shift
+   the rest, and clone and delete line up on every row, nested or not. */
+.scene-row .caret-slot { grid-column: 1; }
+.scene-row .no { grid-column: 2; }
+.scene-row .name { grid-column: 3; }
+.scene-row .clock { grid-column: 4; }
+.scene-row .scene-chip { grid-column: 5; white-space: nowrap; }
+.scene-row .here { grid-column: 6; }
+.scene-row .row-acts { grid-column: 7; display: flex; justify-content: flex-end; align-items: center; gap: 2px; height: 100%; }
+.scene-row .row-act { width: 18px; height: 18px; padding: 0; display: grid; place-items: center; background: none; border: 0; border-radius: 4px; color: var(--faint); cursor: pointer; opacity: 0; }
+.scene-row:hover .row-act, .scene-row:focus-within .row-act, .scene-row.on .row-act, .scenes.drawer .row-act { opacity: 1; }
+.scene-row .row-act:hover { color: var(--text); background: #ffffff10; }
 .scene-row .row-del:hover { color: var(--warn); }
-.scene-row .row-del svg { width: 9px; height: 9px; stroke: currentColor; stroke-width: 1.6; }
+.scene-row .row-act svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.4; }
 .scene-peek { position: absolute; left: calc(100% + 6px); z-index: 40; width: 150px; height: 150px; padding: 4px; background: var(--bg-deep, #0b1714); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 22px #0009; pointer-events: none; margin-top: 30px; }
 .scene-peek .mm-host { width: 100%; height: 100%; }
 /* Add scene: a small "+" in the header, beside the arrow keys. */
