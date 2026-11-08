@@ -39,3 +39,7 @@ correction (`docs/research/replay-parsing-exploration.md`) plus asset packs from
 
 - Presence relay is O(n²) in bytes per room (perf report finding 4). It's fine at our scale.
 - Base frames aren't chunked. A board over 8 MiB of JSON falls back to paged catch-up.
+- **Rebase fan-out isn't bounded** (sync review 2026-11-08, finding 4): each stale hello clones the
+  doc and builds its own JSON frame, and the outbox weight doesn't count it. 64 devices returning
+  to an 8 MB board after a compaction could exceed the service's 256M memory. The fix is to serialize
+  once per (doc, seq), splice in `decided_below`, and count it.
