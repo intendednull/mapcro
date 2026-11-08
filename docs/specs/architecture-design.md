@@ -308,6 +308,20 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
   the refusal (`DATA_DIR/matches/<id>.refused`), so it isn't fetched again and no board can
   attach the match or take a replay of it. Only the metadata records a refusal: a replay is
   untrusted. Metadata without a `game_mode` imports as before.
+- **Health** (replay tier, 2026-11-08):
+  - The worker writes each hero's health in percent every second, 0 when dead, since a dead
+    pawn can keep a stale value.
+  - It writes `objective_health`: by board key, `[second, pct]` wherever the value changes, for
+    guardians, walkers, base guardian pairs (their mean), shrines, the patron and the mid boss.
+    The patron also gets `stage` (`m_ePhase` 1, final, is stage 2).
+  - The loser's patron falls at the end, because the parse stops on the winner's tick.
+  - On 129738985 this adds 9 KB to a 1.46 MB timeline.
+  - Player shows, while Health is on (a transport toggle, on by default):
+    - a thin bar under each top-bar portrait, in team colour, red at 30% or under, empty when
+      dead
+    - an arc round each hero token
+    - a ring round an objective's icon while it's damaged, with the patron's stage under it
+  - The API summary shows none of these, and its tier chip says so.
 - **What the replay timeline adds** (`crates/replay/src/timeline.rs`, the metadata timeline's
   shape plus fields; 1 Hz, about 140 KB for a 15-minute match):
   - Positions with the exact life state (the pawn's `m_lifeState` and health), deaths, souls

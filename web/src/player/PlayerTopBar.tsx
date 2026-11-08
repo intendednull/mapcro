@@ -15,6 +15,8 @@ import { initials } from "../board/Tokens";
 import type { PlayerHost } from "./host";
 
 const BAR = 1260;
+/** Health at or under this percent reads as low (red). */
+export const LOW = 30;
 
 function Souls(p: { n: number | null }) {
   const f = () => formatSouls(p.n);
@@ -96,6 +98,11 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
                 <i class="tb-disc">{initials(s.slot, hero()?.name)}</i>
                 <Show when={hero()?.topbar}>{(src) => <i class="tb-img hero-vertical" style={{ "background-image": `url(${JSON.stringify(src())})` }} />}</Show>
               </div>
+              <Show when={p.host.showHealth() && x()?.health != null}>
+                <div class={cx("pl-hp", (x()!.health ?? 0) <= LOW && "low")} data-testid="tb-health" data-health={x()!.health} aria-label={`${label()} health ${x()!.health}%`}>
+                  <i style={{ width: `${x()!.health}%` }} />
+                </div>
+              </Show>
               <Ult left={x()?.ult ?? null} label={label()} />
               <Show when={nameOf()}>
                 <span class="pl-tb-name" data-testid="tb-name">

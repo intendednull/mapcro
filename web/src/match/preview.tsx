@@ -5,13 +5,15 @@ import { cx } from "../ui/cx";
 
 export interface MatchPreview {
   /** By "amber-0" … "sapphire-5": the hero there and where it is (`null`: dead, hidden). */
-  players: Map<string, { hero: number; pos: { x: number; y: number } | null }>;
+  players: Map<string, { hero: number; pos: { x: number; y: number } | null; health?: number | null }>;
   /** Board objective keys down at this moment. */
   down: Set<string>;
   /** Replay tier: rifts and powerups at this moment, by key (absent: the board's own). */
   sites: Map<string, "Active" | "Destroyed">;
   /** Replay tier: lane splits (`Wave.t`) at this moment, by lane key. */
   waves: Map<string, number>;
+  /** Replay tier, with Health on: objectives' health by key (absent: none drawn). */
+  health?: Map<string, { pct: number; stage?: number }>;
 }
 
 /** A small ring: the part still on cooldown, as the HUD draws it under a portrait. */

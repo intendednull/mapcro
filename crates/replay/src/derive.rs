@@ -67,6 +67,8 @@ pub struct ObjObs {
     pub health: i64,
     /// 0 when the recording doesn't say (no health bar then).
     pub max_health: i64,
+    /// The patron's `m_ePhase` (0 shielded, 2 transforming, 1 final); 0 for the rest.
+    pub phase: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -90,6 +92,8 @@ pub struct Obs {
     pub build: u32,
     /// The game rules' `m_eGameMode`, the last non-zero value seen (0: never set).
     pub game_mode: i64,
+    /// The winning team (2 Amber, 3 Sapphire), 0 if the recording ends first.
+    pub winner: i64,
     /// Index = game second, from 0.
     pub seconds: Vec<Sample>,
 }
@@ -222,7 +226,8 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
                 let pos = h.and_then(|h| h.pos).filter(|_| alive);
                 p.x.push(pos.map(|q| q[0].round() as i32));
                 p.y.push(pos.map(|q| q[1].round() as i32));
-                p.health.push(h.map_or(0, |h| if h.max_health > 0 { (h.health.max(0) * 100 / h.max_health).clamp(0, 100) as u8 } else { 0 }));
+                // Dead (or out of the recording): empty. A dead pawn can keep a stale health.
+                p.health.push(h.filter(|h| h.alive).map_or(0, |h| if h.max_health > 0 { (h.health.max(0) * 100 / h.max_health).clamp(0, 100) as u8 } else { 0 }));
                 if let Some(h) = h
                     && (h.ult_start != 0.0 || h.ult_end != 0.0)
                 {
@@ -311,6 +316,16 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         }
         let lane = lane_number(&format!("{key}:"));
         objectives.push(Objective { key, kind: f.kind.to_owned(), team: f.team, lane, destroyed_s: d });
+    }
+    // The game ends on the loser's patron; the parse stops on the winner's tick, before the
+    // patron reads 0 (129738985, journal 2026-11-08).
+    if let Some(loser) = team_name(5 - obs.winner).filter(|_| matches!(obs.winner, 2 | 3)) {
+        for site in m.sites.iter().filter(|s| s.kind == "patron" && s.team == loser) {
+            if !objectives.iter().any(|o| o.key == site.key) {
+                let lane = lane_number(&format!("{}:", site.key));
+                objectives.push(Objective { key: site.key.clone(), kind: "patron".into(), team: loser.to_owned(), lane, destroyed_s: duration_s });
+            }
+        }
     }
     objectives.sort_by(|a, b| (a.destroyed_s, &a.key).cmp(&(b.destroyed_s, &b.key)));
     mid_boss.sort_by_key(|b| b.destroyed_s);
@@ -421,9 +436,11 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
 
 /// Each objective's health in percent, by board key, as `[second, pct]` whenever it moves by
 /// a point or more (and when it's first seen). Seconds out of the recording hold. A base
-/// guardian pair is the mean of the members seen.
+/// guardian pair is the mean of the members seen. The patron also gets its stage (1, then 2 in
+/// its final phase) where it changes.
 fn objective_health(obs: &Obs, m: &Map) -> Vec<crate::timeline::ObjectiveHealth> {
     let mut tracks: BTreeMap<String, Vec<[u32; 2]>> = BTreeMap::new();
+    let mut stages: BTreeMap<String, Vec<[u32; 2]>> = BTreeMap::new();
     for (sec, s) in obs.seconds.iter().enumerate() {
         let mut now: BTreeMap<String, (i64, i64)> = BTreeMap::new();
         for o in s.objectives.iter().filter(|o| o.max_health > 0) {
@@ -435,6 +452,13 @@ fn objective_health(obs: &Obs, m: &Map) -> Vec<crate::timeline::ObjectiveHealth>
                 })
             };
             let Some(key) = key else { continue };
+            if o.kind == "patron" {
+                let stage = if o.phase == 1 { 2 } else { 1 };
+                let track = stages.entry(key.clone()).or_default();
+                if track.last().is_none_or(|l| l[1] != stage) {
+                    track.push([sec as u32, stage]);
+                }
+            }
             let e = now.entry(key).or_insert((0, 0));
             e.0 += o.health.clamp(0, o.max_health);
             e.1 += o.max_health;
@@ -447,7 +471,7 @@ fn objective_health(obs: &Obs, m: &Map) -> Vec<crate::timeline::ObjectiveHealth>
             }
         }
     }
-    tracks.into_iter().map(|(key, at)| crate::timeline::ObjectiveHealth { key, at }).collect()
+    tracks.into_iter().map(|(key, at)| crate::timeline::ObjectiveHealth { stage: stages.remove(&key).unwrap_or_default(), key, at }).collect()
 }
 
 /// How often the trooper dots are sampled: 1 Hz (the 15-minute match's are ~100 KB of JSON).
@@ -570,7 +594,7 @@ mod tests {
     }
 
     fn obs(seconds: Vec<Sample>) -> Obs {
-        Obs { match_id: 42, build: 6813, game_mode: 1, seconds }
+        Obs { match_id: 42, build: 6813, game_mode: 1, winner: 0, seconds }
     }
 
     #[test]
@@ -632,13 +656,13 @@ mod tests {
         let walker = [-6272.0, -4736.0]; // walker:amber:lane1:1
         let guardian = [0.0, 1792.0]; // guardian:sapphire:lane4:1
         for (i, x) in s.iter_mut().enumerate() {
-            x.objectives.push(ObjObs { ent: (10, 1), kind: "walker", pos: walker, health: if i < 3 { 100 } else { 0 }, max_health: 100 });
+            x.objectives.push(ObjObs { ent: (10, 1), kind: "walker", pos: walker, health: if i < 3 { 100 } else { 0 }, max_health: 100, phase: 0 });
             // Seen only at zero (a PVS gap from the start): never "destroyed".
-            x.objectives.push(ObjObs { ent: (11, 1), kind: "guardian", pos: guardian, health: 0, max_health: 100 });
+            x.objectives.push(ObjObs { ent: (11, 1), kind: "guardian", pos: guardian, health: 0, max_health: 100, phase: 0 });
             // Both of Amber's mid base guardians; the pair is down when the second falls.
-            x.objectives.push(ObjObs { ent: (20, 1), kind: "base_guardian", pos: [-1280.0, -5456.0], health: if i < 2 { 1 } else { 0 }, max_health: 100 });
-            x.objectives.push(ObjObs { ent: (21, 1), kind: "base_guardian", pos: [-1290.0, -5450.0], health: if i < 4 { 1 } else { 0 }, max_health: 100 });
-            x.objectives.push(ObjObs { ent: (30, 1), kind: "mid_boss", pos: [0.0, 0.0], health: if i < 1 { 1 } else { 0 }, max_health: 100 });
+            x.objectives.push(ObjObs { ent: (20, 1), kind: "base_guardian", pos: [-1280.0, -5456.0], health: if i < 2 { 1 } else { 0 }, max_health: 100, phase: 0 });
+            x.objectives.push(ObjObs { ent: (21, 1), kind: "base_guardian", pos: [-1290.0, -5450.0], health: if i < 4 { 1 } else { 0 }, max_health: 100, phase: 0 });
+            x.objectives.push(ObjObs { ent: (30, 1), kind: "mid_boss", pos: [0.0, 0.0], health: if i < 1 { 1 } else { 0 }, max_health: 100, phase: 0 });
         }
         s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
         let t = derive(&obs(s), map::current()).expect("timeline");
@@ -654,13 +678,13 @@ mod tests {
         s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
         for (i, x) in s.iter_mut().enumerate() {
             // A zero read at second 1, alive again after (exploration's 122134063, tick 8055).
-            x.objectives.push(ObjObs { ent: (10, 1), kind: "guardian", pos: mid, health: if i == 1 { 0 } else { 100 }, max_health: 100 });
+            x.objectives.push(ObjObs { ent: (10, 1), kind: "guardian", pos: mid, health: if i == 1 { 0 } else { 100 }, max_health: 100, phase: 0 });
         }
         // Amber's west guardian reads zero under one serial, then lives on under another.
         let west = [-8192.0, -1856.0];
-        s[1].objectives.push(ObjObs { ent: (11, 1), kind: "guardian", pos: west, health: 50, max_health: 100 });
-        s[2].objectives.push(ObjObs { ent: (11, 1), kind: "guardian", pos: west, health: 0, max_health: 100 });
-        s[3].objectives.push(ObjObs { ent: (11, 2), kind: "guardian", pos: west, health: 50, max_health: 100 });
+        s[1].objectives.push(ObjObs { ent: (11, 1), kind: "guardian", pos: west, health: 50, max_health: 100, phase: 0 });
+        s[2].objectives.push(ObjObs { ent: (11, 1), kind: "guardian", pos: west, health: 0, max_health: 100, phase: 0 });
+        s[3].objectives.push(ObjObs { ent: (11, 2), kind: "guardian", pos: west, health: 50, max_health: 100, phase: 0 });
         let t = derive(&obs(s), map::current()).expect("timeline");
         assert_eq!(t.objectives, []);
     }
@@ -671,7 +695,7 @@ mod tests {
         s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
         // The old map: patrons and shrines ~1280 off (exploration §8).
         for (i, k) in ["patron", "shrine", "shrine", "walker"].iter().enumerate() {
-            s[0].objectives.push(ObjObs { ent: (i as i32, 1), kind: k, pos: [3000.0 + i as f32 * 2000.0, 9000.0], health: 10, max_health: 100 });
+            s[0].objectives.push(ObjObs { ent: (i as i32, 1), kind: k, pos: [3000.0 + i as f32 * 2000.0, 9000.0], health: 10, max_health: 100, phase: 0 });
         }
         assert_eq!(derive(&obs(s), map::current()).err(), Some(Refused::OldMap));
         assert_eq!(derive(&obs(vec![]), map::current()).err(), Some(Refused::Empty));
@@ -754,7 +778,7 @@ mod tests {
         let mut s = seconds(6);
         for (i, x) in s.iter_mut().enumerate() {
             x.heroes = vec![hero(1, 2, i != 3, [100.0 + i as f32, 200.0])];
-            x.objectives.push(ObjObs { ent: (10, 1), kind: "walker", pos: [-6272.0, -4736.0], health: if i < 4 { 100 } else { 0 }, max_health: 100 });
+            x.objectives.push(ObjObs { ent: (10, 1), kind: "walker", pos: [-6272.0, -4736.0], health: if i < 4 { 100 } else { 0 }, max_health: 100, phase: 0 });
             x.powerups.push(PowerupObs { pos: [-3936.0, 136.0], active: (2..4).contains(&i) });
         }
         s[1].rift_spawner = Some([7648.0, 0.0]);
@@ -835,11 +859,39 @@ mod tests {
         s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
         let walker = [-6272.0, -4736.0];
         for (i, h) in [3000, 3000, 2970, 1500].into_iter().enumerate() {
-            s[i].objectives.push(ObjObs { ent: (10, 1), kind: "walker", pos: walker, health: h, max_health: 3000 });
+            s[i].objectives.push(ObjObs { ent: (10, 1), kind: "walker", pos: walker, health: h, max_health: 3000, phase: 0 });
         }
         let t = derive(&obs(s), map::current()).expect("timeline");
         let w = t.objective_health.iter().find(|o| o.key == "walker:amber:lane1:1").expect("walker");
         assert_eq!(w.at, [[0, 100], [2, 99], [3, 50]]);
+    }
+
+    #[test]
+    fn the_patron_has_stages_and_the_loser_s_falls_at_the_end() {
+        let m = map::current();
+        let site = m.sites.iter().find(|x| x.kind == "patron" && x.team == "sapphire").expect("patron");
+        let at = [site.world[0] as f32, site.world[1] as f32];
+        let mut s = seconds(4);
+        s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
+        for (i, (h, phase)) in [(1000, 0), (500, 0), (2000, 1), (1000, 1)].into_iter().enumerate() {
+            s[i].objectives.push(ObjObs { ent: (40, 1), kind: "patron", pos: at, health: h, max_health: 2000, phase });
+        }
+        let t = derive(&Obs { winner: 2, ..obs(s) }, m).expect("timeline");
+        let p = t.objective_health.iter().find(|o| o.key == site.key).expect("patron health");
+        assert_eq!(p.at, [[0, 50], [1, 25], [2, 100], [3, 50]]);
+        assert_eq!(p.stage, [[0, 1], [2, 2]]);
+        // Amber won: Sapphire's patron falls at the end, though the parse never saw it at 0.
+        let fell = t.objectives.iter().find(|o| o.key == site.key).expect("patron down");
+        assert_eq!((fell.destroyed_s, fell.team.as_str()), (3, "sapphire"));
+    }
+
+    #[test]
+    fn a_dead_hero_has_no_health() {
+        let mut s = seconds(2);
+        s[0].heroes = vec![HeroObs { health: 300, max_health: 600, ..hero(1, 2, true, [0.0, 0.0]) }];
+        s[1].heroes = vec![HeroObs { health: 300, max_health: 600, ..hero(1, 2, false, [0.0, 0.0]) }];
+        let t = derive(&obs(s), map::current()).expect("timeline");
+        assert_eq!(t.players[0].health, [50, 0]);
     }
 
     #[test]

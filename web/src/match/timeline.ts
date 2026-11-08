@@ -42,6 +42,9 @@ export interface Timeline {
   events?: MatchEvent[];
   /** Replay tier: lane troopers every `every_s` seconds, packed per team (player/troopers.ts). */
   troopers?: { every_s: number; amber: string[]; sapphire: string[] };
+  /** Replay tier: each objective's health in percent where it changes, `[second, pct]`; the
+   * patron's stage (1, 2) the same way. */
+  objective_health?: Array<{ key: string; at: Array<[number, number]>; stage?: Array<[number, number]> }>;
 }
 
 export type EventKind = "death" | "objective" | "mid_boss" | "rift_up" | "rift_capture" | "powerup_spawn" | "powerup_taken" | "souls_swing" | "ult";
@@ -74,6 +77,9 @@ export interface PlayerAt {
   souls: number | null;
   /** Ult cooldown left in percent; `null` when the tier doesn't know (or it's untrained). */
   ult: number | null;
+  /** Replay tier: health in percent (0 dead); `null` on the metadata tier (its path health is
+   * too coarse to show, operator 2026-11-08). */
+  health: number | null;
 }
 
 /** Position at a fractional second: linear between the two samples when both are alive. */
@@ -116,7 +122,34 @@ export function playersAt(tl: Timeline, t: number): PlayerAt[] {
     last: lastSeen(p, t),
     souls: soulsAt(p, t),
     ult: p.ult?.[Math.max(0, Math.min(p.ult.length - 1, Math.floor(t)))] ?? null,
+    health: tl.tier === "replay" ? (p.health[Math.max(0, Math.min(p.health.length - 1, Math.floor(t)))] ?? 0) : null,
   }));
+}
+
+/** The value of a `[second, v]` change list at t (`undefined` before its first change). */
+function stepAt(list: Array<[number, number]>, t: number): number | undefined {
+  let v: number | undefined;
+  for (const [s, x] of list) {
+    if (s > t) break;
+    v = x;
+  }
+  return v;
+}
+
+/**
+ * Objectives' health at t, by board key (replay tier; empty otherwise). A destroyed objective
+ * has none; the patron carries its stage.
+ */
+export function objectiveHealthAt(tl: Timeline, t: number): Map<string, { pct: number; stage?: number }> {
+  const out = new Map<string, { pct: number; stage?: number }>();
+  for (const o of tl.objective_health ?? []) {
+    const pct = stepAt(o.at, t);
+    if (pct === undefined) continue;
+    if (tl.objectives.some((d) => d.key === o.key && d.destroyed_s <= t)) continue;
+    const stage = o.stage?.length ? stepAt(o.stage, t) : undefined;
+    out.set(o.key, stage === undefined ? { pct } : { pct, stage });
+  }
+  return out;
 }
 
 const inStale = (st: Stale, s: number) => st.some(([a, b]) => s >= a && s < b);

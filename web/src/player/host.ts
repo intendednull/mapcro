@@ -3,7 +3,7 @@
 // board creates one; Player renders it; following reads and writes its playback.
 
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
-import { type MatchEvent, type Timeline, downAt, playersAt, sitesAt, wavesAt } from "../match/timeline";
+import { type MatchEvent, type Timeline, downAt, objectiveHealthAt, playersAt, sitesAt, wavesAt } from "../match/timeline";
 import type { MatchPreview } from "../match/preview";
 import { slotKey } from "../match/save";
 import type { Marker } from "../map/model";
@@ -47,6 +47,8 @@ export function createPlayerHost(board: string, token: string) {
   };
   /** The trooper dots (replay tier), on by default. */
   const [showTroopers, setShowTroopers] = createSignal(true);
+  // Health bars and rings (replay tier), on by default (operator, 2026-11-08).
+  const [showHealth, setShowHealth] = createSignal(true);
   /** The events list's lead, shared with the arrow keys (spec §6b). */
   const [lead, setLead] = createSignal(5);
   const [matchId, setMatchId] = createSignal<string>();
@@ -264,6 +266,8 @@ export function createPlayerHost(board: string, token: string) {
     held,
     showTroopers,
     setShowTroopers,
+    showHealth,
+    setShowHealth,
     lead,
     setLead,
     matchId,
@@ -292,9 +296,10 @@ export function createPlayerHost(board: string, token: string) {
       const m = tl();
       if (!m) return { players: new Map(), down: new Set(), sites: new Map(), waves: new Map() };
       const at = t();
-      const players = new Map(playersAt(m, at).map((x) => [slotKey(x.team, x.slot), { hero: x.hero_id, pos: x.pos }]));
+      const health = showHealth() && m.tier === "replay";
+      const players = new Map(playersAt(m, at).map((x) => [slotKey(x.team, x.slot), { hero: x.hero_id, pos: x.pos, health: health ? x.health : null }]));
       const waves = new Map([...wavesAt(m, at)].map(([k, w]) => [k, w.t]));
-      return { players, down: downAt(m, at, markers), sites: sitesAt(m, at, markers), waves };
+      return { players, down: downAt(m, at, markers), sites: sitesAt(m, at, markers), waves, ...(health ? { health: objectiveHealthAt(m, at) } : {}) };
     },
   };
 }

@@ -110,3 +110,11 @@ leaves room for the largest demos plus a decompression's page cache.
   5.6 s (release build, one core).
 - **The other local demos** (108440637, 107550569, 106114966) are all pre-6712, so they're
   refused as `old_map` before their mode is read.
+- **Health (2026-11-08).**
+  - Objective health on 129738985 is 25 tracks and 9.3 KB. The whole timeline is 1.46 MB, of
+    which troopers are 677 KB, against the 4 MiB cap.
+  - The patron reaches stage 2 at 43:08 and falls at 44:00. The losing patron now counts as
+    destroyed at the end.
+  - Hero health reads 0 whenever the hero isn't alive (stale-value rule from camp-probe).
+  - Shots: `web/shots/replay-real-2070.png` (a teamfight) and `replay-real-1615.png` (walkers
+    under attack).

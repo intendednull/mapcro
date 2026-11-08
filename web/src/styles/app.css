@@ -368,3 +368,21 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .match-ult.ready .match-ult-bg { opacity: 1; }
 .match-ult-left { fill: none; stroke: #ddd; stroke-width: 2.5; }
 .card.add.match { min-width: 96px; max-width: 120px; flex: 0 0 auto; }
+
+/* Health (replay tier, operator 2026-11-08): a thin bar under each top-bar portrait, in the
+   team's colour, red when low, empty when dead; an arc on each hero token; a ring on a damaged
+   objective. */
+.pl-hp { position: absolute; left: 50%; top: calc(66 * var(--u)); transform: translateX(-50%); z-index: 3; width: calc(56 * var(--u)); height: calc(6 * var(--u)); border-radius: calc(3 * var(--u)); background: #000000d0; box-shadow: 0 0 0 1px #000; overflow: hidden; pointer-events: none; }
+.pl-hp > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--t1); transition: width 0.25s linear; }
+.tb-player.sapphire .pl-hp > i { background: var(--t2); }
+.pl-hp.low > i { background: #ff5656; }
+.tok-hp { fill: none; stroke-linecap: round; pointer-events: none; }
+.tok-hp-bg { stroke: #000000b0; }
+.tok-hp-fill.amber { stroke: var(--amber); }
+.tok-hp-fill.sapphire { stroke: var(--sapphire); }
+.tok-hp-fill.low { stroke: #ff5656; }
+.obj-hp { fill: none; pointer-events: none; }
+.obj-hp-bg { stroke: #000000b0; }
+.obj-hp-fill { stroke: #ffefd7; stroke-linecap: round; }
+.obj-hp-fill.low { stroke: #ff5656; }
+.obj-hp-stage { font: 700 11px var(--ui); fill: #ffefd7; paint-order: stroke; stroke: #000; stroke-width: 3px; text-anchor: middle; pointer-events: none; }
