@@ -18,6 +18,7 @@ import type { Presence } from "../gen/Presence";
 import type { RecordId } from "../gen/RecordId";
 import type { RosterSlot } from "../gen/RosterSlot";
 import type { Scene } from "../gen/Scene";
+import { flatten } from "./tree";
 
 let wasm: Promise<unknown> | undefined;
 export const loadWasm = () => (wasm ??= init());
@@ -160,12 +161,22 @@ export function createBoardState(board: string, token: string) {
   const metaId = () => live<BoardMeta>("BoardMeta")[0]?.id;
 
   // Player's live annotation layer is a scene, but never one of the board's scenes (spec §6b).
-  const scenes = createMemo(() =>
-    live<Scene>("Scene")
+  // The scenes form a tree (`Scene.parent`): listed and flipped depth-first, siblings by order.
+  // A parent that's gone resolves through its own parent (a deleted scene keeps its record).
+  const sceneTree = createMemo(() => {
+    const list = live<Scene>("Scene")
       .filter((w) => !w.r.live)
-      .map((w) => sceneRow(w.id))
-      .sort((a, b) => (a.scene.order < b.scene.order ? -1 : a.scene.order > b.scene.order ? 1 : a.id < b.id ? -1 : 1)),
-  );
+      .map((w) => sceneRow(w.id));
+    const up = (id: RecordId) => {
+      const e = records[id];
+      return e && "Scene" in e.record ? (e.record.Scene.parent ?? null) : null;
+    };
+    return flatten(
+      list.map((row) => ({ id: row.id, order: row.scene.order, parent: row.scene.parent, row })),
+      up,
+    ).map((r) => ({ scene: r.scene.row, depth: r.depth, parent: r.parent, hasChildren: r.hasChildren }));
+  });
+  const scenes = createMemo(() => sceneTree().map((r) => r.scene), undefined, { equals: sameItems });
 
   const roster = createMemo(() =>
     live<RosterSlot>("RosterSlot")
@@ -230,6 +241,7 @@ export function createBoardState(board: string, token: string) {
     title,
     metaId,
     scenes,
+    sceneTree,
     /** Player's live annotation layer, if the board has one (the lowest id, if two were made). */
     liveScene: createMemo(() => live<Scene>("Scene").filter((w) => w.r.live).map((w) => w.id).sort()[0]),
     roster,

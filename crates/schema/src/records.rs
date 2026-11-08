@@ -63,6 +63,12 @@ pub struct Scene {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub live: bool,
+    /// The scene this one nests under: scenes form a tree, and `order` orders siblings. `None`:
+    /// top level. Must be a live scene and not this one or a descendant (checked on write); a
+    /// parent deleted later resolves through its own parent. Older scenes load without one.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub parent: Option<RecordId>,
 }
 
 /// A scene's match moment (spec §6b).
@@ -221,6 +227,7 @@ pub enum FieldValue {
     SceneName(String),
     SceneOrder(OrderKey),
     SceneClock(Option<u32>),
+    SceneParent(Option<RecordId>),
     PlayerPos(WorldPos),
     PlayerAlive(bool),
     PlayerPlaced(bool),
@@ -247,6 +254,7 @@ pub enum Field {
     SceneName,
     SceneOrder,
     SceneClock,
+    SceneParent,
     PlayerPos,
     PlayerAlive,
     PlayerPlaced,
@@ -265,13 +273,14 @@ pub enum Field {
 }
 
 impl Field {
-    pub const ALL: [Field; 21] = [
+    pub const ALL: [Field; 22] = [
         Field::Title,
         Field::RosterName,
         Field::RosterHero,
         Field::SceneName,
         Field::SceneOrder,
         Field::SceneClock,
+        Field::SceneParent,
         Field::PlayerPos,
         Field::PlayerAlive,
         Field::PlayerPlaced,
@@ -299,6 +308,7 @@ impl FieldValue {
             FieldValue::SceneName(_) => Field::SceneName,
             FieldValue::SceneOrder(_) => Field::SceneOrder,
             FieldValue::SceneClock(_) => Field::SceneClock,
+            FieldValue::SceneParent(_) => Field::SceneParent,
             FieldValue::PlayerPos(_) => Field::PlayerPos,
             FieldValue::PlayerAlive(_) => Field::PlayerAlive,
             FieldValue::PlayerPlaced(_) => Field::PlayerPlaced,
@@ -358,6 +368,7 @@ impl Record {
             (Record::Scene(r), Field::SceneName) => V::SceneName(r.name.clone()),
             (Record::Scene(r), Field::SceneOrder) => V::SceneOrder(r.order.clone()),
             (Record::Scene(r), Field::SceneClock) => V::SceneClock(r.clock),
+            (Record::Scene(r), Field::SceneParent) => V::SceneParent(r.parent),
             (Record::PlayerState(r), Field::PlayerPos) => V::PlayerPos(r.pos),
             (Record::PlayerState(r), Field::PlayerAlive) => V::PlayerAlive(r.alive),
             (Record::PlayerState(r), Field::PlayerPlaced) => V::PlayerPlaced(r.placed),
@@ -387,6 +398,7 @@ impl Record {
             (Record::Scene(r), V::SceneName(v)) => r.name = v,
             (Record::Scene(r), V::SceneOrder(v)) => r.order = v,
             (Record::Scene(r), V::SceneClock(v)) => r.clock = v,
+            (Record::Scene(r), V::SceneParent(v)) => r.parent = v,
             (Record::PlayerState(r), V::PlayerPos(v)) => r.pos = v,
             (Record::PlayerState(r), V::PlayerAlive(v)) => r.alive = v,
             (Record::PlayerState(r), V::PlayerPlaced(v)) => r.placed = v,

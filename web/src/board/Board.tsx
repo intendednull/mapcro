@@ -14,7 +14,7 @@ import { DeadLink } from "../ui/DeadLink";
 import { formatClock, parseClock } from "../core/clock";
 import { InlineEdit } from "../ui/InlineEdit";
 import { JoinCard } from "./JoinCard";
-import { SceneStrip } from "./SceneStrip";
+import { SceneTree } from "./SceneTree";
 import { TopBar } from "./TopBar";
 import { createBoardState } from "./state";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
@@ -389,6 +389,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
   };
   const calloutList = createMemo(() => calloutOrder(state.rowsIn<Callout>("Callout", scene()?.id)));
 
+  const [sceneDrawer, setSceneDrawer] = createSignal(false);
   const flipBy = (d: number) => {
     const all = state.scenes();
     const next = all[sceneIndex() + d];
@@ -500,7 +501,14 @@ export function Board(p: { board: string; token: string; art: Art }) {
             Next
           </button>
         </div>
+        <button class="btn ghost p-scenes" data-testid="scene-drawer" onClick={() => setSceneDrawer(true)}>
+          Scenes
+        </button>
       </nav>
+      <Show when={sceneDrawer()}>
+        <div class="drawer-scrim" onClick={() => setSceneDrawer(false)} />
+        <SceneTree state={state} art={p.art} vp={viewpoint()} board={p.board} current={scene()?.id} onFlip={userFlip} drawer onClose={() => setSceneDrawer(false)} />
+      </Show>
       {toastView()}
     </div>
   );
@@ -652,6 +660,15 @@ export function Board(p: { board: string; token: string; art: Art }) {
         </Show>
       </header>
       <div class="main">
+        <SceneTree
+          state={state}
+          art={p.art}
+          vp={viewpoint()}
+          board={p.board}
+          current={scene()?.id}
+          onFlip={userFlip}
+          {...(state.canEdit() ? { onMatch: () => player.setMode("player") } : {})}
+        />
         <main class="stage">
           <div class="stage-head">
             <div class="scene-title">
@@ -823,14 +840,6 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </section>
         </aside>
       </div>
-      <SceneStrip
-        state={state}
-        art={p.art}
-        vp={viewpoint()}
-        current={scene()?.id}
-        onFlip={userFlip}
-        {...(state.canEdit() ? { onMatch: () => player.setMode("player") } : {})}
-      />
       <Show when={inPlayer()} fallback={<PlayerSwitch host={player} state={state} onSwitch={() => stopFollowing("switched to Player")} />}>
         <Player host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onPreview={setMatchPreview} onSaved={userFlip} onUserPlayback={() => stopFollowing("changed the playback")} />
       </Show>

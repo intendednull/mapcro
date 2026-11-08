@@ -127,7 +127,7 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
     let choice = match b {
         Behaviour::Dragger | Behaviour::Undoer => rng.random_range(0..3),
         Behaviour::Editor => rng.random_range(0..12).max(if rng.random_range(0..6) == 0 { 15 } else { 0 }),
-        Behaviour::SceneShuffler => [12, 13, 14, 16, 0].choose(rng).copied().unwrap_or(0),
+        Behaviour::SceneShuffler => [12, 13, 14, 16, 17, 18, 0].choose(rng).copied().unwrap_or(0),
     };
     let set = |id: Option<RecordId>, value: FieldValue| id.map(|id| vec![Op::Set { id, value }]).unwrap_or_default();
     match choice {
@@ -224,10 +224,12 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
         }
         12 => {
             // New scene with its 12 player states, in one transaction.
+            // Half of them nest under a scene (a tree of scenes).
             let id = new_id;
+            let parent = if rng.random() { Some(scene) } else { None };
             let mut ops = vec![Op::Create {
                 id,
-                record: Record::Scene(Scene { name: text(rng, 24), order: OrderKey::between(last_order(r).as_ref(), None), clock: Some(rng.random_range(0..3600)), source: None, live: false }),
+                record: Record::Scene(Scene { name: text(rng, 24), order: OrderKey::between(last_order(r).as_ref(), None), clock: Some(rng.random_range(0..3600)), source: None, live: false, parent }),
             }];
             for (slot, rec) in r.view().iter_live() {
                 if let Record::RosterSlot(s) = rec {
@@ -240,6 +242,28 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
             ops
         }
         13 => vec![Op::Delete { id: scene }],
+        // Re-parent a scene: under another (a cycle is refused, as it should be) or to the top.
+        17 => {
+            let parent = if rng.random_range(0..3) == 0 { None } else { pick(rng, &scenes) };
+            vec![Op::Set { id: scene, value: FieldValue::SceneParent(parent) }]
+        }
+        // Delete a parent the way the UI does: its children move up to its parent first.
+        18 => {
+            let up = match r.view().live(scene) {
+                Some(Record::Scene(s)) => s.parent,
+                _ => None,
+            };
+            let mut ops: Vec<Op> = r
+                .view()
+                .iter_live()
+                .filter_map(|(id, rec)| match rec {
+                    Record::Scene(c) if c.parent == Some(scene) => Some(Op::Set { id, value: FieldValue::SceneParent(up) }),
+                    _ => None,
+                })
+                .collect();
+            ops.push(Op::Delete { id: scene });
+            ops
+        }
         16 => set(Some(scene), FieldValue::SceneClock(Some(rng.random_range(0..3600)))),
         15 => {
             let n = rng.random_range(2..40);
@@ -280,7 +304,7 @@ fn attack(rng: &mut ChaCha8Rng, client: mapcro_schema::ClientId, cseq: u64) -> (
     let (ops, what) = match rng.random_range(0..10) {
         0 => (vec![Op::Set { id, value: FieldValue::PlayerPos(WorldPos { x: i32::MAX, y: 0 }) }], "out-of-bounds write"),
         1 => (vec![Op::Create { id, record: Record::Callout(Callout { scene, pos: WorldPos { x: 0, y: 0 }, text: "x".repeat(500) }) }], "huge text"),
-        2 => (vec![Op::Create { id, record: Record::Scene(Scene { name: "bad\u{7}".into(), order: OrderKey::first(), clock: None, source: None, live: false }) }], "control chars / incomplete scene"),
+        2 => (vec![Op::Create { id, record: Record::Scene(Scene { name: "bad\u{7}".into(), order: OrderKey::first(), clock: None, source: None, live: false, parent: None }) }], "control chars / incomplete scene"),
         3 => (vec![Op::SetIf { id, expect: FieldValue::Title("a".into()), value: FieldValue::NoteText("b".into()) }], "mismatched set_if"),
         4 => (vec![Op::Delete { id }], "delete unknown"),
         5 => (vec![], "empty transaction"),

@@ -33,6 +33,7 @@ const REASONS: Record<Reject, string> = {
   Duplicate: "Duplicate",
   IncompleteScene: "Incomplete scene",
   LastScene: "Last scene",
+  SceneCycle: "Can't nest there",
   Forbidden: "View only",
   BadStroke: "Invalid ink",
   TxTooLarge: "Change too big",

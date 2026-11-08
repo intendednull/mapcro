@@ -19,6 +19,8 @@ source?: SceneSource,
  */
 live?: boolean, 
 /**
- * The scene this one nests under (scenes form a tree). Absent or null: top level.
+ * The scene this one nests under: scenes form a tree, and `order` orders siblings. `None`:
+ * top level. Must be a live scene and not this one or a descendant (checked on write); a
+ * parent deleted later resolves through its own parent. Older scenes load without one.
  */
 parent?: RecordId | null, };

@@ -95,6 +95,9 @@ pub enum Reject {
     IncompleteScene,
     #[error("a board must keep at least one scene")]
     LastScene,
+    /// A scene can't nest under itself or one of its own descendants.
+    #[error("a scene can't nest under itself or its own scenes")]
+    SceneCycle,
     #[error("this link can only view")]
     Forbidden,
     #[error("a stroke needs 2–512 points, a palette colour and a sane width")]
@@ -143,7 +146,8 @@ fn check_value(v: &FieldValue) -> Result<(), Reject> {
         V::PlayerUltCooldown(p) => if p.is_none_or(|p| p <= 100) { Ok(()) } else { Err(Reject::OutOfBounds) },
         // A respawn timer up to ten minutes.
         V::PlayerRespawn(s) => if s.is_none_or(|s| s <= 600) { Ok(()) } else { Err(Reject::OutOfBounds) },
-        V::RosterHero(_) | V::PlayerAlive(_) | V::PlayerPlaced(_) | V::PlayerVisible(_) | V::ObjectiveStatus(_) | V::ArrowTeam(_) => Ok(()),
+        // A scene's parent is checked against the board (`check_parent`).
+        V::RosterHero(_) | V::PlayerAlive(_) | V::PlayerPlaced(_) | V::PlayerVisible(_) | V::ObjectiveStatus(_) | V::ArrowTeam(_) | V::SceneParent(_) => Ok(()),
     }
 }
 
@@ -160,6 +164,11 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
                 && (src.match_id == 0 || src.match_id >= 1_000_000_000_000 || src.t > 86_400 || !(src.tier == "replay" || src.tier == "metadata"))
             {
                 return Err(Reject::OutOfBounds);
+            }
+            if let Some(parent) = s.parent
+                && !live_scene(parent)
+            {
+                return Err(Reject::NoSuchScene);
             }
             if s.order.is_valid() { Ok(()) } else { Err(Reject::BadOrderKey) }
         }
@@ -223,6 +232,31 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
     }
 }
 
+/// A scene nesting under `parent`: the parent must be a live scene, and not the scene itself or
+/// one of its descendants (the walk up goes through deleted scenes too, which keep their parent).
+fn check_parent(doc: &Doc, id: RecordId, value: &FieldValue) -> Result<(), Reject> {
+    let FieldValue::SceneParent(Some(parent)) = value else { return Ok(()) };
+    if !matches!(doc.live(*parent), Some(Record::Scene(_))) {
+        return Err(Reject::NoSuchScene);
+    }
+    let mut at = Some(*parent);
+    let mut steps = 0;
+    while let Some(p) = at {
+        if p == id {
+            return Err(Reject::SceneCycle);
+        }
+        steps += 1;
+        if steps > LIMITS.max_records {
+            return Err(Reject::SceneCycle); // a loop that doesn't pass through `id`: refuse too
+        }
+        at = match doc.get(p).map(|e| &e.record) {
+            Some(Record::Scene(s)) => s.parent,
+            _ => None,
+        };
+    }
+    Ok(())
+}
+
 pub(crate) fn apply_op(doc: &mut Doc, op: &Op) -> Result<OpOutcome, Reject> {
     match op {
         Op::Create { id, record } => {
@@ -238,6 +272,7 @@ pub(crate) fn apply_op(doc: &mut Doc, op: &Op) -> Result<OpOutcome, Reject> {
         }
         Op::Set { id, value } => {
             check_value(value)?;
+            check_parent(doc, *id, value)?;
             let entry = doc.entry_mut(*id).ok_or(Reject::NoSuchRecord)?;
             if entry.record.get(value.field()).is_none() {
                 return Err(Reject::WrongField);
@@ -253,6 +288,7 @@ pub(crate) fn apply_op(doc: &mut Doc, op: &Op) -> Result<OpOutcome, Reject> {
                 return Err(Reject::MismatchedSetIf);
             }
             check_value(value)?;
+            check_parent(doc, *id, value)?;
             let entry = doc.entry_mut(*id).ok_or(Reject::NoSuchRecord)?;
             let current = entry.record.get(value.field()).ok_or(Reject::WrongField)?;
             if entry.deleted || current != *expect {

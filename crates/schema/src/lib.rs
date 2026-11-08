@@ -191,7 +191,7 @@ pub fn genesis(mut next_id: impl FnMut() -> RecordId, title: &str) -> Doc {
         }
     }
     let scene = next_id();
-    doc.insert(scene, Record::Scene(Scene { name: "Scene 1".into(), order: OrderKey::first(), clock: None, source: None, live: false }));
+    doc.insert(scene, Record::Scene(Scene { name: "Scene 1".into(), order: OrderKey::first(), clock: None, source: None, live: false, parent: None }));
     for (slot_id, team, slot) in slots {
         doc.insert(next_id(), Record::PlayerState(PlayerState::starting(scene, slot_id, team, slot)));
     }
@@ -246,6 +246,53 @@ mod tests {
         let r = apply_tx(&mut doc, &tx(vec![mv(player, 7), Op::Delete { id: scene }]));
         assert_eq!(r, Err(Reject::LastScene));
         assert_eq!(doc, before);
+    }
+
+    #[test]
+    fn scenes_nest_without_cycles() {
+        let (mut doc, a, player) = board();
+        let scene = |id: u128, parent: Option<RecordId>| Op::Create {
+            id: RecordId(id),
+            record: Record::Scene(Scene { name: "s".into(), order: OrderKey::first(), clock: None, source: None, live: false, parent }),
+        };
+        let parent = |id: RecordId, p: Option<RecordId>| Op::Set { id, value: FieldValue::SceneParent(p) };
+        // A scene needs player states to be complete: copy a's for each new scene.
+        let base: Vec<PlayerState> = doc
+            .iter_live()
+            .filter_map(|(_, r)| match r {
+                Record::PlayerState(p) if p.scene == a => Some(p.clone()),
+                _ => None,
+            })
+            .collect();
+        let players = |s: u128| -> Vec<Op> {
+            base.iter()
+                .enumerate()
+                .map(|(i, p)| Op::Create { id: RecordId(s * 100 + i as u128), record: Record::PlayerState(PlayerState { scene: RecordId(s), ..p.clone() }) })
+                .collect()
+        };
+        let (b, c) = (RecordId(2000), RecordId(3000));
+        let mut ops = vec![scene(2000, Some(a))];
+        ops.extend(players(2000));
+        assert_eq!(apply_tx(&mut doc, &tx(ops)).map(|_| ()), Ok(()));
+        let mut ops = vec![scene(3000, Some(b))];
+        ops.extend(players(3000));
+        assert_eq!(apply_tx(&mut doc, &tx(ops)).map(|_| ()), Ok(()));
+        // Under itself, under its child or grandchild: refused. Under nothing, a player, a gone id: refused too.
+        assert_eq!(apply_tx(&mut doc, &tx(vec![parent(a, Some(a))])), Err(Reject::SceneCycle));
+        assert_eq!(apply_tx(&mut doc, &tx(vec![parent(a, Some(c))])), Err(Reject::SceneCycle));
+        assert_eq!(apply_tx(&mut doc, &tx(vec![parent(b, Some(c))])), Err(Reject::SceneCycle));
+        assert_eq!(apply_tx(&mut doc, &tx(vec![parent(a, Some(player))])), Err(Reject::NoSuchScene));
+        assert_eq!(apply_tx(&mut doc, &tx(vec![parent(a, Some(RecordId(99_999)))])), Err(Reject::NoSuchScene));
+        assert_eq!(apply_tx(&mut doc, &tx(vec![scene(4000, Some(RecordId(99_999)))])), Err(Reject::NoSuchScene));
+        // Re-parent: c moves to the top; then a may nest under c.
+        assert_eq!(apply_tx(&mut doc, &tx(vec![parent(c, None)])).map(|_| ()), Ok(()));
+        assert_eq!(apply_tx(&mut doc, &tx(vec![parent(a, Some(c))])).map(|_| ()), Ok(()));
+        // Deleting a parent: its child moves up in the same transaction (what the UI sends).
+        assert_eq!(apply_tx(&mut doc, &tx(vec![parent(b, None), Op::Delete { id: a }])).map(|_| ()), Ok(()));
+        assert!(matches!(doc.live(b), Some(Record::Scene(Scene { parent: None, .. }))));
+        // An old scene loads without a parent.
+        let old: Record = serde_json::from_str(r#"{"Scene":{"name":"x","order":"a","clock":null}}"#).expect("old scene");
+        assert!(matches!(old, Record::Scene(Scene { parent: None, .. })));
     }
 
     #[test]

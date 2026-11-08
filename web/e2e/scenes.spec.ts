@@ -57,7 +57,7 @@ test("add, flip, edit the clock and name, reorder", async ({ browser }) => {
   await expect(cards(b).nth(1)).toHaveAttribute("aria-label", "Scene 2: 8:00 mid boss setup");
 
   // Reorder: drag the second card before the first, in A; B sees the new order.
-  await cards(a).nth(1).dragTo(cards(a).nth(0), { targetPosition: { x: 10, y: 40 } });
+  await cards(a).nth(1).dragTo(cards(a).nth(0), { targetPosition: { x: 60, y: 3 } });
   await expect(cards(a).nth(0)).toHaveAttribute("aria-label", "Scene 1: 8:00 mid boss setup");
   await expect(cards(b).nth(0)).toHaveAttribute("aria-label", "Scene 1: 8:00 mid boss setup");
   // A still looks at the scene it moved.
@@ -66,7 +66,7 @@ test("add, flip, edit the clock and name, reorder", async ({ browser }) => {
   await b.reload();
   await expect(cards(b).nth(0)).toHaveAttribute("aria-label", "Scene 1: 8:00 mid boss setup");
   await expect(cards(b)).toHaveCount(2);
-  await a.screenshot({ path: "shots/slice2-scene-strip.png" });
+  await a.screenshot({ path: "shots/slice2-scenes.png" });
 });
 
 test("a viewer can flip but not add, rename or reorder", async ({ browser }) => {
