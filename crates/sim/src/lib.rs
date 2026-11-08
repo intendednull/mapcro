@@ -51,6 +51,9 @@ pub struct Stats {
     pub reloads: usize,
     /// Clients that cleared their storage and joined again from a snapshot.
     pub fresh_joins: usize,
+    /// Times the server compacted its log, and rebases it sent clients older than that.
+    pub compactions: usize,
+    pub rebases: usize,
     pub undo_fields_checked: usize,
 }
 
@@ -105,6 +108,11 @@ pub struct World {
     /// The log as the server stores it: every `Effect::Logged`, in order. The authority keeps
     /// none of it, so this is also what catch-up is served from.
     pub(crate) stored_log: Vec<Tx>,
+    /// What compaction left on disk (spec §9): the board at a log position, the floor below
+    /// which entries are gone, and each client's next expected cseq.
+    pub(crate) stored_base: (Doc, u64),
+    pub(crate) stored_floor: u64,
+    pub(crate) stored_client_seqs: Vec<(ClientId, u64)>,
 }
 
 pub fn run(seed: u64, config: &Config) -> Result<Stats, Failure> {
@@ -175,6 +183,9 @@ impl World {
             stored_rejections: Vec::new(),
             stored_clients: Vec::new(),
             stored_log: Vec::new(),
+            stored_base: (doc.clone(), 0),
+            stored_floor: 0,
+            stored_client_seqs: Vec::new(),
             authority: Authority::new(doc),
             clients,
             next_conn: 0,
@@ -211,6 +222,10 @@ impl World {
         if self.rng.random_range(0..1000) < 3 {
             return self.fresh_join(i);
         }
+        if self.rng.random_range(0..1000) < 4 {
+            self.compact();
+            return Ok(());
+        }
         if self.rng.random_range(0..100) < config.fault_rate {
             if self.clients[i].conn.is_some() {
                 self.disconnect(i);
@@ -244,19 +259,25 @@ impl World {
     /// The server process dies and comes back: every connection drops, and the authority is
     /// rebuilt from storage alone (genesis, the log, stored rejections), as the real server does.
     fn restart_server(&mut self) {
-        let mut fresh = Authority::new(self.genesis.clone());
+        let (base, base_seq) = self.stored_base.clone();
+        let mut fresh = Authority::from_snapshot(base, base_seq, mapcro_engine::Quota::default());
         for (client, h) in self.stored_clients.clone() {
             fresh.replay_client(client, h);
         }
-        for tx in self.stored_log.clone() {
+        for tx in self.stored_log[base_seq as usize..].to_vec() {
             if let Err(r) = fresh.replay(&tx, mapcro_engine::encoded_len(&tx)) {
                 // Surfaces as an oracle mismatch on the next check.
                 self.log(format!("replay failed: {r}"));
             }
         }
+        for (client, n) in self.stored_client_seqs.clone() {
+            fresh.replay_next_cseq(client, n);
+        }
         for (client, cseq, reason) in self.stored_rejections.clone() {
             fresh.replay_rejection(client, cseq, reason);
         }
+        let kept: usize = self.stored_log[self.stored_floor as usize..].iter().map(mapcro_engine::encoded_len).sum();
+        fresh.compacted(self.stored_floor, kept);
         self.authority = fresh;
         for i in 0..self.clients.len() {
             let c = &mut self.clients[i];
@@ -289,6 +310,21 @@ impl World {
         let name = self.clients[i].name.clone();
         self.log(format!("{name}: reload from persisted state"));
         Ok(())
+    }
+
+    /// The server compacts (spec §9): it keeps the board as it is as the base, and the last few
+    /// entries for clients slightly behind; older ones are gone, and a client whose copy is older
+    /// gets a rebase. The sim keeps the whole log anyway, as the oracle.
+    fn compact(&mut self) {
+        let len = self.authority.log_len();
+        let floor = len.saturating_sub(self.rng.random_range(0..=3)).max(self.stored_floor);
+        self.stored_base = (self.authority.doc().clone(), len);
+        self.stored_floor = floor;
+        self.stored_client_seqs = self.authority.client_seqs().collect();
+        let kept: usize = self.stored_log[floor as usize..].iter().map(mapcro_engine::encoded_len).sum();
+        self.authority.compacted(floor, kept);
+        self.stats.compactions += 1;
+        self.log(format!("server compacts: base at {len}, entries up to {floor} gone"));
     }
 
     /// The tab clears its storage (only with nothing pending: clearing unsynced work loses it, by
@@ -426,6 +462,9 @@ impl World {
         self.log(format!("{name} <- server: {label}"));
         match &mut self.clients[i].driver {
             Driver::Replica { replica, .. } => {
+                if let ServerMsg::Rebase { .. } = msg {
+                    self.stats.rebases += 1;
+                }
                 if let ServerMsg::Rejected { .. } = msg {
                     self.stats.rejected += 1;
                     if is_editor {
@@ -485,5 +524,6 @@ fn describe_server_msg(m: &ServerMsg) -> String {
         ServerMsg::Entry { seq, tx } => format!("entry [{seq}] {:?}#{} {:?}", tx.client, tx.cseq, tx.kind),
         ServerMsg::Rejected { cseq, reason } => format!("rejected #{cseq}: {reason}"),
         ServerMsg::Fatal(w) => format!("fatal: {w}"),
+        ServerMsg::Rebase { seq, decided_below, .. } => format!("rebase to the board at {seq}, decided below #{decided_below}"),
     }
 }

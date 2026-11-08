@@ -251,6 +251,17 @@ impl Replica {
                 Ok(())
             }
             ServerMsg::Fatal(why) => Err(ProtocolError::Fatal(why)),
+            ServerMsg::Rebase { doc, seq, decided_below } => {
+                // Adopt the board. A pending transaction below `decided_below` is in it, or was
+                // refused and its rejection came first (so it's gone already): drop it. The rest
+                // stay pending, on top, and were resent with the hello. Undo history is kept, as
+                // across any reconnect: undo is evaluated by the server (spec §7).
+                self.confirmed = doc;
+                self.last_seq = seq;
+                self.pending.retain(|t| t.cseq >= decided_below);
+                self.rebase();
+                Ok(())
+            }
         }
     }
 

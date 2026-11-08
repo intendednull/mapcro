@@ -1,4 +1,4 @@
-use mapcro_schema::{ClientId, Reject, Tx};
+use mapcro_schema::{ClientId, Doc, Reject, Tx};
 use serde::{Deserialize, Serialize};
 
 /// First message on every connection.
@@ -35,4 +35,9 @@ pub enum ServerMsg {
     /// The client's hello was inconsistent with the server (e.g. it claims entries the server
     /// never had). The connection is closed; the client must start again from a snapshot.
     Fatal(String),
+    /// The client's copy is older than the history the server keeps (spec §9, compaction): the
+    /// board as it is at log position `seq`, in place of catch-up. Every pending transaction of
+    /// this client below `decided_below` is decided: in `doc` if it was applied, or refused (and
+    /// that rejection came before this). The client adopts `doc` and keeps the rest pending.
+    Rebase { doc: Doc, seq: u64, decided_below: u64 },
 }

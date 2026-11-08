@@ -37,7 +37,7 @@ struct ClientRecord {
 /// board refuses edits with [`Reject::BoardFull`] and stays readable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Quota {
-    /// Logged transactions.
+    /// Logged transactions kept (since the compaction floor).
     pub max_log_ops: usize,
     /// Logged transactions' size as stored, summed: what storage holds and a cold load reads.
     /// The host says what a transaction costs to store ([`Authority::handle_stored`]); by default
@@ -71,6 +71,9 @@ pub struct Authority {
     doc: Doc,
     /// Entries in the log.
     log_len: u64,
+    /// Entries at or below this position are no longer kept (compaction, spec §9): a hello from
+    /// below it gets a rebase instead of catch-up.
+    floor: u64,
     /// The log's size as stored, summed (what `Quota::max_log_bytes` caps).
     log_bytes: usize,
     clients: BTreeMap<ClientId, ClientRecord>,
@@ -132,6 +135,7 @@ impl Authority {
         Authority {
             doc,
             log_len: 0,
+            floor: 0,
             log_bytes: 0,
             clients: BTreeMap::new(),
             rejections: 0,
@@ -139,6 +143,39 @@ impl Authority {
             quota,
             storage_full: false,
         }
+    }
+
+    /// Rebuild from storage: a snapshot of the board at log position `seq` (the stored base),
+    /// to replay the log after it onto.
+    pub fn from_snapshot(doc: Doc, seq: u64, quota: Quota) -> Self {
+        let mut a = Authority::with_quota(doc, quota);
+        a.log_len = seq;
+        a.floor = seq;
+        a
+    }
+
+    /// The host compacted its log: entries at or below `floor` are gone, and what it keeps
+    /// takes `kept_bytes` (what the byte quota now counts).
+    pub fn compacted(&mut self, floor: u64, kept_bytes: usize) {
+        self.floor = floor.min(self.log_len);
+        self.log_bytes = kept_bytes;
+    }
+
+    /// Entries at or below this position are no longer kept.
+    pub fn floor(&self) -> u64 {
+        self.floor
+    }
+
+    /// Rebuild from storage: a client's next expected cseq, kept across compaction (the log
+    /// entries that showed it may be gone).
+    pub fn replay_next_cseq(&mut self, client: ClientId, next_cseq: u64) {
+        let rec = self.clients.entry(client).or_default();
+        rec.next_cseq = rec.next_cseq.max(next_cseq);
+    }
+
+    /// Every known client's next expected cseq, for the host to keep across compaction.
+    pub fn client_seqs(&self) -> impl Iterator<Item = (ClientId, u64)> + '_ {
+        self.clients.iter().map(|(c, r)| (*c, r.next_cseq))
     }
 
     /// Storage as a whole is (or is no longer) full. While it is, valid edits are refused.
@@ -299,7 +336,12 @@ impl Authority {
             out.push((c, Outgoing::Msg(ServerMsg::Fatal("superseded by a newer connection".into()))));
         }
 
-        if hello.last_seq < len {
+        if hello.last_seq < self.floor {
+            // Its copy is older than what's kept: the board as it is now, and which of its
+            // transactions that already holds (spec §9; `freshReload`/rebase in model/sync.qnt).
+            let decided_below = self.clients.get(&hello.client).map_or(0, |r| r.next_cseq);
+            out.push((conn, Outgoing::Msg(ServerMsg::Rebase { doc: self.doc.clone(), seq: len, decided_below })));
+        } else if hello.last_seq < len {
             out.push((conn, Outgoing::CatchUp { from: hello.last_seq + 1, to: len }));
         }
         self.conns.insert(conn, Conn::Live { role, client: hello.client });
@@ -327,7 +369,7 @@ impl Authority {
         let size = stored_len.unwrap_or(json_len);
         let result = if json_len > LIMITS.max_tx_bytes {
             Err(Reject::TxTooLarge)
-        } else if self.log_len >= self.quota.max_log_ops as u64 || self.log_bytes.saturating_add(size) > self.quota.max_log_bytes {
+        } else if self.log_len - self.floor >= self.quota.max_log_ops as u64 || self.log_bytes.saturating_add(size) > self.quota.max_log_bytes {
             Err(Reject::BoardFull)
         } else if self.storage_full {
             Err(Reject::ServerFull)
