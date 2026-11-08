@@ -358,3 +358,103 @@ Element paths are `<field>.<i>`.
 3. **Older builds (< about 6813):** take alive/cleared from the FOW camp icons' `m_bVisibleOnMap` (up to about 1 s late) or from the entity lifecycle, and **infer** the respawn from the per-tier delays above. Mark it as inferred, because those delays may differ by patch.
 4. **"Unknown" isn't needed on 6v6 recordings like these**, because every camp's state is known all match. Keep the mode check (`m_eGameMode`) in front: reject or tag Brawl, which has no camps.
 5. Ignore partial clears and the stale `m_iHealth` on dormant neutrals.
+
+## Round 4: ziplines and lane state (2026-11-08)
+
+**Scope:** read-only probe of 129738985 (6v6, build 6839) · **Probe:** `/tmp/camp-probe/src/bin/{schema,zip}.rs`, `py/zip{1..5}.py` · **Output:** `/tmp/camp-probe/out4/129738985/`.
+
+### Verdict
+
+**The replay networks the actual zipline ownership state.** It lives on the zipline node entities: `CCitadelZipLineNode.m_iTeamNum`, with one entity per rope node.
+
+Our trooper-front estimate measures something else. The front is where the waves meet. The zipline colour is **captured territory**:
+- A node takes a team's colour when that team's trooper reaches it.
+- It turns neutral when an enemy trooper reaches it.
+- It keeps its colour after the troopers die.
+- An uncoloured gap often separates the two teams.
+
+That explains replay-tier's result: our split stays between the trooper fronts 100% of the time, yet doesn't match the game.
+
+### 1. Candidates (full serializer dump, 99,060 field paths)
+
+| Class / field | Type | Networked? | Behaviour |
+|---|---|---|---|
+| **`CCitadelZipLineNode.m_iTeamNum`** | uint8 | yes: 334 entities, every tick, all match | **2 amber, 3 sapphire, 0 neutral**; 4 for the middle nodes before the game. 6,591 changes in the match. |
+| `CCitadelZipLineNode.m_iPrimaryLane` | int16 | yes, static | 1, 4 or 6, the same codes as troopers' `m_iLane`. `CMsgLaneColor` gives 1 yellow, 4 blue, 6 purple. |
+| `CCitadelZipLineNode.m_flCumulativeDistance` | float32 | static | Distance along the rope from the amber end: lane 1 is 30,706 long, lane 4 23,954, lane 6 31,122. |
+| `CCitadelZipLineNode.m_iNodeIndex`, `m_vecConnections` (handles), `m_vecConnectionDir`, `m_bCornerNode`, `m_bCapturable`, `m_vTangentIn/Out` | — | static | Each lane is one chain with 2 endpoints. `m_iNodeIndex` ≥ 0 marks the named nodes. |
+| `CCitadelZipLineNode.m_hGuardingBosses` | vector of handles | changes on boss death | The guardian, walker or base guardian pair bound to a node. It empties on the `k_EUserMsg_BossKilled` tick. |
+| `CCitadelZipLineNode.m_eCaptureState` | int16 | yes | **Always 0**, so not used. |
+| `CCitadelZiplinePath` (`m_PathNodes_Color`, `m_PathNodes_Position`, …) | — | **not networked** (0 instances) | The client builds the rendered rope. |
+| `CCitadelPlayerPawn.m_eZipLineLaneColor` | `CMsgLaneColor` | yes | The lane colour the hero is riding, 0 when off a rope. Riding only, not lane state. |
+| `CCitadelPlayerPawn.m_nDeducedLane`, controller `m_nAssignedLane` / `m_nOriginalLaneAssignment` | int | yes | Player lane assignment. |
+| `CAssignedLaneParticle` | `m_iLane`, `m_iTeamNum` | 6 static entities at the spawns | Cosmetic. |
+| `CCitadelTeam.m_vecFOWEntities[].m_iLane` | int32 | yes | Objective icons' lane, not segments. |
+| `CCitadelTeam.m_nBaseGuardianLanesCleared` | int32 | yes | A count only. |
+
+Nothing named Push, Front, Progress or Territory exists for lanes. `m_flCaptureProgress` belongs to the rift (`CCitadelTriggerCapturePoint`, `TeamKothState_t`).
+
+### 2. How the node state maps onto our lanes
+
+- **Positions match our pack exactly.** Node world positions run through `map::world_to_map` and `Lane::project` sit **0.0 map units** from our pack lane polylines (max 0.1), and `t` runs monotonically from **0 at the amber end to 1000 at the sapphire end** on all three lanes. Our pack lanes are these node chains, so a node's `t` is exact.
+- **Ownership is always contiguous.** In every one of 2,641 seconds × 3 lanes, the run along each lane is one amber block, then a neutral block (possibly empty), then one sapphire block. Each lane therefore reduces to two numbers:
+  - **amber edge** = the max `t` of team-2 nodes
+  - **sapphire edge** = the min `t` of team-3 nodes
+- **No colour passes a living guardian.** Neither edge ever passes a node whose `m_hGuardingBosses` is still non-empty and that started on the other side (0 violations in 7,923 lane-seconds). Guardians and walkers hold the line until they die.
+- **What flips a node** (nearest unit at the flip second, from 1 Hz trooper positions):
+  - **To a team:** that team's trooper at a median 250 units (87% within 1000). The enemy is at a median 2,530.
+  - **To neutral:** an enemy trooper at a median 233–241 units (87–91% within 1000).
+  - Troopers capture nodes by walking over them. Heroes aren't the cause: the nearest own hero was within 1000 units in only 52% of flips.
+- **A neutral gap wider than 60 `t`** is present in 807 (lane 4), 932 (lane 1) and 1,123 (lane 6) of 2,641 seconds.
+- **At the start of the match**, the middle nodes are team 4 (neutral) until about 300–600 s, when the first waves reach and capture them.
+
+**Sample, lane 4** (`t`, amber edge / sapphire edge):
+
+| Time | Amber edge | Sapphire edge |
+|---|---|---|
+| 0 s | 425 | 574 |
+| 600 s | 574 | 587 |
+| 900 s | 532 | 543 |
+| 1200 s | 574 | 663 |
+| 1350 s | 631 | 671 |
+| 1800 s | 425 | 435 |
+| 1950 s | 291 | 311 |
+| 2250 s | 247 | 280 |
+| 2550 s | 740 | 753 |
+
+The full series is in `out4/129738985/zip_edges_t_1hz.csv`.
+
+### 3. Our trooper-front estimate against the real state (1 Hz, arc length in world units along the node chain)
+
+| Lane | 5 s closest-pair median vs. the gap midpoint: median \|err\| | p90 \|err\| | Inside the true [amber edge, sapphire edge] ±200 |
+|---|---|---|---|
+| 1 | 882 | 5,185 | 52% |
+| 4 | 585 | 4,301 | 53% |
+| 6 | 1,018 | 4,779 | 56% |
+
+The furthest trooper of each team, compared with that team's own edge, does no better: median 636–1,143, p90 4.1–6.5k. Trooper positions can't give the colour, because the colour remembers captures after the wave dies or retreats. Waves are gone from a lane for long stretches, and the colour still shows the last capture.
+
+The per-second comparison is in `out4/129738985/lane_compare_1hz.csv`.
+
+### 4. Cost
+
+- **Change rate:** the pair (amber edge, sapphire edge) changes in about **1,200 of 2,641 s per lane**, roughly every 2 s.
+- **As per-second arrays** (like `WaveTrack.t`): 2 × u16 per lane per second, about 16k numbers, about **60 KB** of JSON per match uncompressed.
+- **As change events** `[s, amber_t, sapphire_t]`: about 3,600 entries, about **50 KB**.
+- **Either way, it compresses well:** the values are small and change slowly.
+- **Parse cost:** adding `CCitadelZipLineNode` to the class filter costs little. The whole probe (nodes, pawns, bosses, rules) ran in 17 s for the 504 MB demo. Each tick needs one `m_iTeamNum` read per node (334). Resolve `t` per node once, from its position at signon.
+
+### 5. Older build
+
+108440637 (build 6701) has the same mechanism, with coarser ropes: 136 nodes (46, 44 and 46 per lane), 1,867 `m_iTeamNum` changes, and the same contiguous amber / neutral / sapphire runs, with team 4 in the middle before the game.
+
+Its positions need the pre-6712 +16384 offset. The lanes belong to the old layout, so projecting onto our current pack isn't valid there; the worker rejects those builds anyway.
+
+### Recommendation for the worker
+
+1. Add `CCitadelZipLineNode` to the class filter.
+2. At the first tick, for each node, read its body-origin position, `m_iPrimaryLane` (1/4/6 → `lane1/4/6`) and `m_iTeamNum`. Compute its `t` once with `Lane::project(world_to_map(x, y))`.
+3. Each second, for each lane, emit `amber_t` = the max `t` of nodes with team 2 (0 if none) and `sapphire_t` = the min `t` of nodes with team 3 (1000 if none). Nodes with team 0 or 4 are uncoloured.
+4. Store this as a new per-lane track. It doesn't replace `WaveTrack`, which stays the wave position.
+5. The board then colours each lane amber over [0, amber_t] and sapphire over [sapphire_t, 1000], and leaves the gap uncoloured. This is exact, needs no smoothing, and has no PVS caveat.
+6. Drop the trooper-front estimate as the source of the zipline split.
