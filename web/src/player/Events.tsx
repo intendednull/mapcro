@@ -19,6 +19,8 @@ export function EventsList(p: {
   playing: () => boolean;
   /** Saves the events' scenes; resolves to the keys of the events whose scenes were made. */
   onSave: (events: MatchEvent[], lead: number) => Set<string>;
+  /** The event last jumped to: marked as the current one until playback passes the next. */
+  pinned?: () => MatchEvent | undefined;
   /** The events shown under the filters and search, as they change (the map pings these). */
   onShown?: (events: MatchEvent[] | undefined) => void;
 }) {
@@ -41,10 +43,19 @@ export function EventsList(p: {
   const chosen = () => all().filter((e) => picked().has(eventKey(e)));
   // The current event: the latest shown at or before t. The list keeps it in view while it
   // follows; scrolling it yourself stops that until you press Play again, or "↓ Now".
+  // After a jump, the event jumped to, even though the lead lands before it (and maybe after
+  // the one before): until playback passes the next listed event (operator bug, 2026-11-08).
   const current = createMemo(() => {
     const t = p.t();
+    const list = shown();
+    const pin = p.pinned?.();
+    if (pin) {
+      const k = eventKey(pin);
+      const j = list.findIndex((e) => eventKey(e) === k);
+      if (j >= 0 && !list.slice(j + 1).some((e) => e.t < t)) return k;
+    }
     let at: string | undefined;
-    for (const e of shown()) if (e.t <= t) at = eventKey(e);
+    for (const e of list) if (e.t <= t) at = eventKey(e);
     return at;
   });
   const [follow, setFollow] = createSignal(true);

@@ -96,6 +96,8 @@ export function createPlayerHost(board: string, token: string) {
   const control = {
     seek(to: number) {
       jumped();
+      // Any seek but a jump's own lets the list follow playback again (a jump re-pins after it).
+      setPinned(undefined);
       const n = performance.now();
       setPlayback({ ...rebase(playback(), n, duration()), t: clampT(to, duration()), at: n });
     },
@@ -137,7 +139,10 @@ export function createPlayerHost(board: string, token: string) {
     const had = !!tl();
     setTl(r);
     setStatus("");
-    if (!(keep && had)) jumped();
+    if (!(keep && had)) {
+      jumped();
+      setPinned(undefined);
+    }
     if (!(keep && had)) setPlayback({ t: Math.min(r.duration_s, 600), playing: false, speed: playback().speed, at: performance.now() });
   };
 
@@ -281,6 +286,11 @@ export function createPlayerHost(board: string, token: string) {
 
   let hl = 0;
   /**
+   * The event you jumped to: the list marks it, not the earlier one the lead lands after, until
+   * playback passes the next listed event or you seek elsewhere (operator bug, 2026-11-08).
+   */
+  const [pinned, setPinned] = createSignal<MatchEvent>();
+  /**
    * Mark where an event happens (its own place, else its objective's): the ring follows the
    * event's hero until the event, then stays on the place (review: the jump lands seconds
    * early, when the hero is elsewhere). It goes a few seconds after the playback passes it.
@@ -288,6 +298,7 @@ export function createPlayerHost(board: string, token: string) {
   const flash = (event: MatchEvent, place: Pt | undefined) => {
     const key = ++hl;
     setHighlight({ event, place, key });
+    setPinned(event);
   };
   createEffect(() => {
     const h = highlight();
@@ -340,6 +351,7 @@ export function createPlayerHost(board: string, token: string) {
     init,
     highlight,
     flash,
+    pinned,
     ring,
     presence,
     mirror,
