@@ -27,7 +27,7 @@ export interface FallbackData {
 
 export type Team = "amber" | "sapphire" | "neutral";
 export type LaneColor = "yellow" | "blue" | "purple";
-export type MarkerKind = "t1" | "t2" | "t3" | "barracks" | "shrine" | "midboss" | "camp" | "koth";
+export type MarkerKind = "t1" | "t2" | "t3" | "barracks" | "shrine" | "midboss" | "camp" | "koth" | "powerup";
 
 export interface Marker {
   /** Semantic key, e.g. `walker:amber:lane1:1`; base guardians drop the index (one per pair). */
@@ -111,6 +111,10 @@ export function markersFrom(entities: PackEntity[], t: Transform = DEFAULT_TRANS
         break;
       case "camp":
         out.push({ ...base, kind: "camp", px: 24, z: 2, lane: null, tier: campTier(e), title: `Camp (${campTier(e)})` });
+        break;
+      case "powerup":
+        // .powerup_survival / .powerup_casting: 20 px. The spawners are generic sites.
+        out.push({ ...base, kind: "powerup", px: 20, z: 0, lane: null, title: "Powerup" });
         break;
       case "rift":
         out.push({ ...base, kind: "koth", px: 32, z: 0, lane: null, title: "Unstable Rift" });

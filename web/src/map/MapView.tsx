@@ -10,6 +10,8 @@ import { defaultSplit, pathOf, splitAt } from "./lanes";
 import { type Art, artCss } from "./pack";
 import type { Viewpoint } from "./transform";
 
+/** A neutral cream: the spawners give any powerup, so no buff's own colour. */
+const POWERUP = "#FFEFD7";
 const CAMP_IMG = { weak: "neutral-small", medium: "neutral-medium", strong: "neutral-large", vaults: "neutral-vault" } as const;
 
 function Layer(p: { img: string; wash?: string; style?: JSX.CSSProperties }) {
@@ -53,6 +55,8 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
         return [<Fb shape={m.tier === "vaults" ? "sq" : "tri"} color="#9fc6bb" k={0.35} />, <Layer img={CAMP_IMG[m.tier ?? "medium"]} />];
       case "koth":
         return [<Fb shape="dot" color="#99FFD6" k={0.5} />, <Layer img="koth" style={{ inset: "15%" }} />];
+      case "powerup":
+        return [<Fb shape="star" color={POWERUP} k={0.8} />, <Layer img="powerup" wash={POWERUP} />];
     }
   };
   return (
@@ -151,7 +155,7 @@ export function MapView(p: {
   });
   const view = () => p.view ?? { x: 0, y: 0, w: 1000 };
   const markers = createMemo(() =>
-    p.lite ? p.art.model.markers.filter((m) => m.kind !== "barracks" && m.kind !== "shrine" && m.kind !== "camp" && m.kind !== "koth") : p.art.model.markers,
+    p.lite ? p.art.model.markers.filter((m) => m.kind !== "barracks" && m.kind !== "shrine" && m.kind !== "camp" && m.kind !== "koth" && m.kind !== "powerup") : p.art.model.markers,
   );
   const hasArt = () => p.art.images.has("terrain-mid");
   return (

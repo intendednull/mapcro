@@ -104,3 +104,20 @@ test("a viewer can't select objectives", async ({ browser }) => {
   await marquee(v, PATCH);
   await expect(picked(v)).toHaveCount(0);
 });
+
+test("a marquee picks up a powerup with the camps, and the group toggle takes it too", async ({ browser }) => {
+  const url = await newBoardUrl(server, "powerups");
+  const a = await joinNew(browser, url, "Coach");
+  const b = await joinNew(browser, url, "Marrow");
+  // Around the west powerup site (map 31.7%, 49.4%) and a camp or two near it.
+  await marquee(a, [[0.29, 0.46], [0.36, 0.6]]);
+  const keys = await keysOf(a);
+  expect(keys).toContain("powerup:neutral:lane1:1");
+  expect(keys.length).toBeGreaterThanOrEqual(2);
+  await clickMarker(a, "powerup:neutral:lane1:1");
+  await expect.poll(() => statusOf(b, keys)).toEqual(keys.map(() => "Destroyed"));
+  // A new scene starts with the powerup still taken.
+  await a.keyboard.press("Escape");
+  await a.getByTestId("scene-add").click();
+  await expect(a.locator('.mapbox .mk[data-key="powerup:neutral:lane1:1"]')).toHaveAttribute("data-status", "Destroyed");
+});

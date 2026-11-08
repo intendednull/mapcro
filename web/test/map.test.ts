@@ -124,6 +124,10 @@ describe("art", () => {
     const count = (k: string) => m.markers.filter((x) => x.kind === k).length;
     expect([count("t1"), count("t2"), count("t3"), count("shrine"), count("barracks"), count("midboss")]).toEqual([6, 6, 2, 4, 6, 1]);
     expect(m.lanes.map((l) => l.lane).sort()).toEqual(["blue", "purple", "yellow"]);
+    // Both powerup spawners, mirrored about the centre (the pack has them at x = ±3936).
+    const pu = m.markers.filter((x) => x.kind === "powerup");
+    expect(pu.map((x) => x.key).sort()).toEqual(["powerup:neutral:lane1:1", "powerup:neutral:lane6:1"]);
+    expect(pu.every((x) => x.px === 20)).toBe(true);
     expect(artCss(fallbackArt())).toBe("");
   });
 

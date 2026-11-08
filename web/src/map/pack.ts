@@ -71,6 +71,8 @@ export const IMAGE_BLOBS: Record<string, string> = {
   "neutral-large": "icons/neutral_large_psd",
   "neutral-vault": "icons/neutral_vault_psd",
   koth: "icons/minimap_icon_koth_png",
+  // The star in the ring reads as a generic buff at HUD size; the spawners give random powerups.
+  powerup: "icons/powerup_magic",
   "tb-mask": "topbar/hero_image_mask_psd",
   "tb-ult": "topbar/icon_ultimate",
   "tb-ult-off": "topbar/icon_ultimate_off",

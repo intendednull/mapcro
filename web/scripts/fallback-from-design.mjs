@@ -24,6 +24,8 @@ const add = (kind, team, lane, p, extra = {}) => {
 for (const o of d.objectives) add(KIND[o.k], o.team, LANE[o.lane] ?? "lane0", o);
 for (const c of d.camps) if (c.t !== "midboss") add("camp", "neutral", "lane0", c, { tier: c.t });
 add("rift", "neutral", "lane1", d.koth);
+// The two powerup spawners (the pack's kind "powerup"), west then east.
+for (const [i, pu] of d.powerups.entries()) add("powerup", "neutral", i === 0 ? "lane1" : "lane6", pu);
 // The design shows the one active site; the map has two, mirrored across the centre (the
 // extractor's pack lists both at x = ±7648). Either can be the active one on a board.
 add("rift", "neutral", "lane6", { x: 100 - d.koth.x, y: d.koth.y });

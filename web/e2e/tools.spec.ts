@@ -127,8 +127,9 @@ test("objectives toggle on click (camps, mid boss, one rift at a time); a viewer
   await expect(mk(a), "the clicking browser").toHaveAttribute("data-status", "Active");
   await expect(mk(v), "the viewer").toHaveAttribute("data-status", "Active");
 
-  // The mid boss and camps toggle the same way.
-  for (const k of ["mid_boss:neutral:lane0:1", "camp:neutral:lane0:5"]) {
+  // The mid boss, camps and powerups toggle the same way; the fallback has both powerup sites.
+  await expect(a.locator(".mapbox .mk.powerup")).toHaveCount(2);
+  for (const k of ["mid_boss:neutral:lane0:1", "camp:neutral:lane0:5", "powerup:neutral:lane1:1"]) {
     const m = a.locator(`.mapbox .mk[data-key="${k}"]`);
     const bb = (await m.boundingBox())!;
     await a.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
