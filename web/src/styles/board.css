@@ -934,7 +934,7 @@ kbd {
 .scenes-head { display: flex; align-items: center; gap: 6px; padding: 10px 8px 6px 12px; }
 .scenes.folded .scenes-head { padding: 10px 6px; justify-content: center; }
 .scenes-title { font: 600 13px var(--ui); }
-.scenes-keys { display: flex; gap: 3px; margin-right: auto; margin-left: 4px; }
+.scenes-keys { display: flex; gap: 3px; margin-left: 4px; }
 .scenes-keys kbd { font: 500 10px var(--ui); color: var(--faint); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
 .scenes-fold { margin-left: auto; width: 28px; height: 28px; display: grid; place-items: center; background: none; border: 1px solid transparent; border-radius: 6px; color: var(--muted); cursor: pointer; }
 .scenes-fold:hover { border-color: var(--line); color: var(--text); }
@@ -969,9 +969,10 @@ kbd {
 .scene-row .row-del svg { width: 9px; height: 9px; stroke: currentColor; stroke-width: 1.6; }
 .scene-peek { position: absolute; left: calc(100% + 6px); z-index: 40; width: 150px; height: 150px; padding: 4px; background: var(--bg-deep, #0b1714); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 22px #0009; pointer-events: none; margin-top: 30px; }
 .scene-peek .mm-host { width: 100%; height: 100%; }
-.scenes-add { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 12px; border-top: 1px solid var(--line-soft); }
-.scenes-add .btn.small { font-size: 12px; padding: 5px 8px; display: inline-flex; align-items: center; gap: 4px; }
-.scenes-add .ico { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* Add scene: a small "+" in the header, beside the arrow keys. */
+.scenes-add { margin-left: 4px; width: 26px; height: 26px; display: grid; place-items: center; padding: 0; background: none; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); cursor: pointer; }
+.scenes-add:hover { border-color: var(--accent); color: var(--text); }
+.scenes-add .ico { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 /* Phone: a drawer from the left. */
 .drawer-scrim { position: fixed; inset: 0; z-index: 60; background: #0008; }
 .scenes.drawer { position: fixed; z-index: 61; left: 0; top: 0; bottom: 0; width: min(300px, 86vw); background: var(--bg-deep, #0b1714); box-shadow: 8px 0 24px #000a; }
@@ -999,3 +1000,5 @@ kbd {
 /* A hero another slot has: shown, dimmed, with its holder; not pickable. */
 .hero-cell.taken { opacity: 0.4; cursor: not-allowed; }
 .hero-cell .hero-taken { font: 500 10px var(--ui); color: var(--faint); }
+/* An unnamed scene's "Scene N" reads as a name in the list, not a faded placeholder. */
+.scene-row .name .ie.empty { color: inherit; font-style: normal; opacity: 1; }

@@ -37,7 +37,7 @@ const css = (p: Page, sel: string, prop: "stroke" | "fill") => p.locator(sel).fi
 test("in Player, the palette colours ink, arrows and comments", async ({ browser }) => {
   const url = await newBoardUrl(server, "palette player");
   const a = await joinNew(browser, url, "Coach");
-  await a.getByTestId("scene-from-match").click();
+  await a.getByTestId("mode-player").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toBeVisible();
@@ -57,4 +57,7 @@ test("in Player, the palette colours ink, arrows and comments", async ({ browser
   await a.mouse.move(5, 5);
   await expect.poll(() => css(a, ".mapbox [data-callout] .bubble-body", "fill")).toBe("rgb(127, 224, 232)");
   await a.screenshot({ path: "shots/palette-player.png" });
+  // The scenes sidebar in Player: the header's "+", no bottom buttons.
+  await expect(a.getByTestId("scene-from-match")).toHaveCount(0);
+  await a.getByTestId("scene-tree").screenshot({ path: "shots/scene-sidebar-player.png" });
 });

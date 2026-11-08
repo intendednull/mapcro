@@ -752,7 +752,6 @@ export function Board(p: { board: string; token: string; art: Art }) {
           onFlip={pickScene}
           chip={sceneChip}
           keys={() => !inPlayer()}
-          {...(state.canEdit() ? { onMatch: () => player.setMode("player") } : {})}
         />
         <main class="stage">
           <div class="stage-head" classList={{ "pl-hidden": inPlayer() }}>

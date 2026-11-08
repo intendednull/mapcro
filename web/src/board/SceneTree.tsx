@@ -49,8 +49,6 @@ export function SceneTree(p: {
   board: string;
   current: RecordId | undefined;
   onFlip: (id: RecordId) => void;
-  /** Editors: open the match import. */
-  onMatch?: () => void;
   /** The phone shows it as a drawer: closed after a flip. */
   drawer?: boolean;
   /** Player (spec §6b): a scene saved from the open match gets a "▶ m:ss" chip that jumps there. */
@@ -137,6 +135,15 @@ export function SceneTree(p: {
             <kbd>←</kbd>
             <kbd>→</kbd>
           </span>
+          <Show when={p.state.canEdit() && order().length < 63}>
+            {/* One way in: a scene after this one, copying it. Nesting is a drag onto a row.
+                (One slot stays free for Player's live layer: max_scenes 64.) */}
+            <button class="scenes-add" data-testid="scene-add" aria-label="Add scene" title="Add scene" onClick={() => add(false)}>
+              <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+          </Show>
         </Show>
         <button
           class="scenes-fold"
@@ -304,27 +311,6 @@ export function SceneTree(p: {
           </div>
         </Show>
         {/* One scene slot stays free for Player's live layer (spec §6b; max_scenes 64). */}
-        <Show when={p.state.canEdit() && order().length < 63}>
-          <div class="scenes-add">
-            <button class="btn small" data-testid="scene-add" title="A new scene after this one, from its positions" onClick={() => add(false)}>
-              <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              Add after
-            </button>
-            <button class="btn small" data-testid="scene-add-child" title="A new scene under this one, from its positions" onClick={() => add(true)}>
-              <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M6 4v10h12M14 10l4 4-4 4" />
-              </svg>
-              Add as child
-            </button>
-            <Show when={p.onMatch}>
-              <button class="btn small ghost" data-testid="scene-from-match" onClick={() => p.onMatch?.()}>
-                From match
-              </button>
-            </Show>
-          </div>
-        </Show>
       </Show>
     </nav>
   );

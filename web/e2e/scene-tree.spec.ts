@@ -28,13 +28,16 @@ test("nest, reorder and collapse scenes; everyone sees the same tree; ← → wa
   const a = await joinNew(browser, url, "Coach");
   const b = await joinNew(browser, url, "Marrow");
   await rename(a, "Early");
-  // Early ─ Rotate (child) ─ Bridge (its sibling); then Late at the top level.
-  await a.getByTestId("scene-add-child").click();
-  await rename(a, "Rotate");
+  // Early ─ Rotate (child) ─ Bridge (its sibling); then Late at the top level. The header's "+"
+  // adds a scene after the current one; nesting is a drag onto a row.
   await a.getByTestId("scene-add").click();
+  await rename(a, "Rotate");
+  await rows(a).filter({ hasText: "Rotate" }).dragTo(rows(a).filter({ hasText: "Early" }), { targetPosition: { x: 80, y: 15 } });
+  await expect.poll(() => tree(a)).toEqual(["Early@0", "Rotate@1"]);
+  await a.getByTestId("scene-add").click(); // after Rotate, its sibling
   await rename(a, "Bridge");
   await rows(a).first().click();
-  await a.getByTestId("scene-add").click();
+  await a.getByTestId("scene-add").click(); // after Early: its next sibling, after its children
   await rename(a, "Late");
   await expect.poll(() => tree(a)).toEqual(["Early@0", "Rotate@1", "Bridge@1", "Late@0"]);
   await expect.poll(() => tree(b)).toEqual(["Early@0", "Rotate@1", "Bridge@1", "Late@0"]);
@@ -90,6 +93,8 @@ test("nest, reorder and collapse scenes; everyone sees the same tree; ← → wa
   await rows(a).filter({ hasText: "Late" }).hover();
   await expect(a.getByTestId("scene-peek")).toBeVisible();
   await a.screenshot({ path: "shots/scene-tree.png" });
+  await a.getByTestId("scene-tree").screenshot({ path: "shots/scene-sidebar-sandbox.png" });
+  await expect(a.getByTestId("scene-from-match")).toHaveCount(0);
   await a.getByTestId("scene-tree-fold").click();
   await expect(rows(a)).toHaveCount(0);
   await a.screenshot({ path: "shots/scene-tree-folded.png" });
@@ -98,7 +103,10 @@ test("nest, reorder and collapse scenes; everyone sees the same tree; ← → wa
 test("on a phone the scenes are a drawer", async ({ browser }) => {
   const url = await newBoardUrl(server, "drawer");
   const a = await joinNew(browser, url, "Coach");
-  await a.getByTestId("scene-add-child").click();
+  await a.getByTestId("scene-add").click();
+  const rowsA = a.getByTestId("scene-card");
+  await rowsA.nth(1).dragTo(rowsA.nth(0), { targetPosition: { x: 80, y: 15 } });
+  await expect(rowsA.nth(1)).toHaveAttribute("data-depth", "1");
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const phone = await ctx.newPage();
   await phone.goto(url);
@@ -108,6 +116,8 @@ test("on a phone the scenes are a drawer", async ({ browser }) => {
   await phone.getByTestId("scene-drawer").click();
   await expect(rows(phone)).toHaveCount(2);
   await expect(rows(phone).nth(1)).toHaveAttribute("data-depth", "1");
+  // The drawer's header has the same "+" (for editors; this phone joined with the owner link).
+  await expect(phone.getByTestId("scene-add")).toBeVisible();
   await phone.screenshot({ path: "shots/scene-drawer-phone.png" });
   await rows(phone).nth(1).click();
   await expect(phone.getByTestId("scene-tree")).toHaveCount(0); // a flip closes it
