@@ -769,7 +769,7 @@ fn fetches_have_no_hourly_cap_of_ours() {
 fn fetches_waiting_are_capped_per_client_and_in_all() {
     let up = upstream(HashMap::new());
     // No download starts: every fetch waits in line.
-    let server = Server::start(up.port, &[("REPLAY_DOWNLOADS_AT_ONCE", "0"), ("REPLAY_MAX_WAITING", "6")]);
+    let server = Server::start(up.port, &[("REPLAY_DOWNLOADS_AT_ONCE", "0"), ("REPLAY_MAX_WAITING", "6"), ("REPLAY_PER_CLIENT_PER_HOUR", "2")]);
     let (a, owner, _) = server.board();
     for id in 200..204 {
         assert_eq!(server.fetch_as(&a, &owner, &id.to_string(), "10.0.7.1").0, 202, "match {id}");
@@ -777,6 +777,8 @@ fn fetches_waiting_are_capped_per_client_and_in_all() {
     let (code, body) = server.fetch_as(&a, &owner, "204", "10.0.7.1");
     assert_eq!((code, body["error"].as_str()), (429, Some("busy")), "a fifth from one client");
     assert_eq!(server.status(&a, &owner, "204")["state"], "none", "nothing was queued for it");
+    // Fetches waiting aren't upload turns: they don't count against the hourly limit.
+    assert_eq!(server.reserve(&a, &owner, "209", 1000, "10.0.7.1").1["state"], "ready");
     assert_eq!(server.fetch_as(&a, &owner, "205", "10.0.7.2").0, 202);
     assert_eq!(server.fetch_as(&a, &owner, "206", "10.0.7.2").0, 202);
     let (code, body) = server.fetch_as(&a, &owner, "207", "10.0.7.3");
