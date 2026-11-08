@@ -15,7 +15,7 @@ pub use doc::DocPair;
 pub use ids::{ClientId, HeroId, LaneKey, ObjectiveKey, OrderKey, RecordId};
 pub use records::{
     Arrow, BoardMeta, Callout, Field, FieldValue, Note, ObjectiveState, ObjectiveStatus, PlayerState,
-    Record, RecordKind, RosterSlot, Scene, Stroke, Team, WAVE_T_MAX, Wave, WorldPos,
+    Record, RecordKind, RosterSlot, Scene, SceneSource, Stroke, Team, WAVE_T_MAX, Wave, WorldPos,
 };
 pub use validate::{Limits, Reject, LIMITS};
 
@@ -191,7 +191,7 @@ pub fn genesis(mut next_id: impl FnMut() -> RecordId, title: &str) -> Doc {
         }
     }
     let scene = next_id();
-    doc.insert(scene, Record::Scene(Scene { name: "Scene 1".into(), order: OrderKey::first(), clock: None }));
+    doc.insert(scene, Record::Scene(Scene { name: "Scene 1".into(), order: OrderKey::first(), clock: None, source: None, live: false }));
     for (slot_id, team, slot) in slots {
         doc.insert(next_id(), Record::PlayerState(PlayerState::starting(scene, slot_id, team, slot)));
     }

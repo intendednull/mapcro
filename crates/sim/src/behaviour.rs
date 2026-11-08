@@ -227,7 +227,7 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
             let id = new_id;
             let mut ops = vec![Op::Create {
                 id,
-                record: Record::Scene(Scene { name: text(rng, 24), order: OrderKey::between(last_order(r).as_ref(), None), clock: Some(rng.random_range(0..3600)) }),
+                record: Record::Scene(Scene { name: text(rng, 24), order: OrderKey::between(last_order(r).as_ref(), None), clock: Some(rng.random_range(0..3600)), source: None, live: false }),
             }];
             for (slot, rec) in r.view().iter_live() {
                 if let Record::RosterSlot(s) = rec {
@@ -280,7 +280,7 @@ fn attack(rng: &mut ChaCha8Rng, client: mapcro_schema::ClientId, cseq: u64) -> (
     let (ops, what) = match rng.random_range(0..10) {
         0 => (vec![Op::Set { id, value: FieldValue::PlayerPos(WorldPos { x: i32::MAX, y: 0 }) }], "out-of-bounds write"),
         1 => (vec![Op::Create { id, record: Record::Callout(Callout { scene, pos: WorldPos { x: 0, y: 0 }, text: "x".repeat(500) }) }], "huge text"),
-        2 => (vec![Op::Create { id, record: Record::Scene(Scene { name: "bad\u{7}".into(), order: OrderKey::first(), clock: None }) }], "control chars / incomplete scene"),
+        2 => (vec![Op::Create { id, record: Record::Scene(Scene { name: "bad\u{7}".into(), order: OrderKey::first(), clock: None, source: None, live: false }) }], "control chars / incomplete scene"),
         3 => (vec![Op::SetIf { id, expect: FieldValue::Title("a".into()), value: FieldValue::NoteText("b".into()) }], "mismatched set_if"),
         4 => (vec![Op::Delete { id }], "delete unknown"),
         5 => (vec![], "empty transaction"),

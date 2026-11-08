@@ -129,6 +129,24 @@ pub struct Presence {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub ping: Option<Ping>,
+    /// Player (spec §6b): the mode and, in Player, the match playback, so followers mirror
+    /// it. Absent: an older client, or a board without a match.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub playback: Option<Playback>,
+}
+
+/// One person's Player state, relayed in presence (spec §6b).
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Playback {
+    /// In Player (true) or Sandbox (false).
+    pub player: bool,
+    pub match_id: u64,
+    /// Match seconds when sent.
+    pub t: f32,
+    pub playing: bool,
+    pub speed: f32,
 }
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -223,6 +241,7 @@ impl Presence {
             && self.laser.iter().all(ok_pos)
             && self.ink.as_ref().is_none_or(|i| i.color < 16 && i.points.len() <= MAX_INK_POINTS && i.points.iter().all(ok_pos))
             && self.ping.as_ref().is_none_or(|p| ok_pos(&p.at))
+            && self.playback.as_ref().is_none_or(|b| b.t.is_finite() && (0.0..=86_400.0).contains(&b.t) && b.speed.is_finite() && (0.0..=16.0).contains(&b.speed) && b.match_id < 1_000_000_000_000)
             && self.cursor.as_ref().is_none_or(ok_pos)
             && self.drag.as_ref().is_none_or(|d| ok_pos(&d.pos))
             && self.drag_group.len() <= MAX_DRAG_GROUP

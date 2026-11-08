@@ -53,6 +53,27 @@ pub struct Scene {
     /// The match clock this scene shows, in seconds (the HUD's top-bar timer).
     #[serde(default)]
     pub clock: Option<u32>,
+    /// Where a scene saved from Player came from (spec §6b), so a later "resume from here" can
+    /// open Player at that moment. Older scenes load without one.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub source: Option<SceneSource>,
+    /// Player's live annotation layer (spec §6b): ink, arrows and comments drawn over playback
+    /// live here until a scene is saved, and it's never listed among the scenes.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub live: bool,
+}
+
+/// A scene's match moment (spec §6b).
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SceneSource {
+    pub match_id: u64,
+    /// Match seconds.
+    pub t: u32,
+    /// "replay" or "metadata".
+    pub tier: String,
 }
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]

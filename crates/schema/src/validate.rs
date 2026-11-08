@@ -156,6 +156,11 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
         Record::Scene(s) => {
             check_text(&s.name, LIMITS.max_name)?;
             check_value(&FieldValue::SceneClock(s.clock))?;
+            if let Some(src) = &s.source
+                && (src.match_id == 0 || src.match_id >= 1_000_000_000_000 || src.t > 86_400 || !(src.tier == "replay" || src.tier == "metadata"))
+            {
+                return Err(Reject::OutOfBounds);
+            }
             if s.order.is_valid() { Ok(()) } else { Err(Reject::BadOrderKey) }
         }
         Record::PlayerState(p) => {

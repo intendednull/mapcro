@@ -4,6 +4,7 @@ import type { Floor } from "./Floor";
 import type { LiveInk } from "./LiveInk";
 import type { ObjectiveKey } from "./ObjectiveKey";
 import type { Ping } from "./Ping";
+import type { Playback } from "./Playback";
 import type { RecordId } from "./RecordId";
 import type { Viewport } from "./Viewport";
 import type { WorldPos } from "./WorldPos";
@@ -57,4 +58,9 @@ ink?: LiveInk | null,
 /**
  * The latest ping (a middle click): where, and a counter so the same spot can ping again.
  */
-ping?: Ping | null, };
+ping?: Ping | null, 
+/**
+ * Player (spec §6b): the mode and, in Player, the match playback, so followers mirror
+ * it. Absent: an older client, or a board without a match.
+ */
+playback?: Playback, };
