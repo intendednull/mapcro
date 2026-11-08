@@ -889,6 +889,7 @@ fn collect(root: &FsPath, cache: &FsPath) {
             if ext == "failed" {
                 let said = bytes.unwrap_or_default();
                 let why = mapcro_replay::reason::ALL.iter().copied().find(|r| r.as_bytes() == said.trim_ascii()).unwrap_or(mapcro_replay::reason::PARSE_FAILED);
+                tracing::info!(job, why, "replay job failed");
                 fail(&job, why);
             } else {
                 let checked = bytes

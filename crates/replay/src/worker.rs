@@ -125,13 +125,16 @@ pub fn run_one(root: &Path, exe: &Path, limits: &Limits, tried: &mut HashSet<Str
     // The expanded copy goes now; the server deletes the original when it collects the result.
     let _ = std::fs::remove_file(out.with_extension("dem"));
     match result {
-        Ok(()) => {
-            set_mode(&out, 0o640);
-            if std::fs::rename(&out, root.join("outbox").join(format!("{job}.json"))).is_err() {
+        // Published by copy, not rename: work/ and outbox/ are separate mounts in the worker's
+        // sandbox (nix/module.nix BindPaths), and a rename across them fails with EXDEV. That
+        // failed every successful parse in production on 2026-11-08, as "done" with no result.
+        Ok(()) => match std::fs::read(&out).and_then(|b| write_atomic(&root.join("outbox"), &format!("{job}.json"), &b)) {
+            Ok(()) => eprintln!("mapcro-replay: {job} done in {:.1} s", started.elapsed().as_secs_f64()),
+            Err(e) => {
                 fail(root, &job, reason::PARSE_FAILED);
+                eprintln!("mapcro-replay: {job} parsed but not published ({e}) after {:.1} s", started.elapsed().as_secs_f64());
             }
-            eprintln!("mapcro-replay: {job} done in {:.1} s", started.elapsed().as_secs_f64());
-        }
+        },
         Err(why) => {
             fail(root, &job, why);
             eprintln!("mapcro-replay: {job} failed ({why}) after {:.1} s", started.elapsed().as_secs_f64());
@@ -299,6 +302,34 @@ mod tests {
 
     /// A child killed by SIGBUS (a demo changed under its memory map) is `corrupt`; one killed
     /// otherwise (the memory cap) is `too_large` (security review 2026-11-08, L5).
+    /// work/ and outbox/ on different filesystems, as in the worker's sandbox, where they are
+    /// separate bind mounts: a finished timeline still reaches the outbox. On 2026-11-08 a rename
+    /// across them failed every successful parse in production.
+    #[cfg(unix)]
+    #[test]
+    fn a_result_crosses_from_work_to_outbox_on_another_filesystem() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let root = tempfile::tempdir().expect("root");
+        let Ok(other) = tempfile::tempdir_in("/dev/shm") else { return };
+        let dev = |p: &Path| std::fs::metadata(p).map(|m| m.dev()).unwrap_or(0);
+        if dev(root.path()) == dev(other.path()) {
+            return; // no second filesystem here to cross
+        }
+        for d in ["inbox", "outbox"] {
+            std::fs::create_dir(root.path().join(d)).expect("dir");
+        }
+        std::os::unix::fs::symlink(other.path(), root.path().join("work")).expect("work on the other filesystem");
+        std::fs::write(root.path().join("inbox").join("5-cdn.dem"), b"demo").expect("job");
+        let exe = root.path().join("child.sh");
+        std::fs::write(&exe, "#!/bin/sh\nprintf '{\"t\":1}' > \"$3\"\n").expect("script");
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        assert!(run_one(root.path(), &exe, &Limits::default(), &mut HashSet::new()));
+        let outbox = root.path().join("outbox");
+        assert!(!outbox.join("5-cdn.failed").exists(), "the job was marked failed");
+        assert_eq!(std::fs::read(outbox.join("5-cdn.json")).expect("published"), br#"{"t":1}"#);
+        assert_eq!(std::fs::metadata(outbox.join("5-cdn.json")).expect("meta").permissions().mode() & 0o777, 0o640);
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_child_killed_by_a_signal_says_why() {
