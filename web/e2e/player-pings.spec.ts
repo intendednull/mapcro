@@ -57,6 +57,9 @@ function timeline() {
       // Skipped by a short seek (shorter than the largest step a running clock may take, so
       // only the seek itself says it's a jump).
       death(22, 2, stand(1)),
+      // Skipped by two seeks in a row: a follower hears the second just after the first, and must
+      // still take it for a jump rather than drift to catch up on.
+      death(42, 5, stand(0)),
       // A death and an objective while only Objectives are listed.
       death(60, 3, stand(2)),
       ev(62, "objective", { team: "sapphire", key: "walker:sapphire:lane1:1" }),
@@ -148,6 +151,18 @@ test("events ping at their place as playback passes them, for a follower too; ne
   }
   // Short-lived: gone a moment later.
   await expect(a.getByTestId("event-ping")).toHaveCount(0, { timeout: 3000 });
+
+  // Two seeks in quick succession, over the death at 42 s: no ping for anyone.
+  await recordPings(a);
+  await recordPings(b);
+  await a.getByTestId("match-play").click();
+  await scrubTo(a, 40);
+  await scrubTo(a, 43);
+  await expect.poll(() => clock(a), { timeout: 5000 }).toBeGreaterThanOrEqual(45);
+  await a.getByTestId("match-play").click();
+  await expect.poll(() => clock(b), { timeout: 5000 }).toBeGreaterThanOrEqual(45);
+  expect((await pinged(a)).map((x) => x.t), "the presenter's pings").toEqual([]);
+  expect((await pinged(b)).map((x) => x.t), "the follower's pings").toEqual([]);
 
   // Only Objectives listed: the death at 60 s doesn't ping, the objective at 62 does.
   await a.getByTestId("chip-objective").click();
