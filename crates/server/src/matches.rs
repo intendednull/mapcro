@@ -129,6 +129,16 @@ struct Player {
 #[derive(Deserialize)]
 struct Death {
     game_time_s: u32,
+    #[serde(default)]
+    death_pos: Option<Pos>,
+    #[serde(default)]
+    killer_player_slot: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct Pos {
+    x: f64,
+    y: f64,
 }
 
 #[derive(Deserialize)]
@@ -188,6 +198,10 @@ pub struct Timeline {
     pub mid_boss: Vec<TimelineMidBoss>,
     /// Players whose path clock drifted from the game clock and was re-anchored on deaths.
     pub reanchored: u32,
+    /// Deaths (with killer and place when the match data has them), objectives, mid boss
+    /// kills and big souls swings, in the replay timeline's shape (spec §6a, "Events").
+    #[serde(default)]
+    pub events: Vec<mapcro_replay::timeline::Event>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -300,7 +314,7 @@ fn anchors(deaths: &[u32], health: &[f64], duration: u32) -> (Vec<usize>, bool) 
 pub fn derive(raw: &[u8]) -> Result<Timeline, String> {
     let u: Upstream = serde_json::from_slice(raw).map_err(|e| format!("unexpected match shape: {e}"))?;
     let m = u.match_info;
-    let paths = m.match_paths.ok_or("no paths")?;
+    let paths = m.match_paths.as_ref().ok_or("no paths")?;
     let mut reanchored = 0;
     let mut slots: HashMap<u32, u32> = HashMap::new();
     for team in [0, 1] {
@@ -343,6 +357,7 @@ pub fn derive(raw: &[u8]) -> Result<Timeline, String> {
         });
     }
     players.sort_by(|a, b| (a.team.as_str(), a.slot).cmp(&(b.team.as_str(), b.slot)));
+    let events = events(&m, &players, &slots);
     let objectives = m
         .objectives
         .iter()
@@ -367,7 +382,72 @@ pub fn derive(raw: &[u8]) -> Result<Timeline, String> {
         objectives,
         mid_boss,
         reanchored,
+        events: {
+            let mut e = events;
+            for o in &objectives_for_events(&m) {
+                e.push(o.clone());
+            }
+            let souls: Vec<(String, Vec<[u32; 2]>)> = players_souls(&m);
+            e.extend(mapcro_replay::timeline::souls_swings(&souls, m.duration_s));
+            e.sort_by(|a, b| (a.t, &a.kind).cmp(&(b.t, &b.kind)));
+            e
+        },
     })
+}
+
+fn site_xy(key: &str) -> (Option<i32>, Option<i32>) {
+    mapcro_replay::map::current()
+        .sites
+        .iter()
+        .find(|s| s.key == key || s.key.strip_suffix(":1") == Some(key))
+        .filter(|s| s.world.len() >= 2)
+        .map_or((None, None), |s| (Some(s.world[0].round() as i32), Some(s.world[1].round() as i32)))
+}
+
+/// Deaths, with the killer when the match data names one and the place it gives (else where the
+/// hero was last seen on its path).
+fn events(m: &MatchInfo, players: &[TimelinePlayer], slots: &HashMap<u32, u32>) -> Vec<mapcro_replay::timeline::Event> {
+    use mapcro_replay::timeline::{Event, Who, event};
+    let mut out = Vec::new();
+    for p in &m.players {
+        let team = team_name(p.team).to_owned();
+        let slot = slots.get(&p.player_slot).copied().unwrap_or(0);
+        let tp = players.iter().find(|q| q.team == team && q.slot == slot);
+        for d in &p.death_details {
+            let by = d.killer_player_slot.and_then(|k| m.players.iter().find(|q| q.player_slot == k)).map(|k| Who {
+                team: team_name(k.team).to_owned(),
+                slot: slots.get(&k.player_slot).copied().unwrap_or(0),
+                hero_id: k.hero_id,
+            });
+            let last = tp.and_then(|tp| (0..=(d.game_time_s as usize).min(tp.x.len().saturating_sub(1))).rev().find_map(|i| Some((tp.x[i]?, tp.y[i]?))));
+            let (x, y) = match &d.death_pos {
+                Some(pos) if pos.x.abs() <= 32768.0 && pos.y.abs() <= 32768.0 => (Some(pos.x.round() as i32), Some(pos.y.round() as i32)),
+                _ => (last.map(|l| l.0), last.map(|l| l.1)),
+            };
+            out.push(Event { team: Some(team.clone()), slot: Some(slot), hero_id: Some(p.hero_id), by, x, y, ..event(d.game_time_s.min(m.duration_s), "death") });
+        }
+    }
+    for b in m.mid_boss.iter().filter(|b| b.destroyed_time_s > 0) {
+        let (x, y) = site_xy("mid_boss:neutral:lane0:1");
+        out.push(Event { team: Some(team_name(b.team_killed).to_owned()), key: Some("mid_boss:neutral:lane0:1".into()), x, y, ..event(b.destroyed_time_s.min(m.duration_s), "mid_boss") });
+    }
+    out
+}
+
+fn objectives_for_events(m: &MatchInfo) -> Vec<mapcro_replay::timeline::Event> {
+    m.objectives
+        .iter()
+        .filter(|o| o.destroyed_time_s > 0)
+        .filter_map(|o| {
+            let (key, _, _) = objective_key(o.team_objective_id, o.team)?;
+            let (x, y) = site_xy(&key);
+            Some(mapcro_replay::timeline::Event { team: Some(team_name(o.team).to_owned()), key: Some(key), x, y, ..mapcro_replay::timeline::event(o.destroyed_time_s.min(m.duration_s), "objective") })
+        })
+        .collect()
+}
+
+fn players_souls(m: &MatchInfo) -> Vec<(String, Vec<[u32; 2]>)> {
+    m.players.iter().map(|p| (team_name(p.team).to_owned(), p.stats.iter().map(|s| [s.time_stamp_s, s.net_worth]).collect())).collect()
 }
 
 fn err(status: StatusCode, code: &str) -> Response {
@@ -445,7 +525,10 @@ pub async fn get(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<Soc
         return err(StatusCode::BAD_REQUEST, "bad_id");
     }
     let path = cache_path(&app, &id);
-    if let Ok(bytes) = tokio::fs::read(&path).await {
+    // Caches written before events existed are fetched again, once.
+    if let Ok(bytes) = tokio::fs::read(&path).await
+        && bytes.windows(9).any(|w| w == b"\"events\":")
+    {
         return json(bytes);
     }
     match admit(client_key(client_ip(peer, &headers))) {
@@ -511,6 +594,30 @@ mod tests {
         assert_eq!(objective_key(9, 1).map(|k| k.0), Some("patron:sapphire:lane3:1".into()));
         assert_eq!(objective_key(0, 0), None); // the core has no entity
         assert_eq!(objective_key(2, 0), None); // no lane 2 on the current map
+    }
+
+    #[test]
+    fn events_from_the_metadata() {
+        let raw = serde_json::json!({ "match_info": {
+            "duration_s": 600, "start_time": 1, "match_id": 5,
+            "players": [
+                { "player_slot": 1, "team": 0, "hero_id": 7, "death_details": [{ "game_time_s": 30, "death_pos": { "x": 100.4, "y": -50.0, "z": 0.0 }, "killer_player_slot": 2 }, { "game_time_s": 2 }], "stats": [{ "time_stamp_s": 180, "net_worth": 9000 }] },
+                { "player_slot": 2, "team": 1, "hero_id": 9, "stats": [{ "time_stamp_s": 180, "net_worth": 1000 }] }
+            ],
+            "objectives": [{ "team_objective_id": 5, "team": 0, "destroyed_time_s": 300 }],
+            "mid_boss": [{ "team_killed": 1, "destroyed_time_s": 400 }],
+            "match_paths": { "x_resolution": 100.0, "y_resolution": 100.0, "paths": [
+                { "player_slot": 1, "x_min": 0.0, "x_max": 100.0, "y_min": 0.0, "y_max": 100.0, "x_pos": [10.0, 20.0, 30.0], "y_pos": [10.0, 20.0, 30.0], "health": [100.0, 100.0, 100.0] }
+            ] }
+        }});
+        let t = derive(&serde_json::to_vec(&raw).expect("json")).expect("timeline");
+        let got: Vec<(u32, &str, Option<i32>)> = t.events.iter().map(|e| (e.t, e.kind.as_str(), e.x)).collect();
+        // Second 2 has no place in the data: where the path last saw the hero.
+        assert_eq!(got, [(2, "death", Some(30)), (30, "death", Some(100)), (180, "souls_swing", None), (300, "objective", Some(-6272)), (400, "mid_boss", Some(0))]);
+        let by = t.events[1].by.as_ref().expect("killer");
+        assert_eq!((by.team.as_str(), by.slot, by.hero_id), ("sapphire", 0, 9));
+        assert_eq!(t.events[4].team.as_deref(), Some("sapphire"));
+        assert_eq!(t.events[3].key.as_deref(), Some("walker:amber:lane1:1"));
     }
 
     #[test]

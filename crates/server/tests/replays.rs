@@ -194,6 +194,7 @@ fn timeline(id: u64) -> Timeline {
         rifts: vec![],
         powerups: vec![],
         waves: vec![WaveTrack { lane: "lane4".into(), t: vec![Some(480), Some(500)], stale: vec![] }],
+        events: vec![],
     }
 }
 

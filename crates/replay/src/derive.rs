@@ -6,7 +6,7 @@
 //! powerups hold their last seen value and mark the gap stale.
 
 use crate::map::{self, Map};
-use crate::timeline::{MidBoss, Objective, Player, Powerup, Rift, Timeline, WaveTrack, TIER};
+use crate::timeline::{Event, MidBoss, Objective, Player, Powerup, Rift, Timeline, WaveTrack, TIER, event, souls_swings};
 use std::collections::BTreeMap;
 
 /// Everything sampled at one game second.
@@ -21,6 +21,8 @@ pub struct Sample {
     pub rift_spawner: Option<[f32; 2]>,
     /// The cash-in location while a rift's cash-in is live (game rules, world space).
     pub rift_live_at: Option<[f32; 2]>,
+    /// While the cash-in is live: the scoring team (≤ 0 contested, 2 Amber, 3 Sapphire).
+    pub rift_scoring: i64,
     pub powerups: Vec<PowerupObs>,
 }
 
@@ -352,6 +354,7 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
     }
     waves.sort_by(|a, b| a.lane.cmp(&b.lane));
 
+    let events = events(obs, m, &players, &objectives, &mid_boss, &rifts, &powerups, duration_s);
     Ok(Timeline {
         match_id: obs.match_id,
         start_time: 0,
@@ -366,7 +369,68 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         rifts,
         powerups,
         waves,
+        events,
     })
+}
+
+fn site_xy(m: &Map, key: &str) -> (Option<i32>, Option<i32>) {
+    // Base guardian pairs are keyed without an index: their first member's site will do.
+    m.sites
+        .iter()
+        .find(|s| s.key == key || s.key.strip_suffix(":1") == Some(key))
+        .filter(|s| s.world.len() >= 2)
+        .map_or((None, None), |s| (Some(s.world[0].round() as i32), Some(s.world[1].round() as i32)))
+}
+
+/// The events list (spec §6a): deaths where the hero last stood, objectives and the mid boss
+/// at their sites, rifts coming up and being captured, powerups spawning and taken (only on
+/// seconds the spawner is in the recording), and big souls swings.
+#[allow(clippy::too_many_arguments)]
+fn events(obs: &Obs, m: &Map, players: &[Player], objectives: &[Objective], mid_boss: &[MidBoss], rifts: &[Rift], powerups: &[Powerup], duration_s: u32) -> Vec<Event> {
+    let mut out = Vec::new();
+    for p in players {
+        for &d in &p.deaths {
+            let i = (d as usize).saturating_sub(1);
+            out.push(Event { team: Some(p.team.clone()), slot: Some(p.slot), hero_id: Some(p.hero_id), x: p.x.get(i).copied().flatten(), y: p.y.get(i).copied().flatten(), ..event(d, "death") });
+        }
+    }
+    for o in objectives {
+        let (x, y) = site_xy(m, &o.key);
+        out.push(Event { team: Some(o.team.clone()), key: Some(o.key.clone()), x, y, ..event(o.destroyed_s, "objective") });
+    }
+    let mid = m.keys_of("mid_boss").first().map(|k| (*k).to_owned());
+    for b in mid_boss {
+        let (x, y) = mid.as_deref().map_or((None, None), |k| site_xy(m, k));
+        out.push(Event { key: mid.clone(), x, y, ..event(b.destroyed_s, "mid_boss") });
+    }
+    for r in rifts {
+        let (x, y) = site_xy(m, &r.key);
+        out.push(Event { key: Some(r.key.clone()), x, y, ..event(r.start_s, "rift_up") });
+    }
+    let mut held = 0i64;
+    for (sec, s) in obs.seconds.iter().enumerate() {
+        let scoring = if s.rift_live_at.is_some() { s.rift_scoring } else { 0 };
+        if scoring > 0 && held <= 0 {
+            let key = s.rift_live_at.and_then(|p| m.nearest("rift", f64::from(p[0]), f64::from(p[1]), 2000.0)).map(|q| q.key.clone());
+            let (x, y) = key.as_deref().map_or((None, None), |k| site_xy(m, k));
+            out.push(Event { team: team_name(scoring).map(str::to_owned), key, x, y, ..event(sec as u32, "rift_capture") });
+        }
+        held = scoring;
+    }
+    for p in powerups {
+        let seen = |i: usize| !p.stale.iter().any(|[a, b]| (*a as usize) <= i && i < (*b as usize));
+        let (x, y) = site_xy(m, &p.key);
+        for i in 1..p.available.len() {
+            if p.available[i] != p.available[i - 1] && seen(i) && seen(i - 1) {
+                let kind = if p.available[i] == 1 { "powerup_spawn" } else { "powerup_taken" };
+                out.push(Event { key: Some(p.key.clone()), x, y, ..event(i as u32, kind) });
+            }
+        }
+    }
+    let souls: Vec<(String, Vec<[u32; 2]>)> = players.iter().map(|p| (p.team.clone(), p.souls.clone())).collect();
+    out.extend(souls_swings(&souls, duration_s));
+    out.sort_by(|a, b| (a.t, &a.kind).cmp(&(b.t, &b.kind)));
+    out
 }
 
 #[cfg(test)]
@@ -537,6 +601,37 @@ mod tests {
         assert_eq!(w.stale, [[0, 1], [3, 4]]);
         let lanes: Vec<&str> = t.waves.iter().map(|w| w.lane.as_str()).collect();
         assert_eq!(lanes, ["lane1", "lane4", "lane6"]);
+    }
+
+    #[test]
+    fn events_cover_deaths_objectives_rifts_and_powerups() {
+        let mut s = seconds(6);
+        for (i, x) in s.iter_mut().enumerate() {
+            x.heroes = vec![hero(1, 2, i != 3, [100.0 + i as f32, 200.0])];
+            x.objectives.push(ObjObs { ent: (10, 1), kind: "walker", pos: [-6272.0, -4736.0], health: if i < 4 { 100 } else { 0 } });
+            x.powerups.push(PowerupObs { pos: [-3936.0, 136.0], active: (2..4).contains(&i) });
+        }
+        s[1].rift_spawner = Some([7648.0, 0.0]);
+        s[2].rift_live_at = Some([7648.0, 0.0]);
+        s[3].rift_live_at = Some([7648.0, 0.0]);
+        s[3].rift_scoring = 3;
+        let t = derive(&obs(s), map::current()).expect("timeline");
+        let got: Vec<(u32, &str, Option<&str>, Option<i32>)> = t.events.iter().map(|e| (e.t, e.kind.as_str(), e.key.as_deref().or(e.team.as_deref()), e.x)).collect();
+        assert_eq!(
+            got,
+            [
+                (1, "rift_up", Some("rift:neutral:lane6:1"), Some(7648)),
+                (2, "powerup_spawn", Some("powerup:neutral:lane1:1"), Some(-3936)),
+                (3, "death", Some("amber"), Some(102)),
+                (3, "rift_capture", Some("rift:neutral:lane6:1"), Some(7648)),
+                (4, "objective", Some("walker:amber:lane1:1"), Some(-6272)),
+                (4, "powerup_taken", Some("powerup:neutral:lane1:1"), Some(-3936)),
+            ]
+        );
+        let capture = t.events.iter().find(|e| e.kind == "rift_capture").expect("capture");
+        assert_eq!(capture.team.as_deref(), Some("sapphire"));
+        let death = &t.events[2];
+        assert_eq!((death.slot, death.hero_id, death.y), (Some(0), Some(11), Some(200)));
     }
 
     #[test]

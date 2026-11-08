@@ -76,6 +76,7 @@ struct Keys {
     winner: K,
     koth_started: K,
     koth_loc: K,
+    koth_team: K,
     koth: Body,
     pickup: Body,
     pickup_active: K,
@@ -102,6 +103,7 @@ impl Keys {
             winner: field(RULES, "m_pGameRules.m_iWinningTeam"),
             koth_started: field(RULES, "m_pGameRules.m_timeKothCashInStarted"),
             koth_loc: field(RULES, "m_pGameRules.m_vKothCashInCurrentLocation"),
+            koth_team: field(RULES, "m_pGameRules.m_nKothScoringTeam"),
             koth: Body::of(ctx, KOTH),
             pickup: Body::of(ctx, PICKUP),
             pickup_active: field(PICKUP, "m_bPowerupActive"),
@@ -222,6 +224,8 @@ fn sample(ctx: &boon::Context, k: &Keys, rules: &boon::entity::Entity, now: f32)
         if loc[0] != 0.0 || loc[1] != 0.0 {
             s.rift_live_at = Some([loc[0], loc[1]]);
         }
+        // ≤ 0 contested; 2 or 3 once a team holds it (exploration §6).
+        s.rift_scoring = rules.get_i64(k.koth_team);
     }
     s
 }

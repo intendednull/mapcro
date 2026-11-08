@@ -31,6 +31,9 @@ pub struct Timeline {
     pub rifts: Vec<Rift>,
     pub powerups: Vec<Powerup>,
     pub waves: Vec<WaveTrack>,
+    /// What happened when, for the events list (spec §6a, "Events").
+    #[serde(default)]
+    pub events: Vec<Event>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -98,6 +101,99 @@ pub struct WaveTrack {
     pub stale: Vec<[u32; 2]>,
 }
 
+/// One match event. The metadata timeline (crates/server/src/matches.rs) uses the same shape
+/// with what it has: deaths (with killer and place when the match data has them), objectives
+/// and mid boss kills. Only a replay has rifts and powerups.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Event {
+    /// Game second.
+    pub t: u32,
+    /// One of [`EVENT_KINDS`].
+    pub kind: String,
+    /// The team the event belongs to: the hero's, the objective's owner's, the capturing
+    /// team's, or the team that gained the souls lead.
+    #[serde(default)]
+    pub team: Option<String>,
+    /// The player (`team`, `slot`), for deaths.
+    #[serde(default)]
+    pub slot: Option<u32>,
+    #[serde(default)]
+    pub hero_id: Option<u32>,
+    /// Who killed them, when the data says.
+    #[serde(default)]
+    pub by: Option<Who>,
+    /// The board key involved (objective, rift, powerup).
+    #[serde(default)]
+    pub key: Option<String>,
+    /// Where, in world units, when known.
+    #[serde(default)]
+    pub x: Option<i32>,
+    #[serde(default)]
+    pub y: Option<i32>,
+    /// A size: the souls swing, for `souls_swing`.
+    #[serde(default)]
+    pub amount: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Who {
+    pub team: String,
+    pub slot: u32,
+    pub hero_id: u32,
+}
+
+pub const EVENT_KINDS: [&str; 8] = ["death", "objective", "mid_boss", "rift_up", "rift_capture", "powerup_spawn", "powerup_taken", "souls_swing"];
+
+/// A team's souls lead moving by at least this much within [`SWING_WINDOW`] is an event.
+pub const SWING_SOULS: i64 = 5000;
+pub const SWING_WINDOW: u32 = 60;
+
+/// Big souls swings from players' `[second, net worth]` samples (either tier): when the
+/// Amber-minus-Sapphire lead has moved by [`SWING_SOULS`] within the last [`SWING_WINDOW`]
+/// seconds, and still has ten seconds on, one event for the team it moved toward, then none for
+/// a window.
+pub fn souls_swings(players: &[(String, Vec<[u32; 2]>)], duration_s: u32) -> Vec<Event> {
+    let worth = |souls: &[[u32; 2]], t: u32| souls.iter().take_while(|s| s[0] <= t).last().map_or(0, |s| i64::from(s[1]));
+    let mut times: Vec<u32> = players.iter().flat_map(|(_, s)| s.iter().map(|x| x[0])).filter(|t| *t <= duration_s).collect();
+    times.sort_unstable();
+    times.dedup();
+    let lead = |t: u32| players.iter().map(|(team, s)| if team == "amber" { worth(s, t) } else { -worth(s, t) }).sum::<i64>();
+    let mut out = Vec::new();
+    let mut quiet_until = 0;
+    for &t in &times {
+        // The first two minutes are starting souls arriving player by player, not swings.
+        if t < quiet_until || t < 2 * SWING_WINDOW {
+            continue;
+        }
+        let then = lead(t.saturating_sub(SWING_WINDOW));
+        let moved = lead(t) - then;
+        // Players' samples don't all land on the same second: a swing must still be there ten
+        // seconds on, so one team's update arriving first isn't a swing.
+        let held = lead((t + 10).min(duration_s)) - then;
+        if moved.abs() >= SWING_SOULS && held.abs() >= SWING_SOULS && held.signum() == moved.signum() {
+            out.push(Event {
+                t,
+                kind: "souls_swing".into(),
+                team: Some(if moved > 0 { "amber" } else { "sapphire" }.into()),
+                slot: None,
+                hero_id: None,
+                by: None,
+                key: None,
+                x: None,
+                y: None,
+                amount: Some(moved.unsigned_abs().min(u64::from(u32::MAX)) as u32),
+            });
+            quiet_until = t + SWING_WINDOW;
+        }
+    }
+    out
+}
+
+/// A bare event of `kind` at `t`; callers fill in the rest.
+pub fn event(t: u32, kind: &str) -> Event {
+    Event { t, kind: kind.into(), team: None, slot: None, hero_id: None, by: None, key: None, x: None, y: None, amount: None }
+}
+
 /// What the server accepts from a worker (spec §11, replay limits).
 /// A 15-minute match is ~140 KB; a 60-minute one well under 1 MiB. The server parses it inside
 /// its 256M budget, so the cap stays small.
@@ -106,6 +202,7 @@ pub const MAX_DURATION_S: u32 = 4 * 3600;
 const MAX_PLAYERS: usize = 16;
 const MAX_LIST: usize = 256;
 const MAX_NAME: usize = 64;
+const MAX_EVENTS: usize = 4096;
 
 fn plausible_key(k: &str) -> bool {
     // `kind:team:laneN` with an optional `:index`, as the pack writes it.
@@ -155,7 +252,18 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
         && t.powerups.len() <= 8
         && t.powerups.iter().all(|p| plausible_key(&p.key) && p.key.starts_with("powerup:") && p.available.len() == n && p.available.iter().all(|a| *a <= 1) && ranges_ok(&p.stale, n as u32))
         && t.waves.len() <= 8
-        && t.waves.iter().all(|w| plausible_key(&format!("lane:x:{}", w.lane)) && w.t.len() == n && w.t.iter().all(|v| v.is_none_or(|v| v <= 1000)) && ranges_ok(&w.stale, n as u32));
+        && t.waves.iter().all(|w| plausible_key(&format!("lane:x:{}", w.lane)) && w.t.len() == n && w.t.iter().all(|v| v.is_none_or(|v| v <= 1000)) && ranges_ok(&w.stale, n as u32))
+        && t.events.len() <= MAX_EVENTS
+        && t.events.iter().all(|e| {
+            let team_ok = |s: &str| s == "amber" || s == "sapphire" || s == "neutral";
+            e.t <= t.duration_s
+                && EVENT_KINDS.contains(&e.kind.as_str())
+                && e.team.as_deref().is_none_or(team_ok)
+                && e.slot.is_none_or(|s| s < 8)
+                && e.by.as_ref().is_none_or(|b| team_ok(&b.team) && b.slot < 8)
+                && e.key.as_deref().is_none_or(plausible_key)
+                && e.x.into_iter().chain(e.y).all(|v| v.abs() <= 32768)
+        });
     if ok { Ok(t) } else { Err("out of shape") }
 }
 
@@ -189,6 +297,7 @@ mod tests {
             rifts: vec![Rift { key: "rift:neutral:lane6:1".into(), start_s: 1, end_s: 3 }],
             powerups: vec![Powerup { key: "powerup:neutral:lane1:1".into(), available: vec![0, 1, 0], stale: vec![[0, 1]] }],
             waves: vec![WaveTrack { lane: "lane4".into(), t: vec![None, Some(500), Some(520)], stale: vec![[2, 3]] }],
+            events: vec![Event { team: Some("amber".into()), slot: Some(0), hero_id: Some(1), x: Some(3), y: Some(3), ..event(1, "death") }],
         }
     }
 
@@ -218,6 +327,10 @@ mod tests {
             Box::new(|t| t.waves[0].stale = vec![[2, 2]]),
             Box::new(|t| t.waves[0].lane = "../x".into()),
             Box::new(|t| t.duration_s = MAX_DURATION_S + 1),
+            Box::new(|t| t.events[0].kind = "<b>".into()),
+            Box::new(|t| t.events[0].t = 9),
+            Box::new(|t| t.events[0].team = Some("x".into())),
+            Box::new(|t| t.events[0].key = Some("../x".into())),
         ];
         for (i, f) in bad.iter().enumerate() {
             let mut t = tiny();
@@ -225,6 +338,18 @@ mod tests {
             assert!(validate(&serde_json::to_vec(&t).expect("json")).is_err(), "case {i}");
         }
         assert!(validate(b"{").is_err());
+    }
+
+    #[test]
+    fn souls_swings_mark_big_moves_of_the_lead_once_per_window() {
+        let p = |team: &str, s: &[[u32; 2]]| (team.to_owned(), s.to_vec());
+        // Amber gains 6,000 between 100 and 140 s; Sapphire claws 8,000 back by 400 s.
+        let players = [p("amber", &[[0, 0], [100, 1000], [140, 7000], [150, 7500]]), p("sapphire", &[[0, 0], [100, 1000], [380, 3000], [400, 15000]])];
+        let got: Vec<(u32, Option<String>, Option<u32>)> = souls_swings(&players, 500).into_iter().map(|e| (e.t, e.team, e.amount)).collect();
+        assert_eq!(got, [(140, Some("amber".into()), Some(6000)), (400, Some("sapphire".into()), Some(14000))]);
+        // One team's update a few seconds before the other's is no swing.
+        let staggered = [p("amber", &[[0, 0], [180, 9000]]), p("sapphire", &[[0, 0], [184, 9000]])];
+        assert_eq!(souls_swings(&staggered, 500), []);
     }
 
     #[test]
