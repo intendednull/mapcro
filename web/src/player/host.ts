@@ -3,7 +3,7 @@
 // board creates one; Player renders it; following reads and writes its playback.
 
 import { createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js";
-import { type CampAt, type MatchEvent, type Timeline, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, sitesAt } from "../match/timeline";
+import { type CampAt, type MatchEvent, type Timeline, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, sitesAt, urnAt } from "../match/timeline";
 import type { MatchPreview } from "../match/preview";
 import { slotKey } from "../match/save";
 import type { Marker } from "../map/model";
@@ -664,7 +664,7 @@ export function createPlayerHost(board: string, token: string) {
       if (!m) return { players: new Map(), down: new Set(), sites: new Map(), lanes: new Map(), camps: new Map() };
       const at = t();
       const health = showHealth() && m.tier === "replay";
-      const players = new Map(playersAt(m, at).map((x) => [slotKey(x.team, x.slot), { hero: x.hero_id, name: showNames() ? x.name : null, pos: x.pos, health: health ? x.health : null }]));
+      const players = new Map(playersAt(m, at).map((x) => [slotKey(x.team, x.slot), { hero: x.hero_id, name: showNames() ? x.name : null, pos: x.pos, health: health ? x.health : null, respawn: x.respawn }]));
       // Everything by the board's marker keys: a pack can key a site differently from the
       // timeline (match/timeline.ts `markerKey`).
       const byMarker = <V,>(src: Map<string, V>) => {
@@ -676,7 +676,10 @@ export function createPlayerHost(board: string, token: string) {
         return out;
       };
       const camps: Map<string, CampAt> = byMarker(campsAt(m, at));
-      return { players, down: downAt(m, at, markers), sites: sitesAt(m, at, markers), lanes: lanesAt(m, at), camps, ...(health ? { health: byMarker(objectiveHealthAt(m, at)) } : {}) };
+      const u = urnAt(m, at);
+      const site = (k: string | null | undefined) => (k ? (markerKey(k, markers) ?? null) : null);
+      const urn = u ? { ...u, delivery: site(u.delivery), next: u.next ? { t: u.next.t, key: site(u.next.key) ?? u.next.key } : null } : undefined;
+      return { players, down: downAt(m, at, markers), sites: sitesAt(m, at, markers), lanes: lanesAt(m, at), camps, ...(health ? { health: byMarker(objectiveHealthAt(m, at)) } : {}), ...(urn ? { urn } : {}) };
     },
   };
 }

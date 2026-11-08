@@ -1,18 +1,20 @@
 // What a click on an objective does (operator, 2026-11-07): it flips between active and
 // destroyed (camps: alive and cleared). Rifts are off unless turned on, and at most one is on:
-// turning one on turns the others off in the same transaction. Pure, so it's unit-tested.
+// turning one on turns the others off in the same transaction. The Soul Urn's delivery points
+// work the same way (one open at a time). Pure, so it's unit-tested.
 
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { Op } from "../gen/Op";
 import type { RecordId } from "../gen/RecordId";
-import type { Marker } from "../map/model";
+import { type Marker, offByDefault } from "../map/model";
 
 export type Current = Map<string, { id: RecordId; status: ObjectiveStatus }>;
 
-/** Whether a marker is "on" (active, alive) in a scene. Rifts default to off; the rest to on. */
+/** Whether a marker is "on" (active, alive) in a scene. Rifts and urn points default to off;
+ * the rest to on. */
 export function isOn(m: Pick<Marker, "kind" | "key">, cur: Current): boolean {
   const s = cur.get(m.key)?.status;
-  return m.kind === "koth" ? s === "Active" : s === undefined || s === "Active" || s === "Stage2";
+  return offByDefault(m.kind) ? s === "Active" : s === undefined || s === "Active" || s === "Stage2";
 }
 
 /** The Patron's two stages (operator, 2026-11-07): a click goes stage 1 → stage 2 → destroyed
@@ -29,10 +31,10 @@ export function toggleOps(m: Pick<Marker, "kind" | "key">, markers: Array<Pick<M
   };
   const on = isOn(m, cur);
   if (m.kind === "t3") return set(m.key, nextPatron(cur.get(m.key)?.status));
-  if (m.kind !== "koth") return set(m.key, on ? "Destroyed" : "Active");
+  if (!offByDefault(m.kind)) return set(m.key, on ? "Destroyed" : "Active");
   if (on) return set(m.key, "Destroyed");
-  // Only one rift at a time: the others go off with this one coming on.
-  const others = markers.filter((x) => x.kind === "koth" && x.key !== m.key && isOn(x, cur)).flatMap((x) => set(x.key, "Destroyed"));
+  // Only one rift (one urn point) at a time: the others go off with this one coming on.
+  const others = markers.filter((x) => x.kind === m.kind && x.key !== m.key && isOn(x, cur)).flatMap((x) => set(x.key, "Destroyed"));
   return [...set(m.key, "Active"), ...others];
 }
 
@@ -50,7 +52,8 @@ export function groupToggleOps(clicked: M, group: M[], markers: M[], cur: Curren
     if (c) return c.status === status ? [] : [{ Set: { id: c.id, value: { ObjectiveStatus: status } } }];
     // Absent means the default: on for objectives, off for rifts. Writing the default is a no-op.
     const kind = markers.find((m) => m.key === key)?.kind ?? group.find((m) => m.key === key)?.kind;
-    if ((kind === "koth" && status === "Destroyed") || (kind !== "koth" && status === "Active")) return [];
+    const off = !!kind && offByDefault(kind);
+    if ((off && status === "Destroyed") || (!off && status === "Active")) return [];
     return [{ Create: { id: mint(), record: { ObjectiveState: { scene, key, status } } } }];
   };
   const turnOn = !isOn(clicked, cur);
@@ -59,12 +62,13 @@ export function groupToggleOps(clicked: M, group: M[], markers: M[], cur: Curren
     for (const m of group) ops.push(...set(m.key, "Destroyed"));
     return ops;
   }
-  const rifts = group.filter((m) => m.kind === "koth");
-  const lit = clicked.kind === "koth" ? clicked : rifts[0];
-  for (const m of group) if (m.kind !== "koth") ops.push(...set(m.key, "Active"));
-  if (lit) {
+  for (const m of group) if (!offByDefault(m.kind)) ops.push(...set(m.key, "Active"));
+  // Per one-at-a-time kind: the clicked one if it's of that kind, else the group's first.
+  for (const kind of ["koth", "urn"] as const) {
+    const lit = clicked.kind === kind ? clicked : group.find((m) => m.kind === kind);
+    if (!lit) continue;
     ops.push(...set(lit.key, "Active"));
-    for (const r of markers.filter((x) => x.kind === "koth" && x.key !== lit.key)) ops.push(...set(r.key, "Destroyed"));
+    for (const r of markers.filter((x) => x.kind === kind && x.key !== lit.key)) ops.push(...set(r.key, "Destroyed"));
   }
   return ops;
 }

@@ -1,7 +1,8 @@
 // Jungle camps and the mid boss in Player (replay tier, spec §6b). The map shows only each
 // camp's state, through the board's own marker looks (alive, cleared dimmed, not yet spawned
 // fainter). Hovering one, or tapping it on the phone, says when it comes back; no countdown
-// shows otherwise.
+// shows otherwise. The Soul Urn's points work the same way: hovering one says when the next urn
+// spawns (player/Urn.tsx).
 
 import { Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Art } from "../map/pack";
@@ -10,6 +11,7 @@ import { type Pt, mapToView } from "../map/transform";
 import { svgPoint } from "../board/Tokens";
 import { type CampAt, clockLabel } from "../match/timeline";
 import type { MatchPreview } from "../match/preview";
+import { urnTip } from "./Urn";
 
 /** The tooltip for a camp at playback time t. */
 export function campTip(c: CampAt, t: number): string {
@@ -23,8 +25,8 @@ export function CampTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; pr
   const [hover, setHover] = createSignal<string>();
   const camps = createMemo(() => {
     const pv = p.preview();
-    if (!pv || pv.camps.size === 0) return [];
-    return p.art.model.markers.filter((m) => (m.kind === "camp" || m.kind === "midboss") && pv.camps.has(m.key));
+    if (!pv || (pv.camps.size === 0 && !pv.urn)) return [];
+    return p.art.model.markers.filter((m) => ((m.kind === "camp" || m.kind === "midboss") && pv.camps.has(m.key)) || (m.kind === "urn" && !!pv.urn));
   });
   const near = (at: Pt) => {
     let best: { key: string; d: number } | undefined;
@@ -66,10 +68,11 @@ export function CampTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; pr
     const key = hover();
     const m = key ? camps().find((x) => x.key === key) : undefined;
     const c = key ? p.preview()?.camps.get(key) : undefined;
-    if (!m || !c) return undefined;
+    const u = m?.kind === "urn" ? p.preview()?.urn : undefined;
+    if (!m || (!c && !u)) return undefined;
     const at = mapToView(m.at, p.vp);
     const above = Math.max(10, (m.px / HUD_MAP_PX) * 1000 * 0.22 * p.k) + 6 * p.k;
-    return { key: m.key, x: at.x, y: at.y - above, text: campTip(c, p.t()) };
+    return { key: m.key, x: at.x, y: at.y - above, text: u ? urnTip(u, m.key, p.t()) : campTip(c!, p.t()) };
   });
   return (
     <g ref={g} class="camp-tips">

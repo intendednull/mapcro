@@ -45,9 +45,14 @@ describe("match timeline", () => {
   it("gives each player's state at t", () => {
     const tl: Timeline = {
       match_id: 1, start_time: 0, duration_s: 4, source: "", objectives: [], mid_boss: [], reanchored: 0,
-      players: [{ team: "amber", slot: 2, hero_id: 7, x: p.x, y: p.y, health: [100, 100, 0, 0, 100], deaths: [1], souls: p.souls }],
+      players: [{ team: "amber", slot: 2, hero_id: 7, x: p.x, y: p.y, health: [100, 100, 0, 0, 100], deaths: [1], souls: p.souls, respawn: [[1, 4]] }],
     };
-    expect(playersAt(tl, 3)).toEqual([{ team: "amber", slot: 2, hero_id: 7, name: null, pos: null, last: { x: 10, y: -10 }, souls: null, ult: null, health: null }]);
+    // Dead from 1 until its respawn at 4: one second left at 3.
+    expect(playersAt(tl, 3)).toEqual([{ team: "amber", slot: 2, hero_id: 7, name: null, pos: null, last: { x: 10, y: -10 }, souls: null, ult: null, health: null, respawn: 1 }]);
+    expect(playersAt(tl, 1.5)[0]!.respawn).toBe(2.5);
+    expect(playersAt(tl, 4)[0]!.respawn).toBeNull();
+    const { respawn: _, ...older } = tl.players[0]!;
+    expect(playersAt({ ...tl, players: [older] }, 3)[0]!.respawn).toBeNull();
     expect(clockLabel(725)).toBe("12:05");
   });
 });

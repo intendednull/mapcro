@@ -87,3 +87,24 @@ describe("objective groups", () => {
     expect(keys(groupToggleOps(camps[0]!, group, all, westOn, "s", mint))).toEqual([[camps[0]!.key, "Destroyed"], ["r1", "Destroyed"]]);
   });
 });
+
+describe("the Soul Urn's points (Sandbox)", () => {
+  const uw = { kind: "urn" as const, key: "urn:neutral:lane1:1" };
+  const ue = { kind: "urn" as const, key: "urn:neutral:lane6:1" };
+  const withUrn = [...all, uw, ue];
+  it("start off like the rifts, and one opens at a time without touching the rifts", () => {
+    expect(isOn(uw, new Map())).toBe(false);
+    expect(toggleOps(uw, withUrn, new Map(), "s", () => "u1")).toEqual([{ Create: { id: "u1", record: { ObjectiveState: { scene: "s", key: uw.key, status: "Active" } } } }]);
+    const eastOpen: Current = new Map([[ue.key, { id: "e", status: "Active" }], [west.key, { id: "r", status: "Active" }]]);
+    expect(toggleOps(uw, withUrn, eastOpen, "s", () => "u2")).toEqual([
+      { Create: { id: "u2", record: { ObjectiveState: { scene: "s", key: uw.key, status: "Active" } } } },
+      { Set: { id: "e", value: { ObjectiveStatus: "Destroyed" } } },
+    ]);
+    expect(toggleOps(ue, withUrn, eastOpen, "s", mint)).toEqual([{ Set: { id: "e", value: { ObjectiveStatus: "Destroyed" } } }]);
+  });
+  it("in a group turned on, one point opens alongside one rift", () => {
+    const keys = (ops: ReturnType<typeof groupToggleOps>) =>
+      ops.map((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [o.Create.record.ObjectiveState.key, o.Create.record.ObjectiveState.status] : "Set" in o && "ObjectiveStatus" in o.Set.value ? [o.Set.id, o.Set.value.ObjectiveStatus] : ["?"]));
+    expect(keys(groupToggleOps(ue, [uw, ue, west], withUrn, new Map(), "s", mint))).toEqual([[west.key, "Active"], [ue.key, "Active"]]);
+  });
+});

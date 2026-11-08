@@ -27,7 +27,7 @@ export interface FallbackData {
 
 export type Team = "amber" | "sapphire" | "neutral";
 export type LaneColor = "yellow" | "blue" | "purple";
-export type MarkerKind = "t1" | "t2" | "t3" | "barracks" | "shrine" | "midboss" | "camp" | "koth" | "powerup";
+export type MarkerKind = "t1" | "t2" | "t3" | "barracks" | "shrine" | "midboss" | "camp" | "koth" | "powerup" | "urn";
 
 export interface Marker {
   /** Semantic key, e.g. `walker:amber:lane1:1`; base guardians drop the index (one per pair). */
@@ -119,6 +119,11 @@ export function markersFrom(entities: PackEntity[], t: Transform = DEFAULT_TRANS
       case "rift":
         out.push({ ...base, kind: "koth", px: 32, z: 0, lane: null, title: "Unstable Rift" });
         break;
+      case "urn":
+        // A Soul Urn delivery point (.idol_return: its art at half its 96 px box). The urn
+        // spawns over one and is carried to the other.
+        out.push({ ...base, kind: "urn", px: 40, z: 15, lane: null, title: "Soul Urn" });
+        break;
       case "base_guardian": {
         // One marker per team and lane, at the midpoint of the pair (README, "Markers").
         const k = `base_guardian:${e.team}:${e.lane}`;
@@ -197,6 +202,10 @@ export function modelFromFallback(f: FallbackData): MapModel {
     }),
   };
 }
+
+/** Sites that are off unless turned on, at most one of a kind at a time: the rifts, and the
+ * urn's delivery points. */
+export const offByDefault = (k: MarkerKind) => k === "koth" || k === "urn";
 
 /** The objective's tint for a viewpoint ("Tints by viewpoint"). */
 export function washFor(m: Pick<Marker, "kind" | "team" | "lane">, vp: Viewpoint): string {

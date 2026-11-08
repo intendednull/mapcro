@@ -3,7 +3,9 @@
 import { describe, expect, it } from "vitest";
 import { FALLBACK } from "../src/map/fallback-data";
 import { modelFromFallback } from "../src/map/model";
-import { type Timeline, campsAt, downAt, lanesAt, markerKey, playersAt, sitesAt, tierOf } from "../src/match/timeline";
+import { type Timeline, campsAt, downAt, lanesAt, markerKey, playersAt, sitesAt, tierOf, urnAt } from "../src/match/timeline";
+import { urnTip } from "../src/player/Urn";
+import { label, groupOf, namesFor } from "../src/player/events";
 import { splitEdges } from "../src/map/lanes";
 import { matchSceneOps } from "../src/match/save";
 
@@ -109,5 +111,62 @@ describe("replay timeline", () => {
       ["powerup:neutral:lane1:1", "Destroyed"],
       ["camp:neutral:lane0:3", "Destroyed"],
     ]);
+  });
+
+  // The urn spawns over the west site at 1, Amber's slot 0 picks it up at 2 (east point open)
+  // and delivers it at 4; the next spawns east at 9.
+  const urnMatch: Timeline = {
+    ...replay,
+    duration_s: 4,
+    urn: {
+      spawns: [{ t: 1, key: "urn:neutral:lane1:1" }, { t: 9, key: "urn:neutral:lane6:1" }],
+      at: [
+        { t: 1, state: "ground", x: -6584, y: 0, delivery: "urn:neutral:lane6:1" },
+        { t: 2, state: "carried", team: "amber", slot: 0, delivery: "urn:neutral:lane6:1" },
+        { t: 4, state: "none" },
+      ],
+    },
+  };
+
+  it("puts the urn on the ground, then on its carrier, and opens its delivery point", () => {
+    expect(urnAt(replay, 1)).toBeUndefined();
+    expect(urnAt(urnMatch, 0.5)).toEqual({ state: "none", at: null, team: null, slot: null, delivery: null, next: { t: 1, key: "urn:neutral:lane1:1" } });
+    expect(urnAt(urnMatch, 1.5)).toMatchObject({ state: "ground", at: { x: -6584, y: 0 }, delivery: "urn:neutral:lane6:1" });
+    // Carried: where the carrier is (its token's place).
+    expect(urnAt(urnMatch, 2.5)).toMatchObject({ state: "carried", at: { x: 3, y: 3 }, team: "amber", slot: 0 });
+    expect(urnAt(urnMatch, 2)).toMatchObject({ at: { x: 3, y: 3 } });
+    expect(urnAt(urnMatch, 4)).toMatchObject({ state: "none", next: { t: 9, key: "urn:neutral:lane6:1" } });
+    const site = (t: number) => Object.fromEntries([...sitesAt(urnMatch, t, markers)].filter(([k]) => k.startsWith("urn:")));
+    expect(site(0)).toEqual({ "urn:neutral:lane1:1": "Destroyed", "urn:neutral:lane6:1": "Destroyed" });
+    expect(site(2)).toEqual({ "urn:neutral:lane1:1": "Destroyed", "urn:neutral:lane6:1": "Active" });
+    expect(site(4)["urn:neutral:lane6:1"]).toBe("Destroyed");
+  });
+
+  it("says on hover when the next urn spawns, and where", () => {
+    const at = (t: number) => urnAt(urnMatch, t)!;
+    expect(urnTip(at(0), "urn:neutral:lane1:1", 0)).toBe("Urn spawns here in 0:01 (at 0:01)");
+    expect(urnTip(at(0), "urn:neutral:lane6:1", 0)).toBe("Next urn spawns at the other site in 0:01 (at 0:01)");
+    expect(urnTip(at(2), "urn:neutral:lane6:1", 2)).toBe("Urn delivery point: open, urn carried");
+    expect(urnTip(at(2), "urn:neutral:lane1:1", 2)).toBe("Urn in play");
+    expect(urnTip({ ...at(1), delivery: null }, "urn:neutral:lane6:1", 1)).toBe("Urn landing: its delivery point opens as it lands");
+    expect(urnTip(at(4), "urn:neutral:lane6:1", 4.2)).toBe("Urn spawns here in 0:05 (at 0:09)");
+    expect(urnTip({ ...at(4), next: null }, "urn:neutral:lane6:1", 4)).toBe("No more urns in this replay");
+  });
+
+  it("saves the open urn point with the scene", () => {
+    let n = 0;
+    const { ops } = matchSceneOps([] as never, [], undefined, urnMatch, 3, markers, () => `id${n++}`, lanes);
+    const states = ops.flatMap((o) => ("Create" in o && "ObjectiveState" in o.Create.record ? [[o.Create.record.ObjectiveState.key, o.Create.record.ObjectiveState.status]] : []));
+    expect(states).toContainEqual(["urn:neutral:lane6:1", "Active"]);
+    expect(states.some(([k]) => k === "urn:neutral:lane1:1")).toBe(false);
+  });
+
+  it("labels urn events with the hero, and files them under Urn", () => {
+    const n = namesFor(urnMatch, (id) => (id === 7 ? "Haze" : `Hero ${id}`));
+    const e = (kind: "urn_pickup" | "urn_drop" | "urn_delivered") => ({ t: 2, kind, team: "amber", slot: 0, hero_id: 7 });
+    expect(label(e("urn_pickup"), n)).toBe("Urn picked up by Haze");
+    expect(label(e("urn_drop"), n)).toBe("Urn dropped by Haze");
+    expect(label(e("urn_delivered"), n)).toBe("Urn delivered by Haze");
+    expect(groupOf(e("urn_drop"))).toBe("urn");
   });
 });

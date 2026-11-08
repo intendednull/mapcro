@@ -1,7 +1,8 @@
 // Player's top bar (spec §6b): the in-game bar drawn from the match at playback time t, read-only.
 // The same look as the scene's (board/TopBar.tsx): portraits, souls with team totals, ult rings,
-// the dead greyed out, and the clock at t. Only what the match's tier has is shown: no ult data
-// (the metadata tier) reads as untracked, never as ready.
+// the dead greyed out with their respawn countdown (when the tier has it), and the clock at t.
+// Only what the match's tier has is shown: no ult data (the metadata tier) reads as untracked,
+// never as ready.
 
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { cx } from "../ui/cx";
@@ -98,6 +99,11 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
                 <i class="tb-disc">{initials(s.slot, hero()?.name)}</i>
                 <Show when={hero()?.topbar}>{(src) => <i class="tb-img hero-vertical" style={{ "background-image": `url(${JSON.stringify(src())})` }} />}</Show>
               </div>
+              <Show when={dead() && x()?.respawn != null}>
+                <span class="tb-respawn" data-testid="tb-respawn" data-respawn={Math.ceil(x()!.respawn!)} aria-label={`${label()} respawns in ${Math.ceil(x()!.respawn!)} s`}>
+                  {Math.ceil(x()!.respawn!)}
+                </span>
+              </Show>
               <Show when={p.host.showHealth() && x()?.health != null}>
                 <div class={cx("pl-hp", (x()!.health ?? 0) <= LOW && "low")} data-testid="tb-health" data-health={x()!.health} aria-label={`${label()} health ${x()!.health}%`}>
                   <i style={{ width: `${x()!.health}%` }} />

@@ -20,6 +20,21 @@ export interface TimelinePlayer {
   name?: string | null;
   /** Replay tier: ult cooldown left in percent each second (0 ready); `null` untrained. */
   ult?: Array<number | null>;
+  /** Both tiers, when they have it: `[died_s, back_s]` per death. */
+  respawn?: Array<[number, number]>;
+}
+
+/** The Soul Urn's state from a second on (replay tier; crates/replay/src/timeline.rs `UrnAt`). */
+export interface UrnAt {
+  t: number;
+  state: "ground" | "carried" | "none";
+  x?: number | null;
+  y?: number | null;
+  /** Carried: the carrier's team; on the ground after a drop, the dropper's. */
+  team?: "amber" | "sapphire" | null;
+  slot?: number | null;
+  /** The urn site it's to be delivered to, while that point is open. */
+  delivery?: string | null;
 }
 
 /** `[from, to)` seconds where a replay value is held through a gap in the recording. */
@@ -50,9 +65,11 @@ export interface Timeline {
   /** Replay tier: each objective's health in percent where it changes, `[second, pct]`; the
    * patron's stage (1, 2) the same way. */
   objective_health?: Array<{ key: string; at: Array<[number, number]>; stage?: Array<[number, number]> }>;
+  /** Replay tier: the Soul Urn: each spawn (second, site) and its state where it changes. */
+  urn?: { spawns: Array<{ t: number; key: string }>; at: UrnAt[] };
 }
 
-export type EventKind = "death" | "objective" | "mid_boss" | "rift_up" | "rift_capture" | "powerup_spawn" | "powerup_taken" | "souls_swing" | "ult";
+export type EventKind = "death" | "objective" | "mid_boss" | "rift_up" | "rift_capture" | "powerup_spawn" | "powerup_taken" | "souls_swing" | "ult" | "urn_pickup" | "urn_drop" | "urn_delivered";
 
 export interface MatchEvent {
   t: number;
@@ -87,6 +104,14 @@ export interface PlayerAt {
   /** Replay tier: health in percent (0 dead); `null` on the metadata tier (its path health is
    * too coarse to show, operator 2026-11-08). */
   health: number | null;
+  /** While dead: seconds until the hero respawns, when the timeline knows (else `null`). */
+  respawn: number | null;
+}
+
+/** Seconds left until the hero respawns at t, if t falls in one of its deaths. */
+export function respawnAt(p: Pick<TimelinePlayer, "respawn">, t: number): number | null {
+  for (const [died, back] of p.respawn ?? []) if (t >= died && t < back) return back - t;
+  return null;
 }
 
 /** Position at a fractional second: linear between the two samples when both are alive. */
@@ -131,7 +156,36 @@ export function playersAt(tl: Timeline, t: number): PlayerAt[] {
     souls: soulsAt(p, t),
     ult: p.ult?.[Math.max(0, Math.min(p.ult.length - 1, Math.floor(t)))] ?? null,
     health: tl.tier === "replay" ? (p.health[Math.max(0, Math.min(p.health.length - 1, Math.floor(t)))] ?? 0) : null,
+    respawn: respawnAt(p, t),
   }));
+}
+
+/** The Soul Urn at t: where it is (world units; a carried urn is where its carrier is), who
+ * holds it, the open delivery point, and the next spawn after t (timeline keys). */
+export interface UrnNow {
+  state: "ground" | "carried" | "none";
+  at: { x: number; y: number } | null;
+  team: "amber" | "sapphire" | null;
+  slot: number | null;
+  delivery: string | null;
+  next: { t: number; key: string } | null;
+}
+
+export function urnAt(tl: Timeline, t: number): UrnNow | undefined {
+  const u = tl.urn;
+  if (!u) return undefined;
+  let cur: UrnAt | undefined;
+  for (const a of u.at) {
+    if (a.t > t) break;
+    cur = a;
+  }
+  const next = u.spawns.find((s) => s.t > t) ?? null;
+  const none: UrnNow = { state: "none", at: null, team: null, slot: null, delivery: null, next };
+  if (!cur || cur.state === "none") return none;
+  const delivery = cur.delivery ?? null;
+  if (cur.state === "ground") return { ...none, state: "ground", at: cur.x != null && cur.y != null ? { x: cur.x, y: cur.y } : null, team: cur.team ?? null, delivery };
+  const p = tl.players.find((q) => q.team === cur.team && q.slot === cur.slot);
+  return { ...none, state: "carried", at: p ? (positionAt(p, t) ?? lastSeen(p, t)) : null, team: cur.team ?? null, slot: cur.slot ?? null, delivery };
 }
 
 /** The value of a `[second, v]` change list at t (`undefined` before its first change). */
@@ -164,11 +218,12 @@ export function objectiveHealthAt(tl: Timeline, t: number): Map<string, { pct: n
  * Rifts, powerups and camps at t as board statuses, by marker key (replay tier; empty
  * otherwise): the rift up at t is Active and the other rifts off (Destroyed); a powerup is
  * Active while available, else Destroyed (taken, or not spawned yet); a camp is Active while
- * up, else Destroyed (cleared, or not spawned yet). The mid boss is `downAt`'s.
+ * up, else Destroyed (cleared, or not spawned yet); an urn delivery point is Active while open,
+ * else off (Destroyed). The mid boss is `downAt`'s.
  */
 export function sitesAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "key" | "kind" | "team" | "at">>): Map<string, "Active" | "Destroyed"> {
   const out = new Map<string, "Active" | "Destroyed">();
-  if (!tl.rifts && !tl.powerups && !tl.camps) return out;
+  if (!tl.rifts && !tl.powerups && !tl.camps && !tl.urn) return out;
   const s = Math.floor(t);
   const known = new Set(markers.map((m) => m.key));
   for (const m of markers) if (m.kind === "koth") out.set(m.key, "Destroyed");
@@ -181,6 +236,12 @@ export function sitesAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "ke
     if (!c.key.startsWith("camp:")) continue;
     const key = markerKey(c.key, markers);
     if (key) out.set(key, campAt(c, t).state === "alive" ? "Active" : "Destroyed");
+  }
+  if (tl.urn) {
+    for (const m of markers) if (m.kind === "urn") out.set(m.key, "Destroyed");
+    const open = urnAt(tl, t)?.delivery;
+    const key = open ? markerKey(open, markers) : undefined;
+    if (key) out.set(key, "Active");
   }
   return out;
 }
@@ -216,7 +277,7 @@ export function campsAt(tl: Timeline, t: number): Map<string, CampAt> {
   return new Map((tl.camps ?? []).map((c) => [c.key, campAt(c, t)]));
 }
 
-const MARKER_KIND: Record<string, Marker["kind"]> = { guardian: "t1", walker: "t2", base_guardian: "barracks", shrine: "shrine", patron: "t3", mid_boss: "midboss", camp: "camp", rift: "koth", powerup: "powerup" };
+const MARKER_KIND: Record<string, Marker["kind"]> = { guardian: "t1", walker: "t2", base_guardian: "barracks", shrine: "shrine", patron: "t3", mid_boss: "midboss", camp: "camp", rift: "koth", powerup: "powerup", urn: "urn" };
 
 /**
  * The board marker a timeline key names. The worker keys sites by the built-in map

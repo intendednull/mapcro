@@ -57,11 +57,11 @@ export function matchSceneOps(
     });
   }
   for (const key of downAt(tl, second, markers)) ops.push({ Create: { id: mint(), record: { ObjectiveState: { scene: id, key, status: "Destroyed" } } } });
-  // Only what differs from a new scene's defaults: the rift that's up (rifts default off) and
-  // taken powerups (they default available).
+  // Only what differs from a new scene's defaults: the rift that's up and the open urn point
+  // (both default off), and taken powerups (they default available).
   for (const [key, status] of sitesAt(tl, second, markers)) {
-    const isRift = key.startsWith("rift:");
-    if ((isRift && status === "Active") || (!isRift && status === "Destroyed")) ops.push({ Create: { id: mint(), record: { ObjectiveState: { scene: id, key, status } } } });
+    const off = key.startsWith("rift:") || key.startsWith("urn:");
+    if ((off && status === "Active") || (!off && status === "Destroyed")) ops.push({ Create: { id: mint(), record: { ObjectiveState: { scene: id, key, status } } } });
   }
   // A scene has one split per lane: the middle of the zipline colours' gap (spec §6b).
   for (const [lane, w] of lanesAt(tl, second)) if (lanes.length === 0 || lanes.includes(lane)) ops.push({ Create: { id: mint(), record: { Wave: { scene: id, lane, t: Math.round((w.amber + w.sapphire) / 2) } } } });

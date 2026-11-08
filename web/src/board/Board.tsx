@@ -26,6 +26,7 @@ import { EventPings, Highlight, Player, PlayerSide, PlayerSwitch, TrooperDots } 
 import { createPlayerHost, playbackPresence } from "../player/host";
 import { ReplayPrompt } from "../player/ReplayPrompt";
 import { CampTips } from "../player/Camps";
+import { UrnMark } from "../player/Urn";
 import { liveLayer } from "../player/layer";
 import { PlayerTopBar } from "../player/PlayerTopBar";
 import { Layers, calloutOrder } from "./Layers";
@@ -627,7 +628,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 if (!pv) return own;
                 const site = pv.sites.get(k);
                 if (site) return site;
-                if (k.startsWith("rift:")) return "Destroyed";
+                if (k.startsWith("rift:") || k.startsWith("urn:")) return "Destroyed";
                 if (pv.down.has(k)) return "Destroyed";
                 // The patron's stage from the replay: its shield (stage 1) or its core (stage 2).
                 return pv.health?.get(k)?.stage === 2 ? "Stage2" : "Active";
@@ -678,6 +679,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
               />
               <Show when={inPlayer()}>
+                <UrnMark art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
                 <CampTips art={p.art} vp={viewpoint()} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               </Show>
               <Highlight at={inPlayer() ? player.ring() : undefined} vp={viewpoint()} />

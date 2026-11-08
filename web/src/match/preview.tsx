@@ -2,12 +2,12 @@
 
 import { Show } from "solid-js";
 import { cx } from "../ui/cx";
-import type { CampAt } from "./timeline";
+import type { CampAt, UrnNow } from "./timeline";
 
 export interface MatchPreview {
   /** By "amber-0" … "sapphire-5": the hero there, its player's name if known, and where it is
    * (`null`: dead, hidden). */
-  players: Map<string, { hero: number; name?: string | null; pos: { x: number; y: number } | null; health?: number | null }>;
+  players: Map<string, { hero: number; name?: string | null; pos: { x: number; y: number } | null; health?: number | null; respawn?: number | null }>;
   /** Board objective keys down at this moment. */
   down: Set<string>;
   /** Replay tier: rifts and powerups at this moment, by key (absent: the board's own). */
@@ -18,6 +18,8 @@ export interface MatchPreview {
   camps: Map<string, CampAt>;
   /** Replay tier, with Health on: objectives' health by key (absent: none drawn). */
   health?: Map<string, { pct: number; stage?: number }>;
+  /** Replay tier: the Soul Urn at this moment, its sites by marker key (absent: no urn data). */
+  urn?: UrnNow;
 }
 
 /** A small ring: the part still on cooldown, as the HUD draws it under a portrait. */

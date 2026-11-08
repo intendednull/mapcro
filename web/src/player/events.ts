@@ -5,7 +5,7 @@ import type { Marker } from "../map/model";
 import { type Pt, worldToMap } from "../map/transform";
 import { type MatchEvent, type Timeline, clockLabel, markerKey, tierOf } from "../match/timeline";
 
-export type EventGroup = "death" | "ult" | "objective" | "mid_boss" | "rift" | "powerup" | "souls";
+export type EventGroup = "death" | "ult" | "objective" | "mid_boss" | "rift" | "powerup" | "urn" | "souls";
 
 export const GROUPS: Array<{ id: EventGroup; label: string }> = [
   { id: "death", label: "Deaths" },
@@ -14,6 +14,7 @@ export const GROUPS: Array<{ id: EventGroup; label: string }> = [
   { id: "mid_boss", label: "Mid boss" },
   { id: "rift", label: "Rifts" },
   { id: "powerup", label: "Powerups" },
+  { id: "urn", label: "Urn" },
   { id: "souls", label: "Souls" },
 ];
 
@@ -21,6 +22,7 @@ export function groupOf(e: Pick<MatchEvent, "kind">): EventGroup {
   if (e.kind === "rift_up" || e.kind === "rift_capture") return "rift";
   if (e.kind === "powerup_spawn" || e.kind === "powerup_taken") return "powerup";
   if (e.kind === "souls_swing") return "souls";
+  if (e.kind === "urn_pickup" || e.kind === "urn_drop" || e.kind === "urn_delivered") return "urn";
   return e.kind as EventGroup;
 }
 
@@ -84,6 +86,13 @@ export function label(e: MatchEvent, n: Named): string {
       const what = abilityName(e.ability, n.hero(e.hero_id));
       return what ? `${who} ult (${what})` : `${who} ult`;
     }
+    case "urn_pickup":
+    case "urn_drop":
+    case "urn_delivered": {
+      const verb = e.kind === "urn_pickup" ? "picked up" : e.kind === "urn_drop" ? "dropped" : "delivered";
+      const who = n.hero(e.hero_id) || team(e.team);
+      return who ? `Urn ${verb} by ${who}` : `Urn ${verb}`;
+    }
     default:
       return cap(String(e.kind).replace(/_/g, " "));
   }
@@ -91,9 +100,9 @@ export function label(e: MatchEvent, n: Named): string {
 
 /** The list's label in parts: names, where the timeline has them, beside their heroes (muted). */
 export function labelParts(e: MatchEvent, n: Named): Array<{ text: string; muted?: boolean }> {
-  if (e.kind !== "death" && e.kind !== "ult") return [{ text: label(e, n) }];
+  if (e.kind !== "death" && e.kind !== "ult" && !e.kind.startsWith("urn_")) return [{ text: label(e, n) }];
   const who = n.player(e.team, e.slot);
-  if (e.kind === "ult") return [{ text: label(e, n) }, ...(who ? [{ text: ` ${who}`, muted: true }] : [])];
+  if (e.kind !== "death") return [{ text: label(e, n) }, ...(who ? [{ text: ` ${who}`, muted: true }] : [])];
   const by = e.by ? n.player(e.by.team, e.by.slot) : undefined;
   const parts: Array<{ text: string; muted?: boolean }> = [{ text: n.hero(e.hero_id) || "A hero" }];
   if (who) parts.push({ text: ` ${who}`, muted: true });
@@ -123,6 +132,12 @@ export function shortLabel(e: MatchEvent, n: Named): string {
       return "Powerup taken";
     case "ult":
       return `${n.hero(e.hero_id) || "Hero"} ult`;
+    case "urn_pickup":
+      return "Urn picked up";
+    case "urn_drop":
+      return "Urn dropped";
+    case "urn_delivered":
+      return "Urn delivered";
     default:
       return "Souls swing";
   }

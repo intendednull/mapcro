@@ -5,13 +5,15 @@
 import { For, type JSX, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { cx } from "../ui/cx";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
-import { type Marker, HUD_MAP_PX, isFriendly, laneStroke, washFor } from "./model";
+import { type Marker, HUD_MAP_PX, isFriendly, laneStroke, offByDefault, washFor } from "./model";
 import { defaultSplit, pathOf, splitAt, splitEdges } from "./lanes";
 import { type Art, artCss } from "./pack";
 import { FIT_VIEW, MARGIN, type Viewpoint } from "./transform";
 
 /** A neutral cream: the spawners give any powerup, so no buff's own colour. */
 const POWERUP = "#FFEFD7";
+/** The urn's own cyan (soul_jar_marker), for the shapes drawn without a pack. */
+export const URN = "#34ddff";
 const CAMP_IMG = { weak: "neutral-small", medium: "neutral-medium", strong: "neutral-large", vaults: "neutral-vault" } as const;
 
 function Layer(p: { img: string; wash?: string; style?: JSX.CSSProperties; part?: string; span?: readonly [number, number] }) {
@@ -87,6 +89,8 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
         return [<Fb shape="dot" color="#99FFD6" k={0.5} />, <Layer img="koth" style={{ inset: "15%" }} />];
       case "powerup":
         return [<Fb shape="star" color={POWERUP} k={0.8} />, <Layer img="powerup" wash={POWERUP} />];
+      case "urn":
+        return [<Fb shape="dot" color={URN} k={0.45} />, <Layer img="urn-return" style={{ inset: "20%" }} />];
     }
   };
   return (
@@ -219,7 +223,7 @@ export function MapView(p: {
     </>
   );
   const markers = createMemo(() =>
-    p.lite ? p.art.model.markers.filter((m) => m.kind !== "barracks" && m.kind !== "shrine" && m.kind !== "camp" && m.kind !== "koth" && m.kind !== "powerup") : p.art.model.markers,
+    p.lite ? p.art.model.markers.filter((m) => m.kind !== "barracks" && m.kind !== "shrine" && m.kind !== "camp" && m.kind !== "koth" && m.kind !== "powerup" && m.kind !== "urn") : p.art.model.markers,
   );
   const hasArt = () => p.art.images.has("terrain-mid");
   return (
@@ -256,8 +260,9 @@ export function MapView(p: {
                   <MarkerView
                     m={m}
                     vp={p.viewpoint}
-                    // A rift is off unless someone turned it on; everything else is up unless destroyed.
-                    status={m.kind === "koth" ? (p.status?.(m.key) === "Active" ? "Active" : "Destroyed") : p.status?.(m.key)}
+                    // A rift or an urn point is off unless someone turned it on; everything else is
+                    // up unless destroyed.
+                    status={offByDefault(m.kind) ? (p.status?.(m.key) === "Active" ? "Active" : "Destroyed") : p.status?.(m.key)}
                     picked={!!p.picked?.(m.key)}
                     health={p.health?.(m.key)}
                     camp={p.camp?.(m.key)}
