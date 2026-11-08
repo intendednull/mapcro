@@ -120,6 +120,10 @@ struct Player {
     player_slot: u32,
     team: u32,
     hero_id: u32,
+    /// Read only to look the player's public in-game name up, in memory, during the import; never
+    /// stored, cached, logged or returned (operator's standing rule).
+    #[serde(default)]
+    account_id: Option<u64>,
     #[serde(default)]
     death_details: Vec<Death>,
     #[serde(default)]
@@ -219,6 +223,10 @@ pub struct TimelinePlayer {
     pub deaths: Vec<u32>,
     /// `[game second, net worth]`, every 3–5 minutes.
     pub souls: Vec<[u32; 2]>,
+    /// The player's public Steam name (deadlock-api's profiles), sanitised; absent if the lookup
+    /// failed. Never an id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -311,6 +319,57 @@ fn anchors(deaths: &[u32], health: &[f64], duration: u32) -> (Vec<usize>, bool) 
     (map, drift)
 }
 
+/// The match's players' account ids by (team, slot), for the names lookup only.
+fn accounts(raw: &[u8]) -> Vec<((String, u32), u64)> {
+    let Ok(u) = serde_json::from_slice::<Upstream>(raw) else { return Vec::new() };
+    let m = u.match_info;
+    let mut out = Vec::new();
+    for team in [0, 1] {
+        let mut ps: Vec<&Player> = m.players.iter().filter(|p| p.team == team).collect();
+        ps.sort_by_key(|p| p.player_slot);
+        for (i, p) in ps.into_iter().enumerate() {
+            if let Some(a) = p.account_id.filter(|a| *a > 0) {
+                out.push(((team_name(team).to_owned(), i as u32), a));
+            }
+        }
+    }
+    out
+}
+
+#[derive(Deserialize)]
+struct Profile {
+    account_id: u64,
+    personaname: String,
+}
+
+/// Public Steam names for the match's players, one batched call (deadlock-api
+/// `/v1/players/steam`). Any failure means no names, never a failed import. Blocking.
+fn names(raw: &[u8]) -> HashMap<(String, u32), String> {
+    let accounts = accounts(raw);
+    // One call per uncached import, so the import limits bound it too (their read limit is
+    // 100 requests a second per address).
+    if accounts.is_empty() {
+        return HashMap::new();
+    }
+    let s = settings();
+    let ids: Vec<String> = accounts.iter().map(|(_, a)| a.to_string()).collect();
+    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(s.timeout)).http_status_as_error(false).max_redirects(0).user_agent("mapcro (https://mapcro.dmgdeadlock.com)").build().into();
+    let Ok(mut r) = agent.get(&format!("{}/v1/players/steam?account_ids={}", s.base, ids.join(","))).call() else { return HashMap::new() };
+    if r.status().as_u16() != 200 {
+        return HashMap::new();
+    }
+    let Ok(profiles) = r.body_mut().with_config().limit(4 * 1024 * 1024).read_json::<Vec<Profile>>() else { return HashMap::new() };
+    let by_id: HashMap<u64, &str> = profiles.iter().map(|p| (p.account_id, p.personaname.as_str())).collect();
+    accounts
+        .into_iter()
+        .filter_map(|(slot, a)| {
+            // deadlock-api answers in SteamID3 (32-bit) whichever form was asked.
+            let name = by_id.get(&a).or_else(|| by_id.get(&(a & 0xffff_ffff)))?;
+            Some((slot, mapcro_replay::timeline::clean_name(name)?))
+        })
+        .collect()
+}
+
 pub fn derive(raw: &[u8]) -> Result<Timeline, String> {
     let u: Upstream = serde_json::from_slice(raw).map_err(|e| format!("unexpected match shape: {e}"))?;
     let m = u.match_info;
@@ -354,6 +413,7 @@ pub fn derive(raw: &[u8]) -> Result<Timeline, String> {
             health,
             deaths,
             souls: p.stats.iter().map(|s| [s.time_stamp_s, s.net_worth]).collect(),
+            name: None,
         });
     }
     players.sort_by(|a, b| (a.team.as_str(), a.slot).cmp(&(b.team.as_str(), b.slot)));
@@ -547,7 +607,17 @@ pub async fn get(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<Soc
         Fetched::Down => return err(StatusCode::BAD_GATEWAY, "upstream_down"),
         Fetched::TooLarge => return err(StatusCode::BAD_GATEWAY, "too_large"),
     };
-    let timeline = match tokio::task::spawn_blocking(move || derive(&raw)).await {
+    let timeline = match tokio::task::spawn_blocking(move || {
+        derive(&raw).map(|mut t| {
+            let found = names(&raw);
+            for p in &mut t.players {
+                p.name = found.get(&(p.team.clone(), p.slot)).cloned();
+            }
+            t
+        })
+    })
+    .await
+    {
         Ok(Ok(t)) => t,
         Ok(Err(e)) => {
             tracing::warn!(error = e, "match not understood");

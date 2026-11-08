@@ -349,7 +349,11 @@ pub async fn timeline(
             }
         }
     }
-    crate::matches::get(State(app), ConnectInfo(peer), headers, Path(id)).await
+    // The board's answer changes when a replay arrives: never let a browser keep the metadata
+    // (its own route says max-age, which kept the upgrade from showing).
+    let mut r = crate::matches::get(State(app), ConnectInfo(peer), headers, Path(id)).await;
+    r.headers_mut().insert(header::CACHE_CONTROL, axum::http::HeaderValue::from_static("no-store"));
+    r
 }
 
 /// The matches a board has opened, newest first (spec §6b): kept by the server beside the board,

@@ -92,7 +92,11 @@ fn upstream(routes: HashMap<String, (u16, Vec<u8>)>) -> Upstream {
                     }
                 }
                 let path = line.split_whitespace().nth(1).unwrap_or("").to_owned();
-                let id = path.strip_prefix("/v1/matches/").and_then(|r| r.split('/').next()).unwrap_or("").to_owned();
+                let id = if path.starts_with("/v1/players/steam?") {
+                    "steam".to_owned()
+                } else {
+                    path.strip_prefix("/v1/matches/").and_then(|r| r.split('/').next()).unwrap_or("").to_owned()
+                };
                 *hits.lock().expect("lock").entry(id.clone()).or_default() += 1;
                 let (status, body) = routes.get(&id).cloned().unwrap_or((404, b"{\"error\":\"not found\"}".to_vec()));
                 let mut out = stream;
@@ -315,4 +319,50 @@ fn the_upstream_bucket_caps_bursts_from_everyone() {
     let (status, body) = s.get("113");
     assert_eq!(status, 429, "{body}");
     assert!(body.contains("busy"));
+}
+
+/// Names (operator, 2026-11-08): the players' public Steam names come from one batched call to
+/// deadlock-api's profiles, by the account ids in the match, which exist only in memory: the
+/// cache keeps the sanitised name per slot and no id.
+#[test]
+fn names_come_from_one_profiles_call_and_no_id_is_kept() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut routes = HashMap::new();
+    routes.insert("112".to_owned(), (200, synthetic(112)));
+    let profiles = serde_json::json!([
+        { "account_id": ACCOUNT_A + 1, "personaname": "Coach<script>\u{202E}", "profileurl": "https://x", "avatar": "", "avatarmedium": "", "avatarfull": "", "last_updated": "2026-01-01T00:00:00Z", "friends": [], "matches_played_last_30d": 3 },
+        { "account_id": ACCOUNT_A + 8, "personaname": "Marrow", "profileurl": "https://y", "avatar": "", "avatarmedium": "", "avatarfull": "", "last_updated": "2026-01-01T00:00:00Z", "friends": [], "matches_played_last_30d": 3 },
+    ]);
+    routes.insert("steam".to_owned(), (200, serde_json::to_vec(&profiles).expect("json")));
+    let up = upstream(routes);
+    let s = Server::start(dir.path(), up.port, &[]);
+    let (status, body) = s.get("112");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(up.hits("steam"), 1, "one batched call");
+    let t: serde_json::Value = serde_json::from_str(&body).expect("json");
+    let players = t["players"].as_array().expect("players");
+    let name = |team: &str, slot: u64| players.iter().find(|p| p["team"] == team && p["slot"] == slot).map(|p| p["name"].clone());
+    assert_eq!(name("amber", 0), Some(serde_json::json!("Coachscript")), "sanitised");
+    assert_eq!(name("sapphire", 1), Some(serde_json::json!("Marrow")));
+    assert_eq!(name("amber", 1), Some(serde_json::Value::Null), "no profile: no name");
+    let cached = std::fs::read_to_string(dir.path().join("matches/112.json")).expect("cache file");
+    for text in [&body, &cached] {
+        for leak in ["account", "steam", "persona", "profileurl", &(ACCOUNT_A + 1).to_string(), &(ACCOUNT_A + 8).to_string()] {
+            assert!(!text.contains(leak), "{leak} leaked");
+        }
+    }
+}
+
+#[test]
+fn a_failed_names_lookup_imports_without_names() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut routes = HashMap::new();
+    routes.insert("113".to_owned(), (200, synthetic(113)));
+    routes.insert("steam".to_owned(), (429, b"{}".to_vec()));
+    let up = upstream(routes);
+    let s = Server::start(dir.path(), up.port, &[]);
+    let (status, body) = s.get("113");
+    assert_eq!(status, 200, "{body}");
+    let t: serde_json::Value = serde_json::from_str(&body).expect("json");
+    assert!(t["players"].as_array().expect("players").iter().all(|p| p.get("name").is_none()));
 }
