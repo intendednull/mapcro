@@ -210,7 +210,14 @@ backlog: the fix is to serialize once per position and count it, like the fresh-
 - All eight hold over 200,000 samples each. `pruneLosesNext.qnt`, the bug, survived 200,000
   samples and then 1,000,000 of up to 45 steps: the path needs a refusal, a reconnect, a restart
   and one more edit in a particular order, about 20 steps that random runs almost never take.
-  TLC, which goes breadth-first: (TLC RESULT)
+  TLC goes breadth-first, and it found the bug in 23m39s: an 18-step counterexample (a refusal,
+  a reconnect whose hello prunes it, a restart, a reconnect, then an honest submit the server
+  takes as a gap), after 45,420,324 distinct states at depth 19. That was MAX_TX 2, no reloads
+  and 4 workers.
+- `fixed.qnt` at the same bounds: no violation in 65,669,139 distinct states. TLC had reached
+  depth 20, so every path of 19 steps or fewer was checked. That covers the counterexample's
+  length, but it isn't exhaustive. The run was stopped at a deadline with 17.9M states still
+  queued, and it was paused whenever the shared box went above load 12.
 
 The review's other model gaps stay open and are worth knowing:
 - The model never truncates its log, so compaction is only a floor that forces rebases.
