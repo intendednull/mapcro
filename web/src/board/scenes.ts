@@ -13,6 +13,15 @@ export interface SceneRow {
   scene: Scene;
 }
 
+/**
+ * An unnamed scene is shown as "Scene N" by its place in the list, so a reorder never leaves
+ * "Scene 4" first. New scenes are stored unnamed (""); a stored name that is exactly
+ * "Scene <number>" (older boards) counts as unnamed too.
+ */
+export const isUnnamed = (name: string) => /^(Scene \d+)?$/.test(name.trim());
+/** The name to show for the scene at `index` (0-based) in the list. */
+export const sceneName = (name: string, index: number) => (isUnnamed(name) ? `Scene ${index + 1}` : name);
+
 /** The scenes as a tree: each scene's effective parent, and the depth-first order. */
 function treeOf(state: BoardState) {
   const rows = state.sceneTree();
@@ -38,7 +47,7 @@ export function addSceneOps(state: BoardState, from: SceneRow | undefined, asChi
     {
       Create: {
         id,
-        record: { Scene: { name: `Scene ${state.scenes().length + 1}`, order: keyBetween(lo, hi), clock: from?.scene.clock ?? null, ...(parent ? { parent } : {}) } },
+        record: { Scene: { name: "", order: keyBetween(lo, hi), clock: from?.scene.clock ?? null, ...(parent ? { parent } : {}) } },
       },
     },
   ];

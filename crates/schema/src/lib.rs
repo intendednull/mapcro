@@ -193,7 +193,7 @@ pub fn genesis(mut next_id: impl FnMut() -> RecordId, title: &str) -> Doc {
         }
     }
     let scene = next_id();
-    doc.insert(scene, Record::Scene(Scene { name: "Scene 1".into(), order: OrderKey::first(), clock: None, source: None, live: false, parent: None }));
+    doc.insert(scene, Record::Scene(Scene { name: String::new(), order: OrderKey::first(), clock: None, source: None, live: false, parent: None }));
     for (slot_id, team, slot) in slots {
         doc.insert(next_id(), Record::PlayerState(PlayerState::starting(scene, slot_id, team, slot)));
     }

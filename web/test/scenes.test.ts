@@ -43,7 +43,7 @@ describe("add scene", () => {
     const [scene, ...rest] = ops;
     const s = scene && "Create" in scene && "Scene" in scene.Create.record ? scene.Create.record.Scene : undefined;
     expect(s?.order! > "i" && s?.order! < "r").toBe(true);
-    expect(s?.name).toBe("Scene 4");
+    expect(s?.name).toBe(""); // unnamed: shown as "Scene N" by its place
     const kinds = rest.map((o) => ("Create" in o ? Object.keys(o.Create.record)[0] : "?"));
     expect(kinds.sort()).toEqual(["ObjectiveState", "PlayerState", "Wave"]);
     const w = rest.find((o) => "Create" in o && "Wave" in o.Create.record);

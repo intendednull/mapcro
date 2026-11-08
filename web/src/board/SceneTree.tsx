@@ -13,7 +13,7 @@ import type { Art } from "../map/pack";
 import { type Viewpoint, worldToView } from "../map/transform";
 import { InlineEdit } from "../ui/InlineEdit";
 import { cx } from "../ui/cx";
-import { addSceneOps, deleteSceneOps, moveSceneOps } from "./scenes";
+import { addSceneOps, deleteSceneOps, isUnnamed, moveSceneOps } from "./scenes";
 import type { BoardState } from "./state";
 import { visibleRows } from "./tree";
 
@@ -174,7 +174,7 @@ export function SceneTree(p: {
                   aria-expanded={row().hasChildren ? isOpen() : undefined}
                   aria-current={s().id === p.current ? "true" : undefined}
                   data-testid="scene-card"
-                  aria-label={`Scene ${no()}: ${formatClock(s().scene.clock)} ${s().scene.name}`.replace(/\s+/g, " ").trim()}
+                  aria-label={`Scene ${no()}: ${formatClock(s().scene.clock)} ${isUnnamed(s().scene.name) ? "" : s().scene.name}`.replace(/\s+/g, " ").trim()}
                   data-scene={s().id}
                   data-depth={row().depth}
                   style={{ "--depth": String(row().depth) }}
@@ -239,7 +239,7 @@ export function SceneTree(p: {
                     onClick={(e) => renaming() === s().id && e.stopPropagation()}
                   >
                     <InlineEdit
-                      value={s().scene.name}
+                      value={isUnnamed(s().scene.name) ? "" : s().scene.name}
                       placeholder={`Scene ${no()}`}
                       editable={p.state.canEdit() && renaming() === s().id}
                       maxLength={64}
@@ -248,7 +248,7 @@ export function SceneTree(p: {
                       bindOpen={(o) => (openName = o)}
                       onEditing={(on) => !on && setRenaming(undefined)}
                       onCommit={(t) => {
-                        if (t.trim() !== s().scene.name) p.state.edit([{ Set: { id: s().id, value: { SceneName: t.trim() } } }]);
+                        if (t.trim() !== (isUnnamed(s().scene.name) ? "" : s().scene.name)) p.state.edit([{ Set: { id: s().id, value: { SceneName: t.trim() } } }]);
                       }}
                     />
                   </span>

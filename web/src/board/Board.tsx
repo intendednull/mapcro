@@ -38,6 +38,7 @@ import type { Reject } from "../gen/Reject";
 import { Avatar, FollowChip, PeopleList, PresentingPill } from "./Presence";
 import { type ClearKind, Toolbar } from "./Toolbar";
 import { Palette } from "./Palette";
+import { isUnnamed, sceneName } from "./scenes";
 import { smoothed } from "./smooth";
 import type { Tool } from "./tools";
 
@@ -491,7 +492,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           <Show when={scene()?.scene.clock != null}>
             <span class="clock">{formatClock(scene()!.scene.clock)}</span>
           </Show>
-          {scene()?.scene.name}
+          {sceneName(scene()?.scene.name ?? "", sceneIndex())}
         </h1>
       </div>
       <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} compact />}>
@@ -781,13 +782,14 @@ export function Board(p: { board: string; token: string; art: Art }) {
                   label="scene name"
                   testid="scene-name"
                   editable={state.canEdit()}
-                  value={scene()?.scene.name ?? ""}
+                  value={isUnnamed(scene()?.scene.name ?? "") ? "" : scene()!.scene.name}
+                  placeholder={`Scene ${sceneIndex() + 1}`}
                   maxLength={24}
                   onEditing={(on) => state.presence({ focus: on ? (scene()?.id ?? null) : null })}
                   onCommit={(t) => {
                     const s = scene();
                     const name = t.trim();
-                    if (!s || !name) return false;
+                    if (!s) return false;
                     state.edit([{ Set: { id: s.id, value: { SceneName: name } } }]);
                   }}
                 />
