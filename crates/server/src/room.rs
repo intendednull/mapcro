@@ -108,7 +108,10 @@ impl Peer {
     }
 }
 
-/// Presence is batched: changes collect for this long, then go out as one frame per peer.
+/// Presence goes out at most once per this long, one frame per peer. A change after a quiet
+/// spell goes out at once (the leading edge); changes inside the window wait for its end and go
+/// out together. So a client sending every 60 ms never waits for a batch, and a burst still
+/// costs one frame per peer per 50 ms (perf report 2026-11-07, "After the client fixes").
 const PRESENCE_BATCH: std::time::Duration = std::time::Duration::from_millis(50);
 
 struct Room {
@@ -131,6 +134,8 @@ struct Room {
     /// Peers whose presence changed (or who left) since the last batch.
     presence_dirty: Vec<(u64, LinkRole)>,
     flush_at: Option<tokio::time::Instant>,
+    /// When presence last went out.
+    last_flush: Option<tokio::time::Instant>,
     /// Asked to unload while empty.
     unload: bool,
     /// The last snapshot handed to a fresh client: the log position it's at and the document as
@@ -318,6 +323,7 @@ impl Rooms {
             max_storage_bytes: self.caps.max_storage_bytes,
             presence_dirty: Vec::new(),
             flush_at: None,
+            last_flush: None,
             unload: false,
             snapshot: None,
         };
@@ -485,7 +491,11 @@ impl Room {
         if !self.presence_dirty.iter().any(|(p, _)| *p == conn.0) {
             self.presence_dirty.push((conn.0, role));
         }
-        self.flush_at.get_or_insert_with(|| tokio::time::Instant::now() + PRESENCE_BATCH);
+        if self.flush_at.is_none() {
+            // Now, unless presence went out less than a batch ago: then when that batch ends.
+            let now = tokio::time::Instant::now();
+            self.flush_at = Some(self.last_flush.map_or(now, |t| (t + PRESENCE_BATCH).max(now)));
+        }
     }
 
     /// A peer left: drop it from the engine and tell the others it's gone.
@@ -505,6 +515,7 @@ impl Room {
         if dirty.is_empty() && self.peers.values().all(|p| p.missed.is_empty()) {
             return;
         }
+        self.last_flush = Some(tokio::time::Instant::now());
         // The current entry for every peer anyone is owed: changed now, or missed before.
         let mut owed: Vec<(u64, LinkRole)> = dirty.clone();
         for p in self.peers.values() {

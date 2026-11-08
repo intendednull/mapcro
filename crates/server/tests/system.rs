@@ -1588,3 +1588,58 @@ async fn a_board_too_big_for_one_frame_falls_back_to_catch_up() {
     }
     assert_eq!(f.replica().confirmed(), g.replica().confirmed());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn presence_goes_out_on_the_leading_edge_and_bursts_coalesce() {
+    // Presence used to wait for a full 50 ms batch, so with clients sending every 60 ms each
+    // update waited ~50 ms on the server. Now a change after a quiet spell goes out at once, and
+    // changes inside a batch window still go out together.
+    use mapcro_engine::wire::Presence;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let (board, owner) = server.create_board();
+    let mut coach = Client::new(0x7c1);
+    let mut viewer = Client::new(0x7c2);
+    coach.connect(server.port, &board, &owner).await.expect("coach");
+    viewer.connect(server.port, &board, &owner).await.expect("viewer");
+    let at = |i: i32| Presence { name: "Coach".into(), cursor: Some(WorldPos { x: i, y: 0 }), ..Default::default() };
+    // Ten updates, 120 ms apart (quieter than a batch): each should arrive straight away.
+    let mut waits = Vec::new();
+    for i in 0..10 {
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        let sent = Instant::now();
+        send_presence(&mut coach, at(i)).await;
+        until_peer(&mut viewer, |p| p.state.as_ref().and_then(|s| s.cursor).is_some_and(|c| c.x == i)).await;
+        waits.push(sent.elapsed());
+    }
+    waits.sort();
+    let median = waits[waits.len() / 2];
+    assert!(median < Duration::from_millis(25), "presence waited {median:?} (median of {waits:?})");
+    // A burst of twenty inside one window: few frames, and the last state wins.
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    for i in 100..120 {
+        send_presence(&mut coach, at(i)).await;
+    }
+    let mut frames = 0;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let ws = viewer.ws.as_mut().expect("ws");
+        match tokio::time::timeout(Duration::from_millis(300), ws.next()).await {
+            Ok(Some(Ok(Message::Text(t)))) => {
+                if let Ok(WireOut::Presence { peers }) = serde_json::from_str::<WireOut>(t.as_str()) {
+                    frames += 1;
+                    for p in peers {
+                        viewer.peers.insert(p.peer, p);
+                    }
+                }
+            }
+            Ok(Some(Ok(_))) => {}
+            _ => break,
+        }
+        assert!(Instant::now() < deadline, "presence never settled");
+    }
+    let last = viewer.peers.values().find_map(|p| p.state.as_ref().and_then(|s| s.cursor)).expect("coach's cursor");
+    assert_eq!(last.x, 119, "the last update wins");
+    assert!(frames <= 3, "a burst of 20 updates became {frames} frames");
+    eprintln!("presence: median wait {median:?}; a burst of 20 went out as {frames} frames");
+}
