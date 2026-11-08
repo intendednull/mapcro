@@ -38,7 +38,8 @@ export class Server {
       PORT: String(this.port),
       DATA_DIR: this.dataDir,
       PUBLIC_ORIGIN: this.url,
-      WEB_DIR: join(ROOT, "web/dist"),
+      // A build of its own (MAPCRO_WEB_DIR) keeps a run off the dist another run is serving.
+      WEB_DIR: process.env.MAPCRO_WEB_DIR ?? join(ROOT, "web/dist"),
       RUST_LOG: "warn",
     };
     if (this.packsDir) env.PACKS_DIR = this.packsDir;
