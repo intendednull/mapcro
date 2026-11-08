@@ -36,7 +36,7 @@ test.afterAll(() => {
 
 test("the current event is marked and kept in view as the match plays", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Follow list"), "Coach");
-  await a.getByTestId("scene-from-match").click();
+  await a.getByTestId("mode-player").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");

@@ -47,7 +47,7 @@ test.afterAll(() => {
 
 test("names show by their heroes: top bar, roster, events", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Names"), "Coach");
-  await a.getByTestId("scene-from-match").click();
+  await a.getByTestId("mode-player").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");

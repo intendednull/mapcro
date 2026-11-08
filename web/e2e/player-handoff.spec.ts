@@ -35,7 +35,7 @@ test.afterAll(() => {
 });
 
 async function openMatch(p: Page) {
-  await p.getByTestId("scene-from-match").click();
+  await p.getByTestId("mode-player").click();
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
   await expect(p.getByTestId("match-tier")).toHaveText("API summary");

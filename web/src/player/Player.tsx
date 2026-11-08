@@ -364,13 +364,14 @@ export function PlayerSwitch(p: { host: PlayerHost; state: BoardState; onSwitch:
   const peerMatch = () => p.state.peerList().find((x) => x.state?.playback)?.state?.playback?.match_id;
   const target = () => p.host.matchId() ?? (peerMatch() !== undefined ? String(peerMatch()) : undefined);
   return (
-    <Show when={target()}>
+    <Show when={target() || p.state.canEdit()}>
       <button
         class="btn small pl-switch"
         data-testid="mode-player"
         onClick={() => {
           p.onSwitch();
-          if (p.host.matchId()) p.host.setMode("player");
+          // No match yet: an editor gets Player with the match-id prompt.
+          if (p.host.matchId() || !target()) p.host.setMode("player");
           else void p.host.open(target()!, { attach: false });
         }}
       >

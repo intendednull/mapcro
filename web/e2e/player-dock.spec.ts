@@ -41,7 +41,7 @@ const overlap = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width &
 const inside = (a: Box, w: number, h: number) => a.x >= 0 && a.y >= 0 && a.x + a.width <= w + 0.5 && a.y + a.height <= h + 0.5;
 
 async function openMatch(p: Page) {
-  await p.getByTestId("scene-from-match").click();
+  await p.getByTestId("mode-player").click();
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
   await expect(p.getByTestId("match-tier")).toHaveText("API summary");

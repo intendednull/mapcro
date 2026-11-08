@@ -26,7 +26,7 @@ test.afterAll(() => server?.stop());
 
 test("a real replay at a few moments", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Real replay"), "Coach");
-  await a.getByTestId("scene-from-match").click();
+  await a.getByTestId("mode-player").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("Full replay");

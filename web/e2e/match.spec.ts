@@ -51,7 +51,7 @@ test("import, scrub, save two moments; a second browser sees them; undo reverts 
   const b = await joinNew(browser, url, "Marrow");
   const startB = await tokens(b);
 
-  await a.getByTestId("scene-from-match").click();
+  await a.getByTestId("mode-player").click();
   await a.getByTestId("match-id").fill("bogus");
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-status")).toHaveText("Invalid id");
@@ -115,5 +115,5 @@ test("a viewer has no match import", async ({ browser }) => {
   const url = await newBoardUrl(server, "view");
   const v = await joinNew(browser, await viewLink(server.url, url), "Guest");
   await expect(v.getByTestId("scene-card")).toHaveCount(1);
-  await expect(v.getByTestId("scene-from-match")).toHaveCount(0);
+  await expect(v.getByTestId("mode-player")).toHaveCount(0);
 });

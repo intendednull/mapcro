@@ -67,7 +67,7 @@ async function scrubTo(p: Page, t: number) {
 test("the chip names the tier; an upload upgrades it in place, keeping the time, for a follower too", async ({ browser }) => {
   const url = await newBoardUrl(server, "Tier");
   const a = await joinNew(browser, url, "Coach");
-  await a.getByTestId("scene-from-match").click();
+  await a.getByTestId("mode-player").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   const chip = (p: Page) => p.getByTestId("match-tier");

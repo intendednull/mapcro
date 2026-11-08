@@ -34,7 +34,7 @@ test.afterAll(() => {
 });
 
 async function openMatch(p: Page, id = ID) {
-  await p.getByTestId("scene-from-match").click();
+  await p.getByTestId("mode-player").click();
   await p.getByTestId("match-id").fill(id);
   await p.getByTestId("match-load").click();
 }

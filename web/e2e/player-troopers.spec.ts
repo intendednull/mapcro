@@ -66,7 +66,7 @@ const spots = (p: Page) => p.locator("[data-testid=trooper]").evaluateAll((els) 
 
 test("trooper dots render, move between times, keep gaps empty, and toggle off", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Troopers"), "Coach");
-  await a.getByTestId("scene-from-match").click();
+  await a.getByTestId("mode-player").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });

@@ -95,7 +95,7 @@ test("upload a replay, scrub ults, rifts, powerups and waves, save them as a sce
   const a = await joinNew(browser, url, "Coach");
   const b = await joinNew(browser, url, "Marrow");
 
-  await a.getByTestId("scene-from-match").click();
+  await a.getByTestId("mode-player").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-status")).toHaveText("Not found");

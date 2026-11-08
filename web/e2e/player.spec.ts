@@ -42,7 +42,7 @@ const times = (p: Page) => events(p).evaluateAll((els) => els.map((e) => Number(
 test("events: search, filter, jump, and save several as scenes with one undo", async ({ browser }) => {
   const url = await newBoardUrl(server, "Events");
   const a = await joinNew(browser, url, "Coach");
-  await a.getByTestId("scene-from-match").click();
+  await a.getByTestId("mode-player").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
@@ -104,7 +104,7 @@ test("Player draws only the match, Sandbox only the scene, and neither leaks int
   const url = await newBoardUrl(server, "Modes");
   const a = await joinNew(browser, url, "Coach");
   const x = a.locator('.mapbox .tok[data-slot="Amber-2"]');
-  await a.getByTestId("scene-from-match").click();
+  await a.getByTestId("mode-player").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
@@ -143,7 +143,7 @@ const clock = async (p: Page) => {
 test("a follower mirrors the presenter's playback and mode; its own scrub stops following", async ({ browser }) => {
   const url = await newBoardUrl(server, "Watch party");
   const a = await joinNew(browser, url, "Coach");
-  await a.getByTestId("scene-from-match").click();
+  await a.getByTestId("mode-player").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
@@ -212,7 +212,7 @@ test("ink over playback is live, kept only by saving a scene, and cleared when t
   const a = await joinNew(browser, url, "Coach");
   const b = await joinNew(browser, url, "Marrow");
   const strokes = (p: Page) => p.locator(".mapbox [data-stroke]");
-  await a.getByTestId("scene-from-match").click();
+  await a.getByTestId("mode-player").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
