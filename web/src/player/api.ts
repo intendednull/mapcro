@@ -41,17 +41,40 @@ export const FETCH_WHY: Record<string, string> = {
 };
 
 export interface JobState {
-  state: "off" | "none" | "fetching" | "uploading" | "queued" | "parsing" | "done" | "failed";
+  /** `waiting`: an upload's reservation in line for room (spec §6a, the queue). */
+  state: "off" | "none" | "waiting" | "fetching" | "uploading" | "queued" | "parsing" | "done" | "failed";
   reason?: string;
   source?: "upload" | "cdn";
+  /** Waiting or queued: how many jobs are ahead of it. */
+  ahead?: number;
+  /** Queued: the server's estimate of the seconds until it's ready, when it has one. */
+  eta_s?: number;
 }
 
-export const busy = (j: JobState | undefined) => ["fetching", "uploading", "queued", "parsing"].includes(j?.state ?? "");
+/** A reservation's answer: send the file now, wait (how many are ahead), or nothing to send (the
+ * board has the match's fetched replay already). */
+export type Turn = { state: "ready" | "done" } | { state: "waiting"; ahead: number };
+
+export const busy = (j: JobState | undefined) => ["waiting", "fetching", "uploading", "queued", "parsing"].includes(j?.state ?? "");
+
+/** "~2 min": the wait, in whole minutes (never under one). */
+export const etaLabel = (s: number) => `~${Math.max(1, Math.round(s / 60))} min`;
+
+/** Where a job stands in the queue, as the tier chip says it: "Queued · 3 ahead · ~1 min",
+ * "Waiting for a slot · 2 ahead"; nothing for the other states. */
+export function queueLabel(j: JobState | undefined): string | undefined {
+  const ahead = j?.ahead ? `${j.ahead} ahead` : undefined;
+  if (j?.state === "waiting") return ["Waiting for a slot", ahead].filter(Boolean).join(" · ");
+  if (j?.state === "queued") return ["Queued", ahead, j.eta_s !== undefined ? etaLabel(j.eta_s) : undefined].filter(Boolean).join(" · ");
+  return undefined;
+}
 
 export function jobLabel(j: JobState | undefined, progress: number | undefined): string {
   switch (j?.state) {
     case "uploading":
       return progress === undefined ? "Uploading" : `Uploading ${progress}%`;
+    case "waiting":
+      return "Waiting";
     case "fetching":
       return "Fetching";
     case "queued":
@@ -107,6 +130,25 @@ export class Api {
     if (r.ok) return undefined;
     const body = (await r.json().catch(() => ({}))) as { error?: string };
     return body.error ?? "failed";
+  }
+
+  /** Ask for (or keep) this board's turn to upload `bytes` of the match; an error code if
+   * refused. Asked again every few seconds while waiting: a turn not asked about lapses. */
+  async reserve(id: string, bytes: number): Promise<Turn | { error: string }> {
+    const r = await fetch(`/api/boards/${this.board}/replays/${id}/reserve`, {
+      method: "POST",
+      headers: { ...this.auth, "content-type": "application/json" },
+      body: JSON.stringify({ bytes }),
+    }).catch(() => undefined);
+    if (!r) return { error: "offline" };
+    const body = (await r.json().catch(() => ({}))) as { state?: string; ahead?: number; error?: string };
+    if (!r.ok) return { error: body.error ?? "failed" };
+    return body.state === "waiting" ? { state: "waiting", ahead: body.ahead ?? 0 } : { state: body.state === "done" ? "done" : "ready" };
+  }
+
+  /** Give up this board's place in line for the match (Cancel while waiting). */
+  async release(id: string): Promise<void> {
+    await fetch(`/api/boards/${this.board}/replays/${id}/reserve`, { method: "DELETE", headers: this.auth }).catch(() => undefined);
   }
 
   /**

@@ -1,5 +1,5 @@
 // Opening a match by id fetches its full replay on its own (operator, 2026-11-08): the tier chip
-// reads "Fetching replay…", then "Parsing replay…", then upgrades in place to "Full replay". A
+// reads "Fetching replay…", then "Queued" (and "Parsing replay…" once the worker starts it), then upgrades in place to "Full replay". A
 // match Valve has no replay for settles on "API summary", says why (in the bar and the chip's
 // hint), and offers "Try again" and "Upload replay file". A fake deadlock-api and CDN; the test plays the worker.
 
@@ -92,7 +92,8 @@ test("opening a match fetches its replay: the chip goes from fetching to Full re
   // Downloaded: queued for the worker.
   let job = "";
   await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f === `${ID}-cdn.dem`) ?? "")).not.toBe("");
-  await expect(chip).toHaveText("Parsing replay…");
+  // Waiting for the worker (the test plays it, and hasn't started it): nothing ahead.
+  await expect(chip).toHaveText("Queued");
   writeFileSync(join(queue, "outbox", `${ID}-cdn.json`), JSON.stringify(timeline()));
   await expect(chip).toHaveText("Full replay", { timeout: 15_000 });
   await expect(chip).toHaveAttribute("data-tier", "replay");

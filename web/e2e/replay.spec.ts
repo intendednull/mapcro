@@ -113,7 +113,8 @@ test("upload a replay, scrub ults, rifts, powerups and zipline colours, save the
   await expect(a.getByTestId("match-job")).toHaveText("");
   await expect(a.getByTestId("match-clock")).toHaveText("3:20 / 3:20");
   expect(existsSync(join(server.dataDir, "replays", `${job}.json`))).toBe(true);
-  await expect.poll(() => readdirSync(join(queue, "inbox")).length, { message: "the demo goes with its result" }).toBe(0);
+  // (The server's parse order, `.order`, stays.)
+  await expect.poll(() => readdirSync(join(queue, "inbox")).filter((f) => !f.startsWith(".")).length, { message: "the demo goes with its result" }).toBe(0);
   await expect(a.getByTestId("match-credit")).toHaveText("Replay: uploaded");
 
   // Scrubbing previews the replay's extras here only.

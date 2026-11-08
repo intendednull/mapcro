@@ -88,7 +88,7 @@ test("the chip names the tier; an upload upgrades it in place, keeping the time,
 
   const demo = Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(64 * 1024, 7)]);
   await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: demo });
-  await expect(chip(a)).toHaveText("Parsing replay…");
+  await expect(chip(a)).toHaveText("Queued");
   await a.screenshot({ path: "shots/tier-parsing.png" });
   // The worker's result arrives.
   let job = "";

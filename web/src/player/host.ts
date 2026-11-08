@@ -132,8 +132,9 @@ export function createPlayerHost(board: string, token: string) {
   const watch = async (id: string) => {
     clearTimeout(poll);
     try {
-      // This tab's own upload is the truth while it runs; its end watches again.
-      if (inflight?.id === id) return void setJob({ state: "uploading", source: "upload" });
+      // This tab's own upload (waiting for its turn, then sending) is the truth while it runs;
+      // its end watches again.
+      if (inflight?.id === id) return;
       const j = await api.job(id);
       if (!j || matchId() !== id) return;
       const was = job()?.state;
@@ -204,19 +205,63 @@ export function createPlayerHost(board: string, token: string) {
   };
 
   /**
+   * This tab's turn to upload `bytes` (spec §6a, the queue): asked for, then asked again every
+   * two seconds while waiting, which keeps it, showing how many are ahead. Resolves to `ready`,
+   * `done` (the board has the match's fetched replay: nothing to send), or an error code
+   * (`aborted` when cancelled meanwhile, which gives the place up).
+   */
+  const turn = async (id: string, bytes: number, signal: AbortSignal): Promise<"ready" | "done" | { error: string }> => {
+    for (;;) {
+      if (signal.aborted) {
+        void api.release(id);
+        return { error: "aborted" };
+      }
+      const r = await api.reserve(id, bytes);
+      if ("error" in r) return r;
+      if (r.state !== "waiting") return r.state;
+      if (matchId() === id) setJob({ state: "waiting", source: "upload", ahead: r.ahead });
+      await new Promise<void>((done) => {
+        const t = setTimeout(done, 2000);
+        signal.addEventListener("abort", () => (clearTimeout(t), done()), { once: true });
+      });
+    }
+  };
+
+  /**
    * Upload a replay of the open match, with progress, while the board stays in use (one at a
-   * time from this tab; `cancelUpload` stops it). With `attach`, the match is attached once the
-   * server has the upload under way, so attaching doesn't also start a fetch from Valve.
+   * time from this tab; `cancelUpload` stops it). It waits for its turn first (the file isn't
+   * sent while the queue is full). With `attach`, the match is attached once the server has the
+   * upload under way, so attaching doesn't also start a fetch from Valve.
    */
   const upload = async (f: Blob, opts: { attach?: boolean; opened?: () => void } = {}) => {
     const id = matchId();
     if (!id || inflight) return;
     const ctl = new AbortController();
     inflight = { id, ctl };
-    setJob({ state: "uploading", source: "upload" });
+    setJob({ state: "waiting", source: "upload" });
     setStatus("");
     setProblem(undefined);
     setSent({ id, loaded: 0, total: f.size });
+    const got = await turn(id, f.size, ctl.signal);
+    if (got !== "ready") {
+      inflight = undefined;
+      setSent(undefined);
+      if (matchId() !== id) return;
+      if (got === "done") {
+        // The match's replay came from Valve meanwhile: the board shows it, nothing to send.
+        if (opts.attach && (await api.attach(id).catch(() => false))) {
+          setMatches([Number(id), ...matches().filter((m) => m !== Number(id))]);
+          opts.opened?.();
+        }
+        setJob(undefined);
+        await loadTimeline(id, true);
+      } else {
+        setJob(undefined);
+        setProblem({ code: got.error, step: "upload" });
+      }
+      return void (await watch(id));
+    }
+    if (matchId() === id) setJob({ state: "uploading", source: "upload" });
     let ended = false;
     let failed = false;
     let attaching: Promise<void> | undefined;

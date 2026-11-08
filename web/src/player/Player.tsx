@@ -13,7 +13,7 @@ import { type MatchEvent, clockLabel, playersAt, tierOf } from "../match/timelin
 import { UltRing } from "../match/preview";
 import { matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
 import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensureLiveOps, liveIds, takeAnnotationsOps } from "./live";
-import { FETCH_WHY, busy, jobLabel } from "./api";
+import { FETCH_WHY, busy, jobLabel, queueLabel } from "./api";
 import { idFromName, isDem, looksLikeDemo, sizeLabel } from "./notice";
 import { DropOverlay, NOT_DEM, ReplayHelp, createDemDrop } from "./ReplayHelp";
 import { SPEEDS } from "./clock";
@@ -233,11 +233,21 @@ export function Player(p: {
         <Show when={watching() && h.uploading() && h.sent()}>
           {(u) => (
             <div class="pl-upload" data-testid="upload-progress">
-              <span class="pl-upload-label">Uploading</span>
-              <progress class="pl-upload-bar" data-testid="upload-bar" max={u().total} value={u().loaded} />
-              <span class="pl-upload-size" data-testid="upload-size">
-                {h.progress()}% · {sizeLabel(u().loaded, u().total)}
-              </span>
+              {/* Before it's sent, the file waits for its turn (spec §6a, the queue). */}
+              <Show
+                when={h.job()?.state !== "waiting"}
+                fallback={
+                  <span class="pl-upload-label" data-testid="upload-waiting">
+                    {queueLabel(h.job())}
+                  </span>
+                }
+              >
+                <span class="pl-upload-label">Uploading</span>
+                <progress class="pl-upload-bar" data-testid="upload-bar" max={u().total} value={u().loaded} />
+                <span class="pl-upload-size" data-testid="upload-size">
+                  {h.progress()}% · {sizeLabel(u().loaded, u().total)}
+                </span>
+              </Show>
               <button class="btn ghost small" type="button" data-testid="upload-cancel" onClick={() => h.cancelUpload()}>
                 Cancel
               </button>
@@ -396,7 +406,10 @@ export function TierChip(p: { host: PlayerHost }) {
     const j = h.job();
     if (j?.state === "uploading") return h.progress() === undefined ? "Uploading…" : `Uploading ${h.progress()}%`;
     if (j?.state === "fetching") return "Fetching replay…";
-    if (j?.state === "queued" || j?.state === "parsing") return "Parsing replay…";
+    // Where it is in the queue (spec §6a): "Queued · 3 ahead · ~1 min", "Waiting for a slot · 2 ahead".
+    const q = queueLabel(j);
+    if (q) return q;
+    if (j?.state === "parsing") return "Parsing replay…";
     return replay() ? "Full replay" : "API summary";
   };
   /** Why the full replay isn't coming, when the fetch said (a label). */

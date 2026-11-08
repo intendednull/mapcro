@@ -168,7 +168,7 @@ test("a match deadlock-api doesn't know yet: the landing says so, keeps the id, 
   await enter(p);
   await expect(p.getByTestId("player")).toBeVisible();
   const job = await queued(NEW);
-  await expect(p.getByTestId("match-tier")).toHaveText(/Parsing replay…|Uploading/);
+  await expect(p.getByTestId("match-tier")).toHaveText(/^Queued$|Uploading/);
   await expect(p.getByTestId("match-notice")).toHaveCount(0);
   writeFileSync(join(queue, "outbox", `${job}.json`), JSON.stringify(timeline(NEW)));
   await expect(p.getByTestId("match-tier")).toHaveText("Full replay", { timeout: 15_000 });
@@ -237,7 +237,7 @@ test("Player: a replay Valve hasn't got says so, Try again asks again, and a dro
   await expect(a.getByTestId("match-status")).toHaveText("Not a .dem file. Pick the match's replay.");
   await drop(a, ".stage", `${KNOWN}.dem`);
   const job = await queued(KNOWN);
-  await expect(a.getByTestId("match-tier")).toHaveText("Parsing replay…");
+  await expect(a.getByTestId("match-tier")).toHaveText("Queued");
   await expect(a.getByTestId("match-notice")).toHaveCount(0);
   writeFileSync(join(queue, "outbox", `${job}.json`), JSON.stringify(timeline(KNOWN)));
   await expect(a.getByTestId("match-tier")).toHaveText("Full replay", { timeout: 15_000 });
