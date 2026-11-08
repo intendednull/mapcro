@@ -66,7 +66,9 @@ const MAX_BATCH: usize = 256;
 
 /// A test-only crash point (`--features failpoints`, never in a release build): abort the process
 /// at the Nth time `name` is reached, as `MAPCRO_FAILPOINT=name:N` says. An abort skips every
-/// destructor and flush, like a kill -9 at exactly that line.
+/// destructor and flush, like a kill -9 at exactly that line. It waits 200 ms first, as a slow
+/// fsync would, so anything already handed to a socket has time to reach its client: a server
+/// that acked before its commit would be caught.
 #[cfg(feature = "failpoints")]
 fn failpoint(name: &str) {
     static HITS: AtomicUsize = AtomicUsize::new(0);
@@ -74,6 +76,7 @@ fn failpoint(name: &str) {
     let Some((at, n)) = spec.split_once(':') else { return };
     if at == name && HITS.fetch_add(1, Ordering::SeqCst) + 1 == n.parse::<usize>().unwrap_or(0) {
         eprintln!("failpoint {name} hit {n} times: aborting");
+        std::thread::sleep(std::time::Duration::from_millis(200));
         std::process::abort();
     }
 }
