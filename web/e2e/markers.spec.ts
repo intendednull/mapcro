@@ -95,3 +95,18 @@ test("each team's Patron is its own, and goes stage 1 → stage 2 → destroyed 
   await expect(amber(b)).toHaveAttribute("data-status", "Destroyed");
   await expect(sapphire(b)).toHaveAttribute("data-status", "Active");
 });
+
+test("on a fresh board the Patron can be clicked: no heroes on it, and its whole icon takes the click", async ({ browser }) => {
+  const url = await newBoardUrl(server, "fresh patron");
+  const a = await joinNew(browser, url, "Coach");
+  for (const team of ["amber", "sapphire"]) {
+    const m = a.locator(`[data-testid=map] .mk[data-key="patron:${team}:lane0:1"]`);
+    const bb = (await m.boundingBox())!;
+    // Its middle, where heroes used to stand, then the arch's side, off-centre.
+    await a.mouse.click(bb.x + bb.width / 2, bb.y + bb.height / 2);
+    await expect(m).toHaveAttribute("data-status", "Stage2");
+    await a.mouse.click(bb.x + bb.width * 0.2, bb.y + bb.height / 2);
+    await expect(m).toHaveAttribute("data-status", "Destroyed");
+  }
+  await a.locator("[data-testid=map]").screenshot({ path: "shots/patron-fresh-board.png" });
+});

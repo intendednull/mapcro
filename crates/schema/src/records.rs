@@ -117,10 +117,13 @@ fn visible_by_default() -> bool {
 impl PlayerState {
     /// Default spread: a row near each team's base.
     pub fn starting(scene: RecordId, slot: RecordId, team: Team, index: u8) -> Self {
-        let x = -3000 + i32::from(index) * 1200;
-        let y = match team {
-            Team::Amber => -8000,
-            Team::Sapphire => 8000,
+        // A cluster of two rows of three beside the team's Patron, toward its own side, not on
+        // it: a hero on the Patron hid it from clicks (heroes take presses first).
+        let col = i32::from(index % 3);
+        let row = i32::from(index / 3);
+        let (x, y) = match team {
+            Team::Amber => (-6200 + col * 1000, -7700 - row * 900),
+            Team::Sapphire => (4200 + col * 1000, 7700 + row * 900),
         };
         PlayerState { scene, slot, pos: WorldPos { x, y }, alive: true, placed: true, souls: None, ult_cooldown: None, visible: true, respawn: None }
     }

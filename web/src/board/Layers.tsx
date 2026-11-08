@@ -214,7 +214,8 @@ export function Layers(p: {
       const d = Math.hypot(at.x - pt.x, at.y - pt.y);
       // About the drawn icon (the HUD images have wide transparent margins), so lanes and
       // empty map between icons stay clickable.
-      const reach = Math.max(m.kind === "camp" ? 12 : 16, m.px * HUD_PX * 0.25) * Math.max(p.k, 0.5);
+      // The Patron's icon is mostly its wide arch: its whole drawn icon takes the click.
+      const reach = Math.max(m.kind === "camp" ? 12 : 16, m.px * HUD_PX * (m.kind === "t3" ? 0.42 : 0.25)) * Math.max(p.k, 0.5);
       if (d <= reach && (!best || d < best.d)) best = { m, d };
     }
     return best?.m;

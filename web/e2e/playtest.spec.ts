@@ -97,9 +97,11 @@ test.describe("on the fallback map", () => {
     const amber = ["Amber-0", "Amber-1", "Amber-2", "Amber-3", "Amber-4", "Amber-5"];
     const before = await Promise.all(amber.map((s) => tokenAt(a, s)));
 
-    // A rectangle around Amber's starting row (bottom of the map) selects all six.
-    const p0 = await mapPoint(a, 0.3, 0.83);
-    const p1 = await mapPoint(a, 0.7, 0.92);
+    // A rectangle around Amber's starting cluster (by its Patron) selects all six.
+    const xs = before.map((q) => q.x);
+    const ys = before.map((q) => q.y);
+    const p0 = await mapPoint(a, (Math.min(...xs) - 30) / 1000, (Math.min(...ys) - 30) / 1000);
+    const p1 = await mapPoint(a, (Math.max(...xs) + 30) / 1000, (Math.max(...ys) + 30) / 1000);
     await a.mouse.move(p0.x, p0.y);
     await a.mouse.down();
     await a.mouse.move(p1.x, p1.y, { steps: 6 });
