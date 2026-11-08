@@ -11,8 +11,10 @@ import { TOKEN_R } from "../board/Tokens";
 import { type UrnNow, clockLabel } from "../match/timeline";
 import type { MatchPreview } from "../match/preview";
 
-/** The urn's size in view units at the default view: a little under a hero token's. */
-const URN_PX = 30;
+/** The urn's size in view units at the default view: about an objective marker's on the ground
+ * (QA 2026-11-08: at 30 it couldn't be found at a glance), a little under a hero token's when
+ * carried. Its ring is a little wider. */
+const URN_PX = { ground: 52, carried: 34 } as const;
 
 /** The tooltip for urn point `key` at playback time t. */
 export function urnTip(u: UrnNow, key: string, t: number): string {
@@ -36,16 +38,19 @@ export function UrnMark(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; pre
     <Show when={u()}>
       {(x) => {
         const carried = () => x().state === "carried";
-        const size = () => URN_PX * p.k * (carried() ? 0.75 : 1);
+        const size = () => URN_PX[carried() ? "carried" : "ground"] * p.k;
         // Carried: at the carrier token's lower right (.held_idol_image's offset).
         const at = () => {
           const v = worldToView(x().at!, p.vp);
-          const off = carried() ? TOKEN_R * p.k * 0.75 : 0;
+          const off = carried() ? TOKEN_R * p.k * 0.85 : 0;
           return { x: v.x + off, y: v.y + off };
         };
+        // On the ground after a drop, the dropper's colour (a dashed ring); on the ground with no
+        // team (it spawned, or it drifts on its own), the urn's cyan.
+        const dropped = () => x().state === "ground" && !!x().team;
         return (
           <g
-            class={cx("pl-urn", `urn-${x().state}`, x().team ?? "neutral")}
+            class={cx("pl-urn", `urn-${x().state}`, x().team ?? "neutral", dropped() && "urn-dropped")}
             data-testid="urn"
             data-state={x().state}
             data-team={x().team ?? ""}
@@ -53,6 +58,8 @@ export function UrnMark(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; pre
             data-y={Math.round(x().at!.y)}
             transform={`translate(${at().x} ${at().y})`}
           >
+            {/* A dark halo under the ring keeps it clear of the map's dark and bright parts alike. */}
+            <circle class="pl-urn-halo" r={size() * 0.62} />
             <circle class="pl-urn-ring" r={size() * 0.62} />
             <Show when={img()} fallback={<path class="pl-urn-fb" d={jar(size())} />}>
               {(src) => <image href={src()} x={-size() / 2} y={-size() / 2} width={size()} height={size()} />}

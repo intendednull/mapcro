@@ -175,17 +175,37 @@ export function urnAt(tl: Timeline, t: number): UrnNow | undefined {
   const u = tl.urn;
   if (!u) return undefined;
   let cur: UrnAt | undefined;
+  let after: UrnAt | undefined;
   for (const a of u.at) {
-    if (a.t > t) break;
+    if (a.t > t) {
+      after = a;
+      break;
+    }
     cur = a;
   }
   const next = u.spawns.find((s) => s.t > t) ?? null;
   const none: UrnNow = { state: "none", at: null, team: null, slot: null, delivery: null, next };
   if (!cur || cur.state === "none") return none;
   const delivery = cur.delivery ?? null;
-  if (cur.state === "ground") return { ...none, state: "ground", at: cur.x != null && cur.y != null ? { x: cur.x, y: cur.y } : null, team: cur.team ?? null, delivery };
+  if (cur.state === "ground") return { ...none, state: "ground", at: groundAt(cur, after, t), team: cur.team ?? null, delivery };
   const p = tl.players.find((q) => q.team === cur.team && q.slot === cur.slot);
   return { ...none, state: "carried", at: p ? (positionAt(p, t) ?? lastSeen(p, t)) : null, team: cur.team ?? null, slot: cur.slot ?? null, delivery };
+}
+
+/** How far apart (s) two places of the urn on the ground may be and still be one move. */
+const URN_GLIDE_S = 2;
+
+/**
+ * Where an urn on the ground is at t. Nobody holds it, but after a while it moves on its own
+ * (operator, 2026-11-08: the drift is the game's): the worker records it each second it has
+ * moved, and it glides between those places as the heroes do. A place further on, or the
+ * urn picked up, is a jump.
+ */
+function groundAt(cur: UrnAt, next: UrnAt | undefined, t: number): { x: number; y: number } | null {
+  if (cur.x == null || cur.y == null) return null;
+  if (!next || next.state !== "ground" || next.x == null || next.y == null || next.t - cur.t > URN_GLIDE_S) return { x: cur.x, y: cur.y };
+  const f = (t - cur.t) / (next.t - cur.t);
+  return { x: Math.round(cur.x + (next.x - cur.x) * f), y: Math.round(cur.y + (next.y - cur.y) * f) };
 }
 
 /** The value of a `[second, v]` change list at t (`undefined` before its first change). */

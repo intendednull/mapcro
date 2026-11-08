@@ -76,6 +76,8 @@ export const IMAGE_BLOBS: Record<string, string> = {
   // The Soul Urn (.idol_spawn, .held_idol_image) and its delivery point (.idol_return).
   urn: "icons/soul_jar_marker_psd",
   "urn-return": "icons/soul_jar_marker_return_psd",
+  // An open delivery point's glow (.idol_return pulse).
+  "urn-return-pulse": "icons/soul_jar_marker_return_pulse_psd",
   "tb-mask": "topbar/hero_image_mask_psd",
   "tb-ult": "topbar/icon_ultimate",
   "tb-ult-off": "topbar/icon_ultimate_off",

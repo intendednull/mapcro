@@ -151,6 +151,18 @@ test("the urn draws where it lies, on its carrier in the carrier's colour, and l
   expect(Math.hypot(g.x - site.x, g.y - site.y)).toBeLessThan(4);
   await expect(marker(a, EAST)).toHaveAttribute("data-status", "Active");
   await expect(marker(a, WEST)).toHaveAttribute("data-status", "Destroyed");
+  // Found at a glance (QA 2026-11-08): about an objective marker's size at the default view.
+  expect(g.w).toBeGreaterThan(26);
+  // The open point is lit: its brass ring and a pulsing wave; the closed one isn't.
+  await expect(marker(a, EAST)).toHaveClass(/\blit\b/);
+  await expect(marker(a, WEST)).not.toHaveClass(/\blit\b/);
+  const shown = (p: Page, key: string, part: string) => p.locator(`[data-testid=map] .mk[data-key="${key}"] > .${part}`).evaluate((el) => getComputedStyle(el).display);
+  expect([await shown(a, EAST, "urn-ring"), await shown(a, EAST, "urn-wave"), await shown(a, WEST, "urn-ring")]).toEqual(["block", "block", "none"]);
+  expect(await a.locator(`[data-testid=map] .mk[data-key="${EAST}"] > .urn-wave`).evaluate((el) => getComputedStyle(el).animationName)).toBe("urn-wave");
+  // Reduced motion: lit, without the wave.
+  await a.emulateMedia({ reducedMotion: "reduce" });
+  expect([await shown(a, EAST, "urn-ring"), await shown(a, EAST, "urn-wave")]).toEqual(["block", "none"]);
+  await a.emulateMedia({ reducedMotion: "no-preference" });
 
   // Carried by Amber 1: at its token's lower right, ringed in Amber.
   await scrubTo(a, 40);
@@ -178,6 +190,7 @@ test("the urn draws where it lies, on its carrier in the carrier's colour, and l
   await expect(urn(a)).toHaveAttribute("data-state", "ground");
   await expect(urn(a)).toHaveAttribute("data-x", String(DROP.x));
   await expect(urn(a)).toHaveAttribute("data-team", "amber");
+  await expect(urn(a)).toHaveClass(/urn-dropped/);
   await scrubTo(a, 55);
   await expect(urn(a)).toHaveAttribute("data-team", "sapphire");
   const s = await centre(a, "[data-testid=map] [data-testid=urn] .pl-urn-ring");

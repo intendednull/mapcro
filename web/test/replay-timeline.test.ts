@@ -142,6 +142,26 @@ describe("replay timeline", () => {
     expect(site(4)["urn:neutral:lane6:1"]).toBe("Destroyed");
   });
 
+  it("glides an urn drifting on its own between its places, and never gives it a carrier", () => {
+    // 129738985 at 28:13: nobody holds it, and it moves a few dozen units a second (the game's
+    // own drift, operator 2026-11-08); a place 3 s on is a jump, as is the pick-up.
+    const drift: Timeline = {
+      ...urnMatch,
+      urn: {
+        spawns: [],
+        at: [
+          { t: 10, state: "ground", x: 6244, y: -70, delivery: "urn:neutral:lane1:1" },
+          { t: 11, state: "ground", x: 6188, y: -42, delivery: "urn:neutral:lane1:1" },
+          { t: 14, state: "ground", x: 6000, y: 0, delivery: "urn:neutral:lane1:1" },
+          { t: 15, state: "carried", team: "amber", slot: 0, delivery: "urn:neutral:lane1:1" },
+        ],
+      },
+    };
+    expect(urnAt(drift, 10.5)).toMatchObject({ state: "ground", at: { x: 6216, y: -56 }, team: null, slot: null });
+    expect(urnAt(drift, 12)).toMatchObject({ at: { x: 6188, y: -42 } });
+    expect(urnAt(drift, 14.5)).toMatchObject({ state: "ground", at: { x: 6000, y: 0 }, slot: null });
+  });
+
   it("says on hover when the next urn spawns, and where", () => {
     const at = (t: number) => urnAt(urnMatch, t)!;
     expect(urnTip(at(0), "urn:neutral:lane1:1", 0)).toBe("Urn spawns here in 0:01 (at 0:01)");

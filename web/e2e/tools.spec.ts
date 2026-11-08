@@ -155,6 +155,14 @@ test("objectives toggle on click (camps, mid boss, one rift at a time); a viewer
   await tap(east); // both can be off
   await expect(rift(v, east)).toHaveAttribute("data-status", "Destroyed");
   await expect(rift(v, west)).toHaveAttribute("data-status", "Destroyed");
+  // An urn delivery point toggles the same way, and on it's lit as Player's open point is.
+  const point = "urn:neutral:lane6:1";
+  await expect(rift(v, point)).not.toHaveClass(/\blit\b/);
+  await tap(point);
+  await expect(rift(v, point)).toHaveAttribute("data-status", "Active");
+  await expect(rift(v, point)).toHaveClass(/\blit\b/);
+  await tap(point);
+  await expect(rift(v, point)).toHaveAttribute("data-status", "Destroyed");
   // The viewer's picker: Look and Laser only.
   await expect(v.getByTestId("toolbar").locator('[data-testid^="tool-"]')).toHaveCount(2);
   await expect(v.getByTestId("tool-move")).toContainText("Look");

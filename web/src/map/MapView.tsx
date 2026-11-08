@@ -90,12 +90,13 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
       case "powerup":
         return [<Fb shape="star" color={POWERUP} k={0.8} />, <Layer img="powerup" wash={POWERUP} />];
       case "urn":
-        return [<Fb shape="dot" color={URN} k={0.45} />, <Layer img="urn-return" style={{ inset: "20%" }} />];
+        // Open (lit): a brass ring, the game's pulse art over the jar, and a wave (styles/app.css).
+        return [<b class="urn-ring" />, <b class="urn-wave" />, <Fb shape="dot" color={URN} k={0.45} />, <Layer img="urn-return" style={{ inset: "20%" }} />, <Layer img="urn-return-pulse" part="urn-pulse" style={{ inset: "20%" }} />];
     }
   };
   return (
     <div
-      class={cx("mk", p.m.kind, p.m.kind === "koth" && "koth", p.status === "Destroyed" && "down", p.status === "Hidden" && "gone", p.status === "Stage2" && "stage2", p.picked && "picked")}
+      class={cx("mk", p.m.kind, p.m.kind === "koth" && "koth", p.m.kind === "urn" && p.status === "Active" && "lit", p.status === "Destroyed" && "down", p.status === "Hidden" && "gone", p.status === "Stage2" && "stage2", p.picked && "picked")}
       data-status={p.status ?? "Active"}
       title={p.m.title}
       data-key={p.m.key}
