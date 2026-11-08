@@ -33,7 +33,8 @@ import { type Pt, type Viewpoint, clampShift, clampToBoard, clampToMap, mapToVie
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { cx } from "../ui/cx";
 import { LASER_MAX_POINTS, type Timed, arrowHead, fitStroke, laserOpacity, polyline, pruneLaser, shaftEnd } from "./geometry";
-import { moveStrokeOps, strokePoints } from "./placed";
+import { PRESENCE_MS } from "../core/session";
+import { liveInk, moveStrokeOps, strokePoints } from "./placed";
 import { smoothed } from "./smooth";
 import type { BoardState } from "./state";
 import type { Tool } from "./tools";
@@ -128,7 +129,7 @@ export function Layers(p: {
   const [arrowing, setArrowing] = createSignal<{ from: Pt; to: Pt; team: "Amber" | "Sapphire" | null }>();
   const [erasing, setErasing] = createSignal<Set<RecordId>>(new Set());
   const [dragCallout, setDragCallout] = createSignal<{ id: RecordId; pos: WorldPos }>();
-  const [editing, setEditing] = createSignal<{ id: RecordId | undefined; pos: WorldPos; text: string }>();
+  const [editing, setEditing] = createSignal<{ id: RecordId | undefined; pos: WorldPos; text: string; scene?: RecordId }>();
   const [laser, setLaser] = createSignal<Timed[]>([]);
   const [box, setBox] = createSignal<{ a: Pt; b: Pt }>();
   /** Others' objective selections (same scene): a ring on each, one name tag on the group. */
@@ -459,7 +460,6 @@ export function Layers(p: {
   };
 
   const down = (e: PointerEvent) => {
-    if (!p.scene) return;
     const svg = p.svg();
     if (!svg) return;
     // A press anywhere but on a comment closes the open one.
@@ -527,13 +527,23 @@ export function Layers(p: {
       marquee(e, start);
       return;
     }
-    if (!editor()) return;
+    // Making things needs a scene to make them in (in Player, its live layer, which a viewer or a
+    // board before its first Player session doesn't have): without one the tools do nothing.
+    // The scene is the one the gesture started on.
+    const target = p.scene;
+    if (!editor() || !target) return;
     if (tool === "draw") {
       e.preventDefault();
       setDrawing([start]);
-      // Others see the stroke as it's drawn (through presence, like the laser), then the record.
-      const live = () => st.presence({ ink: { color: p.ink, points: fitStroke(drawing() ?? [], MAX_STROKE_POINTS).map(world) } });
-      live();
+      // Others see the stroke as it's drawn (through presence, like the laser), then the record:
+      // a downsampled preview, at most once per presence tick.
+      let liveTimer: ReturnType<typeof setTimeout> | undefined;
+      const sendLive = () => {
+        liveTimer = undefined;
+        if (drawing()) st.presence({ ink: liveInk(drawing()!, p.ink, world) });
+      };
+      const live = () => (liveTimer ??= setTimeout(sendLive, PRESENCE_MS));
+      sendLive();
       track(
         e,
         (pt) => {
@@ -541,6 +551,7 @@ export function Layers(p: {
           live();
         },
         (_, ok) => {
+          clearTimeout(liveTimer);
           const pts = drawing() ?? [];
           setDrawing(undefined);
           st.presence({ ink: null });
@@ -548,7 +559,7 @@ export function Layers(p: {
           const fitted = fitStroke(pts, MAX_STROKE_POINTS);
           // A tap is a dot: the schema wants at least two points, so the dot repeats its one.
           const points = (fitted.length === 1 ? [fitted[0]!, fitted[0]!] : fitted).map(world);
-          st.edit([{ Create: { id: newRecordId(), record: { Stroke: { scene: p.scene!, points, color: p.ink, width: INK_WIDTH } } } }]);
+          st.edit([{ Create: { id: newRecordId(), record: { Stroke: { scene: target, points, color: p.ink, width: INK_WIDTH } } } }]);
         },
       );
     } else if (tool === "arrow") {
@@ -571,14 +582,14 @@ export function Layers(p: {
           const a = arrowing();
           setArrowing(undefined);
           if (!ok || !a || Math.hypot(a.to.x - a.from.x, a.to.y - a.from.y) < 12) return;
-          st.edit([{ Create: { id: newRecordId(), record: { Arrow: { scene: p.scene!, from: world(a.from), to: world(a.to), team: a.team } } } }]);
+          st.edit([{ Create: { id: newRecordId(), record: { Arrow: { scene: target, from: world(a.from), to: world(a.to), team: a.team } } } }]);
         },
       );
     } else if (tool === "callout") {
       e.preventDefault();
       const hit = (e.target as Element).closest?.("[data-callout]")?.getAttribute("data-callout");
       const c = hit ? callouts().find((x) => x.id === hit) : undefined;
-      openEditor(c ? { id: c.id, pos: c.r.pos, text: c.r.text } : { id: undefined, pos: world(start), text: "" });
+      openEditor(c ? { id: c.id, pos: c.r.pos, text: c.r.text } : { id: undefined, pos: world(start), text: "", scene: target });
     } else if (tool === "erase") {
       e.preventDefault();
       const hits = new Set<RecordId>();
@@ -648,7 +659,7 @@ export function Layers(p: {
   });
 
   // ---- callouts: drag (Move), edit in place (double-click, or the Callout tool) ----
-  const openEditor = (ed: { id: RecordId | undefined; pos: WorldPos; text: string }) => {
+  const openEditor = (ed: { id: RecordId | undefined; pos: WorldPos; text: string; scene?: RecordId }) => {
     setEditing(ed);
     st.presence({ focus: ed.id ?? null });
   };
@@ -657,10 +668,12 @@ export function Layers(p: {
     setEditing(undefined);
     st.presence({ focus: null });
     p.setOpenComment(undefined); // collapses after editing (unless all are open)
-    if (!commit || !ed || !p.scene) return;
+    // A new comment goes in the scene it was started on.
+    const scene = ed?.scene ?? p.scene;
+    if (!commit || !ed || !scene) return;
     const t = (text ?? "").trim().slice(0, MAX_CALLOUT);
     if (ed.id === undefined) {
-      if (t) st.edit([{ Create: { id: newRecordId(), record: { Callout: { scene: p.scene, pos: ed.pos, text: t } } } }]);
+      if (t) st.edit([{ Create: { id: newRecordId(), record: { Callout: { scene, pos: ed.pos, text: t } } } }]);
     } else if (!t) st.edit([{ Delete: { id: ed.id } }]);
     else if (t !== ed.text) st.edit([{ Set: { id: ed.id, value: { CalloutText: t } } }]);
   };
