@@ -390,7 +390,9 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
   - **Respawns** (`Player.respawn`, 2026-11-08, both tiers): `[died_s, back_s]` per death.
     Replay: the second the hero is next seen alive, else (the recording ends first) the pawn's
     `m_flRespawnTime`, last read while dead (exploration round 5: the two agree to 0.1 s in 70
-    of 71 respawns on 129738985). Metadata: `game_time_s + death_duration_s + 1`, so the
+    of 71 respawns on 129738985; the one that came back early, and the one whose timer dropped,
+    were Sapphire heroes dead as Sapphire's Patron lost its first stage, which shortens respawn
+    timers (operator, 2026-11-08); here by 20 s, for that team's dead only). Metadata: `game_time_s + death_duration_s + 1`, so the
     countdown ends on the path's first sample back.
   - **The Soul Urn** (`urn`, 2026-11-08, exploration round 6): read every tick. On the ground
     it is a `CCitadelItemPickupIdol`; picked up, that entity goes and the open delivery point
@@ -402,9 +404,23 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     `carried` by team and slot; `none`), the open point, and `urn_pickup`, `urn_drop`,
     `urn_delivered` events. On 129738985: 7 spawns every 300 s from 10:00, alternating west and
     east, 50 states, 22 events (11 pick-ups, 4 drops, 7 deliveries).
-  - **Format stamp:** each worker timeline carries `format` (1 from respawns and the urn; 0
-    before). New fields are optional, so older cached timelines still load without them. The
-    server doesn't act on the stamp yet (backlog: "Replay timeline format versions").
+    The urn also moves on its own after it has lain a while (operator, 2026-11-08: 700 units
+    over 28:13–28:28 on 129738985, nobody holding it): that's the game's, recorded as more
+    `ground` places with no team or carrier. The carrier is only inferred at a pick-up, for
+    the run up to the next drop or delivery.
+  - **Format stamp** (`mapcro_replay::timeline::FORMAT`, the one constant the worker and the
+    server share): each worker timeline carries `format` (1 from respawns and the urn; 0
+    before). New fields are optional, so older cached timelines still load without them.
+    - **A fetched timeline in an older format** (2026-11-08), for a match inside Valve's three
+      weeks, is fetched and parsed again when an editor opens the match: the same line, caps and
+      fairness as any fetch on open. The old one is served meanwhile; the job's status (fetching,
+      queued, parsing) shows instead of `done`, so Player watches it, its chip reading
+      "Updating replay…", and swaps the new timeline in place when it's done. Once a match,
+      whatever comes of it (kept in memory: a restart allows one more try). A failed refetch
+      leaves the old one `done`. Past the three weeks the old one stays.
+    - **An upload in an older format** stays: its demo went with its parse, so nothing can parse
+      it again. Its status says `"stale": true`; Player then offers "Upload replay file" on the
+      full replay, and the chip's hint says it's an older parse. A new upload replaces it.
   - **PVS gaps:** a demo records only entities near players. Powerups with nothing in the
     recording hold their last value, and the timeline lists those seconds as stale. Zipline
     colours and camp timers are networked whatever anyone sees. An objective counts as
@@ -566,8 +582,15 @@ makes a board with that match attached and lands in Player; **New board** is tod
   for a dead hero (its token stays hidden).
 - **The Soul Urn** (replay tier, 2026-11-08): the urn on the ground where it lies, or at its
   carrier's lower right ringed in the carrier's team colour (a dropped urn keeps the dropper's
-  ring). Its two delivery points are map markers (`urn:` sites, pack kind `urn`), off unless
-  open, the open one lit. Hovering a point, or tapping it on the phone, says when the next urn
+  ring). It's found at a glance (QA, 2026-11-08): about an objective marker's size on the ground,
+  the urn's art on a dark disc in a cyan ring that glows, over a dark halo; dropped, a dashed
+  ring in the dropper's colour; carried, a little smaller, a solid ring in the carrier's colour.
+  On the ground it glides between the places the worker recorded (it drifts on its own after a
+  while), with no carrier. Its two delivery points are map markers (`urn:` sites, pack kind
+  `urn`), dim unless open. The open one is lit (class `lit`): the game's pulse art
+  (`soul_jar_marker_return_pulse`) over its jar, a brass ring, and a wave pulsing out of it like
+  the pings, which `prefers-reduced-motion` drops. A point turned on in Sandbox is lit the same
+  way. Hovering a point, or tapping it on the phone, says when the next urn
   spawns and where ("Urn spawns here in m:ss (at m:ss)"), or that the point is open. Pick-ups,
   drops and deliveries are events (the "Urn" filter) and ping where they happened. Save scene
   keeps the open point. In Sandbox the points toggle like the rifts: off by default, one open at

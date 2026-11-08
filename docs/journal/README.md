@@ -26,3 +26,4 @@ experiment writes its predictions down *before* it runs, so the result can show 
 | 2026-11-08 | [Replay capacity: two parses at once, and a queue you can see and wait in](2026-11-08-replay-capacity.md) |
 | 2026-11-08 | [Names on the token, a Names toggle, and Player's keys](2026-11-08-names-toggle.md) |
 | 2026-11-08 | [Respawn timers and the Soul Urn](2026-11-08-urn-respawn.md) |
+| 2026-11-08 | [Older timelines upgrade themselves, and the urn stands out](2026-11-08-urn-polish.md) |

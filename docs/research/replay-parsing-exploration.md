@@ -480,7 +480,14 @@ Its positions need the pre-6712 +16384 offset. The lanes belong to the old layou
 - The recording shows **71** respawns. **70** land within 0.1 s of the timer's last value.
 - In one of those 70 the timer itself moved: it dropped by 20 s a tick after the death.
 - The exception: a hero came back 20 s early with no change in the timer, in the last two
-  minutes (cause not identified).
+  minutes.
+- **Explained (2026-11-08):** killing a Patron's first stage shortens the respawns of its
+  team's dead (operator). On 129738985 Sapphire's Patron reached 0 at 2575 s (42:55;
+  `objective_health` then shows stage 2 from 2588 s). Both odd respawns are Sapphire heroes dead
+  at that moment: one died at 2557 s and came back at 2622 s (65 s, where its timer said 85 s;
+  the timer didn't show the cut), and one died at 2575 s, whose timer dropped 20 s a tick later
+  (2640 s, 65 s). Sapphire's hero who died at 2581 s, after it, waited the full 85 s, as did the
+  Amber hero dead at the time. The worker's rule (next seen alive) already gets both right.
 - The revives in place also set the timer.
 - Wait lengths run 9.7–90 s.
 
@@ -520,7 +527,7 @@ The spawn point is the point the urn isn't delivered to: it spawns over one trig
 - **Drop:** the point's team goes to 0 and a new idol appears where it fell, team = the dropper's, on the same tick. The point stays open.
 - **Delivery:** the point's team goes to 0, the point closes, and no idol appears.
 - All seven urns were delivered, two of them after drops: 11 pick-ups, 4 drops and 7 deliveries.
-- One urn drifted 700 units while nobody held it (28:13–28:28, with `m_nTeamBias` 3 then 4); unexplained.
+- One urn drifted 700 units while nobody held it (28:13–28:28, with `m_nTeamBias` 3 then 4). The urn moves on its own after a while (operator, 2026-11-08); the drift is expected. The timeline records it as more `ground` places with no team, and Player glides between them; the carrier is only inferred at a pick-up, for the run to the next drop or delivery.
 
 **Carrier.** No networked field names the carrier. boon's `urn.rs` follows the carrier's `m_HoldingIdolModifier` through the modifier table, but that needs boon-data's ability and modifier catalog, which we don't load. Instead the worker takes, at the pick-up tick, the carrying team's living hero nearest where the urn lay. Checked against what happened next:
 - At all 11 drops and deliveries, that hero was 30–570 units from the event.

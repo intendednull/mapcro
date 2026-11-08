@@ -49,16 +49,13 @@ the same migrations (spec §6).
 Replays from before build 6712 are refused as "Old map". Supporting them needs the 16384 coordinate
 correction (`docs/research/replay-parsing-exploration.md`) plus asset packs from that era.
 
-## Replay timeline format versions (2026-11-08)
+## Replay timeline format versions (2026-11-08): resolved
 
-Cached replay timelines carry no format version. When the worker's output changes (the 2026-11-08
-lane data change replaced `waves` with `zips` and `camps`), older caches keep loading in the old shape
-and miss the new layers until re-parsed. Fix: stamp a format version in the timeline. A stale CDN
-timeline is re-fetched and re-parsed. A stale upload is served as is, with the "Upload replay file"
-upgrade offered, since the server deletes uploaded demos after parsing. This matters once the replay
-tier is in production, which it isn't yet. Since 2026-11-08 the worker stamps `format` (1: respawns and
-the urn; a timeline without it reads 0). What's left is the server acting on it, in
-`crates/server/src/replays.rs`.
+Resolved 2026-11-08 (spec §6a, Format stamp; journal 2026-11-08-urn-polish): the server reads the
+stamp (`mapcro_replay::timeline::FORMAT`). A stale fetched timeline inside Valve's three weeks is
+fetched and parsed again once on open, served meanwhile and swapped in place; past them it stays.
+A stale upload stays, and Player offers "Upload replay file". Open: "once a match" is kept in
+memory, so a restart allows one more refetch per match.
 
 ## Server
 

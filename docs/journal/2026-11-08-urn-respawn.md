@@ -33,6 +33,12 @@ what doing it taught us.
   dropped 20 s, so only its last value is right. Taking the second the hero is seen alive is
   exact whenever the recording shows it, and the timer covers the end. The
   unit test keeps a case where the two disagree, so a mutation that prefers the timer fails.
+  - **Explained later the same day:** killing a Patron's first stage shortens respawn timers
+    (operator). Sapphire's Patron fell to its second stage at 2575 s, and both heroes were
+    Sapphire's dead at that moment (journal 2026-11-08-urn-polish; exploration round 5).
+- **The urn drifts on its own.** One urn moved 700 units with nobody holding it (28:13–28:28).
+  The urn moves on its own after a while (operator); the drift is expected. Player draws it on
+  the ground there, with no carrier, gliding between places (journal 2026-11-08-urn-polish).
 - **Nothing names the urn's carrier.** boon reads it from the modifier table, but that needs the
   ability catalog. The nearest living hero of the carrying team, at the pick-up tick, matched
   every later drop and delivery, at 30–570 units.
@@ -58,4 +64,5 @@ what doing it taught us.
 - The map shows nothing for a dead hero. A ghost token with a countdown at its last spot would
   match the board's K label, but Player hides dead heroes on purpose (§6b). Left for the lead.
 - Stale cached replay timelines aren't re-parsed: the stamp exists, but the server doesn't act on
-  it (backlog: "Replay timeline format versions").
+  it (backlog: "Replay timeline format versions"). Done the same day: journal
+  2026-11-08-urn-polish.
