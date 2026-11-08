@@ -153,6 +153,9 @@ struct Jobs {
     /// deadlock-api's salts endpoint said 429: no fetch asks it before this, and the last wait,
     /// which the next 429 doubles.
     backoff: Option<(Instant, Duration)>,
+    /// Opens whose fetch didn't start on its own for our caps (`fetch_refused`), by the board's
+    /// job for the match: its status says `busy` for a while, so the opener hears why.
+    skipped: HashMap<String, Instant>,
 }
 
 struct Grant {
@@ -178,6 +181,8 @@ const FAILED_FOR: Duration = Duration::from_secs(3600);
 const NEGATIVE_FOR: Duration = Duration::from_secs(6 * 3600);
 /// Valve keeps a replay three weeks from the match's start; past that, opening it doesn't try.
 const REPLAY_KEPT_S: u64 = 21 * 24 * 3600;
+/// How long an open whose fetch our caps skipped says so (`Jobs::skipped`).
+const SKIPPED_FOR: Duration = Duration::from_secs(600);
 /// A 429 without `Retry-After` waits this, doubling, up to an hour.
 const BACKOFF_FIRST: Duration = Duration::from_secs(60);
 const BACKOFF_MAX: Duration = HOUR;
@@ -523,7 +528,14 @@ pub async fn status(State(app): State<AppState>, Path((board, id)): Path<(String
             cdn = State_::Failed(why);
         } else if limited(&j) {
             cdn = State_::Failed("upstream_limited");
+        } else if j.skipped.get(&job_name(&id, &scope_of(&board))).is_some_and(|at| at.elapsed() < SKIPPED_FOR) {
+            cdn = State_::Failed("busy");
         }
+    }
+    // Past Valve's three weeks with nothing cached: no fetch can work, remembered or not (the
+    // negative cache forgets after hours, and a restart forgets it all).
+    if cdn == State_::None && crate::matches::cached_start(&app, &id).await.is_some_and(expired) {
+        cdn = State_::Failed("expired");
     }
     json(state_json(&cdn, "cdn"))
 }
@@ -616,6 +628,12 @@ pub async fn attach(
     }
 }
 
+/// Whether a match that started at `start` (unix seconds) is past Valve's three weeks.
+fn expired(start: u64) -> bool {
+    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    now.saturating_sub(start) > REPLAY_KEPT_S
+}
+
 /// Opening a match tries for its full replay on its own (operator, 2026-11-08): the CDN fetch
 /// starts unless the replay is there or coming (fetched, or this board's upload), the match is
 /// past Valve's three weeks, its fetch can't work for now (`negative`), or deadlock-api is
@@ -636,15 +654,21 @@ async fn auto_fetch(app: &AppState, board: &str, id: &str, client: Client) {
         }
     }
     let Some(start) = crate::matches::cached_start(app, id).await else { return };
-    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs());
     let mut j = lock();
-    if now.saturating_sub(start) > REPLAY_KEPT_S {
+    if expired(start) {
         j.negative.insert(id.to_owned(), ("expired", Instant::now() + NEGATIVE_FOR));
         return;
     }
-    if j.fetching.contains(&job) || negative(&j, id).is_some() || limited(&j) || fetch_refused(&j, &client).is_some() {
+    if j.fetching.contains(&job) || negative(&j, id).is_some() || limited(&j) {
         return;
     }
+    let mine = job_name(id, &scope_of(board));
+    j.skipped.retain(|_, at| at.elapsed() < SKIPPED_FOR);
+    if fetch_refused(&j, &client).is_some() {
+        j.skipped.insert(mine, Instant::now());
+        return;
+    }
+    j.skipped.remove(&mine);
     j.fetching.insert(job.clone());
     let turn = enqueue_fetch(&mut j, &root, &job, &client);
     drop(j);

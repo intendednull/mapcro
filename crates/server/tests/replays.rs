@@ -719,6 +719,31 @@ fn a_fetch_that_cant_work_is_remembered_and_old_matches_arent_tried() {
     assert_eq!(server.status(&a, &a_owner, "24")["state"], "none");
 }
 
+/// Why no fetch is coming, for the opener's prompt (spec §6b): an expired match says so whether
+/// or not anything opened it (the negative cache forgets), and an open our caps didn't start a
+/// fetch for says `busy`, to that board only.
+#[test]
+fn the_status_says_when_a_fetch_cant_come_expired_or_skipped_for_caps() {
+    let up = upstream(HashMap::new());
+    // No download starts: every fetch waits in line, so a client's fifth isn't started.
+    let server = Server::start(up.port, &[("REPLAY_DOWNLOADS_AT_ONCE", "0")]);
+    let (a, a_owner, _) = server.board();
+    let (b, b_owner, _) = server.board();
+    server.meta(30, 22 * DAY);
+    assert_eq!(server.status(&a, &a_owner, "30")["reason"], "expired", "never opened, still expired");
+    server.meta(31, 20 * DAY);
+    assert_eq!(server.status(&a, &a_owner, "31")["state"], "none", "inside the three weeks");
+    for id in 40..44 {
+        server.meta(id, DAY);
+        server.open(&a, &a_owner, id);
+    }
+    server.meta(44, DAY);
+    server.open(&a, &a_owner, 44);
+    assert_eq!(server.status(&a, &a_owner, "44"), serde_json::json!({ "state": "failed", "reason": "busy", "source": "cdn" }));
+    assert_eq!(server.status(&b, &b_owner, "44")["state"], "none", "another board's opener hears nothing");
+    assert_eq!(server.status(&a, &a_owner, "43")["state"], "queued");
+}
+
 #[test]
 fn a_429_backs_every_fetch_off_and_says_why() {
     let routes = HashMap::from([("/v1/matches/25/salts".to_owned(), (429, b"{}".to_vec())), ("/v1/matches/26/salts".to_owned(), (200, salts_for(26, 5)))]);
