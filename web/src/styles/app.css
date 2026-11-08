@@ -307,7 +307,9 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
   .pl-transport { flex-wrap: wrap; }
 }
 .pl-switch { position: fixed; right: 12px; bottom: 116px; z-index: 44; }
-.pl-highlight circle { fill: none; stroke: #fff; stroke-width: 2.5; vector-effect: non-scaling-stroke; animation: pl-pulse 1s ease-out infinite; transform-origin: center; }
+/* The pulse scales each circle about its own centre: without fill-box an SVG element scales
+   about the view's centre, which pulled the ring off its place (review: "the ping is off"). */
+.pl-highlight circle { fill: none; stroke: #fff; stroke-width: 2.5; vector-effect: non-scaling-stroke; animation: pl-pulse 1s ease-out infinite; transform-box: fill-box; transform-origin: center; }
 @keyframes pl-pulse { from { opacity: 1; transform: scale(0.4); } to { opacity: 0; transform: scale(1.4); } }
 .match-panel { position: fixed; left: 50%; bottom: 116px; transform: translateX(-50%); z-index: 45; width: min(720px, calc(100% - 24px)); padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 16px 40px #000a; display: flex; flex-direction: column; gap: 8px; }
 .match-head, .match-scrub, .match-foot { display: flex; align-items: center; gap: 8px; }

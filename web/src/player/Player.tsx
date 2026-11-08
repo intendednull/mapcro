@@ -264,7 +264,7 @@ export function PlayerSide(p: Props) {
       h.control.play(false);
       h.control.seek(jumpTime(e, lead));
     });
-    h.flash(placeOf(e, markers()));
+    h.flash(e, placeOf(e, markers()));
   };
 
   return (

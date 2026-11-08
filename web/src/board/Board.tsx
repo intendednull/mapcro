@@ -25,6 +25,7 @@ import type { MatchPreview } from "../match/preview";
 import { Highlight, Player, PlayerSide, PlayerSwitch } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
 import { liveLayer } from "../player/layer";
+import { PlayerTopBar } from "../player/PlayerTopBar";
 import { Layers, calloutOrder } from "./Layers";
 import { FRESH_BOARD, randomRosterOps } from "./roster";
 import { HeroPicker } from "./HeroPicker";
@@ -183,6 +184,12 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const flipSide = () => {
     stopFollowing("flipped");
     setViewpoint(viewpoint() === "amber" ? "sapphire" : "amber");
+  };
+  /** Picking a scene shows it: in Player that means Sandbox, on that scene (review: scenes
+   * picked in Player never showed). Followers follow, as they follow the mode. */
+  const pickScene = (id: RecordId) => {
+    if (inPlayer()) player.setMode("sandbox");
+    userFlip(id);
   };
   const userFlip = (id: RecordId) => {
     if (id !== scene()?.id) stopFollowing("flipped the scene");
@@ -409,7 +416,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const flipBy = (d: number) => {
     const all = state.scenes();
     const next = all[sceneIndex() + d];
-    if (next) userFlip(next.id);
+    if (next) pickScene(next.id);
   };
   const swipe = (e: PointerEvent) => {
     const x0 = e.clientX;
@@ -473,7 +480,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           {scene()?.scene.name}
         </h1>
       </div>
-      <Show when={!inPlayer()}>
+      <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} compact />}>
         <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact onPickHero={setHeroPick} />
       </Show>
       <div class="p-map-wrap">
@@ -525,7 +532,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
       </nav>
       <Show when={sceneDrawer()}>
         <div class="drawer-scrim" onClick={() => setSceneDrawer(false)} />
-        <SceneTree state={state} art={p.art} vp={viewpoint()} board={p.board} current={scene()?.id} onFlip={userFlip} drawer onClose={() => setSceneDrawer(false)} />
+        <SceneTree state={state} art={p.art} vp={viewpoint()} board={p.board} current={scene()?.id} onFlip={pickScene} drawer onClose={() => setSceneDrawer(false)} />
       </Show>
       {playerBar()}
       {toastView()}
@@ -605,7 +612,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 onPan={(dx, dy) => userView({ ...view(), x: view().x - dx, y: view().y - dy }, "panned the map")}
                 onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
               />
-              <Highlight at={inPlayer() ? player.highlight()?.at : undefined} vp={viewpoint()} />
+              <Highlight at={inPlayer() ? player.ring() : undefined} vp={viewpoint()} />
             </MapView>
             {/* The phone has its own Flip in its tool strip: one control, one test id. */}
             {!phone && (
@@ -692,7 +699,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           vp={viewpoint()}
           board={p.board}
           current={scene()?.id}
-          onFlip={userFlip}
+          onFlip={pickScene}
           {...(state.canEdit() ? { onMatch: () => player.setMode("player") } : {})}
         />
         <main class="stage">
@@ -736,7 +743,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               </h1>
             </div>
           </div>
-          <Show when={!inPlayer()}>
+          <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} />}>
             <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} />
           </Show>
           {mapBox(false)}

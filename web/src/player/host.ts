@@ -3,13 +3,13 @@
 // board creates one; Player renders it; following reads and writes its playback.
 
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
-import { type Timeline, downAt, playersAt, sitesAt, wavesAt } from "../match/timeline";
+import { type MatchEvent, type Timeline, downAt, playersAt, sitesAt, wavesAt } from "../match/timeline";
 import type { MatchPreview } from "../match/preview";
 import { slotKey } from "../match/save";
 import type { Marker } from "../map/model";
 import { Api, type JobState, busy } from "./api";
 import { type Playback, clampT, follow, rebase, tAt } from "./clock";
-import type { Pt } from "../map/transform";
+import { type Pt, worldToMap } from "../map/transform";
 
 export type Mode = "player" | "sandbox";
 
@@ -33,7 +33,7 @@ export function createPlayerHost(board: string, token: string) {
   const [progress, setProgress] = createSignal<number>();
   const [playback, setPlayback] = createSignal<Playback>({ t: 0, playing: false, speed: 1, at: performance.now() });
   const [now, setNow] = createSignal(performance.now());
-  const [highlight, setHighlight] = createSignal<{ at: Pt; key: number }>();
+  const [highlight, setHighlight] = createSignal<{ event: MatchEvent; place: Pt | undefined; key: number }>();
   const duration = () => tl()?.duration_s ?? 0;
   /** Playback position now, ticking each frame while it plays. */
   const t = createMemo(() => tAt(playback(), now(), duration()));
@@ -184,12 +184,32 @@ export function createPlayerHost(board: string, token: string) {
   const forget = () => (heard = undefined);
 
   let hl = 0;
-  const flash = (at: Pt | undefined) => {
-    if (!at) return setHighlight(undefined);
+  /**
+   * Mark where an event happens (its own place, else its objective's): the ring follows the
+   * event's hero until the event, then stays on the place (review: the jump lands seconds
+   * early, when the hero is elsewhere). It goes a few seconds after the playback passes it.
+   */
+  const flash = (event: MatchEvent, place: Pt | undefined) => {
     const key = ++hl;
-    setHighlight({ at, key });
-    setTimeout(() => highlight()?.key === key && setHighlight(undefined), 4000);
+    setHighlight({ event, place, key });
   };
+  createEffect(() => {
+    const h = highlight();
+    if (h && t() > h.event.t + 4) setHighlight(undefined);
+  });
+  /** Where the ring is now, in map units. */
+  const ring = createMemo((): Pt | undefined => {
+    const h = highlight();
+    const m = tl();
+    if (!h || !m) return undefined;
+    const e = h.event;
+    if (e.team && e.slot != null && t() < e.t) {
+      const p = playersAt(m, t()).find((x) => x.team === e.team && x.slot === e.slot);
+      const w = p?.pos ?? p?.last;
+      if (w) return worldToMap(w);
+    }
+    return h.place;
+  });
 
   return {
     api,
@@ -213,6 +233,7 @@ export function createPlayerHost(board: string, token: string) {
     init,
     highlight,
     flash,
+    ring,
     presence,
     mirror,
     forget,
