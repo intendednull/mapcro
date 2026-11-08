@@ -148,3 +148,22 @@ work (`rebaseKeepsDecided.qnt`) fails `acksInOrder` in 67 ms. TLC at the reduced
 **Caps.** `BOARD_MAX_OPS` and `BOARD_MAX_BYTES` now count what's kept since the floor. Compaction
 holds that to about 12,000 entries and under half the byte quota, so `BoardFull` no longer
 happens in use. The caps stay as a backstop for cold-load time.
+
+## What a clean `just check` found
+
+The shared working tree held another agent's half-finished schema edit, so `just check` ran in a
+clean worktree at HEAD. Two system tests failed there, and both were real interactions between
+group commit and the earlier work:
+
+- **A burst of acks dropped its own writer.** With one fsync per transaction, acks went out spaced
+  out. With group commit, a client that sent 25 rewrites of 60 KB before reading anything got all
+  25 acks in one go, about 1.5 MB, past the 1 MiB outbox cap, and was dropped as too slow. It
+  failed one run in three. Batches are now capped at about 256 KiB of transactions, and the
+  per-peer outbox at 4 MiB (still counted in the room's memory weight). The slow-peer test now
+  writes 15 MB, to stay well over the new cap.
+- **Compaction came too late inside a batch.** Sixty rewrites arrived as one batch, which is
+  applied in memory with the quota checked per transaction. Compaction only runs after the
+  commit, so the board hit `BoardFull` partway through. A batch now ends as soon as compaction is
+  due. The byte-quota test runs with compaction off (`BOARD_COMPACT_OPS=0`), so it still checks
+  the backstop. A new test, `compaction_means_a_board_never_fills`, takes the same 60 rewrites
+  with compaction on: all accepted, under 64 KiB kept. Dropping the batch rule fails it.
