@@ -288,6 +288,7 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
   - **Upload:** an editor picks or drops a `.dem` from the game's replays folder (§6b, Getting
     a replay in). It needs no metadata: a match deadlock-api doesn't know yet opens on its
     replay alone.
+    `POST /api/boards/{board}/replays/{id}/reserve` first (its turn, below: The queue), then
     `POST /api/boards/{board}/replays/{id}/upload`, raw bytes, with upload progress.
   - **Fetch:** `POST /api/boards/{board}/replays/{id}/fetch` asks deadlock-api's salts endpoint
     for the match's cluster and replay salt, then downloads
@@ -305,20 +306,24 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     - **Pacing:** no fetch cap of ours. deadlock-api's own answers pace them: a `429` from the
       salts endpoint backs every fetch off for its `Retry-After`, else 60 s doubling to an hour,
       and a press of Fetch replay meanwhile is refused (`429 upstream_limited`). Fetches wait in
-      line for a download slot (2 at once) and the queue's room rather than being refused.
+      the queue's line (below) for a download slot (2 at once) and its room rather than being
+      refused.
     - **API key:** optional, from the file `DEADLOCK_API_KEY_FILE` names (never a value in the
       environment), sent as `X-API-KEY` on deadlock-api calls; it raises Steam-sourced salts to
       300 an hour (docs/deploy.md).
-    - **Player:** the tier chip reads "Fetching replay…", then "Parsing replay…", and upgrades
-      in place. A fetch that fails or can't start settles on "API summary", and the bar says
+    - **Player:** the tier chip reads "Queued · N ahead" while it waits for a download, then
+      "Fetching replay…", "Queued · N ahead" (with "~N min" when the server has an estimate)
+      and "Parsing replay…", and upgrades in place. A fetch that fails or can't start settles on "API summary", and the bar says
       why with what to do (§6b, Getting a replay in): "Replay not found yet. Try again later,
       or upload the replay file." (no salts or no demo; **Try again** is Fetch replay, past the
       remembered failure), "Replay expired. Upload the replay file.", or "Busy. Try again in a
       few minutes." (the backoff).
-- **Job state:** `GET /api/boards/{board}/replays/{id}` answers `none`, `uploading`,
-  `fetching`, `queued`, `parsing`, `done` or `failed` with a short reason (`old_map`,
+- **Job state:** `GET /api/boards/{board}/replays/{id}` answers `none`, `waiting` (an upload's
+  reservation in line), `uploading`, `fetching`, `queued`, `parsing`, `done` or `failed` with a
+  short reason. `waiting` and `queued` carry `ahead`, the jobs before it; `queued` carries
+  `eta_s` when there is an estimate (below: The queue). The reasons: `old_map`,
   `brawl`, `unsupported_mode`, `not_a_replay`, `too_large`, `timeout`, `parse_failed`, `no_replay`, `upstream_down`,
-  `upstream_limited`). The panel polls it and shows labels only; a job that finishes swaps the
+  `upstream_limited`. The panel polls it and shows labels only; a job that finishes swaps the
   replay timeline in, keeping the scrubber where it was.
 - **Current map only:** a demo whose header's `game_directory` names a content build before 6712,
   or whose objectives don't sit on the current map's sites, fails as `old_map` ("Old map"). The
@@ -415,14 +420,21 @@ board server (`MemoryMax=256M`; a 480 MB demo's pages alone exceed it).
   `RestrictAddressFamilies=none`, `IPAddressDeny=any`), sees nothing of `/var/lib` but its
   queue, can't see other processes, and has a full systemd sandbox (no capabilities, a system
   call filter, `MemoryDenyWriteExecute`, `LimitFSIZE` at the demo cap).
-- **Caps:** `MemoryMax=1G` with no swap, `CPUQuota=100%` (one core) at a low CPU weight and
-  idle I/O, one job at a time, each in a child process under a 300 s wall clock. A child killed
-  at the memory cap fails its job as `too_large` (`OOMPolicy=continue`), one killed by SIGBUS
-  (the mapped demo changed under it) as `corrupt`; the worker carries on.
-- **Measured** on this machine, release build: the current-map demo (97 MB, 15 min) parses in
-  0.9 s with 11 MB anonymous memory plus 98 MB of the memory-mapped demo; a 478 MB demo in 4.6 s
-  with 19 MB anonymous plus 470 MB mapped. Mapped pages are clean and reclaimable, so the 1G
-  cap leaves room for the largest demos and a decompression.
+- **Caps** (2026-11-08, journal 2026-11-08-replay-capacity): `REPLAY_WORKERS` jobs at once
+  (2), each in its own child process under its own 300 s wall clock; `MemoryMax` 384M a job
+  (768M) with no swap, `CPUQuota` a core a job (200%) at a low CPU weight and idle I/O. A child
+  killed at the memory cap fails its job as `too_large` (`OOMPolicy=continue`), one killed by
+  SIGBUS (the mapped demo changed under it) as `corrupt`, one past its clock as `timeout`; the
+  worker and the other jobs carry on. The next job is the first the server's order lists
+  (`inbox/.order`, below), else the oldest.
+- **Measured** on this machine, release build, the real 504 MB demo of 129738985: 5.3 s, 26 MB
+  anonymous plus 484 MB of the memory-mapped demo's clean pages. Those are reclaimable: under a
+  transient cgroup's cap the parse still succeeds, at 96M in 6.1 s, at 64M in 6.2 s (+18%), at
+  32M in 7.0 s, never OOM-killed. From zstd (356 MB), uncapped 6.3 s with an 849 MB peak (both
+  files' page cache), at 128M 8.9 s. A zstd window adds at most 128 MiB anonymous
+  (`window_log_max(27)`). So a parse costs a core and ~26 MB; the 384M a job is headroom for a
+  window and a page cache that doesn't thrash. On `web` (3 cores, ~2.9 GB available), 2 at once
+  leaves a core and ~2 GB to the rest of the box.
 - **The queue** is `/var/lib/mapcro-replay` (`REPLAY_DIR`), group `mapcro-replay`, which the
   board server's user joins. Neither side can write where the other writes (security review
   2026-11-08, M1/M2):
@@ -445,6 +457,41 @@ board server (`MemoryMax=256M`; a 480 MB demo's pages alone exceed it).
   upload), checks each against the timeline's shape and size, and caches it as
   `DATA_DIR/replays/<job>.json`. It drops jobs still queued after an hour (`timeout`) and
   partial transfers, and keeps the cache under 1 GiB by dropping the oldest timelines.
+
+### The queue (2026-11-08: a few dozen people uploading or fetching at once)
+
+- **Budgets** (`REPLAY_*`, docs/deploy.md): the queue holds at most 8 GiB (`MAX_QUEUE_BYTES`)
+  and 24 jobs (`MAX_QUEUED`): files queued or being parsed, transfers under way at their size,
+  and turns given but not yet used. Fetched demos arrive compressed (~330 MB for 35 minutes),
+  uploads raw (~500 MB), so that is 16 to 24 jobs, a few minutes of parsing. Expanded demos
+  being parsed count too (≤ 1 GiB each), so the disk peak is about 10 GiB of the host's 32.
+  Uploads stream 4 at once (one per client), downloads 2.
+- **One line, fair.** A transfer that can't start yet waits in line, uploads and fetches
+  alike: they share the parser. The line is round-robin across clients (the address key): a
+  client's k-th job, counting the ones it already has further along, is in round k, rounds go
+  in order and arrival within one (`crates/server/src/replay_queue.rs`). Walking that order,
+  each takes its bytes and a job from the budget and a slot of its kind; one that only lacks a
+  slot of its kind (or whose client is uploading already) is passed over, and one the budget
+  can't hold stops the walk, so a large upload isn't starved by smaller ones behind it.
+- **Uploads reserve first.** `POST …/reserve {"bytes": n}` answers `ready` (send now),
+  `waiting` with `ahead`, or `done` when the board has the match's fetched replay already
+  (nothing to send: it uses the `cdn` timeline). The client asks again every 2 s, which keeps
+  its place; a place or a given turn nobody asks about for 20 s lapses
+  (`REPLAY_RESERVE_TTL_S`), and `DELETE …/reserve` (Cancel) gives it up. The upload then may not
+  pass the size reserved. An upload without a reservation is taken only if its turn is free
+  now. A client may hold 4 places waiting; past 64 in line (`MAX_WAITING`) a new one is refused
+  (`503 queue_full`, "Busy. Try again in a few minutes."): the last resort.
+- **Parse order.** The collector writes the queued files' fair order to `inbox/.order` every
+  second (server-written, worker-read, like the rest of the inbox); the worker runs them in it.
+  A file the server knows nothing of (queued before a restart) is its own client, by age.
+- **Position and wait.** `ahead` for a queued file is the jobs parsing plus those before it in
+  the order. The estimate needs three recent samples (the last 20 kept): a parse, from the
+  collector first seeing its marker to collecting it; a download, from its start to the file
+  being queued. A queued job's wait is the rounds before it (`ahead` ÷ workers, plus its own)
+  times the mean parse; a fetch in line adds its download's turn and the download. Player
+  shows it as "~N min" (whole minutes, at least one).
+- **Dedupe** stays: one `cdn` job per match for every board, and a board shows the `cdn`
+  timeline when it has no upload of its own.
 
 ## 6b. Player
 
@@ -526,9 +573,12 @@ makes a board with that match attached and lands in Player; **New board** is tod
     match X, not Y"), and so is a file that isn't `.dem` or doesn't start as a demo does
     (`PBDEMS2\0`, read before uploading). A drop anywhere else is caught, so the tab never
     leaves the board to open the file.
-  - **Progress:** a bar with the percent and the size ("212 / 504 MB", decimal MB), then the
-    chip's "Parsing replay…", then "Full replay". **Cancel** aborts it; the server drops the
-    partial file, and the board says "Upload cancelled." with the upload offered again. The
+  - **Progress:** while the queue has no room, "Waiting for a slot · N ahead" (the file isn't
+    sent until its turn, §6a The queue); then a bar with the percent and the size ("212 / 504
+    MB", decimal MB), then the chip's "Queued · N ahead" and "Parsing replay…", then "Full
+    replay". **Cancel** aborts it; the server drops the
+    partial file (or gives up the place in line), and the board says "Upload cancelled." with
+    the upload offered again. The
     board stays in use meanwhile (one upload at a time from a tab).
   - **From the landing:** a replay (picked or dropped) makes the board and opens it without a
     page load, handing it the file (`player/handoff.ts`, `core/nav.ts`): the upload runs on the
@@ -796,7 +846,7 @@ later bind owner capabilities to a person.
 | Room flooding | Max sessions per room, sockets per address, presence rate limit, message size cap, open-room cap and room memory budget with early unload of idle rooms, outbox caps in frames and bytes |
 | View link as a write primitive | A view connection registers no client id and stores nothing; only an id someone registered by editing is checked against its secret (security review 2026-11-07, H-B) |
 | Hosting abusive content | Text only, with caps. Replay uploads are parsed into a timeline and deleted, never served back (§6a). Asset packs are placed in the data directory by the server operator, never through HTTP |
-| Malicious replay files | Parsed only by the sandboxed worker (§6a): no network, own user, only the queue in view, memory, CPU, file-size and wall-clock caps, one job at a time; its output is shape-checked before it's cached |
+| Malicious replay files | Parsed only by the sandboxed worker (§6a): no network, own user, only the queue in view, memory, CPU, file-size and wall-clock caps, two jobs at a time, each in its own child; its output is shape-checked before it's cached |
 
 **Address rotation (IPv6 /64), accepted.** Per-address limits key on an IPv4 address or an IPv6
 /64, and someone with a routed /56 or /48 holds many /64s. That is left as is (security review
@@ -826,9 +876,11 @@ proof-of-work or accounts if rotation is seen in practice.
   upload route lifts the global 16 KiB body limit; it needs an owner or edit link to the board
   (`401` without, `403` for view links or other boards), and streams to
   `inbox/.<job>.part`, never into memory. Caps: 800 MiB per upload (`413`, by `Content-Length`
-  up front and while streaming), 60 s without a byte or 30 min in all (`408`), two uploads at
-  once and one per client, 6 uploads per client address per hour (`429`), at most
-  6 queued jobs and 3 GiB in the queue counting transfers in flight at their cap (`503`/`507`).
+  up front and while streaming, and never past the size its reservation named), 60 s without a
+  byte or 30 min in all (`408`), four uploads at once and one per client, 6 uploads per client
+  address per hour (`429`), at most 24 jobs and 8 GiB in the queue counting transfers in flight
+  at their size; past those an upload waits in line for its turn (§6a, The queue: 4 places
+  waiting per client, 64 in all, past which `503 queue_full`).
   The first 8 bytes must be `PBDEMS2\0` (`415 not_a_replay`); nothing else is read. A refused
   or broken upload leaves no file, a dropped connection included.
 - **Boundary 2, upstreams → the board server.** deadlock-api's salts response is capped at

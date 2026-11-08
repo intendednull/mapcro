@@ -40,6 +40,10 @@ The host sets `publicOrigin`. The module sets:
 | `PUBLIC_ORIGIN` | `services.mapcro.publicOrigin`, required |
 | `MALLOC_ARENA_MAX` | `2`, which the room memory budget is calibrated against |
 | `REPLAY_DIR` | `/var/lib/mapcro-replay`, the replay worker's queue, when `services.mapcro.replay.enable` (default true) |
+| `REPLAY_WORKERS` | `replay.workers` (2): the worker's parses at once, for the wait estimate |
+| `REPLAY_MAX_QUEUE_BYTES`, `REPLAY_MAX_QUEUED` | `replay.queueBytes` (8 GiB), `replay.queuedJobs` (24): the queue's budget |
+| `REPLAY_UPLOADS_AT_ONCE`, `REPLAY_DOWNLOADS_AT_ONCE` | `replay.uploadsAtOnce` (4), `replay.downloadsAtOnce` (2) |
+| `REPLAY_MAX_WAITING` | `replay.maxWaiting` (64): past this many waiting in line, a new upload or fetch is refused |
 | `DEADLOCK_API_KEY_FILE` | `%d/deadlock-api-key`, when `services.mapcro.deadlockApiKeyFile` is set (default null): a deadlock-api key, below |
 
 **deadlock-api key (optional).** Without one, deadlock-api's salts endpoint allows 3
@@ -60,15 +64,27 @@ missing. Memory stays at the 256M default: the server budgets open rooms by memo
 
 Match import's replay tier (spec §6a) parses demos in a second unit from the same module, never
 in the board server. It runs as user `mapcro-replay` with no network, only its queue visible
-under `/var/lib`, `MemoryMax=1G` (`services.mapcro.replay.memoryMax`), `CPUQuota=100%`
-(`cpuQuota`), a 300 s wall clock per job (`jobTimeoutSec`) and the rest of the sandbox listed in
-spec §11. The queue directory `/var/lib/mapcro-replay` is made by tmpfiles, setgid
+under `/var/lib`, and the rest of the sandbox listed in spec §11. It parses
+`services.mapcro.replay.workers` demos at once (default 2, for the 3-core `web` host), each in
+its own child under a 300 s wall clock (`jobTimeoutSec`). Its caps follow the worker count
+unless set: `memoryMax` 384M a parse (768M) and `cpuQuota` a core a parse (200%), at a low CPU
+weight; `TasksMax` is 8 + 4 a parse. A parse of the largest demos costs a core and ~26 MB of
+anonymous memory; the rest is the demo's own pages, which the cap reclaims (journal
+2026-11-08-replay-capacity). On a box with more cores, raise `workers` and the caps follow. The queue directory `/var/lib/mapcro-replay` is made by tmpfiles, setgid
 `mapcro-replay`; the board server's user joins that group and may write only there besides its
 own state. The board server's `/healthz` doesn't look at the worker, so a crashed or stopped
 worker can't fail the deploy gate: uploads queue until it's back, and jobs queued for an hour
 fail as `timeout`. `systemctl status mapcro-replay` and its journal show each job's outcome and
-time. Disk: at most 3 GiB queued (`REPLAY_MAX_QUEUE_BYTES`) plus one expanded demo (≤ 1 GiB)
-in `work/`; timelines are cached under `/var/lib/mapcro/replays`, capped at 1 GiB.
+time.
+
+The queue (spec §6a, The queue) is fair across clients, and when it's full an upload waits in
+the browser for its turn ("Waiting for a slot · N ahead") rather than being refused. Its budget:
+`replay.queueBytes` (8 GiB) and `replay.queuedJobs` (24) on disk, plus one expanded demo
+(≤ 1 GiB) a worker in `work/`: about 10 GiB at the peak, of `web`'s 32 GB free. Timelines are
+cached under `/var/lib/mapcro/replays`, capped at 1 GiB. Lower `queueBytes` on a smaller disk;
+the line only grows longer. `replay.uploadsAtOnce` (4) and `replay.downloadsAtOnce` (2) bound
+the transfers, and `replay.maxWaiting` (64) is the line past which a new one is refused ("Busy.
+Try again in a few minutes.").
 
 ## Behind Caddy
 
