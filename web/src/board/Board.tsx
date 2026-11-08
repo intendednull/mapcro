@@ -22,7 +22,7 @@ import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type ViewRect, clampView, fromViewport, presenters, sideOf, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
 import type { MatchPreview } from "../match/preview";
-import { Highlight, Player, PlayerSide, PlayerSwitch, TrooperDots } from "../player/Player";
+import { EventPings, Highlight, Player, PlayerSide, PlayerSwitch, TrooperDots } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
 import { CampTips } from "../player/Camps";
 import { liveLayer } from "../player/layer";
@@ -675,6 +675,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 <CampTips art={p.art} vp={viewpoint()} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               </Show>
               <Highlight at={inPlayer() ? player.ring() : undefined} vp={viewpoint()} />
+              <Show when={inPlayer()}>
+                <EventPings host={player} art={p.art} vp={viewpoint()} />
+              </Show>
             </MapView>
             {/* The phone has its own Flip in its tool strip: one control, one test id. */}
             {!phone && (

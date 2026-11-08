@@ -2,7 +2,7 @@
 // replay job, the playback clock, the mode (Player or Sandbox) and the jump highlight. The
 // board creates one; Player renders it; following reads and writes its playback.
 
-import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js";
 import { type CampAt, type MatchEvent, type Timeline, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, sitesAt } from "../match/timeline";
 import type { MatchPreview } from "../match/preview";
 import { slotKey } from "../match/save";
@@ -33,6 +33,7 @@ export function createPlayerHost(board: string, token: string) {
   const [held, setHeld] = createSignal<{ t: number; playing: boolean }>();
   const setMode = (m: Mode) => {
     if (m === mode()) return;
+    jumped();
     const n = performance.now();
     if (m === "sandbox") {
       const p = rebase(playback(), n, duration());
@@ -49,6 +50,17 @@ export function createPlayerHost(board: string, token: string) {
   const [showTroopers, setShowTroopers] = createSignal(true);
   // Health bars and rings (replay tier), on by default (operator, 2026-11-08).
   const [showHealth, setShowHealth] = createSignal(true);
+  /** Event pings while playing (spec §6b), on by default. */
+  const [showPings, setShowPings] = createSignal(true);
+  /** The events the list shows under its filters and search (absent: every event). */
+  const [pingable, setPingable] = createSignal<MatchEvent[]>();
+  const [pings, setPings] = createSignal<EventPing[]>([]);
+  /**
+   * Bumped on every break in the playback clock (a seek, a scrub, a jump, a new match, a mode
+   * switch, a presenter's jump a follower adopts): pings fire only on a continuous run.
+   */
+  let jumps = 0;
+  const jumped = () => void jumps++;
   /** The events list's lead, shared with the arrow keys (spec §6b). */
   const [lead, setLead] = createSignal(5);
   const [matchId, setMatchId] = createSignal<string>();
@@ -83,6 +95,7 @@ export function createPlayerHost(board: string, token: string) {
 
   const control = {
     seek(to: number) {
+      jumped();
       const n = performance.now();
       setPlayback({ ...rebase(playback(), n, duration()), t: clampT(to, duration()), at: n });
     },
@@ -124,6 +137,7 @@ export function createPlayerHost(board: string, token: string) {
     const had = !!tl();
     setTl(r);
     setStatus("");
+    if (!(keep && had)) jumped();
     if (!(keep && had)) setPlayback({ t: Math.min(r.duration_s, 600), playing: false, speed: playback().speed, at: performance.now() });
   };
 
@@ -210,11 +224,19 @@ export function createPlayerHost(board: string, token: string) {
    * `t` that's older each time: a value is stamped when it first arrives and carried forward
    * from then; a repeat changes nothing (review 2026-11-08, finding 4).
    */
-  let heard: { v: string; at: number } | undefined;
+  let heard: { v: string; at: number; pb: PlaybackPresence } | undefined;
   const mirror = (theirs: PlaybackPresence | null | undefined) => {
     if (!theirs) return;
     const v = JSON.stringify(theirs);
-    if (heard?.v !== v) heard = { v, at: performance.now() };
+    if (heard?.v !== v) {
+      const at = performance.now();
+      // Did the presenter jump? Where their last playback would be now, against where it is: a
+      // seek is ±10 s or more, network jitter a fraction of a second times the speed.
+      const was = heard?.pb;
+      const expect = was && tAt({ ...was, at: heard!.at }, at, duration());
+      if (!was || was.match_id !== theirs.match_id || Math.abs(theirs.t - expect!) > 1 + 0.25 * theirs.speed) jumped();
+      heard = { v, at, pb: theirs };
+    }
     if (!theirs.player) return setMode("sandbox");
     setMode("player");
     if (theirs.match_id === 0) return;
@@ -229,6 +251,33 @@ export function createPlayerHost(board: string, token: string) {
   };
   /** Following stopped: the next presenter's values are new. */
   const forget = () => (heard = undefined);
+
+  /**
+   * Event pings (spec §6b): each event the playback passes while it runs, under the list's
+   * filters and search, gets its own short ring. Only a continuous forward run counts: a seek,
+   * scrub or jump fires nothing for what it skipped, and a step larger than a couple of frames'
+   * worth (a tab back from the background) is a jump too. A follower's small corrections keep a
+   * high-water mark, so stepping back a little never pings the same event twice.
+   */
+  let mark = { t: 0, jumps: -1 };
+  let pingN = 0;
+  createEffect(() => {
+    const cur = t();
+    const pb = playback();
+    const from = mark.t;
+    const same = mark.jumps === jumps;
+    const cap = 2 * Math.max(1, pb.speed);
+    if (same && pb.playing && cur <= from && from - cur < cap) return;
+    mark = { t: cur, jumps };
+    const m = untrack(tl);
+    if (!same || !pb.playing || !m || cur - from > cap || !untrack(showPings) || untrack(mode) !== "player") return;
+    const hit = (untrack(pingable) ?? m.events ?? []).filter((e) => e.t > from && e.t <= cur);
+    if (!hit.length) return;
+    const life = pingLife(pb.speed);
+    const add = hit.map((event) => ({ key: ++pingN, event, life }));
+    untrack(() => setPings([...pings(), ...add].slice(-MAX_PINGS)));
+    setTimeout(() => setPings(pings().filter((x) => !add.includes(x))), life);
+  });
 
   let hl = 0;
   /**
@@ -268,6 +317,10 @@ export function createPlayerHost(board: string, token: string) {
     setShowTroopers,
     showHealth,
     setShowHealth,
+    showPings,
+    setShowPings,
+    setPingable,
+    pings,
     lead,
     setLead,
     matchId,
@@ -315,6 +368,16 @@ export function createPlayerHost(board: string, token: string) {
 }
 
 export type PlayerHost = ReturnType<typeof createPlayerHost>;
+
+/** One event's ping on the map (spec §6b): the event, and how long its ring lasts (ms). */
+export interface EventPing {
+  key: number;
+  event: MatchEvent;
+  life: number;
+}
+const MAX_PINGS = 24;
+/** A ping lasts 1.5 s, shorter at 4× and 8× (1.06 s, 0.75 s), so a fast run doesn't pile up. */
+export const pingLife = (speed: number) => Math.round(1500 / Math.sqrt(Math.max(1, speed / 2)));
 
 /**
  * Send the playback in presence (spec §6b): whenever the mode, match or playback changes, and

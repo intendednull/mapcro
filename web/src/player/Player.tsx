@@ -16,7 +16,7 @@ import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensure
 import { busy, jobLabel } from "./api";
 import { SPEEDS } from "./clock";
 import { troopersAt } from "./troopers";
-import { mapToView, worldToView } from "../map/transform";
+import { mapToView, worldToMap, worldToView } from "../map/transform";
 import { EventsList } from "./Events";
 import { eventKey, jumpTime, namesFor, placeOf, shortLabel, tierLabel } from "./events";
 import type { PlayerHost } from "./host";
@@ -280,6 +280,16 @@ export function Player(p: {
                   Health
                 </button>
               </Show>
+              <button
+                type="button"
+                class={cx("btn ghost small", h.showPings() && "on")}
+                data-testid="pings-toggle"
+                aria-pressed={h.showPings()}
+                title="Ping each event on the map as playback passes it"
+                onClick={() => h.setShowPings(!h.showPings())}
+              >
+                Pings
+              </button>
               <span class="match-clock" data-testid="match-clock">
                 {clockLabel(h.t())} / {clockLabel(m().duration_s)}
               </span>
@@ -359,6 +369,47 @@ export function Highlight(p: { at: { x: number; y: number } | undefined; vp: "am
         </g>
       )}
     </Show>
+  );
+}
+
+/**
+ * Event pings (spec §6b): a short ring where each event the playback passes happened, one per
+ * event so overlapping ones all show. Deaths at the victim's place (the event's own, else where
+ * the hero was then), objectives on their icon; an event with no place has no ring.
+ */
+export function EventPings(p: { host: PlayerHost; art: Art; vp: "amber" | "sapphire" | "neutral" }) {
+  const placeFor = (e: MatchEvent) => {
+    const own = placeOf(e, p.art.model.markers);
+    if (own) return own;
+    const m = p.host.tl();
+    if (!m || !e.team || e.slot == null) return undefined;
+    const x = playersAt(m, e.t).find((q) => q.team === e.team && q.slot === e.slot);
+    const w = x?.pos ?? x?.last;
+    return w ? worldToMap(w) : undefined;
+  };
+  return (
+    <g class="pl-pings" data-testid="event-pings">
+      <For each={p.host.showPings() ? p.host.pings() : []}>
+        {(q) => {
+          const at = placeFor(q.event);
+          if (!at) return null;
+          const v = () => mapToView(at, p.vp);
+          return (
+            <g
+              class={cx("pl-ping", q.event.team ?? "neutral")}
+              data-testid="event-ping"
+              data-kind={q.event.kind}
+              data-t={q.event.t}
+              transform={`translate(${v().x} ${v().y})`}
+              style={{ "--life": `${q.life}ms` }}
+            >
+              <circle class="halo" r="20" />
+              <circle r="20" />
+            </g>
+          );
+        }}
+      </For>
+    </g>
   );
 }
 
@@ -456,7 +507,7 @@ export function PlayerSide(p: Props) {
         <Show when={h.tl()}>
           {(m) => (
             <>
-              <EventsList tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} t={h.t} playing={() => h.playback().playing} />
+              <EventsList tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} t={h.t} playing={() => h.playback().playing} onShown={h.setPingable} />
               <span class="match-credit" data-testid="match-credit">
                 {tierOf(m()) === "replay" ? (h.job()?.source === "cdn" ? "Replay: Valve, via deadlock-api.com" : "Replay: uploaded") : "Match data: deadlock-api.com"}
               </span>

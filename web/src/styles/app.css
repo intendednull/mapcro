@@ -346,6 +346,14 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 /* The pulse scales each circle about its own centre: without fill-box an SVG element scales
    about the view's centre, which pulled the ring off its place (review: "the ping is off"). */
 .pl-highlight circle { fill: none; stroke: #fff; stroke-width: 2.5; vector-effect: non-scaling-stroke; animation: pl-pulse 1s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+/* Event pings while playing (spec §6b): one ring per event, once, in the team's colour over a
+   dark halo, so it reads over a pile of tokens; subtler than the jump's white double ring that
+   keeps pulsing. Its life (--life) shortens at 4× and 8×. */
+.pl-ping circle { fill: none; stroke: #fff; stroke-width: 2.5; vector-effect: non-scaling-stroke; opacity: 0; animation: pl-ping var(--life, 1500ms) ease-out forwards; transform-box: fill-box; transform-origin: center; pointer-events: none; }
+.pl-ping circle.halo { stroke: #000000b0; stroke-width: 5.5; }
+.pl-ping.amber circle:not(.halo) { stroke: var(--amber); }
+.pl-ping.sapphire circle:not(.halo) { stroke: var(--sapphire); }
+@keyframes pl-ping { 0% { opacity: 1; transform: scale(0.5); } 60% { opacity: 0.85; } 100% { opacity: 0; transform: scale(1.45); } }
 @keyframes pl-pulse { from { opacity: 1; transform: scale(0.4); } to { opacity: 0; transform: scale(1.4); } }
 .match-panel { position: fixed; left: 50%; bottom: 116px; transform: translateX(-50%); z-index: 45; width: min(720px, calc(100% - 24px)); padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 16px 40px #000a; display: flex; flex-direction: column; gap: 8px; }
 .match-head, .match-scrub, .match-foot { display: flex; align-items: center; gap: 8px; }

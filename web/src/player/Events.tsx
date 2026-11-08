@@ -1,7 +1,7 @@
 // Player's events list (spec §6b): search, filter chips, jump with a lead, and multi-select to
 // save one scene per event. Labels only.
 
-import { For, Show, createEffect, createMemo, createSignal, untrack } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js";
 import { cx } from "../ui/cx";
 import { type MatchEvent, type Timeline, clockLabel } from "../match/timeline";
 import { type EventGroup, GROUPS, type Named, eventKey, groupOf, labelParts, search } from "./events";
@@ -19,6 +19,8 @@ export function EventsList(p: {
   playing: () => boolean;
   /** Saves the events' scenes; resolves to the keys of the events whose scenes were made. */
   onSave: (events: MatchEvent[], lead: number) => Set<string>;
+  /** The events shown under the filters and search, as they change (the map pings these). */
+  onShown?: (events: MatchEvent[] | undefined) => void;
 }) {
   const [query, setQuery] = createSignal("");
   const [on, setOn] = createSignal(new Set<EventGroup>());
@@ -28,6 +30,8 @@ export function EventsList(p: {
   const [picked, setPicked] = createSignal(new Set<string>());
   const all = createMemo(() => p.tl.events ?? []);
   const shown = createMemo(() => search(all(), p.names, query(), on()));
+  createEffect(() => p.onShown?.(shown()));
+  onCleanup(() => p.onShown?.(undefined));
   const present = createMemo(() => GROUPS.filter((g) => all().some((e) => groupOf(e) === g.id)));
   const toggle = <T,>(set: Set<T>, v: T) => {
     const n = new Set(set);
