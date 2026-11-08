@@ -15,6 +15,8 @@ import { matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save"
 import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensureLiveOps, liveIds, takeAnnotationsOps } from "./live";
 import { busy, jobLabel } from "./api";
 import { SPEEDS } from "./clock";
+import { troopersAt } from "./troopers";
+import { worldToView } from "../map/transform";
 import { EventsList } from "./Events";
 import { eventKey, jumpTime, namesFor, placeOf, shortLabel, tierLabel } from "./events";
 import type { PlayerHost } from "./host";
@@ -255,6 +257,18 @@ export function Player(p: {
                   onInput={(e) => user(() => h.control.seek(Number(e.currentTarget.value)))}
                 />
               </div>
+              <Show when={m().troopers}>
+                <button
+                  type="button"
+                  class={cx("btn ghost small", h.showTroopers() && "on")}
+                  data-testid="troopers-toggle"
+                  aria-pressed={h.showTroopers()}
+                  title="The replay's lane troopers, to check the wave splits"
+                  onClick={() => h.setShowTroopers(!h.showTroopers())}
+                >
+                  Troopers
+                </button>
+              </Show>
               <span class="match-clock" data-testid="match-clock">
                 {clockLabel(h.t())} / {clockLabel(m().duration_s)}
               </span>
@@ -435,30 +449,7 @@ export function PlayerSide(p: Props) {
         <Show when={h.tl()}>
           {(m) => (
             <>
-              <div class="pl-teams">
-                <For each={["amber", "sapphire"] as const}>
-                  {(team) => (
-                    <div class={cx("match-team", team)}>
-                      <For each={m().players.filter((x) => x.team === team)}>
-                        {(x) => (
-                          <span class="match-hero" data-slot={slotKey(x.team, x.slot)} title={x.name ?? undefined}>
-                            <Show when={tierOf(m()) === "replay"}>
-                              <UltRing left={at().get(slotKey(x.team, x.slot))?.ult ?? null} />
-                            </Show>
-                            {heroName(x.hero_id)}
-                            <Show when={x.name}>
-                              <span class="pl-ev-name" data-testid="roster-name">
-                                {x.name}
-                              </span>
-                            </Show>
-                          </span>
-                        )}
-                      </For>
-                    </div>
-                  )}
-                </For>
-              </div>
-              <EventsList tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} />
+              <EventsList tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} t={h.t} playing={() => h.playback().playing} />
               <span class="match-credit" data-testid="match-credit">
                 {tierOf(m()) === "replay" ? (h.job()?.source === "cdn" ? "Replay: Valve, via deadlock-api.com" : "Replay: uploaded") : "Match data: deadlock-api.com"}
               </span>
@@ -467,5 +458,23 @@ export function PlayerSide(p: Props) {
         </Show>
       </section>
     </>
+  );
+}
+
+/** The replay's lane troopers as small team dots, under the heroes (spec §6b; a wave debug view). */
+export function TrooperDots(p: { host: PlayerHost; vp: "amber" | "sapphire" | "neutral" }) {
+  const dots = createMemo(() => {
+    const m = p.host.tl();
+    return m && p.host.showTroopers() ? troopersAt(m, p.host.t()) : [];
+  });
+  return (
+    <g class="pl-troopers" data-testid="troopers">
+      <For each={dots()}>
+        {(d) => {
+          const at = () => worldToView({ x: d.x, y: d.y }, p.vp);
+          return <circle class={cx("pl-trooper", d.team)} data-testid="trooper" cx={at().x} cy={at().y} r="7" />;
+        }}
+      </For>
+    </g>
   );
 }

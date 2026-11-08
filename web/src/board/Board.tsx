@@ -22,7 +22,7 @@ import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type ViewRect, clampView, fromViewport, presenters, sideOf, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
 import type { MatchPreview } from "../match/preview";
-import { Highlight, Player, PlayerSide, PlayerSwitch } from "../player/Player";
+import { Highlight, Player, PlayerSide, PlayerSwitch, TrooperDots } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
 import { liveLayer } from "../player/layer";
 import { PlayerTopBar } from "../player/PlayerTopBar";
@@ -617,6 +617,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
               picked={(k) => objSelection().has(k)}
               showHidden={state.canEdit()}
             >
+              <Show when={inPlayer()}>
+                <TrooperDots host={player} vp={viewpoint()} />
+              </Show>
               <Layers
                 state={state}
                 art={p.art}

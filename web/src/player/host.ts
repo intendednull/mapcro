@@ -45,6 +45,8 @@ export function createPlayerHost(board: string, token: string) {
     }
     setModeRaw(m);
   };
+  /** The trooper dots (replay tier), on by default. */
+  const [showTroopers, setShowTroopers] = createSignal(true);
   /** The events list's lead, shared with the arrow keys (spec §6b). */
   const [lead, setLead] = createSignal(5);
   const [matchId, setMatchId] = createSignal<string>();
@@ -259,6 +261,8 @@ export function createPlayerHost(board: string, token: string) {
     mode,
     setMode,
     held,
+    showTroopers,
+    setShowTroopers,
     lead,
     setLead,
     matchId,

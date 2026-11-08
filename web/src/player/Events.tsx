@@ -14,6 +14,9 @@ export function EventsList(p: {
   onJump: (e: MatchEvent, lead: number) => void;
   lead: () => number;
   setLead: (n: number) => void;
+  /** Playback time and state: the list follows them (operator, 2026-11-08). */
+  t: () => number;
+  playing: () => boolean;
   /** Saves the events' scenes; resolves to the keys of the events whose scenes were made. */
   onSave: (events: MatchEvent[], lead: number) => Set<string>;
 }) {
@@ -32,6 +35,26 @@ export function EventsList(p: {
     return n;
   };
   const chosen = () => all().filter((e) => picked().has(eventKey(e)));
+  // The current event: the latest shown at or before t. The list keeps it in view while it
+  // follows; scrolling it yourself stops that until you press Play again, or "↓ Now".
+  const current = createMemo(() => {
+    const t = p.t();
+    let at: string | undefined;
+    for (const e of shown()) if (e.t <= t) at = eventKey(e);
+    return at;
+  });
+  const [follow, setFollow] = createSignal(true);
+  let list!: HTMLOListElement;
+  createEffect(() => {
+    const k = current();
+    if (!follow() || !k) return;
+    const row = list?.querySelector<HTMLElement>(`[data-key="${CSS.escape(k)}"]`);
+    row?.scrollIntoView({ block: "nearest", behavior: untrack(p.playing) ? "smooth" : "auto" });
+  });
+  createEffect(() => {
+    if (p.playing()) setFollow(true);
+  });
+  const userScrolled = () => setFollow(false);
   // A ticked event the new timeline doesn't have is dropped.
   createEffect(() => {
     const keys = new Set(all().map(eventKey));
@@ -57,12 +80,17 @@ export function EventsList(p: {
           )}
         </For>
       </div>
-      <ol class="pl-list">
+      <Show when={!follow() && current()}>
+        <button type="button" class="pl-chip on pl-now" data-testid="events-now" onClick={() => setFollow(true)}>
+          ↓ Now
+        </button>
+      </Show>
+      <ol class="pl-list" ref={list} onWheel={userScrolled} onTouchMove={userScrolled} onKeyDown={(e) => ["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key) && userScrolled()}>
         <For each={shown()} fallback={<li class="pl-empty">No events</li>}>
           {(e) => {
             const i = eventKey(e);
             return (
-              <li class={cx("pl-ev", groupOf(e), e.team ?? "")} data-testid="event" data-kind={e.kind} data-t={e.t}>
+              <li class={cx("pl-ev", groupOf(e), e.team ?? "", current() === i && "now")} data-testid="event" data-kind={e.kind} data-t={e.t} data-key={i} data-current={current() === i ? "true" : undefined}>
                 <Show when={p.canSave}>
                   <input type="checkbox" aria-label="Select" data-testid="event-pick" checked={picked().has(i)} onChange={() => setPicked(toggle(picked(), i))} />
                 </Show>

@@ -195,6 +195,7 @@ fn timeline(id: u64) -> Timeline {
         powerups: vec![],
         waves: vec![WaveTrack { lane: "lane4".into(), t: vec![Some(480), Some(500)], stale: vec![] }],
         events: vec![],
+        troopers: None,
     }
 }
 

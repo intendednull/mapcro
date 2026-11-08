@@ -40,6 +40,8 @@ export interface Timeline {
   waves?: Array<{ lane: string; t: Array<number | null>; stale: Stale }>;
   /** Both tiers, each with what it has (crates/replay/src/timeline.rs `Event`). */
   events?: MatchEvent[];
+  /** Replay tier: lane troopers every `every_s` seconds, packed per team (player/troopers.ts). */
+  troopers?: { every_s: number; amber: string[]; sapphire: string[] };
 }
 
 export type EventKind = "death" | "objective" | "mid_boss" | "rift_up" | "rift_capture" | "powerup_spawn" | "powerup_taken" | "souls_swing" | "ult";

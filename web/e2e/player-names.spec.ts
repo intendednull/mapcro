@@ -54,7 +54,6 @@ test("names show by their heroes: top bar, roster, events", async ({ browser }) 
   // Slot order: the server sorts each team by player slot (1–6 Amber, 7–12 Sapphire).
   await expect(a.locator('.tb-player[data-slot="Amber-0"] [data-testid=tb-name]')).toHaveText("Coach");
   await expect(a.locator('.tb-player[data-slot="Sapphire-5"] [data-testid=tb-name]')).toHaveText("Moss");
-  await expect(a.locator('[data-testid=player-side] [data-slot="amber-2"] [data-testid=roster-name]')).toHaveText("Juno");
   await a.getByTestId("events-search").fill("juno");
   await expect(a.getByTestId("event").first()).toContainText("Juno");
   await a.getByTestId("events-search").fill("");

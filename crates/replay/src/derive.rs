@@ -7,6 +7,8 @@
 
 use crate::map::{self, Map};
 use crate::timeline::{Event, MidBoss, Objective, Player, Powerup, Rift, Timeline, WaveTrack, TIER, event, souls_swings};
+#[cfg(test)]
+use crate::timeline::decode_troopers;
 use std::collections::BTreeMap;
 
 /// Everything sampled at one game second.
@@ -67,6 +69,8 @@ pub struct ObjObs {
 
 #[derive(Clone, Debug)]
 pub struct TrooperObs {
+    /// The trooper's entity index: the same trooper across samples, for the dots' motion.
+    pub id: i32,
     pub team: i64,
     /// The trooper's `m_iLane` (1, 4, 6 on the current map: our lane keys' numbers).
     pub lane: i64,
@@ -372,6 +376,7 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
     waves.sort_by(|a, b| a.lane.cmp(&b.lane));
 
     let events = events(obs, m, &players, &objectives, &mid_boss, &rifts, &powerups, duration_s);
+    let troopers = Some(troopers_at(obs, TROOPER_EVERY_S));
     Ok(Timeline {
         match_id: obs.match_id,
         start_time: 0,
@@ -387,7 +392,23 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         powerups,
         waves,
         events,
+        troopers,
     })
+}
+
+/// How often the trooper dots are sampled: 1 Hz (the 15-minute match's are ~100 KB of JSON).
+pub const TROOPER_EVERY_S: usize = 1;
+
+/// The lane troopers in the recording every `every` seconds, per team (timeline.rs `Troopers`).
+pub fn troopers_at(obs: &Obs, every: usize) -> crate::timeline::Troopers {
+    use crate::timeline::{MAX_TROOPERS, encode_troopers};
+    let q = |v: f32| v.round().clamp(-16384.0, 16384.0) as i16;
+    let pack = |team: i64, s: &Sample| {
+        let list: Vec<(u16, i16, i16)> = s.troopers.iter().filter(|t| t.team == team).take(MAX_TROOPERS).map(|t| (t.id as u16, q(t.pos[0]), q(t.pos[1]))).collect();
+        encode_troopers(&list)
+    };
+    let picked: Vec<&Sample> = obs.seconds.iter().step_by(every.max(1)).collect();
+    crate::timeline::Troopers { every_s: every.max(1) as u32, amber: picked.iter().map(|s| pack(2, s)).collect(), sapphire: picked.iter().map(|s| pack(3, s)).collect() }
 }
 
 fn site_xy(m: &Map, key: &str) -> (Option<i32>, Option<i32>) {
@@ -632,16 +653,16 @@ mod tests {
         s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
         // 0: nothing seen yet. 1: both fronts. 2: Amber only. 3: none (held, stale). 4: both again.
         s[1].troopers = vec![
-            TrooperObs { team: 2, lane: 4, pos: on(-1000.0) },
-            TrooperObs { team: 2, lane: 4, pos: on(-400.0) },
-            TrooperObs { team: 3, lane: 4, pos: on(400.0) },
-            TrooperObs { team: 3, lane: 4, pos: on(2000.0) },
+            TrooperObs { id: 0, team: 2, lane: 4, pos: on(-1000.0) },
+            TrooperObs { id: 0, team: 2, lane: 4, pos: on(-400.0) },
+            TrooperObs { id: 0, team: 3, lane: 4, pos: on(400.0) },
+            TrooperObs { id: 0, team: 3, lane: 4, pos: on(2000.0) },
             // Another lane's trooper doesn't count, nor one far off the lane.
-            TrooperObs { team: 3, lane: 1, pos: on(-3000.0) },
-            TrooperObs { team: 3, lane: 4, pos: [5000.0, -3000.0] },
+            TrooperObs { id: 0, team: 3, lane: 1, pos: on(-3000.0) },
+            TrooperObs { id: 0, team: 3, lane: 4, pos: [5000.0, -3000.0] },
         ];
-        s[2].troopers = vec![TrooperObs { team: 2, lane: 4, pos: on(800.0) }];
-        s[4].troopers = vec![TrooperObs { team: 2, lane: 4, pos: on(0.0) }, TrooperObs { team: 3, lane: 4, pos: on(0.0) }];
+        s[2].troopers = vec![TrooperObs { id: 0, team: 2, lane: 4, pos: on(800.0) }];
+        s[4].troopers = vec![TrooperObs { id: 0, team: 2, lane: 4, pos: on(0.0) }, TrooperObs { id: 0, team: 3, lane: 4, pos: on(0.0) }];
         let t = derive(&obs(s), m).expect("timeline");
         let w = t.waves.iter().find(|w| w.lane == "lane4").expect("mid");
         let meet = ((u32::from(t_of(-400.0)) + u32::from(t_of(400.0))) / 2) as u16;
@@ -699,7 +720,7 @@ mod tests {
         s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
         for (i, x) in s.iter_mut().enumerate() {
             let y = if i == 2 { 3000.0 } else { 0.0 };
-            x.troopers = vec![TrooperObs { team: 2, lane: 4, pos: [0.0, y] }];
+            x.troopers = vec![TrooperObs { id: 0, team: 2, lane: 4, pos: [0.0, y] }];
         }
         let t = derive(&obs(s), m).expect("timeline");
         let w = t.waves.iter().find(|w| w.lane == "lane4").expect("mid");
@@ -738,6 +759,21 @@ mod tests {
         let u = ults[0];
         assert_eq!((u.t, u.team.as_deref(), u.slot, u.hero_id, u.x, u.ability.as_deref()), (2, Some("sapphire"), Some(0), Some(12), Some(10), Some("ability_haze_bulletdance")));
         assert_eq!(crate::timeline::validate(&serde_json::to_vec(&t).expect("json")).map(|_| ()), Ok(()));
+    }
+
+    #[test]
+    fn troopers_are_packed_per_team_per_second_and_gaps_stay_empty() {
+        let mut s = seconds(3);
+        s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
+        s[0].troopers = vec![TrooperObs { id: 70001, team: 2, lane: 4, pos: [100.4, -200.6] }, TrooperObs { id: 5, team: 3, lane: 1, pos: [9.0, 9.0] }];
+        s[2].troopers = vec![TrooperObs { id: 70001, team: 2, lane: 4, pos: [150.0, -150.0] }];
+        let t = derive(&obs(s), map::current()).expect("timeline");
+        let tr = t.troopers.expect("troopers");
+        assert_eq!(tr.every_s, 1);
+        assert_eq!(decode_troopers(&tr.amber[0]), Some(vec![(70001u32 as u16, 100, -201)]));
+        assert_eq!(decode_troopers(&tr.sapphire[0]), Some(vec![(5, 9, 9)]));
+        assert_eq!(tr.amber[1], "", "a gap is an empty sample");
+        assert_eq!(decode_troopers(&tr.amber[2]), Some(vec![(70001u32 as u16, 150, -150)]));
     }
 
     #[test]

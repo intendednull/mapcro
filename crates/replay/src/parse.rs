@@ -241,7 +241,7 @@ fn sample(ctx: &boon::Context, k: &Keys, rules: &boon::entity::Entity, now: f32)
             if e.get_i64(k.trooper.max_health) == 0 || e.get_i64(k.trooper.life) != 0 || e.get_i64(k.trooper.health) <= 0 {
                 continue;
             }
-            s.troopers.push(TrooperObs { team: e.get_i64(k.trooper.team), lane: e.get_i64(k.trooper.lane), pos: k.trooper.pos(e) });
+            s.troopers.push(TrooperObs { id: e.index, team: e.get_i64(k.trooper.team), lane: e.get_i64(k.trooper.lane), pos: k.trooper.pos(e) });
         } else if class == KOTH {
             s.rift_spawner = Some(k.koth.pos(e));
         } else if class == PICKUP {

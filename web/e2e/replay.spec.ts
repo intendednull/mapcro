@@ -118,9 +118,9 @@ test("upload a replay, scrub ults, rifts, powerups and waves, save them as a sce
 
   // Scrubbing previews the replay's extras here only.
   await scrubTo(a, 100);
-  const ult = a.locator('.match-hero[data-slot="amber-0"] [data-testid=match-ult]');
+  const ult = a.locator('.tb-player[data-slot="Amber-0"] [data-testid=ult]');
   await expect(ult).toHaveAttribute("data-ult", "60");
-  await expect(a.locator('.match-hero[data-slot="amber-1"] [data-testid=match-ult]')).toHaveAttribute("data-ult", "0");
+  await expect(a.locator('.tb-player[data-slot="Amber-1"] [data-testid=ult]')).toHaveAttribute("data-ult", "0");
   await expect(status(a, "rift:neutral:lane6:1")).toHaveAttribute("data-status", "Active");
   await expect(status(a, "rift:neutral:lane1:1")).toHaveAttribute("data-status", "Destroyed");
   await expect(status(a, "powerup:neutral:lane1:1")).toHaveAttribute("data-status", "Active");

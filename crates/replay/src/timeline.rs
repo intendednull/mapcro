@@ -34,6 +34,44 @@ pub struct Timeline {
     /// What happened when, for the events list (spec §6a, "Events").
     #[serde(default)]
     pub events: Vec<Event>,
+    /// Lane troopers as seen in the recording (replay tier; a debug view of the waves).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub troopers: Option<Troopers>,
+}
+
+/// Every lane trooper alive in the recording, sampled every `every_s` seconds from 0. Sample
+/// `k` per team is base64 of little-endian `[id: u16, x: i16, y: i16]` triples (world units,
+/// the entity index's low 16 bits for following one trooper between samples). Gaps in the
+/// recording are empty samples: nothing is invented.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Troopers {
+    pub every_s: u32,
+    pub amber: Vec<String>,
+    pub sapphire: Vec<String>,
+}
+
+/// The most troopers one sample may carry per team.
+pub const MAX_TROOPERS: usize = 256;
+
+/// One sample's triples, or `None` if it isn't a well-formed sample.
+pub fn decode_troopers(sample: &str) -> Option<Vec<(u16, i16, i16)>> {
+    use base64::Engine as _;
+    let b = base64::engine::general_purpose::STANDARD.decode(sample).ok()?;
+    if b.len() % 6 != 0 || b.len() / 6 > MAX_TROOPERS {
+        return None;
+    }
+    Some(b.chunks_exact(6).map(|c| (u16::from_le_bytes([c[0], c[1]]), i16::from_le_bytes([c[2], c[3]]), i16::from_le_bytes([c[4], c[5]]))).collect())
+}
+
+pub fn encode_troopers(list: &[(u16, i16, i16)]) -> String {
+    use base64::Engine as _;
+    let mut b = Vec::with_capacity(list.len() * 6);
+    for (id, x, y) in list {
+        b.extend_from_slice(&id.to_le_bytes());
+        b.extend_from_slice(&x.to_le_bytes());
+        b.extend_from_slice(&y.to_le_bytes());
+    }
+    base64::engine::general_purpose::STANDARD.encode(b)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -277,6 +315,13 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
         && t.powerups.iter().all(|p| plausible_key(&p.key) && p.key.starts_with("powerup:") && p.available.len() == n && p.available.iter().all(|a| *a <= 1) && ranges_ok(&p.stale, n as u32))
         && t.waves.len() <= 8
         && t.waves.iter().all(|w| plausible_key(&format!("lane:x:{}", w.lane)) && w.t.len() == n && w.t.iter().all(|v| v.is_none_or(|v| v <= 1000)) && ranges_ok(&w.stale, n as u32))
+        && t.troopers.as_ref().is_none_or(|tr| {
+            let samples = (n as u32).div_ceil(tr.every_s.max(1)) as usize;
+            (1..=4).contains(&tr.every_s)
+                && tr.amber.len() == samples
+                && tr.sapphire.len() == samples
+                && tr.amber.iter().chain(&tr.sapphire).all(|x| decode_troopers(x).is_some_and(|v| v.iter().all(|(_, x, y)| x.unsigned_abs() <= 16384 && y.unsigned_abs() <= 16384)))
+        })
         && t.events.len() <= MAX_EVENTS
         && t.events.iter().all(|e| {
             let team_ok = |s: &str| s == "amber" || s == "sapphire" || s == "neutral";
@@ -323,6 +368,7 @@ mod tests {
             powerups: vec![Powerup { key: "powerup:neutral:lane1:1".into(), available: vec![0, 1, 0], stale: vec![[0, 1]] }],
             waves: vec![WaveTrack { lane: "lane4".into(), t: vec![None, Some(500), Some(520)], stale: vec![[2, 3]] }],
             events: vec![Event { team: Some("amber".into()), slot: Some(0), hero_id: Some(1), x: Some(3), y: Some(3), ..event(1, "death") }],
+            troopers: Some(Troopers { every_s: 1, amber: vec![encode_troopers(&[(7, 100, -200)]), String::new(), String::new()], sapphire: vec![String::new(); 3] }),
         }
     }
 
@@ -360,6 +406,10 @@ mod tests {
             Box::new(|t| t.events[0].team = Some("x".into())),
             Box::new(|t| t.events[0].key = Some("../x".into())),
             Box::new(|t| t.events[0].ability = Some("<b>".into())),
+            Box::new(|t| t.troopers.as_mut().map_or((), |x| x.amber.pop().map_or((), |_| ()))),
+            Box::new(|t| t.troopers.as_mut().map_or((), |x| x.amber[1] = "not base64!".into())),
+            Box::new(|t| t.troopers.as_mut().map_or((), |x| x.amber[1] = encode_troopers(&[(1, 20000, 0)]))),
+            Box::new(|t| t.troopers.as_mut().map_or((), |x| x.sapphire[0] = encode_troopers(&vec![(1, 0, 0); MAX_TROOPERS + 1]))),
         ];
         for (i, f) in bad.iter().enumerate() {
             let mut t = tiny();
