@@ -63,6 +63,19 @@ pub fn valid_job(name: &str) -> bool {
         && name.split('-').next().is_some_and(|m| !m.is_empty() && m.len() <= 12 && m.bytes().all(|b| b.is_ascii_digit()))
 }
 
+/// The server's parse order for queued jobs, in `inbox/` (spec §6a, the queue): one job name a
+/// line, first to run first. The server writes it (fair across clients); the worker reads it and
+/// runs listed jobs in that order, then any others oldest first. A dot name, so it's never a job.
+pub const ORDER_FILE: &str = ".order";
+/// The order file's size cap: a few hundred names.
+pub const ORDER_MAX_BYTES: u64 = 64 * 1024;
+
+/// The job names in an order file, in order: valid names only, each once.
+pub fn read_order(bytes: &[u8]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    String::from_utf8_lossy(bytes).lines().map(str::trim).filter(|j| valid_job(j) && seen.insert(j.to_string())).map(str::to_owned).collect()
+}
+
 /// The match id a job name starts with.
 pub fn job_match_id(job: &str) -> u64 {
     job.split('-').next().and_then(|m| m.parse().ok()).unwrap_or(0)

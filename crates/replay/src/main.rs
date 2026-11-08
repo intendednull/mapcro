@@ -1,11 +1,12 @@
 //! mapcro-replay: the replay worker (spec §6a). Runs as its own sandboxed service, never inside
 //! the board server.
 //!
-//! - `mapcro-replay work <dir> [--once]`: serve the queue under `<dir>` (inbox, work, done, failed).
+//! - `mapcro-replay work <dir> [--once]`: serve the queue under `<dir>` (inbox, outbox, work).
 //! - `mapcro-replay parse <demo> <out.json> [match id]`: one demo to a timeline, in-process.
 //! - `mapcro-replay job …`: one queued job, in the child the worker spawns (internal).
 //!
-//! Environment for `work`: `REPLAY_JOB_TIMEOUT_S` (300), `REPLAY_MAX_DEM_BYTES` (1 GiB).
+//! Environment for `work`: `REPLAY_JOB_TIMEOUT_S` (300), `REPLAY_MAX_DEM_BYTES` (1 GiB),
+//! `REPLAY_WORKERS` (2: jobs parsed at once, each in its own child).
 
 use mapcro_replay::worker;
 use std::path::Path;
@@ -24,6 +25,7 @@ fn main() {
             let limits = worker::Limits {
                 timeout: Duration::from_secs(num("REPLAY_JOB_TIMEOUT_S", d.timeout.as_secs())),
                 max_dem_bytes: num("REPLAY_MAX_DEM_BYTES", d.max_dem_bytes),
+                workers: num("REPLAY_WORKERS", d.workers as u64).max(1) as usize,
             };
             if let Err(e) = worker::serve(Path::new(&args[2]), &limits, arg(3) == Some("--once")) {
                 eprintln!("mapcro-replay: {e}");

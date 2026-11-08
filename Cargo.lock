@@ -895,6 +895,7 @@ dependencies = [
  "boon-deadlock",
  "boon-proto",
  "bzip2",
+ "libc",
  "prost",
  "serde",
  "serde_json",
