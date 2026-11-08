@@ -1,0 +1,10 @@
+{
+  "board": "UDUq5T7K2zJvqWU-SKd7Cw",
+  "owner_token": "9rjJ-dkrdHG-0pAcOCm1WP8qvVUtTsDFtK6M2kjgZa4",
+  "entries": 32,
+  "rejected": 1,
+  "client": "0000000000000000000000000000f4f4",
+  "secret": "fixture-secret",
+  "next_cseq": 33,
+  "made_by": "the schema-v4 server (ea9463a), via /tmp scratch script make.mjs: 30 moves, a note, a refused second note, a stroke"
+}

@@ -1862,3 +1862,62 @@ async fn compaction_keeps_history_bounded_and_old_copies_rebase() {
     assert_eq!(fresh.replica().confirmed(), b.replica().confirmed());
     eprintln!("compaction: base at {base}, {kept} entries kept (from {oldest:?}); a rebased and in sync at 107");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_real_v4_database_migrates_and_its_board_compacts_and_rebases() {
+    // A database the v4 server (ea9463a) wrote: zstd-v1 rows and base, a registered client and a
+    // stored rejection (tests/fixtures/v4-board.*). The v5 server migrates it (client_seqs),
+    // serves it, compacts it, and rebases the v4 client's own copy when it comes back below
+    // the floor, with its unsent edits landing once.
+    let fx: serde_json::Value = serde_json::from_str(include_str!("fixtures/v4-board.json")).expect("fixture");
+    let (board, owner) = (fx["board"].as_str().expect("board").to_owned(), fx["owner_token"].as_str().expect("token").to_owned());
+    let entries = fx["entries"].as_u64().expect("entries");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mapcro.sqlite");
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/v4-board.sqlite"), &path).expect("copy fixture");
+    let env = [("BOARD_COMPACT_OPS", "10"), ("BOARD_KEEP_OPS", "3")];
+    let server = Server::start_with(dir.path(), None, &env);
+    {
+        let c = rusqlite::Connection::open(&path).expect("open");
+        let v: String = c.query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("version");
+        assert_eq!(v, "5");
+        let codecs: i64 = c.query_row("SELECT COUNT(*) FROM ops WHERE codec = 'zstd-v1'", [], |r| r.get(0)).expect("ops");
+        assert_eq!(codecs as u64, entries, "the v4 rows are untouched");
+    }
+    // The board as v4 left it: the note survived; the refused second note didn't.
+    let fresh = fresh_catch_up(server.port, &board, &owner, 0xf5f5, entries).await;
+    let note = |r: &Replica, id: u128| r.view().live(mapcro_schema::RecordId(id)).cloned();
+    assert!(matches!(note(fresh.replica(), 0xa0a0), Some(Record::Note(n)) if n.text == "kept across the migration"));
+    assert!(note(fresh.replica(), 0xb0b0).is_none());
+    assert!(matches!(note(fresh.replica(), 0xc0c0), Some(Record::Stroke(_))));
+
+    // The v4 client's binding holds: its id with another secret is refused.
+    let me = u128::from_str_radix(fx["client"].as_str().expect("client"), 16).expect("hex");
+    match raw_hello(server.port, &board, &owner, me).await {
+        Some(WireOut::Msg { msg: ServerMsg::Fatal(why) }) => assert!(why.contains("another client"), "{why}"),
+        other => panic!("expected Fatal, got {other:?}"),
+    }
+    // The v4 client itself comes back: a copy at the head v4 left, its next cseq, two offline edits.
+    let state = serde_json::json!({
+        "client": fx["client"], "secret": fx["secret"], "confirmed": fresh.replica().confirmed(), "last_seq": entries,
+        "pending": [], "next_cseq": fx["next_cseq"], "undo": [], "redo": [], "rejected": [],
+    });
+    let mut old = Client::new(me);
+    old.replica = Some(Replica::from_state(serde_json::from_value(state).expect("replica state")));
+    old.replica_mut().edit(move_op(fresh.replica(), 900)).expect("offline edit");
+    old.replica_mut().edit(move_op(fresh.replica(), 901)).expect("offline edit");
+    // Meanwhile the board moves on and compacts past it.
+    let mut w = Client::new(0xf6f6);
+    w.connect(server.port, &board, &owner).await.expect("writer");
+    assert!(edits_until_decided(&mut w, 25, move_op).await.is_empty());
+    let (base, kept, oldest) = base_and_ops(&path, &board);
+    assert!(oldest.is_some_and(|o| o as u64 > entries + 1), "compacted past the old copy: base {base}, {kept} kept from {oldest:?}");
+    old.connect(server.port, &board, &owner).await.expect("the old client is rebased, not refused");
+    old.until_saved().await;
+    while w.replica().last_seq() < entries + 27 {
+        w.pump_one().await.expect("w hears the old client's edits");
+    }
+    assert_eq!(old.replica().last_seq(), entries + 27, "its two offline edits landed once");
+    assert_eq!(old.replica().confirmed(), w.replica().confirmed());
+    eprintln!("v4 fixture: migrated, {entries} rows kept; compacted to base {base} (oldest kept {oldest:?}); the v4 client rebased");
+}
