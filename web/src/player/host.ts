@@ -119,6 +119,23 @@ export function createPlayerHost(board: string, token: string) {
     if (!(keep && had)) setPlayback({ t: Math.min(r.duration_s, 600), playing: false, speed: playback().speed, at: performance.now() });
   };
 
+  // On the API summary, keep an eye out for the replay: someone else's upload or fetch upgrades
+  // this view too, in place (operator, 2026-11-08).
+  createEffect(() => {
+    const id = matchId();
+    const m = tl();
+    if (!id || !m || m.tier === "replay" || busy(job())) return;
+    const timer = setInterval(() => {
+      void api.job(id).then((j) => {
+        if (!j || matchId() !== id) return;
+        if (j.state === "done") void loadTimeline(id, true);
+        if (j.state !== job()?.state) setJob(j);
+        if (busy(j)) void watch(id);
+      });
+    }, 5000);
+    onCleanup(() => clearInterval(timer));
+  });
+
   /** Open a match: attach it (editors), load its timeline and its replay job's state. */
   const open = async (id: string, opts: { attach: boolean; at?: number } = { attach: false }) => {
     if (!/^[1-9]\d{0,11}$/.test(id)) return setStatus("Invalid id");

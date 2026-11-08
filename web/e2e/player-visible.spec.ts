@@ -38,7 +38,7 @@ async function openMatch(p: Page) {
   await p.getByTestId("scene-from-match").click();
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
-  await expect(p.getByTestId("match-tier")).toHaveText("Metadata");
+  await expect(p.getByTestId("match-tier")).toHaveText("API summary");
 }
 async function scrubTo(p: Page, t: number) {
   await p.getByTestId("match-time").evaluate((el, t) => {

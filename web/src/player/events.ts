@@ -87,6 +87,21 @@ export function label(e: MatchEvent, n: Named): string {
   }
 }
 
+/** The list's label in parts: names, where the timeline has them, beside their heroes (muted). */
+export function labelParts(e: MatchEvent, n: Named): Array<{ text: string; muted?: boolean }> {
+  if (e.kind !== "death" && e.kind !== "ult") return [{ text: label(e, n) }];
+  const who = n.player(e.team, e.slot);
+  if (e.kind === "ult") return [{ text: label(e, n) }, ...(who ? [{ text: ` ${who}`, muted: true }] : [])];
+  const by = e.by ? n.player(e.by.team, e.by.slot) : undefined;
+  const parts: Array<{ text: string; muted?: boolean }> = [{ text: n.hero(e.hero_id) || "A hero" }];
+  if (who) parts.push({ text: ` ${who}`, muted: true });
+  if (e.by) {
+    parts.push({ text: ` killed by ${n.hero(e.by.hero_id) || "a hero"}` });
+    if (by) parts.push({ text: ` ${by}`, muted: true });
+  } else parts.push({ text: " died" });
+  return parts;
+}
+
 /** A short label for a scene name ("<event> @ mm:ss"). */
 export function shortLabel(e: MatchEvent, n: Named): string {
   switch (e.kind) {

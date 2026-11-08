@@ -109,7 +109,7 @@ test("upload a replay, scrub ults, rifts, powerups and waves, save them as a sce
   await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: demo });
   await expect(a.getByTestId("match-job")).toHaveText("Queued");
   const job = await work();
-  await expect(a.getByTestId("match-tier")).toHaveText("Replay");
+  await expect(a.getByTestId("match-tier")).toHaveText("Full replay");
   await expect(a.getByTestId("match-job")).toHaveText("");
   await expect(a.getByTestId("match-clock")).toHaveText("3:20 / 3:20");
   expect(existsSync(join(server.dataDir, "replays", `${job}.json`))).toBe(true);

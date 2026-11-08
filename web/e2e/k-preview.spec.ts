@@ -42,7 +42,7 @@ test("K under a match preview changes nothing on the board", async ({ browser })
   await a.getByTestId("scene-from-match").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
-  await expect(a.getByTestId("match-tier")).toHaveText("Metadata");
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   // Any hero the preview shows: hover it and press K.
   const shown = a.locator(".mapbox .tok").first();
   await expect(shown).toBeVisible();

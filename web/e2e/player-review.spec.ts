@@ -68,7 +68,7 @@ test("Clear in Player clears the live layer, not the scene; entering the live la
   await gesture(a, [[0.2, 0.2], [0.3, 0.25]]);
   await expect(strokes(a)).toHaveCount(1);
   await openMatch(a);
-  await expect(a.getByTestId("match-tier")).toHaveText("Metadata");
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   await expect(strokes(a)).toHaveCount(0);
   // The ink from before is still the only undo step: making the live layer added none.
   await a.keyboard.press("d");
@@ -85,7 +85,7 @@ test("in Player others see your laser; a follower follows a presenter who pans w
   const url = await newBoardUrl(server, "Watch");
   const a = await joinNew(browser, url, "Coach");
   await openMatch(a);
-  await expect(a.getByTestId("match-tier")).toHaveText("Metadata");
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   await scrubTo(a, 200);
   const b = await joinNew(browser, url, "Marrow");
   await b.getByTestId("follow-Coach").click();
@@ -122,7 +122,7 @@ test("a phone follows a presenter in Player, with the transport (1)", async ({ b
   const url = await newBoardUrl(server, "Phone watch");
   const a = await joinNew(browser, url, "Coach");
   await openMatch(a);
-  await expect(a.getByTestId("match-tier")).toHaveText("Metadata");
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   await scrubTo(a, 300);
   const b = await joinNew(browser, url, "Marrow");
   await b.getByTestId("follow-Coach").click();
@@ -148,7 +148,7 @@ test("stale ink is cleared when someone enters Player alone, kept while someone 
   const url = await newBoardUrl(server, "Stale");
   const a = await joinNew(browser, url, "Coach");
   await openMatch(a);
-  await expect(a.getByTestId("match-tier")).toHaveText("Metadata");
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   await a.keyboard.press("d");
   await gesture(a, [[0.6, 0.6], [0.7, 0.65]]);
   await expect(strokes(a)).toHaveCount(1);
@@ -171,7 +171,7 @@ test("stale ink is cleared when someone enters Player alone, kept while someone 
 test("fifteen events save as fifteen scenes, in transactions within the op cap (6)", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Many"), "Coach");
   await openMatch(a);
-  await expect(a.getByTestId("match-tier")).toHaveText("Metadata");
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   await a.getByTestId("chip-death").click();
   const rows = a.getByTestId("event");
   await expect.poll(() => rows.count()).toBeGreaterThan(15);

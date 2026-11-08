@@ -45,10 +45,9 @@ test("events: search, filter, jump, and save several as scenes with one undo", a
   await a.getByTestId("scene-from-match").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
-  await expect(a.getByTestId("match-tier")).toHaveText("Metadata");
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   // 42 deaths and 9 objectives in the fixture, souls swings on top; every row says its tier.
   await expect.poll(async () => (await times(a)).length).toBeGreaterThan(50);
-  await expect(events(a).first()).toContainText("Metadata");
 
   // Search by type, by team, by time; filter chips by type.
   await a.getByTestId("events-search").fill("walker");
@@ -86,9 +85,9 @@ test("events: search, filter, jump, and save several as scenes with one undo", a
   for (const i of [0, 1, 2]) await events(a).nth(i).getByTestId("event-pick").check();
   await a.getByTestId("events-save").click();
   await expect(cards).toHaveCount(4);
-  await expect(cards.nth(1)).toHaveAttribute("aria-label", /Guardian down @ 8:44$/);
-  await expect(cards.nth(2)).toHaveAttribute("aria-label", /Guardian down @ 9:14$/);
-  await expect(cards.nth(3)).toHaveAttribute("aria-label", /Guardian down @ 9:59$/);
+  await expect(cards.nth(1)).toHaveAttribute("aria-label", /^Scene 2: 8:44 Guardian down$/);
+  await expect(cards.nth(2)).toHaveAttribute("aria-label", /^Scene 3: 9:14 Guardian down$/);
+  await expect(cards.nth(3)).toHaveAttribute("aria-label", /^Scene 4: 9:59 Guardian down$/);
   await a.getByTestId("mode-sandbox").click();
   await a.getByTestId("undo").click();
   await expect(cards).toHaveCount(1);
@@ -108,7 +107,7 @@ test("Player draws only the match, Sandbox only the scene, and neither leaks int
   await a.getByTestId("scene-from-match").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
-  await expect(a.getByTestId("match-tier")).toHaveText("Metadata");
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
 
   // Amber-2 dies at 382 s: hidden in Player.
   await scrubTo(a, 386);
@@ -147,7 +146,7 @@ test("a follower mirrors the presenter's playback and mode; its own scrub stops 
   await a.getByTestId("scene-from-match").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
-  await expect(a.getByTestId("match-tier")).toHaveText("Metadata");
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   await scrubTo(a, 300);
 
   const b = await joinNew(browser, url, "Marrow");
@@ -186,7 +185,7 @@ test("the landing page opens a match, by id or by replay, straight into Player",
   await page.locator("#join-name").fill("Coach");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("player")).toBeVisible();
-  await expect(page.getByTestId("match-tier")).toHaveText("Metadata");
+  await expect(page.getByTestId("match-tier")).toHaveText("API summary");
   await expect(page.getByTestId("match-clock")).toHaveText("10:00 / 21:40");
   // Sandbox and back: the board keeps its match.
   await page.getByTestId("mode-sandbox").click();
@@ -216,7 +215,7 @@ test("ink over playback is live, kept only by saving a scene, and cleared when t
   await a.getByTestId("scene-from-match").click();
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
-  await expect(a.getByTestId("match-tier")).toHaveText("Metadata");
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   await scrubTo(a, 400);
 
   await a.keyboard.press("d");
@@ -236,7 +235,7 @@ test("ink over playback is live, kept only by saving a scene, and cleared when t
   await b.getByTestId("mode-sandbox").click();
   await b.getByTestId("scene-card").nth(1).click();
   await expect(strokes(b)).toHaveCount(1);
-  await expect(b.getByTestId("scene-card").nth(1)).toHaveAttribute("aria-label", /Match 130816395 @ 6:40$/);
+  await expect(b.getByTestId("scene-card").nth(1)).toHaveAttribute("aria-label", /^Scene 2: 6:40 Match moment$/);
 
   // Unsaved ink stays while someone is in Player, and through viewing a scene and coming
   // Back; it goes when the board is opened again with nobody watching the match.

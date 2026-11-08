@@ -4,7 +4,7 @@
 import { For, Show, createEffect, createMemo, createSignal, untrack } from "solid-js";
 import { cx } from "../ui/cx";
 import { type MatchEvent, type Timeline, clockLabel } from "../match/timeline";
-import { type EventGroup, GROUPS, type Named, eventKey, groupOf, label, search } from "./events";
+import { type EventGroup, GROUPS, type Named, eventKey, groupOf, labelParts, search } from "./events";
 
 export function EventsList(p: {
   tl: Timeline;
@@ -68,8 +68,9 @@ export function EventsList(p: {
                 </Show>
                 <button type="button" class="pl-ev-go" data-testid="event-jump" onClick={() => p.onJump(e, lead())}>
                   <span class="pl-ev-t">{clockLabel(e.t)}</span>
-                  <span class="pl-ev-label">{label(e, p.names)}</span>
-                  <span class="pl-ev-tier">{p.tier}</span>
+                  <span class="pl-ev-label">
+                    <For each={labelParts(e, p.names)}>{(x) => (x.muted ? <span class="pl-ev-name">{x.text}</span> : x.text)}</For>
+                  </span>
                 </button>
               </li>
             );

@@ -76,6 +76,7 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
           const hero = () => (x() ? p.art.heroes.get(x()!.hero_id) : undefined);
           const label = () => s.slot.name || `${t} ${s.slot.slot + 1}`;
           const dead = () => !!x() && x()!.pos === null;
+          const nameOf = () => p.host.tl()?.players.find((q) => q.team === t.toLowerCase() && q.slot === s.slot.slot)?.name ?? undefined;
           return (
             <div
               class={cx("tb-player", t.toLowerCase(), side, dead() && "dead")}
@@ -96,6 +97,11 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
                 <Show when={hero()?.topbar}>{(src) => <i class="tb-img hero-vertical" style={{ "background-image": `url(${JSON.stringify(src())})` }} />}</Show>
               </div>
               <Ult left={x()?.ult ?? null} label={label()} />
+              <Show when={nameOf()}>
+                <span class="pl-tb-name" data-testid="tb-name">
+                  {nameOf()}
+                </span>
+              </Show>
             </div>
           );
         }}

@@ -2,7 +2,7 @@
 // playback time t (the board renders the preview this produces); this draws the transport, the
 // roster with ult rings, the match source controls and the events list. Labels only.
 
-import { For, Show, createMemo, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Art } from "../map/pack";
 import { cx } from "../ui/cx";
 import type { BoardState } from "../board/state";
@@ -173,19 +173,21 @@ export function Player(p: {
           <span class="match-status" data-testid="match-status">
             {h.status()}
           </span>
-          <Show when={h.tl()}>{(m) => <span class={cx("match-tier", tierOf(m()))} data-testid="match-tier">{tierLabel(m())}</span>}</Show>
-          <span class="match-job" data-testid="match-job">
+          <Show when={h.tl() || busy(h.job())}>
+            <TierChip host={h} />
+          </Show>
+          <span class="match-job pl-hidden" data-testid="match-job">
             {jobLabel(h.job(), h.progress())}
           </span>
-          <span class="spacer" />
-          <Show when={canEdit() && h.matchId() && h.job() && h.job()!.state !== "off" && h.job()!.state !== "done" && !busy(h.job())}>
+          <Show when={canEdit() && h.matchId() && (!h.tl() || tierOf(h.tl()!) !== "replay") && h.job() && h.job()!.state !== "off" && !busy(h.job())}>
+            <button class="btn primary small" type="button" data-testid="match-upload" onClick={() => file.click()} title={REPLAY_HINT}>
+              Upload replay file
+            </button>
             <button class="btn ghost small" type="button" data-testid="match-fetch" onClick={() => void h.fetchReplay()} title="Fetch the replay from Valve">
               Fetch replay
             </button>
-            <button class="btn ghost small" type="button" data-testid="match-upload" onClick={() => file.click()} title="Upload a .dem from your replays folder">
-              Upload .dem
-            </button>
           </Show>
+          <span class="spacer" />
           <input
             ref={file}
             type="file"
@@ -195,7 +197,11 @@ export function Player(p: {
             onChange={(e) => {
               const f = e.currentTarget.files?.[0];
               e.currentTarget.value = "";
-              if (f) void h.upload(f);
+              if (!f) return;
+              // The game names a replay after its match: refuse another match's file.
+              const named = /^(\d+)/.exec(f.name)?.[1]?.replace(/^0+/, "");
+              if (named && h.matchId() && named !== h.matchId()) return h.setStatus(`That file is match ${named}`);
+              void h.upload(f);
             }}
           />
         </form>
@@ -269,6 +275,57 @@ export function Player(p: {
     </>
   );
 }
+
+/** Where Deadlock keeps replays (the landing page's "Select replay file" says the same). */
+export const REPLAY_HINT = "Deadlock saves replays in …/steamapps/common/Deadlock/game/citadel/replays/ (the file name is the match id)";
+
+/**
+ * Which tier the match is loaded at, in words (operator, 2026-11-08): "Full replay" or "API
+ * summary", or the upgrade under way. Tap or hover the summary for what it lacks.
+ */
+export function TierChip(p: { host: PlayerHost }) {
+  const h = p.host;
+  const [why, setWhy] = createSignal(false);
+  const [fresh, setFresh] = createSignal(false);
+  const replay = () => (h.tl() ? tierOf(h.tl()!) === "replay" : false);
+  let was: boolean | undefined;
+  createEffect(() => {
+    const r = replay();
+    if (was === false && r) {
+      setFresh(true);
+      setTimeout(() => setFresh(false), 2500);
+    }
+    was = r;
+  });
+  const text = () => {
+    const j = h.job();
+    if (j?.state === "uploading") return h.progress() === undefined ? "Uploading…" : `Uploading ${h.progress()}%`;
+    if (j?.state === "fetching") return "Fetching replay…";
+    if (j?.state === "queued" || j?.state === "parsing") return "Parsing replay…";
+    return replay() ? "Full replay" : "API summary";
+  };
+  return (
+    <span class="pl-tier-wrap">
+      <button
+        type="button"
+        class={cx("pl-tier", replay() ? "replay" : "summary", busy(h.job()) && "busy", fresh() && "fresh")}
+        data-testid="match-tier"
+        data-tier={replay() ? "replay" : "metadata"}
+        title={replay() ? "Parsed from the replay file" : WHAT_SUMMARY_LACKS}
+        onClick={() => setWhy(!why())}
+      >
+        {text()}
+      </button>
+      <Show when={why() && !replay()}>
+        <span class="pl-tier-why" data-testid="tier-why">
+          {WHAT_SUMMARY_LACKS}
+        </span>
+      </Show>
+    </span>
+  );
+}
+
+const WHAT_SUMMARY_LACKS = "No ult timers, lane waves, rifts or powerups";
 
 /** Where a jump landed: a ring that pulses there for a few seconds (map → view units). */
 export function Highlight(p: { at: { x: number; y: number } | undefined; vp: "amber" | "sapphire" | "neutral" }) {
@@ -389,6 +446,11 @@ export function PlayerSide(p: Props) {
                               <UltRing left={at().get(slotKey(x.team, x.slot))?.ult ?? null} />
                             </Show>
                             {heroName(x.hero_id)}
+                            <Show when={x.name}>
+                              <span class="pl-ev-name" data-testid="roster-name">
+                                {x.name}
+                              </span>
+                            </Show>
                           </span>
                         )}
                       </For>

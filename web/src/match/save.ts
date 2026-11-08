@@ -38,7 +38,7 @@ export function matchSceneOps(
   const id = mint();
   const second = Math.floor(t);
   const order = keyBetween(opts.after ?? scenes[i]?.scene.order, scenes[i + 1]?.scene.order);
-  const name = opts.name ?? `Match ${tl.match_id}`;
+  const name = opts.name ?? "Match moment";
   const scene = { name: sceneName(name, second), order, clock: second, ...(opts.source ? { source: { ...opts.source, t: second } } : {}) };
   const ops: Op[] = [{ Create: { id, record: { Scene: scene } } }];
   const at = new Map(playersAt(tl, second).map((p) => [slotKey(p.team, p.slot), p]));
@@ -68,7 +68,7 @@ export function matchSceneOps(
 }
 
 export interface SceneOpts {
-  /** The scene's label before " @ mm:ss" (default "Match <id>"). */
+  /** The scene's name (default "Match moment"). */
   name?: string;
   /** Insert after this order key instead of after the current scene. */
   after?: string;
@@ -78,12 +78,12 @@ export interface SceneOpts {
   source?: { match_id: number; tier: string };
 }
 
-/** "<label> @ mm:ss" within the schema's 24 characters: the label gives way, never the time. */
-export function sceneName(label: string, second: number): string {
-  const at = ` @ ${clockLabel(second)}`;
-  const room = 24 - at.length;
-  const l = label.length > room ? `${label.slice(0, room - 1)}…` : label;
-  return l + at;
+/**
+ * A scene's name from a match: the event alone ("Mirage died"), the clock and the ▶ chip carry
+ * the time (operator, 2026-11-08); within the schema's 24 characters.
+ */
+export function sceneName(label: string, _second?: number): string {
+  return label.length > 24 ? `${label.slice(0, 23)}…` : label;
 }
 
 /**

@@ -38,7 +38,7 @@ async function openMatch(p: Page) {
   await p.getByTestId("scene-from-match").click();
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
-  await expect(p.getByTestId("match-tier")).toHaveText("Metadata");
+  await expect(p.getByTestId("match-tier")).toHaveText("API summary");
 }
 async function scrubTo(p: Page, t: number) {
   await p.getByTestId("match-time").evaluate((el, t) => {
@@ -74,7 +74,7 @@ test("viewing a scene keeps the bar; Back returns to the match where it was", as
   await scrubTo(a, 640);
   await a.getByTestId("scene-card").nth(1).click();
   await expect(bar(a)).toHaveAttribute("data-state", "scene");
-  await expect(a.getByTestId("pl-scene")).toHaveText("Scene “Match 130816395 @ 5:00” · 5:00");
+  await expect(a.getByTestId("pl-scene")).toHaveText("Scene “Match moment” · 5:00");
   await expect(a.getByTestId("play-from-here")).toBeVisible();
   await expect(a.getByTestId("mode-player")).toHaveText("↩ Back to 10:40");
   await expect(strokes(a)).toHaveCount(1); // the scene's drawing
@@ -117,10 +117,10 @@ test("the tree chip and the scrubber marker each do their job; ← → follow th
   await expect(a.getByTestId("match-clock")).toHaveText("5:00 / 21:40");
   // A marker on the scrubber views its scene.
   await expect(a.getByTestId("scene-mark")).toHaveCount(1);
-  await expect(a.getByTestId("scene-mark")).toHaveAttribute("title", "Match 130816395 @ 5:00");
+  await expect(a.getByTestId("scene-mark")).toHaveAttribute("title", "Match moment");
   await a.getByTestId("scene-mark").click();
   await expect(bar(a)).toHaveAttribute("data-state", "scene");
-  await expect(a.locator('[data-testid="scene-card"][aria-current="true"]')).toHaveAttribute("aria-label", /@ 5:00$/);
+  await expect(a.locator('[data-testid="scene-card"][aria-current="true"]')).toHaveAttribute("aria-label", /^Scene 2: 5:00 Match moment$/);
   // Viewing scenes: ← → step scenes.
   await a.keyboard.press("ArrowLeft");
   await expect(a.locator('[data-testid="scene-card"][aria-current="true"]')).toHaveAttribute("aria-label", /^Scene 1:/);
@@ -145,7 +145,7 @@ test("a follower switches between the match and scenes with the presenter", asyn
   await expect(b.getByTestId("follow-chip")).toContainText("Following Coach");
   await a.getByTestId("scene-card").nth(1).click();
   await expect(bar(b)).toHaveAttribute("data-state", "scene");
-  await expect(b.locator('[data-testid="scene-card"][aria-current="true"]')).toHaveAttribute("aria-label", /@ 5:00$/);
+  await expect(b.locator('[data-testid="scene-card"][aria-current="true"]')).toHaveAttribute("aria-label", /^Scene 2: 5:00 Match moment$/);
   await expect(strokes(b)).toHaveCount(1);
   await a.getByTestId("play-from-here").click();
   await expect(bar(b)).toHaveAttribute("data-state", "match");

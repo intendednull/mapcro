@@ -57,9 +57,9 @@ describe("player events", () => {
     const markers = modelFromFallback(FALLBACK).markers;
     expect(placeOf(ev[0]!, markers)).toEqual({ x: (100 + 10752) / 21504 * 1000, y: (10752 + 200) / 21504 * 1000 });
     expect(placeOf(ev[1]!, markers)).toEqual(markers.find((m) => m.key === "walker:sapphire:lane6:1")!.at);
-    expect(sceneName(shortLabel(ev[0]!, n), 120)).toBe("Infernus died @ 2:00");
-    expect(sceneName("A very long hero name died", 1234)).toBe("A very long her… @ 20:34");
-    expect(sceneName("A very long hero name died", 1234).length).toBe(24);
+    expect(sceneName(shortLabel(ev[0]!, n))).toBe("Infernus died");
+    expect(sceneName("A very long hero name has died here")).toBe("A very long hero name h…");
+    expect(sceneName("A very long hero name has died here").length).toBe(24);
   });
 });
 
@@ -79,7 +79,7 @@ describe("player scenes", () => {
     expect(one.ops[0]).toMatchObject({ Create: { record: { Scene: { clock: 125, source: { match_id: 1, t: 125, tier: "replay" } } } } });
     const many = matchScenesOps(roster as never, [], undefined, timeline, [{ t: 10, name: "A" }, { t: 20, name: "B" }], [], mint);
     const scenes = many.ops.flatMap((o) => ("Create" in o && "Scene" in o.Create.record ? [o.Create.record.Scene] : []));
-    expect(scenes.map((s) => s.name)).toEqual(["A @ 0:10", "B @ 0:20"]);
+    expect(scenes.map((s) => s.name)).toEqual(["A", "B"]);
     expect(scenes.map((s) => s.source?.t)).toEqual([10, 20]);
     expect(scenes[0]!.order < scenes[1]!.order).toBe(true);
     expect(scenes.every((s) => s.source?.tier === "replay")).toBe(true);

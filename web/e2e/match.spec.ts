@@ -62,7 +62,7 @@ test("import, scrub, save two moments; a second browser sees them; undo reverts 
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-clock")).toHaveText("10:00 / 21:40");
   await expect(a.getByTestId("match-credit")).toHaveText("Match data: deadlock-api.com");
-  await expect(a.getByTestId("match-tier")).toHaveText("Metadata");
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
 
   // Scrubbing previews the match here only: heroes move for A, not for B.
   await scrubTo(a, 120);
@@ -85,8 +85,8 @@ test("import, scrub, save two moments; a second browser sees them; undo reverts 
   await a.getByTestId("match-save").click();
   const cards = b.getByTestId("scene-card");
   await expect(cards).toHaveCount(3);
-  await expect(cards.nth(1)).toHaveAttribute("aria-label", `Scene 2: 2:00 Match ${ID} @ 2:00`);
-  await expect(cards.nth(2)).toHaveAttribute("aria-label", `Scene 3: 15:00 Match ${ID} @ 15:00`);
+  await expect(cards.nth(1)).toHaveAttribute("aria-label", "Scene 2: 2:00 Match moment");
+  await expect(cards.nth(2)).toHaveAttribute("aria-label", "Scene 3: 15:00 Match moment");
 
   // B sees the moments with the match's positions and objectives.
   await cards.nth(1).click();

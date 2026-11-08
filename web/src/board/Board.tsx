@@ -570,11 +570,13 @@ export function Board(p: { board: string; token: string; art: Art }) {
   );
   /** A scene saved from the open match: its tree row's chip jumps the match there. */
   const sceneChip = (id: RecordId) => {
-    const src = state.scenes().find((s) => s.id === id)?.scene.source;
+    const sc = state.scenes().find((s) => s.id === id)?.scene;
+    const src = sc?.source;
     const m = player.matchId();
     if (!src || !m || src.match_id !== Number(m)) return undefined;
     return {
-      label: `▶ ${formatClock(src.t)}`,
+      // The row shows the scene's clock already: the chip repeats the time only if it differs.
+      label: sc?.clock === src.t ? "▶" : `▶ ${formatClock(src.t)}`,
       go: () => {
         stopFollowing("changed the playback");
         player.setMode("player");
