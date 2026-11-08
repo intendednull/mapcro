@@ -3,6 +3,13 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## A settings page (2026-11-08)
+
+As display preferences pile up, give them one home. Today they sit on Player's transport bar:
+Troopers, Health, Pings, and the per-viewer Names toggle ("anonymous mode" for content creators).
+A settings page or panel would hold the per-viewer ones, stored in the browser and never synced,
+and could later hold board-wide ones for the owner. Decide which stay as quick toggles on the bar.
+
 ## "Resume a scene" (2026-11-08)
 
 - **Playback is in progress**, as Player (spec §6b): it plays an imported match on the map, with
