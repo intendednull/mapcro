@@ -1993,3 +1993,27 @@ async fn a_pruned_rejection_survives_a_restart() {
     a.connect(server.port, &board, &owner).await.expect("a after the restart");
     assert!(edits_until_decided(&mut a, 2, move_op).await.is_empty(), "a's next edits are accepted, not a sequence gap");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_migration_interrupted_by_a_crash_still_boots() {
+    // Review 2026-11-07, finding 3: a crash between a migration step and its version bump left
+    // a database the server couldn't open (the step ran again and failed). Here, the real v4
+    // fixture with v5's table already created but the version still 4.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("mapcro.sqlite");
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/v4-board.sqlite"), &path).expect("copy fixture");
+    rusqlite::Connection::open(&path)
+        .expect("open")
+        .execute_batch(
+            "CREATE TABLE client_seqs (board TEXT NOT NULL REFERENCES boards(id), client TEXT NOT NULL,
+               next_cseq INTEGER NOT NULL, PRIMARY KEY (board, client)) WITHOUT ROWID;",
+        )
+        .expect("half-migrated");
+    let server = Server::start(dir.path(), None);
+    let fx: serde_json::Value = serde_json::from_str(include_str!("fixtures/v4-board.json")).expect("fixture");
+    let (board, owner) = (fx["board"].as_str().expect("board").to_owned(), fx["owner_token"].as_str().expect("token").to_owned());
+    let fresh = fresh_catch_up(server.port, &board, &owner, 0x3f3, fx["entries"].as_u64().expect("entries")).await;
+    assert!(fresh.replica().view().live(mapcro_schema::RecordId(0xa0a0)).is_some());
+    let v: String = rusqlite::Connection::open(&path).expect("open").query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("v");
+    assert_eq!(v, "5");
+}

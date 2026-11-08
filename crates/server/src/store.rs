@@ -127,17 +127,22 @@ pub struct Store {
 const SCHEMA_VERSION: i64 = 5;
 
 /// v1 → v2: links remember which link minted them (editors can share; revocation cascades).
+///
+/// Each step and its version bump are one transaction, so a crash leaves the database at one
+/// version or the next, never between (review 2026-11-07, finding 3). Steps that create tables
+/// also say IF NOT EXISTS, for a database an older server left half-migrated.
 fn migrate(conn: &Connection, from: i64) -> Result<(), StoreError> {
     let mut v = from;
     while v < SCHEMA_VERSION {
+        let t = conn.unchecked_transaction()?;
         match v {
-            1 => conn.execute_batch(
+            1 => t.execute_batch(
                 "ALTER TABLE links ADD COLUMN minted_by TEXT REFERENCES links(hash);
                  CREATE INDEX IF NOT EXISTS links_by_parent ON links(minted_by);",
             )?,
             // v2 → v3: client ids are bound to a secret (security review H1).
-            2 => conn.execute_batch(
-                "CREATE TABLE clients (
+            2 => t.execute_batch(
+                "CREATE TABLE IF NOT EXISTS clients (
                    board TEXT NOT NULL REFERENCES boards(id),
                    client TEXT NOT NULL,
                    secret_hash BLOB NOT NULL,
@@ -145,15 +150,15 @@ fn migrate(conn: &Connection, from: i64) -> Result<(), StoreError> {
                  ) WITHOUT ROWID;",
             )?,
             // v3 → v4: rows name their codec (`codec.rs`); existing rows are JSON and stay so.
-            3 => conn.execute_batch(
+            3 => t.execute_batch(
                 "ALTER TABLE ops ADD COLUMN codec TEXT NOT NULL DEFAULT 'json';
                  ALTER TABLE boards ADD COLUMN base_codec TEXT NOT NULL DEFAULT 'json';",
             )?,
             // v4 → v5: each client's next expected cseq, kept when compaction drops the log
             // entries that showed it (spec §9). Without it a resend of an old transaction would
             // be applied twice.
-            4 => conn.execute_batch(
-                "CREATE TABLE client_seqs (
+            4 => t.execute_batch(
+                "CREATE TABLE IF NOT EXISTS client_seqs (
                    board TEXT NOT NULL REFERENCES boards(id),
                    client TEXT NOT NULL,
                    next_cseq INTEGER NOT NULL,
@@ -163,7 +168,8 @@ fn migrate(conn: &Connection, from: i64) -> Result<(), StoreError> {
             other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
         }
         v += 1;
-        conn.execute("UPDATE meta SET value = ?1 WHERE key = 'schema_version'", [v.to_string()])?;
+        t.execute("UPDATE meta SET value = ?1 WHERE key = 'schema_version'", [v.to_string()])?;
+        t.commit()?;
         tracing::info!(to = v, "migrated database schema");
     }
     Ok(())
