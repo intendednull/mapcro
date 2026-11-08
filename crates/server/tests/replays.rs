@@ -140,6 +140,17 @@ impl Server {
         (r.status().as_u16(), r.body_mut().read_json().unwrap_or_default())
     }
 
+    /// Ask for the match's replay from Valve, as the client at `ip`.
+    fn fetch_as(&self, board: &str, token: &str, id: &str, ip: &str) -> (u16, serde_json::Value) {
+        let mut r = agent()
+            .post(&self.url(&format!("/api/boards/{board}/replays/{id}/fetch")))
+            .header("authorization", &format!("Bearer {token}"))
+            .header("x-forwarded-for", ip)
+            .send_empty()
+            .expect("request");
+        (r.status().as_u16(), r.body_mut().read_json().unwrap_or_default())
+    }
+
     fn status(&self, board: &str, token: &str, id: &str) -> serde_json::Value {
         self.call("GET", &format!("/api/boards/{board}/replays/{id}"), token).1
     }
@@ -741,17 +752,38 @@ fn a_429_backs_every_fetch_off_and_says_why() {
 }
 
 #[test]
-fn fetches_have_no_cap_of_ours() {
+fn fetches_have_no_hourly_cap_of_ours() {
     let up = upstream(HashMap::new());
     // Uploads keep theirs (2 an hour here); fetches, from one client, aren't counted at all.
     let server = Server::start(up.port, &[("REPLAY_PER_CLIENT_PER_HOUR", "2")]);
     let (a, owner, _) = server.board();
     for id in 100..130 {
         assert_eq!(server.call("POST", &format!("/api/boards/{a}/replays/{id}/fetch"), &owner).0, 202, "match {id}");
-    }
-    for id in 100..130 {
         until_hits(&up, &format!("/v1/matches/{id}/salts"), 1);
     }
+}
+
+/// A fetch waiting costs nothing to ask for, so it's capped like a reservation: a client waits
+/// for 4 at once, and the line's cap (the last resort) holds for fetches too.
+#[test]
+fn fetches_waiting_are_capped_per_client_and_in_all() {
+    let up = upstream(HashMap::new());
+    // No download starts: every fetch waits in line.
+    let server = Server::start(up.port, &[("REPLAY_DOWNLOADS_AT_ONCE", "0"), ("REPLAY_MAX_WAITING", "6")]);
+    let (a, owner, _) = server.board();
+    for id in 200..204 {
+        assert_eq!(server.fetch_as(&a, &owner, &id.to_string(), "10.0.7.1").0, 202, "match {id}");
+    }
+    let (code, body) = server.fetch_as(&a, &owner, "204", "10.0.7.1");
+    assert_eq!((code, body["error"].as_str()), (429, Some("busy")), "a fifth from one client");
+    assert_eq!(server.status(&a, &owner, "204")["state"], "none", "nothing was queued for it");
+    assert_eq!(server.fetch_as(&a, &owner, "205", "10.0.7.2").0, 202);
+    assert_eq!(server.fetch_as(&a, &owner, "206", "10.0.7.2").0, 202);
+    let (code, body) = server.fetch_as(&a, &owner, "207", "10.0.7.3");
+    assert_eq!((code, body["error"].as_str()), (503, Some("queue_full")), "past the line's cap");
+    // Reservations count against the same line.
+    let (code, body) = server.reserve(&a, &owner, "208", 1000, "10.0.7.4");
+    assert_eq!((code, body["error"].as_str()), (503, Some("queue_full")));
 }
 
 #[test]
@@ -831,11 +863,23 @@ fn the_wait_is_estimated_from_recent_parses() {
     let up = upstream(HashMap::new());
     let server = Server::start(up.port, &[]);
     let (board, owner, _) = server.board();
-    for (i, id) in ["31", "32", "33"].iter().enumerate() {
-        assert_eq!(server.upload_as(&board, &owner, id, &fake_demo(1000), &format!("10.0.1.{i}")).0, 202);
+    // Refusals end in no time: they aren't parse times, and make no estimate.
+    for (i, id) in ["35", "36", "37"].iter().enumerate() {
+        assert_eq!(server.upload_as(&board, &owner, id, &fake_demo(1000), &format!("10.0.1.{}", 10 + i)).0, 202);
         work(&server, &job(id, &board), Err("old_map"));
         server.until_state(&board, &owner, id, "failed");
     }
+    assert_eq!(server.upload_as(&board, &owner, "38", &fake_demo(1000), "10.0.1.20").0, 202);
+    let s = server.status(&board, &owner, "38");
+    assert!(s.get("eta_s").is_none(), "failures aren't samples: {s}");
+    for (i, id) in ["31", "32", "33"].iter().enumerate() {
+        assert_eq!(server.upload_as(&board, &owner, id, &fake_demo(1000), &format!("10.0.1.{i}")).0, 202);
+        let t = serde_json::to_vec(&timeline(id.parse().expect("id"))).expect("json");
+        work(&server, &job(id, &board), Ok(&t));
+        server.until_state(&board, &owner, id, "done");
+    }
+    work(&server, &job("38", &board), Err("old_map"));
+    server.until_state(&board, &owner, "38", "failed");
     assert_eq!(server.upload_as(&board, &owner, "34", &fake_demo(1000), "10.0.1.9").0, 202);
     let s = server.status(&board, &owner, "34");
     assert_eq!(s["state"], "queued");
@@ -954,4 +998,51 @@ fn turns_given_hold_their_room() {
     let (board, owner, _) = uploads.board();
     assert_eq!(uploads.reserve(&board, &owner, "81", 1000, "10.0.6.1").1["state"], "ready");
     assert_eq!(uploads.reserve(&board, &owner, "82", 1000, "10.0.6.2").1["state"], "waiting", "one upload at once, given already");
+}
+
+/// A turn given must be used soon: asking alone doesn't keep it, so nobody can hold an upload
+/// slot without uploading. Each turn given counts against the hourly limit, used or not.
+#[test]
+fn a_turn_unused_lapses_however_often_it_is_asked_about_and_counts_for_the_hour() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[("REPLAY_UPLOADS_AT_ONCE", "1"), ("REPLAY_GRANT_USE_S", "2"), ("REPLAY_PER_CLIENT_PER_HOUR", "2")]);
+    let (board, owner, _) = server.board();
+    let reserve = |id: &str, ip: &str| server.reserve(&board, &owner, id, 1000, ip);
+    assert_eq!(reserve("91", "10.0.8.1").1["state"], "ready");
+    assert_eq!(reserve("92", "10.0.8.2").1["state"], "waiting");
+    // 91 keeps asking and never sends: its turn goes, and 92's comes.
+    let deadline = Instant::now() + Duration::from_secs(6);
+    loop {
+        let a = reserve("91", "10.0.8.1").1;
+        reserve("92", "10.0.8.2");
+        if a["state"] == "waiting" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "91 kept its turn by asking: {a}");
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    assert_eq!(reserve("92", "10.0.8.2").1["state"], "ready", "the next in line has the turn");
+    // 91's client was given one turn and waits for another: that's its two for the hour.
+    let (code, body) = reserve("93", "10.0.8.1");
+    assert_eq!((code, body["error"].as_str()), (429, Some("rate_limited")));
+    assert_eq!(server.upload_as(&board, &owner, "92", &fake_demo(1000), "10.0.8.2").0, 202);
+}
+
+/// A job being parsed isn't swept as stale for how long it waited before: its age counts from
+/// its parse, which the worker's own wall clock bounds.
+#[test]
+fn a_parse_under_way_is_not_swept_for_its_wait() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[("REPLAY_STALE_S", "3")]);
+    let (board, owner, _) = server.board();
+    assert_eq!(server.upload(&board, &owner, "95", &fake_demo(100)).0, 202);
+    let j = job("95", &board);
+    std::thread::sleep(Duration::from_millis(2500));
+    std::fs::write(server.q("outbox").join(format!("{j}.parsing")), b"").expect("parsing");
+    // Its file is past the stale age now, its parse isn't.
+    std::thread::sleep(Duration::from_millis(2000));
+    assert_eq!(server.status(&board, &owner, "95")["state"], "parsing");
+    assert!(server.q("inbox").join(format!("{j}.dem")).exists(), "the demo is still there for the parser");
+    // A parse that runs past the stale age (the worker is gone) is swept after all.
+    assert_eq!(server.until_state(&board, &owner, "95", "failed")["reason"], "timeout");
 }

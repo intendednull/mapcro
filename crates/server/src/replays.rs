@@ -55,8 +55,12 @@ pub struct Settings {
     pub max_queued: usize,
     /// Transfers waiting in line past this are refused (`queue_full`): the last resort.
     pub max_waiting: usize,
-    /// A reservation nobody asks about for this long lapses (its client went away).
+    /// A reservation nobody asks about for this long lapses (its client went away). Long enough
+    /// for a hidden tab, whose timers Chrome slows to about one a minute.
     pub reserve_ttl: Duration,
+    /// A turn given must be used (its upload started) within this, or it goes: a turn holds an
+    /// upload slot and its bytes, so asking alone can't keep one.
+    pub grant_use: Duration,
     /// Jobs the worker parses at once (its `REPLAY_WORKERS`), for the wait estimate.
     pub workers: usize,
     /// Bytes of cached timelines; the oldest go first past it.
@@ -64,9 +68,10 @@ pub struct Settings {
     pub uploads_at_once: usize,
     /// CDN downloads at once; more wait in line (as do any the queue has no room for).
     pub downloads_at_once: usize,
-    /// Uploads per client per hour. Fetches have no cap of ours: deadlock-api's own answers
-    /// pace them (a 429 backs off), and the queue's room bounds what we hold (operator,
-    /// 2026-11-08).
+    /// Turns given for uploads (reservations whose turn came, used or not) per client per hour.
+    /// Fetches have no hourly cap of ours: deadlock-api's own answers pace them (a 429 backs
+    /// off), and the queue's room bounds what we hold (operator, 2026-11-08); only how many a
+    /// client has waiting at once is capped (`PER_CLIENT_WAITING`).
     pub per_client: usize,
     /// No body bytes for this long ends an upload.
     pub idle: Duration,
@@ -93,7 +98,8 @@ fn settings() -> &'static Settings {
             max_queue_bytes: num("REPLAY_MAX_QUEUE_BYTES", 8 * 1024 * MIB),
             max_queued: num("REPLAY_MAX_QUEUED", 24) as usize,
             max_waiting: num("REPLAY_MAX_WAITING", 64) as usize,
-            reserve_ttl: Duration::from_secs(num("REPLAY_RESERVE_TTL_S", 20)),
+            reserve_ttl: Duration::from_secs(num("REPLAY_RESERVE_TTL_S", 90)),
+            grant_use: Duration::from_secs(num("REPLAY_GRANT_USE_S", 75)),
             workers: num("REPLAY_WORKERS", 2).max(1) as usize,
             max_cache_bytes: num("REPLAY_MAX_CACHE_BYTES", 1024 * MIB),
             uploads_at_once: num("REPLAY_UPLOADS_AT_ONCE", 4) as usize,
@@ -118,6 +124,8 @@ struct Jobs {
     line: Vec<Waiting>,
     /// Reservations whose turn came, held for their upload to start: bytes, client, last asked.
     granted: HashMap<String, Grant>,
+    /// Fetches in line, told when their download starts (dropped: they left the line).
+    turns: HashMap<String, tokio::sync::oneshot::Sender<()>>,
     /// Bytes each transfer under way may write (an upload's size, a download's cap).
     flight: HashMap<String, u64>,
     /// Each job's client and arrival, for the fair order, from its arrival until it's collected.
@@ -133,8 +141,8 @@ struct Jobs {
     line_order: Vec<String>,
     stats: Stats,
     failed: HashMap<String, (&'static str, Instant)>,
-    /// Uploads started, per client.
-    starts: HashMap<IpAddr, Vec<Instant>>,
+    /// Turns given for uploads, per client: the hourly limit counts them.
+    starts: HashMap<Client, Vec<Instant>>,
     /// Fetches downloading now (the rest of `fetching` wait in line for room).
     downloading: HashSet<String>,
     /// Matches whose fetch can't work for a while, by match id: no salts or demo, the download
@@ -151,6 +159,8 @@ struct Grant {
     bytes: u64,
     client: Client,
     touched: Instant,
+    /// When its turn came: it must be used within `grant_use`.
+    at: Instant,
 }
 
 fn jobs() -> &'static Mutex<Jobs> {
@@ -172,23 +182,29 @@ const REPLAY_KEPT_S: u64 = 21 * 24 * 3600;
 const BACKOFF_FIRST: Duration = Duration::from_secs(60);
 const BACKOFF_MAX: Duration = HOUR;
 
-/// Whether `client` has used its upload starts for the hour.
-fn over_limit(j: &mut Jobs, client: IpAddr) -> bool {
+/// Upload turns `client` was given this hour, plus the reservations it has waiting for one.
+fn turns_used(j: &mut Jobs, client: &str) -> usize {
     let now = Instant::now();
     j.starts.retain(|_, v| {
         v.retain(|t| now.duration_since(*t) < HOUR);
         !v.is_empty()
     });
-    j.starts.get(&client).map_or(0, Vec::len) >= settings().per_client
+    j.starts.get(client).map_or(0, Vec::len) + j.line.iter().filter(|w| w.kind == Kind::Upload && w.client == client).count()
 }
 
-/// Take one upload start for `client`, or say it's over its hourly limit.
-fn admit(j: &mut Jobs, client: IpAddr) -> Result<(), &'static str> {
-    if over_limit(j, client) {
-        return Err("rate_limited");
+/// Whether `client` can't ask for another upload turn this hour: the turns it was given and
+/// those it waits for count, so a turn taken and left unused still costs one.
+fn over_limit(j: &mut Jobs, client: &str) -> bool {
+    turns_used(j, client) >= settings().per_client
+}
+
+/// Why a new fetch from `client` can't join the line, if it can't: it has this many waiting
+/// already, or the line is at its cap (the last resort, as for uploads).
+fn fetch_refused(j: &Jobs, client: &str) -> Option<(StatusCode, &'static str)> {
+    if j.line.iter().filter(|w| w.kind == Kind::Fetch && w.client == client).count() >= PER_CLIENT_WAITING {
+        return Some((StatusCode::TOO_MANY_REQUESTS, "busy"));
     }
-    j.starts.entry(client).or_default().push(Instant::now());
-    Ok(())
+    (j.line.len() >= settings().max_waiting).then_some((StatusCode::SERVICE_UNAVAILABLE, "queue_full"))
 }
 
 /// The salts endpoint is backing off: its 429 hasn't cleared yet.
@@ -429,11 +445,17 @@ fn schedule(j: &mut Jobs, root: &FsPath) {
         j.owner.remove(&w.job);
         tracing::info!(job = w.job, "replay reservation lapsed");
     }
-    let lapsed: Vec<String> = j.granted.iter().filter(|(_, g)| now.saturating_duration_since(g.touched) >= s.reserve_ttl).map(|(k, _)| k.clone()).collect();
+    // A turn nobody used in time goes, asked about or not: its client starts over at the back.
+    let lapsed: Vec<String> = j
+        .granted
+        .iter()
+        .filter(|(_, g)| now.saturating_duration_since(g.touched) >= s.reserve_ttl || now.saturating_duration_since(g.at) >= s.grant_use)
+        .map(|(k, _)| k.clone())
+        .collect();
     for job in lapsed {
         j.granted.remove(&job);
         j.owner.remove(&job);
-        tracing::info!(job, "replay reservation lapsed after its turn");
+        tracing::info!(job, "replay turn lapsed unused");
     }
     let (bytes, queued) = queue_usage(root, &j.flight);
     let held: u64 = j.flight.values().sum::<u64>() + j.granted.values().map(|g| g.bytes).sum::<u64>();
@@ -453,9 +475,13 @@ fn schedule(j: &mut Jobs, root: &FsPath) {
         let w = j.line.remove(i);
         match w.kind {
             Kind::Upload => {
-                j.granted.insert(w.job, Grant { bytes: w.bytes, client: w.client, touched: now });
+                j.starts.entry(w.client.clone()).or_default().push(now);
+                j.granted.insert(w.job, Grant { bytes: w.bytes, client: w.client, touched: now, at: now });
             }
             Kind::Fetch => {
+                if let Some(tx) = j.turns.remove(&w.job) {
+                    let _ = tx.send(());
+                }
                 j.flight.insert(w.job.clone(), w.bytes);
                 j.downloading.insert(w.job);
             }
@@ -616,14 +642,14 @@ async fn auto_fetch(app: &AppState, board: &str, id: &str, client: Client) {
         j.negative.insert(id.to_owned(), ("expired", Instant::now() + NEGATIVE_FOR));
         return;
     }
-    if j.fetching.contains(&job) || negative(&j, id).is_some() || limited(&j) {
+    if j.fetching.contains(&job) || negative(&j, id).is_some() || limited(&j) || fetch_refused(&j, &client).is_some() {
         return;
     }
     j.fetching.insert(job.clone());
-    enqueue_fetch(&mut j, &root, &job, &client);
+    let turn = enqueue_fetch(&mut j, &root, &job, &client);
     drop(j);
     tracing::info!(job, "replay fetch started on open");
-    spawn_fetch(root, id.to_owned(), job);
+    spawn_fetch(root, id.to_owned(), job, turn);
 }
 
 /// `POST /api/boards/{board}/replays/{id}/upload`: an editor's `.dem`, streamed to the queue.
@@ -663,16 +689,17 @@ pub async fn upload(
         if j.uploading.contains(&job) {
             return err(StatusCode::CONFLICT, "in_progress");
         }
-        if over_limit(&mut j, client) {
-            return err(StatusCode::TOO_MANY_REQUESTS, "rate_limited");
-        }
-        // Its reservation's turn came (the client reserved first, spec §6a), or it takes a turn
-        // now if one is free for it; else the line is ahead of it.
+        // Its reservation's turn came (the client reserved first, spec §6a; the turn counted
+        // against the hourly limit when given), or it takes a turn now if one is free for it;
+        // else the line is ahead of it.
         let cap = match j.granted.get(&job) {
             Some(g) => g.bytes.min(s.max_upload),
             None => {
                 if j.line.iter().any(|w| w.job == job) {
                     return err(StatusCode::SERVICE_UNAVAILABLE, "queue_full");
+                }
+                if over_limit(&mut j, &client.to_string()) {
+                    return err(StatusCode::TOO_MANY_REQUESTS, "rate_limited");
                 }
                 let bytes = declared.unwrap_or(s.max_upload);
                 let seq = arrive(&mut j, &job, &client.to_string());
@@ -687,7 +714,6 @@ pub async fn upload(
                 bytes
             }
         };
-        let _ = admit(&mut j, client); // under the limit, checked above
         let g = j.granted.remove(&job);
         if !j.owner.contains_key(&job) {
             arrive(&mut j, &job, &g.map_or_else(|| client.to_string(), |g| g.client));
@@ -761,8 +787,7 @@ pub async fn reserve(
         State_::Uploading | State_::Queued(..) | State_::Parsing => return err(StatusCode::CONFLICT, "in_progress"),
         _ => {}
     }
-    let ip = client_key(client_ip(peer, &headers));
-    let client = ip.to_string();
+    let client = client_key(client_ip(peer, &headers)).to_string();
     let mut j = lock();
     let now = Instant::now();
     if let Some(g) = j.granted.get_mut(&job) {
@@ -774,7 +799,7 @@ pub async fn reserve(
         w.touched = now;
         w.bytes = bytes;
     } else {
-        if over_limit(&mut j, ip) {
+        if over_limit(&mut j, &client) {
             return err(StatusCode::TOO_MANY_REQUESTS, "rate_limited");
         }
         if j.line.iter().filter(|w| w.kind == Kind::Upload && w.client == client).count() >= PER_CLIENT_WAITING {
@@ -922,7 +947,7 @@ pub async fn fetch(
         State_::None | State_::Failed(_) => {}
         st => return (StatusCode::ACCEPTED, axum::Json(state_json(&st, "cdn"))).into_response(),
     }
-    {
+    let turn = {
         let mut j = lock();
         if j.fetching.contains(&job) {
             return (StatusCode::ACCEPTED, axum::Json(state_json(&State_::Fetching, "cdn"))).into_response();
@@ -931,47 +956,51 @@ pub async fn fetch(
         if limited(&j) {
             return err(StatusCode::TOO_MANY_REQUESTS, "upstream_limited");
         }
+        // A client waits for a few at once, and the line has its last resort: a fetch waiting
+        // costs nothing to ask for, so it's capped like a reservation.
+        let client = client_key(client_ip(peer, &headers)).to_string();
+        if let Some((code, why)) = fetch_refused(&j, &client) {
+            return err(code, why);
+        }
         j.failed.remove(&job);
         j.negative.remove(&id);
         j.fetching.insert(job.clone());
-        enqueue_fetch(&mut j, &root, &job, &client_key(client_ip(peer, &headers)).to_string());
-    }
-    spawn_fetch(root, id, job);
+        enqueue_fetch(&mut j, &root, &job, &client)
+    };
+    spawn_fetch(root, id, job, turn);
     (StatusCode::ACCEPTED, axum::Json(state_json(&State_::Fetching, "cdn"))).into_response()
 }
 
-/// A fetch joins the line (fair across clients, beside uploads) and starts if there's room.
-fn enqueue_fetch(j: &mut Jobs, root: &FsPath, job: &str, client: &Client) {
+/// A fetch joins the line (fair across clients, beside uploads) and starts if there's room. The
+/// receiver hears when its download may start.
+fn enqueue_fetch(j: &mut Jobs, root: &FsPath, job: &str, client: &Client) -> tokio::sync::oneshot::Receiver<()> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    j.turns.insert(job.to_owned(), tx);
     let seq = arrive(j, job, client);
     j.line.push(Waiting { job: job.to_owned(), client: client.clone(), kind: Kind::Fetch, seq, bytes: settings().max_download, touched: Instant::now() });
     schedule(j, root);
+    rx
 }
 
-/// Run a fetch already in `fetching` and in line: wait for its turn (a download slot and the
-/// queue's room; a burst waits rather than being refused), then salts, then the demo. Its
-/// failure is recorded.
-fn spawn_fetch(root: PathBuf, id: String, job: String) {
+/// Run a fetch already in `fetching` and in line: wait to be told its turn came (a download slot
+/// and the queue's room; a burst waits rather than being refused), then salts, then the demo.
+/// Its failure is recorded.
+fn spawn_fetch(root: PathBuf, id: String, job: String, turn: tokio::sync::oneshot::Receiver<()>) {
     tokio::spawn(async move {
         let s = settings();
-        let deadline = Instant::now() + s.stale;
-        let outcome = loop {
-            {
-                let mut j = lock();
-                if j.downloading.contains(&job) {
-                    if limited(&j) {
-                        break Err(("upstream_limited", None));
-                    }
-                    break Ok(());
-                }
-                if !j.line.iter().any(|w| w.job == job) {
-                    break Err(("internal", None)); // dropped from the line
-                }
-                if Instant::now() > deadline {
-                    j.line.retain(|w| w.job != job);
-                    break Err(("queue_full", None));
-                }
+        let told = tokio::time::timeout(s.stale, turn).await;
+        let outcome = {
+            let mut j = lock();
+            if j.downloading.contains(&job) {
+                if limited(&j) { Err(("upstream_limited", None)) } else { Ok(()) }
+            } else if told.is_err() {
+                // Waited past the stale limit: it gives up its place.
+                j.line.retain(|w| w.job != job);
+                j.turns.remove(&job);
+                Err(("queue_full", None))
+            } else {
+                Err(("internal", None)) // dropped from the line
             }
-            tokio::time::sleep(Duration::from_millis(250)).await;
         };
         let began = Instant::now();
         let outcome = match outcome {
@@ -1181,6 +1210,7 @@ fn collect(root: &FsPath, cache: &FsPath) {
                 continue;
             }
             let bytes = read_capped(&p, mapcro_replay::timeline::MAX_BYTES);
+            let mut parsed = false;
             if ext == "failed" {
                 let said = bytes.unwrap_or_default();
                 let why = mapcro_replay::reason::ALL.iter().copied().find(|r| r.as_bytes() == said.trim_ascii()).unwrap_or(mapcro_replay::reason::PARSE_FAILED);
@@ -1193,7 +1223,10 @@ fn collect(root: &FsPath, cache: &FsPath) {
                     .and_then(|t| if t.match_id == mapcro_replay::job_match_id(&job) { Ok(t) } else { Err("wrong match") });
                 match checked.and_then(|t| serde_json::to_vec(&t).map_err(|_| "json")) {
                     Ok(bytes) => match write_atomic(&cache.join(format!("{job}.json")), &bytes) {
-                        Ok(()) => tracing::info!(job, bytes = bytes.len(), "replay timeline cached"),
+                        Ok(()) => {
+                            parsed = true;
+                            tracing::info!(job, bytes = bytes.len(), "replay timeline cached");
+                        }
                         Err(e) => {
                             tracing::error!(error = %e, job, "replay cache not written");
                             fail(&job, mapcro_replay::reason::PARSE_FAILED);
@@ -1211,23 +1244,39 @@ fn collect(root: &FsPath, cache: &FsPath) {
                 let _ = std::fs::remove_file(root.join("inbox").join(format!("{job}.{x}")));
             }
             let mut j = lock();
-            // Seen parsing for a while, or finished between two looks (under a second).
+            // Seen parsing for a while, or finished between two looks (under a second). Only a
+            // parse that made a timeline is a sample: a refusal or a crash ends in no time and
+            // would make the wait look shorter than it is.
             let took = j.parse_started.remove(&job).map_or(1.0, |t| t.elapsed().as_secs_f64().max(1.0));
-            j.stats.parsed(took);
+            if parsed {
+                j.stats.parsed(took);
+            }
             j.owner.remove(&job);
         }
     }
-    // A queued job the worker never took (it's down) and partial transfers nobody finished.
-    let busy: HashSet<String> = {
+    // A queued job the worker never took (it's down) and partial transfers nobody finished. A
+    // job being parsed is the worker's (its own wall clock bounds it): its age counts from when
+    // its parse was first seen, not from its arrival, so a long wait in the queue doesn't
+    // delete a demo under the parser.
+    let (busy, parsing): (HashSet<String>, HashMap<String, Instant>) = {
         let j = lock();
-        j.uploading.iter().chain(&j.fetching).cloned().collect()
+        (j.uploading.iter().chain(&j.fetching).cloned().collect(), j.parse_started.clone())
     };
+    let out = root.join("outbox");
     if let Ok(rd) = std::fs::read_dir(root.join("inbox")) {
         for e in rd.flatten() {
             let p = e.path();
             let name = e.file_name().to_string_lossy().into_owned();
             let job = name.trim_start_matches('.').split('.').next().unwrap_or("").to_owned();
-            if name == mapcro_replay::ORDER_FILE || busy.contains(&job) || age(&p) < s.stale {
+            if name == mapcro_replay::ORDER_FILE || busy.contains(&job) {
+                continue;
+            }
+            let aged = if !name.starts_with('.') && out.join(format!("{job}.parsing")).exists() {
+                parsing.get(&job).is_some_and(|t| t.elapsed() >= s.stale)
+            } else {
+                age(&p) >= s.stale
+            };
+            if !aged {
                 continue;
             }
             let _ = std::fs::remove_file(&p);
@@ -1268,7 +1317,9 @@ fn order(root: &FsPath) {
     let on_disk: HashSet<&str> = parsing.iter().chain(&waiting).map(|(job, _)| job.as_str()).collect();
     let live: HashSet<String> = j.line.iter().map(|w| w.job.clone()).chain(j.granted.keys().cloned()).chain(j.uploading.iter().cloned()).chain(j.fetching.iter().cloned()).collect();
     j.owner.retain(|job, _| on_disk.contains(job.as_str()) || live.contains(job));
-    j.parse_started.retain(|job, _| on_disk.contains(job.as_str()));
+    // Only those parsing now: a parse the worker put back (it restarted) starts afresh.
+    let now_parsing: HashSet<&str> = parsing.iter().map(|(job, _)| job.as_str()).collect();
+    j.parse_started.retain(|job, _| now_parsing.contains(job.as_str()));
     // A file the server knows nothing of (queued before a restart) is its own client, in the
     // order its file arrived.
     let keyed: Vec<(String, Client, u64)> = waiting
@@ -1348,6 +1399,17 @@ mod tests {
         assert!(mapcro_replay::valid_job(&job_name("130816395", &scope)));
         assert!(mapcro_replay::valid_job(&job_name("130816395", "cdn")));
         assert_ne!(scope_of("AAAAAAAAAAAAAAAAAAAAAA"), scope_of("AAAAAAAAAAAAAAAAAAAAAB"));
+    }
+
+    /// A hidden tab's timers run about once a minute (Chrome's intensive throttling): its place
+    /// must outlast that between two asks, and so must a turn given between two asks, or a
+    /// tab in the background starts over at the back for ever. A turn still lapses unused
+    /// before a place would (finding 2026-11-08, queue review).
+    #[test]
+    fn places_and_turns_outlast_a_hidden_tabs_minute() {
+        let s = settings();
+        assert!(s.reserve_ttl >= Duration::from_secs(80), "{:?}", s.reserve_ttl);
+        assert!(s.grant_use > Duration::from_secs(65) && s.grant_use < s.reserve_ttl, "{:?}", s.grant_use);
     }
 
     #[test]
