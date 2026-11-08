@@ -387,6 +387,24 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     `[cleared_s, respawn_s]` intervals. The recording's first tick reads −1 everywhere before
     the first spawn times arrive; an "up" shorter than a second is that, not a spawn. On
     129738985: 52 sites, 227 clears, 5.6 KB, matching the probe's timeline.
+  - **Respawns** (`Player.respawn`, 2026-11-08, both tiers): `[died_s, back_s]` per death.
+    Replay: the second the hero is next seen alive, else (the recording ends first) the pawn's
+    `m_flRespawnTime`, last read while dead (exploration round 5: the two agree to 0.1 s in 70
+    of 71 respawns on 129738985). Metadata: `game_time_s + death_duration_s + 1`, so the
+    countdown ends on the path's first sample back.
+  - **The Soul Urn** (`urn`, 2026-11-08, exploration round 6): read every tick. On the ground
+    it is a `CCitadelItemPickupIdol`; picked up, that entity goes and the open delivery point
+    (`CCitadelIdolReturnTrigger`, `m_bDisabled` false) takes the carrier's team in
+    `m_iTeamNum`; dropped, a new idol appears where it fell; delivered, the point closes. The
+    carrier is the carrying team's living hero nearest where the urn lay (on 129738985, all 11
+    drops and deliveries put that hero within 570 units of the event). The timeline keeps
+    the spawns (second and `urn:` site), the state per second it changes (`ground` at x, y;
+    `carried` by team and slot; `none`), the open point, and `urn_pickup`, `urn_drop`,
+    `urn_delivered` events. On 129738985: 7 spawns every 300 s from 10:00, alternating west and
+    east, 50 states, 22 events (11 pick-ups, 4 drops, 7 deliveries).
+  - **Format stamp:** each worker timeline carries `format` (1 from respawns and the urn; 0
+    before). New fields are optional, so older cached timelines still load without them. The
+    server doesn't act on the stamp yet (backlog: "Replay timeline format versions").
   - **PVS gaps:** a demo records only entities near players. Powerups with nothing in the
     recording hold their last value, and the timeline lists those seconds as stale. Zipline
     colours and camp timers are networked whatever anyone sees. An objective counts as
@@ -540,6 +558,20 @@ makes a board with that match attached and lands in Player; **New board** is tod
   (the board's dimmed look) or not yet spawned (fainter). Hovering a camp, or tapping it on the
   phone, says "Respawns in m:ss (at m:ss)" or "Spawns at m:ss"; nothing counts down otherwise.
   The mid boss is the same, from its timer, and is down from its clear to its respawn.
+- **Respawn timers** (2026-11-08, both tiers): a dead hero's top-bar portrait shows the seconds
+  to its respawn over the darkened portrait, as the HUD counts, from the timeline's
+  `[died_s, back_s]` per death (replay: when the hero is next seen alive, else the pawn's
+  `m_flRespawnTime`; metadata: `death_duration_s`). It follows t, so it ticks with playback and
+  scrubs, and followers get it with t. A timeline without it shows none. The map shows nothing
+  for a dead hero (its token stays hidden).
+- **The Soul Urn** (replay tier, 2026-11-08): the urn on the ground where it lies, or at its
+  carrier's lower right ringed in the carrier's team colour (a dropped urn keeps the dropper's
+  ring). Its two delivery points are map markers (`urn:` sites, pack kind `urn`), off unless
+  open, the open one lit. Hovering a point, or tapping it on the phone, says when the next urn
+  spawns and where ("Urn spawns here in m:ss (at m:ss)"), or that the point is open. Pick-ups,
+  drops and deliveries are events (the "Urn" filter) and ping where they happened. Save scene
+  keeps the open point. In Sandbox the points toggle like the rifts: off by default, one open at
+  a time. The metadata tier has no urn.
 - **The transport:** play and pause, speed (0.5×, 1×, 2×, 4×, 8×), a scrubber with a tick per
   event, ±10 s, the match clock, and the replay tier's toggles (Troopers, Health), with Pings.
 - **Names** (2026-11-08, operator: content creators hide usernames in videos): a transport toggle,
@@ -568,7 +600,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
 - **Events** (both tiers, each with what it has; `Event` in `crates/replay/src/timeline.rs`):
   deaths (who; the killer and the place when the data has them, else where the hero was last
   seen), objectives, mid boss kills, rifts up and captured, powerups up and taken (replay only, on
-  seconds the spawner is in the recording), ult casts (replay only: a rise of the hero's ult
+  seconds the spawner is in the recording), urn pick-ups, drops and deliveries (replay only,
+  with the carrier), ult casts (replay only: a rise of the hero's ult
   cooldown, named by the game's `ImportantAbilityUsed` message, which covers every important
   ability, so it alone isn't an ult), and souls swings (the Amber-minus-Sapphire lead
   moving 5,000 within a minute and holding ten seconds on; none in the first two minutes, when

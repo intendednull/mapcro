@@ -458,3 +458,86 @@ Its positions need the pre-6712 +16384 offset. The lanes belong to the old layou
 4. Store this as a new per-lane track. It doesn't replace `WaveTrack`, which stays the wave position.
 5. The board then colours each lane amber over [0, amber_t] and sapphire over [sapphire_t, 1000], and leaves the gap uncoloured. This is exact, needs no smoothing, and has no PVS caveat.
 6. Drop the trooper-front estimate as the source of the zipline split.
+
+## Round 5: respawn timers (2026-11-08)
+
+**Scope:** read-only probe of 129738985 (6v6, build 6839) · **Probe:** `/tmp/camp-probe/src/bin/urn.rs` · **Output:** `/tmp/camp-probe/out5/129738985/respawn.csv` (no ids).
+
+### Verdict
+
+**The pawn carries the respawn time.** `CCitadelPlayerPawn.m_flRespawnTime` (`GameTime_t`) is set on the death tick and reads 0 while alive. It is on the same clock as the parser's `now` (pause-corrected `(tick + server_start_tick − paused) × interval`), so match second = death second + (`m_flRespawnTime` − `now`). `m_flDeathTime` is set on the same tick.
+
+| Field | Behaviour |
+|---|---|
+| `CCitadelPlayerPawn.m_flRespawnTime` | the respawn time while dead, 0 alive |
+| `CCitadelPlayerPawn.m_flDeathTime` | the death time; kept after the respawn |
+| `CCitadelPlayerController.m_flRespawnTime` | **always 0**: unused |
+| `CCitadelPlayerController.m_iDeaths` | the death count |
+| `k_EUserMsg_PlayerRespawned` (353) | `player_pawn`, `respawn_reason`; 75 in the recording |
+| game rules | no respawn array (`m_flHeroDiedTime` only) |
+
+**Checks** (to the end of the recording, the four 3 s revives in place aside):
+- The recording shows **71** respawns. **70** land within 0.1 s of the timer's last value.
+- In one of those 70 the timer itself moved: it dropped by 20 s a tick after the death.
+- The exception: a hero came back 20 s early with no change in the timer, in the last two
+  minutes (cause not identified).
+- The revives in place also set the timer.
+- Wait lengths run 9.7–90 s.
+
+**Rule used by the worker:** the second the hero is next seen alive, else (the recording ends first) the timer as last read while dead, rounded up. The timeline of 129738985 has 74 deaths, each with a respawn. Seven heroes are still dead when the game ends, and their respawns come from the timer.
+
+### API-summary tier
+
+**Available.** deadlock-api's match metadata (`CMsgMatchMetaDataContents.Deaths`) has `death_duration_s` next to `game_time_s`. On 130816395 every one of the 13 checked equals the length of the hero's zero-health run on its path, which starts one sample after the death (the server's `anchors` convention). The metadata timeline uses `[game_time_s, game_time_s + death_duration_s + 1]`.
+
+## Round 6: the Soul Urn (2026-11-08)
+
+**Scope:** the same probe and replay · **Output:** `/tmp/camp-probe/out5/129738985/{urn_entities,urn_pos,messages}.csv`.
+
+### Verdict
+
+**The urn's whole life is networked, at tick resolution.** The urn is the game's "idol".
+
+| Class / field | Behaviour |
+|---|---|
+| `CCitadelItemPickupIdol` | the urn **on the ground**. Position via `CBodyComponent.m_skeletonInstance.m_vecOrigin`. A new entity on each spawn and each drop; deleted on pick-up. |
+| `…PickupIdol.m_iTeamNum` | 4 on a spawn; on a drop, the dropper's team |
+| `…PickupIdol.m_nCurrencyValue` | the reward: 950 at 10:00, then +350 a spawn (2,350 by 30:00) |
+| `…PickupIdol.m_MoveType`, `m_flFallRate` | it spawns at z 1544 and falls at 112 u/s; `m_MoveType` 0 → 6 when it lands, 12.5 s later |
+| `CCitadelIdolReturnTrigger` | the two **delivery points**, static, at (−6592, −8) and (6304, −96); no skeleton, so origin via `CBodyComponent.m_cell*`/`m_vec*` |
+| `…ReturnTrigger.m_bDisabled` | false while that point is open. It opens as the urn lands, and closes on delivery. |
+| `…ReturnTrigger.m_iTeamNum` | the **carrying team** while carried, 0 otherwise |
+| map entity lump | `citadel_trigger_idol_return` × 2, at the same places; no separate spawn entity |
+| `k_EUserMsg_ReturnIdol` (320) | in the proto (`location_index`, `return_location`, `location_enabled`), **never sent** in this demo |
+| game rules | no urn fields: no next-spawn timer |
+
+The spawn point is the point the urn isn't delivered to: it spawns over one trigger (11 units off) and the other one opens.
+
+**State machine** (all 7 urns in 129738985):
+- **Spawn:** a new idol, team 4, no point open: 10:00, then every 300 s, alternating west and east. Spawns kept to the 300 s grid whenever the last delivery was (one was delivered at 29:17, and the next still spawned at 30:00).
+- **Landing:** the far point opens 12.5 s after the spawn.
+- **Pick-up:** the idol is deleted, and the open point takes the carrier's team, on the same tick.
+- **Drop:** the point's team goes to 0 and a new idol appears where it fell, team = the dropper's, on the same tick. The point stays open.
+- **Delivery:** the point's team goes to 0, the point closes, and no idol appears.
+- All seven urns were delivered, two of them after drops: 11 pick-ups, 4 drops and 7 deliveries.
+- One urn drifted 700 units while nobody held it (28:13–28:28, with `m_nTeamBias` 3 then 4); unexplained.
+
+**Carrier.** No networked field names the carrier. boon's `urn.rs` follows the carrier's `m_HoldingIdolModifier` through the modifier table, but that needs boon-data's ability and modifier catalog, which we don't load. Instead the worker takes, at the pick-up tick, the carrying team's living hero nearest where the urn lay. Checked against what happened next:
+- At all 11 drops and deliveries, that hero was 30–570 units from the event.
+- At all 11 pick-ups, it was 78–490 units from where the urn lay.
+- At deliveries, that hero was the nearest of its team every time.
+
+**PVS:** none. The idol and triggers are present the whole match.
+
+**Assets.** The pack already carries the urn's minimap art, because the extractor takes every `panorama/images/minimap/*`:
+- `soul_jar_marker_psd`: the urn (`.idol_spawn`, `.held_idol_image`).
+- `soul_jar_marker_return_psd`: the delivery point (`.idol_return`).
+- `soul_jar_marker_return_enemy_psd` and `soul_jar_marker_return_pulse_psd` are also there.
+
+The extractor now adds `citadel_trigger_idol_return` as kind `urn`. Its keys are `urn:neutral:lane1:1` (west) and `urn:neutral:lane6:1` (east).
+
+**Cost:** about 60 state records a match, about 5 KB as JSON. Reading the idol and triggers every tick adds nothing measurable: the parse took 5.4 s, as before.
+
+### API-summary tier
+
+**Nothing.** `CMsgMatchMetaDataContents` has no idol or urn events. Only per-player `gold_sources` totals might include urn souls, and they carry no times. The metadata tier shows no urn.

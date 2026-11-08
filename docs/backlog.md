@@ -56,7 +56,9 @@ lane data change replaced `waves` with `zips` and `camps`), older caches keep lo
 and miss the new layers until re-parsed. Fix: stamp a format version in the timeline. A stale CDN
 timeline is re-fetched and re-parsed. A stale upload is served as is, with the "Upload replay file"
 upgrade offered, since the server deletes uploaded demos after parsing. This matters once the replay
-tier is in production, which it isn't yet.
+tier is in production, which it isn't yet. Since 2026-11-08 the worker stamps `format` (1: respawns and
+the urn; a timeline without it reads 0). What's left is the server acting on it, in
+`crates/server/src/replays.rs`.
 
 ## Server
 
