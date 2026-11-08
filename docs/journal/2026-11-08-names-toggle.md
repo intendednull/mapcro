@@ -1,4 +1,4 @@
-# 2026-11-08: Names on the token, and a Names toggle
+# 2026-11-08: Names on the token, a Names toggle, and Player's keys
 
 The operator asked for two things. Hovering a hero's token in Player said the board's slot
 label ("Amber 2"), not the player's name. And an "anonymous mode", because content creators
@@ -32,3 +32,24 @@ hide usernames in their videos. The spec is §6b (Names).
 - The transport toggles look the same on and off. No `.btn.ghost.on` style exists, so only
   `aria-pressed` tells the two states apart. This applies to Troopers, Health and Pings as well
   as Names. Not changed here.
+
+## Then: Player's keys
+
+The operator asked for Space to play and pause, and for the arrows to split up: ← → move in
+time and ↑ ↓ step through events. Before this, ← → stepped events. Spec §6b, "Keys while
+watching".
+
+- **Steps:** ← → seek 5 s, and Shift makes it 30 s. The ±10 buttons are still there for a
+  middle step. A seek keeps playback playing or paused, and the clock clamps it to the match.
+- **Space:** a tap is Space down, then up, with no autorepeat and no pointer press in between.
+  A Space-drag pans (Board's `spaceHeld`) and never toggles. A tap toggles even when a button
+  has focus, which is a change from the lead's draft that ignored Space on a focused button.
+  Board's Space keydown already prevents the default, and in Chromium that stops a focused
+  button's Space click. So with that draft, Space did nothing after you clicked Play, which is
+  the most common case. The keyup also prevents the default, so a browser that clicks on keyup
+  can't toggle twice. The mutation run can't tell that guard apart in Chromium, because Board's
+  keydown already blocks the click there.
+- **The events list** no longer treats ↑ ↓ as a scroll that stops it from following. They're
+  the event step now, so the list follows the jump to the event.
+- Each binding's e2e assertion failed with that binding removed: seek, events, the Space tap,
+  and the pointer cancel that keeps a Space-drag from toggling (player-keys.spec.ts).

@@ -108,7 +108,7 @@ test("Play from here: the scene's drawings over the match, playing from its mome
   await expect(strokes(a)).toHaveCount(1); // the scene's own, untouched
 });
 
-test("the tree chip and the scrubber marker each do their job; ← → follow the map's content", async ({ browser }) => {
+test("the tree chip and the scrubber marker each do their job; the arrows follow the map's content", async ({ browser }) => {
   const { a } = await boardWithScene(browser);
   await scrubTo(a, 1000);
   // The chip jumps the match to the scene's moment without leaving it.
@@ -125,16 +125,16 @@ test("the tree chip and the scrubber marker each do their job; ← → follow th
   await a.keyboard.press("ArrowLeft");
   await expect(a.locator('[data-testid="scene-card"][aria-current="true"]')).toHaveAttribute("aria-label", /^Scene 1:/);
   await expect(bar(a)).toHaveAttribute("data-state", "scene");
-  // Watching: ← → step events.
+  // Watching: ↑ ↓ step events (← → seek there: player-keys.spec.ts).
   await a.getByTestId("mode-player").click();
   await expect(bar(a)).toHaveAttribute("data-state", "match");
   const t0 = await clock(a);
-  await a.keyboard.press("ArrowRight");
+  await a.keyboard.press("ArrowDown");
   await expect.poll(() => clock(a)).toBeGreaterThan(t0);
   const t1 = await clock(a);
   await expect(a.getByTestId("event-highlight")).toBeVisible();
   await expect(a.locator('[data-testid="scene-card"][aria-current="true"]')).toHaveAttribute("aria-label", /^Scene 1:/);
-  await a.keyboard.press("ArrowLeft");
+  await a.keyboard.press("ArrowUp");
   await expect.poll(() => clock(a)).toBeLessThan(t1);
 });
 

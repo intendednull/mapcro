@@ -100,7 +100,8 @@ export function EventsList(p: {
           ↓ Now
         </button>
       </Show>
-      <ol class="pl-list" ref={list} onWheel={userScrolled} onTouchMove={userScrolled} onKeyDown={(e) => ["PageUp", "PageDown", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key) && userScrolled()}>
+      {/* ↑ ↓ aren't a scroll here: they step through the events (Player.tsx). */}
+      <ol class="pl-list" ref={list} onWheel={userScrolled} onTouchMove={userScrolled} onKeyDown={(e) => ["PageUp", "PageDown", "Home", "End"].includes(e.key) && userScrolled()}>
         <For each={shown()} fallback={<li class="pl-empty">No events</li>}>
           {(e) => {
             const i = eventKey(e);

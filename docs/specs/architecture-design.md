@@ -544,6 +544,10 @@ makes a board with that match attached and lands in Player; **New board** is tod
   shown when the timeline has players' names, on by default. Off, no player name is on screen
   (top bar, events and their search, tokens' hover titles; the hero or slot label stands in).
   It is this browser's alone: kept in localStorage for every board, never in presence.
+- **Keys while watching** (2026-11-08, operator): ↑ ↓ step to the previous and next event (its
+  jump and ring), ← → seek 5 s (Shift: 30 s) and keep playing or paused, and a Space tap plays
+  or pauses. A Space-drag still only pans, and nothing fires while typing. Viewing a scene, ← →
+  step scenes instead.
 - **Troopers** (replay tier, on by default): each lane trooper as a small dot in its team's
   colour with a dark rim, under the heroes, sliding between the 1 Hz samples and gone when it
   dies; like the map's icons it keeps its size on screen as you zoom. The game's files don't
@@ -637,7 +641,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
   - The scrubber marks each scene saved from this match (a diamond, unlike the event ticks):
     click to view it. Its row in the scene tree has a **▶ m:ss** chip that jumps the match there
     without leaving it; clicking the row views the scene.
-  - ← → step scenes while viewing one, and step events (with the jump's lead) while watching.
+  - ← → step scenes while viewing one. While watching, ↑ ↓ step events (with the jump's lead) and
+    ← → seek (Keys while watching, above).
   - Followers follow the switch, the scene and the time. On the phone the bar sits above the
     scene nav. Boards without a match have no bar.
   - The jump ring follows the event's hero until the event, then stays on its place.

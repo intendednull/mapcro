@@ -23,6 +23,10 @@ import { EventsList } from "./Events";
 import { eventKey, jumpTime, namesFor, placeOf, shortLabel, tierLabel } from "./events";
 import type { PlayerHost } from "./host";
 
+/** ← → seek this far (seconds), with Shift the further one. */
+const SEEK_KEY = 5;
+const SEEK_KEY_SHIFT = 30;
+
 export function Player(p: {
   host: PlayerHost;
   state: BoardState;
@@ -124,21 +128,55 @@ export function Player(p: {
   // Dropped anywhere on the board while Player shows a match without its replay.
   const dragging = createDemDrop({ enabled: () => watching() && canUpload(), onFile: (f) => void take(f), onRefuse: (t) => h.setStatus(t) });
 
-  // ← → step through events while watching (the scene tree steps scenes while viewing one).
+  // Keys while watching (spec §6b; the scene tree has ← → while viewing a scene): ↑ ↓ step
+  // through events, ← → seek SEEK_KEY s (Shift: SEEK_KEY_SHIFT s), a Space tap plays or pauses.
   const events = createMemo(() => [...(h.tl()?.events ?? [])].sort((a, b) => a.t - b.t));
   onMount(() => {
+    const typing = (el: HTMLElement | null) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+    const live = (e: KeyboardEvent) => watching() && !!h.tl() && !typing(e.target as HTMLElement | null) && !e.altKey && !e.ctrlKey && !e.metaKey;
+    /** A Space tap so far: down, then nothing but up (no autorepeat, no pointer press: a
+     * Space-drag pans the map, Board.tsx `spaceHeld`, and doesn't play). */
+    let tap = false;
     const key = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
-      if (!watching() || (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)))) return;
-      if (e.altKey || e.ctrlKey || e.metaKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
-      const t = h.t();
-      const lead = h.lead();
-      const next = e.key === "ArrowRight" ? events().find((x) => jumpTime(x, lead) > t + 0.5) : [...events()].reverse().find((x) => jumpTime(x, lead) < t - 0.5);
-      e.preventDefault();
-      if (next) jumpTo(next, lead);
+      if (e.code === "Space") {
+        // While typing it's a space. (Board's own Space handler prevents its default, so that
+        // can't be the test here.)
+        tap = !e.repeat && live(e);
+        return;
+      }
+      // Arrows another handler took (the hero picker's grid) aren't ours.
+      if (e.defaultPrevented || !live(e)) return;
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        const step = (e.shiftKey ? SEEK_KEY_SHIFT : SEEK_KEY) * (e.key === "ArrowLeft" ? -1 : 1);
+        user(() => h.control.seek(h.t() + step));
+      } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        e.preventDefault();
+        const t = h.t();
+        const lead = h.lead();
+        const next = e.key === "ArrowDown" ? events().find((x) => jumpTime(x, lead) > t + 0.5) : [...events()].reverse().find((x) => jumpTime(x, lead) < t - 0.5);
+        if (next) jumpTo(next, lead);
+      }
     };
+    const up = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || !tap) return;
+      tap = false;
+      // A focused button (Play, just clicked) would take Space as its click too: on keyup, so
+      // this keeps it to one toggle. (Board's keydown already stops it in Chromium.)
+      e.preventDefault();
+      if (watching() && h.tl()) user(() => h.control.play(!h.playback().playing));
+    };
+    const cancel = () => (tap = false);
     window.addEventListener("keydown", key);
-    onCleanup(() => window.removeEventListener("keydown", key));
+    window.addEventListener("keyup", up);
+    window.addEventListener("pointerdown", cancel, true);
+    window.addEventListener("blur", cancel);
+    onCleanup(() => {
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("pointerdown", cancel, true);
+      window.removeEventListener("blur", cancel);
+    });
   });
   const jumpTo = (e: MatchEvent, lead: number) => {
     user(() => {
@@ -283,13 +321,13 @@ export function Player(p: {
         <Show when={watching() && h.tl()}>
           {(m) => (
             <div class="pl-transport">
-              <button class="btn small" type="button" data-testid="match-back" aria-label="Back 10 s" title="−10 s" onClick={() => user(() => h.control.seek(h.t() - 10))}>
+              <button class="btn small" type="button" data-testid="match-back" aria-label="Back 10 s" title="−10 s (← 5 s, Shift+← 30 s)" onClick={() => user(() => h.control.seek(h.t() - 10))}>
                 −10
               </button>
-              <button class="btn small pl-play" type="button" data-testid="match-play" aria-label={h.playback().playing ? "Pause" : "Play"} onClick={() => user(() => h.control.play(!h.playback().playing))}>
+              <button class="btn small pl-play" type="button" data-testid="match-play" aria-label={h.playback().playing ? "Pause" : "Play"} title={`${h.playback().playing ? "Pause" : "Play"} (Space)`} onClick={() => user(() => h.control.play(!h.playback().playing))}>
                 {h.playback().playing ? "Pause" : "Play"}
               </button>
-              <button class="btn small" type="button" data-testid="match-forward" aria-label="Forward 10 s" title="+10 s" onClick={() => user(() => h.control.seek(h.t() + 10))}>
+              <button class="btn small" type="button" data-testid="match-forward" aria-label="Forward 10 s" title="+10 s (→ 5 s, Shift+→ 30 s)" onClick={() => user(() => h.control.seek(h.t() + 10))}>
                 +10
               </button>
               <select class="input pl-speed" data-testid="match-speed" aria-label="Speed" value={String(h.playback().speed)} onChange={(e) => user(() => h.control.speed(Number(e.currentTarget.value)))}>
