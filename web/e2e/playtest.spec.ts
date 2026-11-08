@@ -2,6 +2,7 @@
 // new boards, vision, souls, drag-select and group moves, panning, and lane splits.
 
 import { type Page, expect, test } from "@playwright/test";
+import { SMOOTH_MS } from "../src/board/smooth";
 import { joinNew, mapPoint, tokenAt, viewLink, viewOf } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 import { heroPack } from "./synthetic";
@@ -261,28 +262,48 @@ test.describe("on the fallback map", () => {
     await a.mouse.move(gap.x + gap.width / 2, gap.y + gap.height / 2);
     await a.mouse.down();
     await expect(b.locator('.p-tag[data-tag="Coach"]')).toContainText("moving the wave");
-    // B records the split every frame while A moves it in one jump.
-    const sampled = b.evaluate(
-      (sel) =>
-        new Promise<number[]>((ok) => {
-          const out: number[] = [];
-          const end = performance.now() + 1000;
-          const f = () => {
-            out.push(Number(document.querySelector(sel)!.getAttribute("data-t")));
-            if (performance.now() < end) requestAnimationFrame(f);
-            else ok(out);
-          };
-          f();
-        }),
-      sel,
-    );
+    // B records every split it draws, with when, from before A moves it in one jump: a loaded
+    // page can start late, so the recorder is in place first. Counting frames would measure the
+    // box's frame rate (a loaded run draws ~13 a second); what makes a glide is where the drawn
+    // values fall in time.
+    type Seen = [number, number][];
+    await b.evaluate((sel) => {
+      const el = document.querySelector(sel)!;
+      const out: Seen = [[performance.now(), Number(el.getAttribute("data-t"))]];
+      const mo = new MutationObserver(() => out.push([performance.now(), Number(el.getAttribute("data-t"))]));
+      mo.observe(el, { attributes: true, attributeFilter: ["data-t"] });
+      (window as unknown as { glide: { out: Seen; mo: MutationObserver } }).glide = { out, mo };
+    }, sel);
     await a.mouse.move(dest.x, dest.y, { steps: 1 });
-    const seen = await sampled;
+    await expect.poll(async () => Number(await b.locator(sel).getAttribute("data-t"))).toBeGreaterThan(t0 + 100);
+    const seen = await b.evaluate(
+      () =>
+        new Promise<Seen>((ok) => {
+          // Settled: nothing drawn for a while after it moved.
+          const { out, mo } = (window as unknown as { glide: { out: Seen; mo: MutationObserver } }).glide;
+          const check = () => {
+            if (performance.now() - out[out.length - 1]![0] < 300) return setTimeout(check, 50);
+            mo.disconnect();
+            ok(out);
+          };
+          check();
+        }),
+    );
     await a.mouse.up();
-    const last = seen[seen.length - 1]!;
+    const ts = seen.map(([, t]) => t);
+    const last = ts[ts.length - 1]!;
     expect(last).toBeGreaterThan(t0 + 100);
-    // Several frames between the old and new split, never going back.
-    expect(seen.filter((t) => t > t0 && t < last).length).toBeGreaterThanOrEqual(3);
-    expect(seen.every((t, i) => i === 0 || t >= seen[i - 1]!)).toBe(true);
+    // Never going back, and drawn between the old and new split on the way...
+    expect(ts.every((t, i) => i === 0 || t >= ts[i - 1]!)).toBe(true);
+    const mid = seen.flatMap(([at, t], i) => (t > t0 && t < last ? [{ at, t, i }] : []));
+    expect(mid.length).toBeGreaterThanOrEqual(1);
+    // ...and taking the glide's time to land: each in-between value dates the glide's start (it
+    // eases linearly over SMOOTH_MS), and the landing comes no sooner than SMOOTH_MS after every
+    // such date, give or take a draw's latency. A jump, a snap after one eased frame, or a
+    // quicker glide fails.
+    const from = ts[mid[0]!.i - 1]!;
+    const starts = mid.map(({ at, t }) => at - ((t - from) / (last - from)) * SMOOTH_MS);
+    const landed = seen.find(([, t]) => t === last)![0];
+    expect(landed - Math.max(...starts)).toBeGreaterThanOrEqual(SMOOTH_MS - 10);
   });
 });
