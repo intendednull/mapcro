@@ -47,7 +47,7 @@ describe("match timeline", () => {
       match_id: 1, start_time: 0, duration_s: 4, source: "", objectives: [], mid_boss: [], reanchored: 0,
       players: [{ team: "amber", slot: 2, hero_id: 7, x: p.x, y: p.y, health: [100, 100, 0, 0, 100], deaths: [1], souls: p.souls }],
     };
-    expect(playersAt(tl, 3)).toEqual([{ team: "amber", slot: 2, hero_id: 7, pos: null, last: { x: 10, y: -10 }, souls: null, ult: null, health: null }]);
+    expect(playersAt(tl, 3)).toEqual([{ team: "amber", slot: 2, hero_id: 7, name: null, pos: null, last: { x: 10, y: -10 }, souls: null, ult: null, health: null }]);
     expect(clockLabel(725)).toBe("12:05");
   });
 });
