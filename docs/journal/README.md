@@ -20,3 +20,4 @@ experiment writes its predictions down *before* it runs, so the result can show 
 | 2026-11-07 | [Presence latency, group commit, compaction](2026-11-07-server-latency-and-compaction.md) |
 | 2026-11-07 | [Match import's replay tier](2026-11-07-replay-tier.md) |
 | 2026-11-08 | [Player](2026-11-08-player.md) |
+| 2026-11-08 | [The game's own lane and camp state](2026-11-08-lane-data.md) |

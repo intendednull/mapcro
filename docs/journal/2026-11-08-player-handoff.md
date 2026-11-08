@@ -203,3 +203,8 @@ should name what's missing.
 - The replay records 78 deaths against the metadata's 74 for 129738985. The extra 4 aren't
   explained.
 - The mid boss's killer team isn't read from the demo.
+
+## Update (lane-data, later the same day)
+
+Queue item 2, the zipline lead in item 3 and item 4 (now moot) are done, and the patron-key and
+78-vs-74 questions are answered: see [the lane data entry](2026-11-08-lane-data.md).

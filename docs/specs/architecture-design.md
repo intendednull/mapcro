@@ -271,10 +271,10 @@ and shared boards therefore follow one code path and one set of tests.
     nearest sample at or before t), and objective states.
   - If the board's heroes differ from the match's, the same transaction sets the roster to the
     match's ("Roster → match heroes"). One undo reverts all of it.
-- **Not in the metadata tier:** ults, lane waves, rifts, powerups and z. A match older than the
+- **Not in the metadata tier:** ults, zipline colours, camps, rifts, powerups and z. A match older than the
   pack is drawn on it with an "Older map" label.
 - The mid boss's respawn time isn't in the match data. The preview shows it down from a kill
-  until the next kill.
+  until the next kill (the replay tier has the real respawn, below).
 
 ### Tiers: the replay is the rich one (operator, 2026-11-07)
 
@@ -333,22 +333,45 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
   - **Rifts:** the `rift:` key that is up at t, from the spawner's position or the live
     cash-in's.
   - **Powerups:** available or taken per `powerup:` key at each second.
-  - **Lane waves:** for each lane and second, where Amber's front (its furthest trooper along
-    the lane) and Sapphire's meet, as `Wave.t`, the board's own projection onto the lane curve
-    (ported from `web/src/map/lanes.ts`, with a shared golden test). One front alone gives its
-    own position.
-  - **PVS gaps:** a demo records only entities near players. Waves and powerups with nothing in
-    the recording hold their last value, and the timeline lists those seconds as stale ("Waves
-    held"). An objective counts as destroyed only when its health is seen to fall and nothing
-    on its site is seen alive after.
+  - **Zipline colours** (`zips`, 2026-11-08, replacing the trooper-front estimate): the game
+    networks each rope node's owner (`CCitadelZipLineNode.m_iTeamNum`, exploration round 4),
+    and along a lane it is always one Amber run, a bare gap, one Sapphire run. Each node's `t`
+    is the board's own projection onto the lane curve (ported from `web/src/map/lanes.ts`, with
+    a shared golden test; the nodes sit on our curves to 0.0 units). Per lane the timeline keeps
+    `[second, amber_t, sapphire_t]` wherever an edge moves: Amber's edge is its furthest node
+    (0 if none), Sapphire's its nearest (1000 if none). On 129738985 that is ~1,200 changes a
+    lane, 53.6 KB, and every second matches the probe's.
+  - **Camps** (`camps`, 2026-11-08): the game rules' neutral camp timers
+    (`m_vecNeutralCampNextSpawnTimes`, −1 up, T > 0 back at match-clock T; exploration round 3),
+    read every tick. Each timer's slot is matched to our camp (or, flagged as the mid boss, the
+    mid boss) site **by its origin**, never by index. Per site: the first spawn second and the
+    `[cleared_s, respawn_s]` intervals. The recording's first tick reads −1 everywhere before
+    the first spawn times arrive; an "up" shorter than a second is that, not a spawn. On
+    129738985: 52 sites, 227 clears, 5.6 KB, matching the probe's timeline.
+  - **PVS gaps:** a demo records only entities near players. Powerups with nothing in the
+    recording hold their last value, and the timeline lists those seconds as stale. Zipline
+    colours and camp timers are networked whatever anyone sees. An objective counts as
+    destroyed only when its health is seen to fall and nothing on its site is seen alive after.
+  - **Deaths** follow the pawn's life state, except a revive in place: a hero back alive within
+    5 s and 2,500 units of where it fell didn't die (129738985 had four such 3 s gaps, which the
+    metadata doesn't count either; real respawns take ≥ 10 s and start at the base).
 - **The game clock:** `(tick + server_start_tick − paused ticks) × tick interval −
   m_flGameStartTime`, until the game rules name a winner. Checked against the metadata of match
   122134063: deaths and objectives within a second, the same 890 s duration. The exploration's
   formula, without `server_start_tick`, ran 48 s early.
 - **Save as scene** also writes each player's ult cooldown, the rift that's up (rifts default
-  off), taken powerups (they default available) and a `Wave` per lane.
-- **Preview while scrubbing:** ult rings beside each hero in the panel, the rift and powerup
-  states on the map, and the lane splits; local only, like the rest of the preview.
+  off), taken powerups (they default available), cleared camps (and the mid boss, down until its
+  respawn) and a `Wave` per lane. A scene has one split per lane, so the zipline colours' two
+  edges become their midpoint, `round((amber_t + sapphire_t) / 2)`: the middle of the bare gap,
+  the contested ground (decided 2026-11-08; the gap's width is lost).
+- **Preview while scrubbing:** ult rings beside each hero in the panel, the rift, powerup and
+  camp states on the map, and the zipline colours; local only, like the rest of the preview.
+- **Keys:** the worker keys sites by its built-in map (`web/src/map/fallback-data.ts`), the
+  metadata by Valve's lanes, and a pack can key the same site differently (the dev pack's
+  patrons are `lane3`, its mid boss `lane4`, its camps numbered by lane, where the built-in map
+  has `lane0`). The client resolves a timeline key to the board's marker
+  (`match/timeline.ts`, `markerKey`): the key itself, else the marker of the same kind on the
+  built-in site's spot, else for the patron and mid boss the same kind and team.
 
 ### The replay worker: isolation and limits
 
@@ -403,14 +426,23 @@ makes a board with that match attached and lands in Player; **New board** is tod
   (owner or edit link) attaches one. A board with one opens in Player on its newest.
 - **Player draws only the timeline at t; Sandbox only the scene's records.** The map shows the match
   at playback time t: heroes interpolated between 1 Hz samples and hidden while dead, objectives,
-  and from a replay rifts, powerups and lane splits; ult rings sit in Player's roster. No scene
+  and from a replay rifts, powerups, zipline colours and camps; ult rings sit in Player's
+  roster. No scene
   state (alive, seen, placed, objective, rift or wave records) shows through in Player, and none of
   Player's shows through in Sandbox. Switching modes, scenes or matches leaves nothing behind
   (operator report 2026-11-08: heroes drawn dark where the scene had them dead).
-- **Lane splits** on the replay tier are a 5 s median of the seconds a front was seen (raw fronts
-  jump ~1,100 units a second as waves die and spawn; exploration round 2).
+- **Lanes** on the replay tier take the game's zipline colours (2026-11-08): Amber's colour
+  over `[0, amber_t]`, Sapphire's over `[sapphire_t, 1000]`, and the gap between drawn bare,
+  as the board's own split gap (never narrower than it). The colour is captured ground: a node
+  keeps it after the wave dies, so it isn't where the troopers are (the trooper-front split it
+  replaces landed in the true gap only 52–56% of the time; exploration round 4). Metadata-tier
+  matches have no lane data and show the default split. Sandbox keeps its one draggable split.
+- **Camps** on the replay tier (2026-11-08): the map shows only each camp's state: up, cleared
+  (the board's dimmed look) or not yet spawned (fainter). Hovering a camp, or tapping it on the
+  phone, says "Respawns in m:ss (at m:ss)" or "Spawns at m:ss"; nothing counts down otherwise.
+  The mid boss is the same, from its timer, and is down from its clear to its respawn.
 - **The transport:** play and pause, speed (0.5×, 1×, 2×, 4×, 8×), a scrubber with a tick per
-  event, ±10 s, and the match clock. "Waves held" while a lane's split is held through a gap.
+  event, ±10 s, and the match clock.
 - **Events** (both tiers, each with what it has; `Event` in `crates/replay/src/timeline.rs`):
   deaths (who; the killer and the place when the data has them, else where the hero was last
   seen), objectives, mid boss kills, rifts up and captured, powerups up and taken (replay only, on
