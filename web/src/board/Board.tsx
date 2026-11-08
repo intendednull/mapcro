@@ -786,7 +786,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
           <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} />}>
             <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} />
           </Show>
-          {mapBox(false)}
+          {/* The map takes all the room left, as the largest square that fits. */}
+          <div class="mapfit">{mapBox(false)}</div>
+          {/* One dock under the map, in the page's flow: the tools, then Player's bar. They can't
+              overlap whatever their heights; the map shrinks to leave them room. */}
+          <div class="dock" data-testid="dock">
           <Toolbar
             tool={tool()}
             setTool={setTool}
@@ -820,6 +824,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
               say(text, { label: "Undo", run: () => Array.from({ length: steps }).forEach(() => state.undo()) });
             }}
           />
+          {playerBar()}
+          </div>
           {toastView()}
         </main>
         <aside class="side">
@@ -923,7 +929,6 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </section>
         </aside>
       </div>
-      {playerBar()}
     </div>
     </Show>
     <Show when={dialog() === "share" && state.canEdit()}>

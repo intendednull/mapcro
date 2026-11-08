@@ -33,4 +33,9 @@ describe("playback clock", () => {
     const p = follow(mine, { t: 99, playing: true, speed: 1, at: 0 }, 5000, 100);
     expect(p).toEqual({ t: 100, playing: false, speed: 1, at: 5000 });
   });
+
+  it("never runs backwards when read with a clock older than the playback's stamp", () => {
+    // Pressing Play stamps `at` now; a frame clock last read while paused is older.
+    expect(tAt({ t: 600, playing: true, speed: 1, at: 10_000 }, 7_000, 1300)).toBe(600);
+  });
 });

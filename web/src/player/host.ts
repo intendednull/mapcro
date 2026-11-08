@@ -57,7 +57,11 @@ export function createPlayerHost(board: string, token: string) {
   const [highlight, setHighlight] = createSignal<{ event: MatchEvent; place: Pt | undefined; key: number }>();
   const duration = () => tl()?.duration_s ?? 0;
   /** Playback position now, ticking each frame while it plays. */
-  const t = createMemo(() => tAt(playback(), now(), duration()));
+  // `now` isn't ticking while paused: read the wall clock afresh when the playback changes.
+  const t = createMemo(() => {
+    const pb = playback();
+    return tAt(pb, Math.max(now(), pb.at), duration());
+  });
 
   // One frame clock while playing; it stops itself at the end.
   let raf = 0;

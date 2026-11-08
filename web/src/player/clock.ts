@@ -16,7 +16,8 @@ export const clampT = (t: number, duration: number) => Math.max(0, Math.min(dura
 
 /** Where playback is at wall time `now`; it stops at the end. */
 export function tAt(p: Playback, now: number, duration: number): number {
-  return p.playing ? clampT(p.t + ((now - p.at) / 1000) * p.speed, duration) : clampT(p.t, duration);
+  // A clock read before the playback was stamped would run it backwards: never (QA, item 6).
+  return p.playing ? clampT(p.t + (Math.max(0, now - p.at) / 1000) * p.speed, duration) : clampT(p.t, duration);
 }
 
 /** The same playback, re-sampled at `now` (before changing speed or pausing). */

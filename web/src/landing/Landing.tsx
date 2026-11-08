@@ -47,7 +47,6 @@ export function Landing() {
       if (made?.id !== id) {
         const t = `Match ${id}`;
         const { board, owner_token } = await new Api("").createBoard(t);
-        rememberBoard({ board, token: owner_token, title: t });
         made = { board, token: owner_token, id };
       }
       const api = new PlayerApi(made.board, made.token);
@@ -60,6 +59,8 @@ export function Landing() {
           return setError(err);
         }
       }
+      // Only a match that opened goes in "Your boards" (QA, item 8).
+      rememberBoard({ board: made.board, token: made.token, title: `Match ${id}` });
       location.assign(shareUrl(location.origin, made.board, made.token));
     } catch {
       setOpening("");
