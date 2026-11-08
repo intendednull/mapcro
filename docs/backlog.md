@@ -3,18 +3,14 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
-## Playback mode, and "resume a scene" (2026-11-08)
+## "Resume a scene" (2026-11-08)
 
-- **Playback:** a player component, or mode, that plays an imported match through on the map, so the team
-  can annotate it as it runs without saving scenes. Ink, arrows, comments and pings stay live over the
-  playback.
+- **Playback is in progress**, as Player (spec §6b): it plays an imported match on the map, with
+  annotation over it kept only by saving a scene (operator, decided).
 - **Resume a scene:** start playback from a saved scene's moment, to show "here's what you should have
   done" (the scene, edited) next to "here's what you actually did" (the match playing on from that point).
-- **Depends on:**
-  - scenes remembering their source match and time; today imported scenes are frozen copies named
-    "Match <id> @ mm:ss"
-  - the replay or metadata timeline being available at view time; it's cached on the server
-  - a playback clock shared by followers, with presence carrying the playback position
+  Enabled by Player's saved scenes storing their source (match id, t, tier); the action itself isn't
+  built.
 - **Open question:** resuming inside the game client itself, rather than in mapcro's playback, would
   need a way to load game state into Deadlock. No public mechanism for that is known.
 

@@ -32,18 +32,15 @@ export function matchSceneOps(
   markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane">>,
   mint: () => RecordId,
   lanes: string[] = [],
-): { id: RecordId; ops: Op[] } {
+  opts: SceneOpts = {},
+): { id: RecordId; ops: Op[]; order: string } {
   const i = current ? scenes.findIndex((s) => s.id === current.id) : scenes.length - 1;
   const id = mint();
   const second = Math.floor(t);
-  const ops: Op[] = [
-    {
-      Create: {
-        id,
-        record: { Scene: { name: `Match ${tl.match_id} @ ${clockLabel(second)}`.slice(0, 24), order: keyBetween(scenes[i]?.scene.order, scenes[i + 1]?.scene.order), clock: second } },
-      },
-    },
-  ];
+  const order = keyBetween(opts.after ?? scenes[i]?.scene.order, scenes[i + 1]?.scene.order);
+  const name = opts.name ?? `Match ${tl.match_id}`;
+  const scene = { name: sceneName(name, second), order, clock: second, ...(opts.source ? { source: { ...opts.source, t: second } } : {}) };
+  const ops: Op[] = [{ Create: { id, record: { Scene: scene } } }];
   const at = new Map(playersAt(tl, second).map((p) => [slotKey(p.team, p.slot), p]));
   for (const s of roster) {
     const p = at.get(slotKey(s.slot.team, s.slot.slot));
@@ -66,6 +63,54 @@ export function matchSceneOps(
     if ((isRift && status === "Active") || (!isRift && status === "Destroyed")) ops.push({ Create: { id: mint(), record: { ObjectiveState: { scene: id, key, status } } } });
   }
   for (const [lane, w] of wavesAt(tl, second)) if (lanes.length === 0 || lanes.includes(lane)) ops.push({ Create: { id: mint(), record: { Wave: { scene: id, lane, t: w.t } } } });
-  for (const c of rosterChanges(roster, tl)) ops.push({ Set: { id: c.id, value: { RosterHero: c.hero } } });
-  return { id, ops };
+  if (opts.roster !== false) for (const c of rosterChanges(roster, tl)) ops.push({ Set: { id: c.id, value: { RosterHero: c.hero } } });
+  return { id, ops, order };
 }
+
+export interface SceneOpts {
+  /** The scene's label before " @ mm:ss" (default "Match <id>"). */
+  name?: string;
+  /** Insert after this order key instead of after the current scene. */
+  after?: string;
+  /** Set the roster to the match's heroes (default true). */
+  roster?: boolean;
+  /** Where the scene came from (spec §6b): stored for "resume from here". */
+  source?: { match_id: number; tier: string };
+}
+
+/** "<label> @ mm:ss" within the schema's 24 characters: the label gives way, never the time. */
+export function sceneName(label: string, second: number): string {
+  const at = ` @ ${clockLabel(second)}`;
+  const room = 24 - at.length;
+  const l = label.length > room ? `${label.slice(0, room - 1)}…` : label;
+  return l + at;
+}
+
+/**
+ * One scene per moment, in order after the current scene, as one transaction (one undo): the
+ * roster is set to the match's heroes once.
+ */
+export function matchScenesOps(
+  roster: Slot[],
+  scenes: SceneRow[],
+  current: SceneRow | undefined,
+  tl: Timeline,
+  moments: Array<{ t: number; name: string }>,
+  markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane">>,
+  mint: () => RecordId,
+  lanes: string[] = [],
+): { ids: RecordId[]; ops: Op[] } {
+  const ids: RecordId[] = [];
+  const ops: Op[] = [];
+  let after: string | undefined;
+  moments.forEach((m, n) => {
+    const r = matchSceneOps(roster, scenes, current, tl, m.t, markers, mint, lanes, { name: m.name, ...(after ? { after } : {}), roster: n === 0, source: sourceOf(tl) });
+    ids.push(r.id);
+    ops.push(...r.ops);
+    after = r.order;
+  });
+  return { ids, ops };
+}
+
+/** A timeline's scene source (spec §6b). */
+export const sourceOf = (tl: Timeline) => ({ match_id: tl.match_id, tier: tl.tier === "replay" ? "replay" : "metadata" });

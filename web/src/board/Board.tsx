@@ -21,8 +21,9 @@ import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type ViewRect, clampView, fromViewport, presenters, sideOf, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
-import { type MatchPreview, MatchPanel } from "../match/MatchPanel";
-import { matchSceneOps } from "../match/save";
+import type { MatchPreview } from "../match/preview";
+import { Highlight, Player, PlayerSide, PlayerSwitch } from "../player/Player";
+import { createPlayerHost, playbackPresence } from "../player/host";
 import { Layers, calloutOrder } from "./Layers";
 import { FRESH_BOARD, randomRosterOps } from "./roster";
 import { HeroPicker } from "./HeroPicker";
@@ -100,7 +101,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const [overlay, setOverlay] = createSignal<SVGSVGElement>();
   const [dialog, setDialog] = createSignal<"share" | "clone">();
   // ---- match import: the panel, and its local (unsynced) preview on the map ----
-  const [matchOpen, setMatchOpen] = createSignal(false);
+  // ---- Player (spec §6b): a board with a match opens on it; its preview drives the map ----
+  const player = createPlayerHost(p.board, p.token);
+  onMount(() => void player.init());
+  const inPlayer = () => player.mode() === "player";
   const [matchPreview, setMatchPreview] = createSignal<MatchPreview>();
   // Problems the session reports: rejections show in the save status until dismissed; local
   // refusals (nothing to undo, couldn't save locally) are a toast.
@@ -164,8 +168,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
     const side = sideOf(s.view);
     if (side && side !== viewpoint()) setViewpoint(side);
     setView(fromViewport(s.view, side ?? viewpoint()));
+    // Player too: the presenter's mode, match and playback (spec §6b).
+    player.mirror(s.playback);
   });
   createEffect(() => state.presence({ view: toViewport(view(), viewpoint()) }));
+  playbackPresence(player, (playback) => state.presence(playback ? { playback } : ({ playback: undefined } as never)));
   /** Your own flip changes what you see, so it stops following; you keep the side you chose. */
   const flipSide = () => {
     stopFollowing("flipped");
@@ -325,8 +332,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
     const mine = waveDrag();
     if (mine?.key === key) return mine.t;
     const lane = p.art.model.lanes.find((l) => l.key === key);
-    // A match preview shows the match's splits (replay tier) over the board's.
-    return matchPreview()?.waves.get(key) ?? remoteSmooth().get(key)?.() ?? waves().get(key)?.t ?? (lane ? defaultSplit(lane.line) : 500);
+    // Player shows only the match's splits (replay tier), never the scene's (spec §6b).
+    const pv = matchPreview();
+    if (pv) return pv.waves.get(key) ?? (lane ? defaultSplit(lane.line) : 500);
+    return remoteSmooth().get(key)?.() ?? waves().get(key)?.t ?? (lane ? defaultSplit(lane.line) : 500);
   };
 
   // ---- a board this device just made gets twelve random heroes, once ----
@@ -517,12 +526,12 @@ export function Board(p: { board: string; token: string; art: Art }) {
               status={(k) => {
                 const pv = matchPreview();
                 const own = objectives().get(k)?.status;
-                // The match preview shows what was down at that moment, and from a replay the
-                // rifts and powerups too; without those, rifts keep the board's.
+                // Player shows only the match at t (spec §6b): what was down, and from a replay
+                // the rifts and powerups; never the scene's states. Without a replay, rifts are off.
                 if (!pv) return own;
                 const site = pv.sites.get(k);
                 if (site) return site;
-                if (k.startsWith("rift:")) return own;
+                if (k.startsWith("rift:")) return "Destroyed";
                 return pv.down.has(k) ? "Destroyed" : "Active";
               }}
               waveT={splitOf}
@@ -534,7 +543,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 state={state}
                 art={p.art}
                 vp={viewpoint()}
-                scene={scene()?.id}
+                // In Player, annotation goes to the live layer (spec §6b).
+                scene={inPlayer() ? (state.liveScene() ?? scene()?.id) : scene()?.id}
                 tool={tool()}
                 ink={ink()}
                 myColor={me()?.color ?? 0}
@@ -561,6 +571,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 onPan={(dx, dy) => userView({ ...view(), x: view().x - dx, y: view().y - dy }, "panned the map")}
                 onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
               />
+              <Highlight at={inPlayer() ? player.highlight()?.at : undefined} vp={viewpoint()} />
             </MapView>
             {/* The phone has its own Flip in its tool strip: one control, one test id. */}
             {!phone && (
@@ -682,7 +693,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
               </h1>
             </div>
           </div>
-          <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} />
+          <Show when={!inPlayer()}>
+            <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} />
+          </Show>
           {mapBox(false)}
           <Toolbar
             tool={tool()}
@@ -710,7 +723,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
           {toastView()}
         </main>
         <aside class="side">
-          <section>
+          <Show when={inPlayer()}>
+            <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={userFlip} onUserPlayback={() => stopFollowing("changed the playback")} />
+          </Show>
+          <section classList={{ "pl-hidden": inPlayer() }}>
             <h2>
               Roster
             </h2>
@@ -813,22 +829,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
         vp={viewpoint()}
         current={scene()?.id}
         onFlip={userFlip}
-        {...(state.canEdit() ? { onMatch: () => setMatchOpen(true) } : {})}
+        {...(state.canEdit() ? { onMatch: () => player.setMode("player") } : {})}
       />
-      <Show when={matchOpen() && state.canEdit()}>
-        <MatchPanel
-          art={p.art}
-          board={p.board}
-          token={p.token}
-          roster={state.roster()}
-          onPreview={setMatchPreview}
-          onClose={() => setMatchOpen(false)}
-          onSave={(tl, t) => {
-            const { id, ops } = matchSceneOps(state.roster(), state.scenes(), scene(), tl, t, p.art.model.markers, newRecordId, p.art.model.lanes.map((l) => l.key));
-            state.edit(ops); // one transaction: one undo removes the scene and the roster change
-            userFlip(id);
-          }}
-        />
+      <Show when={inPlayer()} fallback={<PlayerSwitch host={player} state={state} onSwitch={() => stopFollowing("switched to Player")} />}>
+        <Player host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onPreview={setMatchPreview} onSaved={userFlip} onUserPlayback={() => stopFollowing("changed the playback")} />
       </Show>
     </div>
     </Show>

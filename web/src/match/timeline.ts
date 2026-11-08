@@ -38,6 +38,25 @@ export interface Timeline {
   rifts?: Array<{ key: string; start_s: number; end_s: number }>;
   powerups?: Array<{ key: string; available: number[]; stale: Stale }>;
   waves?: Array<{ lane: string; t: Array<number | null>; stale: Stale }>;
+  /** Both tiers, each with what it has (crates/replay/src/timeline.rs `Event`). */
+  events?: MatchEvent[];
+}
+
+export type EventKind = "death" | "objective" | "mid_boss" | "rift_up" | "rift_capture" | "powerup_spawn" | "powerup_taken" | "souls_swing" | "ult";
+
+export interface MatchEvent {
+  t: number;
+  kind: EventKind;
+  team?: string | null;
+  slot?: number | null;
+  hero_id?: number | null;
+  by?: { team: string; slot: number; hero_id: number } | null;
+  key?: string | null;
+  x?: number | null;
+  y?: number | null;
+  amount?: number | null;
+  /** For `ult`: the ability's internal name. */
+  ability?: string | null;
 }
 
 export const tierOf = (tl: Timeline): "replay" | "metadata" => (tl.tier === "replay" ? "replay" : "metadata");

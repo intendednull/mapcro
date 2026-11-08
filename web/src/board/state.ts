@@ -159,8 +159,10 @@ export function createBoardState(board: string, token: string) {
   /** The board's own record (presence `focus` on it, with a scene: that scene's note, not yet made). */
   const metaId = () => live<BoardMeta>("BoardMeta")[0]?.id;
 
+  // Player's live annotation layer is a scene, but never one of the board's scenes (spec §6b).
   const scenes = createMemo(() =>
     live<Scene>("Scene")
+      .filter((w) => !w.r.live)
       .map((w) => sceneRow(w.id))
       .sort((a, b) => (a.scene.order < b.scene.order ? -1 : a.scene.order > b.scene.order ? 1 : a.id < b.id ? -1 : 1)),
   );
@@ -228,6 +230,8 @@ export function createBoardState(board: string, token: string) {
     title,
     metaId,
     scenes,
+    /** Player's live annotation layer, if the board has one (the lowest id, if two were made). */
+    liveScene: createMemo(() => live<Scene>("Scene").filter((w) => w.r.live).map((w) => w.id).sort()[0]),
     roster,
     playersIn,
     role,

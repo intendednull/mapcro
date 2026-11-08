@@ -61,8 +61,8 @@ test("import, scrub, save two moments; a second browser sees them; undo reverts 
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-clock")).toHaveText("10:00 / 21:40");
-  await expect(a.getByTestId("match-panel")).toContainText("Match data: deadlock-api.com");
-  await expect(a.getByTestId("match-roster")).toHaveText("Roster → match heroes");
+  await expect(a.getByTestId("match-credit")).toHaveText("Match data: deadlock-api.com");
+  await expect(a.getByTestId("match-tier")).toHaveText("Metadata");
 
   // Scrubbing previews the match here only: heroes move for A, not for B.
   await scrubTo(a, 120);
@@ -80,7 +80,6 @@ test("import, scrub, save two moments; a second browser sees them; undo reverts 
   // Save 2:00, then 15:00.
   await scrubTo(a, 120);
   await a.getByTestId("match-save").click();
-  await expect(a.getByTestId("match-roster")).toHaveCount(0); // the roster is the match's now
   await scrubTo(a, 900);
   const at900 = await tokens(a);
   await a.getByTestId("match-save").click();
@@ -93,17 +92,21 @@ test("import, scrub, save two moments; a second browser sees them; undo reverts 
   await cards.nth(1).click();
   await expect.poll(() => tokens(b)).toEqual(at120);
   await cards.nth(2).click();
-  const seen = await tokens(b);
-  for (const [slot, tr] of Object.entries(at900)) expect(translate(seen[slot]!)).toEqual(translate(tr));
+  // Tokens glide to a flipped scene's places: wait for them to land.
+  await expect.poll(async () => {
+    const seen = await tokens(b);
+    return Object.entries(at900).every(([slot, tr]) => JSON.stringify(translate(seen[slot]!)) === JSON.stringify(translate(tr)));
+  }).toBe(true);
   const status = (k: string) => b.locator(`.mapbox .mk[data-key="${k}"]`).getAttribute("data-status");
   for (const k of ["guardian:amber:lane4:1", "guardian:sapphire:lane4:1", "guardian:amber:lane1:1", "guardian:amber:lane6:1", "walker:amber:lane1:1"])
     expect(await status(k), k).toBe("Destroyed");
   expect(await status("walker:sapphire:lane6:1")).toBe("Active"); // destroyed at 1169 s, later
   await a.screenshot({ path: "shots/match-import.png" });
 
-  // Closing the panel clears the preview; undo reverts the last save.
-  await a.getByTestId("match-panel").getByRole("button", { name: "Close" }).click();
-  await expect(a.getByTestId("match-panel")).toHaveCount(0);
+  // Sandbox clears the preview; undo reverts the last save.
+  await a.getByTestId("mode-sandbox").click();
+  await expect(a.getByTestId("player")).toHaveCount(0);
+  await expect(a.getByTestId("mode-player")).toBeVisible();
   await a.getByTestId("undo").click();
   await expect(cards).toHaveCount(2);
 });

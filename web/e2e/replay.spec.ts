@@ -114,7 +114,7 @@ test("upload a replay, scrub ults, rifts, powerups and waves, save them as a sce
   await expect(a.getByTestId("match-clock")).toHaveText("3:20 / 3:20");
   expect(existsSync(join(server.dataDir, "replays", `${job}.json`))).toBe(true);
   await expect.poll(() => readdirSync(join(queue, "inbox")).length, { message: "the demo goes with its result" }).toBe(0);
-  await expect(a.getByTestId("match-panel")).toContainText("Replay: uploaded");
+  await expect(a.getByTestId("match-credit")).toHaveText("Replay: uploaded");
 
   // Scrubbing previews the replay's extras here only.
   await scrubTo(a, 100);
@@ -135,7 +135,7 @@ test("upload a replay, scrub ults, rifts, powerups and waves, save them as a sce
   await expect(a.getByTestId("match-stale")).toHaveText("Waves held");
   await a.screenshot({ path: "shots/match-replay.png" });
   await a.getByTestId("match-save").click();
-  await a.getByTestId("match-panel").getByRole("button", { name: "Close" }).click();
+  await a.getByTestId("mode-sandbox").click();
 
   // The saved scene carries them, for everyone.
   const cards = b.getByTestId("scene-card");

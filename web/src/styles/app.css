@@ -263,6 +263,44 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .callout-input { font: 600 13px var(--ui) !important; height: 26px !important; border-color: var(--comment) !important; background: var(--comment-ink) !important; color: #fff !important; }
 
 /* Match import: a panel over the map's foot; labels only */
+/* Player (spec §6b): the transport above the scene strip, the events list on the right. */
+.pl-bar { position: fixed; left: 50%; bottom: 116px; transform: translateX(-50%); z-index: 45; width: min(820px, calc(100% - 380px)); padding: 8px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 16px 40px #000a; display: flex; flex-direction: column; gap: 6px; }
+.pl-head, .pl-transport { display: flex; align-items: center; gap: 8px; }
+.pl-head .spacer { flex: 1; }
+.pl-head .pl-id { width: 130px; height: 28px; }
+.pl-match { font: 600 12px var(--ui); color: var(--faint); }
+.pl-speed { width: 64px; height: 28px; padding: 0 4px; }
+.pl-scrub { position: relative; flex: 1; display: flex; align-items: center; }
+.pl-scrub .match-range { width: 100%; }
+.pl-ticks { position: absolute; left: 7px; right: 7px; top: -4px; height: 6px; pointer-events: none; }
+.pl-tick { position: absolute; width: 2px; height: 6px; background: var(--faint); transform: translateX(-1px); }
+.pl-tick.death { background: var(--warn); }
+.pl-tick.objective, .pl-tick.mid_boss { background: var(--brass); }
+.pl-side { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; max-height: 62vh; overflow: hidden; border-bottom: 1px solid var(--line-soft); }
+.side .pl-hidden { display: none; }
+.pl-teams { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11.5px; }
+.pl-events { display: flex; flex-direction: column; gap: 6px; min-height: 0; flex: 1; }
+.pl-events-head { display: flex; gap: 6px; align-items: center; }
+.pl-events-head .input { flex: 1; height: 28px; }
+.pl-lead { font-size: 11.5px; color: var(--faint); display: inline-flex; align-items: center; gap: 2px; }
+.pl-lead input { width: 40px; height: 24px; background: transparent; color: inherit; border: 1px solid var(--line); border-radius: 4px; }
+.pl-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.pl-chip { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--faint); cursor: pointer; }
+.pl-chip.on { color: var(--brass); border-color: var(--brass-dim); }
+.pl-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; }
+.pl-ev { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid #ffffff0d; }
+.pl-ev-go { flex: 1; display: flex; gap: 8px; align-items: baseline; text-align: left; background: transparent; border: 0; color: inherit; padding: 4px 2px; cursor: pointer; font-size: 12px; }
+.pl-ev-go:hover { background: #ffffff0a; }
+.pl-ev-t { font-variant-numeric: tabular-nums; color: var(--faint); min-width: 38px; }
+.pl-ev-label { flex: 1; }
+.pl-ev.amber .pl-ev-label { color: var(--amber); }
+.pl-ev.sapphire .pl-ev-label { color: var(--sapphire); }
+.pl-ev-tier { font-size: 10px; color: var(--faint); }
+.pl-empty { font-size: 12px; color: var(--faint); padding: 6px 2px; }
+.pl-events-foot { display: flex; gap: 6px; }
+.pl-switch { position: fixed; right: 12px; bottom: 116px; z-index: 44; }
+.pl-highlight circle { fill: none; stroke: #fff; stroke-width: 2.5; vector-effect: non-scaling-stroke; animation: pl-pulse 1s ease-out infinite; transform-origin: center; }
+@keyframes pl-pulse { from { opacity: 1; transform: scale(0.4); } to { opacity: 0; transform: scale(1.4); } }
 .match-panel { position: fixed; left: 50%; bottom: 116px; transform: translateX(-50%); z-index: 45; width: min(720px, calc(100% - 24px)); padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 16px 40px #000a; display: flex; flex-direction: column; gap: 8px; }
 .match-head, .match-scrub, .match-foot { display: flex; align-items: center; gap: 8px; }
 .match-head .input { width: 180px; height: 30px; }

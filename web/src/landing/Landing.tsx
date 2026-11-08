@@ -1,10 +1,12 @@
-// The front page: make a board (you get its owner link, kept on this device) or reopen one.
+// The front page (spec §6b): open a match (a board with it attached, landing in Player), make a
+// sandbox board (you get its owner link, kept on this device), or reopen one.
 
 import { For, Show, createSignal } from "solid-js";
 import { Api, shareUrl } from "../core/api";
 import { knownBoards, rememberBoard } from "../core/device";
 import { Wordmark } from "../ui/Wordmark";
 import { FRESH_BOARD } from "../board/roster";
+import { Api as PlayerApi } from "../player/api";
 
 export function Landing() {
   const [title, setTitle] = createSignal("");
@@ -26,6 +28,37 @@ export function Landing() {
       setBusy(false);
     }
   };
+  // ---- Open match: a match id, or a replay (its file is named after the match) ----
+  const [matchId, setMatchId] = createSignal("");
+  const [file, setFile] = createSignal<File>();
+  const [opening, setOpening] = createSignal("");
+  const openMatch = async (e: Event) => {
+    e.preventDefault();
+    const id = (matchId().trim() || /^(\d+)/.exec(file()?.name ?? "")?.[1] || "").replace(/^0+/, "");
+    if (!/^[1-9]\d{0,11}$/.test(id)) return setError("Invalid id");
+    setError("");
+    setOpening("Opening");
+    try {
+      const t = `Match ${id}`;
+      const { board, owner_token } = await new Api("").createBoard(t);
+      rememberBoard({ board, token: owner_token, title: t });
+      const api = new PlayerApi(board, owner_token);
+      if (!(await api.attach(id))) throw new Error("attach");
+      const f = file();
+      if (f) {
+        const err = await api.upload(id, f, (pct) => setOpening(`Uploading ${pct}%`));
+        if (err) {
+          setOpening("");
+          return setError(err);
+        }
+      }
+      location.assign(shareUrl(location.origin, board, owner_token));
+    } catch {
+      setOpening("");
+      setError("Failed");
+    }
+  };
+
   return (
     <div class="landing">
       <header class="top">
@@ -34,6 +67,24 @@ export function Landing() {
       </header>
       <main class="landing-body">
         <h1>A shared minimap for macro coaching.</h1>
+        <form class="new-board open-match" onSubmit={openMatch} data-testid="open-match">
+          <input
+            class="input big"
+            data-testid="open-match-id"
+            inputMode="numeric"
+            placeholder="Match id"
+            value={matchId()}
+            onInput={(e) => setMatchId(e.currentTarget.value)}
+            aria-label="Match id"
+          />
+          <label class="btn ghost" title="A .dem from your replays folder">
+            {file() ? file()!.name : "Replay…"}
+            <input type="file" accept=".dem" hidden data-testid="open-match-file" onChange={(e) => setFile(e.currentTarget.files?.[0])} />
+          </label>
+          <button class="btn primary" type="submit" data-testid="open-match-go" disabled={!!opening()}>
+            {opening() || "Open match"}
+          </button>
+        </form>
         <form class="new-board" onSubmit={create} data-testid="new-board">
           <input
             class="input big"
