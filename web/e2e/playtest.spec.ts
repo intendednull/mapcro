@@ -238,4 +238,45 @@ test.describe("on the fallback map", () => {
     await expect.poll(() => tOf(a)).toBe(t2);
     await a.screenshot({ path: "shots/playtest-lanes.png" });
   });
+
+  test("someone else's split drag glides between their updates instead of jumping", async ({ browser }) => {
+    const url = await newBoardUrl(server, "wave glide");
+    const a = await joinNew(browser, url, "Coach");
+    const b = await joinNew(browser, url, "Marrow");
+    const sel = '.mapbox .lanes g[data-key="lane4"]';
+    const t0 = Number(await b.locator(sel).getAttribute("data-t"));
+    const gap = (await a.getByTestId("wave-gap-lane4").boundingBox())!;
+    const dest = await a.locator(`${sel} path[data-half="sapphire"]`).evaluate((el) => {
+      const path = el as SVGPathElement;
+      const q = path.getPointAtLength(path.getTotalLength() * 0.5);
+      const m = path.getScreenCTM()!;
+      return { x: q.x * m.a + q.y * m.c + m.e, y: q.x * m.b + q.y * m.d + m.f };
+    });
+    await a.mouse.move(gap.x + gap.width / 2, gap.y + gap.height / 2);
+    await a.mouse.down();
+    await expect(b.locator('.p-tag[data-tag="Coach"]')).toContainText("moving the wave");
+    // B records the split every frame while A moves it in one jump.
+    const sampled = b.evaluate(
+      (sel) =>
+        new Promise<number[]>((ok) => {
+          const out: number[] = [];
+          const end = performance.now() + 1000;
+          const f = () => {
+            out.push(Number(document.querySelector(sel)!.getAttribute("data-t")));
+            if (performance.now() < end) requestAnimationFrame(f);
+            else ok(out);
+          };
+          f();
+        }),
+      sel,
+    );
+    await a.mouse.move(dest.x, dest.y, { steps: 1 });
+    const seen = await sampled;
+    await a.mouse.up();
+    const last = seen[seen.length - 1]!;
+    expect(last).toBeGreaterThan(t0 + 100);
+    // Several frames between the old and new split, never going back.
+    expect(seen.filter((t) => t > t0 && t < last).length).toBeGreaterThanOrEqual(3);
+    expect(seen.every((t, i) => i === 0 || t >= seen[i - 1]!)).toBe(true);
+  });
 });

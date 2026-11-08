@@ -156,6 +156,8 @@ export function createBoardState(board: string, token: string) {
   }
 
   const title = createMemo(() => live<BoardMeta>("BoardMeta")[0]?.r?.title ?? "");
+  /** The board's own record (presence `focus` on it, with a scene: that scene's note, not yet made). */
+  const metaId = () => live<BoardMeta>("BoardMeta")[0]?.id;
 
   const scenes = createMemo(() =>
     live<Scene>("Scene")
@@ -224,6 +226,7 @@ export function createBoardState(board: string, token: string) {
     myPeer,
     problems,
     title,
+    metaId,
     scenes,
     roster,
     playersIn,

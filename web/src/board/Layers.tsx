@@ -751,7 +751,7 @@ export function Layers(p: {
                     cx={at().x}
                     cy={at().y}
                     r={14 * p.k}
-                    onPointerDown={(e) => e.button === 0 && !p.spaceHeld() && dragWave(e, l.key, p.splitOf(l.key))}
+                    onPointerDown={(e) => e.button === 0 && !p.spaceHeld() && dragWave(e, l.key, Math.round(p.splitOf(l.key)))}
                   >
                     <title>Wave</title>
                   </circle>

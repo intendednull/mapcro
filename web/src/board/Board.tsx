@@ -1,7 +1,7 @@
 // One board: the header (title, save status, people), the map with its layers, and the side
 // panel. The map is the interface: edits happen on it directly.
 
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
 import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, loadMe, markJoined, rememberBoard, saveMe } from "../core/device";
@@ -34,6 +34,7 @@ import { rejection, statusView } from "./status";
 import type { Reject } from "../gen/Reject";
 import { Avatar, FollowChip, PeopleList, PresentingPill } from "./Presence";
 import { Toolbar } from "./Toolbar";
+import { smoothed } from "./smooth";
 import type { Tool } from "./tools";
 
 
@@ -303,11 +304,23 @@ export function Board(p: { board: string; token: string; art: Art }) {
     }
     return m;
   });
+  /** Others' splits, gliding between presence updates like their tokens (render only). */
+  const remoteSmooth = createMemo(() => {
+    const m = new Map<string, () => number | undefined>();
+    for (const l of p.art.model.lanes) {
+      const at = smoothed(() => {
+        const t = remoteWaves().get(l.key);
+        return t === undefined ? undefined : { x: t, y: 0 };
+      });
+      m.set(l.key, () => at()?.x);
+    }
+    return m;
+  });
   const splitOf = (key: string) => {
     const mine = waveDrag();
     if (mine?.key === key) return mine.t;
     const lane = p.art.model.lanes.find((l) => l.key === key);
-    return remoteWaves().get(key) ?? waves().get(key)?.t ?? (lane ? defaultSplit(lane.line) : 500);
+    return remoteSmooth().get(key)?.() ?? waves().get(key)?.t ?? (lane ? defaultSplit(lane.line) : 500);
   };
 
   // ---- a board this device just made gets twelve random heroes, once ----
@@ -337,6 +350,20 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const note = createMemo(() => {
     const n = state.inScene("Note", scene()?.id)[0];
     return n && "Note" in n[1] ? { id: n[0], text: n[1].Note.text } : undefined;
+  });
+  // Two people in one note: last writer wins on blur, as before, but an incoming save no longer
+  // replaces what you've typed and not saved yet. Presence `focus` says who is in it: the note,
+  // or the board record while the scene has no note yet.
+  const noteFocus = () => note()?.id ?? state.metaId() ?? null;
+  const [noteDraft, setNoteDraft] = createSignal<string>();
+  createEffect(on(() => scene()?.id, () => setNoteDraft(undefined), { defer: true }));
+  const noteEditors = createMemo(() => {
+    const s = scene()?.id;
+    const ids = new Set([note()?.id, state.metaId()].filter(Boolean));
+    return state.peerList().filter((x) => {
+      const f = x.state?.focus;
+      return x.state?.scene === s && f != null && ids.has(f);
+    });
   });
   const saveNote = (text: string) => {
     const s = scene();
@@ -741,18 +768,29 @@ export function Board(p: { board: string; token: string; art: Art }) {
             />
           </section>
           <section class="note-section">
-            <h2>Scene note</h2>
+            <h2>
+              Scene note
+              <For each={noteEditors()}>
+                {(x) => (
+                  <span class="note-tag" data-testid="note-editing" style={{ background: colorOf(x.state!.color) }}>
+                    {x.state!.name || "Someone"} · editing
+                  </span>
+                )}
+              </For>
+            </h2>
             <Show when={state.canEdit()} fallback={<div class="note">{note()?.text}</div>}>
               <textarea
                 class="note note-edit"
                 data-testid="scene-note-edit"
                 aria-label="Scene note"
                 maxLength={4000}
-                value={note()?.text ?? ""}
-                onFocus={() => state.presence({ focus: note()?.id ?? scene()?.id ?? null })}
+                value={noteDraft() ?? note()?.text ?? ""}
+                onFocus={() => state.presence({ focus: noteFocus() })}
+                onInput={(e) => setNoteDraft(e.currentTarget.value)}
                 onBlur={(e) => {
                   state.presence({ focus: null });
                   saveNote(e.currentTarget.value);
+                  setNoteDraft(undefined);
                 }}
               />
             </Show>

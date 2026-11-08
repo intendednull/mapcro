@@ -882,3 +882,5 @@ kbd {
 .mapbox.with-bar { width: 480px; height: 480px; }
 .stage:has(.tb-host) .stage-head { width: 1008px; margin-bottom: 0; }
 .stage > .tb-host { margin-top: 12px; }
+.side h2 .note-tag { margin-left: auto; padding: 1px 7px; border-radius: 4px; font: 700 11px var(--ui); color: #10201c; white-space: nowrap; }
+.side h2 .note-tag + .note-tag { margin-left: 6px; }
