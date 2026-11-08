@@ -823,7 +823,9 @@ impl Room {
                 }
                 Effect::Rejected { client, cseq, reason } => Write::Rejection { client, cseq, reason },
                 Effect::ClientRegistered { client, secret_hash } => Write::Client { client, secret_hash },
-                Effect::RejectionsResolved { client, below } => Write::PruneRejections { client, below },
+                Effect::RejectionsResolved { client, below } => {
+                    Write::PruneRejections { client, below, next_cseq: self.authority.next_cseq(client) }
+                }
             });
         }
         outboxes.push(outbox);

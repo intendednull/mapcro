@@ -173,6 +173,11 @@ impl Authority {
         rec.next_cseq = rec.next_cseq.max(next_cseq);
     }
 
+    /// A client's next expected cseq: every one below it is decided.
+    pub fn next_cseq(&self, client: ClientId) -> u64 {
+        self.clients.get(&client).map_or(0, |r| r.next_cseq)
+    }
+
     /// Every known client's next expected cseq, for the host to keep across compaction.
     pub fn client_seqs(&self) -> impl Iterator<Item = (ClientId, u64)> + '_ {
         self.clients.iter().map(|(c, r)| (*c, r.next_cseq))

@@ -1960,3 +1960,36 @@ async fn compaction_means_a_board_never_fills() {
     let fresh = fresh_catch_up(server.port, &board, &owner, 0xc4e, 61).await;
     assert_eq!(fresh.replica().confirmed(), a.replica().confirmed());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pruned_rejection_survives_a_restart() {
+    // Review 2026-11-07, finding 2. A client's last decided transaction was refused; once it
+    // has heard that (its next hello's pending_from is past it), the stored rejection is pruned.
+    // After a restart the server rebuilds each client's next cseq from the log and what's
+    // stored: with the rejection gone, it came back one short, and the client's next edit was a
+    // "sequence gap" on every reconnect, wedging that device on the board.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let (board, owner) = server.create_board();
+    let mut a = Client::new(0x2a1);
+    let mut b = Client::new(0x2a2);
+    a.connect(server.port, &board, &owner).await.expect("a");
+    b.connect(server.port, &board, &owner).await.expect("b");
+    assert!(edits_until_decided(&mut a, 1, move_op).await.is_empty()); // a's cseq 0: applied
+    let scene = scene_of(a.replica());
+    let note = |id: u128| vec![Op::Create { id: mapcro_schema::RecordId(id), record: Record::Note(mapcro_schema::Note { scene, text: "x".into() }) }];
+    assert!(edits_until_decided(&mut b, 1, |_, _| note(0x2b1)).await.is_empty());
+    // a hasn't seen b's note: its own (cseq 1) is refused as a duplicate.
+    assert_eq!(edits_until_decided(&mut a, 1, |_, _| note(0x2a9)).await, [Reject::Duplicate]);
+    // a reconnects: its hello says it has heard everything below 2, so the rejection is pruned.
+    a.drop_connection();
+    a.connect(server.port, &board, &owner).await.expect("a again");
+    a.until_saved().await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let (d, port) = server.kill9();
+    a.drop_connection();
+    b.drop_connection();
+    let server = Server::start(&d, Some(port));
+    a.connect(server.port, &board, &owner).await.expect("a after the restart");
+    assert!(edits_until_decided(&mut a, 2, move_op).await.is_empty(), "a's next edits are accepted, not a sequence gap");
+}

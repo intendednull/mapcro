@@ -69,14 +69,16 @@ pub enum Write {
     Op { seq: u64, codec: Codec, stored: Vec<u8> },
     Rejection { client: ClientId, cseq: u64, reason: Reject },
     Client { client: ClientId, secret_hash: [u8; 32] },
-    PruneRejections { client: ClientId, below: u64 },
+    /// The client has heard its rejections below `below`: forget them, and keep its next
+    /// expected cseq, which they may have been the only record of (review 2026-11-07, finding 2).
+    PruneRejections { client: ClientId, below: u64, next_cseq: u64 },
 }
 
 enum Row {
     Op(u64, Codec, Vec<u8>),
     Rejection(String, u64, String),
     Client(String, [u8; 32]),
-    Prune(String, u64),
+    Prune(String, u64, u64),
 }
 
 /// A TEXT (old rows) or BLOB (compressed rows) column's bytes.
@@ -433,7 +435,7 @@ impl Store {
                 Write::Op { seq, codec, stored } => Row::Op(seq, codec, stored),
                 Write::Rejection { client, cseq, reason } => Row::Rejection(id(client)?, cseq, serde_json::to_string(&reason).map_err(corrupt)?),
                 Write::Client { client, secret_hash } => Row::Client(id(client)?, secret_hash),
-                Write::PruneRejections { client, below } => Row::Prune(id(client)?, below),
+                Write::PruneRejections { client, below, next_cseq } => Row::Prune(id(client)?, below, next_cseq),
             });
         }
         self.with(move |c| {
@@ -452,9 +454,14 @@ impl Store {
                         t.prepare_cached("INSERT OR IGNORE INTO clients (board, client, secret_hash) VALUES (?1, ?2, ?3)")?
                             .execute(params![board, client, hash.to_vec()])?;
                     }
-                    Row::Prune(client, below) => {
+                    Row::Prune(client, below, next) => {
                         t.prepare_cached("DELETE FROM rejections WHERE board = ?1 AND client = ?2 AND cseq < ?3")?
                             .execute(params![board, client, below as i64])?;
+                        t.prepare_cached(
+                            "INSERT INTO client_seqs (board, client, next_cseq) VALUES (?1, ?2, ?3)
+                             ON CONFLICT (board, client) DO UPDATE SET next_cseq = MAX(next_cseq, excluded.next_cseq)",
+                        )?
+                        .execute(params![board, client, next as i64])?;
                     }
                 }
             }
