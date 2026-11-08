@@ -1351,6 +1351,20 @@ mod tests {
     }
 
     #[test]
+    fn a_place_in_line_counts_the_fetches_ahead() {
+        let w = |job: &str, kind: Kind| Waiting { job: job.into(), client: job.into(), kind, seq: 0, bytes: 1, touched: Instant::now() };
+        let j = Jobs {
+            line: vec![w("1-cdn", Kind::Fetch), w("2-aaaaaaaaaaaaaaaa", Kind::Upload), w("3-cdn", Kind::Fetch), w("4-cdn", Kind::Fetch)],
+            line_order: ["2-aaaaaaaaaaaaaaaa", "1-cdn", "3-cdn", "4-cdn"].map(String::from).to_vec(),
+            ..Jobs::default()
+        };
+        assert_eq!(line_place(&j, "2-aaaaaaaaaaaaaaaa"), Some((0, 0)));
+        assert_eq!(line_place(&j, "3-cdn"), Some((2, 1)));
+        assert_eq!(line_place(&j, "4-cdn"), Some((3, 2)));
+        assert_eq!(line_place(&j, "9-cdn"), None);
+    }
+
+    #[test]
     fn the_cache_trims_oldest_first() {
         let dir = tempfile::tempdir().expect("dir");
         for (i, name) in ["a", "b", "c"].iter().enumerate() {

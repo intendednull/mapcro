@@ -228,6 +228,14 @@ mod tests {
     }
 
     #[test]
+    fn download_slots_are_counted() {
+        let line = vec![w("f1", "A", Kind::Fetch, 1, 1), w("f2", "B", Kind::Fetch, 2, 1), w("f3", "C", Kind::Fetch, 3, 1), w("u1", "D", Kind::Upload, 4, 1)];
+        let all: Vec<usize> = (0..4).collect();
+        assert_eq!(jobs(&line, &admit(&line, &all, room(100, 10, 10, 2), &HashSet::new())), ["f1", "f2", "u1"]);
+        assert_eq!(jobs(&line, &admit(&line, &all, room(100, 10, 10, 1), &HashSet::new())), ["f1", "u1"]);
+    }
+
+    #[test]
     fn one_upload_at_a_time_per_client() {
         let line = vec![w("a1", "A", Kind::Upload, 1, 1), w("a2", "A", Kind::Upload, 2, 1), w("af", "A", Kind::Fetch, 3, 1), w("b1", "B", Kind::Upload, 4, 1)];
         let all: Vec<usize> = (0..4).collect();
@@ -259,6 +267,12 @@ mod tests {
             s.parsed(10.0);
         }
         assert_eq!(s.parse_mean(), Some(10.0), "only recent ones count");
+        assert_eq!(s.download_mean(), None, "downloads are kept apart");
+        for d in [6.0, 8.0, 10.0] {
+            s.downloaded(d);
+        }
+        assert_eq!(s.download_mean(), Some(8.0));
+        assert_eq!(s.parse_mean(), Some(10.0));
         assert_eq!(parse_eta(0, 2, 5.0), 5);
         assert_eq!(parse_eta(1, 2, 5.0), 5, "one ahead, two workers: it starts now");
         assert_eq!(parse_eta(3, 2, 5.0), 10);

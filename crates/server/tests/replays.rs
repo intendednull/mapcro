@@ -940,3 +940,18 @@ fn a_fetch_waits_in_line_for_room_beside_uploads() {
     server.until_state(&board, &owner, "61", "queued");
     assert_eq!(files(&server.q("inbox")), ["61-cdn.bz2"]);
 }
+
+/// Turns already given count against the job and upload budgets until they're used or lapse.
+#[test]
+fn turns_given_hold_their_room() {
+    let up = upstream(HashMap::new());
+    let jobs = Server::start(up.port, &[("REPLAY_MAX_QUEUED", "2")]);
+    let (board, owner, _) = jobs.board();
+    assert_eq!(jobs.reserve(&board, &owner, "71", 1000, "10.0.5.1").1["state"], "ready");
+    assert_eq!(jobs.reserve(&board, &owner, "72", 1000, "10.0.5.2").1["state"], "ready");
+    assert_eq!(jobs.reserve(&board, &owner, "73", 1000, "10.0.5.3").1["state"], "waiting", "two jobs' worth given already");
+    let uploads = Server::start(up.port, &[("REPLAY_UPLOADS_AT_ONCE", "1")]);
+    let (board, owner, _) = uploads.board();
+    assert_eq!(uploads.reserve(&board, &owner, "81", 1000, "10.0.6.1").1["state"], "ready");
+    assert_eq!(uploads.reserve(&board, &owner, "82", 1000, "10.0.6.2").1["state"], "waiting", "one upload at once, given already");
+}
