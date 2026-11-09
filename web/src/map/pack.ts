@@ -82,6 +82,11 @@ export const IMAGE_BLOBS: Record<string, string> = {
   koth: "icons/minimap_icon_koth_png",
   // The star in the ring reads as a generic buff at HUD size; the spawners give random powerups.
   powerup: "icons/powerup_magic",
+  // Each bridge buff's own icon, hud_minimap.vcss .map_button.powerup_<gun|survival|casting|movement>.
+  "powerup-gun": "icons/powerup_weapon",
+  "powerup-survival": "icons/powerup_health",
+  "powerup-casting": "icons/powerup_magic",
+  "powerup-movement": "icons/powerup_movement",
   // The Soul Urn (.idol_spawn, .held_idol_image) and its delivery point (.idol_return).
   urn: "icons/soul_jar_marker_psd",
   "urn-return": "icons/soul_jar_marker_return_psd",

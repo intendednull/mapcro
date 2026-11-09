@@ -112,17 +112,17 @@ test("lanes take the zipline colours: each team to its edge, the gap bare", asyn
 test("camps show their state; when they come back shows only on hover", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Camps"), "Coach");
   await open(a);
-  const tip = a.getByTestId("camp-tip");
+  const tip = a.getByTestId("hover-label");
   const noCountdown = async () => {
     await expect(tip).toHaveCount(0);
-    await expect(a.getByText(/Respawns in|Spawns at/)).toHaveCount(0);
+    await expect(a.getByText(/Respawns in|Spawns in/)).toHaveCount(0);
   };
 
   await scrubTo(a, 20);
   await expect(marker(a, CAMP)).toHaveAttribute("data-camp", "unspawned");
   await noCountdown();
   await hover(a, CAMP);
-  await expect(tip).toHaveText("Spawns at 0:30");
+  await expect(tip).toHaveText("Spawns in 0:10 (at 0:30)");
   await a.mouse.move(5, 5);
   await noCountdown();
 
@@ -144,7 +144,7 @@ test("camps show their state; when they come back shows only on hover", async ({
   // The mid boss: down from its clear to the timer's respawn, the same hover.
   await expect(marker(a, BOSS)).toHaveAttribute("data-status", "Destroyed");
   await hover(a, BOSS);
-  await expect(tip).toHaveText("Respawns in 0:30 (at 1:50)");
+  await expect(tip).toHaveText("Mid boss respawns in 0:30 (at 1:50)");
   await a.mouse.move(5, 5);
   await noCountdown();
 
@@ -162,10 +162,10 @@ test("camps show their state; when they come back shows only on hover", async ({
   await phone.keyboard.press("Enter");
   await expect(phone.getByTestId("board")).toHaveAttribute("data-layout", "phone");
   await expect(marker(phone, CAMP)).toHaveAttribute("data-camp", /alive|unspawned|cleared/);
-  await expect(phone.getByTestId("camp-tip")).toHaveCount(0);
+  await expect(phone.getByTestId("hover-label")).toHaveCount(0);
   const b = (await marker(phone, CAMP).boundingBox())!;
   await phone.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
-  await expect(phone.getByTestId("camp-tip")).toHaveText(/^(Up|Spawns at 0:30|Respawns in \d:\d\d \(at 1:35\))$/);
+  await expect(phone.getByTestId("hover-label")).toHaveText(/^(Up|Spawns in \d:\d\d \(at 0:30\)|Respawns in \d:\d\d \(at 1:35\))$/);
   await phone.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
-  await expect(phone.getByTestId("camp-tip")).toHaveCount(0);
+  await expect(phone.getByTestId("hover-label")).toHaveCount(0);
 });

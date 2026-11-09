@@ -2,7 +2,7 @@
 
 import { Show } from "solid-js";
 import { cx } from "../ui/cx";
-import type { CampAt, UrnNow } from "./timeline";
+import type { CampAt, PowerupAt, RiftAt, UrnNow } from "./timeline";
 
 export interface MatchPreview {
   /** By "amber-0" … "sapphire-5": the hero there, its player's name if known, and where it is
@@ -16,6 +16,10 @@ export interface MatchPreview {
   lanes: Map<string, { amber: number; sapphire: number }>;
   /** Replay tier: camps and the mid boss at this moment, by marker key. */
   camps: Map<string, CampAt>;
+  /** Replay tier: each rift site at this moment, by marker key (empty: no rift data). */
+  rifts?: Map<string, RiftAt>;
+  /** Replay tier, format 2: each powerup site's buff or next spawn, by marker key. */
+  powerups?: Map<string, PowerupAt>;
   /** Replay tier, with Health on: objectives' health by key (absent: none drawn). */
   health?: Map<string, { pct: number; stage?: number }>;
   /** Replay tier: the Soul Urn at this moment, its sites by marker key (absent: no urn data). */

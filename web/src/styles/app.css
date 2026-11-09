@@ -422,9 +422,13 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 /* Player, replay tier: jungle camps (player/Camps.tsx). Cleared is the board's own .down look;
    not yet spawned is fainter still. The tooltip shows only on hover (a tap on the phone). */
 .mk[data-camp="unspawned"] { opacity: 0.28; filter: grayscale(1) brightness(0.5); }
-.camp-tip { pointer-events: none; }
-.camp-tip rect { fill: #0b1714e6; stroke: #ffffff33; stroke-width: 1; vector-effect: non-scaling-stroke; }
-.camp-tip text { fill: #fff; text-anchor: middle; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* The map's one hover label (map/HoverLabel.tsx): tokens and markers alike, at once. A
+   presenter's hover mirrored to a follower takes their colour on its rim, with a dot. */
+.hover-labels, .hover-label { pointer-events: none; }
+.hover-label rect { fill: #0b1714e6; stroke: #ffffff33; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.hover-label text { fill: #fff; text-anchor: middle; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hover-label.theirs rect { stroke: var(--by); stroke-width: 2; }
+.hover-label .hover-by { fill: var(--by); }
 
 /* Getting a replay file in (spec §6b, 2026-11-08): the "Where's my replay?" steps, the drop
    overlay, the upload's progress and what went wrong. */

@@ -46,8 +46,8 @@ test("a real replay at a few moments", async ({ browser }) => {
     if (await cleared.count()) {
       const b = (await cleared.boundingBox())!;
       await a.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
-      await expect(a.getByTestId("camp-tip")).toBeVisible();
-      console.log(`${t}s ${await cleared.getAttribute("data-key")}: ${await a.getByTestId("camp-tip").textContent()}`);
+      await expect(a.getByTestId("hover-label")).toBeVisible();
+      console.log(`${t}s ${await cleared.getAttribute("data-key")}: ${await a.getByTestId("hover-label").textContent()}`);
       await a.locator("[data-testid=map]").screenshot({ path: `shots/replay-real-${t}-camp.png` });
       await a.mouse.move(5, 5);
     }

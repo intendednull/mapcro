@@ -39,6 +39,7 @@ import { smoothed } from "./smooth";
 import type { BoardState } from "./state";
 import type { Tool } from "./tools";
 import { NameTag, Tokens, svgPoint } from "./Tokens";
+import { hoverHandle, registerHover } from "../map/HoverLabel";
 import { Cursors } from "./Presence";
 import { LIMITS } from "../gen/limits";
 
@@ -984,9 +985,11 @@ export function Layers(p: {
                     cy={at().y}
                     r={14 * p.k}
                     onPointerDown={(e) => e.button === 0 && !p.spaceHeld() && dragWave(e, l.key, Math.round(p.splitOf(l.key)))}
-                  >
-                    <title>Wave</title>
-                  </circle>
+                    aria-label="Wave"
+                    ref={() => onCleanup(registerHover("marker", `wave:${l.key}`, () => ({ x: at().x, y: at().y, gap: 20 * p.k, text: "Wave" })))}
+                    onPointerEnter={() => hoverHandle({ kind: "marker", id: `wave:${l.key}` })}
+                    onPointerLeave={() => hoverHandle(undefined)}
+                  />
                 </Show>
                 <Show when={remote()}>
                   {(x) => <NameTag at={{ x: at().x - 10 * p.k, y: at().y + 18 * p.k }} name={x().state!.name} color={x().state!.color} what="moving the wave" k={p.k} />}

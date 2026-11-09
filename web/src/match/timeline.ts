@@ -37,6 +37,13 @@ export interface UrnAt {
   delivery?: string | null;
 }
 
+/** One bridge powerup spawn (crates/replay/src/timeline.rs `PowerupSpawn`). */
+export interface PowerupSpawn {
+  t: number;
+  buff: string;
+  taken_s?: number | null;
+}
+
 /** `[from, to)` seconds where a replay value is held through a gap in the recording. */
 export type Stale = Array<[number, number]>;
 
@@ -52,8 +59,10 @@ export interface Timeline {
   /** `"replay"` for the replay tier; absent for the metadata tier. */
   tier?: "replay";
   build?: number;
-  rifts?: Array<{ key: string; start_s: number; end_s: number }>;
-  powerups?: Array<{ key: string; available: number[]; stale: Stale }>;
+  /** Replay tier: announced at `start_s`, its cash-in open from `live_s` (format 2) to `end_s`. */
+  rifts?: Array<{ key: string; start_s: number; end_s: number; live_s?: number | null }>;
+  /** Replay tier: per site, up each second; from format 2 each spawn's buff and pick-up. */
+  powerups?: Array<{ key: string; available: number[]; stale: Stale; spawns?: PowerupSpawn[] }>;
   /** Replay tier: each lane's zipline colours, `[second, amber_t, sapphire_t]` where they move. */
   zips?: Array<{ lane: string; at: Array<[number, number, number]> }>;
   /** Replay tier: camps and the mid boss: first spawn, then `[cleared_s, respawn_s]` intervals. */
@@ -84,6 +93,8 @@ export interface MatchEvent {
   amount?: number | null;
   /** For `ult`: the ability's internal name. */
   ability?: string | null;
+  /** For powerup events (replay, format 2): the buff, `gun`, `survival`, `casting`, `movement`. */
+  buff?: string | null;
 }
 
 export const tierOf = (tl: Timeline): "replay" | "metadata" => (tl.tier === "replay" ? "replay" : "metadata");
@@ -350,6 +361,37 @@ export function downAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "key
   const killed = kills.some((k, i) => k <= t && (kills[i + 1] === undefined || t < kills[i + 1]!));
   if (killed) for (const m of markers) if (m.kind === "midboss") down.add(m.key);
   return down;
+}
+
+/** A rift site at t (replay tier): its cash-in open (`active`), the other site's open
+ * (`elsewhere`), or waiting for the next rift to open, here or at the other site (`next`, by
+ * marker key; `null`: none to come in this replay). A rift opens when its cash-in does
+ * (`live_s`); before format 2 only the announcement (`start_s`) is known, so that stands in. */
+export type RiftAt = { state: "active" } | { state: "elsewhere" } | { state: "waiting"; next: { t: number; key: string } | null };
+
+export function riftAt(tl: Timeline, key: string, t: number, markers: Array<Pick<Marker, "key" | "kind" | "team" | "at">>): RiftAt | undefined {
+  if (!tl.rifts) return undefined;
+  const site = (k: string) => markerKey(k, markers) ?? k;
+  const opens = (r: NonNullable<Timeline["rifts"]>[number]) => r.live_s ?? r.start_s;
+  const open = tl.rifts.find((r) => t >= opens(r) && t < r.end_s);
+  if (open) return site(open.key) === key ? { state: "active" } : { state: "elsewhere" };
+  const next = tl.rifts.find((r) => opens(r) > t);
+  return { state: "waiting", next: next ? { t: opens(next), key: site(next.key) } : null };
+}
+
+/** A powerup site at t (replay tier, format 2): its buff up, or the next spawn and its buff
+ * (`first`: none has spawned here yet). `undefined` without spawns (older timelines). */
+export type PowerupAt = { state: "up"; buff: string } | { state: "down"; first: boolean; next: { t: number; buff: string } | null };
+
+export function powerupAt(p: { spawns?: PowerupSpawn[] | undefined; available: number[] }, t: number): PowerupAt | undefined {
+  const sp = p.spawns;
+  if (!sp?.length) return undefined;
+  const s = Math.floor(t);
+  const up = (p.available[Math.max(0, Math.min(p.available.length - 1, s))] ?? 0) === 1;
+  const last = [...sp].reverse().find((x) => x.t <= s);
+  if (up && last) return { state: "up", buff: last.buff };
+  const n = sp.find((x) => x.t > s);
+  return { state: "down", first: !last, next: n ? { t: n.t, buff: n.buff } : null };
 }
 
 export const clockLabel = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;

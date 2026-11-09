@@ -548,3 +548,73 @@ The extractor now adds `citadel_trigger_idol_return` as kind `urn`. Its keys are
 ### API-summary tier
 
 **Nothing.** `CMsgMatchMetaDataContents` has no idol or urn events. Only per-player `gold_sources` totals might include urn souls, and they carry no times. The metadata tier shows no urn.
+
+## Round 7: bridge buff types and the objectives' timers (2026-11-08)
+
+**Scope:** read-only probe of 129738985 (6v6, build 6839) · **Probe:** `/tmp/powerup-probe`
+(`src/bin/probe.rs`: every tick, the spawner, `CCitadel_Pickup_Modifier`, the rift entities,
+the rules' rift and mid-boss fields, `ActiveModifiers`; `src/bin/vdata.rs` reads a vdata at an
+exact VPK path) · **Output:** `/tmp/powerup-probe/out/129738985/` (no ids: no controller field is
+read).
+
+### Verdict
+
+**Each powerup spawn's type is networked, at tick resolution, on the pickup the spawner arms.**
+The spawner itself (`CCitadel_PickupItemSpawner`) carries no type: only `m_bPowerupActive` and
+`m_tNextDropTime`, and `m_nSubclassID` = `citadel_item_powerup_spawner`.
+
+| Class / field | Behaviour |
+|---|---|
+| `CCitadel_Pickup_Modifier` | one entity per bridge site (at the spawner's position, z 912), created at the first spawn and **re-armed** at each later one |
+| `…Pickup_Modifier.m_nSubclassID` | the pickup's vdata name as a CUtlStringToken (MurmurHash2, seed 0x31415926, lower case): `gun_powerup_pickup` 201785745, `survival_powerup_pickup` 828222066, `casting_powerup_pickup` 15572055, `movement_powerup_pickup` 754654000. Set on the spawn tick; unchanged when the same buff comes again |
+| `…Pickup_Modifier.m_bActive` | true from the spawn to the pick-up; some last 0.11–0.19 s (300 s west), so 1 Hz samples miss them |
+| `…m_hAssignedClaimer`, `m_iTeamNum` | no claimer, team 0, throughout |
+| the statues' drops | the same class, other subclasses (`*_permanent_pickup[_lvN]`, 30 distinct): filtered out by the four tokens |
+| `ActiveModifiers` (hero side) | **no** change with any of the four tokens, nor with `modifier_citadel_powerup_*`: the hero's buff isn't in this demo's modifier table under those names |
+
+All 16 spawns (8 rounds × 2 sites, 5:00 to 40:00) were typed: 4 of each. The API's per-player
+`power_up_buffs` totals for the same match (`*_powerup_pickup`, `is_permanent: false`, `value` =
+count) also come to 4 survival, 4 movement, 4 gun and 4 casting.
+
+**The game files** (read at exact paths through the extractor's VPK reader):
+- `scripts/misc.vdata` `citadel_item_powerup_spawner`: `m_flInitialSpawnTime` 300,
+  `m_flSpawnInterval` 300, `m_mapPickupChances` gun / survival / casting / movement 1.0 each.
+- `<buff>_powerup_pickup.m_sModifer` (`modifier_citadel_powerup_<buff>`): 160 s, values from
+  `m_valueMin` at minute 5 (`m_flTimeMin`) to `m_valueMax` at 40: gun fire rate 12–35% and clip
+  35–70%; survival max health 200–750 and regen 4–40; casting spirit 15–65 and cooldown 12–20%;
+  movement stamina 2–4, sprint, zipline speed 40–80%, stamina regen 20–50%.
+  `m_strMinimapClass` `powerup_<gun|survival|casting|movement>`.
+- `hud_minimap.vcss`: `.powerup_gun` `powerup_weapon.vsvg` wash #FFCC80; `.powerup_survival`
+  `powerup_health.vsvg` #D7FF9A; `.powerup_casting` `powerup_magic.vsvg` #E1A6FF;
+  `.powerup_movement` `powerup_movement.vsvg` #99FFDD. The extractor already exports all four (it
+  takes every `panorama/images/minimap/*`).
+- `citadel_main_english.txt`: "Gun", "Survival", "Casting", "Movement".
+
+**Spawn times:** the replay's own, from the pickup's `m_bActive` rising: 300, 600 … 2400, on
+the vdata's 300 s grid. `m_tNextDropTime` (`GameTime_t`) is the same grid except across a pause:
+before this match's pause it read 269.7 s on the corrected clock, then was pushed to 300 at
+269.7 s. So the worker takes the observed spawns, not the field.
+
+**Rifts.** No next-spawn field: the rules carry `m_timeKothCashInStarted`, `m_timeKothGiveUp`,
+`m_timeKothScoring`, `m_nKothScoringTeam`, `m_vKothCashInCurrentLocation` and
+`m_vecTeamKothStates`, all set only once the cash-in opens. The `CCitadelItemKothSpawner` appears
+when the rift is announced, **80.09 s** before the cash-in opens every time (655.00 → 735.09,
+1111.52 → 1191.61, 1532.28 → 1612.38, 1961.08 → 2041.17, 2310 → 2391), and `CCitadel_KothCashIn`
+is the open rift (`m_bDisabled`, `m_iTeamNum` the team holding it). Announcements come 226–329 s
+after the last capture: not a schedule we can find in vdata (`generic_data.vdata`
+`m_KothParams` has only radii, particles and sounds). The worker records when each cash-in opened
+(`live_s`), so the timer is the replay's own.
+
+**Mid boss.** `m_pGameRules.m_tNextMidBossSpawnTime` (match clock, 2284.72 after the 1864.72
+kill, then 2746.2) agrees with camp slot 1 (round 3), which the worker already uses.
+
+**Urn.** No timer field (round 6); the spawns are the replay's own.
+
+### API-summary tier
+
+`CMsgMatchMetaDataContents.Players[].power_up_buffs` (the proto has it on `PlayerStats` too, but
+deadlock-api returns it on the player): per player and buff, `type`, `value` (count),
+`is_permanent`, and `pickup_times_s` — **empty** for the bridge buffs on 129738985 (filled only
+for the statues' permanent pickups). So the summary says who took how many of each, not when or
+where: no per-spawn type, no timer. The metadata tier shows none; its mid boss says only up, or
+down with its respawn unknown.

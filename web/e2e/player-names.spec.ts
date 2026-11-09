@@ -82,7 +82,7 @@ const namesOnPage = (p: import("@playwright/test").Page) =>
     return names.filter((n) => new RegExp(`\\b${n}\\b`).test(all));
   }, NAMES);
 
-test("a token's hover title names its player; Names off hides every name, here only, and stays off", async ({ browser }) => {
+test("a token's hover label names its player; Names off hides every name, here only, and stays off", async ({ browser }) => {
   const url = await newBoardUrl(server, "Anonymous");
   const a = await joinNew(browser, url, "Viewer");
   await a.getByTestId("mode-player").click();
@@ -93,11 +93,11 @@ test("a token's hover title names its player; Names off hides every name, here o
   await b.getByTestId("follow-Viewer").click();
   await expect(b.getByTestId("follow-chip")).toContainText("Following Viewer");
 
-  // On (the default): the token's hover title leads with the player's name (then the hero, with
+  // On (the default): the token's hover label (and aria-label) leads with the player's name (then the hero, with
   // the art).
   const toggle = a.getByTestId("names-toggle");
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
-  await expect(a.locator('.tok[data-slot="Amber-0"] > title')).toHaveText(/^Coach(, |$)/);
+  await expect(a.locator('.tok[data-slot="Amber-0"]')).toHaveAttribute("aria-label", /^Coach(, |$)/);
   await expect(a.locator('.tb-player[data-slot="Amber-0"] [data-testid=tb-name]')).toHaveText("Coach");
   await expect(a.getByTestId("event").filter({ hasText: "Juno" }).first()).toBeVisible();
   expect(await namesOnPage(a)).toEqual(expect.arrayContaining(["Coach", "Juno", "Moss"]));
@@ -107,7 +107,13 @@ test("a token's hover title names its player; Names off hides every name, here o
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(a.getByTestId("tb-name")).toHaveCount(0);
-  await expect(a.locator('.tok[data-slot="Amber-0"] > title')).toHaveText(/^Amber 1(, |$)/);
+  await expect(a.locator('.tok[data-slot="Amber-0"]')).toHaveAttribute("aria-label", /^Amber 1(, |$)/);
+  // The hover label says the same, without the name (map/HoverLabel.tsx).
+  // Its top edge: the wave's handle sits over its middle here.
+  const tb = (await a.locator('.tok[data-slot="Amber-0"] circle.body').boundingBox())!;
+  await a.mouse.move(tb.x + tb.width / 2, tb.y + 2);
+  await expect(a.getByTestId("hover-label")).toHaveText(/^Amber 1(, |$)/);
+  await a.mouse.move(5, 5);
   await expect(a.getByTestId("event").first()).toBeVisible();
   expect(await namesOnPage(a)).toEqual([]);
   // Searching by a hidden name doesn't reveal it.
@@ -130,6 +136,6 @@ test("a token's hover title names its player; Names off hides every name, here o
   // On again: back everywhere.
   await a.getByTestId("names-toggle").click();
   await expect(a.locator('.tb-player[data-slot="Amber-0"] [data-testid=tb-name]')).toHaveText("Coach");
-  await expect(a.locator('.tok[data-slot="Amber-0"] > title')).toHaveText(/^Coach(, |$)/);
+  await expect(a.locator('.tok[data-slot="Amber-0"]')).toHaveAttribute("aria-label", /^Coach(, |$)/);
   await expect(a.getByTestId("event").filter({ hasText: "Juno" }).first()).toBeVisible();
 });

@@ -16,6 +16,7 @@ import type { WorldPos } from "../gen/WorldPos";
 import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampToMap, viewToWorld, worldToView } from "../map/transform";
 import { FLIP_MS, smoothed } from "./smooth";
+import { hoverToken, localHover, registerHover } from "../map/HoverLabel";
 import type { BoardState, Player, Slot } from "./state";
 
 export const TOKEN_R = 23;
@@ -271,6 +272,20 @@ export function Tokens(p: {
           const r = () => TOKEN_R * p.k;
           // In Player, the match's player name (spec §6b); else the board's slot name.
           const label = () => `${pv()?.name || slot().name || `${slot().team} ${slot().slot + 1}`}${hero() ? `, ${hero()!.name}` : ""}`;
+          // The map's hover label (map/HoverLabel.tsx), by roster slot, never the player's id.
+          const hoverId = () => `${slot().team}-${slot().slot}`;
+          const shownOnMap = () => (live() ? !!pv()?.pos : pl().state.placed);
+          const partText = (part: string | undefined) => (part === "vis" ? (visible() ? "In vision" : "Not seen") : part === "life" ? (alive() ? "Kill (K)" : "Revive (K)") : label());
+          createEffect(() => {
+            const off = registerHover("token", hoverId(), (part) => (shownOnMap() ? { x: at().x, y: at().y, gap: r() + 12 * p.k, text: partText(part) } : undefined));
+            onCleanup(off);
+          });
+          const hover = (part?: string) => hoverToken({ kind: "token", id: hoverId(), part });
+          const unhover = () => {
+            const h = localHover();
+            if (h?.kind === "token" && h.id === hoverId()) hoverToken(undefined);
+          };
+          onCleanup(unhover);
           return (
             <Show when={live() ? !!pv()?.pos : pl().state.placed}>
               <Show when={remoteDrag()}>
@@ -288,17 +303,21 @@ export function Tokens(p: {
                 data-player={pl().id}
                 data-visible={String(visible())}
                 onPointerDown={(e) => down(pl(), e)}
+                aria-label={label()}
                 onPointerEnter={() => {
                   setHovered(pl().id);
                   setArmed(pl().id);
+                  hover();
                 }}
-                onPointerLeave={() => hovered() === pl().id && setHovered(undefined)}
+                onPointerLeave={() => {
+                  if (hovered() === pl().id) setHovered(undefined);
+                  unhover();
+                }}
                 ref={() => onCleanup(() => hovered() === pl().id && setHovered(undefined))}
               >
                 <Show when={selected()}>
                   <circle class="sel" r={r() + 5 * p.k} />
                 </Show>
-                <title>{label()}</title>
                 <circle
                   class="body"
                   r={r()}
@@ -353,8 +372,10 @@ export function Tokens(p: {
                   data-testid="vision"
                   transform={`translate(${r() * 0.78} ${-r() * 0.78}) scale(${p.k})`}
                   onPointerDown={(e) => toggleVision(pl(), e)}
+                  aria-label={partText("vis")}
+                  onPointerEnter={() => hover("vis")}
+                  onPointerLeave={() => hover()}
                 >
-                  <title>{visible() ? "In vision" : "Not seen"}</title>
                   <circle r="9" />
                   <path d={EYE} />
                   <Show when={visible()}>
@@ -367,6 +388,9 @@ export function Tokens(p: {
                 <g
                   class={cx("life", p.state.canEdit() && !live() && "editable")}
                   data-testid="life"
+                  aria-label={partText("life")}
+                  onPointerEnter={() => hover("life")}
+                  onPointerLeave={() => hover()}
                   transform={`translate(${-r() * 0.78} ${-r() * 0.78}) scale(${p.k})`}
                   onPointerDown={(e) => {
                     if (e.button !== 0 || !p.state.canEdit() || live()) return;
@@ -375,7 +399,7 @@ export function Tokens(p: {
                     toggleAlive(pl());
                   }}
                 >
-                  <title>{alive() ? "Kill (K)" : "Revive (K)"}</title>
+
                   <circle r="9" />
                   <path class="skull" d={SKULL} />
                 </g>

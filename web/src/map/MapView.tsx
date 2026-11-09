@@ -9,6 +9,7 @@ import { type Marker, HUD_MAP_PX, isFriendly, laneStroke, offByDefault, washFor 
 import { defaultSplit, pathOf, splitAt, splitEdges } from "./lanes";
 import { type Art, artCss } from "./pack";
 import { FIT_VIEW, MARGIN, type Viewpoint } from "./transform";
+import { buffInfo } from "../match/buffs";
 
 /** A neutral cream: the spawners give any powerup, so no buff's own colour. */
 const POWERUP = "#FFEFD7";
@@ -50,7 +51,7 @@ function Fb(p: { shape: string; color: string; k: number; part?: string }) {
  * HUD's own fill layer (`hp-fill`) is clipped and the empty part shows its dark frame. Absent:
  * full, as in Sandbox (operator, 2026-11-08).
  */
-function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | undefined; picked: boolean; health?: number | undefined; camp?: string | undefined }) {
+function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | undefined; picked: boolean; health?: number | undefined; camp?: string | undefined; buff?: string | undefined }) {
   const c = () => washFor(p.m, p.vp);
   // Destroyed keeps its own look.
   const hp = () => (p.health === undefined || p.status === "Destroyed" ? undefined : Math.max(0, Math.min(100, p.health)));
@@ -87,8 +88,11 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
         return [<Fb shape={m.tier === "vaults" ? "sq" : "tri"} color="#9fc6bb" k={0.35} />, <Layer img={CAMP_IMG[m.tier ?? "medium"]} />];
       case "koth":
         return [<Fb shape="dot" color="#99FFD6" k={0.5} />, <Layer img="koth" style={{ inset: "15%" }} />];
-      case "powerup":
-        return [<Fb shape="star" color={POWERUP} k={0.8} />, <Layer img="powerup" wash={POWERUP} />];
+      case "powerup": {
+        // Player, replay tier: the buff that's up, in its own icon and wash (match/buffs.ts).
+        const b = buffInfo(p.buff);
+        return b ? [<Fb shape="star" color={b.wash} k={0.8} />, <Layer img={b.img} wash={b.wash} />] : [<Fb shape="star" color={POWERUP} k={0.8} />, <Layer img="powerup" wash={POWERUP} />];
+      }
       case "urn":
         // The jar; open (lit), the game's three pulses closing in on it, washed the urn's cyan
         // (hud_minimap.vxml MinimapCrateSnippet, .pingIdol1-3; styles/app.css).
@@ -103,10 +107,11 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
     <div
       class={cx("mk", p.m.kind, p.m.kind === "koth" && "koth", p.m.kind === "urn" && p.status === "Active" && "lit", p.status === "Destroyed" && "down", p.status === "Hidden" && "gone", p.status === "Stage2" && "stage2", p.picked && "picked")}
       data-status={p.status ?? "Active"}
-      title={p.m.title}
+      aria-label={p.m.title}
       data-key={p.m.key}
       data-health={hp() === undefined ? undefined : Math.round(hp()!)}
       data-camp={p.camp}
+      data-buff={p.buff}
       style={{
         "--hp": hp() === undefined ? undefined : `${hp()}%`,
         left: `${p.m.at.x / 10}%`,
@@ -197,6 +202,8 @@ export function MapView(p: {
   laneEdges?: (lane: string) => Edges | undefined;
   /** Player, replay tier: a camp's state ("alive", "cleared", "unspawned"), as `data-camp`. */
   camp?: (key: string) => string | undefined;
+  /** Player, replay tier: the buff up at a powerup site, as `data-buff` and its icon. */
+  buff?: (key: string) => string | undefined;
 }) {
   useArtCss(() => p.art);
   let host!: HTMLDivElement;
@@ -272,6 +279,7 @@ export function MapView(p: {
                     picked={!!p.picked?.(m.key)}
                     health={p.health?.(m.key)}
                     camp={p.camp?.(m.key)}
+                    buff={p.buff?.(m.key)}
                   />
                 )}
               </For>

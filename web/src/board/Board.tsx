@@ -25,7 +25,8 @@ import type { MatchPreview } from "../match/preview";
 import { EventPings, Highlight, Player, PlayerSide, PlayerSwitch, TrooperDots } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
 import { ReplayPrompt } from "../player/ReplayPrompt";
-import { CampTips } from "../player/Camps";
+import { MarkerTips } from "../player/Camps";
+import { HoverLabels } from "../map/HoverLabel";
 import { UrnMark } from "../player/Urn";
 import { liveLayer } from "../player/layer";
 import { PlayerTopBar } from "../player/PlayerTopBar";
@@ -670,6 +671,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
               waveT={splitOf}
               laneEdges={(k) => laneEdges().get(k)?.()}
               camp={(k) => matchPreview()?.camps.get(k)?.state}
+              buff={(k) => {
+                const b = matchPreview()?.powerups?.get(k);
+                return b?.state === "up" ? b.buff : undefined;
+              }}
               raisedLane={waveDrag()?.key}
               picked={(k) => objSelection().has(k)}
               showHidden={state.canEdit()}
@@ -712,12 +717,13 @@ export function Board(p: { board: string; token: string; art: Art }) {
               />
               <Show when={inPlayer()}>
                 <UrnMark art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} mk={Math.min(1, view().w / 1000)} />
-                <CampTips art={p.art} vp={viewpoint()} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               </Show>
+              <MarkerTips art={p.art} vp={viewpoint()} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               <Highlight at={inPlayer() ? player.ring() : undefined} vp={viewpoint()} />
               <Show when={inPlayer()}>
                 <EventPings host={player} art={p.art} vp={viewpoint()} />
               </Show>
+              <HoverLabels k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
             </MapView>
             {/* The phone has its own Flip in its tool strip: one control, one test id. */}
             {!phone && (

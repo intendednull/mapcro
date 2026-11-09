@@ -1,6 +1,7 @@
 // Match events for Player's list (spec §6b): labels, search, filters, where each happened, and
 // the jump time. Pure.
 
+import { buffInfo, buffLabel } from "../match/buffs";
 import type { Marker } from "../map/model";
 import { type Pt, worldToMap } from "../map/transform";
 import { type MatchEvent, type Timeline, clockLabel, markerKey, tierOf } from "../match/timeline";
@@ -75,10 +76,14 @@ export function label(e: MatchEvent, n: Named): string {
       return `Rift up (${laneOf(e.key) || "?"})`;
     case "rift_capture":
       return `Rift captured by ${team(e.team) || "?"}`;
-    case "powerup_spawn":
-      return `Powerup up (${laneOf(e.key) || "?"})`;
-    case "powerup_taken":
-      return `Powerup taken (${laneOf(e.key) || "?"})`;
+    case "powerup_spawn": {
+      const b = buffLabel(e.buff);
+      return `Powerup up (${laneOf(e.key) || "?"})${b ? `: ${b}` : ""}`;
+    }
+    case "powerup_taken": {
+      const b = buffInfo(e.buff)?.name ?? e.buff;
+      return `Powerup taken (${laneOf(e.key) || "?"})${b ? `: ${b} buff` : ""}`;
+    }
     case "souls_swing":
       return `Souls swing ${team(e.team)} +${k(e.amount ?? 0)}`;
     case "ult": {
@@ -127,9 +132,9 @@ export function shortLabel(e: MatchEvent, n: Named): string {
     case "rift_capture":
       return "Rift taken";
     case "powerup_spawn":
-      return "Powerup up";
+      return `${buffInfo(e.buff)?.name ?? "Powerup"}${e.buff ? " buff" : ""} up`;
     case "powerup_taken":
-      return "Powerup taken";
+      return `${buffInfo(e.buff)?.name ?? "Powerup"}${e.buff ? " buff" : ""} taken`;
     case "ult":
       return `${n.hero(e.hero_id) || "Hero"} ult`;
     case "urn_pickup":

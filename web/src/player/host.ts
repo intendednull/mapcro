@@ -3,7 +3,7 @@
 // board creates one; Player renders it; following reads and writes its playback.
 
 import { createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js";
-import { type CampAt, type MatchEvent, type Timeline, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, sitesAt, urnAt } from "../match/timeline";
+import { type CampAt, type MatchEvent, type PowerupAt, type RiftAt, type Timeline, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, riftAt, sitesAt, urnAt } from "../match/timeline";
 import type { MatchPreview } from "../match/preview";
 import { slotKey } from "../match/save";
 import type { Marker } from "../map/model";
@@ -661,7 +661,7 @@ export function createPlayerHost(board: string, token: string) {
     /** The match at playback time t as the board draws it; empty with no timeline (finding 7). */
     preview: (markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane" | "at">>): MatchPreview => {
       const m = tl();
-      if (!m) return { players: new Map(), down: new Set(), sites: new Map(), lanes: new Map(), camps: new Map() };
+      if (!m) return { players: new Map(), down: new Set(), sites: new Map(), lanes: new Map(), camps: new Map(), rifts: new Map(), powerups: new Map() };
       const at = t();
       const health = showHealth() && m.tier === "replay";
       const players = new Map(playersAt(m, at).map((x) => [slotKey(x.team, x.slot), { hero: x.hero_id, name: showNames() ? x.name : null, pos: x.pos, health: health ? x.health : null, respawn: x.respawn }]));
@@ -679,7 +679,15 @@ export function createPlayerHost(board: string, token: string) {
       const u = urnAt(m, at);
       const site = (k: string | null | undefined) => (k ? (markerKey(k, markers) ?? null) : null);
       const urn = u ? { ...u, delivery: site(u.delivery), next: u.next ? { t: u.next.t, key: site(u.next.key) ?? u.next.key } : null } : undefined;
-      return { players, down: downAt(m, at, markers), sites: sitesAt(m, at, markers), lanes: lanesAt(m, at), camps, ...(health ? { health: byMarker(objectiveHealthAt(m, at)) } : {}), ...(urn ? { urn } : {}) };
+      const rifts = new Map<string, RiftAt>();
+      if (m.rifts) for (const mk of markers) if (mk.kind === "koth") rifts.set(mk.key, riftAt(m, mk.key, at, markers)!);
+      const powerups = new Map<string, PowerupAt>();
+      for (const p of m.powerups ?? []) {
+        const v = powerupAt(p, at);
+        const key = markerKey(p.key, markers);
+        if (v && key) powerups.set(key, v);
+      }
+      return { players, down: downAt(m, at, markers), sites: sitesAt(m, at, markers), lanes: lanesAt(m, at), camps, rifts, powerups, ...(health ? { health: byMarker(objectiveHealthAt(m, at)) } : {}), ...(urn ? { urn } : {}) };
     },
   };
 }

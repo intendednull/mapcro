@@ -603,8 +603,39 @@ makes a board with that match attached and lands in Player; **New board** is tod
   matches have no lane data and show the default split. Sandbox keeps its one draggable split.
 - **Camps** on the replay tier (2026-11-08): the map shows only each camp's state: up, cleared
   (the board's dimmed look) or not yet spawned (fainter). Hovering a camp, or tapping it on the
-  phone, says "Respawns in m:ss (at m:ss)" or "Spawns at m:ss"; nothing counts down otherwise.
-  The mid boss is the same, from its timer, and is down from its clear to its respawn.
+  phone, says "Respawns in m:ss (at m:ss)", "Spawns in m:ss (at m:ss)" or "Up"; nothing counts
+  down otherwise. The mid boss is the same, from its timer ("Mid boss respawns in …"), and is
+  down from its clear to its respawn.
+- **Hover labels** (operator, 2026-11-08: "a label should pop up with the info, just like how a
+  label instantly pops up when a neutral camp is hovered"): one label, one look, for everything
+  on the map, Player and Sandbox alike (`map/HoverLabel.tsx`). It shows at once on hover (a tap
+  on the phone), and goes on leave; nothing on the map uses the browser's delayed `title` any
+  more, and each thing keeps an `aria-label`.
+  - A hero token says its player and hero ("Coach, Haze"; under Names off, the slot), its eye
+    "In vision" / "Not seen", its skull "Kill (K)" / "Revive (K)". A marker names itself
+    ("Guardian (Amber, west lane)"); the wave handle says "Wave", below any marker under it.
+  - **Timers** (replay tier): everything that spawns says when, "… in m:ss (at m:ss)" while
+    down, "up" or "active" while up, all from the replay's own times (exploration round 7):
+    - camps and the mid boss: the rules' timers (above);
+    - **rifts**: "Rift spawns here in …" until its cash-in opens (`live_s`,
+      `m_timeKothCashInStarted`; the spawner's announcement comes 80 s earlier and the label
+      already counts to the opening), "Next rift spawns at the other site in …", "Rift active",
+      "Rift active at the other site", "No more rifts in this replay". The game has no fixed
+      rift schedule, and no next-rift field; the replay's own next opening is used;
+    - **bridge buffs**: "Gun buff (+fire rate, +ammo) up", else "Casting buff respawns in …"
+      ("spawns" before the site's first), "No more buffs in this replay". Spawns every 300 s
+      from 5:00 (misc.vdata `m_flInitialSpawnTime`, `m_flSpawnInterval`), as the replay shows;
+    - **the urn's points**: as below.
+  - The API summary has no rift, buff, camp or urn times: its mid boss says "Mid boss up", or
+    that it's down and its respawn isn't in the summary; its other markers name themselves.
+- **Bridge buffs** (replay tier, format 2): each powerup site, while its buff is up, is drawn
+  with that buff's own minimap icon and wash (`hud_minimap.vcss` `.powerup_gun` (weapon)
+  #FFCC80, `.powerup_survival` (health) #D7FF9A, `.powerup_casting` (magic) #E1A6FF,
+  `.powerup_movement` #99FFDD; `data-buff` on the marker), and in its generic look otherwise.
+  The type is the pickup's `m_nSubclassID` at the spawn (exploration round 7); the events name
+  it: "Powerup up (west): Gun buff (+fire rate, +ammo)", "Powerup taken (west): Gun buff". The
+  game's names (citadel_main_english); what each gives, from misc.vdata, short (the values grow
+  with the match and aren't shown). The API summary has only per-player totals, so not there.
 - **Respawn timers** (2026-11-08, both tiers): a dead hero's top-bar portrait shows the seconds
   to its respawn over the darkened portrait, as the HUD counts, from the timeline's
   `[died_s, back_s]` per death (replay: when the hero is next seen alive, else the pawn's
@@ -681,7 +712,7 @@ makes a board with that match attached and lands in Player; **New board** is tod
 - **Events** (both tiers, each with what it has; `Event` in `crates/replay/src/timeline.rs`):
   deaths (who; the killer and the place when the data has them, else where the hero was last
   seen), objectives, mid boss kills, rifts up and captured, powerups up and taken (replay only, on
-  seconds the spawner is in the recording), urn pick-ups, drops and deliveries (replay only,
+  seconds the spawner is in the recording; from format 2 with the buff), urn pick-ups, drops and deliveries (replay only,
   with the carrier), ult casts (replay only: a rise of the hero's ult
   cooldown, named by the game's `ImportantAbilityUsed` message, which covers every important
   ability, so it alone isn't an ult), and souls swings (the Amber-minus-Sapphire lead

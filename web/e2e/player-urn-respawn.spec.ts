@@ -211,7 +211,7 @@ test("the urn draws where it lies and on its carrier at the game's sizes, and li
 test("hovering an urn point says when the next urn spawns, and it counts down", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Urn tips"), "Coach");
   await open(a);
-  const tip = a.getByTestId("camp-tip");
+  const tip = a.getByTestId("hover-label");
   const hover = async (key: string) => {
     const b = (await marker(a, key).boundingBox())!;
     await a.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
