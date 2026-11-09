@@ -120,6 +120,8 @@ export function TopBar(p: {
   compact?: boolean;
   /** A click on a portrait: pick that slot's hero. */
   onPickHero?: (slot: RecordId) => void;
+  /** A click on a hero's portrait focuses it on the map (Board's focusHero). */
+  onFocus?: (team: string, slot: number) => void;
 }) {
   let host!: HTMLDivElement;
   const [unit, setUnit] = createSignal(1);
@@ -186,14 +188,25 @@ export function TopBar(p: {
                 />
               </div>
               <HeroBadge art={p.art} slot={slot.slot} hero={hero()} />
+              {/* With a hero: the portrait focuses it, and an editor changes it from the corner's
+                  swap button. Without one, the portrait is the picker. */}
+              <Show when={!editable() || slot.slot.hero != null}>
+                <button class="tb-focus" data-testid="focus-hero" title={`Show ${hero()?.name ?? label()}`} aria-label={`Show ${label()}${hero() ? `, ${hero()!.name},` : ""} on the map`} onClick={() => p.onFocus?.(t, slot.slot.slot)} />
+              </Show>
               <Show when={editable()}>
                 <button
-                  class="tb-pick"
+                  class={cx("tb-pick", slot.slot.hero != null && "swap")}
                   data-testid="pick-hero"
-                  title="Pick hero"
-                  aria-label="Pick hero"
+                  title={slot.slot.hero != null ? "Change hero" : "Pick hero"}
+                  aria-label={slot.slot.hero != null ? "Change hero" : "Pick hero"}
                   onClick={() => p.onPickHero?.(slot.id)}
-                />
+                >
+                  <Show when={slot.slot.hero != null}>
+                    <svg viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M3 6h9l-2.5-2.5M13 10H4l2.5 2.5" />
+                    </svg>
+                  </Show>
+                </button>
               </Show>
               <button
                 class={cx("tb-vis", !player.state.visible && "off")}

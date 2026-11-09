@@ -97,6 +97,10 @@ export function Layers(p: {
   unitsPerPx: () => number;
   visible: () => { x: number; y: number; w: number };
   setOpenComment: (id: RecordId | undefined) => void;
+  /** Hands the board a ping at a world spot, the same as a middle click there (hero focus). */
+  bindPing?: (ping: (at: WorldPos) => void) => void;
+  /** A hero just focused ("Amber-0"), its token flashes; `n` restarts the flash. */
+  focused?: () => { slot: string; n: number } | undefined;
 }) {
   const st = p.state;
   const view = (w: WorldPos) => worldToView(w, p.vp);
@@ -334,14 +338,15 @@ export function Layers(p: {
   };
   let pingN = 0;
   let pingClear: ReturnType<typeof setTimeout> | undefined;
-  const ping = (at: Pt) => {
-    const w = world(at);
+  const pingWorld = (w: WorldPos) => {
     pingN += 1;
     st.presence({ ping: { at: w, n: pingN } });
     showPing({ key: `me:${pingN}`, at: w, color: p.myColor, name: "" });
     clearTimeout(pingClear);
     pingClear = setTimeout(() => st.presence({ ping: null }), PING_MS);
   };
+  const ping = (at: Pt) => pingWorld(world(at));
+  p.bindPing?.(pingWorld);
   onCleanup(() => clearTimeout(pingClear));
   const seenPing = new Map<number, number>();
   createEffect(() => {
@@ -831,7 +836,7 @@ export function Layers(p: {
           />
         )}
       </Show>
-      <Tokens state={st} art={p.art} vp={p.vp} scene={p.tokenScene ?? p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} onPress={clearObjects} preview={p.preview} />
+      <Tokens state={st} art={p.art} vp={p.vp} scene={p.tokenScene ?? p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} onPress={clearObjects} preview={p.preview} focused={p.focused} />
       <For each={othersPicks()}>
         {(x) => (
           <g class="picks" data-picks={x.peer.state!.name} style={{ "pointer-events": "none" }}>

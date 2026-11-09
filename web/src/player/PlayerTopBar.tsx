@@ -97,7 +97,15 @@ function RejuvBadge(p: { held: () => RejuvNow | undefined; t: () => number; team
   );
 }
 
-export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art; vp: Viewpoint; compact?: boolean }) {
+export function PlayerTopBar(p: {
+  host: PlayerHost;
+  state: BoardState;
+  art: Art;
+  vp: Viewpoint;
+  compact?: boolean;
+  /** A click on a hero's portrait focuses it on the map at t (Board's focusHero). */
+  onFocus?: (team: string, slot: number) => void;
+}) {
   let el!: HTMLDivElement;
   const [unit, setUnit] = createSignal(1);
   onMount(() => {
@@ -158,6 +166,9 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
               </div>
               {/* The hero badge; low health swaps in the critical card (m_strIconHeroCardCritical), as the HUD does. */}
               <HeroBadge art={p.art} slot={s.slot} hero={hero()} low={low()} />
+              <Show when={x()}>
+                <button class="tb-focus" data-testid="focus-hero" title={`Show ${hero()?.name ?? label()}`} aria-label={`Show ${label()}${hero() ? `, ${hero()!.name},` : ""} on the map`} onClick={() => p.onFocus?.(t, s.slot.slot)} />
+              </Show>
               <Show when={dead() && x()?.respawn != null && respawn() != null}>
                 <span class="tb-respawn" data-testid="tb-respawn" data-respawn={Math.ceil(x()!.respawn!)} aria-label={`${label()} respawns in ${Math.ceil(x()!.respawn!)} s`}>
                   {Math.ceil(respawn()!)}

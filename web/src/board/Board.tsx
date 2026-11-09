@@ -36,7 +36,9 @@ import { Layers, calloutOrder } from "./Layers";
 import { FRESH_BOARD, randomRosterOps } from "./roster";
 import { HeroPicker } from "./HeroPicker";
 import { defaultSplit, project } from "../map/lanes";
-import { worldToMap } from "../map/transform";
+import { FIT_VIEW, worldToMap, worldToView } from "../map/transform";
+import type { WorldPos } from "../gen/WorldPos";
+import { slotKey } from "../match/save";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { ShareDialog } from "./ShareDialog";
 import { rejection, statusView } from "./status";
@@ -219,9 +221,57 @@ export function Board(p: { board: string; token: string; art: Art }) {
     setSceneId(id);
   };
   const userView = (v: ViewRect, why: string) => {
+    cancelAnimationFrame(gliding);
     stopFollowing(why);
     setView(clampView(v));
   };
+  /** Glide the view to `to` (an ease-out over GLIDE_MS); any pan or zoom of yours cuts it. */
+  const GLIDE_MS = 360;
+  let gliding = 0;
+  const glideView = (to: ViewRect) => {
+    cancelAnimationFrame(gliding);
+    const from = view();
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const k = Math.min(1, (now - t0) / GLIDE_MS);
+      const e = 1 - (1 - k) ** 3;
+      setView(clampView({ x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e, w: from.w + (to.w - from.w) * e }));
+      if (k < 1) gliding = requestAnimationFrame(step);
+    };
+    gliding = requestAnimationFrame(step);
+  };
+  onCleanup(() => cancelAnimationFrame(gliding));
+
+  // ---- hero focus (operator, 2026-11-09: "when I click on a hero, it should focus them"): a
+  // click on a hero's portrait (either top bar) or its roster chip pans a zoomed-in view to
+  // centre it, pings its spot (everyone sees the ping), and flashes its token. Following
+  // someone, the view stays theirs: only the ping and the flash. A hero with nowhere on the
+  // map (not placed; in Player, dead or not in the match at t) gets nothing. ----
+  /** Where a roster slot's hero stands now: in Player the match at t, else the scene's token. */
+  const heroAt = (team: string, n: number): WorldPos | undefined => {
+    if (inPlayer()) return matchPreview()?.players.get(slotKey(team, n))?.pos ?? undefined;
+    const s = state.roster().find((x) => x.slot.team === team && x.slot.slot === n);
+    const pl = s && state.playersIn(scene()?.id).find((x) => x.state.slot === s.id);
+    return pl?.state.placed ? pl.state.pos : undefined;
+  };
+  let pingAt: ((w: WorldPos) => void) | undefined;
+  const [focused, setFocused] = createSignal<{ slot: string; n: number }>();
+  let focusN = 0;
+  let unflash: ReturnType<typeof setTimeout> | undefined;
+  const focusHero = (team: string, n: number) => {
+    const w = heroAt(team, n);
+    if (!w) return;
+    const v = view();
+    if (following() === undefined && v.w < FIT_VIEW.w - 0.5) {
+      const c = worldToView(w, viewpoint());
+      glideView({ x: c.x - v.w / 2, y: c.y - v.w / 2, w: v.w });
+    }
+    pingAt?.(w);
+    setFocused({ slot: `${team}-${n}`, n: ++focusN });
+    clearTimeout(unflash);
+    unflash = setTimeout(() => setFocused(undefined), 1200);
+  };
+  onCleanup(() => clearTimeout(unflash));
   const presenterList = createMemo(() => presenters(state.peerList(), state.myPeer(), following()));
   const followersOf = (peer: number | undefined) =>
     peer === undefined ? 0 : state.peerList().filter((x) => x.state?.following === peer).length;
@@ -537,8 +587,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
           {sceneName(scene()?.scene.name ?? "", sceneIndex())}
         </h1>
       </div>
-      <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} compact />}>
-        <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact onPickHero={setHeroPick} />
+      <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} compact onFocus={focusHero} />}>
+        <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact onPickHero={setHeroPick} onFocus={focusHero} />
       </Show>
       <div class="p-map-wrap">
         {mapBox(true)}
@@ -711,6 +761,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 tool={tool()}
                 ink={ink()}
                 myColor={me()?.color ?? 0}
+                bindPing={(f) => (pingAt = f)}
+                focused={focused}
                 svg={overlay}
                 objectives={objectives}
                 k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)}
@@ -876,8 +928,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
               </h1>
             </div>
           </div>
-          <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} />}>
-            <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} />
+          <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} onFocus={focusHero} />}>
+            <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} onFocus={focusHero} />
           </Show>
           {/* The map takes all the room left, as the largest square that fits. */}
           <div class="mapfit">
@@ -947,7 +999,16 @@ export function Board(p: { board: string; token: string; art: Art }) {
                         const hero = () => (s.slot.hero != null ? p.art.heroes.get(s.slot.hero) : undefined);
                         return (
                           <div class="slot">
-                            <span class={`chip ${team.toLowerCase()}`}>
+                            <span
+                              class={`chip ${team.toLowerCase()}`}
+                              role="button"
+                              tabindex="0"
+                              data-testid="roster-focus"
+                              title="Show on the map"
+                              aria-label={`Show ${s.slot.name || `${rosterTeamName(team)} player ${s.slot.slot + 1}`} on the map`}
+                              onClick={() => focusHero(team, s.slot.slot)}
+                              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), focusHero(team, s.slot.slot))}
+                            >
                               {`${slotTag(team)}${s.slot.slot + 1}`}
                               <Show when={hero()?.portrait}>
                                 <i class="hero-mm" style={{ display: "block", "background-image": `url(${JSON.stringify(hero()!.portrait)})` }} />

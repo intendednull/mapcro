@@ -81,6 +81,8 @@ export function Tokens(p: {
   onPress?: () => void;
   /** A match preview: heroes at the match's positions (by "amber-0"…), dead ones hidden. */
   preview?: (() => MatchPreview | undefined) | undefined;
+  /** A hero just focused from its portrait ("Amber-0"): its token flashes; `n` restarts it. */
+  focused?: (() => { slot: string; n: number } | undefined) | undefined;
 }) {
   const [drag, setDrag] = createSignal<Drag | undefined>();
   const slots = createMemo(() => new Map(p.state.roster().map((s) => [s.id, s.slot])));
@@ -328,6 +330,10 @@ export function Tokens(p: {
               >
                 <Show when={selected()}>
                   <circle class="sel" r={r() + 5 * p.k} />
+                </Show>
+                {/* Focused from its portrait: a ring that pulses out once (keyed: each focus restarts it). */}
+                <Show when={p.focused?.()?.slot === `${slot().team}-${slot().slot}` && p.focused!()!.n} keyed>
+                  {(n) => <circle class="focus-ring" data-focus={n} r={r() + 4 * p.k} />}
                 </Show>
                 <circle
                   class="body"
