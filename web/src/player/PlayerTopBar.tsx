@@ -1,7 +1,7 @@
 // Player's top bar (spec §6b): the in-game bar drawn from the match at playback time t, read-only.
 // The same look as the scene's (board/TopBar.tsx): portraits, souls with team totals, ult rings,
 // the dead greyed out with their respawn countdown (when the tier has it), the clock at t, and
-// under a team's souls the Rejuvenator it holds: revives left and when it ends.
+// under a team's souls the Rejuvenator it holds: a mark per revive left, and its timer.
 // Only what the match's tier has is shown: no ult data (the metadata tier) reads as untracked,
 // never as ready.
 
@@ -59,41 +59,65 @@ function Ult(p: { left: number | null; label: string }) {
   );
 }
 
-/** Without the pack: a crystal in rejuv_crystal_psd's green. */
-const CRYSTAL_FB =
-  "data:image/svg+xml," +
-  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="M32 3L44 24L36 61H28L20 24Z" fill="#3fd65a" stroke="#0b1714" stroke-width="3"/></svg>');
+/** The Rejuvenator's natural length (crates/replay REJUV_S): its timer drains over it. */
+const REJUV_S = 180;
+/** The most revives the game draws (team_rejuv_1..4, .RejuvCount_1..4). */
+const REJUV_MAX = 4;
+
+/** Without the pack: a drawn stand-in for the game's winged mark (hud/icons/rejuvenator). */
+const WING = "M10 0a2 2 0 1 1 0 4a2 2 0 1 1 0-4ZM0 5.5h5c1 2.2 3 3.4 5 3.4s4-1.2 5-3.4h5c0 1.6-1 2.6-3 2.6c-2 2.2-3.6 3.4-5 4l-1.4 8.4h-1.2L9 12.1c-1.4-.6-3-1.8-5-4c-2 0-3-1-3-2.6Z";
+const wingsFb = (n: number) => {
+  // The game's arrangement (team_rejuv_N): a shallow V, the inner marks lower.
+  const xs = Array.from({ length: n }, (_, i) => 57.5 + (i - (n - 1) / 2) * 30);
+  const marks = xs.map((x, i) => `<path transform="translate(${x - 14} ${Math.abs(i - (n - 1) / 2) < 1 ? 26 : 10}) scale(1.4)" d="${WING}" fill="#FFCC00"/>`);
+  return "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 115 65">${marks.join("")}</svg>`);
+};
 
 /**
- * A team's Rejuvenator (the game's #RejuvenatorCharges, under the souls): its crystal, the revives
- * left and a countdown to its end. Both ease (spec §4a): a scrub runs the countdown through the
- * seconds it skips. The data attributes keep the exact values.
+ * A team's Rejuvenator under its souls, as the game draws it (#RejuvenatorFriendly / #RejuvenatorEnemy):
+ * one gold winged mark per revive left, the game's image for that count, and no text. A change of
+ * count crossfades (spec §4a); the data attributes and label keep the exact values.
  */
-function RejuvBadge(p: { held: () => RejuvNow | undefined; t: () => number; team: "Amber" | "Sapphire"; side: "friend" | "enemy"; img: string | undefined }) {
-  const left = easedNumber(() => p.held()?.left ?? null);
-  const remaining = easedNumber(() => {
-    const h = p.held();
-    return h ? Math.max(0, h.ends - p.t()) : null;
-  });
-  const exact = () => Math.max(0, Math.ceil((p.held()?.ends ?? 0) - p.t()));
+function RejuvBadge(p: { held: () => RejuvNow | undefined; team: "Amber" | "Sapphire"; side: "friend" | "enemy"; art: Art }) {
+  const left = () => Math.min(REJUV_MAX, p.held()?.left ?? 0);
   return (
-    <Show when={p.held()}>
-      {(h) => (
-        <div
-          class={cx("pl-rejuv", p.side, p.team.toLowerCase())}
-          data-testid="tb-rejuv"
-          data-team={h().team}
-          data-left={h().left}
-          data-ends-in={exact()}
-          aria-label={`${rosterTeamName(p.team)} Rejuvenator: ${h().left} revive${h().left === 1 ? "" : "s"}, ends in ${clockLabel(exact())}`}
-          title={`${rosterTeamName(p.team)} Rejuvenator: ${h().left} revive${h().left === 1 ? "" : "s"} left`}
-        >
-          <img class="pl-rejuv-icon" src={p.img ?? CRYSTAL_FB} alt="" />
-          <span class="pl-rejuv-left">×{Math.round(left() ?? h().left)}</span>
-          <span class="pl-rejuv-time">{clockLabel(Math.max(0, Math.ceil(remaining() ?? exact())))}</span>
-        </div>
-      )}
-    </Show>
+    <div
+      class={cx("pl-rejuv", p.side, p.team.toLowerCase())}
+      data-testid="tb-rejuv"
+      data-team={p.team.toLowerCase()}
+      data-left={left()}
+      role={left() ? "img" : undefined}
+      aria-label={left() ? `${rosterTeamName(p.team)} Rejuvenator: ${left()} revive${left() === 1 ? "" : "s"} left` : undefined}
+      title={left() ? `${rosterTeamName(p.team)} Rejuvenator: ${left()} revive${left() === 1 ? "" : "s"} left` : undefined}
+    >
+      {Array.from({ length: REJUV_MAX }, (_, i) => (
+        <img class={cx("pl-rejuv-icons", left() === i + 1 && "on")} data-n={i + 1} src={p.art.images.get(`rejuv-${i + 1}`) ?? wingsFb(i + 1)} alt="" />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The buff's natural end, as the game's #RejuvenatorTimer shows it: the winged mark on a dark disc,
+ * ringed by an arc that drains from pickup to 180 s later. No text: the mid boss's label says the
+ * time. Gone when the buff is (expired, or its revives spent). Beside the other's when both hold one.
+ */
+function RejuvTimer(p: { held: () => RejuvNow | undefined; taken: () => number | undefined; both: () => boolean; t: () => number; team: "Amber" | "Sapphire"; side: "friend" | "enemy"; art: Art }) {
+  const on = () => (p.held()?.left ?? 0) > 0 && p.taken() != null;
+  const frac = () => (on() ? Math.max(0, Math.min(1, (p.taken()! + REJUV_S - p.t()) / REJUV_S)) : 0);
+  const img = () => p.art.images.get("rejuv-timer");
+  return (
+    <div class={cx("pl-rejuv-timer", p.side, p.team.toLowerCase(), on() && "on", p.both() && "both")} data-testid="tb-rejuv-timer" data-team={p.team.toLowerCase()} data-frac={frac().toFixed(3)} aria-hidden="true">
+      <svg viewBox="0 0 30 30">
+        <circle class="pl-rejuv-disc" cx="15" cy="15" r="13.5" />
+        <Show when={img()} fallback={<path class="pl-rejuv-mark" transform="translate(6 6.5) scale(0.9)" d={WING} />}>
+          <image class="pl-rejuv-mark" href={img()} x="3" y="3" width="24" height="24" />
+        </Show>
+        <circle class="pl-rejuv-track" cx="15" cy="15" r="13.5" />
+        {/* 0..100 so only time eases, as the ult rings do. */}
+        <circle class="pl-rejuv-ring" cx="15" cy="15" r="13.5" transform="rotate(-90 15 15)" pathLength="100" style={{ "stroke-dasharray": `${(frac() * 100).toFixed(2)} 100` }} />
+      </svg>
+    </div>
   );
 }
 
@@ -129,6 +153,11 @@ export function PlayerTopBar(p: {
     return m ? rejuvAt(m, p.host.t()) : [];
   });
   const held = (t: "Amber" | "Sapphire") => rejuv().find((r) => r.team === t.toLowerCase());
+  // When the held one was taken: its timer drains from there.
+  const taken = (t: "Amber" | "Sapphire") => {
+    const h = held(t);
+    return h && p.host.tl()?.rejuv?.find((r) => r.team === h.team && r.ends_s === h.ends)?.taken_s;
+  };
   // Changing values ease (spec §4a): the totals count to each new value.
   const shown = { Amber: easedNumber(() => (known("Amber") ? total("Amber") : null)), Sapphire: easedNumber(() => (known("Sapphire") ? total("Sapphire") : null)) };
 
@@ -243,8 +272,10 @@ export function PlayerTopBar(p: {
             {score(friend(), false)}
             {score(enemy(), true)}
           </div>
-          <RejuvBadge held={() => held(friend())} t={p.host.t} team={friend()} side="friend" img={p.art.images.get("rejuv")} />
-          <RejuvBadge held={() => held(enemy())} t={p.host.t} team={enemy()} side="enemy" img={p.art.images.get("rejuv")} />
+          <RejuvBadge held={() => held(friend())} team={friend()} side="friend" art={p.art} />
+          <RejuvBadge held={() => held(enemy())} team={enemy()} side="enemy" art={p.art} />
+          <RejuvTimer held={() => held(friend())} taken={() => taken(friend())} both={() => !!held(enemy())} t={p.host.t} team={friend()} side="friend" art={p.art} />
+          <RejuvTimer held={() => held(enemy())} taken={() => taken(enemy())} both={() => !!held(friend())} t={p.host.t} team={enemy()} side="enemy" art={p.art} />
         </div>
       </div>
     </div>

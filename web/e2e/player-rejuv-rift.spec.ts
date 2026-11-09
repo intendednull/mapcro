@@ -1,7 +1,7 @@
 // The timers a replay has beyond the camps (timers audit, gaps 1, 2 and 7; spec §6b), on a
 // synthetic replay timeline handed to the server as the worker would: the Rejuvenator a team
-// holds (its events, its badge on the top bar with revives and a countdown, and on the mid boss's
-// label), an open rift's capture rings and give-up deadline, and the urn on the ground saying when
+// holds (its events, its marks and timer on the top bar as the game draws them, and on the mid
+// boss's label), an open rift's capture rings and give-up deadline, and the urn on the ground saying when
 // it walks back.
 
 import { createHash } from "node:crypto";
@@ -25,14 +25,14 @@ const SHOTS = process.env.MAPCRO_SHOT_DIR;
 let upstream: ReturnType<typeof createServer>;
 let server: Server;
 
-/** A pack with only the Rejuvenator's crystal (a tiny generated PNG, not game art) and no
- * entities, so the map is the built-in one and the icon comes from the pack. */
+/** A pack with only the Rejuvenator's top-bar images (tiny generated PNGs, not game art) and no
+ * entities, so the map is the built-in one and the marks come from the pack. */
 function iconPack(): string {
   const root = mkdtempSync(join(tmpdir(), "mapcro-rejuv-packs-"));
   const dir = join(root, "synthetic");
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
   const blobs: Record<string, unknown> = {};
-  for (const key of ["map/minimap_midtown_mid", "icons/rejuv_crystal_psd"]) {
+  for (const key of ["map/minimap_midtown_mid", ...[1, 2, 3, 4].map((n) => `topbar/team_rejuv_${n}_png`), "topbar/rejuvenator"]) {
     const file = `${key}.png`;
     mkdirSync(dirname(join(dir, file)), { recursive: true });
     writeFileSync(join(dir, file), png);
@@ -79,8 +79,12 @@ function timeline() {
     objectives: [{ key: WALKER, kind: "walker", team: "amber", lane: 1, destroyed_s: 300 }],
     objective_health: [{ key: WALKER, at: [[0, 100], [100, 62], [150, 61], [200, 40], [300, 0]] }],
     // Sapphire takes it at 30: three revives, one used at 60 (the charge at the death, 57), two
-    // at 90; it expires at 210.
-    rejuv: [{ team: "sapphire", taken_s: 30, ends_s: 210, left: [[30, 3], [57, 2], [88, 1]] }],
+    // at 90; it expires at 210. Amber holds one from 180 (both do until 210) and spends its last
+    // revive at 270, before its expiry at 360.
+    rejuv: [
+      { team: "sapphire", taken_s: 30, ends_s: 210, left: [[30, 3], [57, 2], [88, 1]] },
+      { team: "amber", taken_s: 180, ends_s: 360, left: [[180, 2], [240, 1], [270, 0]] },
+    ],
     events: [
       { t: 20, kind: "mid_boss", key: BOSS, x: 0, y: 0 },
       { t: 30, kind: "rejuv_taken", team: "sapphire", key: BOSS, x: 0, y: 0 },
@@ -142,44 +146,91 @@ test("the Rejuvenator: its events, its badge on the holder's side of the top bar
   await expect(ev.filter({ hasText: "Archmother Rejuvenator expired" })).toHaveCount(1);
   await expect(ev.filter({ hasText: "Rejuvenator taken" })).toHaveAttribute("data-kind", "rejuv_taken");
 
-  const badge = a.getByTestId("tb-rejuv");
+  // What shows, as the game draws it: one image of n marks per side (none: no marks), and the
+  // timer's ring, the share of its 180 s left.
+  const badge = (team: string) => a.locator(`[data-testid=tb-rejuv][data-team=${team}]`);
+  const timer = (team: string) => a.locator(`[data-testid=tb-rejuv-timer][data-team=${team}]`);
+  // The images shown once a crossfade settles: [n], or [] for none.
+  const marks = (team: string, n: number) =>
+    expect.poll(() => badge(team).locator("img:visible").evaluateAll((els) => els.map((e) => e.getAttribute("data-n")))).toEqual(n ? [String(n)] : []);
+  const ring = async (team: string, pct: string | null) => {
+    if (pct == null) return expect(timer(team)).toBeHidden();
+    await expect(timer(team)).toBeVisible();
+    await expect(timer(team).locator(".pl-rejuv-ring")).toHaveCSS("stroke-dasharray", new RegExp(`^${pct.replace(".", "\\.")}(px)?,? 100`));
+  };
+  const box = async (l: ReturnType<typeof a.locator>) => (await l.boundingBox())!;
+  const bar = await box(a.getByTestId("topbar"));
+  const mid = bar.x + bar.width / 2;
+
   await scrubTo(a, 25);
-  await expect(badge).toHaveCount(0);
+  await marks("sapphire", 0);
+  await marks("amber", 0);
+  await ring("sapphire", null);
+  await ring("amber", null);
+
   await scrubTo(a, 40);
-  await expect(badge).toHaveCount(1);
-  // Amber's view: Sapphire is the enemy, on the right.
-  await expect(badge).toHaveClass(/\benemy\b/);
-  await expect(badge).toHaveAttribute("data-team", "sapphire");
-  await expect(badge).toHaveAttribute("data-left", "3");
-  await expect(badge).toHaveAttribute("data-ends-in", "170");
-  await expect(badge.locator(".pl-rejuv-left")).toHaveText("×3");
-  await expect(badge.locator(".pl-rejuv-time")).toHaveText("2:50");
-  // The pack's crystal, not the fallback.
-  expect(await badge.locator("img").getAttribute("src")).not.toContain("data:");
-  const bar = (await a.getByTestId("topbar").boundingBox())!;
-  const b = (await badge.boundingBox())!;
-  expect(b.x).toBeGreaterThan(bar.x + bar.width / 2);
+  await marks("sapphire", 3);
+  await marks("amber", 0);
+  await ring("sapphire", "94.44");
+  await ring("amber", null);
+  // No text: neither a count nor a countdown.
+  await expect(badge("sapphire")).toHaveText("");
+  await expect(timer("sapphire")).toHaveText("");
+  // The pack's images, not the drawn stand-ins.
+  expect(await badge("sapphire").locator("img:visible").getAttribute("src")).not.toContain("data:");
+  await expect(timer("sapphire").locator("image")).toHaveCount(1);
+  // Amber's view: Sapphire is the enemy, its marks right of centre, the timer at the centre.
+  await expect(badge("sapphire")).toHaveClass(/\benemy\b/);
+  const m40 = await box(badge("sapphire").locator("img:visible"));
+  const t40 = await box(timer("sapphire"));
+  expect(m40.x).toBeGreaterThan(mid);
+  expect(Math.abs(t40.x + t40.width / 2 - mid)).toBeLessThan(t40.width / 2);
+  expect(t40.x + t40.width).toBeLessThan(m40.x);
   await shot(a, "synthetic-rejuv-40");
 
-  // A scrub: the countdown runs down through the seconds it skips, and settles on the exact one.
+  await scrubTo(a, 60);
+  await marks("sapphire", 2);
+
+  // The countdown stays in the mid boss's label.
   await scrubTo(a, 100);
-  await expect(badge).toHaveAttribute("data-left", "1");
-  await expect(badge).toHaveAttribute("data-ends-in", "110");
-  await expect(badge.locator(".pl-rejuv-time")).toHaveText("1:50");
-  await expect(badge.locator(".pl-rejuv-left")).toHaveText("×1");
+  await marks("sapphire", 1);
+  await ring("sapphire", "61.11");
   await says(a, BOSS, "Respawns in 4:40 · Archmother Rejuvenator: 1 revive, ends in 1:50");
   await shot(a, "synthetic-rejuv-100-boss-hover");
 
+  // Both hold one: each side its marks, the timers side by side, Amber's (friendly) on the left.
+  await scrubTo(a, 195);
+  await marks("sapphire", 1);
+  await marks("amber", 2);
+  await ring("sapphire", "8.33");
+  await ring("amber", "91.67");
+  const [ta, ts] = [await box(timer("amber")), await box(timer("sapphire"))];
+  expect(ta.x + ta.width).toBeLessThanOrEqual(ts.x + 0.5);
+  expect((await box(badge("amber").locator("img:visible"))).x + 1).toBeLessThan(mid);
+  await shot(a, "synthetic-rejuv-195-both");
+
+  // Sapphire's expires; Amber's stays.
   await scrubTo(a, 210);
-  await expect(badge).toHaveCount(0);
-  await says(a, BOSS, "Respawns in 2:50");
+  await marks("sapphire", 0);
+  await ring("sapphire", null);
+  await marks("amber", 2);
+  await says(a, BOSS, "Respawns in 2:50 · Hidden King Rejuvenator: 2 revives, ends in 2:30");
+
+  // Amber's last revive spent at 270: marks and timer go, though it would run to 360.
+  await scrubTo(a, 250);
+  await marks("amber", 1);
+  await ring("amber", "61.11");
+  await scrubTo(a, 280);
+  await marks("amber", 0);
+  await ring("amber", null);
 
   // From Sapphire's side it's on the friendly (left) side.
   await scrubTo(a, 50);
   await a.getByTestId("viewpoint-flip").click();
-  await expect(badge).toHaveClass(/\bfriend\b/);
-  const b2 = (await badge.boundingBox())!;
-  expect(b2.x + b2.width).toBeLessThan(bar.x + bar.width / 2);
+  await expect(badge("sapphire")).toHaveClass(/\bfriend\b/);
+  await marks("sapphire", 3);
+  const b2 = await box(badge("sapphire").locator("img:visible"));
+  expect(b2.x + b2.width).toBeLessThan(mid);
 });
 
 test("an open rift draws each team's capture and says when it gives up", async ({ browser }) => {

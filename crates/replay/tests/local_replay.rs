@@ -73,6 +73,31 @@ fn match_129738985_has_its_rejuvenators_and_rift_captures() {
     assert_eq!(first, [[0, 0]; 5]);
 }
 
+/// 129738985's vision (docs/research/replay-vision.md): when each hero's enemies could see it,
+/// from the teams' own minimap feeds. Nobody is seen before the laners first meet, at 18.2 s;
+/// almost every hero is seen as it dies (77 of 79 at the death tick in the spike); the merged
+/// intervals number about 2,053.
+#[test]
+#[ignore = "needs 129738985: MAPCRO_REPLAY_129738985"]
+fn match_129738985_says_when_each_hero_was_seen() {
+    let Some(dem) = env_path("MAPCRO_REPLAY_129738985") else { panic!("set MAPCRO_REPLAY_129738985 to 129738985.dem") };
+    let dir = tempfile::tempdir().expect("dir");
+    let out = dir.path().join("t.json");
+    worker::job(&dem, &out, 129_738_985, 2 << 30).expect("parses");
+    let bytes = std::fs::read(&out).expect("output");
+    let t = timeline::validate(&bytes).expect("the server's checks pass");
+    let n: usize = t.players.iter().map(|p| p.seen.len()).sum();
+    let seen_bytes: usize = t.players.iter().map(|p| serde_json::to_string(&p.seen).expect("json").len() + ",\"seen\":".len()).sum();
+    let first = t.players.iter().filter_map(|p| p.seen.first()).map(|s| s[0]).min();
+    let deaths: Vec<u32> = t.players.iter().flat_map(|p| p.deaths.iter().map(move |&d| (p, d))).map(|(p, d)| u32::from(p.seen.iter().any(|s| s[0] <= d * 10 && d * 10 <= s[1] + 10))).collect();
+    let share: Vec<u32> = t.players.iter().map(|p| p.seen.iter().map(|s| s[1] - s[0]).sum::<u32>() * 100 / (t.duration_s * 10)).collect();
+    eprintln!("{n} intervals, {seen_bytes} bytes of seen, timeline {} bytes; first seen at {first:?} ds; {} of {} deaths seen; seen % per hero {share:?}", bytes.len(), deaths.iter().sum::<u32>(), deaths.len());
+    assert_eq!((n, first), (2052, Some(182)), "the spike's merged count; nobody seen before the laners meet");
+    assert_eq!((deaths.iter().sum::<u32>(), deaths.len()), (73, 74), "seen within a second of dying");
+    assert!(share.iter().all(|s| (30..50).contains(s)), "each hero seen a third to a half of the match");
+    assert!(seen_bytes < 30_000, "about 27 KB");
+}
+
 #[test]
 #[ignore = "needs a local replay: MAPCRO_OLD_REPLAY"]
 fn an_old_map_replay_is_refused() {

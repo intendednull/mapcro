@@ -59,7 +59,7 @@ test("the Rejuvenator, rift capture and urn walk-back on a real replay", async (
     await a.screenshot({ path: `${OUT}/rift-${t}.png` });
   }
   // Sapphire's Rejuvenator, then Amber's.
-  for (const t of [1880, 1940, 2040, 2400, 2560]) {
+  for (const t of [1880, 1940, 2040, 2400, 2466, 2560]) {
     await at(a, t);
     await hover(a, ".midboss");
     await a.screenshot({ path: `${OUT}/rejuv-${t}.png` });

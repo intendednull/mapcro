@@ -7,7 +7,7 @@
 //! are networked whatever the players see (exploration rounds 3 and 4).
 
 use crate::map::{self, Map};
-use crate::timeline::{Camp, Event, FORMAT, MAX_GIVE_UP_S, MAX_REJUV, MidBoss, Objective, Player, Powerup, PowerupSpawn, REJUV_S, Rejuv, Rift, TIER, Timeline, Urn, UrnAt, UrnSpawn, ZipTrack, event, souls_swings};
+use crate::timeline::{Camp, Event, FORMAT, SEEN_MERGE_DS, MAX_GIVE_UP_S, MAX_REJUV, MidBoss, Objective, Player, Powerup, PowerupSpawn, REJUV_S, Rejuv, Rift, TIER, Timeline, Urn, UrnAt, UrnSpawn, ZipTrack, event, souls_swings};
 #[cfg(test)]
 use crate::timeline::decode_troopers;
 use std::collections::BTreeMap;
@@ -184,6 +184,17 @@ pub struct KothObs {
     pub give_up: Option<f32>,
 }
 
+/// A change in whether the enemy team sees a hero (its `CCitadelTeam`'s `m_vecFOWEntities`
+/// entry, `m_bVisibleOnMap`; docs/research/replay-vision.md), read every tick.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VisionObs {
+    /// Match-clock seconds.
+    pub game: f32,
+    /// The hero's player ([`HeroObs::id`]).
+    pub player: i32,
+    pub visible: bool,
+}
+
 #[derive(Clone, Debug)]
 pub struct PowerupObs {
     pub pos: [f32; 2],
@@ -213,6 +224,8 @@ pub struct Obs {
     pub rejuv_counts: Vec<RejuvCount>,
     /// The open rift's capture state on its sampling grid, in order.
     pub koth: Vec<KothObs>,
+    /// Each hero's visibility to the enemy team where it changes, in order (empty: none read).
+    pub vision: Vec<VisionObs>,
 }
 
 /// How far (world units) a demo entity may be from our site to take its key. Current-map
@@ -359,6 +372,7 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
                 souls: Vec::new(),
                 ult: Vec::with_capacity(n),
                 respawn: Vec::new(),
+                seen: seen_intervals(obs.vision.iter().filter(|v| v.player == id).map(|v| (v.game, v.visible)), duration_s * 10),
             };
             // While dead: the second the game says the hero comes back (the pawn's timer).
             let mut due: Vec<Option<f32>> = Vec::with_capacity(n);
@@ -702,6 +716,39 @@ fn powerup_spawns(obs: &Obs, m: &Map, key: &str, duration_s: u32) -> Vec<Powerup
             }
         }
         up = b.active;
+    }
+    out
+}
+
+/// A hero's `[start_ds, end_ds)` seen intervals from its visibility changes (match seconds, in
+/// order), to `end_ds`: tenths of a second, rounded; a glimpse under a tenth keeps one; gaps
+/// under [`SEEN_MERGE_DS`] merged; still seen at the end, it runs to the end.
+fn seen_intervals(changes: impl Iterator<Item = (f32, bool)>, end_ds: u32) -> Vec<[u32; 2]> {
+    let mut out: Vec<[u32; 2]> = Vec::new();
+    let mut push = |a: u32, b: u32| {
+        let b = b.max(a + 1).min(end_ds);
+        if a >= b {
+            return;
+        }
+        match out.last_mut() {
+            Some(l) if a < l[1] + SEEN_MERGE_DS => l[1] = l[1].max(b),
+            _ => out.push([a, b]),
+        }
+    };
+    let mut open = None;
+    for (game, visible) in changes {
+        let ds = (f64::from(game) * 10.0).round().clamp(0.0, f64::from(end_ds)) as u32;
+        match (visible, open) {
+            (true, None) => open = Some(ds),
+            (false, Some(a)) => {
+                push(a, ds);
+                open = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(a) = open {
+        push(a, end_ds);
     }
     out
 }
@@ -1649,6 +1696,38 @@ mod tests {
             x.heroes = vec![hero(1, 2, true, [10.0, 10.0]), hero(2, 3, true, [10.0, 10.0])];
         }
         let t = derive(&obs(s), map::current()).expect("timeline");
+        let bytes = serde_json::to_vec(&t).expect("json");
+        assert_eq!(crate::timeline::validate(&bytes), Ok(t));
+    }
+
+    #[test]
+    fn seen_intervals_round_merge_short_gaps_and_run_to_the_end() {
+        let iv = |c: &[(f32, bool)], end| seen_intervals(c.iter().copied(), end);
+        // Tenths, rounded; a hide repeated or a hide before any sighting changes nothing.
+        assert_eq!(iv(&[(0.5, false), (1.04, true), (2.26, false), (2.3, false)], 100), [[10, 23]]);
+        // A gap of 0.4 s is merged; one of 0.5 s is kept.
+        assert_eq!(iv(&[(1.0, true), (2.0, false), (2.4, true), (3.0, false), (3.5, true), (4.0, false)], 100), [[10, 30], [35, 40]]);
+        // A glimpse shorter than a tenth still counts as one.
+        assert_eq!(iv(&[(5.0, true), (5.02, false)], 100), [[50, 51]]);
+        // Still seen at the end: to the end; a change past the end is the end.
+        assert_eq!(iv(&[(9.0, true)], 95), [[90, 95]]);
+        assert_eq!(iv(&[(9.0, true), (12.0, false)], 95), [[90, 95]]);
+        assert_eq!(iv(&[(9.6, true)], 95), Vec::<[u32; 2]>::new());
+        // Merging chains: each short gap joins the next sighting on.
+        assert_eq!(iv(&[(1.0, true), (1.1, false), (1.4, true), (1.5, false), (1.8, true), (2.0, false)], 100), [[10, 20]]);
+    }
+
+    #[test]
+    fn each_hero_is_seen_when_the_enemy_team_saw_it() {
+        let mut s = seconds(11);
+        for x in &mut s {
+            x.heroes = vec![hero(1, 2, true, [0.0, 0.0]), hero(2, 3, true, [100.0, 0.0])];
+        }
+        let v = |game: f32, player: i32, visible: bool| VisionObs { game, player, visible };
+        let vision = vec![v(0.0, 2, true), v(1.5, 1, true), v(3.0, 2, false), v(4.25, 1, false), v(6.0, 1, true), v(6.3, 1, false), v(6.6, 1, true), v(8.0, 1, false)];
+        let t = derive(&Obs { vision, ..obs(s) }, map::current()).expect("timeline");
+        let seen: Vec<(&str, &[[u32; 2]])> = t.players.iter().map(|p| (p.team.as_str(), p.seen.as_slice())).collect();
+        assert_eq!(seen, [("amber", &[[15, 43], [60, 80]][..]), ("sapphire", &[[0, 30]][..])]);
         let bytes = serde_json::to_vec(&t).expect("json");
         assert_eq!(crate::timeline::validate(&bytes), Ok(t));
     }

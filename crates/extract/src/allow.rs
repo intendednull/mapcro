@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use crate::{Error, Result};
 
 /// Exact VPK entries for the fixed top-bar art.
-pub const TOPBAR_FIXED: [&str; 10] = [
+pub const TOPBAR_FIXED: [&str; 15] = [
     "panorama/images/hero_badges/hero_image_mask_psd.vtex_c",
     "panorama/images/hud/top_bar/icon_ultimate.vsvg_c",
     "panorama/images/hud/top_bar/icon_ultimate_off.vsvg_c",
@@ -21,6 +21,13 @@ pub const TOPBAR_FIXED: [&str; 10] = [
     "panorama/images/hud/healthbar/healthbar_backer_vert_border.vsvg_c",
     "panorama/images/hud/healthbar/healthbar_backer_vert_mask.vsvg_c",
     "panorama/images/hud/icons/skull.vsvg_c",
+    // The Rejuvenator under the holder's souls (citadel_hud_top_bar.vcss #RejuvenatorCharges):
+    // one image per revive count (.RejuvCount_N .rejuvIcon), and the timer's winged symbol.
+    "panorama/images/hud/top_bar/team_rejuv_1_png.vtex_c",
+    "panorama/images/hud/top_bar/team_rejuv_2_png.vtex_c",
+    "panorama/images/hud/top_bar/team_rejuv_3_png.vtex_c",
+    "panorama/images/hud/top_bar/team_rejuv_4_png.vtex_c",
+    "panorama/images/hud/icons/rejuvenator.vsvg_c",
 ];
 
 /// Exact VPK entries for the HUD source files.
@@ -41,7 +48,7 @@ pub const HUD_SOURCES: [&str; 11] = [
 
 /// Whether a VPK entry may be read for the top-bar art.
 ///
-/// This is deliberately narrow: the ten fixed paths above, plus the
+/// This is deliberately narrow: the fixed paths above, plus the
 /// `panorama/images/heroes/*_psd.vtex_c` hero-portrait pattern.
 pub fn is_topbar_entry_allowed(relative: &str) -> bool {
     TOPBAR_FIXED.contains(&relative) || is_hero_portrait_entry(relative)

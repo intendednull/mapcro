@@ -2,7 +2,7 @@
 //! on current demos (docs/research/replay-parsing-exploration.md §2–§7). Steam ids are never
 //! read.
 
-use crate::derive::{AbilityObs, BuffObs, CampSlot, HeroObs, KothObs, ObjObs, Obs, PowerupObs, RejuvCount, RejuvObs, RejuvWhat, Sample, TrooperObs, UrnObs, ZipNode};
+use crate::derive::{AbilityObs, BuffObs, CampSlot, HeroObs, KothObs, ObjObs, Obs, PowerupObs, RejuvCount, RejuvObs, RejuvWhat, Sample, TrooperObs, UrnObs, VisionObs, ZipNode};
 use prost::Message;
 use crate::{FIRST_CURRENT_BUILD, content_build, reason};
 use boon::{Parser, world_position};
@@ -41,6 +41,15 @@ const OBJECTIVES: [(&str, &str); 6] = [
     ("CNPC_MidBoss", "mid_boss"),
     ("CCitadel_Destroyable_Building", "shrine"),
 ];
+/// A team's own minimap feed: `m_vecFOWEntities`, one entry per tracked entity, with whether
+/// the team sees it now (docs/research/replay-vision.md). Read here field by field: boon's
+/// `replay_inputs::EnemyMinimap` also resolves Steam ids, which mapcro never reads.
+const TEAM: &str = "CCitadelTeam";
+const FOW: &str = "m_vecFOWEntities";
+/// `m_eClass` of a hero pawn's entry.
+const FOW_HERO: i64 = 1;
+/// More entries than this isn't the feed we know (about 120 on 129738985).
+const MAX_FOW: usize = 512;
 const ORIGIN: &str = "CBodyComponent.m_skeletonInstance.m_vecOrigin";
 /// A class without a skeleton (the urn's delivery points) has its origin on the body itself.
 const BODY_ORIGIN: &str = "CBodyComponent";
@@ -122,6 +131,8 @@ struct Keys {
     idol_return: Body,
     idol_return_off: K,
     camp_count: K,
+    team_num: K,
+    fow_count: K,
     /// Per camp slot: next spawn time, origin, is-mid-boss.
     camp: Vec<[K; 3]>,
     objectives: HashMap<&'static str, (Body, &'static str)>,
@@ -166,6 +177,8 @@ impl Keys {
             idol_return: Body::of(ctx, IDOL_RETURN),
             idol_return_off: field(IDOL_RETURN, "m_bDisabled"),
             camp_count: field(RULES, CAMP_TIMES),
+            team_num: field(TEAM, "m_iTeamNum"),
+            fow_count: field(TEAM, FOW),
             camp: (0..MAX_CAMP_SLOTS).map(|i| [field(RULES, &format!("{CAMP_TIMES}.{i}")), field(RULES, &format!("{CAMP_ORIGINS}.{i}")), field(RULES, &format!("{CAMP_IS_MID}.{i}"))]).collect(),
             objectives: OBJECTIVES.iter().map(|(c, k)| (*c, (Body::of(ctx, c), *k))).collect(),
         }
@@ -195,7 +208,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         return Err(reason::OLD_MAP);
     }
     let parser = Parser::from_file(path).map_err(|_| reason::NOT_A_REPLAY)?;
-    let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, PICKUP_MODIFIER, TROOPER, ZIP_NODE, IDOL, IDOL_RETURN].into_iter().collect();
+    let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, PICKUP_MODIFIER, TROOPER, ZIP_NODE, IDOL, IDOL_RETURN, TEAM].into_iter().collect();
     classes.extend(OBJECTIVES.iter().map(|(c, _)| *c));
     let mut keys: Option<Keys> = None;
     let mut seconds: Vec<Sample> = Vec::new();
@@ -214,6 +227,9 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
     let mut rejuv: Vec<RejuvObs> = Vec::new();
     let mut rejuv_counts: Vec<RejuvCount> = Vec::new();
     let mut koth: Vec<KothObs> = Vec::new();
+    let mut fow_keys: Vec<[K; 3]> = Vec::new();
+    let mut seen_now: HashMap<i32, bool> = HashMap::new();
+    let mut vision: Vec<VisionObs> = Vec::new();
     parser
         .run_to_end_with_events_filtered(&classes, |ctx, events| {
             let k = keys.get_or_insert_with(|| Keys::resolve(ctx));
@@ -254,6 +270,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
                 }
                 rejuv_tick(k, rules, game as f32, &mut rejuv_counts);
                 koth_tick(k, rules, start, game, &mut koth);
+                vision_tick(ctx, k, game as f32, &mut fow_keys, &mut seen_now, &mut vision);
             }
             if start <= 0.0 || game < seconds.len() as f64 || game > f64::from(crate::timeline::MAX_DURATION_S) {
                 return;
@@ -268,7 +285,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         })
         .map_err(|_| reason::PARSE_FAILED)?;
     // Nodes first seen after a sample was taken make earlier samples short: those hold.
-    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs, rejuv, rejuv_counts, koth })
+    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs, rejuv, rejuv_counts, koth, vision })
 }
 
 /// Every zipline node's team now, in `nodes` order; a node seen for the first time is added
@@ -437,6 +454,57 @@ fn koth_tick(k: &Keys, rules: &boon::entity::Entity, start: f64, game: f64, out:
     let give_up = Some((g - start) as f32);
     let [amber, sapphire] = k.koth_progress.map(|f| rules.get_f32(f));
     out.push(KothObs { game: (slot * every) as f32, amber, sapphire, give_up });
+}
+
+/// A networked integer of any width (the FOW entry's fields are a mix of widths and a bool).
+fn int(v: Option<&boon::FieldValue>) -> Option<i64> {
+    use boon::FieldValue as F;
+    match v? {
+        F::I32(n) => Some(i64::from(*n)),
+        F::U32(n) => Some(i64::from(*n)),
+        F::I64(n) => Some(*n),
+        F::U64(n) => i64::try_from(*n).ok(),
+        F::Bool(b) => Some(i64::from(*b)),
+        _ => None,
+    }
+}
+
+/// Each team's minimap feed for the other team's heroes, on every tick (docs/research/
+/// replay-vision.md): a [`VisionObs`] wherever a hero's `m_bVisibleOnMap` for the enemy team
+/// changes. Entries name the pawn's entity index; the controller whose `m_hPawn` it is gives the
+/// player ([`HeroObs::id`]). A hero not in this tick's feed keeps its last state.
+fn vision_tick(ctx: &boon::Context, k: &Keys, game: f32, keys: &mut Vec<[K; 3]>, now: &mut HashMap<i32, bool>, out: &mut Vec<VisionObs>) {
+    let ents = ctx.entities();
+    // Pawn entity index → (controller index, team).
+    let mut by_pawn: HashMap<i32, (i32, i64)> = HashMap::new();
+    for (_, e) in ents.iter().filter(|(_, e)| e.class_name.as_ref() == CONTROLLER) {
+        if let Some(p) = e.get_handle(k.ctrl_pawn).and_then(|h| ents.get_by_handle(h)).filter(|p| p.class_name.as_ref() == PAWN) {
+            by_pawn.insert(p.index, (e.index, e.get_i64(k.ctrl_team)));
+        }
+    }
+    let Some(ser) = ctx.serializers().get(TEAM) else { return };
+    for (_, t) in ents.iter().filter(|(_, e)| e.active && e.class_name.as_ref() == TEAM) {
+        let Some(observer @ (2 | 3)) = int(t.field_value(k.team_num)) else { continue };
+        let n = int(t.field_value(k.fow_count)).unwrap_or(0).clamp(0, MAX_FOW as i64) as usize;
+        while keys.len() < n {
+            let i = keys.len();
+            let f = |name: &str| ser.resolve_field_key(&format!("{FOW}.{i}.{name}"));
+            keys.push([f("m_eClass"), f("m_nEntIndex"), f("m_bVisibleOnMap")]);
+        }
+        for [class, ent, visible] in &keys[..n] {
+            if int(t.field_value(*class)) != Some(FOW_HERO) {
+                continue;
+            }
+            let Some(&(player, team)) = int(t.field_value(*ent)).and_then(|i| i32::try_from(i).ok()).and_then(|i| by_pawn.get(&i)) else { continue };
+            if team == observer {
+                continue;
+            }
+            let v = int(t.field_value(*visible)) == Some(1);
+            if now.insert(player, v) != Some(v) {
+                out.push(VisionObs { game, player, visible: v });
+            }
+        }
+    }
 }
 
 /// The controller index of `team`'s living hero nearest `at`.

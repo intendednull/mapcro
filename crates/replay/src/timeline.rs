@@ -16,8 +16,9 @@ pub const TIER: &str = "replay";
 /// (docs/backlog.md, "Replay timeline format versions"). 0: written before the stamp.
 /// 1: respawn times and the urn (exploration rounds 5 and 6). 2: powerup types and spawns, and
 /// when each rift's cash-in opens (exploration round 7). 3: the Rejuvenator, and each open rift's
-/// capture progress and give-up deadline (timers audit, gaps 1 and 2).
-pub const FORMAT: u32 = 3;
+/// capture progress and give-up deadline (timers audit, gaps 1 and 2). 4: when the enemy team
+/// could see each hero (`Player::seen`; docs/research/replay-vision.md).
+pub const FORMAT: u32 = 4;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Timeline {
@@ -195,6 +196,23 @@ pub struct Player {
     /// timelines from before it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub respawn: Vec<[u32; 2]>,
+    /// `[start_ds, end_ds)` in tenths of a second: when the enemy team could see this hero on
+    /// its minimap (the team's `m_bVisibleOnMap`, format 4). In order; gaps under
+    /// [`SEEN_MERGE_DS`] are merged away. Empty: never seen, or a timeline from before it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub seen: Vec<[u32; 2]>,
+}
+
+/// Hidden gaps shorter than this (tenths of a second) are merged into the intervals around them:
+/// half of all gaps are under a second, flicker as a hero steps along a sight line
+/// (docs/research/replay-vision.md, "Size").
+pub const SEEN_MERGE_DS: u32 = 5;
+
+/// A hero's `seen` intervals: each non-empty and within the match, in order, gaps at least
+/// [`SEEN_MERGE_DS`] apart (which also bounds how many there can be).
+pub fn seen_ok(r: &[[u32; 2]], duration_s: u32) -> bool {
+    let end = duration_s.saturating_mul(10);
+    r.iter().all(|[a, b]| a < b && *b <= end) && r.windows(2).all(|w| w[1][0] >= w[0][1].saturating_add(SEEN_MERGE_DS))
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -491,6 +509,7 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
                 && p.souls.len() <= n
                 && p.name.as_ref().is_none_or(|s| s.chars().count() <= MAX_NAME && !s.chars().any(bad_name_char))
                 && respawns_ok(&p.respawn, t.duration_s)
+                && seen_ok(&p.seen, t.duration_s)
         })
         && t.objectives.len() <= MAX_LIST
         && t.objectives.iter().all(|o| plausible_key(&o.key) && o.kind.len() <= 32 && o.team.len() <= 16 && o.destroyed_s <= t.duration_s)
@@ -610,6 +629,7 @@ mod tests {
                 souls: vec![[0, 500]],
                 ult: vec![None, Some(50), Some(0)],
                 respawn: vec![[1, 2]],
+                seen: vec![[0, 4], [9, 20]],
             }],
             objectives: vec![Objective { key: "walker:amber:lane1:1".into(), kind: "walker".into(), team: "amber".into(), lane: 1, destroyed_s: 2 }],
             mid_boss: vec![],
@@ -695,6 +715,11 @@ mod tests {
             Box::new(|t| t.players[0].respawn = vec![[9, 10]]),
             Box::new(|t| t.players[0].respawn = vec![[1, 2 + 3600 + 1]]),
             Box::new(|t| t.players[0].respawn = vec![[1, 2], [0, 2]]),
+            Box::new(|t| t.players[0].seen = vec![[4, 4]]),
+            Box::new(|t| t.players[0].seen = vec![[5, 4]]),
+            Box::new(|t| t.players[0].seen = vec![[0, 21]]),
+            Box::new(|t| t.players[0].seen = vec![[0, 4], [8, 20]]),
+            Box::new(|t| t.players[0].seen = vec![[9, 20], [0, 4]]),
             Box::new(|t| t.urn.as_mut().map_or((), |u| u.spawns[0].key = "rift:neutral:lane1:1".into())),
             Box::new(|t| t.urn.as_mut().map_or((), |u| u.spawns[0].t = 9)),
             Box::new(|t| t.urn.as_mut().map_or((), |u| u.at[1].state = "<b>".into())),
@@ -738,6 +763,7 @@ mod tests {
         o.remove("urn");
         o.remove("format");
         o["players"][0].as_object_mut().expect("player").remove("respawn");
+        o["players"][0].as_object_mut().expect("player").remove("seen");
         o.remove("rejuv");
         let rift = o["rifts"][0].as_object_mut().expect("rift");
         rift.remove("live_s");
@@ -745,7 +771,7 @@ mod tests {
         rift.remove("capture");
         o["powerups"][0].as_object_mut().expect("powerup").remove("spawns");
         let t = validate(&serde_json::to_vec(&v).expect("json")).expect("an old timeline loads");
-        assert_eq!((t.urn, t.format, t.players[0].respawn.len()), (None, 0, 0));
+        assert_eq!((t.urn, t.format, t.players[0].respawn.len(), t.players[0].seen.len()), (None, 0, 0, 0));
         assert_eq!((t.rifts[0].live_s, t.powerups[0].spawns.len()), (None, 0));
         assert_eq!((t.rifts[0].give_up_s, t.rifts[0].capture.len(), t.rejuv.len()), (None, 0, 0));
     }

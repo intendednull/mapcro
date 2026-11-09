@@ -121,22 +121,37 @@
   background: #8ee0c4; border-radius: 50%; box-shadow: 0 0 0 calc(1.5 * var(--u)) #0b1d18; }
 .tb-ult-pct { position: absolute; left: 50%; top: calc(26 * var(--u)); transform: translateX(-50%); font: 700 calc(11 * var(--u)) "Noto Sans", sans-serif; color: #0b1d18; background: #8ee0c4; padding: 0 calc(4 * var(--u)); border-radius: calc(3 * var(--u)); white-space: nowrap; }
 
-/* Player: the Rejuvenator a team holds (player/PlayerTopBar.tsx), under its souls where the game's
-   #RejuvenatorCharges sits: rejuv_crystal (the pack's minimap icon), revives left, time left. The
-   panel and font are .GameClock's; a team-colour underline says whose. */
-.pl-rejuv {
-  position: absolute; top: calc(84 * var(--u)); display: flex; align-items: center; gap: calc(4 * var(--u));
-  height: calc(24 * var(--u)); padding: 0 calc(6 * var(--u)) 0 calc(3 * var(--u)); border-radius: calc(5 * var(--u));
-  background: #00000090; color: #FFEFD7; white-space: nowrap;
-  font: 600 calc(14 * var(--u)) "MingLiu", "VALVEPulp", "Noto Sans", sans-serif;   /* numericBlock */
+/* Player: the Rejuvenator a team holds (player/PlayerTopBar.tsx), as citadel_hud_top_bar.vcss's
+   #RejuvenatorCharges draws it: 200 px wide, margin-right 10 (centred at -5), flow right in three
+   70 px columns (#RejuvenatorFriendly, #RejuvenatorTimer, #RejuvenatorEnemy), 130 px tall from the
+   bar's top. .rejuvIcon is 70 x 40 at the column's bottom, margin-bottom 5 (85..125), the
+   team_rejuv_N image for the count, img-shadow 10px #00000060. .rejuvTimer is 30 x 30, margin-bottom
+   10 (90..120): #StatusEffectInner offBlack 0.8, .statusEffectImage rejuvenator 80% offWhite 0.6
+   (.has_rejuv), the cooldown sweep in gold, #StatusEffectsBorder 0.3. A change eases (app.css). */
+.pl-rejuv { position: absolute; top: calc(85 * var(--u)); width: calc(70 * var(--u)); height: calc(40 * var(--u)); pointer-events: none; }
+.pl-rejuv.friend { left: calc(50% - 110 * var(--u)); }
+.pl-rejuv.enemy { left: calc(50% + 30 * var(--u)); }
+.pl-rejuv[role] { pointer-events: auto; }
+.pl-rejuv-icons {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 calc(5 * var(--u)) #00000060);
+  opacity: 0; visibility: hidden;
+  transition: opacity var(--value-ease-ms) var(--ease-out-expo), visibility var(--value-ease-ms);
 }
-.pl-rejuv.friend { right: calc(50% + 8 * var(--u)); }
-.pl-rejuv.enemy { left: calc(50% + 8 * var(--u)); }
-.pl-rejuv.amber { box-shadow: inset 0 calc(-2 * var(--u)) 0 var(--t1); }
-.pl-rejuv.sapphire { box-shadow: inset 0 calc(-2 * var(--u)) 0 var(--t2); }
-.pl-rejuv-icon { width: calc(20 * var(--u)); height: calc(20 * var(--u)); object-fit: contain; filter: drop-shadow(0 0 calc(3 * var(--u)) #000); }
-.pl-rejuv-left { font-weight: 700; font-size: calc(15 * var(--u)); }
-.pl-rejuv-time { color: #FFEFD7d0; }
+.pl-rejuv-icons.on { opacity: 1; visibility: visible; }
+.pl-rejuv-timer {
+  position: absolute; top: calc(90 * var(--u)); left: calc(50% - 20 * var(--u)); width: calc(30 * var(--u)); height: calc(30 * var(--u));
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity var(--value-ease-ms) var(--ease-out-expo), visibility var(--value-ease-ms);
+}
+.pl-rejuv-timer.on { opacity: 1; visibility: visible; }
+/* Both teams holding one: each timer a step to its own side of the centre. */
+.pl-rejuv-timer.both.friend { left: calc(50% - 37 * var(--u)); }
+.pl-rejuv-timer.both.enemy { left: calc(50% - 3 * var(--u)); }
+.pl-rejuv-timer svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.pl-rejuv-disc { fill: #10130Dcc; }
+.pl-rejuv-mark { fill: #FFEFD7; opacity: 0.6; }
+.pl-rejuv-track { fill: none; stroke: #FFEFD7; stroke-opacity: 0.15; stroke-width: 1.6; }
+.pl-rejuv-ring { fill: none; stroke: #FFD700; stroke-width: 1.6; transition: stroke-dasharray var(--value-ease-ms) var(--ease-out-expo); }
 
 /* Compressed (phone): the same bar, scaled down, with legibility floors on the text */
 .tb-host.compact .tb-souls-value { font-size: max(calc(15 * var(--u)), 8.5px); }
@@ -219,6 +234,7 @@
 .tb-player.dead .tb-badge.card-badge .tb-img { filter: grayscale(1) brightness(0.2); }
 .tb-player.dead .tb-badge.card-badge .tb-disc { background: #10130Dee; }
 .tb-player.card-art .tb-respawn { top: calc(25.1 * var(--u)); }
-.tb-host.compact .pl-rejuv { top: calc(62 * var(--u) + 17px); height: auto; padding: 1px 3px; font-size: max(calc(14 * var(--u)), 9px); }
-.tb-host.compact .pl-rejuv-icon { width: max(calc(20 * var(--u)), 10px); height: max(calc(20 * var(--u)), 10px); }
-.tb-host.compact .pl-rejuv-left { font-size: max(calc(15 * var(--u)), 9.5px); }
+/* The scores sit lower here (62 + 17 px): the Rejuvenator follows, no smaller than legible. */
+.tb-host.compact .pl-rejuv { top: calc(62 * var(--u) + 19px); width: max(calc(70 * var(--u)), 35px); height: max(calc(40 * var(--u)), 20px); }
+.tb-host.compact .pl-rejuv.friend { left: auto; right: calc(50% + 40 * var(--u)); }
+.tb-host.compact .pl-rejuv-timer { top: calc(62 * var(--u) + 21px); width: max(calc(30 * var(--u)), 15px); height: max(calc(30 * var(--u)), 15px); }

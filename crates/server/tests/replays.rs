@@ -279,7 +279,7 @@ fn timeline(id: u64) -> Timeline {
         source: "replay".into(),
         tier: "replay".into(),
         build: 6813,
-        players: vec![Player { team: "amber".into(), slot: 0, hero_id: 6, name: Some("Coach".into()), x: vec![Some(1), Some(2)], y: vec![Some(3), Some(4)], health: vec![100, 90], deaths: vec![], souls: vec![[0, 400]], ult: vec![Some(0), Some(100)], respawn: vec![] }],
+        players: vec![Player { team: "amber".into(), slot: 0, hero_id: 6, name: Some("Coach".into()), x: vec![Some(1), Some(2)], y: vec![Some(3), Some(4)], health: vec![100, 90], deaths: vec![], souls: vec![[0, 400]], ult: vec![Some(0), Some(100)], respawn: vec![], seen: vec![] }],
         objectives: vec![],
         mid_boss: vec![],
         reanchored: 0,

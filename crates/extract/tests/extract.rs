@@ -470,7 +470,7 @@ fn real_install() {
         .keys()
         .filter(|key| key.starts_with("topbar/") && !key.starts_with("topbar/heroes/"))
         .count();
-    assert_eq!(fixed_topbar, 10, "expected 10 fixed top-bar images");
+    assert_eq!(fixed_topbar, 15, "expected 15 fixed top-bar images");
 
     eprintln!(
         "real install: {} files, {} sources, {} blobs, pack at {}",

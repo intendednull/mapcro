@@ -7,7 +7,7 @@ use crate::{
     allow, decode_vtex, panorama, resource, sha256_hex, write_png, Error, Result, Vpk,
 };
 
-/// Export the ten fixed top-bar images under `topbar/<stem>`.
+/// Export the fixed top-bar images under `topbar/<stem>`.
 pub fn extract(
     vpk: &Vpk,
     out_dir: &Path,

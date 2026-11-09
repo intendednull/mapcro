@@ -88,8 +88,13 @@ export const IMAGE_BLOBS: Record<string, string> = {
   "powerup-casting": "icons/powerup_magic",
   "powerup-movement": "icons/powerup_movement",
   // The Soul Urn (.idol_spawn, .held_idol_image) and its delivery point (.idol_return).
-  // The Rejuvenator (.map_button.rejuv_crystal): Player's top bar shows a team's held one.
-  rejuv: "icons/rejuv_crystal_psd",
+  // The Rejuvenator under its holder's souls (citadel_hud_top_bar.vcss #RejuvenatorCharges): one
+  // image per revive count (.RejuvCount_N .rejuvIcon), and the timer's symbol (.statusEffectImage).
+  "rejuv-1": "topbar/team_rejuv_1_png",
+  "rejuv-2": "topbar/team_rejuv_2_png",
+  "rejuv-3": "topbar/team_rejuv_3_png",
+  "rejuv-4": "topbar/team_rejuv_4_png",
+  "rejuv-timer": "topbar/rejuvenator",
   urn: "icons/soul_jar_marker_psd",
   "urn-return": "icons/soul_jar_marker_return_psd",
   // An open delivery point's glow (.idol_return pulse).
