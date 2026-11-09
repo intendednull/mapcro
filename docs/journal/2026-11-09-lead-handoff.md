@@ -1,0 +1,99 @@
+# Lead handoff (2026-11-09)
+
+Written by the lead before compacting its session, for whoever leads next (including itself after
+compaction). The newest state is at the top; the history is in git and the other journal entries.
+
+## Production
+
+- `web` runs **32dfd57**, deployed 2026-11-09 06:4x UTC. The infra main pin is pushed.
+- The database is at schema **v6**, migrated 2026-11-09 01:12 UTC. Its backup is
+  `/var/lib/mapcro-backup/pre-v6-20261109T0109.sqlite`, integrity ok, 20 boards. From v6 on,
+  rollbacks are safe: a server older than the database opens it as long as it's at or above the
+  database's compat floor. Rolling back *past* this deploy means restoring that backup.
+- **Asset packs:** `6860-badges` is placed and is the newest, alongside the old `68d73323…`. It holds
+  the card art, the critical portraits and the urn sites. It was built with `just extract
+  ~/.local/share/Steam/steamapps/common/Deadlock/game/citadel /tmp/lead-pack` and placed as in
+  docs/deploy.md "Asset packs".
+- **Timeline format** is 2. Cached CDN timelines in an older format re-parse once, when an editor
+  attaches the match or loads its timeline (491f6de).
+- **Metrics:** `just stats summary|failures|funnel|limits|usage|series` runs over SSH; `just stats
+  local …` reads the dev database.
+- **Watcher:** the `mapcro-prod-watch` user timer (`just watch-install`, which must be re-run after a
+  reboot) alerts the lead's Paseo id, kept in `~/.config/mapcro-watch/lead`. **A new lead session
+  must write its own id there.**
+
+## Running when this was written
+
+- **buffs-timers** (Claude agent). It is adding:
+  - each powerup's buff type, with the game's icons; its worker part, 814e697 (format 2), is
+    already committed;
+  - hover spawn timers for rifts, buffs, the urn and the mid boss;
+  - one instant hover label for map icons and tokens, replacing the SVG `<title>`s;
+  - the presenter's hover mirrored to followers, through a Presence `hover` field (a schema change,
+    so BUILD_ID moves).
+  Its uncommitted work is in web/src/player, web/src/map and the e2e specs.
+- **timer-audit** (Claude agent). It audits every timer-like field in 129738985 and writes
+  docs/research/replay-timers-audit.md plus a rerunnable tool. Hand its gaps to buffs-timers, or to
+  the next agent.
+- **The salt study.** The `mapcro-salt-study` user unit runs until about 2026-11-10 14:00 UTC, data
+  in /tmp/salt-study/. Summarise it with `python3 -I /tmp/salt-study/summarise.py`. The design and
+  part 1 are in docs/research/deadlock-api-salts.md: a stored salts row always wins, and the
+  players' ingest tool writes rows with no replay salt, so the Steam lookup never fills one. Analyse
+  the data when it's done and write the "Results" section.
+
+## Open items
+
+1. **Investigate `ops_rejected{id_taken}`.** It happened twice in 6 h on prod (stats, 2026-11-09).
+   The guess is two tabs creating a match's live layer (fixed ids) at once, but it isn't checked.
+   Find where the server rejects for `IdTaken` (engine) and which client path creates records
+   with fixed ids.
+2. **A "New version · Reload" chip.** Web-only deploys don't reload open tabs, because BUILD_ID only
+   covers schema and engine. Proposed to the operator; no answer yet.
+3. **Next deploy:** buffs-timers' batch. Gate it on a clean worktree, with the VM test, since it
+   changes the schema.
+4. **The `stats summary` "(-0%)" cosmetic**: a small DeepSeek job.
+5. **Trooper styling** to match the in-game minimap, waiting on an operator screenshot.
+6. **Backlog** (docs/backlog.md):
+   - a settings page
+   - browser parsing (wasm)
+   - board export and import
+   - data decisions
+   - rebase fan-out
+   - older maps
+   - "Resume a scene"
+7. **The browser-side deadlock-api lookup is dropped** (docs/research/browser-side-replays.md). The
+   lever for more auto-fetches is getting replay salts into deadlock-api (a companion that submits
+   them), which is on hold.
+
+## Working notes, learned the hard way
+
+- **Shared working tree.**
+  - Commit only your own hunks. Use normal context patches (`git diff` → filter hunks → `git apply
+    --cached`), **never `-U0` / `--unidiff-zero`**, which applied a hunk in the wrong place
+    (ba78cae, fixed in 0be6ef2).
+  - Then check the committed tree builds in a scratch worktree (/tmp/lead-gate).
+  - Agents must never `git checkout --`, restore or stash shared files: ease-all wiped the lead's
+    hunks that way.
+- **Gate.**
+  - `/tmp/lead-gate.sh` runs in the /tmp/lead-gate worktree; check out the commit first.
+  - Add the VM test (`nix build .#checks.x86_64-linux.service`) when the server, worker or nix
+    changes.
+  - Every heavy run goes behind `/tmp/mapcro-scripts/gate.sh`, which aborts on timeout.
+- **Flaky tests.** "Flaky" e2e tests have repeatedly been real bugs: a store object aliased, the
+  stale-ink sweep, leaked browser contexts (fixtures.ts now closes them). Investigate before
+  dismissing one.
+- **Replay fixtures.** Synthetic replay timelines in e2e stamp `TIMELINE_FORMAT` (from
+  e2e/server.ts), never a literal.
+- **Unknown paths.** The public site answers any unknown path with 200 and the app's page, so a
+  health or exposure check must look at the body.
+- **Deploy routine.**
+  1. Back up the database before a schema bump (`sqlite3 .backup` through `nix shell` on `web`).
+  2. Diff the units and the Caddy config.
+  3. Deploy.
+  4. Run the healthz gate and probe the 5 sites.
+  5. Use the feature on prod.
+  6. Run `just stats summary`.
+  7. Report to the concierge.
+- **DeepSeek** (OpenCode, through Paseo) suits small, mechanical tasks. Review its diffs and check
+  the balance afterwards (`/home/intendednull/concierge/bin/deepinfra-balance`). The operator says
+  the balance is fine for now.

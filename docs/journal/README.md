@@ -31,3 +31,4 @@ experiment writes its predictions down *before* it runs, so the result can show 
 | 2026-11-08 | [The top bar's health, drawn as the HUD draws it](2026-11-08-health-hud.md) |
 | 2026-11-08 | [Top-bar portraits drawn as the game's hero badge](2026-11-08-hero-badge.md) |
 | 2026-11-08 | [Observability, the server's half: metrics, snapshots, `stats`](2026-11-08-observability.md) |
+| 2026-11-09 | [Lead handoff: production state, running work, open items, hard-won notes](2026-11-09-lead-handoff.md) |
