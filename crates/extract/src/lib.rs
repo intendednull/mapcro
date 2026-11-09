@@ -221,6 +221,21 @@ fn extract_heroes(
                 vpk,
                 out_dir,
                 hero.hero_id,
+                "",
+                &entry_path,
+                pack,
+                files,
+            )?;
+        }
+
+        if hero.is_playable()
+            && let Some(entry_path) = hero.critical_entry.clone()
+        {
+            hero.critical_blob = topbar::export_hero_portrait(
+                vpk,
+                out_dir,
+                hero.hero_id,
+                "_critical",
                 &entry_path,
                 pack,
                 files,
@@ -235,6 +250,7 @@ fn extract_heroes(
             disabled: hero.disabled,
             minimap_blob: hero.minimap_blob,
             topbar_blob: hero.topbar_blob,
+            critical_blob: hero.critical_blob,
         });
     }
 

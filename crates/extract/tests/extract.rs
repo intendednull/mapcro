@@ -429,6 +429,13 @@ fn real_install() {
     assert_eq!(urns, ["urn:neutral:lane1:1", "urn:neutral:lane6:1"], "the Soul Urn's two delivery points, west and east");
     assert!(pack["icons"].as_array().expect("icons").len() > 50);
     assert_eq!(pack["hud_sources"].as_array().expect("hud").len(), 11);
+    let critical = pack["heroes"]
+        .as_array()
+        .expect("heroes")
+        .iter()
+        .filter(|h| h["critical_blob"].is_string())
+        .count();
+    assert!(critical > 30, "the low-health hero cards (m_strIconHeroCardCritical)");
 
     let topbar_blobs = pack["heroes"]
         .as_array()

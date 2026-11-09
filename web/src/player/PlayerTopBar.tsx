@@ -104,7 +104,10 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
               </div>
               <div class="tb-badge">
                 <i class="tb-disc">{initials(s.slot, hero()?.name)}</i>
-                <Show when={hero()?.topbar}>{(src) => <i class="tb-img hero-vertical" style={{ "background-image": `url(${JSON.stringify(src())})`, "--img": `url(${JSON.stringify(src())})` }} />}</Show>
+                {/* Low health swaps in the hero's critical card (m_strIconHeroCardCritical), as the HUD does. */}
+                <Show when={low() && hero()?.critical} fallback={<Show when={hero()?.topbar}>{(src) => <i class="tb-img hero-vertical" data-art="topbar" style={{ "background-image": `url(${JSON.stringify(src())})` }} />}</Show>}>
+                  {(src) => <i class="tb-img hero-critical" data-art="critical" style={{ "background-image": `url(${JSON.stringify(src())})` }} />}
+                </Show>
               </div>
               <Show when={dead() && x()?.respawn != null}>
                 <span class="tb-respawn" data-testid="tb-respawn" data-respawn={Math.ceil(x()!.respawn!)} aria-label={`${label()} respawns in ${Math.ceil(x()!.respawn!)} s`}>

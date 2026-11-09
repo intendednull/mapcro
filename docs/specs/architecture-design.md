@@ -360,18 +360,15 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
       draws it. A dead hero has no bar (`.Dead #HealthBar` collapses), so the respawn
       countdown stands alone. The bar is absolutely placed, so turning it on or off never
       shifts the top bar.
-    - the HUD's low-health state (`.healthLow`) at 30% or under, alive only. The disc behind
-      the portrait pulses #b02727 to #ff3c3c with a glow, the portrait is washed `colorEnemy`,
-      and a "Critical" tag sits under it (hidden on a phone, where it covers the team total).
-      These are `hero_badge.vcss` and `citadel_hud_top_bar.vcss` rules. The game sets the class
-      from code, so 30% is ours. Reduced motion stops the pulsing and keeps the state.
-    - an arc round each hero token, 5 px at the default zoom
-    - each objective's own icon filling from the bottom up to its health, as in game (operator,
-      2026-11-08, replacing a ring round it): the HUD art's fill layer is clipped over the rows
-      its shape covers in the image, so the empty part shows the dark frame under it. The patron
-      fills its shield in stage 1 and its core in stage 2, when the shield is gone; the mid boss,
-      with no fill art, fills over a dark copy of its icon. Destroyed keeps its look; Sandbox
-      has no health, so everything shows full.
+    - the HUD's low-health state (`.healthLow`) at 30% or under, alive only. The portrait becomes
+      the hero's critical card (heroes.vdata `m_strIconHeroCardCritical`,
+      `panorama/images/heroes/<hero>_card_critical_psd`, 280×380, exported by the extractor as
+      `topbar/heroes/<id>_critical`). It's drawn 70.4 wide at the card's aspect, bottom on the
+      disc's, under the same `hero_image_mask`. `#CriticalIndicator` puts a "Critical" tag under
+      it, hidden on a phone, where it covers the team total; reduced motion stops its wobble.
+      `hero_badge.vcss` also pulses the disc red with a glow and washes the portrait red. The
+      operator had those removed (2026-11-08). No outline: the stylesheet has none for this
+      state. The game sets the class from code, so 30% is ours.
   - The API summary shows none of these, and its tier chip says so.
 - **What the replay timeline adds** (`crates/replay/src/timeline.rs`, the metadata timeline's
   shape plus fields; 1 Hz, about 140 KB for a 15-minute match):

@@ -4,8 +4,9 @@
 // toggle; none on the API summary. A synthetic timeline the
 // test hands the server as the worker would.
 
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
@@ -16,6 +17,24 @@ const ID = "129000001";
 const N = 120;
 const queue = mkdtempSync(join(tmpdir(), "mapcro-e2e-health-"));
 let upstream: ReturnType<typeof createServer>;
+
+/** A pack with only the heroes' top-bar portraits and critical cards (1×1 PNGs). */
+function heroPack(): string {
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  const root = mkdtempSync(join(tmpdir(), "mapcro-e2e-health-pack-"));
+  const dir = join(root, "heroes-only");
+  mkdirSync(join(dir, "topbar/heroes"), { recursive: true });
+  const blobs: Record<string, unknown> = {};
+  const heroes = [1, 2, 3, 4, 5, 6].map((id) => {
+    for (const key of [`topbar/heroes/${id}`, `topbar/heroes/${id}_critical`]) {
+      writeFileSync(join(dir, `${key}.png`), png);
+      blobs[key] = { sha256: createHash("sha256").update(png).digest("hex"), w: 1, h: 1, mime: "image/png", file: `${key}.png` };
+    }
+    return { hero_id: id, class_name: `hero_${id}`, name: `Hero ${id}`, disabled: false, minimap_blob: null, topbar_blob: `topbar/heroes/${id}`, critical_blob: `topbar/heroes/${id}_critical` };
+  });
+  writeFileSync(join(dir, "pack.json"), JSON.stringify({ schema: 3, game: { client_version: 1, source_revision: 1, date: "Nov 08 2026" }, blobs, heroes }));
+  return root;
+}
 let server: Server;
 
 test.beforeAll(async () => {
@@ -25,7 +44,7 @@ test.beforeAll(async () => {
   });
   await new Promise<void>((ok) => upstream.listen(0, "127.0.0.1", ok));
   const port = (upstream.address() as { port: number }).port;
-  server = new Server(undefined, { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue });
+  server = new Server(heroPack(), { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue });
   await server.start();
 });
 test.afterAll(() => {
@@ -125,38 +144,48 @@ test("health bars, token arcs and objective fills follow the replay; Health turn
   // Stage 2: the shield is gone and the core fills to the health.
   await expect(mk(a, "patron:sapphire:lane0:1")).toHaveClass(/\bstage2\b/);
   expect(await fill(a, "patron:sapphire:lane0:1", "hp-core")).toBeCloseTo(40, 0);
-  // Low health (the HUD's .healthLow, at or under 30%): the portrait flashes red and says Critical;
-  // not above it, and not once dead.
+  // Low health (the HUD's .healthLow, at or under 30%): the portrait becomes the hero's critical
+  // card and says Critical; not above it, and not once dead. No tint, pulse or glow (operator).
   const amber0 = a.locator('.tb-player[data-slot="Amber-0"]');
+  const art = () => amber0.locator(".tb-img");
   await scrubTo(a, 45);
   await expect(amber0).not.toHaveClass(/\bhealth-low\b/);
+  await expect(art()).toHaveAttribute("data-art", "topbar");
+  await expect(art()).toHaveAttribute("style", /topbar\/heroes\/1\.png/);
   await expect(amber0.getByTestId("tb-critical")).toHaveCount(0);
   await scrubTo(a, 69);
   await expect(bar(a)).toHaveAttribute("data-health", "31");
   await expect(amber0).not.toHaveClass(/\bhealth-low\b/);
+  await expect(art()).toHaveAttribute("data-art", "topbar");
   await scrubTo(a, 75);
   await expect(bar(a)).toHaveAttribute("data-health", "25");
   await expect(amber0).toHaveClass(/\bhealth-low\b/);
+  await expect(art()).toHaveAttribute("data-art", "critical");
+  await expect(art()).toHaveAttribute("style", /topbar\/heroes\/1_critical\.png/);
   await expect(amber0.getByTestId("tb-critical")).toBeVisible();
-  expect(await amber0.locator(".tb-disc").evaluate((el) => getComputedStyle(el).animationName)).toBe("tb-low-flash");
   await expect(a.locator(".tb-player.health-low")).toHaveCount(1);
-  // Reduced motion: the state stays, the flashing stops.
+  await expect(a.locator('.tb-img[data-art="critical"]')).toHaveCount(1);
+  const disc = await amber0.locator(".tb-disc").evaluate((el) => [getComputedStyle(el).animationName, getComputedStyle(el).boxShadow]);
+  expect(disc).toEqual(["none", "none"]);
+  // Reduced motion: the Critical tag stops its wobble; the state stays.
   await a.emulateMedia({ reducedMotion: "reduce" });
-  expect(await amber0.locator(".tb-disc").evaluate((el) => getComputedStyle(el).animationName)).toBe("none");
-  await expect(amber0).toHaveClass(/\bhealth-low\b/);
+  expect(await amber0.getByTestId("tb-critical").locator("span").evaluate((el) => getComputedStyle(el).animationName)).toBe("none");
+  await expect(art()).toHaveAttribute("data-art", "critical");
   await a.emulateMedia({ reducedMotion: "no-preference" });
-  // Health off: no low state either.
+  // Health off: the usual portrait.
   await a.getByTestId("health-toggle").click();
   await expect(amber0).not.toHaveClass(/\bhealth-low\b/);
+  await expect(art()).toHaveAttribute("data-art", "topbar");
   await expect(amber0.getByTestId("tb-critical")).toHaveCount(0);
   await a.getByTestId("health-toggle").click();
-  await expect(amber0).toHaveClass(/\bhealth-low\b/);
+  await expect(art()).toHaveAttribute("data-art", "critical");
 
   // Dead: no bar (.Dead #HealthBar collapses); the respawn countdown stays; the others keep theirs.
   await scrubTo(a, 110);
   await expect(a.locator('.tb-player[data-slot="Amber-0"]')).toHaveAttribute("data-alive", "false");
   await expect(bar(a)).toHaveCount(0);
   await expect(amber0).not.toHaveClass(/\bhealth-low\b/);
+  await expect(art()).toHaveAttribute("data-art", "topbar");
   await expect(a.locator('.tb-player[data-slot="Amber-1"] [data-testid=tb-health]')).toHaveAttribute("data-health", "100");
 
   await scrubTo(a, 45);

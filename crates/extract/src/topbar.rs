@@ -34,13 +34,15 @@ pub fn extract(
     Ok(())
 }
 
-/// Export one hero's vertical portrait as `topbar/heroes/<hero_id>.png`.
+/// Export one hero's portrait as `topbar/heroes/<hero_id><suffix>.png`: the vertical one with
+/// suffix `""`, the low-health card with `"_critical"`.
 ///
 /// Returns the blob key, or `None` when the portrait is absent from the VPK.
 pub fn export_hero_portrait(
     vpk: &Vpk,
     out_dir: &Path,
     hero_id: u64,
+    suffix: &str,
     source: &str,
     pack: &mut Pack,
     files: &mut Vec<String>,
@@ -52,7 +54,7 @@ pub fn export_hero_portrait(
         return Ok(None);
     };
 
-    let key = format!("topbar/heroes/{hero_id}");
+    let key = format!("topbar/heroes/{hero_id}{suffix}");
     export_texture(vpk, entry, &key, out_dir, pack, files)?;
     Ok(Some(key))
 }

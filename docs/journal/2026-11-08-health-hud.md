@@ -28,17 +28,36 @@ design.
   - Without a pack, a clip-path of the mask's own outline draws the same card.
   - A dead hero has no bar (`.Dead #HealthBar{visibility: collapse}`).
 - **Low health.** At 30% or under, alive, with Health on, the portrait takes `.healthLow`:
-  - the disc pulses (hero_badge.vcss `LowHealthFlash`, #b02727 to #ff3c3c, 0.7 s, 20 px glow);
-  - the portrait is washed `colorEnemy` (#FF410D) at `&50` to `&00` (`LowHealthPortraitFlash`).
-    A layer masked by the portrait image itself does it, so only the hero's pixels tint;
-  - `#CriticalIndicator`: an uppercase "Critical" at y 74 with a red glow and the `TagGroove1`
-    wobble. Phones hide it because it covers the team total there.
-  - Reduced motion stops the animations and keeps the state.
-- **Extractor.** `citadel_base_styles.vcss` joins the HUD sources (eleven now). The other
-  stylesheets name `colorEnemy`, `offWhite` and the team colours, and only this file defines
-  them.
+  - The first version followed the stylesheets: the disc pulsed red with a glow
+    (`LowHealthFlash`) and the portrait was washed `colorEnemy` (`LowHealthPortraitFlash`). The
+    operator didn't want the tint, the pulse or the glow, and expected the game's alternate
+    "critical" portrait instead.
+  - That portrait exists. Each hero record in heroes.vdata has `m_strIconHeroCardCritical`
+    (`panorama/images/heroes/<hero>_card_critical_psd`, 280×380, transparent). It's a battered
+    version of the hero card, and 44 heroes have one. The extractor exports it as
+    `topbar/heroes/<id>_critical`, and Player swaps it in: 70.4 wide at the card's aspect,
+    bottom on the disc's, under the same `hero_image_mask`.
+  - No outline: the stylesheets define none for `.healthLow`.
+  - `#CriticalIndicator` stays: an uppercase "Critical" at y 74 with a red glow and the
+    `TagGroove1` wobble. Phones hide it because it covers the team total there. Reduced motion
+    stops the wobble.
+- **Extractor.**
+  - `citadel_base_styles.vcss` joins the HUD sources (eleven now). The other stylesheets name
+    `colorEnemy`, `offWhite` and the team colours, and only this file defines them.
+  - Heroes gain `critical_blob`, the critical card.
 
 ## Surprises
+
+- **Which image the badge shows isn't in the files.** `CitadelHeroImage` picks it in code, so
+  the critical swap is inferred. Three things point to it:
+  - the card exists for every hero;
+  - `hero_image_mask_psd` is 280×380, the card's size, not the vertical's 120×200;
+  - drawn this way, the critical card looks like the screenshot's portraits: a transparent bust
+    whose head spills over the disc.
+
+  The same evidence suggests the normal top-bar portrait is the card too (`m_strIconHeroCard`),
+  not `m_strTopBarVertical`, which has a baked background. Moving to it would make the swap
+  seamless and fix the portrait mismatch below. It's not done yet.
 
 - **`colorEnemy` isn't `ColorEnemy`.** `hud_minimap.vcss` defines its own `ColorEnemy: #ff410d`.
   The `colorEnemy` the low-health wash uses is in the base styles, and it happens to be the
@@ -58,10 +77,14 @@ design.
 - e2e `player-health.spec.ts` checks:
   - the fill's height follows the health at 10 s and 45 s;
   - there's no bar once dead, and the respawn state shows;
-  - the low state is on at 25%, off at 31% and 55%, off with Health off, and off once dead;
-  - reduced motion stops the pulse.
+  - the low state, critical card and tag are on at 25%, and off at 31% and 55%, with Health
+    off, and once dead;
+  - there's no pulse or glow on the disc;
+  - reduced motion stops the tag's wobble. A heroes-only synthetic pack supplies the two
+    portraits.
 - e2e `player.spec.ts` checks that the API summary has no bars.
-- Eight mutants were killed: fill constant, dead gate, API gate, threshold 0 and 40, low
-  ignoring the gates, reduced-motion rule, Health toggle.
+- Eleven mutants were killed: never swap, always swap, the pack dropping `critical_blob`, fill
+  constant, dead gate, API gate, threshold 0 and 40, low ignoring the gates, reduced-motion
+  rule, Health toggle.
 - Screenshots of 129738985 at 26:42 and 34:24, desktop and phone, plus a side-by-side with the
   screenshot, are in `/tmp/health-hud-shots/` (not committed).

@@ -17,6 +17,9 @@ pub struct Hero {
     pub minimap_blob: Option<String>,
     pub topbar_entry: Option<String>,
     pub topbar_blob: Option<String>,
+    /// `m_strIconHeroCardCritical`: the hero card the HUD shows at low health.
+    pub critical_entry: Option<String>,
+    pub critical_blob: Option<String>,
 }
 
 impl Hero {
@@ -74,6 +77,10 @@ pub fn parse(root: &Value, names: &BTreeMap<String, String>) -> Result<Vec<Hero>
             .and_then(Value::as_str)
             .and_then(portrait_entry);
 
+        let critical_entry = record_field(record, "m_strIconHeroCardCritical")
+            .and_then(Value::as_str)
+            .and_then(portrait_entry);
+
         let name = names.get(&format!("{class_name}:n")).cloned();
 
         heroes.push(Hero {
@@ -86,6 +93,8 @@ pub fn parse(root: &Value, names: &BTreeMap<String, String>) -> Result<Vec<Hero>
             minimap_blob: None,
             topbar_entry,
             topbar_blob: None,
+            critical_entry,
+            critical_blob: None,
         });
     }
 

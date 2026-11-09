@@ -69,6 +69,8 @@ pub struct Hero {
     pub disabled: bool,
     pub minimap_blob: Option<String>,
     pub topbar_blob: Option<String>,
+    /// The low-health hero card (`m_strIconHeroCardCritical`), `topbar/heroes/<id>_critical`.
+    pub critical_blob: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
