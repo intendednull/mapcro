@@ -91,8 +91,7 @@
 
 /* The board's layers reach into the notes margin round the map (a quarter of the map a side),
    drawn past the overlay's box (overflow: visible); the margin's rect takes presses there. */
-.mm-overlay .notes-area { fill: none; stroke: none; pointer-events: all; }
-.mm-host.free .mm-overlay .notes-area { stroke: rgba(255, 239, 215, 0.18); stroke-width: 1.5; stroke-dasharray: 8 8; vector-effect: non-scaling-stroke; }
+.mm-overlay .notes-area { fill: none; stroke: none; pointer-events: all; }   /* unseen: the canvas reads as one (operator, 2026-11-09) */
 /* Past the map, the frame moves with it (the HUD frame is 400 of which the map is 360). */
 .mm-zoom > .mm-frame.moving { inset: auto; left: -5.5556%; top: -5.5556%; width: 111.111%; height: 111.111%; z-index: 0; }
 /* Nothing on the board reaches past its box: not over the top bar, the tools or the panel. */

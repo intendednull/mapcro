@@ -21,6 +21,16 @@ Troopers, Health, Pings, and the per-viewer Names toggle ("anonymous mode" for c
 A settings page or panel would hold the per-viewer ones, stored in the browser and never synced,
 and could later hold board-wide ones for the owner. Decide which stay as quick toggles on the bar.
 
+## The canvas fills the centre area (2026-11-09)
+
+Operator: "can we make the canvas the entire center area? more space to draw … seemless". Today the
+drawable area is the map's square box plus a notes margin of a quarter map each side
+(`MARGIN`, web/src/map/transform.ts); the host clips at the square. Backlogged as too big for now,
+because it moves the clip from `.mapbox` to `.mapfit`, and the clamps `clampToBoard`, `clampShift`,
+`clampView` and `MAX_W` all have to widen. The follow view (centre plus zoom) then has to look right on
+a follower whose centre area has a different shape. The dashed edge of the margin is gone already
+(2026-11-09), so the canvas reads as one.
+
 ## "Resume a scene" (2026-11-08)
 
 - **Playback is in progress**, as Player (spec §6b): it plays an imported match on the map, with
