@@ -24,7 +24,7 @@ pub const TOPBAR_FIXED: [&str; 10] = [
 ];
 
 /// Exact VPK entries for the HUD source files.
-pub const HUD_SOURCES: [&str; 10] = [
+pub const HUD_SOURCES: [&str; 11] = [
     "panorama/styles/hud_minimap.vcss_c",
     "panorama/styles/hud.vcss_c",
     "panorama/layout/hud_minimap.vxml_c",
@@ -35,6 +35,8 @@ pub const HUD_SOURCES: [&str; 10] = [
     "panorama/styles/citadel_hud_top_bar.vcss_c",
     "panorama/layout/hero_badge.vxml_c",
     "panorama/styles/hero_badge.vcss_c",
+    // The palette the others name (colorEnemy, offWhite, team1Color...).
+    "panorama/styles/citadel_base_styles.vcss_c",
 ];
 
 /// Whether a VPK entry may be read for the top-bar art.

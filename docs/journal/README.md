@@ -28,3 +28,4 @@ experiment writes its predictions down *before* it runs, so the result can show 
 | 2026-11-08 | [Respawn timers and the Soul Urn](2026-11-08-urn-respawn.md) |
 | 2026-11-08 | [Older timelines upgrade themselves, and the urn stands out](2026-11-08-urn-polish.md) |
 | 2026-11-08 | [The urn drawn as the game draws it](2026-11-08-urn-game.md) |
+| 2026-11-08 | [The top bar's health, drawn as the HUD draws it](2026-11-08-health-hud.md) |

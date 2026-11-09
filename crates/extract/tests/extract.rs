@@ -428,7 +428,7 @@ fn real_install() {
         pack["entities"].as_array().expect("entities").iter().filter(|e| e["kind"] == "urn").filter_map(|e| e["key"].as_str()).collect();
     assert_eq!(urns, ["urn:neutral:lane1:1", "urn:neutral:lane6:1"], "the Soul Urn's two delivery points, west and east");
     assert!(pack["icons"].as_array().expect("icons").len() > 50);
-    assert_eq!(pack["hud_sources"].as_array().expect("hud").len(), 10);
+    assert_eq!(pack["hud_sources"].as_array().expect("hud").len(), 11);
 
     let topbar_blobs = pack["heroes"]
         .as_array()

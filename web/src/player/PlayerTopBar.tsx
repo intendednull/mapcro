@@ -16,8 +16,12 @@ import { initials } from "../board/Tokens";
 import type { PlayerHost } from "./host";
 
 const BAR = 1260;
-/** Health at or under this percent reads as low (red). */
-export const LOW = 30;
+/**
+ * Health at or under this percent puts a portrait in the HUD's `.healthLow` state. The game sets
+ * that class from code, so its threshold isn't in the panorama files; 30 is ours, the same as
+ * the map tokens' red arc (board/Tokens.tsx).
+ */
+export const LOW_HEALTH = 30;
 
 function Souls(p: { n: number | null }) {
   const f = () => formatSouls(p.n);
@@ -80,9 +84,12 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
           const label = () => s.slot.name || `${t} ${s.slot.slot + 1}`;
           const dead = () => !!x() && x()!.pos === null;
           const nameOf = () => p.host.playerName(t.toLowerCase(), s.slot.slot);
+          /** Health to draw: replay tier, Health on, alive (.Dead #HealthBar collapses). */
+          const hp = () => (p.host.showHealth() && !dead() && x()?.health != null ? Math.max(0, Math.min(100, x()!.health!)) : null);
+          const low = () => hp() != null && hp()! <= LOW_HEALTH;
           return (
             <div
-              class={cx("tb-player", t.toLowerCase(), side, dead() && "dead")}
+              class={cx("tb-player", t.toLowerCase(), side, dead() && "dead", low() && "health-low")}
               data-slot={`${t}-${s.slot.slot}`}
               data-hero={x()?.hero_id ?? ""}
               data-alive={x() ? String(!dead()) : "unknown"}
@@ -97,17 +104,27 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
               </div>
               <div class="tb-badge">
                 <i class="tb-disc">{initials(s.slot, hero()?.name)}</i>
-                <Show when={hero()?.topbar}>{(src) => <i class="tb-img hero-vertical" style={{ "background-image": `url(${JSON.stringify(src())})` }} />}</Show>
+                <Show when={hero()?.topbar}>{(src) => <i class="tb-img hero-vertical" style={{ "background-image": `url(${JSON.stringify(src())})`, "--img": `url(${JSON.stringify(src())})` }} />}</Show>
               </div>
               <Show when={dead() && x()?.respawn != null}>
                 <span class="tb-respawn" data-testid="tb-respawn" data-respawn={Math.ceil(x()!.respawn!)} aria-label={`${label()} respawns in ${Math.ceil(x()!.respawn!)} s`}>
                   {Math.ceil(x()!.respawn!)}
                 </span>
               </Show>
-              <Show when={p.host.showHealth() && x()?.health != null}>
-                <div class={cx("pl-hp", (x()!.health ?? 0) <= LOW && "low")} data-testid="tb-health" data-health={x()!.health} aria-label={`${label()} health ${x()!.health}%`}>
-                  <i style={{ width: `${x()!.health}%` }} />
+              {/* #HealthBar (citadel_hud_top_bar.vcss): the HUD's slanted card at the portrait's
+                  edge, filled from the bottom. */}
+              <Show when={hp() != null}>
+                <div class="tb-health" data-testid="tb-health" data-health={hp()!} aria-label={`${label()} health ${hp()}%`}>
+                  <i class="tb-health-back" />
+                  <i class="tb-health-fill" style={{ height: `${hp()}%` }} />
+                  <i class="tb-health-border" />
                 </div>
+              </Show>
+              {/* #CriticalIndicator: shown in .healthLow. */}
+              <Show when={low()}>
+                <span class="tb-critical" data-testid="tb-critical">
+                  <span>Critical</span>
+                </span>
               </Show>
               <Ult left={x()?.ult ?? null} label={label()} />
               <Show when={nameOf()}>

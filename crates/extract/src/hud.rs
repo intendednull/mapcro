@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::pack::HudSource;
 use crate::{allow, panorama, resource, sha256_hex, Error, Result, Vpk};
 
-const SOURCES: [(&str, &str, Kind); 10] = [
+const SOURCES: [(&str, &str, Kind); 11] = [
     (
         "hud/hud_minimap.vcss",
         "panorama/styles/hud_minimap.vcss_c",
@@ -56,6 +56,11 @@ const SOURCES: [(&str, &str, Kind); 10] = [
         "panorama/styles/hero_badge.vcss_c",
         Kind::Style,
     ),
+    (
+        "hud/citadel_base_styles.vcss",
+        "panorama/styles/citadel_base_styles.vcss_c",
+        Kind::Style,
+    ),
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -64,7 +69,7 @@ enum Kind {
     Layout,
 }
 
-/// Write the ten HUD source files and record them in `pack.json`.
+/// Write the eleven HUD source files and record them in `pack.json`.
 pub fn extract(
     vpk: &Vpk,
     out_dir: &Path,

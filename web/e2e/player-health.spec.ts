@@ -1,4 +1,4 @@
-// Health on the replay tier (operator, 2026-11-08): a thin bar under each top-bar portrait, an
+// Health on the replay tier (operator, 2026-11-08): the HUD's slanted bar beside each top-bar portrait, an
 // arc on each hero token, each objective's icon filled from the bottom up to its health (the
 // patron's shield in stage 1, its core in stage 2), all following the timeline; a Health
 // toggle; none on the API summary. A synthetic timeline the
@@ -83,7 +83,14 @@ const fill = (p: Page, key: string, layer = "hp-fill") =>
     const lit = cutTop > 0 ? bottom - Math.max(top, cutTop) : Math.min(bottom, 1 - cutBottom) - top;
     return Math.round((Math.max(0, lit) / (bottom - top)) * 100);
   });
-const barWidth = (p: Page) => bar(p).evaluate((el) => (el.firstElementChild as HTMLElement).getBoundingClientRect().width / el.getBoundingClientRect().width);
+/** The bar's fill: its height over the bar's, bottom-aligned (the HUD's #HealthBar_Fill). Layout
+ *  boxes, before the bar's slant. */
+const barFill = (p: Page) =>
+  bar(p).evaluate((el) => {
+    const f = el.querySelector(".tb-health-fill") as HTMLElement;
+    const b = el as HTMLElement;
+    return Math.abs(f.offsetTop + f.offsetHeight - b.clientHeight) < 1.5 ? f.offsetHeight / b.clientHeight : -1;
+  });
 
 test("health bars, token arcs and objective fills follow the replay; Health turns them off", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Health"), "Coach");
@@ -99,14 +106,14 @@ test("health bars, token arcs and objective fills follow the replay; Health turn
   // Two times: the bar's fill and the token's arc follow the data.
   await scrubTo(a, 10);
   await expect(bar(a)).toHaveAttribute("data-health", "90");
-  await expect.poll(() => barWidth(a)).toBeCloseTo(0.9, 1);
+  await expect.poll(() => barFill(a)).toBeCloseTo(0.9, 1);
   await expect(a.locator('.tok[data-slot="Amber-0"] [data-testid=tok-health]')).toHaveAttribute("data-health", "90");
   // Undamaged objectives are full.
   await expect(mk(a, "walker:amber:lane1:1")).toHaveAttribute("data-health", "100");
   expect(await fill(a, "walker:amber:lane1:1")).toBe(100);
   await scrubTo(a, 45);
   await expect(bar(a)).toHaveAttribute("data-health", "55");
-  await expect.poll(() => barWidth(a)).toBeCloseTo(0.55, 1);
+  await expect.poll(() => barFill(a)).toBeCloseTo(0.55, 1);
   // The walker's icon is a quarter full; the patron's shield (stage 1) half.
   await expect(mk(a, "walker:amber:lane1:1")).toHaveAttribute("data-health", "25");
   expect(await fill(a, "walker:amber:lane1:1")).toBeCloseTo(25, 0);
@@ -118,10 +125,39 @@ test("health bars, token arcs and objective fills follow the replay; Health turn
   // Stage 2: the shield is gone and the core fills to the health.
   await expect(mk(a, "patron:sapphire:lane0:1")).toHaveClass(/\bstage2\b/);
   expect(await fill(a, "patron:sapphire:lane0:1", "hp-core")).toBeCloseTo(40, 0);
-  // Dead: the bar is empty, red.
+  // Low health (the HUD's .healthLow, at or under 30%): the portrait flashes red and says Critical;
+  // not above it, and not once dead.
+  const amber0 = a.locator('.tb-player[data-slot="Amber-0"]');
+  await scrubTo(a, 45);
+  await expect(amber0).not.toHaveClass(/\bhealth-low\b/);
+  await expect(amber0.getByTestId("tb-critical")).toHaveCount(0);
+  await scrubTo(a, 69);
+  await expect(bar(a)).toHaveAttribute("data-health", "31");
+  await expect(amber0).not.toHaveClass(/\bhealth-low\b/);
+  await scrubTo(a, 75);
+  await expect(bar(a)).toHaveAttribute("data-health", "25");
+  await expect(amber0).toHaveClass(/\bhealth-low\b/);
+  await expect(amber0.getByTestId("tb-critical")).toBeVisible();
+  expect(await amber0.locator(".tb-disc").evaluate((el) => getComputedStyle(el).animationName)).toBe("tb-low-flash");
+  await expect(a.locator(".tb-player.health-low")).toHaveCount(1);
+  // Reduced motion: the state stays, the flashing stops.
+  await a.emulateMedia({ reducedMotion: "reduce" });
+  expect(await amber0.locator(".tb-disc").evaluate((el) => getComputedStyle(el).animationName)).toBe("none");
+  await expect(amber0).toHaveClass(/\bhealth-low\b/);
+  await a.emulateMedia({ reducedMotion: "no-preference" });
+  // Health off: no low state either.
+  await a.getByTestId("health-toggle").click();
+  await expect(amber0).not.toHaveClass(/\bhealth-low\b/);
+  await expect(amber0.getByTestId("tb-critical")).toHaveCount(0);
+  await a.getByTestId("health-toggle").click();
+  await expect(amber0).toHaveClass(/\bhealth-low\b/);
+
+  // Dead: no bar (.Dead #HealthBar collapses); the respawn countdown stays; the others keep theirs.
   await scrubTo(a, 110);
-  await expect(bar(a)).toHaveAttribute("data-health", "0");
-  await expect(bar(a)).toHaveClass(/\blow\b/);
+  await expect(a.locator('.tb-player[data-slot="Amber-0"]')).toHaveAttribute("data-alive", "false");
+  await expect(bar(a)).toHaveCount(0);
+  await expect(amber0).not.toHaveClass(/\bhealth-low\b/);
+  await expect(a.locator('.tb-player[data-slot="Amber-1"] [data-testid=tb-health]')).toHaveAttribute("data-health", "100");
 
   await scrubTo(a, 45);
   await a.getByTestId("health-toggle").click();

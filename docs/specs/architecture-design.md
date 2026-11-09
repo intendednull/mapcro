@@ -351,8 +351,20 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
   - The loser's patron falls at the end, because the parse stops on the winner's tick.
   - On 129738985 this adds 9 KB to a 1.46 MB timeline.
   - Player shows, while Health is on (a transport toggle, on by default):
-    - a thin bar under each top-bar portrait, in team colour, red at 30% or under, empty when
-      dead
+    - the HUD's own `#HealthBar` beside each top-bar portrait (operator, 2026-11-08, matching
+      an in-game screenshot; it replaced a thin bar under the portrait): a 16 × 50 card drawn
+      with the pack's `healthbar_backer_vert_mask` and `_border` art, slanted −10° on the
+      friendly side and +7° on the enemy side. Its fill is the mask's shape cut to the health
+      from the bottom, offWhite for friends and `#FF5656` for enemies. The size, offset and
+      colours are `citadel_hud_top_bar.vcss`'s. Without a pack, a clip of the same outline
+      draws it. A dead hero has no bar (`.Dead #HealthBar` collapses), so the respawn
+      countdown stands alone. The bar is absolutely placed, so turning it on or off never
+      shifts the top bar.
+    - the HUD's low-health state (`.healthLow`) at 30% or under, alive only. The disc behind
+      the portrait pulses #b02727 to #ff3c3c with a glow, the portrait is washed `colorEnemy`,
+      and a "Critical" tag sits under it (hidden on a phone, where it covers the team total).
+      These are `hero_badge.vcss` and `citadel_hud_top_bar.vcss` rules. The game sets the class
+      from code, so 30% is ours. Reduced motion stops the pulsing and keeps the state.
     - an arc round each hero token, 5 px at the default zoom
     - each objective's own icon filling from the bottom up to its health, as in game (operator,
       2026-11-08, replacing a ring round it): the HUD art's fill layer is clipped over the rows

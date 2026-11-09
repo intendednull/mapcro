@@ -141,3 +141,48 @@
   font: 600 calc(30 * var(--u)) / 1 ui-monospace, "DejaVu Sans Mono", monospace; color: #e9e9e9; text-shadow: 0 0 calc(4 * var(--u)) #000;
   font-variant-numeric: tabular-nums;
 }
+
+/* Player: the HUD's own #HealthBar (citadel_hud_top_bar.vcss), drawn with the pack's
+   healthbar_backer_vert_mask / _border (see map/pack.ts). Size and offset are the stylesheet's:
+   16x50 in .HeroInnerContent (the 120 px .HeroContents), vertical-align middle with
+   margin-bottom 14px, so its top is (120 - 14 - 50) / 2 = 28; friendly margin-left 10px,
+   enemy margin-right 4px. #HealthBar_Fill is the mask's shape cut to the health, from the bottom.
+   Without a pack, the clip is the mask's own outline: a 27x91 card, square across the top,
+   narrowing to the bottom (M27 0 L0 0.19 L0.98 90.05 L12.47 91 Z). */
+.pl-topbar .tb-health { top: calc(28 * var(--u)); clip-path: polygon(100% 0, 0 0.2%, 3.6% 98.95%, 46.2% 100%); pointer-events: none; }
+.pl-topbar .tb-player.friend .tb-health { left: calc(10 * var(--u)); }
+.pl-topbar .tb-health-back { border-radius: 0; }
+
+/* Player: a low-health hero (.healthLow, hero_badge.vcss and citadel_hud_top_bar.vcss), on the
+   same gating as the bar. The disc behind the portrait (.HeroImageBackground) turns #b02727 and
+   pulses to #ff3c3c with a 20 px glow (LowHealthFlash, 0.7 s); the portrait (#HeroImage) is
+   washed colorEnemy (#FF410D, citadel_base_styles.vcss) pulsing &50 -> &00 -> &50
+   (LowHealthPortraitFlash, 0.7 s): here a layer masked by the portrait itself, so only its
+   pixels tint. #CriticalIndicator: margin-top 74px, 12 px uppercase white, glow colorEnemy,
+   margin-left 24px (enemy: margin-right 20px), padding 6px 8px, TagGroove1 2 s. */
+.pl-topbar .tb-player.health-low .tb-disc { background: #b02727; box-shadow: 0 0 calc(20 * var(--u)) #b02727; animation: tb-low-flash 0.7s infinite; }
+@keyframes tb-low-flash {
+  0%, 100% { background: #b02727; box-shadow: 0 0 calc(20 * var(--u)) #b02727; }
+  50% { background: #ff3c3c; box-shadow: 0 0 calc(20 * var(--u)) #ff3c3c; }
+}
+.pl-topbar .tb-player.health-low .tb-img::after {
+  content: ""; position: absolute; inset: 0; background: #FF410D; opacity: 0.31;
+  -webkit-mask-image: var(--img); mask-image: var(--img); -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-position: center bottom; mask-position: center bottom; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  animation: tb-low-wash 0.7s infinite;
+}
+@keyframes tb-low-wash { 0%, 100% { opacity: 0.31; } 50% { opacity: 0; } }
+.tb-critical { position: absolute; top: calc(74 * var(--u)); left: 0; right: 0; z-index: 10; display: flex; justify-content: center; pointer-events: none; }
+.tb-critical > span {
+  margin-left: calc(24 * var(--u)); padding: calc(6 * var(--u)) calc(8 * var(--u));
+  font: 700 calc(12 * var(--u)) / 1 "VALVEPulp", "Noto Sans", sans-serif; text-transform: uppercase; color: #fff;
+  text-shadow: 0 0 calc(5 * var(--u)) #FF410D, 0 0 calc(5 * var(--u)) #FF410D; white-space: nowrap;
+  animation: tb-groove 2s infinite;
+}
+.tb-player.enemy .tb-critical > span { margin-left: 0; margin-right: calc(20 * var(--u)); }
+@keyframes tb-groove { 0%, 25% { transform: rotate(-3deg); } 26%, 50% { transform: rotate(2deg); } 51%, 75% { transform: rotate(-1deg); } 76%, 100% { transform: rotate(0deg); } }
+/* On a phone the tag is wider than its slot and covers the team total: the red portrait says it. */
+.tb-host.compact .tb-critical { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .pl-topbar .tb-player.health-low .tb-disc, .pl-topbar .tb-player.health-low .tb-img::after, .tb-critical > span { animation: none; }
+}

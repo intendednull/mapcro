@@ -84,6 +84,9 @@ export const IMAGE_BLOBS: Record<string, string> = {
   "tb-dust": "topbar/dust_01_psd",
   "tb-team1": "topbar/icon_team1_psd",
   "tb-team2": "topbar/icon_team2_psd",
+  // #HealthBar_Contents / _Fill opacity-mask, and #HealthBar_Border.
+  "tb-hb-mask": "topbar/healthbar_backer_vert_mask",
+  "tb-hb-border": "topbar/healthbar_backer_vert_border",
 };
 
 export function fallbackArt(): Art {
@@ -150,6 +153,8 @@ export function artCss(art: Art): string {
     ];
     for (const [sel, name] of rules) if (img(name)) css.push(`.tb-host.pack-art ${sel} { background-image: ${img(name)}; }`);
     if (img("tb-dust")) css.push(`.tb-host.pack-art .tb-score-bg { ${mask(img("tb-dust")!)} }`);
+    if (img("tb-hb-mask")) css.push(`.tb-host.pack-art .tb-health-back, .tb-host.pack-art .tb-health-fill { ${mask(img("tb-hb-mask")!)} }`);
+    if (img("tb-hb-border")) css.push(`.tb-host.pack-art .tb-health-border { ${mask(img("tb-hb-border")!)} }`);
   }
   if (!art.images.has("terrain-mid")) return css.join("\n");
   css.push(".mm-host.pack-art { --pa-display: block; --pa-fb-display: none; }");

@@ -46,6 +46,9 @@ test("events: search, filter, jump, and save several as scenes with one undo", a
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
+  // The summary has no health: the top bar draws no health bars (its souls show, so it's drawn).
+  await expect(a.locator('.pl-topbar [data-testid=souls]').first()).not.toHaveAttribute("data-souls", "untracked");
+  await expect(a.locator(".pl-topbar [data-testid=tb-health]")).toHaveCount(0);
   // 42 deaths and 9 objectives in the fixture, souls swings on top; every row says its tier.
   await expect.poll(async () => (await times(a)).length).toBeGreaterThan(50);
 
