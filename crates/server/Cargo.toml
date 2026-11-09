@@ -34,6 +34,8 @@ mapcro-replay = { path = "../replay", default-features = false }
 libc = "0.2"
 # Match import's upstream calls (deadlock-api.com), run on the blocking pool.
 ureq = { version = "3", features = ["json"] }
+# statvfs for the disk-free gauge, without unsafe (metrics/sample.rs).
+rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
 sha2 = "0.10"

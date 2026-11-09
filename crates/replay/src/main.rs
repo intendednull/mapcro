@@ -34,7 +34,7 @@ fn main() {
         }
         Some("job") if args.len() == 6 => {
             let (Ok(id), Ok(max)) = (args[4].parse(), args[5].parse()) else { std::process::exit(2) };
-            match worker::job(Path::new(&args[2]), Path::new(&args[3]), id, max) {
+            match worker::job_child(Path::new(&args[2]), Path::new(&args[3]), id, max) {
                 Ok(()) => {}
                 Err(why) => {
                     println!("{why}");

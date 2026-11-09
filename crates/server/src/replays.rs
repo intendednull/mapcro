@@ -269,7 +269,33 @@ fn job_name(id: &str, scope: &str) -> String {
 const EXTS: [&str; 3] = ["dem", "bz2", "zst"];
 
 fn err(status: StatusCode, code: &str) -> Response {
+    // Every refusal of the queue's passes through here.
+    if matches!(code, "busy" | "queue_full" | "rate_limited") {
+        crate::metrics::get().queue_refusals.inc((crate::metrics::QueueRefusal::from_code(code),));
+    }
     (status, axum::Json(serde_json::json!({ "error": code }))).into_response()
+}
+
+/// A job's source: fetched jobs are the match's `cdn` scope, uploads a board's.
+fn source_of(job: &str) -> crate::metrics::Source {
+    if job.ends_with("-cdn") { crate::metrics::Source::Fetched } else { crate::metrics::Source::Uploaded }
+}
+
+/// The queue's gauges, for the metrics snapshot.
+pub fn sample_metrics(app: &AppState) {
+    let m = crate::metrics::get();
+    let Some(root) = root(app) else { return };
+    let s = settings();
+    let j = lock();
+    let (bytes, _) = queue_usage(root, &j.flight);
+    let held: u64 = j.flight.values().sum::<u64>() + j.granted.values().map(|g| g.bytes).sum::<u64>();
+    m.queue_waiting.set((), j.line.len() as f64);
+    m.queue_bytes.set((), (bytes + held) as f64);
+    m.queue_max_bytes.set((), s.max_queue_bytes as f64);
+    m.queue_max_waiting.set((), s.max_waiting as f64);
+    m.parses_running.set((), j.parsing_now as f64);
+    let left = j.backoff.map_or(0.0, |(until, _)| until.saturating_duration_since(Instant::now()).as_secs_f64());
+    m.deadlock_api_backoff_s.set((), left);
 }
 
 fn json(body: serde_json::Value) -> Response {
@@ -595,6 +621,8 @@ pub async fn timeline(
     if root(&app).is_some() {
         for scope in [scope_of(&board), "cdn".to_owned()] {
             if let Ok(bytes) = tokio::fs::read(cached_path(&app, &job_name(&id, &scope))).await {
+                let path = if scope == "cdn" { crate::metrics::MatchPath::Fetched } else { crate::metrics::MatchPath::Uploaded };
+                crate::metrics::get().matches_opened.inc((crate::metrics::Tier::Full, path));
                 return ([(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-store")], bytes).into_response();
             }
         }
@@ -1084,9 +1112,16 @@ fn spawn_fetch(root: PathBuf, id: String, job: String, turn: tokio::sync::onesho
         let outcome = match outcome {
             Ok(()) => {
                 let (r2, id2, j2) = (root.clone(), id.clone(), job.clone());
-                tokio::task::spawn_blocking(move || salts(&id2).and_then(|(cluster, salt)| download(&r2, &id2, &j2, cluster, salt).map_err(|why| (why, None))))
-                    .await
-                    .unwrap_or(Err(("upstream_down", None)))
+                tokio::task::spawn_blocking(move || {
+                    salts(&id2).and_then(|(cluster, salt)| {
+                        let t = Instant::now();
+                        let n = download(&r2, &id2, &j2, cluster, salt).map_err(|why| (why, None))?;
+                        crate::metrics::get().download_s.observe((), t.elapsed().as_secs_f64());
+                        Ok(n)
+                    })
+                })
+                .await
+                .unwrap_or(Err(("upstream_down", None)))
             }
             Err(e) => Err(e),
         };
@@ -1106,6 +1141,7 @@ fn spawn_fetch(root: PathBuf, id: String, job: String, turn: tokio::sync::onesho
             Ok(bytes) => tracing::info!(job, bytes, "replay fetched"),
             Err((why, retry_after)) => {
                 tracing::info!(job, why, "replay fetch failed");
+                job_ended(&job, crate::metrics::JobOutcome::from_code(why), began.elapsed().as_secs_f64());
                 // The status reads each from where it's kept: the backoff, the match's negative
                 // cache, or (ours, not the match's) the job's failure.
                 match why {
@@ -1144,9 +1180,18 @@ fn agent(timeout: Duration) -> ureq::Agent {
 
 /// The match's replay salts from deadlock-api, or why not (with a 429's `Retry-After`). Blocking.
 fn salts(id: &str) -> Result<(u32, u64), (&'static str, Option<Duration>)> {
+    use crate::metrics::{ApiResult, Endpoint};
     let s = settings();
-    let mut r = crate::matches::api_get(&agent(Duration::from_secs(20)), &format!("{}/v1/matches/{id}/salts", s.api_base)).call().map_err(|_| ("upstream_down", None))?;
-    match r.status().as_u16() {
+    let called = |r: ApiResult| crate::matches::upstream(Endpoint::Salts, r);
+    let mut r = crate::matches::api_get(&agent(Duration::from_secs(20)), &format!("{}/v1/matches/{id}/salts", s.api_base)).call().map_err(|e| {
+        called(ApiResult::of_error(&e));
+        ("upstream_down", None)
+    })?;
+    let status = r.status().as_u16();
+    if status != 200 {
+        called(ApiResult::of_status(status));
+    }
+    match status {
         200 => {}
         404 => return Err(("no_replay", None)),
         429 => {
@@ -1155,7 +1200,11 @@ fn salts(id: &str) -> Result<(u32, u64), (&'static str, Option<Duration>)> {
         }
         _ => return Err(("upstream_down", None)),
     }
-    let salts: Salts = r.body_mut().with_config().limit(64 * 1024).read_json().map_err(|_| ("upstream_shape", None))?;
+    let salts: Salts = r.body_mut().with_config().limit(64 * 1024).read_json().map_err(|e| {
+        called(ApiResult::of_error(&e));
+        ("upstream_shape", None)
+    })?;
+    called(ApiResult::Ok);
     let (Some(cluster), Some(salt)) = (salts.cluster_id, salts.replay_salt) else { return Err(("no_replay", None)) };
     Ok((cluster, salt))
 }
@@ -1267,6 +1316,55 @@ fn write_atomic(path: &FsPath, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
+fn out_path(root: &FsPath, job: &str, ext: &str) -> PathBuf {
+    root.join("outbox").join(format!("{job}.{ext}"))
+}
+
+/// A replay job is over: count it by source and outcome, time it, and log a failure.
+fn job_ended(job: &str, outcome: crate::metrics::JobOutcome, secs: f64) {
+    use crate::metrics::{JobOutcome, Label};
+    let m = crate::metrics::get();
+    let source = source_of(job);
+    m.replay_jobs.inc((source, outcome));
+    m.replay_job_s.observe((source,), secs);
+    if outcome != JobOutcome::Done {
+        crate::metrics::failures::record(
+            crate::metrics::failures::FailureKind::ReplayJob,
+            outcome.as_str(),
+            &format!("replay {} {} after {secs:.1} s", source.as_str(), outcome.as_str()),
+        );
+    }
+}
+
+/// The worker's record of a job (phase times, peak memory, sizes) into the histograms. The
+/// worker is untrusted: only finite, non-negative numbers under a day or 64 GiB count.
+fn ingest(r: &mapcro_replay::JobStats) {
+    let m = crate::metrics::get();
+    let secs = |v: Option<f64>| v.filter(|x| x.is_finite() && *x >= 0.0 && *x < 86_400.0);
+    let size = |v: Option<u64>| v.filter(|x| *x < 64 << 30).map(|x| x as f64);
+    if let Some(v) = secs(r.queue_wait_s) {
+        m.queue_wait_s.observe((), v);
+    }
+    if let Some(v) = secs(r.decompress_s) {
+        m.decompress_s.observe((), v);
+    }
+    if let Some(v) = secs(r.parse_s) {
+        m.parse_s.observe((), v);
+    }
+    if let Some(v) = secs(r.publish_s) {
+        m.publish_s.observe((), v);
+    }
+    if let Some(v) = size(r.peak_rss_bytes) {
+        m.parse_peak_rss_bytes.observe((), v);
+    }
+    if let Some(v) = size(r.demo_bytes) {
+        m.demo_bytes.observe((), v);
+    }
+    if let Some(v) = size(r.timeline_bytes) {
+        m.timeline_bytes.observe((), v);
+    }
+}
+
 fn collect(root: &FsPath, cache: &FsPath) {
     let s = settings();
     let fail = |job: &str, why: &'static str| {
@@ -1279,6 +1377,10 @@ fn collect(root: &FsPath, cache: &FsPath) {
             let Some((job, ext)) = name.rsplit_once('.').map(|(j, x)| (j.to_owned(), x.to_owned())) else { continue };
             if name.starts_with('.') || ext == "parsing" {
                 continue; // being written, or in progress
+            }
+            // The per-job record is read with its result; one for no queued job is dropped below.
+            if ext == mapcro_replay::STATS_EXT && mapcro_replay::valid_job(&job) && exists_any(&root.join("inbox"), &job) {
+                continue;
             }
             // Only results for jobs this server queued, bound to the job's own scope: a worker
             // can't publish a timeline nobody asked for (security review 2026-11-08, M2).
@@ -1316,7 +1418,15 @@ fn collect(root: &FsPath, cache: &FsPath) {
                     }
                 }
             }
-            // The job is over: its result and its demo go.
+            // The job is over: count it, with the worker's record of it; its result and its demo go.
+            let queued_for = EXTS.iter().map(|x| root.join("inbox").join(format!("{job}.{x}"))).find(|f| f.exists()).map(|f| age(&f).as_secs_f64());
+            let outcome = if parsed { crate::metrics::JobOutcome::Done } else { crate::metrics::JobOutcome::from_code(lock().failed.get(&job).map_or("parse_failed", |f| f.0)) };
+            job_ended(&job, outcome, queued_for.unwrap_or(0.0));
+            let record = out_path(root, &job, mapcro_replay::STATS_EXT);
+            if let Some(stats) = read_capped(&record, mapcro_replay::JobStats::MAX_BYTES).and_then(|b| serde_json::from_slice::<mapcro_replay::JobStats>(&b).ok()) {
+                ingest(&stats);
+            }
+            let _ = std::fs::remove_file(&record);
             let _ = std::fs::remove_file(&p);
             for x in EXTS {
                 let _ = std::fs::remove_file(root.join("inbox").join(format!("{job}.{x}")));
@@ -1360,6 +1470,7 @@ fn collect(root: &FsPath, cache: &FsPath) {
             let _ = std::fs::remove_file(&p);
             if !name.starts_with('.') && mapcro_replay::valid_job(&job) {
                 fail(&job, mapcro_replay::reason::TIMEOUT);
+                job_ended(&job, crate::metrics::JobOutcome::Timeout, s.stale.as_secs_f64());
             }
         }
     }

@@ -131,7 +131,10 @@ pub async fn create_board(
     let board = links::new_board_id();
     let owner_token = links::new_token();
     match app.store.create_board(board.clone(), doc, links::hash(&owner_token), now(), app.config.max_boards, app.config.max_storage_bytes).await {
-        Ok(()) => (StatusCode::CREATED, Json(Created { board, owner_token })).into_response(),
+        Ok(()) => {
+            crate::metrics::get().boards_created.inc((crate::metrics::How::New,));
+            (StatusCode::CREATED, Json(Created { board, owner_token })).into_response()
+        }
         Err(crate::store::StoreError::Full) => server_full(),
         Err(e) => internal(e),
     }
@@ -328,7 +331,10 @@ pub async fn clone_board(
     let new_board = links::new_board_id();
     let owner_token = links::new_token();
     match app.store.create_board(new_board.clone(), doc, links::hash(&owner_token), now(), app.config.max_boards, app.config.max_storage_bytes).await {
-        Ok(()) => (StatusCode::CREATED, Json(Created { board: new_board, owner_token })).into_response(),
+        Ok(()) => {
+            crate::metrics::get().boards_created.inc((crate::metrics::How::Clone,));
+            (StatusCode::CREATED, Json(Created { board: new_board, owner_token })).into_response()
+        }
         Err(crate::store::StoreError::Full) => server_full(),
         Err(e) => internal(e),
     }

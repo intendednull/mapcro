@@ -67,13 +67,23 @@ pub async fn upgrade(
         let mut m = app.sockets.lock().unwrap_or_else(|e| e.into_inner());
         let n = m.entry(ip).or_insert(0);
         if *n >= MAX_SOCKETS_PER_IP {
+            crate::metrics::get().ws_closes.inc((crate::metrics::WsEnd::TooMany,));
             return (StatusCode::TOO_MANY_REQUESTS, "too many connections").into_response();
         }
         *n += 1;
     }
     let slot = IpSlot(app.clone(), ip);
+    crate::metrics::users::saw(ip);
     ws.max_message_size(MAX_FRAME).max_frame_size(MAX_FRAME).on_upgrade(move |socket| async move {
-        session(app, socket).await;
+        let m = crate::metrics::get();
+        m.ws_opens.inc(());
+        m.connections_open.add((), 1.0);
+        let end = session(app, socket).await;
+        m.connections_open.add((), -1.0);
+        m.ws_closes.inc((end.into(),));
+        if end == Some(CloseReason::Outdated) {
+            m.outdated_reloads.inc(());
+        }
         drop(slot);
     })
 }
@@ -123,19 +133,22 @@ fn frame(out: &WireOut) -> Message {
     Message::Text(serde_json::to_string(out).unwrap_or_default().into())
 }
 
-async fn send_closed(socket: &mut WebSocket, reason: CloseReason) {
+/// Close with `reason`, and say it's how the session ended.
+async fn send_closed(socket: &mut WebSocket, reason: CloseReason) -> Option<CloseReason> {
     let _ = socket.send(frame(&WireOut::Closed { reason })).await;
     let _ = socket.close().await;
+    Some(reason)
 }
 
-async fn session(app: AppState, mut socket: WebSocket) {
+/// One WebSocket's life. Returns why the server closed it, or `None` if the client went away.
+async fn session(app: AppState, mut socket: WebSocket) -> Option<CloseReason> {
     // 1. Authenticate.
     let first = match timeout(AUTH_TIMEOUT, socket.recv()).await {
         Ok(Some(Ok(Message::Text(t)))) => t,
         // A slow first frame says nothing about the link: a briefly frozen tab must be able to
         // retry, so this is transient, not `Unauthorized` (soak 2026-11-07).
         Err(_) => return send_closed(&mut socket, CloseReason::TooSlow).await,
-        Ok(None | Some(Err(_))) => return,
+        Ok(None | Some(Err(_))) => return None,
         Ok(Some(Ok(_))) => return send_closed(&mut socket, CloseReason::Unauthorized).await,
     };
     let Ok(WireIn::Auth { board, token, known_seq, build }) = serde_json::from_str::<WireIn>(&first) else {
@@ -212,7 +225,7 @@ async fn session(app: AppState, mut socket: WebSocket) {
     drop(permit);
     if sent.is_err() {
         let _ = room.send(RoomCmd::Leave { conn }).await;
-        return;
+        return None;
     }
 
     // 3. Pump.
@@ -221,6 +234,8 @@ async fn session(app: AppState, mut socket: WebSocket) {
     let mut last_heard = Instant::now();
     let mut tokens = BURST;
     let mut refilled = Instant::now();
+    // A close the room asked for (its frame already sent).
+    let mut by_room = None;
     let reason = loop {
         tokio::select! {
             out = outbox.recv() => match out {
@@ -238,6 +253,7 @@ async fn session(app: AppState, mut socket: WebSocket) {
                 }
                 Some(Out::Closed(reason)) => {
                     let _ = sink.send(frame(&WireOut::Closed { reason })).await;
+                    by_room = Some(reason);
                     break None;
                 }
                 Some(Out::CatchUp { from, to }) => {
@@ -288,4 +304,5 @@ async fn session(app: AppState, mut socket: WebSocket) {
         let _ = sink.send(frame(&WireOut::Closed { reason })).await;
     }
     let _ = sink.close().await;
+    reason.or(by_room)
 }

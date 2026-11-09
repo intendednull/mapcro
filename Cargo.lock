@@ -927,6 +927,7 @@ dependencies = [
  "mapcro-replay",
  "mapcro-schema",
  "rusqlite",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",

@@ -537,6 +537,7 @@ impl Room {
     /// Clients keep their pending work and reconnect to a fresh room.
     fn fail_all(&mut self) {
         tracing::error!(board = self.id, "storage failed; closing room");
+        crate::metrics::failures::record(crate::metrics::failures::FailureKind::Storage, "room_closed", "a room's write failed; the room closed");
         let all: Vec<ConnId> = self.peers.keys().copied().collect();
         for conn in all {
             self.close(conn, CloseReason::StorageFailure);
@@ -751,6 +752,7 @@ impl Room {
     /// after the commit: a join's snapshot, a clone or a catch-up range must never see what isn't
     /// on disk yet.
     async fn batch(&mut self, first: (ConnId, ClientMsg), rx: &mut mpsc::Receiver<RoomCmd>) -> Result<Option<RoomCmd>, StoreError> {
+        let taken = std::time::Instant::now();
         let mut writes = Vec::new();
         let mut outboxes = Vec::new();
         let mut bytes = self.apply(first.0, first.1, &mut writes, &mut outboxes)?;
@@ -770,18 +772,29 @@ impl Room {
             let n = writes.len();
             pause("commit").await;
             failpoint("before_commit");
+            let started = std::time::Instant::now();
             self.store.commit(self.id.clone(), writes).await?;
+            let m = crate::metrics::get();
+            m.commit_ms.observe_ms((), started);
+            m.commit_batch_size.observe((), outboxes.len() as f64);
             failpoint("after_commit");
             record_commit(outboxes.len(), n);
         }
+        let messages = outboxes.len();
         for outbox in outboxes {
             self.deliver(outbox);
+        }
+        // Every message in the batch is acked (or refused) now: one observation each.
+        let ack_ms = taken.elapsed().as_secs_f64() * 1000.0;
+        for _ in 0..messages {
+            crate::metrics::get().op_ack_ms.observe((), ack_ms);
         }
         // The batch is committed; compaction is housekeeping. If it fails, say so and carry on:
         // the history caps are the backstop (review finding 5).
         if let Err(e) = self.maybe_compact().await {
             self.compact_retry_at = self.authority.log_len() + (self.compaction.every_ops / 10).max(1);
             tracing::error!(board = self.id, error = %e, retry_at = self.compact_retry_at, "compaction failed; continuing without it");
+            crate::metrics::failures::record(crate::metrics::failures::FailureKind::Storage, "compaction", "compaction failed; continuing without it");
         }
         self.publish_weight();
         Ok(rest)
@@ -860,7 +873,10 @@ impl Room {
                     }
                     Write::Op { seq, codec, stored }
                 }
-                Effect::Rejected { client, cseq, reason } => Write::Rejection { client, cseq, reason },
+                Effect::Rejected { client, cseq, reason } => {
+                    crate::metrics::get().ops_rejected.inc(((&reason).into(),));
+                    Write::Rejection { client, cseq, reason }
+                }
                 Effect::ClientRegistered { client, secret_hash } => Write::Client { client, secret_hash },
                 Effect::RejectionsResolved { client, below } => {
                     Write::PruneRejections { client, below, next_cseq: self.authority.next_cseq(client) }

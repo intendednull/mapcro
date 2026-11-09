@@ -68,10 +68,17 @@ fn jobs_fail_with_their_reason_and_their_demos_go() {
     assert_eq!(reason("4-cdn"), "not_a_replay");
     assert_eq!(reason("5-cdn"), "old_map");
     // The worker only reads the inbox (the server deletes a job's file when it collects it);
-    // its own scratch is empty, and only results are in its outbox.
+    // its own scratch is empty, and only results and their records are in its outbox.
     assert_eq!(files(&p.join("inbox")).len(), 6);
     assert!(files(&p.join("work")).is_empty(), "every expanded demo is deleted when its parse ends");
-    assert!(files(&p.join("outbox")).iter().all(|f| f.ends_with(".failed")), "{:?}", files(&p.join("outbox")));
+    assert!(files(&p.join("outbox")).iter().all(|f| f.ends_with(".failed") || f.ends_with(".stats")), "{:?}", files(&p.join("outbox")));
+    // Each job's record (docs/specs/observability.md §2): the demo's size, and how long the
+    // compressed one took to expand.
+    let record = |job: &str| -> mapcro_replay::JobStats { serde_json::from_slice(&std::fs::read(p.join("outbox").join(format!("{job}.stats"))).expect("record")).expect("json") };
+    assert_eq!(record("3-cdn").demo_bytes, Some(34));
+    assert!(record("5-cdn").decompress_s.is_some(), "a compressed demo was expanded");
+    assert_eq!(record("4-cdn").decompress_s, None, "a raw demo isn't");
+    assert!(record("4-cdn").peak_rss_bytes.is_some_and(|b| b > 0), "the child's peak memory");
     // A second run doesn't redo jobs whose results wait for the server.
     let before: Vec<_> = files(&p.join("outbox"));
     run(p, &[]);

@@ -23,6 +23,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
+use crate::metrics::{ApiResult, Endpoint, MatchPath, Tier};
 
 /// deadlock-api.com, unless `MATCH_API_BASE` points elsewhere (tests run a local fake).
 const DEFAULT_BASE: &str = "https://api.deadlock-api.com";
@@ -426,11 +427,25 @@ fn names(raw: &[u8]) -> HashMap<(String, u32), String> {
     let s = settings();
     let ids: Vec<String> = accounts.iter().map(|(_, a)| a.to_string()).collect();
     let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(s.timeout)).http_status_as_error(false).max_redirects(0).user_agent("mapcro (https://mapcro.dmgdeadlock.com)").build().into();
-    let Ok(mut r) = api_get(&agent, &format!("{}/v1/players/steam?account_ids={}", s.base, ids.join(","))).call() else { return HashMap::new() };
+    let mut r = match api_get(&agent, &format!("{}/v1/players/steam?account_ids={}", s.base, ids.join(","))).call() {
+        Ok(r) => r,
+        Err(e) => {
+            upstream(Endpoint::SteamProfiles, ApiResult::of_error(&e));
+            return HashMap::new();
+        }
+    };
     if r.status().as_u16() != 200 {
+        upstream(Endpoint::SteamProfiles, ApiResult::of_status(r.status().as_u16()));
         return HashMap::new();
     }
-    let Ok(profiles) = r.body_mut().with_config().limit(4 * 1024 * 1024).read_json::<Vec<Profile>>() else { return HashMap::new() };
+    let profiles = match r.body_mut().with_config().limit(4 * 1024 * 1024).read_json::<Vec<Profile>>() {
+        Ok(p) => p,
+        Err(e) => {
+            upstream(Endpoint::SteamProfiles, ApiResult::of_error(&e));
+            return HashMap::new();
+        }
+    };
+    upstream(Endpoint::SteamProfiles, ApiResult::Ok);
     let by_id: HashMap<u64, &str> = profiles.iter().map(|p| (p.account_id, p.personaname.as_str())).collect();
     accounts
         .into_iter()
@@ -615,11 +630,43 @@ enum Fetched {
     Ok(Vec<u8>),
     NotFound,
     Limited,
-    Down,
+    /// No usable answer, and how it went wrong.
+    Down(ApiResult),
     TooLarge,
 }
 
+/// Count a call to deadlock-api by how it ended, and log the ones that went wrong.
+pub fn upstream(endpoint: Endpoint, result: ApiResult) {
+    use crate::metrics::Label;
+    crate::metrics::get().deadlock_api_calls.inc((endpoint, result));
+    // A 404 is an answer (the match isn't there yet), not trouble.
+    if !matches!(result, ApiResult::Ok | ApiResult::NotFound) {
+        crate::metrics::failures::record(
+            crate::metrics::failures::FailureKind::Upstream,
+            result.as_str(),
+            &format!("deadlock-api {} {}", endpoint.as_str(), result.as_str()),
+        );
+    }
+}
+
+/// The metadata call, counted when it fails; a body that arrives is counted once it's read
+/// (`ok`, or `shape` if it isn't what we expect).
 fn fetch(id: &str) -> Fetched {
+    let f = fetch_metadata(id);
+    let failed = match &f {
+        Fetched::Ok(_) => None,
+        Fetched::NotFound => Some(ApiResult::NotFound),
+        Fetched::Limited => Some(ApiResult::RateLimited),
+        Fetched::TooLarge => Some(ApiResult::TooLarge),
+        Fetched::Down(r) => Some(*r),
+    };
+    if let Some(r) = failed {
+        upstream(Endpoint::Metadata, r);
+    }
+    f
+}
+
+fn fetch_metadata(id: &str) -> Fetched {
     let s = settings();
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(s.timeout))
@@ -632,7 +679,7 @@ fn fetch(id: &str) -> Fetched {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!(error = %e, "match upstream unreachable");
-            return Fetched::Down;
+            return Fetched::Down(ApiResult::of_error(&e));
         }
     };
     match r.status().as_u16() {
@@ -641,7 +688,7 @@ fn fetch(id: &str) -> Fetched {
         429 => return Fetched::Limited,
         code => {
             tracing::warn!(code, "match upstream refused");
-            return Fetched::Down;
+            return Fetched::Down(ApiResult::of_status(code));
         }
     }
     match r.body_mut().with_config().limit(s.max_bytes).read_to_vec() {
@@ -649,7 +696,7 @@ fn fetch(id: &str) -> Fetched {
         Err(ureq::Error::BodyExceedsLimit(_)) => Fetched::TooLarge,
         Err(e) => {
             tracing::warn!(error = %e, "match upstream body");
-            Fetched::Down
+            Fetched::Down(ApiResult::of_error(&e))
         }
     }
 }
@@ -731,6 +778,7 @@ pub async fn get(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<Soc
             remember_refusal(&app, &id, why).await;
             return err(StatusCode::UNPROCESSABLE_ENTITY, why);
         }
+        crate::metrics::get().matches_opened.inc((Tier::Summary, MatchPath::Cached));
         return json(bytes);
     }
     match admit(client_key(client_ip(peer, &headers))) {
@@ -746,10 +794,11 @@ pub async fn get(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<Soc
         Fetched::Ok(b) => b,
         Fetched::NotFound => return err(StatusCode::NOT_FOUND, "not_found"),
         Fetched::Limited => return err(StatusCode::TOO_MANY_REQUESTS, "upstream_limited"),
-        Fetched::Down => return err(StatusCode::BAD_GATEWAY, "upstream_down"),
+        Fetched::Down(_) => return err(StatusCode::BAD_GATEWAY, "upstream_down"),
         Fetched::TooLarge => return err(StatusCode::BAD_GATEWAY, "too_large"),
     };
     if let Some(why) = mode_refusal(&raw) {
+        upstream(Endpoint::Metadata, ApiResult::Ok);
         tracing::info!(match_id = id, why, "match refused for its mode");
         remember_refusal(&app, &id, why).await;
         let _ = tokio::fs::remove_file(&path).await;
@@ -769,13 +818,16 @@ pub async fn get(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<Soc
         Ok(Ok(t)) => t,
         Ok(Err(e)) => {
             tracing::warn!(error = e, "match not understood");
+            upstream(Endpoint::Metadata, ApiResult::Shape);
             return err(StatusCode::BAD_GATEWAY, "upstream_shape");
         }
         Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
     };
     if timeline.match_id.to_string() != id {
+        upstream(Endpoint::Metadata, ApiResult::Shape);
         return err(StatusCode::BAD_GATEWAY, "upstream_shape");
     }
+    upstream(Endpoint::Metadata, ApiResult::Ok);
     let bytes = match serde_json::to_vec(&timeline) {
         Ok(b) => b,
         Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
@@ -786,6 +838,7 @@ pub async fn get(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<Soc
         Ok(Ok(())) => tracing::info!(match_id = id, reanchored, "match imported"),
         _ => tracing::warn!(match_id = id, "match cache not written"),
     }
+    crate::metrics::get().matches_opened.inc((Tier::Summary, MatchPath::Fetched));
     json(bytes)
 }
 

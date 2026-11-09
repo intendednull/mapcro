@@ -20,7 +20,7 @@
 //! the worker or the other jobs. The order is the server's (`inbox/.order`, fair across clients),
 //! else oldest first.
 
-use crate::reason;
+use crate::{JobStats, reason};
 use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -56,12 +56,19 @@ fn job_of(file: &Path) -> Option<(String, String)> {
 }
 
 fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp = stage(dir, name, bytes)?;
+    std::fs::rename(&tmp, dir.join(name))
+}
+
+/// Write `bytes` beside `dir/name` under a dot name, ready to be renamed into place (within
+/// `dir`, so never across mounts).
+fn stage(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
     let tmp = dir.join(format!(".{name}.tmp"));
     let _ = std::fs::remove_file(&tmp);
     std::fs::write(&tmp, bytes)?;
     // The server reads results as a group member (umask 0077 would hide them).
     set_mode(&tmp, 0o640);
-    std::fs::rename(&tmp, dir.join(name))
+    Ok(tmp)
 }
 
 #[cfg(unix)]
@@ -165,6 +172,8 @@ struct Running {
     started: Instant,
     out: PathBuf,
     marker: PathBuf,
+    /// How long the demo waited in the inbox before this job started.
+    waited: Option<f64>,
 }
 
 /// Start the next queued job in a child: `None` when nothing is waiting, `Some(None)` when its
@@ -177,9 +186,10 @@ fn start(root: &Path, exe: &Path, limits: &Limits, tried: &mut HashSet<String>) 
     let _ = std::fs::write(&marker, b"");
     set_mode(&marker, 0o640);
     let out = root.join("work").join(format!("{job}.json"));
+    let waited = std::fs::metadata(&src).and_then(|m| m.modified()).ok().and_then(|t| SystemTime::now().duration_since(t).ok()).map(|d| d.as_secs_f64());
     let started = Instant::now();
     match spawn_child(exe, &src, &out, match_id(&job), limits) {
-        Ok(child) => Some(Some(Running { child, job, deadline: started + limits.timeout, started, out, marker })),
+        Ok(child) => Some(Some(Running { child, job, deadline: started + limits.timeout, started, out, marker, waited })),
         Err(e) => {
             fail(root, &job, reason::PARSE_FAILED);
             let _ = std::fs::remove_file(&marker);
@@ -208,28 +218,64 @@ fn poll(r: &mut Running) -> Option<Result<(), &'static str>> {
     }
 }
 
-/// Publish a finished job's result (or its failure) and clear its scratch and marker.
+/// The child's record of the job (from `work/`), if it wrote one.
+fn child_stats(out: &Path) -> JobStats {
+    let Ok(f) = std::fs::File::open(out.with_extension(crate::STATS_EXT)) else { return JobStats::default() };
+    let mut bytes = Vec::new();
+    let _ = f.take(JobStats::MAX_BYTES).read_to_end(&mut bytes);
+    serde_json::from_slice(&bytes).unwrap_or_default()
+}
+
+/// Publish the job's record, before its result, so the server finds both when it collects.
+fn publish_stats(root: &Path, job: &str, stats: &JobStats) {
+    let _ = write_atomic(&root.join("outbox"), &format!("{job}.{}", crate::STATS_EXT), &serde_json::to_vec(stats).unwrap_or_default());
+}
+
+/// Publish a finished job's result (or its failure) and its record, and clear its scratch and
+/// marker.
 fn finish(root: &Path, r: Running, result: Result<(), &'static str>) {
     let job = &r.job;
     // The expanded copy goes now; the server deletes the original when it collects the result.
     let _ = std::fs::remove_file(r.out.with_extension("dem"));
     let secs = r.started.elapsed().as_secs_f64();
+    let mut stats = child_stats(&r.out);
+    stats.queue_wait_s = r.waited;
+    let outbox = root.join("outbox");
+    let name = format!("{job}.json");
     match result {
         // Published by copy, not rename: work/ and outbox/ are separate mounts in the worker's
         // sandbox (nix/module.nix BindPaths), and a rename across them fails with EXDEV. That
         // failed every successful parse in production on 2026-11-08, as "done" with no result.
-        Ok(()) => match std::fs::read(&r.out).and_then(|b| write_atomic(&root.join("outbox"), &format!("{job}.json"), &b)) {
-            Ok(()) => eprintln!("mapcro-replay: {job} done in {secs:.1} s"),
-            Err(e) => {
-                fail(root, job, reason::PARSE_FAILED);
-                eprintln!("mapcro-replay: {job} parsed but not published ({e}) after {secs:.1} s");
+        // The copy is staged in the outbox and renamed there, after the record.
+        Ok(()) => {
+            let t = Instant::now();
+            match std::fs::read(&r.out).and_then(|b| stage(&outbox, &name, &b)) {
+                Ok(tmp) => {
+                    stats.publish_s = Some(t.elapsed().as_secs_f64());
+                    publish_stats(root, job, &stats);
+                    match std::fs::rename(&tmp, outbox.join(&name)) {
+                        Ok(()) => eprintln!("mapcro-replay: {job} done in {secs:.1} s"),
+                        Err(e) => {
+                            let _ = std::fs::remove_file(&tmp);
+                            fail(root, job, reason::PARSE_FAILED);
+                            eprintln!("mapcro-replay: {job} parsed but not published ({e}) after {secs:.1} s");
+                        }
+                    }
+                }
+                Err(e) => {
+                    publish_stats(root, job, &stats);
+                    fail(root, job, reason::PARSE_FAILED);
+                    eprintln!("mapcro-replay: {job} parsed but not published ({e}) after {secs:.1} s");
+                }
             }
-        },
+        }
         Err(why) => {
+            publish_stats(root, job, &stats);
             fail(root, job, why);
             eprintln!("mapcro-replay: {job} failed ({why}) after {secs:.1} s");
         }
     }
+    let _ = std::fs::remove_file(r.out.with_extension(crate::STATS_EXT));
     let _ = std::fs::remove_file(&r.out);
     let _ = std::fs::remove_file(requeued(root, job));
     let _ = std::fs::remove_file(&r.marker);
@@ -293,7 +339,7 @@ fn outcome(child: &mut Child, status: std::process::ExitStatus) -> Result<(), &'
 fn run_child(exe: &Path, input: &Path, out: &Path, match_id: u64, limits: &Limits) -> Result<(), &'static str> {
     let child = spawn_child(exe, input, out, match_id, limits).map_err(|_| reason::PARSE_FAILED)?;
     let now = Instant::now();
-    let mut r = Running { job: String::new(), child, deadline: now + limits.timeout, started: now, out: out.to_owned(), marker: PathBuf::new() };
+    let mut r = Running { job: String::new(), child, deadline: now + limits.timeout, started: now, out: out.to_owned(), marker: PathBuf::new(), waited: None };
     loop {
         if let Some(res) = poll(&mut r) {
             return res;
@@ -302,12 +348,45 @@ fn run_child(exe: &Path, input: &Path, out: &Path, match_id: u64, limits: &Limit
     }
 }
 
-/// `job` mode, in the child: decompress if needed, parse, derive, write the timeline.
+/// Decompress if needed, parse, derive, write the timeline.
 pub fn job(input: &Path, out: &Path, match_id: u64, max_dem_bytes: u64) -> Result<(), &'static str> {
+    run_job(input, out, match_id, max_dem_bytes, &mut JobStats::default())
+}
+
+/// `job` mode, in the child: `job`, then its record (`<out>.stats`, in `work/`) for the parent
+/// to publish: phase times, sizes and the child's peak memory.
+pub fn job_child(input: &Path, out: &Path, match_id: u64, max_dem_bytes: u64) -> Result<(), &'static str> {
+    let mut stats = JobStats::default();
+    let result = run_job(input, out, match_id, max_dem_bytes, &mut stats);
+    stats.peak_rss_bytes = peak_rss();
+    let _ = std::fs::write(out.with_extension(crate::STATS_EXT), serde_json::to_vec(&stats).unwrap_or_default());
+    result
+}
+
+/// This process's peak resident memory (`VmHWM`, what `getrusage`'s `ru_maxrss` reports,
+/// read without unsafe code).
+fn peak_rss() -> Option<u64> {
+    let s = std::fs::read_to_string("/proc/self/status").ok()?;
+    let kb = s.lines().find_map(|l| l.strip_prefix("VmHWM:"))?.trim().trim_end_matches("kB").trim().parse::<u64>().ok()?;
+    Some(kb * 1024)
+}
+
+fn run_job(input: &Path, out: &Path, match_id: u64, max_dem_bytes: u64, stats: &mut JobStats) -> Result<(), &'static str> {
+    stats.demo_bytes = std::fs::metadata(input).ok().map(|m| m.len());
+    let t = Instant::now();
     let dem = expand(input, &out.with_extension("dem"), max_dem_bytes)?;
-    let obs = crate::parse::observe(&dem, match_id)?;
-    let t = crate::derive::derive(&obs, crate::map::current()).map_err(|e| e.reason())?;
-    let bytes = serde_json::to_vec(&t).map_err(|_| reason::PARSE_FAILED)?;
+    if dem != input {
+        stats.decompress_s = Some(t.elapsed().as_secs_f64());
+    }
+    let t = Instant::now();
+    // Timed whether it works or not: a parse that fails late costs as much as one that doesn't.
+    let parsed = crate::parse::observe(&dem, match_id).and_then(|obs| {
+        let tl = crate::derive::derive(&obs, crate::map::current()).map_err(|e| e.reason())?;
+        serde_json::to_vec(&tl).map_err(|_| reason::PARSE_FAILED)
+    });
+    stats.parse_s = Some(t.elapsed().as_secs_f64());
+    let bytes = parsed?;
+    stats.timeline_bytes = Some(bytes.len() as u64);
     if bytes.len() as u64 > crate::timeline::MAX_BYTES {
         return Err(reason::TOO_LARGE);
     }
@@ -456,6 +535,50 @@ mod tests {
         assert!(!outbox.join("5-cdn.failed").exists(), "the job was marked failed");
         assert_eq!(std::fs::read(outbox.join("5-cdn.json")).expect("published"), br#"{"t":1}"#);
         assert_eq!(std::fs::metadata(outbox.join("5-cdn.json")).expect("meta").permissions().mode() & 0o777, 0o640);
+    }
+
+    /// The job's record (docs/specs/observability.md §2): the child's phase times and sizes,
+    /// with the parent's queue wait and publish time, reach the outbox beside the result, for a
+    /// job that failed too; the child's copy in work/ goes.
+    #[cfg(unix)]
+    #[test]
+    fn each_job_publishes_its_record() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().expect("root");
+        for d in dirs(root.path()) {
+            std::fs::create_dir(d).expect("dir");
+        }
+        let exe = root.path().join("child.sh");
+        // A stand-in child: the timeline, its record beside it, and a failure for match 6.
+        std::fs::write(
+            &exe,
+            "#!/bin/sh\nprintf '{\"parse_s\":2.5,\"demo_bytes\":4,\"peak_rss_bytes\":1048576}' > \"${3%.json}.stats\"\n[ \"$4\" = 6 ] && { echo old_map; exit 1; }\nprintf '{\"t\":1}' > \"$3\"\n",
+        )
+        .expect("script");
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        for id in ["5", "6"] {
+            std::fs::write(root.path().join("inbox").join(format!("{id}-cdn.dem")), b"demo").expect("job");
+        }
+        let mut tried = HashSet::new();
+        assert!(run_one(root.path(), &exe, &Limits::default(), &mut tried));
+        assert!(run_one(root.path(), &exe, &Limits::default(), &mut tried));
+        let outbox = root.path().join("outbox");
+        let record = |job: &str| -> JobStats { serde_json::from_slice(&std::fs::read(outbox.join(format!("{job}.stats"))).expect("record")).expect("json") };
+        let done = record("5-cdn");
+        assert_eq!((done.parse_s, done.demo_bytes, done.peak_rss_bytes), (Some(2.5), Some(4), Some(1 << 20)), "the child's numbers");
+        assert!(done.queue_wait_s.is_some_and(|w| w >= 0.0), "the parent's queue wait");
+        assert!(done.publish_s.is_some(), "the parent's publish time");
+        assert!(outbox.join("5-cdn.json").exists());
+        let failed = record("6-cdn");
+        assert_eq!(failed.parse_s, Some(2.5));
+        assert_eq!(failed.publish_s, None, "nothing was published");
+        assert_eq!(std::fs::read(outbox.join("6-cdn.failed")).expect("failed"), b"old_map");
+        assert_eq!(std::fs::read_dir(root.path().join("work")).expect("work").count(), 0, "the child's copies go");
+    }
+
+    #[test]
+    fn peak_memory_reads_from_proc() {
+        assert!(peak_rss().is_some_and(|b| b > 1 << 20));
     }
 
     #[cfg(unix)]

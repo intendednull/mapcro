@@ -44,6 +44,9 @@ pub struct Config {
     /// The replay worker's queue (`REPLAY_DIR`, spec §6a), shared with the `mapcro-replay`
     /// service. Unset: no replay tier; match import serves the metadata alone.
     pub replay_dir: Option<PathBuf>,
+    /// Where `/metrics` (Prometheus text) is served (`METRICS_ADDR`, e.g. `127.0.0.1:9464`).
+    /// Loopback only, and never the public listener, so Caddy can't proxy it. Unset: off.
+    pub metrics_addr: Option<SocketAddr>,
 }
 
 /// Defaults; see the field docs above for what each bounds and how it was measured.
@@ -122,6 +125,18 @@ impl Config {
         {
             return Err(format!("REPLAY_DIR {} is not a directory", r.display()));
         }
+        let metrics_addr: Option<SocketAddr> = match var("METRICS_ADDR") {
+            Some(v) => Some(v.parse().map_err(|_| "METRICS_ADDR must be an address and port, e.g. 127.0.0.1:9464")?),
+            None => None,
+        };
+        if let Some(m) = metrics_addr {
+            if !m.ip().is_loopback() {
+                return Err(format!("METRICS_ADDR {m} must be a loopback address: /metrics is never public"));
+            }
+            if m.port() == port {
+                return Err("METRICS_ADDR must not be the public PORT".into());
+            }
+        }
         Ok(Config {
             addr: SocketAddr::new(host, port),
             data_dir,
@@ -137,6 +152,7 @@ impl Config {
             max_boards,
             max_storage_bytes,
             replay_dir,
+            metrics_addr,
         })
     }
 }

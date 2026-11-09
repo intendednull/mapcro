@@ -128,7 +128,7 @@ pub struct Store {
 }
 
 /// Database schema version. Each step in `migrate` takes the database one version forward.
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 /// v1 → v2: links remember which link minted them (editors can share; revocation cascades).
 ///
@@ -169,6 +169,9 @@ fn migrate(conn: &Connection, from: i64) -> Result<(), StoreError> {
                    PRIMARY KEY (board, client)
                  ) WITHOUT ROWID;",
             )?,
+            // v5 → v6: the metrics tables (docs/specs/observability.md): minute and hourly
+            // rows, the recent-failures log, the daily user counts.
+            5 => t.execute_batch(crate::metrics::db::SCHEMA)?,
             other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
         }
         v += 1;
@@ -291,6 +294,22 @@ impl Store {
         tokio::task::spawn_blocking(move || f(&mut *reader.lock().map_err(|_| StoreError::Join)?))
             .await
             .map_err(|_| StoreError::Join)?
+    }
+
+    /// One minute's metrics snapshot, with the rollup and retention (`metrics::db::write`).
+    pub async fn write_metrics(
+        &self,
+        rows: Vec<crate::metrics::snapshot::Row>,
+        failures: Vec<crate::metrics::failures::Failure>,
+        users: Vec<(i64, u64)>,
+        now: i64,
+    ) -> Result<(), StoreError> {
+        self.with(move |c| Ok(crate::metrics::db::write(c, &rows, &failures, &users, mapcro_schema::BUILD_ID, now)?)).await
+    }
+
+    /// Boards stored.
+    pub async fn board_count(&self) -> Result<u64, StoreError> {
+        self.read(|c| Ok(c.query_row("SELECT COUNT(*) FROM boards", [], |r| r.get::<_, i64>(0))?.max(0) as u64)).await
     }
 
     pub async fn ping(&self) -> Result<(), StoreError> {

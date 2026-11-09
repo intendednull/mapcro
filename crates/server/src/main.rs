@@ -5,10 +5,12 @@ mod codec;
 mod config;
 mod links;
 mod matches;
+mod metrics;
 mod packs;
 mod replay_queue;
 mod replays;
 mod room;
+mod stats;
 mod store;
 mod ws;
 
@@ -48,8 +50,38 @@ async fn fresh_request(mut req: axum::extract::Request) -> axum::extract::Reques
     req
 }
 
+/// Count every request by its route template and status class (never its raw path: that holds
+/// board ids), and log a 5xx in the failures table.
+async fn track(req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+    use metrics::Label;
+    let route = metrics::Route::from_template(req.extensions().get::<axum::extract::MatchedPath>().map(|p| p.as_str()));
+    let method = match *req.method() {
+        axum::http::Method::GET => "GET",
+        axum::http::Method::POST => "POST",
+        axum::http::Method::PUT => "PUT",
+        axum::http::Method::DELETE => "DELETE",
+        _ => "other",
+    };
+    let res = next.run(req).await;
+    let status = res.status().as_u16();
+    metrics::get().http_requests.inc((route, metrics::StatusClass::of(status)));
+    if status >= 500 {
+        metrics::failures::record(metrics::failures::FailureKind::Http, route.as_str(), &format!("{method} {} answered {status}", route.as_str()));
+    }
+    res
+}
+
+fn main() {
+    // `mapcro-server stats …`: read the metrics tables and exit (no server, no config).
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("stats") {
+        std::process::exit(stats::main(&args[1..]));
+    }
+    serve();
+}
+
 #[tokio::main]
-async fn main() {
+async fn serve() {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
@@ -102,6 +134,10 @@ async fn main() {
         config: Arc::new(config.clone()),
     };
     replays::spawn(state.clone());
+    metrics::spawn(state.clone());
+    if let Some(addr) = config.metrics_addr {
+        tokio::spawn(metrics::serve(state.clone(), addr));
+    }
 
     let mut app = Router::new()
         .route("/healthz", get(api::healthz))
@@ -152,7 +188,9 @@ async fn main() {
              img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; \
              form-action 'none'",
         ))
-        .with_state(state);
+        // Outermost, so every route, the fallback and every status is counted.
+        .layer(axum::middleware::from_fn(track))
+        .with_state(state.clone());
 
     let listener = match tokio::net::TcpListener::bind(config.addr).await {
         Ok(l) => l,
@@ -182,4 +220,5 @@ async fn main() {
         eprintln!("mapcro-server: {e}");
         std::process::exit(1);
     }
+    metrics::flush(&state).await;
 }

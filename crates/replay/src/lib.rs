@@ -63,6 +63,35 @@ pub fn valid_job(name: &str) -> bool {
         && name.split('-').next().is_some_and(|m| !m.is_empty() && m.len() <= 12 && m.bytes().all(|b| b.is_ascii_digit()))
 }
 
+/// The worker's record of one job (docs/specs/observability.md §2, per-job record): its phase
+/// times, its peak memory and its sizes. The worker writes it to `outbox/<job>.stats` before
+/// the job's result; the server reads it when it collects the result, into its histograms,
+/// and deletes it. Numbers only: nothing about the match is kept.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct JobStats {
+    /// From the demo landing in the inbox to the worker starting it.
+    pub queue_wait_s: Option<f64>,
+    /// Expanding a compressed demo (absent for a raw `.dem`).
+    pub decompress_s: Option<f64>,
+    /// Parsing the demo and deriving its timeline.
+    pub parse_s: Option<f64>,
+    /// Copying the timeline into the outbox.
+    pub publish_s: Option<f64>,
+    /// The parse's peak resident memory (its child's `VmHWM`).
+    pub peak_rss_bytes: Option<u64>,
+    /// The demo as queued (compressed or not).
+    pub demo_bytes: Option<u64>,
+    pub timeline_bytes: Option<u64>,
+}
+
+impl JobStats {
+    /// A record file is at most this big.
+    pub const MAX_BYTES: u64 = 4096;
+}
+
+/// The per-job record's extension, in `outbox/` (and the child's copy in `work/`).
+pub const STATS_EXT: &str = "stats";
+
 /// The server's parse order for queued jobs, in `inbox/` (spec §6a, the queue): one job name a
 /// line, first to run first. The server writes it (fair across clients); the worker reads it and
 /// runs listed jobs in that order, then any others oldest first. A dot name, so it's never a job.
