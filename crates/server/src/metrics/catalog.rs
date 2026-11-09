@@ -29,6 +29,7 @@ label! {
         ReplayReserve => "replay_reserve",
         BoardMatch => "board_match",
         BoardMatches => "board_matches",
+        Feedback => "feedback",
         Assets => "assets",
         /// The client's pages and files (the fallback).
         Page => "page",
@@ -57,6 +58,7 @@ impl Route {
             "/api/boards/{board}/replays/{id}/reserve" => Route::ReplayReserve,
             "/api/boards/{board}/matches/{id}" => Route::BoardMatch,
             "/api/boards/{board}/matches" => Route::BoardMatches,
+            "/api/feedback" => Route::Feedback,
             t if t.starts_with("/assets") => Route::Assets,
             _ => Route::Other,
         }
@@ -300,6 +302,16 @@ impl JobOutcome {
 }
 
 label! {
+    /// Why a feedback submission didn't become an issue.
+    pub enum FeedbackRejection: "reason" {
+        Invalid => "invalid",
+        RateLimited => "rate_limited",
+        GithubError => "github_error",
+        Disabled => "disabled",
+    }
+}
+
+label! {
     /// A systemd unit, for its cgroup's memory and CPU.
     pub enum Unit: "unit" { Server => "mapcro", Worker => "mapcro-replay" }
 }
@@ -370,6 +382,8 @@ registry! {
     op_ack_ms: Histogram<()> = Histogram::new("op_ack_ms", "Milliseconds from a room taking an edit to its ack (excludes the room's queue).", &MS),
     // usage
     boards_created: Counter<(How,)> = Counter::new("boards_created", "Boards created, new or cloned."),
+    feedback_sent: Counter<()> = Counter::new("feedback_sent", "Feedback submissions that became GitHub issues."),
+    feedback_rejected: Counter<(FeedbackRejection,)> = Counter::new("feedback_rejected", "Feedback submissions refused, by reason."),
     matches_opened: Counter<(Tier, MatchPath)> = Counter::new("matches_opened", "Matches served, by tier and where the data came from."),
     users_today: Gauge<()> = Gauge::new("users_today", "Distinct clients today (UTC), from a daily salted hash; the count only."),
     // deadlock-api
@@ -442,12 +456,14 @@ mod tests {
         plain::<JobOutcome>();
         plain::<Unit>();
         plain::<Cache>();
+        plain::<FeedbackRejection>();
     }
 
     #[test]
     fn routes_come_from_templates_never_raw_paths() {
         assert_eq!(Route::from_template(Some("/api/boards/{board}/links/{link}")), Route::BoardLink);
         assert_eq!(Route::from_template(Some("/api/matches/{id}")), Route::Match);
+        assert_eq!(Route::from_template(Some("/api/feedback")), Route::Feedback);
         assert_eq!(Route::from_template(None), Route::Page);
         // A raw path (with an id in it) is never a template: it lands in `other`.
         assert_eq!(Route::from_template(Some("/api/matches/123456")), Route::Other);

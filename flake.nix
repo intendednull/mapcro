@@ -147,6 +147,10 @@
           machine.succeed("systemctl show mapcro.service -p StartLimitBurst | grep -qx StartLimitBurst=8")
           machine.succeed("systemctl show mapcro.service -p RestartSteps | grep -qx RestartSteps=5")
           machine.succeed("systemctl show mapcro.service -p Environment | grep -q MALLOC_ARENA_MAX=2")
+          # The feedback form is off without a token file: no credential, and it says so.
+          machine.succeed("test \"$(curl -fsS http://127.0.0.1:8094/api/feedback)\" = '{\"enabled\":false}'")
+          machine.fail("systemctl show mapcro.service -p Environment | grep -q FEEDBACK_GITHUB_TOKEN_FILE")
+          machine.succeed("systemctl show mapcro.service -p Environment | grep -q FEEDBACK_GITHUB_REPO=intendednull/mapcro")
 
           # Observability: /metrics on its own loopback port, never through the public listener
           # (which Caddy proxies), and the minute snapshots readable as the mapcro user.

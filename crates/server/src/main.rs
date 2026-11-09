@@ -3,6 +3,7 @@
 mod api;
 mod codec;
 mod config;
+mod feedback;
 mod links;
 mod matches;
 mod metrics;
@@ -29,6 +30,8 @@ pub struct AppState {
     pub store: store::Store,
     pub rooms: room::Rooms,
     pub limiter: Arc<api::CreateLimiter>,
+    /// The feedback form's per-client and server-wide windows.
+    pub feedback: Arc<feedback::Limiter>,
     /// Open WebSockets per client address key.
     pub sockets: Arc<std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, usize>>>,
     pub packs: Arc<packs::Packs>,
@@ -117,6 +120,9 @@ async fn serve() {
     if std::env::var_os("MALLOC_ARENA_MAX").is_none() {
         tracing::warn!("MALLOC_ARENA_MAX is unset: the room memory budget assumes 2 (nix/module.nix sets it)");
     }
+    if config.feedback.is_none() {
+        tracing::info!("feedback form off (no FEEDBACK_GITHUB_TOKEN_FILE)");
+    }
     if packs.list.is_empty() {
         tracing::warn!("no asset packs: boards render with placeholder art (set PACKS_DIR)");
     }
@@ -134,6 +140,7 @@ async fn serve() {
         ),
         store,
         limiter: Arc::new(api::CreateLimiter::default()),
+        feedback: Arc::default(),
         sockets: Arc::default(),
         base_sends: Arc::new(tokio::sync::Semaphore::new(ws::BASE_SENDS_KIB)),
         config: Arc::new(config.clone()),
@@ -181,6 +188,13 @@ async fn serve() {
         .layer(RequestBodyLimitLayer::new(16 * 1024))
         // After the 16 KiB limit, so replay uploads stream under their own cap (replays.rs).
         .merge(replays::routes())
+        // Its own cap: a full description of 4-byte characters is past 16 KiB (feedback.rs).
+        .merge(
+            Router::new()
+                .route("/api/feedback", get(feedback::status).post(feedback::send))
+                .layer(axum::extract::DefaultBodyLimit::max(feedback::MAX_BODY_BYTES))
+                .layer(RequestBodyLimitLayer::new(feedback::MAX_BODY_BYTES)),
+        )
         .layer(header("referrer-policy", "no-referrer"))
         .layer(header("x-content-type-options", "nosniff"))
         .layer(header("strict-transport-security", "max-age=63072000; includeSubDomains"))

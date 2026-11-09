@@ -66,6 +66,32 @@ in
         lookups an hour instead of 3 per address. null: no key.
       '';
     };
+    feedbackGithubTokenFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "/run/secrets/mapcro-feedback-github-token";
+      description = ''
+        A file holding a fine-grained GitHub token (this repository only, Issues: read and
+        write), passed to the server as a systemd credential (never in the environment or the
+        store). With it, the feedback form opens issues on `feedbackGithubRepo`
+        (docs/deploy.md). null: the form is off and its button hidden.
+      '';
+    };
+    feedbackGithubRepo = lib.mkOption {
+      type = lib.types.str;
+      default = "intendednull/mapcro";
+      description = "The `owner/repo` feedback issues are opened on.";
+    };
+    feedbackPerClientPerHour = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 3;
+      description = "Feedback issues one client (an IPv4 address or an IPv6 /64) may open per hour.";
+    };
+    feedbackGlobalPerDay = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 30;
+      description = "Feedback issues the server opens per day, from everyone together.";
+    };
     replay = {
       enable = lib.mkOption {
         type = lib.types.bool;
@@ -195,7 +221,13 @@ in
           REPLAY_MAX_WAITING = toString cfg.replay.maxWaiting;
         }
         # The key's path, not its value: systemd hands the file to this unit as a credential.
-        // lib.optionalAttrs (cfg.deadlockApiKeyFile != null) { DEADLOCK_API_KEY_FILE = "%d/deadlock-api-key"; };
+        // lib.optionalAttrs (cfg.deadlockApiKeyFile != null) { DEADLOCK_API_KEY_FILE = "%d/deadlock-api-key"; }
+        // {
+          FEEDBACK_GITHUB_REPO = cfg.feedbackGithubRepo;
+          FEEDBACK_PER_CLIENT_PER_HOUR = toString cfg.feedbackPerClientPerHour;
+          FEEDBACK_GLOBAL_PER_DAY = toString cfg.feedbackGlobalPerDay;
+        }
+        // lib.optionalAttrs (cfg.feedbackGithubTokenFile != null) { FEEDBACK_GITHUB_TOKEN_FILE = "%d/feedback-github-token"; };
       serviceConfig = {
         ExecStart = lib.getExe pkg;
         User = "mapcro";
@@ -223,8 +255,10 @@ in
         # The queue only; the server sets its files group-readable (replays.rs).
         ReadWritePaths = [ queue ];
         SupplementaryGroups = [ "mapcro-replay" ];
-      } // lib.optionalAttrs (cfg.deadlockApiKeyFile != null) {
-        LoadCredential = [ "deadlock-api-key:${cfg.deadlockApiKeyFile}" ];
+      } // lib.optionalAttrs (cfg.deadlockApiKeyFile != null || cfg.feedbackGithubTokenFile != null) {
+        LoadCredential =
+          lib.optional (cfg.deadlockApiKeyFile != null) "deadlock-api-key:${cfg.deadlockApiKeyFile}"
+          ++ lib.optional (cfg.feedbackGithubTokenFile != null) "feedback-github-token:${cfg.feedbackGithubTokenFile}";
       };
     };
 

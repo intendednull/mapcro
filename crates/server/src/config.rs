@@ -47,6 +47,73 @@ pub struct Config {
     /// Where `/metrics` (Prometheus text) is served (`METRICS_ADDR`, e.g. `127.0.0.1:9464`).
     /// Loopback only, and never the public listener, so Caddy can't proxy it. Unset: off.
     pub metrics_addr: Option<SocketAddr>,
+    /// The feedback form (spec §11a, feedback.rs): on when `FEEDBACK_GITHUB_TOKEN_FILE` names a
+    /// file holding a usable token. Unset, unreadable or empty: off (the client hides it).
+    pub feedback: Option<FeedbackConfig>,
+}
+
+/// Where feedback goes and how much of it is allowed.
+#[derive(Clone, Debug)]
+pub struct FeedbackConfig {
+    pub token: Secret,
+    /// `owner/repo` (`FEEDBACK_GITHUB_REPO`, default `intendednull/mapcro`).
+    pub repo: String,
+    /// GitHub's REST API (`FEEDBACK_GITHUB_API`, default `https://api.github.com`); tests point
+    /// it at a local fake.
+    pub api: String,
+    /// `FEEDBACK_PER_CLIENT_PER_HOUR` (3), per `api::client_key`.
+    pub per_client_per_hour: u32,
+    /// `FEEDBACK_GLOBAL_PER_DAY` (30), server-wide.
+    pub global_per_day: u32,
+}
+
+/// A credential: its `Debug` never shows the value, so a logged config can't leak it.
+#[derive(Clone)]
+pub struct Secret(String);
+
+impl Secret {
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Secret(<redacted>)")
+    }
+}
+
+/// A token read from the file `key` names, the way `DEADLOCK_API_KEY_FILE` is (matches.rs): a
+/// systemd credential path, never a value in the environment. A missing or unusable file turns
+/// the feature off with a warning that names neither the value nor its contents.
+fn token_file(var: &impl Fn(&str) -> Option<String>, key: &str) -> Option<Secret> {
+    let path = var(key)?;
+    match std::fs::read_to_string(&path) {
+        Ok(k) if !k.trim().is_empty() && k.trim().bytes().all(|b| b.is_ascii_graphic()) => Some(Secret(k.trim().to_owned())),
+        Ok(_) => {
+            tracing::warn!("{key} holds no usable token; feedback is off");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(error = %e.kind(), "{key} unreadable; feedback is off");
+            None
+        }
+    }
+}
+
+fn feedback(var: &impl Fn(&str) -> Option<String>) -> Result<Option<FeedbackConfig>, String> {
+    let repo = var("FEEDBACK_GITHUB_REPO").unwrap_or_else(|| "intendednull/mapcro".into());
+    let ok_part = |s: &str| !s.is_empty() && s != "." && s != ".." && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b));
+    if !matches!(repo.split_once('/'), Some((o, r)) if ok_part(o) && ok_part(r)) {
+        return Err(format!("FEEDBACK_GITHUB_REPO {repo:?} must be owner/repo"));
+    }
+    let api = var("FEEDBACK_GITHUB_API").unwrap_or_else(|| "https://api.github.com".into()).trim_end_matches('/').to_owned();
+    if !(api.starts_with("https://") || api.starts_with("http://127.0.0.1") || api.starts_with("http://localhost")) {
+        return Err("FEEDBACK_GITHUB_API must be https (or a localhost fake for tests)".into());
+    }
+    let per_client_per_hour = num(var, "FEEDBACK_PER_CLIENT_PER_HOUR", 3)?;
+    let global_per_day = num(var, "FEEDBACK_GLOBAL_PER_DAY", 30)?;
+    Ok(token_file(var, "FEEDBACK_GITHUB_TOKEN_FILE").map(|token| FeedbackConfig { token, repo, api, per_client_per_hour, global_per_day }))
 }
 
 /// Defaults; see the field docs above for what each bounds and how it was measured.
@@ -137,6 +204,7 @@ impl Config {
                 return Err("METRICS_ADDR must not be the public PORT".into());
             }
         }
+        let feedback = feedback(&var)?;
         Ok(Config {
             addr: SocketAddr::new(host, port),
             data_dir,
@@ -153,6 +221,7 @@ impl Config {
             max_storage_bytes,
             replay_dir,
             metrics_addr,
+            feedback,
         })
     }
 }
