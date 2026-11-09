@@ -834,7 +834,7 @@ export function Layers(p: {
       <For each={othersPicks()}>
         {(x) => (
           <g class="picks" data-picks={x.peer.state!.name} style={{ "pointer-events": "none" }}>
-            <For each={x.at}>{(q) => <circle class="pick-ring" cx={q.x} cy={q.y} r={q.r} stroke={colorOf(x.peer.state!.color)} />}</For>
+            <For each={x.at}>{(q) => <circle class="pick-ring" cx={q.x} cy={q.y} r={q.r} style={{ "--c": colorOf(x.peer.state!.color) }} />}</For>
             <NameTag at={x.tag} name={x.peer.state!.name} color={x.peer.state!.color} what={`${x.at.length} selected`} k={p.k} />
           </g>
         )}

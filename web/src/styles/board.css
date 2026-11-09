@@ -443,7 +443,7 @@ kbd {
 .map .tok.sapphire text { fill: #0c1230; }
 .map .tok.dead circle { fill: #33433e; stroke: #0b1714; }
 .map .tok.dead text { fill: #8ea39b; }
-.map .tok .sel { fill: none; stroke: var(--text); stroke-width: 2.5; stroke-dasharray: 5 4; }
+.map .tok .sel { fill: none; stroke: var(--me, var(--text)); stroke-width: 3; }
 .map .tok .drag-ghost { fill: none; stroke: var(--p-marrow); stroke-width: 2; stroke-dasharray: 3 4; }
 
 .map .arw { fill: none; stroke-width: 6; stroke-linecap: round; }

@@ -208,7 +208,9 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .mm-overlay.map .tok.ghost > .body, .mm-overlay.map .tok.ghost > image, .mm-overlay.map .tok.ghost > text { opacity: 0.42; }
 .mm-overlay.map .tok.ghost > .body { stroke-dasharray: 5 4; }
 /* Selection */
-.mm-overlay.map .tok .sel { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 5 4; }
+/* What I select is highlighted in my presence colour (--me, set on the map box: my avatar and
+   cursor's colour), a solid ring with a glow; others' picks take theirs (operator, 2026-11-09). */
+.mm-overlay.map .tok .sel { fill: none; stroke: var(--me, var(--accent)); stroke-width: 3; filter: drop-shadow(0 0 3px var(--me, var(--accent))) drop-shadow(0 0 7px color-mix(in srgb, var(--me, var(--accent)) 70%, transparent)); }
 .mm-overlay.map .marquee { fill: color-mix(in srgb, var(--accent) 10%, transparent); stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 6 4; pointer-events: none; }
 .mm-overlay.map[data-pan="on"], .mm-overlay.map[data-pan="on"] * { cursor: grab !important; }
 /* Lane splits: a generous invisible hit area at each gap; the dragged lane rises above the icons */
@@ -252,10 +254,9 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .tb-score.touched { outline: calc(2 * var(--u)) dashed #ffefd7aa; outline-offset: calc(2 * var(--u)); }
 .tb-tag { position: absolute; left: 50%; top: calc(100% + 4px); transform: translateX(-50%); z-index: 6; white-space: nowrap; padding: 1px 7px; border-radius: 4px; font: 700 11px var(--ui); color: #10201c; }
 
-/* Objectives selected as a group: the same dashed accent ring as selected heroes */
-.mk.picked::after { content: ""; position: absolute; inset: -14%; border-radius: 50%; border: calc(2 * var(--u, 1px)) dashed var(--accent); box-shadow: 0 0 calc(6 * var(--u, 1px)) color-mix(in srgb, var(--accent) 60%, transparent); pointer-events: none; }
-.mk.camp.picked::after { inset: -40%; }
-.mm-overlay.map .pick-ring { fill: none; stroke-width: 2; stroke-dasharray: 4 3; }
+/* Objectives selected as a group: the same ring as selected heroes, in my presence colour */
+.mk.picked::after { content: ""; position: absolute; inset: -14%; border-radius: 50%; border: calc(2.5 * var(--u, 1px)) solid var(--me, var(--accent)); box-shadow: 0 0 calc(8 * var(--u, 1px)) var(--me, var(--accent)), inset 0 0 calc(6 * var(--u, 1px)) color-mix(in srgb, var(--me, var(--accent)) 60%, transparent); pointer-events: none; }
+.mm-overlay.map .pick-ring { fill: none; stroke: var(--c); stroke-width: 2.5; filter: drop-shadow(0 0 4px var(--c)); }
 
 /* Comments: one colour no map element uses. The map's hues are orange and yellow (Amber, the
    west lane), blue and cyan (Sapphire, the mid lane), green (east lane), red (enemy), mint and

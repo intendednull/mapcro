@@ -667,7 +667,14 @@ export function Board(p: { board: string; token: string; art: Art }) {
     return pv.health?.get(k)?.stage === 2 ? "Stage2" : "Active";
   };
   const mapBox = (phone: boolean) => (
-          <div ref={measureMap} class={phone ? "p-map" : "mapbox"} data-testid="map" data-view={`${Math.round(view().x)} ${Math.round(view().y)} ${Math.round(view().w)}`}>
+          <div
+            ref={measureMap}
+            class={phone ? "p-map" : "mapbox"}
+            data-testid="map"
+            data-view={`${Math.round(view().x)} ${Math.round(view().y)} ${Math.round(view().w)}`}
+            // My presence colour (avatar, cursor): what I select is highlighted in it.
+            style={{ "--me": colorOf(me()?.color ?? 0) }}
+          >
             <MapView
               art={p.art}
               viewpoint={viewpoint()}
