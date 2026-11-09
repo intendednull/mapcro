@@ -2,6 +2,7 @@
 // markers with their size, layer and tint, and lane lines. Pure, no DOM. The numbers come from
 // design/parity/README.md, "Renderer spec".
 
+import { FALLBACK } from "./fallback-data";
 import { type LaneLine, laneLine, samplePath } from "./lanes";
 import { type Pt, type Transform, type Viewpoint, DEFAULT_TRANSFORM, worldToMap } from "./transform";
 
@@ -15,7 +16,8 @@ export interface PackEntity {
   src?: { classname: string; hammeruniqueid: string; targetname: string };
   /** Zipline path nodes, world units, in path order. */
   nodes?: number[][];
-  /** Camp strength (weak / medium / strong / vaults), where the source knows it. */
+  /** Camp strength (weak / medium / strong / vaults, or the mid boss's own `midboss`), from the
+   * camp's `subclass_name`; packs extracted before 2026-11-09 don't carry it. */
   tier?: string;
 }
 
@@ -88,11 +90,32 @@ export const rosterTeamShort = (t: string) => teamShort(rosterTeam(t));
 /** A roster slot's one-letter team tag ("K3", "A5"): the patron's initial. */
 export const slotTag = (t: string) => (rosterTeam(t) === "amber" ? "K" : "A");
 
-function campTier(e: PackEntity): Marker["tier"] {
-  if (e.tier === "weak" || e.tier === "medium" || e.tier === "strong" || e.tier === "vaults") return e.tier;
-  // Schema-2 packs don't carry the camp's subclass yet; the vaults say so in their name.
+type CampTier = NonNullable<Marker["tier"]>;
+const isTier = (t: string | undefined): t is CampTier => t === "weak" || t === "medium" || t === "strong" || t === "vaults";
+/** World units within which two records are the same site (the built-in map's camps sit on the
+ * lump's to the unit). */
+const SAME_SITE = 64;
+const near = (a: number[], b: number[], d = SAME_SITE) => Math.hypot((a[0] ?? 0) - (b[0] ?? 0), (a[1] ?? 0) - (b[1] ?? 0)) <= d;
+
+/**
+ * A camp's tier: the pack's, from the map's `subclass_name`. Older packs carry none: then the
+ * built-in map's camp on the same spot (its tiers came from the same lump), else the name. The
+ * name alone misses five of the eleven Sinner's Sacrifice camps (the bell tower's, the theater
+ * balcony's…), which is why it's the last resort (docs/research/map-objectives-audit.md).
+ */
+export function campTier(e: PackEntity): CampTier {
+  if (isTier(e.tier)) return e.tier;
+  const builtIn = FALLBACK.entities.find((f) => f.kind === "camp" && near(f.world, e.world))?.tier;
+  if (isTier(builtIn)) return builtIn;
   return /vault/i.test(e.src?.targetname ?? "") ? "vaults" : "medium";
 }
+
+/** The mid boss's own camp (`neutral_camp_midboss`): the mid boss marker already stands there. */
+const isMidBossCamp = (e: PackEntity, all: PackEntity[]) =>
+  e.tier === "midboss" || (e.tier === undefined && all.some((m) => m.kind === "mid_boss" && near(m.world, e.world)));
+
+/** What a camp marker is called: the Sinner's Sacrifice by name, the others by tier. */
+export const campTitle = (tier: CampTier) => (tier === "vaults" ? "Sinner's Sacrifice" : `Camp (${tier})`);
 
 /** Markers for every entity the minimap shows. Unknown kinds are skipped, never guessed. */
 export function markersFrom(entities: PackEntity[], t: Transform = DEFAULT_TRANSFORM): Marker[] {
@@ -121,9 +144,12 @@ export function markersFrom(entities: PackEntity[], t: Transform = DEFAULT_TRANS
       case "mid_boss":
         out.push({ ...base, kind: "midboss", px: 64, z: 4, lane: null, title: "Mid boss" });
         break;
-      case "camp":
-        out.push({ ...base, kind: "camp", px: 24, z: 2, lane: null, tier: campTier(e), title: `Camp (${campTier(e)})` });
+      case "camp": {
+        if (isMidBossCamp(e, entities)) break;
+        const tier = campTier(e);
+        out.push({ ...base, kind: "camp", px: 24, z: 2, lane: null, tier, title: campTitle(tier) });
         break;
+      }
       case "powerup":
         // .powerup_survival / .powerup_casting: 20 px. The spawners are generic sites.
         out.push({ ...base, kind: "powerup", px: 20, z: 0, lane: null, title: "Powerup" });
