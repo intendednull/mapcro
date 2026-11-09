@@ -107,12 +107,12 @@ test("a token's hover label names its player; Names off hides every name, here o
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(a.getByTestId("tb-name")).toHaveCount(0);
-  await expect(a.locator('.tok[data-slot="Amber-0"]')).toHaveAttribute("aria-label", /^Amber 1(, |$)/);
+  await expect(a.locator('.tok[data-slot="Amber-0"]')).toHaveAttribute("aria-label", /^King 1(, |$)/);
   // The hover label says the same, without the name (map/HoverLabel.tsx).
   // Its top edge: the wave's handle sits over its middle here.
   const tb = (await a.locator('.tok[data-slot="Amber-0"] circle.body').boundingBox())!;
   await a.mouse.move(tb.x + tb.width / 2, tb.y + 2);
-  await expect(a.getByTestId("hover-label")).toHaveText(/^Amber 1(, |$)/);
+  await expect(a.getByTestId("hover-label")).toHaveText(/^King 1(, |$)/);
   await a.mouse.move(5, 5);
   await expect(a.getByTestId("event").first()).toBeVisible();
   expect(await namesOnPage(a)).toEqual([]);

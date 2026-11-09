@@ -82,6 +82,11 @@ export const teamName = (t: Team) => (t === "amber" ? "Hidden King" : t === "sap
 export const teamShort = (t: Team) => (t === "amber" ? "King" : t === "sapphire" ? "Archmother" : "neutral");
 /** The display name for the roster's capitalised `"Amber"`/`"Sapphire"` (gen/Team). */
 export const rosterTeamName = (t: string) => teamName(t === "Amber" || t === "amber" ? "amber" : t === "Sapphire" || t === "sapphire" ? "sapphire" : "neutral");
+const rosterTeam = (t: string): Team => (t === "Amber" || t === "amber" ? "amber" : t === "Sapphire" || t === "sapphire" ? "sapphire" : "neutral");
+/** The short name for a roster team, for placeholder player names ("King 2"). */
+export const rosterTeamShort = (t: string) => teamShort(rosterTeam(t));
+/** A roster slot's one-letter team tag ("K3", "A5"): the patron's initial. */
+export const slotTag = (t: string) => (rosterTeam(t) === "amber" ? "K" : "A");
 
 function campTier(e: PackEntity): Marker["tier"] {
   if (e.tier === "weak" || e.tier === "medium" || e.tier === "strong" || e.tier === "vaults") return e.tier;

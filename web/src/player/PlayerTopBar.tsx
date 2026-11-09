@@ -4,6 +4,7 @@
 // Only what the match's tier has is shown: no ult data (the metadata tier) reads as untracked,
 // never as ready.
 
+import { rosterTeamShort } from "../map/model";
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { cx } from "../ui/cx";
 import { formatSouls, teamTotal } from "../core/souls";
@@ -84,7 +85,7 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
         {(s) => {
           const x = () => at().get(slotKey(t, s.slot.slot));
           const hero = () => (x() ? p.art.heroes.get(x()!.hero_id) : undefined);
-          const label = () => s.slot.name || `${t} ${s.slot.slot + 1}`;
+          const label = () => s.slot.name || `${rosterTeamShort(t)} ${s.slot.slot + 1}`;
           const dead = () => !!x() && x()!.pos === null;
           const nameOf = () => p.host.playerName(t.toLowerCase(), s.slot.slot);
           /** Health to draw: replay tier, Health on, alive (.Dead #HealthBar collapses). */

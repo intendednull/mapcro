@@ -2,6 +2,7 @@
 // the pack, as a grid of portraits and names, with a search box focused on open. Arrows move,
 // Enter picks, Esc closes. Picking sets the slot's hero in one transaction.
 
+import { rosterTeamShort } from "../map/model";
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 import type { HeroId } from "../gen/HeroId";
 import type { Hero } from "../map/pack";
@@ -50,7 +51,7 @@ export function HeroPicker(p: {
       move(d);
     }
   };
-  const who = () => (p.slot ? p.slot.slot.name || `${p.slot.slot.team} ${p.slot.slot.slot + 1}` : "");
+  const who = () => (p.slot ? p.slot.slot.name || `${rosterTeamShort(p.slot.slot.team)} ${p.slot.slot.slot + 1}` : "");
   const initials = (name: string) =>
     name
       .split(/[\s&]+/)

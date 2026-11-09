@@ -1,6 +1,7 @@
 // One board: the header (title, save status, people), the map with its layers, and the side
 // panel. The map is the interface: edits happen on it directly.
 
+import { rosterTeamName, slotTag, teamName } from "../map/model";
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
@@ -419,7 +420,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
       state
         .roster()
         .filter((s) => s.id !== slot && s.slot.hero != null)
-        .map((s) => [s.slot.hero!, `${s.slot.team} ${s.slot.name || `Player ${s.slot.slot + 1}`}`] as const),
+        .map((s) => [s.slot.hero!, `${rosterTeamName(s.slot.team)} ${s.slot.name || `Player ${s.slot.slot + 1}`}`] as const),
     );
   const sceneIndex = () => state.scenes().findIndex((s) => s.id === scene()?.id);
 
@@ -488,7 +489,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
       <header class="p-top">
         <Wordmark />
         <span class="viewonly" data-testid="role-chip">
-          {state.canEdit() ? "Can edit" : "View only"} · {viewpoint() === "amber" ? "Amber" : "Sapphire"} side
+          {state.canEdit() ? "Can edit" : "View only"} · {teamName(viewpoint() === "sapphire" ? "sapphire" : "amber")} side
         </span>
         <div class="spacer" />
         <SaveStatus state={state} rejected={rejected()} dismiss={() => setSeenProblems(state.problems().length)} />
@@ -930,7 +931,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                   <div>
                     <div class={`team-head ${team.toLowerCase()}`}>
                       <i />
-                      {team}
+                      {rosterTeamName(team)}
                     </div>
                     <For each={state.roster().filter((s) => s.slot.team === team)}>
                       {(s) => {
@@ -938,7 +939,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                         return (
                           <div class="slot">
                             <span class={`chip ${team.toLowerCase()}`}>
-                              {`${team[0]}${s.slot.slot + 1}`}
+                              {`${slotTag(team)}${s.slot.slot + 1}`}
                               <Show when={hero()?.portrait}>
                                 <i class="hero-mm" style={{ display: "block", "background-image": `url(${JSON.stringify(hero()!.portrait)})` }} />
                               </Show>
@@ -949,7 +950,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                                 <select
                                   class="hero-pick"
                                   data-testid={`hero-pick-${team}-${s.slot.slot}`}
-                                  aria-label={`Hero for ${s.slot.name || `${team} player ${s.slot.slot + 1}`}`}
+                                  aria-label={`Hero for ${s.slot.name || `${rosterTeamName(team)} player ${s.slot.slot + 1}`}`}
                                   value={s.slot.hero ?? ""}
                                   onChange={(e) => {
                                     const v = e.currentTarget.value;

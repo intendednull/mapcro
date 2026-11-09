@@ -259,7 +259,7 @@ test("a follower sees the presenter's hover, worded from its own state", async (
   await expect(label(b)).toHaveText(/^Ana(, |$)/);
   // The follower's own Names toggle: the name stays off on its screen.
   await b.getByTestId("names-toggle").click();
-  await expect(label(b)).toHaveText(/^Amber 1(, |$)/);
+  await expect(label(b)).toHaveText(/^King 1(, |$)/);
   await b.screenshot({ path: "/tmp/buffs-timers-shots/follower-token-hover.png" });
 
   await a.mouse.move(5, 5);

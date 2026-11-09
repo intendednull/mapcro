@@ -3,6 +3,7 @@
 // edited in place: click souls or the clock to type; drag around a ring or scroll on it to set
 // the cooldown, click it for ready. No health: the board doesn't track it.
 
+import { rosterTeamName, rosterTeamShort } from "../map/model";
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
@@ -157,7 +158,7 @@ export function TopBar(p: {
       <For each={team(t)}>
         {({ slot, player }) => {
           const hero = () => (slot.slot.hero != null ? p.art.heroes.get(slot.slot.hero) : undefined);
-          const label = () => slot.slot.name || `${t} ${slot.slot.slot + 1}`;
+          const label = () => slot.slot.name || `${rosterTeamShort(t)} ${slot.slot.slot + 1}`;
           let openSouls: (() => void) | undefined;
           return (
             <div
@@ -249,7 +250,7 @@ export function TopBar(p: {
           </Show>
           <InlineEdit
             class="tb-score-label"
-            label={`${t} total souls`}
+            label={`${rosterTeamName(t)} total souls`}
             testid={`total-edit-${t}`}
             editable={editable()}
             value={String(total(t))}

@@ -2,7 +2,7 @@
 // the jump time. Pure.
 
 import { buffInfo, buffLabel } from "../match/buffs";
-import type { Marker } from "../map/model";
+import { type Marker, teamName } from "../map/model";
 import { type Pt, worldToMap } from "../map/transform";
 import { type MatchEvent, type Timeline, clockLabel, markerKey, tierOf } from "../match/timeline";
 
@@ -30,7 +30,7 @@ export function groupOf(e: Pick<MatchEvent, "kind">): EventGroup {
 const LANE: Record<string, string> = { lane1: "west", lane4: "mid", lane6: "east" };
 const OBJECTIVE: Record<string, string> = { guardian: "guardian", walker: "walker", base_guardian: "base guardian", shrine: "shrine", patron: "patron" };
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const team = (t: string | null | undefined) => (t === "amber" ? "Amber" : t === "sapphire" ? "Sapphire" : "");
+const team = (t: string | null | undefined) => (t === "amber" || t === "sapphire" ? teamName(t) : "");
 const laneOf = (key: string | null | undefined) => LANE[key?.split(":")[2] ?? ""] ?? "";
 /** "citadel_ability_haze_bullet_dance" → "bullet dance" for the hero Haze: the game's internal
  * name, made readable (display names need the game's item data). */
@@ -160,6 +160,8 @@ export function haystack(e: MatchEvent, n: Named): string {
     e.kind.replace(/_/g, " "),
     team(e.team),
     e.by ? team(e.by.team) : "",
+    // The old names (the wire's keys) still find a team: "amber", "sapphire".
+    e.team ?? "",
     e.ability ? abilityName(e.ability) : "",
     clockLabel(e.t),
   ];

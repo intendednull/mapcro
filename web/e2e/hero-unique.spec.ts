@@ -24,7 +24,7 @@ test("a hero is unique across both teams: taken heroes are disabled, with who ha
   await a.locator('.tb-player[data-slot="Sapphire-1"]').getByTestId("pick-hero").click();
   const cell = a.locator('.hero-cell[data-hero="Testhero C"]');
   await expect(cell).toBeDisabled();
-  await expect(cell).toContainText("Amber");
+  await expect(cell).toContainText("Hidden King");
   await a.keyboard.type("testhero c");
   await a.keyboard.press("Enter");
   await expect(a.getByTestId("hero-picker")).toBeVisible();

@@ -2,6 +2,7 @@
 // editor drags a token; while dragging, its position travels through presence (others watch it
 // move, with the dragger's name tag), and the drop commits one op (spec §4a).
 
+import { rosterTeamShort, slotTag } from "../map/model";
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import { formatClock, parseClock } from "../core/clock";
@@ -34,7 +35,7 @@ export function initials(slot: Slot["slot"], heroName: string | undefined): stri
   const words = src.split(/\s+/).filter(Boolean);
   if (words.length >= 2) return (words[0]![0]! + words[1]![0]!).toUpperCase();
   if (src) return src.slice(0, 2).toUpperCase();
-  return `${slot.team === "Amber" ? "A" : "S"}${slot.slot + 1}`;
+  return `${slotTag(slot.team)}${slot.slot + 1}`;
 }
 
 export function NameTag(p: { at: Pt; name: string; color: number; what?: string | undefined; k: number }) {
@@ -271,7 +272,7 @@ export function Tokens(p: {
           const home = () => worldToView(pl().state.pos, p.vp);
           const r = () => TOKEN_R * p.k;
           // In Player, the match's player name (spec §6b); else the board's slot name.
-          const label = () => `${pv()?.name || slot().name || `${slot().team} ${slot().slot + 1}`}${hero() ? `, ${hero()!.name}` : ""}`;
+          const label = () => `${pv()?.name || slot().name || `${rosterTeamShort(slot().team)} ${slot().slot + 1}`}${hero() ? `, ${hero()!.name}` : ""}`;
           // The map's hover label (map/HoverLabel.tsx), by roster slot, never the player's id.
           const hoverId = () => `${slot().team}-${slot().slot}`;
           const shownOnMap = () => (live() ? !!pv()?.pos : pl().state.placed);

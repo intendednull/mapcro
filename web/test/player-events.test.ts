@@ -29,10 +29,10 @@ describe("player events", () => {
   it("labels each kind", () => {
     expect(ev.map((e) => label(e, n))).toEqual([
       "Infernus killed by Haze",
-      "Sapphire walker down (east)",
-      "Rift captured by Amber",
+      "Archmother walker down (east)",
+      "Rift captured by Hidden King",
       "Powerup taken (east)",
-      "Souls swing Amber +12.4k",
+      "Souls swing Hidden King +12.4k",
       "Mid boss killed",
       "Haze ult (bullet dance)",
     ]);
@@ -45,7 +45,7 @@ describe("player events", () => {
     expect(ts("bullet dance")).toEqual([800]);
     expect(ts("coach")).toEqual([125]);
     expect(ts("walker east")).toEqual([300]);
-    expect(ts("amber")).toEqual([125, 410, 600]);
+    expect(ts("hidden king")).toEqual([125, 410, 600]);
     expect(ts("2:05")).toEqual([125]);
     expect(ts("", ["rift", "powerup"])).toEqual([410, 500]);
     expect(ts("amber", ["souls"])).toEqual([600]);
