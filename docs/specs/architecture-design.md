@@ -580,21 +580,27 @@ makes a board with that match attached and lands in Player; **New board** is tod
   `m_flRespawnTime`; metadata: `death_duration_s`). It follows t, so it ticks with playback and
   scrubs, and followers get it with t. A timeline without it shows none. The map shows nothing
   for a dead hero (its token stays hidden).
-- **The Soul Urn** (replay tier, 2026-11-08): the urn on the ground where it lies, or at its
-  carrier's lower right ringed in the carrier's team colour (a dropped urn keeps the dropper's
-  ring). It's found at a glance (QA, 2026-11-08): about an objective marker's size on the ground,
-  the urn's art on a dark disc in a cyan ring that glows, over a dark halo; dropped, a dashed
-  ring in the dropper's colour; carried, a little smaller, a solid ring in the carrier's colour.
-  On the ground it glides between the places the worker recorded (it drifts on its own after a
-  while), with no carrier. Its two delivery points are map markers (`urn:` sites, pack kind
-  `urn`), dim unless open. The open one is lit (class `lit`): the game's pulse art
-  (`soul_jar_marker_return_pulse`) over its jar, a brass ring, and a wave pulsing out of it like
-  the pings, which `prefers-reduced-motion` drops. A point turned on in Sandbox is lit the same
-  way. Hovering a point, or tapping it on the phone, says when the next urn
-  spawns and where ("Urn spawns here in m:ss (at m:ss)"), or that the point is open. Pick-ups,
-  drops and deliveries are events (the "Urn" filter) and ping where they happened. Save scene
-  keeps the open point. In Sandbox the points toggle like the rifts: off by default, one open at
-  a time. The metadata tier has no urn.
+- **The Soul Urn** (replay tier, 2026-11-08): the urn drawn as the game's minimap draws it
+  (`hud_minimap.vcss`, in the pack; operator, 2026-11-08: "match how the real map looks").
+  - On the ground, `.idol_spawn`: `soul_jar_marker` in a 32 px box, a rift's box
+    (`.capture_point`), with its soft `shardColor` shadow. A dropped urn is the same marker; the
+    game has no dropped look.
+  - Carried, `.held_idol_image`: the same art over the carrier's icon, offset 8 and 10 of its
+    32 px to the lower right, with a white shadow and a 1.3 s pulse. The game sets the hero
+    icon's size in code, so the held urn takes a hero token's size. There is no team colour;
+    the carrier's icon shows whose it is.
+  - On the ground it glides between the places the worker recorded (it drifts on its own after
+    a while), with no carrier.
+  - Its two delivery points are map markers (`urn:` sites, pack kind `urn`), dim unless open.
+    The open one is lit (class `lit`), as the game's `.idol_return_friendly` is: the jar at
+    48 px with three `soul_jar_marker_return_pulse` images washed cyan. They close in on it
+    from 2.35× and hold at half opacity, 0.35 s apart. Under `prefers-reduced-motion`, one
+    pulse at rest. A point turned on in Sandbox is lit the same way.
+  - Hovering a point, or tapping it on the phone, says when the next urn spawns and where ("Urn
+    spawns here in m:ss (at m:ss)"), or that the point is open.
+  - Pick-ups, drops and deliveries are events (the "Urn" filter) and ping where they happened.
+  - Save scene keeps the open point. In Sandbox the points toggle like the rifts: off by
+    default, one open at a time. The metadata tier has no urn.
 - **The transport:** play and pause, speed (0.5×, 1×, 2×, 4×, 8×), a scrubber with a tick per
   event, ±10 s, the match clock, and the replay tier's toggles (Troopers, Health), with Pings.
 - **Names** (2026-11-08, operator: content creators hide usernames in videos): a transport toggle,

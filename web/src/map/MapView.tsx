@@ -90,8 +90,13 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
       case "powerup":
         return [<Fb shape="star" color={POWERUP} k={0.8} />, <Layer img="powerup" wash={POWERUP} />];
       case "urn":
-        // Open (lit): a brass ring, the game's pulse art over the jar, and a wave (styles/app.css).
-        return [<b class="urn-ring" />, <b class="urn-wave" />, <Fb shape="dot" color={URN} k={0.45} />, <Layer img="urn-return" style={{ inset: "20%" }} />, <Layer img="urn-return-pulse" part="urn-pulse" style={{ inset: "20%" }} />];
+        // The jar; open (lit), the game's three pulses closing in on it, washed the urn's cyan
+        // (hud_minimap.vxml MinimapCrateSnippet, .pingIdol1-3; styles/app.css).
+        return [
+          <Fb shape="dot" color={URN} k={0.375} />,
+          <Layer img="urn-return" part="urn-art" />,
+          ...[1, 2, 3].map((n) => <Layer img="urn-return-pulse" wash={URN} part={`urn-pulse ping${n}`} />),
+        ];
     }
   };
   return (

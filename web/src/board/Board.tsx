@@ -679,7 +679,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
               />
               <Show when={inPlayer()}>
-                <UrnMark art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
+                <UrnMark art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} mk={Math.min(1, view().w / 1000)} />
                 <CampTips art={p.art} vp={viewpoint()} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               </Show>
               <Highlight at={inPlayer() ? player.ring() : undefined} vp={viewpoint()} />

@@ -490,34 +490,42 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
   .rp-acts .btn { justify-content: center; height: 40px; }
 }
 
-/* Player, replay tier: the Soul Urn (player/Urn.tsx), about an objective marker's size so it's
-   found at a glance (QA 2026-11-08). On the ground: the urn in its own cyan, glowing, on a dark
-   disc; dropped: a dashed ring in the dropper's colour; carried: smaller, at the carrier's lower
-   right, a solid ring in the carrier's colour. A dark halo under each ring. */
+/* Player, replay tier: the Soul Urn (player/Urn.tsx), as the game's minimap draws it
+   (panorama/styles/hud_minimap.vcss). On the ground (dropped too), .idol_spawn's
+   img-shadow 0 0 18px shardColor&50 (#99FFD6, as the rift's border); carried, .held_idol_image's
+   img-shadow 0 0 8px 0.5 white and its pulse, @keyframes held_idol_image over 1.3 s. */
 .pl-urn { pointer-events: none; }
-.pl-urn-halo { fill: none; stroke: #000000c0; stroke-width: 7; vector-effect: non-scaling-stroke; }
-.pl-urn-ring { fill: #0b1714e6; stroke: #34ddff; stroke-width: 3; vector-effect: non-scaling-stroke; }
-.pl-urn.urn-ground { filter: drop-shadow(0 0 5px #34ddffb0); }
-.pl-urn.urn-dropped .pl-urn-ring { stroke-dasharray: 5 3; }
-.pl-urn.urn-carried .pl-urn-halo { stroke-width: 8; }
-.pl-urn.urn-carried .pl-urn-ring { stroke-width: 4; }
-.pl-urn.amber .pl-urn-ring { stroke: var(--amber); }
-.pl-urn.sapphire .pl-urn-ring { stroke: var(--sapphire); }
-.pl-urn.urn-dropped.amber { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--amber) 70%, transparent)); }
-.pl-urn.urn-dropped.sapphire { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--sapphire) 70%, transparent)); }
-.pl-urn-fb { fill: #34ddff; stroke: #0b1714; stroke-width: 1; vector-effect: non-scaling-stroke; }
-
-/* An open urn delivery point (MapView, kind "urn", lit; Player and Sandbox alike): the game's
-   pulse art over its jar, a brass ring and, unless motion is reduced, a ring pulsing out of it as
-   the pings do. A closed point stays dim (.mk.down). */
-.mk.urn > .urn-pulse, .mk.urn > .urn-ring, .mk.urn > .urn-wave { display: none; }
-.mk.urn.lit > .urn-pulse { display: var(--pa-display, none); filter: drop-shadow(0 0 calc(3 * var(--u, 1px)) #fff); }
-.mk.urn.lit > .urn-ring, .mk.urn.lit > .urn-wave {
-  display: block; position: absolute; inset: 4%; border-radius: 50%; pointer-events: none;
-  border: calc(2.5 * var(--u, 1px)) solid var(--brass, #d9b24a);
-  box-shadow: 0 0 calc(6 * var(--u, 1px)) color-mix(in srgb, var(--brass, #d9b24a) 70%, transparent), inset 0 0 calc(4 * var(--u, 1px)) #000a;
-  background: radial-gradient(closest-side, #34ddff40, #0b1714b0 70%, transparent);
+.pl-urn.urn-ground .pl-urn-art { filter: drop-shadow(0 0 calc(9 * var(--u, 1px)) #99FFD680); }
+.pl-urn.urn-carried .pl-urn-art {
+  --held: drop-shadow(0 0 calc(1 * var(--u, 1px)) #fff) drop-shadow(0 0 calc(4 * var(--u, 1px)) #ffffffa0);
+  filter: var(--held);
+  transform-box: fill-box; transform-origin: center; animation: urn-held 1.3s linear infinite;
 }
-.mk.urn.lit > .urn-wave { background: none; box-shadow: none; animation: urn-wave 1.8s ease-out infinite; }
-@keyframes urn-wave { 0% { transform: scale(0.9); opacity: 0.9; } 100% { transform: scale(1.7); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .mk.urn.lit > .urn-wave { display: none; } }
+@keyframes urn-held {
+  0% { transform: scale(1); filter: var(--held) brightness(0.75); }
+  50% { transform: scale(1.1); filter: var(--held) brightness(1); }
+  100% { transform: scale(1); filter: var(--held) brightness(0.5); }
+}
+
+/* An urn delivery point (MapView, kind "urn"; Player and Sandbox alike), as the game's
+   .idol_return_friendly: the jar, img-shadow 0 0 8px gray; open (lit), three pulses washed
+   #34ddff that close in on it from 2.35x and hold at half opacity, 0.35 s apart
+   (.pingIdol1-3, @keyframes idolPulse over 1.5 s). The game hides a closed point; here it stays
+   dim (.mk.down). Reduced motion: the pulse at rest. */
+.mk.urn > .urn-art { filter: drop-shadow(0 0 calc(4 * var(--u, 1px)) #808080); }
+.mk.urn > .urn-pulse { display: none; opacity: 0.5; }
+.mk.urn.lit > .urn-pulse { display: block; animation: urn-idol-pulse 1.5s linear infinite; }
+.mk.urn.lit > .urn-pulse.ping2 { animation-delay: 0.35s; }
+.mk.urn.lit > .urn-pulse.ping3 { animation-delay: 0.7s; }
+/* Without the pack's art, a cyan ring stands in for the pulse image. */
+.mm-host:not(.pack-art) .mk.urn > .urn-pulse { background: none; border-radius: 50%; inset: 22%; box-shadow: inset 0 0 0 calc(2 * var(--u, 1px)) #34ddff; }
+@keyframes urn-idol-pulse {
+  0% { opacity: 0; transform: scale(2.35); }
+  60%, 99.99% { opacity: 0.5; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mk.urn.lit > .urn-pulse { animation: none; }
+  .mk.urn.lit > .urn-pulse.ping2, .mk.urn.lit > .urn-pulse.ping3 { display: none; }
+  .pl-urn.urn-carried .pl-urn-art { animation: none; }
+}

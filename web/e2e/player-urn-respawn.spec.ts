@@ -1,7 +1,7 @@
 // Respawn timers and the Soul Urn in Player (spec §6b), on a synthetic replay timeline the test
 // hands the server as the worker would: a dead hero's portrait counts down to its respawn with
-// the playback; the urn draws on the ground where it lies and on its carrier in the carrier's
-// colour, its delivery point lit while open; hovering a point says when the next urn spawns;
+// the playback; the urn draws as the game's minimap draws it, on the ground where it lies and
+// on its carrier's icon, its delivery point lit while open; hovering a point says when the next urn spawns;
 // pick-ups, drops and the delivery are listed and ping where they happened.
 
 import { createServer } from "node:http";
@@ -111,6 +111,8 @@ const centre = async (p: Page, sel: string) => {
 };
 const marker = (p: Page, key: string) => p.locator(`[data-testid=map] .mk[data-key="${key}"]`);
 const urn = (p: Page) => p.locator("[data-testid=map] [data-testid=urn]");
+const ART = "[data-testid=map] [data-testid=urn] .pl-urn-art";
+const RIFT = "rift:neutral:lane1:1";
 
 test("a dead hero's portrait counts down to its respawn with the playback", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Respawn"), "Coach");
@@ -132,12 +134,14 @@ test("a dead hero's portrait counts down to its respawn with the playback", asyn
   await expect(count).toHaveCount(0);
   await expect(a.locator('[data-testid=topbar] .tb-player[data-slot="Amber-0"]')).toHaveAttribute("data-alive", "true");
   await scrubTo(a, 25);
-  await a.screenshot({ path: "/tmp/urn-respawn-pw/respawn-synthetic.png" });
+  await a.screenshot({ path: "/tmp/urn-game-pw/respawn-synthetic.png" });
 });
 
-test("the urn draws where it lies, on its carrier in the carrier's colour, and lights its delivery point", async ({ browser }) => {
+test("the urn draws where it lies and on its carrier at the game's sizes, and lights its delivery point", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Urn"), "Coach");
   await open(a);
+  // Sizes are read at rest: the carried urn and the pulses animate their scale.
+  await a.emulateMedia({ reducedMotion: "reduce" });
   await scrubTo(a, 5);
   await expect(urn(a)).toHaveCount(0);
   await expect(marker(a, WEST)).toHaveAttribute("data-status", "Destroyed");
@@ -146,54 +150,55 @@ test("the urn draws where it lies, on its carrier in the carrier's colour, and l
   // On the ground over the west point, the east point open.
   await scrubTo(a, 15);
   await expect(urn(a)).toHaveAttribute("data-state", "ground");
-  const g = await centre(a, "[data-testid=map] [data-testid=urn] .pl-urn-ring");
+  const g = await centre(a, ART);
   const site = await centre(a, `[data-testid=map] .mk[data-key="${WEST}"]`);
   expect(Math.hypot(g.x - site.x, g.y - site.y)).toBeLessThan(4);
   await expect(marker(a, EAST)).toHaveAttribute("data-status", "Active");
   await expect(marker(a, WEST)).toHaveAttribute("data-status", "Destroyed");
-  // Found at a glance (QA 2026-11-08): about an objective marker's size at the default view.
-  expect(g.w).toBeGreaterThan(26);
-  // The open point is lit: its brass ring and a pulsing wave; the closed one isn't.
+  // hud_minimap.vcss: .idol_spawn is 32 px, a rift's box (.capture_point); never bigger.
+  const rift = await centre(a, `[data-testid=map] .mk[data-key="${RIFT}"]`);
+  expect(g.w).toBeLessThanOrEqual(rift.w + 1);
+  expect(g.w).toBeGreaterThan(rift.w * 0.8);
+  // None of our own additions: no ring, halo or disc.
+  await expect(urn(a).locator("circle")).toHaveCount(0);
+  // The open point is lit: the game's three pulses; the closed one shows none.
   await expect(marker(a, EAST)).toHaveClass(/\blit\b/);
   await expect(marker(a, WEST)).not.toHaveClass(/\blit\b/);
-  const shown = (p: Page, key: string, part: string) => p.locator(`[data-testid=map] .mk[data-key="${key}"] > .${part}`).evaluate((el) => getComputedStyle(el).display);
-  expect([await shown(a, EAST, "urn-ring"), await shown(a, EAST, "urn-wave"), await shown(a, WEST, "urn-ring")]).toEqual(["block", "block", "none"]);
-  expect(await a.locator(`[data-testid=map] .mk[data-key="${EAST}"] > .urn-wave`).evaluate((el) => getComputedStyle(el).animationName)).toBe("urn-wave");
-  // Reduced motion: lit, without the wave.
-  await a.emulateMedia({ reducedMotion: "reduce" });
-  expect([await shown(a, EAST, "urn-ring"), await shown(a, EAST, "urn-wave")]).toEqual(["block", "none"]);
+  const pulses = (p: Page, key: string) =>
+    p.locator(`[data-testid=map] .mk[data-key="${key}"] > .urn-pulse`).evaluateAll((els) => els.map((el) => `${getComputedStyle(el).display} ${getComputedStyle(el).animationName}`));
+  // Reduced motion: the first pulse at rest, unanimated.
+  expect(await pulses(a, EAST)).toEqual(["block none", "none none", "none none"]);
+  expect(await pulses(a, WEST)).toEqual(["none none", "none none", "none none"]);
   await a.emulateMedia({ reducedMotion: "no-preference" });
+  expect(await pulses(a, EAST)).toEqual(["block urn-idol-pulse", "block urn-idol-pulse", "block urn-idol-pulse"]);
+  expect(await pulses(a, WEST)).toEqual(["none none", "none none", "none none"]);
+  await a.emulateMedia({ reducedMotion: "reduce" });
 
-  // Carried by Amber 1: at its token's lower right, ringed in Amber.
+  // Carried by Amber 1: .held_idol_image, a hero icon's size, offset 8 and 10 of 32 px to the
+  // lower right of the carrier's icon, pulsing; no team ring.
   await scrubTo(a, 40);
   await expect(urn(a)).toHaveAttribute("data-state", "carried");
   await expect(urn(a)).toHaveAttribute("data-team", "amber");
-  const c = await centre(a, "[data-testid=map] [data-testid=urn] .pl-urn-ring");
+  const c = await centre(a, ART);
   const tok = await centre(a, '.mapbox .tok[data-slot="Amber-1"] circle.body');
-  expect(c.x).toBeGreaterThan(tok.x);
-  expect(c.y).toBeGreaterThan(tok.y);
-  expect(Math.hypot(c.x - tok.x, c.y - tok.y)).toBeLessThan(tok.w);
-  const ring = (p: Page) => p.locator("[data-testid=map] [data-testid=urn] .pl-urn-ring").evaluate((el) => getComputedStyle(el).stroke);
-  const amber = await a.evaluate(() => {
-    const el = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    el.style.stroke = "var(--amber)";
-    document.querySelector("svg")!.appendChild(el);
-    const v = getComputedStyle(el).stroke;
-    el.remove();
-    return v;
-  });
-  expect(await ring(a)).toBe(amber);
-  await a.screenshot({ path: "/tmp/urn-respawn-pw/urn-carried-synthetic.png" });
+  expect(Math.abs(c.w - tok.w)).toBeLessThan(2);
+  expect(Math.abs(c.x - tok.x - tok.w * (8 / 32))).toBeLessThan(2);
+  expect(Math.abs(c.y - tok.y - tok.w * (10 / 32))).toBeLessThan(2);
+  await expect(urn(a).locator("circle")).toHaveCount(0);
+  await a.emulateMedia({ reducedMotion: "no-preference" });
+  expect(await a.locator(ART).evaluate((el) => getComputedStyle(el).animationName)).toBe("urn-held");
+  await a.emulateMedia({ reducedMotion: "reduce" });
+  await a.screenshot({ path: "/tmp/urn-game-pw/urn-carried-synthetic.png" });
 
-  // Dropped: on the ground where it fell, still Amber's. Then Sapphire's carrier.
+  // Dropped: on the ground where it fell, the ground marker as in game. Then Sapphire's carrier.
   await scrubTo(a, 47);
   await expect(urn(a)).toHaveAttribute("data-state", "ground");
   await expect(urn(a)).toHaveAttribute("data-x", String(DROP.x));
   await expect(urn(a)).toHaveAttribute("data-team", "amber");
-  await expect(urn(a)).toHaveClass(/urn-dropped/);
+  expect(Math.abs((await centre(a, ART)).w - g.w)).toBeLessThan(1);
   await scrubTo(a, 55);
   await expect(urn(a)).toHaveAttribute("data-team", "sapphire");
-  const s = await centre(a, "[data-testid=map] [data-testid=urn] .pl-urn-ring");
+  const s = await centre(a, ART);
   const stok = await centre(a, '.mapbox .tok[data-slot="Sapphire-2"] circle.body');
   expect(Math.hypot(s.x - stok.x, s.y - stok.y)).toBeLessThan(stok.w);
 
@@ -268,6 +273,6 @@ test("urn pick-ups, drops and the delivery are listed and ping where they happen
   expect(pings.map((x) => x.kind)).toEqual(["urn_drop"]);
   // The drop pings where the urn now lies.
   await expect(urn(a)).toHaveAttribute("data-state", "ground");
-  const lies = await centre(a, "[data-testid=map] [data-testid=urn] .pl-urn-ring");
+  const lies = await centre(a, ART);
   expect(Math.hypot(pings[0]!.x - lies.x, pings[0]!.y - lies.y)).toBeLessThan(6);
 });

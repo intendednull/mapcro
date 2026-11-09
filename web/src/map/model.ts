@@ -120,9 +120,10 @@ export function markersFrom(entities: PackEntity[], t: Transform = DEFAULT_TRANS
         out.push({ ...base, kind: "koth", px: 32, z: 0, lane: null, title: "Unstable Rift" });
         break;
       case "urn":
-        // A Soul Urn delivery point (.idol_return: its art at half its 96 px box). The urn
-        // spawns over one and is carried to the other.
-        out.push({ ...base, kind: "urn", px: 40, z: 15, lane: null, title: "Soul Urn" });
+        // A Soul Urn delivery point (hud_minimap.vcss .idol_return_friendly: its art at 50% of
+        // a 96 px box, i.e. 48 px, as are its three .idolReturnTarget pulses). The urn spawns
+        // over one and is carried to the other.
+        out.push({ ...base, kind: "urn", px: 48, z: 15, lane: null, title: "Soul Urn" });
         break;
       case "base_guardian": {
         // One marker per team and lane, at the midpoint of the pair (README, "Markers").
