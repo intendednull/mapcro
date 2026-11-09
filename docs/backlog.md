@@ -3,6 +3,25 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## How many Sinner's Sacrifice machines are left (2026-11-09, from the map objectives audit)
+
+Three Sinner's Sacrifice camps hold more than one machine: the bell tower has 3, and the theater
+balcony and the slums garage roof have 2 each. The camp timer only says up or cleared. Each
+machine is its own networked `CNPC_Neutral_SinnersSacrifice` the whole match
+(docs/research/map-objectives-audit.md), so a partial clear could show on hover ("1 of 3 left").
+That changes the timeline (`timeline::FORMAT`).
+
+## Healing pickups, teleporters and shops on the map (2026-11-09, from the map objectives audit)
+
+These are placeable from the lump, and mapcro doesn't draw them:
+- 36 `citadel_pickup_spawner` floating health pickups (`spawn_delay_override` 180 s);
+- the 4 `citadel_trigger_teleport` tunnels (Hidden King and Archmother exits, east and west;
+  the pack exports `minimap_teleporter_*`);
+- the item shops (`trigger_item_shop`, `minimap_shop_psd`).
+
+None is a neutral objective, but the game's minimap shows the teleporters and shops. Each would
+need an off-by-default layer, so the map stays readable.
+
 ## The other dialogs don't hold the focus (2026-11-09, from the feedback form)
 
 Share, Clone and the hero picker render inside the page and don't contain the keyboard: Tab
