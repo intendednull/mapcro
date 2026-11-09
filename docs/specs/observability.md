@@ -107,7 +107,9 @@ collector inside the server, a command-line way for the lead to query it, alerts
 - `queue_waiting`, `queue_bytes`, `parses_running`
 - `db_bytes`, `cache_bytes`, `disk_free_bytes`
 - `server_memory_bytes`, `worker_memory_bytes` (read from the units' cgroups,
-  `/sys/fs/cgroup/system.slice/<unit>/memory.current` and `memory.peak`)
+  `/sys/fs/cgroup/system.slice/<unit>/`: the working set, `memory.current` less `memory.stat`'s
+  `inactive_file`, so a replay download's reclaimable page cache doesn't read as the unit at its
+  cap (2026-11-09 false alarm); the peak is `memory.peak`, cache included)
 - `deadlock_api_backoff_s`
 
 **Durations** (histograms with fixed buckets; each one also keeps its count, sum and p50/p90/p99

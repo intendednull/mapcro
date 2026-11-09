@@ -25,6 +25,13 @@ fn field(text: &str, key: &str) -> Option<u64> {
     })
 }
 
+/// A cgroup's working set: `memory.current` less its inactive file cache, which the kernel
+/// reclaims at the cap rather than killing anything (a replay download fills it). The alert
+/// limit is about memory that can't be given back (the kubelet's measure).
+fn working_set(current: u64, stat: &str) -> u64 {
+    current.saturating_sub(field(stat, "inactive_file").unwrap_or(0))
+}
+
 /// CPU seconds used, for a rate between samples.
 #[derive(Default)]
 pub struct Cpu {
@@ -53,7 +60,8 @@ fn sample_unit(unit: Unit, cpu: &mut Cpu) {
     let l = (unit,);
     match read_u64(&dir.join("memory.current")) {
         Some(v) => {
-            m.unit_memory_bytes.set(l, v as f64);
+            let stat = std::fs::read_to_string(dir.join("memory.stat")).unwrap_or_default();
+            m.unit_memory_bytes.set(l, working_set(v, &stat) as f64);
             if let Some(p) = read_u64(&dir.join("memory.peak")) {
                 m.unit_memory_peak_bytes.set(l, p as f64);
             }
@@ -138,5 +146,13 @@ mod tests {
         assert_eq!(field("low 0\noom 2\noom_kill 1\n", "oom_kill"), Some(1));
         assert_eq!(field("VmHWM:\t  2048 kB\n", "VmHWM"), Some(2048));
         assert_eq!(field("oom 2\n", "oom_kill"), None);
+    }
+
+    #[test]
+    fn working_set_leaves_out_reclaimable_file_cache() {
+        let stat = "anon 8036352\nfile 260000000\nactive_file 1000000\ninactive_file 259000000\n";
+        assert_eq!(working_set(268_000_000, stat), 9_000_000);
+        assert_eq!(working_set(10, "inactive_file 99\n"), 0);
+        assert_eq!(working_set(5_000, ""), 5_000);
     }
 }
