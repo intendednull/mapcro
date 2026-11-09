@@ -203,7 +203,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
     let mut camp_slots: Vec<CampSlot> = Vec::new();
     let mut urn: Vec<UrnObs> = Vec::new();
     let mut buffs: Vec<BuffObs> = Vec::new();
-    let mut buff_state: HashMap<i32, (bool, &'static str)> = HashMap::new();
+    let mut buff_state: BuffState = HashMap::new();
     parser
         .run_to_end_with_events_filtered(&classes, |ctx, events| {
             let k = keys.get_or_insert_with(|| Keys::resolve(ctx));
@@ -328,13 +328,41 @@ fn urn_tick(ctx: &boon::Context, k: &Keys, game: f32, out: &mut Vec<UrnObs>) {
 
 /// Record each bridge powerup pickup where it changes (exploration round 7). Other pickups of the
 /// class (the statues' permanent drops) carry other subclasses and are skipped.
-fn buff_tick(ctx: &boon::Context, k: &Keys, game: f32, state: &mut HashMap<i32, (bool, &'static str)>, out: &mut Vec<BuffObs>) {
-    for (_, e) in ctx.entities().iter().filter(|(_, e)| e.class_name.as_ref() == PICKUP_MODIFIER) {
-        let sub = e.get_i64(k.pickup_mod_sub) as u32;
-        let Some(buff) = BUFF_TOKENS.iter().find(|(t, _)| *t == sub).map(|(_, b)| *b) else { continue };
-        let active = e.active && e.get_bool(k.pickup_mod_active);
-        if state.insert(e.index, (active, buff)) != Some((active, buff)) {
-            out.push(BuffObs { game, pos: k.pickup_mod.pos(e), active, buff });
+fn buff_tick(ctx: &boon::Context, k: &Keys, game: f32, state: &mut BuffState, out: &mut Vec<BuffObs>) {
+    let now: Vec<Seen> = ctx
+        .entities()
+        .iter()
+        .filter(|(_, e)| e.class_name.as_ref() == PICKUP_MODIFIER)
+        .filter_map(|(_, e)| {
+            let sub = e.get_i64(k.pickup_mod_sub) as u32;
+            let buff = BUFF_TOKENS.iter().find(|(t, _)| *t == sub).map(|(_, b)| *b)?;
+            Some((e.index, buff, e.active && e.get_bool(k.pickup_mod_active), k.pickup_mod.pos(e)))
+        })
+        .collect();
+    buff_changes(&now, game, state, out);
+}
+
+/// A bridge pickup as seen on a tick: its entity index, buff, whether it's up, and where.
+type Seen = (i32, &'static str, bool, [f32; 2]);
+
+/// Each tracked pickup's last state (active, buff) and where it is, by entity index.
+type BuffState = HashMap<i32, (bool, &'static str, [f32; 2])>;
+
+/// The pickups seen this tick (index, buff, active, position) against the last: each change is an
+/// observation. One that's gone while up (deleted, or re-created at another index, instead of
+/// turning inactive) was taken: observed inactive where it was, before this tick's changes, so a
+/// re-created pickup's spawn still reads as one.
+fn buff_changes(now: &[Seen], game: f32, state: &mut BuffState, out: &mut Vec<BuffObs>) {
+    let mut gone: Vec<i32> = state.keys().copied().filter(|i| !now.iter().any(|n| n.0 == *i)).collect();
+    gone.sort_unstable();
+    for i in gone {
+        if let Some((true, buff, pos)) = state.remove(&i) {
+            out.push(BuffObs { game, pos, active: false, buff });
+        }
+    }
+    for &(i, buff, active, pos) in now {
+        if state.insert(i, (active, buff, pos)).map(|(a, b, _)| (a, b)) != Some((active, buff)) {
+            out.push(BuffObs { game, pos, active, buff });
         }
     }
 }
@@ -481,5 +509,39 @@ mod tests {
         for (t, b) in BUFF_TOKENS {
             assert_eq!(t, token(&format!("{b}_powerup_pickup")), "{b}");
         }
+    }
+
+    #[test]
+    fn a_pickup_gone_while_up_was_taken_and_its_successor_spawns() {
+        let (west, east) = ([-3936.0, 136.0], [3936.0, -128.0]);
+        let mut state = BuffState::new();
+        let mut out = Vec::new();
+        let ticks: [(f32, &[Seen]); 6] = [
+            (300.0, &[(10, "gun", true, west), (11, "casting", true, east)]),
+            (300.1, &[(10, "gun", true, west), (11, "casting", true, east)]),
+            // Deleted while up, not turned inactive.
+            (305.0, &[(11, "casting", true, east)]),
+            // Re-created at a new index in the very tick the old one goes.
+            (600.0, &[(12, "movement", true, west), (13, "survival", true, east)]),
+            // Gone once taken: nothing more to say.
+            (610.0, &[(12, "movement", false, west), (13, "survival", true, east)]),
+            (611.0, &[(13, "survival", true, east)]),
+        ];
+        for (game, now) in ticks {
+            buff_changes(now, game, &mut state, &mut out);
+        }
+        let got: Vec<(f32, [f32; 2], bool, &str)> = out.iter().map(|b| (b.game, b.pos, b.active, b.buff)).collect();
+        assert_eq!(
+            got,
+            [
+                (300.0, west, true, "gun"),
+                (300.0, east, true, "casting"),
+                (305.0, west, false, "gun"),
+                (600.0, east, false, "casting"),
+                (600.0, west, true, "movement"),
+                (600.0, east, true, "survival"),
+                (610.0, west, false, "movement"),
+            ]
+        );
     }
 }
