@@ -436,7 +436,7 @@ fn summary(c: &Connection, now: i64, len: i64) -> Res<Report> {
     let _ = writeln!(t, "  op ack ms           {} | prev {}", qtext(ack.get("")), qtext(ack_p.get("")));
     let _ = writeln!(t, "  commit ms           {}", qtext(commit.get("")));
     for (k, r) in &job {
-        let _ = writeln!(t, "  {:<20}{}", format!("replay job s, {}", label(k, "source").unwrap_or("?")), qtext(Some(r)));
+        let _ = writeln!(t, "  {:<20}{}", format!("job s, {}", label(k, "source").unwrap_or("?")), qtext(Some(r)));
     }
     let _ = writeln!(t, "  queue wait s        {}", qtext(wait.get("")));
     let _ = writeln!(t, "  parse s             {}", qtext(parse.get("")));
