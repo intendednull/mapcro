@@ -15,7 +15,7 @@ const ISSUE = "https://github.com/intendednull/mapcro/issues/7";
 const SHOTS = "test-results/feedback";
 
 /** Requests the fake saw: path, auth header and parsed body. */
-const seen: { path: string; auth?: string; body: { title: string; body: string; labels?: string[] } }[] = [];
+const seen: { path: string; auth: string | undefined; body: { title: string; body: string; labels?: string[] } }[] = [];
 const fake = createServer((req: IncomingMessage, res: ServerResponse) => {
   let raw = "";
   req.on("data", (c) => (raw += c));
