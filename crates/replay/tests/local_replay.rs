@@ -203,3 +203,73 @@ fn match_129738985_has_every_camp_and_sinners_sacrifice() {
     // Bell tower 3, theater balcony 2, slums garage roof 2.
     assert_eq!([at([3248.0, -1888.0]), at([4160.0, 2784.0]), at([-3264.0, -1600.0])], [Some(3), Some(2), Some(2)]);
 }
+
+/// 129738985's map furniture (docs/research/map-objectives-audit.md): the 36 healing pickups
+/// come up at 2:30 and are back 180 s after each take (six takes in this match, two of them a
+/// pair taken together); the replay's 36 pickup spawners, 4 teleporters and 8 of its 9 shops
+/// (the 9th is the base's, in the spawn room) stand on the built-in map's sites.
+#[test]
+#[ignore = "needs 129738985: MAPCRO_REPLAY_129738985"]
+fn match_129738985_has_every_healing_pickup_shop_and_teleporter() {
+    use boon::{Parser, world_position};
+    use std::collections::{BTreeMap, HashSet};
+    let Some(dem) = env_path("MAPCRO_REPLAY_129738985") else { panic!("set MAPCRO_REPLAY_129738985 to 129738985.dem") };
+    let map = mapcro_replay::map::current();
+    let key_at = |kind: &str, x: f64, y: f64| map.nearest(kind, x, y, 1.0).map(|s| s.key.clone()).unwrap_or_else(|| panic!("a {kind} site at {x}, {y}"));
+
+    let dir = tempfile::tempdir().expect("dir");
+    let out = dir.path().join("t.json");
+    worker::job(&dem, &out, 129_738_985, 2 << 30).expect("parses");
+    let t = timeline::validate(&std::fs::read(&out).expect("output")).expect("the server's checks pass");
+    assert_eq!(t.heals.len(), 36, "every healing pickup");
+    assert_eq!(t.heals.iter().map(|h| h.first_s).collect::<HashSet<u32>>(), HashSet::from([150]), "all up at 2:30");
+    let taken: BTreeMap<String, Vec<[u32; 2]>> = t.heals.iter().filter(|h| !h.cleared.is_empty()).map(|h| (h.key.clone(), h.cleared.clone())).collect();
+    let want: BTreeMap<String, Vec<[u32; 2]>> = [
+        (key_at("heal", -8016.0, 2560.0), vec![[402, 582]]),
+        (key_at("heal", -7946.0, 4000.0), vec![[477, 658]]),
+        (key_at("heal", -7878.0, 4000.0), vec![[477, 658]]),
+        (key_at("heal", 5024.0, 1240.0), vec![[926, 1106]]),
+        (key_at("heal", -4128.0, -4448.0), vec![[1937, 2117]]),
+        (key_at("heal", 2560.0, -5120.0), vec![[2022, 2203]]),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(taken, want);
+    assert!(taken.values().flatten().all(|[a, b]| (180..=181).contains(&(b - a))), "back 180 s after");
+
+    // The replay's own entities, on the built-in sites.
+    const SHOP: &str = "CTriggerItemShop";
+    const TELEPORT: &str = "CCitadelTeleportTrigger";
+    const SPAWNER: &str = "CCitadel_PickupSpawner";
+    let parser = Parser::from_file(&dem).expect("opens");
+    let mut seen: HashSet<(i32, u32)> = HashSet::new();
+    let mut at: BTreeMap<&str, Vec<(String, [f32; 2])>> = BTreeMap::new();
+    parser
+        .run_to_end_with_events_filtered(&HashSet::from([SHOP, TELEPORT, SPAWNER]), |ctx, _| {
+            for (_, e) in ctx.entities().iter() {
+                let class = e.class_name.as_ref();
+                let Some(s) = ctx.serializers().get(class) else { continue };
+                if !seen.insert((e.index, e.serial)) {
+                    continue;
+                }
+                let skel = "CBodyComponent.m_skeletonInstance.m_vecOrigin";
+                let o = if s.resolve_field_key(&format!("{skel}.m_cellX")).is_some() { skel } else { "CBodyComponent" };
+                let k = |a: &str| s.resolve_field_key(&format!("{o}.{a}"));
+                let [x, y, _] = world_position(e, [k("m_cellX"), k("m_cellY"), k("m_cellZ")], [k("m_vecX"), k("m_vecY"), k("m_vecZ")]);
+                let kind = match class {
+                    SHOP => "shop",
+                    TELEPORT => "teleporter",
+                    _ => "heal",
+                };
+                let site = map.nearest(kind, f64::from(x), f64::from(y), 16.0).map(|s| s.key.clone()).unwrap_or_default();
+                at.entry(kind).or_default().push((site, [x, y]));
+            }
+        })
+        .expect("parses");
+    let on_sites = |kind: &str| at[kind].iter().filter(|(k, _)| !k.is_empty()).map(|(k, _)| k.clone()).collect::<HashSet<String>>().len();
+    assert_eq!((at["heal"].len(), on_sites("heal")), (36, 36), "every spawner on its own healing site");
+    assert_eq!((at["teleporter"].len(), on_sites("teleporter")), (4, 4), "every teleporter on its site");
+    assert_eq!((at["shop"].len(), on_sites("shop")), (9, 8), "8 shops on the map, and the base's");
+    let base = at["shop"].iter().find(|(k, _)| k.is_empty()).expect("the base's shop").1;
+    assert!(base[1] < -10000.0, "the 9th is the Hidden King's base shop: {base:?}");
+}

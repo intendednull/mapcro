@@ -140,6 +140,20 @@ pub struct BuffObs {
     pub buff: &'static str,
 }
 
+/// A health pickup coming up or going, read every tick (docs/research/map-objectives-audit.md).
+/// The map's floating pickups are one entity each for the whole match, up at their spawner and
+/// down while taken; the same class also drops elsewhere, from a pool of reused entities.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HealObs {
+    /// Match-clock seconds.
+    pub game: f32,
+    /// Entity index and serial.
+    pub ent: (i32, u32),
+    /// Where it came up (a taken pickup flies to the hero first).
+    pub pos: [f32; 2],
+    pub active: bool,
+}
+
 /// A `RejuvStatus` message (timers audit, gap 1): a team's Rejuvenator shard picked up (one per
 /// shard), a revive used, or the Rejuvenator expired.
 #[derive(Clone, Debug, PartialEq)]
@@ -218,6 +232,8 @@ pub struct Obs {
     /// The bridge powerups' pickups where they change, in order (empty: the 1 Hz spawner
     /// samples alone, as before format 2).
     pub buffs: Vec<BuffObs>,
+    /// Health pickups coming up and going, in order (empty: none read, as before format 5).
+    pub heals: Vec<HealObs>,
     /// `RejuvStatus` messages, in order.
     pub rejuv: Vec<RejuvObs>,
     /// The Rejuvenator charges where they change, in order.
@@ -240,6 +256,12 @@ const CAMP_MATCH: f64 = 64.0;
 /// How far (world units) an urn spawn or delivery point may be from our urn site. The return
 /// triggers sit on them exactly; the urn spawns 11 units off (exploration round 6).
 const URN_MATCH: f64 = 400.0;
+/// How far (world units) a health pickup may come up from our healing site. They come up on the
+/// spawner (within a unit); two sites are 68 apart.
+const HEAL_MATCH: f64 = 32.0;
+/// A taken healing pickup is back this long after (the map's `spawn_delay_override`; 180.2 to
+/// 180.5 s on 129738985): its respawn when the recording ends first.
+pub const HEAL_RESPAWN_S: u32 = 180;
 
 fn team_name(t: i64) -> Option<&'static str> {
     match t {
@@ -549,6 +571,7 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
 
     let zips = zips(obs, m);
     let camps = camps(obs, m);
+    let heals = heals(obs, m);
 
     let events = events(obs, m, &players, &objectives, &mid_boss, &rifts, &powerups, duration_s);
     let objective_health = objective_health(obs, m);
@@ -575,6 +598,7 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         powerups,
         zips,
         camps,
+        heals,
         events,
         troopers,
         objective_health,
@@ -948,6 +972,50 @@ fn camps(obs: &Obs, m: &Map) -> Vec<Camp> {
     }
     out.sort_by(|a, b| a.key.cmp(&b.key));
     out
+}
+
+/// The map's healing pickups: when each first comes up, and each `[taken, back]`. A site takes
+/// the entities that only ever come up on it, so a dropped pickup that lands on a site once
+/// (the pool's entities come up all over the map) isn't mistaken for it.
+fn heals(obs: &Obs, m: &Map) -> Vec<Camp> {
+    let sec = |v: f32| v.max(0.0).round() as u32;
+    let site = |p: [f32; 2]| m.nearest("heal", f64::from(p[0]), f64::from(p[1]), HEAL_MATCH).map(|s| s.key.as_str());
+    // Each entity's one site, or none if it ever came up off a site or on two.
+    let mut home: BTreeMap<(i32, u32), Option<&str>> = BTreeMap::new();
+    for h in obs.heals.iter().filter(|h| h.active) {
+        let here = site(h.pos);
+        let e = home.entry(h.ent).or_insert(here);
+        if *e != here {
+            *e = None;
+        }
+    }
+    let mut out: BTreeMap<&str, Camp> = BTreeMap::new();
+    let mut down: BTreeMap<&str, u32> = BTreeMap::new();
+    for h in &obs.heals {
+        let Some(Some(key)) = home.get(&h.ent).copied() else { continue };
+        let at = sec(h.game);
+        let c = out.entry(key).or_insert_with(|| Camp { key: key.to_owned(), first_s: at, cleared: Vec::new() });
+        if h.active {
+            if let Some(from) = down.remove(key) {
+                // Seconds are rounded: a pickup back and taken again can share one.
+                let back = at.max(from + 1);
+                if c.cleared.last().is_none_or(|l| l[1] <= from) {
+                    c.cleared.push([from, back]);
+                }
+            }
+        } else {
+            down.entry(key).or_insert(at.max(c.first_s));
+        }
+    }
+    // Taken and not back before the recording ends: back on the map's own delay.
+    for (key, from) in down {
+        if let Some(c) = out.get_mut(key) {
+            if c.cleared.last().is_none_or(|l| l[1] <= from) {
+                c.cleared.push([from, from + HEAL_RESPAWN_S]);
+            }
+        }
+    }
+    out.into_values().collect()
 }
 
 /// Each objective's health in percent, by board key, as `[second, pct]` whenever it moves by
@@ -1687,6 +1755,32 @@ mod tests {
         );
         let bytes = serde_json::to_vec(&t).expect("json");
         assert_eq!(crate::timeline::validate(&bytes), Ok(t));
+    }
+
+    #[test]
+    fn heals_are_taken_and_back_and_drops_are_not_heals() {
+        let m = map::current();
+        let site = |k: &str| m.sites.iter().find(|s| s.key == k).map(|s| [s.world[0] as f32, s.world[1] as f32]).expect("site");
+        let (a, b) = (site("heal:neutral:lane1:7"), site("heal:neutral:lane4:1"));
+        let h = |game: f32, ent: i32, pos: [f32; 2], active: bool| HealObs { game, ent: (ent, 1), pos, active };
+        let heals = vec![
+            // A drop from the pool comes up on site b once, then elsewhere: not b's pickup.
+            h(40.0, 9, b, true),
+            h(41.0, 9, b, false),
+            h(60.0, 9, [0.0, 0.0], true),
+            // The map's pickups come up at 2:30.
+            h(149.7, 1, a, true),
+            h(149.7, 2, b, true),
+            // a: taken, back 180 s later, taken again as the recording ends.
+            h(401.7, 1, a, false),
+            h(582.2, 1, a, true),
+            h(2600.0, 1, a, false),
+        ];
+        let mut s = seconds(2640);
+        s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
+        let t = derive(&Obs { heals, ..obs(s) }, m).expect("timeline");
+        let got: Vec<(&str, u32, Vec<[u32; 2]>)> = t.heals.iter().map(|c| (c.key.as_str(), c.first_s, c.cleared.clone())).collect();
+        assert_eq!(got, [("heal:neutral:lane1:7", 150, vec![[402, 582], [2600, 2780]]), ("heal:neutral:lane4:1", 150, vec![])]);
     }
 
     #[test]

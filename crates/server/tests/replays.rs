@@ -287,6 +287,7 @@ fn timeline(id: u64) -> Timeline {
         powerups: vec![],
         zips: vec![ZipTrack { lane: "lane4".into(), at: vec![[0, 480, 520]] }],
         camps: vec![Camp { key: "camp:neutral:lane0:3".into(), first_s: 0, cleared: vec![[1, 300]] }],
+        heals: vec![],
         events: vec![],
         troopers: None,
         objective_health: vec![],

@@ -17,8 +17,9 @@ pub const TIER: &str = "replay";
 /// 1: respawn times and the urn (exploration rounds 5 and 6). 2: powerup types and spawns, and
 /// when each rift's cash-in opens (exploration round 7). 3: the Rejuvenator, and each open rift's
 /// capture progress and give-up deadline (timers audit, gaps 1 and 2). 4: when the enemy team
-/// could see each hero (`Player::seen`; docs/research/replay-vision.md).
-pub const FORMAT: u32 = 4;
+/// could see each hero (`Player::seen`; docs/research/replay-vision.md). 5: the healing pickups,
+/// taken and back (`Timeline::heals`; docs/research/map-objectives-audit.md).
+pub const FORMAT: u32 = 5;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Timeline {
@@ -45,6 +46,10 @@ pub struct Timeline {
     /// Replay tier: jungle camps and the mid boss, alive or cleared (spec §6b, "Camps").
     #[serde(default)]
     pub camps: Vec<Camp>,
+    /// Replay tier: the map's healing pickups (`heal:` keys), in the camps' shape: not up before
+    /// `first_s`, then up except over each `[taken_s, back_s]` (format 5). Empty before it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub heals: Vec<Camp>,
     /// What happened when, for the events list (spec §6a, "Events").
     #[serde(default)]
     pub events: Vec<Event>,
@@ -458,6 +463,8 @@ pub fn clean_name(raw: &str) -> Option<String> {
 const MAX_EVENTS: usize = 4096;
 /// 51 camps and the mid boss on the current map.
 const MAX_CAMPS: usize = 64;
+/// More healing pickups than this isn't the map we know (36 on the current one).
+const MAX_HEALS: usize = 64;
 /// How far past the end a camp's next spawn may fall (the longest respawn is ~7 minutes).
 const MAX_RESPAWN_S: u32 = 3600;
 
@@ -543,6 +550,15 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
                 && c.cleared.len() <= n
                 && c.cleared.iter().all(|[a, b]| c.first_s <= *a && a < b && *a <= t.duration_s && *b <= t.duration_s.saturating_add(MAX_RESPAWN_S))
                 && c.cleared.windows(2).all(|w| w[0][1] <= w[1][0])
+        })
+        && t.heals.len() <= MAX_HEALS
+        && t.heals.iter().all(|h| {
+            plausible_key(&h.key)
+                && h.key.starts_with("heal:")
+                && h.first_s <= t.duration_s
+                && h.cleared.len() <= n
+                && h.cleared.iter().all(|[a, b]| h.first_s <= *a && a < b && *a <= t.duration_s && *b <= t.duration_s.saturating_add(MAX_RESPAWN_S))
+                && h.cleared.windows(2).all(|w| w[0][1] <= w[1][0])
         })
         && t.troopers.as_ref().is_none_or(|tr| {
             let samples = (n as u32).div_ceil(tr.every_s.max(1)) as usize;
@@ -638,6 +654,7 @@ mod tests {
             powerups: vec![Powerup { key: "powerup:neutral:lane1:1".into(), available: vec![0, 1, 0], stale: vec![[0, 1]], spawns: vec![PowerupSpawn { t: 1, buff: "gun".into(), taken_s: Some(2) }] }],
             zips: vec![ZipTrack { lane: "lane4".into(), at: vec![[0, 425, 574], [2, 500, 520]] }],
             camps: vec![Camp { key: "camp:neutral:lane0:3".into(), first_s: 1, cleared: vec![[1, 2], [2, 400]] }],
+            heals: vec![Camp { key: "heal:neutral:lane1:7".into(), first_s: 1, cleared: vec![[1, 181]] }],
             events: vec![Event { team: Some("amber".into()), slot: Some(0), hero_id: Some(1), x: Some(3), y: Some(3), ..event(1, "death") }],
             objective_health: vec![ObjectiveHealth { key: "walker:amber:lane1:1".into(), at: vec![[0, 100], [2, 40]], stage: vec![] }],
             troopers: Some(Troopers { every_s: 1, amber: vec![encode_troopers(&[(7, 100, -200)]), String::new(), String::new()], sapphire: vec![String::new(); 3] }),
@@ -696,6 +713,15 @@ mod tests {
             Box::new(|t| t.camps[0].cleared[1] = [2, 2 + 3600 + 1]),
             Box::new(|t| t.camps[0].cleared = vec![[1, 3], [2, 4]]),
             Box::new(|t| t.camps = vec![t.camps[0].clone(); MAX_CAMPS + 1]),
+            Box::new(|t| t.heals[0].key = "camp:neutral:lane0:3".into()),
+            Box::new(|t| t.heals[0].key = "heal:<b>:lane1:7".into()),
+            Box::new(|t| t.heals[0].first_s = 9),
+            Box::new(|t| t.heals[0].cleared[0] = [0, 181]),
+            Box::new(|t| t.heals[0].cleared[0] = [181, 181]),
+            Box::new(|t| t.heals[0].cleared[0] = [9, 181]),
+            Box::new(|t| t.heals[0].cleared[0] = [1, 2 + 3600 + 1]),
+            Box::new(|t| t.heals[0].cleared = vec![[1, 3], [2, 4]]),
+            Box::new(|t| t.heals = vec![t.heals[0].clone(); MAX_HEALS + 1]),
             Box::new(|t| t.duration_s = MAX_DURATION_S + 1),
             Box::new(|t| t.events[0].kind = "<b>".into()),
             Box::new(|t| t.events[0].t = 9),
@@ -765,6 +791,7 @@ mod tests {
         o["players"][0].as_object_mut().expect("player").remove("respawn");
         o["players"][0].as_object_mut().expect("player").remove("seen");
         o.remove("rejuv");
+        o.remove("heals");
         let rift = o["rifts"][0].as_object_mut().expect("rift");
         rift.remove("live_s");
         rift.remove("give_up_s");
@@ -773,7 +800,7 @@ mod tests {
         let t = validate(&serde_json::to_vec(&v).expect("json")).expect("an old timeline loads");
         assert_eq!((t.urn, t.format, t.players[0].respawn.len(), t.players[0].seen.len()), (None, 0, 0, 0));
         assert_eq!((t.rifts[0].live_s, t.powerups[0].spawns.len()), (None, 0));
-        assert_eq!((t.rifts[0].give_up_s, t.rifts[0].capture.len(), t.rejuv.len()), (None, 0, 0));
+        assert_eq!((t.rifts[0].give_up_s, t.rifts[0].capture.len(), t.rejuv.len(), t.heals.len()), (None, 0, 0, 0));
     }
 
     #[test]

@@ -2,7 +2,7 @@
 //! on current demos (docs/research/replay-parsing-exploration.md §2–§7). Steam ids are never
 //! read.
 
-use crate::derive::{AbilityObs, BuffObs, CampSlot, HeroObs, KothObs, ObjObs, Obs, PowerupObs, RejuvCount, RejuvObs, RejuvWhat, Sample, TrooperObs, UrnObs, VisionObs, ZipNode};
+use crate::derive::{AbilityObs, BuffObs, CampSlot, HealObs, HeroObs, KothObs, ObjObs, Obs, PowerupObs, RejuvCount, RejuvObs, RejuvWhat, Sample, TrooperObs, UrnObs, VisionObs, ZipNode};
 use prost::Message;
 use crate::{FIRST_CURRENT_BUILD, content_build, reason};
 use boon::{Parser, world_position};
@@ -25,6 +25,9 @@ const ZIP_NODE: &str = "CCitadelZipLineNode";
 /// The Soul Urn on the ground, and its two delivery points (exploration round 6).
 const IDOL: &str = "CCitadelItemPickupIdol";
 const IDOL_RETURN: &str = "CCitadelIdolReturnTrigger";
+/// A health pickup: the map's floating ones (one entity each, all match, `m_bActive` false
+/// while taken) and the drops, from one pool (docs/research/map-objectives-audit.md).
+const HEAL: &str = "CCitadel_Pickup_Health";
 /// The urn moving less than this (world units) isn't a change worth a record.
 const URN_MOVE: f32 = 64.0;
 const CAMP_TIMES: &str = "m_pGameRules.m_vecNeutralCampNextSpawnTimes";
@@ -130,6 +133,8 @@ struct Keys {
     idol: Body,
     idol_return: Body,
     idol_return_off: K,
+    heal: Body,
+    heal_active: K,
     camp_count: K,
     team_num: K,
     fow_count: K,
@@ -176,6 +181,8 @@ impl Keys {
             idol: Body::of(ctx, IDOL),
             idol_return: Body::of(ctx, IDOL_RETURN),
             idol_return_off: field(IDOL_RETURN, "m_bDisabled"),
+            heal: Body::of(ctx, HEAL),
+            heal_active: field(HEAL, "m_bActive"),
             camp_count: field(RULES, CAMP_TIMES),
             team_num: field(TEAM, "m_iTeamNum"),
             fow_count: field(TEAM, FOW),
@@ -208,7 +215,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         return Err(reason::OLD_MAP);
     }
     let parser = Parser::from_file(path).map_err(|_| reason::NOT_A_REPLAY)?;
-    let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, PICKUP_MODIFIER, TROOPER, ZIP_NODE, IDOL, IDOL_RETURN, TEAM].into_iter().collect();
+    let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, PICKUP_MODIFIER, TROOPER, ZIP_NODE, IDOL, IDOL_RETURN, TEAM, HEAL].into_iter().collect();
     classes.extend(OBJECTIVES.iter().map(|(c, _)| *c));
     let mut keys: Option<Keys> = None;
     let mut seconds: Vec<Sample> = Vec::new();
@@ -224,6 +231,8 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
     let mut urn: Vec<UrnObs> = Vec::new();
     let mut buffs: Vec<BuffObs> = Vec::new();
     let mut buff_state: BuffState = HashMap::new();
+    let mut heals: Vec<HealObs> = Vec::new();
+    let mut heal_state: HealState = HashMap::new();
     let mut rejuv: Vec<RejuvObs> = Vec::new();
     let mut rejuv_counts: Vec<RejuvCount> = Vec::new();
     let mut koth: Vec<KothObs> = Vec::new();
@@ -265,6 +274,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
                 camp_timers(k, rules, game as f32, &mut camp_slots);
                 urn_tick(ctx, k, game as f32, &mut urn);
                 buff_tick(ctx, k, game as f32, &mut buff_state, &mut buffs);
+                heal_tick(ctx, k, game as f32, &mut heal_state, &mut heals);
                 for e in events.iter().filter(|e| e.msg_type == REJUV_STATUS) {
                     rejuv.extend(rejuv_status(ctx, k, game as f32, &e.payload));
                 }
@@ -285,7 +295,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         })
         .map_err(|_| reason::PARSE_FAILED)?;
     // Nodes first seen after a sample was taken make earlier samples short: those hold.
-    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs, rejuv, rejuv_counts, koth, vision })
+    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs, heals, rejuv, rejuv_counts, koth, vision })
 }
 
 /// Every zipline node's team now, in `nodes` order; a node seen for the first time is added
@@ -395,6 +405,30 @@ fn buff_changes(now: &[Seen], game: f32, state: &mut BuffState, out: &mut Vec<Bu
     for &(i, buff, active, pos) in now {
         if state.insert(i, (active, buff, pos)).map(|(a, b, _)| (a, b)) != Some((active, buff)) {
             out.push(BuffObs { game, pos, active, buff });
+        }
+    }
+}
+
+/// Each health pickup's last state by entity (index, serial): up or not, and where it came up
+/// (taken, it flies to the hero before it goes inactive).
+type HealState = HashMap<(i32, u32), (bool, [f32; 2])>;
+
+/// Record each health pickup where it comes up or goes, at the spot it came up (exploration on
+/// 129738985: a map pickup comes up at its spawner and is back 180 s after it's taken; the drops
+/// come up elsewhere and are told apart by place in derive).
+fn heal_tick(ctx: &boon::Context, k: &Keys, game: f32, state: &mut HealState, out: &mut Vec<HealObs>) {
+    for (_, e) in ctx.entities().iter().filter(|(_, e)| e.class_name.as_ref() == HEAL) {
+        let active = e.active && e.get_bool(k.heal_active);
+        let id = (e.index, e.serial);
+        let last = state.get(&id).copied();
+        if last.map(|(a, _)| a) == Some(active) {
+            continue;
+        }
+        let at = if active { k.heal.pos(e) } else { last.map_or_else(|| k.heal.pos(e), |(_, at)| at) };
+        state.insert(id, (active, at));
+        // A pickup first seen down says nothing.
+        if active || last.is_some() {
+            out.push(HealObs { game, ent: id, pos: at, active });
         }
     }
 }
