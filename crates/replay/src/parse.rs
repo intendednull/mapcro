@@ -2,7 +2,7 @@
 //! on current demos (docs/research/replay-parsing-exploration.md §2–§7). Steam ids are never
 //! read.
 
-use crate::derive::{AbilityObs, CampSlot, HeroObs, ObjObs, Obs, PowerupObs, Sample, TrooperObs, UrnObs, ZipNode};
+use crate::derive::{AbilityObs, BuffObs, CampSlot, HeroObs, ObjObs, Obs, PowerupObs, Sample, TrooperObs, UrnObs, ZipNode};
 use prost::Message;
 use crate::{FIRST_CURRENT_BUILD, content_build, reason};
 use boon::{Parser, world_position};
@@ -14,6 +14,12 @@ const PAWN: &str = "CCitadelPlayerPawn";
 const RULES: &str = "CCitadelGameRulesProxy";
 const KOTH: &str = "CCitadelItemKothSpawner";
 const PICKUP: &str = "CCitadel_PickupItemSpawner";
+/// The pickup a powerup spawner arms (and the statues' drops): `m_nSubclassID` names it
+/// (exploration round 7).
+const PICKUP_MODIFIER: &str = "CCitadel_Pickup_Modifier";
+/// The bridge buffs' pickup names (misc.vdata `*_powerup_pickup`) as `m_nSubclassID` carries
+/// them: CUtlStringToken, MurmurHash2 of the name with seed 0x31415926 (checked by a test).
+const BUFF_TOKENS: [(u32, &str); 4] = [(201_785_745, "gun"), (828_222_066, "survival"), (15_572_055, "casting"), (754_654_000, "movement")];
 const TROOPER: &str = "CNPC_Trooper";
 const ZIP_NODE: &str = "CCitadelZipLineNode";
 /// The Soul Urn on the ground, and its two delivery points (exploration round 6).
@@ -102,6 +108,9 @@ struct Keys {
     koth: Body,
     pickup: Body,
     pickup_active: K,
+    pickup_mod: Body,
+    pickup_mod_active: K,
+    pickup_mod_sub: K,
     trooper: Body,
     zip: Body,
     zip_lane: K,
@@ -140,6 +149,9 @@ impl Keys {
             koth: Body::of(ctx, KOTH),
             pickup: Body::of(ctx, PICKUP),
             pickup_active: field(PICKUP, "m_bPowerupActive"),
+            pickup_mod: Body::of(ctx, PICKUP_MODIFIER),
+            pickup_mod_active: field(PICKUP_MODIFIER, "m_bActive"),
+            pickup_mod_sub: field(PICKUP_MODIFIER, "m_nSubclassID"),
             trooper: Body::of(ctx, TROOPER),
             zip: Body::of(ctx, ZIP_NODE),
             zip_lane: field(ZIP_NODE, "m_iPrimaryLane"),
@@ -176,7 +188,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         return Err(reason::OLD_MAP);
     }
     let parser = Parser::from_file(path).map_err(|_| reason::NOT_A_REPLAY)?;
-    let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, TROOPER, ZIP_NODE, IDOL, IDOL_RETURN].into_iter().collect();
+    let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, PICKUP_MODIFIER, TROOPER, ZIP_NODE, IDOL, IDOL_RETURN].into_iter().collect();
     classes.extend(OBJECTIVES.iter().map(|(c, _)| *c));
     let mut keys: Option<Keys> = None;
     let mut seconds: Vec<Sample> = Vec::new();
@@ -190,6 +202,8 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
     let mut zip_nodes: Vec<ZipNode> = Vec::new();
     let mut camp_slots: Vec<CampSlot> = Vec::new();
     let mut urn: Vec<UrnObs> = Vec::new();
+    let mut buffs: Vec<BuffObs> = Vec::new();
+    let mut buff_state: HashMap<i32, (bool, &'static str)> = HashMap::new();
     parser
         .run_to_end_with_events_filtered(&classes, |ctx, events| {
             let k = keys.get_or_insert_with(|| Keys::resolve(ctx));
@@ -224,6 +238,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
             if start > 0.0 && game >= 0.0 {
                 camp_timers(k, rules, game as f32, &mut camp_slots);
                 urn_tick(ctx, k, game as f32, &mut urn);
+                buff_tick(ctx, k, game as f32, &mut buff_state, &mut buffs);
             }
             if start <= 0.0 || game < seconds.len() as f64 || game > f64::from(crate::timeline::MAX_DURATION_S) {
                 return;
@@ -238,7 +253,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         })
         .map_err(|_| reason::PARSE_FAILED)?;
     // Nodes first seen after a sample was taken make earlier samples short: those hold.
-    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn })
+    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs })
 }
 
 /// Every zipline node's team now, in `nodes` order; a node seen for the first time is added
@@ -309,6 +324,19 @@ fn urn_tick(ctx: &boon::Context, k: &Keys, game: f32, out: &mut Vec<UrnObs>) {
         None
     };
     out.push(now);
+}
+
+/// Record each bridge powerup pickup where it changes (exploration round 7). Other pickups of the
+/// class (the statues' permanent drops) carry other subclasses and are skipped.
+fn buff_tick(ctx: &boon::Context, k: &Keys, game: f32, state: &mut HashMap<i32, (bool, &'static str)>, out: &mut Vec<BuffObs>) {
+    for (_, e) in ctx.entities().iter().filter(|(_, e)| e.class_name.as_ref() == PICKUP_MODIFIER) {
+        let sub = e.get_i64(k.pickup_mod_sub) as u32;
+        let Some(buff) = BUFF_TOKENS.iter().find(|(t, _)| *t == sub).map(|(_, b)| *b) else { continue };
+        let active = e.active && e.get_bool(k.pickup_mod_active);
+        if state.insert(e.index, (active, buff)) != Some((active, buff)) {
+            out.push(BuffObs { game, pos: k.pickup_mod.pos(e), active, buff });
+        }
+    }
 }
 
 /// The controller index of `team`'s living hero nearest `at`.
@@ -413,4 +441,45 @@ fn sample(ctx: &boon::Context, k: &Keys, rules: &boon::entity::Entity, now: f32)
         s.rift_scoring = rules.get_i64(k.koth_team);
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// CUtlStringToken: MurmurHash2 of the lower-cased name, seed 0x31415926.
+    fn token(name: &str) -> u32 {
+        const M: u32 = 0x5bd1_e995;
+        let key = name.to_ascii_lowercase();
+        let key = key.as_bytes();
+        let mut h = 0x3141_5926 ^ key.len() as u32;
+        let mut chunks = key.chunks_exact(4);
+        for c in &mut chunks {
+            let mut k = u32::from_le_bytes([c[0], c[1], c[2], c[3]]).wrapping_mul(M);
+            k ^= k >> 24;
+            h = h.wrapping_mul(M) ^ k.wrapping_mul(M);
+        }
+        let r = chunks.remainder();
+        if r.len() >= 3 {
+            h ^= u32::from(r[2]) << 16;
+        }
+        if r.len() >= 2 {
+            h ^= u32::from(r[1]) << 8;
+        }
+        if let Some(&b) = r.first() {
+            h = (h ^ u32::from(b)).wrapping_mul(M);
+        }
+        h ^= h >> 13;
+        h = h.wrapping_mul(M);
+        h ^ (h >> 15)
+    }
+
+    #[test]
+    fn buff_tokens_are_the_pickups_names() {
+        // boon's known pair (hero_stats/inputs.rs) checks the hash itself.
+        assert_eq!(token("modifier_player_pinged"), 1_215_616_703);
+        for (t, b) in BUFF_TOKENS {
+            assert_eq!(t, token(&format!("{b}_powerup_pickup")), "{b}");
+        }
+    }
 }

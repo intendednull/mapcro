@@ -14,8 +14,9 @@ pub const TIER: &str = "replay";
 /// The worker's output format, stamped in every timeline it writes. Bump it when the worker's
 /// output gains or changes a layer, so a cached timeline from an older worker can be told apart
 /// (docs/backlog.md, "Replay timeline format versions"). 0: written before the stamp.
-/// 1: respawn times and the urn (exploration rounds 5 and 6).
-pub const FORMAT: u32 = 1;
+/// 1: respawn times and the urn (exploration rounds 5 and 6). 2: powerup types and spawns, and
+/// when each rift's cash-in opens (exploration round 7).
+pub const FORMAT: u32 = 2;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Timeline {
@@ -190,8 +191,13 @@ pub struct MidBoss {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Rift {
     pub key: String,
+    /// Its spawner appears (the rift is announced).
     pub start_s: u32,
     pub end_s: u32,
+    /// When its cash-in opened (`m_timeKothCashInStarted`, exploration round 7): it spawns then.
+    /// Absent in timelines from before format 2, or if the recording ends first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_s: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -201,7 +207,24 @@ pub struct Powerup {
     pub available: Vec<u8>,
     /// `[from, to)` seconds where the spawner wasn't in the recording and the value is held.
     pub stale: Vec<[u32; 2]>,
+    /// Each spawn and the buff it gave, from the site's `CCitadel_Pickup_Modifier`
+    /// (`m_nSubclassID`, exploration round 7). Empty before format 2.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub spawns: Vec<PowerupSpawn>,
 }
+
+/// One powerup spawn: the second, the buff (one of [`BUFFS`]) and when it was taken, if it was.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct PowerupSpawn {
+    pub t: u32,
+    pub buff: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub taken_s: Option<u32>,
+}
+
+/// The bridge buffs (misc.vdata `citadel_item_powerup_spawner.m_mapPickupChances`): the pickup
+/// name without `_powerup_pickup`, as the minimap's `powerup_<buff>` class has it.
+pub const BUFFS: [&str; 4] = ["gun", "survival", "casting", "movement"];
 
 /// One lane's zipline colours as the game networks them (`CCitadelZipLineNode.m_iTeamNum`,
 /// exploration round 4): Amber owns the rope over `[0, amber_t]`, Sapphire over
@@ -262,6 +285,9 @@ pub struct Event {
     /// The ability's internal name, for `ult` (the game's `ImportantAbilityUsed`).
     #[serde(default)]
     pub ability: Option<String>,
+    /// For `powerup_spawn` and `powerup_taken`: the buff, one of [`BUFFS`] (replay, format 2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub buff: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -317,6 +343,7 @@ pub fn souls_swings(players: &[(String, Vec<[u32; 2]>)], duration_s: u32) -> Vec
                 y: None,
                 amount: Some(moved.unsigned_abs().min(u64::from(u32::MAX)) as u32),
                 ability: None,
+                buff: None,
             });
             quiet_until = t + SWING_WINDOW;
         }
@@ -326,7 +353,7 @@ pub fn souls_swings(players: &[(String, Vec<[u32; 2]>)], duration_s: u32) -> Vec
 
 /// A bare event of `kind` at `t`; callers fill in the rest.
 pub fn event(t: u32, kind: &str) -> Event {
-    Event { t, kind: kind.into(), team: None, slot: None, hero_id: None, by: None, key: None, x: None, y: None, amount: None, ability: None }
+    Event { t, kind: kind.into(), team: None, slot: None, hero_id: None, by: None, key: None, x: None, y: None, amount: None, ability: None, buff: None }
 }
 
 /// What the server accepts from a worker (spec §11, replay limits).
@@ -411,9 +438,12 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
         && t.objectives.iter().all(|o| plausible_key(&o.key) && o.kind.len() <= 32 && o.team.len() <= 16 && o.destroyed_s <= t.duration_s)
         && t.mid_boss.len() <= MAX_LIST
         && t.rifts.len() <= MAX_LIST
-        && t.rifts.iter().all(|r| plausible_key(&r.key) && r.key.starts_with("rift:") && r.start_s < r.end_s && r.end_s <= n as u32)
+        && t.rifts.iter().all(|r| plausible_key(&r.key) && r.key.starts_with("rift:") && r.start_s < r.end_s && r.end_s <= n as u32 && r.live_s.is_none_or(|l| r.start_s <= l && l < r.end_s))
         && t.powerups.len() <= 8
-        && t.powerups.iter().all(|p| plausible_key(&p.key) && p.key.starts_with("powerup:") && p.available.len() == n && p.available.iter().all(|a| *a <= 1) && ranges_ok(&p.stale, n as u32))
+        && t.powerups.iter().all(|p| plausible_key(&p.key) && p.key.starts_with("powerup:") && p.available.len() == n && p.available.iter().all(|a| *a <= 1) && ranges_ok(&p.stale, n as u32)
+            && p.spawns.len() <= n
+            && p.spawns.windows(2).all(|w| w[0].t < w[1].t)
+            && p.spawns.iter().all(|s| s.t <= t.duration_s && BUFFS.contains(&s.buff.as_str()) && s.taken_s.is_none_or(|x| s.t <= x && x <= t.duration_s)))
         && t.zips.len() <= 8
         && t.zips.iter().all(|z| {
             plausible_key(&format!("lane:x:{}", z.lane)) && z.at.len() <= n && z.at.windows(2).all(|w| w[0][0] < w[1][0]) && z.at.iter().all(|[s, a, b]| *s <= t.duration_s && a <= b && *b <= 1000)
@@ -472,6 +502,7 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
                 && e.key.as_deref().is_none_or(plausible_key)
                 && e.x.into_iter().chain(e.y).all(|v| v.abs() <= 32768)
                 && e.ability.as_deref().is_none_or(plausible_ability)
+                && e.buff.as_deref().is_none_or(|b| BUFFS.contains(&b))
         });
     if ok { Ok(t) } else { Err("out of shape") }
 }
@@ -504,8 +535,8 @@ mod tests {
             objectives: vec![Objective { key: "walker:amber:lane1:1".into(), kind: "walker".into(), team: "amber".into(), lane: 1, destroyed_s: 2 }],
             mid_boss: vec![],
             reanchored: 0,
-            rifts: vec![Rift { key: "rift:neutral:lane6:1".into(), start_s: 1, end_s: 3 }],
-            powerups: vec![Powerup { key: "powerup:neutral:lane1:1".into(), available: vec![0, 1, 0], stale: vec![[0, 1]] }],
+            rifts: vec![Rift { key: "rift:neutral:lane6:1".into(), start_s: 1, end_s: 3, live_s: Some(2) }],
+            powerups: vec![Powerup { key: "powerup:neutral:lane1:1".into(), available: vec![0, 1, 0], stale: vec![[0, 1]], spawns: vec![PowerupSpawn { t: 1, buff: "gun".into(), taken_s: Some(2) }] }],
             zips: vec![ZipTrack { lane: "lane4".into(), at: vec![[0, 425, 574], [2, 500, 520]] }],
             camps: vec![Camp { key: "camp:neutral:lane0:3".into(), first_s: 1, cleared: vec![[1, 2], [2, 400]] }],
             events: vec![Event { team: Some("amber".into()), slot: Some(0), hero_id: Some(1), x: Some(3), y: Some(3), ..event(1, "death") }],
@@ -548,6 +579,10 @@ mod tests {
             Box::new(|t| t.rifts[0].key = "walker:amber:lane1:1".into()),
             Box::new(|t| t.rifts[0].end_s = 9),
             Box::new(|t| t.powerups[0].available[1] = 2),
+            Box::new(|t| t.rifts[0].live_s = Some(3)),
+            Box::new(|t| t.powerups[0].spawns[0].buff = "<b>".into()),
+            Box::new(|t| t.powerups[0].spawns[0].taken_s = Some(0)),
+            Box::new(|t| t.events[0].buff = Some("speed".into())),
             Box::new(|t| t.zips[0].at[1] = [2, 500, 1001]),
             Box::new(|t| t.zips[0].at[1] = [2, 600, 520]),
             Box::new(|t| t.zips[0].at[1] = [0, 500, 520]),
@@ -604,8 +639,11 @@ mod tests {
         o.remove("urn");
         o.remove("format");
         o["players"][0].as_object_mut().expect("player").remove("respawn");
+        o["rifts"][0].as_object_mut().expect("rift").remove("live_s");
+        o["powerups"][0].as_object_mut().expect("powerup").remove("spawns");
         let t = validate(&serde_json::to_vec(&v).expect("json")).expect("an old timeline loads");
         assert_eq!((t.urn, t.format, t.players[0].respawn.len()), (None, 0, 0));
+        assert_eq!((t.rifts[0].live_s, t.powerups[0].spawns.len()), (None, 0));
     }
 
     #[test]

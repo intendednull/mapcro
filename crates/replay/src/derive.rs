@@ -7,7 +7,7 @@
 //! are networked whatever the players see (exploration rounds 3 and 4).
 
 use crate::map::{self, Map};
-use crate::timeline::{Camp, Event, FORMAT, MidBoss, Objective, Player, Powerup, Rift, TIER, Timeline, Urn, UrnAt, UrnSpawn, ZipTrack, event, souls_swings};
+use crate::timeline::{Camp, Event, FORMAT, MidBoss, Objective, Player, Powerup, PowerupSpawn, Rift, TIER, Timeline, Urn, UrnAt, UrnSpawn, ZipTrack, event, souls_swings};
 #[cfg(test)]
 use crate::timeline::decode_troopers;
 use std::collections::BTreeMap;
@@ -126,6 +126,20 @@ pub struct TrooperObs {
     pub pos: [f32; 2],
 }
 
+/// A bridge powerup's pickup (`CCitadel_Pickup_Modifier` at a powerup site) where it changes, read
+/// every tick (exploration round 7): one entity per site, re-armed with a new `m_nSubclassID` (the
+/// buff) and `m_bActive` true at each spawn, inactive once taken. Some are up for a fifth of a
+/// second, so 1 Hz samples miss them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuffObs {
+    /// Match-clock seconds.
+    pub game: f32,
+    pub pos: [f32; 2],
+    pub active: bool,
+    /// One of [`crate::timeline::BUFFS`].
+    pub buff: &'static str,
+}
+
 #[derive(Clone, Debug)]
 pub struct PowerupObs {
     pub pos: [f32; 2],
@@ -146,6 +160,9 @@ pub struct Obs {
     pub camp_slots: Vec<CampSlot>,
     /// The urn's changes, in order.
     pub urn: Vec<UrnObs>,
+    /// The bridge powerups' pickups where they change, in order (empty: the 1 Hz spawner
+    /// samples alone, as before format 2).
+    pub buffs: Vec<BuffObs>,
 }
 
 /// How far (world units) a demo entity may be from our site to take its key. Current-map
@@ -414,20 +431,24 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
     mid_boss.sort_by_key(|b| b.destroyed_s);
 
     // ---- rifts: the spawner's site, or the live cash-in's ----
+    // The spawner appears when the rift is announced; it spawns when the cash-in opens.
     let mut rifts: Vec<Rift> = Vec::new();
-    let mut open: Option<(String, u32)> = None;
+    let mut open: Option<(String, u32, Option<u32>)> = None;
     for (sec, s) in obs.seconds.iter().enumerate() {
         let at = s.rift_spawner.or(s.rift_live_at);
         let key = at.and_then(|p| m.nearest("rift", p[0] as f64, p[1] as f64, 2000.0)).map(|s| s.key.clone());
         if open.as_ref().map(|o| &o.0) != key.as_ref() {
-            if let Some((k, start)) = open.take() {
-                rifts.push(Rift { key: k, start_s: start, end_s: sec as u32 });
+            if let Some((k, start, live)) = open.take() {
+                rifts.push(Rift { key: k, start_s: start, end_s: sec as u32, live_s: live });
             }
-            open = key.map(|k| (k, sec as u32));
+            open = key.map(|k| (k, sec as u32, None));
+        }
+        if let Some(o) = open.as_mut().filter(|o| o.2.is_none() && s.rift_live_at.is_some()) {
+            o.2 = Some(sec as u32);
         }
     }
-    if let Some((k, start)) = open {
-        rifts.push(Rift { key: k, start_s: start, end_s: n as u32 });
+    if let Some((k, start, live)) = open {
+        rifts.push(Rift { key: k, start_s: start, end_s: n as u32, live_s: live });
     }
 
     // ---- powerups: per site, held through gaps ----
@@ -447,7 +468,16 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
             }
             available.push(last);
         }
-        powerups.push(Powerup { key: key.to_owned(), available, stale: runs(&stale) });
+        let spawns = powerup_spawns(obs, m, key, duration_s);
+        if !spawns.is_empty() {
+            // The tick-exact pickups say when it was up; a spawn taken within its second still
+            // shows for that second.
+            for (sec, a) in available.iter_mut().enumerate() {
+                let sec = sec as u32;
+                *a = u8::from(spawns.iter().any(|p| p.t <= sec && sec < p.taken_s.map_or(u32::MAX, |x| x.max(p.t + 1))));
+            }
+        }
+        powerups.push(Powerup { key: key.to_owned(), available, stale: runs(&stale), spawns });
     }
 
     let zips = zips(obs, m);
@@ -482,6 +512,28 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         urn,
         format: FORMAT,
     })
+}
+
+/// A powerup site's spawns from its pickup's tick-exact changes (exploration round 7): it turning
+/// active is a spawn, with the buff it was armed with; turning inactive is the pick-up.
+fn powerup_spawns(obs: &Obs, m: &Map, key: &str, duration_s: u32) -> Vec<PowerupSpawn> {
+    let mut out: Vec<PowerupSpawn> = Vec::new();
+    let mut up = false;
+    for b in obs.buffs.iter().filter(|b| m.nearest("powerup", f64::from(b.pos[0]), f64::from(b.pos[1]), 600.0).is_some_and(|q| q.key == key)) {
+        let t = (b.game.max(0.0) as u32).min(duration_s);
+        if b.active && !up {
+            if out.last().is_some_and(|l| l.t >= t) {
+                out.pop();
+            }
+            out.push(PowerupSpawn { t, buff: b.buff.to_owned(), taken_s: None });
+        } else if !b.active && up {
+            if let Some(l) = out.last_mut() {
+                l.taken_s = Some(t);
+            }
+        }
+        up = b.active;
+    }
+    out
 }
 
 /// `[died_s, back_s]` for each death: the second the hero is next seen alive, else, when the
@@ -780,7 +832,17 @@ fn events(obs: &Obs, m: &Map, players: &[Player], objectives: &[Objective], mid_
         }
         held = scoring;
     }
-    for p in powerups {
+    for p in powerups.iter().filter(|p| !p.spawns.is_empty()) {
+        let (x, y) = site_xy(m, &p.key);
+        for sp in &p.spawns {
+            let buff = Some(sp.buff.clone());
+            out.push(Event { key: Some(p.key.clone()), x, y, buff: buff.clone(), ..event(sp.t, "powerup_spawn") });
+            if let Some(t) = sp.taken_s {
+                out.push(Event { key: Some(p.key.clone()), x, y, buff, ..event(t, "powerup_taken") });
+            }
+        }
+    }
+    for p in powerups.iter().filter(|p| p.spawns.is_empty()) {
         let seen = |i: usize| !p.stale.iter().any(|[a, b]| (*a as usize) <= i && i < (*b as usize));
         let (x, y) = site_xy(m, &p.key);
         for i in 1..p.available.len() {
@@ -960,8 +1022,47 @@ mod tests {
         let t = derive(&obs(s), map::current()).expect("timeline");
         assert_eq!(
             t.rifts,
-            [Rift { key: "rift:neutral:lane6:1".into(), start_s: 1, end_s: 4 }, Rift { key: "rift:neutral:lane1:1".into(), start_s: 5, end_s: 6 }]
+            [Rift { key: "rift:neutral:lane6:1".into(), start_s: 1, end_s: 4, live_s: Some(3) }, Rift { key: "rift:neutral:lane1:1".into(), start_s: 5, end_s: 6, live_s: None }]
         );
+    }
+
+    #[test]
+    fn powerup_spawns_name_their_buff_and_when_they_were_taken() {
+        let mut s = seconds(12);
+        s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
+        let (west, east) = ([-3936.0, 136.0], [3936.0, -128.0]);
+        let b = |game: f32, pos: [f32; 2], active: bool, buff: &'static str| BuffObs { game, pos, active, buff };
+        let o = Obs {
+            buffs: vec![
+                b(2.0, west, true, "survival"),
+                b(2.0, east, true, "gun"),
+                // Taken a fifth of a second after it spawned: 1 Hz samples never see it up.
+                b(2.2, west, false, "survival"),
+                b(6.5, east, false, "gun"),
+                // Re-armed with the same buff: still a new spawn.
+                b(8.0, west, true, "survival"),
+                b(8.0, east, true, "movement"),
+                b(9.4, west, false, "survival"),
+                // Statues' drops elsewhere aren't a site's.
+                b(3.0, [-8416.0, 224.0], true, "casting"),
+            ],
+            ..obs(s)
+        };
+        let t = derive(&o, map::current()).expect("timeline");
+        let site = |k: &str| t.powerups.iter().find(|p| p.key == k).expect("site").clone();
+        let sp = |t: u32, buff: &str, taken_s: Option<u32>| PowerupSpawn { t, buff: buff.into(), taken_s };
+        let w = site("powerup:neutral:lane1:1");
+        assert_eq!(w.spawns, [sp(2, "survival", Some(2)), sp(8, "survival", Some(9))]);
+        assert_eq!(w.available, [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0]);
+        let e = site("powerup:neutral:lane6:1");
+        assert_eq!(e.spawns, [sp(2, "gun", Some(6)), sp(8, "movement", None)]);
+        assert_eq!(e.available, [0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1]);
+        let ev: Vec<(u32, &str, Option<&str>)> = t.events.iter().filter(|e| e.kind.starts_with("powerup")).map(|e| (e.t, e.kind.as_str(), e.buff.as_deref())).collect();
+        assert_eq!(
+            ev,
+            [(2, "powerup_spawn", Some("survival")), (2, "powerup_spawn", Some("gun")), (2, "powerup_taken", Some("survival")), (6, "powerup_taken", Some("gun")), (8, "powerup_spawn", Some("survival")), (8, "powerup_spawn", Some("movement")), (9, "powerup_taken", Some("survival"))]
+        );
+        assert!(crate::timeline::validate(&serde_json::to_vec(&t).expect("json")).is_ok());
     }
 
     #[test]
