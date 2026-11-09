@@ -87,6 +87,13 @@ fn safe_relative(f: &str) -> bool {
         && f.split('/').all(|p| !p.is_empty() && p != "." && p != ".." && !p.contains('\\'))
 }
 
+/// Newest first: the highest game build, then, between packs of one build (a re-extract that adds
+/// art), the one whose `pack.json` was written last. The extractor writes it; `tar` keeps its time
+/// when the pack is placed (docs/deploy.md). New boards open on the first.
+fn newest_first<T>(list: &mut [(T, std::time::SystemTime)], build: impl Fn(&T) -> u64) {
+    list.sort_by(|(a, ta), (b, tb)| build(b).cmp(&build(a)).then(tb.cmp(ta)));
+}
+
 impl Packs {
     /// Index every pack under `dir`. A pack that fails validation is skipped with an error
     /// in the log, never half-served.
@@ -102,16 +109,14 @@ impl Packs {
             match Self::load_one(&root) {
                 Ok(p) => {
                     tracing::info!(pack = p.id, version = p.game.client_version, files = p.files.len(), "asset pack");
-                    list.push(p);
+                    let made = std::fs::metadata(root.join("pack.json")).and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
+                    list.push((p, made));
                 }
                 Err(e) => tracing::error!(dir = %root.display(), error = e, "skipping invalid asset pack"),
             }
         }
-        list.sort_by(|a, b| {
-            let v = |p: &Pack| p.game.client_version.parse::<u64>().unwrap_or(0);
-            v(b).cmp(&v(a))
-        });
-        Ok(Packs { list })
+        newest_first(&mut list, |p: &Pack| p.game.client_version.parse::<u64>().unwrap_or(0));
+        Ok(Packs { list: list.into_iter().map(|(p, _)| p).collect() })
     }
 
     fn load_one(root: &std::path::Path) -> Result<Pack, String> {
@@ -168,5 +173,20 @@ pub async fn file(State(app): State<crate::AppState>, Path((id, rest)): Path<(St
             tracing::error!(error = %e, "asset pack file vanished");
             StatusCode::NOT_FOUND.into_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::newest_first;
+    use std::time::{Duration, UNIX_EPOCH};
+
+    #[test]
+    fn the_highest_build_wins_then_the_latest_extract_of_it() {
+        let at = |s| UNIX_EPOCH + Duration::from_secs(s);
+        let mut list = vec![(("6860", "badges"), at(100)), (("6799", "old"), at(900)), (("6860", "rejuv"), at(200)), (("6860", "first"), at(50))];
+        newest_first(&mut list, |p| p.0.parse().unwrap());
+        let order: Vec<_> = list.iter().map(|(p, _)| p.1).collect();
+        assert_eq!(order, ["rejuv", "badges", "first", "old"]);
     }
 }
