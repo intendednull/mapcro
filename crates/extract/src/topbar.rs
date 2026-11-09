@@ -35,7 +35,7 @@ pub fn extract(
 }
 
 /// Export one hero's portrait as `topbar/heroes/<hero_id><suffix>.png`: the vertical one with
-/// suffix `""`, the low-health card with `"_critical"`.
+/// suffix `""`, the hero card with `"_card"`, the low-health card with `"_critical"`.
 ///
 /// Returns the blob key, or `None` when the portrait is absent from the VPK.
 pub fn export_hero_portrait(

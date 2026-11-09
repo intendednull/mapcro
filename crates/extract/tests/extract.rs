@@ -13,6 +13,7 @@ use support::{
 
 const HERO: &str = "panorama/images/heroes/test_mm_psd.vtex_c";
 const HERO_TOPBAR: &str = "panorama/images/heroes/test_vertical_psd.vtex_c";
+const HERO_CARD: &str = "panorama/images/heroes/test_card_psd.vtex_c";
 const TOPBAR_MASK: &str = "panorama/images/hero_badges/hero_image_mask_psd.vtex_c";
 const TOPBAR_SVG: &str = "panorama/images/hud/top_bar/icon_ultimate.vsvg_c";
 const HUD_STYLE: &str = "panorama/styles/hero_badge.vcss_c";
@@ -47,6 +48,10 @@ fn hero_tree() -> T {
                 (
                     "m_strTopBarVertical",
                     T::Str("file://{images}/heroes/test_vertical.psd".into()),
+                ),
+                (
+                    "m_strIconHeroCard",
+                    T::Str("file://{images}/heroes/test_card.psd".into()),
                 ),
             ]),
         ),
@@ -151,6 +156,7 @@ fn extraction_entries() -> Vec<FixtureEntry> {
         FixtureEntry::new(RAT_TUNNELS, build_vtex(4, 2, 28, &bgra)),
         FixtureEntry::new(HERO, build_vtex(4, 2, 28, &bgra)),
         FixtureEntry::new(HERO_TOPBAR, build_vtex(2, 2, 28, &bgra)),
+        FixtureEntry::new(HERO_CARD, build_vtex(2, 2, 28, &bgra)),
         FixtureEntry::new(TOPBAR_MASK, build_vtex(2, 2, 28, &bgra)),
         FixtureEntry::new(TOPBAR_SVG, panorama_resource(b"<svg></svg>", 2)),
         FixtureEntry::new(HUD_STYLE, panorama_resource(b"@define X: #fff;", 3)),
@@ -323,9 +329,9 @@ fn extract_writes_pack_and_blobs() {
     let out = tempfile::tempdir().expect("out dir");
 
     let report = extract(&fixture.game, out.path()).expect("extract");
-    assert_eq!(report.files.len(), 11);
-    assert_eq!(report.blobs, 10);
-    assert_eq!(report.sources, 11);
+    assert_eq!(report.files.len(), 12);
+    assert_eq!(report.blobs, 11);
+    assert_eq!(report.sources, 12);
 
     for file in [
         "map/minimap_midtown_mid.png",
@@ -333,6 +339,7 @@ fn extract_writes_pack_and_blobs() {
         "map/minimap_midtown_rat_tunnels.png",
         "heroes/7.png",
         "topbar/heroes/7.png",
+        "topbar/heroes/7_card.png",
         "topbar/hero_image_mask_psd.png",
         "topbar/icon_ultimate.svg",
         "hud/hero_badge.vcss",
@@ -351,8 +358,8 @@ fn extract_writes_pack_and_blobs() {
     assert_eq!(pack["game"]["client_version"].as_u64(), Some(1234));
     assert_eq!(pack["game"]["source_revision"].as_u64(), Some(5678));
     assert_eq!(pack["game"]["date"].as_str(), Some("Jan 02 2030"));
-    assert_eq!(pack["sources"].as_array().expect("sources").len(), 11);
-    assert_eq!(pack["blobs"].as_object().expect("blobs").len(), 10);
+    assert_eq!(pack["sources"].as_array().expect("sources").len(), 12);
+    assert_eq!(pack["blobs"].as_object().expect("blobs").len(), 11);
 
     let heroes = pack["heroes"].as_array().expect("heroes");
     assert_eq!(heroes.len(), 1);
@@ -363,6 +370,7 @@ fn extract_writes_pack_and_blobs() {
     assert_eq!(heroes[0]["disabled"].as_bool(), Some(false));
     assert_eq!(heroes[0]["minimap_blob"].as_str(), Some("heroes/7"));
     assert_eq!(heroes[0]["topbar_blob"].as_str(), Some("topbar/heroes/7"));
+    assert_eq!(heroes[0]["card_blob"].as_str(), Some("topbar/heroes/7_card"));
 
     let entities = pack["entities"].as_array().expect("entities");
     assert_eq!(entities.len(), 3);
@@ -436,6 +444,17 @@ fn real_install() {
         .filter(|h| h["critical_blob"].is_string())
         .count();
     assert!(critical > 30, "the low-health hero cards (m_strIconHeroCardCritical)");
+    let cards: Vec<&serde_json::Value> =
+        pack["heroes"].as_array().expect("heroes").iter().filter(|h| h["card_blob"].is_string()).collect();
+    assert!(cards.len() > 30, "the hero cards (m_strIconHeroCard)");
+    for h in &cards {
+        let key = h["card_blob"].as_str().expect("card key");
+        assert_eq!(key, format!("topbar/heroes/{}_card", h["hero_id"]));
+        let blob = &pack["blobs"][key];
+        // 280x380 (the mask's size) for most; a few are 240x320. Either way a portrait card.
+        let (w, h) = (blob["w"].as_f64().expect("w"), blob["h"].as_f64().expect("h"));
+        assert!(w >= 240.0 && (1.3..1.4).contains(&(h / w)), "{key}: {w}x{h} is not a hero card");
+    }
 
     let topbar_blobs = pack["heroes"]
         .as_array()
