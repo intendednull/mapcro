@@ -5,7 +5,7 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## Production
 
-- `web` runs **c561062**, deployed 2026-11-09 11:08 UTC: on top of acc6410, vision hides unseen
+- `web` runs **a63a027**, deployed 2026-11-09 ~13:00 UTC (the vitest 5 upgrade; npm audit is clean). Before it, c561062 at 11:08 UTC added: on top of acc6410, vision hides unseen
   enemies by default ("Show last seen location" brings ghosts back), the carried urn follows
   vision, and hero kill/vision moved to a right-click menu on the portrait. Timeline FORMAT is 4.
   The infra main pin is pushed.
@@ -13,8 +13,6 @@ compaction). The newest state is at the top; the history is in git and the other
   (Paseo worktree `~/.paseo/worktrees/3mqv6wf1/ux-pass-2`, kept). Its one code fix, 11506df
   (keyboard-reachable replay picker), is reverted on main in c561062 until the review. Don't act on
   the findings before the operator says so.
-- **Awaiting go-ahead:** upgrade vitest 3 → 5. npm audit shows 2 critical and 1 moderate
-  advisories, all in vitest, which is dev-only and not shipped.
 - **Packs on prod:** `6860-rejuv` (c9c81b76…, newest, with the Rejuvenator HUD art), `6860-badges`,
   `6860p`. Its source is kept in `~/.local/share/mapcro-lead/packs/rejuv`.
 - **Agents work in worktrees** (`/storage/projects/mapcro.worktrees/<name>`, operator and spawning.md
