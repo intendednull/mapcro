@@ -323,7 +323,11 @@ export function Player(p: {
               <button class="btn small" type="button" data-testid="match-forward" aria-label="Forward 10 s" title="+10 s (→ 5 s, Shift+→ 30 s)" onClick={() => user(() => h.control.seek(h.t() + 10))}>
                 +10
               </button>
-              <select class="input pl-speed" data-testid="match-speed" aria-label="Speed" value={String(h.playback().speed)} onChange={(e) => user(() => h.control.speed(Number(e.currentTarget.value)))}>
+              <select class="input pl-speed" data-testid="match-speed" aria-label="Speed" value={String(h.playback().speed)} onChange={(e) => {
+                  user(() => h.control.speed(Number(e.currentTarget.value)));
+                  // Picked: hand the keys back to the board (← → seek, Space plays).
+                  e.currentTarget.blur();
+                }}>
                 <For each={SPEEDS}>{(s) => <option value={String(s)}>{s}×</option>}</For>
               </select>
               <div class="pl-scrub">

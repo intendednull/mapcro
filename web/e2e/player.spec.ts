@@ -283,3 +283,43 @@ test("entering Player alone clears last session's ink, not what you draw straigh
   await expect(strokes(a)).toHaveCount(1);
   await expect(strokes(a)).not.toHaveAttribute("data-stroke", old!);
 });
+
+test("Escape, or a press on the map, leaves the events search so the board's keys work again", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Search focus"), "Coach");
+  await a.getByTestId("mode-player").click();
+  await a.getByTestId("match-id").fill(ID);
+  await a.getByTestId("match-load").click();
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
+  // The replay prompt has Escape while it's open; this is the board after it.
+  await useSummary(a);
+  const search = a.getByTestId("events-search");
+  const focused = () => search.evaluate((el) => el === document.activeElement);
+  await search.click();
+  await a.keyboard.type("died");
+  expect(await focused()).toBe(true);
+  await a.keyboard.press("Escape");
+  expect(await focused()).toBe(false);
+  // The search stays; only the focus left. A board key now works: D picks Draw.
+  await expect(search).toHaveValue("died");
+  await a.keyboard.press("d");
+  await expect(a.getByTestId("tool-draw")).toHaveClass(/\bon\b/);
+  await a.keyboard.press("v");
+  // A press on the map does the same.
+  await search.click();
+  expect(await focused()).toBe(true);
+  const map = (await a.getByTestId("map").boundingBox())!;
+  await a.mouse.click(map.x + map.width * 0.5, map.y + map.height * 0.9);
+  expect(await focused()).toBe(false);
+  // Any control, not only text: the speed list gives the keys back once a speed is picked, and
+  // Escape or a press on the map takes them back from it.
+  const speed = a.getByTestId("match-speed");
+  const speedFocused = () => speed.evaluate((el) => el === document.activeElement);
+  await speed.selectOption("2");
+  expect(await speedFocused()).toBe(false);
+  await speed.focus();
+  await a.keyboard.press("Escape");
+  expect(await speedFocused()).toBe(false);
+  await speed.focus();
+  await a.mouse.click(map.x + map.width * 0.5, map.y + map.height * 0.9);
+  expect(await speedFocused()).toBe(false);
+});

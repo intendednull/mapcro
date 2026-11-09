@@ -109,3 +109,32 @@ test("in Player, a follower sees two laser gestures as two trails", async ({ bro
   await expectTwoSeparate(b, "Coach");
   await b.screenshot({ path: "shots/laser-two-gestures-follower.png" });
 });
+
+test("the laser keeps its size on screen when the map is zoomed in", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Laser zoom"), "Coach");
+  // The trail's width on screen: its stroke in the overlay's units times the overlay's scale.
+  const onScreen = () =>
+    a.locator('[data-laser="mine"] path').last().evaluate((el) => {
+      const svg = (el as SVGGraphicsElement).ownerSVGElement!;
+      return parseFloat(getComputedStyle(el).strokeWidth) * svg.getScreenCTM()!.a;
+    });
+  const sweep = async () => {
+    await a.keyboard.press("l");
+    const from = await mapPoint(a, 0.4, 0.45);
+    const to = await mapPoint(a, 0.6, 0.55);
+    await a.mouse.move(from.x, from.y);
+    await a.mouse.down();
+    await a.mouse.move(to.x, to.y, { steps: 6 });
+    const w = await onScreen();
+    await a.mouse.up();
+    return w;
+  };
+  const before = await sweep();
+  const mid = await mapPoint(a, 0.5, 0.5);
+  await a.mouse.move(mid.x, mid.y);
+  await a.mouse.wheel(0, -600);
+  await expect.poll(async () => (await a.getByTestId("map").getAttribute("data-view"))!.split(" ").map(Number)[2]).toBeLessThan(600);
+  const zoomed = await sweep();
+  expect(zoomed / before).toBeGreaterThan(0.8);
+  expect(zoomed / before).toBeLessThan(1.25);
+});

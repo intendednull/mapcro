@@ -296,12 +296,21 @@ export function Board(p: { board: string; token: string; art: Art }) {
     setSelection(new Set<RecordId>());
     setObjSelection(new Set<string>());
   });
+  /** Give up the keyboard focus a control holds, so the board's own keys work (operator,
+   * 2026-11-08). The page itself, or nothing, keeps it. */
+  const leaveControl = () => {
+    const f = document.activeElement;
+    if (f instanceof HTMLElement && f !== document.body) f.blur();
+  };
   onMount(() => {
     const typing = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       return !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
     };
     const kd = (e: KeyboardEvent) => {
+      // Escape leaves whatever control has the focus (a text field, the speed list, a slider, a
+      // button), so the board's keys work again at once (operator, 2026-11-08).
+      if (e.key === "Escape") leaveControl();
       if (typing(e)) return;
       if (e.key === "Escape") {
         setOpenComment(undefined);
@@ -583,6 +592,14 @@ export function Board(p: { board: string; token: string; art: Art }) {
         state={state}
         art={p.art}
         board={p.board}
+    // A press on the map leaves the focused control too (operator, 2026-11-08); capture, so it
+    // happens before the map's own handlers, which may stop the event. A field on the map (a
+    // callout being written) keeps its focus.
+    const onPress = () => {
+      if (!el.contains(document.activeElement)) leaveControl();
+    };
+    el.addEventListener("pointerdown", onPress, true);
+    onCleanup(() => el.removeEventListener("pointerdown", onPress, true));
         scene={scene()}
         mint={newRecordId}
         onSaved={userFlip}

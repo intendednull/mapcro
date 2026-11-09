@@ -1002,12 +1002,12 @@ export function Layers(p: {
             const runs = createMemo(() => laserRuns(peer.state!.laser.map(view), peer.state!.laser_starts ?? []));
             return (
               <Index each={runs()}>
-                {(run, i) => <LaserTrail points={run()} color={colorOf(peer.state!.laser_color ?? peer.state!.color)} name={peer.state!.name} head={i === runs().length - 1} />}
+                {(run, i) => <LaserTrail points={run()} color={colorOf(peer.state!.laser_color ?? peer.state!.color)} name={peer.state!.name} head={i === runs().length - 1} k={p.k} />}
               </Index>
             );
           }}
         </For>
-        <Index each={myLaser()}>{(run, i) => <LaserTrail points={run()} color={colorOf(p.ink)} mine head={i === myLaser().length - 1} />}</Index>
+        <Index each={myLaser()}>{(run, i) => <LaserTrail points={run()} color={colorOf(p.ink)} mine head={i === myLaser().length - 1} k={p.k} />}</Index>
       </g>
       <g class="pings">
         <For each={pings()}>
@@ -1032,20 +1032,22 @@ export function Layers(p: {
 }
 
 /** One gesture's trail; the head dot only on the newest (`head`). */
-function LaserTrail(p: { points: Pt[]; color: string; name?: string; mine?: boolean; head?: boolean }) {
+/** `k` is the view's zoom factor (as arrows and name tags use): the trail keeps its size on screen
+ * however far the map is zoomed (operator, 2026-11-08: it grew huge zoomed in). */
+function LaserTrail(p: { points: Pt[]; color: string; name?: string; mine?: boolean; head?: boolean; k: number }) {
   const segs = () => p.points.slice(1).map((q, i) => ({ a: p.points[i]!, b: q, i }));
   const head = () => p.points[p.points.length - 1];
   return (
-    <g class="laser" style={{ "--c": p.color }} data-laser={p.mine ? "mine" : (p.name ?? "")}>
+    <g class="laser" style={{ "--c": p.color, "--k": String(p.k) }} data-laser={p.mine ? "mine" : (p.name ?? "")}>
       <For each={segs()}>
         {(s) => (
           <path
             d={`M${s.a.x} ${s.a.y} L${s.b.x} ${s.b.y}`}
-            style={{ opacity: laserOpacity(s.i, segs().length), "stroke-width": `${5 + 4 * laserOpacity(s.i, segs().length)}px` }}
+            style={{ opacity: laserOpacity(s.i, segs().length), "stroke-width": `${(5 + 4 * laserOpacity(s.i, segs().length)) * p.k}px` }}
           />
         )}
       </For>
-      <Show when={p.head !== false && head()}>{(h) => <circle class="head" cx={h().x} cy={h().y} r="7" />}</Show>
+      <Show when={p.head !== false && head()}>{(h) => <circle class="head" cx={h().x} cy={h().y} r={7 * p.k} style={{ "stroke-width": `${4 * p.k}` }} />}</Show>
     </g>
   );
 }
