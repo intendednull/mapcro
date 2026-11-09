@@ -1,6 +1,10 @@
 # Observability: knowing when it breaks, how fast it is, and how close we are to limits
 
-Status: draft for the operator (2026-11-08). Nothing here is built yet.
+Status: build-order steps 1, 2 and 4 are built (2026-11-08; journal
+[2026-11-08-observability](../journal/2026-11-08-observability.md)): the collector, `/metrics`,
+the minute snapshots and failures log, the worker's per-job record, and `mapcro-server stats`.
+The browser beacons (§3) and alerts (§6) are not. Operator decisions, 2026-11-08: no web view;
+7 days of minutes and 400 days of hours; feature counts yes; alerts deferred, channel open.
 
 ## Why
 
@@ -220,6 +224,93 @@ open question (§8). Its webhook or token lives in a root-only file and moves by
 Each step comes with tests. Counters and buckets get unit tests. An e2e run checks that a forced
 browser error and an opened match produce the right counts. A VM test checks that `/metrics`
 can't be reached through Caddy.
+
+## 7a. As built
+
+- **Code.** `crates/server/src/metrics/`: `mod.rs` (the registry's types, Prometheus text,
+  quantiles), `catalog.rs` (every metric and label), `snapshot.rs` (minute rows),
+  `db.rs` (tables, rollup, retention), `failures.rs`, `users.rs`, `sample.rs` (sampled gauges).
+  `crates/server/src/stats.rs` is the subcommand.
+- **Collector.** Hand-rolled, not the `metrics` crate: every label is a Rust enum, the snapshot
+  reads every value back each minute, and it adds no dependencies (journal).
+- **Tables** (schema v6): `metric_rows (res, t, name, labels, kind, value, sum, n, max, buckets)`
+  with one row per metric cell per window. A counter's row holds the window's delta. A gauge's
+  holds its mean, its peak and the sample count. A histogram's holds its count, its sum and its
+  non-empty buckets as `[lower, upper|null, n]`, so rollups merge exactly and quantiles come
+  from the buckets. `failures (t, kind, code, build, message)`. `daily_users (day, users)`.
+- **Windows.** A snapshot is written a second after each UTC minute ends, and once more at
+  shutdown. A restart within a minute merges into that minute's row. Rows older than 7 days roll
+  into hours whole. Hours older than 400 days are dropped, and so are failures past 30 days or
+  the newest 1,000.
+- **What's recorded now:**
+  - HTTP: `http_requests{route, status_class}`, using axum's matched template mapped to the
+    `Route` enum (an unknown template is `other`; the fallback is `page`).
+  - Sync: `ws_opens`, `ws_closes{reason}` (the close reason, or `gone`), `outdated_reloads`,
+    `ops_rejected{reason}`, `connections_open`, `rooms_open`, `commit_batch_size`,
+    `commit_ms` and `op_ack_ms`. `op_ack_ms` runs from a room taking an edit to its ack, so the
+    room's own queue isn't in it.
+  - Usage: `boards_created{how}`, `matches_opened{tier, path}`, and `users_today`, the daily
+    distinct count.
+  - deadlock-api: `deadlock_api_calls{endpoint, result}` for `metadata`, `steam_profiles` and
+    `salts`, and `deadlock_api_backoff_s`.
+  - The replay queue: `queue_waiting`, `queue_bytes` and their caps, `parses_running`,
+    `queue_refusals{reason}`, `replay_jobs{source, outcome}`, `replay_job_s{source}` (from the
+    demo queued to its result collected), and `download_s`.
+  - From the worker's record: `queue_wait_s`, `decompress_s`, `parse_s`, `publish_s`,
+    `parse_peak_rss_bytes`, `demo_bytes` and `timeline_bytes`.
+  - Storage and host: `db_bytes`, `boards_stored` and their caps, `cache_bytes{cache}`,
+    `disk_free_bytes`, `disk_total_bytes`, and per unit `unit_memory_bytes`,
+    `unit_memory_peak_bytes`, `unit_memory_max_bytes`, `unit_cpu_cores` and `unit_oom_kills`.
+    They come from `/sys/fs/cgroup/system.slice/<unit>.service`. In development the server's
+    own process stands in, and the worker reads as absent.
+  - Failures: 5xx answers, room storage failures, compaction failures, deadlock-api trouble
+    (not 404s), and replay jobs that end without a timeline.
+- **The worker's record.** The child writes `work/<job>.stats` with its decompress and parse
+  times, the demo and timeline sizes, and its `VmHWM`. `VmHWM` is the same number as
+  `getrusage`'s `ru_maxrss`, read without unsafe code. The parent adds the queue wait and the
+  publish time. It writes `outbox/<job>.stats` before the result, and the result is still
+  published by copy. The server reads the record when it collects the result, accepts only
+  sane numbers, and deletes it.
+- **`/metrics`** is on `METRICS_ADDR` (the module's default is `127.0.0.1:9464`). The server
+  refuses an address that isn't loopback or is the public port. A bind failure only logs.
+- **On the host:** `sudo -u mapcro mapcro-stats summary` (the module's wrapper), or
+  `just stats summary` from the dev box. `just stats local summary` reads the dev database.
+- **Users** are counted when a WebSocket opens. A restart starts the day's set again, so the
+  stored count is the higher of before and after, which can undercount. A week's people is its
+  busiest day's, because days can't be linked.
+- **`funnel`** shows the server's job times by source and outcomes per day until the beacons
+  land. It already reads `match_to_usable_ms{path}` and `match_to_full_ms{path}` when they do.
+
+## Adding a metric
+
+For whoever instruments the next call site:
+
+1. **Pick the kind.**
+   - A counter counts events (`inc`, `add`).
+   - A gauge is a value now (`set`, `add`). Its peak within each minute is kept.
+   - A histogram is a duration or a size (`observe`, `observe_ms`), in one of the bucket sets in
+     `catalog.rs` (`MS`, `SECS`, `BATCH`, `RSS`, `FILE`).
+2. **Labels come from an enum**, never from a string the code was handed. If none of
+   `catalog.rs`'s fits, declare one with `label!`. Its values are short snake_case words, and
+   the `label_enums_are_plain_and_distinct` test must list it. Never make a label from a board
+   id, match id, token, name, address, path or free text. Keep the label set small: each value
+   combination is a row a minute.
+3. **Add one line to `registry!`** in `catalog.rs`: the field, its type and its constructor.
+   For example:
+   `prompt_choices: Counter<(Choice, PromptReason)> = Counter::new("prompt_choices", "…"),`.
+   The macro adds it to `/metrics` and to the snapshot, so it can't be forgotten in either.
+4. **Record it at the call site:** `crate::metrics::get().prompt_choices.inc((choice, reason));`.
+   A metric with one label takes a 1-tuple: `.inc((reason,))`. A metric with none takes `()`.
+5. **A failure worth reading later** also goes in the log:
+   `crate::metrics::failures::record(FailureKind::…, code.as_str(), &format!("…"))`. The code
+   is an enum's `as_str`. The message is built from fixed words and numbers; it is sanitised
+   anyway.
+6. **Don't change a histogram's buckets or a metric's meaning under its name.** Rows already
+   written keep the old ones. Give it a new name instead.
+7. **Test it.** Have a test check the call site bumps the right cell: scrape `/metrics`, or run
+   `stats … --json` (see `crates/server/tests/observability.rs`).
+8. **Show it.** If the lead should see it without asking, add it to `stats summary` or `usage`
+   in `stats.rs`. `stats series <name>` shows any metric with no change.
 
 ## 8. Open questions for the operator
 

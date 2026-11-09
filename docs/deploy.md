@@ -45,6 +45,7 @@ The host sets `publicOrigin`. The module sets:
 | `REPLAY_UPLOADS_AT_ONCE`, `REPLAY_DOWNLOADS_AT_ONCE` | `replay.uploadsAtOnce` (4), `replay.downloadsAtOnce` (2) |
 | `REPLAY_MAX_WAITING` | `replay.maxWaiting` (64): past this many waiting in line, a new upload or fetch is refused |
 | `DEADLOCK_API_KEY_FILE` | `%d/deadlock-api-key`, when `services.mapcro.deadlockApiKeyFile` is set (default null): a deadlock-api key, below |
+| `METRICS_ADDR` | `services.mapcro.metricsAddr`, default `127.0.0.1:9464`: `/metrics` (Prometheus text) on a loopback listener of its own, which Caddy never proxies; `null` turns it off |
 
 **deadlock-api key (optional).** Without one, deadlock-api's salts endpoint allows 3
 Steam-sourced lookups an hour per address, which the replay fetch on open (spec §6a) can meet.
@@ -59,6 +60,16 @@ deadlock-api without a key. Restart `mapcro` after changing the file.
 mode 0700, so the packs directory exists even when empty. The server fails fast if `PACKS_DIR` is
 missing. Memory stays at the 256M default: the server budgets open rooms by memory
 (`ROOM_MEMORY_BYTES`, 128 MiB), and 32 full rooms measured 155 MB peak (spec §11).
+
+**Metrics and `mapcro-stats`.** Every minute the server writes a snapshot of its metrics to its
+own database (docs/specs/observability.md). The module puts `mapcro-stats` on the system path:
+a wrapper for `mapcro-server stats --data-dir /var/lib/mapcro`, which only reads. Run it as the
+service's user, e.g. `ssh deploy@100.96.92.104 'sudo -u mapcro mapcro-stats summary'`, or from the
+dev box `just stats summary` (also `failures`, `funnel`, `limits`, `usage`, `series <metric>`,
+each with `--json`). `/metrics` answers only on `metricsAddr`; the public port serves the client
+there instead, as the VM test checks. If another service on the host holds 9464, set
+`metricsAddr` to a free loopback port: a bind failure only logs, and the snapshots and
+`mapcro-stats` keep working.
 
 ## The replay worker (`mapcro-replay.service`)
 

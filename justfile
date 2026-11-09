@@ -87,6 +87,21 @@ perf *args: wasm
     cargo build -q --release -p mapcro-server
     cd web && npx vite build --logLevel warn && node perf/bundle.mjs && node perf/.build/run.js {{args}}
 
+# Metrics, read-only (docs/specs/observability.md §4): `just stats summary`, `just stats failures
+# --since 7d`, `just stats series op_ack_ms --since 6h --json` query production on `web` over the
+# deploy SSH, as the mapcro user; `just stats local summary` queries the dev database
+# (${XDG_DATA_HOME:-~/.local/share}/mapcro/data, or MAPCRO_DATA_DIR). Nothing here writes.
+stats *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -- {{args}}
+    if [ "${1:-}" = local ]; then
+      shift
+      cargo build -q -p mapcro-server
+      exec target/debug/mapcro-server stats --data-dir "${MAPCRO_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mapcro/data}" "$@"
+    fi
+    exec ssh -i ~/.ssh/id_infra_2026 -o BatchMode=yes deploy@100.96.92.104 "sudo -u mapcro mapcro-stats $(printf '%q ' "$@")"
+
 # The app, live-reloading: the server (state and packs under ~/.local/share/mapcro, outside the
 # repo) plus Vite on http://localhost:5173 proxying /api, /ws and /packs to it.
 dev port="8094": wasm

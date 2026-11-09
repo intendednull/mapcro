@@ -148,6 +148,18 @@
           machine.succeed("systemctl show mapcro.service -p RestartSteps | grep -qx RestartSteps=5")
           machine.succeed("systemctl show mapcro.service -p Environment | grep -q MALLOC_ARENA_MAX=2")
 
+          # Observability: /metrics on its own loopback port, never through the public listener
+          # (which Caddy proxies), and the minute snapshots readable as the mapcro user.
+          machine.succeed("systemctl show mapcro.service -p Environment | grep -q METRICS_ADDR=127.0.0.1:9464")
+          machine.succeed("curl -fsS -X POST -H 'content-type: application/json' -d '{}' http://127.0.0.1:8094/api/boards")
+          machine.wait_until_succeeds("curl -fsS http://127.0.0.1:9464/metrics | grep -q '^mapcro_boards_created_total{how=\"new\"} [1-9]'")
+          machine.fail("curl -fsS http://127.0.0.1:8094/metrics | grep -q mapcro_")
+          machine.succeed("ss -ltnH | grep -q '127.0.0.1:9464 '")
+          machine.fail("ss -ltnH | grep ':9464 ' | grep -v '127.0.0.1:9464'")
+          machine.wait_until_succeeds("runuser -u mapcro -- mapcro-stats summary --json | grep -q '\"how=new\": [1-9]'", timeout=120)
+          machine.succeed("runuser -u mapcro -- mapcro-stats summary | grep -q HEALTH")
+          machine.succeed("runuser -u mapcro -- mapcro-stats limits | grep -q database")
+
           # The replay worker: its own sandboxed unit, sharing only the queue with the server.
           machine.wait_for_unit("mapcro-replay.service")
           # Two parses at once by default: a core and 384M each (journal 2026-11-08-replay-capacity).

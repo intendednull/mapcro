@@ -40,6 +40,17 @@ in
         pack is served after `systemctl restart mapcro` (docs/deploy.md). null disables packs.
       '';
     };
+    metricsAddr = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = "127.0.0.1:9464";
+      description = ''
+        Where the server serves `/metrics` (Prometheus text, docs/specs/observability.md):
+        a loopback address and port of its own, never the public `port`, so Caddy can't proxy
+        it (the server refuses a non-loopback one). If the port is taken the server logs it and
+        runs without `/metrics`; its minute snapshots and `mapcro-stats` don't depend on it.
+        null: off.
+      '';
+    };
     createPerHour = lib.mkOption {
       type = lib.types.ints.positive;
       default = 30;
@@ -133,6 +144,13 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    # `sudo -u mapcro mapcro-stats summary`: the read-only metrics queries against the live
+    # database (`mapcro-server stats`, docs/specs/observability.md §4; `just stats` runs it).
+    environment.systemPackages = [
+      (pkgs.writeShellScriptBin "mapcro-stats" ''
+        exec ${lib.getExe pkg} stats --data-dir /var/lib/mapcro "$@"
+      '')
+    ];
     users.users.mapcro = { isSystemUser = true; group = "mapcro"; extraGroups = lib.optional cfg.replay.enable "mapcro-replay"; };
     users.groups.mapcro = { };
     users.users.mapcro-replay = lib.mkIf cfg.replay.enable { isSystemUser = true; group = "mapcro-replay"; };
@@ -165,6 +183,7 @@ in
         # measured ~1.5x the budget resident instead of ~1.3x (journal 2026-11-07-security-fixes).
         MALLOC_ARENA_MAX = "2";
       } // lib.optionalAttrs (cfg.webDir != null) { WEB_DIR = toString cfg.webDir; }
+        // lib.optionalAttrs (cfg.metricsAddr != null) { METRICS_ADDR = cfg.metricsAddr; }
         // lib.optionalAttrs (cfg.packsDir != null) { PACKS_DIR = cfg.packsDir; }
         // lib.optionalAttrs cfg.replay.enable {
           REPLAY_DIR = queue;
