@@ -40,7 +40,12 @@ each stands within 500 units of its camp's centre.
 | bell tower sinners | `1380394_chinatown_bell_1` | 3248, −1888, 2499 | 3 | On top of the Chinatown bell tower; Hidden King half |
 | theater doubles | `theater_balcony_camp` | 4160, 2784, 1008 | 2 (+1 theater neutral) | Archmother half |
 | hidden king doubles | `slums_garage_up_camp` | −3264, −1600, 564 | 2 (+1 drain creature) | Hidden King half, on the roof above `slums_garage_down_camp` (medium) |
-| purple junk sinners (best fit) | `drug_store_camp` / `hotel_01_camp` | 2208, −960, 400 / −2220, 1024, 392 | 1 each (+2 neutrals) | A mirrored pair. Nothing I read names "purple junk"; these are the other two camps the bug hit |
+| (other camps the bug hit) | `drug_store_camp` / `hotel_01_camp` | 2208, −960, 400 / −2220, 1024, 392 | 1 each (+2 neutrals) | A mirrored pair, drawn as medium before the fix |
+
+**Purple junk** (operator, 2026-11-09) is not a game name: it is the area with purple mist that
+mirrors the bell tower's Sinner's Sacrifice, with similar value. All 11 Sinner's Sacrifice camps now
+draw with the vault icon on prod (checked at 15:00 in 129738985), so it shows whichever camp it is.
+Which `targetname` it is hasn't been matched yet.
 
 The other six Sinner's Sacrifice camps have one machine each, and their names say "vault":
 `dock_authority_vault`, `york_radio_vault`, `park_club_vault`, `park_library_vault`,
