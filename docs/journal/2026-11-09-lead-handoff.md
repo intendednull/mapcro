@@ -5,7 +5,8 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## Production
 
-- `web` runs **32dfd57**, deployed 2026-11-09 06:4x UTC. The infra main pin is pushed.
+- `web` runs **05d1d01**, deployed 2026-11-09 07:32 UTC (buff types, objective hover timers, one
+  hover label, follow hover, review fixes, seamless canvas). The infra main pin is pushed.
 - The database is at schema **v6**, migrated 2026-11-09 01:12 UTC. Its backup is
   `/var/lib/mapcro-backup/pre-v6-20261109T0109.sqlite`, integrity ok, 20 boards. From v6 on,
   rollbacks are safe: a server older than the database opens it as long as it's at or above the
@@ -23,6 +24,11 @@ compaction). The newest state is at the top; the history is in git and the other
   must write its own id there.**
 
 ## Running when this was written
+
+- **Update 2026-11-09 07:35:** buffs-timers and timer-audit are done and deployed or committed
+  (audit: docs/research/replay-timers-audit.md). **timer-gaps** (Claude agent) now builds the audit's
+  gaps 1, 2 and 5: Rejuvenator, open-rift progress and give-up, statue and urn-return timers.
+  Held for the operator: who holds a bridge buff (inferred), item and ability cooldowns.
 
 - **buffs-timers** (Claude agent). It is adding:
   - each powerup's buff type, with the game's icons; its worker part, 814e697 (format 2), is
