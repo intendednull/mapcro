@@ -17,4 +17,6 @@ export const VIEWER_TOOLS: Tool[] = ["move", "laser"];
 export const ICON_CLEAR = '<path d="M4 19c3-1 4-4 7-4s3 3 6 2"/><path d="M14 4l6 6M20 4l-6 6"/>';
 export const ICON_UNDO = '<path d="M9 6L4 11l5 5"/><path d="M4 11h10a5 5 0 010 10h-3"/>';
 export const ICON_REDO = '<path d="M15 6l5 5-5 5"/><path d="M20 11H10a5 5 0 000 10h3"/>';
+/** The Heals toggle: a cross in a ring, the healing pickups' own shape. */
+export const ICON_HEALS = '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v9M7.5 12h9"/>';
 export const ICON_COMMENTS = '<path d="M4 5h16v10h-9l-4 4v-4H4z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/>';

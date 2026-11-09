@@ -2,7 +2,7 @@
 // draws the schematic fallback, so everything here is optional.
 
 import { FALLBACK } from "./fallback-data";
-import { type MapModel, type PackEntity, modelFromEntities, modelFromFallback } from "./model";
+import { type MapModel, type PackEntity, modelFromEntities, modelFromFallback, withBuiltInFurniture } from "./model";
 
 export interface PackBlob {
   sha256: string;
@@ -99,6 +99,12 @@ export const IMAGE_BLOBS: Record<string, string> = {
   "urn-return": "icons/soul_jar_marker_return_psd",
   // An open delivery point's glow (.idol_return pulse).
   "urn-return-pulse": "icons/soul_jar_marker_return_pulse_psd",
+  // The map's furniture: .tier1_shop, .teleporter_nearby (and its pair's highlight,
+  // .teleporter_active), and the health pad the minimap precaches for the healing pickups.
+  shop: "icons/minimap_shop_psd",
+  teleporter: "icons/minimap_teleporter_go_right",
+  "teleporter-lit": "icons/minimap_teleporter_highlight",
+  heal: "icons/health_pad_psd",
   "tb-mask": "topbar/hero_image_mask_psd",
   "tb-ult": "topbar/icon_ultimate",
   "tb-ult-off": "topbar/icon_ultimate_off",
@@ -133,7 +139,7 @@ export function artFromManifest(base: string, packId: string, m: PackManifest): 
   }
   const entities = m.entities ?? [];
   // A pack without map entities still has portraits; its map falls back to the schematic.
-  const model = entities.length ? modelFromEntities(entities) : modelFromFallback(FALLBACK);
+  const model = entities.length ? modelFromEntities(withBuiltInFurniture(entities)) : modelFromFallback(FALLBACK);
   return { packId, version: String(m.game.client_version), date: m.game.date ? String(m.game.date) : undefined, model, heroes, images };
 }
 

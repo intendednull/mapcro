@@ -19,6 +19,8 @@ export interface PackEntity {
   /** Camp strength (weak / medium / strong / vaults, or the mid boss's own `midboss`), from the
    * camp's `subclass_name`; packs extracted before 2026-11-09 don't carry it. */
   tier?: string;
+  /** Teleporters: where this end lets out (world units), beside the other end of its pair. */
+  exit?: number[];
 }
 
 export interface FallbackData {
@@ -29,7 +31,12 @@ export interface FallbackData {
 
 export type Team = "amber" | "sapphire" | "neutral";
 export type LaneColor = "yellow" | "blue" | "purple";
-export type MarkerKind = "t1" | "t2" | "t3" | "barracks" | "shrine" | "midboss" | "camp" | "koth" | "powerup" | "urn";
+export type MarkerKind = "t1" | "t2" | "t3" | "barracks" | "shrine" | "midboss" | "camp" | "koth" | "powerup" | "urn" | "shop" | "teleporter" | "heal";
+
+/** The map's furniture (docs/research/map-objectives-audit.md): drawn, but not objectives, so a
+ * click doesn't toggle them, a selection doesn't pick them, and a scene has no state for them. */
+export const FURNITURE_KINDS = ["shop", "teleporter", "heal"] as const;
+export const isFurniture = (k: MarkerKind) => k === "shop" || k === "teleporter" || k === "heal";
 
 export interface Marker {
   /** Semantic key, e.g. `walker:amber:lane1:1`; base guardians drop the index (one per pair). */
@@ -45,6 +52,8 @@ export interface Marker {
   z: number;
   /** Camps: which neutral icon. */
   tier?: "weak" | "medium" | "strong" | "vaults" | undefined;
+  /** Teleporters: the key of the other end of its pair. */
+  link?: string | undefined;
   title: string;
 }
 
@@ -95,6 +104,8 @@ const isTier = (t: string | undefined): t is CampTier => t === "weak" || t === "
 /** World units within which two records are the same site (the built-in map's camps sit on the
  * lump's to the unit). */
 const SAME_SITE = 64;
+/** World units from a teleporter's exit to the other end of its pair (128 on the current map). */
+const LINK_REACH = 256;
 const near = (a: number[], b: number[], d = SAME_SITE) => Math.hypot((a[0] ?? 0) - (b[0] ?? 0), (a[1] ?? 0) - (b[1] ?? 0)) <= d;
 
 /**
@@ -163,6 +174,18 @@ export function markersFrom(entities: PackEntity[], t: Transform = DEFAULT_TRANS
         // over one and is carried to the other.
         out.push({ ...base, kind: "urn", px: 48, z: 15, lane: null, title: "Soul Urn" });
         break;
+      case "shop":
+        // .tier1_shop: a 36 px box, its art at half of it, over the camps (ZIndexT1Shop 3).
+        out.push({ ...base, kind: "shop", px: 36, z: 3, lane: null, title: tm === "neutral" ? "Shop" : `Shop (${teamName(tm)})` });
+        break;
+      case "teleporter":
+        // .teleporter_nearby: 16 px, under everything (ZIndexTeleporter 1).
+        out.push({ ...base, kind: "teleporter", px: 16, z: 1, lane: null, title: "Teleporter" });
+        break;
+      case "heal":
+        // The game's minimap only precaches health_pad_psd (16 px); drawn at its own size.
+        out.push({ ...base, kind: "heal", px: 16, z: 1, lane: null, title: "Healing pickup" });
+        break;
       case "base_guardian": {
         // One marker per team and lane, at the midpoint of the pair (README, "Markers").
         const k = `base_guardian:${e.team}:${e.lane}`;
@@ -170,6 +193,13 @@ export function markersFrom(entities: PackEntity[], t: Transform = DEFAULT_TRANS
         break;
       }
     }
+  }
+  // A teleporter's pair: the other end beside where it lets out.
+  for (const e of entities) {
+    if (e.kind !== "teleporter" || !e.exit) continue;
+    const other = entities.find((o) => o.kind === "teleporter" && o.key !== e.key && near(o.world, e.exit!, LINK_REACH));
+    const m = out.find((x) => x.key === e.key);
+    if (m && other) m.link = other.key;
   }
   for (const [key, es] of pairs) {
     const first = es[0]!;
@@ -226,6 +256,16 @@ export function lanesFrom(entities: PackEntity[], t: Transform = DEFAULT_TRANSFO
     out.push({ lane, key: e.lane, d, line: laneLine(samplePath(d)) });
   }
   return out;
+}
+
+/**
+ * A pack's entities with the map's furniture added from the built-in map where the pack has none
+ * of a kind: packs extracted before 2026-11-09 carry no shops, teleporters or healing pickups
+ * (the same fallback as a camp's tier, `campTier`).
+ */
+export function withBuiltInFurniture(entities: PackEntity[]): PackEntity[] {
+  const missing = FURNITURE_KINDS.filter((k) => !entities.some((e) => e.kind === k));
+  return missing.length ? [...entities, ...FALLBACK.entities.filter((e) => (missing as readonly string[]).includes(e.kind))] : entities;
 }
 
 export function modelFromEntities(entities: PackEntity[], t: Transform = DEFAULT_TRANSFORM): MapModel {

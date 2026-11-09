@@ -146,6 +146,19 @@ export function setPlayerLastSeenShown(on: boolean) {
   write(LAST_SEEN, on);
 }
 
+const HEALS = "mapcro.mapHeals";
+
+/** Whether this browser draws the map's healing pickups (the Heals toggle, spec §6b), on the
+ * board and in Player alike: 36 icons would crowd the map, so off unless turned on here. Never
+ * shared with other viewers. */
+export function mapHealsShown(): boolean {
+  return read<boolean>(HEALS, false) === true;
+}
+
+export function setMapHealsShown(on: boolean) {
+  write(HEALS, on);
+}
+
 const SUMMARY = "mapcro.summaryChosen";
 const OPENED = "mapcro.opened";
 

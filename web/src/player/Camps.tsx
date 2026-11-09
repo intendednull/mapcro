@@ -6,7 +6,7 @@
 // delivery point"). A camp that's up says nothing, and nor does any marker in Sandbox. Hovering
 // one, or tapping it on the phone, shows it; the map never stops a pointer for it.
 
-import { createMemo, onCleanup, onMount } from "solid-js";
+import { Show, createMemo, onCleanup, onMount } from "solid-js";
 import type { Art } from "../map/pack";
 import { HUD_MAP_PX, type Marker, teamName } from "../map/model";
 import { type Pt, mapToView, worldToView } from "../map/transform";
@@ -80,7 +80,8 @@ export function healthTip(kind: Marker["kind"], pct: number | undefined): string
 export function markerTip(m: Pick<Marker, "key" | "kind">, pv: MatchPreview | undefined, t: number): string | undefined {
   if (!pv) return undefined;
   const c = pv.camps.get(m.key);
-  if (m.kind === "camp" && c) return campTip(c, t);
+  // A healing pickup has a camp's timers: taken, when it's back; up, nothing to say.
+  if ((m.kind === "camp" || m.kind === "heal") && c) return campTip(c, t);
   const hp = pv.down.has(m.key) ? undefined : pv.health?.get(m.key)?.pct;
   if (m.kind === "midboss") {
     // Down: its timer; up: its health. The reward a team holds goes with it: the mid boss is
@@ -98,10 +99,11 @@ export function markerTip(m: Pick<Marker, "key" | "kind">, pv: MatchPreview | un
   return undefined;
 }
 
-/** `hidden`: a marker hidden from the map (an objective turned off), which has nothing to say. */
-export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; hidden: (key: string) => boolean; preview: () => MatchPreview | undefined; t: () => number; k: number }) {
+/** `hidden`: a marker hidden from the map (an objective turned off), which has nothing to say.
+ * `heals`: whether the healing pickups are drawn (the Heals toggle); off, they can't be hovered. */
+export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; hidden: (key: string) => boolean; heals?: () => boolean; preview: () => MatchPreview | undefined; t: () => number; k: number }) {
   let g!: SVGGElement;
-  const markers = () => p.art.model.markers;
+  const markers = () => (p.heals?.() ? p.art.model.markers : p.art.model.markers.filter((m) => m.kind !== "heal"));
   const urn = () => {
     const u = p.preview()?.urn;
     return u?.state === "ground" && u.at ? { u, at: worldToView(u.at, p.vp) } : undefined;
@@ -173,4 +175,29 @@ export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; 
     });
   });
   return <g ref={g} class="marker-tips" />;
+}
+
+/**
+ * A hovered teleporter's pair, shown only then and faintly: a dashed line to the other end, and a
+ * ring on it. The tunnels cross the whole map, so the two ends of one aren't otherwise told apart
+ * from the other pair's.
+ */
+export function TeleporterLink(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; k: number }) {
+  const pair = createMemo(() => {
+    const h = localHover();
+    if (h?.kind !== "marker") return undefined;
+    const a = p.art.model.markers.find((m) => m.key === h.id && m.kind === "teleporter");
+    const b = a?.link ? p.art.model.markers.find((m) => m.key === a.link) : undefined;
+    return a && b ? { a: mapToView(a.at, p.vp), b: mapToView(b.at, p.vp), key: b.key } : undefined;
+  });
+  return (
+    <Show when={pair()}>
+      {(x) => (
+        <g class="tele-link" data-testid="teleporter-link" data-to={x().key}>
+          <line x1={x().a.x} y1={x().a.y} x2={x().b.x} y2={x().b.y} />
+          <circle cx={x().b.x} cy={x().b.y} r={Math.max(6, (20 / HUD_MAP_PX) * 1000 * 0.5 * p.k)} />
+        </g>
+      )}
+    </Show>
+  );
 }

@@ -5,7 +5,7 @@ import { rosterTeamName, slotTag, teamName } from "../map/model";
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
-import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe } from "../core/device";
+import { type Me, colorOf, commentsOpen, mapHealsShown, setCommentsOpen, setMapHealsShown, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe } from "../core/device";
 import type { RecordId } from "../gen/RecordId";
 import { MapView } from "../map/MapView";
 import type { Art } from "../map/pack";
@@ -26,7 +26,7 @@ import type { MatchPreview } from "../match/preview";
 import { EventPings, Highlight, Player, PlayerSide, PlayerSwitch, TrooperDots } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
 import { ReplayPrompt } from "../player/ReplayPrompt";
-import { MarkerTips } from "../player/Camps";
+import { MarkerTips, TeleporterLink } from "../player/Camps";
 import { HoverLabels, hoverFromWire, hoverWire, localHover, setRemoteHover } from "../map/HoverLabel";
 import { UrnMark } from "../player/Urn";
 import { RiftRings } from "../player/Rift";
@@ -344,6 +344,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
   // open too), or all of them with the Comments toggle (per board, on this device) ----
   const [openComment, setOpenComment] = createSignal<RecordId>();
   const [allOpen, setAllOpen] = createSignal(commentsOpen(p.board));
+  // The healing pickups, drawn on this browser only (the Heals toggle).
+  const [heals, setHeals] = createSignal(mapHealsShown());
   createEffect(() => state.presence({ focus: openComment() ?? null }));
   const followFocus = () => followed()?.state?.focus ?? undefined;
   const isOpen = (id: RecordId) => allOpen() || openComment() === id || followFocus() === id;
@@ -748,6 +750,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               raisedLane={waveDrag()?.key}
               picked={(k) => objSelection().has(k)}
               showHidden={state.canEdit()}
+              heals={heals()}
             >
               <Show when={inPlayer()}>
                 <TrooperDots host={player} vp={viewpoint()} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
@@ -791,7 +794,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 <RiftRings art={p.art} vp={viewpoint()} preview={matchPreview} mk={Math.min(1, view().w / 1000)} />
                 <UrnMark art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} mk={Math.min(1, view().w / 1000)} />
               </Show>
-              <MarkerTips art={p.art} vp={viewpoint()} hidden={(k) => markerStatus(k) === "Hidden"} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
+              <TeleporterLink art={p.art} vp={viewpoint()} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
+              <MarkerTips art={p.art} vp={viewpoint()} hidden={(k) => markerStatus(k) === "Hidden"} heals={heals} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               <Highlight at={inPlayer() ? player.ring() : undefined} vp={viewpoint()} />
               <Show when={inPlayer()}>
                 <EventPings host={player} art={p.art} vp={viewpoint()} />
@@ -958,6 +962,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
             toggleComments={() => {
               setAllOpen(!allOpen());
               setCommentsOpen(p.board, allOpen());
+            }}
+            healsShown={heals()}
+            toggleHeals={() => {
+              setHeals(!heals());
+              setMapHealsShown(heals());
             }}
             clear={(what) => {
               // In transactions that each fit the cap (one undo step each); the toast speaks for

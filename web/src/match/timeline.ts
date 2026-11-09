@@ -71,6 +71,9 @@ export interface Timeline {
   zips?: Array<{ lane: string; at: Array<[number, number, number]> }>;
   /** Replay tier: camps and the mid boss: first spawn, then `[cleared_s, respawn_s]` intervals. */
   camps?: Array<{ key: string; first_s: number; cleared: Array<[number, number]> }>;
+  /** Replay tier, format 5: the map's healing pickups in the camps' shape: first up, then
+   * `[taken_s, back_s]` intervals. */
+  heals?: Array<{ key: string; first_s: number; cleared: Array<[number, number]> }>;
   /** Both tiers, each with what it has (crates/replay/src/timeline.rs `Event`). */
   events?: MatchEvent[];
   /** Replay tier: lane troopers every `every_s` seconds, packed per team (player/troopers.ts). */
@@ -311,7 +314,7 @@ export function objectiveHealthAt(tl: Timeline, t: number): Map<string, { pct: n
  */
 export function sitesAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "key" | "kind" | "team" | "at">>): Map<string, "Active" | "Destroyed"> {
   const out = new Map<string, "Active" | "Destroyed">();
-  if (!tl.rifts && !tl.powerups && !tl.camps && !tl.urn) return out;
+  if (!tl.rifts && !tl.powerups && !tl.camps && !tl.urn && !tl.heals) return out;
   const s = Math.floor(t);
   const known = new Set(markers.map((m) => m.key));
   for (const m of markers) if (m.kind === "koth") out.set(m.key, "Destroyed");
@@ -324,6 +327,11 @@ export function sitesAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "ke
     if (!c.key.startsWith("camp:")) continue;
     const key = markerKey(c.key, markers);
     if (key) out.set(key, campAt(c, t).state === "alive" ? "Active" : "Destroyed");
+  }
+  // A healing pickup is down while taken, and before it first comes up.
+  for (const h of tl.heals ?? []) {
+    const key = markerKey(h.key, markers);
+    if (key) out.set(key, campAt(h, t).state === "alive" ? "Active" : "Destroyed");
   }
   if (tl.urn) {
     for (const m of markers) if (m.kind === "urn") out.set(m.key, "Destroyed");
@@ -360,12 +368,13 @@ export function campAt(c: TimelineCamp, t: number): CampAt {
   return down ? { state: "cleared", at: down[1] } : { state: "alive" };
 }
 
-/** Camps at t by the timeline's keys (replay tier; empty otherwise). */
+/** Camps, and the healing pickups (same shape, same timers), at t by the timeline's keys (replay
+ * tier; empty otherwise). */
 export function campsAt(tl: Timeline, t: number): Map<string, CampAt> {
-  return new Map((tl.camps ?? []).map((c) => [c.key, campAt(c, t)]));
+  return new Map([...(tl.camps ?? []), ...(tl.heals ?? [])].map((c) => [c.key, campAt(c, t)]));
 }
 
-const MARKER_KIND: Record<string, Marker["kind"]> = { guardian: "t1", walker: "t2", base_guardian: "barracks", shrine: "shrine", patron: "t3", mid_boss: "midboss", camp: "camp", rift: "koth", powerup: "powerup", urn: "urn" };
+const MARKER_KIND: Record<string, Marker["kind"]> = { guardian: "t1", walker: "t2", base_guardian: "barracks", shrine: "shrine", patron: "t3", mid_boss: "midboss", camp: "camp", rift: "koth", powerup: "powerup", urn: "urn", shop: "shop", teleporter: "teleporter", heal: "heal" };
 
 /**
  * The board marker a timeline key names. The worker keys sites by the built-in map

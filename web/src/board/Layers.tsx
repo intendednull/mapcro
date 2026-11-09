@@ -22,7 +22,7 @@ import type { PeerPresence } from "../gen/PeerPresence";
 import type { RecordId } from "../gen/RecordId";
 import type { Stroke } from "../gen/Stroke";
 import type { WorldPos } from "../gen/WorldPos";
-import { HUD_PX, type Marker, laneStroke } from "../map/model";
+import { HUD_PX, type Marker, isFurniture, laneStroke } from "../map/model";
 import { pathOf, pointAt, project, splitAt } from "../map/lanes";
 import { LANE_GAP } from "../map/MapView";
 import { groupToggleOps, marqueePick, toggleOps } from "./objectives";
@@ -219,6 +219,8 @@ export function Layers(p: {
   const objectiveAt = (pt: Pt) => {
     let best: { m: Marker; d: number } | undefined;
     for (const m of p.art.model.markers) {
+      // Shops, teleporters and healing pickups are the map's, not a scene's: nothing to toggle.
+      if (isFurniture(m.kind)) continue;
       if (!p.showHidden && p.objectives().get(m.key)?.status === "Hidden") continue;
       const at = mapToView(m.at, p.vp);
       const d = Math.hypot(at.x - pt.x, at.y - pt.y);
@@ -454,7 +456,7 @@ export function Layers(p: {
           rect,
           st.playersIn(p.scene).flatMap((pl) => (pl.state.placed ? [{ id: pl.id, at: view(pl.state.pos) }] : [])),
           p.art.model.markers
-            .filter((m) => p.showHidden || p.objectives().get(m.key)?.status !== "Hidden")
+            .filter((m) => !isFurniture(m.kind) && (p.showHidden || p.objectives().get(m.key)?.status !== "Hidden"))
             .map((m) => ({ key: m.key, at: mapToView(m.at, p.vp) })),
         );
         if (picked.heroes.length) {

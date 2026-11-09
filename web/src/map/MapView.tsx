@@ -5,7 +5,7 @@
 import { For, type JSX, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { cx } from "../ui/cx";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
-import { type Marker, HUD_MAP_PX, isFriendly, laneStroke, offByDefault, washFor } from "./model";
+import { type Marker, HUD_MAP_PX, isFriendly, isFurniture, laneStroke, offByDefault, washFor } from "./model";
 import { defaultSplit, pathOf, splitAt, splitEdges } from "./lanes";
 import { type Art, artCss } from "./pack";
 import { FIT_VIEW, MARGIN, type Viewpoint } from "./transform";
@@ -15,6 +15,9 @@ import { buffInfo } from "../match/buffs";
 const POWERUP = "#FFEFD7";
 /** The urn's own cyan (soul_jar_marker), for the shapes drawn without a pack. */
 export const URN = "#34ddff";
+/** The healing pickups' green: the art is a white cross, washed as the game washes its healing
+ * buff (.powerup_survival's #D7FF9A reads pale on the terrain, so a deeper green). */
+export const HEAL = "#7EE07A";
 const CAMP_IMG = { weak: "neutral-small", medium: "neutral-medium", strong: "neutral-large", vaults: "neutral-vault" } as const;
 
 function Layer(p: { img: string; wash?: string; style?: JSX.CSSProperties; part?: string; span?: readonly [number, number] }) {
@@ -93,6 +96,15 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
         const b = buffInfo(p.buff);
         return b ? [<Fb shape="star" color={b.wash} k={0.8} />, <Layer img={b.img} wash={b.wash} />] : [<Fb shape="star" color={POWERUP} k={0.8} />, <Layer img="powerup" wash={POWERUP} />];
       }
+      case "shop":
+        // .tier1_shop: the art at half of its box, with a black shadow (img-shadow).
+        return [<Fb shape="sq" color="#5fd08a" k={0.45} />, <Layer img="shop" part="shop-art" style={{ inset: "25%" }} />];
+      case "teleporter":
+        // The runner faces the map's middle: on the right of the screen it's mirrored
+        // (.teleporter_onRight), whichever way the view is turned.
+        return [<Fb shape="dot" color="#c9b994" k={0.75} />, <Layer img="teleporter" style={(p.vp === "sapphire" ? m.at.x < 500 : m.at.x > 500) ? { transform: "scaleX(-1)" } : {}} />];
+      case "heal":
+        return [<Fb shape="plus" color={HEAL} k={0.75} />, <Layer img="heal" wash={HEAL} />];
       case "urn":
         // The jar; open (lit), the game's three pulses closing in on it, washed the urn's cyan
         // (hud_minimap.vxml MinimapCrateSnippet, .pingIdol1-3; styles/app.css).
@@ -206,6 +218,8 @@ export function MapView(p: {
   camp?: (key: string) => string | undefined;
   /** Player, replay tier: the buff up at a powerup site, as `data-buff` and its icon. */
   buff?: (key: string) => string | undefined;
+  /** The healing pickups (this browser's Heals toggle); off by default. */
+  heals?: boolean;
 }) {
   useArtCss(() => p.art);
   let host!: HTMLDivElement;
@@ -234,7 +248,11 @@ export function MapView(p: {
     </>
   );
   const markers = createMemo(() =>
-    p.lite ? p.art.model.markers.filter((m) => m.kind !== "barracks" && m.kind !== "shrine" && m.kind !== "camp" && m.kind !== "koth" && m.kind !== "powerup" && m.kind !== "urn") : p.art.model.markers,
+    p.lite
+      ? p.art.model.markers.filter((m) => m.kind !== "barracks" && m.kind !== "shrine" && m.kind !== "camp" && m.kind !== "koth" && m.kind !== "powerup" && m.kind !== "urn" && !isFurniture(m.kind))
+      : p.heals
+        ? p.art.model.markers
+        : p.art.model.markers.filter((m) => m.kind !== "heal"),
   );
   const hasArt = () => p.art.images.has("terrain-mid");
   return (
@@ -266,14 +284,16 @@ export function MapView(p: {
             <i class="mm-shade" />
             <Lanes art={p.art} vp={p.viewpoint} waveT={p.waveT} edges={p.laneEdges} raised={p.raisedLane} />
             <div class="mm-objs">
-              <For each={markers().filter((m) => p.showHidden || p.status?.(m.key) !== "Hidden")}>
+              <For each={markers().filter((m) => p.showHidden || isFurniture(m.kind) || p.status?.(m.key) !== "Hidden")}>
                 {(m) => (
                   <MarkerView
                     m={m}
                     vp={p.viewpoint}
                     // A rift or an urn point is off unless someone turned it on; everything else is
                     // up unless destroyed.
-                    status={offByDefault(m.kind) ? (p.status?.(m.key) === "Active" ? "Active" : "Destroyed") : p.status?.(m.key)}
+                    // Shops and teleporters are always there; a healing pickup is down while taken
+                    // (Player), and a scene never sets either.
+                    status={offByDefault(m.kind) ? (p.status?.(m.key) === "Active" ? "Active" : "Destroyed") : m.kind === "shop" || m.kind === "teleporter" ? undefined : p.status?.(m.key)}
                     picked={!!p.picked?.(m.key)}
                     health={p.health?.(m.key)}
                     camp={p.camp?.(m.key)}

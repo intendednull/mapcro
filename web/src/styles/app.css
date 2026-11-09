@@ -438,6 +438,10 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 /* Player, replay tier: jungle camps (player/Camps.tsx). Cleared is the board's own .down look;
    not yet spawned is fainter still. The tooltip shows only on hover (a tap on the phone). */
 .mk[data-camp="unspawned"] { opacity: 0.28; filter: grayscale(1) brightness(0.5); }
+/* A hovered teleporter's pair (player/Camps.tsx TeleporterLink): faint, and only on hover. */
+.tele-link { pointer-events: none; }
+.tele-link line { stroke: #f3e6c8; stroke-opacity: 0.55; stroke-width: 1.5; stroke-dasharray: 5 7; vector-effect: non-scaling-stroke; }
+.tele-link circle { fill: none; stroke: #f3e6c8; stroke-opacity: 0.8; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 /* The map's one hover label (map/HoverLabel.tsx): tokens and markers alike, at once. A
    presenter's hover mirrored to a follower takes their colour on its rim, with a dot. */
 .hover-labels, .hover-label { pointer-events: none; }
