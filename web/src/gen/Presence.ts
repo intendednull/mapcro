@@ -73,4 +73,10 @@ laser_color?: number | null,
  * Player (spec §6b): the mode and, in Player, the match playback, so followers mirror
  * it. Absent: an older client, or a board without a match.
  */
-playback?: Playback, };
+playback?: Playback, 
+/**
+ * What this person's pointer is over on the map, so a follower shows the same hover label
+ * (spec §8): `marker:<key>` or `token:<roster slot>[:part]`, never an id or a name. The
+ * follower words it from its own state. Absent: nothing, or an older client.
+ */
+hover?: string | null, };

@@ -1,7 +1,8 @@
 // What a hovered map thing says (spec §6b, §8), on a synthetic replay timeline handed to the
 // server as the worker would: each objective that spawns says when it's back while down and that
 // it's up while up; a bridge powerup is drawn with its buff's own icon and named in the events;
-// and the hover label is the same instant one for markers and tokens.
+// the hover label is the same instant one for markers and tokens; and a follower sees the
+// presenter's hover, worded from its own state.
 
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -227,4 +228,32 @@ test("a token and a marker show the same label at once, and hide it on leave", a
   await expect(label(a)).toHaveCount(1, AT_ONCE);
   await a.mouse.move(5, 5);
   await expect(label(a)).toHaveCount(0, AT_ONCE);
+});
+
+test("a follower sees the presenter's hover, worded from its own state", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Follow hover");
+  const a = await joinNew(browser, url, "Coach");
+  await open(a);
+  await scrubTo(a, 70);
+  const b = await joinNew(browser, url, "Student");
+  await b.getByTestId("follow-Coach").click();
+  await expect(b.getByTestId("follow-chip")).toContainText("Following Coach");
+  await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
+  await expect(label(b)).toHaveCount(0);
+
+  await hover(a, CAMP);
+  await expect(label(b)).toHaveAttribute("data-key", CAMP);
+  await expect(label(b)).toHaveAttribute("data-by", "Coach");
+  await expect(label(b)).toHaveText(/^Respawns in 0:2\d \(at 1:35\)$/);
+
+  await hoverToken(a, "Amber-0");
+  await expect(label(b)).toHaveAttribute("data-kind", "token");
+  await expect(label(b)).toHaveText(/^Ana(, |$)/);
+  // The follower's own Names toggle: the name stays off on its screen.
+  await b.getByTestId("names-toggle").click();
+  await expect(label(b)).toHaveText(/^Amber 1(, |$)/);
+  await b.screenshot({ path: "/tmp/buffs-timers-shots/follower-token-hover.png" });
+
+  await a.mouse.move(5, 5);
+  await expect(label(b)).toHaveCount(0);
 });

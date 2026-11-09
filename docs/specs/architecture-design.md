@@ -851,6 +851,13 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   It's presence only, never stored on the server.
 - Viewers appear in the people list, and their cursors show. Their presence is rate-limited like
   everyone else's and is the only thing a view session may send.
+- **Hover (operator, 2026-11-08: "when following someone, when they hover a camp I don't see
+  that hover info"):** presence carries `hover`, what the pointer is over on the map, as a key
+  alone: `marker:<key>` or `token:<roster slot>[:vis|life]`, never an id or a name (at most 96
+  bytes of `[A-Za-z0-9:_-]`). It's sent as it changes and cleared on leave. A follower shows the
+  same hover label there, its rim and a dot in the presenter's colour, worded from the follower's
+  own state: its playback time (mirrored) and its own Names toggle. The follower's own hover wins
+  while it hovers something.
 - **Follow mode:** anyone can follow a presenter's scene, floor and viewport. This is the coaching
   workflow (operator, 2026-11-06):
   - **Following is one click,** and the presenter's name is always visible to click.

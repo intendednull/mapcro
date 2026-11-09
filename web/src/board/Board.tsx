@@ -26,7 +26,7 @@ import { EventPings, Highlight, Player, PlayerSide, PlayerSwitch, TrooperDots } 
 import { createPlayerHost, playbackPresence } from "../player/host";
 import { ReplayPrompt } from "../player/ReplayPrompt";
 import { MarkerTips } from "../player/Camps";
-import { HoverLabels } from "../map/HoverLabel";
+import { HoverLabels, hoverFromWire, hoverWire, localHover, setRemoteHover } from "../map/HoverLabel";
 import { UrnMark } from "../player/Urn";
 import { liveLayer } from "../player/layer";
 import { PlayerTopBar } from "../player/PlayerTopBar";
@@ -192,6 +192,15 @@ export function Board(p: { board: string; token: string; art: Art }) {
   });
   createEffect(() => state.presence({ view: toViewport(view(), viewpoint()) }));
   playbackPresence(player, (playback) => state.presence(playback ? { playback } : ({ playback: undefined } as never)));
+  // The map's hover label (spec §8): yours goes out as a key alone; a presenter's shows here,
+  // in their colour, worded from this board's own state (yours wins while you hover).
+  createEffect(() => state.presence({ hover: hoverWire(localHover()) }));
+  createEffect(() => {
+    const x = followed();
+    const r = hoverFromWire(x?.state?.hover);
+    setRemoteHover(r && x ? { ref: r, name: x.state!.name || "them", color: colorOf(x.state!.color) } : undefined);
+  });
+  onCleanup(() => setRemoteHover(undefined));
   /** Your own flip changes what you see, so it stops following; you keep the side you chose. */
   const flipSide = () => {
     stopFollowing("flipped");

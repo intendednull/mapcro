@@ -151,7 +151,16 @@ pub struct Presence {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub playback: Option<Playback>,
+    /// What this person's pointer is over on the map, so a follower shows the same hover label
+    /// (spec §8): `marker:<key>` or `token:<roster slot>[:part]`, never an id or a name. The
+    /// follower words it from its own state. Absent: nothing, or an older client.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub hover: Option<String>,
 }
+
+/// A hover reference is at most this long: a marker key is under 64.
+pub const MAX_HOVER: usize = 96;
 
 /// One person's Player state, relayed in presence (spec §6b).
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -280,6 +289,7 @@ impl Presence {
             && self.ink.as_ref().is_none_or(|i| i.color < 16 && i.points.len() <= MAX_INK_POINTS && i.points.iter().all(ok_pos))
             && self.ping.as_ref().is_none_or(|p| ok_pos(&p.at))
             && self.laser_color.is_none_or(|c| c < 16)
+            && self.hover.as_ref().is_none_or(|h| h.len() <= MAX_HOVER && h.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b':' | b'_' | b'-')))
             && self.playback.as_ref().is_none_or(|b| {
                 let clock = |t: f32| t.is_finite() && (0.0..=86_400.0).contains(&t);
                 clock(b.t)
@@ -316,6 +326,16 @@ mod tests {
         assert!(!laser(10, vec![0]).is_valid());
         assert!(!laser(10, vec![10]).is_valid());
         assert!(!laser(0, vec![1]).is_valid());
+    }
+
+    #[test]
+    fn a_hover_is_a_short_key() {
+        let with = |h: &str| Presence { hover: Some(h.into()), ..Presence::default() };
+        assert!(with("marker:camp:neutral:lane0:3").is_valid());
+        assert!(with("token:Amber-2:vis").is_valid());
+        assert!(!with(&"k".repeat(MAX_HOVER + 1)).is_valid());
+        assert!(!with("token:<b>").is_valid());
+        assert!(!with("marker:a b").is_valid());
     }
 
     #[test]
