@@ -407,6 +407,11 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .tok-hp-fill.amber { stroke: var(--amber); }
 .tok-hp-fill.sapphire { stroke: var(--sapphire); }
 .tok-hp-fill.low { stroke: #ff5656; }
+/* Health eases to each new value rather than jumping (operator, 2026-11-08: easeOutExpo,
+   https://easings.net/#easeOutExpo), here and on the top bar's bars (topbar.css). */
+:root { --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1); --hp-ease: 350ms; }
+.tok-hp-fill { transition: stroke-dasharray var(--hp-ease) var(--ease-out-expo); }
+@media (prefers-reduced-motion: reduce) { .tok-hp-fill { transition: none; } }
 
 /* Player, replay tier: jungle camps (player/Camps.tsx). Cleared is the board's own .down look;
    not yet spawned is fainter still. The tooltip shows only on hover (a tap on the phone). */

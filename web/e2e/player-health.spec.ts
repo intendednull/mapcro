@@ -93,6 +93,25 @@ async function scrubTo(p: Page, t: number) {
     el.dispatchEvent(new Event("input", { bubbles: true }));
   }, t);
 }
+/** Open the match in Player and upload its "replay"; the test plays the worker and writes the
+ * timeline, as the server expects. */
+async function openReplay(a: Page) {
+  await a.getByTestId("mode-player").click();
+  await a.getByTestId("match-id").fill(ID);
+  await a.getByTestId("match-load").click();
+  await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
+  // The same file again is already parsed (the server says so): then there's no job to answer.
+  let job = "";
+  await expect
+    .poll(async () => {
+      job = readdirSync(join(queue, "inbox")).find((f) => f.startsWith(`${ID}-`) && f.endsWith(".dem")) ?? "";
+      return job !== "" || (await a.getByTestId("match-tier").textContent()) === "Full replay";
+    })
+    .toBe(true);
+  if (job) writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify(timeline()));
+  await expect(a.getByTestId("match-tier")).toHaveText("Full replay");
+}
+
 const bar = (p: Page) => p.locator('.tb-player[data-slot="Amber-0"] [data-testid=tb-health]');
 const mk = (p: Page, key: string) => p.locator(`.mk[data-key="${key}"]`);
 /**
@@ -121,14 +140,7 @@ const barFill = (p: Page) =>
 
 test("health bars, token arcs and objective fills follow the replay; Health turns them off", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Health"), "Coach");
-  await a.getByTestId("mode-player").click();
-  await a.getByTestId("match-id").fill(ID);
-  await a.getByTestId("match-load").click();
-  await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
-  let job = "";
-  await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f.startsWith(`${ID}-`) && f.endsWith(".dem")) ?? "")).not.toBe("");
-  writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify(timeline()));
-  await expect(a.getByTestId("match-tier")).toHaveText("Full replay");
+  await openReplay(a);
 
   // Two times: the bar's fill and the token's arc follow the data.
   await scrubTo(a, 10);
@@ -137,21 +149,21 @@ test("health bars, token arcs and objective fills follow the replay; Health turn
   await expect(a.locator('.tok[data-slot="Amber-0"] [data-testid=tok-health]')).toHaveAttribute("data-health", "90");
   // Undamaged objectives are full.
   await expect(mk(a, "walker:amber:lane1:1")).toHaveAttribute("data-health", "100");
-  expect(await fill(a, "walker:amber:lane1:1")).toBe(100);
+  await expect.poll(() => fill(a, "walker:amber:lane1:1")).toBe(100);
   await scrubTo(a, 45);
   await expect(bar(a)).toHaveAttribute("data-health", "55");
   await expect.poll(() => barFill(a)).toBeCloseTo(0.55, 1);
   // The walker's icon is a quarter full; the patron's shield (stage 1) half.
   await expect(mk(a, "walker:amber:lane1:1")).toHaveAttribute("data-health", "25");
-  expect(await fill(a, "walker:amber:lane1:1")).toBeCloseTo(25, 0);
+  await expect.poll(() => fill(a, "walker:amber:lane1:1")).toBeCloseTo(25, 0);
   await expect(mk(a, "patron:sapphire:lane0:1")).not.toHaveClass(/\bstage2\b/);
-  expect(await fill(a, "patron:sapphire:lane0:1")).toBeCloseTo(50, 0);
-  expect(await fill(a, "patron:sapphire:lane0:1", "hp-core")).toBe(100);
+  await expect.poll(() => fill(a, "patron:sapphire:lane0:1")).toBeCloseTo(50, 0);
+  await expect.poll(() => fill(a, "patron:sapphire:lane0:1", "hp-core")).toBe(100);
   await a.screenshot({ path: "shots/health-synthetic.png" });
   await scrubTo(a, 65);
   // Stage 2: the shield is gone and the core fills to the health.
   await expect(mk(a, "patron:sapphire:lane0:1")).toHaveClass(/\bstage2\b/);
-  expect(await fill(a, "patron:sapphire:lane0:1", "hp-core")).toBeCloseTo(40, 0);
+  await expect.poll(() => fill(a, "patron:sapphire:lane0:1", "hp-core")).toBeCloseTo(40, 0);
   // The hero badge (hero_badge.vcss): with the pack's hero card, the card in a 70.4 × 95.5 frame
   // on a team-coloured disc (team1Color #D4860B, team2Color #4D75C3) at the frame's bottom.
   // Without one (hero 4 here, as on a pack from before the cards), the vertical bust on the
@@ -244,5 +256,72 @@ test("health bars, token arcs and objective fills follow the replay; Health turn
   await expect(bar(a)).toHaveCount(0);
   await expect(a.locator("[data-testid=tok-health]")).toHaveCount(0);
   await expect(a.locator(".mk[data-health]")).toHaveCount(0);
-  expect(await fill(a, "walker:amber:lane1:1")).toBe(100);
+  await expect.poll(() => fill(a, "walker:amber:lane1:1")).toBe(100);
+});
+
+
+/** Scrub to `t` and, a frame later, list the transitions running on the bar's fill, the token's
+ * arc and an objective's fill clip: the property, its easing and its duration. Read in the page,
+ * from the animations themselves, so a slow frame can't make it pass or fail. */
+async function scrubAndEases(p: Page, t: number, key: string) {
+  return p.evaluate(
+    ({ t, key }) =>
+      new Promise<Record<string, string[]>>((done) => {
+        const el = document.querySelector("[data-testid=match-time]") as HTMLInputElement;
+        el.value = String(t);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        requestAnimationFrame(() => {
+          const of = (sel: string) =>
+            (document.querySelector(sel)?.getAnimations() ?? [])
+              .filter((x): x is CSSTransition => x instanceof CSSTransition)
+              .map((x) => `${x.transitionProperty} ${(x.effect as KeyframeEffect).getTiming().easing} ${(x.effect as KeyframeEffect).getTiming().duration}`);
+          done({
+            bar: of('.tb-player[data-slot="Amber-0"] .tb-health-fill'),
+            arc: of('.tok[data-slot="Amber-0"] .tok-hp-fill'),
+            // Without the pack's fill art (as here) the marker's --hp eases its gradient; with it,
+            // the art's clip (minimap.css) eases the same way.
+            objective: of(`.mk[data-key="${key}"]`),
+          });
+        });
+      }),
+    { t, key },
+  );
+}
+
+test("health eases to each new value (easeOutExpo), and jumps with reduced motion", async ({ browser }) => {
+  const WALKER = "walker:amber:lane1:1";
+  for (const reduced of [false, true]) {
+    const a = await joinNew(browser, await newBoardUrl(server, `Ease ${reduced}`), "Coach");
+    await a.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
+    await openReplay(a);
+    await scrubTo(a, 10);
+    await expect.poll(() => barFill(a)).toBeCloseTo(0.9, 1);
+    await expect.poll(() => fill(a, WALKER)).toBe(100);
+    // Let every ease from loading settle, so the next one runs its full course (a reversed,
+    // unfinished transition is shortened).
+    await expect
+      .poll(() =>
+        a.evaluate(
+          (key) =>
+            [".tb-health-fill", ".tok-hp-fill", `.mk[data-key="${key}"]`]
+              .flatMap((sel) => [...document.querySelectorAll(sel)])
+              .reduce((n, el) => n + el.getAnimations().length, 0),
+          WALKER,
+        ),
+      )
+      .toBe(0);
+    // 10 s → 45 s: the bar 90 → 55, the arc 90 → 55, the walker 100 → 25. Each eases, out-expo
+    // over 350 ms (easings.net/#easeOutExpo), or with reduced motion jumps.
+    const eases = await scrubAndEases(a, 45, WALKER);
+    const EXPO = "cubic-bezier(0.16, 1, 0.3, 1) 350";
+    expect(eases).toEqual(
+      reduced
+        ? { bar: [], arc: [], objective: [] }
+        : { bar: [`height ${EXPO}`], arc: [`stroke-dasharray ${EXPO}`], objective: [`--hp ${EXPO}`] },
+    );
+    // And each lands on the new value.
+    await expect.poll(() => barFill(a)).toBeCloseTo(0.55, 1);
+    await expect.poll(() => a.locator('.tok[data-slot="Amber-0"] .tok-hp-fill').evaluate((el) => parseFloat(getComputedStyle(el).strokeDasharray))).toBeCloseTo(55, 0);
+    await expect.poll(() => fill(a, WALKER)).toBeCloseTo(25, 0);
+  }
 });

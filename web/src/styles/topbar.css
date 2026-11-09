@@ -51,6 +51,8 @@
 .tb-health-back { background-color: #000000de; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; border-radius: 3px; }
 .tb-health .tb-health-fill { top: auto; bottom: 0; background-color: #FFEFD7; -webkit-mask-position: center bottom; mask-position: center bottom; -webkit-mask-size: 100% calc(50 * var(--u)); mask-size: 100% calc(50 * var(--u)); }
 .tb-player.enemy .tb-health-fill { background-color: #FF5656; }
+.tb-health .tb-health-fill { transition: height var(--hp-ease, 350ms) var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)); }
+@media (prefers-reduced-motion: reduce) { .tb-health .tb-health-fill { transition: none; } }
 .tb-health-border { display: var(--tb-display, none); background-color: #10130D; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
 
 /* .UltimateStatus 22px at margin-top 125px. Unlocked: offBlack disc, opacity 0.6, team-colour BG,

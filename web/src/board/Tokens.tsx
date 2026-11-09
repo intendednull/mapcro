@@ -315,7 +315,6 @@ export function Tokens(p: {
                     // Player, replay tier: health as an arc round the token (operator, 2026-11-08).
                     // Heavier than the body's stroke so it reads at the default zoom (handoff).
                     const hr = () => r() + 4.5 * p.k;
-                    const c = () => 2 * Math.PI * hr();
                     const hp = () => pv()?.health ?? 0;
                     return (
                       <g data-testid="tok-health" data-health={hp()}>
@@ -324,8 +323,9 @@ export function Tokens(p: {
                           class={cx("tok-hp tok-hp-fill", team(), hp() <= 30 && "low")}
                           r={hr()}
                           transform="rotate(-90)"
-                          stroke-dasharray={`${(c() * hp()) / 100} ${c()}`}
-                          style={{ "stroke-width": `${5 * p.k}` }}
+                          // Measured as 0..100 so a zoom changes nothing to ease; only health does.
+                          pathLength="100"
+                          style={{ "stroke-width": `${5 * p.k}`, "stroke-dasharray": `${hp()} 100` }}
                         />
                       </g>
                     );
