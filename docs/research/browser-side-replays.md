@@ -35,8 +35,15 @@ from `/v1/matches/active`. Only 2 Steam-capable calls were used. Logs: /tmp/api-
   `replay_salt`. A Steam-capable call returned the same row: deadlock-api answers from its
   database when a row exists and doesn't go to Steam to fill in the missing salt. Over about 13
   minutes no `replay_salt` appeared.
-- **Not measured:** whether `replay_salt` arrives later, and what a match with no salts row at
-  all does.
+- **Follow-up at 00:09 UTC on 2026-11-09:** more than an hour after 133942783 ended, a free
+  `disable_steam` read still had `cluster_id` and `metadata_salt` but no `replay_salt`. A fresh
+  match's replay key doesn't seem to arrive on its own. The operator's own 129738985 did have
+  one; a likely source is deadlock-api's ingest of salts from players' local Steam caches
+  (`POST /v1/matches/salts`), which runs after someone downloads the replay in the game. So for
+  fresh matches, uploading the file is the dependable path, and a companion tool that submits
+  salts is the way to improve auto-fetch.
+- **Still not measured:** whether `replay_salt` arrives after several hours, and what a match with
+  no salts row at all does.
 
 The priming build is on hold until the operator decides. Today's server path is unchanged.
 
