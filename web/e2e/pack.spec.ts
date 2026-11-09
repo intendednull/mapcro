@@ -15,11 +15,18 @@ const PNG = Buffer.from(
   "base64",
 );
 
-function syntheticPack(): string {
+type Ent = { key: string; kind: string; team: string; lane: string; world: number[]; tier?: string; src?: { classname: string; hammeruniqueid: string; targetname: string } };
+const DEFAULT_ENTITIES: Ent[] = [
+  { key: "walker:amber:lane1:1", kind: "walker", team: "amber", lane: "lane1", world: [-6272, -4736, 384] },
+  { key: "walker:sapphire:lane6:1", kind: "walker", team: "sapphire", lane: "lane6", world: [6444, 4776, 376] },
+  { key: "mid_boss:neutral:lane4:1", kind: "mid_boss", team: "neutral", lane: "lane4", world: [0, 0, -832] },
+];
+
+function syntheticPack(entities: Ent[] = DEFAULT_ENTITIES, icons: string[] = []): string {
   const root = mkdtempSync(join(tmpdir(), "mapcro-packs-"));
   const dir = join(root, "synthetic");
   const blobs: Record<string, unknown> = {};
-  for (const key of ["map/minimap_midtown_mid", "icons/boss_health_t2_psd", "icons/boss_health_fill_t2_psd", "heroes/7"]) {
+  for (const key of ["map/minimap_midtown_mid", "icons/boss_health_t2_psd", "icons/boss_health_fill_t2_psd", "heroes/7", ...icons]) {
     const file = `${key}.png`;
     mkdirSync(dirname(join(dir, file)), { recursive: true });
     writeFileSync(join(dir, file), PNG);
@@ -30,11 +37,8 @@ function syntheticPack(): string {
     game: { client_version: 9001, source_revision: 1, date: "Nov 07 2026" },
     blobs,
     heroes: [{ hero_id: 7, class_name: "hero_test", name: "Testhero", disabled: false, minimap_blob: "heroes/7", topbar_blob: null }],
-    entities: [
-      { key: "walker:amber:lane1:1", kind: "walker", team: "amber", lane: "lane1", world: [-6272, -4736, 384] },
-      { key: "walker:sapphire:lane6:1", kind: "walker", team: "sapphire", lane: "lane6", world: [6444, 4776, 376] },
-      { key: "mid_boss:neutral:lane4:1", kind: "mid_boss", team: "neutral", lane: "lane4", world: [0, 0, -832] },
-    ],
+    entities,
+    icons: icons.map((key) => ({ key, source: `panorama/images/minimap/${key.slice(6)}.vtex_c`, format: "BGRA8888", blob: key })),
   };
   writeFileSync(join(dir, "pack.json"), JSON.stringify(manifest));
   return root;
@@ -96,6 +100,70 @@ test.describe("with a synthetic pack", () => {
     for (const p of [a, b]) {
       await expect(p.locator('.tok[data-slot="Amber-0"] image')).toHaveAttribute("href", `/packs/${packId}/heroes/7.png`);
     }
+  });
+});
+
+// Camps as today's packs carry them (no tier: extracted before 2026-11-09) and as new ones do.
+// docs/research/map-objectives-audit.md: five of the eleven Sinner's Sacrifice camps don't say
+// "vault" in their names, and the mid boss has a camp of its own.
+const camp = (key: string, world: number[], name: string, tier?: string): Ent => ({
+  key,
+  kind: "camp",
+  team: "neutral",
+  lane: key.split(":")[2]!,
+  world,
+  src: { classname: "info_neutral_trooper_camp", hammeruniqueid: key, targetname: `[PR#]${name}` },
+  ...(tier ? { tier } : {}),
+});
+const SINNERS = [
+  camp("camp:neutral:lane4:5", [3248, -1888, 2499], "1380394_chinatown_bell_1"),
+  camp("camp:neutral:lane6:14", [4160, 2784, 1008], "theater_balcony_camp"),
+  camp("camp:neutral:lane4:1", [-3264, -1600, 564], "slums_garage_up_camp"),
+  camp("camp:neutral:lane4:7", [2208, -960, 400], "drug_store_camp"),
+  camp("camp:neutral:lane4:12", [-2220, 1024, 392], "hotel_01_camp", "vaults"),
+];
+const CAMP_ICONS = ["icons/neutral_small_psd", "icons/neutral_medium_psd", "icons/neutral_large_psd", "icons/neutral_vault_psd"];
+
+test.describe("with a pack's camps", () => {
+  let server: Server;
+  test.beforeAll(async () => {
+    server = new Server(
+      syntheticPack(
+        [
+          DEFAULT_ENTITIES[2]!,
+          ...SINNERS,
+          camp("camp:neutral:lane4:9", [-1.5, -0.8, -832], "mid_neutrals"),
+          camp("camp:neutral:lane1:10", [-7168, -1280, 264], "dock_authority_camp"),
+          camp("camp:neutral:lane6:8", [9184, 0, 256], "park_gate_camp"),
+          camp("camp:neutral:lane4:2", [-3318, -1260, 256], "slums_garage_down_camp", "medium"),
+        ],
+        CAMP_ICONS,
+      ),
+    );
+    await server.start();
+  });
+  test.afterAll(() => server.stop());
+
+  test("every Sinner's Sacrifice camp wears the vault icon, and each camp its tier's", async ({ browser }) => {
+    const a = await joinNew(browser, await newBoard(server, "camps"), "Coach");
+    await expect(a.locator(".mapbox .mm-host")).toHaveClass(/\bpack-art\b/);
+    for (const c of SINNERS) {
+      const m = a.locator(`.mapbox .mk.camp[data-key="${c.key}"]`);
+      await expect(m, c.src!.targetname).toBeVisible();
+      await expect(m).toHaveAttribute("aria-label", "Sinner's Sacrifice");
+      await expect(m.locator('[data-pimg="neutral-vault"]')).toHaveCount(1);
+    }
+    const icon = (key: string) => a.locator(`.mapbox .mk.camp[data-key="${key}"] [data-pimg]`);
+    await expect(icon("camp:neutral:lane1:10")).toHaveAttribute("data-pimg", "neutral-small");
+    await expect(icon("camp:neutral:lane6:8")).toHaveAttribute("data-pimg", "neutral-large");
+    await expect(icon("camp:neutral:lane4:2")).toHaveAttribute("data-pimg", "neutral-medium");
+    // The vault art is the pack's own image.
+    const bg = await a.locator('.mapbox .mk[data-key="camp:neutral:lane4:5"] [data-pimg]').evaluate((e) => getComputedStyle(e).backgroundImage);
+    expect(bg).toMatch(/\/packs\/[0-9a-f]+\/icons\/neutral_vault_psd\.png/);
+    // The mid boss's own camp is left to the mid boss marker: 8 camps of 9, and the boss.
+    await expect(a.locator('.mapbox .mk[data-key="camp:neutral:lane4:9"]')).toHaveCount(0);
+    await expect(a.locator(".mapbox .mk.camp")).toHaveCount(8);
+    await expect(a.locator(".mapbox .mk.midboss")).toHaveCount(1);
   });
 });
 
