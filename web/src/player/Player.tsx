@@ -23,6 +23,8 @@ import { mapToView, worldToMap, worldToView } from "../map/transform";
 import { EventsList } from "./Events";
 import { eventKey, jumpTime, namesFor, placeOf, shortLabel, tierLabel } from "./events";
 import type { PlayerHost } from "./host";
+import { type Vision, VISIONS, hasVision } from "./vision";
+import { teamName } from "../map/model";
 
 /** ← → seek this far (seconds), with Shift the further one. */
 const SEEK_KEY = 5;
@@ -409,6 +411,18 @@ export function Player(p: {
                 >
                   Names
                 </button>
+              </Show>
+              <Show when={hasVision(m())}>
+                <select
+                  class="input pl-vision"
+                  data-testid="vision-select"
+                  aria-label="Vision"
+                  title="What one team could see: its enemies out of sight are ghosted where last seen. Here only"
+                  value={h.vision()}
+                  onChange={(e) => h.setVision(e.currentTarget.value as Vision)}
+                >
+                  <For each={VISIONS}>{(v) => <option value={v}>Vision: {v === "all" ? "All" : teamName(v)}</option>}</For>
+                </select>
               </Show>
               <button
                 type="button"

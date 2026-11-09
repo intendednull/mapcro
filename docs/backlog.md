@@ -3,6 +3,33 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Vision for objectives, camps and troopers (2026-11-09)
+
+Player's Vision (spec §6b) covers heroes only. The same feed (`CCitadelTeam.m_vecFOWEntities`,
+docs/research/replay-vision.md) carries `m_bVisibleOnMap` for objectives by `m_eClass`: 5
+guardian, 8 mid boss, 28 shrine, 29 walker, 30 base guardian, 31 patron; also 41 bridge buff,
+43 rejuv/gold, 44 urn, 45 rift spawner, 92 rift cash-in. Classes 34–38 resolve to no entity
+(probably camps, unconfirmed). A `seen` per objective key (like `Player.seen`) would let a team's
+view hide an objective's health and state changes out of its sight. Troopers' entries weren't
+probed.
+
+## Vision leaves the rest of Player omniscient (2026-11-09)
+
+In a team's Vision only the enemy tokens on the map change. Still shown as SourceTV saw them:
+the top bar's enemy health, ult, souls and respawn timers (`PlayerTopBar.tsx`); the events list
+and its pings and jump rings (an enemy's death or ult where nobody on the team saw it; the jump
+ring in `host.ts` `ring` follows the hero's true position); the trooper dots; objectives'
+health. Some of that a player does know in game (the scoreboard has souls and respawns), so each
+needs a call per item, not a blanket filter.
+
+## Vision checked on one replay (2026-11-09)
+
+`m_bVisibleOnMap`'s meaning was validated on 129738985 alone (build 6839). Worth re-checking on a
+second standard 6v6 match and after patches: the first sighting near the laners' first contact,
+almost every death seen, the FOW position matching the true one while visible. The spike's open
+questions stand: hero 81's death while hidden for 2 s (stealth?), the spectator team's list, and
+`m_nOwnerOnlyEntIndex`.
+
 ## The HUD's mid-boss timer circle and per-player Rejuvenator marks (2026-11-09)
 
 Noticed by rejuv-icons while reading `citadel_hud_top_bar.vcss` for the Rejuvenator marks. Two

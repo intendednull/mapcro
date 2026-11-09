@@ -22,6 +22,9 @@ export interface TimelinePlayer {
   ult?: Array<number | null>;
   /** Both tiers, when they have it: `[died_s, back_s]` per death. */
   respawn?: Array<[number, number]>;
+  /** Replay tier, format 4: `[start_ds, end_ds)` tenths of a second the enemy team could see this
+   * hero (crates/replay/src/timeline.rs `Player::seen`). */
+  seen?: Array<[number, number]>;
 }
 
 /** The Soul Urn's state from a second on (replay tier; crates/replay/src/timeline.rs `UrnAt`). */

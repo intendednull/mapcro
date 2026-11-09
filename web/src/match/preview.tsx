@@ -6,8 +6,9 @@ import type { CampAt, PowerupAt, RejuvNow, RiftAt, UrnNow } from "./timeline";
 
 export interface MatchPreview {
   /** By "amber-0" … "sapphire-5": the hero there, its player's name if known, and where it is
-   * (`null`: dead, hidden). */
-  players: Map<string, { hero: number; name?: string | null; pos: { x: number; y: number } | null; health?: number | null; respawn?: number | null }>;
+   * (`null`: dead, hidden). `ghost`: in one team's Vision, an enemy out of its sight, drawn dim at
+   * `pos`, where it was last seen, this many seconds ago. */
+  players: Map<string, { hero: number; name?: string | null; pos: { x: number; y: number } | null; health?: number | null; respawn?: number | null; ghost?: number | null }>;
   /** Board objective keys down at this moment. */
   down: Set<string>;
   /** Replay tier: rifts and powerups at this moment, by key (absent: the board's own). */

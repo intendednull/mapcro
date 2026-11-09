@@ -423,6 +423,18 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     `rejuv_taken` (at the mid boss), `rejuv_revive` (the hero, from the message's pawn) and
     `rejuv_expired`. On 129738985: Sapphire 31:12–34:12 (revives 32:10, 32:35), Amber
     39:54–42:54 (42:21, 42:27), 177 bytes.
+  - **Vision** (`Player.seen`, format 4, 2026-11-09; docs/research/replay-vision.md): when the
+    enemy team could see each hero on its minimap. Each `CCitadelTeam`'s `m_vecFOWEntities` is
+    that team's own feed; a hero pawn's entry (`m_eClass` 1, `m_nEntIndex` the pawn, mapped to
+    its controller through `m_hPawn`) carries `m_bVisibleOnMap`. Read every tick, field by
+    field: boon's `replay_inputs::EnemyMinimap` also resolves Steam ids, which we never read.
+    Per hero, `[start_ds, end_ds)` in tenths of a second, in order, hidden gaps under 0.5 s
+    merged (`SEEN_MERGE_DS`; half of all gaps are under a second, flicker), a glimpse under a
+    tenth kept as one. The validator checks each interval is non-empty, inside the match and
+    at least the merge gap after the last. On 129738985: 2,052 intervals, 26.6 KB (+1.8%);
+    nobody seen before 18.2 s, when the laners first meet; 73 of 74 deaths seen within a second
+    of dying; each hero seen 34–45% of the match. Objectives carry their own flags in the same
+    feed (not read yet; docs/backlog.md).
   - **Powerups:** available or taken per `powerup:` key at each second.
   - **Zipline colours** (`zips`, 2026-11-08, replacing the trooper-front estimate): the game
     networks each rope node's owner (`CCitadelZipLineNode.m_iTeamNum`, exploration round 4),
@@ -462,8 +474,8 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     the run up to the next drop or delivery.
   - **Format stamp** (`mapcro_replay::timeline::FORMAT`, the one constant the worker and the
     server share): each worker timeline carries `format` (1 from respawns and the urn; 2 buff
-    types and rift openings; 3 the Rejuvenator and rift capture; 0 before). Format 3 adds 4.2 KB
-    to 129738985's 1.50 MB. New fields are optional, so older cached timelines still load without them.
+    types and rift openings; 3 the Rejuvenator and rift capture; 4 vision; 0 before). Format 3
+    adds 4.2 KB to 129738985's 1.50 MB; format 4, 26.6 KB (1,501,758 to 1,528,328 bytes). New fields are optional, so older cached timelines still load without them.
     - **A fetched timeline in an older format** (2026-11-08), for a match inside Valve's three
       weeks, is fetched and parsed again when an editor opens the match: the same line, caps and
       fairness as any fetch on open. The old one is served meanwhile; the job's status (fetching,
@@ -733,6 +745,18 @@ makes a board with that match attached and lands in Player; **New board** is tod
   shown when the timeline has players' names, on by default. Off, no player name is on screen
   (top bar, events and their search, tokens' hover titles; the hero or slot label stands in).
   It is this browser's alone: kept in localStorage for every board, never in presence.
+- **Vision** (2026-11-09, operator: "in a replay usually we can set it to only see the heroes …
+  the current team could see"): a transport select, "Vision: All / Hidden King / Archmother",
+  shown when the timeline has `seen` (format 4). In a team's view its own heroes always show;
+  an enemy out of its sight is a ghost (the scene ghost's dashed ring and slashed eye, at 60%
+  and desaturated) at its true position when last seen, its label ending "· Seen 0:12 ago",
+  its health ring not drawn; one it hasn't seen yet, or not since that hero last died, isn't
+  drawn. Leaving and coming back into sight eases the dimming (`--value-ease-ms`; reduced
+  motion jumps); the token itself jumps from its ghost spot to where it is, as the game's
+  minimap does. "All" is the map as before. Like Names it is this browser's alone
+  (localStorage, every board), never in presence: a follower keeps its own view. Only the
+  heroes on the map follow it: the top bar, events, pings and troopers stay omniscient
+  (docs/backlog.md).
 - **Keys while watching** (2026-11-08, operator): ↑ ↓ step to the previous and next event (its
   jump and ring), ← → seek 5 s (Shift: 30 s) and keep playing or paused, and a Space tap plays
   or pauses. A Space-drag still only pans, and nothing fires while typing. Viewing a scene, ← →

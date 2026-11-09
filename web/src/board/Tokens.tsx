@@ -252,7 +252,9 @@ export function Tokens(p: {
           // alive and seen by the match, placed where the match has them (spec §6b).
           const live = () => !!p.preview?.();
           const alive = () => (live() ? true : pl().state.alive);
-          const visible = () => (live() ? true : pl().state.visible);
+          // In one team's Vision, an enemy out of its sight: a ghost where last seen (spec §6b).
+          const ghost = () => (live() ? (pv()?.ghost ?? null) : null);
+          const visible = () => (live() ? ghost() == null : pl().state.visible);
           const heroId = () => pv()?.hero ?? slot().hero;
           const hero = () => (heroId() != null ? p.art.heroes.get(heroId()!) : undefined);
           const team = () => (slot().team === "Amber" ? "amber" : "sapphire");
@@ -274,7 +276,7 @@ export function Tokens(p: {
           const home = () => worldToView(pl().state.pos, p.vp);
           const r = () => TOKEN_R * p.k;
           // In Player, the match's player name (spec §6b); else the board's slot name.
-          const label = () => `${pv()?.name || slot().name || `${rosterTeamShort(slot().team)} ${slot().slot + 1}`}${hero() ? `, ${hero()!.name}` : ""}`;
+          const label = () => `${pv()?.name || slot().name || `${rosterTeamShort(slot().team)} ${slot().slot + 1}`}${hero() ? `, ${hero()!.name}` : ""}${ghost() != null ? ` · Seen ${formatClock(Math.floor(ghost()!))} ago` : ""}`;
           // The map's hover label (map/HoverLabel.tsx), by roster slot, never the player's id.
           const hoverId = () => `${slot().team}-${slot().slot}`;
           const shownOnMap = () => (live() ? !!pv()?.pos : pl().state.placed);
@@ -283,7 +285,7 @@ export function Tokens(p: {
           // the token's own name.
           const editable = () => p.state.canEdit() && !live();
           const partText = (part: string | undefined) =>
-            part === "vis" && (editable() || !visible()) ? (visible() ? "In vision" : "Not seen") : part === "life" && editable() ? (alive() ? "Kill (K)" : "Revive (K)") : label();
+            part === "vis" && !live() && (editable() || !visible()) ? (visible() ? "In vision" : "Not seen") : part === "life" && editable() ? (alive() ? "Kill (K)" : "Revive (K)") : label();
           createEffect(() => {
             const off = registerHover("token", hoverId(), (part) => (shownOnMap() ? { x: at().x, y: at().y, gap: r() + 12 * p.k, text: partText(part) } : undefined));
             onCleanup(off);
@@ -309,6 +311,7 @@ export function Tokens(p: {
                 data-slot={`${slot().team}-${slot().slot}`}
                 data-player={pl().id}
                 data-visible={String(visible())}
+                data-seen={live() ? String(ghost() == null) : undefined}
                 onPointerDown={(e) => down(pl(), e)}
                 aria-label={label()}
                 onPointerEnter={() => {

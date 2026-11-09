@@ -14,7 +14,8 @@ import { type Handoff, takeHandoff } from "./handoff";
 import { type Playback, clampT, follow, rebase, tAt } from "./clock";
 import { type Pt, worldToMap } from "../map/transform";
 import { eventKey } from "./events";
-import { chooseSummary, markOpened, openedHere, playerNamesShown, setPlayerNamesShown, summaryChosen } from "../core/device";
+import { chooseSummary, markOpened, openedHere, playerNamesShown, playerVision, setPlayerNamesShown, setPlayerVision, summaryChosen } from "../core/device";
+import { type Vision, hasVision, seenAt } from "./vision";
 
 export type Mode = "player" | "sandbox";
 
@@ -67,6 +68,15 @@ export function createPlayerHost(board: string, token: string) {
   const setShowNames = (on: boolean) => {
     setPlayerNamesShown(on);
     setShowNamesRaw(on);
+  };
+  /**
+   * Whose vision the map draws (spec §6b "Vision"): every hero, or one team's view, where an enemy
+   * out of its sight is ghosted where it was last seen. Like Names, this browser's alone.
+   */
+  const [vision, setVisionRaw] = createSignal<Vision>(playerVision());
+  const setVision = (v: Vision) => {
+    setPlayerVision(v);
+    setVisionRaw(v);
   };
   /** The player's name in a slot when names are shown and the timeline has one: the top bar and
    * the events read names here, the tokens through `preview` (which checks `showNames` too). */
@@ -619,6 +629,8 @@ export function createPlayerHost(board: string, token: string) {
     setShowPings,
     showNames,
     setShowNames,
+    vision,
+    setVision,
     playerName,
     setPingable,
     pings,
@@ -664,7 +676,15 @@ export function createPlayerHost(board: string, token: string) {
       if (!m) return { players: new Map(), down: new Set(), sites: new Map(), lanes: new Map(), camps: new Map(), rifts: new Map(), powerups: new Map() };
       const at = t();
       const health = showHealth() && m.tier === "replay";
-      const players = new Map(playersAt(m, at).map((x) => [slotKey(x.team, x.slot), { hero: x.hero_id, name: showNames() ? x.name : null, pos: x.pos, health: health ? x.health : null, respawn: x.respawn }]));
+      // One team's view: its enemies as it saw them (ghosted out of sight, undrawn unseen).
+      const view = vision() !== "all" && hasVision(m) ? vision() : null;
+      const players = new Map(
+        playersAt(m, at).map((x, i) => {
+          const shown = { hero: x.hero_id, name: showNames() ? x.name : null, pos: x.pos, health: health ? x.health : null, respawn: x.respawn };
+          const s = view && x.team !== view ? seenAt(m.players[i]!, at) : { seen: true as const };
+          return [slotKey(x.team, x.slot), s?.seen ? shown : { ...shown, pos: s?.at ?? null, health: null, ghost: s?.ago ?? null }];
+        }),
+      );
       // Everything by the board's marker keys: a pack can key a site differently from the
       // timeline (match/timeline.ts `markerKey`).
       const byMarker = <V,>(src: Map<string, V>) => {

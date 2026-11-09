@@ -121,6 +121,19 @@ export function setPlayerNamesShown(on: boolean) {
   write(NAMES, on);
 }
 
+const VISION = "mapcro.playerVision";
+
+/** Whose vision this browser's Player draws (the Vision control, spec §6b): "all", "amber" or
+ * "sapphire", for every board; never shared with other viewers. */
+export function playerVision(): "all" | "amber" | "sapphire" {
+  const v = read<string>(VISION, "all");
+  return v === "amber" || v === "sapphire" ? v : "all";
+}
+
+export function setPlayerVision(v: "all" | "amber" | "sapphire") {
+  write(VISION, v);
+}
+
 const SUMMARY = "mapcro.summaryChosen";
 const OPENED = "mapcro.opened";
 

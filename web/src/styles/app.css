@@ -207,6 +207,13 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .mm-overlay.map .tok:not(:hover) .vis:not(.off) { pointer-events: none; }
 .mm-overlay.map .tok.ghost > .body, .mm-overlay.map .tok.ghost > image, .mm-overlay.map .tok.ghost > text { opacity: 0.42; }
 .mm-overlay.map .tok.ghost > .body { stroke-dasharray: 5 4; }
+/* Vision in Player (spec §6b): in one team's view, an enemy out of its sight is that ghost,
+   desaturated too, easing as it leaves sight and comes back (changing values ease, above). */
+.mm-overlay.map .tok[data-seen] { transition: filter var(--value-ease-ms) var(--ease-out-expo); }
+.mm-overlay.map .tok[data-seen] > .body, .mm-overlay.map .tok[data-seen] > image, .mm-overlay.map .tok[data-seen] > text { transition: opacity var(--value-ease-ms) var(--ease-out-expo); }
+.mm-overlay.map .tok[data-seen="false"] { filter: saturate(0.25); }
+/* Lighter than a scene's ghost: a real map's terrain is busy, and these are where to look. */
+.mm-overlay.map .tok[data-seen="false"] > .body, .mm-overlay.map .tok[data-seen="false"] > image, .mm-overlay.map .tok[data-seen="false"] > text { opacity: 0.6; }
 /* Selection */
 /* What I select is highlighted in my presence colour (--me, set on the map box: my avatar and
    cursor's colour), a solid ring with a glow; others' picks take theirs (operator, 2026-11-09). */
@@ -316,6 +323,7 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-head .pl-id { width: 130px; height: 28px; }
 .pl-match { font: 600 12px var(--ui); color: var(--faint); }
 .pl-speed { width: 64px; height: 28px; padding: 0 4px; }
+.pl-vision { width: auto; height: 28px; padding: 0 4px; }
 /* The scene marks and event ticks sit in the scrubber's own top padding, inside its row, so they
    never reach the row above (QA 2026-11-08: marks drew over the tier chip). */
 .pl-scrub { position: relative; flex: 1; display: flex; align-items: center; padding-top: 16px; }
