@@ -291,6 +291,7 @@ fn timeline(id: u64) -> Timeline {
         troopers: None,
         objective_health: vec![],
         urn: None,
+        rejuv: vec![],
         format: mapcro_replay::timeline::FORMAT,
     }
 }
