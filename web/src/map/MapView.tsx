@@ -219,15 +219,11 @@ export function MapView(p: {
     onCleanup(() => ro.disconnect());
   });
   const view = () => p.view ?? { x: 0, y: 0, w: 1000 };
-  // Inside the map square, the HUD look: a fixed frame, and zoomed in, the map clipped to its
-  // disc. Out past the map (its notes margin), the map and its frame move and zoom together
-  // like any other thing on the board, and nothing is clipped to the disc.
-  // Zoomed in past the default view, inside the map: the HUD look. At the default view and
-  // out from it, the map and its frame are one picture, clipped by the box.
-  const hud = () => {
-    const v = view();
-    return v.w < FIT_VIEW.w - 0.5 && v.x >= 0 && v.y >= 0 && v.x + v.w <= 1000 && v.y + v.w <= 1000;
-  };
+  // Zoomed in past the default view: the HUD look, a fixed frame and the view clipped to its
+  // disc, wherever the view is panned, the map's edge and its notes margin included (operator,
+  // 2026-11-08: the stencil vanished when a zoomed-in view panned past the map's border). At the
+  // default view and out from it, the map and its frame are one picture, clipped by the box.
+  const hud = () => view().w < FIT_VIEW.w - 0.5;
   const free = () => !p.lite && !hud();
   const frame = () => (
     <>
