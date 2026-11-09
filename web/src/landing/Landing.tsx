@@ -41,7 +41,6 @@ export function Landing() {
   /** Why the match didn't open, and what to do (spec §6b). */
   const [notice, setNotice] = createSignal<Notice>();
   let pick!: HTMLInputElement;
-  let selectFile!: HTMLInputElement;
   // A board made by an attempt that failed later (a lookup refused) is reused on retry.
   let made: { board: string; token: string; id: string } | undefined;
   const fail = (text: string) => {
@@ -122,10 +121,10 @@ export function Landing() {
             onInput={(e) => setMatchId(e.currentTarget.value)}
             aria-label="Match id"
           />
-          <button class="btn ghost" type="button" title="A .dem from your replays folder" onClick={() => selectFile.click()}>
+          <label class="btn ghost" title="A .dem from your replays folder">
             {file() ? file()!.name : "Select replay file"}
-          </button>
-          <input ref={selectFile} type="file" accept=".dem" hidden data-testid="open-match-file" onChange={(e) => setFile(e.currentTarget.files?.[0])} />
+            <input type="file" accept=".dem" hidden data-testid="open-match-file" onChange={(e) => setFile(e.currentTarget.files?.[0])} />
+          </label>
           <button class="btn primary" type="submit" data-testid="open-match-go" disabled={!!opening()}>
             {opening() || "Open match"}
           </button>
