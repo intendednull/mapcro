@@ -78,7 +78,7 @@
         version = "0.0.0";
         src = webSrc;
         nodejs = pkgs.nodejs_24;
-        npmDepsHash = "sha256-mO/yuiIkRpBf6sHOtJH8KqWbDq9GSaLXc3B4+J/otrg=";
+        npmDepsHash = "sha256-BVEnhx7TWc8HS/pEmj2s7F2eRF1vhlSslED1jJgCE+g=";
         preBuild = ''
           mkdir -p src/wasm
           cp ${wasm}/mapcro_wasm.js ${wasm}/mapcro_wasm_bg.wasm src/wasm/
