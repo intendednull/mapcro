@@ -74,7 +74,14 @@ export const TEAM_TINT = { amber: "#E7B659", sapphire: "#5B79E6" } as const;
 export const LANE_TINT: Record<LaneColor, string> = { yellow: "#FFDF40", blue: "#2EC7E6", purple: "#6BB247" };
 
 const team = (t: string): Team => (t === "amber" || t === "sapphire" ? t : "neutral");
-const teamName = (t: Team) => (t === "amber" ? "Amber" : t === "sapphire" ? "Sapphire" : "neutral");
+/** A team's display name: its patron since Old Gods, New Blood (the Amber Hand follows the Hidden
+ *  King, the Sapphire Flame the Archmother). The wire, CSS and data keys stay `amber`/`sapphire`;
+ *  every user-visible team name goes through here. */
+export const teamName = (t: Team) => (t === "amber" ? "Hidden King" : t === "sapphire" ? "Archmother" : "neutral");
+/** The same, short, where a label is tight (a roster slot tag, a top-bar heading). */
+export const teamShort = (t: Team) => (t === "amber" ? "King" : t === "sapphire" ? "Archmother" : "neutral");
+/** The display name for the roster's capitalised `"Amber"`/`"Sapphire"` (gen/Team). */
+export const rosterTeamName = (t: string) => teamName(t === "Amber" || t === "amber" ? "amber" : t === "Sapphire" || t === "sapphire" ? "sapphire" : "neutral");
 
 function campTier(e: PackEntity): Marker["tier"] {
   if (e.tier === "weak" || e.tier === "medium" || e.tier === "strong" || e.tier === "vaults") return e.tier;
