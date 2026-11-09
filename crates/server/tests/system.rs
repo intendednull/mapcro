@@ -5,13 +5,46 @@ use futures_util::{SinkExt, StreamExt};
 use mapcro_engine::wire::{Base, CloseReason, LinkRole, WireIn, WireOut};
 use mapcro_engine::{ClientMsg, Replica, SaveStatus, ServerMsg};
 use mapcro_schema::{ClientId, FieldValue, Op, Record, Reject, WorldPos};
+use std::io::Read;
 use std::net::TcpListener;
 use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 
 const ORIGIN: &str = "http://localhost:5173";
 type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// Drain a child's stderr into a buffer (and still show it), so a bind failure can be told apart
+/// from any other early exit.
+fn capture_stderr(child: &mut Child) -> (Arc<Mutex<String>>, std::thread::JoinHandle<()>) {
+    let log = Arc::new(Mutex::new(String::new()));
+    let mut pipe = child.stderr.take().expect("piped stderr");
+    let sink = Arc::clone(&log);
+    let handle = std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = pipe.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            let text = String::from_utf8_lossy(&buf[..n]).into_owned();
+            eprint!("{text}");
+            if let Ok(mut log) = sink.lock() {
+                log.push_str(&text);
+            }
+        }
+    });
+    (log, handle)
+}
+
+/// Health probe with a short timeout: a squatter on a fixed port may accept a connection and then
+/// never answer, which must not stall the restart retry loop.
+fn health_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(2)))
+        .build()
+        .new_agent()
+}
 
 struct Server {
     child: Child,
@@ -25,24 +58,75 @@ impl Server {
     }
 
     fn start_with(dir: &std::path::Path, port: Option<u16>, env: &[(&str, &str)]) -> Server {
-        let port = port.unwrap_or_else(|| TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).unwrap_or(0));
-        let child = Command::new(env!("CARGO_BIN_EXE_mapcro-server"))
-            .env("PORT", port.to_string())
-            .env("DATA_DIR", dir)
-            .env("PUBLIC_ORIGIN", ORIGIN)
-            .env("RUST_LOG", "warn")
-            .envs(env.iter().copied())
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("server starts");
-        let s = Server { child, port, dir: dir.to_owned() };
+        // A restart is given the port the killed server had. On a busy machine another process can
+        // grab that port in between, and then the health check below would happily succeed against
+        // the stranger while our own child had already died of `cannot bind`. Retry until the port
+        // is ours, and only trust a health check answered while our child is still alive.
+        let port_requested = port.is_some();
         let deadline = Instant::now() + Duration::from_secs(10);
-        while ureq::get(&s.url("/healthz")).call().is_err() {
-            assert!(Instant::now() < deadline, "server never became healthy");
-            std::thread::sleep(Duration::from_millis(50));
+        let health = health_agent();
+        loop {
+            let port = port.unwrap_or_else(|| {
+                TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).unwrap_or(0)
+            });
+            let mut child = Command::new(env!("CARGO_BIN_EXE_mapcro-server"))
+                .env("PORT", port.to_string())
+                .env("DATA_DIR", dir)
+                .env("PUBLIC_ORIGIN", ORIGIN)
+                .env("RUST_LOG", "warn")
+                .envs(env.iter().copied())
+                .stdout(Stdio::null())
+                // A fixed port can lose a race, so keep the child's own account of why it exited.
+                .stderr(if port_requested { Stdio::piped() } else { Stdio::inherit() })
+                .spawn()
+                .expect("server starts");
+            let log = port_requested.then(|| capture_stderr(&mut child));
+            let mut s = Server { child, port, dir: dir.to_owned() };
+            let ready_deadline = Instant::now() + Duration::from_secs(10);
+            let mut status = None;
+            loop {
+                if let Ok(Some(st)) = s.child.try_wait() {
+                    status = Some(st);
+                    break;
+                }
+                if health.get(&s.url("/healthz")).call().is_ok() {
+                    break;
+                }
+                assert!(Instant::now() < ready_deadline, "server never became healthy");
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            if status.is_none() && port_requested {
+                // (b) Safety net: a stranger holding the port answers /healthz before our child has
+                // had time to fail its bind. Let the bind settle, then require our child to live.
+                std::thread::sleep(Duration::from_millis(100));
+                if let Ok(Some(st)) = s.child.try_wait() {
+                    status = Some(st);
+                }
+            }
+            if status.is_none() {
+                return s;
+            }
+            // Only a dead child closes its stderr, so joining here cannot block.
+            let text = match log {
+                Some((log, handle)) => {
+                    let _ = handle.join();
+                    log.lock().map(|l| l.clone()).unwrap_or_default()
+                }
+                None => String::new(),
+            };
+            // (a) The child we spawned died before it was healthy. If it died because the fixed
+            // port was taken, wait for the port to come free and start again on it.
+            let bind_failed = text.contains("cannot bind") || text.contains("Address already in use");
+            if port_requested && bind_failed && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(200));
+                continue;
+            }
+            panic!(
+                "mapcro-server exited before becoming healthy on port {port} ({}): {}",
+                status.map(|st| st.to_string()).unwrap_or_else(|| "no status".into()),
+                text.trim_end()
+            );
         }
-        s
     }
 
     fn url(&self, path: &str) -> String {
