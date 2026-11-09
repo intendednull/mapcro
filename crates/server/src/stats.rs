@@ -424,6 +424,10 @@ fn summary(c: &Connection, now: i64, len: i64) -> Res<Report> {
     let _ = writeln!(t, "  sockets opened      {}; peak at once {}", vs(total(&opens), total(&opens_p)), conns.map_or("-".into(), |x| num(x.2)));
     let _ = writeln!(t, "  boards created      {}{}; peak open {}", vs(total(&boards), total(&boards_p)), sep(&breakdown(&boards, |_| true)), rooms.map_or("-".into(), |x| num(x.2)));
     let _ = writeln!(t, "  matches opened      {}{}", vs(total(&matches), total(&matches_p)), sep(&breakdown(&matches, |_| true)));
+    let feedback = counter(c, "feedback_sent", since, now)?;
+    let feedback_p = counter(c, "feedback_sent", prev, since)?;
+    let feedback_no = counter(c, "feedback_rejected", since, now)?;
+    let _ = writeln!(t, "  feedback sent       {}; refused {}{}", vs(total(&feedback), total(&feedback_p)), num(total(&feedback_no)), sep(&breakdown(&feedback_no, |_| true)));
 
     // Speed.
     let ack = hist(c, "op_ack_ms", since, now)?;
@@ -463,6 +467,7 @@ fn summary(c: &Connection, now: i64, len: i64) -> Res<Report> {
             "connections_peak": conns.map(|x| x.2), "rooms_peak": rooms.map(|x| x.2),
             "boards_created": boards, "boards_created_prev": boards_p,
             "matches_opened": matches, "matches_opened_prev": matches_p,
+            "feedback_sent": total(&feedback), "feedback_sent_prev": total(&feedback_p), "feedback_rejected": feedback_no,
         },
         "speed": {
             "op_ack_ms": ack.get("").map(quantiles), "op_ack_ms_prev": ack_p.get("").map(quantiles),

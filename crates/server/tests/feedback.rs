@@ -51,6 +51,7 @@ impl Server {
             .env("RUST_LOG", "info")
             .env("MATCH_API_BASE", "http://127.0.0.1:1")
             .env("METRICS_ADDR", format!("127.0.0.1:{metrics}"))
+            .env("METRICS_EVERY_S", "1")
             .env("FEEDBACK_GITHUB_API", format!("http://127.0.0.1:{github}"))
             .envs(env.iter().copied())
             .stdout(Stdio::piped())
@@ -110,9 +111,42 @@ impl Server {
         ureq::get(&format!("http://127.0.0.1:{}/metrics", self.metrics)).call().expect("metrics").body_mut().read_to_string().expect("text")
     }
 
+    /// `stats <args> --json`, polled until `done` holds (snapshots land every second).
+    fn until_stats(&self, args: &[&str], done: impl Fn(&serde_json::Value) -> bool) -> serde_json::Value {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let out = Command::new(env!("CARGO_BIN_EXE_mapcro-server"))
+                .arg("stats")
+                .args(args)
+                .args(["--json", "--data-dir"])
+                .arg(self._data.path())
+                .env_remove("DATA_DIR")
+                .output()
+                .expect("stats runs");
+            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&out.stdout)
+                && done(&v)
+            {
+                return v;
+            }
+            assert!(Instant::now() < deadline, "stats never showed it: {}", String::from_utf8_lossy(&out.stdout));
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+
     fn log(&self) -> String {
         self.log.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
+}
+
+/// Every file under the data dir, as text (the database and its WAL).
+fn db_text(dir: &std::path::Path) -> String {
+    let mut out = String::new();
+    for e in std::fs::read_dir(dir).expect("data dir").flatten() {
+        if let Ok(b) = std::fs::read(e.path()) {
+            out.push_str(&String::from_utf8_lossy(&b));
+        }
+    }
+    out
 }
 
 /// One request as the fake saw it.
@@ -279,6 +313,14 @@ fn github_failures_are_a_clean_error() {
         assert!(!log.contains(marker), "{marker} in the log:\n{log}");
     }
     assert!(s.metrics().contains("mapcro_feedback_rejected_total{reason=\"github_error\"} 1"));
+    // The operator's view: the refusal by reason, and the failure, in words we wrote.
+    let v = s.until_stats(&["summary"], |v| v["usage"]["feedback_rejected"]["reason=github_error"] == 1.0);
+    assert_eq!(v["health"]["failures_by_kind_code"]["k=upstream,c=upstream_5xx"], 1.0);
+    let failures = s.until_stats(&["failures"], |v| v.as_array().is_some_and(|a| !a.is_empty()));
+    assert!(failures.as_array().is_some_and(|f| f.iter().any(|g| g["message"] == "github issues upstream_5xx")), "{failures:#}");
+    for secret in ["secret-description-marker", TOKEN] {
+        assert!(!db_text(s._data.path()).contains(secret), "the database holds {secret}");
+    }
 
     // A success answer without an https link isn't passed on.
     let gh = github(vec![(201, r#"{"html_url":"javascript:alert(1)"}"#.into())]);
