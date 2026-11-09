@@ -34,12 +34,15 @@ test.afterAll(() => {
 });
 
 const range = <T,>(f: (s: number) => T) => Array.from({ length: N + 1 }, (_, s) => f(s));
+const DROP = { x: -2000, y: 1500 };
 const stand = (team: string, slot: number) => ({ x: slot * 1500 - 4000, y: team === "amber" ? -3000 : 3000 });
 
 /**
  * - Sapphire 0 walks east 100 units a second; the King's team sees it 10–20 s.
  * - Amber 1 is seen by the Archmother's team 0–30 s, dies at 35 and is back at 40, unseen since.
  * - Amber 0 is seen by the Archmother's team all match; every other hero by nobody.
+ * - The urn: Sapphire 0 carries it 10–30 s, Sapphire 1 (never seen) 30–40 s; it's dropped at
+ *   40 and lies there.
  */
 function timeline() {
   return {
@@ -63,6 +66,14 @@ function timeline() {
       }),
     ),
     objectives: [], mid_boss: [], rifts: [], powerups: [], events: [],
+    urn: {
+      spawns: [],
+      at: [
+        { t: 10, state: "carried", team: "sapphire", slot: 0 },
+        { t: 30, state: "carried", team: "sapphire", slot: 1 },
+        { t: 40, state: "ground", x: DROP.x, y: DROP.y, team: "sapphire" },
+      ],
+    },
   };
 }
 
@@ -191,4 +202,64 @@ test("the view is this browser's: a follower keeps its own, and a reload keeps i
   await expect(a.getByTestId("vision-select")).toHaveValue("amber");
   await expect(tok(a, "Sapphire-1")).toHaveCount(0);
   await expect(tok(a, "Amber-1")).toHaveCount(1);
+});
+
+test("in a team's view, an urn carried by an enemy out of its sight isn't drawn or hovered", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Vision urn"), "Coach");
+  await open(a);
+  await a.emulateMedia({ reducedMotion: "reduce" });
+  const urn = a.locator("[data-testid=map] [data-testid=urn]");
+  const pick = a.getByTestId("vision-select");
+  const centre = async () => {
+    const b = (await urn.locator("image").boundingBox())!;
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  };
+
+  // All: carried by Sapphire 0, by Sapphire 1, then on the ground.
+  const spot: Record<number, { x: number; y: number }> = {};
+  for (const t of [15, 25, 35]) {
+    await scrubTo(a, t);
+    await expect(urn).toHaveAttribute("data-state", "carried");
+    spot[t] = await centre();
+  }
+  await scrubTo(a, 45);
+  await expect(urn).toHaveAttribute("data-state", "ground");
+
+  // The King's view: shown on the carrier it sees (15), gone on a ghost (25) and on a carrier it
+  // never saw (35), back once dropped (45).
+  await pick.selectOption("amber");
+  await scrubTo(a, 15);
+  await expect(urn).toHaveAttribute("data-state", "carried");
+  await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-seen", "true");
+  await scrubTo(a, 25);
+  await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-seen", "false");
+  await expect(urn).toHaveCount(0);
+  // Where it really is says nothing of it.
+  await a.mouse.move(spot[25]!.x, spot[25]!.y);
+  await a.mouse.move(spot[25]!.x + 1, spot[25]!.y);
+  await expect(a.getByTestId("hover-label").filter({ hasText: /Urn/ })).toHaveCount(0);
+  await a.mouse.move(5, 5);
+  await a.screenshot({ path: "/tmp/vision/urn-king-25.png" });
+  await scrubTo(a, 35);
+  await expect(tok(a, "Sapphire-1")).toHaveCount(0);
+  await expect(urn).toHaveCount(0);
+  await scrubTo(a, 45);
+  await expect(urn).toHaveAttribute("data-state", "ground");
+  const g = await centre();
+  await a.mouse.move(g.x, g.y);
+  await a.mouse.move(g.x + 1, g.y);
+  await expect(a.getByTestId("hover-label")).toHaveText("Urn");
+  await a.mouse.move(5, 5);
+
+  // The Archmother's view: her own carriers, seen or not by the King, carry it in sight.
+  await pick.selectOption("sapphire");
+  for (const t of [25, 35]) {
+    await scrubTo(a, t);
+    await expect(urn).toHaveAttribute("data-state", "carried");
+  }
+
+  // All again: on every carrier.
+  await pick.selectOption("all");
+  await scrubTo(a, 25);
+  await expect(urn).toHaveAttribute("data-state", "carried");
 });

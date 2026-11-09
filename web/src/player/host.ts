@@ -698,7 +698,12 @@ export function createPlayerHost(board: string, token: string) {
       const camps: Map<string, CampAt> = byMarker(campsAt(m, at));
       const u = urnAt(m, at);
       const site = (k: string | null | undefined) => (k ? (markerKey(k, markers) ?? null) : null);
-      const urn = u ? { ...u, delivery: site(u.delivery), next: u.next ? { t: u.next.t, key: site(u.next.key) ?? u.next.key } : null } : undefined;
+      // In one team's view, an urn carried by an enemy out of its sight isn't drawn: where it
+      // is would give the carrier away (operator 2026-11-09), ghost or undrawn alike.
+      // `at: null` draws nothing and can't be hovered (Urn.tsx, Camps.tsx).
+      const carrier = u?.state === "carried" && view && u.team !== view ? m.players.findIndex((q) => q.team === u.team && q.slot === u.slot) : -1;
+      const unseen = carrier >= 0 && !seenAt(m.players[carrier]!, at)?.seen;
+      const urn = u ? { ...u, ...(unseen ? { at: null } : {}), delivery: site(u.delivery), next: u.next ? { t: u.next.t, key: site(u.next.key) ?? u.next.key } : null } : undefined;
       const rifts = new Map<string, RiftAt>();
       if (m.rifts) for (const mk of markers) if (mk.kind === "koth") rifts.set(mk.key, riftAt(m, mk.key, at, markers)!);
       const powerups = new Map<string, PowerupAt>();
