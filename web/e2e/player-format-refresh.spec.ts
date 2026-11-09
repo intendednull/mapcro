@@ -9,10 +9,12 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "./fixtures";
-import { ROOT, Server } from "./server";
+import { ROOT, Server, TIMELINE_FORMAT } from "./server";
 
 const CDN = 130816397;
 const UP = 130816398;
+/** A match a board already has open when its cached timeline turns out to be older. */
+const KEPT = 130816399;
 const queue = mkdtempSync(join(tmpdir(), "mapcro-e2e-format-"));
 let upstream: ReturnType<typeof createServer>;
 let server: Server;
@@ -34,11 +36,12 @@ test.beforeAll(async () => {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(meta(Number(m[1])));
     }
-    if (url === `/v1/matches/${CDN}/salts`) {
+    const salts = /^\/v1\/matches\/(\d+)\/salts/.exec(url);
+    if (salts && [CDN, KEPT].includes(Number(salts[1]))) {
       res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ match_id: CDN, cluster_id: 404, replay_salt: 77, metadata_salt: 9 }));
+      return res.end(JSON.stringify({ match_id: Number(salts[1]), cluster_id: 404, replay_salt: 77, metadata_salt: 9 }));
     }
-    if (url === `/cdn/404/1422450/${CDN}_77.dem.bz2`) {
+    if (url === `/cdn/404/1422450/${CDN}_77.dem.bz2` || url === `/cdn/404/1422450/${KEPT}_77.dem.bz2`) {
       res.writeHead(200);
       return res.end(Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]));
     }
@@ -65,7 +68,7 @@ function timeline(id: number, current: boolean) {
       [0, 1, 2, 3, 4, 5].map((slot) => ({ team, slot, hero_id: 1 + slot, name: null, x: range(() => slot * 300), y: range(() => (team === "amber" ? -8000 : 8000)), health: range(() => 100), deaths: [], souls: [[0, 500]], ult: range(() => 0) })),
     ),
     objectives: [], mid_boss: [], rifts: [], powerups: [], zips: [], camps: [], events: [],
-    ...(current ? { format: 1, urn: { spawns: [{ t: 0, key: "urn:neutral:lane1:1" }], at: [{ t: 0, state: "ground", x: -6584, y: 0 }] } } : {}),
+    ...(current ? { format: TIMELINE_FORMAT, urn: { spawns: [{ t: 0, key: "urn:neutral:lane1:1" }], at: [{ t: 0, state: "ground", x: -6584, y: 0 }] } } : {}),
   };
 }
 
@@ -118,4 +121,28 @@ test("a stale upload stays, and offers Upload replay file as the way up", async 
   await expect(chip).toHaveAttribute("title", /An older parse/);
   await expect(a.getByTestId("match-upload")).toHaveText("Upload replay file");
   expect(hits.filter((h) => h === `/v1/matches/${UP}/salts`).length).toBeLessThanOrEqual(1);
+});
+
+test("a board that already has the match upgrades an older fetched timeline when it's opened again, without a new attach", async ({ browser }) => {
+  // Opened while its timeline was current: nothing to refresh, and the board keeps the match.
+  cache(`${KEPT}-cdn`, timeline(KEPT, true));
+  const a = await openFromLanding(browser, KEPT);
+  await expect(urn(a)).toHaveAttribute("data-state", "ground");
+  const board = a.url();
+  await a.close();
+  // Then the cache is older than the worker (as after a deploy that bumps the format). The board
+  // is opened again by its link: no landing, no attach, just the board loading its match.
+  cache(`${KEPT}-cdn`, timeline(KEPT, false));
+  const b = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+  await b.goto(board);
+  await b.locator("#join-name").or(b.getByTestId("player")).first().waitFor();
+  if (await b.locator("#join-name").isVisible()) {
+    await b.locator("#join-name").fill("Coach");
+    await b.keyboard.press("Enter");
+  }
+  await expect(b.getByTestId("match-tier")).toHaveAttribute("data-tier", "replay");
+  await expect.poll(() => readdirSync(join(queue, "inbox")).includes(`${KEPT}-cdn.dem`)).toBe(true);
+  writeFileSync(join(queue, "outbox", `${KEPT}-cdn.json`), JSON.stringify(timeline(KEPT, true)));
+  await expect(urn(b)).toHaveAttribute("data-state", "ground", { timeout: 15_000 });
+  await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
 });

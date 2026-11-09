@@ -1,12 +1,15 @@
 // Starts the real mapcro-server binary on a free port, serving the built client from dist/.
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+/** The replay worker's current timeline format (`mapcro_replay::timeline::FORMAT`), read from its
+ * source, so a synthetic "current" timeline stays current when the format moves on. */
+export const TIMELINE_FORMAT = Number(/pub const FORMAT: u32 = (\d+);/.exec(readFileSync(join(ROOT, "crates/replay/src/timeline.rs"), "utf8"))![1]);
 
 function freePort(): Promise<number> {
   return new Promise((ok) => {
