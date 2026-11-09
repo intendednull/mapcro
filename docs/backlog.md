@@ -3,6 +3,21 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Rift capture rings under the hero tokens (2026-11-09)
+
+Noticed by rejuv-rift while checking 129738985's screenshots: on a contested rift (12:20 to 12:59)
+the heroes stand on the point, and `player/Rift.tsx`'s rings are drawn over their tokens
+(Board.tsx puts `RiftRings` after `Layers`, beside `UrnMark`), so a ring crosses a portrait. It may
+read better drawn under the tokens, or with radii that clear a token on the point. Screenshots of
+that rift come from `e2e/shots-rejuv-rift.spec.ts` (set `MAPCRO_SHOT_REPLAY` to a format-3 parse).
+
+## A hidden marker's silence has no test of its own (2026-11-09)
+
+Since labels became timers-only (2026-11-09), `e2e/hover-hidden.spec.ts` hovers walkers in Sandbox,
+which say nothing whether hidden or not. So `MarkerTips`' `p.hidden(m.key)` check
+(player/Camps.tsx) is no longer pinned. A Player test that hides a timed marker (a cleared camp) and
+expects no label would pin it.
+
 ## Parse replays in the browser (2026-11-08)
 
 Build the replay parser to WebAssembly and parse an uploaded `.dem` in the user's browser, then send
