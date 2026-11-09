@@ -413,16 +413,30 @@ export function Player(p: {
                 </button>
               </Show>
               <Show when={hasVision(m())}>
-                <select
-                  class="input pl-vision"
-                  data-testid="vision-select"
-                  aria-label="Vision"
-                  title="What one team could see: its enemies out of sight are ghosted where last seen. Here only"
-                  value={h.vision()}
-                  onChange={(e) => h.setVision(e.currentTarget.value as Vision)}
-                >
-                  <For each={VISIONS}>{(v) => <option value={v}>Vision: {v === "all" ? "All" : teamName(v)}</option>}</For>
-                </select>
+                <>
+                  <select
+                    class="input pl-vision"
+                    data-testid="vision-select"
+                    aria-label="Vision"
+                    title="What one team could see: its enemies out of sight aren't drawn. Here only"
+                    value={h.vision()}
+                    onChange={(e) => h.setVision(e.currentTarget.value as Vision)}
+                  >
+                    <For each={VISIONS}>{(v) => <option value={v}>Vision: {v === "all" ? "All" : teamName(v)}</option>}</For>
+                  </select>
+                  <Show when={h.vision() !== "all"}>
+                    <button
+                      type="button"
+                      class={cx("btn ghost small", h.showLastSeen() && "on")}
+                      data-testid="last-seen-toggle"
+                      aria-pressed={h.showLastSeen()}
+                      title="Enemies out of sight as ghosts where this team last saw them. Here only"
+                      onClick={() => h.setShowLastSeen(!h.showLastSeen())}
+                    >
+                      Show last seen location
+                    </button>
+                  </Show>
+                </>
               </Show>
               <button
                 type="button"

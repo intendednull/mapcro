@@ -748,15 +748,19 @@ makes a board with that match attached and lands in Player; **New board** is tod
 - **Vision** (2026-11-09, operator: "in a replay usually we can set it to only see the heroes …
   the current team could see"): a transport select, "Vision: All / Hidden King / Archmother",
   shown when the timeline has `seen` (format 4). In a team's view its own heroes always show;
-  an enemy out of its sight is a ghost (the scene ghost's dashed ring and slashed eye, at 60%
-  and desaturated) at its true position when last seen, its label ending "· Seen 0:12 ago",
-  its health ring not drawn; one it hasn't seen yet, or not since that hero last died, isn't
-  drawn. Leaving and coming back into sight eases the dimming (`--value-ease-ms`; reduced
-  motion jumps); the token itself jumps from its ghost spot to where it is, as the game's
-  minimap does. "All" is the map as before. Like Names it is this browser's alone
-  (localStorage, every board), never in presence: a follower keeps its own view. Only the
-  heroes on the map follow it: the top bar, events, pings and troopers stay omniscient
-  (docs/backlog.md).
+  an enemy out of its sight isn't drawn, labelled or hoverable (2026-11-09, operator: a faded
+  token "jumps around a lot"). Beside the select, in a team's view only, a "Show last seen
+  location" toggle, off by default: on, an enemy out of sight is a ghost (the scene ghost's
+  dashed ring and slashed eye, at 60% and desaturated) at its true position when last seen,
+  its label ending "· Seen 0:12 ago", its health ring not drawn. Either way, one it hasn't
+  seen yet, or not since that hero last died, isn't drawn. Leaving and coming back into sight
+  eases the dimming (`--value-ease-ms`; reduced motion jumps); the token itself jumps from its
+  ghost spot to where it is, as the game's minimap does. The urn on a carrier the view can't
+  see now isn't drawn (operator 2026-11-09), ghost or not: it never follows a ghost; on the
+  ground, delivered, or on a seen carrier it is as in All. "All" is the map as before. Like
+  Names both are this browser's alone (localStorage, every board), never in presence: a
+  follower keeps its own view. Only the heroes and the urn on the map follow it: the top bar,
+  events, pings and troopers stay omniscient (docs/backlog.md).
 - **Keys while watching** (2026-11-08, operator): ↑ ↓ step to the previous and next event (its
   jump and ring), ← → seek 5 s (Shift: 30 s) and keep playing or paused, and a Space tap plays
   or pauses. A Space-drag still only pans, and nothing fires while typing. Viewing a scene, ← →

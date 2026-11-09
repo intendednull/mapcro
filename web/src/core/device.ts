@@ -134,6 +134,18 @@ export function setPlayerVision(v: "all" | "amber" | "sapphire") {
   write(VISION, v);
 }
 
+const LAST_SEEN = "mapcro.playerLastSeen";
+
+/** Whether this browser's Player, in one team's Vision, draws an enemy out of its sight as a
+ * ghost where last seen ("Show last seen location", spec §6b); off by default: not drawn. */
+export function playerLastSeenShown(): boolean {
+  return read<boolean>(LAST_SEEN, false) === true;
+}
+
+export function setPlayerLastSeenShown(on: boolean) {
+  write(LAST_SEEN, on);
+}
+
 const SUMMARY = "mapcro.summaryChosen";
 const OPENED = "mapcro.opened";
 
