@@ -4,7 +4,7 @@
 
 use mapcro_replay::timeline::{Camp, Player, Timeline, ZipTrack};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -35,9 +35,19 @@ fn agent() -> ureq::Agent {
 
 impl Server {
     fn start(upstream: u16, env: &[(&str, &str)]) -> Server {
+        Self::start_with(upstream, env, false).0
+    }
+
+    /// Like `start`, but the server's stderr is collected so a test can assert on its log.
+    fn start_logged(upstream: u16, env: &[(&str, &str)]) -> (Server, Arc<Mutex<String>>) {
+        let (server, log) = Self::start_with(upstream, env, true);
+        (server, log.expect("log"))
+    }
+
+    fn start_with(upstream: u16, env: &[(&str, &str)], logs: bool) -> (Server, Option<Arc<Mutex<String>>>) {
         let (data, queue) = (tempfile::tempdir().expect("data"), tempfile::tempdir().expect("queue"));
         let port = free_port();
-        let child = Command::new(env!("CARGO_BIN_EXE_mapcro-server"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_mapcro-server"))
             .env("PORT", port.to_string())
             .env("DATA_DIR", data.path())
             .env("REPLAY_DIR", queue.path())
@@ -46,17 +56,33 @@ impl Server {
             .env("MATCH_API_BASE", format!("http://127.0.0.1:{upstream}"))
             .env("REPLAY_CDN_BASE", format!("http://127.0.0.1:{upstream}/cdn"))
             .envs(env.iter().copied())
-            .stdout(Stdio::null())
+            .stdout(if logs { Stdio::piped() } else { Stdio::null() })
             .stderr(Stdio::inherit())
             .spawn()
             .expect("server starts");
+        let log = logs.then(|| {
+            // `tracing_subscriber::fmt` writes to stdout.
+            let mut out = child.stdout.take().expect("stdout");
+            let log = Arc::new(Mutex::new(String::new()));
+            let sink = log.clone();
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 4096];
+                while let Ok(n) = out.read(&mut buf) {
+                    if n == 0 {
+                        break;
+                    }
+                    sink.lock().unwrap_or_else(|e| e.into_inner()).push_str(&String::from_utf8_lossy(&buf[..n]));
+                }
+            });
+            log
+        });
         let s = Server { child, port, data, queue };
         let deadline = Instant::now() + Duration::from_secs(10);
         while ureq::get(&s.url("/healthz")).call().is_err() {
             assert!(Instant::now() < deadline, "server never became healthy");
             std::thread::sleep(Duration::from_millis(50));
         }
-        s
+        (s, log)
     }
 
     fn url(&self, path: &str) -> String {
@@ -406,6 +432,40 @@ fn a_job_runs_to_a_cached_timeline_that_only_its_board_sees() {
     // A new upload replaces the board's timeline.
     assert_eq!(server.upload(&board, &owner, id, &fake_demo(1000)).0, 202);
     assert_eq!(server.status(&board, &owner, id)["state"], "queued");
+}
+
+#[test]
+fn a_jobs_stats_are_collected_with_its_result_not_as_stray_output() {
+    let up = upstream(HashMap::new());
+    let (server, log) = Server::start_logged(up.port, &[]);
+    let (board, owner, _) = server.board();
+    let id = "130816396";
+    let job = format!("{id}-{}", scope(&board));
+    let stats = serde_json::json!({ "parse_s": 1.0, "demo_bytes": 1000 }).to_string();
+
+    // The worker writes its record before its result, as the real worker does.
+    assert_eq!(server.upload(&board, &owner, id, &fake_demo(1000)).0, 202);
+    std::fs::write(server.q("outbox").join(format!("{job}.stats")), &stats).expect("stats");
+    std::fs::write(server.q("outbox").join(format!("{job}.parsing")), b"").expect("parsing");
+    finish(&server, &job, Ok(&serde_json::to_vec(&timeline(130816396)).expect("json")));
+    server.until_state(&board, &owner, id, "done");
+    assert!(!server.q("outbox").join(format!("{job}.stats")).exists(), "read with its result");
+
+    // A record with no result and no queued job is not stray worker output: a young one is
+    // cleaned up quietly. A stray result written after it makes the pass observable.
+    let orphan = format!("7-{}", scope(&board));
+    std::fs::write(server.q("outbox").join(format!("{orphan}.stats")), &stats).expect("orphan stats");
+    std::fs::write(server.q("outbox").join(format!("{orphan}.json")), b"not a timeline").expect("stray result");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while server.q("outbox").join(format!("{orphan}.json")).exists() {
+        assert!(Instant::now() < deadline, "stray result not collected");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    std::thread::sleep(Duration::from_millis(100)); // let any warning reach the pipe
+    let log = log.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    // The stray result proves the pass ran and its warning was captured; its stats is quiet.
+    assert!(log.contains(".json"), "the stray result is logged: {log}");
+    assert!(!log.contains(".stats"), "a stats file is not stray output: {log}");
 }
 
 fn bz2(bytes: &[u8]) -> Vec<u8> {

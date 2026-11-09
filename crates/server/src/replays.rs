@@ -1379,8 +1379,22 @@ fn collect(root: &FsPath, cache: &FsPath) {
             if name.starts_with('.') || ext == "parsing" {
                 continue; // being written, or in progress
             }
-            // The per-job record is read with its result; one for no queued job is dropped below.
-            if ext == mapcro_replay::STATS_EXT && mapcro_replay::valid_job(&job) && exists_any(&root.join("inbox"), &job) {
+            // The per-job record belongs to its result and is read and removed with it. When the
+            // result was collected earlier in this pass the record is already gone; one still
+            // waiting for its result is left for it. A record with no job at all is only a
+            // stale-file cleanup, never worker output to warn about.
+            if ext == mapcro_replay::STATS_EXT {
+                if !p.exists() {
+                    continue;
+                }
+                let result = out_path(root, &job, "json").exists() || out_path(root, &job, "failed").exists();
+                if mapcro_replay::valid_job(&job) && (exists_any(&root.join("inbox"), &job) || result) {
+                    continue;
+                }
+                if age(&p) >= s.stale {
+                    tracing::warn!(file = name, "replay worker output for no queued job, dropped");
+                    let _ = std::fs::remove_file(&p);
+                }
                 continue;
             }
             // Only results for jobs this server queued, bound to the job's own scope: a worker
