@@ -45,6 +45,9 @@ The host sets `publicOrigin`. The module sets:
 | `REPLAY_UPLOADS_AT_ONCE`, `REPLAY_DOWNLOADS_AT_ONCE` | `replay.uploadsAtOnce` (4), `replay.downloadsAtOnce` (2) |
 | `REPLAY_MAX_WAITING` | `replay.maxWaiting` (64): past this many waiting in line, a new upload or fetch is refused |
 | `DEADLOCK_API_KEY_FILE` | `%d/deadlock-api-key`, when `services.mapcro.deadlockApiKeyFile` is set (default null): a deadlock-api key, below |
+| `FEEDBACK_GITHUB_TOKEN_FILE` | `%d/feedback-github-token`, when `services.mapcro.feedbackGithubTokenFile` is set (default null): turns the feedback form on, below |
+| `FEEDBACK_GITHUB_REPO` | `feedbackGithubRepo`, default `intendednull/mapcro`: where feedback issues go |
+| `FEEDBACK_PER_CLIENT_PER_HOUR`, `FEEDBACK_GLOBAL_PER_DAY` | `feedbackPerClientPerHour` (3), `feedbackGlobalPerDay` (30) |
 | `METRICS_ADDR` | `services.mapcro.metricsAddr`, default `127.0.0.1:9464`: `/metrics` (Prometheus text) on a loopback listener of its own, which Caddy never proxies; `null` turns it off |
 
 **deadlock-api key (optional).** Without one, deadlock-api's salts endpoint allows 3
@@ -55,6 +58,34 @@ credential (`LoadCredential`), and the server reads it once at start from the pa
 `DEADLOCK_API_KEY_FILE` and sends it as `X-API-KEY`. The value never enters the environment,
 the logs or the repo. An unreadable or empty file logs a warning and the server calls
 deadlock-api without a key. Restart `mapcro` after changing the file.
+
+**The feedback form (optional, off by default).** With a token, the "Feedback" button opens
+public issues on `intendednull/mapcro` (architecture spec §11a). To turn it on:
+
+1. On GitHub, as `intendednull`: Settings → Developer settings → Personal access tokens →
+   Fine-grained tokens → Generate new token. Resource owner `intendednull`; Repository access
+   "Only select repositories" → `intendednull/mapcro`; Repository permissions: **Issues: Read
+   and write**, nothing else (Metadata: Read-only is added by GitHub and required). Pick an
+   expiry and note the date: when it lapses, sends fail with 502 and `github_error` counts rise.
+2. In the repository, create the label `feedback` (Issues → Labels → New label). Without it,
+   GitHub may refuse the label and the server retries without one, so issues arrive unlabelled.
+3. On `web`, put the token in a root-only file outside the repo and the nix store, without
+   it passing through shell history: run
+   `sudo install -d -m 700 /var/lib/secrets`, then
+   `sudo install -m 600 -o root -g root /dev/stdin /var/lib/secrets/mapcro-feedback-github-token`,
+   paste the token, press Enter and Ctrl-D. (Any root-only path works; it's only ever named.)
+4. In infra's mapcro host config, set
+   `services.mapcro.feedbackGithubTokenFile = "/var/lib/secrets/mapcro-feedback-github-token";`
+   and deploy. systemd hands the file to the unit as a credential (`LoadCredential`); the
+   server reads it once at start. Changing the file needs `systemctl restart mapcro`.
+5. Check: `curl -s https://mapcro.dmgdeadlock.com/api/feedback` answers `{"enabled":true}`,
+   and the button shows on the landing and boards. Sending one real test issue is the only
+   end-to-end check of the token; close it afterwards.
+
+An unreadable or empty token file logs a warning and leaves the form off; it never stops the
+server. `mapcro-stats summary` shows "feedback sent" and refusals by reason; a GitHub failure is
+also in `mapcro-stats failures` as `github issues <result>`. To turn it off, set the option back
+to null (or delete the file) and redeploy; revoke the token on GitHub if it may have leaked.
 
 `StateDirectory = mapcro mapcro/packs` creates both directories at start, owned by `mapcro` with
 mode 0700, so the packs directory exists even when empty. The server fails fast if `PACKS_DIR` is

@@ -98,6 +98,7 @@ collector inside the server, a command-line way for the lead to query it, alerts
 - `replay_jobs{source, outcome}`, where outcome is `done` or one of the reason codes
 - `deadlock_api_calls{endpoint, result}`
 - `queue_refusals{reason}`
+- `feedback_sent`, `feedback_rejected{reason}`
 - `client_errors{kind, build}`
 - `prompt_choice{choice, reason}`
 - `feature_used{feature}`, counted once per session per feature
@@ -254,6 +255,10 @@ can't be reached through Caddy.
     room's own queue isn't in it.
   - Usage: `boards_created{how}`, `matches_opened{tier, path}`, and `users_today`, the daily
     distinct count.
+  - Feedback (architecture spec §11a): `feedback_sent`, and `feedback_rejected{reason}` with
+    reason `invalid`, `rate_limited`, `github_error` or `disabled`. Counts only. A GitHub
+    failure is also a failures row, kind `upstream`, message `github issues <result>`.
+    `stats summary` shows both under USAGE.
   - deadlock-api: `deadlock_api_calls{endpoint, result}` for `metadata`, `steam_profiles` and
     `salts`, and `deadlock_api_backoff_s`.
   - The replay queue: `queue_waiting`, `queue_bytes` and their caps, `parses_running`,

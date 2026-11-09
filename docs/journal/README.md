@@ -35,3 +35,4 @@ experiment writes its predictions down *before* it runs, so the result can show 
 | 2026-11-09 | [Lead handoff: production state, running work, open items, hard-won notes](2026-11-09-lead-handoff.md) |
 | 2026-11-09 | [The Rejuvenator, rift capture, the urn walking back, and shorter labels](2026-11-09-rejuv-rift.md) |
 | 2026-11-09 | [Board UX: selection in your colour, the stencil at the edge, Q E R T keys, the patrons' names, hero focus](2026-11-09-board-ux.md) |
+| 2026-11-09 | [A feedback button that opens GitHub issues](2026-11-09-feedback.md) |

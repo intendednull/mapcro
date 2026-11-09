@@ -3,6 +3,36 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## The other dialogs don't hold the focus (2026-11-09, from the feedback form)
+
+Share, Clone and the hero picker render inside the page and don't contain the keyboard: Tab
+walks out of the dialog into the board behind it, which stays interactive (the known Share
+focus-escape issue). `web/src/ui/modal.ts`, built for the feedback dialog, is the fix: render the
+dialog through a `<Portal>`, call `useModal(() => scrimEl)`, and stop key presses at the dialog
+so the board's window listeners (Escape's `leaveControl`, Space) don't act on them. The
+feedback e2e spec's Tab, inert and focus-return checks can be copied.
+
+## Feedback issues can still reference other repositories (2026-11-09)
+
+The feedback form neutralises `@mentions`, so no one is pinged. GitHub still autolinks
+`owner/repo#123` and full issue or PR URLs, and links them back: the referenced issue's
+timeline shows "mentioned this issue" from ours. That pings no one directly, but it lets a
+submitter put backlinks in other projects' issues under our name. The limits (3 an hour per
+client, 30 a day) bound it. A fix would be a zero-width joiner after `#` in `owner/repo#n`
+forms; URLs are harder. The joiner after `@` also lands inside code blocks, where it changes
+what a reader copies; acceptable for feedback text.
+
+## Feedback on phones (2026-11-09)
+
+The phone board (`PhoneBoard`) has no Feedback button; the landing's footer link works there.
+Add it to the phone top bar if phone users should reach it from a board.
+
+## Alert when the feedback token stops working (2026-11-09)
+
+A fine-grained token expires. When it does, every send is a 502 and `feedback_rejected
+{reason=github_error}` rises, with `github issues refused` rows in `failures`. Nothing alerts on
+it yet (observability spec §6); an alert on any `github_error` in a day would catch expiry.
+
 ## Vision for objectives, camps and troopers (2026-11-09)
 
 Player's Vision (spec §6b) covers heroes only. The same feed (`CCitadelTeam.m_vecFOWEntities`,

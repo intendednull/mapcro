@@ -1212,6 +1212,47 @@ No end-to-end encryption, unlike Excalidraw. E2EE would stop the server validati
 the reliability and security boundary above. Boards are game strategy, so server trust plus TLS is
 the right trade-off. A dedicated security review gates public exposure.
 
+## 11a. The feedback form
+
+Operator, 2026-11-09: "a feedback button … asks for a title and a description and … creates an
+issue in the Github repo." Code: `crates/server/src/feedback.rs`, `web/src/ui/Feedback.tsx`.
+
+- **Where.** A "Feedback" button in the board's top bar beside Clone and Share, and a "Feedback"
+  link in the landing's footer. Both are hidden unless `GET /api/feedback` answers
+  `{"enabled": true}`, which it does only when the server has a token.
+- **The dialog.** Title (required, 120 characters) and description (required, 5,000 characters,
+  counted from 80%), the notice "This creates a public issue on GitHub (intendednull/mapcro).
+  Don't include personal info or board links.", and Cancel and Send. Success says "Thanks —
+  sent." and links the issue in a new tab. A failure keeps the text and offers "Try again"; a
+  429 says when, from `Retry-After`. Its keyboard contract comes from `web/src/ui/modal.ts`, which
+  other dialogs can reuse: it renders through a Portal, the rest of the page is `inert`, Tab and
+  Shift+Tab wrap inside it, Escape closes it, focus goes back to the opener, and key presses
+  don't reach the board's window listeners.
+- **`POST /api/feedback`** `{title, description}` → 201 `{url}`. The server trims both fields,
+  drops control characters (a description keeps newlines and tabs, and CRLF becomes LF), and
+  checks the lengths in characters itself. It then puts a zero-width joiner after every `@`, so
+  no `@user` or `@org/team` mentions anyone, and calls GitHub's
+  `POST /repos/{FEEDBACK_GITHUB_REPO}/issues` with `Authorization: Bearer`,
+  `X-GitHub-Api-Version: 2022-11-28`, a User-Agent and a 10 s timeout. The body is the
+  description, then `---` and "— Sent from the mapcro feedback form (build <BUILD_ID>)". The
+  label is `feedback`; on a 422 it retries once without the label. Only an `https://` link is
+  passed back. Answers: 400 invalid, 404 off, 429 limited, 502 GitHub failed (a clean message,
+  never GitHub's). The body cap is 32 KiB, its own, since 5,000 four-byte characters are past
+  the API's 16 KiB.
+- **Privacy.** The issue holds the cleaned text and the footer only. No address, client key,
+  board, link, name, account id or user agent goes into the issue, the log or the metrics, and
+  the text is never logged. The token is read once from the file `FEEDBACK_GITHUB_TOKEN_FILE`
+  names (a systemd credential, like `DEADLOCK_API_KEY_FILE`), and its `Debug` is redacted.
+- **Abuse.** 3 issues an hour per client key (`api::client_key`: an IPv4 address or an IPv6
+  /64) and 30 a day server-wide, as sliding windows (`FEEDBACK_PER_CLIENT_PER_HOUR`,
+  `FEEDBACK_GLOBAL_PER_DAY`). Past either, 429 with `Retry-After`. Only a submission that passes
+  validation counts, and a GitHub failure still spends its slot, so a failing GitHub can't be
+  hammered.
+- **Off.** With no token file, or an unreadable or empty one, the form is off: a warning at start
+  (naming neither value nor contents), `{"enabled": false}`, and 404 on POST. A malformed
+  `FEEDBACK_GITHUB_REPO`, or a `FEEDBACK_GITHUB_API` that isn't https or localhost (the override
+  exists for tests), stops the server at start.
+
 ## 12. Game assets and the extraction pipeline
 
 **Decision (operator, 2026-11-06):** mapcro is free forever. Art is extracted once, by whoever runs
