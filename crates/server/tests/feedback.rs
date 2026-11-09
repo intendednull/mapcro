@@ -403,7 +403,7 @@ fn off_without_a_usable_token_file() {
 
 #[test]
 fn a_bad_repo_or_api_base_is_a_config_error() {
-    for (k, v) in [("FEEDBACK_GITHUB_REPO", "not-a-repo"), ("FEEDBACK_GITHUB_REPO", "a/../b"), ("FEEDBACK_GITHUB_API", "http://example.com")] {
+    for (k, v) in [("FEEDBACK_GITHUB_REPO", "not-a-repo"), ("FEEDBACK_GITHUB_REPO", "a/../b"), ("FEEDBACK_GITHUB_API", "http://example.com"), ("FEEDBACK_GITHUB_API", "http://localhost.example.com")] {
         let data = tempfile::tempdir().expect("data");
         let out = Command::new(env!("CARGO_BIN_EXE_mapcro-server"))
             .env("PORT", free_port().to_string())

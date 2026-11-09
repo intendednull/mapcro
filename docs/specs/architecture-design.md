@@ -1247,7 +1247,7 @@ issue in the Github repo." Code: `crates/server/src/feedback.rs`, `web/src/ui/Fe
   /64) and 30 a day server-wide, as sliding windows (`FEEDBACK_PER_CLIENT_PER_HOUR`,
   `FEEDBACK_GLOBAL_PER_DAY`). Past either, 429 with `Retry-After`. Only a submission that passes
   validation counts, and a GitHub failure still spends its slot, so a failing GitHub can't be
-  hammered.
+  hammered. The windows are in memory, so a restart empties them.
 - **Off.** With no token file, or an unreadable or empty one, the form is off: a warning at start
   (naming neither value nor contents), `{"enabled": false}`, and 404 on POST. A malformed
   `FEEDBACK_GITHUB_REPO`, or a `FEEDBACK_GITHUB_API` that isn't https or localhost (the override

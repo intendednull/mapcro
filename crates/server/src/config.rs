@@ -108,7 +108,8 @@ fn feedback(var: &impl Fn(&str) -> Option<String>) -> Result<Option<FeedbackConf
         return Err(format!("FEEDBACK_GITHUB_REPO {repo:?} must be owner/repo"));
     }
     let api = var("FEEDBACK_GITHUB_API").unwrap_or_else(|| "https://api.github.com".into()).trim_end_matches('/').to_owned();
-    if !(api.starts_with("https://") || api.starts_with("http://127.0.0.1") || api.starts_with("http://localhost")) {
+    // A plain-http fake only on loopback, port and all: `http://localhost.example` is not one.
+    if !(api.starts_with("https://") || api.starts_with("http://127.0.0.1:") || api.starts_with("http://localhost:")) {
         return Err("FEEDBACK_GITHUB_API must be https (or a localhost fake for tests)".into());
     }
     let per_client_per_hour = num(var, "FEEDBACK_PER_CLIENT_PER_HOUR", 3)?;
