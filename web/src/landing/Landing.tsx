@@ -12,6 +12,8 @@ import { DropOverlay, NOT_DEM, ReplayHelp, createDemDrop } from "../player/Repla
 import { handOff } from "../player/handoff";
 import { navigate } from "../core/nav";
 import { LIMITS } from "../gen/limits";
+import { feedbackEnabled } from "../core/feedback";
+import { FeedbackButton } from "../ui/Feedback";
 
 export function Landing() {
   const [title, setTitle] = createSignal("");
@@ -203,7 +205,13 @@ export function Landing() {
             </For>
           </ul>
         </Show>
-        <footer class="legal muted">MIT · Not affiliated with Valve</footer>
+        <footer class="legal muted">
+          MIT · Not affiliated with Valve
+          <Show when={feedbackEnabled()}>
+            {" · "}
+            <FeedbackButton variant="link" />
+          </Show>
+        </footer>
       </main>
     </div>
   );

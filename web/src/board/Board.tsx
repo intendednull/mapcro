@@ -41,6 +41,7 @@ import type { WorldPos } from "../gen/WorldPos";
 import { slotKey } from "../match/save";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { ShareDialog } from "./ShareDialog";
+import { FeedbackButton } from "../ui/Feedback";
 import { rejection, statusView } from "./status";
 import type { Reject } from "../gen/Reject";
 import { Avatar, FollowChip, PeopleList, PresentingPill } from "./Presence";
@@ -856,6 +857,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </Show>
           <For each={people()}>{(peer) => <Avatar name={peer.state!.name || "?"} color={peer.state!.color} title={peer.state!.name || "Joining"} />}</For>
         </div>
+        <FeedbackButton variant="bar" />
         <Show when={state.role()}>
           <button class="btn ghost" data-testid="clone" onClick={() => setDialog("clone")}>
             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
