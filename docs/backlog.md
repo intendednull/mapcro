@@ -3,6 +3,22 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Camp selection rings oversized on the fallback map (2026-11-09)
+
+Noticed by board-ux while checking the selection-in-your-colour shots
+(`web/e2e/selection-colour.spec.ts`, `shots/selection-colour-objectives.png`). On the fallback map
+(no pack), a camp's `.mk` box is about 2.5x its drawn triangle or square. So the picked ring
+(`.mk.picked::after`, `inset: -14%` of the box) circles far past the icon, and neighbouring camps'
+rings overlap. With pack art the icon fills the box. Fix: size the fallback camp glyph to its box,
+or size the ring from the glyph. Not checked against every real-art camp tier.
+
+## Top-bar hover rings don't wear the viewer's colour (2026-11-09)
+
+`--me` (my presence colour) is set on the map box only (`Board.tsx` mapBox), so the hover ring on a
+top-bar portrait (`.tb-focus:hover`) and the roster chip's outline fall back to `--accent`. Moving
+`--me` to the board's root (the `.app.board-app` and `.phone` divs) would colour them too.
+Cosmetic.
+
 ## Rift capture rings under the hero tokens (2026-11-09)
 
 Noticed by rejuv-rift while checking 129738985's screenshots: on a contested rift (12:20 to 12:59)
