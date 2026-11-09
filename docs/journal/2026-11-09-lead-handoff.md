@@ -5,8 +5,14 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## Production
 
-- `web` runs **05d1d01**, deployed 2026-11-09 07:32 UTC (buff types, objective hover timers, one
-  hover label, follow hover, review fixes, seamless canvas). The infra main pin is pushed.
+- `web` runs **acc6410**, deployed 2026-11-09 10:27 UTC: vision control, Rejuvenator art, rift
+  capture, urn return, short labels, team names (Hidden King / Archmother), Q E R T A S keys, hero
+  focus, selection colour, the memory working-set gauge, and the same-build pack order. Timeline
+  FORMAT is 4. The infra main pin is pushed.
+- **Packs on prod:** `6860-rejuv` (c9c81b76…, newest, with the Rejuvenator HUD art), `6860-badges`,
+  `6860p`. Its source is kept in `~/.local/share/mapcro-lead/packs/rejuv`.
+- **Agents work in worktrees** (`/storage/projects/mapcro.worktrees/<name>`, operator and spawning.md
+  item 13); the lead merges, gates, deploys and removes the worktree. None are running.
 - The database is at schema **v6**, migrated 2026-11-09 01:12 UTC. Its backup is
   `/var/lib/mapcro-backup/pre-v6-20261109T0109.sqlite`, integrity ok, 20 boards. From v6 on,
   rollbacks are safe: a server older than the database opens it as long as it's at or above the

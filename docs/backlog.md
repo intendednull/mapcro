@@ -151,6 +151,14 @@ memory, so a restart allows one more refetch per match.
 
 ## Server
 
+- **A burst of 26 `ws_closes{reason=protocol}` in one minute on prod** (2026-11-09 08:14 UTC; `just
+  stats series ws_closes`). It wasn't near a deploy (07:32 and 09:44 UTC) and there were none
+  before or after. It looks like one client in a reconnect loop that sends something the server
+  rejects as a protocol error: maybe a tab still on the pre-07:32 client against the new
+  Presence (`hover`), or a malformed op. Check what the server logs on a protocol close (room.rs /
+  wire.rs `is_valid`), whether a close for protocol makes the client retry at once, and whether an
+  old-build client can trip it. Not a data-loss path: a rejected frame is never applied.
+
 - Presence relay is O(n²) in bytes per room (perf report finding 4). It's fine at our scale.
 - Base frames aren't chunked. A board over 8 MiB of JSON falls back to paged catch-up.
 - **Rebase fan-out isn't bounded** (sync review 2026-11-08, finding 4): each stale hello clones the
