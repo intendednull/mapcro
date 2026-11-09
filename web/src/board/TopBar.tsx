@@ -1,10 +1,11 @@
 // The in-game top bar (design/shared/topbar.js, ported; spec in design/parity/README.md): hero
 // portraits, souls with team totals, the scene clock and each player's ult ring. Everything is
 // edited in place: click souls or the clock to type; drag around a ring or scroll on it to set
-// the cooldown, click it for ready. No health: the board doesn't track it.
+// the cooldown, click it for ready. No health: the board doesn't track it. An editor's right
+// click on a portrait opens its hero's menu: kill or revive, vision, change hero.
 
 import { rosterTeamName, rosterTeamShort } from "../map/model";
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
 import { formatClock, parseClock } from "../core/clock";
@@ -16,6 +17,8 @@ import type { Viewpoint } from "../map/transform";
 import { InlineEdit } from "../ui/InlineEdit";
 import type { BoardState, Player, Slot } from "./state";
 import { HeroBadge, hasCard } from "./HeroBadge";
+import { aliveOps } from "./Tokens";
+import { ContextMenu, type MenuItem } from "../ui/ContextMenu";
 
 const BAR = 1260;
 
@@ -154,6 +157,27 @@ export function TopBar(p: {
   const editable = () => p.state.canEdit();
   const sceneRow = () => p.state.scenes().find((s) => s.id === p.scene);
   const focus = (id: RecordId) => (on: boolean) => p.state.presence({ focus: on ? id : null });
+  // The portrait menu: one at a time, for a (slot, player) pair, at the pointer.
+  const [menu, setMenu] = createSignal<{ slot: Slot; player: Player; label: string; at: { x: number; y: number } }>();
+  const openMenu = (e: MouseEvent, slot: Slot, player: Player, label: string) => {
+    // Editors only; a text field (the souls being typed) keeps the browser's menu.
+    const t = e.target as HTMLElement;
+    if (!editable() || t.closest("input, textarea, [contenteditable]")) return;
+    e.preventDefault();
+    // From the keyboard (the menu key, Shift+F10) there is no pointer: under the portrait.
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const at = e.clientX === 0 && e.clientY === 0 ? { x: r.left + 4, y: r.bottom - 4 } : { x: e.clientX, y: e.clientY };
+    setMenu({ slot, player, label, at });
+  };
+  // The hero the menu is for, as it is now; gone (a scene flip, a removed slot): the menu closes.
+  const menuPlayer = () => {
+    const m = menu();
+    const pl = m && players().get(m.slot.id);
+    return pl && pl.id === m.player.id ? pl : undefined;
+  };
+  createEffect(() => {
+    if (menu() && (!menuPlayer() || !editable())) setMenu(undefined);
+  });
 
   const column = (t: "Amber" | "Sapphire", side: "friend" | "enemy") => (
     <div class={`tb-team ${side} ${t.toLowerCase()}`}>
@@ -167,6 +191,7 @@ export function TopBar(p: {
               class={cx("tb-player", t.toLowerCase(), side, hasCard(p.art, hero()) && "card-art", !player.state.alive && "dead", !player.state.visible && "unseen")}
               data-slot={`${t}-${slot.slot.slot}`}
               title={`${label()}${hero() ? `, ${hero()!.name}` : ""}`}
+              onContextMenu={(e) => openMenu(e, slot, player, `${label()}${hero() ? `, ${hero()!.name}` : ""}`)}
             >
               <div class="tb-souls" data-testid="souls-banner" onClick={() => openSouls?.()}>
                 <InlineEdit
@@ -288,6 +313,30 @@ export function TopBar(p: {
     );
   };
 
+  // Labels follow the hero's state live (another editor may kill it while the menu is open);
+  // the items stay the same objects, so focus stays where it is.
+  const menuView = (m: NonNullable<ReturnType<typeof menu>>) => {
+    const pl = () => menuPlayer() ?? m.player;
+    const items: MenuItem[] = [
+      {
+        get label() {
+          return pl().state.alive ? "Kill" : "Revive";
+        },
+        testid: "hero-menu-life",
+        run: () => p.state.edit(aliveOps(pl())),
+      },
+      {
+        get label() {
+          return pl().state.visible ? "Mark not seen" : "Mark in vision";
+        },
+        testid: "hero-menu-vision",
+        run: () => p.state.edit([{ Set: { id: pl().id, value: { PlayerVisible: !pl().state.visible } } }]),
+      },
+    ];
+    if (p.onPickHero) items.push({ label: m.slot.slot.hero != null ? "Change hero…" : "Pick hero…", testid: "hero-menu-hero", run: () => p.onPickHero!(m.slot.id) });
+    return <ContextMenu at={m.at} label={m.label} testid="hero-menu" onClose={() => setMenu(undefined)} items={items} />;
+  };
+
   return (
     <div
       ref={host}
@@ -295,6 +344,9 @@ export function TopBar(p: {
       style={{ "--u": `${unit()}px` }}
       data-testid="topbar"
     >
+      <Show when={menu()} keyed>
+        {menuView}
+      </Show>
       <div class="tb-bar">
         {column(friend(), "friend")}
         {column(enemy(), "enemy")}

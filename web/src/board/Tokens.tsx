@@ -62,6 +62,15 @@ interface Drag {
   moved: boolean;
 }
 
+/** Kill or revive, in one step: coming back clears the respawn timer. */
+export function aliveOps(pl: Player) {
+  const alive = !pl.state.alive;
+  return [
+    { Set: { id: pl.id, value: { PlayerAlive: alive } } },
+    ...(alive && pl.state.respawn != null ? [{ Set: { id: pl.id, value: { PlayerRespawn: null } } } as const] : []),
+  ];
+}
+
 const EYE = "M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z";
 /** A small skull: dome, eyes and jaw (eyes and nose are holes, evenodd). */
 const SKULL = "M0 -6a6 6 0 0 1 6 6c0 2-1 3-2 3.6V6H-4V3.6C-5 3-6 2-6 0a6 6 0 0 1 6-6zM-2.4 -1.2a1.5 1.5 0 1 0 0.01 0zM2.4 -1.2a1.5 1.5 0 1 0 0.01 0zM0 1.6l-0.9 1.4h1.8z";
@@ -170,18 +179,14 @@ export function Tokens(p: {
     svg.addEventListener("pointercancel", up);
   };
 
-  /** Dead or alive (K on a hovered hero, or its skull button). Coming back clears the timer. */
+  /** Dead or alive (K on a hovered hero). */
   const toggleAlive = (pl: Player) => {
     if (!p.state.canEdit() || p.preview?.()) return;
-    const alive = !pl.state.alive;
-    p.state.edit([
-      { Set: { id: pl.id, value: { PlayerAlive: alive } } },
-      ...(alive && pl.state.respawn != null ? [{ Set: { id: pl.id, value: { PlayerRespawn: null } } } as const] : []),
-    ]);
+    p.state.edit(aliveOps(pl));
   };
   // K acts on the hero under the pointer: the hover is a hint, and is checked against what is
   // actually under the pointer at the key press (a token that moved, unmounted or flipped
-  // scenes leaves no stale target). Never under a match preview, like the skull button.
+  // scenes leaves no stale target). Never under a match preview.
   const [hovered, setHovered] = createSignal<RecordId>();
   const [timing, setTiming] = createSignal<RecordId>();
   // A dead hero's unset respawn label is an invisible hint over the hero below it in the default
@@ -224,13 +229,6 @@ export function Tokens(p: {
     if (v === undefined) return;
     const s = v === null ? null : Math.min(600, v);
     if (s !== (pl.state.respawn ?? null)) p.state.edit([{ Set: { id: pl.id, value: { PlayerRespawn: s } } }]);
-  };
-
-  const toggleVision = (pl: Player, e: PointerEvent) => {
-    if (!p.state.canEdit() || e.button !== 0 || p.preview?.()) return;
-    e.preventDefault();
-    e.stopPropagation();
-    p.state.edit([{ Set: { id: pl.id, value: { PlayerVisible: !pl.state.visible } } }]);
   };
 
   // Each dead hero's respawn label hangs below its token, where the next row of heroes stands
@@ -280,17 +278,11 @@ export function Tokens(p: {
           // The map's hover label (map/HoverLabel.tsx), by roster slot, never the player's id.
           const hoverId = () => `${slot().team}-${slot().slot}`;
           const shownOnMap = () => (live() ? !!pv()?.pos : pl().state.placed);
-          // The eye and the skull say what they do only where they're drawn (styles: shown when
-          // the token is editable, and the eye too while the hero is unseen); else, as in Player,
-          // the token's own name.
-          const editable = () => p.state.canEdit() && !live();
-          const partText = (part: string | undefined) =>
-            part === "vis" && !live() && (editable() || !visible()) ? (visible() ? "In vision" : "Not seen") : part === "life" && editable() ? (alive() ? "Kill (K)" : "Revive (K)") : label();
           createEffect(() => {
-            const off = registerHover("token", hoverId(), (part) => (shownOnMap() ? { x: at().x, y: at().y, gap: r() + 12 * p.k, text: partText(part) } : undefined));
+            const off = registerHover("token", hoverId(), () => (shownOnMap() ? { x: at().x, y: at().y, gap: r() + 12 * p.k, text: label() } : undefined));
             onCleanup(off);
           });
-          const hover = (part?: string) => hoverToken({ kind: "token", id: hoverId(), part });
+          const hover = () => hoverToken({ kind: "token", id: hoverId() });
           const unhover = () => {
             if (hoveredToken()?.id === hoverId()) hoverToken(undefined);
           };
@@ -387,42 +379,15 @@ export function Tokens(p: {
                     />
                   )}
                 </Show>
-                <g
-                  class={cx("vis", !visible() && "off", p.state.canEdit() && !live() && "editable")}
-                  data-testid="vision"
-                  transform={`translate(${r() * 0.78} ${-r() * 0.78}) scale(${p.k})`}
-                  onPointerDown={(e) => toggleVision(pl(), e)}
-                  aria-label={partText("vis")}
-                  onPointerEnter={() => hover("vis")}
-                  onPointerLeave={() => hover()}
-                >
-                  <circle r="9" />
-                  <path d={EYE} />
-                  <Show when={visible()}>
-                    <circle class="pupil" r="1.8" />
-                  </Show>
-                  <Show when={!visible()}>
+                {/* Kill and vision are set from the portrait's right-click menu (TopBar), or K;
+                    the token only shows them: the dead badge, and the eye-slash when unseen. */}
+                <Show when={!visible()}>
+                  <g class="vis off" data-testid="unseen-mark" transform={`translate(${r() * 0.78} ${-r() * 0.78}) scale(${p.k})`}>
+                    <circle r="9" />
+                    <path d={EYE} />
                     <path class="slash" d="M-6 6L6 -6" />
-                  </Show>
-                </g>
-                <g
-                  class={cx("life", p.state.canEdit() && !live() && "editable")}
-                  data-testid="life"
-                  aria-label={partText("life")}
-                  onPointerEnter={() => hover("life")}
-                  onPointerLeave={() => hover()}
-                  transform={`translate(${-r() * 0.78} ${-r() * 0.78}) scale(${p.k})`}
-                  onPointerDown={(e) => {
-                    if (e.button !== 0 || !p.state.canEdit() || live()) return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    toggleAlive(pl());
-                  }}
-                >
-
-                  <circle r="9" />
-                  <path class="skull" d={SKULL} />
-                </g>
+                  </g>
+                </Show>
                 <Show when={!alive()}>
                   <g class="dead-badge" transform={`translate(0 ${r() * 0.55}) scale(${p.k})`}>
                     <circle r="8" />

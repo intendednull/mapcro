@@ -1,4 +1,4 @@
-// Heroes and live layers: kill and revive a hero (K or its skull), an optional respawn timer,
+// Heroes and live layers: kill and revive a hero (K or its portrait menu), an optional respawn timer,
 // heroes gliding between scenes, strokes seen while drawn, and middle-click pings.
 
 import { type Page, expect, test } from "./fixtures";
@@ -25,11 +25,11 @@ test("K kills and revives a hovered hero; dead looks unlike unseen; a respawn ti
   await expect(tok(b, "Amber-1").locator(".dead-badge")).toHaveCount(1);
   await expect(tok(b, "Amber-1")).not.toHaveClass(/ghost/);
   // Out of vision is the other look: dashed and the eye-slash, no skull.
-  await tok(a, "Amber-2").hover();
-  await tok(a, "Amber-2").getByTestId("vision").click();
+  await a.locator('.tb-player[data-slot="Amber-2"]:visible').click({ button: "right" });
+  await a.getByTestId("hero-menu-vision").click();
   await expect(tok(b, "Amber-2")).toHaveClass(/ghost/);
   await expect(tok(b, "Amber-2").locator(".dead-badge")).toHaveCount(0);
-  await expect(tok(b, "Amber-2").locator(".vis .slash")).toHaveCount(1);
+  await expect(tok(b, "Amber-2").getByTestId("unseen-mark")).toHaveCount(1);
 
   // The timer: optional, typed by hand. Unset, its label is a hint that shows from its own hero;
   // a real click (no force) proves nothing covers it, the hero below it included.
@@ -46,9 +46,10 @@ test("K kills and revives a hovered hero; dead looks unlike unseen; a respawn ti
   await a.mouse.move(10, 10);
   await a.screenshot({ path: "shots/hero-dead.png" });
 
-  // Revive with the skull button: the timer goes with it, in one step.
-  await tok(a, "Amber-1").hover();
-  await tok(a, "Amber-1").getByTestId("life").click();
+  // Revive from the portrait menu: the timer goes with it, in one step.
+  await a.locator('.tb-player[data-slot="Amber-1"]:visible').click({ button: "right" });
+  await expect(a.getByTestId("hero-menu-life")).toHaveText("Revive");
+  await a.getByTestId("hero-menu-life").click();
   await expect(tok(b, "Amber-1")).not.toHaveClass(/dead/);
   await expect(b.getByTestId("respawn")).toHaveCount(0);
   await a.keyboard.press("Control+z");

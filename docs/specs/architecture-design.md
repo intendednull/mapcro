@@ -654,9 +654,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
     down: its timer). A camp that's up says nothing; a silent marker still takes the hover, so
     the wave handle under it doesn't label. No "(at m:ss)" suffix, and no buff effects (the
     events keep those).
-  - A hero token says its player and hero ("Coach, Haze"; under Names off, the slot); its eye
-    "In vision" / "Not seen" and its skull "Kill (K)" / "Revive (K)" only where those buttons
-    are drawn (an editable token; the eye too while the hero is unseen), else the token's name.
+  - A hero token says its player and hero ("Coach, Haze"; under Names off, the slot). It has no
+    buttons (kill and vision live on its portrait's menu, below); a dead one wears the skull
+    badge and an unseen one the eye-slash, as marks.
     The wave handle says "Wave", below any marker under it.
   - **Timers** (replay tier), all from the replay's own times (exploration round 7, timers
     audit):
@@ -714,6 +714,18 @@ makes a board with that match attached and lands in Player; **New board** is tod
     0, brightness 0.2, on an `offBlack&ee` disc; the respawn countdown sits over the disc.
   - The game doesn't fade a hero out of vision; Player doesn't either. The board's dimmed
     "not seen" portrait is the board's own vision toggle and stays.
+  - **The portrait menu** (operator, 2026-11-09: "for controls we can move the kill and hide
+    controls for heros to right clicking the hero portrait"). On the board, an editor's right
+    click anywhere on a hero's top-bar column opens a small menu at the pointer
+    (`ui/ContextMenu.tsx`): **Kill** / **Revive** (the action for the hero's state now; reviving
+    clears its respawn timer in the same step), **Mark not seen** / **Mark in vision** (the
+    vision toggle, worded as what it marks, after the top bar's own "In vision" / "Not seen"),
+    and **Change hero…** (**Pick hero…** for an empty slot), which opens the picker. Focus goes
+    to the first item; Up/Down wrap, Home/End, Enter or Space runs, Escape or Tab closes and
+    hands focus back; a press outside, a resize or a lost window focus closes it. The labels
+    follow edits made while it's open. Viewers get no menu. The tokens' eye and skull buttons
+    are gone; K still kills or revives the hero under the pointer, and the top bar's eye toggle
+    stays. Roster chips get no menu: they carry no kill or vision control. Player has none.
   - A pack without hero cards (any pack before 2026-11-08) keeps the vertical bust
     (`m_strTopBarVertical`, 70.4 × 117.3 with its bottom on a grey disc at y 15 to 85.4), and the
     critical card in its own frame there.

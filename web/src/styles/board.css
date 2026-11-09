@@ -897,6 +897,10 @@ kbd {
 .clear-pop button:hover:not(:disabled) { background: var(--line-soft, #ffffff12); }
 .clear-pop button:disabled { opacity: 0.4; cursor: default; }
 .clear-pop .n { color: var(--faint); font-variant-numeric: tabular-nums; }
+/* A right-click menu (ui/ContextMenu.tsx): the clear menu's look, at the pointer. */
+.ctx-menu { position: fixed; z-index: 60; display: flex; flex-direction: column; min-width: 150px; padding: 4px; background: var(--bg-deep, #0b1714); border: 1px solid var(--line); border-radius: 7px; box-shadow: 0 6px 18px #0008; }
+.ctx-menu button { display: block; padding: 6px 10px; font: 500 13px var(--ui); color: var(--text); background: none; border: 0; border-radius: 5px; cursor: pointer; text-align: left; white-space: nowrap; }
+.ctx-menu button:hover, .ctx-menu button:focus-visible, .ctx-menu button:focus { background: var(--line-soft, #ffffff12); outline: none; }
 
 /* Placed things in Move: ends of an arrow to grab, a thing being moved, live ink, pings. */
 .mm-overlay.map .arrow-end { fill: transparent; stroke: transparent; pointer-events: all; cursor: grab; }
@@ -916,16 +920,13 @@ kbd {
 @keyframes tok-focus { from { transform: scale(1); opacity: 1; } to { transform: scale(1.9); opacity: 0; } }
 
 /* Dead heroes: desaturated, dimmed, a skull badge (no-vision ghosts keep the dashed ring and
-   the eye-slash). The skull button (top left, on hover) kills or revives; so does K. */
+   the eye-slash). K kills or revives the hero under the pointer; so does its portrait's
+   right-click menu in the top bar. */
 .mm-overlay.map .tok.dead > image { opacity: 0.5; }
 .mm-overlay.map .tok.dead > .body { opacity: 0.6; }
 .mm-overlay.map .tok .skull { fill: var(--text); fill-rule: evenodd; }
 .mm-overlay.map .tok .dead-badge circle { fill: #0b1714; stroke: #c9c3b6; stroke-width: 1.2; }
 .mm-overlay.map .tok .dead-badge { pointer-events: none; }
-.mm-overlay.map .tok .life circle { fill: #0b1714; stroke: var(--text); stroke-width: 1.5; }
-.mm-overlay.map .tok .life { opacity: 0; transition: opacity 120ms; }
-.mm-overlay.map .tok:hover .life.editable { opacity: 1; cursor: pointer; }
-.mm-overlay.map .tok:not(:hover) .life { pointer-events: none; }
 .mm-overlay.map .respawn-label rect { fill: #0b1714e6; stroke: #c9c3b6; stroke-width: 1; }
 .mm-overlay.map .respawn-label text { fill: var(--text); font: 600 12px var(--ui); text-anchor: middle; dominant-baseline: central; }
 .mm-overlay.map .respawn-label.unset { opacity: 0; pointer-events: none; }

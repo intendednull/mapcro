@@ -68,13 +68,13 @@ test.describe("on the fallback map", () => {
   });
   test.afterAll(() => server.stop());
 
-  test("vision: a hero not in vision is a ghost for everyone, toggled on the token or the top bar", async ({ browser }) => {
+  test("vision: a hero not in vision is a ghost for everyone, toggled from the portrait menu or the top bar", async ({ browser }) => {
     const url = await newBoardUrl(server, "vision");
     const a = await joinNew(browser, url, "Coach");
     const v = await joinNew(browser, await viewLink(server.url, url), "Guest");
     const tok = (p: Page) => p.locator('.mapbox .tok[data-slot="Amber-2"]');
-    await tok(a).hover();
-    await tok(a).getByTestId("vision").click();
+    await a.locator('.tb-player[data-slot="Amber-2"]:visible').click({ button: "right" });
+    await a.getByTestId("hero-menu-vision").click();
     await expect(tok(v)).toHaveAttribute("data-visible", "false");
     await expect(tok(v)).toHaveClass(/ghost/);
     await expect(v.locator('.tb-player[data-slot="Amber-2"]')).toHaveClass(/unseen/);

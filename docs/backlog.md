@@ -54,6 +54,15 @@ timeline's `left` reaches 0 before `ends_s`. The top bar drops its marks and tim
 at 180 s with 1 left). Only seen on a synthetic timeline. Whether the game ends the buff at 0 is
 unconfirmed.
 
+## Hover-label token parts are unused now (2026-11-09)
+
+Left by portrait-menu: with the tokens' eye and skull buttons gone (kill and vision moved to the
+top-bar portrait's right-click menu), nothing calls `hoverToken` with a `part` any more.
+`map/HoverLabel.tsx` still carries the `part` field, its doc comment naming `vis` and `life`, and
+`fromPresence` still accepts those two from peers (an older client may still send them for one
+deploy). Once no client in the field sends parts, drop `part` from `HoverRef`, the resolver's
+argument and the `data-part` attribute. Cleanup only; no behaviour change.
+
 ## Camp selection rings oversized on the fallback map (2026-11-09)
 
 Noticed by board-ux while checking the selection-in-your-colour shots
