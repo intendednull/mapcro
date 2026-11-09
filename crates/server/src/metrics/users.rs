@@ -101,8 +101,16 @@ pub fn counts(now: i64) -> Vec<(i64, u64)> {
 mod tests {
     use super::*;
 
+    /// A day rolling over writes the global `users_today` gauge, so the tests here that roll a
+    /// day run one at a time; in parallel, one's reset raced another's read.
+    static GAUGE: Mutex<()> = Mutex::new(());
+    fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        GAUGE.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn a_key_counts_once_a_day_and_the_salt_resets_at_midnight() {
+        let _one = one_at_a_time();
         let day = 20_400 * 86_400; // a midnight, UTC
         let mut u = Users::new(day + 10);
         let a = IpAddr::from([203, 0, 113, 7]);
@@ -124,6 +132,7 @@ mod tests {
 
     #[test]
     fn a_quiet_midnight_still_rolls_over() {
+        let _one = one_at_a_time();
         let day = 20_400 * 86_400;
         let mut u = Users::new(day);
         u.saw(IpAddr::from([10, 0, 0, 1]), day + 1);
@@ -142,6 +151,7 @@ mod tests {
 
     #[test]
     fn a_quiet_midnight_resets_the_users_today_gauge() {
+        let _one = one_at_a_time();
         let day = 20_400 * 86_400;
         let mut u = Users::new(day);
         u.saw(IpAddr::from([10, 0, 0, 1]), day + 1);
