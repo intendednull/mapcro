@@ -85,6 +85,9 @@ pub struct Entity {
     pub src: EntitySource,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nodes: Option<Vec<[f64; 3]>>,
+    /// Camps: `weak`, `medium`, `strong`, `vaults` (the Sinner's Sacrifice) or `midboss`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tier: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

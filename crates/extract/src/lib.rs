@@ -129,6 +129,7 @@ pub fn extract(game_dir: &Path, out_dir: &Path) -> Result<ExtractReport> {
                 targetname: entity.src.targetname,
             },
             nodes: entity.nodes,
+            tier: entity.tier.map(str::to_owned),
         })
         .collect();
     pack.geometry_hash = entities.geometry_hash;
@@ -302,6 +303,17 @@ fn read_localisation(vpk: &Vpk, game: &GameDir, pack: &mut Pack) -> Result<Optio
         Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error),
     }
+}
+
+/// The map's decoded entity lump (`maps/dl_midtown/entities/default_ents.vents_c`), for audits
+/// that need every record rather than the pack's kinds (`examples/lump_census.rs`).
+pub fn entity_lump(game_dir: &Path) -> Result<Value> {
+    let game = GameDir::new(game_dir)?;
+    let map = Vpk::open(&game, ENTITIES_VPK)?;
+    let bytes = map.read(ENTITIES_PATH)?;
+    let resource = resource::parse(&bytes)?;
+    let block = resource.block(b"DATA").ok_or(Error::MissingDataBlock)?;
+    kv3::decode(block.data)
 }
 
 fn extract_entities(map: &Vpk, pack: &mut Pack) -> Result<entities::Extraction> {

@@ -22,6 +22,10 @@ pub struct Entity {
     pub world: [f64; 3],
     pub src: EntitySource,
     pub nodes: Option<Vec<[f64; 3]>>,
+    /// Camps: the game's tier (`weak`, `medium`, `strong`, `vaults` or `midboss`), from the
+    /// camp's `subclass_name` (`neutral_camp_<tier>`). The vaults are the Sinner's Sacrifice
+    /// camps, whatever their name says.
+    pub tier: Option<&'static str>,
 }
 
 #[derive(Clone, Debug)]
@@ -130,6 +134,7 @@ pub fn extract(root: &Value) -> Result<Extraction> {
             world: entity.origin,
             src: entity.source(),
             nodes: None,
+            tier: (kind == "camp").then(|| camp_tier(entity.subclass.as_deref())).flatten(),
         });
     }
 
@@ -146,6 +151,7 @@ pub fn extract(root: &Value) -> Result<Extraction> {
             world: zipline.origin,
             src: zipline.src.clone(),
             nodes: Some(zipline.nodes.clone()),
+            tier: None,
         });
     }
 
@@ -183,6 +189,7 @@ pub fn extract(root: &Value) -> Result<Extraction> {
             world: candidate.world,
             src: candidate.src,
             nodes: candidate.nodes,
+            tier: candidate.tier,
         });
     }
 
@@ -248,6 +255,8 @@ struct RawEntity {
     targetname: String,
     model: Option<String>,
     neutralsubclass: Option<String>,
+    /// `subclass_name`: a camp's tier (`neutral_camp_vaults`), a pickup spawner's pickup.
+    subclass: Option<String>,
     path_uniqueid: Option<String>,
     path_index: Option<u32>,
 }
@@ -277,6 +286,7 @@ struct Candidate {
     world: [f64; 3],
     src: EntitySource,
     nodes: Option<Vec<[f64; 3]>>,
+    tier: Option<&'static str>,
 }
 
 fn parse_raw(value: &Value) -> Result<Option<RawEntity>> {
@@ -301,6 +311,7 @@ fn parse_raw(value: &Value) -> Result<Option<RawEntity>> {
         targetname: field_str(record, "targetname").unwrap_or_default().to_owned(),
         model: field_str(record, "model").map(str::to_owned),
         neutralsubclass: field_str(record, "neutralsubclass").map(str::to_owned),
+        subclass: field_str(record, "subclass_name").map(str::to_owned),
         path_uniqueid: field_str(record, "path_uniqueid").map(str::to_owned),
         path_index: field_u32(record, "path_index"),
     }))
@@ -332,6 +343,19 @@ fn entity_kind(entity: &RawEntity) -> Option<&'static str> {
         "citadel_trigger_idol_return" => Some("urn"),
         "npc_base_defense_sentry" => Some("sentry"),
         "info_team_spawn" => Some("team_spawn"),
+        _ => None,
+    }
+}
+
+/// A camp's tier from its `subclass_name` (scripts/misc.vdata `neutral_camp_*`); unknown
+/// subclasses carry none rather than a guess.
+fn camp_tier(subclass: Option<&str>) -> Option<&'static str> {
+    match subclass?.strip_prefix("neutral_camp_")? {
+        "weak" => Some("weak"),
+        "medium" => Some("medium"),
+        "strong" => Some("strong"),
+        "vaults" => Some("vaults"),
+        "midboss" => Some("midboss"),
         _ => None,
     }
 }

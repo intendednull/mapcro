@@ -143,6 +143,47 @@ fn entity_tree() -> T {
                         ]),
                     )]),
                 )]),
+                // A Sinner's Sacrifice camp whose name doesn't say so (the bell tower's), and a
+                // camp with no subclass: the tier comes from `subclass_name` alone.
+                T::Object(vec![(
+                    "keyValues3Data",
+                    T::Object(vec![(
+                        "values",
+                        T::Object(vec![
+                            ("classname", T::Str("info_neutral_trooper_camp".into())),
+                            ("subclass_name", T::Str("neutral_camp_vaults".into())),
+                            (
+                                "origin",
+                                T::Array(vec![
+                                    T::Double(3248.0),
+                                    T::Double(-1888.0),
+                                    T::Double(0.0),
+                                ]),
+                            ),
+                            ("hammeruniqueid", T::Str("c1".into())),
+                            ("targetname", T::Str("[PR#]1380394_chinatown_bell_1".into())),
+                        ]),
+                    )]),
+                )]),
+                T::Object(vec![(
+                    "keyValues3Data",
+                    T::Object(vec![(
+                        "values",
+                        T::Object(vec![
+                            ("classname", T::Str("info_neutral_trooper_camp".into())),
+                            (
+                                "origin",
+                                T::Array(vec![
+                                    T::Double(-3264.0),
+                                    T::Double(-1600.0),
+                                    T::Double(0.0),
+                                ]),
+                            ),
+                            ("hammeruniqueid", T::Str("c2".into())),
+                            ("targetname", T::Str("[PR#]plain_camp".into())),
+                        ]),
+                    )]),
+                )]),
             ]),
         ),
     ])
@@ -373,14 +414,20 @@ fn extract_writes_pack_and_blobs() {
     assert_eq!(heroes[0]["card_blob"].as_str(), Some("topbar/heroes/7_card"));
 
     let entities = pack["entities"].as_array().expect("entities");
-    assert_eq!(entities.len(), 3);
-    assert_eq!(entities[0]["key"].as_str(), Some("patron:amber:lane1:1"));
+    assert_eq!(entities.len(), 5);
+    let by = |key: &str| entities.iter().find(|e| e["key"] == key).unwrap_or_else(|| panic!("no {key}"));
+    assert_eq!(entities[2]["key"].as_str(), Some("patron:amber:lane1:1"));
     // The Soul Urn's delivery point, a neutral site on the nearest lane.
-    assert_eq!(entities[1]["key"].as_str(), Some("urn:neutral:lane1:1"));
-    assert_eq!(entities[1]["world"][0].as_f64(), Some(-6592.0));
-    assert_eq!(entities[2]["key"].as_str(), Some("zipline:neutral:lane1:1"));
+    assert_eq!(by("urn:neutral:lane1:1")["world"][0].as_f64(), Some(-6592.0));
+    // Camps carry their tier where the map gives one, and nothing otherwise.
+    let camps: Vec<(&str, Option<&str>)> =
+        entities.iter().filter(|e| e["kind"] == "camp").map(|e| (e["src"]["targetname"].as_str().unwrap_or(""), e["tier"].as_str())).collect();
+    assert_eq!(camps.len(), 2);
+    assert!(camps.contains(&("[PR#]1380394_chinatown_bell_1", Some("vaults"))), "{camps:?}");
+    assert!(camps.contains(&("[PR#]plain_camp", None)), "{camps:?}");
+    assert!(by("urn:neutral:lane1:1").get("tier").is_none(), "only camps carry a tier");
     assert_eq!(
-        entities[2]["nodes"].as_array().expect("nodes").len(),
+        by("zipline:neutral:lane1:1")["nodes"].as_array().expect("nodes").len(),
         1,
         "zipline node was not joined"
     );
@@ -435,6 +482,21 @@ fn real_install() {
     let urns: Vec<&str> =
         pack["entities"].as_array().expect("entities").iter().filter(|e| e["kind"] == "urn").filter_map(|e| e["key"].as_str()).collect();
     assert_eq!(urns, ["urn:neutral:lane1:1", "urn:neutral:lane6:1"], "the Soul Urn's two delivery points, west and east");
+    // Every camp carries the game's tier (docs/research/map-objectives-audit.md): 51 camps and
+    // the mid boss's own, with all 11 Sinner's Sacrifice camps as vaults whatever their names.
+    let mut tiers = std::collections::BTreeMap::new();
+    let mut vaults = Vec::new();
+    for e in pack["entities"].as_array().expect("entities").iter().filter(|e| e["kind"] == "camp") {
+        let tier = e["tier"].as_str().expect("every camp has a tier");
+        *tiers.entry(tier).or_insert(0) += 1;
+        if tier == "vaults" {
+            vaults.push(e["src"]["targetname"].as_str().unwrap_or("").trim_start_matches("[PR#]"));
+        }
+    }
+    assert_eq!(tiers, [("medium", 24), ("midboss", 1), ("strong", 12), ("vaults", 11), ("weak", 4)].into_iter().collect());
+    for name in ["1380394_chinatown_bell_1", "theater_balcony_camp", "slums_garage_up_camp", "drug_store_camp", "hotel_01_camp"] {
+        assert!(vaults.contains(&name), "{name} is a Sinner's Sacrifice camp: {vaults:?}");
+    }
     assert!(pack["icons"].as_array().expect("icons").len() > 50);
     assert_eq!(pack["hud_sources"].as_array().expect("hud").len(), 11);
     let critical = pack["heroes"]
