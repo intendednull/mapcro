@@ -42,10 +42,17 @@ from `/v1/matches/active`. Only 2 Steam-capable calls were used. Logs: /tmp/api-
   (`POST /v1/matches/salts`), which runs after someone downloads the replay in the game. So for
   fresh matches, uploading the file is the dependable path, and a companion tool that submits
   salts is the way to improve auto-fetch.
+- **Second Steam-capable call (00:14 UTC, about 1.5 h after the match):** still no
+  `replay_salt`. deadlock-api's Steam lookup doesn't fill in a missing replay salt on a row it
+  already has, and fresh matches get a row within seconds of ending. So the 3/h lookup doesn't
+  help fresh matches, whether our server or the user's browser makes it.
+- **Decision:** the browser-side lookup is dropped (2026-11-09). The way to get more automatic
+  fetches is getting the replay salt into deadlock-api, e.g. a companion tool that submits it
+  from the player's Steam client after they download the replay in game (on hold).
 - **Still not measured:** whether `replay_salt` arrives after several hours, and what a match with
   no salts row at all does.
 
-The priming build is on hold until the operator decides. Today's server path is unchanged.
+The priming build is dropped (see the decision above). Today's server path is unchanged.
 
 ## 1. What the server calls today
 
