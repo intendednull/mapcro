@@ -14,14 +14,14 @@ test.afterAll(() => server.stop());
 
 const comment = (p: Page) => p.locator(".mapbox [data-callout]");
 async function place(p: Page, f: [number, number], text: string) {
-  await p.keyboard.press("c");
+  await p.keyboard.press("t");
   const at = await mapPoint(p, ...f);
   await p.mouse.click(at.x, at.y);
   // A new comment is open, and editing.
   await expect(p.getByTestId("comment-input")).toBeFocused();
   await p.getByTestId("comment-input").fill(text);
   await p.keyboard.press("Enter");
-  await p.keyboard.press("v");
+  await p.keyboard.press("q");
 }
 
 test("a new comment edits open, then collapses to a bubble; a click opens it, a click outside closes it", async ({ browser }) => {
@@ -101,8 +101,8 @@ test("a bubble drags with Move and erases with Erase", async ({ browser }) => {
   await a.mouse.up();
   await expect.poll(async () => (await spot(b)).x).toBeLessThan(before.x - 50);
   await expect(comment(a)).toHaveAttribute("data-open", "false"); // a drag doesn't open it
-  await a.mouse.move(5, 5); // E over the comment would delete it outright (hover + E)
-  await a.keyboard.press("e");
+  await a.mouse.move(5, 5); // S over the comment would delete it outright (hover + S)
+  await a.keyboard.press("s");
   const nb = (await comment(a).locator(".bubble-body").boundingBox())!;
   await a.mouse.click(nb.x + nb.width / 2, nb.y + nb.height / 2);
   await expect(comment(b)).toHaveCount(0);

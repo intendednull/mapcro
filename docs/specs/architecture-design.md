@@ -126,6 +126,11 @@ transaction and one undo step.
 
 The map is still the surface for every tool; the picker only chooses the gesture.
 
+**Keys (operator, 2026-11-09):** close together under the left hand, the most used on the nearest:
+Move Q, Draw E, Arrow R, Comment T, Laser A, Erase S (and S over a placed thing deletes it, in any
+tool). W is unbound; F follows the presenter, K
+kills or revives the hovered hero. Keys are ignored while typing in a field.
+
 ## 4a. Client state
 
 ```

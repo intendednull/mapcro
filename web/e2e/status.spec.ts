@@ -86,7 +86,7 @@ test("a single tap with Draw is a dot, and it saves", async ({ browser }) => {
   const url = await newBoardUrl(server, "dot");
   const a = await joinNew(browser, url, "Coach");
   const b = await joinNew(browser, url, "Marrow");
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   const p = await mapPoint(a, 0.5, 0.4);
   await a.mouse.click(p.x, p.y);
   await expect(b.locator(".mapbox [data-stroke]")).toHaveCount(1);

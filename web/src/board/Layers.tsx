@@ -37,7 +37,7 @@ import { PRESENCE_MS } from "../core/session";
 import { liveInk, moveStrokeOps, strokePoints } from "./placed";
 import { smoothed } from "./smooth";
 import type { BoardState } from "./state";
-import type { Tool } from "./tools";
+import { type Tool, TOOLS } from "./tools";
 import { NameTag, Tokens, svgPoint } from "./Tokens";
 import { hoverHandle, hoveredHandle, registerHover } from "../map/HoverLabel";
 import { Cursors } from "./Presence";
@@ -630,13 +630,14 @@ export function Layers(p: {
       e.preventDefault();
       p.onZoom(svgPoint(svg, e), Math.exp(Math.max(-1, Math.min(1, e.deltaY / 300))));
     };
-    // Hover + E deletes the placed thing under the pointer, whatever the tool (operator,
-    // 2026-11-07). Ahead of the toolbar's E (Erase), which still applies over empty map.
+    // Hover + Erase's key (S) deletes the placed thing under the pointer, whatever the tool
+    // (operator, 2026-11-07). Ahead of the toolbar's Erase, which still applies over empty map.
+    const eraseKey = TOOLS.find((x) => x.tool === "erase")!.key.toLowerCase();
     let hover: { x: number; y: number } | undefined;
     const track = (e: PointerEvent) => (hover = { x: e.clientX, y: e.clientY });
     const untrackHover = () => (hover = undefined);
     const del = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "e" || e.ctrlKey || e.metaKey || e.altKey || e.repeat || !hover || !editor()) return;
+      if (e.key.toLowerCase() !== eraseKey || e.ctrlKey || e.metaKey || e.altKey || e.repeat || !hover || !editor()) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       const id = erasableAtPoint(hover.x, hover.y);

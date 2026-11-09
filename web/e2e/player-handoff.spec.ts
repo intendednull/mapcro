@@ -59,10 +59,10 @@ async function boardWithScene(browser: import("@playwright/test").Browser) {
   const a = await joinNew(browser, url, "Coach");
   await openMatch(a);
   await scrubTo(a, 300);
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   await gesture(a, [[0.3, 0.3], [0.45, 0.35]]);
   await expect(strokes(a)).toHaveCount(1);
-  await a.keyboard.press("v");
+  await a.keyboard.press("q");
   await a.getByTestId("match-save").click();
   await expect(a.getByTestId("scene-card")).toHaveCount(2);
   await expect(strokes(a)).toHaveCount(0); // moved into the scene

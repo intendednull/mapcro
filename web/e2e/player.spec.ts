@@ -222,7 +222,7 @@ test("ink over playback is live, kept only by saving a scene, and cleared when t
   await useSummary(a);
   await scrubTo(a, 400);
 
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   await gesture(a, [[0.3, 0.3], [0.4, 0.35], [0.5, 0.3]]);
   await expect(strokes(a)).toHaveCount(1);
   // Not on the scene: B, in Sandbox, doesn't see it; in Player, B does, live.
@@ -244,7 +244,7 @@ test("ink over playback is live, kept only by saving a scene, and cleared when t
   // Unsaved ink stays while someone is in Player, and through viewing a scene and coming
   // Back; it goes when the board is opened again with nobody watching the match.
   await b.getByTestId("mode-player").click();
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   await gesture(a, [[0.6, 0.6], [0.65, 0.62]]);
   await expect(strokes(b)).toHaveCount(1);
   await a.getByTestId("mode-sandbox").click();
@@ -266,7 +266,7 @@ test("entering Player alone clears last session's ink, not what you draw straigh
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   await useSummary(a);
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   await gesture(a, [[0.3, 0.3], [0.4, 0.35]]);
   await expect(strokes(a)).toHaveCount(1);
   const old = await strokes(a).getAttribute("data-stroke");
@@ -277,7 +277,7 @@ test("entering Player alone clears last session's ink, not what you draw straigh
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   // The role comes with the connection; until then a stroke isn't drawn.
   await expect(a.getByTestId("save-status")).toHaveAttribute("data-can-edit", "true");
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   await gesture(a, [[0.6, 0.6], [0.65, 0.62]]);
   await expect(strokes(a).and(a.locator(`[data-stroke="${old}"]`))).toHaveCount(0, { timeout: 5000 });
   await expect(strokes(a)).toHaveCount(1);
@@ -301,9 +301,9 @@ test("Escape, or a press on the map, leaves the events search so the board's key
   expect(await focused()).toBe(false);
   // The search stays; only the focus left. A board key now works: D picks Draw.
   await expect(search).toHaveValue("died");
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   await expect(a.getByTestId("tool-draw")).toHaveClass(/\bon\b/);
-  await a.keyboard.press("v");
+  await a.keyboard.press("q");
   // A press on the map does the same.
   await search.click();
   expect(await focused()).toBe(true);

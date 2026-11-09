@@ -17,7 +17,7 @@ test("a phone viewer follows, reads the callouts and note, flips on its own, and
   const a = await joinNew(browser, url, "Coach");
   // Desktop: a second scene with two callouts and a note.
   await a.getByTestId("scene-add").click();
-  await a.keyboard.press("c");
+  await a.keyboard.press("t");
   for (const [f, text] of [[0.4, "Smoke on the bridge"], [0.6, "Dome when boss is low"]] as const) {
     const p = await mapPoint(a, f, 0.5);
     await a.mouse.click(p.x, p.y);

@@ -44,13 +44,13 @@ test("in Player, the palette colours ink, arrows and comments", async ({ browser
   await useSummary(a);
   await a.getByTestId("palette").click();
   await a.getByRole("radio", { name: "Colour: Ice" }).click();
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   await gesture(a, [[0.3, 0.3], [0.45, 0.33]]);
   await expect.poll(() => css(a, ".mapbox [data-stroke] path.ink", "stroke")).toBe("rgb(127, 224, 232)");
-  await a.keyboard.press("a");
+  await a.keyboard.press("r");
   await gesture(a, [[0.5, 0.4], [0.62, 0.45]]);
   await expect.poll(() => css(a, ".mapbox [data-arrow] .arw", "stroke")).toBe("rgb(127, 224, 232)");
-  await a.keyboard.press("c");
+  await a.keyboard.press("t");
   const at = await mapPoint(a, 0.7, 0.3);
   await a.mouse.click(at.x, at.y);
   await a.getByTestId("comment-input").fill("Ice in Player");

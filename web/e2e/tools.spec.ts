@@ -21,7 +21,7 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   const b = await joinNew(browser, url, "Marrow");
 
   // Draw in a palette colour.
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   await a.getByTestId("palette").click();
   await a.getByRole("radio", { name: "Colour: Lime" }).click();
   await gesture(a, [[0.3, 0.3], [0.4, 0.35], [0.5, 0.3]]);
@@ -29,7 +29,7 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   await expect(strokes(b).locator("path.ink")).toHaveAttribute("stroke", "#c5e07a");
 
   // An arrow from a hero takes the hero's team.
-  await a.keyboard.press("a");
+  await a.keyboard.press("r");
   const tok = (await a.locator('.tok[data-slot="Amber-0"]').boundingBox())!;
   const to = await mapPoint(a, 0.45, 0.55);
   await a.mouse.move(tok.x + tok.width / 2, tok.y + tok.height / 2);
@@ -40,7 +40,7 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   await expect(arrows(b).locator(".arw")).toHaveClass(/amber/);
 
   // A comment, typed in place: a bubble once placed.
-  await a.keyboard.press("c");
+  await a.keyboard.press("t");
   const at = await mapPoint(a, 0.55, 0.7);
   await a.mouse.click(at.x, at.y);
   await a.getByTestId("comment-input").fill("Smoke on the bridge");
@@ -49,7 +49,7 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   await expect(callouts(b)).toHaveAttribute("data-open", "false");
 
   // Open it, then edit it with a double click: the others see the editor's name on it.
-  await a.keyboard.press("v");
+  await a.keyboard.press("q");
   await callouts(a).locator(".bubble-body").click();
   await expect(callouts(a)).toHaveAttribute("data-open", "true");
   await callouts(a).locator("text").dblclick();
@@ -74,7 +74,7 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   // Erase: one scrub over the ink and the arrow is one transaction, so one undo brings both back.
   // (E over a comment would delete just that comment: the pointer leaves the map first.)
   await a.mouse.move(5, 5);
-  await a.keyboard.press("e");
+  await a.keyboard.press("s");
   const s = (await strokes(a).locator("path.ink").boundingBox())!;
   const ar = (await arrows(a).locator(".arw").boundingBox())!;
   await a.mouse.move(s.x + s.width / 2, s.y + s.height / 2);
@@ -93,7 +93,7 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   await expect(strokes(b)).toHaveCount(1);
 
   // Clear ink: every stroke on the scene in one step, with Undo in its toast. Arrows stay.
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   await gesture(a, [[0.6, 0.2], [0.7, 0.25]]);
   await expect(strokes(b)).toHaveCount(2);
   await a.getByTestId("clear-menu").click();
@@ -166,7 +166,7 @@ test("objectives toggle on click (camps, mid boss, one rift at a time); a viewer
   // The viewer's picker: Look and Laser only.
   await expect(v.getByTestId("toolbar").locator('[data-testid^="tool-"]')).toHaveCount(2);
   await expect(v.getByTestId("tool-move")).toContainText("Look");
-  await v.keyboard.press("l");
+  await v.keyboard.press("a");
   const p0 = await mapPoint(v, 0.3, 0.5);
   const p1 = await mapPoint(v, 0.6, 0.65); // diagonal: a flat line has a zero-height box, which Playwright calls hidden
   await v.mouse.move(p0.x, p0.y);

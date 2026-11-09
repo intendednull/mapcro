@@ -118,7 +118,7 @@ test("others see a stroke as it's drawn, and a middle click pings; a middle drag
   const url = await newBoardUrl(server, "live");
   const a = await joinNew(browser, url, "Coach");
   const b = await joinNew(browser, url, "Marrow");
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   const p0 = await mapPoint(a, 0.3, 0.4);
   await a.mouse.move(p0.x, p0.y);
   await a.mouse.down();

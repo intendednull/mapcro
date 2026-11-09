@@ -1,4 +1,4 @@
-// Placed things (ink, arrows, comments): hover + E deletes in any tool, Move drags each of them
+// Placed things (ink, arrows, comments): hover + S (Erase's key) deletes in any tool, Move drags each of them
 // with a live preview for the others, Clear clears one kind or all, and the notes margin round
 // the map takes them too.
 
@@ -24,18 +24,18 @@ const centre = async (l: ReturnType<Page["locator"]>) => {
 const nums = async (l: ReturnType<Page["locator"]>) => (await l.getAttribute("d"))!.split(/[^-\d.]+/).filter(Boolean).map(Number);
 
 async function place(a: Page) {
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   await gesture(a, [[0.3, 0.3], [0.42, 0.3]]);
-  await a.keyboard.press("a");
+  await a.keyboard.press("r");
   await gesture(a, [[0.55, 0.55], [0.7, 0.62]]);
-  await a.keyboard.press("c");
+  await a.keyboard.press("t");
   const at = await mapPoint(a, 0.62, 0.78);
   await a.mouse.click(at.x, at.y);
   await a.getByTestId("comment-input").fill("Ward here");
   await a.keyboard.press("Enter");
 }
 
-test("hover + E deletes what's under the pointer in any tool, in one undoable step", async ({ browser }) => {
+test("hover + S (Erase's key) deletes what's under the pointer in any tool, in one undoable step", async ({ browser }) => {
   const url = await newBoardUrl(server, "hover delete");
   const a = await joinNew(browser, url, "Coach");
   const b = await joinNew(browser, url, "Marrow");
@@ -45,34 +45,34 @@ test("hover + E deletes what's under the pointer in any tool, in one undoable st
   await expect(callouts(b)).toHaveCount(1);
 
   // In Move: the arrow goes; the tool stays.
-  await a.keyboard.press("v");
+  await a.keyboard.press("q");
   const arrow = await centre(arrows(a).locator(".arw"));
   await a.mouse.move(arrow.x, arrow.y);
-  await a.keyboard.press("e");
+  await a.keyboard.press("s");
   await expect(arrows(b)).toHaveCount(0);
   await expect(a.getByTestId("tool-move")).toHaveAttribute("aria-pressed", "true");
   await a.keyboard.press("Control+z");
   await expect(arrows(b)).toHaveCount(1);
 
   // In Draw: the stroke.
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   const ink = await centre(strokes(a).locator("path.ink"));
   await a.mouse.move(ink.x, ink.y);
-  await a.keyboard.press("e");
+  await a.keyboard.press("s");
   await expect(strokes(b)).toHaveCount(0);
   await expect(a.getByTestId("tool-draw")).toHaveAttribute("aria-pressed", "true");
 
   // In Arrow: the comment.
-  await a.keyboard.press("a");
+  await a.keyboard.press("r");
   const co = await centre(callouts(a).locator(".bubble-body"));
   await a.mouse.move(co.x, co.y);
-  await a.keyboard.press("e");
+  await a.keyboard.press("s");
   await expect(callouts(b)).toHaveCount(0);
 
-  // Over empty map, E is still the Erase tool.
+  // Over empty map, S is still the Erase tool.
   const empty = await mapPoint(a, 0.2, 0.75);
   await a.mouse.move(empty.x, empty.y);
-  await a.keyboard.press("e");
+  await a.keyboard.press("s");
   await expect(a.getByTestId("tool-erase")).toHaveAttribute("aria-pressed", "true");
   await expect(arrows(b)).toHaveCount(1);
 });
@@ -83,7 +83,7 @@ test("Move drags an arrow whole or by one end, and a stroke whole; the others wa
   const b = await joinNew(browser, url, "Marrow");
   await place(a);
   await expect(arrows(b)).toHaveCount(1);
-  await a.keyboard.press("v");
+  await a.keyboard.press("q");
 
   // The arrow by its body: both ends move by the same amount.
   const before = await nums(arrows(b).locator(".hit"));
@@ -176,9 +176,9 @@ test("the notes margin: zoom out past the map, draw and comment there; it stays 
   await zoomOut(a);
   await zoomOut(b);
   // Draw in the left margin and comment in the top one (map fractions past 0..1).
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   await gesture(a, [[-0.2, 0.35], [-0.1, 0.55]]);
-  await a.keyboard.press("c");
+  await a.keyboard.press("t");
   const at = await mapPoint(a, 0.5, -0.12);
   await a.mouse.click(at.x, at.y);
   await a.getByTestId("comment-input").fill("Rotate after boss");

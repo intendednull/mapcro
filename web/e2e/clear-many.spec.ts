@@ -83,7 +83,7 @@ test("Undo on the clear toast restores everything that was cleared, and nothing 
 
   const a = await joinNew(browser, url, "Coach");
   // Something of A's own to undo first: a comment. Clear's Undo must not take it back.
-  await a.keyboard.press("c");
+  await a.keyboard.press("t");
   const box = (await a.locator("[data-testid=map] .mm-overlay.map").boundingBox())!;
   await a.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
   await a.getByTestId("comment-input").fill("keep me");

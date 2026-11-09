@@ -64,14 +64,14 @@ test("Player with no timeline shows an empty map, never the scene, and nothing m
 
 test("Clear in Player clears the live layer, not the scene; entering the live layer is no undo step (2, 8)", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Clear"), "Coach");
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   await gesture(a, [[0.2, 0.2], [0.3, 0.25]]);
   await expect(strokes(a)).toHaveCount(1);
   await openMatch(a);
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   await expect(strokes(a)).toHaveCount(0);
   // The ink from before is still the only undo step: making the live layer added none.
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   await gesture(a, [[0.6, 0.6], [0.7, 0.65]]);
   await expect(strokes(a)).toHaveCount(1);
   await a.getByTestId("clear-menu").click();
@@ -149,7 +149,7 @@ test("stale ink is cleared when someone enters Player alone, kept while someone 
   const a = await joinNew(browser, url, "Coach");
   await openMatch(a);
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
-  await a.keyboard.press("d");
+  await a.keyboard.press("e");
   await gesture(a, [[0.6, 0.6], [0.7, 0.65]]);
   await expect(strokes(a)).toHaveCount(1);
   // A second person enters while Coach is in Player: the ink stays.

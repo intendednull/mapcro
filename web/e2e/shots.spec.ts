@@ -12,7 +12,7 @@ test("screenshots", async ({ browser }) => {
   try {
     const url = await newBoardUrl(server, "Scrim prep vs Night Owls");
     const a = await joinNew(browser, url, "Coach");
-    await a.keyboard.press("d");
+    await a.keyboard.press("e");
     await a.screenshot({ path: `shots/${name}-board.png` });
     await a.getByTestId("share").click();
     await expect(a.getByTestId("share-dialog")).toBeVisible();

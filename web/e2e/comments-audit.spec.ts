@@ -8,12 +8,12 @@ const dir = process.env.AUDIT_DIR ?? "shots/comments-audit";
 const LONG = "Smoke the bridge, then rotate east through the vault and hold the walker until 9:30";
 
 async function place(p: Page, f: [number, number], text: string) {
-  await p.keyboard.press("c");
+  await p.keyboard.press("t");
   const at = await mapPoint(p, ...f);
   await p.mouse.click(at.x, at.y);
   await p.getByTestId("comment-input").fill(text);
   await p.keyboard.press("Enter");
-  await p.keyboard.press("v");
+  await p.keyboard.press("q");
 }
 const shot = (p: Page, name: string) => p.locator(".mapbox, .p-map").first().screenshot({ path: `${dir}/${name}.png` });
 const NAMES = ["Smoke on the bridge", "Smoke the bridge, then", "Right edge", "Top left corner", "On the mid boss", "Overlapping", "On a hero"];
@@ -30,13 +30,13 @@ test("comment states", async ({ browser }) => {
     const a = await joinNew(browser, url, "Coach");
     const b = await joinNew(browser, await editLink(server.url, url), "Marrow");
     // Placing: the editor open on a new comment.
-    await a.keyboard.press("c");
+    await a.keyboard.press("t");
     const at = await mapPoint(a, 0.62, 0.42);
     await a.mouse.click(at.x, at.y);
     await a.getByTestId("comment-input").fill("Smoke on the bridge");
     await shot(a, "01-placing");
     await a.keyboard.press("Enter");
-    await a.keyboard.press("v");
+    await a.keyboard.press("q");
     await place(a, [0.3, 0.55], LONG); // long
     await place(a, [0.97, 0.5], "Right edge"); // near the frame
     await place(a, [0.05, 0.05], "Top left corner");
@@ -104,10 +104,10 @@ test("comment states", async ({ browser }) => {
     await shot(b, "11-follower-sees-open");
     // Erase hover.
     await a.keyboard.press("Escape");
-    await a.keyboard.press("e");
+    await a.keyboard.press("s");
     await bubble(a, 4).locator(".bubble-body").hover();
     await shot(a, "12-erase-hover");
-    await a.keyboard.press("v");
+    await a.keyboard.press("q");
     // Phone, both sides.
     const ctx = await browser.newContext({ ...devices["iPhone 13"] } as never);
     const phone = await ctx.newPage();
