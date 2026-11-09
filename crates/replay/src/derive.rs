@@ -7,7 +7,7 @@
 //! are networked whatever the players see (exploration rounds 3 and 4).
 
 use crate::map::{self, Map};
-use crate::timeline::{Camp, Event, FORMAT, MidBoss, Objective, Player, Powerup, PowerupSpawn, Rift, TIER, Timeline, Urn, UrnAt, UrnSpawn, ZipTrack, event, souls_swings};
+use crate::timeline::{Camp, Event, FORMAT, MAX_GIVE_UP_S, MAX_REJUV, MidBoss, Objective, Player, Powerup, PowerupSpawn, REJUV_S, Rejuv, Rift, TIER, Timeline, Urn, UrnAt, UrnSpawn, ZipTrack, event, souls_swings};
 #[cfg(test)]
 use crate::timeline::decode_troopers;
 use std::collections::BTreeMap;
@@ -140,6 +140,50 @@ pub struct BuffObs {
     pub buff: &'static str,
 }
 
+/// A `RejuvStatus` message (timers audit, gap 1): a team's Rejuvenator shard picked up (one per
+/// shard), a revive used, or the Rejuvenator expired.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RejuvObs {
+    /// Match-clock seconds.
+    pub game: f32,
+    pub what: RejuvWhat,
+    /// 2 Amber, 3 Sapphire (`user_team`).
+    pub team: i64,
+    /// The player it's about ([`HeroObs::id`]), from the message's pawn, when it resolves.
+    pub player: Option<i32>,
+}
+
+/// `RejuvStatus.event_type`: 4, 5 and 6 (exploration on 129738985).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RejuvWhat {
+    Taken,
+    Revive,
+    Expired,
+}
+
+/// The game rules' Rejuvenator charges where either changes (`m_iAmberRejuvCount`,
+/// `m_iSapphireRejuvCount`), read every tick.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RejuvCount {
+    pub game: f32,
+    pub amber: i64,
+    pub sapphire: i64,
+}
+
+/// The open rift's capture state, sampled every [`crate::timeline::CAPTURE_EVERY_DS`] tenths of a second while its
+/// cash-in is open (`m_vecTeamKothStates[]`: 0 Amber, 1 Sapphire, checked against the capturing
+/// team on all five of 129738985's rifts).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KothObs {
+    /// Match-clock seconds, on the sampling grid.
+    pub game: f32,
+    /// Capture progress, 0 to 1.
+    pub amber: f32,
+    pub sapphire: f32,
+    /// `m_timeKothGiveUp` on the match clock; `None` while it's unset (FLT_MAX, or 0).
+    pub give_up: Option<f32>,
+}
+
 #[derive(Clone, Debug)]
 pub struct PowerupObs {
     pub pos: [f32; 2],
@@ -163,6 +207,12 @@ pub struct Obs {
     /// The bridge powerups' pickups where they change, in order (empty: the 1 Hz spawner
     /// samples alone, as before format 2).
     pub buffs: Vec<BuffObs>,
+    /// `RejuvStatus` messages, in order.
+    pub rejuv: Vec<RejuvObs>,
+    /// The Rejuvenator charges where they change, in order.
+    pub rejuv_counts: Vec<RejuvCount>,
+    /// The open rift's capture state on its sampling grid, in order.
+    pub koth: Vec<KothObs>,
 }
 
 /// How far (world units) a demo entity may be from our site to take its key. Current-map
@@ -439,7 +489,7 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         let key = at.and_then(|p| m.nearest("rift", p[0] as f64, p[1] as f64, 2000.0)).map(|s| s.key.clone());
         if open.as_ref().map(|o| &o.0) != key.as_ref() {
             if let Some((k, start, live)) = open.take() {
-                rifts.push(Rift { key: k, start_s: start, end_s: sec as u32, live_s: live });
+                rifts.push(Rift { key: k, start_s: start, end_s: sec as u32, live_s: live, give_up_s: None, capture: Vec::new() });
             }
             open = key.map(|k| (k, sec as u32, None));
         }
@@ -448,7 +498,10 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         }
     }
     if let Some((k, start, live)) = open {
-        rifts.push(Rift { key: k, start_s: start, end_s: n as u32, live_s: live });
+        rifts.push(Rift { key: k, start_s: start, end_s: n as u32, live_s: live, give_up_s: None, capture: Vec::new() });
+    }
+    for r in &mut rifts {
+        rift_capture(obs, r);
     }
 
     // ---- powerups: per site, held through gaps ----
@@ -490,6 +543,8 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
     let (urn, urn_events) = urn(obs, m, &carriers, duration_s);
     let mut events = events;
     events.extend(urn_events);
+    let (rejuv, rejuv_events) = rejuvs(obs, m, &players, &carriers, duration_s);
+    events.extend(rejuv_events);
     events.sort_by(|a, b| (a.t, &a.kind).cmp(&(b.t, &b.kind)));
     Ok(Timeline {
         match_id: obs.match_id,
@@ -510,8 +565,123 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         troopers,
         objective_health,
         urn,
+        rejuv,
         format: FORMAT,
     })
+}
+
+/// A rift's give-up deadline and capture progress from the samples taken while its cash-in was
+/// open (timers audit, gap 2). The deadline is the last one set in that time (it moves when the
+/// cash-in restarts, as 129738985's third and fifth did).
+fn rift_capture(obs: &Obs, r: &mut Rift) {
+    let Some(live) = r.live_s else { return };
+    // From the second before: the cash-in opens part-way into `live_s - 1`.
+    let (from, to) = (live.saturating_sub(1).max(r.start_s) * 10, r.end_s * 10);
+    let pct = |v: f32| (v.clamp(0.0, 1.0) * 100.0).round() as u32;
+    let mut rows: Vec<[u32; 3]> = Vec::new();
+    for k in &obs.koth {
+        let ds = (f64::from(k.game) * 10.0).round().max(0.0) as u32;
+        if ds < from || ds > to {
+            continue;
+        }
+        if let Some(g) = k.give_up.filter(|g| *g >= live as f32) {
+            r.give_up_s = Some((g.round() as u32).min(live + MAX_GIVE_UP_S));
+        }
+        let row = [ds, pct(k.amber), pct(k.sapphire)];
+        if rows.last().is_some_and(|l| l[0] >= ds) {
+            continue;
+        }
+        // The middle of a run of equal values says nothing the run's ends don't.
+        let n = rows.len();
+        if n >= 2 && rows[n - 1][1..] == row[1..] && rows[n - 2][1..] == row[1..] {
+            rows[n - 1] = row;
+        } else {
+            rows.push(row);
+        }
+    }
+    r.capture = rows;
+}
+
+/// Each Rejuvenator a team held, and its events (timers audit, gap 1), from the game's
+/// `RejuvStatus` messages and charges: taken with its first shard, a revive each time one is
+/// used, expired when the game says so (else 180 s on, past the recording). Revives left come
+/// from the charges, the game's own count.
+fn rejuvs(obs: &Obs, m: &Map, players: &[Player], carriers: &BTreeMap<i32, (String, u32, u32)>, duration_s: u32) -> (Vec<Rejuv>, Vec<Event>) {
+    let sec = |g: f32| (g.max(0.0) as u32).min(duration_s);
+    // Its shards drop where the mid boss fell.
+    let mid = m.keys_of("mid_boss").first().map(|k| (*k).to_owned());
+    let (mx, my) = mid.as_deref().map_or((None, None), |k| site_xy(m, k));
+    let (mut out, mut events) = (Vec::new(), Vec::new());
+    for team in [2i64, 3] {
+        let Some(name) = team_name(team) else { continue };
+        let mut open: Option<Rejuv> = None;
+        let close = |r: Rejuv, out: &mut Vec<Rejuv>| {
+            let mut r = r;
+            r.left = rejuv_left(obs, team, r.taken_s, r.ends_s, duration_s);
+            out.push(r);
+        };
+        for m in obs.rejuv.iter().filter(|m| m.team == team) {
+            let t = sec(m.game);
+            match m.what {
+                RejuvWhat::Taken if open.is_none() => {
+                    open = Some(Rejuv { team: name.into(), taken_s: t, ends_s: t + REJUV_S, left: Vec::new() });
+                    events.push(Event { team: Some(name.into()), key: mid.clone(), x: mx, y: my, ..event(t, "rejuv_taken") });
+                }
+                RejuvWhat::Revive if open.is_some() => {
+                    let who = m.player.and_then(|id| carriers.get(&id)).filter(|w| w.0 == name);
+                    let p = who.and_then(|w| players.iter().find(|p| p.team == w.0 && p.slot == w.1));
+                    let at = |v: &[Option<i32>]| v.get(t as usize).copied().flatten().or_else(|| v[..(t as usize).min(v.len())].iter().rev().find_map(|x| *x));
+                    events.push(Event {
+                        team: Some(name.into()),
+                        slot: who.map(|w| w.1),
+                        hero_id: who.map(|w| w.2),
+                        x: p.and_then(|p| at(&p.x)),
+                        y: p.and_then(|p| at(&p.y)),
+                        ..event(t, "rejuv_revive")
+                    });
+                }
+                RejuvWhat::Expired => {
+                    if let Some(mut r) = open.take() {
+                        r.ends_s = t.max(r.taken_s + 1);
+                        events.push(Event { team: Some(name.into()), ..event(t, "rejuv_expired") });
+                        close(r, &mut out);
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(r) = open {
+            close(r, &mut out);
+        }
+    }
+    out.sort_by(|a, b| (a.taken_s, &a.team).cmp(&(b.taken_s, &b.team)));
+    (out, events)
+}
+
+/// A team's revives left over `[from, to)`, as `[second, n]` where it changes (the last value in
+/// each second), starting at `from`.
+fn rejuv_left(obs: &Obs, team: i64, from: u32, to: u32, duration_s: u32) -> Vec<[u32; 2]> {
+    let of = |c: &RejuvCount| (if team == 2 { c.amber } else { c.sapphire }).clamp(0, i64::from(MAX_REJUV)) as u32;
+    let mut out: Vec<[u32; 2]> = Vec::new();
+    let mut now = obs.rejuv_counts.iter().take_while(|c| (c.game.max(0.0) as u32) < from).last().map_or(0, of);
+    out.push([from, now]);
+    for c in obs.rejuv_counts.iter().filter(|c| {
+        let s = c.game.max(0.0) as u32;
+        from <= s && s < to && s <= duration_s
+    }) {
+        let (s, n) = (c.game.max(0.0) as u32, of(c));
+        if n == now {
+            continue;
+        }
+        now = n;
+        match out.last_mut() {
+            Some(l) if l[0] == s => l[1] = n,
+            _ => out.push([s, n]),
+        }
+    }
+    // A second whose last value is the one before it says nothing.
+    out.dedup_by(|b, a| a[1] == b[1]);
+    out
 }
 
 /// A powerup site's spawns from its pickup's tick-exact changes (exploration round 7): it turning
@@ -1022,7 +1192,10 @@ mod tests {
         let t = derive(&obs(s), map::current()).expect("timeline");
         assert_eq!(
             t.rifts,
-            [Rift { key: "rift:neutral:lane6:1".into(), start_s: 1, end_s: 4, live_s: Some(3) }, Rift { key: "rift:neutral:lane1:1".into(), start_s: 5, end_s: 6, live_s: None }]
+            [
+                Rift { key: "rift:neutral:lane6:1".into(), start_s: 1, end_s: 4, live_s: Some(3), give_up_s: None, capture: vec![] },
+                Rift { key: "rift:neutral:lane1:1".into(), start_s: 5, end_s: 6, live_s: None, give_up_s: None, capture: vec![] }
+            ]
         );
     }
 
@@ -1379,6 +1552,94 @@ mod tests {
         let t = derive(&o, map::current()).expect("timeline");
         let teams: Vec<(u32, &str, Option<&str>)> = t.urn.as_ref().expect("urn").at.iter().map(|a| (a.t, a.state.as_str(), a.team.as_deref())).collect();
         assert_eq!(teams, [(2, "ground", None), (4, "carried", Some("sapphire")), (6, "ground", Some("sapphire")), (8, "ground", Some("sapphire"))]);
+    }
+
+    /// 129738985's first rift, shortened: its cash-in opens at 2.6 s (the second samples first
+    /// see it at 3), both teams push, Sapphire holds still a while, then captures at 7.4 s.
+    #[test]
+    fn an_open_rift_has_its_deadline_and_both_teams_progress() {
+        let mut s = seconds(12);
+        s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
+        for x in &mut s[1..3] {
+            x.rift_spawner = Some([-7648.0, 0.0]);
+        }
+        for x in &mut s[3..10] {
+            x.rift_live_at = Some([-7612.0, 0.0]);
+        }
+        let mut o = obs(s);
+        let k = |game: f32, amber: f32, sapphire: f32, give_up: Option<f32>| KothObs { game, amber, sapphire, give_up };
+        o.koth = vec![
+            k(2.5, 0.0, 0.0, Some(63.1)),
+            k(3.0, 0.02, 0.01, Some(63.1)),
+            k(3.5, 0.05, 0.02, Some(63.1)),
+            k(4.0, 0.10, 0.20, Some(63.1)),
+            // Sapphire holds at 40% for 2 s: only the run's ends are kept.
+            k(4.5, 0.10, 0.40, Some(63.1)),
+            k(5.0, 0.10, 0.40, Some(63.1)),
+            k(5.5, 0.10, 0.40, Some(63.1)),
+            k(6.0, 0.10, 0.40, Some(63.1)),
+            k(6.5, 0.10, 0.70, Some(63.1)),
+            k(7.0, 0.12, 0.999, Some(63.1)),
+            k(7.5, 0.12, 1.0, None),
+            // Another rift's samples, much later: not this one's.
+            k(40.0, 0.5, 0.5, Some(99.0)),
+        ];
+        let t = derive(&o, map::current()).expect("timeline");
+        let r = &t.rifts[0];
+        assert_eq!((r.start_s, r.live_s, r.end_s, r.give_up_s), (1, Some(3), 10, Some(63)));
+        assert_eq!(r.capture, [[25, 0, 0], [30, 2, 1], [35, 5, 2], [40, 10, 20], [45, 10, 40], [60, 10, 40], [65, 10, 70], [70, 12, 100], [75, 12, 100]]);
+        let bytes = serde_json::to_vec(&t).expect("json");
+        assert_eq!(crate::timeline::validate(&bytes), Ok(t));
+    }
+
+    /// 129738985's Rejuvenators, shortened: Sapphire's three shards come within the second, two
+    /// revives (each charge goes at the death, the revive comes 3 s later), and it expires; then
+    /// Amber takes one the recording ends during.
+    #[test]
+    fn a_rejuvenator_is_taken_used_and_expires() {
+        let mut s = seconds(40);
+        for x in &mut s {
+            x.heroes = vec![hero(1, 2, true, [100.0, 200.0]), hero(5, 3, true, [-300.0, 400.0]), hero(7, 3, true, [-500.0, 600.0])];
+        }
+        let mut o = obs(s);
+        let m = |game: f32, what: RejuvWhat, team: i64, player: Option<i32>| RejuvObs { game, what, team, player };
+        let c = |game: f32, amber: i64, sapphire: i64| RejuvCount { game, amber, sapphire };
+        o.rejuv = vec![
+            m(2.3, RejuvWhat::Taken, 3, Some(5)),
+            m(2.5, RejuvWhat::Taken, 3, Some(7)),
+            m(2.5, RejuvWhat::Taken, 3, Some(5)),
+            // A revive message for a team without one is noise.
+            m(4.0, RejuvWhat::Revive, 2, Some(1)),
+            m(8.5, RejuvWhat::Revive, 3, Some(7)),
+            m(12.7, RejuvWhat::Revive, 3, Some(5)),
+            m(20.3, RejuvWhat::Expired, 3, Some(5)),
+            m(20.3, RejuvWhat::Expired, 3, Some(7)),
+            m(30.0, RejuvWhat::Taken, 2, Some(1)),
+        ];
+        o.rejuv_counts = vec![c(2.3, 0, 1), c(2.5, 0, 3), c(5.5, 0, 2), c(9.7, 0, 1), c(20.3, 0, 0), c(30.0, 1, 0), c(31.2, 2, 0)];
+        let t = derive(&o, map::current()).expect("timeline");
+        assert_eq!(
+            t.rejuv,
+            [
+                Rejuv { team: "sapphire".into(), taken_s: 2, ends_s: 20, left: vec![[2, 3], [5, 2], [9, 1]] },
+                Rejuv { team: "amber".into(), taken_s: 30, ends_s: 30 + REJUV_S, left: vec![[30, 1], [31, 2]] },
+            ]
+        );
+        type Row<'a> = (u32, &'a str, Option<&'a str>, Option<u32>, Option<u32>, Option<i32>);
+        let ev: Vec<Row> = t.events.iter().filter(|e| e.kind.starts_with("rejuv_")).map(|e| (e.t, e.kind.as_str(), e.team.as_deref(), e.slot, e.hero_id, e.x)).collect();
+        let s = Some("sapphire");
+        assert_eq!(
+            ev,
+            [
+                (2, "rejuv_taken", s, None, None, Some(0)),
+                (8, "rejuv_revive", s, Some(1), Some(17), Some(-500)),
+                (12, "rejuv_revive", s, Some(0), Some(15), Some(-300)),
+                (20, "rejuv_expired", s, None, None, None),
+                (30, "rejuv_taken", Some("amber"), None, None, Some(0)),
+            ]
+        );
+        let bytes = serde_json::to_vec(&t).expect("json");
+        assert_eq!(crate::timeline::validate(&bytes), Ok(t));
     }
 
     #[test]

@@ -33,6 +33,46 @@ fn a_current_replay_becomes_a_timeline_the_server_accepts() {
     assert!(bytes.len() < 4 << 20, "compact");
 }
 
+/// 129738985's Rejuvenators and rifts, against the game's own `RejuvStatus` messages (the timer
+/// audit's `--messages 350`: ticks 121537 / 133057 and 154925 / 166445 are 1872.3 / 2052.3 and
+/// 2394.0 / 2574.0 on the match clock) and give-up deadlines (`m_timeKothGiveUp` − game start).
+#[test]
+#[ignore = "needs 129738985: MAPCRO_REPLAY_129738985"]
+fn match_129738985_has_its_rejuvenators_and_rift_captures() {
+    let Some(dem) = env_path("MAPCRO_REPLAY_129738985") else { panic!("set MAPCRO_REPLAY_129738985 to 129738985.dem") };
+    let dir = tempfile::tempdir().expect("dir");
+    let out = dir.path().join("t.json");
+    worker::job(&dem, &out, 129_738_985, 2 << 30).expect("parses");
+    let t = timeline::validate(&std::fs::read(&out).expect("output")).expect("the server's checks pass");
+    let rejuv: Vec<(&str, u32, u32, &[[u32; 2]])> = t.rejuv.iter().map(|r| (r.team.as_str(), r.taken_s, r.ends_s, r.left.as_slice())).collect();
+    assert_eq!(rejuv, [("sapphire", 1872, 2052, &[[1872, 3], [1927, 2], [1952, 1]][..]), ("amber", 2394, 2574, &[[2394, 2], [2395, 3], [2538, 2], [2544, 1]][..])]);
+    let ev: Vec<(u32, &str, Option<&str>, bool)> = t.events.iter().filter(|e| e.kind.starts_with("rejuv_")).map(|e| (e.t, e.kind.as_str(), e.team.as_deref(), e.hero_id.is_some())).collect();
+    let (s, a) = (Some("sapphire"), Some("amber"));
+    assert_eq!(
+        ev,
+        [
+            (1872, "rejuv_taken", s, false),
+            (1930, "rejuv_revive", s, true),
+            (1955, "rejuv_revive", s, true),
+            (2052, "rejuv_expired", s, false),
+            (2394, "rejuv_taken", a, false),
+            (2541, "rejuv_revive", a, true),
+            (2547, "rejuv_revive", a, true),
+            (2574, "rejuv_expired", a, false),
+        ]
+    );
+    let give_up: Vec<Option<u32>> = t.rifts.iter().map(|r| r.give_up_s).collect();
+    assert_eq!(give_up, [Some(795), Some(1252), Some(1676), Some(2101), Some(2465)]);
+    // Each rift ends with its capturer's progress full, as the capture events say.
+    let captured: Vec<Option<String>> = t.events.iter().filter(|e| e.kind == "rift_capture").map(|e| e.team.clone()).collect();
+    let full: Vec<Option<String>> = t.rifts.iter().map(|r| r.capture.last().and_then(|l| if l[1] == 100 { Some("amber".into()) } else if l[2] == 100 { Some("sapphire".into()) } else { None })).collect();
+    assert_eq!(full, captured);
+    assert!(t.rifts.iter().all(|r| r.capture.len() >= 20), "sampled through each capture");
+    // Each starts from nothing: the cash-in's first tick still holds the last rift's progress.
+    let first: Vec<[u32; 2]> = t.rifts.iter().map(|r| [r.capture[0][1], r.capture[0][2]]).collect();
+    assert_eq!(first, [[0, 0]; 5]);
+}
+
 #[test]
 #[ignore = "needs a local replay: MAPCRO_OLD_REPLAY"]
 fn an_old_map_replay_is_refused() {

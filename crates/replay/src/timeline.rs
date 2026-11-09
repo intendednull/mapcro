@@ -15,8 +15,9 @@ pub const TIER: &str = "replay";
 /// output gains or changes a layer, so a cached timeline from an older worker can be told apart
 /// (docs/backlog.md, "Replay timeline format versions"). 0: written before the stamp.
 /// 1: respawn times and the urn (exploration rounds 5 and 6). 2: powerup types and spawns, and
-/// when each rift's cash-in opens (exploration round 7).
-pub const FORMAT: u32 = 2;
+/// when each rift's cash-in opens (exploration round 7). 3: the Rejuvenator, and each open rift's
+/// capture progress and give-up deadline (timers audit, gaps 1 and 2).
+pub const FORMAT: u32 = 3;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Timeline {
@@ -55,6 +56,10 @@ pub struct Timeline {
     /// Replay tier: the Soul Urn (exploration round 6). Absent in timelines from before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub urn: Option<Urn>,
+    /// Replay tier: each Rejuvenator a team held (format 3). Empty before it, or when no team
+    /// took one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rejuv: Vec<Rejuv>,
     /// [`FORMAT`] of the worker that wrote it; 0 if it predates the stamp.
     #[serde(default)]
     pub format: u32,
@@ -99,6 +104,26 @@ pub struct UrnAt {
 }
 
 pub const URN_STATES: [&str; 3] = ["ground", "carried", "none"];
+
+/// The mid boss's reward held by a team (timers audit, gap 1): taken when its first shard is
+/// picked up (`RejuvStatus` 4), over when the game says it expired (`RejuvStatus` 6), 180 s on.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Rejuv {
+    /// "amber" or "sapphire".
+    pub team: String,
+    pub taken_s: u32,
+    /// When it expires; past the end of the recording when that ends first.
+    pub ends_s: u32,
+    /// `[second, revives left]` from `taken_s`, where it changes (the game rules'
+    /// `m_iAmberRejuvCount` / `m_iSapphireRejuvCount`: one per shard picked up, one less as a
+    /// revive is used).
+    pub left: Vec<[u32; 2]>,
+}
+
+/// How long a Rejuvenator lasts (generic_data.vdata `m_RejuvParams`; 180.0 s on 129738985).
+pub const REJUV_S: u32 = 180;
+/// The most revives a team can hold (`m_RejuvParams`: three drops).
+pub const MAX_REJUV: u32 = 3;
 
 /// One objective's health in percent: `[second, pct]` where it changes.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -198,7 +223,24 @@ pub struct Rift {
     /// Absent in timelines from before format 2, or if the recording ends first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub live_s: Option<u32>,
+    /// The second its cash-in gives up if no team captures it (`m_timeKothGiveUp`, 60 s after
+    /// it opens). Format 3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub give_up_s: Option<u32>,
+    /// Each team's capture progress while its cash-in is open (`m_vecTeamKothStates[]`, 0 Amber,
+    /// 1 Sapphire): `[tenths of a second, amber %, sapphire %]`, sampled every
+    /// [`CAPTURE_EVERY_DS`] tenths. A run of equal samples keeps only its ends, so the values
+    /// between two rows are their straight line. Format 3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capture: Vec<[u32; 3]>,
 }
+
+/// How often an open rift's capture progress is sampled, in tenths of a second: 2 Hz. Progress
+/// runs 0 to 100% in 6 to 40 s, so the straight line between samples is within about a percent
+/// of it, and a match's rifts add a few KB.
+pub const CAPTURE_EVERY_DS: u32 = 5;
+/// How long after it opens a rift's cash-in may give up (60 s in misc.vdata), with room.
+pub const MAX_GIVE_UP_S: u32 = 300;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Powerup {
@@ -297,7 +339,23 @@ pub struct Who {
     pub hero_id: u32,
 }
 
-pub const EVENT_KINDS: [&str; 12] = ["death", "objective", "mid_boss", "rift_up", "rift_capture", "powerup_spawn", "powerup_taken", "souls_swing", "ult", "urn_pickup", "urn_drop", "urn_delivered"];
+pub const EVENT_KINDS: [&str; 15] = [
+    "death",
+    "objective",
+    "mid_boss",
+    "rift_up",
+    "rift_capture",
+    "powerup_spawn",
+    "powerup_taken",
+    "souls_swing",
+    "ult",
+    "urn_pickup",
+    "urn_drop",
+    "urn_delivered",
+    "rejuv_taken",
+    "rejuv_revive",
+    "rejuv_expired",
+];
 
 /// An ability's internal name as the timeline keeps it: `[a-z0-9_]`, at most 64.
 pub fn plausible_ability(s: &str) -> bool {
@@ -438,7 +496,17 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
         && t.objectives.iter().all(|o| plausible_key(&o.key) && o.kind.len() <= 32 && o.team.len() <= 16 && o.destroyed_s <= t.duration_s)
         && t.mid_boss.len() <= MAX_LIST
         && t.rifts.len() <= MAX_LIST
-        && t.rifts.iter().all(|r| plausible_key(&r.key) && r.key.starts_with("rift:") && r.start_s < r.end_s && r.end_s <= n as u32 && r.live_s.is_none_or(|l| r.start_s <= l && l < r.end_s))
+        && t.rifts.iter().all(|r| {
+            plausible_key(&r.key)
+                && r.key.starts_with("rift:")
+                && r.start_s < r.end_s
+                && r.end_s <= n as u32
+                && r.live_s.is_none_or(|l| r.start_s <= l && l < r.end_s)
+                && r.give_up_s.is_none_or(|g| r.live_s.is_some_and(|l| l <= g && g <= l + MAX_GIVE_UP_S))
+                && r.capture.len() <= ((r.end_s - r.start_s) * 10 / CAPTURE_EVERY_DS + 2) as usize
+                && r.capture.windows(2).all(|w| w[0][0] < w[1][0])
+                && r.capture.iter().all(|[ds, a, s]| r.start_s * 10 <= *ds && *ds <= r.end_s * 10 && *a <= 100 && *s <= 100)
+        })
         && t.powerups.len() <= 8
         && t.powerups.iter().all(|p| plausible_key(&p.key) && p.key.starts_with("powerup:") && p.available.len() == n && p.available.iter().all(|a| *a <= 1) && ranges_ok(&p.stale, n as u32)
             && p.spawns.len() <= n
@@ -491,6 +559,17 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
                         && a.delivery.as_deref().is_none_or(urn_key)
                 })
         })
+        && t.rejuv.len() <= MAX_LIST
+        && t.rejuv.iter().all(|r| {
+            (r.team == "amber" || r.team == "sapphire")
+                && r.taken_s <= t.duration_s
+                && r.taken_s < r.ends_s
+                && r.ends_s <= r.taken_s + REJUV_S + 1
+                && r.left.len() <= (REJUV_S as usize + 1)
+                && r.left.windows(2).all(|w| w[0][0] < w[1][0])
+                && r.left.iter().all(|[s, n]| r.taken_s <= *s && *s < r.ends_s && *s <= t.duration_s && *n <= MAX_REJUV)
+        })
+        && t.rejuv.windows(2).all(|w| w[0].taken_s <= w[1].taken_s)
         && t.events.len() <= MAX_EVENTS
         && t.events.iter().all(|e| {
             let team_ok = |s: &str| s == "amber" || s == "sapphire" || s == "neutral";
@@ -535,7 +614,7 @@ mod tests {
             objectives: vec![Objective { key: "walker:amber:lane1:1".into(), kind: "walker".into(), team: "amber".into(), lane: 1, destroyed_s: 2 }],
             mid_boss: vec![],
             reanchored: 0,
-            rifts: vec![Rift { key: "rift:neutral:lane6:1".into(), start_s: 1, end_s: 3, live_s: Some(2) }],
+            rifts: vec![Rift { key: "rift:neutral:lane6:1".into(), start_s: 1, end_s: 3, live_s: Some(2), give_up_s: Some(62), capture: vec![[20, 0, 0], [25, 4, 0], [30, 9, 1]] }],
             powerups: vec![Powerup { key: "powerup:neutral:lane1:1".into(), available: vec![0, 1, 0], stale: vec![[0, 1]], spawns: vec![PowerupSpawn { t: 1, buff: "gun".into(), taken_s: Some(2) }] }],
             zips: vec![ZipTrack { lane: "lane4".into(), at: vec![[0, 425, 574], [2, 500, 520]] }],
             camps: vec![Camp { key: "camp:neutral:lane0:3".into(), first_s: 1, cleared: vec![[1, 2], [2, 400]] }],
@@ -550,6 +629,7 @@ mod tests {
                     UrnAt { t: 2, state: "none".into(), x: None, y: None, team: None, slot: None, delivery: None },
                 ],
             }),
+            rejuv: vec![Rejuv { team: "sapphire".into(), taken_s: 1, ends_s: 181, left: vec![[1, 3], [2, 2]] }],
             format: FORMAT,
         }
     }
@@ -623,6 +703,25 @@ mod tests {
             Box::new(|t| t.urn.as_mut().map_or((), |u| u.at[1].t = 0)),
             Box::new(|t| t.urn.as_mut().map_or((), |u| u.at[0].x = Some(40000))),
             Box::new(|t| t.urn.as_mut().map_or((), |u| u.at[0].delivery = Some("camp:neutral:lane0:3".into()))),
+            Box::new(|t| t.rifts[0].give_up_s = Some(1)),
+            Box::new(|t| t.rifts[0].give_up_s = Some(2 + MAX_GIVE_UP_S + 1)),
+            Box::new(|t| {
+                t.rifts[0].live_s = None;
+                t.rifts[0].give_up_s = Some(62);
+            }),
+            Box::new(|t| t.rifts[0].capture[1] = [25, 101, 0]),
+            Box::new(|t| t.rifts[0].capture[1] = [20, 4, 0]),
+            Box::new(|t| t.rifts[0].capture[0] = [9, 0, 0]),
+            Box::new(|t| t.rifts[0].capture[2] = [31, 9, 1]),
+            Box::new(|t| t.rifts[0].capture = (20..30).map(|d| [d, 0, 0]).collect()),
+            Box::new(|t| t.rejuv[0].team = "neutral".into()),
+            Box::new(|t| t.rejuv[0].taken_s = 9),
+            Box::new(|t| t.rejuv[0].ends_s = 1),
+            Box::new(|t| t.rejuv[0].ends_s = 1 + REJUV_S + 2),
+            Box::new(|t| t.rejuv[0].left[1] = [2, 4]),
+            Box::new(|t| t.rejuv[0].left[1] = [1, 2]),
+            Box::new(|t| t.rejuv[0].left[0] = [0, 3]),
+            Box::new(|t| t.events[0].kind = "rejuv".into()),
         ];
         for (i, f) in bad.iter().enumerate() {
             let mut t = tiny();
@@ -639,11 +738,16 @@ mod tests {
         o.remove("urn");
         o.remove("format");
         o["players"][0].as_object_mut().expect("player").remove("respawn");
-        o["rifts"][0].as_object_mut().expect("rift").remove("live_s");
+        o.remove("rejuv");
+        let rift = o["rifts"][0].as_object_mut().expect("rift");
+        rift.remove("live_s");
+        rift.remove("give_up_s");
+        rift.remove("capture");
         o["powerups"][0].as_object_mut().expect("powerup").remove("spawns");
         let t = validate(&serde_json::to_vec(&v).expect("json")).expect("an old timeline loads");
         assert_eq!((t.urn, t.format, t.players[0].respawn.len()), (None, 0, 0));
         assert_eq!((t.rifts[0].live_s, t.powerups[0].spawns.len()), (None, 0));
+        assert_eq!((t.rifts[0].give_up_s, t.rifts[0].capture.len(), t.rejuv.len()), (None, 0, 0));
     }
 
     #[test]

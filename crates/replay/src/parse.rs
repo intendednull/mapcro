@@ -2,7 +2,7 @@
 //! on current demos (docs/research/replay-parsing-exploration.md §2–§7). Steam ids are never
 //! read.
 
-use crate::derive::{AbilityObs, BuffObs, CampSlot, HeroObs, ObjObs, Obs, PowerupObs, Sample, TrooperObs, UrnObs, ZipNode};
+use crate::derive::{AbilityObs, BuffObs, CampSlot, HeroObs, KothObs, ObjObs, Obs, PowerupObs, RejuvCount, RejuvObs, RejuvWhat, Sample, TrooperObs, UrnObs, ZipNode};
 use prost::Message;
 use crate::{FIRST_CURRENT_BUILD, content_build, reason};
 use boon::{Parser, world_position};
@@ -105,6 +105,10 @@ struct Keys {
     koth_started: K,
     koth_loc: K,
     koth_team: K,
+    koth_give_up: K,
+    /// `m_vecTeamKothStates.{0,1}.m_flCaptureProgressFrac`: Amber's, Sapphire's.
+    koth_progress: [K; 2],
+    rejuv_count: [K; 2],
     koth: Body,
     pickup: Body,
     pickup_active: K,
@@ -146,6 +150,9 @@ impl Keys {
             koth_started: field(RULES, "m_pGameRules.m_timeKothCashInStarted"),
             koth_loc: field(RULES, "m_pGameRules.m_vKothCashInCurrentLocation"),
             koth_team: field(RULES, "m_pGameRules.m_nKothScoringTeam"),
+            koth_give_up: field(RULES, "m_pGameRules.m_timeKothGiveUp"),
+            koth_progress: [0, 1].map(|i| field(RULES, &format!("m_pGameRules.m_vecTeamKothStates.{i}.m_flCaptureProgressFrac"))),
+            rejuv_count: [field(RULES, "m_pGameRules.m_iAmberRejuvCount"), field(RULES, "m_pGameRules.m_iSapphireRejuvCount")],
             koth: Body::of(ctx, KOTH),
             pickup: Body::of(ctx, PICKUP),
             pickup_active: field(PICKUP, "m_bPowerupActive"),
@@ -204,6 +211,9 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
     let mut urn: Vec<UrnObs> = Vec::new();
     let mut buffs: Vec<BuffObs> = Vec::new();
     let mut buff_state: BuffState = HashMap::new();
+    let mut rejuv: Vec<RejuvObs> = Vec::new();
+    let mut rejuv_counts: Vec<RejuvCount> = Vec::new();
+    let mut koth: Vec<KothObs> = Vec::new();
     parser
         .run_to_end_with_events_filtered(&classes, |ctx, events| {
             let k = keys.get_or_insert_with(|| Keys::resolve(ctx));
@@ -239,6 +249,11 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
                 camp_timers(k, rules, game as f32, &mut camp_slots);
                 urn_tick(ctx, k, game as f32, &mut urn);
                 buff_tick(ctx, k, game as f32, &mut buff_state, &mut buffs);
+                for e in events.iter().filter(|e| e.msg_type == REJUV_STATUS) {
+                    rejuv.extend(rejuv_status(ctx, k, game as f32, &e.payload));
+                }
+                rejuv_tick(k, rules, game as f32, &mut rejuv_counts);
+                koth_tick(k, rules, start, game, &mut koth);
             }
             if start <= 0.0 || game < seconds.len() as f64 || game > f64::from(crate::timeline::MAX_DURATION_S) {
                 return;
@@ -253,7 +268,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         })
         .map_err(|_| reason::PARSE_FAILED)?;
     // Nodes first seen after a sample was taken make earlier samples short: those hold.
-    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs })
+    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs, rejuv, rejuv_counts, koth })
 }
 
 /// Every zipline node's team now, in `nodes` order; a node seen for the first time is added
@@ -365,6 +380,63 @@ fn buff_changes(now: &[Seen], game: f32, state: &mut BuffState, out: &mut Vec<Bu
             out.push(BuffObs { game, pos, active, buff });
         }
     }
+}
+
+/// `k_EUserMsg_RejuvStatus` (timers audit): the Rejuvenator taken (4, one per shard), a revive
+/// used (5) or expired (6), for `user_team`.
+const REJUV_STATUS: u32 = 350;
+
+fn rejuv_status(ctx: &boon::Context, k: &Keys, game: f32, payload: &[u8]) -> Option<RejuvObs> {
+    let m = boon_proto::proto::CCitadelUserMsgRejuvStatus::decode(payload).ok()?;
+    let what = match m.event_type? {
+        4 => RejuvWhat::Taken,
+        5 => RejuvWhat::Revive,
+        6 => RejuvWhat::Expired,
+        _ => return None,
+    };
+    let team = i64::from(m.user_team?);
+    // The pawn's controller: the player, as samples know them.
+    let ents = ctx.entities();
+    let pawn = m.player_pawn.and_then(|h| ents.get_by_handle(h)).filter(|p| p.class_name.as_ref() == PAWN);
+    let player = pawn.and_then(|p| {
+        ents.iter()
+            .filter(|(_, e)| e.class_name.as_ref() == CONTROLLER)
+            .find(|(_, e)| e.get_handle(k.ctrl_pawn).and_then(|h| ents.get_by_handle(h)).is_some_and(|q| q.index == p.index))
+            .map(|(_, e)| e.index)
+    });
+    Some(RejuvObs { game, what, team, player })
+}
+
+/// Record the teams' Rejuvenator charges where either changes.
+fn rejuv_tick(k: &Keys, rules: &boon::entity::Entity, game: f32, out: &mut Vec<RejuvCount>) {
+    let [amber, sapphire] = k.rejuv_count.map(|f| rules.get_i64(f));
+    if out.last().map_or(amber != 0 || sapphire != 0, |l| l.amber != amber || l.sapphire != sapphire) {
+        out.push(RejuvCount { game, amber, sapphire });
+    }
+}
+
+/// Sample the open rift's capture progress and give-up deadline on the
+/// [`crate::timeline::CAPTURE_EVERY_DS`] grid, while a cash-in is open and running.
+fn koth_tick(k: &Keys, rules: &boon::entity::Entity, start: f64, game: f64, out: &mut Vec<KothObs>) {
+    let every = f64::from(crate::timeline::CAPTURE_EVERY_DS) / 10.0;
+    let slot = (game / every).floor();
+    if out.last().is_some_and(|l| (f64::from(l.game) / every).round() >= slot) {
+        return;
+    }
+    let cash_in = rules.get_f32(k.koth_started);
+    if !(cash_in > 0.0 && cash_in.is_finite()) {
+        return;
+    }
+    // FLT_MAX until it's set, 0 once captured. Its first tick open, the cash-in still holds the
+    // last rift's progress (129738985: 99% and 100% at 19:51.61); the deadline is set, and the
+    // progress reset, a tick later. Unset, it's not running: no sample.
+    let g = f64::from(rules.get_f32(k.koth_give_up));
+    if !(g > 0.0 && g < 1e9) {
+        return;
+    }
+    let give_up = Some((g - start) as f32);
+    let [amber, sapphire] = k.koth_progress.map(|f| rules.get_f32(f));
+    out.push(KothObs { game: (slot * every) as f32, amber, sapphire, give_up });
 }
 
 /// The controller index of `team`'s living hero nearest `at`.
