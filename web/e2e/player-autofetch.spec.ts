@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "./fixtures";
-import { ROOT, Server } from "./server";
+import { ROOT, Server, TIMELINE_FORMAT } from "./server";
 
 const ID = 130816395;
 const NONE = 130816396;
@@ -64,7 +64,7 @@ const N = 1300;
 const range = <T,>(f: (s: number) => T) => Array.from({ length: N + 1 }, (_, s) => f(s));
 function timeline() {
   return {
-    match_id: ID, start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0, format: 1,
+    match_id: ID, start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0, format: TIMELINE_FORMAT,
     players: (["amber", "sapphire"] as const).flatMap((team) =>
       [0, 1, 2, 3, 4, 5].map((slot) => ({ team, slot, hero_id: 1 + slot, name: null, x: range(() => slot * 300), y: range(() => (team === "amber" ? -8000 : 8000)), health: range(() => 100), deaths: [], souls: [[0, 500]], ult: range(() => 0) })),
     ),

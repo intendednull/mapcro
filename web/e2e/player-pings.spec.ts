@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
 import { joinNew } from "./helpers";
-import { Server, newBoardUrl } from "./server";
+import { Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 const ID = "129000002";
 const N = 120;
@@ -40,7 +40,7 @@ const death = (t: number, slot: number, at: { x: number; y: number }) => ev(t, "
 
 function timeline() {
   return {
-    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0, format: 1,
+    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0, format: TIMELINE_FORMAT,
     players: (["amber", "sapphire"] as const).flatMap((team) =>
       [0, 1, 2, 3, 4, 5].map((slot) => ({
         team, slot, hero_id: 1 + slot, name: null,

@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, devices, expect, test } from "./fixtures";
 import { joinNew } from "./helpers";
-import { Server, newBoardUrl } from "./server";
+import { Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 const ID = "122134063";
 const N = 120;
@@ -38,7 +38,7 @@ const range = <T,>(f: (s: number) => T) => Array.from({ length: N + 1 }, (_, s) 
 
 function timeline() {
   return {
-    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6839, reanchored: 0, format: 1,
+    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6839, reanchored: 0, format: TIMELINE_FORMAT,
     players: (["amber", "sapphire"] as const).flatMap((team) =>
       [0, 1, 2, 3, 4, 5].map((slot) => ({ team, slot, hero_id: 1 + slot, name: null, x: range(() => slot * 300), y: range(() => (team === "amber" ? -8000 : 8000)), health: range(() => 100), deaths: [], souls: [[0, 500]], ult: range(() => 0) })),
     ),

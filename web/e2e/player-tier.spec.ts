@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
 import { joinNew, useSummary } from "./helpers";
-import { ROOT, Server, newBoardUrl } from "./server";
+import { ROOT, Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 const ID = "130816395";
 const queue = mkdtempSync(join(tmpdir(), "mapcro-e2e-tier-"));
@@ -43,7 +43,7 @@ const heroes = { amber: [67, 7, 20, 77, 27, 80], sapphire: [17, 63, 6, 13, 12, 7
 /** A replay timeline for the fixture's match, as the worker writes it. */
 function replayTimeline() {
   return {
-    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0, format: 1,
+    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0, format: TIMELINE_FORMAT,
     players: (["amber", "sapphire"] as const).flatMap((team) =>
       heroes[team].map((hero_id, slot) => ({
         team, slot, hero_id, name: null,

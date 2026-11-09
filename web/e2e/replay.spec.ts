@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
 import { joinNew } from "./helpers";
-import { Server, newBoardUrl } from "./server";
+import { Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 const ID = "122134063";
 const N = 200;
@@ -55,7 +55,7 @@ function timeline() {
     })),
   );
   return {
-    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0, format: 1,
+    match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0, format: TIMELINE_FORMAT,
     players,
     objectives: [{ key: "walker:sapphire:lane4:1", kind: "walker", team: "sapphire", lane: 4, destroyed_s: 150 }],
     mid_boss: [],
