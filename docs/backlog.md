@@ -12,16 +12,6 @@ dialog through a `<Portal>`, call `useModal(() => scrimEl)`, and stop key presse
 so the board's window listeners (Escape's `leaveControl`, Space) don't act on them. The
 feedback e2e spec's Tab, inert and focus-return checks can be copied.
 
-## Feedback issues can still reference other repositories (2026-11-09)
-
-The feedback form neutralises `@mentions`, so no one is pinged. GitHub still autolinks
-`owner/repo#123` and full issue or PR URLs, and links them back: the referenced issue's
-timeline shows "mentioned this issue" from ours. That pings no one directly, but it lets a
-submitter put backlinks in other projects' issues under our name. The limits (3 an hour per
-client, 30 a day) bound it. A fix would be a zero-width joiner after `#` in `owner/repo#n`
-forms; URLs are harder. The joiner after `@` also lands inside code blocks, where it changes
-what a reader copies; acceptable for feedback text.
-
 ## Feedback on phones (2026-11-09)
 
 The phone board (`PhoneBoard`) has no Feedback button; the landing's footer link works there.

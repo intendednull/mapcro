@@ -51,14 +51,31 @@ pub fn clean(s: &str, multiline: bool) -> String {
     kept.trim().to_owned()
 }
 
-/// Make `@mentions` inert: a zero-width joiner after every `@`.
+/// Make mentions and cross-references inert, so an issue opened under the operator's account
+/// can't ping anyone or drop "mentioned this" backlinks into other repositories:
+/// - a zero-width joiner after every `@`: `@user`, `@org/team`, and `owner/repo@sha`;
+/// - after a `#` that follows a name character: `owner/repo#123`, `owner#123` (a plain `#123`,
+///   this repository's own, stays a link);
+/// - inside every `github.com` (any case), so no GitHub URL (issue, PR, commit, discussion,
+///   anything) is a link or a reference.
 pub fn neutralise(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
-    for c in s.chars() {
+    let mut prev: Option<char> = None;
+    for (i, c) in s.char_indices() {
         out.push(c);
-        if c == '@' {
+        let names = prev.is_some_and(|p| p.is_alphanumeric() || "-_./".contains(p));
+        if c == '@' || (c == '#' && names) {
             out.push(ZWJ);
         }
+        // After "github", when ".com" follows: "github\u{200D}.com".
+        if (c == 'b' || c == 'B') && i >= 5 {
+            let start = i + 1 - 6;
+            let github = s.get(start..i + 1).is_some_and(|w| w.eq_ignore_ascii_case("github"));
+            if github && s.get(i + 1..i + 5).is_some_and(|w| w.eq_ignore_ascii_case(".com")) {
+                out.push(ZWJ);
+            }
+        }
+        prev = Some(c);
     }
     out
 }
@@ -310,6 +327,54 @@ mod tests {
             assert!(!(w[0] == '@' && (w[1].is_alphanumeric() || w[1] == '-' || w[1] == '_')), "{out:?}");
         }
         assert_eq!(neutralise("no mentions"), "no mentions");
+    }
+
+    /// What GitHub would still link as a reference to another repository, or a mention.
+    fn linkable(s: &str) -> Vec<String> {
+        let c: Vec<char> = s.chars().collect();
+        let name = |x: char| x.is_alphanumeric() || "-_./".contains(x);
+        let mut found = Vec::new();
+        for i in 0..c.len() {
+            let next = c.get(i + 1).copied();
+            if c[i] == '@' && next.is_some_and(char::is_alphanumeric) {
+                found.push(format!("@ at {i}"));
+            }
+            if c[i] == '#' && i > 0 && name(c[i - 1]) && next.is_some_and(|n| n.is_ascii_digit()) {
+                found.push(format!("# at {i}"));
+            }
+        }
+        if s.to_ascii_lowercase().contains("github.com") {
+            found.push("github.com".into());
+        }
+        found
+    }
+
+    #[test]
+    fn cross_repo_references_are_neutralised() {
+        let refs = [
+            "see foo/bar#123",
+            "foo#7",
+            "fix in some-org/some.repo@a1b2c3d",
+            "https://github.com/foo/bar/issues/1",
+            "https://github.com/foo/bar/pull/2/files",
+            "https://GitHub.COM/foo/bar/commit/a1b2c3d4",
+            "<https://www.github.com/foo/bar/discussions/3>",
+            "[x](https://github.com/foo/bar/issues/9)",
+            "github.com/foo/bar/issues/4",
+        ];
+        for r in refs {
+            assert!(!linkable(r).is_empty(), "the check sees {r:?}");
+            let out = neutralise(r);
+            assert!(linkable(&out).is_empty(), "{r:?} -> {out:?}: {:?}", linkable(&out));
+            // Only joiners are added: the text reads the same.
+            assert_eq!(out.replace(ZWJ, ""), r);
+        }
+        assert_eq!(neutralise("foo/bar#12"), "foo/bar#\u{200D}12");
+        assert_eq!(neutralise("https://github.com/x"), "https://github\u{200D}.com/x");
+        // This repository's own #123, a heading, and "github" alone stay as they are.
+        for keep in ["see #123", "(#45)", "# Heading", "#1 first", "on github, not .com", "githubXcom"] {
+            assert_eq!(neutralise(keep), keep);
+        }
     }
 
     #[test]

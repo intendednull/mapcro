@@ -1230,8 +1230,11 @@ issue in the Github repo." Code: `crates/server/src/feedback.rs`, `web/src/ui/Fe
   don't reach the board's window listeners.
 - **`POST /api/feedback`** `{title, description}` → 201 `{url}`. The server trims both fields,
   drops control characters (a description keeps newlines and tabs, and CRLF becomes LF), and
-  checks the lengths in characters itself. It then puts a zero-width joiner after every `@`, so
-  no `@user` or `@org/team` mentions anyone, and calls GitHub's
+  checks the lengths in characters itself. It then inserts zero-width joiners so the issue,
+  opened under the operator's account, can't ping anyone or backlink into other repositories:
+  after every `@` (`@user`, `@org/team`, `owner/repo@sha`), after a `#` that follows a name
+  character (`owner/repo#123`; this repository's own `#123` stays a link), and inside every
+  `github.com` (so no GitHub URL links or references). Then it calls GitHub's
   `POST /repos/{FEEDBACK_GITHUB_REPO}/issues` with `Authorization: Bearer`,
   `X-GitHub-Api-Version: 2022-11-28`, a User-Agent and a 10 s timeout. The body is the
   description, then `---` and "— Sent from the mapcro feedback form (build <BUILD_ID>)". The

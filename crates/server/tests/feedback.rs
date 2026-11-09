@@ -271,6 +271,48 @@ fn creates_the_issue_with_exactly_the_text_and_nothing_about_the_sender() {
     assert!(m.contains("mapcro_http_requests_total{route=\"feedback\",status_class=\"2xx\"}"), "{m}");
 }
 
+/// What GitHub would link in `s` as another repository's issue, PR, commit or discussion, or a
+/// mention: `@name`, `owner/repo@sha`, `owner/repo#n`, any github.com URL.
+fn linkable(s: &str) -> Vec<String> {
+    let c: Vec<char> = s.chars().collect();
+    let name = |x: char| x.is_alphanumeric() || "-_./".contains(x);
+    let mut found = Vec::new();
+    for i in 0..c.len() {
+        let next = c.get(i + 1).copied();
+        if c[i] == '@' && next.is_some_and(char::is_alphanumeric) {
+            found.push(format!("@ at {i}"));
+        }
+        if c[i] == '#' && i > 0 && name(c[i - 1]) && next.is_some_and(|n| n.is_ascii_digit()) {
+            found.push(format!("# at {i}"));
+        }
+    }
+    if s.to_ascii_lowercase().contains("github.com") {
+        found.push("github.com".into());
+    }
+    found
+}
+
+#[test]
+fn no_cross_repo_reference_reaches_github() {
+    let gh = github(vec![created()]);
+    let (_dir, file) = token_file(TOKEN);
+    let s = Server::start(gh.port, &[("FEEDBACK_GITHUB_TOKEN_FILE", &file)]);
+    let refs = "Like foo/bar#12 and foo#3, fixed in foo/bar@a1b2c3d.\n\
+        https://github.com/foo/bar/issues/1 https://github.com/foo/bar/pull/2\n\
+        https://GitHub.com/foo/bar/commit/a1b2c3d4 [d](https://www.github.com/foo/bar/discussions/5)\n\
+        Our own #7 stays.";
+    assert_eq!(linkable(refs), ["# at 12", "# at 23", "@ at 43", "github.com"], "the check sees each kind");
+    let (status, _, body) = s.send("203.0.113.1", "Dup of foo/bar#9, see https://github.com/foo/bar/pull/1", refs);
+    assert_eq!(status, 201, "{body}");
+    let sent = &gh.seen()[0].body;
+    let (title, text) = (sent["title"].as_str().expect("title"), sent["body"].as_str().expect("body"));
+    assert!(linkable(title).is_empty(), "{title:?}: {:?}", linkable(title));
+    assert!(linkable(text).is_empty(), "{text:?}: {:?}", linkable(text));
+    // Only joiners were added, and this repository's own reference is still a link.
+    assert!(text.replace('\u{200D}', "").starts_with(&refs.replace("\r\n", "\n")));
+    assert!(text.contains("Our own #7 stays."));
+}
+
 #[test]
 fn a_refused_label_is_retried_once_without_it() {
     let gh = github(vec![(422, r#"{"message":"Validation Failed","errors":[{"resource":"Label","code":"invalid"}]}"#.into()), created()]);
