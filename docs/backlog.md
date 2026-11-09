@@ -13,7 +13,11 @@ guardian, 8 mid boss, 28 shrine, 29 walker, 30 base guardian, 31 patron; also 41
 view hide an objective's health and state changes out of its sight. Troopers' entries weren't
 probed.
 
-## Vision leaves the rest of Player omniscient (2026-11-09)
+## Vision leaves the rest of Player omniscient (2026-11-09): resolved, by design
+
+Operator, 2026-11-09: "vision should only hide the hero on the map, everything else can stay
+visible." So the behaviour below is intended. Keep it unless the operator asks again.
+
 
 In a team's Vision only the enemy tokens on the map change. Still shown as SourceTV saw them:
 the top bar's enemy health, ult, souls and respawn timers (`PlayerTopBar.tsx`); the events list
