@@ -264,8 +264,10 @@ test("urn pick-ups, drops and the delivery are listed and ping where they happen
     });
     w.pingLog.observe(document.body, { childList: true, subtree: true });
   });
-  await scrubTo(a, 42);
-  await a.getByTestId("match-speed").selectOption("4");
+  // From 43 s at 1x, the drop (45 s) comes after 2 s and the next pick-up (50 s) a full 4 s after
+  // the 46 s pause point, so a loaded machine's late pause can't run into it (at 4x it was 1 s).
+  await scrubTo(a, 43);
+  await a.getByTestId("match-speed").selectOption("1");
   await a.getByTestId("match-play").click();
   await expect.poll(() => clock(a), { timeout: 15_000 }).toBeGreaterThanOrEqual(46);
   await a.getByTestId("match-play").click();
