@@ -176,3 +176,23 @@
 @media (prefers-reduced-motion: reduce) {
   .tb-critical > span { animation: none; }
 }
+
+/* The hero badge with the pack's hero card (board/HeroBadge.tsx): CitadelHeroBadge.TopBar from
+   hero_badge.vcss. .HeroImageContainer is 80% of the 88 px badge (70.4), at its top; #HeroImage
+   is the card (heroes.vdata m_strIconHeroCard, 280x380, scaling contain, so 70.4 x 95.5) under
+   the opacity-mask hero_image_mask_psd (280x380 too: open above, a half-disc below, so the head
+   spills over the circle); .HeroImageBackground is a 70.4 circle at the container's bottom,
+   team1Color / team2Color (.team1 CitadelHeroBadge.TopBar .HeroImageBackground). The badge's top
+   is the 120 px .HeroContents' top: the disc then ends at 95.5, where .SoulsValueContainer
+   (margin-top 76, padding-top 20) shows from under it, and its centre (60) is where the operator's
+   screenshot puts it (measured 2026-11-08). The critical card (m_strIconHeroCardCritical) takes
+   the same frame, so the swap moves nothing. Dead: #HeroImage saturation 0, brightness 0.2; the
+   disc offBlack&ee (hero_badge.vcss, CitadelHudTopBarPlayer.Dead). */
+.tb-badge.card-badge .tb-disc { top: calc(25.1 * var(--u)); }
+.tb-player.amber .tb-badge.card-badge .tb-disc { background: var(--t1); color: var(--t1fg); }
+.tb-player.sapphire .tb-badge.card-badge .tb-disc { background: var(--t2); color: var(--t2fg); }
+.tb-host.pack-art .tb-badge.has-card .tb-disc { color: transparent; }   /* the card covers it; no letters through its gaps */
+.tb-img.hero-card { top: 0; height: calc(95.5 * var(--u)); }
+.tb-player.dead .tb-badge.card-badge .tb-img { filter: grayscale(1) brightness(0.2); }
+.tb-player.dead .tb-badge.card-badge .tb-disc { background: #10130Dee; }
+.tb-player.card-art .tb-respawn { top: calc(25.1 * var(--u)); }

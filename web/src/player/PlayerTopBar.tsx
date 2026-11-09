@@ -12,7 +12,7 @@ import { slotKey } from "../match/save";
 import type { Art } from "../map/pack";
 import type { Viewpoint } from "../map/transform";
 import type { BoardState } from "../board/state";
-import { initials } from "../board/Tokens";
+import { HeroBadge, hasCard } from "../board/HeroBadge";
 import type { PlayerHost } from "./host";
 
 const BAR = 1260;
@@ -89,7 +89,7 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
           const low = () => hp() != null && hp()! <= LOW_HEALTH;
           return (
             <div
-              class={cx("tb-player", t.toLowerCase(), side, dead() && "dead", low() && "health-low")}
+              class={cx("tb-player", t.toLowerCase(), side, hasCard(p.art, hero()) && "card-art", dead() && "dead", low() && "health-low")}
               data-slot={`${t}-${s.slot.slot}`}
               data-hero={x()?.hero_id ?? ""}
               data-alive={x() ? String(!dead()) : "unknown"}
@@ -102,13 +102,8 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
                   </Show>
                 </span>
               </div>
-              <div class="tb-badge">
-                <i class="tb-disc">{initials(s.slot, hero()?.name)}</i>
-                {/* Low health swaps in the hero's critical card (m_strIconHeroCardCritical), as the HUD does. */}
-                <Show when={low() && hero()?.critical} fallback={<Show when={hero()?.topbar}>{(src) => <i class="tb-img hero-vertical" data-art="topbar" style={{ "background-image": `url(${JSON.stringify(src())})` }} />}</Show>}>
-                  {(src) => <i class="tb-img hero-critical" data-art="critical" style={{ "background-image": `url(${JSON.stringify(src())})` }} />}
-                </Show>
-              </div>
+              {/* The hero badge; low health swaps in the critical card (m_strIconHeroCardCritical), as the HUD does. */}
+              <HeroBadge art={p.art} slot={s.slot} hero={hero()} low={low()} />
               <Show when={dead() && x()?.respawn != null}>
                 <span class="tb-respawn" data-testid="tb-respawn" data-respawn={Math.ceil(x()!.respawn!)} aria-label={`${label()} respawns in ${Math.ceil(x()!.respawn!)} s`}>
                   {Math.ceil(x()!.respawn!)}

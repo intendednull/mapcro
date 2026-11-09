@@ -363,8 +363,9 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     - the HUD's low-health state (`.healthLow`) at 30% or under, alive only. The portrait becomes
       the hero's critical card (heroes.vdata `m_strIconHeroCardCritical`,
       `panorama/images/heroes/<hero>_card_critical_psd`, 280×380, exported by the extractor as
-      `topbar/heroes/<id>_critical`). It's drawn 70.4 wide at the card's aspect, bottom on the
-      disc's, under the same `hero_image_mask`. `#CriticalIndicator` puts a "Critical" tag under
+      `topbar/heroes/<id>_critical`). With the pack's hero cards it takes the badge's own frame
+      (§6b, Top-bar portraits), so the swap moves nothing; on a pack without them it's drawn
+      70.4 wide at the card's aspect, bottom on the disc's, under the same `hero_image_mask`. `#CriticalIndicator` puts a "Critical" tag under
       it, hidden on a phone, where it covers the team total; reduced motion stops its wobble.
       `hero_badge.vcss` also pulses the disc red with a glow and washes the portrait red. The
       operator had those removed (2026-11-08). No outline: the stylesheet has none for this
@@ -589,6 +590,27 @@ makes a board with that match attached and lands in Player; **New board** is tod
   `m_flRespawnTime`; metadata: `death_duration_s`). It follows t, so it ticks with playback and
   scrubs, and followers get it with t. A timeline without it shows none. The map shows nothing
   for a dead hero (its token stays hidden).
+- **Top-bar portraits** (operator, 2026-11-08: "match how it looks in game"): each hero is the
+  HUD's hero badge, `CitadelHeroBadge.TopBar` (`hero_badge.vcss`, `citadel_hud_top_bar*.vxml`),
+  in Player and on the board's own bar alike (`board/HeroBadge.tsx`).
+  - The art is the hero card, heroes.vdata `m_strIconHeroCard`
+    (`panorama/images/heroes/<hero>_card_psd`, 280×380 for most, 240×320 for three), which the
+    extractor exports as `topbar/heroes/<id>_card` (`card_blob` in pack.json).
+  - `.HeroImageContainer` is 80% of the 88 px badge, 70.4, at the badge's top, which is the
+    120 px `.HeroContents`' top. The card fills it at its own aspect (`scaling="contain"`,
+    70.4 × 95.5) under the opacity mask `hero_image_mask_psd`, which is the card's size: open
+    above, a half-disc below, so the head spills over the circle.
+  - `.HeroImageBackground` is a 70.4 circle at the container's bottom (y 25.1 to 95.5) in
+    `team1Color` / `team2Color`. `.SoulsValueContainer` (margin-top 76, padding-top 20) shows
+    from under it, and the health bar stands at the circle's left (friendly) or right (enemy).
+    The operator's screenshot puts the circle's centre at y 58–60, as this does.
+  - Low health swaps the critical card into the same frame. Dead: `.Dead #HeroImage` saturation
+    0, brightness 0.2, on an `offBlack&ee` disc; the respawn countdown sits over the disc.
+  - The game doesn't fade a hero out of vision; Player doesn't either. The board's dimmed
+    "not seen" portrait is the board's own vision toggle and stays.
+  - A pack without hero cards (any pack before 2026-11-08) keeps the vertical bust
+    (`m_strTopBarVertical`, 70.4 × 117.3 with its bottom on a grey disc at y 15 to 85.4), and the
+    critical card in its own frame there.
 - **The Soul Urn** (replay tier, 2026-11-08): the urn drawn as the game's minimap draws it
   (`hud_minimap.vcss`, in the pack; operator, 2026-11-08: "match how the real map looks").
   - On the ground, `.idol_spawn`: `soul_jar_marker` in a 32 px box, a rift's box

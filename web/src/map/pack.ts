@@ -20,6 +20,8 @@ export interface PackHero {
   minimap_blob: string | null;
   /** Schema 3: the 120×200 top-bar portrait. */
   topbar_blob?: string | null;
+  /** The 280×380 hero card (`m_strIconHeroCard`) the top bar's hero badge shows, when the pack has it. */
+  card_blob?: string | null;
   /** The 280×380 low-health hero card (`m_strIconHeroCardCritical`), when the pack has it. */
   critical_blob?: string | null;
 }
@@ -39,6 +41,9 @@ export interface Hero {
   portrait: string | undefined;
   /** Top-bar portrait (vertical bust), when the pack has one. */
   topbar: string | undefined;
+  /** The hero card the top bar's badge draws (`<hero>_card`), when the pack has one. Without it
+   *  the bar keeps the vertical bust (`topbar`). */
+  card?: string | undefined;
   /** The low-health hero card the HUD swaps in (`<hero>_card_critical`), when the pack has one. */
   critical?: string | undefined;
   /** In the game's pick list: schema-3 packs give playable heroes a top-bar portrait. */
@@ -112,7 +117,7 @@ export function artFromManifest(base: string, packId: string, m: PackManifest): 
   const schema3 = (m.heroes ?? []).some((h) => "topbar_blob" in h);
   for (const h of m.heroes ?? []) {
     if (h.disabled) continue;
-    heroes.set(h.hero_id, { id: h.hero_id, name: h.name ?? h.class_name ?? `Hero ${h.hero_id}`, portrait: url(h.minimap_blob), topbar: url(h.topbar_blob), critical: url(h.critical_blob), playable: schema3 ? !!h.topbar_blob : true });
+    heroes.set(h.hero_id, { id: h.hero_id, name: h.name ?? h.class_name ?? `Hero ${h.hero_id}`, portrait: url(h.minimap_blob), topbar: url(h.topbar_blob), card: url(h.card_blob), critical: url(h.critical_blob), playable: schema3 ? !!h.topbar_blob : true });
   }
   const entities = m.entities ?? [];
   // A pack without map entities still has portraits; its map falls back to the schematic.

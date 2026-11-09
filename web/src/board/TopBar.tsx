@@ -14,7 +14,7 @@ import type { Art } from "../map/pack";
 import type { Viewpoint } from "../map/transform";
 import { InlineEdit } from "../ui/InlineEdit";
 import type { BoardState, Player, Slot } from "./state";
-import { initials } from "./Tokens";
+import { HeroBadge, hasCard } from "./HeroBadge";
 
 const BAR = 1260;
 
@@ -161,7 +161,7 @@ export function TopBar(p: {
           let openSouls: (() => void) | undefined;
           return (
             <div
-              class={cx("tb-player", t.toLowerCase(), side, !player.state.alive && "dead", !player.state.visible && "unseen")}
+              class={cx("tb-player", t.toLowerCase(), side, hasCard(p.art, hero()) && "card-art", !player.state.alive && "dead", !player.state.visible && "unseen")}
               data-slot={`${t}-${slot.slot.slot}`}
               title={`${label()}${hero() ? `, ${hero()!.name}` : ""}`}
             >
@@ -184,12 +184,7 @@ export function TopBar(p: {
                   }}
                 />
               </div>
-              <div class="tb-badge">
-                <i class="tb-disc">{initials(slot.slot, hero()?.name)}</i>
-                <Show when={hero()?.topbar}>
-                  {(src) => <i class="tb-img hero-vertical" style={{ "background-image": `url(${JSON.stringify(src())})` }} />}
-                </Show>
-              </div>
+              <HeroBadge art={p.art} slot={slot.slot} hero={hero()} />
               <Show when={editable()}>
                 <button
                   class="tb-pick"

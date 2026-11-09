@@ -18,19 +18,26 @@ const N = 120;
 const queue = mkdtempSync(join(tmpdir(), "mapcro-e2e-health-"));
 let upstream: ReturnType<typeof createServer>;
 
-/** A pack with only the heroes' top-bar portraits and critical cards (1×1 PNGs). */
+/**
+ * A pack with only the top bar's hero art (1×1 PNGs): each hero's vertical portrait and critical
+ * card, hero cards for heroes 1–3 only (4–6 fall back to the vertical, as a pack from before the
+ * cards does), and the badge mask, so the images draw.
+ */
 function heroPack(): string {
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
   const root = mkdtempSync(join(tmpdir(), "mapcro-e2e-health-pack-"));
   const dir = join(root, "heroes-only");
   mkdirSync(join(dir, "topbar/heroes"), { recursive: true });
   const blobs: Record<string, unknown> = {};
+  const blob = (key: string) => {
+    writeFileSync(join(dir, `${key}.png`), png);
+    blobs[key] = { sha256: createHash("sha256").update(png).digest("hex"), w: 1, h: 1, mime: "image/png", file: `${key}.png` };
+  };
+  blob("topbar/hero_image_mask_psd");
   const heroes = [1, 2, 3, 4, 5, 6].map((id) => {
-    for (const key of [`topbar/heroes/${id}`, `topbar/heroes/${id}_critical`]) {
-      writeFileSync(join(dir, `${key}.png`), png);
-      blobs[key] = { sha256: createHash("sha256").update(png).digest("hex"), w: 1, h: 1, mime: "image/png", file: `${key}.png` };
-    }
-    return { hero_id: id, class_name: `hero_${id}`, name: `Hero ${id}`, disabled: false, minimap_blob: null, topbar_blob: `topbar/heroes/${id}`, critical_blob: `topbar/heroes/${id}_critical` };
+    const card = id <= 3;
+    for (const key of [`topbar/heroes/${id}`, `topbar/heroes/${id}_critical`, ...(card ? [`topbar/heroes/${id}_card`] : [])]) blob(key);
+    return { hero_id: id, class_name: `hero_${id}`, name: `Hero ${id}`, disabled: false, minimap_blob: null, topbar_blob: `topbar/heroes/${id}`, card_blob: card ? `topbar/heroes/${id}_card` : null, critical_blob: `topbar/heroes/${id}_critical` };
   });
   writeFileSync(join(dir, "pack.json"), JSON.stringify({ schema: 3, game: { client_version: 1, source_revision: 1, date: "Nov 08 2026" }, blobs, heroes }));
   return root;
@@ -54,20 +61,21 @@ test.afterAll(() => {
 
 const range = <T,>(f: (s: number) => T) => Array.from({ length: N + 1 }, (_, s) => f(s));
 
-/** Amber's first hero loses health from 100 to 20 over the match and dies at 100 s. */
+/** Amber's first hero (a hero card) loses health from 100 to 20 over the match and dies at 100 s;
+ *  its fourth (no card) loses it the same way and lives. */
 function timeline() {
   return {
     match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0, format: 1,
     players: (["amber", "sapphire"] as const).flatMap((team) =>
       [0, 1, 2, 3, 4, 5].map((slot) => {
-        const tracked = team === "amber" && slot === 0;
-        const alive = (s: number) => !tracked || s < 100;
+        const tracked = team === "amber" && (slot === 0 || slot === 3);
+        const alive = (s: number) => !(team === "amber" && slot === 0) || s < 100;
         return {
           team, slot, hero_id: 1 + slot, name: null,
           x: range((s) => (alive(s) ? slot * 600 - 1500 : null)),
           y: range((s) => (alive(s) ? (team === "amber" ? -3000 : 3000) : null)),
           health: range((s) => (!alive(s) ? 0 : tracked ? Math.max(20, 100 - s) : 100)),
-          deaths: tracked ? [100] : [], souls: [[0, 500]], ult: range(() => 0),
+          deaths: team === "amber" && slot === 0 ? [100] : [], respawn: team === "amber" && slot === 0 ? [[100, 130]] : [], souls: [[0, 500]], ult: range(() => 0),
         };
       }),
     ),
@@ -144,27 +152,63 @@ test("health bars, token arcs and objective fills follow the replay; Health turn
   // Stage 2: the shield is gone and the core fills to the health.
   await expect(mk(a, "patron:sapphire:lane0:1")).toHaveClass(/\bstage2\b/);
   expect(await fill(a, "patron:sapphire:lane0:1", "hp-core")).toBeCloseTo(40, 0);
+  // The hero badge (hero_badge.vcss): with the pack's hero card, the card in a 70.4 × 95.5 frame
+  // on a team-coloured disc (team1Color #D4860B, team2Color #4D75C3) at the frame's bottom.
+  // Without one (hero 4 here, as on a pack from before the cards), the vertical bust on the
+  // grey disc, as before.
+  const amber0 = a.locator('.tb-player[data-slot="Amber-0"]');
+  const amber3 = a.locator('.tb-player[data-slot="Amber-3"]');
+  const art = () => amber0.locator(".tb-img");
+  const art3 = () => amber3.locator(".tb-img");
+  const box = async (l: ReturnType<typeof art>): Promise<[number, number, number, number]> => {
+    const b = (await l.boundingBox())!;
+    const r = (v: number) => Math.round(v * 10) / 10;
+    return [r(b.x), r(b.y), r(b.width), r(b.height)];
+  };
+  const discColor = (l: typeof amber0) => l.locator(".tb-disc").evaluate((el) => getComputedStyle(el).backgroundColor);
+  await scrubTo(a, 45);
+  await expect(art()).toHaveAttribute("data-art", "card");
+  await expect(art()).toHaveAttribute("style", /topbar\/heroes\/1_card\.png/);
+  await expect(amber0).toHaveClass(/\bcard-art\b/);
+  await expect(art3()).toHaveAttribute("data-art", "topbar");
+  await expect(art3()).toHaveAttribute("style", /topbar\/heroes\/4\.png/);
+  await expect(amber3).not.toHaveClass(/\bcard-art\b/);
+  expect(await discColor(amber0)).toBe("rgb(212, 134, 11)");
+  expect(await discColor(a.locator('.tb-player[data-slot="Sapphire-0"]'))).toBe("rgb(77, 117, 195)");
+  expect(await discColor(amber3)).not.toBe("rgb(212, 134, 11)");
+  // The card covers the disc's initials; none show through its transparent edges.
+  expect(await amber0.locator(".tb-disc").evaluate((el) => getComputedStyle(el).color)).toBe("rgba(0, 0, 0, 0)");
+  const [, cardTop, cardW, cardH] = await box(art());
+  const [, discTop, discW] = await box(amber0.locator(".tb-disc"));
+  expect(cardH / cardW).toBeCloseTo(380 / 280, 1); // the card's own aspect
+  expect(discW).toBeCloseTo(cardW, 0); // .HeroImageBackground: the frame's width,
+  expect(discTop + discW).toBeCloseTo(cardTop + cardH, 0); // at its bottom
+  const cardBox = await box(art());
+  const bustBox = await box(art3());
+
   // Low health (the HUD's .healthLow, at or under 30%): the portrait becomes the hero's critical
   // card and says Critical; not above it, and not once dead. No tint, pulse or glow (operator).
-  const amber0 = a.locator('.tb-player[data-slot="Amber-0"]');
-  const art = () => amber0.locator(".tb-img");
-  await scrubTo(a, 45);
+  // With a hero card the critical card takes the same frame, so the swap moves nothing.
   await expect(amber0).not.toHaveClass(/\bhealth-low\b/);
-  await expect(art()).toHaveAttribute("data-art", "topbar");
-  await expect(art()).toHaveAttribute("style", /topbar\/heroes\/1\.png/);
   await expect(amber0.getByTestId("tb-critical")).toHaveCount(0);
   await scrubTo(a, 69);
   await expect(bar(a)).toHaveAttribute("data-health", "31");
   await expect(amber0).not.toHaveClass(/\bhealth-low\b/);
-  await expect(art()).toHaveAttribute("data-art", "topbar");
+  await expect(art()).toHaveAttribute("data-art", "card");
   await scrubTo(a, 75);
   await expect(bar(a)).toHaveAttribute("data-health", "25");
   await expect(amber0).toHaveClass(/\bhealth-low\b/);
   await expect(art()).toHaveAttribute("data-art", "critical");
   await expect(art()).toHaveAttribute("style", /topbar\/heroes\/1_critical\.png/);
+  expect(await box(art())).toEqual(cardBox);
   await expect(amber0.getByTestId("tb-critical")).toBeVisible();
-  await expect(a.locator(".tb-player.health-low")).toHaveCount(1);
-  await expect(a.locator('.tb-img[data-art="critical"]')).toHaveCount(1);
+  // Without a card the critical card still swaps in, in its own frame over the bust's disc.
+  await expect(amber3).toHaveClass(/\bhealth-low\b/);
+  await expect(art3()).toHaveAttribute("data-art", "critical");
+  await expect(art3()).toHaveAttribute("style", /topbar\/heroes\/4_critical\.png/);
+  expect(await box(art3())).not.toEqual(bustBox);
+  await expect(a.locator(".tb-player.health-low")).toHaveCount(2);
+  await expect(a.locator('.tb-img[data-art="critical"]')).toHaveCount(2);
   const disc = await amber0.locator(".tb-disc").evaluate((el) => [getComputedStyle(el).animationName, getComputedStyle(el).boxShadow]);
   expect(disc).toEqual(["none", "none"]);
   // Reduced motion: the Critical tag stops its wobble; the state stays.
@@ -175,17 +219,24 @@ test("health bars, token arcs and objective fills follow the replay; Health turn
   // Health off: the usual portrait.
   await a.getByTestId("health-toggle").click();
   await expect(amber0).not.toHaveClass(/\bhealth-low\b/);
-  await expect(art()).toHaveAttribute("data-art", "topbar");
+  await expect(art()).toHaveAttribute("data-art", "card");
+  await expect(art3()).toHaveAttribute("data-art", "topbar");
   await expect(amber0.getByTestId("tb-critical")).toHaveCount(0);
   await a.getByTestId("health-toggle").click();
   await expect(art()).toHaveAttribute("data-art", "critical");
 
-  // Dead: no bar (.Dead #HealthBar collapses); the respawn countdown stays; the others keep theirs.
+  // Dead: no bar (.Dead #HealthBar collapses); the respawn countdown stays, over the disc; the
+  // card is greyed and darkened (.Dead #HeroImage: saturation 0, brightness 0.2) on an offBlack
+  // disc; the others keep theirs.
   await scrubTo(a, 110);
   await expect(a.locator('.tb-player[data-slot="Amber-0"]')).toHaveAttribute("data-alive", "false");
   await expect(bar(a)).toHaveCount(0);
   await expect(amber0).not.toHaveClass(/\bhealth-low\b/);
-  await expect(art()).toHaveAttribute("data-art", "topbar");
+  await expect(art()).toHaveAttribute("data-art", "card");
+  expect(await art().evaluate((el) => getComputedStyle(el).filter)).toBe("grayscale(1) brightness(0.2)");
+  expect(await discColor(amber0)).toBe("rgba(16, 19, 13, 0.933)");
+  await expect(amber0.getByTestId("tb-respawn")).toHaveAttribute("data-respawn", "20");
+  expect(await box(amber0.getByTestId("tb-respawn"))).toEqual(await box(amber0.locator(".tb-disc")));
   await expect(a.locator('.tb-player[data-slot="Amber-1"] [data-testid=tb-health]')).toHaveAttribute("data-health", "100");
 
   await scrubTo(a, 45);
