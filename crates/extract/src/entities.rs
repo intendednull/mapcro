@@ -4,6 +4,11 @@
 //! lane field (camps, rifts, sentries, the mid boss) are assigned the nearest zipline path. An
 //! entity's ordinal is its distance along that lane's zipline polyline, so `walker:amber:lane1:1`
 //! is the first walker from the start of amber's lane-1 zipline.
+//!
+//! Besides the objectives, the map's furniture the game's minimap shows (docs/research/
+//! map-objectives-audit.md): the item shops, the teleporters (each with where it lets out) and
+//! the floating healing pickups. These are kept out of the geometry hash, which covers the sites
+//! a board can anchor to.
 
 use std::collections::BTreeMap;
 
@@ -26,7 +31,13 @@ pub struct Entity {
     /// camp's `subclass_name` (`neutral_camp_<tier>`). The vaults are the Sinner's Sacrifice
     /// camps, whatever their name says.
     pub tier: Option<&'static str>,
+    /// Teleporters: where the trigger lets out (its `ExitPoint` target's origin), which is
+    /// beside the other end of the pair.
+    pub exit: Option<[f64; 3]>,
 }
+
+/// Kinds that are map furniture rather than objectives: not in the geometry hash.
+pub const FURNITURE: [&str; 3] = ["shop", "teleporter", "heal"];
 
 #[derive(Clone, Debug)]
 pub struct EntitySource {
@@ -108,6 +119,13 @@ pub fn extract(root: &Value) -> Result<Extraction> {
             .extend_from_slice(&zipline.nodes);
     }
 
+    // Teleporters name their exit by `targetname`; the exits are `info_target_server_only`.
+    let targets: BTreeMap<&str, [f64; 3]> = raw
+        .iter()
+        .filter(|entity| !entity.targetname.is_empty())
+        .map(|entity| (entity.targetname.as_str(), entity.origin))
+        .collect();
+
     let mut candidates = Vec::new();
 
     for entity in &raw {
@@ -135,6 +153,9 @@ pub fn extract(root: &Value) -> Result<Extraction> {
             src: entity.source(),
             nodes: None,
             tier: (kind == "camp").then(|| camp_tier(entity.subclass.as_deref())).flatten(),
+            exit: (kind == "teleporter")
+                .then(|| entity.exitpoint.as_deref().and_then(|name| targets.get(name)).copied())
+                .flatten(),
         });
     }
 
@@ -152,6 +173,7 @@ pub fn extract(root: &Value) -> Result<Extraction> {
             src: zipline.src.clone(),
             nodes: Some(zipline.nodes.clone()),
             tier: None,
+            exit: None,
         });
     }
 
@@ -190,6 +212,7 @@ pub fn extract(root: &Value) -> Result<Extraction> {
             src: candidate.src,
             nodes: candidate.nodes,
             tier: candidate.tier,
+            exit: candidate.exit,
         });
     }
 
@@ -202,10 +225,12 @@ pub fn extract(root: &Value) -> Result<Extraction> {
     })
 }
 
-/// SHA-256 over the sorted `(key, kind, team, world rounded to one unit)` rows.
+/// SHA-256 over the sorted `(key, kind, team, world rounded to one unit)` rows of the objectives
+/// ([`FURNITURE`] isn't in it: a pack that adds the shops doesn't read as a changed map).
 pub fn geometry_hash(entities: &[Entity]) -> String {
     let mut rows = entities
         .iter()
+        .filter(|entity| !FURNITURE.contains(&entity.kind.as_str()))
         .map(|entity| {
             format!(
                 "{}\t{}\t{}\t{},{},{}",
@@ -257,6 +282,8 @@ struct RawEntity {
     neutralsubclass: Option<String>,
     /// `subclass_name`: a camp's tier (`neutral_camp_vaults`), a pickup spawner's pickup.
     subclass: Option<String>,
+    /// A teleporter's `ExitPoint`: the `targetname` of where it lets out.
+    exitpoint: Option<String>,
     path_uniqueid: Option<String>,
     path_index: Option<u32>,
 }
@@ -287,6 +314,7 @@ struct Candidate {
     src: EntitySource,
     nodes: Option<Vec<[f64; 3]>>,
     tier: Option<&'static str>,
+    exit: Option<[f64; 3]>,
 }
 
 fn parse_raw(value: &Value) -> Result<Option<RawEntity>> {
@@ -312,6 +340,7 @@ fn parse_raw(value: &Value) -> Result<Option<RawEntity>> {
         model: field_str(record, "model").map(str::to_owned),
         neutralsubclass: field_str(record, "neutralsubclass").map(str::to_owned),
         subclass: field_str(record, "subclass_name").map(str::to_owned),
+        exitpoint: field_str(record, "ExitPoint").map(str::to_owned),
         path_uniqueid: field_str(record, "path_uniqueid").map(str::to_owned),
         path_index: field_u32(record, "path_index"),
     }))
@@ -343,6 +372,14 @@ fn entity_kind(entity: &RawEntity) -> Option<&'static str> {
         "citadel_trigger_idol_return" => Some("urn"),
         "npc_base_defense_sentry" => Some("sentry"),
         "info_team_spawn" => Some("team_spawn"),
+        // Map furniture the game's minimap shows (hud_minimap.vcss `.tier1_shop`,
+        // `.teleporter_*`). The base's own shop (`LaneNum` 0) is in the spawn room, at the map
+        // square's very edge under the frame, and only the Hidden King's is in the lump: the
+        // lane shops and the two secret shops are the ones on the map.
+        "trigger_item_shop" if entity.lane != Some(0) => Some("shop"),
+        "citadel_trigger_teleport" => Some("teleporter"),
+        // The floating healing pickups (`spawn_delay_override` 180 s).
+        "citadel_pickup_spawner" if entity.subclass.as_deref() == Some("citadel_pickup_floating_health") => Some("heal"),
         _ => None,
     }
 }
@@ -457,4 +494,35 @@ fn field_vec3(record: &[(String, Value)], key: &str) -> Option<[f64; 3]> {
         values[1].as_f64()?,
         values[2].as_f64()?,
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entity(key: &str, kind: &str) -> Entity {
+        Entity {
+            key: key.into(),
+            kind: kind.into(),
+            team: "neutral".into(),
+            lane: "lane1".into(),
+            world: [1.0, 2.0, 3.0],
+            src: EntitySource { classname: String::new(), hammeruniqueid: String::new(), targetname: String::new() },
+            nodes: None,
+            tier: None,
+            exit: None,
+        }
+    }
+
+    #[test]
+    fn furniture_leaves_the_geometry_hash_alone() {
+        let objectives = vec![entity("camp:neutral:lane1:1", "camp")];
+        let mut more = objectives.clone();
+        for kind in FURNITURE {
+            more.push(entity(&format!("{kind}:neutral:lane1:1"), kind));
+        }
+        assert_eq!(geometry_hash(&objectives), geometry_hash(&more));
+        more.push(entity("rift:neutral:lane1:1", "rift"));
+        assert_ne!(geometry_hash(&objectives), geometry_hash(&more), "objectives are in it");
+    }
 }

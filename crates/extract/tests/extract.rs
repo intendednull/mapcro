@@ -184,9 +184,59 @@ fn entity_tree() -> T {
                         ]),
                     )]),
                 )]),
+                // Map furniture: a lane shop and the base's own (LaneNum 0, not drawn), a
+                // teleporter and the target it lets out at, a healing pickup and a spawner of
+                // something else.
+                record(vec![
+                    ("classname", T::Str("trigger_item_shop".into())),
+                    ("origin", xyz(-8832.0, -1944.0, 312.0)),
+                    ("teamnumber", T::Int(2)),
+                    ("LaneNum", T::Int(1)),
+                    ("hammeruniqueid", T::Str("s1".into())),
+                ]),
+                record(vec![
+                    ("classname", T::Str("trigger_item_shop".into())),
+                    ("origin", xyz(-752.0, -10714.0, 1143.0)),
+                    ("teamnumber", T::Int(2)),
+                    ("LaneNum", T::Int(0)),
+                    ("hammeruniqueid", T::Str("s0".into())),
+                ]),
+                record(vec![
+                    ("classname", T::Str("citadel_trigger_teleport".into())),
+                    ("origin", xyz(-3584.0, -2784.0, -112.0)),
+                    ("ExitPoint", T::Str("[PR#]amber_exit_east".into())),
+                    ("hammeruniqueid", T::Str("t1".into())),
+                ]),
+                record(vec![
+                    ("classname", T::Str("info_target_server_only".into())),
+                    ("origin", xyz(3904.0, -1664.0, -144.0)),
+                    ("targetname", T::Str("[PR#]amber_exit_east".into())),
+                    ("hammeruniqueid", T::Str("x1".into())),
+                ]),
+                record(vec![
+                    ("classname", T::Str("citadel_pickup_spawner".into())),
+                    ("origin", xyz(1792.0, -1152.0, 1112.0)),
+                    ("subclass_name", T::Str("citadel_pickup_floating_health".into())),
+                    ("hammeruniqueid", T::Str("h1".into())),
+                ]),
+                record(vec![
+                    ("classname", T::Str("citadel_pickup_spawner".into())),
+                    ("origin", xyz(1000.0, 1000.0, 0.0)),
+                    ("subclass_name", T::Str("citadel_pickup_something_else".into())),
+                    ("hammeruniqueid", T::Str("h2".into())),
+                ]),
             ]),
         ),
     ])
+}
+
+/// One entity-lump record (`keyValues3Data.values`).
+fn record(fields: Vec<(&'static str, T)>) -> T {
+    T::Object(vec![("keyValues3Data", T::Object(vec![("values", T::Object(fields))]))])
+}
+
+fn xyz(x: f64, y: f64, z: f64) -> T {
+    T::Array(vec![T::Double(x), T::Double(y), T::Double(z)])
 }
 
 fn extraction_entries() -> Vec<FixtureEntry> {
@@ -414,9 +464,9 @@ fn extract_writes_pack_and_blobs() {
     assert_eq!(heroes[0]["card_blob"].as_str(), Some("topbar/heroes/7_card"));
 
     let entities = pack["entities"].as_array().expect("entities");
-    assert_eq!(entities.len(), 5);
+    assert_eq!(entities.len(), 8);
     let by = |key: &str| entities.iter().find(|e| e["key"] == key).unwrap_or_else(|| panic!("no {key}"));
-    assert_eq!(entities[2]["key"].as_str(), Some("patron:amber:lane1:1"));
+    assert_eq!(by("patron:amber:lane1:1")["kind"].as_str(), Some("patron"));
     // The Soul Urn's delivery point, a neutral site on the nearest lane.
     assert_eq!(by("urn:neutral:lane1:1")["world"][0].as_f64(), Some(-6592.0));
     // Camps carry their tier where the map gives one, and nothing otherwise.
@@ -426,6 +476,19 @@ fn extract_writes_pack_and_blobs() {
     assert!(camps.contains(&("[PR#]1380394_chinatown_bell_1", Some("vaults"))), "{camps:?}");
     assert!(camps.contains(&("[PR#]plain_camp", None)), "{camps:?}");
     assert!(by("urn:neutral:lane1:1").get("tier").is_none(), "only camps carry a tier");
+    // The lane shop, not the base's; the teleporter with where it lets out; the healing pickup
+    // and not the other spawner.
+    let furniture: Vec<(&str, &str)> = entities
+        .iter()
+        .filter(|e| ["shop", "teleporter", "heal"].contains(&e["kind"].as_str().unwrap_or("")))
+        .map(|e| (e["kind"].as_str().unwrap_or(""), e["src"]["hammeruniqueid"].as_str().unwrap_or("")))
+        .collect();
+    assert_eq!(furniture, [("heal", "h1"), ("shop", "s1"), ("teleporter", "t1")]);
+    let shop = entities.iter().find(|e| e["kind"] == "shop").expect("shop");
+    assert_eq!(shop["team"].as_str(), Some("amber"));
+    let tele = entities.iter().find(|e| e["kind"] == "teleporter").expect("teleporter");
+    assert_eq!(tele["exit"], serde_json::json!([3904.0, -1664.0, -144.0]));
+    assert!(shop.get("exit").is_none(), "only teleporters carry an exit");
     assert_eq!(
         by("zipline:neutral:lane1:1")["nodes"].as_array().expect("nodes").len(),
         1,
@@ -497,6 +560,28 @@ fn real_install() {
     for name in ["1380394_chinatown_bell_1", "theater_balcony_camp", "slums_garage_up_camp", "drug_store_camp", "hotel_01_camp"] {
         assert!(vaults.contains(&name), "{name} is a Sinner's Sacrifice camp: {vaults:?}");
     }
+    // Map furniture (docs/research/map-objectives-audit.md): 8 shops (3 lane shops a team and the
+    // 2 secret shops; the base's own isn't drawn), 4 teleporters in 2 two-way pairs, each letting
+    // out beside the other end, and 36 healing pickups.
+    let of = |kind: &str| -> Vec<&serde_json::Value> { pack["entities"].as_array().expect("entities").iter().filter(|e| e["kind"] == kind).collect() };
+    let mut shops = std::collections::BTreeMap::new();
+    for e in of("shop") {
+        *shops.entry(e["team"].as_str().expect("team")).or_insert(0) += 1;
+    }
+    assert_eq!(shops, [("amber", 3), ("neutral", 2), ("sapphire", 3)].into_iter().collect());
+    let teleporters = of("teleporter");
+    assert_eq!(teleporters.len(), 4);
+    let xy = |v: &serde_json::Value| (v[0].as_f64().expect("x"), v[1].as_f64().expect("y"));
+    for t in &teleporters {
+        let (ex, ey) = xy(&t["exit"]);
+        let other: Vec<&&serde_json::Value> = teleporters.iter().filter(|o| { let (x, y) = xy(&o["world"]); (x - ex).hypot(y - ey) < 200.0 }).collect();
+        assert_eq!(other.len(), 1, "{} lets out beside exactly one other end", t["key"]);
+        assert_ne!(other[0]["key"], t["key"], "a teleporter doesn't let out at itself");
+        let (bx, by) = xy(&other[0]["exit"]);
+        let (x, y) = xy(&t["world"]);
+        assert!((bx - x).hypot(by - y) < 200.0, "{}'s pair leads back to it", t["key"]);
+    }
+    assert_eq!(of("heal").len(), 36);
     assert!(pack["icons"].as_array().expect("icons").len() > 50);
     assert_eq!(pack["hud_sources"].as_array().expect("hud").len(), 11);
     let critical = pack["heroes"]

@@ -3,6 +3,9 @@
 //! (docs/research/map-objectives-audit.md). Read-only; prints to stdout.
 //!
 //! `cargo run -p mapcro-extract --example lump_census -- <citadel dir> [class substring…]`
+//!
+//! A `name:<substring>` argument matches a record's `targetname` instead of its class (a
+//! teleporter's `ExitPoint`, say). Arrays other than `origin` print as space-separated values.
 
 use mapcro_extract::Value;
 use std::collections::BTreeMap;
@@ -64,7 +67,12 @@ fn main() {
         };
         *counts.entry(class.to_owned()).or_default() += 1;
         let lc = class.to_lowercase();
-        if !wanted.iter().any(|w| lc.contains(w.as_str())) {
+        let name = r.get("targetname").and_then(Value::as_str).unwrap_or("").to_lowercase();
+        let hit = |w: &String| match w.strip_prefix("name:") {
+            Some(n) => name.contains(n),
+            None => lc.contains(w.as_str()),
+        };
+        if !wanted.iter().any(hit) {
             continue;
         }
         let fields: Vec<String> = r
@@ -80,6 +88,10 @@ fn main() {
                         .map(|f| format!("{f:.0}"))
                         .collect::<Vec<_>>()
                         .join(",")
+                )),
+                Value::Array(a) => Some(format!(
+                    "{k}={}",
+                    a.iter().filter_map(scalar).collect::<Vec<_>>().join(" ")
                 )),
                 _ => scalar(v).map(|s| format!("{k}={s}")),
             })

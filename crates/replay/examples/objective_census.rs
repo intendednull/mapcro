@@ -1,7 +1,10 @@
 //! Map-objective census: every neutral-objective entity class in one replay, with how many
 //! distinct entities it had, when, and where (docs/research/map-objectives-audit.md). Read-only.
 //!
-//! `cargo run -p mapcro-replay --release --example objective_census -- <replay.dem>`
+//! `cargo run -p mapcro-replay --release --example objective_census -- <replay.dem> [fragment…]`
+//!
+//! Extra arguments replace the default class-name fragments (`Pickup Teleport Shop`, say); `--classes`
+//! lists every class the replay declares and exits.
 //!
 //! Prints, per class whose name looks neutral or objective-like, the distinct `(index, serial)`
 //! count, the first and last match-clock second seen, and its distinct positions (rounded to
@@ -33,18 +36,33 @@ struct Class {
 }
 
 fn main() {
-    let dem = std::env::args().nth(1).expect("usage: objective_census <replay.dem>");
+    let args: Vec<String> = std::env::args().collect();
+    let dem = args.get(1).expect("usage: objective_census <replay.dem> [fragment…|--classes]");
     let dem = std::path::PathBuf::from(dem);
+    let wanted: Vec<String> = if args.len() > 2 {
+        args[2..].to_vec()
+    } else {
+        NEUTRAL.iter().map(|s| (*s).to_owned()).collect()
+    };
     let (_, server_start) = mapcro_replay::parse::header(&dem).expect("a Deadlock replay");
     let parser = Parser::from_file(&dem).expect("opens");
-    let names: Vec<String> = parser
+    let all: Vec<String> = parser
         .parse_init()
         .expect("signon")
         .class_info()
         .classes()
         .iter()
         .map(|c| c.network_name.to_string())
-        .filter(|n| n == RULES || NEUTRAL.iter().any(|f| n.contains(f)))
+        .collect();
+    if wanted.iter().any(|w| w == "--classes") {
+        for n in &all {
+            println!("{n}");
+        }
+        return;
+    }
+    let names: Vec<String> = all
+        .into_iter()
+        .filter(|n| n == RULES || wanted.iter().any(|f| n.contains(f.as_str())))
         .collect();
     let classes: HashSet<&str> = names.iter().map(String::as_str).collect();
     let mut seen: BTreeMap<String, Class> = BTreeMap::new();

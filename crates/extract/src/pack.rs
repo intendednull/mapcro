@@ -88,6 +88,9 @@ pub struct Entity {
     /// Camps: `weak`, `medium`, `strong`, `vaults` (the Sinner's Sacrifice) or `midboss`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tier: Option<String>,
+    /// Teleporters: where this end lets out (world units), beside the other end of its pair.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit: Option<[f64; 3]>,
 }
 
 #[derive(Debug, Serialize)]

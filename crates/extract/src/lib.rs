@@ -130,6 +130,7 @@ pub fn extract(game_dir: &Path, out_dir: &Path) -> Result<ExtractReport> {
             },
             nodes: entity.nodes,
             tier: entity.tier.map(str::to_owned),
+            exit: entity.exit,
         })
         .collect();
     pack.geometry_hash = entities.geometry_hash;
