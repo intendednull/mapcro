@@ -22,6 +22,9 @@ pub struct Site {
     pub team: String,
     pub lane: String,
     pub world: Vec<f64>,
+    /// Camps: the game's tier (`weak`, `medium`, `strong`, `vaults`: the Sinner's Sacrifice).
+    #[serde(default)]
+    pub tier: Option<String>,
 }
 
 #[derive(Deserialize)]

@@ -139,3 +139,67 @@ fn hero_presence() {
         eprintln!("{} {} hero {}: position {:.1}% of {n} s, alive {:.1}%, longest alive without a position {longest} s, deaths {}", p.team, p.slot, p.hero_id, 100.0 * placed as f64 / n as f64, 100.0 * alive as f64 / n as f64, p.deaths.len());
     }
 }
+
+/// 129738985's neutral objectives (docs/research/map-objectives-audit.md): the game rules' 52 camp
+/// timers sit on the built-in map's 51 camps and the mid boss, and the 15 Sinner's Sacrifice
+/// machines stand in the 11 `vaults` camps, three on the bell tower and two on the theater
+/// balcony and the slums garage roof. Each camp first spawns on its tier's schedule
+/// (misc.vdata: weak 120, medium 300, strong and vaults 480).
+#[test]
+#[ignore = "needs 129738985: MAPCRO_REPLAY_129738985"]
+fn match_129738985_has_every_camp_and_sinners_sacrifice() {
+    use boon::{Parser, world_position};
+    use std::collections::{BTreeMap, HashSet};
+    let Some(dem) = env_path("MAPCRO_REPLAY_129738985") else { panic!("set MAPCRO_REPLAY_129738985 to 129738985.dem") };
+    let map = mapcro_replay::map::current();
+    let tier_of = |key: &str| map.sites.iter().find(|s| s.key == key).and_then(|s| s.tier.clone()).unwrap_or_default();
+
+    let dir = tempfile::tempdir().expect("dir");
+    let out = dir.path().join("t.json");
+    worker::job(&dem, &out, 129_738_985, 2 << 30).expect("parses");
+    let t = timeline::validate(&std::fs::read(&out).expect("output")).expect("the server's checks pass");
+    let mut by_tier: BTreeMap<String, (usize, Vec<u32>)> = BTreeMap::new();
+    for c in t.camps.iter().filter(|c| c.key.starts_with("camp:")) {
+        let e = by_tier.entry(tier_of(&c.key)).or_default();
+        e.0 += 1;
+        e.1.push(c.first_s);
+    }
+    let firsts = |tier: &str| by_tier[tier].1.iter().copied().collect::<HashSet<u32>>();
+    let counts: Vec<(&str, usize)> = by_tier.iter().map(|(k, v)| (k.as_str(), v.0)).collect();
+    assert_eq!(counts, [("medium", 24), ("strong", 12), ("vaults", 11), ("weak", 4)], "every camp timer on a built-in camp");
+    assert_eq!(t.camps.iter().filter(|c| c.key.starts_with("mid_boss:")).count(), 1);
+    assert_eq!(firsts("weak"), HashSet::from([120]));
+    assert_eq!(firsts("medium"), HashSet::from([300]));
+    assert_eq!(firsts("strong"), HashSet::from([480]));
+    assert_eq!(firsts("vaults"), HashSet::from([480]));
+    assert!(t.camps.iter().filter(|c| tier_of(&c.key) == "vaults").all(|c| !c.cleared.is_empty()), "every Sinner's Sacrifice camp was taken at least once");
+
+    // The machines themselves, by camp.
+    const SINNER: &str = "CNPC_Neutral_SinnersSacrifice";
+    let parser = Parser::from_file(&dem).expect("opens");
+    let mut seen: HashSet<(i32, u32)> = HashSet::new();
+    let mut per_camp: BTreeMap<String, usize> = BTreeMap::new();
+    parser
+        .run_to_end_with_events_filtered(&HashSet::from([SINNER]), |ctx, _| {
+            let Some(s) = ctx.serializers().get(SINNER) else { return };
+            let o = "CBodyComponent.m_skeletonInstance.m_vecOrigin";
+            let k = |a: &str| s.resolve_field_key(&format!("{o}.{a}"));
+            let (cell, vec) = ([k("m_cellX"), k("m_cellY"), k("m_cellZ")], [k("m_vecX"), k("m_vecY"), k("m_vecZ")]);
+            for (_, e) in ctx.entities().iter().filter(|(_, e)| e.class_name.as_ref() == SINNER) {
+                if seen.insert((e.index, e.serial)) {
+                    let [x, y, _] = world_position(e, cell, vec);
+                    // A machine stands within 500 units of its camp's centre (the bell tower's
+                    // spread is the widest, 496).
+                    let site = map.nearest("camp", f64::from(x), f64::from(y), 520.0).expect("on a camp");
+                    *per_camp.entry(site.key.clone()).or_default() += 1;
+                }
+            }
+        })
+        .expect("parses");
+    assert_eq!(seen.len(), 15, "15 Sinner's Sacrifice machines");
+    assert!(per_camp.keys().all(|k| tier_of(k) == "vaults"), "only in vaults camps: {per_camp:?}");
+    assert_eq!(per_camp.len(), 11, "one or more in every vaults camp: {per_camp:?}");
+    let at = |world: [f64; 2]| map.nearest("camp", world[0], world[1], 1.0).map(|s| per_camp.get(&s.key).copied().unwrap_or(0));
+    // Bell tower 3, theater balcony 2, slums garage roof 2.
+    assert_eq!([at([3248.0, -1888.0]), at([4160.0, 2784.0]), at([-3264.0, -1600.0])], [Some(3), Some(2), Some(2)]);
+}
