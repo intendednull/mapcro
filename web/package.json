@@ -18,7 +18,7 @@
     "typescript": "^5.9",
     "vite": "^7",
     "vite-plugin-solid": "^2.11.15",
-    "vitest": "^3",
+    "vitest": "^5.1.0",
     "ws": "^8"
   },
   "dependencies": {
