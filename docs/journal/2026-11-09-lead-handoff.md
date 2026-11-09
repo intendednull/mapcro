@@ -49,13 +49,17 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## After the reboot (2026-11-09 ~00:50 PST)
 
-The operator rebooted the dev box. To recover:
-1. If /tmp was wiped, restore from `~/.local/share/mapcro-lead/`: `salt-study/`, `mapcro-scripts/`
-   (gate.sh), `lead-gate.sh`, `mapcro-busy.sh`. Recreate the gate worktree with
-   `git worktree prune; git worktree add --detach /tmp/lead-gate main`.
-2. Re-arm the watcher: `just watch-install`. The lead id file in ~/.config survives.
-3. Restart the salt study. It resumes from its state.json; its window ends about 2026-11-10 14:00 UTC:
-   `systemd-run --user --unit mapcro-salt-study /run/current-system/sw/bin/python3 -I /tmp/salt-study/probe.py /tmp/salt-study`.
+The operator rebooted the dev box; /tmp was wiped and the salt study's first 8 h of data were lost
+(the planned backup had not been made). Recovered 00:45 PST:
+1. The lead's scripts now live in `~/.local/share/mapcro-lead/` (gate.sh, mapcro-busy.sh,
+   lead-gate.sh), rebuilt from the session transcripts. **After any reboot run
+   `~/.local/share/mapcro-lead/restore-tmp.sh`**: it relinks them into /tmp and recreates the
+   /tmp/lead-gate worktree.
+2. Re-arm the watcher: `just watch-install` (done 00:45).
+3. The salt study restarted fresh at 00:41 PST with its data in `~/.local/share/mapcro/salt-study/`
+   (probe.py, summarise.py, obs.jsonl, state.json); /tmp/salt-study links there. It runs 38 h, to
+   about 2026-11-10 22:40 UTC. After a reboot, relaunch it with the same command and it resumes:
+   `systemd-run --user --unit mapcro-salt-study -p RuntimeMaxSec=40h /run/current-system/sw/bin/python3 -I ~/.local/share/mapcro/salt-study/probe.py ~/.local/share/mapcro/salt-study`.
 4. The live dev stack (vite :5173) is gone. Start it again only if the operator wants it.
 5. **Agents stopped mid-work. Their WIP notes say where each left off:**
    - **timer-gaps:** Rejuvenator, rift progress, statue and urn timers, and the operator's
@@ -64,7 +68,7 @@ The operator rebooted the dev box. To recover:
      team names Hidden King / Archmother (`teamName()` landed in d86b63d), hero focus on a portrait
      click. Note: docs/journal/2026-11-09-board-ux-wip.md.
 
-   Their uncommitted edits are in the tree. Respawn fresh agents briefed with those notes.
+   Their uncommitted edits are in the tree. Both were resumed at 00:47 PST.
 6. **Next after timer-gaps:** build vision control from docs/research/replay-vision.md. The
    control is "Vision: All / Hidden King / Archmother"; enemies are ghosted at their last-seen spot
    (the lead's default, told to the operator).
