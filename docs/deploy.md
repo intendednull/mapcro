@@ -220,3 +220,26 @@ server indexes every subdirectory that holds a `pack.json`, dot-named ones inclu
 
 `100.96.92.104` is `web`'s tailnet address (`targetHost` in infra's `registry.nix`); ssh to the
 box is tailnet-only. `tar` is on the box (`gnutar` is in the system path).
+
+## Watching production
+
+`tools/prod-watch/watch.py` runs every 15 minutes on the dev box (`just watch-install`, a
+transient user timer; re-run it after a reboot). It checks:
+- `/healthz`, whose body must start with `ok`, since any unknown path answers 200 with the app
+- `just stats summary`, `failures` and `limits` for the last 20 minutes
+
+It alerts the lead agent through Paseo when one of these opens:
+- server errors
+- failures on our side (users' own replay problems, such as not a replay, an old map or a
+  Brawl match, don't count)
+- an OOM kill
+- deadlock-api backoff over 30 minutes
+- any limit at 85% of its cap
+- the stats host unreachable
+
+It alerts once when a problem opens, again at most every 6 hours while it stays open, and once
+when it clears. A site-down alert also goes to the concierge.
+
+The lead's Paseo agent id is read from `~/.config/mapcro-watch/lead`; update it when a new lead
+session takes over. Open alerts are kept in `~/.local/state/mapcro-watch.json`. To check by hand,
+run `python3 -I tools/prod-watch/watch.py --dry-run` inside `nix develop`.

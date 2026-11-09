@@ -124,3 +124,13 @@ check: test web-test e2e
 # Extract an asset pack from a local Deadlock install (read-only; output must be outside the repo).
 extract game out:
     cargo run -q --release -p mapcro-extract -- --game {{game}} --out {{out}}
+
+# Watch production every 15 min and alert the lead through Paseo (docs/deploy.md "Watching
+# production"). A transient user timer on the dev box: re-run this after a reboot.
+watch-install:
+    systemctl --user stop mapcro-prod-watch.timer mapcro-prod-watch.service 2>/dev/null || true
+    systemd-run --user --unit mapcro-prod-watch --on-calendar='*:0/15' --timer-property=Persistent=false \
+      --setenv=PATH="$HOME/.nix-profile/bin:/run/current-system/sw/bin" \
+      --working-directory={{justfile_directory()}} \
+      nice -n 19 nix develop {{justfile_directory()}} -c python3 -I tools/prod-watch/watch.py
+    systemctl --user list-timers mapcro-prod-watch.timer --no-pager
