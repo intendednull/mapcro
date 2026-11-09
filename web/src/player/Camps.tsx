@@ -63,12 +63,14 @@ export function markerTip(m: Pick<Marker, "key" | "kind" | "title">, pv: MatchPr
   return m.title;
 }
 
-export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; preview: () => MatchPreview | undefined; t: () => number; k: number }) {
+/** `hidden`: a marker hidden from the map (an objective turned off), which has nothing to say. */
+export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; hidden: (key: string) => boolean; preview: () => MatchPreview | undefined; t: () => number; k: number }) {
   let g!: SVGGElement;
   const markers = () => p.art.model.markers;
   const near = (at: Pt) => {
     let best: { key: string; d: number } | undefined;
     for (const m of markers()) {
+      if (p.hidden(m.key)) continue;
       const v = mapToView(m.at, p.vp);
       const d = Math.hypot(v.x - at.x, v.y - at.y);
       // About the icon's drawn size: markers draw at ~40% of their HUD box.
@@ -82,6 +84,7 @@ export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; 
   const regs = createMemo(() =>
     markers().map((m) =>
       registerHover("marker", m.key, () => {
+        if (p.hidden(m.key)) return undefined;
         const at = mapToView(m.at, p.vp);
         return { x: at.x, y: at.y, gap: Math.max(10, (m.px / HUD_MAP_PX) * 1000 * 0.22 * p.k) + 6 * p.k, text: markerTip(m, p.preview(), p.t()) };
       }),

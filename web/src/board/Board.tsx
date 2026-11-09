@@ -652,6 +652,19 @@ export function Board(p: { board: string; token: string; art: Art }) {
       },
     };
   };
+  const markerStatus = (k: string) => {
+    const pv = matchPreview();
+    const own = objectives().get(k)?.status;
+    // Player shows only the match at t (spec §6b): what was down, and from a replay
+    // the rifts and powerups; never the scene's states. Without a replay, rifts are off.
+    if (!pv) return own;
+    const site = pv.sites.get(k);
+    if (site) return site;
+    if (k.startsWith("rift:") || k.startsWith("urn:")) return "Destroyed";
+    if (pv.down.has(k)) return "Destroyed";
+    // The patron's stage from the replay: its shield (stage 1) or its core (stage 2).
+    return pv.health?.get(k)?.stage === 2 ? "Stage2" : "Active";
+  };
   const mapBox = (phone: boolean) => (
           <div ref={measureMap} class={phone ? "p-map" : "mapbox"} data-testid="map" data-view={`${Math.round(view().x)} ${Math.round(view().y)} ${Math.round(view().w)}`}>
             <MapView
@@ -662,19 +675,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               overlayRef={setOverlay}
               overlayProps={{ "data-tool": tool(), "data-pan": spaceHeld() ? "on" : undefined, onContextMenu: (e: MouseEvent) => e.preventDefault() } as never}
               overlayClass={!state.canEdit() && "readonly"}
-              status={(k) => {
-                const pv = matchPreview();
-                const own = objectives().get(k)?.status;
-                // Player shows only the match at t (spec §6b): what was down, and from a replay
-                // the rifts and powerups; never the scene's states. Without a replay, rifts are off.
-                if (!pv) return own;
-                const site = pv.sites.get(k);
-                if (site) return site;
-                if (k.startsWith("rift:") || k.startsWith("urn:")) return "Destroyed";
-                if (pv.down.has(k)) return "Destroyed";
-                // The patron's stage from the replay: its shield (stage 1) or its core (stage 2).
-                return pv.health?.get(k)?.stage === 2 ? "Stage2" : "Active";
-              }}
+              status={markerStatus}
               // Replay tier, Health on: each objective's icon filled to its health (operator, 2026-11-08).
               health={(k) => matchPreview()?.health?.get(k)?.pct}
               waveT={splitOf}
@@ -727,7 +728,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               <Show when={inPlayer()}>
                 <UrnMark art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} mk={Math.min(1, view().w / 1000)} />
               </Show>
-              <MarkerTips art={p.art} vp={viewpoint()} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
+              <MarkerTips art={p.art} vp={viewpoint()} hidden={(k) => markerStatus(k) === "Hidden"} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               <Highlight at={inPlayer() ? player.ring() : undefined} vp={viewpoint()} />
               <Show when={inPlayer()}>
                 <EventPings host={player} art={p.art} vp={viewpoint()} />

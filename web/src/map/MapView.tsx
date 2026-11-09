@@ -107,6 +107,8 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
     <div
       class={cx("mk", p.m.kind, p.m.kind === "koth" && "koth", p.m.kind === "urn" && p.status === "Active" && "lit", p.status === "Destroyed" && "down", p.status === "Hidden" && "gone", p.status === "Stage2" && "stage2", p.picked && "picked")}
       data-status={p.status ?? "Active"}
+      // A named image: ARIA doesn't let a generic div carry a name.
+      role="img"
       aria-label={p.m.title}
       data-key={p.m.key}
       data-health={hp() === undefined ? undefined : Math.round(hp()!)}

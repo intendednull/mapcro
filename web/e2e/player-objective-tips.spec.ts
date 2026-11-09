@@ -23,6 +23,8 @@ const BUFF_W = "powerup:neutral:lane1:1";
 const BUFF_E = "powerup:neutral:lane6:1";
 const URN_W = "urn:neutral:lane1:1";
 const URN_E = "urn:neutral:lane6:1";
+const DIED = 40;
+const BACK = 50;
 const queue = mkdtempSync(join(tmpdir(), "mapcro-e2e-tips-"));
 let upstream: ReturnType<typeof createServer>;
 let server: Server;
@@ -66,7 +68,13 @@ function timeline() {
   return {
     match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6839, reanchored: 0, format: TIMELINE_FORMAT,
     players: (["amber", "sapphire"] as const).flatMap((team) =>
-      [0, 1, 2, 3, 4, 5].map((slot) => ({ team, slot, hero_id: 1 + slot, name: team === "amber" && slot === 0 ? "Ana" : null, x: range(() => -6000 + slot * 2400), y: range(() => (team === "amber" ? -6000 : 6000)), health: range(() => 100), deaths: [], souls: [[0, 500]], ult: range(() => 0) })),
+      [0, 1, 2, 3, 4, 5].map((slot) => {
+        // Ana dies at 40 and is back at 50, in her fountain (not where she fell).
+        const ana = team === "amber" && slot === 0;
+        const dead = (s: number) => ana && s >= DIED && s < BACK;
+        const y = team === "amber" ? -6000 : 6000;
+        return { team, slot, hero_id: 1 + slot, name: ana ? "Ana" : null, x: range((s) => (dead(s) ? null : -6000 + slot * 2400)), y: range((s) => (dead(s) ? null : ana && s >= BACK ? -7600 : y)), health: range((s) => (dead(s) ? 0 : 100)), deaths: ana ? [DIED] : [], souls: [[0, 500]], ult: range(() => 0) };
+      }),
     ),
     objectives: [], mid_boss: [{ destroyed_s: 50, team_killed: "unknown" }],
     // West: announced at 20, open 40 to 60. East: announced at 70, open 90 to 110.
@@ -256,4 +264,67 @@ test("a follower sees the presenter's hover, worded from its own state", async (
 
   await a.mouse.move(5, 5);
   await expect(label(b)).toHaveCount(0);
+});
+
+test("a hovered hero that dies takes its label with it, here and for a follower, and leaves the markers theirs", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Hover a death");
+  const a = await joinNew(browser, url, "Coach");
+  await open(a);
+  await scrubTo(a, DIED - 1);
+  const b = await joinNew(browser, url, "Student");
+  await b.getByTestId("follow-Coach").click();
+  await expect(b.getByTestId("follow-chip")).toContainText("Following Coach");
+  await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
+
+  await hoverToken(a, "Amber-0");
+  await expect(label(a)).toHaveAttribute("data-kind", "token", AT_ONCE);
+  await expect(label(b)).toHaveAttribute("data-kind", "token");
+  await a.screenshot({ path: "/tmp/buffs-timers-shots/hover-before-death.png" });
+  // She dies under the pointer: her token goes, with no pointerleave, and so does the label.
+  await scrubTo(a, DIED + 1);
+  await expect(a.locator('.tok[data-slot="Amber-0"]')).toHaveCount(0);
+  await expect(label(a)).toHaveCount(0, AT_ONCE);
+  await expect(label(b)).toHaveCount(0);
+  await a.screenshot({ path: "/tmp/buffs-timers-shots/hover-after-death.png" });
+  // Back in her fountain: no label pops up there, here or for the follower.
+  await scrubTo(a, BACK + 5);
+  await expect(a.locator('.tok[data-slot="Amber-0"]')).toHaveCount(1);
+  await expect(b.locator('.tok[data-slot="Amber-0"]')).toHaveCount(1);
+  await expect(label(b)).toHaveCount(0);
+  await expect(label(a)).toHaveCount(0);
+  // A marker's hover is still the label's, here and for the follower.
+  await hover(a, CAMP);
+  await expect(label(a)).toHaveAttribute("data-key", CAMP, AT_ONCE);
+  await expect(label(b)).toHaveAttribute("data-key", CAMP);
+  await expect(label(b)).toHaveAttribute("data-by", "Coach");
+});
+
+test("the wave's handle, gone with a tool switched by key, takes its label and keeps it gone", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Hover the wave"), "Coach");
+  // The wave starts on the lane's rift, whose marker is drawn over it: dragged off it first.
+  const half = a.locator('.mapbox .lanes g[data-key="lane1"] path[data-half="amber"]');
+  const dest = await half.evaluate((el) => {
+    const path = el as SVGPathElement;
+    const q = path.getPointAtLength(path.getTotalLength() * 0.4);
+    const m = path.getScreenCTM()!;
+    return { x: q.x * m.a + q.y * m.c + m.e, y: q.x * m.b + q.y * m.d + m.f };
+  });
+  let gap = (await a.getByTestId("wave-gap-lane1").boundingBox())!;
+  await a.mouse.move(gap.x + gap.width / 2, gap.y + gap.height / 2);
+  await a.mouse.down();
+  await a.mouse.move(dest.x, dest.y, { steps: 10 });
+  await a.mouse.up();
+  await a.mouse.move(5, 5);
+  gap = (await a.getByTestId("wave-gap-lane1").boundingBox())!;
+  await a.mouse.move(gap.x + gap.width / 2, gap.y + gap.height / 2);
+  await expect(label(a)).toHaveAttribute("data-key", "wave:lane1", AT_ONCE);
+  await a.keyboard.press("d");
+  await expect(a.getByTestId("wave-gap-lane1")).toHaveCount(0);
+  await expect(label(a)).toHaveCount(0, AT_ONCE);
+  // Off the map while it's gone (no pointerleave to hear), then back to Move: the handle is
+  // back, but it isn't under the pointer, so no label.
+  await a.mouse.move(5, 5);
+  await a.keyboard.press("v");
+  await expect(a.getByTestId("wave-gap-lane1")).toHaveCount(1);
+  await expect(label(a)).toHaveCount(0);
 });

@@ -39,7 +39,7 @@ import { smoothed } from "./smooth";
 import type { BoardState } from "./state";
 import type { Tool } from "./tools";
 import { NameTag, Tokens, svgPoint } from "./Tokens";
-import { hoverHandle, registerHover } from "../map/HoverLabel";
+import { hoverHandle, hoveredHandle, registerHover } from "../map/HoverLabel";
 import { Cursors } from "./Presence";
 import { LIMITS } from "../gen/limits";
 
@@ -986,7 +986,11 @@ export function Layers(p: {
                     r={14 * p.k}
                     onPointerDown={(e) => e.button === 0 && !p.spaceHeld() && dragWave(e, l.key, Math.round(p.splitOf(l.key)))}
                     aria-label="Wave"
-                    ref={() => onCleanup(registerHover("marker", `wave:${l.key}`, () => ({ x: at().x, y: at().y, gap: 20 * p.k, text: "Wave" })))}
+                    ref={() => {
+                      onCleanup(registerHover("marker", `wave:${l.key}`, () => ({ x: at().x, y: at().y, gap: 20 * p.k, text: "Wave" })));
+                      // Gone with the tool switched (a key, no pointerleave): unhovered.
+                      onCleanup(() => hoveredHandle()?.id === `wave:${l.key}` && hoverHandle(undefined));
+                    }}
                     onPointerEnter={() => hoverHandle({ kind: "marker", id: `wave:${l.key}` })}
                     onPointerLeave={() => hoverHandle(undefined)}
                   />

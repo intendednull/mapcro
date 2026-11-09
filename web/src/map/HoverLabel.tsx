@@ -59,8 +59,13 @@ const [handle, setHandle] = createSignal<HoverRef | undefined>(undefined, { equa
 export const hoverToken = (r: HoverRef | undefined) => setToken(r);
 export const hoverMarker = (r: HoverRef | undefined) => setMarker(r);
 export const hoverHandle = (r: HoverRef | undefined) => setHandle(r);
-/** What this browser hovers now, if anything. */
-export const localHover = () => token() ?? marker() ?? handle();
+/** The token hovered, resolved or not (a token clears its own). */
+export const hoveredToken = token;
+/** The handle hovered, resolved or not (a handle clears its own). */
+export const hoveredHandle = handle;
+/** What this browser hovers now, if anything: the first hovered thing that's on the map, so one
+ * that's gone (a dead hero's token) never hides the marker under the pointer. */
+export const localHover = () => [token(), marker(), handle()].find((r) => r && resolve(r));
 
 /** The presenter's hover a follower mirrors, tagged with who it is. */
 export interface RemoteHover {

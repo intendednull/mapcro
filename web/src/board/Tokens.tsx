@@ -16,7 +16,7 @@ import type { WorldPos } from "../gen/WorldPos";
 import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampToMap, viewToWorld, worldToView } from "../map/transform";
 import { FLIP_MS, smoothed } from "./smooth";
-import { hoverToken, localHover, registerHover } from "../map/HoverLabel";
+import { hoverToken, hoveredToken, registerHover } from "../map/HoverLabel";
 import type { BoardState, Player, Slot } from "./state";
 
 export const TOKEN_R = 23;
@@ -282,8 +282,7 @@ export function Tokens(p: {
           });
           const hover = (part?: string) => hoverToken({ kind: "token", id: hoverId(), part });
           const unhover = () => {
-            const h = localHover();
-            if (h?.kind === "token" && h.id === hoverId()) hoverToken(undefined);
+            if (hoveredToken()?.id === hoverId()) hoverToken(undefined);
           };
           onCleanup(unhover);
           return (
@@ -313,7 +312,13 @@ export function Tokens(p: {
                   if (hovered() === pl().id) setHovered(undefined);
                   unhover();
                 }}
-                ref={() => onCleanup(() => hovered() === pl().id && setHovered(undefined))}
+                // Off the map (a hero that died, a token taken off) with no pointerleave: unhovered.
+                ref={() =>
+                  onCleanup(() => {
+                    if (hovered() === pl().id) setHovered(undefined);
+                    unhover();
+                  })
+                }
               >
                 <Show when={selected()}>
                   <circle class="sel" r={r() + 5 * p.k} />
