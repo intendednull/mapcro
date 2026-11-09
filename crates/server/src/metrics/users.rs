@@ -43,6 +43,9 @@ impl Users {
             self.day = today;
             self.salt = fresh_salt();
             self.seen = HashSet::new();
+            // A quiet midnight must not leave yesterday's count on the gauge until a user is
+            // seen again.
+            crate::metrics::get().users_today.set((), 0.0);
         }
     }
 
@@ -127,5 +130,26 @@ mod tests {
         let salt = u.salt();
         assert_eq!(u.counts(day + 86_400 + 1), vec![(20_400, 1), (20_401, 0)]);
         assert_ne!(u.salt(), salt);
+    }
+
+    fn gauge() -> f64 {
+        use crate::metrics::{Family, Value};
+        match crate::metrics::get().users_today.read(false).into_iter().next().map(|r| r.value) {
+            Some(Value::Gauge { now, .. }) => now,
+            _ => f64::NAN,
+        }
+    }
+
+    #[test]
+    fn a_quiet_midnight_resets_the_users_today_gauge() {
+        let day = 20_400 * 86_400;
+        let mut u = Users::new(day);
+        u.saw(IpAddr::from([10, 0, 0, 1]), day + 1);
+        // Yesterday's count, as `saw` left it on the gauge.
+        crate::metrics::get().users_today.set((), 1.0);
+        assert_eq!(gauge(), 1.0);
+        // The snapshot rolls the day with nobody seen since: the gauge must read 0, not 1.
+        assert_eq!(u.counts(day + 86_400 + 1), vec![(20_400, 1), (20_401, 0)]);
+        assert_eq!(gauge(), 0.0);
     }
 }
