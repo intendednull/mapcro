@@ -1,6 +1,7 @@
 // Player's top bar (spec §6b): the in-game bar drawn from the match at playback time t, read-only.
 // The same look as the scene's (board/TopBar.tsx): portraits, souls with team totals, ult rings,
-// the dead greyed out with their respawn countdown (when the tier has it), and the clock at t.
+// the dead greyed out with their respawn countdown (when the tier has it), the clock at t, and
+// under a team's souls the Rejuvenator it holds: revives left and when it ends.
 // Only what the match's tier has is shown: no ult data (the metadata tier) reads as untracked,
 // never as ready.
 
@@ -8,9 +9,10 @@ import { rosterTeamShort } from "../map/model";
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { cx } from "../ui/cx";
 import { formatSouls, teamTotal } from "../core/souls";
-import { clockLabel, playersAt, type PlayerAt } from "../match/timeline";
+import { clockLabel, playersAt, rejuvAt, type PlayerAt, type RejuvNow } from "../match/timeline";
 import { slotKey } from "../match/save";
 import type { Art } from "../map/pack";
+import { rosterTeamName } from "../map/model";
 import type { Viewpoint } from "../map/transform";
 import type { BoardState } from "../board/state";
 import { HeroBadge, hasCard } from "../board/HeroBadge";
@@ -57,6 +59,44 @@ function Ult(p: { left: number | null; label: string }) {
   );
 }
 
+/** Without the pack: a crystal in rejuv_crystal_psd's green. */
+const CRYSTAL_FB =
+  "data:image/svg+xml," +
+  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="M32 3L44 24L36 61H28L20 24Z" fill="#3fd65a" stroke="#0b1714" stroke-width="3"/></svg>');
+
+/**
+ * A team's Rejuvenator (the game's #RejuvenatorCharges, under the souls): its crystal, the revives
+ * left and a countdown to its end. Both ease (spec §4a): a scrub runs the countdown through the
+ * seconds it skips. The data attributes keep the exact values.
+ */
+function RejuvBadge(p: { held: () => RejuvNow | undefined; t: () => number; team: "Amber" | "Sapphire"; side: "friend" | "enemy"; img: string | undefined }) {
+  const left = easedNumber(() => p.held()?.left ?? null);
+  const remaining = easedNumber(() => {
+    const h = p.held();
+    return h ? Math.max(0, h.ends - p.t()) : null;
+  });
+  const exact = () => Math.max(0, Math.ceil((p.held()?.ends ?? 0) - p.t()));
+  return (
+    <Show when={p.held()}>
+      {(h) => (
+        <div
+          class={cx("pl-rejuv", p.side, p.team.toLowerCase())}
+          data-testid="tb-rejuv"
+          data-team={h().team}
+          data-left={h().left}
+          data-ends-in={exact()}
+          aria-label={`${rosterTeamName(p.team)} Rejuvenator: ${h().left} revive${h().left === 1 ? "" : "s"}, ends in ${clockLabel(exact())}`}
+          title={`${rosterTeamName(p.team)} Rejuvenator: ${h().left} revive${h().left === 1 ? "" : "s"} left`}
+        >
+          <img class="pl-rejuv-icon" src={p.img ?? CRYSTAL_FB} alt="" />
+          <span class="pl-rejuv-left">×{Math.round(left() ?? h().left)}</span>
+          <span class="pl-rejuv-time">{clockLabel(Math.max(0, Math.ceil(remaining() ?? exact())))}</span>
+        </div>
+      )}
+    </Show>
+  );
+}
+
 export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art; vp: Viewpoint; compact?: boolean }) {
   let el!: HTMLDivElement;
   const [unit, setUnit] = createSignal(1);
@@ -76,6 +116,11 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
   const team = (t: "Amber" | "Sapphire") => p.state.roster().filter((s) => s.slot.team === t);
   const total = (t: "Amber" | "Sapphire") => teamTotal(team(t).map((s) => at().get(slotKey(t, s.slot.slot))?.souls ?? null));
   const known = (t: "Amber" | "Sapphire") => team(t).some((s) => at().get(slotKey(t, s.slot.slot))?.souls != null);
+  const rejuv = createMemo(() => {
+    const m = p.host.tl();
+    return m ? rejuvAt(m, p.host.t()) : [];
+  });
+  const held = (t: "Amber" | "Sapphire") => rejuv().find((r) => r.team === t.toLowerCase());
   // Changing values ease (spec §4a): the totals count to each new value.
   const shown = { Amber: easedNumber(() => (known("Amber") ? total("Amber") : null)), Sapphire: easedNumber(() => (known("Sapphire") ? total("Sapphire") : null)) };
 
@@ -187,6 +232,8 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
             {score(friend(), false)}
             {score(enemy(), true)}
           </div>
+          <RejuvBadge held={() => held(friend())} t={p.host.t} team={friend()} side="friend" img={p.art.images.get("rejuv")} />
+          <RejuvBadge held={() => held(enemy())} t={p.host.t} team={enemy()} side="enemy" img={p.art.images.get("rejuv")} />
         </div>
       </div>
     </div>

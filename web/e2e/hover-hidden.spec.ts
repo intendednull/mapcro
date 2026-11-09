@@ -30,7 +30,7 @@ async function hover(p: Page, key: string) {
   await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
 }
 
-test("hovering a hidden marker's spot shows no label; a shown one's still does", async ({ browser }) => {
+test("a marker with nothing timed shows no label, hidden or shown; it keeps its name for screen readers", async ({ browser }) => {
   const url = await newBoardUrl(server, "hidden marker");
   const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(url)!;
   const bot = new BoardSession({
@@ -50,8 +50,9 @@ test("hovering a hidden marker's spot shows no label; a shown one's still does",
   const a = await joinNew(browser, url, "Coach");
   // An editor still sees where it was, faded; it says nothing.
   await expect(marker(a, HIDDEN)).toHaveAttribute("data-status", "Hidden");
+  // A walker is a walker (operator 2026-11-08): no label shown or hidden.
   await hover(a, SHOWN);
-  await expect(label(a)).toHaveAttribute("data-key", SHOWN);
+  await expect(label(a)).toHaveCount(0);
   await hover(a, HIDDEN);
   await expect(label(a)).toHaveCount(0);
   // And its role: a named image, found by its name.

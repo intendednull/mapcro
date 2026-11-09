@@ -401,7 +401,23 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     cooldown that reads 0/0 in the recording (it does, for tens of seconds around full packets)
     holds the last one seen.
   - **Rifts:** the `rift:` key that is up at t, from the spawner's position or the live
-    cash-in's.
+    cash-in's; when its cash-in opens (`live_s`, format 2); and from format 3 (timers audit,
+    gap 2) its give-up deadline (`give_up_s`, `m_timeKothGiveUp`, opening + 60 s) and each
+    team's capture progress (`capture`: `m_vecTeamKothStates[]`, index 0 Amber, 1 Sapphire,
+    checked against the capturer on all five of 129738985's rifts). Progress is sampled at 2 Hz
+    while the cash-in runs, as `[tenths of a second, amber %, sapphire %]`; a run of equal
+    samples keeps only its ends, so the client's straight line between rows is exact. The
+    cash-in's first tick still holds the last rift's progress (99/100 at 19:51.61); the deadline
+    is set, and the progress reset, a tick later, so samples start then. On 129738985: 5 rifts,
+    201 rows, 2.7 KB.
+  - **The Rejuvenator** (`rejuv`, format 3, timers audit gap 1): the mid boss's reward, per team
+    that took one: `taken_s` (its first shard, `RejuvStatus` 4), `ends_s` (`RejuvStatus` 6,
+    180 s on; past the recording if that ends first) and revives left, `[second, n]`, from the
+    rules' `m_iAmberRejuvCount` / `m_iSapphireRejuvCount` (one per shard picked up, one less as
+    a revive is used: the charge goes at the death, the revive message 3 s later). Events:
+    `rejuv_taken` (at the mid boss), `rejuv_revive` (the hero, from the message's pawn) and
+    `rejuv_expired`. On 129738985: Sapphire 31:12–34:12 (revives 32:10, 32:35), Amber
+    39:54–42:54 (42:21, 42:27), 177 bytes.
   - **Powerups:** available or taken per `powerup:` key at each second.
   - **Zipline colours** (`zips`, 2026-11-08, replacing the trooper-front estimate): the game
     networks each rope node's owner (`CCitadelZipLineNode.m_iTeamNum`, exploration round 4),
@@ -440,8 +456,9 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     `ground` places with no team or carrier. The carrier is only inferred at a pick-up, for
     the run up to the next drop or delivery.
   - **Format stamp** (`mapcro_replay::timeline::FORMAT`, the one constant the worker and the
-    server share): each worker timeline carries `format` (1 from respawns and the urn; 0
-    before). New fields are optional, so older cached timelines still load without them.
+    server share): each worker timeline carries `format` (1 from respawns and the urn; 2 buff
+    types and rift openings; 3 the Rejuvenator and rift capture; 0 before). Format 3 adds 4.2 KB
+    to 129738985's 1.50 MB. New fields are optional, so older cached timelines still load without them.
     - **A fetched timeline in an older format** (2026-11-08), for a match inside Valve's three
       weeks, is fetched and parsed again when an editor opens the match: the same line, caps and
       fairness as any fetch on open. The old one is served meanwhile; the job's status (fetching,
@@ -603,31 +620,51 @@ makes a board with that match attached and lands in Player; **New board** is tod
   matches have no lane data and show the default split. Sandbox keeps its one draggable split.
 - **Camps** on the replay tier (2026-11-08): the map shows only each camp's state: up, cleared
   (the board's dimmed look) or not yet spawned (fainter). Hovering a camp, or tapping it on the
-  phone, says "Respawns in m:ss (at m:ss)", "Spawns in m:ss (at m:ss)" or "Up"; nothing counts
-  down otherwise. The mid boss is the same, from its timer ("Mid boss respawns in …"), and is
-  down from its clear to its respawn.
+  phone, says "Respawns in m:ss" or "Spawns in m:ss"; up, it says nothing, and nothing counts
+  down otherwise. The mid boss is the same, from its timer, and is down from its clear to its
+  respawn.
 - **Hover labels** (operator, 2026-11-08: "a label should pop up with the info, just like how a
   label instantly pops up when a neutral camp is hovered"): one label, one look, for everything
   on the map, Player and Sandbox alike (`map/HoverLabel.tsx`). It shows at once on hover (a tap
   on the phone), and goes on leave; nothing on the map uses the browser's delayed `title` any
   more, and each thing keeps an `aria-label`.
-  - A hero token says its player and hero ("Coach, Haze"; under Names off, the slot), its eye
-    "In vision" / "Not seen", its skull "Kill (K)" / "Revive (K)". A marker names itself
-    ("Guardian (Amber, west lane)"); the wave handle says "Wave", below any marker under it.
-  - **Timers** (replay tier): everything that spawns says when, "… in m:ss (at m:ss)" while
-    down, "up" or "active" while up, all from the replay's own times (exploration round 7):
-    - camps and the mid boss: the rules' timers (above);
-    - **rifts**: "Rift spawns here in …" until its cash-in opens (`live_s`,
+  - **Labels, not captions** (operator, 2026-11-09): a label is short, and only there when it
+    says something a player can't see: a timer, an objective's health, or a name that is the
+    news. An objective with health says its name and health, rounded, following the playback
+    while hovered ("Walker 62%", "Guardian 100%", "Mid boss 45%"; operator 2026-11-09), from the
+    replay's objective health in Player while Health is on; with no health known (Health off, the
+    API summary, Sandbox, where the board sets none) or once it's down, nothing (the mid boss
+    down: its timer). A camp that's up says nothing; a silent marker still takes the hover, so
+    the wave handle under it doesn't label. No "(at m:ss)" suffix, and no buff effects (the
+    events keep those).
+  - A hero token says its player and hero ("Coach, Haze"; under Names off, the slot); its eye
+    "In vision" / "Not seen" and its skull "Kill (K)" / "Revive (K)" only where those buttons
+    are drawn (an editable token; the eye too while the hero is unseen), else the token's name.
+    The wave handle says "Wave", below any marker under it.
+  - **Timers** (replay tier), all from the replay's own times (exploration round 7, timers
+    audit):
+    - camps and the mid boss (down): "Respawns in m:ss" / "Spawns in m:ss" (above); the mid boss adds
+      a held Rejuvenator, "Archmother Rejuvenator: 2 revives, ends in 1:40", joined by " · ";
+    - **rifts**: "Rift opens in …" until its cash-in opens (`live_s`,
       `m_timeKothCashInStarted`; the spawner's announcement comes 80 s earlier and the label
-      already counts to the opening), "Next rift spawns at the other site in …", "Rift active",
-      "Rift active at the other site", "No more rifts in this replay". The game has no fixed
-      rift schedule, and no next-rift field; the replay's own next opening is used;
-    - **bridge buffs**: "Gun buff (+fire rate, +ammo) up", else "Casting buff respawns in …"
-      ("spawns" before the site's first), "No more buffs in this replay". Spawns every 300 s
-      from 5:00 (misc.vdata `m_flInitialSpawnTime`, `m_flSpawnInterval`), as the replay shows;
-    - **the urn's points**: as below.
-  - The API summary has no rift, buff, camp or urn times: its mid boss says "Mid boss up", or
-    that it's down and its respawn isn't in the summary; its other markers name themselves.
+      already counts to the opening), "Rift opens at the other site in …"; open, "Gives up in
+      0:41" (format 3), then "Captured by …". The game has no fixed rift schedule, and no
+      next-rift field; the replay's own next opening is used;
+    - **bridge buffs**: up, the buff's name ("Casting buff"); else "Buff respawns in …"
+      ("spawns" before the site's first). Spawns every 300 s from 5:00 (misc.vdata
+      `m_flInitialSpawnTime`, `m_flSpawnInterval`), as the replay shows;
+    - **the urn**: its points as below; the urn on the ground "Urn returns in m:ss" once it has
+      landed or been dropped (misc.vdata walk-back wait, 180 s; on 129738985 the 25:00 urn
+      landed at 25:12.5 and set off at 28:13), then "Urn returning"; falling, just "Urn".
+  - The API summary has no rift, buff, camp or urn times, so its markers say nothing.
+- **The Rejuvenator on the top bar** (replay tier, format 3): under the holding team's souls,
+  where the game's `#RejuvenatorCharges` sits, a `.GameClock`-style chip with the pack's
+  `rejuv_crystal` (minimap icon; our own crystal without a pack), the revives left ("×2") and
+  the time to its end, both eased (`easedNumber`), underlined in the team's colour.
+- **Rift capture rings** (replay tier, format 3, `player/Rift.tsx`): around the open rift, an
+  outer ring for Amber and an inner one for Sapphire, each filled clockwise from the top to its
+  team's capture progress over a dark track; between the 2 Hz samples it's their straight line,
+  and a jump eases.
 - **Bridge buffs** (replay tier, format 2): each powerup site, while its buff is up, is drawn
   with that buff's own minimap icon and wash (`hud_minimap.vcss` `.powerup_gun` (weapon)
   #FFCC80, `.powerup_survival` (health) #D7FF9A, `.powerup_casting` (magic) #E1A6FF,
@@ -680,7 +717,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
     from 2.35× and hold at half opacity, 0.35 s apart. Under `prefers-reduced-motion`, one
     pulse at rest. A point turned on in Sandbox is lit the same way.
   - Hovering a point, or tapping it on the phone, says when the next urn spawns and where ("Urn
-    spawns here in m:ss (at m:ss)"), or that the point is open.
+    spawns in m:ss", "Urn spawns at the other site in m:ss"), or "Urn delivery point" while
+    it's open.
   - Pick-ups, drops and deliveries are events (the "Urn" filter) and ping where they happened.
   - Save scene keeps the open point. In Sandbox the points toggle like the rifts: off by
     default, one open at a time. The metadata tier has no urn.
@@ -713,7 +751,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
   deaths (who; the killer and the place when the data has them, else where the hero was last
   seen), objectives, mid boss kills, rifts up and captured, powerups up and taken (replay only, on
   seconds the spawner is in the recording; from format 2 with the buff), urn pick-ups, drops and deliveries (replay only,
-  with the carrier), ult casts (replay only: a rise of the hero's ult
+  with the carrier), the Rejuvenator taken, each revive (with the hero) and its expiry (replay,
+  format 3; the "Mid boss" filter), ult casts (replay only: a rise of the hero's ult
   cooldown, named by the game's `ImportantAbilityUsed` message, which covers every important
   ability, so it alone isn't an ult), and souls swings (the Amber-minus-Sapphire lead
   moving 5,000 within a minute and holding ten seconds on; none in the first two minutes, when

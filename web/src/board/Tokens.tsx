@@ -276,7 +276,12 @@ export function Tokens(p: {
           // The map's hover label (map/HoverLabel.tsx), by roster slot, never the player's id.
           const hoverId = () => `${slot().team}-${slot().slot}`;
           const shownOnMap = () => (live() ? !!pv()?.pos : pl().state.placed);
-          const partText = (part: string | undefined) => (part === "vis" ? (visible() ? "In vision" : "Not seen") : part === "life" ? (alive() ? "Kill (K)" : "Revive (K)") : label());
+          // The eye and the skull say what they do only where they're drawn (styles: shown when
+          // the token is editable, and the eye too while the hero is unseen); else, as in Player,
+          // the token's own name.
+          const editable = () => p.state.canEdit() && !live();
+          const partText = (part: string | undefined) =>
+            part === "vis" && (editable() || !visible()) ? (visible() ? "In vision" : "Not seen") : part === "life" && editable() ? (alive() ? "Kill (K)" : "Revive (K)") : label();
           createEffect(() => {
             const off = registerHover("token", hoverId(), (part) => (shownOnMap() ? { x: at().x, y: at().y, gap: r() + 12 * p.k, text: partText(part) } : undefined));
             onCleanup(off);

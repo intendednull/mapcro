@@ -1,73 +1,115 @@
 // What a hovered map marker says (spec §6b), through the map's one hover label
-// (map/HoverLabel.tsx). Anywhere, a marker names itself ("Guardian (Amber, west lane)"). In
-// Player, everything that spawns says when: camps and the mid boss, the rifts, the bridge
-// powerups and the urn's points, as "Respawns in m:ss (at m:ss)" while down and "Up" (or
-// "active") while up. No countdown shows otherwise. Hovering one, or tapping it on the phone,
-// shows it; the map never stops a pointer for it.
+// (map/HoverLabel.tsx), in Player. A label is short, and only there when it says something a
+// player can't see (operator 2026-11-08): a timer ("Respawns in 1:20", "Buff respawns in 0:35",
+// "Rift opens in 0:46", "Gives up in 0:41", "Urn returns in 2:13", a held Rejuvenator on the mid
+// boss), an objective's health ("Walker 62%") or a name that is the news ("Casting buff", "Urn
+// delivery point"). A camp that's up says nothing, and nor does any marker in Sandbox. Hovering
+// one, or tapping it on the phone, shows it; the map never stops a pointer for it.
 
 import { createMemo, onCleanup, onMount } from "solid-js";
 import type { Art } from "../map/pack";
-import { HUD_MAP_PX, type Marker } from "../map/model";
-import { type Pt, mapToView } from "../map/transform";
+import { HUD_MAP_PX, type Marker, teamName } from "../map/model";
+import { type Pt, mapToView, worldToView } from "../map/transform";
 import { svgPoint } from "../board/Tokens";
-import { type CampAt, type PowerupAt, type RiftAt, clockLabel } from "../match/timeline";
+import { type CampAt, type PowerupAt, type RejuvNow, type RiftAt, type UrnNow, clockLabel } from "../match/timeline";
 import type { MatchPreview } from "../match/preview";
-import { buffInfo, buffLabel } from "../match/buffs";
+import { buffInfo } from "../match/buffs";
 import { hoverMarker, localHover, registerHover } from "../map/HoverLabel";
 import { urnTip } from "./Urn";
 
-/** "in 0:25 (at 1:35)": the seconds left to `at`, rounded up, and when. */
-export const inAt = (at: number, t: number) => `in ${clockLabel(Math.max(0, Math.ceil(at - t)))} (at ${clockLabel(at)})`;
+/** "in 0:25": the seconds left to `at`, rounded up. Labels stay short (operator 2026-11-08), so
+ * no "(at m:ss)". */
+export const inAt = (at: number, t: number) => `in ${clockLabel(Math.max(0, Math.ceil(at - t)))}`;
 
-/** The tooltip for a camp at playback time t; `who` names it (the mid boss), else the camp's
- * own words. */
-export function campTip(c: CampAt, t: number, who?: string): string {
-  const say = (s: string) => (who ? `${who} ${s[0]!.toLowerCase()}${s.slice(1)}` : s);
-  if (c.state === "unspawned") return say(`Spawns ${inAt(c.at, t)}`);
-  if (c.state === "cleared") return say(`Respawns ${inAt(c.at, t)}`);
-  return say("Up");
+
+/** A camp (or the mid boss) at playback time t: its timer while down; up, nothing to say. */
+export function campTip(c: CampAt, t: number): string | undefined {
+  if (c.state === "unspawned") return `Spawns ${inAt(c.at, t)}`;
+  if (c.state === "cleared") return `Respawns ${inAt(c.at, t)}`;
+  return undefined;
 }
 
-/** A rift site at t. The rift spawns when its cash-in opens (`live_s`, exploration round 7). */
-export function riftTip(r: RiftAt, key: string, t: number): string {
-  if (r.state === "active") return "Rift active";
-  if (r.state === "elsewhere") return "Rift active at the other site";
-  if (!r.next) return "No more rifts in this replay";
-  return r.next.key === key ? `Rift spawns here ${inAt(r.next.t, t)}` : `Next rift spawns at the other site ${inAt(r.next.t, t)}`;
-}
-
-/** A bridge powerup site at t: the buff that's up, else the next one and when. */
-export function powerupTip(p: PowerupAt, t: number): string {
-  if (p.state === "up") return `${buffLabel(p.buff)} up`;
-  if (!p.next) return "No more buffs in this replay";
-  const name = buffInfo(p.next.buff)?.name ?? p.next.buff;
-  return `${name} buff ${p.first ? "spawns" : "respawns"} ${inAt(p.next.t, t)}`;
-}
-
-/** What marker `m` says at t: its timer in Player where the match has one, else its name. */
-export function markerTip(m: Pick<Marker, "key" | "kind" | "title">, pv: MatchPreview | undefined, t: number): string {
-  if (pv) {
-    const c = pv.camps.get(m.key);
-    if (m.kind === "camp" && c) return campTip(c, t);
-    if (m.kind === "midboss") {
-      if (c) return campTip(c, t, "Mid boss");
-      // The API summary has the kills, not the respawns.
-      return pv.down.has(m.key) ? "Mid boss down: its respawn isn't in the API summary" : "Mid boss up";
-    }
-    const r = pv.rifts?.get(m.key);
-    if (m.kind === "koth" && r) return riftTip(r, m.key, t);
-    const b = pv.powerups?.get(m.key);
-    if (m.kind === "powerup" && b) return powerupTip(b, t);
-    if (m.kind === "urn" && pv.urn) return urnTip(pv.urn, m.key, t);
+/** A rift site at t. The rift spawns when its cash-in opens (`live_s`, exploration round 7); open,
+ * it gives up at `giveUp` unless a team captures it first. Nothing timed: nothing to say. */
+export function riftTip(r: RiftAt, key: string, t: number): string | undefined {
+  if (r.state === "active") {
+    if (r.capture?.captured) return `Captured by ${teamName(r.capture.captured)}`;
+    return r.giveUp != null && r.giveUp > t ? `Gives up ${inAt(r.giveUp, t)}` : undefined;
   }
-  return m.title;
+  if (r.state === "elsewhere" || !r.next) return undefined;
+  return r.next.key === key ? `Rift opens ${inAt(r.next.t, t)}` : `Rift opens at the other site ${inAt(r.next.t, t)}`;
+}
+
+/** A bridge powerup site at t: the buff that's up, by name; else when the next one comes. */
+export function powerupTip(p: PowerupAt, t: number): string | undefined {
+  if (p.state === "up") return `${buffInfo(p.buff)?.name ?? "Unknown"} buff`;
+  if (!p.next) return undefined;
+  return `Buff ${p.first ? "spawns" : "respawns"} ${inAt(p.next.t, t)}`;
+}
+
+/** A team's Rejuvenator at t: "Sapphire Rejuvenator: 2 revives, ends in 1:40". */
+export function rejuvTip(r: RejuvNow, t: number): string {
+  return `${teamName(r.team)} Rejuvenator: ${r.left} revive${r.left === 1 ? "" : "s"}, ends in ${clockLabel(Math.max(0, Math.ceil(r.ends - t)))}`;
+}
+
+/** The Soul Urn itself at t, where it lies: when it walks back, once it has settled. */
+export function urnItemTip(u: UrnNow, t: number): string {
+  if (u.state !== "ground" || u.returns == null) return "Urn";
+  return u.returns > t ? `Urn returns ${inAt(u.returns, t)}` : "Urn returning";
+}
+
+/** The urn's hover reference: not a marker, but labelled like one. */
+export const URN_HOVER = "soul-urn";
+
+/** Objectives with health, by marker kind: what their label calls them. */
+const HEALTH_NAME: Partial<Record<Marker["kind"], string>> = { t1: "Guardian", t2: "Walker", barracks: "Base guardian", shrine: "Shrine", t3: "Patron", midboss: "Mid boss" };
+
+/** "Walker 62%": an objective with health and its health now, rounded; `undefined` unknown. */
+export function healthTip(kind: Marker["kind"], pct: number | undefined): string | undefined {
+  const name = HEALTH_NAME[kind];
+  return name && pct !== undefined ? `${name} ${Math.round(Math.max(0, Math.min(100, pct)))}%` : undefined;
+}
+
+/**
+ * What marker `m` says at t in Player, if anything: a timer, an objective's health ("Walker
+ * 62%", operator 2026-11-09), or a name that is the news (the buff that's up, an open delivery
+ * point). Players know a camp when they see one, so one that's up says nothing; an objective
+ * whose health isn't known (Health off, the API summary) or that's down says nothing either,
+ * nor does anything in Sandbox, where the board sets no health.
+ */
+export function markerTip(m: Pick<Marker, "key" | "kind">, pv: MatchPreview | undefined, t: number): string | undefined {
+  if (!pv) return undefined;
+  const c = pv.camps.get(m.key);
+  if (m.kind === "camp" && c) return campTip(c, t);
+  const hp = pv.down.has(m.key) ? undefined : pv.health?.get(m.key)?.pct;
+  if (m.kind === "midboss") {
+    // Down: its timer; up: its health. The reward a team holds goes with it: the mid boss is
+    // where it came from. The API summary has the kills, not the respawns: nothing timed there.
+    const timer = c ? campTip(c, t) : undefined;
+    const said = [timer ?? healthTip(m.kind, hp), ...(pv.rejuv ?? []).map((r) => rejuvTip(r, t))].filter((x) => x);
+    return said.length ? said.join(" · ") : undefined;
+  }
+  if (HEALTH_NAME[m.kind]) return healthTip(m.kind, hp);
+  const r = pv.rifts?.get(m.key);
+  if (m.kind === "koth" && r) return riftTip(r, m.key, t);
+  const b = pv.powerups?.get(m.key);
+  if (m.kind === "powerup" && b) return powerupTip(b, t);
+  if (m.kind === "urn" && pv.urn) return urnTip(pv.urn, m.key, t);
+  return undefined;
 }
 
 /** `hidden`: a marker hidden from the map (an objective turned off), which has nothing to say. */
 export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; hidden: (key: string) => boolean; preview: () => MatchPreview | undefined; t: () => number; k: number }) {
   let g!: SVGGElement;
   const markers = () => p.art.model.markers;
+  const urn = () => {
+    const u = p.preview()?.urn;
+    return u?.state === "ground" && u.at ? { u, at: worldToView(u.at, p.vp) } : undefined;
+  };
   const near = (at: Pt) => {
+    // The urn on the ground is drawn over the markers: it wins within its own size.
+    const g = urn();
+    if (g && Math.hypot(g.at.x - at.x, g.at.y - at.y) <= Math.max(8, (32 / HUD_MAP_PX) * 1000 * 0.3 * p.k)) return URN_HOVER;
     let best: { key: string; d: number } | undefined;
     for (const m of markers()) {
       if (p.hidden(m.key)) continue;
@@ -85,8 +127,11 @@ export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; 
     markers().map((m) =>
       registerHover("marker", m.key, () => {
         if (p.hidden(m.key)) return undefined;
+        // Nothing to say is still a marker under the pointer: an empty text, which the label
+        // doesn't draw but which keeps the wave's handle under it from labelling.
+        const text = markerTip(m, p.preview(), p.t()) ?? "";
         const at = mapToView(m.at, p.vp);
-        return { x: at.x, y: at.y, gap: Math.max(10, (m.px / HUD_MAP_PX) * 1000 * 0.22 * p.k) + 6 * p.k, text: markerTip(m, p.preview(), p.t()) };
+        return { x: at.x, y: at.y, gap: Math.max(10, (m.px / HUD_MAP_PX) * 1000 * 0.22 * p.k) + 6 * p.k, text };
       }),
     ),
   );
@@ -94,6 +139,12 @@ export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; 
     const off = regs();
     onCleanup(() => off.forEach((f) => f()));
   });
+  onCleanup(
+    registerHover("marker", URN_HOVER, () => {
+      const g = urn();
+      return g ? { x: g.at.x, y: g.at.y, gap: Math.max(10, (32 / HUD_MAP_PX) * 1000 * 0.22 * p.k) + 6 * p.k, text: urnItemTip(g.u, p.t()) } : undefined;
+    }),
+  );
   onMount(() => {
     // Listened to on the overlay itself, never intercepting: drawing, the laser and the tools
     // work over a marker as anywhere else.

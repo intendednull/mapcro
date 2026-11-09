@@ -29,6 +29,7 @@ import { ReplayPrompt } from "../player/ReplayPrompt";
 import { MarkerTips } from "../player/Camps";
 import { HoverLabels, hoverFromWire, hoverWire, localHover, setRemoteHover } from "../map/HoverLabel";
 import { UrnMark } from "../player/Urn";
+import { RiftRings } from "../player/Rift";
 import { liveLayer } from "../player/layer";
 import { PlayerTopBar } from "../player/PlayerTopBar";
 import { Layers, calloutOrder } from "./Layers";
@@ -734,6 +735,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
               />
               <Show when={inPlayer()}>
+                <RiftRings art={p.art} vp={viewpoint()} preview={matchPreview} mk={Math.min(1, view().w / 1000)} />
                 <UrnMark art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} mk={Math.min(1, view().w / 1000)} />
               </Show>
               <MarkerTips art={p.art} vp={viewpoint()} hidden={(k) => markerStatus(k) === "Hidden"} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />

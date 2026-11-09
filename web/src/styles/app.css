@@ -507,6 +507,9 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
    img-shadow 0 0 18px shardColor&50 (#99FFD6, as the rift's border); carried, .held_idol_image's
    img-shadow 0 0 8px 0.5 white and its pulse, @keyframes held_idol_image over 1.3 s. */
 .pl-urn { pointer-events: none; }
+.pl-rift-rings { pointer-events: none; }   /* player/Rift.tsx: each team's capture of the open rift */
+.pl-rift-track { fill: none; stroke: #000000a0; }
+.pl-rift-fill { fill: none; filter: drop-shadow(0 0 1.5px #000); }
 .pl-urn.urn-ground .pl-urn-art { filter: drop-shadow(0 0 calc(9 * var(--u, 1px)) #99FFD680); }
 .pl-urn.urn-carried .pl-urn-art {
   --held: drop-shadow(0 0 calc(1 * var(--u, 1px)) #fff) drop-shadow(0 0 calc(4 * var(--u, 1px)) #ffffffa0);

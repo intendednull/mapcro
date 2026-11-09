@@ -97,10 +97,11 @@ export function HoverLabels(p: { k: number }) {
   const shown = createMemo(() => {
     const l = localHover();
     const ls = l && resolve(l);
-    if (l && ls) return { ref: l, spot: ls, by: undefined };
+    // An empty text: the thing is there, with nothing to say (a camp that's up): no label.
+    if (l && ls) return ls.text ? { ref: l, spot: ls, by: undefined } : undefined;
     const r = remote();
     const rs = r && resolve(r.ref);
-    return r && rs ? { ref: r.ref, spot: rs, by: r } : undefined;
+    return r && rs?.text ? { ref: r.ref, spot: rs, by: r } : undefined;
   });
   return (
     <g class="hover-labels">

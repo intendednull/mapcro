@@ -59,8 +59,9 @@ export interface Timeline {
   /** `"replay"` for the replay tier; absent for the metadata tier. */
   tier?: "replay";
   build?: number;
-  /** Replay tier: announced at `start_s`, its cash-in open from `live_s` (format 2) to `end_s`. */
-  rifts?: Array<{ key: string; start_s: number; end_s: number; live_s?: number | null }>;
+  /** Replay tier: announced at `start_s`, its cash-in open from `live_s` (format 2) to `end_s`;
+   * from format 3 when it gives up uncaptured and each team's capture progress. */
+  rifts?: TimelineRift[];
   /** Replay tier: per site, up each second; from format 2 each spawn's buff and pick-up. */
   powerups?: Array<{ key: string; available: number[]; stale: Stale; spawns?: PowerupSpawn[] }>;
   /** Replay tier: each lane's zipline colours, `[second, amber_t, sapphire_t]` where they move. */
@@ -76,9 +77,47 @@ export interface Timeline {
   objective_health?: Array<{ key: string; at: Array<[number, number]>; stage?: Array<[number, number]> }>;
   /** Replay tier: the Soul Urn: each spawn (second, site) and its state where it changes. */
   urn?: { spawns: Array<{ t: number; key: string }>; at: UrnAt[] };
+  /** Replay tier, format 3: each Rejuvenator a team held (crates/replay/src/timeline.rs `Rejuv`). */
+  rejuv?: TimelineRejuv[];
 }
 
-export type EventKind = "death" | "objective" | "mid_boss" | "rift_up" | "rift_capture" | "powerup_spawn" | "powerup_taken" | "souls_swing" | "ult" | "urn_pickup" | "urn_drop" | "urn_delivered";
+export interface TimelineRift {
+  key: string;
+  start_s: number;
+  end_s: number;
+  live_s?: number | null;
+  /** Format 3: the second its cash-in gives up if nobody captures it. */
+  give_up_s?: number | null;
+  /** Format 3: `[tenths of a second, amber %, sapphire %]` while open; a straight line between
+   * rows. */
+  capture?: Array<[number, number, number]>;
+}
+
+/** The mid boss's reward held by a team: from `taken_s` to `ends_s`, its revives left
+ * `[second, n]` where they change. */
+export interface TimelineRejuv {
+  team: "amber" | "sapphire";
+  taken_s: number;
+  ends_s: number;
+  left: Array<[number, number]>;
+}
+
+export type EventKind =
+  | "death"
+  | "objective"
+  | "mid_boss"
+  | "rift_up"
+  | "rift_capture"
+  | "powerup_spawn"
+  | "powerup_taken"
+  | "souls_swing"
+  | "ult"
+  | "urn_pickup"
+  | "urn_drop"
+  | "urn_delivered"
+  | "rejuv_taken"
+  | "rejuv_revive"
+  | "rejuv_expired";
 
 export interface MatchEvent {
   t: number;
@@ -175,6 +214,9 @@ export function playersAt(tl: Timeline, t: number): PlayerAt[] {
  * holds it, the open delivery point, and the next spawn after t (timeline keys). */
 export interface UrnNow {
   state: "ground" | "carried" | "none";
+  /** On the ground and settled (landed, or dropped): when it walks back if nobody picks it up
+   * (`returns` ≤ t: walking back). `null` otherwise, and while it's still falling. */
+  returns?: number | null;
   at: { x: number; y: number } | null;
   team: "amber" | "sapphire" | null;
   slot: number | null;
@@ -187,21 +229,33 @@ export function urnAt(tl: Timeline, t: number): UrnNow | undefined {
   if (!u) return undefined;
   let cur: UrnAt | undefined;
   let after: UrnAt | undefined;
+  // Since when it has lain still: the start of this stay on the ground, once it has landed (its
+  // delivery point opens as it lands; a dropped urn's is open).
+  let settled: number | null = null;
   for (const a of u.at) {
     if (a.t > t) {
       after = a;
       break;
     }
+    if (a.state !== "ground") settled = null;
+    else if (settled === null && a.delivery) settled = a.t;
     cur = a;
   }
   const next = u.spawns.find((s) => s.t > t) ?? null;
   const none: UrnNow = { state: "none", at: null, team: null, slot: null, delivery: null, next };
   if (!cur || cur.state === "none") return none;
   const delivery = cur.delivery ?? null;
-  if (cur.state === "ground") return { ...none, state: "ground", at: groundAt(cur, after, t), team: cur.team ?? null, delivery };
+  if (cur.state === "ground") return { ...none, state: "ground", at: groundAt(cur, after, t), team: cur.team ?? null, delivery, returns: settled === null ? null : settled + URN_WALK_BACK_S };
   const p = tl.players.find((q) => q.team === cur.team && q.slot === cur.slot);
   return { ...none, state: "carried", at: p ? (positionAt(p, t) ?? lastSeen(p, t)) : null, team: cur.team ?? null, slot: cur.slot ?? null, delivery };
 }
+
+/**
+ * An urn left on the ground walks back after this long (misc.vdata
+ * `citadel_item_pickup_idol.m_WalkBackModifier.m_flWaitTimeLimit`). On 129738985 the 25:00 urn
+ * landed at 25:12.5 and set off at 28:13 (timers audit, gap 7).
+ */
+export const URN_WALK_BACK_S = 180;
 
 /** How far apart (s) two places of the urn on the ground may be and still be one move. */
 const URN_GLIDE_S = 2;
@@ -367,14 +421,42 @@ export function downAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "key
  * (`elsewhere`), or waiting for the next rift to open, here or at the other site (`next`, by
  * marker key; `null`: none to come in this replay). A rift opens when its cash-in does
  * (`live_s`); before format 2 only the announcement (`start_s`) is known, so that stands in. */
-export type RiftAt = { state: "active" } | { state: "elsewhere" } | { state: "waiting"; next: { t: number; key: string } | null };
+export type RiftAt =
+  | { state: "active"; giveUp?: number | null; capture?: RiftCapture | null }
+  | { state: "elsewhere" }
+  | { state: "waiting"; next: { t: number; key: string } | null };
+
+/** Each team's capture progress (percent, between samples on their straight line), and the team
+ * whose reached 100 (`null`: neither yet). */
+export interface RiftCapture {
+  amber: number;
+  sapphire: number;
+  captured: "amber" | "sapphire" | null;
+}
+
+/** An open rift's capture progress at t (format 3), `null` outside its samples. */
+export function captureAt(r: Pick<TimelineRift, "capture">, t: number): RiftCapture | null {
+  const rows = r.capture;
+  if (!rows?.length) return null;
+  const ds = t * 10;
+  if (ds < rows[0]![0]) return null;
+  let i = 0;
+  while (i + 1 < rows.length && rows[i + 1]![0] <= ds) i++;
+  const a = rows[i]!;
+  const b = rows[i + 1];
+  const f = b ? (ds - a[0]) / (b[0] - a[0]) : 0;
+  const lerp = (k: 1 | 2) => a[k] + ((b?.[k] ?? a[k]) - a[k]) * f;
+  // Captured: the first row where a team's reached 100, from then on.
+  const done = rows.slice(0, i + 1).find((x) => x[1] >= 100 || x[2] >= 100);
+  return { amber: lerp(1), sapphire: lerp(2), captured: done ? (done[1] >= 100 ? "amber" : "sapphire") : null };
+}
 
 export function riftAt(tl: Timeline, key: string, t: number, markers: Array<Pick<Marker, "key" | "kind" | "team" | "at">>): RiftAt | undefined {
   if (!tl.rifts) return undefined;
   const site = (k: string) => markerKey(k, markers) ?? k;
-  const opens = (r: NonNullable<Timeline["rifts"]>[number]) => r.live_s ?? r.start_s;
+  const opens = (r: TimelineRift) => r.live_s ?? r.start_s;
   const open = tl.rifts.find((r) => t >= opens(r) && t < r.end_s);
-  if (open) return site(open.key) === key ? { state: "active" } : { state: "elsewhere" };
+  if (open) return site(open.key) === key ? { state: "active", giveUp: open.give_up_s ?? null, capture: captureAt(open, t) } : { state: "elsewhere" };
   const next = tl.rifts.find((r) => opens(r) > t);
   return { state: "waiting", next: next ? { t: opens(next), key: site(next.key) } : null };
 }
@@ -392,6 +474,23 @@ export function powerupAt(p: { spawns?: PowerupSpawn[] | undefined; available: n
   if (up && last) return { state: "up", buff: last.buff };
   const n = sp.find((x) => x.t > s);
   return { state: "down", first: !last, next: n ? { t: n.t, buff: n.buff } : null };
+}
+
+/** A team's Rejuvenator at t: revives left, and when it ends. */
+export interface RejuvNow {
+  team: "amber" | "sapphire";
+  left: number;
+  ends: number;
+}
+
+/** The Rejuvenators held at t (replay tier, format 3), Amber's first. */
+export function rejuvAt(tl: Pick<Timeline, "rejuv">, t: number): RejuvNow[] {
+  const out: RejuvNow[] = [];
+  for (const r of tl.rejuv ?? []) {
+    if (t < r.taken_s || t >= r.ends_s) continue;
+    out.push({ team: r.team, left: stepAt(r.left, t) ?? 0, ends: r.ends_s });
+  }
+  return out.sort((a, b) => (a.team === b.team ? 0 : a.team === "amber" ? -1 : 1));
 }
 
 export const clockLabel = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;

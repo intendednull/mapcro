@@ -28,16 +28,14 @@ import type { MatchPreview } from "../match/preview";
 const GROUND_HUD_PX = 32;
 const HELD_OFFSET = { x: 8 / 32, y: 10 / 32 } as const;
 
-/** The tooltip for urn point `key` at playback time t. */
-export function urnTip(u: UrnNow, key: string, t: number): string {
-  if (u.delivery === key) return u.state === "carried" ? "Urn delivery point: open, urn carried" : "Urn delivery point: open";
+/** What urn point `key` says at playback time t: open for delivery, or the urn spawning there
+ * next; nothing otherwise (Camps.tsx's rules). */
+export function urnTip(u: UrnNow, key: string, t: number): string | undefined {
+  if (u.delivery === key) return "Urn delivery point";
   const n = u.next;
-  // Spawned and still falling (12.5 s on 129738985): no point is open yet.
-  if (u.state === "ground" && !u.delivery) return "Urn landing: its delivery point opens as it lands";
-  if (u.state !== "none") return "Urn in play";
-  if (!n) return "No more urns in this replay";
-  const when = `in ${clockLabel(Math.max(0, Math.ceil(n.t - t)))} (at ${clockLabel(n.t)})`;
-  return n.key === key ? `Urn spawns here ${when}` : `Next urn spawns at the other site ${when}`;
+  if (u.state !== "none" || !n) return undefined;
+  const when = `in ${clockLabel(Math.max(0, Math.ceil(n.t - t)))}`;
+  return n.key === key ? `Urn spawns ${when}` : `Urn spawns at the other site ${when}`;
 }
 
 /** `mk`: the map markers' scale (a rift's), for the urn on the ground; `k`: the hero tokens'. */

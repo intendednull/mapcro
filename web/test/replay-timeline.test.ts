@@ -164,13 +164,13 @@ describe("replay timeline", () => {
 
   it("says on hover when the next urn spawns, and where", () => {
     const at = (t: number) => urnAt(urnMatch, t)!;
-    expect(urnTip(at(0), "urn:neutral:lane1:1", 0)).toBe("Urn spawns here in 0:01 (at 0:01)");
-    expect(urnTip(at(0), "urn:neutral:lane6:1", 0)).toBe("Next urn spawns at the other site in 0:01 (at 0:01)");
-    expect(urnTip(at(2), "urn:neutral:lane6:1", 2)).toBe("Urn delivery point: open, urn carried");
-    expect(urnTip(at(2), "urn:neutral:lane1:1", 2)).toBe("Urn in play");
-    expect(urnTip({ ...at(1), delivery: null }, "urn:neutral:lane6:1", 1)).toBe("Urn landing: its delivery point opens as it lands");
-    expect(urnTip(at(4), "urn:neutral:lane6:1", 4.2)).toBe("Urn spawns here in 0:05 (at 0:09)");
-    expect(urnTip({ ...at(4), next: null }, "urn:neutral:lane6:1", 4)).toBe("No more urns in this replay");
+    expect(urnTip(at(0), "urn:neutral:lane1:1", 0)).toBe("Urn spawns in 0:01");
+    expect(urnTip(at(0), "urn:neutral:lane6:1", 0)).toBe("Urn spawns at the other site in 0:01");
+    expect(urnTip(at(2), "urn:neutral:lane6:1", 2)).toBe("Urn delivery point");
+    expect(urnTip(at(2), "urn:neutral:lane1:1", 2)).toBeUndefined();
+    expect(urnTip({ ...at(1), delivery: null }, "urn:neutral:lane6:1", 1)).toBeUndefined();
+    expect(urnTip(at(4), "urn:neutral:lane6:1", 4.2)).toBe("Urn spawns in 0:05");
+    expect(urnTip({ ...at(4), next: null }, "urn:neutral:lane6:1", 4)).toBeUndefined();
   });
 
   it("saves the open urn point with the scene", () => {

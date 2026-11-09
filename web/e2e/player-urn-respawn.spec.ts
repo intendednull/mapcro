@@ -219,20 +219,20 @@ test("hovering an urn point says when the next urn spawns, and it counts down", 
   await scrubTo(a, 5);
   await expect(tip).toHaveCount(0);
   await hover(WEST);
-  await expect(tip).toHaveText("Urn spawns here in 0:05 (at 0:10)");
+  await expect(tip).toHaveText("Urn spawns in 0:05");
   await a.mouse.move(5, 5);
   await expect(tip).toHaveCount(0);
 
   await scrubTo(a, 70);
   await hover(EAST);
-  await expect(tip).toHaveText("Urn spawns here in 0:30 (at 1:40)");
+  await expect(tip).toHaveText("Urn spawns in 0:30");
   await scrubTo(a, 80);
-  await expect(tip).toHaveText("Urn spawns here in 0:20 (at 1:40)");
+  await expect(tip).toHaveText("Urn spawns in 0:20");
   await hover(WEST);
-  await expect(tip).toHaveText("Next urn spawns at the other site in 0:20 (at 1:40)");
+  await expect(tip).toHaveText("Urn spawns at the other site in 0:20");
   await scrubTo(a, 40);
   await hover(EAST);
-  await expect(tip).toHaveText("Urn delivery point: open, urn carried");
+  await expect(tip).toHaveText("Urn delivery point");
 });
 
 test("urn pick-ups, drops and the delivery are listed and ping where they happened", async ({ browser }) => {

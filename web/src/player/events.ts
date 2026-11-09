@@ -24,6 +24,8 @@ export function groupOf(e: Pick<MatchEvent, "kind">): EventGroup {
   if (e.kind === "powerup_spawn" || e.kind === "powerup_taken") return "powerup";
   if (e.kind === "souls_swing") return "souls";
   if (e.kind === "urn_pickup" || e.kind === "urn_drop" || e.kind === "urn_delivered") return "urn";
+  // The Rejuvenator is the mid boss's reward.
+  if (e.kind === "rejuv_taken" || e.kind === "rejuv_revive" || e.kind === "rejuv_expired") return "mid_boss";
   return e.kind as EventGroup;
 }
 
@@ -98,6 +100,14 @@ export function label(e: MatchEvent, n: Named): string {
       const who = n.hero(e.hero_id) || team(e.team);
       return who ? `Urn ${verb} by ${who}` : `Urn ${verb}`;
     }
+    case "rejuv_taken":
+      return `Rejuvenator taken by ${team(e.team) || "?"}`;
+    case "rejuv_revive": {
+      const who = n.hero(e.hero_id) || team(e.team) || "A hero";
+      return `${who} revived by the Rejuvenator`;
+    }
+    case "rejuv_expired":
+      return `${team(e.team)} Rejuvenator expired`.trim();
     default:
       return cap(String(e.kind).replace(/_/g, " "));
   }
@@ -105,7 +115,7 @@ export function label(e: MatchEvent, n: Named): string {
 
 /** The list's label in parts: names, where the timeline has them, beside their heroes (muted). */
 export function labelParts(e: MatchEvent, n: Named): Array<{ text: string; muted?: boolean }> {
-  if (e.kind !== "death" && e.kind !== "ult" && !e.kind.startsWith("urn_")) return [{ text: label(e, n) }];
+  if (e.kind !== "death" && e.kind !== "ult" && e.kind !== "rejuv_revive" && !e.kind.startsWith("urn_")) return [{ text: label(e, n) }];
   const who = n.player(e.team, e.slot);
   if (e.kind !== "death") return [{ text: label(e, n) }, ...(who ? [{ text: ` ${who}`, muted: true }] : [])];
   const by = e.by ? n.player(e.by.team, e.by.slot) : undefined;
@@ -143,6 +153,12 @@ export function shortLabel(e: MatchEvent, n: Named): string {
       return "Urn dropped";
     case "urn_delivered":
       return "Urn delivered";
+    case "rejuv_taken":
+      return "Rejuvenator taken";
+    case "rejuv_revive":
+      return `${n.hero(e.hero_id) || "Hero"} revived`;
+    case "rejuv_expired":
+      return "Rejuvenator expired";
     default:
       return "Souls swing";
   }

@@ -2,7 +2,7 @@
 
 import { Show } from "solid-js";
 import { cx } from "../ui/cx";
-import type { CampAt, PowerupAt, RiftAt, UrnNow } from "./timeline";
+import type { CampAt, PowerupAt, RejuvNow, RiftAt, UrnNow } from "./timeline";
 
 export interface MatchPreview {
   /** By "amber-0" … "sapphire-5": the hero there, its player's name if known, and where it is
@@ -24,6 +24,8 @@ export interface MatchPreview {
   health?: Map<string, { pct: number; stage?: number }>;
   /** Replay tier: the Soul Urn at this moment, its sites by marker key (absent: no urn data). */
   urn?: UrnNow;
+  /** Replay tier, format 3: the Rejuvenators held at this moment (absent or empty: none). */
+  rejuv?: RejuvNow[];
 }
 
 /** A small ring: the part still on cooldown, as the HUD draws it under a portrait. */

@@ -122,29 +122,33 @@ test("camps show their state; when they come back shows only on hover", async ({
   await expect(marker(a, CAMP)).toHaveAttribute("data-camp", "unspawned");
   await noCountdown();
   await hover(a, CAMP);
-  await expect(tip).toHaveText("Spawns in 0:10 (at 0:30)");
+  await expect(tip).toHaveText("Spawns in 0:10");
   await a.mouse.move(5, 5);
   await noCountdown();
 
   await scrubTo(a, 45);
   await expect(marker(a, CAMP)).toHaveAttribute("data-camp", "alive");
   await expect(marker(a, CAMP)).toHaveAttribute("data-status", "Active");
+  // Up: nothing timed, so no label (operator 2026-11-08).
+  await hover(a, CAMP);
+  await noCountdown();
+  await a.mouse.move(5, 5);
 
   await scrubTo(a, 70);
   await expect(marker(a, CAMP)).toHaveAttribute("data-camp", "cleared");
   await expect(marker(a, CAMP)).toHaveAttribute("data-status", "Destroyed");
   await noCountdown();
   await hover(a, CAMP);
-  await expect(tip).toHaveText("Respawns in 0:25 (at 1:35)");
+  await expect(tip).toHaveText("Respawns in 0:25");
   // It counts down with the playback.
   await scrubTo(a, 80);
-  await expect(tip).toHaveText("Respawns in 0:15 (at 1:35)");
+  await expect(tip).toHaveText("Respawns in 0:15");
   await a.screenshot({ path: "shots/camps-synthetic.png" });
 
   // The mid boss: down from its clear to the timer's respawn, the same hover.
   await expect(marker(a, BOSS)).toHaveAttribute("data-status", "Destroyed");
   await hover(a, BOSS);
-  await expect(tip).toHaveText("Mid boss respawns in 0:30 (at 1:50)");
+  await expect(tip).toHaveText("Respawns in 0:30");
   await a.mouse.move(5, 5);
   await noCountdown();
 
@@ -161,11 +165,14 @@ test("camps show their state; when they come back shows only on hover", async ({
   await phone.locator("#join-name").fill("Guest");
   await phone.keyboard.press("Enter");
   await expect(phone.getByTestId("board")).toHaveAttribute("data-layout", "phone");
+  // The phone keeps its own time: a camp that's up says nothing, else its timer.
   await expect(marker(phone, CAMP)).toHaveAttribute("data-camp", /alive|unspawned|cleared/);
   await expect(phone.getByTestId("hover-label")).toHaveCount(0);
   const b = (await marker(phone, CAMP).boundingBox())!;
   await phone.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
-  await expect(phone.getByTestId("hover-label")).toHaveText(/^(Up|Spawns in \d:\d\d \(at 0:30\)|Respawns in \d:\d\d \(at 1:35\))$/);
+  const camp = await marker(phone, CAMP).getAttribute("data-camp");
+  if (camp === "alive") await expect(phone.getByTestId("hover-label")).toHaveCount(0);
+  else await expect(phone.getByTestId("hover-label")).toHaveText(/^(Spawns|Respawns) in \d:\d\d$/);
   await phone.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
   await expect(phone.getByTestId("hover-label")).toHaveCount(0);
 });
