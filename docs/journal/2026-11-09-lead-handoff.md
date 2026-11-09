@@ -47,6 +47,28 @@ compaction). The newest state is at the top; the history is in git and the other
   players' ingest tool writes rows with no replay salt, so the Steam lookup never fills one. Analyse
   the data when it's done and write the "Results" section.
 
+## After the reboot (2026-11-09 ~00:50 PST)
+
+The operator rebooted the dev box. To recover:
+1. If /tmp was wiped, restore from `~/.local/share/mapcro-lead/`: `salt-study/`, `mapcro-scripts/`
+   (gate.sh), `lead-gate.sh`, `mapcro-busy.sh`. Recreate the gate worktree with
+   `git worktree prune; git worktree add --detach /tmp/lead-gate main`.
+2. Re-arm the watcher: `just watch-install`. The lead id file in ~/.config survives.
+3. Restart the salt study. It resumes from its state.json; its window ends about 2026-11-10 14:00 UTC:
+   `systemd-run --user --unit mapcro-salt-study /run/current-system/sw/bin/python3 -I /tmp/salt-study/probe.py /tmp/salt-study`.
+4. The live dev stack (vite :5173) is gone. Start it again only if the operator wants it.
+5. **Agents stopped mid-work. Their WIP notes say where each left off:**
+   - **timer-gaps:** Rejuvenator, rift progress, statue and urn timers, and the operator's
+     hover-label rules. Note: docs/journal/2026-11-09-timer-gaps-wip.md.
+   - **board-ux:** selection in the user's colour, the stencil at the map edge, Q E R T A S D F keys,
+     team names Hidden King / Archmother (`teamName()` landed in d86b63d), hero focus on a portrait
+     click. Note: docs/journal/2026-11-09-board-ux-wip.md.
+
+   Their uncommitted edits are in the tree. Respawn fresh agents briefed with those notes.
+6. **Next after timer-gaps:** build vision control from docs/research/replay-vision.md. The
+   control is "Vision: All / Hidden King / Archmother"; enemies are ghosted at their last-seen spot
+   (the lead's default, told to the operator).
+
 ## Open items
 
 1. **Investigate `ops_rejected{id_taken}`.** It happened twice in 6 h on prod (stats, 2026-11-09).
