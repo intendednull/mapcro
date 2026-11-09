@@ -577,6 +577,14 @@ export function Board(p: { board: string; token: string; art: Art }) {
   // The map's width on screen, so comments can be drawn at screen size.
   const [mapPx, setMapPx] = createSignal(500);
   const measureMap = (el: HTMLDivElement) => {
+    // A press on the map leaves the focused control too (operator, 2026-11-08); capture, so it
+    // happens before the map's own handlers, which may stop the event. A field on the map (a
+    // callout being written) keeps its focus.
+    const onPress = () => {
+      if (!el.contains(document.activeElement)) leaveControl();
+    };
+    el.addEventListener("pointerdown", onPress, true);
+    onCleanup(() => el.removeEventListener("pointerdown", onPress, true));
     queueMicrotask(() => setMapPx(el.clientWidth || 500));
     const ro = new ResizeObserver(() => setMapPx(el.clientWidth || 500));
     ro.observe(el);
@@ -592,14 +600,6 @@ export function Board(p: { board: string; token: string; art: Art }) {
         state={state}
         art={p.art}
         board={p.board}
-    // A press on the map leaves the focused control too (operator, 2026-11-08); capture, so it
-    // happens before the map's own handlers, which may stop the event. A field on the map (a
-    // callout being written) keeps its focus.
-    const onPress = () => {
-      if (!el.contains(document.activeElement)) leaveControl();
-    };
-    el.addEventListener("pointerdown", onPress, true);
-    onCleanup(() => el.removeEventListener("pointerdown", onPress, true));
         scene={scene()}
         mint={newRecordId}
         onSaved={userFlip}
