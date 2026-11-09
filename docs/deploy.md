@@ -148,6 +148,42 @@ From the infra repo, on the branch that adds mapcro:
 
 Without a pack, boards render on the built-in placeholder map.
 
+## Rollbacks and backups
+
+The database is `/var/lib/mapcro/mapcro.sqlite` (WAL mode). A server migrates it forwards on start
+when its schema is older, and never backwards (spec §9, §10).
+
+**Rolling back after a schema bump.** `meta` holds two numbers: `schema_version` and
+`compat_floor`, the oldest server schema version that can still use the database. An additive
+migration (one that only adds tables or columns older servers never read) keeps the floor; any
+other raises it to the new version. A server whose own version is older than the database's
+opens it if its version is at least the floor, logs a warning ("database schema is newer than
+this server"), and leaves it as it is. Otherwise it refuses to start (`database schema N (opens
+with servers from F), this server knows M`, exit 2), and systemd's restart limit stops it after
+8 tries. A refused rollback needs the backup below.
+
+- v6 (the metrics tables) is additive: its floor is 5, so a v5 server that knows about the floor
+  opens a v6 database. Every step before v6 raised the floor.
+- **The server deployed before v6 predates the floor and ignores it**: it refuses any newer
+  database. So for the deploy that first reaches v6, the rollback is restoring the pre-deploy
+  backup, which loses the boards and edits made since. Later rollbacks to a floor-aware server
+  can use the floor.
+
+**Before a deploy that bumps the schema** (`SCHEMA_VERSION` in `crates/server/src/store.rs`
+changed), copy the database. `.backup` is safe while the server runs:
+
+```sh
+ssh deploy@100.96.92.104 'set -e; f=/var/lib/mapcro/mapcro.sqlite; sudo nix shell nixpkgs#sqlite -c sqlite3 $f ".backup $f.pre-vN"; sudo chown mapcro:mapcro $f.pre-vN'
+```
+
+Replace `N` with the new version. If `nix shell` isn't usable there, stop the service, copy the
+file, and start it again: `sudo systemctl stop mapcro && sudo -u mapcro cp /var/lib/mapcro/mapcro.sqlite /var/lib/mapcro/mapcro.sqlite.pre-vN && sudo systemctl start mapcro`.
+
+**Restoring it** (with the old binary deployed and the service stopped):
+`sudo -u mapcro mv /var/lib/mapcro/mapcro.sqlite.pre-vN /var/lib/mapcro/mapcro.sqlite`, delete
+`mapcro.sqlite-wal` and `mapcro.sqlite-shm` beside it, then `sudo systemctl reset-failed mapcro`
+and start it. There is no off-box backup yet (spec §9, Backups).
+
 ## Asset packs
 
 A pack is one `mapcro-extract --out <dir>` directory: `pack.json` and `blobs/`. Extract it on a

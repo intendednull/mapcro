@@ -233,7 +233,8 @@ can't be reached through Caddy.
   `crates/server/src/stats.rs` is the subcommand.
 - **Collector.** Hand-rolled, not the `metrics` crate: every label is a Rust enum, the snapshot
   reads every value back each minute, and it adds no dependencies (journal).
-- **Tables** (schema v6): `metric_rows (res, t, name, labels, kind, value, sum, n, max, buckets)`
+- **Tables** (schema v6, an additive step: compatibility floor 5, so a floor-aware v5 server
+  still opens the database; architecture spec §9): `metric_rows (res, t, name, labels, kind, value, sum, n, max, buckets)`
   with one row per metric cell per window. A counter's row holds the window's delta. A gauge's
   holds its mean, its peak and the sample count. A histogram's holds its count, its sum and its
   non-empty buckets as `[lower, upper|null, n]`, so rollups merge exactly and quantiles come
@@ -302,9 +303,12 @@ For whoever instruments the next call site:
 4. **Record it at the call site:** `crate::metrics::get().prompt_choices.inc((choice, reason));`.
    A metric with one label takes a 1-tuple: `.inc((reason,))`. A metric with none takes `()`.
 5. **A failure worth reading later** also goes in the log:
-   `crate::metrics::failures::record(FailureKind::…, code.as_str(), &format!("…"))`. The code
-   is an enum's `as_str`. The message is built from fixed words and numbers; it is sanitised
-   anyway.
+   `crate::metrics::failures::record(FailureKind::…, code.as_str(), &[Part::Word("…"), Part::Int(n)])`.
+   The code is an enum's `as_str`. The message takes only typed parts: `Word(&'static str)`
+   (a literal or an enum's `as_str`), `Int`, `Dec` (one decimal). No `format!`, so no request
+   text can reach it; numbers of six digits or more are written `<n>`. `failures::sanitise`
+   (any 8+ character token, 6+ digit run, address, URL or path scrubbed) is the fallback should
+   free text ever be needed.
 6. **Don't change a histogram's buckets or a metric's meaning under its name.** Rows already
    written keep the old ones. Give it a new name instead.
 7. **Test it.** Have a test check the call site bumps the right cell: scrape `/metrics`, or run

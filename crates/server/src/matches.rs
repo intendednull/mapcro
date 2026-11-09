@@ -641,10 +641,11 @@ pub fn upstream(endpoint: Endpoint, result: ApiResult) {
     crate::metrics::get().deadlock_api_calls.inc((endpoint, result));
     // A 404 is an answer (the match isn't there yet), not trouble.
     if !matches!(result, ApiResult::Ok | ApiResult::NotFound) {
+        use crate::metrics::failures::Part::Word;
         crate::metrics::failures::record(
             crate::metrics::failures::FailureKind::Upstream,
             result.as_str(),
-            &format!("deadlock-api {} {}", endpoint.as_str(), result.as_str()),
+            &[Word("deadlock-api"), Word(endpoint.as_str()), Word(result.as_str())],
         );
     }
 }

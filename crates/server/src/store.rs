@@ -130,14 +130,33 @@ pub struct Store {
 /// Database schema version. Each step in `migrate` takes the database one version forward.
 const SCHEMA_VERSION: i64 = 6;
 
+/// Whether the step from `from` to `from + 1` is additive: it only adds tables (or other things
+/// an older server never reads), so a server that predates it still uses the database correctly.
+/// An additive step keeps the database's compatibility floor; any other step raises it to the
+/// new version (spec §9, docs/deploy.md "Rollbacks").
+///
+/// Steps before v6 predate the floor and count as breaking: servers of those versions refuse a
+/// newer database whatever it says.
+fn additive_step(from: i64) -> bool {
+    matches!(from, 5)
+}
+
+/// The oldest server version that can safely open a database at schema `version`: the floor
+/// each migration since v1 left. Stored in `meta` as `compat_floor`, for older servers, which
+/// can't work it out because they don't know the newer steps.
+fn compat_floor(version: i64) -> i64 {
+    (1..version).fold(1, |floor, from| if additive_step(from) { floor } else { from + 1 })
+}
+
 /// v1 → v2: links remember which link minted them (editors can share; revocation cascades).
 ///
 /// Each step and its version bump are one transaction, so a crash leaves the database at one
 /// version or the next, never between (review 2026-11-07, finding 3). Steps that create tables
 /// also say IF NOT EXISTS, for a database an older server left half-migrated.
-fn migrate(conn: &Connection, from: i64) -> Result<(), StoreError> {
+/// Migrations only ever run forwards, up to `to` (this server's version).
+fn migrate(conn: &Connection, from: i64, to: i64) -> Result<(), StoreError> {
     let mut v = from;
-    while v < SCHEMA_VERSION {
+    while v < to {
         let t = conn.unchecked_transaction()?;
         match v {
             1 => t.execute_batch(
@@ -176,8 +195,58 @@ fn migrate(conn: &Connection, from: i64) -> Result<(), StoreError> {
         }
         v += 1;
         t.execute("UPDATE meta SET value = ?1 WHERE key = 'schema_version'", [v.to_string()])?;
+        set_floor(&t, compat_floor(v))?;
         t.commit()?;
         tracing::info!(to = v, "migrated database schema");
+    }
+    Ok(())
+}
+
+fn set_floor(conn: &Connection, floor: i64) -> Result<(), StoreError> {
+    conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('compat_floor', ?1)", [floor.to_string()])?;
+    Ok(())
+}
+
+fn meta_i64(conn: &Connection, key: &str) -> Result<Option<i64>, StoreError> {
+    Ok(conn
+        .query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get::<_, String>(0))
+        .optional()?
+        .map(|v| v.parse().unwrap_or(-1)))
+}
+
+/// Bring the database to the version a server of version `known` expects, or refuse it.
+///
+/// Older databases migrate forwards. A newer one (a rollback after a migration) opens if `known`
+/// is at least its `compat_floor`, with a warning, and is left as it is: never migrated
+/// backwards, its version and floor untouched. A newer database with no floor (written before
+/// the floor existed) is refused, as it always was.
+fn reconcile(conn: &Connection, known: i64) -> Result<(), StoreError> {
+    match meta_i64(conn, "schema_version")? {
+        None => {
+            // A fresh database is created at v1, then migrated like any other.
+            conn.execute("INSERT INTO meta (key, value) VALUES ('schema_version', '1')", [])?;
+            set_floor(conn, compat_floor(1))?;
+            migrate(conn, 1, known)?;
+        }
+        Some(v) if (1..=known).contains(&v) => {
+            migrate(conn, v, known)?;
+            // A database migrated before the floor existed gets it now.
+            set_floor(conn, compat_floor(known))?;
+        }
+        Some(v) => {
+            let floor = meta_i64(conn, "compat_floor")?;
+            match floor {
+                Some(f) if v > known && (1..=known).contains(&f) => {
+                    tracing::warn!(database = v, floor = f, server = known, "database schema is newer than this server; opening it, as its floor allows");
+                }
+                _ => {
+                    return Err(StoreError::Corrupt(format!(
+                        "database schema {v} (opens with servers from {}), this server knows {known}",
+                        floor.map_or_else(|| v.to_string(), |f| f.to_string())
+                    )));
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -241,20 +310,7 @@ impl Store {
              );
              CREATE INDEX IF NOT EXISTS links_by_board ON links(board);",
         )?;
-        let version: Option<i64> = conn
-            .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get::<_, String>(0))
-            .optional()?
-            .map(|v| v.parse().unwrap_or(-1));
-        match version {
-            None => {
-                // A fresh database is created at v1 above, then migrated like any other.
-                conn.execute("INSERT INTO meta (key, value) VALUES ('schema_version', '1')", [])?;
-                migrate(&conn, 1)?;
-            }
-            Some(v) if v == SCHEMA_VERSION => {}
-            Some(v) if (1..SCHEMA_VERSION).contains(&v) => migrate(&conn, v)?,
-            Some(v) => return Err(StoreError::Corrupt(format!("database schema {v}, this server knows {SCHEMA_VERSION}"))),
-        }
+        reconcile(&conn, SCHEMA_VERSION)?;
         let bytes = Arc::new(AtomicU64::new(db_size(&conn)?));
         let reader = Connection::open(path)?;
         reader.execute_batch("PRAGMA query_only = ON; PRAGMA busy_timeout = 5000;")?;
@@ -815,8 +871,64 @@ mod tests {
         Store::open(&path).expect("create");
         Connection::open(&path)
             .expect("open")
-            .execute("UPDATE meta SET value = '99' WHERE key = 'schema_version'", [])
-            .expect("bump");
+            .execute_batch("UPDATE meta SET value = '99' WHERE key = 'schema_version'; DELETE FROM meta WHERE key = 'compat_floor';")
+            .expect("a newer database from before the floor existed");
+        assert!(matches!(Store::open(&path), Err(StoreError::Corrupt(_))), "no floor: refused");
+    }
+
+    fn meta(path: &Path, key: &str) -> Option<String> {
+        Connection::open(path).expect("open").query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0)).optional().expect("meta")
+    }
+
+    #[test]
+    fn a_v5_server_opens_a_v6_database_without_touching_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        Store::open(&path).expect("create at v6");
+        // What a v5 server's open does with it: v6 only added tables, so it may.
+        let c = Connection::open(&path).expect("open");
+        reconcile(&c, 5).expect("a v5 server opens a v6 database");
+        drop(c);
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("6"), "not migrated backwards");
+        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("5"));
+        // And a v4 server, below the floor, may not.
+        let c = Connection::open(&path).expect("open");
+        assert!(matches!(reconcile(&c, 4), Err(StoreError::Corrupt(_))));
+    }
+
+    #[test]
+    fn a_database_whose_floor_is_above_this_server_is_refused() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        Store::open(&path).expect("create");
+        Connection::open(&path)
+            .expect("open")
+            .execute_batch("UPDATE meta SET value = '8' WHERE key = 'schema_version'; UPDATE meta SET value = '7' WHERE key = 'compat_floor';")
+            .expect("a v8 database that a v7 migration broke for older servers");
         assert!(matches!(Store::open(&path), Err(StoreError::Corrupt(_))));
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("8"), "left as it was");
+        // The same database with an additive history opens.
+        Connection::open(&path).expect("open").execute("UPDATE meta SET value = '6' WHERE key = 'compat_floor'", []).expect("floor");
+        Store::open(&path).expect("floor at this server's version: opens");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("8"), "still not migrated backwards");
+    }
+
+    #[test]
+    fn the_floor_persists_across_migrations() {
+        assert_eq!((1..=6).map(compat_floor).collect::<Vec<_>>(), [1, 2, 3, 4, 5, 5], "v6 is additive; earlier steps are not");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        // A database a pre-floor v5 server wrote: no compat_floor row.
+        let c = Connection::open(&path).expect("open");
+        Store::open(&path).expect("create");
+        c.execute_batch("UPDATE meta SET value = '5' WHERE key = 'schema_version'; DELETE FROM meta WHERE key = 'compat_floor';").expect("v5");
+        drop(c);
+        Store::open(&path).expect("migrates to v6");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("6"));
+        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("5"), "the additive step kept v5's floor");
+        // A database migrated before the floor existed gets it on open.
+        Connection::open(&path).expect("open").execute("DELETE FROM meta WHERE key = 'compat_floor'", []).expect("drop floor");
+        Store::open(&path).expect("reopen");
+        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("5"));
     }
 }

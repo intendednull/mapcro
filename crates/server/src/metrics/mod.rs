@@ -47,12 +47,35 @@ async fn snapshot_to_db(app: &crate::AppState, t: i64) {
     let Collector { snap, cpu } = &mut *c;
     sample::sample(app, cpu).await;
     let now = snapshot::unix_now();
-    let rows = snap.rows(&get().families(), t);
     let failures = failures::take();
     let users = users::counts(now);
-    if let Err(e) = app.store.write_metrics(rows, failures.clone(), users, now).await {
-        tracing::warn!(error = %e, "metrics snapshot not written");
+    if let Err(failures) = write_window(&app.store, snap, &get().families(), t, failures, users, now).await {
         failures::restore(failures);
+    }
+}
+
+/// Write one window, then move the snapshotter on; if the write fails, leave it where it was
+/// (the next window carries this one's deltas and peaks) and hand the failures back.
+async fn write_window(
+    store: &crate::store::Store,
+    snap: &mut snapshot::Snapshotter,
+    families: &[&dyn Family],
+    t: i64,
+    failures: Vec<failures::Failure>,
+    users: Vec<(i64, u64)>,
+    now: i64,
+) -> Result<(), Vec<failures::Failure>> {
+    let (rows, pending) = snap.rows(families, t);
+    match store.write_metrics(rows, failures.clone(), users, now).await {
+        Ok(()) => {
+            snap.commit(pending);
+            Ok(())
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "metrics snapshot not written");
+            snap.restore(pending);
+            Err(failures)
+        }
     }
 }
 
@@ -561,6 +584,41 @@ mod tests {
         let s = sparse(&B, &[0, 0, 4, 0, 0]);
         assert_eq!(s, vec![(2.0, Some(5.0), 4)]);
         assert_eq!(quantile(&s, 0.5), Some(3.5));
+    }
+
+    #[test]
+    fn a_failed_snapshot_write_lands_in_the_next_minute() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        let store = crate::store::Store::open(&path).expect("store");
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+        let c: Counter<()> = Counter::new("c", "c");
+        let g: Gauge<()> = Gauge::new("g", "g");
+        let mut snap = snapshot::Snapshotter::default();
+        let fams: [&dyn Family; 2] = [&c, &g];
+        let failure = failures::Failure { t: 60, kind: "http", code: "x", message: "m".into() };
+        c.add((), 3);
+        g.set((), 9.0);
+        g.set((), 1.0);
+        // Minute 60's write fails: its table is gone.
+        let raw = rusqlite::Connection::open(&path).expect("raw");
+        raw.execute_batch("DROP TABLE metric_rows").expect("drop");
+        let back = rt.block_on(write_window(&store, &mut snap, &fams, 60, vec![failure.clone()], vec![], 100));
+        assert_eq!(back, Err(vec![failure]), "the failures come back to be restored");
+        raw.execute_batch(db::SCHEMA).expect("table back");
+        c.add((), 2);
+        rt.block_on(write_window(&store, &mut snap, &fams, 120, vec![], vec![], 160)).expect("minute 120 written");
+        let counter = db::rows(&raw, "c", 0, 1000).expect("rows");
+        assert_eq!(counter.iter().map(|r| (r.t, r.value)).collect::<Vec<_>>(), [(120, 5.0)], "minute 60's 3 carried into 120");
+        let gauge = db::rows(&raw, "g", 0, 1000).expect("rows");
+        assert_eq!(gauge.iter().map(|r| (r.t, r.max)).collect::<Vec<_>>(), [(120, Some(9.0))], "and its peak");
+        // Once written, the baseline moves on and the held peak is spent.
+        c.add((), 1);
+        rt.block_on(write_window(&store, &mut snap, &fams, 180, vec![], vec![], 220)).expect("minute 180 written");
+        let counter = db::rows(&raw, "c", 180, 1000).expect("rows");
+        assert_eq!(counter.iter().map(|r| r.value).collect::<Vec<_>>(), [1.0]);
+        let gauge = db::rows(&raw, "g", 180, 1000).expect("rows");
+        assert_eq!(gauge.iter().map(|r| r.max).collect::<Vec<_>>(), [Some(1.0)]);
     }
 
     #[test]

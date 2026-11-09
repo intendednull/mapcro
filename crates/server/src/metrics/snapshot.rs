@@ -68,17 +68,33 @@ impl Row {
     }
 }
 
-/// What the last snapshot saw, to turn running totals into a window's deltas.
+type Key = (&'static str, String);
+
+/// What the last written snapshot saw, to turn running totals into a window's deltas.
+///
+/// Commit-or-restore: `rows` doesn't move this on; `commit` does once the rows are written, and
+/// `restore` keeps what a failed write carried (its gauge peaks) for the next window, so a write
+/// that fails loses nothing, it lands a minute late.
 #[derive(Default)]
 pub struct Snapshotter {
-    last: HashMap<(&'static str, String), Value>,
+    last: HashMap<Key, Value>,
+    /// Gauge peaks taken for a window whose write failed, folded into the next one.
+    held: HashMap<Key, f64>,
+}
+
+/// What a window read, kept until its write succeeds or fails.
+#[must_use = "commit it after the write, or restore it if the write failed"]
+pub struct Pending {
+    seen: Vec<(Key, Value)>,
 }
 
 impl Snapshotter {
     /// The rows for the window starting at `t` (a minute). Counters and histograms that didn't
-    /// move write nothing; every gauge that has a value writes its sample.
-    pub fn rows(&mut self, families: &[&dyn Family], t: i64) -> Vec<Row> {
+    /// move write nothing; every gauge that has a value writes its sample. Nothing here moves
+    /// on until `commit`.
+    pub fn rows(&self, families: &[&dyn Family], t: i64) -> (Vec<Row>, Pending) {
         let mut out = Vec::new();
+        let mut seen = Vec::new();
         for f in families {
             for r in f.read(true) {
                 let key = (f.name(), r.labels.clone());
@@ -95,7 +111,10 @@ impl Snapshotter {
                             out.push(row(d as f64, None, None, None, None));
                         }
                     }
-                    Value::Gauge { now, peak } => out.push(row(*now, Some(*now), Some(1), Some(*peak), None)),
+                    Value::Gauge { now, peak } => {
+                        let peak = self.held.get(&key).map_or(*peak, |h| h.max(*peak));
+                        out.push(row(*now, Some(*now), Some(1), Some(peak), None))
+                    }
                     Value::Histogram { bounds, buckets, count, sum } => {
                         let (pb, pc, ps) = match prev {
                             Some(Value::Histogram { buckets: b, count: c, sum: s, .. }) => (b.clone(), *c, *s),
@@ -108,10 +127,35 @@ impl Snapshotter {
                         }
                     }
                 }
-                self.last.insert(key, r.value);
+                seen.push((key, r.value));
             }
         }
-        out
+        (out, Pending { seen })
+    }
+
+    /// The window was written: what it saw is now the baseline.
+    pub fn commit(&mut self, p: Pending) {
+        self.held.clear();
+        self.last.extend(p.seen);
+    }
+
+    /// The write failed: keep the old baseline, so the next window's deltas include this one's,
+    /// and hold the gauge peaks this window took from the gauges.
+    pub fn restore(&mut self, p: Pending) {
+        for (key, v) in p.seen {
+            if let Value::Gauge { peak, .. } = v {
+                let h = self.held.entry(key).or_insert(peak);
+                *h = h.max(peak);
+            }
+        }
+    }
+
+    /// `rows` then `commit`, for a window whose write can't fail.
+    #[cfg(test)]
+    pub fn rows_committed(&mut self, families: &[&dyn Family], t: i64) -> Vec<Row> {
+        let (rows, p) = self.rows(families, t);
+        self.commit(p);
+        rows
     }
 }
 
@@ -132,19 +176,19 @@ mod tests {
         g.set((), 2.0);
         h.observe((), 0.5);
         h.observe((), 5.0);
-        let rows = s.rows(&[&c, &g, &h], 60);
+        let rows = s.rows_committed(&[&c, &g, &h], 60);
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].value, 3.0);
         assert_eq!((rows[1].value, rows[1].max), (2.0, Some(5.0)), "a gauge's value and its peak");
         assert_eq!(rows[2].buckets, Some(vec![(0.0, Some(1.0), 1), (1.0, Some(10.0), 1)]));
         c.add((), 1);
         h.observe((), 50.0);
-        let rows = s.rows(&[&c, &g, &h], 120);
+        let rows = s.rows_committed(&[&c, &g, &h], 120);
         assert_eq!(rows[0].value, 1.0, "the delta, not the total");
         assert_eq!((rows[1].value, rows[1].max), (2.0, Some(2.0)));
         assert_eq!(rows[2].buckets, Some(vec![(10.0, None, 1)]));
         assert_eq!(rows[2].sum, Some(50.0));
-        let rows = s.rows(&[&c, &g, &h], 180);
+        let rows = s.rows_committed(&[&c, &g, &h], 180);
         assert_eq!(rows.len(), 1, "only the gauge: nothing else moved");
     }
 

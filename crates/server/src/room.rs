@@ -537,7 +537,11 @@ impl Room {
     /// Clients keep their pending work and reconnect to a fresh room.
     fn fail_all(&mut self) {
         tracing::error!(board = self.id, "storage failed; closing room");
-        crate::metrics::failures::record(crate::metrics::failures::FailureKind::Storage, "room_closed", "a room's write failed; the room closed");
+        crate::metrics::failures::record(
+            crate::metrics::failures::FailureKind::Storage,
+            "room_closed",
+            &[crate::metrics::failures::Part::Word("a room's write failed; the room closed")],
+        );
         let all: Vec<ConnId> = self.peers.keys().copied().collect();
         for conn in all {
             self.close(conn, CloseReason::StorageFailure);
@@ -794,7 +798,11 @@ impl Room {
         if let Err(e) = self.maybe_compact().await {
             self.compact_retry_at = self.authority.log_len() + (self.compaction.every_ops / 10).max(1);
             tracing::error!(board = self.id, error = %e, retry_at = self.compact_retry_at, "compaction failed; continuing without it");
-            crate::metrics::failures::record(crate::metrics::failures::FailureKind::Storage, "compaction", "compaction failed; continuing without it");
+            crate::metrics::failures::record(
+                crate::metrics::failures::FailureKind::Storage,
+                "compaction",
+                &[crate::metrics::failures::Part::Word("compaction failed; continuing without it")],
+            );
         }
         self.publish_weight();
         Ok(rest)

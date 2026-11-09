@@ -1328,10 +1328,11 @@ fn job_ended(job: &str, outcome: crate::metrics::JobOutcome, secs: f64) {
     m.replay_jobs.inc((source, outcome));
     m.replay_job_s.observe((source,), secs);
     if outcome != JobOutcome::Done {
+        use crate::metrics::failures::Part::{Dec, Word};
         crate::metrics::failures::record(
             crate::metrics::failures::FailureKind::ReplayJob,
             outcome.as_str(),
-            &format!("replay {} {} after {secs:.1} s", source.as_str(), outcome.as_str()),
+            &[Word("replay"), Word(source.as_str()), Word(outcome.as_str()), Word("after"), Dec(secs), Word("s")],
         );
     }
 }

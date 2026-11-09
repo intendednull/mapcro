@@ -66,7 +66,12 @@ async fn track(req: axum::extract::Request, next: axum::middleware::Next) -> axu
     let status = res.status().as_u16();
     metrics::get().http_requests.inc((route, metrics::StatusClass::of(status)));
     if status >= 500 {
-        metrics::failures::record(metrics::failures::FailureKind::Http, route.as_str(), &format!("{method} {} answered {status}", route.as_str()));
+        use metrics::failures::Part;
+        metrics::failures::record(
+            metrics::failures::FailureKind::Http,
+            route.as_str(),
+            &[Part::Word(method), Part::Word(route.as_str()), Part::Word("answered"), Part::Int(status.into())],
+        );
     }
     res
 }

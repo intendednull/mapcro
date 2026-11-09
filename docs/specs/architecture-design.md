@@ -855,6 +855,15 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
 - **Migrations are atomic per step.** Each schema step and its version bump are one transaction,
   and steps that create tables say IF NOT EXISTS, so a crash mid-migration leaves the database at
   one version or the next.
+- **Rollbacks: the compatibility floor.** Beside `schema_version`, `meta` keeps `compat_floor`,
+  the oldest server version that can safely open the database. Each step sets it in the same
+  transaction: an additive step (only things an older server never reads) keeps the floor, any
+  other raises it to the new version. A server older than the database opens it when its own
+  version is at least the floor, with a warning, and leaves version and floor alone; migrations
+  never run backwards. Below the floor, or with no floor recorded, it refuses to start. v6 (the
+  metrics tables) is additive, floor 5; the steps before it predate the rule and raised it. The
+  server deployed before v6 doesn't read the floor, so rolling back the deploy that first reaches
+  v6 means restoring the pre-deploy copy (docs/deploy.md, Rollbacks and backups).
 - **Tombstones:** deleted ids stay tombstoned in the board (and so in every base), so a rebased
   client's pending work still finds what it refers to.
 - **Version history** (not built) would come from the log within a retention window; compaction
@@ -914,6 +923,10 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   checked in.
 - The server migrates a stored board lazily on first load. It keeps the pre-migration snapshot, so
   a bad migration is reversible.
+- The database's own schema (`store.rs`, `SCHEMA_VERSION`) migrates forwards at start, one
+  transaction a step, and records a compatibility floor so a rolled-back server can still open
+  a database an additive step moved on (§9). Before a deploy that bumps it, copy
+  `mapcro.sqlite` (docs/deploy.md).
 - **Mixed versions are refused, not reconciled.** The server serves the web client. A client from
   another build gets `closed: outdated` at auth (§5). A client that can't parse a server message
   is treated the same way. Either way the session stops instead of retrying the same entry. The
