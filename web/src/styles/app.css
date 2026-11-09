@@ -1,6 +1,15 @@
 /* App-only layout on top of the ported design styles: the artboards are fixed-size, the app
    fills the window. */
 
+/* Changing values ease (spec §4a; operator, 2026-11-08): a value that changes with the match or
+   the data (health, ult, souls, timers, zipline colours) eases to each new value, easeOutExpo
+   over 350 ms (https://easings.net/#easeOutExpo), rather than jumping. CSS:
+   `transition: <property> var(--value-ease-ms) var(--ease-out-expo)`; numbers drawn as text or
+   geometry: `easedNumber` (board/smooth.ts), the same curve and duration. Never what changes with
+   zoom or layout (measure in pathLength or percent). Reduced motion: no duration, so it jumps. */
+:root { --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1); --value-ease-ms: 350ms; }
+@media (prefers-reduced-motion: reduce) { :root { --value-ease-ms: 0ms; } }
+
 .app { position: relative; }
 .board-app .main { grid-template-columns: 1fr 318px; }
 .board-app .stage { overflow: hidden; }
@@ -407,11 +416,8 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .tok-hp-fill.amber { stroke: var(--amber); }
 .tok-hp-fill.sapphire { stroke: var(--sapphire); }
 .tok-hp-fill.low { stroke: #ff5656; }
-/* Health eases to each new value rather than jumping (operator, 2026-11-08: easeOutExpo,
-   https://easings.net/#easeOutExpo), here and on the top bar's bars (topbar.css). */
-:root { --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1); --hp-ease: 350ms; }
-.tok-hp-fill { transition: stroke-dasharray var(--hp-ease) var(--ease-out-expo); }
-@media (prefers-reduced-motion: reduce) { .tok-hp-fill { transition: none; } }
+/* Health eases to each new value (the convention at the top of this file). */
+.tok-hp-fill { transition: stroke-dasharray var(--value-ease-ms) var(--ease-out-expo); }
 
 /* Player, replay tier: jungle camps (player/Camps.tsx). Cleared is the board's own .down look;
    not yet spawned is fainter still. The tooltip shows only on hover (a tap on the phone). */

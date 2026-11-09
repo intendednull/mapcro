@@ -2,7 +2,8 @@
 // cursors arrive in presence batches about every 50 ms, unevenly; drawn as they land they step.
 // A Glide eases from where the value is shown now to its latest target over SMOOTH_MS, so the
 // motion is continuous and trails the sender by about that much. Nothing here touches the data:
-// records, presence and what is sent stay exact.
+// records, presence and what is sent stay exact. Below, `easedNumber`: the out-expo ease every
+// changing value shown from the match or the data uses (spec §4a).
 
 import { createComputed, createSignal, onCleanup, untrack } from "solid-js";
 import type { WorldPos } from "../gen/WorldPos";
@@ -88,4 +89,77 @@ export function smoothed(target: () => WorldPos | undefined, ms = SMOOTH_MS, on?
   });
   onCleanup(stop);
   return pos;
+}
+
+/**
+ * Changing values ease (spec §4a): the curve and duration every value shown from the match or the
+ * data eases with, the same as CSS's `--ease-out-expo` and `--value-ease-ms` (styles/app.css).
+ */
+export const VALUE_EASE_MS = 350;
+/** https://easings.net/#easeOutExpo */
+export const easeOutExpo = (x: number): number => (x >= 1 ? 1 : x <= 0 ? 0 : 1 - Math.pow(2, -10 * x));
+
+/** The pure part of `easedNumber`: a number easing out-expo from where it's shown to its target. */
+export class NumberEase {
+  private from: number | null = null;
+  private to: number | null = null;
+  private t0 = 0;
+  constructor(readonly ms = VALUE_EASE_MS) {}
+
+  /** A new target at `now` (`null`: none; the next one then snaps). With `snap`, it jumps there.
+   *  Returns whether there is motion to animate. */
+  set(to: number | null, now: number, snap = false): boolean {
+    // The same target again (a source re-read with no change) keeps the ease it's on.
+    if (to === this.to && !snap) return !this.done(now);
+    const cur = this.at(now);
+    this.to = to;
+    this.from = to === null || cur === null || snap ? to : cur;
+    this.t0 = now;
+    return this.from !== this.to;
+  }
+
+  at(now: number): number | null {
+    const { from, to } = this;
+    if (to === null || from === null) return to;
+    return from + (to - from) * easeOutExpo((now - this.t0) / this.ms);
+  }
+
+  done(now: number): boolean {
+    return this.to === null || this.from === this.to || now - this.t0 >= this.ms;
+  }
+}
+
+const reducedMotion = () => typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/**
+ * `source`, eased out-expo over `ms` with requestAnimationFrame: for a changing value drawn as a
+ * number or as geometry CSS can't transition (a counter, a countdown, a path). Round for display
+ * from the eased value. The first value, one after `null`, a hidden tab and reduced motion jump.
+ * Call inside a component or root.
+ */
+export function easedNumber(source: () => number | null | undefined, ms = VALUE_EASE_MS): () => number | null {
+  const e = new NumberEase(ms);
+  const [v, setV] = createSignal<number | null>(null);
+  let raf = 0;
+  const stop = () => {
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+  };
+  const tick = () => {
+    const now = performance.now();
+    setV(e.at(now));
+    raf = e.done(now) ? 0 : requestAnimationFrame(tick);
+  };
+  createComputed(() => {
+    const to = source() ?? null;
+    untrack(() => {
+      const now = performance.now();
+      const moving = e.set(to, now, hidden() || reducedMotion());
+      setV(e.at(now));
+      if (moving && !raf) raf = requestAnimationFrame(tick);
+      else if (!moving) stop();
+    });
+  });
+  onCleanup(stop);
+  return v;
 }

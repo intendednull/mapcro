@@ -148,6 +148,27 @@ presence   = other users' cursors and drag previews                   (ephemeral
   no undo history) and replays only what came after N (§5). It never pays for history it didn't
   see: a fresh client on a 33k-entry board used to replay all of it, ~0.7 ms an entry in the
   browser.
+- **Changing values ease.** The operator asked on 2026-11-08 for each changing value to "lerp quickly and
+  smoothly rather than jump", and for "UI elements that represent changing values" to follow
+  suit. A value shown from the match or the data eases to each new value instead of jumping. The
+  curve is easeOutExpo ([easings.net](https://easings.net/#easeOutExpo)) over 350 ms. A long scrub
+  eases too, in the same 350 ms.
+  - **How.** In CSS, use `transition: <property> var(--value-ease-ms) var(--ease-out-expo)`, with
+    the variables in `styles/app.css`. A custom property must be typed with `@property` to
+    animate. A number drawn as text or as geometry CSS can't transition goes through
+    `easedNumber(source)` (`board/smooth.ts`), which uses the same curve and duration. Round it
+    for display from the eased value. Data attributes keep the exact value.
+  - **Never eased.** What changes with zoom or layout, such as an arc's dash: measure it in
+    `pathLength` or percent so the zoom isn't eased. Never ease what the user is moving, either:
+    the scrubber's thumb, the match clock (the playback position itself), or a value being dragged
+    or typed on the scene bar.
+  - **Snaps.** The first value after none snaps, and so does a hidden tab.
+  - **Reduced motion.** `prefers-reduced-motion` sets `--value-ease-ms` to 0, and `easedNumber`
+    snaps, so every value jumps.
+  - **Eased today:** top-bar health bars, token health arcs, objective fills, the Player top bar's
+    ult rings, souls, team totals and respawn countdown, the lanes' zipline colours, and the
+    upload's bar and percent.
+  - **Tested** in `e2e/player-health.spec.ts` and `e2e/player-ease.spec.ts`.
 
 ## 5. Offline and reconnect
 

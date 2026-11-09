@@ -42,7 +42,7 @@ import { Avatar, FollowChip, PeopleList, PresentingPill } from "./Presence";
 import { type ClearKind, Toolbar } from "./Toolbar";
 import { Palette } from "./Palette";
 import { isUnnamed, sceneName } from "./scenes";
-import { smoothed } from "./smooth";
+import { easedNumber, smoothed } from "./smooth";
 import type { Tool } from "./tools";
 import { LIMITS } from "../gen/limits";
 
@@ -366,6 +366,21 @@ export function Board(p: { board: string; token: string; art: Art }) {
     }
     return m;
   });
+  /** Player, replay tier: each lane's zipline colours, easing to each second's edges (changing
+   *  values ease, spec §4a). In the map's own units, so a zoom isn't eased. */
+  const laneEdges = createMemo(() => {
+    const m = new Map<string, () => { amber: number; sapphire: number } | undefined>();
+    for (const l of p.art.model.lanes) {
+      const amber = easedNumber(() => matchPreview()?.lanes.get(l.key)?.amber);
+      const sapphire = easedNumber(() => matchPreview()?.lanes.get(l.key)?.sapphire);
+      m.set(l.key, () => {
+        const a = amber();
+        const s = sapphire();
+        return a == null || s == null ? undefined : { amber: a, sapphire: s };
+      });
+    }
+    return m;
+  });
   const splitOf = (key: string) => {
     const mine = waveDrag();
     if (mine?.key === key) return mine.t;
@@ -653,7 +668,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               // Replay tier, Health on: each objective's icon filled to its health (operator, 2026-11-08).
               health={(k) => matchPreview()?.health?.get(k)?.pct}
               waveT={splitOf}
-              laneEdges={(k) => matchPreview()?.lanes.get(k)}
+              laneEdges={(k) => laneEdges().get(k)?.()}
               camp={(k) => matchPreview()?.camps.get(k)?.state}
               raisedLane={waveDrag()?.key}
               picked={(k) => objSelection().has(k)}

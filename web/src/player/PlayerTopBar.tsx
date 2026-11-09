@@ -13,6 +13,7 @@ import type { Art } from "../map/pack";
 import type { Viewpoint } from "../map/transform";
 import type { BoardState } from "../board/state";
 import { HeroBadge, hasCard } from "../board/HeroBadge";
+import { easedNumber } from "../board/smooth";
 import type { PlayerHost } from "./host";
 
 const BAR = 1260;
@@ -74,6 +75,8 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
   const team = (t: "Amber" | "Sapphire") => p.state.roster().filter((s) => s.slot.team === t);
   const total = (t: "Amber" | "Sapphire") => teamTotal(team(t).map((s) => at().get(slotKey(t, s.slot.slot))?.souls ?? null));
   const known = (t: "Amber" | "Sapphire") => team(t).some((s) => at().get(slotKey(t, s.slot.slot))?.souls != null);
+  // Changing values ease (spec §4a): the totals count to each new value.
+  const shown = { Amber: easedNumber(() => (known("Amber") ? total("Amber") : null)), Sapphire: easedNumber(() => (known("Sapphire") ? total("Sapphire") : null)) };
 
   const column = (t: "Amber" | "Sapphire", side: "friend" | "enemy") => (
     <div class={`tb-team ${side} ${t.toLowerCase()}`}>
@@ -87,6 +90,11 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
           /** Health to draw: replay tier, Health on, alive (.Dead #HealthBar collapses). */
           const hp = () => (p.host.showHealth() && !dead() && x()?.health != null ? Math.max(0, Math.min(100, x()!.health!)) : null);
           const low = () => hp() != null && hp()! <= LOW_HEALTH;
+          // Changing values ease (spec §4a): souls count to each new value, and the respawn
+          // countdown runs down through the seconds a scrub skips. Shown rounded from the eased
+          // value; the data attributes keep the exact one.
+          const souls = easedNumber(() => x()?.souls ?? null);
+          const respawn = easedNumber(() => (dead() ? (x()?.respawn ?? null) : null));
           return (
             <div
               class={cx("tb-player", t.toLowerCase(), side, hasCard(p.art, hero()) && "card-art", dead() && "dead", low() && "health-low")}
@@ -97,16 +105,16 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
             >
               <div class="tb-souls" data-testid="souls-banner">
                 <span class="tb-souls-value" data-testid="souls" data-souls={x()?.souls ?? "untracked"}>
-                  <Show when={x()?.souls != null} fallback={"–"}>
-                    <Souls n={x()!.souls} />
+                  <Show when={souls() != null} fallback={"–"}>
+                    <Souls n={Math.round(souls()!)} />
                   </Show>
                 </span>
               </div>
               {/* The hero badge; low health swaps in the critical card (m_strIconHeroCardCritical), as the HUD does. */}
               <HeroBadge art={p.art} slot={s.slot} hero={hero()} low={low()} />
-              <Show when={dead() && x()?.respawn != null}>
+              <Show when={dead() && x()?.respawn != null && respawn() != null}>
                 <span class="tb-respawn" data-testid="tb-respawn" data-respawn={Math.ceil(x()!.respawn!)} aria-label={`${label()} respawns in ${Math.ceil(x()!.respawn!)} s`}>
-                  {Math.ceil(x()!.respawn!)}
+                  {Math.ceil(respawn()!)}
                 </span>
               </Show>
               {/* #HealthBar (citadel_hud_top_bar.vcss): the HUD's slanted card at the portrait's
@@ -144,8 +152,8 @@ export function PlayerTopBar(p: { host: PlayerHost; state: BoardState; art: Art;
           <i class="tb-team-icon" />
         </Show>
         <span class="tb-score-label">
-          <Show when={known(t)} fallback={"–"}>
-            <Souls n={total(t)} />
+          <Show when={shown[t]() != null} fallback={"–"}>
+            <Souls n={Math.round(shown[t]()!)} />
           </Show>
         </span>
         <Show when={!right}>

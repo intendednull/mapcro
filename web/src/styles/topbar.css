@@ -51,8 +51,7 @@
 .tb-health-back { background-color: #000000de; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; border-radius: 3px; }
 .tb-health .tb-health-fill { top: auto; bottom: 0; background-color: #FFEFD7; -webkit-mask-position: center bottom; mask-position: center bottom; -webkit-mask-size: 100% calc(50 * var(--u)); mask-size: 100% calc(50 * var(--u)); }
 .tb-player.enemy .tb-health-fill { background-color: #FF5656; }
-.tb-health .tb-health-fill { transition: height var(--hp-ease, 350ms) var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)); }
-@media (prefers-reduced-motion: reduce) { .tb-health .tb-health-fill { transition: none; } }
+.tb-health .tb-health-fill { transition: height var(--value-ease-ms) var(--ease-out-expo); }   /* changing values ease: app.css */
 .tb-health-border { display: var(--tb-display, none); background-color: #10130D; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
 
 /* .UltimateStatus 22px at margin-top 125px. Unlocked: offBlack disc, opacity 0.6, team-colour BG,
@@ -75,6 +74,10 @@
 .tb-ult.cooldown .tb-ult-sweep { inset: calc(2 * var(--u)); background: conic-gradient(#000000a0 0 var(--left), transparent var(--left) 100%); }   /* remaining */
 .tb-ult.cooldown .tb-ult-fb { inset: calc(2 * var(--u)); background: #2a2d27; opacity: 0.8; }
 .tb-ult.untracked { display: none; }
+/* Player's ult rings ease to each new cooldown (changing values ease: app.css), through a typed
+   --left. The scene bar's (board/TopBar.tsx) are set by hand, so they follow the pointer exactly. */
+@property --left { syntax: "<percentage>"; inherits: true; initial-value: 100%; }
+.pl-topbar .tb-ult { transition: --left var(--value-ease-ms) var(--ease-out-expo); }
 .tb-player.dead .tb-ult { opacity: 0.3; }
 
 /* .GameClock: top 8px, #00000090, radius 5px, padding 5px; .GameTime 80x20, 14px, offWhite&90 */

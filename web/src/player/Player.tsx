@@ -18,6 +18,7 @@ import { PROMPT, sizeLabel } from "./notice";
 import { DropOverlay, ReplayHelp, createDemDrop } from "./ReplayHelp";
 import { SPEEDS } from "./clock";
 import { troopersAt } from "./troopers";
+import { easedNumber } from "../board/smooth";
 import { mapToView, worldToMap, worldToView } from "../map/transform";
 import { EventsList } from "./Events";
 import { eventKey, jumpTime, namesFor, placeOf, shortLabel, tierLabel } from "./events";
@@ -262,28 +263,33 @@ export function Player(p: {
           />
         </form>
         <Show when={watching() && h.uploading() && h.sent()}>
-          {(u) => (
-            <div class="pl-upload" data-testid="upload-progress">
-              {/* Before it's sent, the file waits for its turn (spec §6a, the queue). */}
-              <Show
-                when={h.job()?.state !== "waiting"}
-                fallback={
-                  <span class="pl-upload-label" data-testid="upload-waiting">
-                    {queueLabel(h.job())}
+          {(u) => {
+            // Changing values ease (spec §4a): the bar and its percent run to each progress event.
+            const loaded = easedNumber(() => u().loaded);
+            const pct = () => Math.floor(((loaded() ?? 0) / Math.max(1, u().total)) * 100);
+            return (
+              <div class="pl-upload" data-testid="upload-progress">
+                {/* Before it's sent, the file waits for its turn (spec §6a, the queue). */}
+                <Show
+                  when={h.job()?.state !== "waiting"}
+                  fallback={
+                    <span class="pl-upload-label" data-testid="upload-waiting">
+                      {queueLabel(h.job())}
+                    </span>
+                  }
+                >
+                  <span class="pl-upload-label">Uploading</span>
+                  <progress class="pl-upload-bar" data-testid="upload-bar" max={u().total} value={loaded() ?? 0} data-loaded={u().loaded} />
+                  <span class="pl-upload-size" data-testid="upload-size">
+                    {pct()}% · {sizeLabel(u().loaded, u().total)}
                   </span>
-                }
-              >
-                <span class="pl-upload-label">Uploading</span>
-                <progress class="pl-upload-bar" data-testid="upload-bar" max={u().total} value={u().loaded} />
-                <span class="pl-upload-size" data-testid="upload-size">
-                  {h.progress()}% · {sizeLabel(u().loaded, u().total)}
-                </span>
-              </Show>
-              <button class="btn ghost small" type="button" data-testid="upload-cancel" onClick={() => h.cancelUpload()}>
-                Cancel
-              </button>
-            </div>
-          )}
+                </Show>
+                <button class="btn ghost small" type="button" data-testid="upload-cancel" onClick={() => h.cancelUpload()}>
+                  Cancel
+                </button>
+              </div>
+            );
+          }}
         </Show>
         <Show when={watching() && h.notice()}>
           {(n) => (

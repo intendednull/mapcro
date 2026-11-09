@@ -81,9 +81,8 @@
 /* Health eases to each new value (operator, 2026-11-08: easeOutExpo; the bars and arcs in
    app.css and topbar.css): the art's clip, and the fallback's gradient through a typed --hp. */
 @property --hp { syntax: "<percentage>"; inherits: true; initial-value: 100%; }
-.mk[data-health] { transition: --hp var(--hp-ease, 350ms) var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)); }
-.mk > .hp-fill, .mk > .hp-core { transition: clip-path var(--hp-ease, 350ms) var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)); }
-@media (prefers-reduced-motion: reduce) { .mk[data-health], .mk > .hp-fill, .mk > .hp-core { transition: none; } }
+.mk[data-health] { transition: --hp var(--value-ease-ms) var(--ease-out-expo); }
+.mk > .hp-fill, .mk > .hp-core { transition: clip-path var(--value-ease-ms) var(--ease-out-expo); }
 .mk[data-health] > .fb.hp-fb, .mk.stage2[data-health] > .fb.hp-core-fb { background: linear-gradient(to top, var(--c) var(--hp), color-mix(in srgb, var(--c) 22%, #000) var(--hp)); }
 
 /* The Patron in stage 2: its shield (the arch) is down, the core fights on. */

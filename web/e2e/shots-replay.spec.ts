@@ -35,7 +35,8 @@ test("a real replay at a few moments", async ({ browser }) => {
       (el as HTMLInputElement).value = String(t);
       el.dispatchEvent(new Event("input", { bubbles: true }));
     }, t);
-    await a.waitForTimeout(300);
+    // Past the ziplines' 350 ms ease (spec §4a), so the edges read are the parse's.
+    await a.waitForTimeout(400);
     await a.screenshot({ path: `shots/replay-real-${t}.png` });
     // What the map draws for each lane's zipline colours, to check against the parse.
     const lanes = await a.locator("[data-testid=map] svg.lanes g[data-key]").evaluateAll((gs) => gs.map((g) => `${g.getAttribute("data-key")} ${g.getAttribute("data-amber")}-${g.getAttribute("data-sapphire")}`));
