@@ -293,6 +293,35 @@ fn match_129738985_has_every_healing_pickup_shop_and_teleporter() {
     assert!(base[1] < -10000.0, "the 9th is the Hidden King's base shop: {base:?}");
 }
 
+/// 129738985's tough crates (the "Heavy boxes"): each of the map's 78 is one entity all match,
+/// matched to its own built-in site. They aren't there before 3:00: 64 come up at 3:00, 8 at 5:00
+/// and 6 at 10:00 (the lump's `breakable_spawn_group` 0, 3 and 2), and each is back 180 s after a
+/// break (once, lane1:18 at 815.9 s, 300 s).
+#[test]
+#[ignore = "needs 129738985: MAPCRO_REPLAY_129738985"]
+fn match_129738985_tough_crates_break_and_are_back() {
+    use std::collections::BTreeMap;
+    let Some(dem) = env_path("MAPCRO_REPLAY_129738985") else { panic!("set MAPCRO_REPLAY_129738985 to 129738985.dem") };
+    let dir = tempfile::tempdir().expect("dir");
+    let out = dir.path().join("t.json");
+    worker::job(&dem, &out, 129_738_985, 2 << 30).expect("parses");
+    let t = timeline::validate(&std::fs::read(&out).expect("output")).expect("the server's checks pass");
+    assert_eq!(t.crates.len(), 78, "every tough crate, each on its own site");
+    assert!(t.crates.iter().all(|c| c.key.starts_with("tough_crate:")));
+    let first: BTreeMap<u32, usize> = t.crates.iter().fold(BTreeMap::new(), |mut m, c| {
+        *m.entry(c.first_s).or_default() += 1;
+        m
+    });
+    assert_eq!(first, BTreeMap::from([(180, 64), (300, 8), (600, 6)]), "up at 3:00, 5:00 and 10:00 by spawn group");
+    let breaks: Vec<[u32; 2]> = t.crates.iter().flat_map(|c| c.cleared.iter().copied()).collect();
+    assert_eq!((breaks.len(), t.crates.iter().filter(|c| !c.cleared.is_empty()).count()), (232, 64), "232 breaks over 64 crates");
+    let mut gaps: BTreeMap<u32, usize> = BTreeMap::new();
+    for [a, b] in &breaks {
+        *gaps.entry(b - a).or_default() += 1;
+    }
+    assert_eq!(gaps, BTreeMap::from([(180, 231), (300, 1)]), "back 180 s after a break");
+}
+
 /// 129738985's lane shops (docs/research/map-objectives-audit.md, "Shops"): each closes as the
 /// guardian beside it falls (its `CTriggerItemShop` deleted, its `CCitadel_ShopProp`'s
 /// `m_bIsShopOpen` false), in the second the timeline has that guardian destroyed, so the Player

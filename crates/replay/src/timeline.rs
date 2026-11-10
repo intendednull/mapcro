@@ -22,7 +22,8 @@ pub const TIER: &str = "replay";
 /// holds through an in-game pause (older timelines froze on the paused frame and lost as much play
 /// after it). 7: each hero's build, ability tiers, casts with their cooldowns, charges, hard CC,
 /// the status effects the game shows, death recaps, height and zipline rides (`Player::items` to
-/// `Player::zipline`; docs/research/abilities-and-items.md, status-effects.md, elevation.md).
+/// `Player::zipline`; docs/research/abilities-and-items.md, status-effects.md, elevation.md), and
+/// the tough crates, broken and back (`Timeline::crates`).
 pub const FORMAT: u32 = 7;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -54,6 +55,10 @@ pub struct Timeline {
     /// `first_s`, then up except over each `[taken_s, back_s]` (format 5). Empty before it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub heals: Vec<Camp>,
+    /// Replay tier: the map's tough crates (`tough_crate:` keys, the "Heavy boxes"), in the camps'
+    /// shape: up from `first_s` except over each `[broken_s, back_s]` (format 7). Empty before it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub crates: Vec<Camp>,
     /// What happened when, for the events list (spec §6a, "Events").
     #[serde(default)]
     pub events: Vec<Event>,
@@ -631,8 +636,22 @@ const MAX_EVENTS: usize = 4096;
 const MAX_CAMPS: usize = 64;
 /// More healing pickups than this isn't the map we know (36 on the current one).
 const MAX_HEALS: usize = 64;
+/// More tough crates than this isn't the map we know (78 on the current one).
+const MAX_CRATES: usize = 128;
 /// How far past the end a camp's next spawn may fall (the longest respawn is ~7 minutes).
 const MAX_RESPAWN_S: u32 = 3600;
+
+/// A healing pickup's or tough crate's record: its kind's key, first up within the match, and
+/// each `[down, back]` in order, after it, down within the match and back no later than the
+/// longest respawn past the end.
+fn up_down_ok(c: &Camp, prefix: &str, duration_s: u32, n: usize) -> bool {
+    plausible_key(&c.key)
+        && c.key.starts_with(prefix)
+        && c.first_s <= duration_s
+        && c.cleared.len() <= n
+        && c.cleared.iter().all(|[a, b]| c.first_s <= *a && a < b && *a <= duration_s && *b <= duration_s.saturating_add(MAX_RESPAWN_S))
+        && c.cleared.windows(2).all(|w| w[0][1] <= w[1][0])
+}
 
 fn plausible_key(k: &str) -> bool {
     // `kind:team:laneN` with an optional `:index`, as the pack writes it.
@@ -719,14 +738,9 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
                 && c.cleared.windows(2).all(|w| w[0][1] <= w[1][0])
         })
         && t.heals.len() <= MAX_HEALS
-        && t.heals.iter().all(|h| {
-            plausible_key(&h.key)
-                && h.key.starts_with("heal:")
-                && h.first_s <= t.duration_s
-                && h.cleared.len() <= n
-                && h.cleared.iter().all(|[a, b]| h.first_s <= *a && a < b && *a <= t.duration_s && *b <= t.duration_s.saturating_add(MAX_RESPAWN_S))
-                && h.cleared.windows(2).all(|w| w[0][1] <= w[1][0])
-        })
+        && t.heals.iter().all(|h| up_down_ok(h, "heal:", t.duration_s, n))
+        && t.crates.len() <= MAX_CRATES
+        && t.crates.iter().all(|c| up_down_ok(c, "tough_crate:", t.duration_s, n))
         && t.troopers.as_ref().is_none_or(|tr| {
             let samples = (n as u32).div_ceil(tr.every_s.max(1)) as usize;
             (1..=4).contains(&tr.every_s)
@@ -831,6 +845,7 @@ mod tests {
             zips: vec![ZipTrack { lane: "lane4".into(), at: vec![[0, 425, 574], [2, 500, 520]] }],
             camps: vec![Camp { key: "camp:neutral:lane0:3".into(), first_s: 1, cleared: vec![[1, 2], [2, 400]] }],
             heals: vec![Camp { key: "heal:neutral:lane1:7".into(), first_s: 1, cleared: vec![[1, 181]] }],
+            crates: vec![Camp { key: "tough_crate:neutral:lane4:3".into(), first_s: 0, cleared: vec![[1, 181]] }],
             events: vec![Event { team: Some("amber".into()), slot: Some(0), hero_id: Some(1), x: Some(3), y: Some(3), ..event(1, "death") }],
             objective_health: vec![ObjectiveHealth { key: "walker:amber:lane1:1".into(), at: vec![[0, 100], [2, 40]], stage: vec![] }],
             troopers: Some(Troopers { every_s: 1, amber: vec![encode_troopers(&[(7, 100, -200)]), String::new(), String::new()], sapphire: vec![String::new(); 3] }),
@@ -898,6 +913,14 @@ mod tests {
             Box::new(|t| t.heals[0].cleared[0] = [1, 2 + 3600 + 1]),
             Box::new(|t| t.heals[0].cleared = vec![[1, 3], [2, 4]]),
             Box::new(|t| t.heals = vec![t.heals[0].clone(); MAX_HEALS + 1]),
+            Box::new(|t| t.crates[0].key = "heal:neutral:lane1:7".into()),
+            Box::new(|t| t.crates[0].key = "tough_crate:<b>:lane4:3".into()),
+            Box::new(|t| t.crates[0].first_s = 9),
+            Box::new(|t| t.crates[0].cleared[0] = [181, 181]),
+            Box::new(|t| t.crates[0].cleared[0] = [9, 181]),
+            Box::new(|t| t.crates[0].cleared[0] = [1, 2 + 3600 + 1]),
+            Box::new(|t| t.crates[0].cleared = vec![[1, 3], [2, 4]]),
+            Box::new(|t| t.crates = vec![t.crates[0].clone(); MAX_CRATES + 1]),
             Box::new(|t| t.duration_s = MAX_DURATION_S + 1),
             Box::new(|t| t.events[0].kind = "<b>".into()),
             Box::new(|t| t.events[0].t = 9),
@@ -1020,6 +1043,7 @@ mod tests {
         o["players"][0].as_object_mut().expect("player").remove("seen");
         o.remove("rejuv");
         o.remove("heals");
+        o.remove("crates");
         for f in ["items", "abilities", "casts", "charges", "cc", "effects", "recaps", "height", "zipline"] {
             o["players"][0].as_object_mut().expect("player").remove(f);
         }
@@ -1031,7 +1055,7 @@ mod tests {
         let t = validate(&serde_json::to_vec(&v).expect("json")).expect("an old timeline loads");
         assert_eq!((t.urn, t.format, t.players[0].respawn.len(), t.players[0].seen.len()), (None, 0, 0, 0));
         assert_eq!((t.rifts[0].live_s, t.powerups[0].spawns.len()), (None, 0));
-        assert_eq!((t.rifts[0].give_up_s, t.rifts[0].capture.len(), t.rejuv.len(), t.heals.len()), (None, 0, 0, 0));
+        assert_eq!((t.rifts[0].give_up_s, t.rifts[0].capture.len(), t.rejuv.len(), t.heals.len(), t.crates.len()), (None, 0, 0, 0, 0));
         let p = &t.players[0];
         assert!(p.items.is_empty() && p.abilities.is_empty() && p.casts.is_empty() && p.charges.is_empty() && p.cc.is_empty());
         assert!(p.effects.is_empty() && p.recaps.is_empty() && p.height.is_empty() && p.zipline.is_empty());

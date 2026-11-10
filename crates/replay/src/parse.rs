@@ -2,7 +2,7 @@
 //! on current demos (docs/research/replay-parsing-exploration.md §2–§7). Steam ids are never
 //! read.
 
-use crate::derive::{AbilityObs, BuffObs, CampSlot, HealObs, HeroObs, KothObs, ObjObs, Obs, PowerupObs, RejuvCount, RejuvObs, RejuvWhat, Sample, TrooperObs, UrnObs, VisionObs, ZipNode};
+use crate::derive::{AbilityObs, BuffObs, CampSlot, CrateObs, HealObs, HeroObs, KothObs, ObjObs, Obs, PowerupObs, RejuvCount, RejuvObs, RejuvWhat, Sample, TrooperObs, UrnObs, VisionObs, ZipNode};
 use prost::Message;
 use crate::{FIRST_CURRENT_BUILD, content_build, reason};
 use boon::{Parser, world_position};
@@ -28,6 +28,12 @@ const IDOL_RETURN: &str = "CCitadelIdolReturnTrigger";
 /// A health pickup: the map's floating ones (one entity each, all match, `m_bActive` false
 /// while taken) and the drops, from one pool (docs/research/map-objectives-audit.md).
 const HEAL: &str = "CCitadel_Pickup_Health";
+/// The map's breakable props: wooden crates, item containers, the bells and the tough crates,
+/// one entity each for the whole match, inactive while broken (docs/research/map-objectives-audit.md).
+const BREAKABLE: &str = "CCitadel_BreakableProp";
+/// A tough ("heavy") crate's `m_nSubclassID`: `citadel_breakable_prop_tough_crate` as a
+/// CUtlStringToken (checked by a test). 78 of 129738985's 709 breakable props carry it.
+const TOUGH_CRATE_TOKEN: u32 = 202_631_964;
 /// The urn moving less than this (world units) isn't a change worth a record.
 const URN_MOVE: f32 = 64.0;
 const CAMP_TIMES: &str = "m_pGameRules.m_vecNeutralCampNextSpawnTimes";
@@ -137,6 +143,8 @@ struct Keys {
     idol_return_off: K,
     heal: Body,
     heal_active: K,
+    breakable: Body,
+    breakable_sub: K,
     camp_count: K,
     team_num: K,
     fow_count: K,
@@ -187,6 +195,8 @@ impl Keys {
             idol_return_off: field(IDOL_RETURN, "m_bDisabled"),
             heal: Body::of(ctx, HEAL),
             heal_active: field(HEAL, "m_bActive"),
+            breakable: Body::of(ctx, BREAKABLE),
+            breakable_sub: field(BREAKABLE, "m_nSubclassID"),
             camp_count: field(RULES, CAMP_TIMES),
             team_num: field(TEAM, "m_iTeamNum"),
             fow_count: field(TEAM, FOW),
@@ -219,7 +229,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         return Err(reason::OLD_MAP);
     }
     let parser = Parser::from_file(path).map_err(|_| reason::NOT_A_REPLAY)?;
-    let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, PICKUP_MODIFIER, TROOPER, ZIP_NODE, IDOL, IDOL_RETURN, TEAM, HEAL].into_iter().collect();
+    let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, PICKUP_MODIFIER, TROOPER, ZIP_NODE, IDOL, IDOL_RETURN, TEAM, HEAL, BREAKABLE].into_iter().collect();
     classes.extend(OBJECTIVES.iter().map(|(c, _)| *c));
     // Format 7: the ability and item entities, for cooldowns and charges.
     let ability_classes = crate::parse_hero::ability_classes(&parser);
@@ -242,6 +252,8 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
     let mut buff_state: BuffState = HashMap::new();
     let mut heals: Vec<HealObs> = Vec::new();
     let mut heal_state: HealState = HashMap::new();
+    let mut crates: Vec<CrateObs> = Vec::new();
+    let mut crate_state: HealState = HashMap::new();
     let mut rejuv: Vec<RejuvObs> = Vec::new();
     let mut rejuv_counts: Vec<RejuvCount> = Vec::new();
     let mut koth: Vec<KothObs> = Vec::new();
@@ -287,6 +299,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
                 urn_tick(ctx, k, game as f32, &mut urn);
                 buff_tick(ctx, k, game as f32, &mut buff_state, &mut buffs);
                 heal_tick(ctx, k, game as f32, &mut heal_state, &mut heals);
+                crate_tick(ctx, k, game as f32, &mut crate_state, &mut crates);
                 for e in events.iter().filter(|e| e.msg_type == REJUV_STATUS) {
                     rejuv.extend(rejuv_status(ctx, k, game as f32, &e.payload));
                 }
@@ -308,7 +321,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         })
         .map_err(|_| reason::PARSE_FAILED)?;
     // Nodes first seen after a sample was taken make earlier samples short: those hold.
-    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs, heals, rejuv, rejuv_counts, koth, vision, hero_data: hero.finish() })
+    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs, heals, crates, rejuv, rejuv_counts, koth, vision, hero_data: hero.finish() })
 }
 
 /// The game rules' pause state on one tick.
@@ -451,18 +464,33 @@ type HealState = HashMap<(i32, u32), (bool, [f32; 2])>;
 /// come up elsewhere and are told apart by place in derive).
 fn heal_tick(ctx: &boon::Context, k: &Keys, game: f32, state: &mut HealState, out: &mut Vec<HealObs>) {
     for (_, e) in ctx.entities().iter().filter(|(_, e)| e.class_name.as_ref() == HEAL) {
-        let active = e.active && e.get_bool(k.heal_active);
-        let id = (e.index, e.serial);
-        let last = state.get(&id).copied();
-        if last.map(|(a, _)| a) == Some(active) {
+        up_down((e.index, e.serial), e.active && e.get_bool(k.heal_active), || k.heal.pos(e), game, state, out);
+    }
+}
+
+/// Record each tough crate where it breaks (goes inactive) or is back (exploration on 129738985:
+/// one entity per crate all match, inactive while broken, back 180 s later). The other breakable
+/// props, wooden crates among them (one sits 11 units from a tough crate), aren't read.
+fn crate_tick(ctx: &boon::Context, k: &Keys, game: f32, state: &mut HealState, out: &mut Vec<CrateObs>) {
+    for (_, e) in ctx.entities().iter().filter(|(_, e)| e.class_name.as_ref() == BREAKABLE) {
+        if e.get_i64(k.breakable_sub) as u32 != TOUGH_CRATE_TOKEN {
             continue;
         }
-        let at = if active { k.heal.pos(e) } else { last.map_or_else(|| k.heal.pos(e), |(_, at)| at) };
-        state.insert(id, (active, at));
-        // A pickup first seen down says nothing.
-        if active || last.is_some() {
-            out.push(HealObs { game, ent: id, pos: at, active });
-        }
+        up_down((e.index, e.serial), e.active, || k.breakable.pos(e), game, state, out);
+    }
+}
+
+/// One entity's up or down now against its last state: a change is recorded at the spot it came
+/// up (a taken pickup flies to the hero first), and one first seen down says nothing.
+fn up_down(id: (i32, u32), active: bool, pos: impl Fn() -> [f32; 2], game: f32, state: &mut HealState, out: &mut Vec<HealObs>) {
+    let last = state.get(&id).copied();
+    if last.map(|(a, _)| a) == Some(active) {
+        return;
+    }
+    let at = if active { pos() } else { last.map_or_else(&pos, |(_, at)| at) };
+    state.insert(id, (active, at));
+    if active || last.is_some() {
+        out.push(HealObs { game, ent: id, pos: at, active });
     }
 }
 
@@ -709,6 +737,7 @@ mod tests {
         for (t, b) in BUFF_TOKENS {
             assert_eq!(t, token(&format!("{b}_powerup_pickup")), "{b}");
         }
+        assert_eq!(TOUGH_CRATE_TOKEN, token("citadel_breakable_prop_tough_crate"));
     }
 
     #[test]

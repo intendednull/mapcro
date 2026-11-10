@@ -154,6 +154,10 @@ pub struct HealObs {
     pub active: bool,
 }
 
+/// A tough crate breaking (`active` false) or back, read every tick: the heal's record, at the
+/// crate's own spot (docs/research/map-objectives-audit.md).
+pub type CrateObs = HealObs;
+
 /// A `RejuvStatus` message (timers audit, gap 1): a team's Rejuvenator shard picked up (one per
 /// shard), a revive used, or the Rejuvenator expired.
 #[derive(Clone, Debug, PartialEq)]
@@ -234,6 +238,8 @@ pub struct Obs {
     pub buffs: Vec<BuffObs>,
     /// Health pickups coming up and going, in order (empty: none read, as before format 5).
     pub heals: Vec<HealObs>,
+    /// Tough crates breaking and back, in order (empty: none read, as before format 7).
+    pub crates: Vec<CrateObs>,
     /// `RejuvStatus` messages, in order.
     pub rejuv: Vec<RejuvObs>,
     /// The Rejuvenator charges where they change, in order.
@@ -264,6 +270,12 @@ const HEAL_MATCH: f64 = 32.0;
 /// A taken healing pickup is back this long after (the map's `spawn_delay_override`; 180.2 to
 /// 180.5 s on 129738985): its respawn when the recording ends first.
 pub const HEAL_RESPAWN_S: u32 = 180;
+/// How far (world units) a tough crate may be from our crate site (they don't move; the built-in
+/// sites are within a unit of the lump's; two tough crates are 248 apart).
+const CRATE_MATCH: f64 = 32.0;
+/// A broken tough crate is back this long after (180.0 s each time on 129738985): its respawn when
+/// the recording ends first.
+pub const CRATE_RESPAWN_S: u32 = 180;
 
 fn team_name(t: i64) -> Option<&'static str> {
     match t {
@@ -577,7 +589,8 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
 
     let zips = zips(obs, m);
     let camps = camps(obs, m);
-    let heals = heals(obs, m);
+    let heals = up_down_sites(&obs.heals, m, "heal", HEAL_MATCH, HEAL_RESPAWN_S);
+    let crates = up_down_sites(&obs.crates, m, "tough_crate", CRATE_MATCH, CRATE_RESPAWN_S);
 
     let events = events(obs, m, &players, &objectives, &mid_boss, &rifts, &powerups, duration_s);
     let objective_health = objective_health(obs, m);
@@ -605,6 +618,7 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
         zips,
         camps,
         heals,
+        crates,
         events,
         troopers,
         objective_health,
@@ -980,15 +994,16 @@ fn camps(obs: &Obs, m: &Map) -> Vec<Camp> {
     out
 }
 
-/// The map's healing pickups: when each first comes up, and each `[taken, back]`. A site takes
-/// the entities that only ever come up on it, so a dropped pickup that lands on a site once
-/// (the pool's entities come up all over the map) isn't mistaken for it.
-fn heals(obs: &Obs, m: &Map) -> Vec<Camp> {
+/// The map's healing pickups or tough crates (`kind`): when each first comes up, and each
+/// `[taken, back]`. A site takes the entities that only ever come up on it, so a dropped pickup
+/// that lands on a site once (the pool's entities come up all over the map) isn't mistaken for
+/// it. One down when the recording ends is back `respawn_s` later.
+fn up_down_sites(seen: &[HealObs], m: &Map, kind: &str, reach: f64, respawn_s: u32) -> Vec<Camp> {
     let sec = |v: f32| v.max(0.0).round() as u32;
-    let site = |p: [f32; 2]| m.nearest("heal", f64::from(p[0]), f64::from(p[1]), HEAL_MATCH).map(|s| s.key.as_str());
+    let site = |p: [f32; 2]| m.nearest(kind, f64::from(p[0]), f64::from(p[1]), reach).map(|s| s.key.as_str());
     // Each entity's one site, or none if it ever came up off a site or on two.
     let mut home: BTreeMap<(i32, u32), Option<&str>> = BTreeMap::new();
-    for h in obs.heals.iter().filter(|h| h.active) {
+    for h in seen.iter().filter(|h| h.active) {
         let here = site(h.pos);
         let e = home.entry(h.ent).or_insert(here);
         if *e != here {
@@ -997,7 +1012,7 @@ fn heals(obs: &Obs, m: &Map) -> Vec<Camp> {
     }
     let mut out: BTreeMap<&str, Camp> = BTreeMap::new();
     let mut down: BTreeMap<&str, u32> = BTreeMap::new();
-    for h in &obs.heals {
+    for h in seen {
         let Some(Some(key)) = home.get(&h.ent).copied() else { continue };
         let at = sec(h.game);
         let c = out.entry(key).or_insert_with(|| Camp { key: key.to_owned(), first_s: at, cleared: Vec::new() });
@@ -1018,7 +1033,7 @@ fn heals(obs: &Obs, m: &Map) -> Vec<Camp> {
         if let Some(c) = out.get_mut(key)
             && c.cleared.last().is_none_or(|l| l[1] <= from)
         {
-            c.cleared.push([from, from + HEAL_RESPAWN_S]);
+            c.cleared.push([from, from + respawn_s]);
         }
     }
     out.into_values().collect()
@@ -1787,6 +1802,32 @@ mod tests {
         let t = derive(&Obs { heals, ..obs(s) }, m).expect("timeline");
         let got: Vec<(&str, u32, Vec<[u32; 2]>)> = t.heals.iter().map(|c| (c.key.as_str(), c.first_s, c.cleared.clone())).collect();
         assert_eq!(got, [("heal:neutral:lane1:7", 150, vec![[402, 582], [2600, 2780]]), ("heal:neutral:lane4:1", 150, vec![])]);
+    }
+
+    #[test]
+    fn tough_crates_break_and_are_back_on_their_own_sites() {
+        let m = map::current();
+        let site = |k: &str| m.sites.iter().find(|s| s.key == k).map(|s| [s.world[0] as f32, s.world[1] as f32]).expect("site");
+        let (a, b) = (site("tough_crate:neutral:lane4:3"), site("tough_crate:neutral:lane1:1"));
+        let c = |game: f32, ent: i32, pos: [f32; 2], active: bool| CrateObs { game, ent: (ent, 1), pos, active };
+        let crates = vec![
+            // Up from the start; something up off every crate site isn't one.
+            c(0.0, 1, a, true),
+            c(0.0, 2, b, true),
+            c(0.0, 3, [0.0, 0.0], true),
+            c(10.0, 3, [0.0, 0.0], false),
+            // a: broken, back 180 s later; broken again as the recording ends.
+            c(180.5, 1, a, false),
+            c(360.5, 1, a, true),
+            c(2630.0, 1, a, false),
+        ];
+        let mut s = seconds(2640);
+        s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
+        let t = derive(&Obs { crates, ..obs(s) }, m).expect("timeline");
+        let got: Vec<(&str, u32, Vec<[u32; 2]>)> = t.crates.iter().map(|c| (c.key.as_str(), c.first_s, c.cleared.clone())).collect();
+        assert_eq!(got, [("tough_crate:neutral:lane1:1", 0, vec![]), ("tough_crate:neutral:lane4:3", 0, vec![[181, 361], [2630, 2810]])]);
+        assert!(t.heals.is_empty(), "a crate isn't a heal");
+        assert_eq!(crate::timeline::validate(&serde_json::to_vec(&t).expect("json")).map(|v| v.crates.len()), Ok(2));
     }
 
     #[test]
