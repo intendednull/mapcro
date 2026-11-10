@@ -284,15 +284,16 @@ export function MapView(p: {
             <i class="mm-shade" />
             <Lanes art={p.art} vp={p.viewpoint} waveT={p.waveT} edges={p.laneEdges} raised={p.raisedLane} />
             <div class="mm-objs">
-              <For each={markers().filter((m) => p.showHidden || isFurniture(m.kind) || p.status?.(m.key) !== "Hidden")}>
+              <For each={markers().filter((m) => (m.kind === "shop" ? p.status?.(m.key) !== "Hidden" : p.showHidden || isFurniture(m.kind) || p.status?.(m.key) !== "Hidden"))}>
                 {(m) => (
                   <MarkerView
                     m={m}
                     vp={p.viewpoint}
                     // A rift or an urn point is off unless someone turned it on; everything else is
                     // up unless destroyed.
-                    // Shops and teleporters are always there; a healing pickup is down while taken
-                    // (Player), and a scene never sets either.
+                    // Teleporters are always there, and shops but for a closed lane shop in Player
+                    // (Hidden: not drawn, as the game's minimap drops it); a healing pickup is down
+                    // while taken (Player), and a scene never sets any of them.
                     status={offByDefault(m.kind) ? (p.status?.(m.key) === "Active" ? "Active" : "Destroyed") : m.kind === "shop" || m.kind === "teleporter" ? undefined : p.status?.(m.key)}
                     picked={!!p.picked?.(m.key)}
                     health={p.health?.(m.key)}

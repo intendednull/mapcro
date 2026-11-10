@@ -273,3 +273,79 @@ fn match_129738985_has_every_healing_pickup_shop_and_teleporter() {
     let base = at["shop"].iter().find(|(k, _)| k.is_empty()).expect("the base's shop").1;
     assert!(base[1] < -10000.0, "the 9th is the Hidden King's base shop: {base:?}");
 }
+
+/// 129738985's lane shops (docs/research/map-objectives-audit.md, "Shops"): each closes as the
+/// guardian beside it falls (its `CTriggerItemShop` deleted, its `CCitadel_ShopProp`'s
+/// `m_bIsShopOpen` false), in the second the timeline has that guardian destroyed, so the Player
+/// derives it from the objectives (web `shopsClosed`). The secret shops and the base's stay open.
+/// Sapphire's shops are paired by place, not `LaneNum`: the map mirrors it on that side.
+#[test]
+#[ignore = "needs 129738985: MAPCRO_REPLAY_129738985"]
+fn match_129738985_closes_each_lane_shop_with_its_guardian() {
+    use boon::{Parser, world_position};
+    use std::collections::{HashMap, HashSet};
+    const RULES: &str = "CCitadelGameRulesProxy";
+    const PROP: &str = "CCitadel_ShopProp";
+    const ORIGIN: &str = "CBodyComponent.m_skeletonInstance.m_vecOrigin";
+    let Some(dem) = env_path("MAPCRO_REPLAY_129738985") else { panic!("set MAPCRO_REPLAY_129738985 to 129738985.dem") };
+    let dir = tempfile::tempdir().expect("dir");
+    let out = dir.path().join("t.json");
+    worker::job(&dem, &out, 129_738_985, 2 << 30).expect("parses");
+    let t = timeline::validate(&std::fs::read(&out).expect("output")).expect("the server's checks pass");
+
+    let (_, server_start) = mapcro_replay::parse::header(&dem).expect("a Deadlock replay");
+    let classes: HashSet<&str> = [RULES, PROP].into_iter().collect();
+    // Each shop prop (team, place) and the match second it closed; every one seen, open or not.
+    let mut closed: HashMap<(i32, u32), (i64, i32, i32, f64)> = HashMap::new();
+    let mut seen: HashSet<(i32, u32)> = HashSet::new();
+    Parser::from_file(&dem)
+        .expect("opens")
+        .run_to_end_with_events_filtered(&classes, |ctx, _| {
+            let sers = ctx.serializers();
+            let Some(rules) = ctx.entities().iter().find(|(_, e)| e.class_name.as_ref() == RULES).map(|(_, e)| e) else { return };
+            let rk = |p: &str| sers.get(RULES).and_then(|s| s.resolve_field_key(p));
+            let start = f64::from(rules.get_f32(rk("m_pGameRules.m_flGameStartTime")));
+            if start <= 0.0 {
+                return;
+            }
+            let paused = rules.get_i64(rk("m_pGameRules.m_nTotalPausedTicks")) as f64;
+            let game = (f64::from(ctx.tick() + server_start) - paused) * f64::from(ctx.tick_interval()) - start;
+            let Some(s) = sers.get(PROP) else { return };
+            let (open, team) = (s.resolve_field_key("m_bIsShopOpen"), s.resolve_field_key("m_iTeamNum"));
+            let ok = |p: &str| s.resolve_field_key(&format!("{ORIGIN}.{p}"));
+            for (_, e) in ctx.entities().iter() {
+                if e.class_name.as_ref() != PROP {
+                    continue;
+                }
+                let id = (e.index, e.serial);
+                seen.insert(id);
+                if e.get_bool(open) || closed.contains_key(&id) {
+                    continue;
+                }
+                let p = world_position(e, [ok("m_cellX"), ok("m_cellY"), ok("m_cellZ")], [ok("m_vecX"), ok("m_vecY"), ok("m_vecZ")]);
+                closed.insert(id, (e.get_i64(team), p[0].round() as i32, p[1].round() as i32, game));
+            }
+        })
+        .expect("parses");
+    assert_eq!(seen.len(), 8, "6 lane shops and 2 secret shops have a prop");
+
+    // (team, prop's x, y) → the guardian beside it.
+    let pairs = [
+        (3, -910, 1184, "guardian:sapphire:lane4:1"),
+        (3, 8832, 1880, "guardian:sapphire:lane6:1"),
+        (3, -6432, 1696, "guardian:sapphire:lane1:1"),
+        (2, 1024, -1184, "guardian:amber:lane4:1"),
+        (2, -8832, -1880, "guardian:amber:lane1:1"),
+        (2, 6432, -1696, "guardian:amber:lane6:1"),
+    ];
+    let mut got: Vec<(i64, i32, i32)> = closed.values().map(|c| (c.0, c.1, c.2)).collect();
+    got.sort_unstable();
+    let mut want: Vec<(i64, i32, i32)> = pairs.iter().map(|p| (p.0, p.1, p.2)).collect();
+    want.sort_unstable();
+    assert_eq!(got, want, "only the six lane shops close; the secret shops stay open");
+    for (team, x, y, key) in pairs {
+        let at = closed.values().find(|c| (c.0, c.1, c.2) == (team, x, y)).expect("closed").3;
+        let down = t.objectives.iter().find(|o| o.key == key).expect("the guardian falls").destroyed_s;
+        assert!(at <= f64::from(down) && f64::from(down) - at < 1.0, "{key}: the shop closes at {at:.1}, the guardian at {down}");
+    }
+}

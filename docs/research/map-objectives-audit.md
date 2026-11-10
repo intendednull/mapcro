@@ -144,6 +144,52 @@ adding the shops and the teleporters are also a good idea."
   without a kind borrows the built-in map's (`withBuiltInFurniture`), keyed and placed as a new
   pack's are. They're kept out of the geometry hash.
 
+## Shops (branch `shop-state`, 2026-11-09)
+
+**Operator:** "do the lane shops disappear when the guardians go down?" and then: "when guardian
+goes down the shop is no longer accessible, only the 2 secret shops are still up on the map
+after all guardians are down."
+
+**Answer: yes.** Each team's 3 lane shops are its guardians' (t1) shops. One closes as the
+guardian beside it falls. The 2 secret shops and the Hidden King's base shop never change.
+Walkers, base guardians, shrines and the patron change nothing.
+
+- **The replay (129738985).** `heal_probe` with `CTriggerItemShop CCitadel_ShopProp`: each lane shop
+  is a trigger and a prop (64 units apart). As it closes, the trigger entity is **deleted** and
+  the prop's `m_bIsShopOpen` goes **false** (`m_flAnimTime` changes then, and once more 4 s
+  later: the shutter). No team, health or `active` change. Against the timeline's guardians:
+
+  | Shop (team, trigger x, y) | Closes (s) | Guardian | `destroyed_s` |
+  |---|---|---|---|
+  | sapphire (−910, 1248) | 473.9 | `guardian:sapphire:lane4:1` | 474 |
+  | sapphire (8832, 1944) | 565.0 | `guardian:sapphire:lane6:1` | 565 |
+  | sapphire (−6432, 1760) | 565.5 | `guardian:sapphire:lane1:1` | 566 |
+  | amber (1024, −1248) | 683.8 | `guardian:amber:lane4:1` | 684 |
+  | amber (−8832, −1944) | 790.2 | `guardian:amber:lane1:1` | 791 |
+  | amber (6432, −1760) | 1077.3 | `guardian:amber:lane6:1` | 1078 |
+
+  Each close comes before the guardian's timeline second, by less than 1 s. The secret shops
+  ((±3920, ∓1120), team 4) and the base shop (−752, −10714) are open to the end (2,640 s).
+- **The map data.** The lump names the lane shops `shop_{rebel|combine}_t1_{yellow|blue|purple}`:
+  a t1 (guardian) shop, named for its lane's colour. No other record or key ties a shop to an objective.
+  `LaneNum` agrees with the guardians on Amber's side, but **is mirrored on Sapphire's**:
+  `shop_combine_t1_purple` (8832, 1944) is `LaneNum` 1, beside the lane 6 guardian (8128, 1856),
+  and `shop_combine_t1_yellow` (−6432, 1760) is `LaneNum` 6, beside the lane 1 guardian. So the
+  pack's `shop:sapphire:lane1:1` is the lane 6 shop, and the reverse. A shop pairs with its team's
+  nearest guardian (each is 600 to 1,100 units from its own, at least 7,000 from the others).
+- **vdata.** The extractor reads `heroes.vdata_c` and camp subclass names; neither says anything
+  about shops. The rule is the game's code, seen in the replay.
+- **The game's minimap.** The shop isn't accessible and isn't on the map any more (operator).
+  The HUD's `.tier1_shop` panel is the trigger's, which is deleted. So mapcro **hides** a closed
+  shop rather than dimming it.
+- **Player.** `shopsClosed` (web/src/match/timeline.ts) derives the closed shops from the guardians
+  down at t (`downAt`): the timeline is unchanged (format 5). A closed shop is "Hidden" and isn't
+  drawn, even for an editor. A board, and a scene saved from Player, keep all 8.
+- **Checks.** `match_129738985_closes_each_lane_shop_with_its_guardian`
+  (crates/replay/tests/local_replay.rs, `MAPCRO_REPLAY_129738985`). `web/test/map-furniture.test.ts`
+  replays these six deaths against the built-in map. `web/e2e/player-shops.spec.ts` covers a
+  synthetic timeline, with screenshots `shots/shops-before-guardian.png` and `shots/shops-after-guardian.png`.
+
 ## Candidates
 
 Other things in 129738985's entities and the lump a coach might want on the map or as a timer.

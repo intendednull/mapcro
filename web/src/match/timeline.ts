@@ -429,6 +429,29 @@ export function downAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "key
   return down;
 }
 
+/**
+ * Lane shops closed, given the objectives `down`: a team's lane shop closes as its lane's guardian
+ * falls (129738985: each `CTriggerItemShop` is deleted and its prop's `m_bIsShopOpen` goes false
+ * in the guardian's death second; docs/research/map-objectives-audit.md, "Shops"). A shop belongs
+ * to its team's nearest guardian, not to its key's lane: the map's sapphire shops have their
+ * `LaneNum` mirrored (`shop_combine_t1_purple` is `LaneNum` 1, beside the lane 6 guardian). The
+ * secret shops (neutral) stay open all match.
+ */
+export function shopsClosed(down: Set<string>, markers: Array<Pick<Marker, "key" | "kind" | "team" | "at">>): Set<string> {
+  const closed = new Set<string>();
+  for (const s of markers) {
+    if (s.kind !== "shop" || (s.team !== "amber" && s.team !== "sapphire")) continue;
+    let best: { key: string; d: number } | undefined;
+    for (const g of markers) {
+      if (g.kind !== "t1" || g.team !== s.team) continue;
+      const d = Math.hypot(g.at.x - s.at.x, g.at.y - s.at.y);
+      if (!best || d < best.d) best = { key: g.key, d };
+    }
+    if (best && down.has(best.key)) closed.add(s.key);
+  }
+  return closed;
+}
+
 /** A rift site at t (replay tier): its cash-in open (`active`), the other site's open
  * (`elsewhere`), or waiting for the next rift to open, here or at the other site (`next`, by
  * marker key; `null`: none to come in this replay). A rift opens when its cash-in does

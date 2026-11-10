@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { FALLBACK } from "../src/map/fallback-data";
 import { isFurniture, markersFrom, modelFromFallback, withBuiltInFurniture, type PackEntity } from "../src/map/model";
 import { artFromManifest } from "../src/map/pack";
-import { type Timeline, campsAt, sitesAt } from "../src/match/timeline";
+import { type Timeline, campsAt, downAt, shopsClosed, sitesAt } from "../src/match/timeline";
 import { markerTip } from "../src/player/Camps";
 import type { MatchPreview } from "../src/match/preview";
 
@@ -84,5 +84,41 @@ describe("healing pickups in Player", () => {
 
   it("shops and teleporters say nothing (the label rule)", () => {
     for (const k of ["shop:amber:lane1:1", "teleporter:neutral:lane4:1"]) expect(markerTip(markers.find((x) => x.key === k)!, pv(450), 450)).toBeUndefined();
+  });
+});
+
+// 129738985's guardians, as its timeline has them; each lane shop closed in the same second
+// (docs/research/map-objectives-audit.md, "Shops").
+describe("lane shops close with their guardian", () => {
+  const markers = modelFromFallback(FALLBACK).markers;
+  const guardians: Array<[string, number, number]> = [
+    ["sapphire", 4, 474],
+    ["sapphire", 6, 565],
+    ["sapphire", 1, 566],
+    ["amber", 4, 684],
+    ["amber", 1, 791],
+    ["amber", 6, 1078],
+  ];
+  const tl: Timeline = {
+    match_id: 129738985, start_time: 0, duration_s: 2700, source: "replay", players: [], reanchored: 0, mid_boss: [],
+    objectives: guardians.map(([team, lane, t]) => ({ key: `guardian:${team}:lane${lane}:1`, kind: "guardian", team, lane, destroyed_s: t })),
+  };
+  const at = (t: number) => [...shopsClosed(downAt(tl, t, markers), markers)].sort();
+  it("closes each team's shop beside the guardian that fell, the sapphire keys' lanes mirrored", () => {
+    expect(at(473)).toEqual([]);
+    expect(at(474)).toEqual(["shop:sapphire:lane4:1"]);
+    // Sapphire's lane 6 guardian (8128, 1856) has the shop at (8832, 1944), keyed lane1.
+    expect(at(565)).toEqual(["shop:sapphire:lane1:1", "shop:sapphire:lane4:1"]);
+    expect(at(566)).toEqual(["shop:sapphire:lane1:1", "shop:sapphire:lane4:1", "shop:sapphire:lane6:1"]);
+    expect(at(684)).toContain("shop:amber:lane4:1");
+    expect(at(791)).toContain("shop:amber:lane1:1");
+    expect(at(1077)).not.toContain("shop:amber:lane6:1");
+    expect(at(1078)).toEqual(["shop:amber:lane1:1", "shop:amber:lane4:1", "shop:amber:lane6:1", "shop:sapphire:lane1:1", "shop:sapphire:lane4:1", "shop:sapphire:lane6:1"]);
+  });
+  it("never closes the secret shops, nor a shop for a walker", () => {
+    const all = shopsClosed(new Set(markers.filter((m) => m.kind !== "shop").map((m) => m.key)), markers);
+    expect([...all].filter((k) => k.startsWith("shop:neutral"))).toEqual([]);
+    const walkers = shopsClosed(new Set(markers.filter((m) => m.kind === "t2").map((m) => m.key)), markers);
+    expect([...walkers]).toEqual([]);
   });
 });

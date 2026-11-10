@@ -654,7 +654,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
   one, and the lite map leaves them out.
   - **Shops** (8: three lane shops a team and the two secret shops) and **teleporters** (4 ends
     of 2 tunnels) are always on the map, with the game's minimap icons, and say nothing on hover
-    (the label rule). Hovering a teleporter draws a faint dashed line to its pair's other end, and
+    (the label rule). In Player, a lane shop is gone once the guardian beside it falls, as in
+    the game (operator, 2026-11-09: "only the 2 secret shops are still up on the map after all
+    guardians are down"); the audit's "Shops" has the replay evidence. A board keeps all 8. Hovering a teleporter draws a faint dashed line to its pair's other end, and
     a ring on it.
   - **Heals:** the 36 healing pickups, behind a toolbar toggle beside Comments (under the map in
     Sandbox and Player), off by default. Like Names it's this browser's alone (localStorage, every

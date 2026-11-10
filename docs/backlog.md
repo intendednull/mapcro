@@ -3,6 +3,20 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Clippy fails on crates/replay/src/parse.rs (2026-11-09, from shop-state)
+
+`cargo clippy -p mapcro-replay --tests -- -D warnings` (rust 1.99) stops on
+`clippy::chunks_exact_to_as_chunks` at parse.rs:658 (`key.chunks_exact(4)`), and on two more
+errors in the lib. Not touched by shop-state. `as_chunks::<4>()` is the suggested fix.
+
+## The pack's sapphire shop keys name the wrong lane (2026-11-09, from shop-state)
+
+The extractor keys a shop by the lump's `LaneNum`, which the map mirrors on Sapphire's side:
+`shop:sapphire:lane1:1` is the shop beside the lane 6 guardian, and `shop:sapphire:lane6:1` the
+lane 1 one (docs/research/map-objectives-audit.md, "Shops"). Nothing reads a shop's lane today:
+Player pairs shops with guardians by place. A key fix would rekey the shops, so a board that
+refers to one by key would need a migration.
+
 ## How many Sinner's Sacrifice machines are left (2026-11-09, from the map objectives audit)
 
 Three Sinner's Sacrifice camps hold more than one machine: the bell tower has 3, and the theater

@@ -709,6 +709,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
   };
   const markerStatus = (k: string) => {
     const pv = matchPreview();
+    // A shop is up on a board; in Player a lane shop is gone once its guardian falls.
+    if (k.startsWith("shop:")) return pv?.shops?.has(k) ? "Hidden" : undefined;
     const own = objectives().get(k)?.status;
     // Player shows only the match at t (spec §6b): what was down, and from a replay
     // the rifts and powerups; never the scene's states. Without a replay, rifts are off.

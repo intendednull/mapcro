@@ -11,6 +11,8 @@ export interface MatchPreview {
   players: Map<string, { hero: number; name?: string | null; pos: { x: number; y: number } | null; health?: number | null; respawn?: number | null; ghost?: number | null }>;
   /** Board objective keys down at this moment. */
   down: Set<string>;
+  /** Lane shops closed at this moment, their guardian down (match/timeline.ts `shopsClosed`). */
+  shops?: Set<string>;
   /** Replay tier: rifts and powerups at this moment, by key (absent: the board's own). */
   sites: Map<string, "Active" | "Destroyed">;
   /** Replay tier: each lane's zipline colours at this moment, by lane key (`Wave.t`'s scale). */

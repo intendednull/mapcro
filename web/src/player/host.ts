@@ -3,7 +3,7 @@
 // board creates one; Player renders it; following reads and writes its playback.
 
 import { createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js";
-import { type CampAt, type MatchEvent, type PowerupAt, type RiftAt, type Timeline, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, riftAt, sitesAt, urnAt } from "../match/timeline";
+import { type CampAt, type MatchEvent, type PowerupAt, type RiftAt, type Timeline, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, riftAt, shopsClosed, sitesAt, urnAt } from "../match/timeline";
 import type { MatchPreview } from "../match/preview";
 import { slotKey } from "../match/save";
 import type { Marker } from "../map/model";
@@ -725,7 +725,8 @@ export function createPlayerHost(board: string, token: string) {
         const key = markerKey(p.key, markers);
         if (v && key) powerups.set(key, v);
       }
-      return { players, down: downAt(m, at, markers), sites: sitesAt(m, at, markers), lanes: lanesAt(m, at), camps, rifts, powerups, ...(health ? { health: byMarker(objectiveHealthAt(m, at)) } : {}), ...(urn ? { urn } : {}), ...(m.rejuv ? { rejuv: rejuvAt(m, at) } : {}) };
+      const down = downAt(m, at, markers);
+      return { players, down, shops: shopsClosed(down, markers), sites: sitesAt(m, at, markers), lanes: lanesAt(m, at), camps, rifts, powerups, ...(health ? { health: byMarker(objectiveHealthAt(m, at)) } : {}), ...(urn ? { urn } : {}), ...(m.rejuv ? { rejuv: rejuvAt(m, at) } : {}) };
     },
   };
 }
