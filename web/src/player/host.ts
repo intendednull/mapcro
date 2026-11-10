@@ -15,7 +15,8 @@ import { type Playback, clampT, follow, rebase, tAt } from "./clock";
 import { type Pt, worldToMap } from "../map/transform";
 import { eventKey } from "./events";
 import { chooseSummary, markOpened, openedHere, playerLastSeenShown, playerNamesShown, playerVision, setPlayerLastSeenShown, setPlayerNamesShown, setPlayerVision, summaryChosen } from "../core/device";
-import { type Vision, hasVision, seenAt } from "./vision";
+import { type Vision, hasVision, seenAt, visionFromWire, visionToWire } from "./vision";
+import type { PlayerVision } from "../gen/PlayerVision";
 
 export type Mode = "player" | "sandbox";
 
@@ -28,6 +29,8 @@ export interface PlaybackPresence {
   speed: number;
   /** The event jumped to while it's pinned: its `eventKey`, and the match time it landed at. */
   jump?: { key: string; at: number } | null;
+  /** Whose vision the map draws (`null` team: All) and Show last seen location. */
+  vision?: PlayerVision | null;
 }
 
 export function createPlayerHost(board: string, token: string) {
@@ -71,19 +74,25 @@ export function createPlayerHost(board: string, token: string) {
   };
   /**
    * Whose vision the map draws (spec §6b "Vision"): every hero, or one team's view, where an enemy
-   * out of its sight isn't drawn (with `showLastSeen`, a ghost where it was last seen). Like
-   * Names, both this browser's alone.
+   * out of its sight isn't drawn (with `showLastSeen`, a ghost where it was last seen). Your own
+   * pair is remembered in this browser; while you follow, a presenter who sends theirs is drawn
+   * instead (operator 2026-11-09), and yours comes back when you stop.
    */
-  const [vision, setVisionRaw] = createSignal<Vision>(playerVision());
-  const setVision = (v: Vision) => {
-    setPlayerVision(v);
-    setVisionRaw(v);
+  const [ownVision, setOwnVision] = createSignal<Vision>(playerVision());
+  const [ownLastSeen, setOwnLastSeen] = createSignal(playerLastSeenShown());
+  const [theirVision, setTheirVision] = createSignal<{ view: Vision; ghosts: boolean } | undefined>(undefined, { equals: (a, b) => a?.view === b?.view && a?.ghosts === b?.ghosts });
+  const vision = () => theirVision()?.view ?? ownVision();
+  const showLastSeen = () => theirVision()?.ghosts ?? ownLastSeen();
+  /** Your own choice: it keeps what the map shows now (a presenter's, while following) and
+   * changes the one control, so stopping the follow after it shows the same. */
+  const choose = (view: Vision, ghosts: boolean) => {
+    setPlayerVision(view);
+    setOwnVision(view);
+    setPlayerLastSeenShown(ghosts);
+    setOwnLastSeen(ghosts);
   };
-  const [showLastSeen, setShowLastSeenRaw] = createSignal(playerLastSeenShown());
-  const setShowLastSeen = (on: boolean) => {
-    setPlayerLastSeenShown(on);
-    setShowLastSeenRaw(on);
-  };
+  const setVision = (v: Vision) => choose(v, showLastSeen());
+  const setShowLastSeen = (on: boolean) => choose(vision(), on);
   /** The player's name in a slot when names are shown and the timeline has one: the top bar and
    * the events read names here, the tokens through `preview` (which checks `showNames` too). */
   const playerName = (team: string | null | undefined, slot: number | null | undefined): string | undefined =>
@@ -519,6 +528,7 @@ export function createPlayerHost(board: string, token: string) {
       playing: pb.playing,
       speed: pb.speed,
       jump: jumpedTo ? { key: eventKey(jumpedTo.event), at: jumpedTo.at } : null,
+      vision: visionToWire(vision(), showLastSeen()),
     };
   };
 
@@ -530,6 +540,8 @@ export function createPlayerHost(board: string, token: string) {
    */
   let heard: { v: string; at: number; pb: PlaybackPresence } | undefined;
   const mirror = (theirs: PlaybackPresence | null | undefined) => {
+    // Their vision, or, from an older presenter (or one without a match), your own.
+    setTheirVision(visionFromWire(theirs?.vision));
     if (!theirs) return;
     const v = JSON.stringify(theirs);
     if (heard?.v !== v) {
@@ -566,7 +578,10 @@ export function createPlayerHost(board: string, token: string) {
     if (next !== playback()) setPlayback(next);
   };
   /** Following stopped: the next presenter's values are new. */
-  const forget = () => (heard = undefined);
+  const forget = () => {
+    heard = undefined;
+    setTheirVision(undefined);
+  };
 
   /**
    * Event pings (spec §6b): each event the playback passes while it runs, under the list's
@@ -770,6 +785,8 @@ export function playbackPresence(h: PlayerHost, send: (p: PlaybackPresence | und
     h.matchId();
     h.playback();
     h.pinned();
+    h.vision();
+    h.showLastSeen();
     send(h.presence());
   });
   const beat = setInterval(() => {

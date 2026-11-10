@@ -181,6 +181,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
     const x = followed();
     if (!x) {
       setFollowing(undefined);
+      player.forget();
       state.presence({ following: null });
       say("Presenter left");
       return;

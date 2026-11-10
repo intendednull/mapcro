@@ -56,6 +56,12 @@ export function Player(p: {
     p.onUserPlayback();
     f();
   };
+  /** Your own Vision choice: made from what the map shows (a presenter's, while following), then
+   * following stops, as any change to what you see does (spec §8). */
+  const mine = (f: () => void) => {
+    f();
+    p.onUserPlayback();
+  };
   const rows = (kind: string, scene: RecordId) => p.state.inScene(kind, scene) as never;
 
   /**
@@ -418,9 +424,9 @@ export function Player(p: {
                     class="input pl-vision"
                     data-testid="vision-select"
                     aria-label="Vision"
-                    title="What one team could see: its enemies out of sight aren't drawn. Here only"
+                    title="What one team could see: its enemies out of sight aren't drawn. Your followers see it too"
                     value={h.vision()}
-                    onChange={(e) => h.setVision(e.currentTarget.value as Vision)}
+                    onChange={(e) => mine(() => h.setVision(e.currentTarget.value as Vision))}
                   >
                     <For each={VISIONS}>{(v) => <option value={v}>Vision: {v === "all" ? "All" : teamName(v)}</option>}</For>
                   </select>
@@ -430,8 +436,8 @@ export function Player(p: {
                       class={cx("btn ghost small", h.showLastSeen() && "on")}
                       data-testid="last-seen-toggle"
                       aria-pressed={h.showLastSeen()}
-                      title="Enemies out of sight as ghosts where this team last saw them. Here only"
-                      onClick={() => h.setShowLastSeen(!h.showLastSeen())}
+                      title="Enemies out of sight as ghosts where this team last saw them. Your followers see it too"
+                      onClick={() => mine(() => h.setShowLastSeen(!h.showLastSeen()))}
                     >
                       Show last seen location
                     </button>

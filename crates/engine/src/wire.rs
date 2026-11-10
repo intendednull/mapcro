@@ -178,6 +178,23 @@ pub struct Playback {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub jump: Option<Jump>,
+    /// Whose vision this person's map draws and whether out-of-sight enemies show as ghosts,
+    /// so a follower sees what the presenter sees (operator 2026-11-09: "when following, it
+    /// should show the vision setting of the presenter"). Absent from older clients: a follower
+    /// keeps its own.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub vision: Option<PlayerVision>,
+}
+
+/// Player's Vision control (spec §6b "Vision"), as presence carries it.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlayerVision {
+    /// The team whose view the map draws; none: every hero ("All").
+    pub team: Option<mapcro_schema::Team>,
+    /// "Show last seen location": an enemy out of sight is a ghost where last seen.
+    pub last_seen: bool,
 }
 
 /// A jump to an event (spec §6b), as presence carries it.
@@ -341,7 +358,7 @@ mod tests {
     #[test]
     fn a_jump_in_playback_is_bounded() {
         let with = |key: &str, at: f32| Presence {
-            playback: Some(Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: Some(Jump { key: key.to_owned(), at }) }),
+            playback: Some(Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: Some(Jump { key: key.to_owned(), at }), vision: None }),
             ..Default::default()
         };
         assert!(with("35:death:amber:2:::7", 30.0).is_valid());
@@ -351,5 +368,20 @@ mod tests {
         assert!(!with("k", f32::NAN).is_valid());
         assert!(!with("k", -1.0).is_valid());
         assert!(!with("k", 86_401.0).is_valid());
+    }
+
+    #[test]
+    fn vision_in_playback_is_optional_both_ways() {
+        // An older client's playback has no vision: it still parses, as none.
+        let old = r#"{"player":true,"match_id":1,"t":10.0,"playing":false,"speed":1.0}"#;
+        let pb: Playback = serde_json::from_str(old).unwrap();
+        assert_eq!(pb.vision, None);
+        // A new one round-trips it, All as a null team.
+        let new = r#"{"player":true,"match_id":1,"t":10.0,"playing":false,"speed":1.0,"vision":{"team":"Sapphire","last_seen":true}}"#;
+        let pb: Playback = serde_json::from_str(new).unwrap();
+        assert_eq!(pb.vision, Some(PlayerVision { team: Some(mapcro_schema::Team::Sapphire), last_seen: true }));
+        let all: Playback = serde_json::from_str(&new.replace(r#""Sapphire""#, "null")).unwrap();
+        assert_eq!(all.vision, Some(PlayerVision { team: None, last_seen: true }));
+        assert_eq!(serde_json::from_str::<Playback>(&serde_json::to_string(&pb).unwrap()).unwrap(), pb);
     }
 }

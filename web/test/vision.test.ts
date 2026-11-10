@@ -1,7 +1,7 @@
 // Vision (spec §6b): an enemy hero as the other team saw it, from the timeline's `seen` intervals.
 import { describe, expect, it } from "vitest";
 import type { Timeline } from "../src/match/timeline";
-import { hasVision, seenAt } from "../src/player/vision";
+import { VISIONS, hasVision, seenAt, visionFromWire, visionToWire } from "../src/player/vision";
 
 // Walks east 100 a second; dies at 8 (dead 8 and 9), back at 10. Seen 1.0–3.5 s and 6.0–7.0 s.
 const xs = [0, 100, 200, 300, 400, 500, 600, 700, null, null, 1000, 1100];
@@ -32,5 +32,20 @@ describe("vision", () => {
     const tl = { players: [{ ...hero, seen: [] }] } as unknown as Timeline;
     expect(hasVision(tl)).toBe(false);
     expect(hasVision({ players: [hero] } as unknown as Timeline)).toBe(true);
+  });
+});
+
+describe("vision in presence (following, spec §6b)", () => {
+  it("round-trips every view and both ghost settings", () => {
+    for (const view of VISIONS) for (const ghosts of [false, true]) expect(visionFromWire(visionToWire(view, ghosts))).toEqual({ view, ghosts });
+  });
+  it("says All as no team, and names the team otherwise", () => {
+    expect(visionToWire("all", false)).toEqual({ team: null, last_seen: false });
+    expect(visionToWire("amber", true)).toEqual({ team: "Amber", last_seen: true });
+    expect(visionToWire("sapphire", false)).toEqual({ team: "Sapphire", last_seen: false });
+  });
+  it("an older presenter sends none: the follower keeps its own", () => {
+    expect(visionFromWire(undefined)).toBeUndefined();
+    expect(visionFromWire(null)).toBeUndefined();
   });
 });

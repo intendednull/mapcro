@@ -124,7 +124,8 @@ export function setPlayerNamesShown(on: boolean) {
 const VISION = "mapcro.playerVision";
 
 /** Whose vision this browser's Player draws (the Vision control, spec §6b): "all", "amber" or
- * "sapphire", for every board; never shared with other viewers. */
+ * "sapphire", for every board. Presence carries what's drawn so followers see it (spec §6b); this
+ * is your own, which a presenter's replaces only while you follow them. */
 export function playerVision(): "all" | "amber" | "sapphire" {
   const v = read<string>(VISION, "all");
   return v === "amber" || v === "sapphire" ? v : "all";

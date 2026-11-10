@@ -3,7 +3,7 @@
 // always show; an enemy out of its sight isn't drawn, or, with "Show last seen location", is a
 // ghost at the spot it was last seen, labelled with how long ago; one it hasn't seen (yet, or
 // since it died) isn't drawn either way. "All" is the map as before. Both choices are this
-// browser's: followers keep their own, and a reload keeps them.
+// browser's (a reload keeps them); a follower sees its presenter's while following.
 
 import { createServer } from "node:http";
 import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
 import { joinNew } from "./helpers";
-import { Server, TIMELINE_FORMAT, newBoardUrl, translate } from "./server";
+import { ROOT, Server, TIMELINE_FORMAT, newBoardUrl, translate } from "./server";
 
 const ID = "129000044";
 const N = 60;
@@ -196,22 +196,69 @@ test("a ghost eases in and out, and jumps under reduced motion", async ({ browse
   expect(await ease()).toEqual(["0s", "0s"]);
 });
 
-test("the view and last seen are this browser's: a follower keeps its own, and a reload keeps them", async ({ browser }) => {
-  const url = await newBoardUrl(server, "Vision local");
+test("a follower sees the presenter's view and last seen, live; unfollowing brings its own back, and a reload keeps them", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Vision follow");
   const a = await joinNew(browser, url, "Coach");
   await open(a);
+  await a.emulateMedia({ reducedMotion: "reduce" });
   const b = await joinNew(browser, url, "Second");
+  await b.emulateMedia({ reducedMotion: "reduce" });
+  const chip = b.getByTestId("follow-chip");
   await b.getByTestId("follow-Coach").click();
-  await expect(b.getByTestId("follow-chip")).toContainText("Following Coach");
-  await a.getByTestId("vision-select").selectOption("amber");
-  await a.getByTestId("last-seen-toggle").click();
-  await scrubTo(a, 30);
-  await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-seen", "false");
-  // The follower is at the same moment, with every hero shown.
-  await expect(b.getByTestId("match-clock")).toContainText("0:30 /");
+  await expect(chip).toContainText("Following Coach");
+  await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
+  // The follower's own choice, the Archmother's view, is a change to what it sees: following stops.
+  await b.getByTestId("vision-select").selectOption("sapphire");
+  await expect(b.getByTestId("stop-following")).toHaveCount(0);
+  await expect(b.getByTestId("last-seen-toggle")).toHaveAttribute("aria-pressed", "false");
+
+  // Following again: the presenter's All, every hero shown.
+  await b.getByTestId("follow-Coach").click();
+  await expect(chip).toContainText("Following Coach");
   await expect(b.getByTestId("vision-select")).toHaveValue("all");
+  await expect(b.getByTestId("last-seen-toggle")).toHaveCount(0);
+  await scrubTo(a, 30);
+  await expect(b.getByTestId("match-clock")).toContainText("0:30 /");
   await expect(tok(b, "Sapphire-0")).toHaveAttribute("data-seen", "true");
   await expect(tok(b, "Sapphire-1")).toHaveCount(1);
+
+  // The presenter picks the King's view and last seen: the follower's map follows, live.
+  await a.getByTestId("vision-select").selectOption("amber");
+  await expect(b.getByTestId("vision-select")).toHaveValue("amber");
+  await expect(tok(b, "Sapphire-0")).toHaveCount(0);
+  await expect(tok(b, "Sapphire-1")).toHaveCount(0);
+  await expect(tok(b, "Amber-1")).toHaveCount(1);
+  await a.getByTestId("last-seen-toggle").click();
+  await expect(b.getByTestId("last-seen-toggle")).toHaveAttribute("aria-pressed", "true");
+  await expect(tok(b, "Sapphire-0")).toHaveAttribute("data-seen", "false");
+  expect(await drawn(b)).toEqual(await drawn(a));
+  await b.mouse.move(5, 5);
+  await b.screenshot({ path: join(ROOT, "web/shots/follow-vision-follower.png") });
+  await expect(chip).toContainText("Following Coach");
+
+  // Unfollowing: the follower's own view comes back, untouched (the Archmother's, no ghosts).
+  await b.getByTestId("stop-following").click();
+  await expect(b.getByTestId("stop-following")).toHaveCount(0);
+  await expect(b.getByTestId("vision-select")).toHaveValue("sapphire");
+  await expect(b.getByTestId("last-seen-toggle")).toHaveAttribute("aria-pressed", "false");
+  await expect(tok(b, "Amber-0")).toHaveCount(1);
+  await expect(tok(b, "Amber-1")).toHaveCount(0);
+  await expect(tok(b, "Sapphire-0")).toHaveAttribute("data-seen", "true");
+  // The presenter's own is theirs still.
+  await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-seen", "false");
+
+  // A follower's change while following keeps what it was seeing plus that change: following
+  // the King's view with ghosts, turning ghosts off leaves the King's view without them.
+  await b.getByTestId("follow-Coach").click();
+  await expect(b.getByTestId("vision-select")).toHaveValue("amber");
+  await b.getByTestId("last-seen-toggle").click();
+  await expect(b.getByTestId("stop-following")).toHaveCount(0);
+  await expect(b.getByTestId("vision-select")).toHaveValue("amber");
+  await expect(b.getByTestId("last-seen-toggle")).toHaveAttribute("aria-pressed", "false");
+  await expect(tok(b, "Sapphire-0")).toHaveCount(0);
+  await b.reload();
+  await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
+  await expect(b.getByTestId("vision-select")).toHaveValue("amber");
 
   await a.reload();
   await expect(a.getByTestId("match-tier")).toHaveText("Full replay");

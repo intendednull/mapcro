@@ -799,9 +799,15 @@ makes a board with that match attached and lands in Player; **New board** is tod
   elsewhere fades out on its spot as the hero fades in where it is; the carried urn goes and
   comes with its carrier the same way. A seek, scrub or jump, a change of view or of Show last
   seen location, a new match, or a frame over a second after the last snaps; so does reduced
-  motion. What is drawn when is unchanged: only the going and coming. "All" is the map as before. Like
-  Names both are this browser's alone (localStorage, every board), never in presence: a
-  follower keeps its own view. Only the heroes and the urn on the map follow it: the top bar,
+  motion. What is drawn when is unchanged: only the going and coming. "All" is the map as before.
+  Your own pair is remembered in this browser (localStorage, every board). **Following shows the
+  presenter's** (2026-11-09, operator: "when following, it should show the vision setting of the
+  presenter"): presence's `playback.vision` carries both (`team`: `Amber`, `Sapphire`, or null
+  for All; `last_seen`), and a follower draws it, live, its controls showing the presenter's
+  values. Stopping following brings the follower's own pair back untouched. Changing either
+  control while following is a change to what you see, so it stops following (§8), and you keep
+  what you were seeing with that one change. A presenter that sends no `vision` (an older
+  client) leaves a follower on its own. Only the heroes and the urn on the map follow it: the top bar,
   events, pings and troopers stay omniscient (docs/backlog.md).
 - **Keys while watching** (2026-11-08, operator): ↑ ↓ step to the previous and next event (its
   jump and ring), ← → seek 5 s (Shift: 30 s) and keep playing or paused, and a Space tap plays
@@ -838,7 +844,7 @@ makes a board with that match attached and lands in Player; **New board** is tod
   event or you seek elsewhere (operator bug, 2026-11-08). **Save scenes** makes one
   scene per ticked event at its jump time, "<event> @ mm:ss", in one transaction (one undo).
 - **Following** carries Player: presence's `playback` holds the mode, the match, t, playing and
-  speed, sent on every change and every 2 s while playing. It also holds the **jump** while it's
+  speed, and the Vision pair (optional; above), sent on every change and every 2 s while playing. It also holds the **jump** while it's
   pinned: the event's key in the list and the match time the jump landed at (the key at most 96
   bytes and the time a clock value, in the server's `is_valid`). A follower rings the same event
   at the same place and marks the same row; a new jump, or the presenter's seek back to the same
@@ -972,7 +978,8 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   same hover label there, its rim and a dot in the presenter's colour, worded from the follower's
   own state: its playback time (mirrored) and its own Names toggle. The follower's own hover wins
   while it hovers something.
-- **Follow mode:** anyone can follow a presenter's scene, floor and viewport. This is the coaching
+- **Follow mode:** anyone can follow a presenter's scene, floor and viewport (and in Player, their
+  playback and Vision, §6b). This is the coaching
   workflow (operator, 2026-11-06):
   - **Following is one click,** and the presenter's name is always visible to click.
   - **A follower who changes what they see stops following:** flipping a scene, panning, zooming or
