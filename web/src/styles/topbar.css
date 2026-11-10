@@ -280,9 +280,16 @@
 .tb-build-item { position: relative; aspect-ratio: 1; display: grid; place-items: center; background: #10130d30; }
 .tb-build-item img { width: 100%; height: 100%; object-fit: contain; }
 .tb-build-tier { position: absolute; top: 0; right: 1px; font: 600 max(7px, calc(9 * var(--u))) "VALVEOracle", var(--ui); color: #FFF6D8; text-shadow: 0 1px 2px #000; }
-.tb-build-cooldown { position: absolute; inset: 0; display: grid; place-items: center; background: #000a; color: #FFF6D8; font: 700 max(9px, calc(13 * var(--u))) "VALVEOracle", var(--ui); border-radius: inherit; }
+.tb-build-cooldown { position: absolute; inset: 0; display: grid; place-items: center; background: rgb(48 48 48 / 58%); color: #f0eee8; text-shadow: 0 1px 2px #000; font: 700 max(9px, calc(13 * var(--u))) "VALVEOracle", var(--ui); border-radius: inherit; }
 .tb-build-circle .tb-build-cooldown { font-size: max(7px, calc(9 * var(--u))); }
 .tb-build-charges { position: absolute; right: -1px; bottom: -1px; min-width: calc(10 * var(--u)); border-radius: 2px; color: #10130D; background: #FFEFD7; font: 700 max(7px, calc(8 * var(--u))) var(--ui); }
+.tb-build-circle .tb-build-charges {
+  left: 50%; right: auto; bottom: 0; transform: translate(-50%, 55%);
+  width: max(11px, calc(12 * var(--u))); height: max(11px, calc(12 * var(--u)));
+  min-width: 0; display: grid; place-items: center; border-radius: 50%;
+  border: 1px solid #b8c4ba; background: #30332e; color: #fff0d6;
+  line-height: 1; box-shadow: 0 1px 2px #0006;
+}
 .tb-build-fallback { font-size: calc(12 * var(--u)); color: #888; }
 .tb-build-empty { font: max(8px, calc(10 * var(--u))) var(--ui); color: #FFEFD780; margin: 3px 0; }
 .tb-host.compact .tb-all-builds { top: calc(62 * var(--u) + 43px); }
