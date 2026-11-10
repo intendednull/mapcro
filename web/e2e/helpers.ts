@@ -77,3 +77,12 @@ export async function useSummary(page: Page) {
   await page.getByTestId("replay-prompt-summary").click();
   await expect(page.getByTestId("replay-prompt")).toHaveCount(0);
 }
+
+/** Pick a slot's hero from its top-bar portrait's picker (the side roster is gone). */
+export async function pickHero(page: Page, slot: string, hero: string) {
+  const col = page.locator(`.tb-player[data-slot="${slot}"]:visible`).first();
+  await col.hover();
+  await col.getByTestId("pick-hero").click();
+  await page.locator(`.hero-cell[data-hero="${hero}"]`).click();
+  await expect(page.getByTestId("hero-picker")).toHaveCount(0);
+}

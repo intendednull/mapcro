@@ -23,3 +23,22 @@ export const matchHeroes = (heroes: Hero[], q: string) => {
   const s = q.trim().toLowerCase();
   return s ? heroes.filter((h) => h.name.toLowerCase().includes(s)) : heroes;
 };
+
+/**
+ * The match's in-game name for a slot in a scene (spec §6b "Names"): from the open match, unless
+ * the scene was saved from another match. `named` is the Player host's `playerName` (absent with
+ * Names off or no name in the timeline); never an account id.
+ */
+export function sceneMatchName(
+  open: { match_id: number } | undefined,
+  source: { match_id: number } | null | undefined,
+  named: (team: string, slot: number) => string | undefined,
+  team: string,
+  slot: number,
+): string | undefined {
+  if (!open || (source && source.match_id !== open.match_id)) return undefined;
+  return named(team.toLowerCase(), slot) || undefined;
+}
+
+/** A slot's name in a scene: the one typed into the board's slot wins over the match's. */
+export const slotName = (typed: string, match: string | undefined): string | undefined => typed.trim() || match || undefined;

@@ -632,7 +632,7 @@ makes a board with that match attached and lands in Player; **New board** is tod
 - **Player draws only the timeline at t; Sandbox only the scene's records.** The map shows the match
   at playback time t: heroes interpolated between 1 Hz samples and hidden while dead, objectives,
   and from a replay rifts, powerups, zipline colours and camps; ult rings sit in Player's
-  roster. No scene
+  top bar. No scene
   state (alive, seen, placed, objective, rift or wave records) shows through in Player, and none of
   Player's shows through in Sandbox. Switching modes, scenes or matches leaves nothing behind
   (operator report 2026-11-08: heroes drawn dark where the scene had them dead).
@@ -743,12 +743,20 @@ makes a board with that match attached and lands in Player; **New board** is tod
     (`ui/ContextMenu.tsx`): **Kill** / **Revive** (the action for the hero's state now; reviving
     clears its respawn timer in the same step), **Mark not seen** / **Mark in vision** (the
     vision toggle, worded as what it marks, after the top bar's own "In vision" / "Not seen"),
-    and **Change hero…** (**Pick hero…** for an empty slot), which opens the picker. Focus goes
+    **Show on the map** (an empty slot only: its portrait is then the picker, so this is its
+    focus), **Rename…** (2026-11-09: the slot's name, typed under the portrait; empty gives the
+    match's name back) and **Change hero…** (**Pick hero…** for an empty slot), which opens the
+    picker. Focus goes
     to the first item; Up/Down wrap, Home/End, Enter or Space runs, Escape or Tab closes and
     hands focus back; a press outside, a resize or a lost window focus closes it. The labels
     follow edits made while it's open. Viewers get no menu. The tokens' eye and skull buttons
     are gone; K still kills or revives the hero under the pointer, and the top bar's eye toggle
-    stays. Roster chips get no menu: they carry no kill or vision control. Player has none.
+    stays. Player has none.
+  - **No side roster** (operator, 2026-11-09: "the roster in the top right is back, I don't
+    think we need it there either"): neither Player (since 0a1948b) nor Scenes lists the roster
+    in the side panel. The top bar has what it had: names and heroes, focus (a portrait click,
+    or the menu's Show on the map), the hero picker (taken heroes disabled with who has them,
+    and No hero), and the menu's Rename….
   - A pack without hero cards (any pack before 2026-11-08) keeps the vertical bust
     (`m_strTopBarVertical`, 70.4 × 117.3 with its bottom on a grey disc at y 15 to 85.4), and the
     critical card in its own frame there.
@@ -780,6 +788,13 @@ makes a board with that match attached and lands in Player; **New board** is tod
   shown when the timeline has players' names, on by default. Off, no player name is on screen
   (top bar, events and their search, tokens' hover titles; the hero or slot label stands in).
   It is this browser's alone: kept in localStorage for every board, never in presence.
+  - **In Scenes** (operator, 2026-11-09: "in the scene the player names are not showing"): a
+    slot with no name of its own shows the open match's in-game name, as Player does: under its
+    top-bar portrait, in the portrait's title and menu, and in its token's hover label. A scene
+    saved from another match than the open one shows none. A name typed into the slot
+    (Rename…) wins over the match's. Display only: nothing writes the match's names into the
+    board, so Names off hides them in Scenes too. The heroes stay the board's roster (Save as
+    scene sets them to the match's; a blank scene doesn't).
 - **Vision** (2026-11-09, operator: "in a replay usually we can set it to only see the heroes …
   the current team could see"): a transport select, "Vision: All / Hidden King / Archmother",
   shown when the timeline has `seen` (format 4). In a team's view its own heroes always show;
@@ -1202,7 +1217,8 @@ proof-of-work or accounts if rotation is seen in practice.
   never. Account ids are never even deserialised, so they can't reach the cache or a response.
   Names would have meant a second call to a profile endpoint, and the operator allowed names only
   if the match call itself returns them. It doesn't, so v1 imports no names and leaves
-  `RosterName` alone. A player is a team, a slot and a hero.
+  `RosterName` alone. A player is a team, a slot and a hero. (Later: the timeline carries
+  in-game names, shown by display only, never written to `RosterName`, which only Rename… sets.)
 
 **Match import's replay tier (§6a): trust boundaries and limits.** For the security review:
 

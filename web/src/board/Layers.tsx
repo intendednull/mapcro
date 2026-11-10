@@ -101,6 +101,8 @@ export function Layers(p: {
   bindPing?: (ping: (at: WorldPos) => void) => void;
   /** A hero just focused ("Amber-0"), its token flashes; `n` restarts the flash. */
   focused?: () => { slot: string; n: number } | undefined;
+  /** In a scene, the open match's in-game name for a slot. */
+  matchName?: (team: string, slot: number) => string | undefined;
 }) {
   const st = p.state;
   const view = (w: WorldPos) => worldToView(w, p.vp);
@@ -838,7 +840,7 @@ export function Layers(p: {
           />
         )}
       </Show>
-      <Tokens state={st} art={p.art} vp={p.vp} scene={p.tokenScene ?? p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} onPress={clearObjects} preview={p.preview} focused={p.focused} />
+      <Tokens state={st} art={p.art} vp={p.vp} scene={p.tokenScene ?? p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} onPress={clearObjects} preview={p.preview} focused={p.focused} matchName={p.matchName} />
       <For each={othersPicks()}>
         {(x) => (
           <g class="picks" data-picks={x.peer.state!.name} style={{ "pointer-events": "none" }}>

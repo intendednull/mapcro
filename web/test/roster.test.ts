@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { randomRosterOps } from "../src/board/roster";
+import { randomRosterOps, sceneMatchName, slotName } from "../src/board/roster";
 import type { Slot } from "../src/board/state";
 import type { Hero } from "../src/map/pack";
 
@@ -34,5 +34,23 @@ describe("hero search", () => {
     expect(matchHeroes(hs, "ge").map((h) => h.name)).toEqual(["Lady Geist"]);
     expect(matchHeroes(hs, "KRILL").map((h) => h.name)).toEqual(["Mo & Krill"]);
     expect(matchHeroes(hs, " ")).toHaveLength(4);
+  });
+});
+
+describe("scene names (spec §6b Names)", () => {
+  const named = (team: string, slot: number) => (team === "amber" && slot === 0 ? "Kestrel" : undefined);
+  it("takes the open match's name by lower-case team, for a blank scene or one saved from that match", () => {
+    expect(sceneMatchName({ match_id: 7 }, undefined, named, "Amber", 0)).toBe("Kestrel");
+    expect(sceneMatchName({ match_id: 7 }, { match_id: 7 }, named, "Amber", 0)).toBe("Kestrel");
+    expect(sceneMatchName({ match_id: 7 }, null, named, "Sapphire", 0)).toBeUndefined();
+  });
+  it("gives none without an open match or for a scene saved from another match", () => {
+    expect(sceneMatchName(undefined, undefined, named, "Amber", 0)).toBeUndefined();
+    expect(sceneMatchName({ match_id: 7 }, { match_id: 8 }, named, "Amber", 0)).toBeUndefined();
+  });
+  it("a typed name wins over the match's; blank falls back to it", () => {
+    expect(slotName("Coach", "Kestrel")).toBe("Coach");
+    expect(slotName("  ", "Kestrel")).toBe("Kestrel");
+    expect(slotName("", undefined)).toBeUndefined();
   });
 });

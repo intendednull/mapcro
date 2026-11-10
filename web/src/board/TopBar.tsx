@@ -2,7 +2,9 @@
 // portraits, souls with team totals, the scene clock and each player's ult ring. Everything is
 // edited in place: click souls or the clock to type; drag around a ring or scroll on it to set
 // the cooldown, click it for ready. No health: the board doesn't track it. An editor's right
-// click on a portrait opens its hero's menu: kill or revive, vision, change hero.
+// click on a portrait opens its hero's menu: kill or revive, vision, change hero, rename. Under
+// each portrait, as in Player, the player's name: the one typed into the slot, else the open
+// match's in-game name (spec §6b "Names").
 
 import { rosterTeamName, rosterTeamShort } from "../map/model";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
@@ -18,6 +20,8 @@ import { InlineEdit } from "../ui/InlineEdit";
 import type { BoardState, Player, Slot } from "./state";
 import { HeroBadge, hasCard } from "./HeroBadge";
 import { aliveOps } from "./Tokens";
+import { slotName } from "./roster";
+import { LIMITS } from "../gen/limits";
 import { ContextMenu, type MenuItem } from "../ui/ContextMenu";
 
 const BAR = 1260;
@@ -125,6 +129,8 @@ export function TopBar(p: {
   onPickHero?: (slot: RecordId) => void;
   /** A click on a hero's portrait focuses it on the map (Board's focusHero). */
   onFocus?: (team: string, slot: number) => void;
+  /** The open match's in-game name for a slot, if any (Board's `sceneMatchName`). */
+  matchName?: (team: string, slot: number) => string | undefined;
 }) {
   let host!: HTMLDivElement;
   const [unit, setUnit] = createSignal(1);
@@ -157,6 +163,14 @@ export function TopBar(p: {
   const editable = () => p.state.canEdit();
   const sceneRow = () => p.state.scenes().find((s) => s.id === p.scene);
   const focus = (id: RecordId) => (on: boolean) => p.state.presence({ focus: on ? id : null });
+  const nameOf = (s: Slot) => slotName(s.slot.name, p.matchName?.(s.slot.team, s.slot.slot));
+  // "Rename…" in the menu: opens the slot's name editor under its portrait.
+  const [renaming, setRenaming] = createSignal<RecordId>();
+  const openName = new Map<RecordId, () => void>();
+  const rename = (id: RecordId) => {
+    setRenaming(id);
+    openName.get(id)?.();
+  };
   // The portrait menu: one at a time, for a (slot, player) pair, at the pointer.
   const [menu, setMenu] = createSignal<{ slot: Slot; player: Player; label: string; at: { x: number; y: number } }>();
   const openMenu = (e: MouseEvent, slot: Slot, player: Player, label: string) => {
@@ -184,7 +198,7 @@ export function TopBar(p: {
       <For each={team(t)}>
         {({ slot, player }) => {
           const hero = () => (slot.slot.hero != null ? p.art.heroes.get(slot.slot.hero) : undefined);
-          const label = () => slot.slot.name || `${rosterTeamShort(t)} ${slot.slot.slot + 1}`;
+          const label = () => nameOf(slot) || `${rosterTeamShort(t)} ${slot.slot.slot + 1}`;
           let openSouls: (() => void) | undefined;
           return (
             <div
@@ -251,6 +265,26 @@ export function TopBar(p: {
                 </svg>
               </button>
               <UltRing state={p.state} player={player} editable={editable()} label={label()} />
+              <Show when={nameOf(slot) || renaming() === slot.id}>
+                <InlineEdit
+                  bindOpen={(o) => (openName.set(slot.id, o), onCleanup(() => openName.delete(slot.id)))}
+                  class="pl-tb-name"
+                  label={`${rosterTeamShort(t)} ${slot.slot.slot + 1} name`}
+                  testid="tb-name"
+                  editable={editable()}
+                  value={slot.slot.name}
+                  placeholder={p.matchName?.(t, slot.slot.slot) ?? ""}
+                  maxLength={LIMITS.max_name}
+                  onEditing={(on) => {
+                    focus(slot.id)(on);
+                    if (!on) setRenaming(undefined);
+                  }}
+                  onCommit={(text) => {
+                    const v = text.trim();
+                    if (v !== slot.slot.name) p.state.edit([{ Set: { id: slot.id, value: { RosterName: v } } }]);
+                  }}
+                />
+              </Show>
             </div>
           );
         }}
@@ -333,6 +367,8 @@ export function TopBar(p: {
         run: () => p.state.edit([{ Set: { id: pl().id, value: { PlayerVisible: !pl().state.visible } } }]),
       },
     ];
+    if (m.slot.slot.hero == null && p.onFocus) items.push({ label: "Show on the map", testid: "hero-menu-focus", run: () => p.onFocus!(m.slot.slot.team, m.slot.slot.slot) });
+    items.push({ label: "Rename…", testid: "hero-menu-rename", run: () => rename(m.slot.id) });
     if (p.onPickHero) items.push({ label: m.slot.slot.hero != null ? "Change hero…" : "Pick hero…", testid: "hero-menu-hero", run: () => p.onPickHero!(m.slot.id) });
     return <ContextMenu at={m.at} label={m.label} testid="hero-menu" onClose={() => setMenu(undefined)} items={items} />;
   };
@@ -340,7 +376,7 @@ export function TopBar(p: {
   return (
     <div
       ref={host}
-      class={cx("tb-host", editable() && "editable", p.art.images.has("tb-mask") && "pack-art", p.compact && "compact")}
+      class={cx("tb-host", editable() && "editable", p.art.images.has("tb-mask") && "pack-art", p.compact && "compact", p.state.roster().some((s) => nameOf(s)) && "named")}
       style={{ "--u": `${unit()}px` }}
       data-testid="topbar"
     >

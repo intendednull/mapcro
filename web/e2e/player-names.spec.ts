@@ -139,3 +139,84 @@ test("a token's hover label names its player; Names off hides every name, here o
   await expect(a.locator('.tok[data-slot="Amber-0"]')).toHaveAttribute("aria-label", /^Coach(, |$)/);
   await expect(a.getByTestId("event").filter({ hasText: "Juno" }).first()).toBeVisible();
 });
+
+// Scenes on a match board (operator, 2026-11-09: "in the scene the player names are not showing"):
+// a slot with no name of its own takes the open match's, under its portrait, in its title and in
+// its token's label, for the default scene and one saved from a moment; a name typed into the slot
+// ("Rename…" in the portrait menu) wins. No roster in the side panel: the top bar has it all.
+test("Scenes show the match's names; a typed name wins; no side roster", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Scene names");
+  const a = await joinNew(browser, url, "Viewer");
+  await a.getByTestId("mode-player").click();
+  await a.getByTestId("match-id").fill(ID);
+  await a.getByTestId("match-load").click();
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
+  await a.getByTestId("mode-sandbox").click();
+  await expect(a.getByTestId("topbar").first()).not.toHaveAttribute("data-mode", "player");
+
+  const col = (p: typeof a, slot: string) => p.locator(`.tb-player[data-slot="${slot}"]:visible`).first();
+  const tok = (p: typeof a, slot: string) => p.locator(`.mapbox .tok[data-slot="${slot}"]`);
+  // The default scene: names by the portraits and on the tokens.
+  await expect(col(a, "Amber-0").getByTestId("tb-name")).toHaveText("Coach");
+  await expect(col(a, "Sapphire-5").getByTestId("tb-name")).toHaveText("Moss");
+  await expect(col(a, "Amber-0")).toHaveAttribute("title", /^Coach(, |$)/);
+  await expect(tok(a, "Amber-0")).toHaveAttribute("aria-label", /^Coach(, |$)/);
+  const tb = (await tok(a, "Sapphire-5").locator("circle.body").boundingBox())!;
+  await a.mouse.move(tb.x + tb.width / 2, tb.y + 2);
+  await expect(a.getByTestId("hover-label")).toHaveText(/^Moss(, |$)/);
+  await a.mouse.move(5, 5);
+  // Under the bar, never under the map.
+  const covered = await a.evaluate(() => {
+    const map = document.querySelector(".stage .mapfit")!;
+    const top = map.getBoundingClientRect().top;
+    return [...document.querySelectorAll("[data-testid=tb-name]")].filter((n) => {
+      const r = n.getBoundingClientRect();
+      return r.width > 0 && (r.bottom > top || map.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)));
+    }).map((n) => n.textContent);
+  });
+  expect(covered).toEqual([]);
+  // No roster in the side panel.
+  await expect(a.locator("aside.side h2", { hasText: "Roster" })).toHaveCount(0);
+  await expect(a.locator("[data-testid^=hero-pick-], [data-testid=roster-focus]")).toHaveCount(0);
+  await a.screenshot({ path: "shots/scene-names.png" });
+
+  // Rename… in the portrait menu: the typed name wins, for everyone in Scenes.
+  const b = await joinNew(browser, url, "Second");
+  await b.getByTestId("mode-sandbox").click();
+  await expect(col(b, "Amber-0").getByTestId("tb-name")).toHaveText("Coach");
+  await col(a, "Amber-0").click({ button: "right" });
+  await a.getByTestId("hero-menu-rename").click();
+  const input = col(a, "Amber-0").getByTestId("tb-name-input");
+  await expect(input).toBeFocused();
+  await input.fill("Captain");
+  await a.keyboard.press("Enter");
+  for (const p of [a, b]) {
+    await expect(col(p, "Amber-0").getByTestId("tb-name")).toHaveText("Captain");
+    await expect(col(p, "Amber-0")).toHaveAttribute("title", /^Captain(, |$)/);
+    await expect(tok(p, "Amber-0")).toHaveAttribute("aria-label", /^Captain(, |$)/);
+  }
+  await a.screenshot({ path: "shots/scene-names-renamed.png" });
+  // Cleared, the match's name is back.
+  await col(a, "Amber-0").click({ button: "right" });
+  await a.getByTestId("hero-menu-rename").click();
+  await input.fill("");
+  await a.keyboard.press("Enter");
+  await expect(col(b, "Amber-0").getByTestId("tb-name")).toHaveText("Coach");
+
+  // A scene saved from a moment shows them too.
+  await a.getByTestId("mode-player").click();
+  await a.getByTestId("match-save").click();
+  await expect(a.getByTestId("scene-card")).toHaveCount(2);
+  await a.getByTestId("mode-sandbox").click();
+  await expect(a.getByTestId("scene-card").nth(1)).toHaveAttribute("aria-current", "true");
+  await expect(col(a, "Amber-0").getByTestId("tb-name")).toHaveText("Coach");
+  await expect(tok(a, "Sapphire-5")).toHaveAttribute("aria-label", /^Moss(, |$)/);
+
+  // Names off (this browser): none in Scenes either.
+  await a.getByTestId("mode-player").click();
+  await a.getByTestId("names-toggle").click();
+  await a.getByTestId("mode-sandbox").click();
+  await expect(a.getByTestId("tb-name")).toHaveCount(0);
+  await expect(tok(a, "Amber-0")).toHaveAttribute("aria-label", /^King 1(, |$)/);
+  expect(await namesOnPage(a)).toEqual([]);
+});

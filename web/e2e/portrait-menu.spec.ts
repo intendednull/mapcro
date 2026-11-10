@@ -5,7 +5,7 @@
 // no menu. The map tokens show the state (dead, unseen) but carry no eye or skull button.
 
 import { type Page, expect, test } from "./fixtures";
-import { joinNew, viewLink } from "./helpers";
+import { joinNew, pickHero, viewLink } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 import { heroPack } from "./synthetic";
 
@@ -36,15 +36,16 @@ test("right-click a portrait: kill, revive and vision, seen by another editor; t
   await expect(a.locator(".mapbox .tok [data-testid=vision], .mapbox .tok [data-testid=life], .mapbox .tok .life")).toHaveCount(0);
   await expect(a.locator(".mapbox .tok .vis")).toHaveCount(0); // every hero is in vision
 
-  // With no hero yet the last item picks one; with one, it changes it.
+  // With no hero yet the last item picks one, and the menu can show it on the map (the portrait
+  // is the picker then); with one, it changes it.
   await openMenu(a, "Amber-1");
-  await expect(menu(a).getByRole("menuitem")).toHaveText(["Kill", "Mark not seen", "Pick hero…"]);
+  await expect(menu(a).getByRole("menuitem")).toHaveText(["Kill", "Mark not seen", "Show on the map", "Rename…", "Pick hero…"]);
   await a.keyboard.press("Escape");
-  await a.getByTestId("hero-pick-Amber-1").selectOption({ index: 1 });
-  await a.getByTestId("hero-pick-Amber-3").selectOption({ index: 2 });
+  await pickHero(a, "Amber-1", "Testhero A");
+  await pickHero(a, "Amber-3", "Testhero B");
   await expect(portrait(a, "Amber-1").getByTestId("focus-hero")).toHaveCount(1);
   await openMenu(a, "Amber-1");
-  await expect(menu(a).getByRole("menuitem")).toHaveText(["Kill", "Mark not seen", "Change hero…"]);
+  await expect(menu(a).getByRole("menuitem")).toHaveText(["Kill", "Mark not seen", "Rename…", "Change hero…"]);
   // At the pointer (the column's middle), inside the window.
   const pb = (await portrait(a, "Amber-1").boundingBox())!;
   const mb = (await menu(a).boundingBox())!;
@@ -101,8 +102,8 @@ test("the menu by keyboard: focus on the first item, arrows move and wrap, Enter
   expect(await focused()).toBe("hero-menu-life");
   await a.keyboard.press("ArrowDown");
   expect(await focused()).toBe("hero-menu-vision");
-  await a.keyboard.press("ArrowDown");
-  await a.keyboard.press("ArrowDown"); // past the last: back to the first
+  // Show on the map, Rename…, Pick hero…, then past the last: back to the first.
+  for (let i = 0; i < 4; i++) await a.keyboard.press("ArrowDown");
   expect(await focused()).toBe("hero-menu-life");
   await a.keyboard.press("ArrowUp"); // before the first: the last
   expect(await focused()).toBe("hero-menu-hero");

@@ -1,6 +1,6 @@
 // A click on a hero focuses it (operator, 2026-11-09: "when I click on a hero, it should focus
 // them. if zoomed in, it pans to that hero. also it can ping them too"): a portrait in either top
-// bar, or a roster chip. Zoomed in, the view glides to centre the hero (same zoom); at the fit
+// bar (an editor's hero-less slot: "Show on the map" in its portrait menu). Zoomed in, the view glides to centre the hero (same zoom); at the fit
 // view it stays; it pings the hero's spot (others see it like any ping) and flashes the token.
 // Following someone, the view stays theirs. A hero with no spot (in Player, dead) gets nothing.
 // An editor's portrait with a hero picked focuses; its corner swap button still picks.
@@ -10,7 +10,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { dragToken, joinNew, mapPoint, viewOf } from "./helpers";
+import { dragToken, joinNew, mapPoint, pickHero, viewOf } from "./helpers";
 import { Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 import { heroPack } from "./synthetic";
 
@@ -55,18 +55,19 @@ async function zoomIn(p: Page) {
 const portrait = (p: Page, slot: string) => p.locator(`.tb-player[data-slot="${slot}"] [data-testid=focus-hero]`);
 const pings = (p: Page, who: string) => p.locator(`.mapbox .ping[data-ping="${who}"]`);
 
-test("on a board, a portrait or roster chip pans to the hero, pings it for everyone and flashes it", async ({ browser }) => {
+test("on a board, a portrait (or its menu, without a hero) pans to the hero, pings it for everyone and flashes it", async ({ browser }) => {
   const url = await newBoardUrl(server, "hero focus");
   const a = await joinNew(browser, url, "Coach");
   const b = await joinNew(browser, url, "Marrow");
   // An editor's empty slot: the portrait is the picker, nothing to focus by it yet.
   await expect(portrait(a, "Amber-3")).toHaveCount(0);
   await expect(a.locator('.tb-player[data-slot="Amber-3"] [data-testid=pick-hero]')).not.toHaveClass(/swap/);
-  for (const [slot, i] of [["Amber-0", 1], ["Amber-3", 2], ["Sapphire-1", 3]] as const) await a.getByTestId(`hero-pick-${slot}`).selectOption({ index: i });
+  for (const [slot, h] of [["Amber-0", "A"], ["Amber-3", "B"], ["Sapphire-1", "C"]] as const) await pickHero(a, slot, `Testhero ${h}`);
   await expect(a.locator('.tb-player[data-slot="Amber-3"] [data-testid=pick-hero]')).toHaveClass(/swap/);
   // Two heroes out on the map, apart.
   await dragToken(a, "Amber-3", 0.3, 0.4);
   await dragToken(a, "Sapphire-1", 0.7, 0.62);
+  await dragToken(a, "Amber-4", 0.62, 0.3);
 
   // Zoomed in: the view glides to centre Amber-3, at the same zoom.
   await zoomIn(a);
@@ -81,9 +82,10 @@ test("on a board, a portrait or roster chip pans to the hero, pings it for every
   await a.screenshot({ path: "shots/hero-focus-board-A.png" });
   await b.screenshot({ path: "shots/hero-focus-board-B.png" });
 
-  // The roster chip does the same.
-  await a.locator(".slot .chip.sapphire", { hasText: "A2" }).click();
-  await expect.poll(() => offCentre(a, "Sapphire-1")).toBeLessThan(4);
+  // A hero-less slot (its portrait is the picker): "Show on the map" in its menu does the same.
+  await a.locator('.tb-player[data-slot="Amber-4"]:visible').first().click({ button: "right" });
+  await a.getByTestId("hero-menu-focus").click();
+  await expect.poll(() => offCentre(a, "Amber-4")).toBeLessThan(4);
 
   // At the fit view nothing moves; the ping still goes.
   const fit = await viewOf(b);

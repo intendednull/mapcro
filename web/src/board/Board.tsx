@@ -1,7 +1,7 @@
 // One board: the header (title, save status, people), the map with its layers, and the side
 // panel. The map is the interface: edits happen on it directly.
 
-import { rosterTeamName, slotTag, teamName } from "../map/model";
+import { rosterTeamName, teamName } from "../map/model";
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
@@ -33,7 +33,7 @@ import { RiftRings } from "../player/Rift";
 import { liveLayer } from "../player/layer";
 import { PlayerTopBar } from "../player/PlayerTopBar";
 import { Layers, calloutOrder } from "./Layers";
-import { FRESH_BOARD, randomRosterOps } from "./roster";
+import { FRESH_BOARD, randomRosterOps, sceneMatchName } from "./roster";
 import { HeroPicker } from "./HeroPicker";
 import { defaultSplit, project } from "../map/lanes";
 import { FIT_VIEW, worldToMap, worldToView } from "../map/transform";
@@ -245,7 +245,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
   onCleanup(() => cancelAnimationFrame(gliding));
 
   // ---- hero focus (operator, 2026-11-09: "when I click on a hero, it should focus them"): a
-  // click on a hero's portrait (either top bar) or its roster chip pans a zoomed-in view to
+  // click on a hero's portrait (either top bar) pans a zoomed-in view to
   // centre it, pings its spot (everyone sees the ping), and flashes its token. Following
   // someone, the view stays theirs: only the ping and the flash. A hero with nowhere on the
   // map (not placed; in Player, dead or not in the match at t) gets nothing. ----
@@ -274,6 +274,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
     unflash = setTimeout(() => setFocused(undefined), 1200);
   };
   onCleanup(() => clearTimeout(unflash));
+  /** In a scene, the open match's in-game name for a slot (spec §6b "Names"); a typed one wins. */
+  const matchName = (team: string, n: number) => sceneMatchName(player.tl(), scene()?.scene.source, player.playerName, team, n);
   const presenterList = createMemo(() => presenters(state.peerList(), state.myPeer(), following()));
   const followersOf = (peer: number | undefined) =>
     peer === undefined ? 0 : state.peerList().filter((x) => x.state?.following === peer).length;
@@ -592,7 +594,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
         </h1>
       </div>
       <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} compact onFocus={focusHero} />}>
-        <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact onPickHero={setHeroPick} onFocus={focusHero} />
+        <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
       </Show>
       <div class="p-map-wrap">
         {mapBox(true)}
@@ -770,6 +772,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 myColor={me()?.color ?? 0}
                 bindPing={(f) => (pingAt = f)}
                 focused={focused}
+                matchName={matchName}
                 svg={overlay}
                 objectives={objectives}
                 k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)}
@@ -938,7 +941,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
             </div>
           </div>
           <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} onFocus={focusHero} />}>
-            <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} onFocus={focusHero} />
+            <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
           </Show>
           {/* The map takes all the room left, as the largest square that fits. */}
           <div class="mapfit">
@@ -996,71 +999,6 @@ export function Board(p: { board: string; token: string; art: Art }) {
           <Show when={inPlayer()}>
             <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={userFlip} onUserPlayback={() => stopFollowing("changed the playback")} />
           </Show>
-          <section classList={{ "pl-hidden": inPlayer() }}>
-            <h2>
-              Roster
-            </h2>
-            <div class="teams">
-              <For each={["Amber", "Sapphire"] as const}>
-                {(team) => (
-                  <div>
-                    <div class={`team-head ${team.toLowerCase()}`}>
-                      <i />
-                      {rosterTeamName(team)}
-                    </div>
-                    <For each={state.roster().filter((s) => s.slot.team === team)}>
-                      {(s) => {
-                        const hero = () => (s.slot.hero != null ? p.art.heroes.get(s.slot.hero) : undefined);
-                        return (
-                          <div class="slot">
-                            <span
-                              class={`chip ${team.toLowerCase()}`}
-                              role="button"
-                              tabindex="0"
-                              data-testid="roster-focus"
-                              title="Show on the map"
-                              aria-label={`Show ${s.slot.name || `${rosterTeamName(team)} player ${s.slot.slot + 1}`} on the map`}
-                              onClick={() => focusHero(team, s.slot.slot)}
-                              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), focusHero(team, s.slot.slot))}
-                            >
-                              {`${slotTag(team)}${s.slot.slot + 1}`}
-                              <Show when={hero()?.portrait}>
-                                <i class="hero-mm" style={{ display: "block", "background-image": `url(${JSON.stringify(hero()!.portrait)})` }} />
-                              </Show>
-                            </span>
-                            <span class="nm">
-                              <b>{s.slot.name || `Player ${s.slot.slot + 1}`}</b>
-                              <Show when={state.canEdit() && heroList().length > 0} fallback={<span>{hero()?.name ?? "No hero"}</span>}>
-                                <select
-                                  class="hero-pick"
-                                  data-testid={`hero-pick-${team}-${s.slot.slot}`}
-                                  aria-label={`Hero for ${s.slot.name || `${rosterTeamName(team)} player ${s.slot.slot + 1}`}`}
-                                  value={s.slot.hero ?? ""}
-                                  onChange={(e) => {
-                                    const v = e.currentTarget.value;
-                                    state.edit([{ Set: { id: s.id, value: { RosterHero: v === "" ? null : Number(v) } } }]);
-                                  }}
-                                >
-                                  <option value="">No hero</option>
-                                  <For each={heroList()}>
-                                    {(h) => (
-                                      <option value={h.id} disabled={takenBy(s.id).has(h.id)}>
-                                        {takenBy(s.id).has(h.id) ? `${h.name} (${takenBy(s.id).get(h.id)})` : h.name}
-                                      </option>
-                                    )}
-                                  </For>
-                                </select>
-                              </Show>
-                            </span>
-                          </div>
-                        );
-                      }}
-                    </For>
-                  </div>
-                )}
-              </For>
-            </div>
-          </section>
           <section>
             <h2>
               People here <small>{people().length + (joined() ? 1 : 0)} online{presenterList().length ? ` · ${presenterList().length} presenting` : ""}</small>

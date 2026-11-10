@@ -2,6 +2,7 @@
 // editor drags a token; while dragging, its position travels through presence (others watch it
 // move, with the dragger's name tag), and the drop commits one op (spec §4a).
 
+import { slotName } from "./roster";
 import { rosterTeamShort, slotTag } from "../map/model";
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -93,6 +94,8 @@ export function Tokens(p: {
   preview?: (() => MatchPreview | undefined) | undefined;
   /** A hero just focused from its portrait ("Amber-0"): its token flashes; `n` restarts it. */
   focused?: (() => { slot: string; n: number } | undefined) | undefined;
+  /** In a scene, the open match's in-game name for a slot (Board's `sceneMatchName`). */
+  matchName?: ((team: string, slot: number) => string | undefined) | undefined;
 }) {
   const [drag, setDrag] = createSignal<Drag | undefined>();
   const slots = createMemo(() => new Map(p.state.roster().map((s) => [s.id, s.slot])));
@@ -281,8 +284,9 @@ export function Tokens(p: {
           const at = () => worldToView(shown(), p.vp);
           const home = () => worldToView(pl().state.pos, p.vp);
           const r = () => TOKEN_R * p.k;
-          // In Player, the match's player name (spec §6b); else the board's slot name.
-          const label = () => `${pv()?.name || slot().name || `${rosterTeamShort(slot().team)} ${slot().slot + 1}`}${hero() ? `, ${hero()!.name}` : ""}${ghost() != null ? ` · Seen ${formatClock(Math.floor(ghost()!))} ago` : ""}`;
+          // In Player, the match's player name (spec §6b); else the board's slot name, falling back
+          // in a scene to the open match's.
+          const label = () => `${pv()?.name || slotName(slot().name, live() ? undefined : p.matchName?.(slot().team, slot().slot)) || `${rosterTeamShort(slot().team)} ${slot().slot + 1}`}${hero() ? `, ${hero()!.name}` : ""}${ghost() != null ? ` · Seen ${formatClock(Math.floor(ghost()!))} ago` : ""}`;
           // The map's hover label (map/HoverLabel.tsx), by roster slot, never the player's id.
           const hoverId = () => `${slot().team}-${slot().slot}`;
           const shownOnMap = () => (live() ? !!pv()?.pos && !leaving() : pl().state.placed);

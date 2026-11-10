@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { type Browser, type Page, expect, test } from "./fixtures";
 import { Server, translate } from "./server";
+import { pickHero } from "./helpers";
 
 // A 1×1 PNG (not game art).
 const PNG = Buffer.from(
@@ -36,7 +37,8 @@ function syntheticPack(entities: Ent[] = DEFAULT_ENTITIES, icons: string[] = [])
     schema: 3,
     game: { client_version: 9001, source_revision: 1, date: "Nov 07 2026" },
     blobs,
-    heroes: [{ hero_id: 7, class_name: "hero_test", name: "Testhero", disabled: false, minimap_blob: "heroes/7", topbar_blob: null }],
+    // A top-bar portrait makes it playable (schema 3), so the portrait's picker offers it.
+    heroes: [{ hero_id: 7, class_name: "hero_test", name: "Testhero", disabled: false, minimap_blob: "heroes/7", topbar_blob: "heroes/7" }],
     entities,
     icons: icons.map((key) => ({ key, source: `panorama/images/minimap/${key.slice(6)}.vtex_c`, format: "BGRA8888", blob: key })),
   };
@@ -101,7 +103,7 @@ test.describe("with a synthetic pack", () => {
 
     // Picking a hero puts the pack's portrait on the token, in every browser.
     const b = await joinNew(browser, url, "Marrow");
-    await a.getByTestId("hero-pick-Amber-0").selectOption({ label: "Testhero" });
+    await pickHero(a, "Amber-0", "Testhero");
     for (const p of [a, b]) {
       await expect(p.locator('.tok[data-slot="Amber-0"] image')).toHaveAttribute("href", `/packs/${packId}/heroes/7.png`);
     }
@@ -183,8 +185,7 @@ test("screenshot with the real pack", async ({ browser }) => {
     const b = await joinNew(browser, url, "Marrow");
     const heroes = ["Haze", "Abrams", "Dynamo", "Vindicta", "Seven", "Lady Geist", "Infernus", "Bebop", "Grey Talon", "Kelvin", "Paradox", "Wraith"];
     for (const [i, h] of heroes.entries()) {
-      const sel = a.getByTestId(`hero-pick-${i < 6 ? "Amber" : "Sapphire"}-${i % 6}`);
-      await sel.selectOption({ label: h }).catch(() => undefined);
+      await pickHero(a, `${i < 6 ? "Amber" : "Sapphire"}-${i % 6}`, h).catch(() => a.keyboard.press("Escape"));
     }
     const souls = [9040, 7310, 6120, 7100, 5480, 4790, 8800, 7700, 6900, 6200, 5100, 4400];
     const ults = [0, 60, 25, null, 90, 0, 40, 0, 75, 10, null, 100];
