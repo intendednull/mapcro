@@ -46,6 +46,49 @@ pub const HUD_SOURCES: [&str; 11] = [
     "panorama/styles/citadel_base_styles.vcss_c",
 ];
 
+/// The folders under which item, ability and modifier icons may be read.
+pub const ABILITY_ICON_DIRS: [&str; 4] = [
+    "panorama/images/hud/abilities/",
+    "panorama/images/upgrades/",
+    "panorama/images/items/",
+    "panorama/images/hud/modifiers/",
+];
+
+/// The English localisation files the names table reads, loose in the game directory (the VPK
+/// holds only a stub `items_english.txt`). Items are in `citadel_gc_mod_names`, hero abilities in
+/// `citadel_heroes`, and modifiers' `m_sLocalizationName` keys across `citadel_attributes`,
+/// `citadel_heroes`, `citadel_gc_mod_names`, `citadel_mods` and `citadel_main`. In lookup order.
+pub const ABILITY_NAMES: [&str; 5] = [
+    "resource/localization/citadel_gc_mod_names/citadel_gc_mod_names_english.txt",
+    "resource/localization/citadel_heroes/citadel_heroes_english.txt",
+    "resource/localization/citadel_attributes/citadel_attributes_english.txt",
+    "resource/localization/citadel_mods/citadel_mods_english.txt",
+    "resource/localization/citadel_main/citadel_main_english.txt",
+];
+
+/// Whether a VPK entry may be read as an item, ability or modifier icon: a `.vtex_c` texture or
+/// `.vsvg_c` SVG directly in one of [`ABILITY_ICON_DIRS`] or one folder below it
+/// (`upgrades/mods_weapon/x_psd.vtex_c`).
+pub fn is_ability_icon_entry(relative: &str) -> bool {
+    let Some(rest) = ABILITY_ICON_DIRS
+        .iter()
+        .find_map(|dir| relative.strip_prefix(dir))
+    else {
+        return false;
+    };
+    let Some(stem) = rest
+        .strip_suffix(".vtex_c")
+        .or_else(|| rest.strip_suffix(".vsvg_c"))
+    else {
+        return false;
+    };
+    let parts: Vec<&str> = stem.split('/').collect();
+    parts.len() <= 2
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && *part != "." && *part != ".." && !part.contains('\\'))
+}
+
 /// Whether a VPK entry may be read for the top-bar art.
 ///
 /// This is deliberately narrow: the fixed paths above, plus the
@@ -91,9 +134,9 @@ impl GameDir {
 
     /// Whether `relative` names one of the files the extractor is allowed to open.
     ///
-    /// Only the VPK directory file, its numbered chunks, the midtown map VPK, `steam.inf` and the
-    /// English hero-name localisation file are allowed. In particular nothing under `cfg/`,
-    /// `account_*` or `cache_*` is.
+    /// Only the VPK directory file, its numbered chunks, the midtown map VPK, `steam.inf`, the
+    /// English hero-name localisation file and the [`ABILITY_NAMES`] files are allowed. In
+    /// particular nothing under `cfg/`, `account_*` or `cache_*` is.
     pub fn is_allowed(relative: &str) -> bool {
         if matches!(
             relative,
@@ -101,7 +144,8 @@ impl GameDir {
                 | "maps/dl_midtown.vpk"
                 | "pak01_dir.vpk"
                 | "resource/localization/citadel_gc_hero_names/citadel_gc_hero_names_english.txt"
-        ) {
+        ) || ABILITY_NAMES.contains(&relative)
+        {
             return true;
         }
 
@@ -180,6 +224,54 @@ mod tests {
             "panorama/images/minimap/ammo_box_psd.vtex_c"
         ));
         assert!(!is_topbar_entry_allowed("panorama/images/heroes/empty_psd.vtex_c/../x"));
+    }
+
+    #[test]
+    fn ability_icon_allow_list_is_narrow() {
+        for path in [
+            "panorama/images/hud/abilities/inferno_molotov_psd.vtex_c",
+            "panorama/images/hud/abilities/viscous/goo_ball_psd.vtex_c",
+            "panorama/images/upgrades/mods_weapon/fleetfoot_boots_psd.vtex_c",
+            "panorama/images/items/weapon/fleetfoot_psd.vtex_c",
+            "panorama/images/hud/modifiers/burning_psd.vtex_c",
+            "panorama/images/hud/modifiers/icon_parry.vsvg_c",
+        ] {
+            assert!(is_ability_icon_entry(path), "{path}");
+        }
+        for path in [
+            "panorama/images/heroes/inferno_mm_psd.vtex_c",
+            "panorama/images/hud/crosshair/reticle_psd.vtex_c",
+            "panorama/images/upgrades/a/b/c_psd.vtex_c",
+            "panorama/images/upgrades/../heroes/x_psd.vtex_c",
+            "panorama/images/upgrades/./x_psd.vtex_c",
+            "panorama/images/upgrades//x_psd.vtex_c",
+            "panorama/images/upgrades/.vtex_c",
+            "panorama/images/upgrades/x_psd.vcss_c",
+            "panorama/images/upgrades/.vsvg_c",
+            "panorama/images/upgrades/x\\y_psd.vtex_c",
+            "panorama/images/upgrades/x_psd.vtex_c/",
+            "xpanorama/images/upgrades/x_psd.vtex_c",
+        ] {
+            assert!(!is_ability_icon_entry(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn localisation_allow_list_is_exact() {
+        for path in ABILITY_NAMES {
+            assert!(GameDir::is_allowed(path), "{path}");
+        }
+        assert!(GameDir::is_allowed(
+            "resource/localization/citadel_gc_hero_names/citadel_gc_hero_names_english.txt"
+        ));
+        for path in [
+            "resource/localization/citadel_heroes/citadel_heroes_french.txt",
+            "resource/localization/citadel_gc/citadel_gc_english.txt",
+            "resource/localization/citadel_heroes/../../cfg/x.txt",
+            "cfg/citadel_heroes_english.txt",
+        ] {
+            assert!(!GameDir::is_allowed(path), "{path}");
+        }
     }
 
     #[test]

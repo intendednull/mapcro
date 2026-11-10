@@ -703,10 +703,22 @@ fn write_pack(dir: &std::path::Path, version: &str, tamper: bool, numeric: bool)
     } else {
         serde_json::json!({ "client_version": version, "source_revision": "1", "date": "Nov 05 2026" })
     };
+    // Schema 4's names table and an item icon beside it.
+    std::fs::create_dir_all(dir.join("data")).expect("mkdir");
+    std::fs::create_dir_all(dir.join("abilities/upgrades/mods_weapon")).expect("mkdir");
+    let table = br#"{"records":{"1":{"name":"upgrade_x","kind":"item","label":"X","label_from":"localisation"}}}"#;
+    std::fs::write(dir.join("data/abilities.json"), table).expect("write");
+    let icon = b"not really an item icon";
+    std::fs::write(dir.join("abilities/upgrades/mods_weapon/x_psd.png"), icon).expect("write");
     let manifest = serde_json::json!({
-        "schema": if numeric { 2 } else { 1 },
+        "schema": if numeric { 4 } else { 1 },
         "game": game,
-        "blobs": { "map/mid": { "sha256": hash, "w": 1, "h": 1, "mime": "image/png", "file": "map/mid.png" } }
+        "blobs": {
+            "map/mid": { "sha256": hash, "w": 1, "h": 1, "mime": "image/png", "file": "map/mid.png" },
+            "data/abilities": { "sha256": sha256_hex(table), "w": 0, "h": 0, "mime": "application/json", "file": "data/abilities.json" },
+            "abilities/upgrades/mods_weapon/x_psd": { "sha256": sha256_hex(icon), "w": 1, "h": 1, "mime": "image/png", "file": "abilities/upgrades/mods_weapon/x_psd.png" },
+        },
+        "abilities": { "blob": "data/abilities", "items": 1, "abilities": 0, "modifiers": 0, "icons": 1, "icons_missing": 0 }
     });
     std::fs::write(dir.join("pack.json"), serde_json::to_vec(&manifest).expect("json")).expect("write");
 }
@@ -733,6 +745,14 @@ async fn asset_packs_are_served_immutably_and_only_as_listed() {
     assert_eq!(r.headers().get("content-type").and_then(|v| v.to_str().ok()), Some("image/png"));
     assert!(r.headers().get("cache-control").and_then(|v| v.to_str().ok()).is_some_and(|v| v.contains("immutable")));
     assert_eq!(r.body_mut().read_to_vec().expect("body"), b"not really a png 6860");
+    // The names table and an item icon come through as listed.
+    let mut r = ureq::get(&server.url(&format!("/packs/{id}/data/abilities.json"))).call().expect("table");
+    assert_eq!(r.headers().get("content-type").and_then(|v| v.to_str().ok()), Some("application/json"));
+    let table: serde_json::Value = r.body_mut().read_json().expect("json");
+    assert_eq!(table["records"]["1"]["label"], "X");
+    let mut r = ureq::get(&server.url(&format!("/packs/{id}/abilities/upgrades/mods_weapon/x_psd.png"))).call().expect("icon");
+    assert_eq!(r.headers().get("content-type").and_then(|v| v.to_str().ok()), Some("image/png"));
+    assert_eq!(r.body_mut().read_to_vec().expect("body"), b"not really an item icon");
 
     for path in ["secret.txt", "../old/pack.json", "map/../secret.txt", "%2e%2e/old/map/mid.png", "pack.json/../secret.txt"] {
         let status = match ureq::get(&server.url(&format!("/packs/{id}/{path}"))).call() {

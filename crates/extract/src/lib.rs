@@ -8,6 +8,7 @@
 //! container and KV3 layouts are ported from ValveResourceFormat (MIT), credited in [`kv3`] and
 //! [`vtex`].
 
+mod abilities;
 mod allow;
 mod entities;
 mod error;
@@ -25,15 +26,16 @@ mod topbar;
 mod vpk;
 mod vtex;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
+pub use abilities::{Kind, NameFrom, Record, fallback_name, token};
 pub use allow::GameDir;
 pub use error::{Error, Result};
 pub use kv3::Value;
 pub use pack::{
-    Blob, Entity, EntitySource, Extractor, Game, Hero, HudSource, Icon, Pack, SCHEMA, SkippedIcon,
-    Source,
+    AbilityTable, Blob, Entity, EntitySource, Extractor, Game, Hero, HudSource, Icon, Pack, SCHEMA,
+    SkippedIcon, Source,
 };
 pub use png_out::{encode_png, write_png};
 pub use steam::SteamInfo;
@@ -43,6 +45,14 @@ pub use vtex::{Texture, decode_vtex, format_label};
 use sha2::{Digest, Sha256};
 
 const HEROES_PATH: &str = "scripts/heroes.vdata_c";
+const ABILITIES_PATH: &str = "scripts/abilities.vdata_c";
+const MODIFIERS_PATH: &str = "scripts/modifiers.vdata_c";
+const GENERIC_PATH: &str = "scripts/generic_data.vdata_c";
+/// Files whose records carry modifiers without being abilities: pickups and props, NPC units.
+const MODIFIER_HOSTS: [&str; 2] = ["scripts/misc.vdata_c", "scripts/npc_units.vdata_c"];
+/// The names table's blob key and file.
+const ABILITIES_BLOB: &str = "data/abilities";
+const ABILITIES_FILE: &str = "data/abilities.json";
 const HERO_NAMES_PATH: &str =
     "resource/localization/citadel_gc_hero_names/citadel_gc_hero_names_english.txt";
 const ENTITIES_VPK: &str = "maps/dl_midtown.vpk";
@@ -102,7 +112,9 @@ pub fn extract(game_dir: &Path, out_dir: &Path) -> Result<ExtractReport> {
         )?;
     }
 
-    pack.heroes = extract_heroes(&vpk, &game, out_dir, &mut pack, &mut files)?;
+    let (heroes, signature) = extract_heroes(&vpk, &game, out_dir, &mut pack, &mut files)?;
+    pack.heroes = heroes;
+    extract_abilities(&vpk, &game, out_dir, &signature, &mut pack, &mut files)?;
 
     let entities = match Vpk::open(&game, ENTITIES_VPK) {
         Ok(map) => extract_entities(&map, &mut pack)?,
@@ -158,31 +170,24 @@ fn extract_heroes(
     out_dir: &Path,
     pack: &mut Pack,
     files: &mut Vec<String>,
-) -> Result<Vec<Hero>> {
-    let Some(entry) = vpk.entry(HEROES_PATH) else {
-        return Ok(Vec::new());
+) -> Result<(Vec<Hero>, BTreeSet<String>)> {
+    let Some(root) = read_vdata(vpk, HEROES_PATH, pack)? else {
+        return Ok((Vec::new(), BTreeSet::new()));
     };
-    let bytes = vpk.read_entry(entry)?;
-    let resource = resource::parse(&bytes)?;
-    let block = resource.block(b"DATA").ok_or(Error::MissingDataBlock)?;
-    let root = kv3::decode(block.data)?;
 
-    pack.add_source(
-        entry.archive_name(vpk.dir_name()),
-        entry.path.clone(),
-        entry.crc32,
-        entry.size(),
-    );
-
-    let names = match read_localisation(vpk, game, pack)? {
+    let names = match read_localisation(vpk, game, pack, HERO_NAMES_PATH)? {
         Some(text) => kv1::flatten(&text)?,
         None => BTreeMap::new(),
     };
 
     let heroes = heroes::parse(&root, &names)?;
     let mut output = Vec::with_capacity(heroes.len());
+    let mut signature = BTreeSet::new();
 
     for mut hero in heroes {
+        if hero.is_playable() {
+            signature.extend(hero.abilities.iter().flatten().cloned());
+        }
         if hero.is_playable()
             && let Some(entry_path) = hero.minimap_entry.clone()
             && let Some(portrait) = vpk.entry(&entry_path)
@@ -268,14 +273,214 @@ fn extract_heroes(
             topbar_blob: hero.topbar_blob,
             card_blob: hero.card_blob,
             critical_blob: hero.critical_blob,
+            abilities: hero
+                .abilities
+                .each_ref()
+                .map(|name| name.as_deref().map_or(0, token)),
         });
     }
 
-    Ok(output)
+    Ok((output, signature))
 }
 
-fn read_localisation(vpk: &Vpk, game: &GameDir, pack: &mut Pack) -> Result<Option<String>> {
-    if let Some(entry) = vpk.entry(HERO_NAMES_PATH) {
+/// A decoded `.vdata_c` from the VPK, recorded as a source; `None` when the VPK hasn't it.
+fn read_vdata(vpk: &Vpk, path: &str, pack: &mut Pack) -> Result<Option<Value>> {
+    let Some(entry) = vpk.entry(path) else {
+        return Ok(None);
+    };
+    let bytes = vpk.read_entry(entry)?;
+    let resource = resource::parse(&bytes)?;
+    let block = resource.block(b"DATA").ok_or(Error::MissingDataBlock)?;
+    let root = kv3::decode(block.data)?;
+    pack.add_source(
+        entry.archive_name(vpk.dir_name()),
+        entry.path.clone(),
+        entry.crc32,
+        entry.size(),
+    );
+    Ok(Some(root))
+}
+
+/// The items, abilities and modifiers names table (`data/abilities.json`) and their icons.
+fn extract_abilities(
+    vpk: &Vpk,
+    game: &GameDir,
+    out_dir: &Path,
+    signature: &BTreeSet<String>,
+    pack: &mut Pack,
+    files: &mut Vec<String>,
+) -> Result<()> {
+    let Some(abilities_root) = read_vdata(vpk, ABILITIES_PATH, pack)? else {
+        return Ok(());
+    };
+    let modifiers_root = read_vdata(vpk, MODIFIERS_PATH, pack)?;
+    let prices = read_vdata(vpk, GENERIC_PATH, pack)?
+        .map(|generic| abilities::prices(&generic))
+        .unwrap_or_default();
+
+    // First file wins a key (allow::ABILITY_NAMES is in lookup order); keys are lower-cased.
+    let mut names = BTreeMap::new();
+    for path in allow::ABILITY_NAMES {
+        if let Some(text) = read_localisation(vpk, game, pack, path)? {
+            for (key, value) in kv1::flatten(&text)? {
+                names.entry(key.to_ascii_lowercase()).or_insert(value);
+            }
+        }
+    }
+
+    let mut hosts = Vec::new();
+    for path in MODIFIER_HOSTS {
+        if let Some(root) = read_vdata(vpk, path, pack)? {
+            hosts.push(root);
+        }
+    }
+    let hosts: Vec<&Value> = hosts.iter().collect();
+
+    let mut table = abilities::parse(
+        &abilities_root,
+        modifiers_root.as_ref(),
+        &hosts,
+        &names,
+        &prices,
+    );
+    abilities::fill_from_ability(&mut table);
+
+    // One file per distinct source, shared by every record that names it; a record takes the
+    // first of its candidates the pack can carry.
+    let mut exported: BTreeMap<String, Option<String>> = BTreeMap::new();
+    let (mut icons, mut missing) = (0, 0);
+    for record in table.records.values_mut() {
+        if record.icon_entries.is_empty() || !abilities::wants_icon(record, signature) {
+            continue;
+        }
+        for entry_path in &record.icon_entries {
+            let blob = match exported.get(entry_path) {
+                Some(blob) => blob.clone(),
+                None => {
+                    let blob = export_ability_icon(vpk, out_dir, entry_path, pack, files)?;
+                    exported.insert(entry_path.clone(), blob.clone());
+                    blob
+                }
+            };
+            if blob.is_some() {
+                record.icon = blob;
+                break;
+            }
+        }
+        if record.icon.is_some() {
+            icons += 1;
+        } else {
+            missing += 1;
+        }
+    }
+
+    let json = serde_json::to_vec(&serde_json::json!({
+        "records": table.records.iter().map(|(id, r)| (id.to_string(), r)).collect::<BTreeMap<_, _>>(),
+    }))?;
+    let path = out_dir.join(ABILITIES_FILE);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, &json)?;
+    pack.add_blob_with_mime(
+        ABILITIES_BLOB.to_owned(),
+        ABILITIES_FILE.to_owned(),
+        sha256_hex(&json),
+        0,
+        0,
+        "application/json",
+    );
+    files.push(ABILITIES_FILE.to_owned());
+
+    pack.abilities = Some(AbilityTable {
+        blob: ABILITIES_BLOB.to_owned(),
+        items: table.count(Kind::Item),
+        abilities: table.count(Kind::Ability),
+        modifiers: table.count(Kind::Modifier),
+        icons,
+        icons_missing: missing,
+    });
+    Ok(())
+}
+
+/// Decode one allow-listed icon into `abilities/<path under panorama/images>.png` (`.svg` for an
+/// SVG). `None` when the path isn't allow-listed, the VPK hasn't it, or its texture format isn't
+/// supported.
+fn export_ability_icon(
+    vpk: &Vpk,
+    out_dir: &Path,
+    entry_path: &str,
+    pack: &mut Pack,
+    files: &mut Vec<String>,
+) -> Result<Option<String>> {
+    if !allow::is_ability_icon_entry(entry_path) {
+        return Ok(None);
+    }
+    let Some(entry) = vpk.entry(entry_path) else {
+        return Ok(None);
+    };
+    let relative = entry_path
+        .strip_prefix("panorama/images/")
+        .ok_or_else(|| Error::PathNotAllowed(entry_path.to_owned()))?;
+    let bytes = vpk.read_entry(entry)?;
+    let (key, file) = if let Some(stem) = relative.strip_suffix(".vsvg_c") {
+        let resource = resource::parse(&bytes)?;
+        let block = resource.block(b"DATA").ok_or(Error::MissingDataBlock)?;
+        let text = panorama::text_payload(block.data, resource.version)?;
+        let text = std::str::from_utf8(text).map_err(|_| Error::InvalidUtf8)?;
+        let key = format!("abilities/{stem}");
+        let file = format!("{key}.svg");
+        let path = out_dir.join(&file);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, text.as_bytes())?;
+        let sha256 = sha256_hex(text.as_bytes());
+        pack.add_blob_with_mime(key.clone(), file.clone(), sha256, 0, 0, "image/svg+xml");
+        (key, file)
+    } else {
+        let stem = relative
+            .strip_suffix(".vtex_c")
+            .ok_or_else(|| Error::PathNotAllowed(entry_path.to_owned()))?;
+        let texture = match decode_vtex(&bytes) {
+            Ok(texture) => texture,
+            Err(Error::UnsupportedFormat(_)) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let key = format!("abilities/{stem}");
+        let file = format!("{key}.png");
+        let png = write_png(
+            &out_dir.join(&file),
+            texture.width,
+            texture.height,
+            &texture.rgba,
+        )?;
+        pack.add_blob(
+            key.clone(),
+            file.clone(),
+            sha256_hex(&png),
+            texture.width,
+            texture.height,
+        );
+        (key, file)
+    };
+    pack.add_source(
+        entry.archive_name(vpk.dir_name()),
+        entry.path.clone(),
+        entry.crc32,
+        entry.size(),
+    );
+    files.push(file);
+    Ok(Some(key))
+}
+
+fn read_localisation(
+    vpk: &Vpk,
+    game: &GameDir,
+    pack: &mut Pack,
+    path: &str,
+) -> Result<Option<String>> {
+    if let Some(entry) = vpk.entry(path) {
         let bytes = vpk.read_entry(entry)?;
         pack.add_source(
             entry.archive_name(vpk.dir_name()),
@@ -288,12 +493,12 @@ fn read_localisation(vpk: &Vpk, game: &GameDir, pack: &mut Pack) -> Result<Optio
             .map_err(|_| Error::InvalidUtf8);
     }
 
-    match game.path(HERO_NAMES_PATH) {
-        Ok(path) => {
-            let bytes = std::fs::read(path)?;
+    match game.path(path) {
+        Ok(full) => {
+            let bytes = std::fs::read(full)?;
             pack.add_source(
                 "loose".to_owned(),
-                HERO_NAMES_PATH.to_owned(),
+                path.to_owned(),
                 crc32fast::hash(&bytes),
                 bytes.len() as u64,
             );
@@ -312,6 +517,17 @@ pub fn entity_lump(game_dir: &Path) -> Result<Value> {
     let game = GameDir::new(game_dir)?;
     let map = Vpk::open(&game, ENTITIES_VPK)?;
     let bytes = map.read(ENTITIES_PATH)?;
+    let resource = resource::parse(&bytes)?;
+    let block = resource.block(b"DATA").ok_or(Error::MissingDataBlock)?;
+    kv3::decode(block.data)
+}
+
+/// A decoded `.vdata_c` from `pak01_dir.vpk` (`scripts/abilities.vdata_c`, say), for audits and
+/// probes that need every record (`examples/vdata_census.rs`).
+pub fn vdata(game_dir: &Path, path: &str) -> Result<Value> {
+    let game = GameDir::new(game_dir)?;
+    let vpk = Vpk::open(&game, "pak01_dir.vpk")?;
+    let bytes = vpk.read(path)?;
     let resource = resource::parse(&bytes)?;
     let block = resource.block(b"DATA").ok_or(Error::MissingDataBlock)?;
     kv3::decode(block.data)

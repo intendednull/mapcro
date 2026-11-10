@@ -23,6 +23,9 @@ pub struct Hero {
     /// `m_strIconHeroCardCritical`: the hero card the HUD shows at low health.
     pub critical_entry: Option<String>,
     pub critical_blob: Option<String>,
+    /// The four signature abilities' internal names, slot 1 to 4 (4 is the ultimate), from
+    /// `m_mapBoundAbilities`; `None` for a slot the record doesn't bind.
+    pub abilities: [Option<String>; 4],
 }
 
 impl Hero {
@@ -90,6 +93,15 @@ pub fn parse(root: &Value, names: &BTreeMap<String, String>) -> Result<Vec<Hero>
 
         let name = names.get(&format!("{class_name}:n")).cloned();
 
+        let bound = record_field(record, "m_mapBoundAbilities");
+        let abilities = [1, 2, 3, 4].map(|slot| {
+            bound
+                .and_then(|b| b.get(&format!("ESlot_Signature_{slot}")))
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+        });
+
         heroes.push(Hero {
             hero_id,
             class_name: class_name.clone(),
@@ -104,6 +116,7 @@ pub fn parse(root: &Value, names: &BTreeMap<String, String>) -> Result<Vec<Hero>
             card_blob: None,
             critical_entry,
             critical_blob: None,
+            abilities,
         });
     }
 
@@ -121,7 +134,7 @@ fn record_field<'a>(record: &'a [(String, Value)], key: &str) -> Option<&'a Valu
 /// Turn a `m_strMinimapImage` / `m_strTopBarVertical` value such as
 /// `file://{images}/heroes/inferno_mm.psd` into the VPK entry
 /// `panorama/images/heroes/inferno_mm_psd.vtex_c`.
-fn portrait_entry(raw: &str) -> Option<String> {
+pub(crate) fn portrait_entry(raw: &str) -> Option<String> {
     let raw = raw.trim().trim_matches('"');
     let raw = raw.strip_prefix("panorama:").unwrap_or(raw);
     let relative = raw

@@ -71,12 +71,14 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Only image and text types the client renders; anything else in a manifest is refused.
+/// Only image and data types the client loads (the names table is JSON, schema 4); anything else
+/// in a manifest is refused.
 fn mime(m: &str) -> Option<&'static str> {
     match m {
         "image/png" => Some("image/png"),
         "image/svg+xml" => Some("image/svg+xml"),
         "image/webp" => Some("image/webp"),
+        "application/json" => Some("application/json"),
         _ => None,
     }
 }
@@ -178,7 +180,28 @@ pub async fn file(State(app): State<crate::AppState>, Path((id, rest)): Path<(St
 
 #[cfg(test)]
 mod tests {
-    use super::newest_first;
+    use super::{mime, newest_first};
+
+    #[test]
+    fn only_listed_types_are_served() {
+        for m in [
+            "image/png",
+            "image/svg+xml",
+            "image/webp",
+            "application/json",
+        ] {
+            assert_eq!(mime(m), Some(m));
+        }
+        for m in [
+            "text/html",
+            "application/javascript",
+            "text/plain",
+            "application/json; charset=utf-8",
+            "",
+        ] {
+            assert_eq!(mime(m), None, "{m}");
+        }
+    }
     use std::time::{Duration, UNIX_EPOCH};
 
     #[test]

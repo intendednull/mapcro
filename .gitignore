@@ -27,3 +27,6 @@ states/
 
 # Real game art for local design review: extracted from the local install, never committed
 /design/_art/
+
+# Local scratch output (packs, probes): never committed
+/scratch/

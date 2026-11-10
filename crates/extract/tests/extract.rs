@@ -5,7 +5,7 @@ mod support;
 
 use std::path::Path;
 
-use mapcro_extract::{Error, GameDir, SteamInfo, Vpk, decode_vtex, extract, write_png};
+use mapcro_extract::{Error, GameDir, SteamInfo, Vpk, decode_vtex, extract, token, write_png};
 use support::{
     FixtureEntry, T, build_fixture, build_vtex, encode_kv3, known_pixels, kv3_resource,
     panorama_resource, read_png,
@@ -52,6 +52,35 @@ fn hero_tree() -> T {
                 (
                     "m_strIconHeroCard",
                     T::Str("file://{images}/heroes/test_card.psd".into()),
+                ),
+                (
+                    "m_mapBoundAbilities",
+                    T::Object(vec![
+                        (
+                            "ESlot_Ability_Innate_1",
+                            T::Str("citadel_ability_dash".into()),
+                        ),
+                        ("ESlot_Signature_4", T::Str("ability_test_ult".into())),
+                        ("ESlot_Signature_1", T::Str("ability_test_sig".into())),
+                        ("ESlot_Signature_2", T::Str("ability_test_offlist".into())),
+                    ]),
+                ),
+            ]),
+        ),
+        (
+            "hero_unreleased",
+            T::Object(vec![
+                ("m_HeroID", T::Int(8)),
+                (
+                    "m_eHeroDevelopmentState",
+                    T::Str("EHeroDevState_InDevelopment".into()),
+                ),
+                (
+                    "m_mapBoundAbilities",
+                    T::Object(vec![(
+                        "ESlot_Signature_1",
+                        T::Str("ability_test_unreleased".into()),
+                    )]),
                 ),
             ]),
         ),
@@ -457,7 +486,7 @@ fn extract_writes_pack_and_blobs() {
     let pack: serde_json::Value =
         serde_json::from_slice(&std::fs::read(out.path().join("pack.json")).expect("read pack"))
             .expect("parse pack");
-    assert_eq!(pack["schema"].as_u64(), Some(3));
+    assert_eq!(pack["schema"].as_u64(), Some(4));
     assert_eq!(pack["extractor"]["name"].as_str(), Some("mapcro-extract"));
     assert_eq!(pack["game"]["client_version"].as_u64(), Some(1234));
     assert_eq!(pack["game"]["source_revision"].as_u64(), Some(5678));
@@ -466,7 +495,7 @@ fn extract_writes_pack_and_blobs() {
     assert_eq!(pack["blobs"].as_object().expect("blobs").len(), 11);
 
     let heroes = pack["heroes"].as_array().expect("heroes");
-    assert_eq!(heroes.len(), 1);
+    assert_eq!(heroes.len(), 2);
     assert_eq!(heroes[0]["hero_id"].as_u64(), Some(7));
     assert_eq!(heroes[0]["class_name"].as_str(), Some("hero_test"));
     assert_eq!(heroes[0]["name"].as_str(), Some("Test Hero"));
@@ -511,6 +540,20 @@ fn extract_writes_pack_and_blobs() {
         pack["geometry_hash"].as_str().expect("geometry_hash").len(),
         64
     );
+    // Signature slots 1 to 4 in slot order, whatever the record's order; 0 where unbound.
+    assert_eq!(
+        heroes[0]["abilities"],
+        serde_json::json!([
+            token("ability_test_sig"),
+            token("ability_test_offlist"),
+            0,
+            token("ability_test_ult")
+        ])
+    );
+    assert!(
+        pack.get("abilities").is_none(),
+        "no abilities.vdata, no names table"
+    );
 
     assert_eq!(pack["icons"].as_array().expect("icons").len(), 3);
     assert_eq!(
@@ -524,6 +567,505 @@ fn extract_writes_pack_and_blobs() {
     assert_eq!(
         pack["hud_sources"][0]["key"].as_str(),
         Some("hud/hero_badge.vcss")
+    );
+}
+
+const ABILITIES: &str = "scripts/abilities.vdata_c";
+const MODIFIERS: &str = "scripts/modifiers.vdata_c";
+const MISC: &str = "scripts/misc.vdata_c";
+const GENERIC: &str = "scripts/generic_data.vdata_c";
+const MOD_NAMES: &str =
+    "resource/localization/citadel_gc_mod_names/citadel_gc_mod_names_english.txt";
+const HERO_ABILITY_NAMES: &str = "resource/localization/citadel_heroes/citadel_heroes_english.txt";
+const ATTRIBUTE_NAMES: &str =
+    "resource/localization/citadel_attributes/citadel_attributes_english.txt";
+
+fn s(text: &str) -> T {
+    T::Str(text.into())
+}
+
+fn sub(class: &str, name: &'static str, mut fields: Vec<(&'static str, T)>) -> T {
+    let mut all = vec![("_class", s(class)), ("_my_subclass_name", s(name))];
+    all.append(&mut fields);
+    T::Object(all)
+}
+
+fn abilities_tree() -> T {
+    T::Object(vec![
+        ("generic_data_type", s("CitadelAbilityVData")),
+        // A base class: the compiled vdata already folds it into its children.
+        (
+            "weapon_upgrade_t2",
+            T::Object(vec![
+                ("_not_pickable", T::Int(2)),
+                ("m_eAbilityType", s("EAbilityType_Item")),
+                ("m_iItemTier", s("EModTier_2")),
+            ]),
+        ),
+        (
+            "upgrade_test_boots",
+            T::Object(vec![
+                ("_class", s("upgrade_test_boots")),
+                ("m_eAbilityType", s("EAbilityType_Item")),
+                ("m_eItemSlotType", s("EItemSlotType_WeaponMod")),
+                ("m_iItemTier", s("EModTier_2")),
+                (
+                    "m_vecComponentItems",
+                    T::Array(vec![s("upgrade_test_part"), s("upgrade_test_old")]),
+                ),
+                (
+                    "m_strAbilityImage",
+                    s("file://{images}/upgrades/mods_weapon/test_boots.psd"),
+                ),
+                (
+                    "m_BuffModifier",
+                    sub(
+                        "modifier_base",
+                        "modifier_test_buff",
+                        vec![
+                            ("m_bIsHidden", T::Bool(false)),
+                            ("m_strSmallIconCssClass", s("fleetfoot_boots")),
+                            ("m_eDebuffType", s("MODIFIER_DEBUFF_NO")),
+                            ("m_sLocalizationName", s("#Modifier_Test_Buff")),
+                            (
+                                "m_nEnabledStateMask",
+                                s("MODIFIER_STATE_SLOW_IMMUNE | MODIFIER_STATE_UNSTOPPABLE"),
+                            ),
+                            // Nested again: qualified by both names above, and no name of its own.
+                            (
+                                "m_Dot",
+                                sub(
+                                    "modifier_base",
+                                    "modifier_test_dot",
+                                    vec![("m_bIsHidden", T::Bool(true))],
+                                ),
+                            ),
+                        ],
+                    ),
+                ),
+                // A scale function and a projectile aren't modifiers, but the projectile's name
+                // is part of a modifier's qualified name below it.
+                (
+                    "m_Scale",
+                    sub("scale_function_single_stat", "scale_damage", vec![]),
+                ),
+                (
+                    "m_Projectile",
+                    sub(
+                        "citadel_projectile",
+                        "test_projectile",
+                        vec![(
+                            "m_Mods",
+                            T::Array(vec![sub(
+                                "modifier_citadel_slow",
+                                "modifier_test_slow",
+                                vec![("m_eDebuffType", s("MODIFIER_DEBUFF_YES"))],
+                            )]),
+                        )],
+                    ),
+                ),
+                // An empty subclass name adds nothing to the chain.
+                (
+                    "m_Anon",
+                    sub(
+                        "modifier_base",
+                        "",
+                        vec![(
+                            "m_Inner",
+                            sub("modifier_base", "modifier_test_inner", vec![]),
+                        )],
+                    ),
+                ),
+            ]),
+        ),
+        (
+            "upgrade_test_part",
+            T::Object(vec![
+                ("m_eAbilityType", s("EAbilityType_Item")),
+                ("m_eItemSlotType", s("EItemSlotType_Tech")),
+                ("m_iItemTier", s("EModTier_1")),
+                // An SVG HUD image the pack carries as SVG.
+                (
+                    "m_strAbilityImage",
+                    s("file://{images}/hud/modifiers/icon_test.svg"),
+                ),
+            ]),
+        ),
+        (
+            "upgrade_test_armor",
+            T::Object(vec![
+                ("m_eAbilityType", s("EAbilityType_Item")),
+                ("m_eItemSlotType", s("EItemSlotType_Armor")),
+                ("m_iItemTier", s("EModTier_4")),
+                // The HUD image isn't in the VPK: the shop's is used.
+                (
+                    "m_strAbilityImage",
+                    s("file://{images}/upgrades/mods_armor/absent.psd"),
+                ),
+                (
+                    "m_strShopIconLarge",
+                    s("file://{images}/items/vitality/test_armor.psd"),
+                ),
+            ]),
+        ),
+        (
+            "upgrade_test_old",
+            T::Object(vec![
+                ("m_eAbilityType", s("EAbilityType_Item")),
+                ("m_eItemSlotType", s("EItemSlotType_Tech")),
+                ("m_iItemTier", s("EModTier_3")),
+                ("m_bDisabled", T::Bool(true)),
+                (
+                    "m_strAbilityImage",
+                    s("file://{images}/upgrades/mods_tech/test_old.psd"),
+                ),
+            ]),
+        ),
+        (
+            "ability_test_sig",
+            T::Object(vec![
+                ("m_eAbilityType", s("EAbilityType_Signature")),
+                (
+                    "m_strAbilityImage",
+                    s("file://{images}/hud/abilities/test/test_sig.psd"),
+                ),
+            ]),
+        ),
+        (
+            "ability_test_offlist",
+            T::Object(vec![
+                ("m_eAbilityType", s("EAbilityType_Signature")),
+                // Bound to a hero, but outside the icon allow-list.
+                ("m_strAbilityImage", s("file://{images}/heroes/test_mm.psd")),
+            ]),
+        ),
+        (
+            "ability_test_unreleased",
+            T::Object(vec![
+                ("m_eAbilityType", s("EAbilityType_Ultimate")),
+                (
+                    "m_strAbilityImage",
+                    s("file://{images}/hud/abilities/test/test_unreleased.psd"),
+                ),
+            ]),
+        ),
+        (
+            "_include",
+            T::Array(vec![s("scripts/abilities/test.vdata_inc")]),
+        ),
+    ])
+}
+
+fn modifiers_tree() -> T {
+    T::Object(vec![
+        ("generic_data_type", s("CitadelModifierVData")),
+        (
+            "modifier_citadel_test_stun",
+            T::Object(vec![
+                ("_class", s("modifier_citadel_test_stun")),
+                ("m_strSmallIconCssClass", s("stunned")),
+                (
+                    "m_strHudIcon",
+                    s("file://{images}/hud/modifiers/test_stun.psd"),
+                ),
+                ("m_eDebuffType", s("MODIFIER_DEBUFF_ENEMY_TEAM_ONLY")),
+                ("m_sLocalizationName", s("modifier_citadel_test_stun")),
+                ("m_Child", sub("modifier_base", "bonus_speed", vec![])),
+            ]),
+        ),
+        // No `_class` of its own: still a modifier, by its bare name.
+        (
+            "citadel_modifier_test_teleport",
+            T::Object(vec![("m_bIsHidden", T::Bool(true))]),
+        ),
+    ])
+}
+
+fn misc_tree() -> T {
+    T::Object(vec![(
+        "test_pickup",
+        T::Object(vec![
+            ("m_flRadius", T::Double(30.0)),
+            (
+                "m_Regen",
+                sub("modifier_citadel_extendable_health_regen", "regen", vec![]),
+            ),
+        ]),
+    )])
+}
+
+fn generic_tree() -> T {
+    T::Object(vec![(
+        "m_nItemPricePerTier",
+        T::Array(vec![
+            T::Int(0),
+            T::Int(800),
+            T::Int(1600),
+            T::Int(3200),
+            T::Int(6400),
+            T::Int(9999),
+        ]),
+    )])
+}
+
+fn localisation(tokens: &[(&str, &str)]) -> Vec<u8> {
+    let mut text =
+        String::from("\u{feff}\"lang\"\n{\n\t\"Language\" \"English\"\n\t\"Tokens\"\n\t{\n");
+    for (key, value) in tokens {
+        text.push_str(&format!("\t\t\"{key}\" \"{value}\"\n"));
+    }
+    text.push_str("\t}\n}\n");
+    text.into_bytes()
+}
+
+#[test]
+fn extract_writes_the_names_table_and_its_icons() {
+    let (bgra, _) = known_pixels();
+    let mut entries = extraction_entries();
+    let vdata = |path: &str, tree: T| FixtureEntry::new(path, kv3_resource(&encode_kv3(&tree, 0)));
+    entries.extend([
+        vdata(ABILITIES, abilities_tree()),
+        vdata(MODIFIERS, modifiers_tree()),
+        vdata(MISC, misc_tree()),
+        vdata(GENERIC, generic_tree()),
+        FixtureEntry::new(
+            "panorama/images/upgrades/mods_weapon/test_boots_psd.vtex_c",
+            build_vtex(4, 2, 28, &bgra),
+        ),
+        FixtureEntry::new(
+            "panorama/images/items/vitality/test_armor_psd.vtex_c",
+            build_vtex(2, 2, 28, &bgra),
+        ),
+        FixtureEntry::new(
+            "panorama/images/upgrades/mods_tech/test_old_psd.vtex_c",
+            build_vtex(2, 2, 28, &bgra),
+        ),
+        FixtureEntry::new(
+            "panorama/images/hud/abilities/test/test_sig_psd.vtex_c",
+            build_vtex(2, 2, 28, &bgra),
+        ),
+        FixtureEntry::new(
+            "panorama/images/hud/abilities/test/test_unreleased_psd.vtex_c",
+            build_vtex(2, 2, 28, &bgra),
+        ),
+        FixtureEntry::new(
+            "panorama/images/hud/modifiers/test_stun_psd.vtex_c",
+            build_vtex(2, 2, 28, &bgra),
+        ),
+        FixtureEntry::new(
+            "panorama/images/hud/modifiers/icon_test.vsvg_c",
+            panorama_resource(b"<svg>test</svg>", 2),
+        ),
+        // Ability names in the VPK; item names loose beside it (as the real install has them).
+        FixtureEntry::new(
+            HERO_ABILITY_NAMES,
+            localisation(&[
+                ("ability_test_sig", "Test Signature"),
+                ("Upgrade_Test_Boots", "Not This"),
+            ]),
+        ),
+    ]);
+    let fixture = build_fixture(&entries, &[]);
+    let loose = fixture.game.join(MOD_NAMES);
+    std::fs::create_dir_all(loose.parent().expect("parent")).expect("mkdir");
+    std::fs::write(
+        &loose,
+        localisation(&[
+            ("upgrade_test_boots", "Test Boots"),
+            ("modifier_test_buff", "Test Buff"),
+        ]),
+    )
+    .expect("write");
+    let loose = fixture.game.join(ATTRIBUTE_NAMES);
+    std::fs::create_dir_all(loose.parent().expect("parent")).expect("mkdir");
+    std::fs::write(
+        &loose,
+        localisation(&[
+            ("modifier_citadel_test_stun", "Stunned"),
+            ("modifier_test_buff", "Not This Either"),
+        ]),
+    )
+    .expect("write");
+
+    let out = tempfile::tempdir().expect("out dir");
+    extract(&fixture.game, out.path()).expect("extract");
+    let pack: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(out.path().join("pack.json")).expect("read pack"))
+            .expect("parse pack");
+    assert_eq!(pack["schema"].as_u64(), Some(4));
+    assert_eq!(
+        pack["abilities"],
+        serde_json::json!({"blob": "data/abilities", "items": 4, "abilities": 3, "modifiers": 8, "icons": 5, "icons_missing": 1})
+    );
+    let blob = &pack["blobs"]["data/abilities"];
+    assert_eq!(blob["mime"].as_str(), Some("application/json"));
+    assert_eq!(blob["file"].as_str(), Some("data/abilities.json"));
+    let bytes = std::fs::read(out.path().join("data/abilities.json")).expect("table");
+    assert_eq!(blob["sha256"].as_str().map(str::len), Some(64));
+    let sources: Vec<&str> = pack["sources"]
+        .as_array()
+        .expect("sources")
+        .iter()
+        .filter_map(|s| s["path"].as_str())
+        .collect();
+    for path in [
+        ABILITIES,
+        MODIFIERS,
+        MISC,
+        GENERIC,
+        MOD_NAMES,
+        HERO_ABILITY_NAMES,
+        ATTRIBUTE_NAMES,
+    ] {
+        assert!(sources.contains(&path), "{path} is a source");
+    }
+    assert!(
+        !sources.contains(&"panorama/images/upgrades/mods_tech/test_old_psd.vtex_c"),
+        "a disabled item's icon isn't read"
+    );
+
+    let table: serde_json::Value = serde_json::from_slice(&bytes).expect("parse table");
+    let records = table["records"].as_object().expect("records");
+    let names: std::collections::BTreeSet<&str> = records
+        .values()
+        .filter_map(|r| r["name"].as_str())
+        .collect();
+    assert_eq!(
+        names.into_iter().collect::<Vec<_>>(),
+        [
+            "ability_test_offlist",
+            "ability_test_sig",
+            "ability_test_unreleased",
+            "citadel_modifier_test_teleport",
+            "modifier_citadel_test_stun",
+            "modifier_citadel_test_stun/bonus_speed",
+            "test_pickup/regen",
+            "upgrade_test_armor",
+            "upgrade_test_boots",
+            "upgrade_test_boots/modifier_test_buff",
+            "upgrade_test_boots/modifier_test_buff/modifier_test_dot",
+            "upgrade_test_boots/modifier_test_inner",
+            "upgrade_test_boots/test_projectile/modifier_test_slow",
+            "upgrade_test_old",
+            "upgrade_test_part",
+        ]
+    );
+    for (id, record) in records {
+        assert_eq!(
+            id,
+            &token(record["name"].as_str().expect("name")).to_string(),
+            "keyed by token"
+        );
+    }
+    let get = |name: &str| &records[&token(name).to_string()];
+
+    assert_eq!(
+        get("upgrade_test_boots"),
+        &serde_json::json!({
+            "name": "upgrade_test_boots", "kind": "item", "label": "Test Boots", "label_from": "localisation",
+            "ability_type": "item", "slot": "weapon", "tier": 2, "cost": 1600,
+            "components": [token("upgrade_test_part"), token("upgrade_test_old")],
+            "icon": "abilities/upgrades/mods_weapon/test_boots_psd",
+        })
+    );
+    assert_eq!(get("upgrade_test_part")["slot"], "spirit");
+    assert_eq!(get("upgrade_test_part")["cost"], 800);
+    assert_eq!(
+        get("upgrade_test_part")["icon"],
+        "abilities/hud/modifiers/icon_test"
+    );
+    assert_eq!(
+        get("upgrade_test_part")["label"],
+        "test_part",
+        "no localised name: the internal name, stripped"
+    );
+    assert_eq!(get("upgrade_test_part")["label_from"], "internal");
+    assert_eq!(get("upgrade_test_armor")["slot"], "vitality");
+    assert_eq!(get("upgrade_test_armor")["cost"], 6400);
+    assert_eq!(
+        get("upgrade_test_armor")["icon"],
+        "abilities/items/vitality/test_armor_psd",
+        "the shop icon stands in"
+    );
+    assert_eq!(get("upgrade_test_old")["disabled"], true);
+    assert!(
+        get("upgrade_test_old").get("icon").is_none(),
+        "a disabled item's icon isn't carried"
+    );
+    assert_eq!(get("ability_test_sig")["kind"], "ability");
+    assert_eq!(get("ability_test_sig")["ability_type"], "signature");
+    assert_eq!(get("ability_test_sig")["label"], "Test Signature");
+    assert_eq!(
+        get("ability_test_sig")["icon"],
+        "abilities/hud/abilities/test/test_sig_psd"
+    );
+    assert!(
+        get("ability_test_sig").get("slot").is_none()
+            && get("ability_test_sig").get("cost").is_none()
+    );
+    assert!(
+        get("ability_test_offlist").get("icon").is_none(),
+        "outside the allow-list"
+    );
+    assert!(
+        get("ability_test_unreleased").get("icon").is_none(),
+        "only playable heroes' abilities"
+    );
+
+    assert_eq!(
+        get("upgrade_test_boots/modifier_test_buff"),
+        &serde_json::json!({
+            "name": "upgrade_test_boots/modifier_test_buff", "kind": "modifier", "label": "Test Buff",
+            "label_from": "localisation", "ability": token("upgrade_test_boots"), "hidden": false,
+            "icon_class": "fleetfoot_boots", "debuff": "no", "states": ["slow_immune", "unstoppable"],
+        })
+    );
+    let dot = get("upgrade_test_boots/modifier_test_buff/modifier_test_dot");
+    assert_eq!(
+        (dot["label"].as_str(), dot["label_from"].as_str()),
+        (Some("Test Boots"), Some("ability"))
+    );
+    assert_eq!(dot["ability"], token("upgrade_test_boots"));
+    assert_eq!(dot["hidden"], true);
+    assert_eq!(
+        get("upgrade_test_boots/test_projectile/modifier_test_slow")["debuff"],
+        "yes"
+    );
+    let stun = get("modifier_citadel_test_stun");
+    assert_eq!(stun["label"], "Stunned");
+    assert_eq!(stun["icon"], "abilities/hud/modifiers/test_stun_psd");
+    assert_eq!(stun["debuff"], "enemy_team_only");
+    assert!(stun.get("ability").is_none());
+    let child = get("modifier_citadel_test_stun/bonus_speed");
+    assert_eq!(
+        (child["label"].as_str(), child["label_from"].as_str()),
+        (Some("bonus_speed"), Some("internal"))
+    );
+    assert_eq!(get("citadel_modifier_test_teleport")["kind"], "modifier");
+    assert!(get("test_pickup/regen").get("ability").is_none());
+
+    for (key, mime) in [
+        ("abilities/upgrades/mods_weapon/test_boots_psd", "image/png"),
+        ("abilities/items/vitality/test_armor_psd", "image/png"),
+        ("abilities/hud/abilities/test/test_sig_psd", "image/png"),
+        ("abilities/hud/modifiers/test_stun_psd", "image/png"),
+        ("abilities/hud/modifiers/icon_test", "image/svg+xml"),
+    ] {
+        assert_eq!(pack["blobs"][key]["mime"].as_str(), Some(mime), "{key}");
+        let file = pack["blobs"][key]["file"].as_str().expect("file");
+        assert!(out.path().join(file).is_file(), "{file}");
+    }
+    let ability_blobs = pack["blobs"]
+        .as_object()
+        .expect("blobs")
+        .keys()
+        .filter(|k| k.starts_with("abilities/"))
+        .count();
+    assert_eq!(ability_blobs, 5, "one file per distinct source");
+    assert_eq!(
+        std::fs::read_to_string(out.path().join("abilities/hud/modifiers/icon_test.svg"))
+            .expect("svg"),
+        "<svg>test</svg>"
     );
 }
 
@@ -598,6 +1140,53 @@ fn real_install() {
     // The 78 tough crates; not the 423 wooden crates, 168 item containers or 3 bells.
     assert_eq!(of("tough_crate").len(), 78);
     assert!(pack["icons"].as_array().expect("icons").len() > 50);
+    // The names table (client 6860: 257 items, 552 abilities, 2061 modifiers, 383 icons).
+    let summary = &pack["abilities"];
+    assert!(summary["items"].as_u64() > Some(200) && summary["abilities"].as_u64() > Some(400));
+    assert!(summary["modifiers"].as_u64() > Some(1800) && summary["icons"].as_u64() > Some(300));
+    let table: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(out.join("data/abilities.json")).expect("table"))
+            .expect("parse table");
+    let get = |name: &str| table["records"][token(name).to_string()].clone();
+    let infernus = pack["heroes"]
+        .as_array()
+        .expect("heroes")
+        .iter()
+        .find(|h| h["class_name"] == "hero_inferno")
+        .expect("Infernus");
+    let slots = [
+        "ability_incendiary_projectile",
+        "ability_flame_dash",
+        "ability_afterburn",
+        "ability_fire_bomb",
+    ];
+    assert_eq!(
+        infernus["abilities"],
+        serde_json::json!(slots.map(token)),
+        "Infernus' four, in slot order"
+    );
+    for name in slots {
+        assert!(get(name)["icon"].is_string(), "{name} has an icon");
+        assert_eq!(get(name)["label_from"], "localisation", "{name}");
+    }
+    assert_eq!(get("ability_afterburn")["label"], "Afterburn");
+    let boots = get("upgrade_fleetfoot_boots");
+    assert_eq!(
+        (
+            boots["label"].as_str(),
+            boots["slot"].as_str(),
+            boots["tier"].as_u64(),
+            boots["cost"].as_u64()
+        ),
+        (Some("Fleetfoot"), Some("weapon"), Some(2), Some(1600))
+    );
+    assert_eq!(get("modifier_citadel_knockdown")["icon_class"], "stunned");
+    assert_eq!(
+        get(
+            "upgrade_toxic_bullets/modifier_item_bleeding_bullets_active/modifier_item_bleeding_bullets_damageovertime"
+        )["kind"],
+        "modifier"
+    );
     assert_eq!(pack["hud_sources"].as_array().expect("hud").len(), 11);
     let critical = pack["heroes"]
         .as_array()

@@ -8,7 +8,7 @@ use crate::Result;
 use crate::steam::SteamInfo;
 
 /// Manifest schema version.
-pub const SCHEMA: u32 = 3;
+pub const SCHEMA: u32 = 4;
 
 #[derive(Debug, Serialize)]
 pub struct Pack {
@@ -23,6 +23,24 @@ pub struct Pack {
     pub icons: Vec<Icon>,
     pub icons_skipped: Vec<SkippedIcon>,
     pub hud_sources: Vec<HudSource>,
+    /// The items, abilities and modifiers names table (schema 4), absent when the install has no
+    /// `abilities.vdata`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub abilities: Option<AbilityTable>,
+}
+
+/// Where the names table is and what it holds. The table itself is the JSON blob `blob`
+/// (`data/abilities.json`): `{"records": {"<token>": record}}`, see `abilities::Record`.
+#[derive(Debug, Serialize)]
+pub struct AbilityTable {
+    pub blob: String,
+    pub items: usize,
+    pub abilities: usize,
+    pub modifiers: usize,
+    pub icons: usize,
+    /// Icons a record names that the pack doesn't carry: outside the allow-list, missing from
+    /// the VPK or in a texture format the decoder doesn't read.
+    pub icons_missing: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -73,6 +91,9 @@ pub struct Hero {
     pub card_blob: Option<String>,
     /// The low-health hero card (`m_strIconHeroCardCritical`), `topbar/heroes/<id>_critical`.
     pub critical_blob: Option<String>,
+    /// The four signature abilities' tokens, slot 1 to 4 (4 is the ultimate): keys into the
+    /// names table. 0 for a slot the hero record doesn't bind.
+    pub abilities: [u32; 4],
 }
 
 #[derive(Debug, Serialize)]
@@ -144,6 +165,7 @@ impl Pack {
             icons: Vec::new(),
             icons_skipped: Vec::new(),
             hud_sources: Vec::new(),
+            abilities: None,
         }
     }
 
