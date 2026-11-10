@@ -37,7 +37,7 @@ export function BuildColumn(p: { player: TimelinePlayer; timeline: Timeline | un
   return (
     <section id={p.id} class="tb-build-column" data-testid="hero-build" aria-label={`${p.hero?.name ?? "Hero"} abilities and items`}>
       <Show when={p.name}><div class="tb-build-name">{p.name}</div></Show>
-      <div class="tb-build-hero">{p.hero?.name ?? "Hero"}<Show when={level() != null}><span class="tb-build-hero-level" title="Hero level"> · Lv {level()}</span></Show></div>
+      <div class="tb-build-hero">{p.hero?.name ?? "Hero"}</div><Show when={level() != null}><div class="tb-build-hero-level" title="Hero level">Lv {level()}</div></Show>
       <div class="tb-build-kda" aria-label="Kills, deaths, assists">
         <div title={kills() == null ? "Kill attribution is unavailable in this replay" : "Kills"}><small>K</small><b>{kills() ?? "—"}</b></div>
         <div><small>D</small><b>{deaths()}</b></div>

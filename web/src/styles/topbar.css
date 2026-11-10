@@ -294,3 +294,7 @@
 .tb-build-empty { font: max(8px, calc(10 * var(--u))) var(--ui); color: #FFEFD780; margin: 3px 0; }
 .tb-host.compact .tb-all-builds { top: calc(62 * var(--u) + 43px); }
 .tb-host.compact .tb-build-column { top: calc(96 * var(--u) + 12px); }
+
+.tb-build-hero-level { font-size: max(8px, calc(10 * var(--u))); color: #ded6c4; }
+/* Keep map controls from showing through the translucent scoreboard. */
+.stage:has(.build-open) .map-controls { visibility: hidden; }
