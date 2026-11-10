@@ -9,6 +9,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+mod support;
+
 const TOKEN: &str = "fake-token-for-tests-0123456789";
 const ISSUE_URL: &str = "https://github.com/intendednull/mapcro/issues/42";
 
@@ -27,10 +29,6 @@ impl Drop for Server {
     }
 }
 
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).expect("port")
-}
-
 /// A token file in its own temp dir (the dir lives as long as the test holds it).
 fn token_file(contents: &str) -> (tempfile::TempDir, String) {
     let dir = tempfile::tempdir().expect("dir");
@@ -43,21 +41,18 @@ fn token_file(contents: &str) -> (tempfile::TempDir, String) {
 impl Server {
     fn start(github: u16, env: &[(&str, &str)]) -> Server {
         let data = tempfile::tempdir().expect("data");
-        let (port, metrics) = (free_port(), free_port());
-        let mut child = Command::new(env!("CARGO_BIN_EXE_mapcro-server"))
-            .env("PORT", port.to_string())
-            .env("DATA_DIR", data.path())
+        let mut cmd = support::server();
+        cmd.env("DATA_DIR", data.path())
             .env("PUBLIC_ORIGIN", "http://localhost:5173")
             .env("RUST_LOG", "info")
             .env("MATCH_API_BASE", "http://127.0.0.1:1")
-            .env("METRICS_ADDR", format!("127.0.0.1:{metrics}"))
+            .env("METRICS_ADDR", "127.0.0.1:0")
             .env("METRICS_EVERY_S", "1")
             .env("FEEDBACK_GITHUB_API", format!("http://127.0.0.1:{github}"))
             .envs(env.iter().copied())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("server starts");
+            .stdout(Stdio::piped());
+        let support::Started { mut child, port, metrics, .. } = support::start_or_panic(cmd);
+        let metrics = metrics.expect("the metrics listener is up");
         let mut out = child.stdout.take().expect("stdout");
         let log = Arc::new(Mutex::new(String::new()));
         let sink = log.clone();
@@ -70,13 +65,7 @@ impl Server {
                 sink.lock().unwrap_or_else(|e| e.into_inner()).push_str(&String::from_utf8_lossy(&buf[..n]));
             }
         });
-        let s = Server { child, port, metrics, log, _data: data };
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while ureq::get(&s.url("/healthz")).call().is_err() {
-            assert!(Instant::now() < deadline, "server never became healthy");
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        s
+        Server { child, port, metrics, log, _data: data }
     }
 
     fn url(&self, path: &str) -> String {
@@ -370,7 +359,7 @@ fn github_failures_are_a_clean_error() {
     assert_eq!(s.send("203.0.113.1", "Title", "Body").0, 502);
 
     // Nobody listening.
-    let s = Server::start(free_port(), &[("FEEDBACK_GITHUB_TOKEN_FILE", &file)]);
+    let s = Server::start(support::dead_port(), &[("FEEDBACK_GITHUB_TOKEN_FILE", &file)]);
     assert_eq!(s.send("203.0.113.1", "Title", "Body").0, 502);
 }
 
@@ -499,8 +488,8 @@ fn off_without_a_usable_token_file() {
 fn a_bad_repo_or_api_base_is_a_config_error() {
     for (k, v) in [("FEEDBACK_GITHUB_REPO", "not-a-repo"), ("FEEDBACK_GITHUB_REPO", "a/../b"), ("FEEDBACK_GITHUB_API", "http://example.com"), ("FEEDBACK_GITHUB_API", "http://localhost.example.com")] {
         let data = tempfile::tempdir().expect("data");
-        let out = Command::new(env!("CARGO_BIN_EXE_mapcro-server"))
-            .env("PORT", free_port().to_string())
+        // A config error exits before binding, so the port is never used.
+        let out = support::server()
             .env("DATA_DIR", data.path())
             .env("PUBLIC_ORIGIN", "http://localhost:5173")
             .env(k, v)

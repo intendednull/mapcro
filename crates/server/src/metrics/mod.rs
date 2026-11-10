@@ -103,17 +103,26 @@ pub async fn flush(app: &crate::AppState) {
     snapshot_to_db(app, now.div_euclid(snapshot::MINUTE) * snapshot::MINUTE).await;
 }
 
-/// `GET /metrics` on the loopback-only listener (`METRICS_ADDR`): never on the public one.
-pub async fn serve(app: crate::AppState, addr: std::net::SocketAddr) {
-    use axum::routing::get as route_get;
-    let listener = match tokio::net::TcpListener::bind(addr).await {
-        Ok(l) => l,
+/// Bind the loopback-only `/metrics` listener (`METRICS_ADDR`). A failure turns `/metrics` off
+/// rather than stopping the server. Says where it listens, as `main` does for the public port.
+pub async fn bind(addr: std::net::SocketAddr) -> Option<tokio::net::TcpListener> {
+    match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => {
+            let bound = l.local_addr().unwrap_or(addr);
+            tracing::info!(addr = %bound, "metrics listening");
+            eprintln!("mapcro-server: metrics on {bound}");
+            Some(l)
+        }
         Err(e) => {
             tracing::error!(%addr, error = %e, "metrics listener not bound; /metrics is off");
-            return;
+            None
         }
-    };
-    tracing::info!(%addr, "metrics listening");
+    }
+}
+
+/// `GET /metrics` on the loopback-only listener: never on the public one.
+pub async fn serve(app: crate::AppState, listener: tokio::net::TcpListener) {
+    use axum::routing::get as route_get;
     let router = axum::Router::new().route(
         "/metrics",
         route_get(|axum::extract::State(app): axum::extract::State<crate::AppState>| async move {

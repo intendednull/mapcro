@@ -6,10 +6,11 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+
+mod support;
 
 struct Server {
     child: Child,
@@ -23,31 +24,17 @@ impl Drop for Server {
     }
 }
 
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).expect("port")
-}
-
 impl Server {
     fn start(dir: &std::path::Path, upstream: u16, env: &[(&str, &str)]) -> Server {
-        let port = free_port();
-        let child = Command::new(env!("CARGO_BIN_EXE_mapcro-server"))
-            .env("PORT", port.to_string())
-            .env("DATA_DIR", dir)
+        let mut cmd = support::server();
+        cmd.env("DATA_DIR", dir)
             .env("PUBLIC_ORIGIN", "http://localhost:5173")
             .env("RUST_LOG", "warn")
             .env("MATCH_API_BASE", format!("http://127.0.0.1:{upstream}"))
             .envs(env.iter().copied())
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("server starts");
-        let s = Server { child, port };
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while ureq::get(&s.url("/healthz")).call().is_err() {
-            assert!(Instant::now() < deadline, "server never became healthy");
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        s
+            .stdout(Stdio::null());
+        let support::Started { child, port, .. } = support::start_or_panic(cmd);
+        Server { child, port }
     }
 
     fn url(&self, path: &str) -> String {

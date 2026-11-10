@@ -2,10 +2,11 @@
 //! route template with no ids anywhere, `/metrics` only on its own loopback listener, a failed
 //! replay job in the failures log with a clean message, and `stats` reading it all back.
 
-use std::net::TcpListener;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
+
+mod support;
 
 struct Server {
     child: Child,
@@ -22,10 +23,6 @@ impl Drop for Server {
     }
 }
 
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).expect("port")
-}
-
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder().http_status_as_error(false).build().into()
 }
@@ -33,28 +30,19 @@ fn agent() -> ureq::Agent {
 impl Server {
     fn start() -> Server {
         let (data, queue) = (tempfile::tempdir().expect("data"), tempfile::tempdir().expect("queue"));
-        let (port, metrics) = (free_port(), free_port());
-        let child = Command::new(env!("CARGO_BIN_EXE_mapcro-server"))
-            .env("PORT", port.to_string())
-            .env("DATA_DIR", data.path())
+        let mut cmd = support::server();
+        cmd.env("DATA_DIR", data.path())
             .env("REPLAY_DIR", queue.path())
             .env("PUBLIC_ORIGIN", "http://localhost:5173")
             .env("RUST_LOG", "error")
             // Nothing listens there: an uncached match is a 502.
             .env("MATCH_API_BASE", "http://127.0.0.1:1")
-            .env("METRICS_ADDR", format!("127.0.0.1:{metrics}"))
+            .env("METRICS_ADDR", "127.0.0.1:0")
             .env("METRICS_EVERY_S", "1")
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("server starts");
-        let s = Server { child, port, metrics, data, queue };
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while ureq::get(&s.url("/healthz")).call().is_err() {
-            assert!(Instant::now() < deadline, "server never became healthy");
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        s
+            .stdout(Stdio::null());
+        let support::Started { child, port, metrics, .. } = support::start_or_panic(cmd);
+        let metrics = metrics.expect("the metrics listener is up");
+        Server { child, port, metrics, data, queue }
     }
 
     fn url(&self, path: &str) -> String {

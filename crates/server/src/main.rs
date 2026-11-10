@@ -147,8 +147,11 @@ async fn serve() {
     };
     replays::spawn(state.clone());
     metrics::spawn(state.clone());
-    if let Some(addr) = config.metrics_addr {
-        tokio::spawn(metrics::serve(state.clone(), addr));
+    // Bound before the public listener, so its address is out before "listening on" below.
+    if let Some(addr) = config.metrics_addr
+        && let Some(listener) = metrics::bind(addr).await
+    {
+        tokio::spawn(metrics::serve(state.clone(), listener));
     }
 
     let mut app = Router::new()
@@ -218,7 +221,11 @@ async fn serve() {
             std::process::exit(2);
         }
     };
-    tracing::info!(addr = %config.addr, "listening");
+    // The address actually bound (`PORT=0` takes a free one). Whatever started this process
+    // waits for this line: from here connections queue, and the port is ours, not a guess.
+    let bound = listener.local_addr().unwrap_or(config.addr);
+    tracing::info!(addr = %bound, "listening");
+    eprintln!("mapcro-server: listening on {bound}");
     let shutdown = async {
         let ctrl_c = tokio::signal::ctrl_c();
         #[cfg(unix)]

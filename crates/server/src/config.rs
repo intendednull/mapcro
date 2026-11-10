@@ -201,7 +201,7 @@ impl Config {
             if !m.ip().is_loopback() {
                 return Err(format!("METRICS_ADDR {m} must be a loopback address: /metrics is never public"));
             }
-            if m.port() == port {
+            if m.port() == port && port != 0 {
                 return Err("METRICS_ADDR must not be the public PORT".into());
             }
         }

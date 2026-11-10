@@ -7,9 +7,11 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+mod support;
 
 struct Server {
     child: Child,
@@ -23,10 +25,6 @@ impl Drop for Server {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
-}
-
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).expect("port")
 }
 
 fn agent() -> ureq::Agent {
@@ -46,20 +44,16 @@ impl Server {
 
     fn start_with(upstream: u16, env: &[(&str, &str)], logs: bool) -> (Server, Option<Arc<Mutex<String>>>) {
         let (data, queue) = (tempfile::tempdir().expect("data"), tempfile::tempdir().expect("queue"));
-        let port = free_port();
-        let mut child = Command::new(env!("CARGO_BIN_EXE_mapcro-server"))
-            .env("PORT", port.to_string())
-            .env("DATA_DIR", data.path())
+        let mut cmd = support::server();
+        cmd.env("DATA_DIR", data.path())
             .env("REPLAY_DIR", queue.path())
             .env("PUBLIC_ORIGIN", "http://localhost:5173")
             .env("RUST_LOG", "warn")
             .env("MATCH_API_BASE", format!("http://127.0.0.1:{upstream}"))
             .env("REPLAY_CDN_BASE", format!("http://127.0.0.1:{upstream}/cdn"))
             .envs(env.iter().copied())
-            .stdout(if logs { Stdio::piped() } else { Stdio::null() })
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("server starts");
+            .stdout(if logs { Stdio::piped() } else { Stdio::null() });
+        let support::Started { mut child, port, .. } = support::start_or_panic(cmd);
         let log = logs.then(|| {
             // `tracing_subscriber::fmt` writes to stdout.
             let mut out = child.stdout.take().expect("stdout");
@@ -77,11 +71,6 @@ impl Server {
             log
         });
         let s = Server { child, port, data, queue };
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while ureq::get(&s.url("/healthz")).call().is_err() {
-            assert!(Instant::now() < deadline, "server never became healthy");
-            std::thread::sleep(Duration::from_millis(50));
-        }
         (s, log)
     }
 
