@@ -3,6 +3,15 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Under Vision, a death ping marks a death the skull hides (2026-11-09, from death-skull)
+
+Death skulls (spec §6b) follow Vision: in a team's view an enemy's death it didn't see draws no
+skull. The event pings stay omniscient by the operator's call ("Vision leaves the rest of Player
+omniscient", below), so while playing, that same unseen death still gets its team-coloured ping
+ring on the spot, the very cue the skull withholds. Worth asking the operator whether death pings
+(and the jump ring) should take the skull's rule (`player/skulls.ts` `deathSeen`) in a team's
+view; the events list could stay as it is.
+
 ## A malformed feedback `match` gets the generic 400 (2026-11-09, from feedback-match)
 
 `POST /api/feedback` refuses a `match` whose fields are the wrong JSON type (a numeric id, a

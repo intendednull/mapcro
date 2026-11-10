@@ -75,7 +75,7 @@ export function aliveOps(pl: Player) {
 
 const EYE = "M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z";
 /** A small skull: dome, eyes and jaw (eyes and nose are holes, evenodd). */
-const SKULL = "M0 -6a6 6 0 0 1 6 6c0 2-1 3-2 3.6V6H-4V3.6C-5 3-6 2-6 0a6 6 0 0 1 6-6zM-2.4 -1.2a1.5 1.5 0 1 0 0.01 0zM2.4 -1.2a1.5 1.5 0 1 0 0.01 0zM0 1.6l-0.9 1.4h1.8z";
+export const SKULL = "M0 -6a6 6 0 0 1 6 6c0 2-1 3-2 3.6V6H-4V3.6C-5 3-6 2-6 0a6 6 0 0 1 6-6zM-2.4 -1.2a1.5 1.5 0 1 0 0.01 0zM2.4 -1.2a1.5 1.5 0 1 0 0.01 0zM0 1.6l-0.9 1.4h1.8z";
 
 export function Tokens(p: {
   state: BoardState;

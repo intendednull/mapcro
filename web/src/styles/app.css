@@ -403,6 +403,15 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-ping circle.halo { stroke: #000000b0; stroke-width: 5.5; }
 .pl-ping.amber circle:not(.halo) { stroke: var(--amber); }
 .pl-ping.sapphire circle:not(.halo) { stroke: var(--sapphire); }
+/* Death skulls (player/Skulls.tsx): the dead badge's dark disc and skull, in the dead hero's team
+   colour; the opacity is playback time's, never animated. */
+.pl-skull { pointer-events: none; }
+.pl-skull circle { fill: #0b1714; stroke-width: 1.4; }
+.pl-skull path { fill-rule: evenodd; }
+.pl-skull.amber circle { stroke: var(--amber); }
+.pl-skull.amber path { fill: var(--amber); }
+.pl-skull.sapphire circle { stroke: var(--sapphire); }
+.pl-skull.sapphire path { fill: var(--sapphire); }
 @keyframes pl-ping { 0% { opacity: 1; transform: scale(0.5); } 60% { opacity: 0.85; } 100% { opacity: 0; transform: scale(1.45); } }
 @keyframes pl-pulse { from { opacity: 1; transform: scale(0.4); } to { opacity: 0; transform: scale(1.4); } }
 .match-panel { position: fixed; left: 50%; bottom: 116px; transform: translateX(-50%); z-index: 45; width: min(720px, calc(100% - 24px)); padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 16px 40px #000a; display: flex; flex-direction: column; gap: 8px; }

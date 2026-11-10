@@ -822,8 +822,24 @@ makes a board with that match attached and lands in Player; **New board** is tod
   values. Stopping following brings the follower's own pair back untouched. Changing either
   control while following is a change to what you see, so it stops following (§8), and you keep
   what you were seeing with that one change. A presenter that sends no `vision` (an older
-  client) leaves a follower on its own. Only the heroes and the urn on the map follow it: the top bar,
-  events, pings and troopers stay omniscient (docs/backlog.md).
+  client) leaves a follower on its own. Only the heroes, the urn and death skulls on the map follow
+  it: the top bar, events, pings and troopers stay omniscient (docs/backlog.md).
+- **Death skulls** (2026-11-09, operator: "show a little skull when a hero dies, that fades away
+  quickly. to show the difference between dying and losing vision"): from each death until 2.5
+  match seconds after (`SKULL_S`, player/skulls.ts), a small skull where the hero last stood
+  alive: the dead badge's dark disc and skull, outlined and filled in the dead hero's team
+  colour, about 60% of a token across, over the tokens and never taking the pointer (no hover: it is
+  gone before one would help). Its opacity is the time since the death's, `1 − (age / 2.5)²`
+  (it holds, then goes), so it is a function of playback time alone: a scrub or jump into the
+  window shows it part faded, anywhere else none; a follower, at the presenter's time and
+  Vision, draws the same; reduced motion changes nothing, as nothing animates. Match time, not
+  wall time: 2.5 s at 1×, ~0.6 s at 4×, and a window wide enough to land in by scrubbing. In a
+  team's Vision, its own heroes' deaths always show; an enemy's only if that team saw the hero at
+  some moment in the second before it died (`seen` is in tenths and may close on the death tick
+  or the one before, so "in sight at the instant" would drop deaths it watched). An enemy that
+  merely goes out of sight fades as above and leaves no skull: that difference is the point. Both
+  tiers: on the match-summary tier the spot is the path's last point before the death, so
+  approximate, and there is no Vision there.
 - **Keys while watching** (2026-11-08, operator): ↑ ↓ step to the previous and next event (its
   jump and ring), ← → seek 5 s (Shift: 30 s) and keep playing or paused, and a Space tap plays
   or pauses. A Space-drag still only pans, and nothing fires while typing. Viewing a scene, ← →

@@ -16,6 +16,7 @@ import { type Pt, worldToMap } from "../map/transform";
 import { eventKey } from "./events";
 import { chooseSummary, markOpened, openedHere, playerLastSeenShown, playerNamesShown, playerVision, setPlayerLastSeenShown, setPlayerNamesShown, setPlayerVision, summaryChosen } from "../core/device";
 import { type Vision, hasVision, seenAt, visionFromWire, visionToWire } from "./vision";
+import { skullsAt } from "./skulls";
 import type { PlayerVision } from "../gen/PlayerVision";
 
 export type Mode = "player" | "sandbox";
@@ -755,7 +756,9 @@ export function createPlayerHost(board: string, token: string) {
         if (v && key) powerups.set(key, v);
       }
       const down = downAt(m, at, markers);
-      return { fade: continuous(), players, down, shops: shopsClosed(down, markers), sites: sitesAt(m, at, markers), lanes: lanesAt(m, at), camps, rifts, powerups, ...(health ? { health: byMarker(objectiveHealthAt(m, at)) } : {}), ...(urn ? { urn } : {}), ...(m.rejuv ? { rejuv: rejuvAt(m, at) } : {}) };
+      // A death the view saw: a skull fading where it fell (spec §6b "Death skulls").
+      const skulls = skullsAt(m.players, at, view);
+      return { fade: continuous(), skulls, players, down, shops: shopsClosed(down, markers), sites: sitesAt(m, at, markers), lanes: lanesAt(m, at), camps, rifts, powerups, ...(health ? { health: byMarker(objectiveHealthAt(m, at)) } : {}), ...(urn ? { urn } : {}), ...(m.rejuv ? { rejuv: rejuvAt(m, at) } : {}) };
     },
   };
 }

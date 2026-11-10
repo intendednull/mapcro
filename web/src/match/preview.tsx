@@ -3,6 +3,7 @@
 import { Show } from "solid-js";
 import { cx } from "../ui/cx";
 import type { CampAt, PowerupAt, RejuvNow, RiftAt, UrnNow } from "./timeline";
+import type { Skull } from "../player/skulls";
 
 export interface MatchPreview {
   /** By "amber-0" … "sapphire-5": the hero there, its player's name if known, and where it is
@@ -33,6 +34,8 @@ export interface MatchPreview {
   urn?: UrnNow & { unseen?: boolean };
   /** Replay tier, format 3: the Rejuvenators held at this moment (absent or empty: none). */
   rejuv?: RejuvNow[];
+  /** Deaths in the last `SKULL_S` match seconds the view saw (player/skulls.ts; absent: none). */
+  skulls?: Skull[];
 }
 
 /** A small ring: the part still on cooldown, as the HUD draws it under a portrait. */
