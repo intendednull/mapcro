@@ -92,6 +92,19 @@ export function Player(p: {
     const m = h.tl();
     return src && m && src.match_id === m.match_id ? src : undefined;
   };
+  const transportTime = () => !watching() && sourceHere() ? sourceHere()!.t : h.t();
+  const seekReplay = (t: number) => user(() => {
+    const scene = !watching();
+    h.setMode("player");
+    if (scene) h.control.play(false);
+    h.control.seek(t);
+  });
+  const toggleReplay = () => user(() => {
+    if (!watching()) {
+      const t = transportTime();
+      h.setMode("player"); h.control.seek(t); h.control.play(true);
+    } else h.control.play(!h.playback().playing);
+  });
   /** Scenes saved from this match: markers on the scrubber. */
   const marks = createMemo(() => {
     const m = h.tl();
@@ -211,7 +224,7 @@ export function Player(p: {
             <span class="spacer" />
             <Show when={sourceHere() && h.tl()}>
               <button class="btn primary small" type="button" data-testid="play-from-here" onClick={playFrom}>
-                ▶ Play from here
+                ▶ Play with scene plan
               </button>
             </Show>
             <Show when={h.tl()}>
@@ -327,16 +340,16 @@ export function Player(p: {
           )}
         </Show>
         <DropOverlay over={dragging()} id={h.matchId()} />
-        <Show when={watching() && h.tl()}>
+        <Show when={(watching() || sourceHere()) && h.tl()}>
           {(m) => (
             <div class="pl-transport">
-              <button class="btn small" type="button" data-testid="match-back" aria-label="Back 10 s" title="−10 s (← 5 s, Shift+← 30 s)" onClick={() => user(() => h.control.seek(h.t() - 10))}>
+              <button class="btn small" type="button" data-testid="match-back" aria-label="Back 10 s" title="−10 s (← 5 s, Shift+← 30 s)" onClick={() => seekReplay(transportTime() - 10)}>
                 −10
               </button>
-              <button class="btn small pl-play" type="button" data-testid="match-play" aria-label={h.playback().playing ? "Pause" : "Play"} title={`${h.playback().playing ? "Pause" : "Play"} (Space)`} onClick={() => user(() => h.control.play(!h.playback().playing))}>
-                {h.playback().playing ? "Pause" : "Play"}
+              <button class="btn small pl-play" type="button" data-testid="match-play" aria-label={!watching() ? "Resume replay" : h.playback().playing ? "Pause" : "Play"} title={!watching() ? "Resume replay from this scene" : "Play / Pause (Space)"} onClick={toggleReplay}>
+                {!watching() ? "Resume" : h.playback().playing ? "Pause" : "Play"}
               </button>
-              <button class="btn small" type="button" data-testid="match-forward" aria-label="Forward 10 s" title="+10 s (→ 5 s, Shift+→ 30 s)" onClick={() => user(() => h.control.seek(h.t() + 10))}>
+              <button class="btn small" type="button" data-testid="match-forward" aria-label="Forward 10 s" title="+10 s (→ 5 s, Shift+→ 30 s)" onClick={() => seekReplay(transportTime() + 10)}>
                 +10
               </button>
               <select class="input pl-speed" data-testid="match-speed" aria-label="Speed" value={String(h.playback().speed)} onChange={(e) => {
@@ -355,7 +368,7 @@ export function Player(p: {
                     {(k) => (
                       <button
                         type="button"
-                        class="pl-mark"
+                        class={cx("pl-mark", !watching() && p.scene?.id === k.id && "current")}
                         data-testid="scene-mark"
                         data-t={k.t}
                         title={k.name}
@@ -376,18 +389,18 @@ export function Player(p: {
                   min="0"
                   max={m().duration_s}
                   step="1"
-                  value={Math.floor(h.t())}
+                  value={Math.floor(transportTime())}
                   aria-label="Match time"
-                  onInput={(e) => user(() => h.control.seek(Number(e.currentTarget.value)))}
+                  onInput={(e) => seekReplay(Number(e.currentTarget.value))}
                 />
               </div>
               {/* The toggles, the clock and Save scene go to a row of their own, as one, when the
                   bar is too narrow for them beside the scrubber (QA 2026-11-08). */}
               <div class="pl-tail">
               <span class="match-clock" data-testid="match-clock">
-                {clockLabel(h.t())} / {clockLabel(m().duration_s)}
+                {clockLabel(transportTime())} / {clockLabel(m().duration_s)}
               </span>
-              <Show when={canEdit()}>
+              <Show when={canEdit() && watching()}>
                 <button class="btn primary small" type="button" data-testid="match-save" onClick={saveOne}>
                   Save scene
                 </button>

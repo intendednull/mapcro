@@ -647,3 +647,7 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
   .pl-tail { margin-left: auto; }
   .pl-source .pl-head { max-width: calc(100vw - 44px); }
 }
+
+.pl-bar.scene .pl-transport { grid-column: 1 / -1; }
+.pl-mark.current { background: var(--text); box-shadow: 0 0 0 2px var(--brass); }
+.pl-bar.scene .pl-scrub { opacity: .8; }
