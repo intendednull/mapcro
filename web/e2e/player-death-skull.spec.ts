@@ -24,7 +24,7 @@ test.beforeAll(async () => {
   });
   await new Promise<void>((ok) => upstream.listen(0, "127.0.0.1", ok));
   const port = (upstream.address() as { port: number }).port;
-  server = new Server(undefined, { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "20" });
+  server = new Server(process.env.MAPCRO_SHOT_PACKS, { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "20" });
   await server.start();
 });
 test.afterAll(() => {
@@ -110,15 +110,17 @@ test("a death leaves a skull where it fell that fades in a couple of seconds; vi
   const op = Number(await sk.getAttribute("opacity"));
   expect(op).toBeGreaterThan(0.5);
   expect(op).toBeLessThan(1);
-  // The team's colour (`--amber`, resolved), and never in the pointer's way.
-  const amber = await a.evaluate(() => {
-    const d = document.body.appendChild(document.createElement("div"));
-    d.style.color = "var(--amber)";
-    const c = getComputedStyle(d).color;
-    d.remove();
-    return c;
-  });
-  expect(await sk.evaluate((el) => [getComputedStyle(el).pointerEvents, getComputedStyle(el.querySelector("path")!).fill])).toEqual(["none", amber]);
+  // Portrait and skull share one replay-time opacity; never in the pointer's way.
+  expect(await sk.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe("none");
+  await expect(sk.locator(".pl-fallen-body")).toHaveAttribute("r", "23");
+  await expect(sk.locator(".pl-fallen-badge")).toHaveCount(1);
+  if (process.env.MAPCRO_SHOT_PACKS) {
+    await expect(sk.locator(".pl-fallen-portrait")).toHaveCount(1);
+    await expect(sk.locator(".pl-fallen-skull")).toHaveCount(1);
+  }
+  await expect(sk.locator(".pl-fallen-badge")).not.toHaveAttribute("opacity");
+  await a.waitForTimeout(150);
+  await expect(sk).toHaveAttribute("opacity", op.toFixed(3)); // paused: no wall-clock fade
   await a.mouse.move(5, 5);
   await a.screenshot({ path: join(ROOT, "web/shots/death-skull.png") });
   const box = (await sk.boundingBox())!;
@@ -131,6 +133,11 @@ test("a death leaves a skull where it fell that fades in a couple of seconds; vi
   await scrubTo(a, 20);
   expect(await drawn(a)).toEqual(["amber-1"]);
   await expect(skulls(a).first()).toHaveAttribute("opacity", "1.000");
+
+  // A respawn restores exactly one living token, with no fallen copy left behind.
+  await scrubTo(a, 30);
+  await expect(tok(a, "Amber-1")).toHaveCount(1);
+  await expect(skulls(a)).toHaveCount(0);
 
   // Playing through a death: it comes and goes with no scrub.
   await scrubTo(a, 38);

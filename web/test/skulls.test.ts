@@ -16,14 +16,15 @@ const walker = (o: { seen?: Array<[number, number]>; deaths?: number[] } = {}) =
 
 describe("death skulls", () => {
   it("shows from the death until SKULL_S after, the window's end excluded", () => {
-    const p = [walker()];
+    const p = [{ ...walker(), x: xs.map((x, i) => i >= 8 ? null : x) }];
     expect(skullsAt(p, 7.99, null)).toEqual([]);
     expect(skullsAt(p, 8, null)).toEqual([{ slot: "sapphire-2", team: "sapphire", t: 8, at: { x: 700, y: 50 }, opacity: 1 }]);
     expect(skullsAt(p, 8 + SKULL_S - 0.01, null)).toHaveLength(1);
     expect(skullsAt(p, 8 + SKULL_S, null)).toEqual([]);
   });
   it("fades with the time since the death: holds, then goes", () => {
-    const op = (t: number) => skullsAt([walker()], t, null)[0]!.opacity;
+    const p = { ...walker(), x: xs.map((x, i) => i >= 8 ? null : x) };
+    const op = (t: number) => skullsAt([p], t, null)[0]!.opacity;
     expect(op(8 + SKULL_S / 2)).toBeCloseTo(0.75);
     expect(op(8 + SKULL_S * 0.9)).toBeCloseTo(0.19);
     expect(op(9)).toBeGreaterThan(op(10));
@@ -38,6 +39,26 @@ describe("death skulls", () => {
   });
   it("a hero with no position at its death has no skull", () => {
     expect(skullsAt([{ ...walker({ deaths: [1] }), x: [null, null, null], y: [null, null, null] }], 1, null)).toEqual([]);
+  });
+
+  it("removes the fallen portrait at a quick respawn, including old timelines without timers", () => {
+    expect(skullsAt([walker()], 9.99, null)).toHaveLength(1);
+    expect(skullsAt([walker()], 10, null)).toEqual([]);
+    const p = { ...walker(), respawn: [[8, 8.75]] as Array<[number, number]> };
+    expect(skullsAt([p], 8.74, null)).toHaveLength(1);
+    expect(skullsAt([p], 8.75, null)).toEqual([]);
+  });
+  it("never draws two fallen portraits for a hero that dies again inside the window", () => {
+    const p = { ...walker({ deaths: [8, 8.5] }), x: xs.map((x, i) => i >= 8 ? null : x) };
+    expect(skullsAt([p], 8.6, null)).toMatchObject([{ t: 8.5 }]);
+    expect(skullsAt([p], 8.6, null)).toHaveLength(1);
+  });
+  it("seeking back recreates precisely the same death frame", () => {
+    const p = [walker()];
+    const frame = skullsAt(p, 8.75, "sapphire");
+    expect(skullsAt(p, 5, "sapphire")).toEqual([]);
+    expect(skullsAt(p, 30, "sapphire")).toEqual([]);
+    expect(skullsAt(p, 8.75, "sapphire")).toEqual(frame);
   });
 
   describe("under one team's vision", () => {
