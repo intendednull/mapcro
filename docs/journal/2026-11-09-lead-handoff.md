@@ -5,7 +5,10 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## Production
 
-- `web` runs **c9815a4**, deployed 2026-11-09 ~16:25 UTC: shops (8) and teleporters (4) always shown, 36 heal pickups behind a "Heals" toggle, timeline FORMAT 5; acf9b44 before it fixed Sinner's Sacrifice/camp tiers. Earlier (c561062, 11:08 UTC): vision hides unseen
+- `web` runs **715421d**, deployed 2026-11-09 ~18:40 UTC: a clone keeps its board's matches and
+  uploaded replay (hard-linked timeline, no re-parse); verified on prod (clone of 129738985 opens
+  at Full replay). b3b5a80 before it added vision fades and lane shops closing with their guardian.
+- Before that, **c9815a4** (~16:25 UTC): shops (8) and teleporters (4) always shown, 36 heal pickups behind a "Heals" toggle, timeline FORMAT 5; acf9b44 before it fixed Sinner's Sacrifice/camp tiers. Earlier (c561062, 11:08 UTC): vision hides unseen
   enemies by default ("Show last seen location" brings ghosts back), the carried urn follows
   vision, and hero kill/vision moved to a right-click menu on the portrait. 
   The infra main pin is pushed.
