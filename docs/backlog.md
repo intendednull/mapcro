@@ -3,6 +3,13 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## A clone made while an upload is still parsing doesn't get it (2026-11-09, from clone-replay)
+
+Clone carries the board's matches and each uploaded timeline already cached
+(`carry_to_clone`, replays.rs). An upload still queued or parsing has no timeline yet, so the clone
+opens that match at the fetched or summary tier, and someone has to upload the file again there.
+A fix would record the clone against the job and link the result to it when it lands.
+
 ## An e2e spec that uploads over 6 times fails without saying why (2026-11-09, from vision-fade)
 
 Each Player e2e test opens its synthetic match by uploading a `.dem`, and the server allows one
