@@ -183,8 +183,9 @@ export function markersFrom(entities: PackEntity[], t: Transform = DEFAULT_TRANS
         out.push({ ...base, kind: "teleporter", px: 16, z: 1, lane: null, title: "Teleporter" });
         break;
       case "heal":
-        // The game's minimap only precaches health_pad_psd (16 px); drawn at its own size.
-        out.push({ ...base, kind: "heal", px: 16, z: 1, lane: null, title: "Healing pickup" });
+        // The game's minimap only precaches health_pad_psd (16 px), whose cross fills its box:
+        // at 12 px it weighs about what a camp's icon does, so 36 of them don't drown the map.
+        out.push({ ...base, kind: "heal", px: 12, z: 1, lane: null, title: "Healing pickup" });
         break;
       case "base_guardian": {
         // One marker per team and lane, at the midpoint of the pair (README, "Markers").

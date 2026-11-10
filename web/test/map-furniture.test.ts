@@ -30,7 +30,7 @@ describe("the map's furniture", () => {
     expect([by("shop:amber:lane1:1").px, by("shop:amber:lane1:1").z, by("shop:amber:lane1:1").title]).toEqual([36, 3, "Shop (Hidden King)"]);
     expect(by("shop:neutral:lane6:1").title).toBe("Shop");
     expect([by("teleporter:neutral:lane4:1").px, by("teleporter:neutral:lane4:1").z]).toEqual([16, 1]);
-    expect([by("heal:neutral:lane4:1").kind, by("heal:neutral:lane4:1").px]).toEqual(["heal", 16]);
+    expect([by("heal:neutral:lane4:1").kind, by("heal:neutral:lane4:1").px]).toEqual(["heal", 12]);
     expect(ms.every((m) => isFurniture(m.kind))).toBe(true);
     expect(isFurniture("camp")).toBe(false);
   });
