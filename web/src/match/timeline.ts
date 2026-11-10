@@ -142,6 +142,7 @@ export interface TimelineRejuv {
 }
 
 export type EventKind =
+  | "item_buy" // Client-derived from recorded purchases and the selected pack.
   | "death"
   | "objective"
   | "mid_boss"

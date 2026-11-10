@@ -7,7 +7,7 @@ import { DeathRecap } from "./DeathRecap";
 import { recapFor } from "./recap";
 import { cx } from "../ui/cx";
 import { type MatchEvent, type Timeline, clockLabel } from "../match/timeline";
-import { type EventGroup, GROUPS, type Named, eventKey, groupOf, labelParts, search } from "./events";
+import { type EventGroup, GROUPS, type Named, eventKey, groupOf, labelParts, search, majorPurchases } from "./events";
 
 export function EventsList(p: {
   tl: Timeline;
@@ -34,8 +34,8 @@ export function EventsList(p: {
   const setLead = (n: number) => p.setLead(n);
   // Ticked events by a stable key, not a position: a replay arriving reorders the list.
   const [picked, setPicked] = createSignal(new Set<string>());
-  const all = createMemo(() => p.tl.events ?? []);
-  const shown = createMemo(() => search(all(), p.names, query(), on()));
+  const all = createMemo(() => [...(p.tl.events ?? []), ...majorPurchases(p.tl, p.art.buildCatalog)].sort((a, b) => a.t - b.t));
+  const shown = createMemo(() => search(all().filter(e => e.kind !== "item_buy" || on().has("purchase")), p.names, query(), on()));
   createEffect(() => p.onShown?.(shown()));
   onCleanup(() => p.onShown?.(undefined));
   const present = createMemo(() => GROUPS.filter((g) => all().some((e) => groupOf(e) === g.id)));
