@@ -5,7 +5,13 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## Production
 
-- `web` runs **f2aa2f1**, deployed 2026-11-09 ~19:35 UTC: a follower draws the presenter's Vision and
+- `web` runs **a3a35b5**, deployed 2026-11-09 ~20:05 UTC: the replay clock holds through in-game
+  pauses (FORMAT 6; `m_nTotalPausedTicks` only grows at the unpause, so the running pause counts from
+  `m_nPauseStartTick`); before, a pause froze its stretch and lost as much play after it, and an
+  objective that fell in the lost stretch never fell (feedback issue #2, match 134570618, an upload
+  Valve has no demo for: needs a re-upload). Verified on prod: 129738985 re-parsed to format 6, every
+  second 149–175 moves. Also: scenes show the match's names, no side roster, portrait Rename….
+- Before that, **f2aa2f1** (~19:35 UTC): a follower draws the presenter's Vision and
   Show last seen (new optional `Playback.vision` in presence; changing either stops following,
   operator OK'd); verified on prod with two browsers.
 - Before that, **715421d** (~18:40 UTC): a clone keeps its board's matches and
