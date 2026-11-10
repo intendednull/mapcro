@@ -83,8 +83,13 @@ test.describe("with a synthetic pack", () => {
     await expect(host).toHaveAttribute("data-pack", packId);
     const bg = await a.locator(".mapbox .mm-rot .terrain").evaluate((e) => getComputedStyle(e).backgroundImage);
     expect(bg).toContain(`/packs/${packId}/map/minimap_midtown_mid.png`);
-    // Only the pack's entities: two walkers and the mid boss, at their transformed positions.
-    await expect(a.locator(".mapbox .mk")).toHaveCount(3);
+    // The pack's objectives only: two walkers and the mid boss, at their transformed positions.
+    // A pack without shops or teleporters (one from before 2026-11-09) borrows the built-in
+    // map's, and the healing pickups wait for the Heals toggle.
+    await expect(a.locator(".mapbox .mk:not(.shop):not(.teleporter)")).toHaveCount(3);
+    await expect(a.locator(".mapbox .mk.shop")).toHaveCount(8);
+    await expect(a.locator(".mapbox .mk.teleporter")).toHaveCount(4);
+    await expect(a.locator(".mapbox .mk.heal")).toHaveCount(0);
     const walker = a.locator('.mapbox .mk[data-key="walker:amber:lane1:1"]');
     await expect(walker).toHaveAttribute("style", /left: 20\.83\d*%; top: 72\.02\d*%/);
 
