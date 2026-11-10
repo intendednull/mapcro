@@ -25,6 +25,28 @@ export interface TimelinePlayer {
   /** Replay tier, format 4: `[start_ds, end_ds)` tenths of a second the enemy team could see this
    * hero (crates/replay/src/timeline.rs `Player::seen`). */
   seen?: Array<[number, number]>;
+  // Format 7 (crates/replay/src/timeline.rs `Player::items` to `Player::zipline`): stored, not
+  // shown yet (operator, 2026-11-09). Ids are the game's tokens (numbers); `_ds` times are tenths
+  // of a second; `src` is the causing hero's index in `players`, 255 when not a hero.
+  /** Both tiers: `[t_ds, item_id, kind]`, kind 0 bought, 1 sold, 2 used up by an upgrade, 3 gone
+   * otherwise. */
+  items?: Array<[number, number, number]>;
+  /** Both tiers: `[second, ability_id, level]`, level 1 unlocked, 2–4 tiers 1–3. */
+  abilities?: Array<[number, number, number]>;
+  /** Replay tier: `[t_ds, ability_id, cooldown_end_ds]` per cast (0: end unknown). */
+  casts?: Array<[number, number, number]>;
+  /** Replay tier: `[t_ds, ability_id, charges]` where charges left change. */
+  charges?: Array<[number, number, number]>;
+  /** Replay tier: `[start_ds, end_ds, state, src, ability_id]` hard CC (`MODIFIER_STATE_*`). */
+  cc?: Array<[number, number, number, number, number]>;
+  /** Replay tier: `[start_ds, end_ds, effect_id, src, ability_id, stacks]` icon-shown effects. */
+  effects?: Array<[number, number, number, number, number, number]>;
+  /** Replay tier: per death, damage `[src, ability_id, damage]` in the 10 s before, and the CC. */
+  recaps?: Array<{ t: number; damage: Array<[number, number, number]>; cc?: Array<[number, number, number, number, number]> }>;
+  /** Replay tier: `[second, level]` where height changes: 0 level, 1 above, 2 below. */
+  height?: Array<[number, number]>;
+  /** Replay tier: `[from_s, to_s)` riding a zipline. */
+  zipline?: Array<[number, number]>;
 }
 
 /** The Soul Urn's state from a second on (replay tier; crates/replay/src/timeline.rs `UrnAt`). */
