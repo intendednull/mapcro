@@ -144,3 +144,15 @@ The constraints:
 3. **Casts:** all ~2200 per match (cooldowns at t, a later cast timeline), or only ults and active items for now?
 4. **Summary tier:** should builds show for API-only matches too? That needs `items[]` deserialised, and one untrimmed metadata payload checked against the demo's ids. A match we've already fetched would do, without spending the fresh-match budget.
 5. **Cooldown pips on portraits (option C):** wanted at all, or does the card cover it?
+
+## Operator decisions (2026-11-09)
+
+- Cooldowns for **every** ability and item: yes.
+- Builds on API-summary matches too: yes.
+- Casts in the events log: not every cast; at most an optional, off-by-default chip.
+- Extend the pack extractor for item/ability names and icons: yes.
+- Status effects (buffs, debuffs, DoTs): study requested (docs/research/status-effects.md). The data
+  work waits for it, so items, abilities, cooldowns and any status effects share **one** timeline
+  FORMAT bump (each bump makes uploaded replays need a re-upload).
+- Still open: placement (A/B/B+A/C), how the card opens, portrait cooldown marks. The visual chooser
+  is /home/intendednull/concierge/artifacts/mapcro-abilities-items/index.html.
