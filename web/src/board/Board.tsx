@@ -895,6 +895,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </button>
         </Show>
       </header>
+      <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} onFocus={focusHero} />}>
+        <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
+      </Show>
       <div class="main">
         <SceneTree
           state={state}
@@ -948,9 +951,6 @@ export function Board(p: { board: string; token: string; art: Art }) {
               </h1>
             </div>
           </div>
-          <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} onFocus={focusHero} />}>
-            <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
-          </Show>
           {/* The map takes all the room left, as the largest square that fits. */}
           <div class="mapfit">
             {mapBox(false)}

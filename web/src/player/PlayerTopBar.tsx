@@ -5,8 +5,9 @@
 // Only what the match's tier has is shown: no ult data (the metadata tier) reads as untracked,
 // never as ready.
 
+import { BuildColumn } from "./BuildColumn";
 import { rosterTeamShort } from "../map/model";
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { cx } from "../ui/cx";
 import { formatSouls, teamTotal } from "../core/souls";
 import { clockLabel, playersAt, rejuvAt, type PlayerAt, type RejuvNow } from "../match/timeline";
@@ -132,11 +133,51 @@ export function PlayerTopBar(p: {
 }) {
   let el!: HTMLDivElement;
   const [unit, setUnit] = createSignal(1);
+  const [openBuild, setOpenBuild] = createSignal<string>();
+  const [allBuilds, setAllBuilds] = createSignal(false);
+  const [tabHeld, setTabHeld] = createSignal(false);
+  const expanded = (key: string) => tabHeld() || allBuilds() || openBuild() === key;
+  const closeBuilds = () => { setOpenBuild(undefined); setAllBuilds(false); };
+  const toggleAll = () => { setOpenBuild(undefined); setAllBuilds(v => !v); };
+  const toggleBuild = (key: string) => {
+    const wasOpen = expanded(key);
+    setAllBuilds(false);
+    setOpenBuild(wasOpen ? undefined : key);
+  };
+  createEffect(() => { p.host.matchId(); closeBuilds(); });
   onMount(() => {
     setUnit(el.clientWidth / BAR || 1);
     const ro = new ResizeObserver(() => setUnit(el.clientWidth / BAR));
     ro.observe(el);
-    onCleanup(() => ro.disconnect());
+    const outside = (event: PointerEvent) => {
+      if (!el.contains(event.target as Node) && !(event.target as Element).closest(".pl-bar")) closeBuilds();
+    };
+    const key = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], dialog')) return;
+      if (event.key === "Escape" && (allBuilds() || openBuild())) {
+        closeBuilds();
+        event.preventDefault();
+      }
+      // Like the game's scoreboard: holding Tab temporarily reveals every build.
+      if (event.key === "Tab" && !event.shiftKey) {
+        event.preventDefault();
+        setTabHeld(true);
+      }
+    };
+    const release = (event: KeyboardEvent) => { if (event.key === "Tab") setTabHeld(false); };
+    const blur = () => setTabHeld(false);
+    document.addEventListener("pointerdown", outside);
+    window.addEventListener("keyup", release);
+    window.addEventListener("blur", blur);
+    window.addEventListener("keydown", key);
+    onCleanup(() => {
+      ro.disconnect();
+      document.removeEventListener("pointerdown", outside);
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("keyup", release);
+      window.removeEventListener("blur", blur);
+    });
   });
   const friend = () => (p.vp === "sapphire" ? "Sapphire" : "Amber");
   const enemy = () => (friend() === "Amber" ? "Sapphire" : "Amber");
@@ -180,23 +221,25 @@ export function PlayerTopBar(p: {
           const respawn = easedNumber(() => (dead() ? (x()?.respawn ?? null) : null));
           return (
             <div
-              class={cx("tb-player", t.toLowerCase(), side, hasCard(p.art, hero()) && "card-art", dead() && "dead", low() && "health-low")}
+              class={cx("tb-player", t.toLowerCase(), side, hasCard(p.art, hero()) && "card-art", dead() && "dead", low() && "health-low", expanded(slotKey(t, s.slot.slot)) && "build-open")}
               data-slot={`${t}-${s.slot.slot}`}
               data-hero={x()?.hero_id ?? ""}
               data-alive={x() ? String(!dead()) : "unknown"}
               title={`${label()}${hero() ? `, ${hero()!.name}` : ""}`}
             >
-              <div class="tb-souls" data-testid="souls-banner">
+              <button type="button" class="tb-souls tb-build-trigger" data-testid="souls-banner"
+                aria-label={`Build for ${hero()?.name ?? label()}`} aria-expanded={expanded(slotKey(t, s.slot.slot))}
+                aria-controls={`build-${t}-${s.slot.slot}`} onClick={() => toggleBuild(slotKey(t, s.slot.slot))}>
                 <span class="tb-souls-value" data-testid="souls" data-souls={x()?.souls ?? "untracked"}>
                   <Show when={souls() != null} fallback={"–"}>
                     <Souls n={Math.round(souls()!)} />
                   </Show>
                 </span>
-              </div>
+              </button>
               {/* The hero badge; low health swaps in the critical card (m_strIconHeroCardCritical), as the HUD does. */}
               <HeroBadge art={p.art} slot={s.slot} hero={hero()} low={low()} />
               <Show when={x()}>
-                <button class="tb-focus" data-testid="focus-hero" title={`Show ${hero()?.name ?? label()}`} aria-label={`Show ${label()}${hero() ? `, ${hero()!.name},` : ""} on the map`} onClick={() => p.onFocus?.(t, s.slot.slot)} />
+                <button class="tb-focus" data-testid="focus-hero" title={`Inspect ${hero()?.name ?? label()} build and show on map`} aria-label={`Inspect ${label()}${hero() ? `, ${hero()!.name},` : ""} build and show on the map`} aria-expanded={expanded(slotKey(t, s.slot.slot))} aria-controls={`build-${t}-${s.slot.slot}`} onClick={() => { toggleBuild(slotKey(t, s.slot.slot)); p.onFocus?.(t, s.slot.slot); }} />
               </Show>
               <Show when={dead() && x()?.respawn != null && respawn() != null}>
                 <span class="tb-respawn" data-testid="tb-respawn" data-respawn={Math.ceil(x()!.respawn!)} aria-label={`${label()} respawns in ${Math.ceil(x()!.respawn!)} s`}>
@@ -219,6 +262,9 @@ export function PlayerTopBar(p: {
                 </span>
               </Show>
               <Ult left={x()?.ult ?? null} label={label()} />
+              <Show when={expanded(slotKey(t, s.slot.slot)) && p.host.tl()?.players.find(q => q.team === t.toLowerCase() && q.slot === s.slot.slot)}>
+                {player => <BuildColumn player={player()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} />}
+              </Show>
               <Show when={nameOf()}>
                 <span class="pl-tb-name" data-testid="tb-name">
                   {nameOf()}
@@ -254,7 +300,7 @@ export function PlayerTopBar(p: {
   return (
     <div
       ref={el}
-      class={cx("tb-host", "pl-topbar", p.art.images.has("tb-mask") && "pack-art", p.compact && "compact", named() && "named")}
+      class={cx("tb-host", "pl-topbar", p.art.images.has("tb-mask") && "pack-art", p.compact && "compact", named() && "named", (allBuilds() || tabHeld()) && "all-builds")}
       style={{ "--u": `${unit()}px` }}
       data-testid="topbar"
       data-mode="player"
@@ -268,6 +314,9 @@ export function PlayerTopBar(p: {
               {clockLabel(p.host.t())}
             </span>
           </div>
+          <button type="button" class="tb-all-builds" aria-expanded={allBuilds() || tabHeld()} onClick={toggleAll} title="Show all hero builds (or hold Tab)">
+            {allBuilds() || tabHeld() ? "▴" : "▾"} All builds <kbd>Hold Tab</kbd>
+          </button>
           <div class="tb-scores">
             {score(friend(), false)}
             {score(enemy(), true)}

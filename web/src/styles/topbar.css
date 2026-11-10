@@ -238,3 +238,80 @@
 .tb-host.compact .pl-rejuv { top: calc(62 * var(--u) + 19px); width: max(calc(70 * var(--u)), 35px); height: max(calc(40 * var(--u)), 20px); }
 .tb-host.compact .pl-rejuv.friend { left: auto; right: calc(50% + 40 * var(--u)); }
 .tb-host.compact .pl-rejuv-timer { top: calc(62 * var(--u) + 21px); width: max(calc(30 * var(--u)), 15px); height: max(calc(30 * var(--u)), 15px); }
+
+/* PlayerNameNWContainer: the existing HUD continues into a narrow build column.
+   Game references: citadel_hud_top_bar.vcss / player.vxml. */
+.pl-topbar:has(.build-open) { z-index: 20; }
+.pl-topbar .tb-build-trigger { border: 0; cursor: pointer; font: inherit; }
+.pl-topbar .tb-build-trigger:hover, .pl-topbar .tb-build-trigger:focus-visible { filter: brightness(1.25); outline: 1px solid #FFEFD7; }
+.tb-all-builds {
+  position: absolute; top: calc(100 * var(--u)); left: 50%; transform: translateX(-50%);
+  z-index: 5; padding: 3px 6px; border: 1px solid #FFEFD730; border-radius: 2px;
+  background: #10130Ddc; color: #FFEFD7; white-space: nowrap; cursor: pointer;
+  font: 600 max(9px, calc(12 * var(--u))) "VALVEOracle", var(--ui);
+}
+.tb-all-builds kbd { margin-left: 3px; font: inherit; opacity: .45; }
+.tb-all-builds:hover, .tb-all-builds[aria-expanded="true"] { background: #31342b; border-color: #FFEFD780; }
+.tb-build-column {
+  position: absolute; z-index: 15; top: calc(112 * var(--u)); left: 2.5%; width: 95%;
+  padding: calc(5 * var(--u)); border-radius: 0 0 2px 2px;
+  background: linear-gradient(#282c23f7, #10130Dfa); box-shadow: 0 8px 14px #0009;
+  color: #FFEFD7; text-align: center; border-bottom: 2px solid var(--build-team);
+  max-height: min(60vh, 440px); overflow-y: auto; scrollbar-width: thin;
+  --build-team: var(--t1); font-family: "VALVEOracle", var(--ui);
+}
+.sapphire > .tb-build-column { --build-team: var(--t2); background: linear-gradient(#242a2ff7, #10130Dfa); }
+.build-open > .tb-ult, .build-open > .pl-tb-name { visibility: hidden; }
+.tb-build-name { color: #FFF6D8; font-size: max(9px, calc(12 * var(--u))); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-build-hero { margin: 2px 0 6px; font: 600 max(8px, calc(10 * var(--u))) "VALVEPulp", var(--ui); text-transform: uppercase; color: #FFEFD780; overflow-wrap: anywhere; }
+.tb-build-abilities { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; padding-bottom: 6px; }
+.tb-build-levels { display: flex; flex-direction: column-reverse; align-items: center; gap: 1px; height: 11px; margin-bottom: 2px; }
+.tb-build-levels i { width: 85%; height: 2px; background: #FFEFD722; }
+.tb-build-levels i.on { background: #25FFAF; }
+.tb-build-circle { position: relative; aspect-ratio: 1; border-radius: 50%; background: #FFEFD715; border: 1px solid #FFEFD740; display: grid; place-items: center; }
+.tb-build-circle img { width: 100%; height: 100%; object-fit: contain; border-radius: 50%; }
+.tb-build-ability.locked img { opacity: .25; }
+.tb-build-locked { position: absolute; inset: 0; display: grid; place-items: center; color: #FFEFD790; font: bold 12px var(--ui); }
+.tb-build-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; }
+.tb-build-item { position: relative; aspect-ratio: 1; display: grid; place-items: center; background: linear-gradient(var(--item-color) 0 50%, #10130D 50%); border-radius: 2px; border: 1px solid #FFEFD728; --item-color: #43483b; }
+.tb-build-item.weapon { --item-color: #C87A28; }
+.tb-build-item.vitality { --item-color: #5C9E3E; }
+.tb-build-item.spirit { --item-color: #7E4EAC; }
+.tb-build-item img { width: 84%; height: 84%; object-fit: contain; }
+.tb-build-tier { position: absolute; top: 1px; right: 2px; font: 700 max(8px, calc(10 * var(--u))) "VALVEOracle", var(--ui); color: #FFF6D8; text-shadow: 0 1px 2px #000; }
+.tb-build-cooldown { position: absolute; inset: 0; display: grid; place-items: center; background: #000a; color: #FFF6D8; font: 700 max(9px, calc(14 * var(--u))) "VALVEOracle", var(--ui); border-radius: inherit; }
+.tb-build-charges { position: absolute; right: -1px; bottom: -1px; min-width: 10px; border-radius: 2px; color: #10130D; background: #FFEFD7; font: 700 8px var(--ui); z-index: 1; }
+.tb-build-fallback { font: 700 max(9px, calc(14 * var(--u))) var(--ui); color: #FFEFD790; }
+.tb-build-empty { font: max(8px, calc(10 * var(--u))) var(--ui); color: #FFEFD780; margin: 3px 0; }
+.tb-host.compact .tb-all-builds { top: calc(62 * var(--u) + 43px); }
+.tb-host.compact .tb-build-column { top: calc(96 * var(--u) + 12px); }
+
+.tb-build-circle .tb-build-cooldown { font-size: max(7px, calc(10 * var(--u))); }
+
+/* Desktop HUD spans the whole board. Expanded builds may cover the canvas. */
+.board-app { grid-template-rows: 56px auto minmax(0, 1fr) auto; }
+.board-app > .tb-host { width: calc(100% - 40px); margin: 26px 20px 10px; z-index: 25; }
+.pl-topbar .tb-build-column { width: 190px; left: 50%; transform: translateX(-50%); padding: 10px; max-height: min(72vh, 620px); }
+.pl-topbar .tb-team.friend .tb-player:first-child .tb-build-column { left: 0; transform: none; }
+.pl-topbar .tb-team.enemy .tb-player:last-child .tb-build-column { left: auto; right: 0; transform: none; }
+.pl-topbar .tb-build-name { font-size: 13px; }
+.pl-topbar .tb-build-hero { font-size: 12px; margin: 2px 0 10px; }
+.pl-topbar .tb-build-abilities { gap: 4px; padding-bottom: 12px; }
+.pl-topbar .tb-build-levels { height: 14px; gap: 2px; }
+.pl-topbar .tb-build-levels i { height: 3px; }
+.pl-topbar .tb-build-items { gap: 5px; }
+.pl-topbar .tb-build-tier { font-size: 12px; }
+.pl-topbar .tb-build-cooldown { font-size: 18px; }
+.pl-topbar .tb-build-circle .tb-build-cooldown { font-size: 12px; }
+.pl-topbar .tb-build-charges { font-size: 10px; min-width: 13px; }
+.pl-topbar.all-builds .tb-build-column { width: 98%; left: 1%; right: auto; transform: none; padding: 5px; }
+.pl-topbar.all-builds .tb-build-name { font-size: 11px; }
+.pl-topbar.all-builds .tb-build-hero { font-size: 10px; }
+.pl-topbar.all-builds .tb-build-items { gap: 3px; }
+.pl-topbar.all-builds .tb-build-circle .tb-build-cooldown { font-size: 9px; }
+.pl-topbar.all-builds .tb-build-cooldown { font-size: 13px; }
+
+/* The scoreboard's ability discs use dark silhouettes on pale sage. */
+.pl-topbar .tb-build-circle { background: #b8c4ba; border-color: #10130D80; }
+.pl-topbar .tb-build-circle img { filter: brightness(.12); }
+.pl-topbar .tb-build-item img { width: 100%; height: 100%; }

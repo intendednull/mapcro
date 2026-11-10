@@ -1,0 +1,62 @@
+// The HUD's PlayerNameNWContainer: abilities above the two-column inventory.
+import { For, Index, Show, createMemo } from "solid-js";
+import type { Art, Hero } from "../map/pack";
+import { buildAt, type BuildEntry } from "../match/builds";
+import type { TimelinePlayer } from "../match/timeline";
+import { cx } from "../ui/cx";
+
+export function BuildColumn(p: { player: TimelinePlayer; t: number; art: Art; hero: Hero | undefined; name: string | undefined; id: string }) {
+  const build = createMemo(() => buildAt(p.player, p.t));
+  const record = (id: number) => p.art.buildCatalog?.records.get(id);
+  const abilityIds = () => p.hero?.abilities?.length ? p.hero.abilities : (build().abilities ?? []).map(a => a.id);
+  const abilities = () => Array.from({ length: 4 }, (_, i) => {
+    const id = abilityIds()[i];
+    const entry = build().abilities?.find(a => a.id === id);
+    return { id, entry, level: id == null || build().abilities === null ? null : (entry?.level ?? 0) };
+  });
+  const cooldown = (entry: BuildEntry | undefined) => entry?.cooldown != null && entry.cooldown > 0 ? `${Math.ceil(entry.cooldown)}s` : undefined;
+  const detail = (entry: BuildEntry | undefined) => {
+    const cd = entry?.cooldown;
+    return `${cd == null ? "Cooldown unavailable" : cd > 0 ? `${Math.ceil(cd)}s cooldown` : "Cooldown complete"}${entry?.charges != null ? ` · ${entry.charges} charges` : ""}`;
+  };
+  const tier = (n?: number) => n ? ["", "I", "II", "III", "IV", "V"][n] ?? String(n) : "";
+  return (
+    <section id={p.id} class="tb-build-column" data-testid="hero-build" aria-label={`${p.hero?.name ?? "Hero"} abilities and items`}>
+      <Show when={p.name}><div class="tb-build-name">{p.name}</div></Show>
+      <div class="tb-build-hero">{p.hero?.name ?? "Hero"}</div>
+      <div class="tb-build-abilities" aria-label="Abilities">
+        <Index each={abilities()}>{(a, i) => {
+          const info = () => a().id == null ? undefined : record(a().id!);
+          const label = () => `${info()?.label ?? `Ability ${i + 1}`} · ${a().level == null ? "Upgrade data unavailable" : a().level === 0 ? "Locked" : `Unlocked · Tier ${a().level! - 1}/3`} · ${detail(a().entry)}`;
+          return (
+            <div class={cx("tb-build-ability", a().level === 0 && "locked")} data-ability-id={a().id} data-level={a().level ?? "unknown"} title={label()} role="img" aria-label={label()}>
+              <div class="tb-build-levels" aria-hidden="true"><For each={[1, 2, 3]}>{n => <i classList={{ on: a().level != null && a().level! > n }} />}</For></div>
+              <div class="tb-build-circle">
+                <Show when={info()?.icon} fallback={<span class="tb-build-fallback">{i + 1}</span>}>{src => <img src={src()} alt="" />}</Show>
+                <Show when={cooldown(a().entry)}>{cd => <span class="tb-build-cooldown">{cd().replace("s", "")}</span>}</Show>
+                <Show when={a().entry?.charges != null}><span class="tb-build-charges">{a().entry!.charges}</span></Show>
+                <Show when={a().level === 0}><span class="tb-build-locked" aria-hidden="true">×</span></Show>
+              </div>
+            </div>
+          );
+        }}</Index>
+      </div>
+      <Show when={build().abilities === null}><p class="tb-build-empty">Upgrades unavailable</p></Show>
+      <div class="tb-build-items" aria-label="Equipped items">
+        <Index each={build().items ?? []}>{entry => {
+          const info = () => record(entry().id);
+          const label = () => `${info()?.label ?? "Unknown item"}${info()?.tier ? ` · Tier ${tier(info()?.tier)}` : ""}${info()?.slot ? ` · ${info()!.slot}` : ""} · ${detail(entry())}`;
+          return (
+            <div class={cx("tb-build-item", info()?.slot)} data-item-id={entry().id} role="img" aria-label={label()} title={label()}>
+              <Show when={info()?.icon} fallback={<span class="tb-build-fallback">?</span>}>{src => <img src={src()} alt="" />}</Show>
+              <span class="tb-build-tier" aria-hidden="true">{tier(info()?.tier)}</span>
+              <Show when={cooldown(entry())}>{cd => <span class="tb-build-cooldown">{cd()}</span>}</Show>
+              <Show when={entry().charges != null}><span class="tb-build-charges">{entry().charges}</span></Show>
+            </div>
+          );
+        }}</Index>
+      </div>
+      <Show when={!build().items?.length}><p class="tb-build-empty">{build().items === null ? "Items unavailable" : "No items yet"}</p></Show>
+    </section>
+  );
+}
