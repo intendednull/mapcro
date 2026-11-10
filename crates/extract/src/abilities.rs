@@ -170,8 +170,14 @@ pub fn parse(
                     .and_then(tier_of)
             })
             .flatten();
-        // The HUD image, else the shop's (an SVG HUD image the shop has as a texture, say).
-        let icon_entries = ["m_strAbilityImage", "m_strShopIconLarge"]
+        // Items use the current shop art; keep the HUD image as a fallback.
+        // Hero abilities retain their HUD image preference.
+        let image_keys = if kind == Kind::Item {
+            ["m_strShopIconLarge", "m_strAbilityImage"]
+        } else {
+            ["m_strAbilityImage", "m_strShopIconLarge"]
+        };
+        let icon_entries = image_keys
             .into_iter()
             .filter_map(|key| field(record, key).and_then(Value::as_str))
             .filter_map(image_entry)
@@ -543,6 +549,41 @@ mod tests {
         assert_eq!(image_entry("file://{images}/hud/x.tga"), None);
         assert_eq!(image_entry("s2r://panorama/images/x.psd"), None);
         assert_eq!(image_entry(""), None);
+    }
+
+    #[test]
+    fn items_prefer_shop_art_while_abilities_keep_hud_art() {
+        let record = |kind: &str| {
+            Value::Object(vec![
+                ("m_eAbilityType".into(), Value::String(kind.into())),
+                (
+                    "m_strAbilityImage".into(),
+                    Value::String("file://{images}/upgrades/mods_weapon/reaper_rounds.psd".into()),
+                ),
+                (
+                    "m_strShopIconLarge".into(),
+                    Value::String("file://{images}/items/weapon/monster_rounds.psd".into()),
+                ),
+            ])
+        };
+        let root = Value::Object(vec![
+            (
+                "upgrade_non_player_bonus".into(),
+                record("EAbilityType_Item"),
+            ),
+            ("ability_test".into(), record("EAbilityType_Signature")),
+        ]);
+        let table = parse(&root, None, &[], &BTreeMap::new(), &[]);
+        let item = &table.records[&token("upgrade_non_player_bonus")].icon_entries;
+        let ability = &table.records[&token("ability_test")].icon_entries;
+        assert_eq!(
+            item,
+            &vec![
+                "panorama/images/items/weapon/monster_rounds_psd.vtex_c".to_owned(),
+                "panorama/images/upgrades/mods_weapon/reaper_rounds_psd.vtex_c".to_owned(),
+            ]
+        );
+        assert_eq!(ability, &item.iter().rev().cloned().collect::<Vec<_>>());
     }
 
     #[test]
