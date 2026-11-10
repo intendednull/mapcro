@@ -7,8 +7,8 @@
 //!
 //! Besides the objectives, the map's furniture the game's minimap shows (docs/research/
 //! map-objectives-audit.md): the item shops, the teleporters (each with where it lets out) and
-//! the floating healing pickups. These are kept out of the geometry hash, which covers the sites
-//! a board can anchor to.
+//! the floating healing pickups, and the tough ("heavy") breakable crates. These are kept out of
+//! the geometry hash, which covers the sites a board can anchor to.
 
 use std::collections::BTreeMap;
 
@@ -37,7 +37,7 @@ pub struct Entity {
 }
 
 /// Kinds that are map furniture rather than objectives: not in the geometry hash.
-pub const FURNITURE: [&str; 3] = ["shop", "teleporter", "heal"];
+pub const FURNITURE: [&str; 4] = ["shop", "teleporter", "heal", "tough_crate"];
 
 #[derive(Clone, Debug)]
 pub struct EntitySource {
@@ -380,6 +380,9 @@ fn entity_kind(entity: &RawEntity) -> Option<&'static str> {
         "citadel_trigger_teleport" => Some("teleporter"),
         // The floating healing pickups (`spawn_delay_override` 180 s).
         "citadel_pickup_spawner" if entity.subclass.as_deref() == Some("citadel_pickup_floating_health") => Some("heal"),
+        // The tough crates (78 on the current map), not the wooden crates, item containers or
+        // the bells that share the class: the heavy boxes that are worth a detour.
+        "citadel_breakable_prop" if entity.subclass.as_deref() == Some("citadel_breakable_prop_tough_crate") => Some("tough_crate"),
         _ => None,
     }
 }

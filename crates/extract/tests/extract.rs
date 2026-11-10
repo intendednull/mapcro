@@ -225,6 +225,19 @@ fn entity_tree() -> T {
                     ("subclass_name", T::Str("citadel_pickup_something_else".into())),
                     ("hammeruniqueid", T::Str("h2".into())),
                 ]),
+                // A tough ("heavy") crate, and a wooden crate of the same class that isn't drawn.
+                record(vec![
+                    ("classname", T::Str("citadel_breakable_prop".into())),
+                    ("origin", xyz(3480.0, 1112.0, 320.0)),
+                    ("subclass_name", T::Str("citadel_breakable_prop_tough_crate".into())),
+                    ("hammeruniqueid", T::Str("c1".into())),
+                ]),
+                record(vec![
+                    ("classname", T::Str("citadel_breakable_prop".into())),
+                    ("origin", xyz(1424.0, -408.0, -640.0)),
+                    ("subclass_name", T::Str("citadel_breakable_prop_wooden_crate".into())),
+                    ("hammeruniqueid", T::Str("c2".into())),
+                ]),
             ]),
         ),
     ])
@@ -464,7 +477,7 @@ fn extract_writes_pack_and_blobs() {
     assert_eq!(heroes[0]["card_blob"].as_str(), Some("topbar/heroes/7_card"));
 
     let entities = pack["entities"].as_array().expect("entities");
-    assert_eq!(entities.len(), 8);
+    assert_eq!(entities.len(), 9);
     let by = |key: &str| entities.iter().find(|e| e["key"] == key).unwrap_or_else(|| panic!("no {key}"));
     assert_eq!(by("patron:amber:lane1:1")["kind"].as_str(), Some("patron"));
     // The Soul Urn's delivery point, a neutral site on the nearest lane.
@@ -477,13 +490,13 @@ fn extract_writes_pack_and_blobs() {
     assert!(camps.contains(&("[PR#]plain_camp", None)), "{camps:?}");
     assert!(by("urn:neutral:lane1:1").get("tier").is_none(), "only camps carry a tier");
     // The lane shop, not the base's; the teleporter with where it lets out; the healing pickup
-    // and not the other spawner.
+    // and not the other spawner; the tough crate and not the wooden one.
     let furniture: Vec<(&str, &str)> = entities
         .iter()
-        .filter(|e| ["shop", "teleporter", "heal"].contains(&e["kind"].as_str().unwrap_or("")))
+        .filter(|e| ["shop", "teleporter", "heal", "tough_crate"].contains(&e["kind"].as_str().unwrap_or("")))
         .map(|e| (e["kind"].as_str().unwrap_or(""), e["src"]["hammeruniqueid"].as_str().unwrap_or("")))
         .collect();
-    assert_eq!(furniture, [("heal", "h1"), ("shop", "s1"), ("teleporter", "t1")]);
+    assert_eq!(furniture, [("heal", "h1"), ("shop", "s1"), ("teleporter", "t1"), ("tough_crate", "c1")]);
     let shop = entities.iter().find(|e| e["kind"] == "shop").expect("shop");
     assert_eq!(shop["team"].as_str(), Some("amber"));
     let tele = entities.iter().find(|e| e["kind"] == "teleporter").expect("teleporter");
@@ -562,7 +575,7 @@ fn real_install() {
     }
     // Map furniture (docs/research/map-objectives-audit.md): 8 shops (3 lane shops a team and the
     // 2 secret shops; the base's own isn't drawn), 4 teleporters in 2 two-way pairs, each letting
-    // out beside the other end, and 36 healing pickups.
+    // out beside the other end, 36 healing pickups and 78 tough crates.
     let of = |kind: &str| -> Vec<&serde_json::Value> { pack["entities"].as_array().expect("entities").iter().filter(|e| e["kind"] == kind).collect() };
     let mut shops = std::collections::BTreeMap::new();
     for e in of("shop") {
@@ -582,6 +595,8 @@ fn real_install() {
         assert!((bx - x).hypot(by - y) < 200.0, "{}'s pair leads back to it", t["key"]);
     }
     assert_eq!(of("heal").len(), 36);
+    // The 78 tough crates; not the 423 wooden crates, 168 item containers or 3 bells.
+    assert_eq!(of("tough_crate").len(), 78);
     assert!(pack["icons"].as_array().expect("icons").len() > 50);
     assert_eq!(pack["hud_sources"].as_array().expect("hud").len(), 11);
     let critical = pack["heroes"]
