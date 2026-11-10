@@ -789,10 +789,17 @@ makes a board with that match attached and lands in Player; **New board** is tod
   dashed ring and slashed eye, at 60% and desaturated) at its true position when last seen,
   its label ending "· Seen 0:12 ago", its health ring not drawn. Either way, one it hasn't
   seen yet, or not since that hero last died, isn't drawn. Leaving and coming back into sight
-  eases the dimming (`--value-ease-ms`; reduced motion jumps); the token itself jumps from its
-  ghost spot to where it is, as the game's minimap does. The urn on a carrier the view can't
+  eases the dimming (`--value-ease-ms`; reduced motion jumps); the token doesn't glide from its
+  ghost spot to where it is, as the game's minimap doesn't. The urn on a carrier the view can't
   see now isn't drawn (operator 2026-11-09), ghost or not: it never follows a ghost; on the
-  ground, delivered, or on a seen carrier it is as in All. "All" is the map as before. Like
+  ground, delivered, or on a seen carrier it is as in All. On continuous playback (2026-11-09,
+  operator: "a little smoother transition"), what vision shows and hides fades, out-expo over
+  `--value-ease-ms` (board/fade.ts): an enemy coming into sight fades in; one leaving it fades
+  out where it was last drawn, unhoverable and unlabelled, then goes; a ghost seen again
+  elsewhere fades out on its spot as the hero fades in where it is; the carried urn goes and
+  comes with its carrier the same way. A seek, scrub or jump, a change of view or of Show last
+  seen location, a new match, or a frame over a second after the last snaps; so does reduced
+  motion. What is drawn when is unchanged: only the going and coming. "All" is the map as before. Like
   Names both are this browser's alone (localStorage, every board), never in presence: a
   follower keeps its own view. Only the heroes and the urn on the map follow it: the top bar,
   events, pings and troopers stay omniscient (docs/backlog.md).

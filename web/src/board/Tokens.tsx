@@ -17,6 +17,7 @@ import type { WorldPos } from "../gen/WorldPos";
 import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampToMap, viewToWorld, worldToView } from "../map/transform";
 import { FLIP_MS, smoothed } from "./smooth";
+import { fadeTiming, fadeTo, visionFade } from "./fade";
 import { hoverToken, hoveredToken, registerHover } from "../map/HoverLabel";
 import type { BoardState, Player, Slot } from "./state";
 
@@ -245,7 +246,14 @@ export function Tokens(p: {
           let last: Player | undefined;
           const pl = () => (last = bySlot().get(slotId) ?? last)!;
           const slot = () => slots().get(pl().state.slot)!;
-          const pv = () => p.preview?.()?.players.get(slotKey(slot().team, slot().slot));
+          const raw = () => p.preview?.()?.players.get(slotKey(slot().team, slot().slot));
+          // Vision (Player): coming into sight it fades in; leaving it, it stays where it was
+          // last drawn while it fades out, unhoverable (board/fade.ts). Snaps on a seek.
+          const [el, setEl] = createSignal<SVGGElement>();
+          const smooth = () => !!p.preview?.()?.fade;
+          const vf = visionFade({ value: () => (raw()?.pos ? raw() : undefined), hidden: () => !!raw()?.unseen, smooth, el });
+          const leaving = vf.leaving;
+          const pv = () => vf.shown() ?? raw();
           // A match preview (Player) draws only the timeline at t, never the scene's records:
           // alive and seen by the match, placed where the match has them (spec §6b).
           const live = () => !!p.preview?.();
@@ -277,7 +285,7 @@ export function Tokens(p: {
           const label = () => `${pv()?.name || slot().name || `${rosterTeamShort(slot().team)} ${slot().slot + 1}`}${hero() ? `, ${hero()!.name}` : ""}${ghost() != null ? ` · Seen ${formatClock(Math.floor(ghost()!))} ago` : ""}`;
           // The map's hover label (map/HoverLabel.tsx), by roster slot, never the player's id.
           const hoverId = () => `${slot().team}-${slot().slot}`;
-          const shownOnMap = () => (live() ? !!pv()?.pos : pl().state.placed);
+          const shownOnMap = () => (live() ? !!pv()?.pos && !leaving() : pl().state.placed);
           createEffect(() => {
             const off = registerHover("token", hoverId(), () => (shownOnMap() ? { x: at().x, y: at().y, gap: r() + 12 * p.k, text: label() } : undefined));
             onCleanup(off);
@@ -287,8 +295,50 @@ export function Tokens(p: {
             if (hoveredToken()?.id === hoverId()) hoverToken(undefined);
           };
           onCleanup(unhover);
+          // On its way out it's no longer under the pointer: no label, and K skips it.
+          createEffect(() => {
+            if (!leaving()) return;
+            if (hovered() === pl().id) setHovered(undefined);
+            unhover();
+          });
+          // A ghost seen again somewhere else: the hero fades in where it is, and its ghost
+          // fades out where it was (the echo), rather than one token jumping between them.
+          const [echo, setEcho] = createSignal<{ pos: WorldPos; ago: number }>();
+          createEffect(
+            on(raw, (next, prev) => {
+              if (!smooth()) return setEcho(undefined);
+              if (!prev?.pos || prev.ghost == null || !next?.pos || next.ghost != null || fadeTiming().ms <= 0) return;
+              const [a, b] = [worldToView(prev.pos, p.vp), worldToView(next.pos, p.vp)];
+              if (Math.hypot(a.x - b.x, a.y - b.y) < r() / 2) return;
+              setEcho({ pos: prev.pos, ago: prev.ghost });
+              const e = el();
+              if (e) fadeTo(e, 1);
+            }),
+          );
           return (
             <Show when={live() ? !!pv()?.pos : pl().state.placed}>
+              <Show when={echo()} keyed>
+                {(e) => {
+                  const v = worldToView(e.pos, p.vp);
+                  let g!: SVGGElement;
+                  onMount(() => {
+                    if (!fadeTo(g, 0, () => setEcho(undefined))) setEcho(undefined);
+                  });
+                  return (
+                    <g ref={g} class={cx("tok", team(), "ghost")} data-echo={`${slot().team}-${slot().slot}`} data-seen="false" data-fading="out" transform={`translate(${v.x} ${v.y})`} aria-hidden="true">
+                      <circle class="body" r={r()} style={hero()?.portrait ? { fill: "#0b1714", stroke: `var(--${team()})`, "stroke-width": 3 } : {}} />
+                      <Show when={hero()?.portrait} fallback={<text style={{ "font-size": `${15 * p.k}px`, display: "inline" }}>{initials(slot(), hero()?.name)}</text>}>
+                        {(src) => <image href={src()} x={-r() + 2 * p.k} y={-r() + 2 * p.k} width={2 * r() - 4 * p.k} height={2 * r() - 4 * p.k} style={{ "clip-path": "circle(50%) fill-box", "pointer-events": "none" }} />}
+                      </Show>
+                      <g class="vis off" transform={`translate(${r() * 0.78} ${-r() * 0.78}) scale(${p.k})`}>
+                        <circle r="9" />
+                        <path d={EYE} />
+                        <path class="slash" d="M-6 6L6 -6" />
+                      </g>
+                    </g>
+                  );
+                }}
+              </Show>
               <Show when={remoteDrag()}>
                 {(o) => (
                   <g class="drag-trail" style={{ "--c": colorOf(o().state!.color) }}>
@@ -304,9 +354,11 @@ export function Tokens(p: {
                 data-player={pl().id}
                 data-visible={String(visible())}
                 data-seen={live() ? String(ghost() == null) : undefined}
+                data-fading={leaving() ? "out" : undefined}
                 onPointerDown={(e) => down(pl(), e)}
                 aria-label={label()}
                 onPointerEnter={() => {
+                  if (leaving()) return;
                   setHovered(pl().id);
                   setArmed(pl().id);
                   hover();
@@ -316,12 +368,13 @@ export function Tokens(p: {
                   unhover();
                 }}
                 // Off the map (a hero that died, a token taken off) with no pointerleave: unhovered.
-                ref={() =>
+                ref={(e) => {
+                  setEl(e);
                   onCleanup(() => {
                     if (hovered() === pl().id) setHovered(undefined);
                     unhover();
-                  })
-                }
+                  });
+                }}
               >
                 <Show when={selected()}>
                   <circle class="sel" r={r() + 5 * p.k} />

@@ -138,6 +138,20 @@ export function createPlayerHost(board: string, token: string) {
   });
   onCleanup(() => cancelAnimationFrame(raf));
 
+  /**
+   * Whether this moment continues the last in playback (MatchPreview `fade`): the same match,
+   * view and run (no seek, scrub or jump), and under a second since the last (a tab back from
+   * the background, a stalled box, snaps). A memo on t, however many read it.
+   */
+  let run: { jumps: number; view: Vision; ghosts: boolean; tl: Timeline | undefined; wall: number } | undefined;
+  const continuous = createMemo(() => {
+    t();
+    const now = { jumps, view: vision(), ghosts: showLastSeen(), tl: tl(), wall: performance.now() };
+    const was = run;
+    run = now;
+    return !!was && was.jumps === now.jumps && was.view === now.view && was.ghosts === now.ghosts && was.tl === now.tl && now.wall - was.wall < 1000;
+  });
+
   const control = {
     seek(to: number) {
       jumped();
@@ -694,7 +708,7 @@ export function createPlayerHost(board: string, token: string) {
           const shown = { hero: x.hero_id, name: showNames() ? x.name : null, pos: x.pos, health: health ? x.health : null, respawn: x.respawn };
           const s = view && x.team !== view ? seenAt(m.players[i]!, at) : { seen: true as const };
           if (s?.seen) return [slotKey(x.team, x.slot), shown];
-          return [slotKey(x.team, x.slot), ghosts && s ? { ...shown, pos: s.at, health: null, ghost: s.ago } : { ...shown, pos: null, health: null, ghost: null }];
+          return [slotKey(x.team, x.slot), ghosts && s ? { ...shown, pos: s.at, health: null, ghost: s.ago } : { ...shown, pos: null, health: null, ghost: null, unseen: true }];
         }),
       );
       // Everything by the board's marker keys: a pack can key a site differently from the
@@ -716,7 +730,7 @@ export function createPlayerHost(board: string, token: string) {
       // `at: null` draws nothing and can't be hovered (Urn.tsx, Camps.tsx).
       const carrier = u?.state === "carried" && view && u.team !== view ? m.players.findIndex((q) => q.team === u.team && q.slot === u.slot) : -1;
       const unseen = carrier >= 0 && !seenAt(m.players[carrier]!, at)?.seen;
-      const urn = u ? { ...u, ...(unseen ? { at: null } : {}), delivery: site(u.delivery), next: u.next ? { t: u.next.t, key: site(u.next.key) ?? u.next.key } : null } : undefined;
+      const urn = u ? { ...u, ...(unseen ? { at: null, unseen: true } : {}), delivery: site(u.delivery), next: u.next ? { t: u.next.t, key: site(u.next.key) ?? u.next.key } : null } : undefined;
       const rifts = new Map<string, RiftAt>();
       if (m.rifts) for (const mk of markers) if (mk.kind === "koth") rifts.set(mk.key, riftAt(m, mk.key, at, markers)!);
       const powerups = new Map<string, PowerupAt>();
@@ -726,7 +740,7 @@ export function createPlayerHost(board: string, token: string) {
         if (v && key) powerups.set(key, v);
       }
       const down = downAt(m, at, markers);
-      return { players, down, shops: shopsClosed(down, markers), sites: sitesAt(m, at, markers), lanes: lanesAt(m, at), camps, rifts, powerups, ...(health ? { health: byMarker(objectiveHealthAt(m, at)) } : {}), ...(urn ? { urn } : {}), ...(m.rejuv ? { rejuv: rejuvAt(m, at) } : {}) };
+      return { fade: continuous(), players, down, shops: shopsClosed(down, markers), sites: sitesAt(m, at, markers), lanes: lanesAt(m, at), camps, rifts, powerups, ...(health ? { health: byMarker(objectiveHealthAt(m, at)) } : {}), ...(urn ? { urn } : {}), ...(m.rejuv ? { rejuv: rejuvAt(m, at) } : {}) };
     },
   };
 }

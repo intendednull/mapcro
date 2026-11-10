@@ -210,6 +210,9 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .mm-overlay.map .tok[data-seen] { transition: filter var(--value-ease-ms) var(--ease-out-expo); }
 .mm-overlay.map .tok[data-seen] > .body, .mm-overlay.map .tok[data-seen] > image, .mm-overlay.map .tok[data-seen] > text { transition: opacity var(--value-ease-ms) var(--ease-out-expo); }
 .mm-overlay.map .tok[data-seen="false"] { filter: saturate(0.25); }
+/* On its way out of sight (and a ghost left behind as its hero is seen elsewhere), a token fades
+   (board/fade.ts) and is no longer there to point at. */
+.mm-overlay.map .tok[data-fading] { pointer-events: none; }
 /* Lighter than a scene's ghost: a real map's terrain is busy, and these are where to look. */
 .mm-overlay.map .tok[data-seen="false"] > .body, .mm-overlay.map .tok[data-seen="false"] > image, .mm-overlay.map .tok[data-seen="false"] > text { opacity: 0.6; }
 /* Selection */

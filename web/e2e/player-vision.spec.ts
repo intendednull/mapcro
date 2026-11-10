@@ -26,7 +26,8 @@ test.beforeAll(async () => {
   });
   await new Promise<void>((ok) => upstream.listen(0, "127.0.0.1", ok));
   const port = (upstream.address() as { port: number }).port;
-  server = new Server(undefined, { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue });
+  // Every test opens the match by upload: more than the server's 6 an hour for one client.
+  server = new Server(undefined, { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "20" });
   await server.start();
 });
 test.afterAll(() => {
@@ -39,7 +40,7 @@ const DROP = { x: -2000, y: 1500 };
 const stand = (team: string, slot: number) => ({ x: slot * 1500 - 4000, y: team === "amber" ? -3000 : 3000 });
 
 /**
- * - Sapphire 0 walks east 100 units a second; the King's team sees it 10–20 s.
+ * - Sapphire 0 walks east 100 units a second; the King's team sees it 10–20 s, and 45–50 s.
  * - Amber 1 is seen by the Archmother's team 0–30 s, dies at 35 and is back at 40, unseen since.
  * - Amber 0 is seen by the Archmother's team all match; every other hero by nobody.
  * - The urn: Sapphire 0 carries it 10–30 s, Sapphire 1 (never seen) 30–40 s; it's dropped at
@@ -62,7 +63,7 @@ function timeline() {
           deaths: victim ? [35] : [],
           respawn: victim ? [[35, 40]] : [],
           souls: [[0, 500]], ult: range(() => 0),
-          seen: walker ? [[100, 200]] : victim ? [[0, 300]] : team === "amber" && slot === 0 ? [[0, N * 10]] : [],
+          seen: walker ? [[100, 200], [450, 500]] : victim ? [[0, 300]] : team === "amber" && slot === 0 ? [[0, N * 10]] : [],
         };
       }),
     ),
@@ -290,4 +291,147 @@ test("in a team's view, an urn carried by an enemy out of its sight isn't drawn 
   await pick.selectOption("all");
   await scrubTo(a, 25);
   await expect(urn).toHaveAttribute("data-state", "carried");
+});
+
+// Vision's fades (board/fade.ts): on continuous playback an enemy coming into sight fades in, and
+// one leaving it fades out where it was last drawn, then goes; so does the urn it carries. A seek
+// snaps, and so does reduced motion. Timed like every eased value: out-expo over 350 ms.
+
+const EXPO = "cubic-bezier(0.16, 1, 0.3, 1)";
+async function play(p: Page, from: number) {
+  await scrubTo(p, from);
+  await p.getByTestId("match-play").click();
+}
+/**
+ * Wait (up to 5 s) for `sel` to run an opacity fade, pause it there, and say what it is: from
+ * and to, easing, duration, and whether the element is marked fading out.
+ */
+const catchFade = (p: Page, sel: string) =>
+  p.evaluate(
+    (sel) =>
+      new Promise<{ from: number; to: number; easing: string; duration: number; out: boolean }>((done, fail) => {
+        const until = performance.now() + 5000;
+        const look = () => {
+          const el = document.querySelector(sel);
+          const a = el?.getAnimations().find((x) => (x.effect as KeyframeEffect).getKeyframes().some((k) => "opacity" in k));
+          if (el && a) {
+            a.pause();
+            const k = (a.effect as KeyframeEffect).getKeyframes();
+            const tm = (a.effect as KeyframeEffect).getTiming();
+            return done({ from: Number(k[0]!.opacity), to: Number(k.at(-1)!.opacity), easing: String(tm.easing), duration: Number(tm.duration), out: el.getAttribute("data-fading") === "out" });
+          }
+          if (performance.now() > until) return fail(new Error(`no fade on ${sel}`));
+          requestAnimationFrame(look);
+        };
+        look();
+      }),
+    sel,
+  );
+/** Let every paused fade run on. */
+const resume = (p: Page) => p.evaluate(() => document.getAnimations().forEach((a) => a.playState === "paused" && a.play()));
+/** Watch `sel` for `ms`: whether it ever faded, or was marked fading out. */
+const watchFades = (p: Page, sel: string, ms: number) =>
+  p.evaluate(
+    ({ sel, ms }) =>
+      new Promise<boolean>((done) => {
+        const until = performance.now() + ms;
+        let seen = false;
+        const look = () => {
+          for (const el of document.querySelectorAll(sel)) if (el.getAttribute("data-fading") || el.getAnimations().some((x) => (x.effect as KeyframeEffect).getKeyframes().some((k) => "opacity" in k))) seen = true;
+          if (performance.now() > until) return done(seen);
+          requestAnimationFrame(look);
+        };
+        look();
+      }),
+    { sel, ms },
+  );
+const S0 = '[data-testid=map] .tok[data-slot="Sapphire-0"]';
+const URN = "[data-testid=map] [data-testid=urn]";
+
+test("on playback an enemy leaving sight fades out where it was last seen, unhoverable, then goes; its urn too", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Vision fade out"), "Coach");
+  await open(a);
+  await a.getByTestId("vision-select").selectOption("amber");
+  await play(a, 18);
+  const [tok0, urn0] = await Promise.all([catchFade(a, S0), catchFade(a, URN)]);
+  expect(tok0).toEqual({ from: 1, to: 0, easing: EXPO, duration: 350, out: true });
+  expect(urn0).toEqual({ from: 1, to: 0, easing: EXPO, duration: 350, out: true });
+  // Held there while the fade is held: where it was last drawn, as the match walks on without it.
+  const spot = await at(a, "Sapphire-0");
+  await expect.poll(async () => Number((await a.getByTestId("match-clock").textContent())!.slice(2, 4))).toBeGreaterThanOrEqual(21);
+  expect(await at(a, "Sapphire-0")).toEqual(spot);
+  expect(spot.x).toBeLessThan((await translate(await tok(a, "Amber-5").getAttribute("transform"))).x);
+  // Not there to point at: no label, and the pointer falls through.
+  const b = (await tok(a, "Sapphire-0").locator("circle.body").boundingBox())!;
+  await a.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await a.mouse.move(b.x + b.width / 2 + 1, b.y + b.height / 2);
+  await expect(a.getByTestId("hover-label")).toHaveCount(0);
+  expect(await tok(a, "Sapphire-0").evaluate((el) => getComputedStyle(el).pointerEvents)).toBe("none");
+  await a.mouse.move(5, 5);
+  // A few frames of it, for the eye: the map around the token at 0, ⅓, ⅔ and all of the fade.
+  const box = (await a.getByTestId("map").boundingBox())!;
+  const clip = { x: Math.max(box.x, b.x - 120), y: Math.max(box.y, b.y - 90), width: 280, height: 200 };
+  for (const ms of [0, 60, 120, 200, 350])
+    await a.evaluate((ms) => document.getAnimations().forEach((x) => x.playState === "paused" && (x.currentTime = ms)), ms).then(() => a.screenshot({ path: `/tmp/vision-fade/fade-out-${String(ms).padStart(3, "0")}ms.png`, clip }));
+  // Then it goes.
+  await resume(a);
+  await expect(tok(a, "Sapphire-0")).toHaveCount(0);
+  await expect(a.locator(URN)).toHaveCount(0);
+});
+
+test("on playback an enemy coming into sight fades in; a ghost seen again elsewhere fades out where it was", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Vision fade in"), "Coach");
+  await open(a);
+  await a.getByTestId("vision-select").selectOption("amber");
+  await play(a, 8);
+  expect(await catchFade(a, S0)).toEqual({ from: 0, to: 1, easing: EXPO, duration: 350, out: false });
+  await resume(a);
+  await a.getByTestId("match-play").click();
+
+  // Show last seen location: the ghost at its 20 s spot; at 45 s it's seen 2,500 units on.
+  await a.getByTestId("last-seen-toggle").click();
+  await play(a, 43);
+  const echo = `[data-testid=map] [data-echo="Sapphire-0"]`;
+  const [fadeIn, fadeOut] = await Promise.all([catchFade(a, S0), catchFade(a, echo)]);
+  expect(fadeIn).toEqual({ from: 0, to: 1, easing: EXPO, duration: 350, out: false });
+  expect(fadeOut).toEqual({ from: 1, to: 0, easing: EXPO, duration: 350, out: true });
+  await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-seen", "true");
+  expect((await translate(await a.locator(echo).getAttribute("transform"))).x).toBeLessThan((await at(a, "Sapphire-0")).x);
+  await resume(a);
+  await expect(a.locator(echo)).toHaveCount(0);
+});
+
+test("a seek, even while playing, snaps the view without a fade", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Vision seek"), "Coach");
+  await open(a);
+  await a.getByTestId("vision-select").selectOption("amber");
+  await play(a, 15);
+  const watched = watchFades(a, `${S0}, ${URN}`, 1500);
+  // Out of sight: gone at once.
+  await a.getByTestId("match-time").evaluate((el) => {
+    (el as HTMLInputElement).value = "25";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(tok(a, "Sapphire-0")).toHaveCount(0, { timeout: 100 });
+  // Back in sight: there at once.
+  await a.getByTestId("match-time").evaluate((el) => {
+    (el as HTMLInputElement).value = "12";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(tok(a, "Sapphire-0")).toHaveCount(1, { timeout: 100 });
+  expect(await watched).toBe(false);
+});
+
+test("under reduced motion a hero leaves and enters sight at once", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Vision fade reduced"), "Coach");
+  await open(a);
+  await a.emulateMedia({ reducedMotion: "reduce" });
+  await a.getByTestId("vision-select").selectOption("amber");
+  await play(a, 19);
+  expect(await watchFades(a, `${S0}, ${URN}`, 2000)).toBe(false);
+  await expect(tok(a, "Sapphire-0")).toHaveCount(0);
+  await a.getByTestId("match-play").click();
+  await play(a, 9);
+  expect(await watchFades(a, S0, 2000)).toBe(false);
+  await expect(tok(a, "Sapphire-0")).toHaveCount(1);
 });

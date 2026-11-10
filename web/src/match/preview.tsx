@@ -7,8 +7,12 @@ import type { CampAt, PowerupAt, RejuvNow, RiftAt, UrnNow } from "./timeline";
 export interface MatchPreview {
   /** By "amber-0" … "sapphire-5": the hero there, its player's name if known, and where it is
    * (`null`: dead, hidden). `ghost`: in one team's Vision, an enemy out of its sight, drawn dim at
-   * `pos`, where it was last seen, this many seconds ago. */
-  players: Map<string, { hero: number; name?: string | null; pos: { x: number; y: number } | null; health?: number | null; respawn?: number | null; ghost?: number | null }>;
+   * `pos`, where it was last seen, this many seconds ago. `unseen`: in one team's Vision, not
+   * drawn because it's out of that team's sight (not dead, say): its going and coming fade. */
+  players: Map<string, { hero: number; name?: string | null; pos: { x: number; y: number } | null; health?: number | null; respawn?: number | null; ghost?: number | null; unseen?: boolean }>;
+  /** Whether this moment continues the last in playback: no seek, scrub, jump, stall, new match
+   * or change of view between them. Vision's fades run only then (board/fade.ts). */
+  fade?: boolean;
   /** Board objective keys down at this moment. */
   down: Set<string>;
   /** Lane shops closed at this moment, their guardian down (match/timeline.ts `shopsClosed`). */
@@ -26,7 +30,7 @@ export interface MatchPreview {
   /** Replay tier, with Health on: objectives' health by key (absent: none drawn). */
   health?: Map<string, { pct: number; stage?: number }>;
   /** Replay tier: the Soul Urn at this moment, its sites by marker key (absent: no urn data). */
-  urn?: UrnNow;
+  urn?: UrnNow & { unseen?: boolean };
   /** Replay tier, format 3: the Rejuvenators held at this moment (absent or empty: none). */
   rejuv?: RejuvNow[];
 }

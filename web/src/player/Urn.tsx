@@ -3,7 +3,8 @@
 // point is a map marker (MapView, kind "urn"), lit while open; hovering a point says when the
 // next urn spawns (player/Camps.tsx).
 
-import { Show } from "solid-js";
+import { Show, createSignal } from "solid-js";
+import { visionFade } from "../board/fade";
 import { cx } from "../ui/cx";
 import type { Art } from "../map/pack";
 import { worldToView } from "../map/transform";
@@ -40,10 +41,15 @@ export function urnTip(u: UrnNow, key: string, t: number): string | undefined {
 
 /** `mk`: the map markers' scale (a rift's), for the urn on the ground; `k`: the hero tokens'. */
 export function UrnMark(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; preview: () => MatchPreview | undefined; k: number; mk: number }) {
-  const u = () => {
+  const drawn = () => {
     const x = p.preview()?.urn;
     return x && x.state !== "none" && x.at ? x : undefined;
   };
+  // A carrier going out of a team's sight takes the urn with it: it fades out on its last spot,
+  // and in again with the carrier (board/fade.ts). Its hover is gone at once (Camps.tsx).
+  const [el, setEl] = createSignal<SVGGElement>();
+  const vf = visionFade({ value: drawn, hidden: () => !!p.preview()?.urn?.unseen, smooth: () => !!p.preview()?.fade, el });
+  const u = vf.shown;
   const img = () => p.art.images.get("urn");
   return (
     <Show when={u()}>
@@ -59,7 +65,9 @@ export function UrnMark(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; pre
         return (
           <g
             class={cx("pl-urn", `urn-${x().state}`)}
+            ref={setEl}
             data-testid="urn"
+            data-fading={vf.leaving() ? "out" : undefined}
             data-state={x().state}
             data-team={x().team ?? ""}
             data-x={Math.round(x().at!.x)}
