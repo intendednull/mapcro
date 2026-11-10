@@ -1,0 +1,126 @@
+<!doctype html>
+<!-- Static mock for docs/research/abilities-and-items.md, option B (portrait build card).
+     No game art: tiles and portraits are placeholders; a real build uses the pack's icons.
+     Data is 129738985 at 12:00, controller 3 / slot 2 (Infernus), from the study's probe. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mapcro mock: portrait build card</title>
+<style>
+  :root { --t1: #D4860B; --t1fg: #201500; --t2: #4D75C3; --weapon: #c97a2b; --vit: #4f9a3a; --spirit: #8a55c9; }
+  body { margin: 0; background: #1b1e19; color: #e8e6df; font: 14px "Noto Sans", system-ui, sans-serif; }
+  .map { position: relative; height: 640px; background: radial-gradient(circle at 50% 60%, #2c3327, #151813 70%); overflow: hidden; }
+  .bar { display: flex; justify-content: center; gap: 6px; padding: 8px 0; background: #00000070; }
+  .team { display: flex; gap: 4px; }
+  .team + .team { margin-left: 40px; }
+  .p { position: relative; width: 52px; text-align: center; }
+  .portrait { width: 48px; height: 48px; border-radius: 6px; background: #3a3f36; border: 2px solid transparent; display: grid; place-items: center; font-weight: 700; color: #9aa092; }
+  .amber .portrait { border-color: var(--t1); }
+  .sapphire .portrait { border-color: var(--t2); }
+  .p.open .portrait { outline: 2px solid #fff; outline-offset: 1px; }
+  .souls { font-size: 11px; margin-top: 2px; border-radius: 3px; }
+  .amber .souls { background: var(--t1); color: var(--t1fg); }
+  .sapphire .souls { background: var(--t2); color: #fff; }
+  .card { position: absolute; top: 92px; left: calc(50% - 300px); width: 300px; background: #10130Df2; border: 1px solid #3c4237; border-radius: 8px; padding: 10px 12px; box-shadow: 0 8px 24px #000a; }
+  .card::before { content: ""; position: absolute; top: -7px; left: 70px; border: 7px solid transparent; border-top: 0; border-bottom-color: #3c4237; }
+  .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .head b { font-size: 15px; } .head span { color: #9aa092; font-size: 12px; }
+  h4 { margin: 8px 0 4px; font: 600 11px "Noto Sans", sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #9aa092; }
+  .abil { display: flex; gap: 8px; }
+  .a { position: relative; width: 48px; height: 48px; border-radius: 6px; background: #2a2d27; display: grid; place-items: center; font-size: 11px; color: #c9c6bb; overflow: hidden; }
+  .a .sweep { position: absolute; inset: 0; background: conic-gradient(#000b var(--cd), transparent 0); }
+  .a .secs { position: absolute; font: 700 14px sans-serif; color: #fff; }
+  .a .chg { position: absolute; right: 2px; bottom: 2px; background: #8ee0c4; color: #0b1d18; font: 700 10px sans-serif; border-radius: 3px; padding: 0 3px; }
+  .a.ult { box-shadow: inset 0 0 0 2px #8ee0c4; }
+  .a.locked { opacity: .35; }
+  .pips { display: flex; gap: 3px; justify-content: center; margin-top: 3px; }
+  .pips i { width: 10px; height: 4px; border-radius: 2px; background: #3c4237; }
+  .pips i.on { background: #8ee0c4; }
+  .items { display: flex; flex-wrap: wrap; gap: 4px; }
+  .it { width: 40px; height: 40px; border-radius: 5px; display: grid; place-items: center; font-size: 9px; text-align: center; line-height: 1.05; color: #fff; }
+  .it.weapon { background: var(--weapon); } .it.vit { background: var(--vit); } .it.spirit { background: var(--spirit); }
+  .it.empty { background: transparent; border: 1px dashed #3c4237; }
+  .strip { position: relative; height: 18px; margin-top: 6px; border-top: 1px solid #3c4237; }
+  .strip i { position: absolute; top: 3px; width: 6px; height: 10px; border-radius: 2px; }
+  .strip .now { position: absolute; top: -4px; bottom: 0; width: 2px; background: #fff; }
+  .foot { margin-top: 6px; font-size: 11px; color: #9aa092; }
+  .events { position: absolute; right: 0; top: 64px; bottom: 0; width: 280px; background: #10130De6; border-left: 1px solid #3c4237; padding: 8px; }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+  .chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid #3c4237; color: #9aa092; }
+  .chip.on { background: #8ee0c422; border-color: #8ee0c4; color: #e8e6df; }
+  .ev { font-size: 12px; padding: 3px 4px; border-left: 3px solid transparent; }
+  .ev.amber { border-color: var(--t1); } .ev.now { background: #ffffff10; }
+  .ev .t { color: #9aa092; margin-right: 6px; font-variant-numeric: tabular-nums; }
+  .note { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: #7d8277; max-width: 560px; }
+</style>
+</head>
+<body>
+<div class="map">
+  <div class="bar">
+    <div class="team amber">
+      <div class="p amber"><div class="portrait">VI</div><div class="souls">9.1k</div></div>
+      <div class="p amber open"><div class="portrait">IN</div><div class="souls">8.4k</div></div>
+      <div class="p amber"><div class="portrait">MI</div><div class="souls">7.9k</div></div>
+      <div class="p amber"><div class="portrait">PO</div><div class="souls">7.2k</div></div>
+      <div class="p amber"><div class="portrait">GR</div><div class="souls">6.8k</div></div>
+      <div class="p amber"><div class="portrait">WR</div><div class="souls">6.1k</div></div>
+    </div>
+    <div class="team sapphire">
+      <div class="p sapphire"><div class="portrait">AB</div><div class="souls">9.4k</div></div>
+      <div class="p sapphire"><div class="portrait">HA</div><div class="souls">8.8k</div></div>
+      <div class="p sapphire"><div class="portrait">SE</div><div class="souls">8.0k</div></div>
+      <div class="p sapphire"><div class="portrait">BE</div><div class="souls">7.5k</div></div>
+      <div class="p sapphire"><div class="portrait">RA</div><div class="souls">6.9k</div></div>
+      <div class="p sapphire"><div class="portrait">DY</div><div class="souls">6.3k</div></div>
+    </div>
+  </div>
+
+  <!-- Opened by clicking a portrait's build button (or "Build" in its right-click menu);
+       it follows the playhead and closes on Esc or a click outside. -->
+  <div class="card" role="dialog" aria-label="Infernus build at 12:00">
+    <div class="head"><b>Infernus</b><span>12:00 · souls from the timeline</span></div>
+    <h4>Abilities</h4>
+    <div class="abil">
+      <div><div class="a" title="ability_incendiary_projectile: T1, 2 charges, ready">incendiary<span class="chg">2</span></div><div class="pips"><i class="on"></i><i></i><i></i></div></div>
+      <div><div class="a" title="ability_flame_dash: T1, ready">flame_dash</div><div class="pips"><i class="on"></i><i></i><i></i></div></div>
+      <div><div class="a" title="ability_afterburn: T3 (passive)">afterburn</div><div class="pips"><i class="on"></i><i class="on"></i><i class="on"></i></div></div>
+      <div><div class="a ult" style="--cd: 35%" title="ability_fire_bomb: unlocked, no upgrades (sweep shown for illustration)"><div class="sweep"></div>fire_bomb</div><div class="pips"><i></i><i></i><i></i></div></div>
+    </div>
+    <div class="foot">Replay tier: cooldowns and charges. Summary tier: levels only, rings read "untracked".</div>
+    <h4>Items (5)</h4>
+    <div class="items">
+      <div class="it weapon" title="bought 5:32 (consumed the 0:58 buy)">Item</div>
+      <div class="it spirit" title="bought 7:34 (consumed the 3:11 buy)">Item</div>
+      <div class="it vit" title="bought 8:36 (consumed the 6:52 buy)">Item</div>
+      <div class="it spirit" title="bought 9:56">Item</div>
+      <div class="it weapon" title="bought 11:49">Item</div>
+      <div class="it empty"></div><div class="it empty"></div><div class="it empty"></div>
+    </div>
+    <!-- Buys along the match so far; a click jumps the playhead to that purchase. -->
+    <div class="strip" title="Purchases so far">
+      <i style="left:2.2%;background:var(--weapon)"></i>
+      <i style="left:7.2%;background:var(--spirit)"></i>
+      <i style="left:12.6%;background:var(--weapon)"></i>
+      <i style="left:15.6%;background:var(--vit)"></i>
+      <i style="left:17.2%;background:var(--spirit)"></i>
+      <i style="left:19.5%;background:var(--vit)"></i>
+      <i style="left:22.6%;background:var(--spirit)"></i>
+      <i style="left:26.9%;background:var(--weapon)"></i>
+      <div class="now" style="left:27.3%"></div>
+    </div>
+    <div class="foot">Both tiers: items owned at t and buy times (summary: from the API's items[]).</div>
+  </div>
+
+  <div class="events">
+    <div class="chips"><span class="chip on">Kills</span><span class="chip on">Objectives</span><span class="chip on">Ults</span><span class="chip">Heals</span><span class="chip on">Build</span></div>
+    <div class="ev amber"><span class="t">10:20</span>Infernus: afterburn T3</div>
+    <div class="ev amber"><span class="t">11:49</span>Infernus bought an item</div>
+    <div class="ev"><span class="t">11:52</span>Haze died</div>
+    <div class="ev amber now"><span class="t">12:00</span>Viscous ult</div>
+    <div class="ev"><span class="t">12:31</span>Walker destroyed</div>
+    <div class="foot" style="margin-top:12px">"Build" is a new chip, off by default like Heals.</div>
+  </div>
+  <div class="note">Mock: placeholder tiles stand in for the pack's item and ability icons and names. Levels, charges and item count are from 129738985 at 12:00 (probe; nothing was on cooldown then, so the fourth tile's sweep is illustrative). Labels are internal names; item names are not resolved in this mock.</div>
+</div>
+</body>
+</html>
