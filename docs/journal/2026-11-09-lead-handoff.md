@@ -5,7 +5,13 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## Production
 
-- `web` runs **a3a35b5**, deployed 2026-11-09 ~20:05 UTC: the replay clock holds through in-game
+- `web` runs **f53127b**, deployed 2026-11-09 ~20:45 UTC: a fading team-coloured skull at a death
+  (Vision rules; verified on prod). 111a40d (~20:25) before it: feedback issues carry the open match
+  (checkbox, server-validated). Feedback issue #2 (pause bug) closed with a comment, operator OK'd.
+  Studies on main, awaiting the operator: elevation.md, abilities-and-items.md (decisions section;
+  chooser artifact in concierge/artifacts/mapcro-abilities-items), status-effects.md. Plan: ONE
+  FORMAT bump for items/abilities/cooldowns/status effects (each bump forces upload re-uploads).
+- Before that, **a3a35b5** (~20:05 UTC): the replay clock holds through in-game
   pauses (FORMAT 6; `m_nTotalPausedTicks` only grows at the unpause, so the running pause counts from
   `m_nPauseStartTick`); before, a pause froze its stretch and lost as much play after it, and an
   objective that fell in the lost stretch never fell (feedback issue #2, match 134570618, an upload
