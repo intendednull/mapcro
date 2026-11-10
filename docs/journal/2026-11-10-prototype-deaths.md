@@ -19,3 +19,18 @@ shared WASM symlink setup. Browser verification is being retried with a local WA
 Optional next scope proposed to coordinator: default-off, one tiny active hard-CC text badge
 under visible living tokens, stun/silence/disarm only. General buffs and effect stacks deferred
 to avoid clutter and attribution ambiguity. No deployment, asset commit or real-player capture.
+
+## Optional compact CC follow-up
+
+Coordinator approved a separate, default-off Crowd control map layer. The host exposes
+`showCC`/`setShowCC`; the controls branch supplies its toggle. The map shows one small text label
+under a currently visible living hero, prioritized Stunned (20), Silenced (17), Disarmed (14).
+These are the extracted pawn-mask state indices in the worker's CC_STATES, independent of source
+attribution. Half-open decisecond intervals use replay time directly. No label is attached to
+last-seen ghosts or hidden/dead heroes; summary timelines and unsupported CC states show none.
+
+Three focused CC tests pass alongside the 12 death tests. Production typecheck/build passes
+with the companion Board art prop. A synthetic browser case covers default off, pause, seek,
+death suppression, last-seen suppression and interval expiry; coordinator will run it after
+sequentially merging the companion controls toggle. Browser debugging stopped per coordinator.
+General buffs, effect icon stacks and other CC states remain deferred. No extracted asset added.

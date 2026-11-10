@@ -436,6 +436,14 @@ export function Tokens(p: {
                     />
                   )}
                 </Show>
+                <Show when={live() && !leaving() && ghost() == null && raw()?.pos && raw()?.cc}>
+                  {(cc) => (
+                    <g class="tok-cc" data-testid="tok-cc" transform={`translate(0 ${r() + 10 * p.k}) scale(${p.k})`} aria-hidden="true">
+                      <rect x="-28" y="-7" width="56" height="14" rx="3" />
+                      <text>{cc()}</text>
+                    </g>
+                  )}
+                </Show>
                 {/* Kill and vision are set from the portrait's right-click menu (TopBar), or K;
                     the token only shows them: the dead badge, and the eye-slash when unseen. */}
                 <Show when={!visible()}>

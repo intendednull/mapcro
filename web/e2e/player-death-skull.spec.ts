@@ -58,6 +58,7 @@ function timeline() {
           deaths: a1 ? [20] : s2 ? [40] : [],
           respawn: a1 ? [[20, 30]] : s2 ? [[40, 50]] : [],
           souls: [[0, 500]], ult: range(() => 0),
+          cc: a1 ? [[180, 230, 20, 255, 0]] : s0 ? [[290, 320, 17, 255, 0]] : [],
           seen: a1 ? [[100, 198]] : s0 ? [[100, 300]] : [],
         };
       }),
@@ -193,4 +194,33 @@ test("a follower draws the presenter's skulls, at the presenter's time and visio
   await expect(b.getByTestId("vision-select")).toHaveValue("amber");
   await expect(skulls(b)).toHaveCount(0);
   await expect(b.getByTestId("follow-chip")).toContainText("Following Coach");
+});
+
+
+test("optional CC labels follow replay time and never update dead or last-seen tokens", async ({ browser }) => {
+  const p = await joinNew(browser, await newBoardUrl(server, "Crowd control"), "Coach");
+  await open(p);
+  await scrubTo(p, 18);
+  await expect(p.getByTestId("tok-cc")).toHaveCount(0);
+  await p.getByTestId("cc-toggle").click();
+  await expect(p.getByTestId("tok-cc")).toHaveText("Stunned");
+  await p.waitForTimeout(150);
+  await expect(p.getByTestId("tok-cc")).toHaveText("Stunned");
+  await scrubTo(p, 17);
+  await expect(p.getByTestId("tok-cc")).toHaveCount(0);
+  await scrubTo(p, 18);
+  await expect(p.getByTestId("tok-cc")).toHaveText("Stunned");
+  await scrubTo(p, 21);
+  await expect(p.getByTestId("tok-cc")).toHaveCount(0); // still CC data, but dead
+  await p.getByTestId("vision-select").selectOption("amber");
+  await scrubTo(p, 29);
+  await expect(p.getByTestId("tok-cc")).toHaveText("Silenced");
+  await p.getByTestId("last-seen-toggle").click();
+  await scrubTo(p, 31);
+  await expect(tok(p, "Sapphire-0")).toHaveAttribute("data-seen", "false");
+  await expect(p.getByTestId("tok-cc")).toHaveCount(0);
+  await p.getByTestId("vision-select").selectOption("all");
+  await expect(p.getByTestId("tok-cc")).toHaveText("Silenced");
+  await scrubTo(p, 32);
+  await expect(p.getByTestId("tok-cc")).toHaveCount(0);
 });

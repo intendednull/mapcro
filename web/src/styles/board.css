@@ -982,3 +982,8 @@ kbd {
 .hero-cell .hero-taken { font: 500 10px var(--ui); color: var(--faint); }
 /* An unnamed scene's "Scene N" reads as a name in the list, not a faded placeholder. */
 .scene-row .name .ie.empty { color: inherit; font-style: normal; opacity: 1; }
+
+/* Optional live CC: one short game-state label, subordinate to the hero portrait. */
+.mm-overlay.map .tok-cc { pointer-events: none; }
+.mm-overlay.map .tok-cc rect { fill: #211b17; stroke: #bb9c77; stroke-width: 0.7; }
+.mm-overlay.map .tok .tok-cc text { display: inline; fill: #efdfc6; font-size: 10px; font-weight: 600; text-anchor: middle; dominant-baseline: central; }

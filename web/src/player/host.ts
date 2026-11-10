@@ -17,6 +17,7 @@ import { eventKey } from "./events";
 import { chooseSummary, markOpened, openedHere, playerLastSeenShown, playerNamesShown, playerVision, setPlayerLastSeenShown, setPlayerNamesShown, setPlayerVision, summaryChosen } from "../core/device";
 import { type Vision, hasVision, seenAt, visionFromWire, visionToWire } from "./vision";
 import { skullsAt } from "./skulls";
+import { crowdControlAt } from "./cc";
 import type { PlayerVision } from "../gen/PlayerVision";
 
 export type Mode = "player" | "sandbox";
@@ -62,6 +63,8 @@ export function createPlayerHost(board: string, token: string) {
   const [showTroopers, setShowTroopers] = createSignal(true);
   // Health bars and rings (replay tier), on by default (operator, 2026-11-08).
   const [showHealth, setShowHealth] = createSignal(true);
+  /** Optional compact hard-CC labels, off by default. */
+  const [showCC, setShowCC] = createSignal(false);
   /** Event pings while playing (spec §6b), on by default. */
   const [showPings, setShowPings] = createSignal(true);
   /**
@@ -661,6 +664,8 @@ export function createPlayerHost(board: string, token: string) {
     setShowTroopers,
     showHealth,
     setShowHealth,
+    showCC,
+    setShowCC,
     showPings,
     setShowPings,
     showNames,
@@ -723,7 +728,9 @@ export function createPlayerHost(board: string, token: string) {
         playersAt(m, at).map((x, i) => {
           const shown = { hero: x.hero_id, name: showNames() ? x.name : null, pos: x.pos, health: health ? x.health : null, respawn: x.respawn };
           const s = view && x.team !== view ? seenAt(m.players[i]!, at) : { seen: true as const };
-          if (s?.seen) return [slotKey(x.team, x.slot), shown];
+          // Only living heroes currently in sight receive live status. Never attach it to
+          // last-seen ghosts: that would reveal a new effect applied outside the team's view.
+          if (s?.seen) return [slotKey(x.team, x.slot), { ...shown, ...(showCC() && m.tier === "replay" && x.pos ? { cc: crowdControlAt(m.players[i]!, at) } : {}) }];
           return [slotKey(x.team, x.slot), ghosts && s ? { ...shown, pos: s.at, health: null, ghost: s.ago } : { ...shown, pos: null, health: null, ghost: null, unseen: true }];
         }),
       );
