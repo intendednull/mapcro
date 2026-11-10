@@ -3,6 +3,16 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## The web tests pick a port the way the server tests did (2026-11-09, from test-flakes)
+
+web/test/{journal,outdated,resend-durable,soak-regressions,stroke-move}.test.ts, web/soak/server.ts
+and web/perf/server.ts, choose a port by listening on 0, closing, and passing the number as
+`PORT`, then poll `/healthz`. This race made the Rust server tests flaky on a busy box (fixed in
+crates/server/tests/support): the port can be taken before the child binds it. The child then
+dies of `cannot bind`, and the poll is either never answered or answered by someone else's
+server. The fix is the same: `PORT=0`, then read the child's stderr for
+`mapcro-server: listening on <addr>`.
+
 ## Under Vision, a death ping marks a death the skull hides (2026-11-09, from death-skull)
 
 Death skulls (spec §6b) follow Vision: in a team's view an enemy's death it didn't see draws no
@@ -44,20 +54,6 @@ sample through a pause (the replay's own clock bug before format 6), each pause 
 of drift. `reanchored` in matches.rs re-anchors paths to deaths, which hides it between deaths.
 Checking where the drift starts against `match_pauses` on a few paused matches would tell; if it
 fits, cutting each pause's samples from the paths would fix the summary tier's clock.
-
-## `a_loaded_room_does_not_hold_its_history` drops its connection under load (2026-11-09, lead)
-
-crates/server/tests/system.rs: failed once in the gate at load ~13 ("connection stays up: None" from
-`until_saved`'s `pump_one`, line ~269), then passed 3/3 alone in ~9 s each. Same family as the
-startup-timeout entry below: the system tests' timings assume a quiet box. Worth finding why the
-socket closes (a server-side idle/backpressure close under load would be a real bug, not just a flake).
-
-## A server test times out starting under load (2026-11-09, from follow-vision)
-
-`a_board_keeps_the_matches_it_opened` (crates/server/tests/replays.rs) failed once with "server
-never became healthy" while the box sat at load ~13 and the whole engine + server suite ran; it
-passed three times alone. The harness gives a spawned server 10 s to answer `/healthz`. A longer
-deadline, or fewer servers started at once, would stop it failing on a busy box.
 
 ## "Presenter left" has no test that the follower's own Vision comes back (2026-11-09, from follow-vision)
 
