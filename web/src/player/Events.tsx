@@ -2,12 +2,16 @@
 // save one scene per event. Labels only.
 
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js";
+import type { Art } from "../map/pack";
+import { DeathRecap } from "./DeathRecap";
+import { recapFor } from "./recap";
 import { cx } from "../ui/cx";
 import { type MatchEvent, type Timeline, clockLabel } from "../match/timeline";
 import { type EventGroup, GROUPS, type Named, eventKey, groupOf, labelParts, search } from "./events";
 
 export function EventsList(p: {
   tl: Timeline;
+  art: Art;
   names: Named;
   tier: string;
   canSave: boolean;
@@ -116,6 +120,7 @@ export function EventsList(p: {
                     <For each={labelParts(e, p.names)}>{(x) => (x.muted ? <span class="pl-ev-name">{x.text}</span> : x.text)}</For>
                   </span>
                 </button>
+                <Show when={recapFor(p.tl, e)}>{recap => <DeathRecap recap={recap()} timeline={p.tl} art={p.art} onSeek={t => p.onJump(e, e.t - t)} />}</Show>
               </li>
             );
           }}

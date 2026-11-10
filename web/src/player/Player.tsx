@@ -755,7 +755,7 @@ export function PlayerSide(p: Props) {
         <Show when={h.tl()}>
           {(m) => (
             <>
-              <EventsList tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} t={h.t} playing={() => h.playback().playing} onShown={h.setPingable} pinned={h.pinned} />
+              <EventsList art={p.art} tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} t={h.t} playing={() => h.playback().playing} onShown={h.setPingable} pinned={h.pinned} />
               <span class="match-credit" data-testid="match-credit">
                 {tierOf(m()) === "replay" ? (h.job()?.source === "cdn" ? "Replay: Valve, via deadlock-api.com" : "Replay: uploaded") : "Match data: deadlock-api.com"}
               </span>

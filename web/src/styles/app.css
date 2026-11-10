@@ -651,3 +651,19 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-bar.scene .pl-transport { grid-column: 1 / -1; }
 .pl-mark.current { background: var(--text); box-shadow: 0 0 0 2px var(--brass); }
 .pl-bar.scene .pl-scrub { opacity: .8; }
+
+.pl-ev { flex-wrap: wrap; }
+.death-recap { flex: 1 0 100%; min-width: 0; font-size: 11px; }
+.death-recap summary { cursor: pointer; color: var(--muted); padding: 3px 4px 5px 24px; }
+.death-recap[open] { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
+.death-recap-body { padding: 8px; }
+.recap-window { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.recap-damage { max-height: 220px; overflow-y: auto; margin-top: 8px; }
+.recap-hit { position: relative; display: flex; align-items: center; gap: 6px; padding: 5px 0 7px; }
+.recap-hit img { width: 24px; height: 24px; object-fit: contain; }
+.recap-hit span { flex: 1; min-width: 0; }
+.recap-hit small { display: block; color: var(--muted); }
+.recap-hit i { position: absolute; left: 0; bottom: 1px; height: 2px; background: var(--brass); }
+.recap-cc { margin: 6px 0; }
+.recap-cc > div { position: relative; height: 5px; background: var(--line); margin-top: 3px; }
+.recap-cc i { position: absolute; height: 100%; background: var(--danger); }
