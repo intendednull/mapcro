@@ -36,6 +36,13 @@ of drift. `reanchored` in matches.rs re-anchors paths to deaths, which hides it 
 Checking where the drift starts against `match_pauses` on a few paused matches would tell; if it
 fits, cutting each pause's samples from the paths would fix the summary tier's clock.
 
+## `a_loaded_room_does_not_hold_its_history` drops its connection under load (2026-11-09, lead)
+
+crates/server/tests/system.rs: failed once in the gate at load ~13 ("connection stays up: None" from
+`until_saved`'s `pump_one`, line ~269), then passed 3/3 alone in ~9 s each. Same family as the
+startup-timeout entry below: the system tests' timings assume a quiet box. Worth finding why the
+socket closes (a server-side idle/backpressure close under load would be a real bug, not just a flake).
+
 ## A server test times out starting under load (2026-11-09, from follow-vision)
 
 `a_board_keeps_the_matches_it_opened` (crates/server/tests/replays.rs) failed once with "server
