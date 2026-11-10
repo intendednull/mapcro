@@ -23,6 +23,17 @@ remaining data work separate from visual refinement; unavailable values display 
 - **Active-item designation.** The reference marks active items. Add authoritative item metadata
   to the pack; absence of a recorded cast does not establish that an item is passive.
 
+**Update (2026-11-10, prototype-data; implementation authorized separately by operator):**
+Format 8 now records actual controller hero level, player kills, assists, and pawn maximum HP
+at 1 Hz as optional sparse changes with explicit unknown gaps. Standard replay 129738985
+verified all 12 players: levels 1–45, maximum HP 690–4560, final totals 74 kills / 134 assists;
+74 kills match 74 deaths. The API-summary tier remains unavailable. See
+[scoreboard-values.md](research/scoreboard-values.md) for exact sources and cache policy.
+Resistance totals, category progression and active-item designation remain open; no inferred
+values were added. The bounded controller/pawn field census found no direct named resistance
+or category progression values. A matching-build authoritative HUD/formula audit is still
+needed, including temporary effects; modifier contributions alone do not establish totals.
+
 Audit the demo/controller properties and metadata payload before choosing sources. Keep times,
 units, missing-data behavior and replay/API-summary coverage explicit. Any persisted timeline
 addition needs the format/cache-upgrade policy, focused boundary tests, and verification on

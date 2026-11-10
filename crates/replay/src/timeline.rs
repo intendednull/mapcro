@@ -24,7 +24,8 @@ pub const TIER: &str = "replay";
 /// the status effects the game shows, death recaps, height and zipline rides (`Player::items` to
 /// `Player::zipline`; docs/research/abilities-and-items.md, status-effects.md, elevation.md), and
 /// the tough crates, broken and back (`Timeline::crates`).
-pub const FORMAT: u32 = 7;
+/// 8: authoritative scoreboard scalar changes (`Player::level`, `Player::max_health`, kills and assists).
+pub const FORMAT: u32 = 8;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Timeline {
@@ -201,6 +202,20 @@ pub struct Player {
     /// Health percent at each game second.
     pub health: Vec<u8>,
     pub deaths: Vec<u32>,
+    /// Format 8, replay tier: `[second, hero level]` on observed changes. Before the first
+    /// entry or at a null entry the value is unavailable; empty on older/API timelines.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub level: Vec<(u32, Option<u32>)>,
+    /// `[second, maximum HP]` on observed changes, including while dead if the pawn has it.
+    /// Null marks a missing pawn/value; never inferred from health percent or item stats.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub max_health: Vec<(u32, Option<u32>)>,
+    /// Controller's authoritative player-kill total; zero is known, null unavailable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kills: Vec<(u32, Option<u32>)>,
+    /// Controller's authoritative assist total; never inferred from damage recaps.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assists: Vec<(u32, Option<u32>)>,
     /// `[game second, net worth]` whenever it changed, at most once a second.
     pub souls: Vec<[u32; 2]>,
     /// Ult cooldown remaining in percent at each second (0 = ready); `null` while untrained.
@@ -677,6 +692,13 @@ fn ranges_ok(r: &[[u32; 2]], n: u32) -> bool {
     r.len() <= 4096 && r.iter().all(|[a, b]| a < b && *b <= n)
 }
 
+/// Bound sparse scoreboard samples on the same integer-second clock as player paths.
+fn scalar_ok(values: &[(u32, Option<u32>)], duration: u32, min: u32, max: u32) -> bool {
+    values.len() <= duration as usize + 1
+        && values.windows(2).all(|w| w[0].0 < w[1].0)
+        && values.iter().all(|(s, v)| *s <= duration && v.is_none_or(|v| v >= min && v <= max))
+}
+
 /// Parse and check a worker's output. Anything outside the shape the worker can produce is
 /// refused, so a compromised worker can't hand the server something the client can't draw.
 pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
@@ -695,6 +717,10 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
                 && p.y.len() == n
                 && p.health.len() == n
                 && p.ult.len() == n
+                && scalar_ok(&p.level, t.duration_s, 1, 255)
+                && scalar_ok(&p.max_health, t.duration_s, 1, 1_000_000)
+                && scalar_ok(&p.kills, t.duration_s, 0, 10_000)
+                && scalar_ok(&p.assists, t.duration_s, 0, 10_000)
                 && p.health.iter().all(|h| *h <= 100)
                 && p.ult.iter().all(|u| u.is_none_or(|u| u <= 100))
                 && p.x.iter().chain(&p.y).all(|v| v.is_none_or(|v| v.abs() <= 32768))
@@ -807,6 +833,29 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn scoreboard_samples_are_bounded_and_old_timelines_still_validate() {
+        let bytes = |t: &Timeline| serde_json::to_vec(t).expect("serialize");
+        let mut t = tiny();
+        assert!(validate(&bytes(&t)).is_ok());
+        for invalid in [vec![(0, Some(0))], vec![(3, Some(1))], vec![(1, Some(1)), (1, Some(2))], vec![(0, Some(256))]] {
+            t.players[0].level = invalid;
+            assert!(validate(&bytes(&t)).is_err());
+        }
+        t.players[0].level.clear();
+        t.players[0].max_health = vec![(0, Some(1_000_001))];
+        assert!(validate(&bytes(&t)).is_err());
+        t.players[0].max_health.clear();
+        t.players[0].kills = vec![(0, Some(10_001))];
+        assert!(validate(&bytes(&t)).is_err());
+        t.players[0].kills.clear();
+        t.players[0].assists.clear();
+        t.format = 7;
+        let json = bytes(&t);
+        assert!(!String::from_utf8_lossy(&json).contains("max_health"));
+        assert!(validate(&json).is_ok());
+    }
+
     pub fn tiny() -> Timeline {
         Timeline {
             match_id: 7,
@@ -824,6 +873,10 @@ mod tests {
                 y: vec![Some(1), None, Some(3)],
                 health: vec![100, 0, 100],
                 deaths: vec![1],
+                kills: vec![(0, Some(0)), (2, Some(1))],
+                assists: vec![(0, Some(0))],
+                level: vec![(0, Some(1)), (2, Some(2))],
+                max_health: vec![(0, Some(1000)), (1, None), (2, Some(1200))],
                 souls: vec![[0, 500]],
                 ult: vec![None, Some(50), Some(0)],
                 respawn: vec![[1, 2]],

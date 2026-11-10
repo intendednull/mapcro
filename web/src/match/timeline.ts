@@ -15,6 +15,14 @@ export interface TimelinePlayer {
   y: Array<number | null>;
   health: number[];
   deaths: number[];
+  /** Format 8, replay tier: `[second, hero level]` changes; null marks unavailable data. */
+  level?: Array<[number, number | null]>;
+  /** Format 8, replay tier: `[second, maximum HP]` changes; null marks unavailable data. */
+  max_health?: Array<[number, number | null]>;
+  /** Format 8, replay tier: authoritative player kills; zero known, null unavailable. */
+  kills?: Array<[number, number | null]>;
+  /** Format 8, replay tier: authoritative assists, never inferred from damage. */
+  assists?: Array<[number, number | null]>;
   souls: Array<[number, number]>;
   /** Replay tier: the in-game name, if the demo carries one (never an id). */
   name?: string | null;
@@ -217,6 +225,16 @@ export function lastSeen(p: Pick<TimelinePlayer, "x" | "y">, t: number): { x: nu
     if (x != null && y != null) return { x, y };
   }
   return null;
+}
+
+/** Recorded scoreboard value at or before t. Missing series and explicit gaps stay unknown. */
+export function scoreboardValueAt(values: ReadonlyArray<readonly [number, number | null]> | undefined, t: number): number | null {
+  let value: number | null = null;
+  for (const [second, next] of values ?? []) {
+    if (second > t) break;
+    value = next;
+  }
+  return value;
 }
 
 /** Net worth from the nearest sample at or before t (`null` before the first sample). */
