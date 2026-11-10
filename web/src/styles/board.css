@@ -304,33 +304,6 @@ kbd {
 }
 .side h2 small { font-weight: 400; color: var(--faint); font-size: 11px; }
 
-.teams { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.team-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
-.team-head i { width: 10px; height: 3px; border-radius: 2px; }
-.team-head.amber i { background: var(--amber); }
-.team-head.sapphire i { background: var(--sapphire); }
-.slot {
-  display: flex; align-items: center; gap: 7px;
-  height: calc(var(--space) * 3.3);
-  padding: 0 4px; border-radius: 6px;
-  min-width: 0;
-}
-.slot.sel { background: var(--raised); box-shadow: inset 0 0 0 1px var(--brass-dim); }
-.slot .chip[role="button"] { cursor: pointer; }
-.slot .chip[role="button"]:hover, .slot .chip[role="button"]:focus-visible { outline: 2px solid var(--me, var(--accent)); outline-offset: 1px; }
-.chip {
-  width: 22px; height: 22px; border-radius: 50%;
-  display: grid; place-items: center; flex: none;
-  font: 800 9px/1 var(--ui); color: #15110a;
-}
-.chip.amber { background: var(--amber); }
-.chip.sapphire { background: var(--sapphire); color: #0c1230; }
-.chip.dead { background: #34443f; color: var(--muted); }
-.slot .nm { min-width: 0; line-height: 1.15; }
-.slot .nm b { display: block; font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.slot .nm span { display: block; font-size: 10.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.slot.dead .nm b { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--faint); }
-
 .people { display: flex; flex-direction: column; gap: 2px; }
 .person { display: flex; align-items: center; gap: 9px; height: calc(var(--space) * 3.4); }
 .person .av { border-color: var(--panel); }
@@ -624,16 +597,6 @@ kbd {
 .map .radial .wedge text { font: 600 12.5px var(--ui); fill: var(--text); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
 .map .radial .wedge.hot path { fill: var(--brass); stroke: var(--brass); }
 .map .radial .wedge.hot text { fill: #1b1408; }
-
-/* Roster edits in place */
-.slot { cursor: default; }
-.slot .nm b { cursor: text; border-bottom: 1px dashed transparent; }
-.slot:hover .nm b { border-bottom-color: var(--faint); }
-.slot .chip { cursor: grab; }
-.slot.editing { background: var(--bg-deep); box-shadow: inset 0 0 0 1px var(--accent); }
-.slot .rename { display: inline-flex !important; align-items: center; }
-.slot .caret-h { display: inline-block; width: 1.5px; height: 14px; background: var(--accent); margin-left: 1px; }
-.slot.drop { box-shadow: inset 0 0 0 1.5px var(--amber), 0 0 16px color-mix(in srgb, var(--amber) 30%, transparent); background: color-mix(in srgb, var(--amber) 9%, var(--panel)); }
 
 /* ---------- Local game art (optional) ----------
    ../_art/art.css is generated from the local install and git-ignored. It only defines

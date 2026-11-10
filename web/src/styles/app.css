@@ -60,9 +60,6 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .btn[disabled] { opacity: 0.55; cursor: default; }
 
 /* Roster: the hero picker is the one separate control the design keeps (README, "Still a separate control"). */
-.hero-pick { display: block; width: 100%; max-width: 110px; margin-top: 1px; padding: 0; border: 0; background: transparent; color: var(--faint); font: 10.5px var(--ui); cursor: pointer; }
-.hero-pick:hover, .hero-pick:focus { color: var(--text); }
-.hero-pick option { background: var(--panel); color: var(--text); }
 
 /* Scene strip */
 .board-app { --bar-w: min(100%, 1008px); --map-side: min(100%, calc(100dvh - 56px - 104px - 150px - var(--bar-w) * 0.1365)); }

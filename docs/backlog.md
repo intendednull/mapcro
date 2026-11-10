@@ -16,6 +16,43 @@ When a followed presenter leaves, Board.tsx now calls `player.forget()` (as stop
 the follower's own Vision returns. The player-vision e2e covers stopping by hand, not the
 presenter closing their tab; a step that closes the presenter's page mid-follow would pin it.
 
+## Player puts the match's name before a typed slot name (2026-11-09, from scene-names)
+
+In Scenes a name typed into a slot (portrait menu, Rename…) wins over the open match's in-game
+name. Player does the opposite on the tokens: Tokens.tsx `label` reads `pv()?.name ||
+slot().name`, and PlayerTopBar's `tb-name` shows only the match's name while the portrait title
+shows the typed one. So a renamed slot reads "Captain" in Scenes, "Coach" under Player's portrait
+and on its token, and "Captain" in Player's portrait title. Needs a call on which wins in Player;
+then one helper (`slotName` in board/roster.ts) for both.
+
+## A scene saved from another match shows no names (2026-11-09, from scene-names)
+
+Scenes take names from the open match's timeline (`player.tl()`); a scene whose `source.match_id`
+is a different match than the one open shows the slot labels (K1…) rather than the wrong
+players' names. Showing its own match's names would mean loading that match's timeline (or
+carrying the names on the scene). Rare: a board with several matches, switching between them.
+
+## The hero picker and "taken" labels don't use the match's names (2026-11-09, from scene-names)
+
+HeroPicker's heading (`who`) and Board's `takenBy` ("Hidden King Player 1 has this hero") use the
+slot's typed name only, so on a match board they say "K 1" / "Player 1" where the top bar now
+says the player's name. Passing Board's `matchName` through would fix both.
+
+## A blank scene on a match board doesn't take the match's heroes (2026-11-09, from scene-names)
+
+The roster's heroes are board state; Save as scene sets them to the match's ("Roster → match
+heroes"), but a board opened from a match keeps an empty (or random) roster until then, so its
+first scene shows K1…A6 discs. Left as is on purpose: a display-only hero fallback would disagree
+with the picker, `takenBy` and every other reader of `slot.hero`. A possible follow-up: when a
+match is attached and every slot is empty, offer (or do, once, as the owner) the same
+"Roster → match heroes" transaction.
+
+## Unplayable heroes can't be picked any more (2026-11-09, from scene-names)
+
+The side roster's `<select>` listed every hero in the pack, unplayable ones (schema 3: no top-bar
+portrait, e.g. work-in-progress heroes) included; the portrait's picker lists playable heroes
+only, and the side roster is gone. Probably right; noted in case someone wanted a WIP hero.
+
 ## A clone made while an upload is still parsing doesn't get it (2026-11-09, from clone-replay)
 
 Clone carries the board's matches and each uploaded timeline already cached
