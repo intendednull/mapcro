@@ -93,7 +93,7 @@ async function scrubTo(p: Page, t: number) {
   await expect(p.getByTestId("match-clock")).toContainText(`0:${String(t).padStart(2, "0")} /`);
 }
 
-/** What Player draws at t: the map's markup and the side panel's text. */
+/** What Player draws at t: the map's markup and the page's text. */
 async function drawn(p: Page, t: number) {
   await scrubTo(p, t);
   await p.mouse.move(2, 2);
@@ -107,7 +107,9 @@ async function drawn(p: Page, t: number) {
     });
     return [c.innerHTML.replace(/ data-player="[^"]*"/g, ""), ...toks.sort()].join("\n");
   });
-  return { map, side: await p.getByTestId("player-side").innerText() };
+  // All the page says, top bar and side panel included, as lines: rosters are in record order.
+  const text = (await p.locator("body").innerText()).split("\n").sort().join("\n");
+  return { map, side: text };
 }
 
 test("a format-7 timeline draws exactly what one without its new fields does", async ({ browser }) => {
@@ -119,7 +121,7 @@ test("a format-7 timeline draws exactly what one without its new fields does", a
   // out-of-shape timeline and the job fails).
   for (const t of [5, 12, 19, 21, 42, 55]) {
     const [a, b] = [await drawn(seven, t), await drawn(six, t)];
-    expect(a.side, `the side panel at ${t} s`).toBe(b.side);
+    expect(a.side, `the page's text at ${t} s`).toBe(b.side);
     const at = [...a.map].findIndex((c, i) => c !== b.map[i]);
     expect(at < 0 && a.map.length === b.map.length, `the map at ${t} s: ${a.map.slice(at - 120, at + 120)} | ${b.map.slice(at - 120, at + 120)}`).toBe(true);
   }
