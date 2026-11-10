@@ -521,7 +521,8 @@ mod tests {
     fn furniture_leaves_the_geometry_hash_alone() {
         let objectives = vec![entity("camp:neutral:lane1:1", "camp")];
         let mut more = objectives.clone();
-        for kind in FURNITURE {
+        // Named here, not read from FURNITURE: a kind dropped from it must show.
+        for kind in ["shop", "teleporter", "heal", "tough_crate"] {
             more.push(entity(&format!("{kind}:neutral:lane1:1"), kind));
         }
         assert_eq!(geometry_hash(&objectives), geometry_hash(&more));

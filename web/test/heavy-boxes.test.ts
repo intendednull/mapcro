@@ -57,6 +57,13 @@ describe("heavy boxes in Player", () => {
     expect(markerTip(m, pv(400), 400)).toBeUndefined();
   });
 
+  it("finds the crate by place when a pack keys it differently", () => {
+    // The worker keys by the built-in map; a later pack's ordinals can shift.
+    const site = FALLBACK.entities.find((e) => e.key === key)!;
+    const moved = markersFrom([{ ...crate, key: "tough_crate:neutral:lane4:9", world: site.world }]);
+    expect(sitesAt(tl, 200, moved).get("tough_crate:neutral:lane4:9")).toBe("Destroyed");
+  });
+
   it("a timeline from before format 7 leaves them alone", () => {
     const old = { camps: [], objectives: [], mid_boss: [], players: [] } as unknown as Timeline;
     expect(sitesAt(old, 200, markers).get(key)).toBeUndefined();

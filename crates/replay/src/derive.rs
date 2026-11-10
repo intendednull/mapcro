@@ -1809,13 +1809,18 @@ mod tests {
         let m = map::current();
         let site = |k: &str| m.sites.iter().find(|s| s.key == k).map(|s| [s.world[0] as f32, s.world[1] as f32]).expect("site");
         let (a, b) = (site("tough_crate:neutral:lane4:3"), site("tough_crate:neutral:lane1:1"));
+        // A crate stands within a unit of its built-in site; within the reach is enough.
+        let (a, b) = ([a[0] + 20.0, a[1]], [b[0], b[1] - 20.0]);
         let c = |game: f32, ent: i32, pos: [f32; 2], active: bool| CrateObs { game, ent: (ent, 1), pos, active };
         let crates = vec![
-            // Up from the start; something up off every crate site isn't one.
+            // Up from the start; something up off every crate site isn't one, nor one just out
+            // of a site's reach.
             c(0.0, 1, a, true),
             c(0.0, 2, b, true),
             c(0.0, 3, [0.0, 0.0], true),
             c(10.0, 3, [0.0, 0.0], false),
+            c(0.0, 4, [a[0] + 20.0, a[1]], true),
+            c(10.0, 4, [a[0] + 20.0, a[1]], false),
             // a: broken, back 180 s later; broken again as the recording ends.
             c(180.5, 1, a, false),
             c(360.5, 1, a, true),
