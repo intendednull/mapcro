@@ -332,6 +332,7 @@ pub async fn clone_board(
     let owner_token = links::new_token();
     match app.store.create_board(new_board.clone(), doc, links::hash(&owner_token), now(), app.config.max_boards, app.config.max_storage_bytes).await {
         Ok(()) => {
+            crate::replays::carry_to_clone(&app, &board, &new_board).await;
             crate::metrics::get().boards_created.inc((crate::metrics::How::Clone,));
             (StatusCode::CREATED, Json(Created { board: new_board, owner_token })).into_response()
         }

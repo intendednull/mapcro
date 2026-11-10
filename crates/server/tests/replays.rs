@@ -1245,3 +1245,65 @@ fn a_stale_upload_is_served_and_offered_for_upload_not_fetched() {
     work(&server, &job, Ok(&serde_json::to_vec(&timeline(27)).expect("json")));
     assert_eq!(server.until_state(&a, &a_owner, "27", "done"), serde_json::json!({ "state": "done", "source": "upload" }));
 }
+
+/// Operator, 2026-11-09: "we lose the replay player when we clone a board". A clone carries the
+/// board's matches, newest first, and its uploaded replay (shared, not parsed again); a fetched
+/// one is shared by every board already. The two boards' timelines live apart after.
+#[test]
+fn a_clone_keeps_the_matches_and_the_uploaded_replay() {
+    use std::os::unix::fs::MetadataExt;
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[]);
+    let (board, owner, view) = server.board();
+    let (uploaded, fetched) = ("130816395", "130816396");
+    let put = |id: &str| agent().put(&server.url(&format!("/api/boards/{board}/matches/{id}"))).header("authorization", &format!("Bearer {owner}")).send_empty().expect("request").status().as_u16();
+    // A replay fetched from Valve, in the shared cache, and a parse of this board's upload.
+    let cache = server.data.path().join("replays");
+    std::fs::write(cache.join(format!("{fetched}-cdn.json")), serde_json::to_vec(&timeline(130816396)).expect("json")).expect("cdn");
+    assert_eq!((put(fetched), put(uploaded)), (200, 200));
+    let job = format!("{uploaded}-{}", scope(&board));
+    assert_eq!(server.upload(&board, &owner, uploaded, &fake_demo(1000)).0, 202);
+    let mut t = timeline(130816395);
+    work(&server, &job, Ok(&serde_json::to_vec(&t).expect("json")));
+    server.until_state(&board, &owner, uploaded, "done");
+
+    // Any link may clone; a view link here.
+    let mut r = agent()
+        .post(&server.url(&format!("/api/boards/{board}/clone")))
+        .header("authorization", &format!("Bearer {view}"))
+        .header("content-type", "application/json")
+        .send(serde_json::json!({ "title": "Copy" }).to_string())
+        .expect("clone");
+    assert_eq!(r.status().as_u16(), 201);
+    let v: serde_json::Value = r.body_mut().read_json().expect("json");
+    let (copy, copy_owner) = (v["board"].as_str().unwrap_or_default().to_owned(), v["owner_token"].as_str().unwrap_or_default().to_owned());
+
+    let n = |id: &str| id.parse::<u64>().expect("id");
+    assert_eq!(server.call("GET", &format!("/api/boards/{copy}/matches"), &copy_owner).1, serde_json::json!({ "matches": [n(uploaded), n(fetched)] }));
+    let (code, got) = server.call("GET", &format!("/api/boards/{copy}/matches/{uploaded}"), &copy_owner);
+    assert_eq!((code, serde_json::from_value::<Timeline>(got).expect("timeline")), (200, t.clone()), "the upload's full replay");
+    assert_eq!(server.status(&copy, &copy_owner, uploaded), serde_json::json!({ "state": "done", "source": "upload" }));
+    assert_eq!(server.call("GET", &format!("/api/boards/{copy}/matches/{fetched}"), &copy_owner).1["tier"], "replay", "the fetched replay");
+    assert!(files(&server.q("inbox")).is_empty(), "nothing parsed again");
+    // One timeline, two names: the clone's carries only its own scope.
+    let mine = cache.join(format!("{uploaded}-{}.json", scope(&copy)));
+    assert_eq!(std::fs::metadata(&mine).expect("carried").ino(), std::fs::metadata(cache.join(format!("{job}.json"))).expect("source").ino());
+    assert_eq!(server.call("GET", &format!("/api/boards/{copy}/matches"), &owner).0, 403, "the source's links don't open the clone");
+
+    // The source's new upload replaces only its own name; the clone keeps its replay.
+    assert_eq!(server.upload(&board, &owner, uploaded, &fake_demo(1000)).0, 202);
+    assert!(!cache.join(format!("{job}.json")).exists());
+    t.build = 7000;
+    let (code, got) = server.call("GET", &format!("/api/boards/{copy}/matches/{uploaded}"), &copy_owner);
+    assert_eq!((code, serde_json::from_value::<Timeline>(got).expect("timeline").build), (200, 6813));
+    work(&server, &job, Ok(&serde_json::to_vec(&t).expect("json")));
+    server.until_state(&board, &owner, uploaded, "done");
+    assert_eq!(serde_json::from_value::<Timeline>(server.call("GET", &format!("/api/boards/{copy}/matches/{uploaded}"), &copy_owner).1).expect("timeline").build, 6813);
+
+    // A board without matches clones to one without.
+    let (bare, bare_owner, _) = server.board();
+    let mut r = agent().post(&server.url(&format!("/api/boards/{bare}/clone"))).header("authorization", &format!("Bearer {bare_owner}")).header("content-type", "application/json").send("{}").expect("clone");
+    let v: serde_json::Value = r.body_mut().read_json().expect("json");
+    let (c2, c2_owner) = (v["board"].as_str().unwrap_or_default().to_owned(), v["owner_token"].as_str().unwrap_or_default().to_owned());
+    assert_eq!(server.call("GET", &format!("/api/boards/{c2}/matches"), &c2_owner).1, serde_json::json!({ "matches": [] }));
+}

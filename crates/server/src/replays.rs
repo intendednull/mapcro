@@ -10,8 +10,8 @@
 //! numbers are taken from it, and the CDN URL is built from them, so it can't point us elsewhere.
 //!
 //! **Scope.** A demo carries no match id, so an upload's claim can't be checked: an uploaded
-//! timeline is visible only on the board that uploaded it. A timeline fetched from Valve's CDN by
-//! match id is shared by every board.
+//! timeline is visible only on the board that uploaded it, and its clones (`carry_to_clone`). A
+//! timeline fetched from Valve's CDN by match id is shared by every board.
 //!
 //! **Queue** (`REPLAY_DIR`, shared with the worker; crates/replay/src/worker.rs): `inbox/` is
 //! the server's alone (complete, magic-checked files, written as `.<job>.part`, opened with
@@ -699,6 +699,46 @@ pub async fn attach(
             json(serde_json::json!({ "matches": ids }))
         }
         _ => err(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
+    }
+}
+
+/// A clone carries its source's matches (operator, 2026-11-09: "we lose the replay player when
+/// we clone a board"): the match list and each uploaded timeline are kept beside the board by
+/// its id's hash, so a copy of the document alone opened with no match. Fetched timelines are
+/// shared by every board already. An uploaded one is hard-linked under the clone's own scope: no
+/// new parse, and the two names live apart (a re-upload or the cache's trim replaces or removes
+/// one name, never the other's bytes). Access: any link that may clone may already read these
+/// (`timeline` asks only for a role), so the clone sees nothing its source's links didn't; the
+/// names carry only the clone's hash. An upload still under way isn't carried. Best effort: the
+/// clone is made either way.
+pub async fn carry_to_clone(app: &AppState, from: &str, to: &str) {
+    let ids = read_attached(app, from).await;
+    if ids.is_empty() {
+        return;
+    }
+    let (list, cache) = (attached_path(app, to), cache_dir(app));
+    let (from, to) = (scope_of(from), scope_of(to));
+    let carried = tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+        for id in &ids {
+            let src = cache.join(format!("{}.json", job_name(&id.to_string(), &from)));
+            let dst = cache.join(format!("{}.json", job_name(&id.to_string(), &to)));
+            match std::fs::hard_link(&src, &dst) {
+                Ok(()) => {}
+                Err(_) if !src.exists() => {} // no upload of this match on the source
+                Err(_) => {
+                    // Another filesystem, or links refused: a copy, renamed in.
+                    let tmp = dst.with_extension("tmp");
+                    std::fs::copy(&src, &tmp)?;
+                    std::fs::rename(&tmp, &dst)?;
+                }
+            }
+        }
+        std::fs::create_dir_all(list.parent().unwrap_or(FsPath::new(".")))?;
+        write_atomic(&list, &serde_json::to_vec(&ids).unwrap_or_default())
+    })
+    .await;
+    if !matches!(carried, Ok(Ok(()))) {
+        tracing::warn!("a clone's matches not carried");
     }
 }
 
@@ -1575,27 +1615,42 @@ fn publish(dir: &FsPath, name: &str, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&tmp, dir.join(name))
 }
 
-/// Past the cache's byte cap, the least recently written timelines go.
+/// Past the cache's byte cap, the least recently written timelines go. A clone's upload is a
+/// hard link to its source's (`carry_to_clone`): its bytes count once, and free only when the
+/// last name goes.
 fn trim_cache(cache: &FsPath, max: u64) {
+    use std::os::unix::fs::MetadataExt;
     let Ok(rd) = std::fs::read_dir(cache) else { return };
-    let mut files: Vec<(SystemTime, u64, PathBuf)> = rd
+    let mut files: Vec<(SystemTime, u64, u64, PathBuf)> = rd
         .flatten()
         .filter_map(|e| {
             let m = e.metadata().ok()?;
-            Some((m.modified().ok()?, m.len(), e.path()))
+            Some((m.modified().ok()?, m.ino(), m.len(), e.path()))
         })
         .collect();
-    let mut total: u64 = files.iter().map(|f| f.1).sum();
+    let mut names: HashMap<u64, usize> = HashMap::new();
+    let mut total: u64 = 0;
+    for (_, ino, len, _) in &files {
+        let n = names.entry(*ino).or_default();
+        if *n == 0 {
+            total += len;
+        }
+        *n += 1;
+    }
     if total <= max {
         return;
     }
     files.sort();
-    for (_, len, p) in files {
+    for (_, ino, len, p) in files {
         if total <= max {
             break;
         }
         if std::fs::remove_file(&p).is_ok() {
-            total -= len;
+            let n = names.entry(ino).or_default();
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                total -= len;
+            }
         }
     }
 }
@@ -1650,5 +1705,23 @@ mod tests {
         trim_cache(dir.path(), 250);
         assert!(!dir.path().join("a.json").exists());
         assert!(dir.path().join("b.json").exists() && dir.path().join("c.json").exists());
+    }
+
+    /// A clone's upload, hard-linked to its source's, counts once: two names of one 100-byte
+    /// timeline beside a 100-byte one fit a 250-byte cap, and nothing goes.
+    #[test]
+    fn the_cache_counts_a_linked_timeline_once() {
+        let dir = tempfile::tempdir().expect("dir");
+        std::fs::write(dir.path().join("a.json"), vec![0u8; 100]).expect("write");
+        std::fs::hard_link(dir.path().join("a.json"), dir.path().join("a2.json")).expect("link");
+        std::fs::write(dir.path().join("b.json"), vec![0u8; 100]).expect("write");
+        trim_cache(dir.path(), 250);
+        assert!(["a", "a2", "b"].iter().all(|n| dir.path().join(format!("{n}.json")).exists()));
+        // Past the cap, the older timeline's names both go before the bytes count as freed.
+        let t = SystemTime::now() - Duration::from_secs(100);
+        std::fs::File::options().write(true).open(dir.path().join("a.json")).and_then(|f| f.set_modified(t)).expect("mtime");
+        trim_cache(dir.path(), 150);
+        assert!(!dir.path().join("a.json").exists() && !dir.path().join("a2.json").exists());
+        assert!(dir.path().join("b.json").exists());
     }
 }

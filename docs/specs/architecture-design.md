@@ -1141,8 +1141,8 @@ later bind owner capabilities to a person.
   can list and revoke the links it minted, and those minted from them in turn.
 - **Moving on without someone is a clone (operator, 2026-11-06).** Anyone with a link can clone the
   board's current state into a new board, which gets fresh links. Share those with everyone except
-  the person you're leaving out. The clone copies scenes and records, not history, links or
-  presence. The UI offers cloning, not revocation.
+  the person you're leaving out. The clone copies scenes and records and the board's matches
+  (§11, Scope), not history, links or presence. The UI offers cloning, not revocation.
 - **The owner sees and revokes everything.** Revocation stays in the API as an emergency backstop,
   for example for a link posted publicly. It isn't in the UI.
 - **Revocation cascades:** revoking a link also revokes every link minted through it. A leaked edit
@@ -1230,8 +1230,14 @@ proof-of-work or accounts if rotation is seen in practice.
   before it is re-serialised into the cache. It's accepted only for a job the server queued
   (M2), read without following links. An unknown reason code reads as `parse_failed`.
 - **Scope.** A demo carries no match id, so an upload's claim to be match N can't be checked:
-  an uploaded timeline is served only to the board that uploaded it, and a new upload replaces
-  it. A timeline fetched from Valve by match id is shared by every board.
+  an uploaded timeline is served only to the board that uploaded it (and its clones, below), and
+  a new upload replaces it. A timeline fetched from Valve by match id is shared by every board.
+- **A clone keeps the matches (operator, 2026-11-09).** Clone copies the board's match list, and
+  hard-links each uploaded timeline under the clone's own scope: the copy opens in Player on the
+  same match at the same tier, with no fetch or parse. Either board's re-upload or the cache's trim
+  replaces or removes only its own name (the trim counts a linked timeline's bytes once). Any link
+  that can clone could already read those timelines, so a clone grants nothing new, and the
+  clone's names carry only its own id's hash. An upload still in the queue isn't carried.
 - **Privacy, as in v1:** the worker never reads Steam or account ids (`m_steamID` is not among
   the fields it resolves), so no timeline can hold one. In-game names are kept when the demo
   carries them. Demos are deleted when their parse ends; only the derived timeline is kept.
