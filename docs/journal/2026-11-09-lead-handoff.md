@@ -5,9 +5,9 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## Production
 
-- `web` runs **a63a027**, deployed 2026-11-09 ~13:00 UTC (the vitest 5 upgrade; npm audit is clean). Before it, c561062 at 11:08 UTC added: on top of acc6410, vision hides unseen
+- `web` runs **c9815a4**, deployed 2026-11-09 ~16:25 UTC: shops (8) and teleporters (4) always shown, 36 heal pickups behind a "Heals" toggle, timeline FORMAT 5; acf9b44 before it fixed Sinner's Sacrifice/camp tiers. Earlier (c561062, 11:08 UTC): vision hides unseen
   enemies by default ("Show last seen location" brings ghosts back), the carried urn follows
-  vision, and hero kill/vision moved to a right-click menu on the portrait. Timeline FORMAT is 4.
+  vision, and hero kill/vision moved to a right-click menu on the portrait. 
   The infra main pin is pushed.
 - **Feedback form:** deployed off (8d6af34, `/api/feedback` → enabled:false); the `feedback` label
   exists on the repo. Waiting on the operator (away, 2026-11-09) to create the fine-grained token
