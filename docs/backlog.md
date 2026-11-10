@@ -11,16 +11,18 @@ machine is its own networked `CNPC_Neutral_SinnersSacrifice` the whole match
 (docs/research/map-objectives-audit.md), so a partial clear could show on hover ("1 of 3 left").
 That changes the timeline (`timeline::FORMAT`).
 
-## Healing pickups, teleporters and shops on the map (2026-11-09, from the map objectives audit)
+## A follower doesn't see the presenter's teleporter pair (2026-11-09, from map-layers)
 
-These are placeable from the lump, and mapcro doesn't draw them:
-- 36 `citadel_pickup_spawner` floating health pickups (`spawn_delay_override` 180 s);
-- the 4 `citadel_trigger_teleport` tunnels (Hidden King and Archmother exits, east and west;
-  the pack exports `minimap_teleporter_*`);
-- the item shops (`trigger_item_shop`, `minimap_shop_psd`).
+Hovering a teleporter draws the line to its pair from this browser's own hover only
+(`player/Camps.tsx` `TeleporterLink` reads `localHover()`). The presenter's hover reaches a
+follower (spec §8) and its label shows, but a teleporter has no label, so the follower sees
+nothing. `TeleporterLink` could take the remote hover too, as `HoverLabels` does.
 
-None is a neutral objective, but the game's minimap shows the teleporters and shops. Each would
-need an off-by-default layer, so the map stays readable.
+## The extractor's real-install test writes a fixed path in /tmp (2026-11-09, from map-layers)
+
+`crates/extract/tests/extract.rs` `real_install` removes and rewrites `/tmp/mapcro-extract2-real`.
+Two agents running it at once (the box is shared) clobber each other's pack mid-run. A temp dir
+of its own, or one under `CARGO_TARGET_TMPDIR`, would keep runs apart.
 
 ## The other dialogs don't hold the focus (2026-11-09, from the feedback form)
 

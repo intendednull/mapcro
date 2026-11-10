@@ -451,6 +451,13 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     `[cleared_s, respawn_s]` intervals. The recording's first tick reads −1 everywhere before
     the first spawn times arrive; an "up" shorter than a second is that, not a spawn. On
     129738985: 52 sites, 227 clears, 5.6 KB, matching the probe's timeline.
+  - **Healing pickups** (`heals`, format 5, 2026-11-09; docs/research/map-objectives-audit.md):
+    the camps' shape, per `heal:` site: first up, then `[taken_s, back_s]`. Every
+    `CCitadel_Pickup_Health` is read every tick; a map pickup is one entity all match, up at its
+    spawner and `m_bActive` false while taken, and the class also drops elsewhere from a pool, so
+    a site takes only the entities that only ever come up on it. A take the recording ends inside
+    is back on the map's 180 s. On 129738985: 36 sites, up at 150 s, 6 takes each back 180 to
+    181 s later, 2.2 KB (128 bytes gzipped).
   - **Respawns** (`Player.respawn`, 2026-11-08, both tiers): `[died_s, back_s]` per death.
     Replay: the second the hero is next seen alive, else (the recording ends first) the pawn's
     `m_flRespawnTime`, last read while dead (exploration round 5: the two agree to 0.1 s in 70
@@ -640,6 +647,20 @@ makes a board with that match attached and lands in Player; **New board** is tod
   phone, says "Respawns in m:ss" or "Spawns in m:ss"; up, it says nothing, and nothing counts
   down otherwise. The mid boss is the same, from its timer, and is down from its clear to its
   respawn.
+- **The map's furniture** (2026-11-09, operator: "heal pickups should be maybe a toggleable
+  thing because it might clutter the map … adding the shops and the teleporters are also a good
+  idea"; docs/research/map-objectives-audit.md). Drawn in Sandbox and Player alike, never an
+  objective: a click doesn't toggle one, a drag-select doesn't pick one, a scene has no state for
+  one, and the lite map leaves them out.
+  - **Shops** (8: three lane shops a team and the two secret shops) and **teleporters** (4 ends
+    of 2 tunnels) are always on the map, with the game's minimap icons, and say nothing on hover
+    (the label rule). Hovering a teleporter draws a faint dashed line to its pair's other end, and
+    a ring on it.
+  - **Heals:** the 36 healing pickups, behind a toolbar toggle beside Comments (under the map in
+    Sandbox and Player), off by default. Like Names it's this browser's alone (localStorage, every
+    board), never in presence. On the replay tier from format 5, a pickup is timed like a camp:
+    down before it first comes up and while taken, "Respawns in m:ss" on hover, nothing while up.
+  - A pack without them (extracted before 2026-11-09) borrows the built-in map's.
 - **Hover labels** (operator, 2026-11-08: "a label should pop up with the info, just like how a
   label instantly pops up when a neutral camp is hovered"): one label, one look, for everything
   on the map, Player and Sandbox alike (`map/HoverLabel.tsx`). It shows at once on hover (a tap

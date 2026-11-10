@@ -71,7 +71,9 @@ timer comes from.
 | `npc_neutral_bug` spawns (sewer critters) | 60 in 11 groups, no camp | 76 `CNPC_Neutral_Bug` | no | — | ambient, not an objective |
 | Statues | **none on this map** | none (709 `CCitadel_BreakableProp`, none break) | — | — | — |
 | `citadel_breakable_prop` | 672: 423 wooden crates, 168 item containers, 78 tough crates, 3 `citadel_breakable_bell_chinatown` | 709 | no | — | none in the replay |
-| `citadel_pickup_spawner` `citadel_pickup_floating_health` | 36 (`spawn_delay_override` 180) | — | no | — | backlog |
+| `citadel_pickup_spawner` `citadel_pickup_floating_health` | 36 (`spawn_delay_override` 180) | 36 `CCitadel_PickupSpawner`; 36 `CCitadel_Pickup_Health` on them | **yes, behind Heals** (branch `map-layers`) | `health_pad_psd` | `m_bActive`, read every tick (format 5) |
+| `trigger_item_shop` | 9: 3 lane shops a team, 2 secret (team 4), the King's base shop | 9 `CTriggerItemShop`, 8 `CCitadel_ShopProp` | **yes** (branch `map-layers`; not the base's) | `minimap_shop_psd` | — |
+| `citadel_trigger_teleport` | 4, each with an `ExitPoint` | 4 `CCitadelTeleportTrigger` | **yes** (branch `map-layers`) | `minimap_teleporter_go_right` | — |
 | `item_crate_spawn` | 6 (0–1 are the urn sites; 4–7 look unused) | — | — | — | — |
 | `citadel_breakable_prop_punchable_troll` | 1 (6224, −16, −192) | 1 | no | — | an easter egg |
 
@@ -112,3 +114,50 @@ Four medium camps have no `targetname` (at −8624, 4264; 5824, 3984; 8000, −4
   fallbacks, the mid boss camp and the icons.
 - `web/e2e/shots-map-objectives.spec.ts` screenshots the real replay and pack. It is skipped
   unless both are set.
+
+## Map furniture (branch `map-layers`, 2026-11-09)
+
+**Operator:** "heal pickups should be maybe a toggleable thing because it might clutter the map …
+adding the shops and the teleporters are also a good idea."
+
+- **Shops** (`trigger_item_shop`): 8 on the map, 3 lane shops a team (`.tier1_shop`, 36 px, the
+  art at half its box) and the 2 secret shops (team 4, `Music.Shop.Secret`, under the map at
+  ±3920, ±1120). The 9th is the Hidden King's base shop (`LaneNum` 0, −752, −10714): the spawn
+  room, under the frame, and the lump has no Archmother one, so it isn't drawn.
+- **Teleporters** (`citadel_trigger_teleport`): 4 ends of 2 two-way tunnels, the King's side
+  (−3584, −2784) ↔ (3904, −1792) and the Archmother's (−3904, 1792) ↔ (3584, 2784). Each trigger
+  names an `info_target_server_only` `ExitPoint` 128 units from the other end; the pack carries
+  it as `exit`, and hovering an end draws a faint dashed line to its pair. 16 px, the runner
+  facing the map's middle (`.teleporter_onRight` mirrors it on the screen's right half).
+- **Healing pickups** (`citadel_pickup_spawner` with `citadel_pickup_floating_health`): 36. The
+  game's minimap doesn't draw them; it precaches `health_pad_psd`, a 16 px white cross, drawn at
+  12 px washed green. Off unless this browser's **Heals** toggle is on (toolbar, beside
+  Comments, in Sandbox and Player).
+- **Timing.** Each map pickup is one `CCitadel_Pickup_Health` for the whole match, up at its
+  spawner from 149.7 s and `m_bActive` false while taken; the class also drops elsewhere from a
+  pool of reused entities (about 1,600 off-site changes in 129738985), so a site takes only the
+  entities that only ever come up on it. 129738985 has **6 takes in 44 minutes** (two of them the
+  pair 68 units apart at (−7912, 4000), together), each back 180.2 to 180.5 s later. Timeline
+  format 5 adds `heals` in the camps' shape; on 129738985 that's 2,171 bytes of 1.53 MB (128
+  gzipped). Player draws a taken pickup down with "Respawns in m:ss".
+- **Fallback.** Prod's pack (build 6860) has the icons and none of these entities: a pack
+  without a kind borrows the built-in map's (`withBuiltInFurniture`), keyed and placed as a new
+  pack's are. They're kept out of the geometry hash.
+
+## Candidates
+
+Other things in 129738985's entities and the lump a coach might want on the map or as a timer.
+Report only; none is built. Value and cost are rough.
+
+| Candidate | Evidence | Value | Cost |
+|---|---|---|---|
+| Secret-shop tunnel entrances | 13 `citadel_trigger_shop_tunnel` (team 2 and 3, around (±4352, ±2240), (±3008, …), and three at (0 / ±1360, 0, −320) under mid); the HUD's `.shop_tunnel_exit` draws `icon_stairs.vsvg` at 16 px | Medium: the way down to the secret shops and the mid rotations | Low: a fourth furniture kind, same path as shops |
+| Underground layer | The pack already exports `minimap_midtown_mid_tunnels` and `minimap_midtown_rat_tunnels` (1024²); 77 `CCitadelTunnelNode`, 100 `CCitadelTunnelTrigger` in the replay | Medium: sewer rotations are hard to draw over the street map | Medium: a terrain swap and its control; markers stay |
+| Teleporter uses | 4 `CCitadelTeleportTrigger` (`Delay` 4 s); a hero's position jumping ~7,500 units within a few seconds near an end. Not checked on a replay yet | Medium: who rotated through which tunnel, when | Low to medium: derived from positions the timeline has; an event kind |
+| Who took a heal | `m_hVacuumTarget` is set on the pickup as it flies to the hero, just before `m_bActive` goes false | Low to medium: a "healed at" event in the list | Low: one handle per take |
+| Soul dealer | 2 `citadel_trigger_corrupted_item_shop` (`souls_dealer_shop_trigger`, ±1056, ±3108); HUD `.corrupted_item_shop` with the broker icon, lit by `canPurchaseItem`. What it sells isn't checked | Unknown until checked | Low to draw; a timer needs its replay fields |
+| Mid boss stairs | 2 `citadel_base_prop_stairs`; HUD `.mid_stairs` (`icon_stairs_mid`, 24 px, opacity 0 by default) | Low | Low |
+| Breakable crates and item containers | Lump: 423 wooden crates, 168 item containers, 78 tough crates; 709 `CCitadel_BreakableProp` in the replay; 20 `CCitadel_Pickup_Gold` drops from 3:00 | Low: farm spots, and 669 icons | High: a toggle at least, and per-prop break state would cost timeline size |
+
+Not candidates: `CCitadel_Pickup_HalloweenCandy` (16, seasonal), the sewer critters
+(`npc_neutral_bug`, ambient), and the base teleport spots (`info_teleport_location`).
