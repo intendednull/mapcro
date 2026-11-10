@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="330" viewBox="0 0 880 330" font-family="system-ui, sans-serif">
+  <!-- Mock for docs/research/elevation.md, option B: a corner badge while a hero is sustained
+       on high ground or underground, and the level in the hover label. Schematic, no game art. -->
+  <defs>
+    <g id="up"><circle r="9" fill="#0b1714" stroke="#e8e4da" stroke-width="1.5"/><path d="M-4.5 3 L0 -4 L4.5 3 Z" fill="#e8e4da"/></g>
+    <g id="down"><circle r="9" fill="#0b1714" stroke="#e8e4da" stroke-width="1.5"/><path d="M-4.5 -3 L0 4 L4.5 -3 Z" fill="#e8e4da"/></g>
+  </defs>
+  <rect width="880" height="330" fill="#101a17"/>
+  <!-- a schematic street grid -->
+  <g stroke="#1f2f2a" stroke-width="26" fill="none">
+    <path d="M0 150 H880"/><path d="M220 0 V330"/><path d="M440 0 V330"/><path d="M660 0 V330"/>
+  </g>
+  <!-- underground corridor, as the tunnels layer draws it, faint under the street -->
+  <path d="M470 205 H640" stroke="#0a0f0d" stroke-width="18" stroke-dasharray="6 5" fill="none"/>
+
+  <!-- 1. street: unchanged -->
+  <g transform="translate(110 150)">
+    <circle r="27" fill="none" stroke="#2a3a35" stroke-width="5"/>
+    <circle r="27" fill="none" stroke="#5fd17a" stroke-width="5" stroke-dasharray="130 200" transform="rotate(-90)"/>
+    <circle r="22" fill="#0b1714" stroke="#f2a93b" stroke-width="3"/>
+    <text y="6" text-anchor="middle" fill="#f2a93b" font-size="15" font-weight="600">A1</text>
+  </g>
+  <!-- 2. high ground: up badge top-left (the eye badge's mirror) -->
+  <g transform="translate(330 110)">
+    <circle r="27" fill="none" stroke="#2a3a35" stroke-width="5"/>
+    <circle r="27" fill="none" stroke="#5fd17a" stroke-width="5" stroke-dasharray="90 200" transform="rotate(-90)"/>
+    <circle r="22" fill="#0b1714" stroke="#6d8cff" stroke-width="3"/>
+    <text y="6" text-anchor="middle" fill="#6d8cff" font-size="15" font-weight="600">S4</text>
+    <use href="#up" transform="translate(-17 -17)"/>
+  </g>
+  <!-- 3. underground: down badge, ring dashed and token dimmed -->
+  <g transform="translate(555 205)" opacity="0.72">
+    <circle r="27" fill="none" stroke="#2a3a35" stroke-width="5"/>
+    <circle r="27" fill="none" stroke="#5fd17a" stroke-width="5" stroke-dasharray="150 200" transform="rotate(-90)"/>
+    <circle r="22" fill="#0b1714" stroke="#f2a93b" stroke-width="3" stroke-dasharray="5 4"/>
+    <text y="6" text-anchor="middle" fill="#f2a93b" font-size="15" font-weight="600">A3</text>
+  </g>
+  <use href="#down" transform="translate(538 188)"/>
+  <!-- hover label on the underground hero -->
+  <g transform="translate(555 160)">
+    <rect x="-112" y="-17" width="224" height="24" rx="5" fill="#0b1714" stroke="#3b4d47"/>
+    <text y="0" text-anchor="middle" fill="#e8e4da" font-size="13">Player 3, Haze · Underground</text>
+  </g>
+  <!-- 4. zipline: no badge (the rope already says it); hover says "On zipline" -->
+  <g transform="translate(770 95)">
+    <path d="M-60 -40 L60 40" stroke="#c9a54b" stroke-width="2"/>
+    <circle r="27" fill="none" stroke="#2a3a35" stroke-width="5"/>
+    <circle r="27" fill="none" stroke="#5fd17a" stroke-width="5" stroke-dasharray="170 200" transform="rotate(-90)"/>
+    <circle r="22" fill="#0b1714" stroke="#6d8cff" stroke-width="3"/>
+    <text y="6" text-anchor="middle" fill="#6d8cff" font-size="15" font-weight="600">S2</text>
+  </g>
+
+  <g fill="#9fb0aa" font-size="12" text-anchor="middle">
+    <text x="110" y="205">street: unchanged</text>
+    <text x="330" y="165">high ground: ▲ badge</text>
+    <text x="555" y="255">underground: ▼ badge,</text>
+    <text x="555" y="270">dashed ring, dimmed</text>
+    <text x="770" y="150">zipline: hover only</text>
+    <text x="770" y="165">("On zipline")</text>
+  </g>
+  <text x="14" y="318" fill="#6f817b" font-size="11">Mock, option B (docs/research/elevation.md). Badges show only after the level has held for 2 s.</text>
+</svg>
