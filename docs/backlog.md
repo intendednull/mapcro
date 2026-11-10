@@ -3,6 +3,14 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## An e2e spec that uploads over 6 times fails without saying why (2026-11-09, from vision-fade)
+
+Each Player e2e test opens its synthetic match by uploading a `.dem`, and the server allows one
+client 6 uploads an hour (`REPLAY_PER_CLIENT_PER_HOUR`, replays.rs). The 7th test in a spec then
+times out polling the replay inbox, with nothing on the page or in the error saying the limit
+was hit. player-vision.spec.ts now raises the limit for its server; a shared default in
+e2e/server.ts, or the helper reporting the refusal, would spare the next spec the hunt.
+
 ## Clippy fails on crates/replay/src/parse.rs (2026-11-09, from shop-state)
 
 `cargo clippy -p mapcro-replay --tests -- -D warnings` (rust 1.99) stops on
