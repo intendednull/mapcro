@@ -86,3 +86,10 @@ export async function pickHero(page: Page, slot: string, hero: string) {
   await page.locator(`.hero-cell[data-hero="${hero}"]`).click();
   await expect(page.getByTestId("hero-picker")).toHaveCount(0);
 }
+
+/** Reveal controls grouped in the replay source or map layers disclosure. */
+export async function revealControls(page: Page, id: string) {
+  const source = ["match-id", "match-load", "match-upload", "match-fetch", "mode-sandbox"].includes(id);
+  const details = page.locator(source ? ".pl-source" : ".map-layers");
+  if (!(await details.evaluate(el => (el as HTMLDetailsElement).open))) await details.locator("summary").click();
+}

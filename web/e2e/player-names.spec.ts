@@ -1,3 +1,4 @@
+import { revealControls } from "./helpers";
 // Player names (operator, 2026-11-08): the metadata tier looks the players' public Steam names up
 // once (deadlock-api's profiles, by the match's account ids, which the server never keeps) and
 // shows them by the heroes: in the top bar, the roster, the events and the tokens' hover titles.
@@ -50,7 +51,9 @@ test.afterAll(() => {
 test("names show by their heroes: top bar, roster, events", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Names"), "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
+  await revealControls(a, "match-load");
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   // Slot order: the server sorts each team by player slot (1–6 Amber, 7–12 Sapphire).
@@ -86,7 +89,9 @@ test("a token's hover label names its player; Names off hides every name, here o
   const url = await newBoardUrl(server, "Anonymous");
   const a = await joinNew(browser, url, "Viewer");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
+  await revealControls(a, "match-load");
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   const b = await joinNew(browser, url, "Second");
@@ -95,6 +100,7 @@ test("a token's hover label names its player; Names off hides every name, here o
 
   // On (the default): the token's hover label (and aria-label) leads with the player's name (then the hero, with
   // the art).
+  await revealControls(a, "names-toggle");
   const toggle = a.getByTestId("names-toggle");
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
   await expect(a.locator('.tok[data-slot="Amber-0"]')).toHaveAttribute("aria-label", /^Coach(, |$)/);
@@ -134,6 +140,7 @@ test("a token's hover label names its player; Names off hides every name, here o
   expect(await namesOnPage(a)).toEqual([]);
 
   // On again: back everywhere.
+  await revealControls(a, "names-toggle");
   await a.getByTestId("names-toggle").click();
   await expect(a.locator('.tb-player[data-slot="Amber-0"] [data-testid=tb-name]')).toHaveText("Coach");
   await expect(a.locator('.tok[data-slot="Amber-0"]')).toHaveAttribute("aria-label", /^Coach(, |$)/);
@@ -148,9 +155,12 @@ test("Scenes show the match's names; a typed name wins; no side roster", async (
   const url = await newBoardUrl(server, "Scene names");
   const a = await joinNew(browser, url, "Viewer");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
+  await revealControls(a, "match-load");
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
+  await revealControls(a, "mode-sandbox");
   await a.getByTestId("mode-sandbox").click();
   await expect(a.getByTestId("topbar").first()).not.toHaveAttribute("data-mode", "player");
 
@@ -182,6 +192,7 @@ test("Scenes show the match's names; a typed name wins; no side roster", async (
 
   // Rename… in the portrait menu: the typed name wins, for everyone in Scenes.
   const b = await joinNew(browser, url, "Second");
+  await revealControls(b, "mode-sandbox");
   await b.getByTestId("mode-sandbox").click();
   await expect(col(b, "Amber-0").getByTestId("tb-name")).toHaveText("Coach");
   await col(a, "Amber-0").click({ button: "right" });
@@ -207,14 +218,16 @@ test("Scenes show the match's names; a typed name wins; no side roster", async (
   await a.getByTestId("mode-player").click();
   await a.getByTestId("match-save").click();
   await expect(a.getByTestId("scene-card")).toHaveCount(2);
-  await a.getByTestId("mode-sandbox").click();
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "scene");
   await expect(a.getByTestId("scene-card").nth(1)).toHaveAttribute("aria-current", "true");
   await expect(col(a, "Amber-0").getByTestId("tb-name")).toHaveText("Coach");
   await expect(tok(a, "Sapphire-5")).toHaveAttribute("aria-label", /^Moss(, |$)/);
 
   // Names off (this browser): none in Scenes either.
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "names-toggle");
   await a.getByTestId("names-toggle").click();
+  await revealControls(a, "mode-sandbox");
   await a.getByTestId("mode-sandbox").click();
   await expect(a.getByTestId("tb-name")).toHaveCount(0);
   await expect(tok(a, "Amber-0")).toHaveAttribute("aria-label", /^King 1(, |$)/);

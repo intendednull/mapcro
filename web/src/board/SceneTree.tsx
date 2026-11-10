@@ -58,6 +58,7 @@ export function SceneTree(p: {
   /** Whether ← → step scenes (Player takes them for events while watching the match). */
   keys?: () => boolean;
   onClose?: () => void;
+  replay?: { active: boolean; label: string; go: () => void } | undefined;
 }) {
   const [folded, setFolded] = createSignal(false);
   const [collapsed, setCollapsed] = createSignal(loadCollapsed(p.board));
@@ -166,6 +167,7 @@ export function SceneTree(p: {
         </button>
       </div>
       <Show when={!folded()}>
+        <Show when={p.replay}>{replay => <button class="scene-replay" classList={{ on: replay().active }} aria-current={replay().active ? "page" : undefined} data-testid="replay-entry" onClick={() => replay().go()}><span>▶ Replay</span><small>{replay().label}</small></button>}</Show>
         <ol class="scene-rows" role="tree">
           <For each={shown().map((x) => x.scene.id)}>
             {(id) => {

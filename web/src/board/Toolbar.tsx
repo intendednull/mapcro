@@ -4,7 +4,7 @@
 import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { Palette } from "./Palette";
 import { cx } from "../ui/cx";
-import { ICON_CLEAR, ICON_COMMENTS, ICON_CRATES, ICON_HEALS, ICON_REDO, ICON_UNDO, TOOLS, type Tool, VIEWER_TOOLS } from "./tools";
+import { ICON_CLEAR, ICON_COMMENTS, ICON_REDO, ICON_UNDO, TOOLS, type Tool, VIEWER_TOOLS } from "./tools";
 
 const Ico = (p: { d: string }) => <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" innerHTML={p.d} />;
 
@@ -31,12 +31,6 @@ export function Toolbar(p: {
   counts: Record<ClearKind, number>;
   commentsOpen: boolean;
   toggleComments: () => void;
-  /** The map's healing pickups, this browser only (spec §6b); off by default. */
-  healsShown: boolean;
-  toggleHeals: () => void;
-  /** The map's tough crates (the Heavy boxes), this browser only; off by default. */
-  cratesShown: boolean;
-  toggleCrates: () => void;
 }) {
   const tools = () => (p.editor ? TOOLS : TOOLS.filter((t) => VIEWER_TOOLS.includes(t.tool)));
   const [clearOpen, setClearOpen] = createSignal(false);
@@ -99,26 +93,6 @@ export function Toolbar(p: {
           onClick={() => p.toggleComments()}
         >
           <Ico d={ICON_COMMENTS} />
-        </button>
-        <button
-          class={cx("tb icon", p.healsShown && "on")}
-          data-testid="heals-toggle"
-          title="Heals: the map's healing pickups, here only"
-          aria-label="Heals"
-          aria-pressed={p.healsShown}
-          onClick={() => p.toggleHeals()}
-        >
-          <Ico d={ICON_HEALS} />
-        </button>
-        <button
-          class={cx("tb icon", p.cratesShown && "on")}
-          data-testid="crates-toggle"
-          title="Heavy boxes: the map's tough crates, here only"
-          aria-label="Heavy boxes"
-          aria-pressed={p.cratesShown}
-          onClick={() => p.toggleCrates()}
-        >
-          <Ico d={ICON_CRATES} />
         </button>
         <Show when={p.editor}>
           <span class="clear-menu" ref={clearBox}>

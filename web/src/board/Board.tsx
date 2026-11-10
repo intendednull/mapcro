@@ -23,7 +23,7 @@ import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type ViewRect, clampView, fromViewport, presenters, sideOf, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
 import type { MatchPreview } from "../match/preview";
-import { EventPings, Highlight, Player, PlayerSide, PlayerSwitch, TrooperDots } from "../player/Player";
+import { EventPings, Highlight, MapControls, Player, PlayerSide, PlayerSwitch, TierChip, TrooperDots } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
 import { ReplayPrompt } from "../player/ReplayPrompt";
 import { MarkerTips, TeleporterLink } from "../player/Camps";
@@ -104,6 +104,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const [joined, setJoined] = createSignal(hasJoined(p.board) && !!loadMe());
   const [viewpoint, setViewpoint] = createSignal<Viewpoint>("amber");
   const [sceneId, setSceneId] = createSignal<RecordId | undefined>();
+  const [sideTab, setSideTab] = createSignal<"events" | "notes">("events");
   const [tool, setTool] = createSignal<Tool>("move");
   // The palette colour for Draw, Arrow, Comment and Laser: per person, per board.
   const [ink, setInkSignal] = createSignal(loadColour(p.board) ?? loadMe()?.color ?? 1);
@@ -603,6 +604,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
         <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
       </Show>
       <div class="p-map-wrap">
+        {mapControls()}
         {mapBox(true)}
         {/* Not over the join card (it would take the focus from your name). */}
         <Show when={joined()}>
@@ -616,9 +618,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
             <span>Laser</span>
           </button>
           <Palette value={ink()} set={setInk} />
-          <button class="tb" data-testid="viewpoint-flip" aria-label="Flip view" title="Flip view" onClick={flipSide}>
-            <span>⟲</span>
-          </button>
+
         </div>
       </div>
       <Show when={calloutList().length > 0}>
@@ -691,7 +691,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
         board={p.board}
         scene={scene()}
         mint={newRecordId}
-        onSaved={userFlip}
+        onSaved={pickScene}
         onView={(id) => {
           stopFollowing("viewed a scene");
           pickScene(id);
@@ -731,6 +731,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
     // The patron's stage from the replay: its shield (stage 1) or its core (stage 2).
     return pv.health?.get(k)?.stage === 2 ? "Stage2" : "Active";
   };
+  const mapControls = () => (<MapControls host={player} heals={heals()} crates={crates()}
+              toggleHeals={() => { setHeals(!heals()); setMapHealsShown(heals()); }}
+              toggleCrates={() => { setCrates(!crates()); setMapCratesShown(crates()); }}
+              flip={flipSide} onUserPlayback={() => stopFollowing("changed map view")} />);
   const mapBox = (phone: boolean) => (
           <div
             ref={measureMap}
@@ -806,7 +810,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               <Show when={inPlayer()}>
                 <RiftRings art={p.art} vp={viewpoint()} preview={matchPreview} mk={Math.min(1, view().w / 1000)} />
                 <UrnMark art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} mk={Math.min(1, view().w / 1000)} />
-                <DeathSkulls vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
+                <DeathSkulls art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               </Show>
               <TeleporterLink art={p.art} vp={viewpoint()} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               <MarkerTips art={p.art} vp={viewpoint()} hidden={(k) => markerStatus(k) === "Hidden"} shown={() => ({ heals: heals(), crates: crates() })} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
@@ -816,14 +820,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               </Show>
               <HoverLabels k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
             </MapView>
-            {/* The phone has its own Flip in its tool strip: one control, one test id. */}
-            {!phone && (
-              <button class="mm-flip" data-testid="viewpoint-flip" title="Flip view" aria-label="Flip view" onClick={flipSide}>
-                <svg viewBox="-16 -16 32 32" aria-hidden="true">
-                  <path d="M-10 -4 A11 11 0 0 1 9 -6 M9 -6 L9 -14 M9 -6 L1 -6 M10 4 A11 11 0 0 1 -9 6 M-9 6 L-9 14 M-9 6 L-1 6" />
-                </svg>
-              </button>
-            )}
+
           </div>
   );
   const toastView = () => (
@@ -862,6 +859,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
             {state.scenes().length} scene{state.scenes().length === 1 ? "" : "s"}
           </span>
         </div>
+        <Show when={player.matchId()}><TierChip host={player} /></Show>
         <div class="spacer" />
         <PresentingPill followers={followersOf(state.myPeer())} />
         <FollowChip following={followed()} presenters={presenterList()} sceneLabel={sceneLabel} follow={follow} stop={() => stopFollowing()} />
@@ -901,7 +899,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
           art={p.art}
           vp={viewpoint()}
           board={p.board}
-          current={scene()?.id}
+          current={inPlayer() ? undefined : scene()?.id}
+          replay={player.matchId() ? { active: inPlayer(), label: `Match ${player.matchId()}`, go: () => { stopFollowing("returned to replay"); player.setMode("player"); } } : undefined}
           onFlip={pickScene}
           chip={sceneChip}
           keys={() => !inPlayer()}
@@ -954,6 +953,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           {/* The map takes all the room left, as the largest square that fits. */}
           <div class="mapfit">
             {mapBox(false)}
+            {mapControls()}
             <Show when={joined()}>
               <ReplayPrompt host={player} />
             </Show>
@@ -977,16 +977,6 @@ export function Board(p: { board: string; token: string; art: Art }) {
               setAllOpen(!allOpen());
               setCommentsOpen(p.board, allOpen());
             }}
-            healsShown={heals()}
-            toggleHeals={() => {
-              setHeals(!heals());
-              setMapHealsShown(heals());
-            }}
-            cratesShown={crates()}
-            toggleCrates={() => {
-              setCrates(!crates());
-              setMapCratesShown(crates());
-            }}
             clear={(what) => {
               // In transactions that each fit the cap (one undo step each); the toast speaks for
               // what committed, and its Undo takes back exactly those steps.
@@ -1009,10 +999,22 @@ export function Board(p: { board: string; token: string; art: Art }) {
           {toastView()}
         </main>
         <aside class="side">
-          <Show when={inPlayer()}>
-            <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={userFlip} onUserPlayback={() => stopFollowing("changed the playback")} />
+          <div class="side-tabs" role="tablist" aria-label="Board sidebar" onKeyDown={e => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+            e.preventDefault();
+            const tab = e.key === "Home" ? "events" : e.key === "End" ? "notes" : sideTab() === "events" ? "notes" : "events";
+            setSideTab(tab);
+            document.getElementById(`${tab}-tab`)?.focus();
+          }}>
+            <button id="events-tab" role="tab" tabIndex={sideTab() === "events" ? 0 : -1} aria-selected={sideTab() === "events"} aria-controls="events-panel" onClick={() => setSideTab("events")}>Events</button>
+            <button id="notes-tab" role="tab" tabIndex={sideTab() === "notes" ? 0 : -1} aria-selected={sideTab() === "notes"} aria-controls="notes-panel" onClick={() => setSideTab("notes")}>Scene Notes</button>
+          </div>
+          <div id="events-panel" role="tabpanel" aria-labelledby="events-tab" hidden={sideTab() !== "events"}>
+          <Show when={player.tl()} fallback={<section class="side-empty">Load a match to browse its events.</section>}>
+            <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={pickScene} onUserPlayback={() => stopFollowing("changed the playback")} />
           </Show>
-          <section>
+          </div>
+          <section class="people-section">
             <h2>
               People here <small>{people().length + (joined() ? 1 : 0)} online{presenterList().length ? ` · ${presenterList().length} presenting` : ""}</small>
             </h2>
@@ -1029,7 +1031,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
               rename={() => setJoined(false)}
             />
           </section>
-          <section class="note-section" classList={{ "pl-hidden": inPlayer() }}>
+          <section id="notes-panel" role="tabpanel" aria-labelledby="notes-tab" class="note-section" hidden={sideTab() !== "notes"}>
+            <Show when={inPlayer()}><p class="side-empty">Notes for {scene()?.scene.name || "the selected scene"}. Select a scene to view its plan.</p></Show>
             <h2>
               Scene note
               <For each={noteEditors()}>

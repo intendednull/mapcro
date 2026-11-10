@@ -51,6 +51,7 @@ export function Player(p: {
   const canEdit = () => p.state.canEdit();
   const markers = () => p.art.model.markers;
   const lanes = () => p.art.model.lanes.map((l) => l.key);
+  onMount(() => dismissDisclosure(() => document.querySelector<HTMLDetailsElement>(".pl-source")));
 
   const user = (f: () => void) => {
     p.onUserPlayback();
@@ -220,6 +221,8 @@ export function Player(p: {
             </Show>
           </div>
         </Show>
+        <details class="pl-source" classList={{ "pl-hidden": !watching() }}>
+          <summary class="btn ghost small">Match {h.matchId() || "source"} <span aria-hidden="true">▴</span></summary>
         <form
           class="pl-head"
           classList={{ "pl-hidden": !watching() }}
@@ -241,9 +244,7 @@ export function Player(p: {
           <span class="match-status" data-testid="match-status">
             {h.status()}
           </span>
-          <Show when={h.tl() || busy(h.job())}>
-            <TierChip host={h} />
-          </Show>
+
           <span class="match-job pl-hidden" data-testid="match-job">
             {jobLabel(h.job(), h.progress())}
           </span>
@@ -270,6 +271,7 @@ export function Player(p: {
             }}
           />
         </form>
+        </details>
         <Show when={watching() && h.uploading() && h.sent()}>
           {(u) => {
             // Changing values ease (spec §4a): the bar and its percent run to each progress event.
@@ -382,6 +384,55 @@ export function Player(p: {
               {/* The toggles, the clock and Save scene go to a row of their own, as one, when the
                   bar is too narrow for them beside the scrubber (QA 2026-11-08). */}
               <div class="pl-tail">
+              <span class="match-clock" data-testid="match-clock">
+                {clockLabel(h.t())} / {clockLabel(m().duration_s)}
+              </span>
+              <Show when={canEdit()}>
+                <button class="btn primary small" type="button" data-testid="match-save" onClick={saveOne}>
+                  Save scene
+                </button>
+              </Show>
+              </div>
+            </div>
+          )}
+        </Show>
+      </div>
+    </>
+  );
+}
+
+
+function dismissDisclosure(element: () => HTMLDetailsElement | null) {
+  const close = (e: Event) => {
+    const box = element();
+    if (!box?.open) return;
+    if (e instanceof KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      box.open = false;
+      box.querySelector("summary")?.focus();
+    } else if (!box.contains(e.target as Node)) box.open = false;
+  };
+  window.addEventListener("pointerdown", close, true);
+  window.addEventListener("keydown", close);
+  onCleanup(() => { window.removeEventListener("pointerdown", close, true); window.removeEventListener("keydown", close); });
+}
+
+/** Display preferences live beside the canvas, separate from annotation tools and transport. */
+export function MapControls(p: {
+  host: PlayerHost; heals: boolean; crates: boolean;
+  toggleHeals: () => void; toggleCrates: () => void;
+  flip: () => void; onUserPlayback: () => void;
+}) {
+  const h = p.host;
+  let layers: HTMLDetailsElement | undefined;
+  onMount(() => dismissDisclosure(() => layers ?? null));
+  const mine = (f: () => void) => { f(); p.onUserPlayback(); };
+  return <div class="map-controls" role="group" aria-label="Map view">
+    <details class="map-layers" ref={layers}>
+      <summary class="btn small" data-testid="map-layers-toggle">Map layers ▾</summary>
+      <div class="map-layers-pop">
+        <Show when={h.tl()}>{m => <>
+          <h3>Replay layers</h3>
               <Show when={m().troopers}>
                 <button
                   type="button"
@@ -391,7 +442,7 @@ export function Player(p: {
                   title="The replay's lane troopers, to check the wave splits"
                   onClick={() => h.setShowTroopers(!h.showTroopers())}
                 >
-                  Troopers
+                  Lane troopers
                 </button>
               </Show>
               <Show when={m().tier === "replay"}>
@@ -403,7 +454,7 @@ export function Player(p: {
                   title="Heroes' and objectives' health"
                   onClick={() => h.setShowHealth(!h.showHealth())}
                 >
-                  Health
+                  Health bars & arcs
                 </button>
               </Show>
               <Show when={m().players.some((x) => x.name)}>
@@ -415,9 +466,28 @@ export function Player(p: {
                   title="Players' names, here only (off for recording without them)"
                   onClick={() => h.setShowNames(!h.showNames())}
                 >
-                  Names
+                  Player names
                 </button>
               </Show>
+              <button
+                type="button"
+                class={cx("btn ghost small", h.showPings() && "on")}
+                data-testid="pings-toggle"
+                aria-pressed={h.showPings()}
+                title="Ping each event on the map as playback passes it"
+                onClick={() => h.setShowPings(!h.showPings())}
+              >
+                Event pings
+              </button>
+
+        </>}</Show>
+        <Show when={h.tl()?.players.some(player => player.cc?.length)}><button class="btn ghost small" data-testid="cc-toggle" aria-pressed={h.showCC()} onClick={() => h.setShowCC(!h.showCC())}>Crowd control</button></Show>
+        <h3>Map pickups</h3>
+        <button class="btn ghost small" data-testid="heals-toggle" aria-pressed={p.heals} onClick={p.toggleHeals}>Healing pickups</button>
+        <button class="btn ghost small" data-testid="crates-toggle" aria-pressed={p.crates} onClick={p.toggleCrates}>Heavy boxes</button>
+      </div>
+    </details>
+    <Show when={h.tl()}>{m => <>
               <Show when={hasVision(m())}>
                 <>
                   <select
@@ -439,36 +509,15 @@ export function Player(p: {
                       title="Enemies out of sight as ghosts where this team last saw them. Your followers see it too"
                       onClick={() => mine(() => h.setShowLastSeen(!h.showLastSeen()))}
                     >
-                      Show last seen location
+                      Last seen
                     </button>
                   </Show>
                 </>
               </Show>
-              <button
-                type="button"
-                class={cx("btn ghost small", h.showPings() && "on")}
-                data-testid="pings-toggle"
-                aria-pressed={h.showPings()}
-                title="Ping each event on the map as playback passes it"
-                onClick={() => h.setShowPings(!h.showPings())}
-              >
-                Pings
-              </button>
-              <span class="match-clock" data-testid="match-clock">
-                {clockLabel(h.t())} / {clockLabel(m().duration_s)}
-              </span>
-              <Show when={canEdit()}>
-                <button class="btn primary small" type="button" data-testid="match-save" onClick={saveOne}>
-                  Save scene
-                </button>
-              </Show>
-              </div>
-            </div>
-          )}
-        </Show>
-      </div>
-    </>
-  );
+
+    </>}</Show>
+    <button class="btn small" data-testid="viewpoint-flip" title="Flip view" aria-label="Flip view" onClick={p.flip}>Flip ↻</button>
+  </div>;
 }
 
 /**
@@ -680,6 +729,7 @@ export function PlayerSide(p: Props) {
   };
   const jump = (e: MatchEvent, lead: number) => {
     user(() => {
+      h.setMode("player");
       h.control.play(false);
       h.control.seek(jumpTime(e, lead));
     });
