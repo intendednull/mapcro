@@ -189,6 +189,27 @@ struct Player {
     death_details: Vec<Death>,
     #[serde(default)]
     stats: Vec<Stat>,
+    /// Shop items, and ability unlocks and upgrades (operator 2026-11-09: builds on summary
+    /// matches too). Only the item's token and its times are read.
+    #[serde(default)]
+    items: Vec<Item>,
+}
+
+/// One `items[]` entry (`CMsgMatchMetaDataContents.Items`).
+#[derive(Deserialize)]
+struct Item {
+    #[serde(default)]
+    game_time_s: u32,
+    /// The item's or ability's CUtlStringToken, as the demo's ids (unverified on a payload; see
+    /// docs/research/abilities-and-items.md §1).
+    #[serde(default)]
+    item_id: u32,
+    /// 0 while it was kept.
+    #[serde(default)]
+    sold_time_s: u32,
+    /// An ability's packed upgrade state (the demo's `m_nUpgradeInfo`); absent on shop items.
+    #[serde(default)]
+    upgrade_info: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -300,6 +321,39 @@ pub struct TimelinePlayer {
     /// failed. Never an id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// `[t_ds, item_id, kind]` in the replay timeline's shape (`Player.items`): each buy, and its
+    /// sale. The summary can't tell a sale from a component used up by an upgrade, so both are
+    /// `ITEM_REMOVED`. Absent in timelines cached before it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<[u32; 3]>,
+    /// `[second, ability_id, level]` (`Player.abilities`): the entries that carry an upgrade
+    /// state. Absent in timelines cached before it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub abilities: Vec<[u32; 3]>,
+}
+
+/// A player's `items[]` as the replay timeline's `items` and `abilities`: in order, within the
+/// match, capped as the replay timeline is.
+fn builds(entries: &[Item], duration_s: u32) -> (Vec<[u32; 3]>, Vec<[u32; 3]>) {
+    use mapcro_replay::timeline::{ITEM_BOUGHT, ITEM_REMOVED, MAX_ABILITY_CHANGES, MAX_ITEMS};
+    let (mut items, mut abilities) = (Vec::new(), Vec::new());
+    for e in entries.iter().filter(|e| e.item_id != 0) {
+        let t = e.game_time_s.min(duration_s);
+        match e.upgrade_info.filter(|i| *i != 0) {
+            Some(info) => abilities.push([t, e.item_id, mapcro_replay::hero_data::level_of(info)]),
+            None => {
+                items.push([t * 10, e.item_id, ITEM_BOUGHT]);
+                if e.sold_time_s > 0 {
+                    items.push([e.sold_time_s.clamp(t, duration_s) * 10, e.item_id, ITEM_REMOVED]);
+                }
+            }
+        }
+    }
+    items.sort_by_key(|i| i[0]);
+    items.truncate(MAX_ITEMS);
+    abilities.sort_by_key(|a| a[0]);
+    abilities.truncate(MAX_ABILITY_CHANGES);
+    (items, abilities)
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -491,6 +545,7 @@ pub fn derive(raw: &[u8]) -> Result<Timeline, String> {
                 y.push(None);
             }
         }
+        let (items, abilities) = builds(&p.items, m.duration_s);
         players.push(TimelinePlayer {
             team: team_name(p.team).to_owned(),
             slot: slots.get(&p.player_slot).copied().unwrap_or(0),
@@ -502,6 +557,8 @@ pub fn derive(raw: &[u8]) -> Result<Timeline, String> {
             souls: p.stats.iter().map(|s| [s.time_stamp_s, s.net_worth]).collect(),
             respawn: respawns(&p.death_details, m.duration_s),
             name: None,
+            items,
+            abilities,
         });
     }
     players.sort_by(|a, b| (a.team.as_str(), a.slot).cmp(&(b.team.as_str(), b.slot)));
@@ -890,6 +947,35 @@ mod tests {
         assert_eq!((by.team.as_str(), by.slot, by.hero_id), ("sapphire", 0, 9));
         assert_eq!(t.events[4].team.as_deref(), Some("sapphire"));
         assert_eq!(t.events[3].key.as_deref(), Some("walker:amber:lane1:1"));
+    }
+
+    #[test]
+    fn builds_from_the_metadata_items() {
+        use mapcro_replay::timeline::{ITEM_BOUGHT as B, ITEM_REMOVED as R};
+        let raw = serde_json::json!({ "match_info": {
+            "duration_s": 600, "start_time": 1, "match_id": 5,
+            "players": [{ "player_slot": 1, "team": 0, "hero_id": 7, "account_id": 123, "items": [
+                { "game_time_s": 300, "item_id": 22, "upgrade_id": 9, "flags": 1 },
+                { "game_time_s": 10, "item_id": 11, "sold_time_s": 400, "imbued_ability_id": 3 },
+                { "game_time_s": 0, "item_id": 44, "upgrade_info": 196_608 },
+                { "game_time_s": 700, "item_id": 55, "sold_time_s": 900 },
+                { "game_time_s": 20, "item_id": 0 }
+            ] }],
+            "match_paths": { "x_resolution": 100.0, "y_resolution": 100.0, "paths": [
+                { "player_slot": 1, "x_min": 0.0, "x_max": 100.0, "y_min": 0.0, "y_max": 100.0, "x_pos": [10.0], "y_pos": [10.0], "health": [100.0] }
+            ] }
+        }});
+        let t = derive(&serde_json::to_vec(&raw).expect("json")).expect("timeline");
+        let p = &t.players[0];
+        // Bought, gone at its sell time; past the end held to the end; the ability's tiers.
+        assert_eq!(p.items, [[100, 11, B], [3000, 22, B], [4000, 11, R], [6000, 55, B], [6000, 55, R]]);
+        assert_eq!(p.abilities, [[0, 44, 2]]);
+        let json = String::from_utf8(serde_json::to_vec(&t).expect("json")).expect("utf8");
+        assert!(!json.contains("123") && !json.contains("account"), "no account id: {json}");
+        // A cached timeline from before builds still loads.
+        let mut v = serde_json::to_value(&t).expect("value");
+        v["players"][0].as_object_mut().expect("player").remove("items");
+        assert!(serde_json::from_value::<Timeline>(v).expect("loads").players[0].items.is_empty());
     }
 
     #[test]
