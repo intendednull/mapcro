@@ -18,8 +18,10 @@ pub const TIER: &str = "replay";
 /// when each rift's cash-in opens (exploration round 7). 3: the Rejuvenator, and each open rift's
 /// capture progress and give-up deadline (timers audit, gaps 1 and 2). 4: when the enemy team
 /// could see each hero (`Player::seen`; docs/research/replay-vision.md). 5: the healing pickups,
-/// taken and back (`Timeline::heals`; docs/research/map-objectives-audit.md).
-pub const FORMAT: u32 = 5;
+/// taken and back (`Timeline::heals`; docs/research/map-objectives-audit.md). 6: the match clock
+/// holds through an in-game pause (older timelines froze on the paused frame and lost as much play
+/// after it).
+pub const FORMAT: u32 = 6;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Timeline {

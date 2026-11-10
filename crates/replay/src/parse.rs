@@ -110,6 +110,8 @@ struct Keys {
     ult_start: K,
     ult_end: K,
     paused_ticks: K,
+    game_paused: K,
+    pause_start: K,
     game_start: K,
     winner: K,
     game_mode: K,
@@ -159,6 +161,8 @@ impl Keys {
             ult_start: field(CONTROLLER, "m_PlayerDataGlobal.m_flUltimateCooldownStart"),
             ult_end: field(CONTROLLER, "m_PlayerDataGlobal.m_flUltimateCooldownEnd"),
             paused_ticks: field(RULES, "m_pGameRules.m_nTotalPausedTicks"),
+            game_paused: field(RULES, "m_pGameRules.m_bGamePaused"),
+            pause_start: field(RULES, "m_pGameRules.m_nPauseStartTick"),
             game_start: field(RULES, "m_pGameRules.m_flGameStartTime"),
             winner: field(RULES, "m_pGameRules.m_iWinningTeam"),
             game_mode: field(RULES, "m_pGameRules.m_eGameMode"),
@@ -265,9 +269,9 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
             // `server_start_tick` into the server's life: checked against the metadata's death
             // and objective times, and its duration, on match 122134063 (journal 2026-11-07).
             let interval = f64::from(ctx.tick_interval());
-            let paused = rules.get_i64(k.paused_ticks) as f64;
             let start = f64::from(rules.get_f32(k.game_start));
-            let now = (f64::from(ctx.tick() + server_start) - paused) * interval;
+            let pause = Pause { total: rules.get_i64(k.paused_ticks), running: rules.get_bool(k.game_paused), since: rules.get_i64(k.pause_start) };
+            let now = server_clock(i64::from(ctx.tick() + server_start), pause, interval);
             let game = now - start;
             // Camp timers change on any tick: read them on every one, from the horn.
             if start > 0.0 && game >= 0.0 {
@@ -296,6 +300,26 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         .map_err(|_| reason::PARSE_FAILED)?;
     // Nodes first seen after a sample was taken make earlier samples short: those hold.
     Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs, heals, rejuv, rejuv_counts, koth, vision })
+}
+
+/// The game rules' pause state on one tick.
+#[derive(Clone, Copy, Default)]
+struct Pause {
+    /// `m_nTotalPausedTicks`: the ticks of the pauses that have ended (it only grows at an unpause).
+    total: i64,
+    /// `m_bGamePaused`.
+    running: bool,
+    /// `m_nPauseStartTick`: the server tick the running pause began.
+    since: i64,
+}
+
+/// The server's `GameTime_t` clock, in seconds, at `server_tick`: pauses don't count. The
+/// running pause isn't in the total yet (129738985: 0 throughout its 1,706-tick pause, then
+/// 1,706), so it's counted from its start: the clock holds through a pause instead of running on
+/// and jumping back at the unpause, which repeated the paused frame and lost as much match after.
+fn server_clock(server_tick: i64, pause: Pause, interval: f64) -> f64 {
+    let running = if pause.running && pause.since > 0 { (server_tick - pause.since).max(0) } else { 0 };
+    (server_tick - pause.total - running) as f64 * interval
 }
 
 /// Every zipline node's team now, in `nodes` order; a node seen for the first time is added
@@ -674,6 +698,22 @@ mod tests {
         h ^= h >> 13;
         h = h.wrapping_mul(M);
         h ^ (h >> 15)
+    }
+
+    /// 129738985's pause (the pause probe): paused at tick 9482 (server tick 13906) for 1,706
+    /// ticks; the total is 0 until the unpause.
+    #[test]
+    fn the_clock_holds_through_a_pause_and_runs_on_after_it() {
+        const START: i64 = 4424;
+        let i = 1.0 / 64.0;
+        let before = server_clock(START + 9481, Pause::default(), i);
+        let at = |tick: i64, running: bool, total: i64| server_clock(START + tick, Pause { total, running, since: if running { 13906 } else { 0 } }, i);
+        let pausing = at(9482, true, 0);
+        assert!((pausing - before - i).abs() < 1e-9, "the pause's first tick is the next instant");
+        assert_eq!(at(10_500, true, 0), pausing, "held while paused");
+        assert_eq!(at(11_187, true, 0), pausing, "held to the last paused tick");
+        assert_eq!(at(11_188, false, 1706), pausing, "the unpause picks up where it held");
+        assert!((at(11_252, false, 1706) - pausing - 1.0).abs() < 1e-9, "and runs on: 64 ticks a second");
     }
 
     #[test]

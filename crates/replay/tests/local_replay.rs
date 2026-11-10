@@ -73,6 +73,25 @@ fn match_129738985_has_its_rejuvenators_and_rift_captures() {
     assert_eq!(first, [[0, 0]; 5]);
 }
 
+/// 129738985 pauses for 1,706 ticks (26.7 s) at 148.1 s of match (the pause probe). The match
+/// clock holds through it, so the seconds after it are played, not the frozen frame: before the
+/// fix the clock ran on while paused, filling 149–174 with the paused frame, then went back at the
+/// unpause and the next 26 s of play were dropped.
+#[test]
+#[ignore = "needs 129738985: MAPCRO_REPLAY_129738985"]
+fn match_129738985_plays_on_after_its_pause() {
+    let Some(dem) = env_path("MAPCRO_REPLAY_129738985") else { panic!("set MAPCRO_REPLAY_129738985 to 129738985.dem") };
+    let dir = tempfile::tempdir().expect("dir");
+    let out = dir.path().join("t.json");
+    worker::job(&dem, &out, 129_738_985, 2 << 30).expect("parses");
+    let t = timeline::validate(&std::fs::read(&out).expect("output")).expect("the server's checks pass");
+    // Seconds in which somebody moved from the second before.
+    let moved = |s: usize| t.players.iter().any(|p| p.x[s] != p.x[s - 1] || p.y[s] != p.y[s - 1]);
+    let still: Vec<usize> = (149..=175).filter(|s| !moved(*s)).collect();
+    assert!(still.is_empty(), "frozen seconds after the pause: {still:?}");
+    assert!((2635..=2645).contains(&t.duration_s), "the match's length, pauses out: {}", t.duration_s);
+}
+
 /// 129738985's vision (docs/research/replay-vision.md): when each hero's enemies could see it,
 /// from the teams' own minimap feeds. Nobody is seen before the laners first meet, at 18.2 s;
 /// almost every hero is seen as it dies (77 of 79 at the death tick in the spike); the merged
