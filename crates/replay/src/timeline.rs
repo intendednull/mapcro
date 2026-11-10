@@ -20,8 +20,10 @@ pub const TIER: &str = "replay";
 /// could see each hero (`Player::seen`; docs/research/replay-vision.md). 5: the healing pickups,
 /// taken and back (`Timeline::heals`; docs/research/map-objectives-audit.md). 6: the match clock
 /// holds through an in-game pause (older timelines froze on the paused frame and lost as much play
-/// after it).
-pub const FORMAT: u32 = 6;
+/// after it). 7: each hero's build, ability tiers, casts with their cooldowns, charges, hard CC,
+/// the status effects the game shows, death recaps, height and zipline rides (`Player::items` to
+/// `Player::zipline`; docs/research/abilities-and-items.md, status-effects.md, elevation.md).
+pub const FORMAT: u32 = 7;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Timeline {
@@ -178,7 +180,7 @@ pub fn encode_troopers(list: &[(u16, i16, i16)]) -> String {
     base64::engine::general_purpose::STANDARD.encode(b)
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub struct Player {
     /// "amber" or "sapphire".
     pub team: String,
@@ -208,6 +210,107 @@ pub struct Player {
     /// [`SEEN_MERGE_DS`] are merged away. Empty: never seen, or a timeline from before it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub seen: Vec<[u32; 2]>,
+    // ---- format 7: stored, not shown yet (operator 2026-11-09). Ids are the game's
+    // CUtlStringToken of the internal name ([`token`]); names come from the pack. Times in
+    // tenths of a second (`_ds`) unless said otherwise. `src` is the causing hero's index in
+    // `Timeline::players`, [`NO_HERO`] when it wasn't a hero. Empty before format 7. ----
+    /// `[t_ds, item_id, kind]` per shop event, in order: [`ITEM_BOUGHT`], [`ITEM_SOLD`],
+    /// [`ITEM_MERGED`] (a component used up by an upgrade bought in the same instant) or
+    /// [`ITEM_REMOVED`] (gone otherwise). The build at t is the bought minus the rest up to t.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<[u32; 3]>,
+    /// `[second, ability_id, level]` where an ability's level changes: 1 unlocked, 2 to 4 its
+    /// tiers 1 to 3 (`m_vecAbilityUpgradeState`), in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub abilities: Vec<[u32; 3]>,
+    /// `[t_ds, ability_id, cooldown_end_ds]` per ability or active item cast (the game's
+    /// `ImportantAbilityUsed`), in order. The cooldown end is the ability's own
+    /// (`m_flCooldownEnd`), 0 when the recording didn't show it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub casts: Vec<[u32; 3]>,
+    /// `[t_ds, ability_id, charges]` where a charged ability's or item's charges left change
+    /// (`m_iRemainingCharges`), in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub charges: Vec<[u32; 3]>,
+    /// `[start_ds, end_ds, state, src, ability_id]` per hard-CC interval on this hero (the pawn's
+    /// enabled-state mask; `state` is one of [`CC_STATES`]), with the enemy hero and ability the
+    /// game applied it with in the same instant, where there was one (ability 0: unknown).
+    /// In order of start.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cc: Vec<[u32; 5]>,
+    /// `[start_ds, end_ds, effect_id, src, ability_id, stacks]` per status effect on this hero
+    /// that the game shows an icon for, in order of start. `effect_id` is the modifier's
+    /// token; `stacks` the most it reached.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<[u32; 6]>,
+    /// One per death: who hurt the hero with what in the [`RECAP_S`] before it, and the CC it
+    /// took then.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recaps: Vec<Recap>,
+    /// `[second, level]` where the hero's height changes, held [`HOLD_S`] seconds: 0 level
+    /// ground, 1 above it, 2 below (its own team's minimap feed, `m_eHeight`). Level before the
+    /// first entry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub height: Vec<[u32; 2]>,
+    /// `[from_s, to_s)` while riding a zipline (`m_eZipLineLaneColor`), held [`HOLD_S`] seconds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub zipline: Vec<[u32; 2]>,
+}
+
+/// A death's recap (docs/research/status-effects.md §4).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct Recap {
+    /// The lethal hit, in tenths of a second.
+    pub t: u32,
+    /// `[src, ability_id, damage]` summed over the window, most damage first (ability 0: no
+    /// ability, such as a trooper's shot).
+    pub damage: Vec<[u32; 3]>,
+    /// The hero's `cc` rows that overlap the window.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cc: Vec<[u32; 5]>,
+}
+
+/// `Player::items` kinds.
+pub const ITEM_BOUGHT: u32 = 0;
+pub const ITEM_SOLD: u32 = 1;
+pub const ITEM_MERGED: u32 = 2;
+pub const ITEM_REMOVED: u32 = 3;
+/// `src` when the cause wasn't a hero (a trooper, a neutral, the world) or isn't known.
+pub const NO_HERO: u32 = 255;
+/// The hard-CC states kept, as `MODIFIER_STATE_*` indices (the pawn mask's bit numbers; names
+/// from boon-data's catalog, docs/research/status-effects.md §1): immobilized, disarmed, muted,
+/// silenced, stunned, dash disabled, shooting disabled, asleep, Viscous's cube.
+pub const CC_STATES: [u32; 9] = [13, 14, 15, 17, 20, 59, 68, 81, 129];
+/// A death recap's window, in seconds.
+pub const RECAP_S: u32 = 10;
+/// How long a height or zipline state must hold, in seconds, to count (elevation.md §1).
+pub const HOLD_S: usize = 2;
+
+/// CUtlStringToken: MurmurHash2 of the lower-cased name, seed 0x31415926 (the game's ids for
+/// items, abilities and modifiers).
+pub fn token(name: &str) -> u32 {
+    const M: u32 = 0x5bd1_e995;
+    let key = name.to_ascii_lowercase();
+    let key = key.as_bytes();
+    let mut h = 0x3141_5926 ^ key.len() as u32;
+    let (chunks, r) = key.as_chunks::<4>();
+    for c in chunks {
+        let mut k = u32::from_le_bytes(*c).wrapping_mul(M);
+        k ^= k >> 24;
+        h = h.wrapping_mul(M) ^ k.wrapping_mul(M);
+    }
+    if r.len() >= 3 {
+        h ^= u32::from(r[2]) << 16;
+    }
+    if r.len() >= 2 {
+        h ^= u32::from(r[1]) << 8;
+    }
+    if let Some(&b) = r.first() {
+        h = (h ^ u32::from(b)).wrapping_mul(M);
+    }
+    h ^= h >> 13;
+    h = h.wrapping_mul(M);
+    h ^ (h >> 15)
 }
 
 /// Hidden gaps shorter than this (tenths of a second) are merged into the intervals around them:
@@ -220,6 +323,67 @@ pub const SEEN_MERGE_DS: u32 = 5;
 pub fn seen_ok(r: &[[u32; 2]], duration_s: u32) -> bool {
     let end = duration_s.saturating_mul(10);
     r.iter().all(|[a, b]| a < b && *b <= end) && r.windows(2).all(|w| w[1][0] >= w[0][1].saturating_add(SEEN_MERGE_DS))
+}
+
+/// Format 7's per-player bounds: more than this isn't a hero we know (129738985, 44 minutes:
+/// at most 23 shop events, 4 abilities × 4 levels, ~300 casts, ~250 effects per hero).
+pub const MAX_ITEMS: usize = 512;
+pub const MAX_ABILITY_CHANGES: usize = 256;
+pub const MAX_CASTS: usize = 4096;
+pub const MAX_CHARGES: usize = 8192;
+pub const MAX_CC: usize = 2048;
+pub const MAX_EFFECTS: usize = 8192;
+pub const MAX_RECAPS: usize = 256;
+/// Rows per recap: sources (hero × ability) in its window, and CC rows.
+pub const MAX_RECAP_ROWS: usize = 64;
+pub const MAX_STACKS: u32 = 1000;
+/// A cast's cooldown may end at most this long after it (tenths; ults run ~2–3 minutes).
+pub const MAX_COOLDOWN_DS: u32 = 12_000;
+/// The most charges an ability holds.
+pub const MAX_CHARGE_COUNT: u32 = 32;
+/// Damage one source may deal in a recap's window.
+pub const MAX_RECAP_DAMAGE: u32 = 1_000_000;
+
+/// A hero's format-7 fields: within the match, in order, ids set, sources a hero of the match,
+/// counts and sizes bounded.
+pub fn extras_ok(p: &Player, duration_s: u32, players: usize) -> bool {
+    let end = duration_s.saturating_mul(10);
+    let src_ok = |s: u32| s == NO_HERO || (s as usize) < players;
+    let rising = |a: u32, b: u32| a <= b;
+    let cc_ok = |r: &[u32; 5]| r[0] < r[1] && r[1] <= end && CC_STATES.contains(&r[2]) && src_ok(r[3]);
+    p.items.len() <= MAX_ITEMS
+        && p.items.iter().all(|[t, id, k]| *t <= end && *id != 0 && *k <= ITEM_REMOVED)
+        && p.items.windows(2).all(|w| rising(w[0][0], w[1][0]))
+        && p.abilities.len() <= MAX_ABILITY_CHANGES
+        && p.abilities.iter().all(|[s, id, l]| *s <= duration_s && *id != 0 && *l <= 4)
+        && p.abilities.windows(2).all(|w| rising(w[0][0], w[1][0]))
+        && p.casts.len() <= MAX_CASTS
+        && p.casts.iter().all(|[t, id, cd]| *t <= end && *id != 0 && (*cd == 0 || (t < cd && *cd <= t.saturating_add(MAX_COOLDOWN_DS))))
+        && p.casts.windows(2).all(|w| rising(w[0][0], w[1][0]))
+        && p.charges.len() <= MAX_CHARGES
+        && p.charges.iter().all(|[t, id, n]| *t <= end && *id != 0 && *n <= MAX_CHARGE_COUNT)
+        && p.charges.windows(2).all(|w| rising(w[0][0], w[1][0]))
+        && p.cc.len() <= MAX_CC
+        && p.cc.iter().all(cc_ok)
+        && p.cc.windows(2).all(|w| rising(w[0][0], w[1][0]))
+        && p.effects.len() <= MAX_EFFECTS
+        && p.effects.iter().all(|[a, b, id, src, _, st]| a <= b && *b <= end && *id != 0 && src_ok(*src) && *st <= MAX_STACKS)
+        && p.effects.windows(2).all(|w| rising(w[0][0], w[1][0]))
+        && p.recaps.len() <= MAX_RECAPS
+        && p.recaps.windows(2).all(|w| w[0].t < w[1].t)
+        && p.recaps.iter().all(|r| {
+            r.t <= end
+                && r.damage.len() <= MAX_RECAP_ROWS
+                && r.damage.iter().all(|[src, _, d]| src_ok(*src) && *d > 0 && *d <= MAX_RECAP_DAMAGE)
+                && r.cc.len() <= MAX_RECAP_ROWS
+                && r.cc.iter().all(|c| cc_ok(c) && c[0] <= r.t && c[1] + RECAP_S * 10 >= r.t)
+        })
+        && p.height.len() <= duration_s as usize + 1
+        && p.height.iter().all(|[s, l]| *s <= duration_s && *l <= 2)
+        && p.height.windows(2).all(|w| w[0][0] < w[1][0] && w[0][1] != w[1][1])
+        && p.zipline.len() <= duration_s as usize / 2 + 1
+        && p.zipline.iter().all(|[a, b]| a < b && *b <= duration_s + 1)
+        && p.zipline.windows(2).all(|w| w[0][1] < w[1][0])
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -519,6 +683,7 @@ pub fn validate(bytes: &[u8]) -> Result<Timeline, &'static str> {
                 && p.name.as_ref().is_none_or(|s| s.chars().count() <= MAX_NAME && !s.chars().any(bad_name_char))
                 && respawns_ok(&p.respawn, t.duration_s)
                 && seen_ok(&p.seen, t.duration_s)
+                && extras_ok(p, t.duration_s, t.players.len())
         })
         && t.objectives.len() <= MAX_LIST
         && t.objectives.iter().all(|o| plausible_key(&o.key) && o.kind.len() <= 32 && o.team.len() <= 16 && o.destroyed_s <= t.duration_s)
@@ -648,6 +813,15 @@ mod tests {
                 ult: vec![None, Some(50), Some(0)],
                 respawn: vec![[1, 2]],
                 seen: vec![[0, 4], [9, 20]],
+                items: vec![[0, 11, ITEM_BOUGHT], [5, 12, ITEM_BOUGHT], [5, 11, ITEM_MERGED], [20, 12, ITEM_SOLD]],
+                abilities: vec![[0, 21, 1], [2, 21, 2]],
+                casts: vec![[3, 21, 300], [4, 22, 0]],
+                charges: vec![[3, 21, 1], [9, 21, 2]],
+                cc: vec![[1, 4, 20, NO_HERO, 0], [2, 6, 17, 0, 21]],
+                effects: vec![[1, 9, 31, 0, 21, 2], [2, 2, 32, NO_HERO, 0, 0]],
+                recaps: vec![Recap { t: 10, damage: vec![[NO_HERO, 0, 120], [0, 21, 40]], cc: vec![[1, 4, 20, NO_HERO, 0]] }],
+                height: vec![[1, 2], [2, 0]],
+                zipline: vec![[0, 1], [2, 3]],
             }],
             objectives: vec![Objective { key: "walker:amber:lane1:1".into(), kind: "walker".into(), team: "amber".into(), lane: 1, destroyed_s: 2 }],
             mid_boss: vec![],
@@ -775,6 +949,58 @@ mod tests {
             Box::new(|t| t.rejuv[0].left[1] = [1, 2]),
             Box::new(|t| t.rejuv[0].left[0] = [0, 3]),
             Box::new(|t| t.events[0].kind = "rejuv".into()),
+            // Format 7.
+            Box::new(|t| t.players[0].items[1][0] = 21),
+            Box::new(|t| t.players[0].items[1][1] = 0),
+            Box::new(|t| t.players[0].items[1][2] = 4),
+            Box::new(|t| t.players[0].items.swap(0, 3)),
+            Box::new(|t| t.players[0].items = vec![[0, 1, 0]; MAX_ITEMS + 1]),
+            Box::new(|t| t.players[0].abilities[1][0] = 3),
+            Box::new(|t| t.players[0].abilities[1][1] = 0),
+            Box::new(|t| t.players[0].abilities[1][2] = 5),
+            Box::new(|t| t.players[0].abilities.swap(0, 1)),
+            Box::new(|t| t.players[0].abilities = vec![[0, 1, 1]; MAX_ABILITY_CHANGES + 1]),
+            Box::new(|t| t.players[0].casts[0][0] = 21),
+            Box::new(|t| t.players[0].casts[0][1] = 0),
+            Box::new(|t| t.players[0].casts[0][2] = 3),
+            Box::new(|t| t.players[0].casts[0][2] = 3 + MAX_COOLDOWN_DS + 1),
+            Box::new(|t| t.players[0].casts.swap(0, 1)),
+            Box::new(|t| t.players[0].casts = vec![[0, 1, 0]; MAX_CASTS + 1]),
+            Box::new(|t| t.players[0].charges[0][0] = 21),
+            Box::new(|t| t.players[0].charges[0][1] = 0),
+            Box::new(|t| t.players[0].charges[0][2] = MAX_CHARGE_COUNT + 1),
+            Box::new(|t| t.players[0].charges.swap(0, 1)),
+            Box::new(|t| t.players[0].charges = vec![[0, 1, 0]; MAX_CHARGES + 1]),
+            Box::new(|t| t.players[0].cc[0] = [4, 4, 20, NO_HERO, 0]),
+            Box::new(|t| t.players[0].cc[0][1] = 21),
+            Box::new(|t| t.players[0].cc[0][2] = 21),
+            Box::new(|t| t.players[0].cc[0][3] = 1),
+            Box::new(|t| t.players[0].cc.swap(0, 1)),
+            Box::new(|t| t.players[0].cc = vec![[0, 1, 20, NO_HERO, 0]; MAX_CC + 1]),
+            Box::new(|t| t.players[0].effects[0] = [9, 8, 31, 0, 21, 2]),
+            Box::new(|t| t.players[0].effects[0][1] = 21),
+            Box::new(|t| t.players[0].effects[0][2] = 0),
+            Box::new(|t| t.players[0].effects[0][3] = 1),
+            Box::new(|t| t.players[0].effects[0][5] = MAX_STACKS + 1),
+            Box::new(|t| t.players[0].effects.swap(0, 1)),
+            Box::new(|t| t.players[0].effects = vec![[0, 0, 1, NO_HERO, 0, 0]; MAX_EFFECTS + 1]),
+            Box::new(|t| t.players[0].recaps[0].t = 21),
+            Box::new(|t| t.players[0].recaps[0].damage[0][0] = 1),
+            Box::new(|t| t.players[0].recaps[0].damage[0][2] = 0),
+            Box::new(|t| t.players[0].recaps[0].damage[0][2] = MAX_RECAP_DAMAGE + 1),
+            Box::new(|t| t.players[0].recaps[0].damage = vec![[NO_HERO, 0, 1]; MAX_RECAP_ROWS + 1]),
+            Box::new(|t| t.players[0].recaps[0].cc[0][2] = 21),
+            Box::new(|t| t.players[0].recaps[0].cc[0] = [11, 12, 20, NO_HERO, 0]),
+            Box::new(|t| t.players[0].recaps[0].cc = vec![[1, 4, 20, NO_HERO, 0]; MAX_RECAP_ROWS + 1]),
+            Box::new(|t| t.players[0].recaps = vec![t.players[0].recaps[0].clone(); 2]),
+            Box::new(|t| t.players[0].recaps = vec![Recap { t: 1, damage: vec![], cc: vec![] }; MAX_RECAPS + 1]),
+            Box::new(|t| t.players[0].height[1][0] = 1),
+            Box::new(|t| t.players[0].height[1][1] = 2),
+            Box::new(|t| t.players[0].height[1] = [2, 3]),
+            Box::new(|t| t.players[0].height[1][0] = 3),
+            Box::new(|t| t.players[0].zipline[1] = [3, 3]),
+            Box::new(|t| t.players[0].zipline[1] = [2, 4]),
+            Box::new(|t| t.players[0].zipline[1] = [1, 3]),
         ];
         for (i, f) in bad.iter().enumerate() {
             let mut t = tiny();
@@ -794,6 +1020,9 @@ mod tests {
         o["players"][0].as_object_mut().expect("player").remove("seen");
         o.remove("rejuv");
         o.remove("heals");
+        for f in ["items", "abilities", "casts", "charges", "cc", "effects", "recaps", "height", "zipline"] {
+            o["players"][0].as_object_mut().expect("player").remove(f);
+        }
         let rift = o["rifts"][0].as_object_mut().expect("rift");
         rift.remove("live_s");
         rift.remove("give_up_s");
@@ -803,6 +1032,9 @@ mod tests {
         assert_eq!((t.urn, t.format, t.players[0].respawn.len(), t.players[0].seen.len()), (None, 0, 0, 0));
         assert_eq!((t.rifts[0].live_s, t.powerups[0].spawns.len()), (None, 0));
         assert_eq!((t.rifts[0].give_up_s, t.rifts[0].capture.len(), t.rejuv.len(), t.heals.len()), (None, 0, 0, 0));
+        let p = &t.players[0];
+        assert!(p.items.is_empty() && p.abilities.is_empty() && p.casts.is_empty() && p.charges.is_empty() && p.cc.is_empty());
+        assert!(p.effects.is_empty() && p.recaps.is_empty() && p.height.is_empty() && p.zipline.is_empty());
     }
 
     #[test]
@@ -822,6 +1054,17 @@ mod tests {
         assert_eq!(clean_name(" Co\u{202E}a<b>ch&\"\u{7} "), Some("Coabch".into()));
         assert_eq!(clean_name("\u{2066}\u{2069}"), None);
         assert_eq!(clean_name(&"é".repeat(40)).map(|s| s.chars().count()), Some(32));
+    }
+
+    #[test]
+    fn tokens_are_the_games_ids() {
+        // boon's known pair, and boon-data's catalog id for the generic stun.
+        assert_eq!(token("modifier_player_pinged"), 1_215_616_703);
+        assert_eq!(token("modifier_citadel_stunned"), 1_398_909_042);
+        assert_eq!(token("Modifier_Citadel_Stunned"), 1_398_909_042, "lower-cased first");
+        // Every remainder length (0–3 bytes past the last 4-byte chunk) takes part.
+        let ids: std::collections::BTreeSet<u32> = ["abcd", "abcde", "abcdef", "abcdefg"].map(token).into();
+        assert_eq!(ids.len(), 4);
     }
 
     #[test]

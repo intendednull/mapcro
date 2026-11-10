@@ -221,6 +221,11 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
     let parser = Parser::from_file(path).map_err(|_| reason::NOT_A_REPLAY)?;
     let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, PICKUP_MODIFIER, TROOPER, ZIP_NODE, IDOL, IDOL_RETURN, TEAM, HEAL].into_iter().collect();
     classes.extend(OBJECTIVES.iter().map(|(c, _)| *c));
+    // Format 7: the ability and item entities, for cooldowns and charges.
+    let ability_classes = crate::parse_hero::ability_classes(&parser);
+    classes.extend(ability_classes.iter().map(String::as_str));
+    let mut hero = crate::parse_hero::HeroTracker::new();
+    let mut heights: HashMap<i32, u8> = HashMap::new();
     let mut keys: Option<Keys> = None;
     let mut seconds: Vec<Sample> = Vec::new();
     let mut over = false;
@@ -240,12 +245,15 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
     let mut rejuv: Vec<RejuvObs> = Vec::new();
     let mut rejuv_counts: Vec<RejuvCount> = Vec::new();
     let mut koth: Vec<KothObs> = Vec::new();
-    let mut fow_keys: Vec<[K; 3]> = Vec::new();
+    let mut fow_keys: Vec<[K; 4]> = Vec::new();
     let mut seen_now: HashMap<i32, bool> = HashMap::new();
     let mut vision: Vec<VisionObs> = Vec::new();
     parser
         .run_to_end_with_events_filtered(&classes, |ctx, events| {
             let k = keys.get_or_insert_with(|| Keys::resolve(ctx));
+            if !over {
+                hero.modifiers(ctx);
+            }
             for e in events.iter().filter(|e| e.msg_type == IMPORTANT_ABILITY_USED) {
                 if let Some(a) = ability_used(ctx, k, &e.payload) {
                     casts.push(a);
@@ -284,7 +292,8 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
                 }
                 rejuv_tick(k, rules, game as f32, &mut rejuv_counts);
                 koth_tick(k, rules, start, game, &mut koth);
-                vision_tick(ctx, k, game as f32, &mut fow_keys, &mut seen_now, &mut vision);
+                vision_tick(ctx, k, game as f32, &mut fow_keys, &mut seen_now, &mut vision, &mut |player, level| crate::parse_hero::height(&mut hero.data, &mut heights, game as f32, player, level));
+                hero.tick(ctx, events, game, start);
             }
             if start <= 0.0 || game < seconds.len() as f64 || game > f64::from(crate::timeline::MAX_DURATION_S) {
                 return;
@@ -299,7 +308,7 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         })
         .map_err(|_| reason::PARSE_FAILED)?;
     // Nodes first seen after a sample was taken make earlier samples short: those hold.
-    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs, heals, rejuv, rejuv_counts, koth, vision })
+    Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs, heals, rejuv, rejuv_counts, koth, vision, hero_data: hero.finish() })
 }
 
 /// The game rules' pause state on one tick.
@@ -531,7 +540,7 @@ fn int(v: Option<&boon::FieldValue>) -> Option<i64> {
 /// replay-vision.md): a [`VisionObs`] wherever a hero's `m_bVisibleOnMap` for the enemy team
 /// changes. Entries name the pawn's entity index; the controller whose `m_hPawn` it is gives the
 /// player ([`HeroObs::id`]). A hero not in this tick's feed keeps its last state.
-fn vision_tick(ctx: &boon::Context, k: &Keys, game: f32, keys: &mut Vec<[K; 3]>, now: &mut HashMap<i32, bool>, out: &mut Vec<VisionObs>) {
+fn vision_tick(ctx: &boon::Context, k: &Keys, game: f32, keys: &mut Vec<[K; 4]>, now: &mut HashMap<i32, bool>, out: &mut Vec<VisionObs>, height: &mut dyn FnMut(i32, i64)) {
     let ents = ctx.entities();
     // Pawn entity index → (controller index, team).
     let mut by_pawn: HashMap<i32, (i32, i64)> = HashMap::new();
@@ -547,14 +556,16 @@ fn vision_tick(ctx: &boon::Context, k: &Keys, game: f32, keys: &mut Vec<[K; 3]>,
         while keys.len() < n {
             let i = keys.len();
             let f = |name: &str| ser.resolve_field_key(&format!("{FOW}.{i}.{name}"));
-            keys.push([f("m_eClass"), f("m_nEntIndex"), f("m_bVisibleOnMap")]);
+            keys.push([f("m_eClass"), f("m_nEntIndex"), f("m_bVisibleOnMap"), f("m_eHeight")]);
         }
-        for [class, ent, visible] in &keys[..n] {
+        for [class, ent, visible, level] in &keys[..n] {
             if int(t.field_value(*class)) != Some(FOW_HERO) {
                 continue;
             }
             let Some(&(player, team)) = int(t.field_value(*ent)).and_then(|i| i32::try_from(i).ok()).and_then(|i| by_pawn.get(&i)) else { continue };
             if team == observer {
+                // The hero's own team's feed always sees it: its height (elevation.md).
+                height(player, int(t.field_value(*level)).unwrap_or(0));
                 continue;
             }
             let v = int(t.field_value(*visible)) == Some(1);
@@ -673,32 +684,7 @@ fn sample(ctx: &boon::Context, k: &Keys, rules: &boon::entity::Entity, now: f32)
 mod tests {
     use super::*;
 
-    /// CUtlStringToken: MurmurHash2 of the lower-cased name, seed 0x31415926.
-    fn token(name: &str) -> u32 {
-        const M: u32 = 0x5bd1_e995;
-        let key = name.to_ascii_lowercase();
-        let key = key.as_bytes();
-        let mut h = 0x3141_5926 ^ key.len() as u32;
-        let mut chunks = key.chunks_exact(4);
-        for c in &mut chunks {
-            let mut k = u32::from_le_bytes([c[0], c[1], c[2], c[3]]).wrapping_mul(M);
-            k ^= k >> 24;
-            h = h.wrapping_mul(M) ^ k.wrapping_mul(M);
-        }
-        let r = chunks.remainder();
-        if r.len() >= 3 {
-            h ^= u32::from(r[2]) << 16;
-        }
-        if r.len() >= 2 {
-            h ^= u32::from(r[1]) << 8;
-        }
-        if let Some(&b) = r.first() {
-            h = (h ^ u32::from(b)).wrapping_mul(M);
-        }
-        h ^= h >> 13;
-        h = h.wrapping_mul(M);
-        h ^ (h >> 15)
-    }
+    use crate::timeline::token;
 
     /// 129738985's pause (the pause probe): paused at tick 9482 (server tick 13906) for 1,706
     /// ticks; the total is 0 until the unpause.

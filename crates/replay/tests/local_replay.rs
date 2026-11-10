@@ -368,3 +368,68 @@ fn match_129738985_closes_each_lane_shop_with_its_guardian() {
         assert!(at <= f64::from(down) && f64::from(down) - at < 1.0, "{key}: the shop closes at {at:.1}, the guardian at {down}");
     }
 }
+
+/// 129738985's format-7 data against the studies' probes (docs/research/abilities-and-items.md,
+/// status-effects.md, elevation.md): 239 purchases; 96 sells, of which 25 carry the shop's sell
+/// notice (each also checked against the catalog: none is a component of what was bought with
+/// it) and 71 are components of the item bought in the same instant; 190 ability level changes;
+/// 2227 casts; 125 stun intervals, 109 attributed; 79 lethal-hit deaths (the probe's count kept
+/// post-game ticks); height level 74%, above 17%, below 9%; on a zipline 8.1% of alive seconds.
+#[test]
+#[ignore = "needs 129738985: MAPCRO_REPLAY_129738985"]
+fn match_129738985_has_its_builds_casts_status_effects_and_heights() {
+    use timeline::{CC_STATES, ITEM_BOUGHT, ITEM_MERGED, ITEM_REMOVED, ITEM_SOLD, NO_HERO};
+    let Some(dem) = env_path("MAPCRO_REPLAY_129738985") else { panic!("set MAPCRO_REPLAY_129738985 to 129738985.dem") };
+    let dir = tempfile::tempdir().expect("dir");
+    let out = dir.path().join("t.json");
+    worker::job(&dem, &out, 129_738_985, 2 << 30).expect("parses");
+    let bytes = std::fs::read(&out).expect("output");
+    let t = timeline::validate(&bytes).expect("the server's checks pass");
+    let p = &t.players;
+    let count = |f: &dyn Fn(&timeline::Player) -> usize| p.iter().map(f).sum::<usize>();
+    let kind = |k: u32| count(&|p| p.items.iter().filter(|i| i[2] == k).count());
+    assert_eq!((kind(ITEM_BOUGHT), kind(ITEM_SOLD), kind(ITEM_MERGED), kind(ITEM_REMOVED)), (239, 25, 71, 0));
+    assert!(p.iter().all(|p| (15..=23).contains(&p.items.iter().filter(|i| i[2] == ITEM_BOUGHT).count())), "15–23 buys each");
+    assert_eq!(count(&|p| p.abilities.len()), 190);
+    assert!(p.iter().all(|p| p.abilities.iter().map(|a| a[1]).collect::<std::collections::BTreeSet<_>>().len() == 4), "4 abilities each");
+    assert_eq!(p.iter().filter(|p| p.abilities.iter().any(|a| a[2] == 4)).count(), 12, "everyone reached a tier 3");
+    // The ult casts the events list has are among the casts, by token.
+    assert_eq!(count(&|p| p.casts.len()), 2227);
+    let with_cd = count(&|p| p.casts.iter().filter(|c| c[2] != 0).count());
+    assert!(with_cd * 100 >= 2227 * 90, "{with_cd} of 2227 casts have their cooldown end");
+    let ults: Vec<u32> = t.events.iter().filter(|e| e.kind == "ult").filter_map(|e| e.ability.as_deref()).map(timeline::token).collect();
+    assert!(!ults.is_empty() && ults.iter().all(|u| p.iter().any(|p| p.casts.iter().any(|c| c[1] == *u))), "every ult is a cast");
+    assert!(count(&|p| p.charges.len()) > 1000, "charges change");
+    let state = |s: u32| count(&|p| p.cc.iter().filter(|c| c[2] == s).count());
+    let stuns = state(20);
+    let stuns_by_hero = count(&|p| p.cc.iter().filter(|c| c[2] == 20 && c[3] != NO_HERO).count());
+    assert!((120..=130).contains(&stuns), "{stuns} stuns");
+    assert!(stuns_by_hero * 100 >= stuns * 85, "{stuns_by_hero} of {stuns} stuns attributed");
+    assert!((55..=65).contains(&state(17)) && (30..=36).contains(&state(81)), "silences {}, sleeps {}", state(17), state(81));
+    assert!(p.iter().all(|p| p.cc.iter().all(|c| CC_STATES.contains(&c[2]))));
+    let effects = count(&|p| p.effects.len());
+    assert!((4000..=4300).contains(&effects), "{effects} icon-shown effects (the probe: 4196)");
+    let recaps = count(&|p| p.recaps.len());
+    assert!((74..=79).contains(&recaps), "{recaps} death recaps");
+    assert!(p.iter().flat_map(|p| &p.recaps).all(|r| !r.damage.is_empty()), "every recap has its damage");
+    // Height and zipline shares of alive seconds.
+    let (mut level, mut zip, mut alive) = ([0usize; 3], 0usize, 0usize);
+    for p in p {
+        for s in 0..p.x.len() {
+            let h = p.height.iter().rev().find(|c| c[0] as usize <= s).map_or(0, |c| c[1] as usize);
+            if p.x[s].is_some() {
+                alive += 1;
+                level[h] += 1;
+                zip += usize::from(p.zipline.iter().any(|z| (z[0] as usize..z[1] as usize).contains(&s)));
+            }
+        }
+    }
+    let share = |n: usize| n as f64 / alive as f64;
+    assert!((0.71..=0.78).contains(&share(level[0])) && (0.13..=0.19).contains(&share(level[1])) && (0.07..=0.11).contains(&share(level[2])), "height shares {level:?} of {alive}");
+    assert!((0.07..=0.09).contains(&share(zip)), "zipline share {}", share(zip));
+    // No account or Steam id: the new fields are numbers keyed by slot.
+    let json = String::from_utf8_lossy(&bytes);
+    assert!(!json.contains("steam") && !json.contains("account"));
+    eprintln!("{} KB", bytes.len() / 1024);
+    assert!(bytes.len() < 2 << 20, "under 2 MiB");
+}

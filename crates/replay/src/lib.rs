@@ -10,12 +10,16 @@
 //! - `worker` (feature `parse`): the on-disk queue, run as its own sandboxed service.
 
 pub mod derive;
+pub mod hero_data;
 pub mod map;
 mod map_data;
+pub mod modifiers;
 pub mod timeline;
 
 #[cfg(feature = "parse")]
 pub mod parse;
+#[cfg(feature = "parse")]
+pub mod parse_hero;
 #[cfg(feature = "parse")]
 pub mod worker;
 

@@ -242,6 +242,8 @@ pub struct Obs {
     pub koth: Vec<KothObs>,
     /// Each hero's visibility to the enemy team where it changes, in order (empty: none read).
     pub vision: Vec<VisionObs>,
+    /// Format 7's per-hero reads (empty: none read).
+    pub hero_data: crate::hero_data::HeroData,
 }
 
 /// How far (world units) a demo entity may be from our site to take its key. Current-map
@@ -395,6 +397,7 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
                 ult: Vec::with_capacity(n),
                 respawn: Vec::new(),
                 seen: seen_intervals(obs.vision.iter().filter(|v| v.player == id).map(|v| (v.game, v.visible)), duration_s * 10),
+                ..Player::default()
             };
             // While dead: the second the game says the hero comes back (the pawn's timer).
             let mut due: Vec<Option<f32>> = Vec::with_capacity(n);
@@ -441,6 +444,9 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
             players.push(p);
         }
     }
+    // Format 7: builds, abilities, casts, CC, effects, recaps, height and zipline rides.
+    let player_ids: Vec<i32> = players.iter().map(|p| ids_by_slot.get(&(p.team.clone(), p.slot)).copied().unwrap_or(-1)).collect();
+    crate::hero_data::fill(&mut players, &player_ids, &obs.hero_data, duration_s);
 
     // ---- objectives: destroyed on a seen positive-to-zero change that never recovers ----
     // A recording reads a zero health now and then (around full packets), and an entity can be
