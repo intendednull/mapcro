@@ -495,6 +495,7 @@ export function MapControls(p: {
 
         </>}</Show>
         <Show when={h.tl()?.players.some(player => player.cc?.length)}><button class="btn ghost small" data-testid="cc-toggle" aria-pressed={h.showCC()} onClick={() => h.setShowCC(!h.showCC())}>Crowd control</button></Show>
+        <Show when={h.tl()?.players.some(player => player.height?.length || player.zipline?.length)}><button class="btn ghost small" data-testid="movement-toggle" aria-pressed={h.showMovement()} onClick={() => h.setShowMovement(!h.showMovement())}>Elevation & ziplines</button></Show>
         <h3>Map pickups</h3>
         <button class="btn ghost small" data-testid="heals-toggle" aria-pressed={p.heals} onClick={p.toggleHeals}>Healing pickups</button>
         <button class="btn ghost small" data-testid="crates-toggle" aria-pressed={p.crates} onClick={p.toggleCrates}>Heavy boxes</button>

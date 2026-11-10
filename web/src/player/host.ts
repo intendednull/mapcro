@@ -4,6 +4,7 @@
 
 import { createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js";
 import { type CampAt, type MatchEvent, type PowerupAt, type RiftAt, type Timeline, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, riftAt, shopsClosed, sitesAt, urnAt } from "../match/timeline";
+import { movementAt } from "./movement";
 import type { MatchPreview } from "../match/preview";
 import { slotKey } from "../match/save";
 import type { Marker } from "../map/model";
@@ -65,6 +66,7 @@ export function createPlayerHost(board: string, token: string) {
   const [showHealth, setShowHealth] = createSignal(true);
   /** Optional compact hard-CC labels, off by default. */
   const [showCC, setShowCC] = createSignal(false);
+  const [showMovement, setShowMovement] = createSignal(false);
   /** Event pings while playing (spec §6b), on by default. */
   const [showPings, setShowPings] = createSignal(true);
   /**
@@ -666,6 +668,8 @@ export function createPlayerHost(board: string, token: string) {
     setShowHealth,
     showCC,
     setShowCC,
+    showMovement,
+    setShowMovement,
     showPings,
     setShowPings,
     showNames,
@@ -730,7 +734,7 @@ export function createPlayerHost(board: string, token: string) {
           const s = view && x.team !== view ? seenAt(m.players[i]!, at) : { seen: true as const };
           // Only living heroes currently in sight receive live status. Never attach it to
           // last-seen ghosts: that would reveal a new effect applied outside the team's view.
-          if (s?.seen) return [slotKey(x.team, x.slot), { ...shown, ...(showCC() && m.tier === "replay" && x.pos ? { cc: crowdControlAt(m.players[i]!, at) } : {}) }];
+          if (s?.seen) return [slotKey(x.team, x.slot), { ...shown, ...(showMovement() && m.tier === "replay" && x.pos ? movementAt(m.players[i]!, at) : {}), ...(showCC() && m.tier === "replay" && x.pos ? { cc: crowdControlAt(m.players[i]!, at) } : {}) }];
           return [slotKey(x.team, x.slot), ghosts && s ? { ...shown, pos: s.at, health: null, ghost: s.ago } : { ...shown, pos: null, health: null, ghost: null, unseen: true }];
         }),
       );
