@@ -479,10 +479,61 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     over 28:13–28:28 on 129738985, nobody holding it): that's the game's, recorded as more
     `ground` places with no team or carrier. The carrier is only inferred at a pick-up, for
     the run up to the next drop or delivery.
+  - **Builds, casts, status effects, height** (format 7, 2026-11-09; docs/research/
+    abilities-and-items.md, status-effects.md, elevation.md). **Stored, not shown**: the operator
+    holds the UI until it can be done without clutter. Per player, all slot-keyed, every id the
+    game's CUtlStringToken (`timeline::token`, MurmurHash2 of the lower-cased internal name) as
+    it appears; names and icons come later from the pack. `_ds` is tenths of a second; `src` is
+    the causing hero's index in `players`, `NO_HERO` (255) when it wasn't a hero.
+    - `items` `[t_ds, item_id, kind]`: user message 309 (`AbilitiesChanged`, slot + 1 is the
+      controller). A sale is real (`ITEM_SOLD`) when message 360 (`ItemPurchaseNotification`,
+      `sell`) for the item lands within 0.25 s; else a component used up by a buy of the same
+      hero within 0.1 s (`ITEM_MERGED`); else `ITEM_REMOVED`. The build at t is the buys minus
+      the rest. On 129738985: 239 bought, 25 sold, 71 merged, 0 removed; every merge is a
+      component of what was bought with it, and no sale is (checked against boon-data's catalog).
+    - `abilities` `[second, ability_id, level]`: the controller's `m_vecAbilityUpgradeState`,
+      once a second; level = popcount of `m_nUpgradeInfo` bits 16–19 (1 unlocked, 2–4 tiers
+      1–3). 190 changes, 4 abilities each.
+    - `casts` `[t_ds, ability_id, cooldown_end_ds]`: every message 365 (abilities and active
+      items, 2227), the ult events unchanged beside them. The end is the ability entity's
+      `m_flCooldownEnd` (owner pawn and `m_nSubclassID`, read every tenth of a second for up to
+      1.5 s after the cast), 0 if it didn't show (2107 of 2227 have it). Cooldown at t is
+      client-side: no per-second percentages. `charges` `[t_ds, ability_id, n]` where
+      `m_iRemainingCharges` changes on an ability or item the hero bought, levelled or cast.
+      The worker decodes every class with a cooldown, a subclass and an owner for this.
+    - `cc` `[start_ds, end_ds, state, src, ability_id]`: the pawn's `m_bvEnabledStateMask` bits
+      in `CC_STATES` (immobilized, disarmed, muted, silenced, stunned, dash disabled, shooting
+      disabled, asleep, cubed), the source the enemy-hero modifier applied within 0.15 s of
+      its start, preferring one whose definition sets that state (`modifiers::CC_MODIFIERS`),
+      then one with an ability. 124 stuns, 109 attributed.
+    - `effects` `[start_ds, end_ds, effect_id, src, ability_id, stacks]`: the `ActiveModifiers`
+      table's modifiers on heroes whose token is in `modifiers::ICON_MODIFIERS`, the ones the
+      game shows an icon for, applied to removed (or the recording's end), with the most stacks
+      reached. 4170 intervals. The token lists are generated from boon-data's catalog by
+      tools/modifier-tokens/gen.py (token ids only); a modifier a later patch adds isn't stored
+      until they're regenerated.
+    - `recaps` `{t, damage: [src, ability_id, damage], cc}`: per lethal hit (message 300,
+      `victim_health_new` 0; another within 3 s is the same death), the damage taken in the 10 s
+      before by source and ability, most first, and the `cc` rows overlapping that window. 78.
+    - `height` `[second, level]` (0 level, 1 above, 2 below): the hero's own team's
+      `m_vecFOWEntities` `m_eHeight`, held 2 s; level before the first entry. `zipline`
+      `[from_s, to_s)`: the pawn's `m_eZipLineLaneColor` non-zero, held 2 s. Alive seconds:
+      75.5% level, 15.0% above, 9.5% below, 8.1% on a zipline.
+    - The metadata tier fills `items` and `abilities` from the match's `items[]`: a buy at
+      `game_time_s`, `ITEM_REMOVED` at `sold_time_s` (the summary can't tell a sale from a
+      merge), and an entry with `upgrade_info` as an ability at its level. Whether the API's
+      `item_id` is the demo's token is unconfirmed (no untrimmed payload checked yet).
+    - The server's checks bound each list's length, keep its times in the match and in order,
+      ids non-zero, sources a player of the match, states and levels known, stacks, charges,
+      cooldowns and damage capped (`timeline::extras_ok`).
   - **Format stamp** (`mapcro_replay::timeline::FORMAT`, the one constant the worker and the
     server share): each worker timeline carries `format` (1 from respawns and the urn; 2 buff
-    types and rift openings; 3 the Rejuvenator and rift capture; 4 vision; 0 before). Format 3
-    adds 4.2 KB to 129738985's 1.50 MB; format 4, 26.6 KB (1,501,758 to 1,528,328 bytes). New fields are optional, so older cached timelines still load without them.
+    types and rift openings; 3 the Rejuvenator and rift capture; 4 vision; 5 healing pickups; 6
+    the clock holding through a pause; 7 builds, casts, status effects and height; 0 before).
+    Format 3 adds 4.2 KB to 129738985's 1.50 MB; format 4, 26.6 KB (1,501,758 to 1,528,328
+    bytes); format 7, 304 KB (1,530,253 to 1,834,572 bytes; 577 to 657 KB gzipped), effects 160
+    KB and casts 53 KB of it. The timeline routes answer gzip or zstd to a client that accepts
+    it. New fields are optional, so older cached timelines still load without them.
     - **A fetched timeline in an older format** (2026-11-08), for a match inside Valve's three
       weeks, is fetched and parsed again when an editor opens the match: the same line, caps and
       fairness as any fetch on open. The old one is served meanwhile; the job's status (fetching,

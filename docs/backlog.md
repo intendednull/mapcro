@@ -13,6 +13,43 @@ mapcro-server half of that spec now starts on a port of its own (web/test/suppor
 Vite's half could pass `--strictPort` (fail rather than move) and retry on a fresh port, or start
 Vite through its JS API and use the address it actually bound.
 
+## Check the API's item ids against a demo (2026-11-09, from match-data-v7)
+
+Format 7 reads the metadata's `items[]` into `items` and `abilities` (spec §6a) on the guess that
+`item_id` is the demo's CUtlStringToken and that an entry carrying `upgrade_info` is an ability.
+No untrimmed metadata payload is cached locally and the fixture is trimmed, so neither is
+checked. One untrimmed response for a match we have the demo of (129738985) settles both; a
+wrong guess means re-fetching the summary-tier matches cached since.
+
+## The modifier token lists go stale with patches (2026-11-09, from match-data-v7)
+
+`crates/replay/src/modifiers.rs` (the icon-shown modifiers and the CC modifiers) is generated from
+boon-data's catalog for client 6860 by `tools/modifier-tokens/gen.py`. A modifier a later patch
+adds isn't stored as an effect, and it can't be recovered without a re-parse. Regenerate per
+patch, or have the worker read the list from the pack once the extractor reads
+`modifiers.vdata` and `abilities.vdata` (the names-and-icons task).
+
+## Format 7 costs 3.4 s of parse time (2026-11-09, from match-data-v7)
+
+On 129738985 the worker went from 8.7 s to 12.1 s (release, `nice -n 10`, load 8–9). Most of it isn't
+the new reads (`HeroTracker::tick` is ~7% of the profile): it's decoding the ~570 ability and
+item classes, plus every per-tick walk over all entities (`urn_tick`, `heal_tick`, `buff_tick`,
+`vision_tick`) now walking those entities too. Indexing each class's entities once per tick
+would win most of it back.
+
+## A long match may outgrow the timeline cap (2026-11-09, from match-data-v7)
+
+`timeline::MAX_BYTES` is 4 MiB. With format 7, 129738985's 44 minutes is 1.83 MB, about 41 KB a
+minute, so a match past about 95 minutes is refused as too large. Raise the cap or scale it with
+`duration_s`; the server parses it inside its 256M budget.
+
+## Casts without a cooldown end, and allies' CC (2026-11-09, from match-data-v7)
+
+On 129738985, 120 of 2227 casts have no `cooldown_end` (the ability entity's cooldown didn't move
+within 1.5 s: charge abilities with charges left, or items bought that second). Separately, CC
+sources are inferred from enemy applications only, so Viscous's cube on a teammate (8 of 18
+cube intervals attributed) has no source. Both are worth a look before cooldowns or CC are shown.
+
 ## Under Vision, a death ping marks a death the skull hides (2026-11-09, from death-skull)
 
 Death skulls (spec §6b) follow Vision: in a team's view an enemy's death it didn't see draws no
