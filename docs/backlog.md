@@ -3,6 +3,31 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Bugs the Argon UX pass reported, unverified (2026-11-10, from argon-ux)
+
+Gemini 4 Argon reported these while exploring prod for its design pass
+(`concierge/artifacts/mapcro-ux-argon/NOTES.md` §5). None has been reproduced yet. Check each one
+before fixing it.
+1. **Two tabs in one browser evict each other.** Both tabs load the same `client` id from
+   IndexedDB, and each reconnect kicks the other off, so they loop Offline ↔ Saved. Check whether
+   this is real: the tabs may share the id by design.
+2. **Save scene in Player makes the live drawings vanish.** `onSaved` moves the live scene's
+   records into the new scene, and `setScene` marks it active in the tree, but the stage stays in
+   Player and shows the now-empty live scene (`Board.tsx` `onSaved`, `Player.tsx` `saveOne`).
+3. **At 1280×800 with both sidebars open, Save scene is clipped** (`.pl-tail` doesn't wrap and
+   `.stage` hides the overflow), and Redo wraps onto a row of its own. The UX pass proposes moving
+   the map toggles to a Layers control, which would fix this.
+4. **Names disappear in a scene saved from the match.** This may be stale: a3a35b5 made scenes take
+   the match's names. Also, there is no Names toggle in a scene.
+5. **A scene saved under a team Vision shows every hero.** `matchSceneOps` (`match/save.ts`) sets
+   `visible: true` for all of them, so unseen enemies appear in the scene.
+6. **The scene-row hover thumbnail covers the first two portraits** in the top bar
+   (`SceneThumb`).
+7. **The dialogs don't hold focus.** This is the same as "The other dialogs don't hold the focus",
+   below.
+8. **Feedback offers no match while you're viewing a scene saved from a match.**
+   `feedbackMatchOf` only reads Player; the scene's `source` has the match id and time.
+
 ## Three modifiers on heroes have no name in the pack (2026-11-10, from pack-abilities)
 
 The names table resolves 476 of the 479 modifiers seen on heroes in 129738985, and 707 of the

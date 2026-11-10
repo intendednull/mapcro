@@ -5,7 +5,30 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## Production
 
-- `web` runs **c02d230**, deployed 2026-11-09 ~22:10 UTC: timeline FORMAT 7 (hero builds, abilities,
+- `web` runs **5ea3e66**, deployed 2026-11-10 ~08:50 UTC. Packs now carry item, ability and
+  modifier names and icons: `data/abilities.json` holds 2,876 records keyed by timeline token,
+  plus 318 icons, at manifest schema 4. The server now serves `application/json` blobs. The pack
+  **6860-abilities** (79435f56…) is placed and is now the newest. Its source is
+  `~/.local/share/mapcro-lead/packs/abilities`. Verified on prod: the table, an icon and the
+  hero tokens return 200, and 129738985 renders on the new pack. None of it is user-visible: the
+  UI is held for the operator.
+  - Gate note: the gate (`just test`) never runs `cargo fmt` or clippy, and both fail on main
+    under rust 1.99.1. That is in the backlog, waiting on the operator.
+- **The Argon UX pass is done and held for the operator.** Gemini 4 Argon ran it at High in
+  `mapcro.worktrees/argon-ux`, as Paseo agent f31cee01. The artifact is at
+  `concierge/artifacts/mapcro-ux-argon/` (git-ignored, because it embeds pack art; the pack copies
+  are in the worktree's `design-input/`).
+  - Its recommendations:
+    1. map layers get their own bar;
+    2. one stage for Player and scenes;
+    3. the new data in three tiers: marks, then a hero card, then a scoreboard-style dropdown;
+    4. the death recap on demand;
+    5. the match source moves to the header.
+  - It has 5 decisions, D1–D5, for the operator. Its 8 bugs are in the backlog as unverified.
+  - Its session is about 645k tokens: after the icon swap it writes a handoff in NOTES.md, and the
+    next session starts fresh.
+  - The operator also has a `topbar-ux` worktree (38d8a5a), not made by the lead. Leave it alone.
+- Before that, `web` ran **c02d230**, deployed 2026-11-09 ~22:10 UTC: timeline FORMAT 7 (hero builds, abilities,
   casts + cooldown ends, charges, CC, icon effects, death recaps, height, zipline: STORED ONLY, the
   operator holds the UI as too cluttered; plus Heavy boxes, tough crates broken/back in Player),
   zstd/gzip timelines, MAX_BYTES 6 MiB, test-harness port races fixed (server 442ebcd, web afcaa04).
