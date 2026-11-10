@@ -1331,7 +1331,7 @@ proof-of-work or accounts if rotation is seen in practice.
   a child process inside the sandbox above. Its only outputs are files in its own `outbox/`; it
   can't write the inbox, so it can't plant a link the server would follow (M1).
 - **Boundary 4, the worker → the board server.** The worker's output is untrusted too: at most
-  4 MiB, deserialised into the typed timeline, and checked (array lengths match the duration,
+  6 MiB, deserialised into the typed timeline, and checked (array lengths match the duration,
   teams and keys have the pack's shape, numbers are in range, names are at most 32 characters
   and free of control characters, bidi overrides and `<>&"` (L3), the match id is the job's)
   before it is re-serialised into the cache. It's accepted only for a job the server queued

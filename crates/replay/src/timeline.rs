@@ -609,9 +609,10 @@ pub fn event(t: u32, kind: &str) -> Event {
 }
 
 /// What the server accepts from a worker (spec §11, replay limits).
-/// A 15-minute match is ~140 KB; a 60-minute one well under 1 MiB. The server parses it inside
-/// its 256M budget, so the cap stays small.
-pub const MAX_BYTES: u64 = 4 * 1024 * 1024;
+/// Format 7 runs about 41 KB a match minute (129738985: 44 minutes, 1.83 MB), so 6 MiB holds
+/// about 150 minutes, past any real match. The server parses it inside its 256M budget, so the
+/// cap stays well short of that.
+pub const MAX_BYTES: u64 = 6 * 1024 * 1024;
 pub const MAX_DURATION_S: u32 = 4 * 3600;
 const MAX_PLAYERS: usize = 16;
 const MAX_LIST: usize = 256;

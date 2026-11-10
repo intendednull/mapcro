@@ -37,12 +37,6 @@ item classes, plus every per-tick walk over all entities (`urn_tick`, `heal_tick
 `vision_tick`) now walking those entities too. Indexing each class's entities once per tick
 would win most of it back.
 
-## A long match may outgrow the timeline cap (2026-11-09, from match-data-v7)
-
-`timeline::MAX_BYTES` is 4 MiB. With format 7, 129738985's 44 minutes is 1.83 MB, about 41 KB a
-minute, so a match past about 95 minutes is refused as too large. Raise the cap or scale it with
-`duration_s`; the server parses it inside its 256M budget.
-
 ## Casts without a cooldown end, and allies' CC (2026-11-09, from match-data-v7)
 
 On 129738985, 120 of 2227 casts have no `cooldown_end` (the ability entity's cooldown didn't move
