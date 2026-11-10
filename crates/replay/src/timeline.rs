@@ -971,7 +971,7 @@ mod tests {
             Box::new(|t| t.players[0].charges[0][2] = MAX_CHARGE_COUNT + 1),
             Box::new(|t| t.players[0].charges.swap(0, 1)),
             Box::new(|t| t.players[0].charges = vec![[0, 1, 0]; MAX_CHARGES + 1]),
-            Box::new(|t| t.players[0].cc[0] = [4, 4, 20, NO_HERO, 0]),
+            Box::new(|t| t.players[0].cc[1] = [2, 2, 17, 0, 21]),
             Box::new(|t| t.players[0].cc[0][1] = 21),
             Box::new(|t| t.players[0].cc[0][2] = 21),
             Box::new(|t| t.players[0].cc[0][3] = 1),
@@ -1054,6 +1054,14 @@ mod tests {
         assert_eq!(clean_name(" Co\u{202E}a<b>ch&\"\u{7} "), Some("Coabch".into()));
         assert_eq!(clean_name("\u{2066}\u{2069}"), None);
         assert_eq!(clean_name(&"é".repeat(40)).map(|s| s.chars().count()), Some(32));
+    }
+
+    #[test]
+    fn a_recap_keeps_only_the_cc_of_its_window() {
+        let p = |cc: [u32; 5]| Player { recaps: vec![Recap { t: 200, damage: vec![[NO_HERO, 0, 1]], cc: vec![cc] }], ..Player::default() };
+        assert!(extras_ok(&p([95, 110, 20, NO_HERO, 0]), 30, 1));
+        assert!(!extras_ok(&p([10, 99, 20, NO_HERO, 0]), 30, 1), "over before the window opened");
+        assert!(!extras_ok(&p([201, 210, 20, NO_HERO, 0]), 30, 1), "after the death");
     }
 
     #[test]

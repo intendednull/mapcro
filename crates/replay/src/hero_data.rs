@@ -389,6 +389,8 @@ mod tests {
                 // 101 sold for real, with the shop's notice, while buying 300 at once.
                 item(40.0, 1, 101, SOLD),
                 item(40.0, 1, 300, PURCHASED),
+                // Another hero's sale of 101 in that instant doesn't take player 1's notice too.
+                item(40.0, 2, 101, SOLD),
                 // Gone with no buy and no notice; an upgrade (change 1) and id 0 are skipped.
                 item(50.0, 1, 300, SOLD),
                 item(51.0, 1, 300, 1),
@@ -404,7 +406,7 @@ mod tests {
         };
         let p = filled(&d, 2, 100);
         assert_eq!(p[0].items, [[100, 100, B], [200, 101, B], [300, 100, M], [300, 200, B], [400, 101, S], [400, 300, B], [500, 300, R], [600, 200, R]]);
-        assert_eq!(p[1].items, [[600, 400, B]]);
+        assert_eq!(p[1].items, [[400, 101, R], [600, 400, B]]);
         // The build at t: bought minus the rest.
         let at = |t: u32| {
             let mut have: Vec<u32> = Vec::new();
@@ -445,7 +447,7 @@ mod tests {
         assert_eq!(stun_bits >> 3 & 1, 0, "and not a silence, for this test");
         let d = HeroData {
             cc: vec![cc(10.0, 0b11000), cc(11.5, 0b01000), cc(14.0, 0), cc(50.0, 0b10000)],
-            applied: vec![a(10.0, 2, 9, 77), a(10.05, 3, stun_mod, 88), a(49.0, 2, stun_mod, 99), a(10.0, 1, 9, 66)],
+            applied: vec![a(10.0, 3, 9, 0), a(10.0, 2, 9, 77), a(10.05, 3, stun_mod, 88), a(49.0, 2, stun_mod, 99), a(10.0, 1, 9, 66)],
             end: 60.0,
             ..HeroData::default()
         };
