@@ -3,6 +3,19 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## A server test times out starting under load (2026-11-09, from follow-vision)
+
+`a_board_keeps_the_matches_it_opened` (crates/server/tests/replays.rs) failed once with "server
+never became healthy" while the box sat at load ~13 and the whole engine + server suite ran; it
+passed three times alone. The harness gives a spawned server 10 s to answer `/healthz`. A longer
+deadline, or fewer servers started at once, would stop it failing on a busy box.
+
+## "Presenter left" has no test that the follower's own Vision comes back (2026-11-09, from follow-vision)
+
+When a followed presenter leaves, Board.tsx now calls `player.forget()` (as stopping does), so
+the follower's own Vision returns. The player-vision e2e covers stopping by hand, not the
+presenter closing their tab; a step that closes the presenter's page mid-follow would pin it.
+
 ## A clone made while an upload is still parsing doesn't get it (2026-11-09, from clone-replay)
 
 Clone carries the board's matches and each uploaded timeline already cached
