@@ -405,6 +405,58 @@ fn invalid_submissions_are_refused_before_github() {
 }
 
 #[test]
+fn the_match_the_sender_had_open_is_rendered_by_the_server() {
+    let gh = github(vec![created()]);
+    let (_dir, file) = token_file(TOKEN);
+    let s = Server::start(gh.port, &[("FEEDBACK_GITHUB_TOKEN_FILE", &file), ("FEEDBACK_PER_CLIENT_PER_HOUR", "10")]);
+    let build = mapcro_schema::BUILD_ID;
+    let send = |m: serde_json::Value| s.send_raw("203.0.113.9", &serde_json::json!({ "title": "t", "description": "mid guardian", "match": m }).to_string());
+
+    // Refused before GitHub, without spending the budget: a bad id, time or tier, or an extra
+    // field trying to ride along (ignored, never rendered; its match is still checked).
+    for bad in [
+        serde_json::json!({ "id": "0134", "t_s": 60, "tier": "replay" }),
+        serde_json::json!({ "id": "1234567890123", "t_s": 60, "tier": "replay" }),
+        serde_json::json!({ "id": "12/b/board-id", "t_s": 60, "tier": "replay" }),
+        serde_json::json!({ "id": "12", "t_s": 4 * 3600 + 1, "tier": "replay" }),
+        serde_json::json!({ "id": "12", "t_s": -3, "tier": "replay" }),
+        serde_json::json!({ "id": "12", "t_s": 60, "tier": "brawl" }),
+        serde_json::json!({ "id": "12", "t_s": 60 }),
+        serde_json::json!("134570618 at 9:02"),
+    ] {
+        let (status, _, body) = send(bad.clone());
+        assert_eq!(status, 400, "{bad}: {body}");
+    }
+    assert!(gh.seen().is_empty());
+
+    let (status, _, body) = send(serde_json::json!({ "id": "134570618", "t_s": 542, "tier": "replay", "board": "secret-board-id", "note": "@someone" }));
+    assert_eq!(status, 201, "{body}");
+    let (status, _, body) = send(serde_json::json!({ "id": "7", "t_s": 3725, "tier": "summary" }));
+    assert_eq!(status, 201, "{body}");
+    // An older client (no field) and a sender who left it out (null): the footer as before.
+    let (status, _, body) = s.send("203.0.113.9", "t", "no match");
+    assert_eq!(status, 201, "{body}");
+    let (status, _, body) = send(serde_json::Value::Null);
+    assert_eq!(status, 201, "{body}");
+
+    let bodies: Vec<String> = gh.seen().iter().map(|r| r.body["body"].as_str().expect("body").to_owned()).collect();
+    assert_eq!(
+        bodies,
+        [
+            format!("mid guardian\n\n---\nMatch 134570618 at 9:02 (full replay)\n— Sent from the mapcro feedback form (build {build})"),
+            format!("mid guardian\n\n---\nMatch 7 at 62:05 (API summary)\n— Sent from the mapcro feedback form (build {build})"),
+            format!("no match\n\n---\n— Sent from the mapcro feedback form (build {build})"),
+            format!("mid guardian\n\n---\n— Sent from the mapcro feedback form (build {build})"),
+        ]
+    );
+    for r in gh.seen() {
+        for marker in ["secret-board-id", "someone", "/b/"] {
+            assert!(!r.head.contains(marker), "{marker} in {}", r.head);
+        }
+    }
+}
+
+#[test]
 fn rate_limits_per_client_and_server_wide() {
     let gh = github(vec![created()]);
     let (_dir, file) = token_file(TOKEN);

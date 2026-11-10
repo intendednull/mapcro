@@ -2,7 +2,9 @@
 //! issue on the project's GitHub repository; `GET /api/feedback` says whether it's on.
 //!
 //! **Privacy:** the issue holds the cleaned title and description and a fixed footer with the
-//! build id. Nothing about the sender (address, client key, board, link, name, user agent) is
+//! build id and, when the sender leaves it in, the match they had open: its id, the playback time
+//! and the tier, each validated and rendered by the server (never text the client wrote). Nothing
+//! about the sender (address, client key, board, link, name, user agent) is
 //! put in it, logged or counted; the submitted text is never logged either.
 //!
 //! **Safety:** the text is trimmed, stripped of control characters, length-checked here (the
@@ -87,6 +89,7 @@ pub enum Invalid {
     TitleTooLong,
     DescriptionEmpty,
     DescriptionTooLong,
+    Match,
 }
 
 impl Invalid {
@@ -96,13 +99,42 @@ impl Invalid {
             Invalid::TitleTooLong => "the title is longer than 120 characters",
             Invalid::DescriptionEmpty => "a description is required",
             Invalid::DescriptionTooLong => "the description is longer than 5,000 characters",
+            Invalid::Match => "the match details aren't valid",
         }
+    }
+}
+
+/// The match the sender had open, as the client sends it: `{id, t_s, tier}`. Every field is
+/// checked by [`MatchRef::line`] before any of it reaches the issue.
+#[derive(Debug, Deserialize)]
+pub struct MatchRef {
+    /// Digits, as the match routes take them ([`crate::matches::valid_id`]).
+    pub id: String,
+    /// The playback time, in whole seconds.
+    pub t_s: u64,
+    /// `"replay"` (a parsed replay) or `"summary"` (the API summary).
+    pub tier: String,
+}
+
+impl MatchRef {
+    /// The footer's line, e.g. "Match 134570618 at 9:02 (full replay)", or `Invalid::Match` for an
+    /// id that isn't digits, a time past the longest match a timeline can hold, or an unknown tier.
+    pub fn line(&self) -> Result<String, Invalid> {
+        if !crate::matches::valid_id(&self.id) || self.t_s > u64::from(mapcro_replay::timeline::MAX_DURATION_S) {
+            return Err(Invalid::Match);
+        }
+        let tier = match self.tier.as_str() {
+            "replay" => "full replay",
+            "summary" => "API summary",
+            _ => return Err(Invalid::Match),
+        };
+        Ok(format!("Match {} at {}:{:02} ({tier})", self.id, self.t_s / 60, self.t_s % 60))
     }
 }
 
 /// The issue's title and body for a submission, or why it's refused. Lengths are checked on the
 /// cleaned text, before neutralising (which adds characters the sender didn't type).
-pub fn issue(title: &str, description: &str, build: &str) -> Result<(String, String), Invalid> {
+pub fn issue(title: &str, description: &str, match_ref: Option<&MatchRef>, build: &str) -> Result<(String, String), Invalid> {
     let title = clean(title, false);
     let description = clean(description, true);
     match title.chars().count() {
@@ -115,7 +147,11 @@ pub fn issue(title: &str, description: &str, build: &str) -> Result<(String, Str
         n if n > MAX_DESCRIPTION => return Err(Invalid::DescriptionTooLong),
         _ => {}
     }
-    let body = format!("{}\n\n---\n— Sent from the mapcro feedback form (build {build})", neutralise(&description));
+    let about = match match_ref {
+        Some(m) => format!("{}\n", m.line()?),
+        None => String::new(),
+    };
+    let body = format!("{}\n\n---\n{about}— Sent from the mapcro feedback form (build {build})", neutralise(&description));
     Ok((neutralise(&title), body))
 }
 
@@ -251,9 +287,13 @@ pub async fn status(State(app): State<AppState>) -> Response {
 pub struct Submit {
     title: String,
     description: String,
+    /// Absent (or null) from an older client, or when the sender left the match out.
+    #[serde(default)]
+    r#match: Option<MatchRef>,
 }
 
-/// `POST /api/feedback`: `{title, description}` → 201 `{url}` of the new issue.
+/// `POST /api/feedback`: `{title, description, match?: {id, t_s, tier}}` → 201 `{url}` of the
+/// new issue.
 pub async fn send(
     State(app): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -266,7 +306,7 @@ pub async fn send(
     let Ok(Json(body)) = body else {
         return reject(FeedbackRejection::Invalid, StatusCode::BAD_REQUEST, "expected a title and a description");
     };
-    let (title, text) = match issue(&body.title, &body.description, mapcro_schema::BUILD_ID) {
+    let (title, text) = match issue(&body.title, &body.description, body.r#match.as_ref(), mapcro_schema::BUILD_ID) {
         Ok(x) => x,
         Err(e) => return reject(FeedbackRejection::Invalid, StatusCode::BAD_REQUEST, e.message()),
     };
@@ -379,17 +419,68 @@ mod tests {
 
     #[test]
     fn issue_validates_cleaned_lengths_and_neutralises_both_fields() {
-        assert_eq!(issue("  ", "body", "b"), Err(Invalid::TitleEmpty));
-        assert_eq!(issue("\u{0}\u{1}", "body", "b"), Err(Invalid::TitleEmpty));
-        assert_eq!(issue("t", " \n ", "b"), Err(Invalid::DescriptionEmpty));
-        assert_eq!(issue(&"x".repeat(121), "d", "b"), Err(Invalid::TitleTooLong));
-        assert_eq!(issue("t", &"x".repeat(5001), "b"), Err(Invalid::DescriptionTooLong));
+        assert_eq!(issue("  ", "body", None, "b"), Err(Invalid::TitleEmpty));
+        assert_eq!(issue("\u{0}\u{1}", "body", None, "b"), Err(Invalid::TitleEmpty));
+        assert_eq!(issue("t", " \n ", None, "b"), Err(Invalid::DescriptionEmpty));
+        assert_eq!(issue(&"x".repeat(121), "d", None, "b"), Err(Invalid::TitleTooLong));
+        assert_eq!(issue("t", &"x".repeat(5001), None, "b"), Err(Invalid::DescriptionTooLong));
         // Limits count characters, not bytes, after trimming.
-        assert!(issue(&format!("  {}  ", "é".repeat(120)), &"日".repeat(5000), "b").is_ok());
+        assert!(issue(&format!("  {}  ", "é".repeat(120)), &"日".repeat(5000), None, "b").is_ok());
         // Neutralising after the check: 120 @s is a valid title.
-        let (t, b) = issue(&"@".repeat(120), "hi @you", "abc123").expect("valid");
+        let (t, b) = issue(&"@".repeat(120), "hi @you", None, "abc123").expect("valid");
         assert_eq!(t.chars().filter(|&c| c == ZWJ).count(), 120);
         assert_eq!(b, "hi @\u{200D}you\n\n---\n— Sent from the mapcro feedback form (build abc123)");
+    }
+
+    fn m(id: &str, t_s: u64, tier: &str) -> MatchRef {
+        MatchRef { id: id.into(), t_s, tier: tier.into() }
+    }
+
+    #[test]
+    fn the_match_line_renders_only_validated_values() {
+        assert_eq!(m("134570618", 542, "replay").line(), Ok("Match 134570618 at 9:02 (full replay)".into()));
+        assert_eq!(m("1", 0, "summary").line(), Ok("Match 1 at 0:00 (API summary)".into()));
+        // m:ss past the hour; the longest a timeline holds is the bound, inclusive.
+        let max = u64::from(mapcro_replay::timeline::MAX_DURATION_S);
+        assert_eq!(m("999999999999", max, "replay").line(), Ok("Match 999999999999 at 240:00 (full replay)".into()));
+        assert_eq!(m("12", max + 1, "replay").line(), Err(Invalid::Match));
+        assert_eq!(m("12", u64::MAX, "replay").line(), Err(Invalid::Match));
+        // The id: digits only, 1 to 12 of them, no leading zero (the match routes' rule).
+        for bad in ["", "0", "0123", "1234567890123", "12a", "1 2", "-5", "+5", "１２", "../b/x", "12\n@you", "https://example.com/b/abc"] {
+            assert_eq!(m(bad, 60, "replay").line(), Err(Invalid::Match), "{bad:?}");
+        }
+        // The tier: the two words the client knows, exactly.
+        for bad in ["", "Replay", "metadata", "full replay", "replay ", "summary\n@x"] {
+            assert_eq!(m("12", 60, bad).line(), Err(Invalid::Match), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_match_goes_in_the_footer_or_refuses_the_submission() {
+        let (_, b) = issue("t", "mid guardian", Some(&m("134570618", 542, "replay")), "abc").expect("valid");
+        assert_eq!(b, "mid guardian\n\n---\nMatch 134570618 at 9:02 (full replay)\n— Sent from the mapcro feedback form (build abc)");
+        let (_, b) = issue("t", "d", Some(&m("7", 61, "summary")), "abc").expect("valid");
+        assert!(b.ends_with("---\nMatch 7 at 1:01 (API summary)\n— Sent from the mapcro feedback form (build abc)"), "{b}");
+        // Rejected, not dropped: a bad match is the client's bug, and says so.
+        assert_eq!(issue("t", "d", Some(&m("12", 60, "brawl")), "abc"), Err(Invalid::Match));
+        assert_eq!(issue("t", "d", Some(&m("x", 60, "replay")), "abc"), Err(Invalid::Match));
+        // The text's own checks come first.
+        assert_eq!(issue("", "d", Some(&m("x", 60, "replay")), "abc"), Err(Invalid::TitleEmpty));
+    }
+
+    #[test]
+    fn an_older_client_without_the_match_still_parses() {
+        let s: Submit = serde_json::from_str(r#"{"title":"t","description":"d"}"#).expect("parses");
+        assert!(s.r#match.is_none());
+        let s: Submit = serde_json::from_str(r#"{"title":"t","description":"d","match":null}"#).expect("parses");
+        assert!(s.r#match.is_none());
+        let s: Submit = serde_json::from_str(r#"{"title":"t","description":"d","match":{"id":"12","t_s":5,"tier":"summary"}}"#).expect("parses");
+        assert_eq!(s.r#match.expect("match").line(), Ok("Match 12 at 0:05 (API summary)".into()));
+        // A time that isn't a whole, non-negative number, or a missing field, doesn't parse.
+        for bad in [r#"{"id":"12","t_s":-1,"tier":"replay"}"#, r#"{"id":"12","t_s":1.5,"tier":"replay"}"#, r#"{"id":12,"t_s":1,"tier":"replay"}"#, r#"{"id":"12","tier":"replay"}"#] {
+            let j = format!(r#"{{"title":"t","description":"d","match":{bad}}}"#);
+            assert!(serde_json::from_str::<Submit>(&j).is_err(), "{bad}");
+        }
     }
 
     #[test]

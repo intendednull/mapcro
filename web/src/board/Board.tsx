@@ -42,6 +42,7 @@ import { slotKey } from "../match/save";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { ShareDialog } from "./ShareDialog";
 import { FeedbackButton } from "../ui/Feedback";
+import { feedbackMatchOf } from "../core/feedback";
 import { rejection, statusView } from "./status";
 import type { Reject } from "../gen/Reject";
 import { Avatar, FollowChip, PeopleList, PresentingPill } from "./Presence";
@@ -123,6 +124,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const player = createPlayerHost(p.board, p.token);
   onMount(() => void player.init());
   const inPlayer = () => player.mode() === "player";
+  /** The match open in Player, for the feedback form (spec §11a); none in sandbox. */
+  const feedbackMatch = () => feedbackMatchOf(inPlayer(), player.matchId(), player.tl(), player.t());
   // Player draws the match alone, an empty map while there's no timeline (review finding 7).
   const matchPreview = createMemo<MatchPreview | undefined>(() => (inPlayer() ? player.preview(p.art.model.markers) : undefined));
   const liveScene = liveLayer(state, player, p.board, inPlayer);
@@ -867,7 +870,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </Show>
           <For each={people()}>{(peer) => <Avatar name={peer.state!.name || "?"} color={peer.state!.color} title={peer.state!.name || "Joining"} />}</For>
         </div>
-        <FeedbackButton variant="bar" />
+        <FeedbackButton variant="bar" match={feedbackMatch} />
         <Show when={state.role()}>
           <button class="btn ghost" data-testid="clone" onClick={() => setDialog("clone")}>
             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">

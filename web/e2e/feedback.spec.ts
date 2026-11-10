@@ -1,15 +1,16 @@
 // The feedback form against a fake GitHub (a local HTTP server; no real GitHub call is made):
 // open it from the board and the landing, validation, a sent issue's link, a 429, the button
-// hidden when the server has it off, and the dialog's keyboard contract.
+// hidden when the server has it off, the dialog's keyboard contract, and the match a board has
+// open in Player going into the issue's footer (or not, when the sender unticks it).
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
-import { Server, newBoardUrl } from "./server";
+import { joinNew, useSummary } from "./helpers";
+import { ROOT, Server, newBoardUrl } from "./server";
 
 const ISSUE = "https://github.com/intendednull/mapcro/issues/7";
 const SHOTS = "test-results/feedback";
@@ -29,8 +30,21 @@ const fake = createServer((req: IncomingMessage, res: ServerResponse) => {
 let on: Server; // the form on, generous limits
 let limited: Server; // on, with no budget: every send is a 429
 let off: Server; // no token file
+let player: Server; // on, with the match API's fixture for a match to open
+/** The match API, serving one match's metadata (the API summary). */
+const MATCH = "130816395";
+const matchApi = createServer((req: IncomingMessage, res: ServerResponse) => {
+  if (req.url?.startsWith(`/v1/matches/${MATCH}/metadata`)) {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(readFileSync(join(ROOT, `crates/server/tests/fixtures/match-${MATCH}-trimmed.json`)));
+  } else {
+    res.writeHead(404);
+    res.end("{}");
+  }
+});
 test.beforeAll(async () => {
   await new Promise<void>((ok) => fake.listen(0, "127.0.0.1", ok));
+  await new Promise<void>((ok) => matchApi.listen(0, "127.0.0.1", ok));
   const api = `http://127.0.0.1:${(fake.address() as AddressInfo).port}`;
   const dir = mkdtempSync(join(tmpdir(), "mapcro-feedback-"));
   writeFileSync(join(dir, "token"), "fake-e2e-token\n");
@@ -38,14 +52,22 @@ test.beforeAll(async () => {
   on = new Server(undefined, { ...env, FEEDBACK_PER_CLIENT_PER_HOUR: "100" });
   limited = new Server(undefined, { ...env, FEEDBACK_PER_CLIENT_PER_HOUR: "0" });
   off = new Server();
-  await Promise.all([on.start(), limited.start(), off.start()]);
+  const matches = `http://127.0.0.1:${(matchApi.address() as AddressInfo).port}`;
+  player = new Server(undefined, { ...env, FEEDBACK_PER_CLIENT_PER_HOUR: "100", MATCH_API_BASE: matches, REPLAY_DIR: mkdtempSync(join(tmpdir(), "mapcro-feedback-replays-")) });
+  await Promise.all([on.start(), limited.start(), off.start(), player.start()]);
 });
 test.afterAll(() => {
   on.stop();
   limited.stop();
   off.stop();
+  player.stop();
   fake.close();
+  matchApi.close();
 });
+
+/** The footer's last line, and the whole footer with no match line (regex source). */
+const SENT = String.raw`— Sent from the mapcro feedback form \(build [0-9a-f]{16}\)$`;
+const FOOTER = String.raw`\n\n---\n` + SENT;
 
 async function landing(page: Page, server: Server) {
   const answered = page.waitForResponse((r) => r.url().endsWith("/api/feedback"));
@@ -142,7 +164,16 @@ test("from the landing; a rate limit says when to try again, and retry keeps the
   await page.getByTestId("feedback-open").click();
   await expect(page.getByTestId("feedback-dialog")).toBeVisible();
   await expect(page.getByTestId("feedback-title")).toBeFocused();
-  await page.keyboard.press("Escape");
+  // No match from the landing: no line, and nothing sent about one.
+  await expect(page.getByTestId("feedback-match")).toHaveCount(0);
+  await page.getByTestId("feedback-title").fill("From the landing");
+  await page.getByTestId("feedback-description").fill("No match here.");
+  const req = page.waitForRequest((r) => r.url().endsWith("/api/feedback") && r.method() === "POST");
+  await page.getByTestId("feedback-send").click();
+  await expect(page.getByTestId("feedback-done")).toBeVisible();
+  expect(JSON.parse((await req).postData()!)).toEqual({ title: "From the landing", description: "No match here." });
+  expect(seen.at(-1)!.body.body).toMatch(new RegExp(`^No match here\\.${FOOTER}`));
+  await page.getByTestId("feedback-close").click();
   await expect(page.getByTestId("feedback-dialog")).toHaveCount(0);
 
   await landing(page, limited);
@@ -173,4 +204,62 @@ test("hidden when the server has it off", async ({ browser, page }) => {
   await asked;
   await expect(board.getByTestId("clone")).toBeVisible();
   await expect(board.getByTestId("feedback-open")).toHaveCount(0);
+});
+
+async function scrubTo(p: Page, t: number) {
+  await p.getByTestId("match-time").evaluate((el, t) => {
+    (el as HTMLInputElement).value = String(t);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }, t);
+}
+
+test("on a board with a match open, the issue names the match and the time; unticked, it doesn't", async ({ browser }) => {
+  const page = await joinNew(browser, await newBoardUrl(player, "Match feedback"), "Coach");
+  await page.getByTestId("mode-player").click();
+  await page.getByTestId("match-id").fill(MATCH);
+  await page.getByTestId("match-load").click();
+  await expect(page.getByTestId("match-tier")).toHaveText("API summary");
+  await useSummary(page);
+  await scrubTo(page, 542);
+  await expect(page.getByTestId("match-clock")).toHaveText("9:02 / 21:40");
+
+  const open = page.getByTestId("feedback-open");
+  await open.click();
+  const dlg = page.getByTestId("feedback-dialog");
+  await expect(dlg.getByTestId("feedback-match")).toHaveText(`Includes: match ${MATCH} at 9:02 (API summary)Helps find the moment. Untick to leave it out of the issue.`);
+  await expect(dlg.getByTestId("feedback-match-check")).toBeChecked();
+  await dlg.getByTestId("feedback-title").fill("Mid guardian");
+  await dlg.getByTestId("feedback-description").fill("mid guardia is bugged and shows its up at 9 mins");
+  await page.screenshot({ path: "shots/feedback-match.png" });
+  let req = page.waitForRequest((r) => r.url().endsWith("/api/feedback") && r.method() === "POST");
+  await dlg.getByTestId("feedback-send").click();
+  await expect(dlg.getByTestId("feedback-done")).toBeVisible();
+  // Structured fields on the wire; the server writes the line.
+  expect(JSON.parse((await req).postData()!).match).toEqual({ id: MATCH, t_s: 542, tier: "summary" });
+  let r = seen.at(-1)!;
+  expect(r.body.body).toMatch(new RegExp(`^mid guardia is bugged and shows its up at 9 mins\\n\\n---\\nMatch ${MATCH} at 9:02 \\(API summary\\)\\n${SENT}`));
+  expect(JSON.stringify(r)).not.toContain("/b/");
+  await dlg.getByTestId("feedback-close").click();
+
+  // Unticked: the line stays on screen as what's left out, and nothing about the match is sent.
+  await open.click();
+  await expect(dlg.getByTestId("feedback-match-check")).toBeChecked(); // a fresh form each time
+  await dlg.getByTestId("feedback-match").click();
+  await expect(dlg.getByTestId("feedback-match-check")).not.toBeChecked();
+  await dlg.getByTestId("feedback-title").fill("Without the match");
+  await dlg.getByTestId("feedback-description").fill("Leave it out.");
+  req = page.waitForRequest((r) => r.url().endsWith("/api/feedback") && r.method() === "POST");
+  await dlg.getByTestId("feedback-send").click();
+  await expect(dlg.getByTestId("feedback-done")).toBeVisible();
+  expect(JSON.parse((await req).postData()!)).toEqual({ title: "Without the match", description: "Leave it out." });
+  r = seen.at(-1)!;
+  expect(r.body.body).toMatch(new RegExp(`^Leave it out\\.${FOOTER}`));
+  expect(r.body.body).not.toContain(MATCH);
+  await dlg.getByTestId("feedback-close").click();
+
+  // Back in the sandbox, no match is attached.
+  await page.getByTestId("mode-sandbox").click();
+  await open.click();
+  await expect(dlg).toBeVisible();
+  await expect(dlg.getByTestId("feedback-match")).toHaveCount(0);
 });

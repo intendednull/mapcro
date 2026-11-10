@@ -1,6 +1,7 @@
 // The feedback form's server side (crates/server/src/feedback.rs): whether it's on, and sending.
 
 import { createSignal } from "solid-js";
+import type { Timeline } from "../match/timeline";
 
 /** The server's limits, in characters; it checks them itself. */
 export const MAX_TITLE = 120;
@@ -22,6 +23,21 @@ export function feedbackEnabled() {
   return enabled();
 }
 
+/** The match the sender had open, attached unless they untick it (spec §11a): the server checks
+ * each field and writes the issue's line itself. */
+export type FeedbackMatch = { id: string; t_s: number; tier: "replay" | "summary" };
+
+/** The match to offer: the one open in Player, once its timeline is the one shown (none in the
+ * sandbox, or while another match loads), at the playback time in whole seconds. */
+export function feedbackMatchOf(player: boolean, id: string | undefined, tl: Timeline | undefined, t: number): FeedbackMatch | undefined {
+  if (!player || !id || !tl || String(tl.match_id) !== id) return undefined;
+  return { id, t_s: Math.max(0, Math.floor(t)), tier: tl.tier === "replay" ? "replay" : "summary" };
+}
+
+/** The line the form shows, e.g. "match 134570618 at 9:02 (Full replay)". */
+export const matchLine = (m: FeedbackMatch) =>
+  `match ${m.id} at ${Math.floor(m.t_s / 60)}:${String(m.t_s % 60).padStart(2, "0")} (${m.tier === "replay" ? "Full replay" : "API summary"})`;
+
 export type Sent = { ok: true; url: string } | { ok: false; message: string };
 
 /** "in about 40 minutes", from a Retry-After in seconds. */
@@ -33,13 +49,13 @@ export function waitText(secs: number) {
   return `in about ${Math.round(min / 60)} hours`;
 }
 
-export async function sendFeedback(title: string, description: string): Promise<Sent> {
+export async function sendFeedback(title: string, description: string, match?: FeedbackMatch): Promise<Sent> {
   let r: Response;
   try {
     r = await fetch("/api/feedback", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title, description }),
+      body: JSON.stringify(match ? { title, description, match } : { title, description }),
     });
   } catch {
     return { ok: false, message: "Couldn't reach the server. Check your connection and try again." };

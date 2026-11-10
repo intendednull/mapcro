@@ -3,7 +3,7 @@
 
 import { Show, createSignal, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
-import { MAX_DESCRIPTION, MAX_TITLE, feedbackEnabled, sendFeedback } from "../core/feedback";
+import { type FeedbackMatch, MAX_DESCRIPTION, MAX_TITLE, feedbackEnabled, matchLine, sendFeedback } from "../core/feedback";
 import { useModal } from "./modal";
 
 const X = '<path d="M6 6l12 12M18 6L6 18"/>';
@@ -13,8 +13,10 @@ const Ico = (p: { d: string }) => <svg class="ico" viewBox="0 0 24 24" aria-hidd
 /** Counts show from this share of a limit. */
 const NEAR = 0.8;
 
-export function FeedbackDialog(p: { onClose: () => void }) {
+/** `match`: the match open when the dialog opened (a snapshot: the line doesn't tick on). */
+export function FeedbackDialog(p: { onClose: () => void; match?: FeedbackMatch | undefined }) {
   const [title, setTitle] = createSignal("");
+  const [withMatch, setWithMatch] = createSignal(true);
   const [text, setText] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [problem, setProblem] = createSignal<{ field?: "title" | "description"; message: string }>();
@@ -39,7 +41,7 @@ export function FeedbackDialog(p: { onClose: () => void }) {
     }
     setProblem(undefined);
     setBusy(true);
-    const r = await sendFeedback(title(), text());
+    const r = await sendFeedback(title(), text(), withMatch() ? p.match : undefined);
     setBusy(false);
     if (r.ok) {
       setSent(r.url);
@@ -139,6 +141,17 @@ export function FeedbackDialog(p: { onClose: () => void }) {
                   </span>
                 </Show>
               </div>
+              <Show when={p.match}>
+                {(m) => (
+                  <label class="feedback-match" data-testid="feedback-match">
+                    <input type="checkbox" data-testid="feedback-match-check" checked={withMatch()} onChange={(e) => setWithMatch(e.currentTarget.checked)} />
+                    <span>
+                      Includes: <b data-testid="feedback-match-line">{matchLine(m())}</b>
+                      <small>Helps find the moment. Untick to leave it out of the issue.</small>
+                    </span>
+                  </label>
+                )}
+              </Show>
               <Show when={problem()}>
                 {(m) => (
                   <p class="error" data-testid="feedback-error" role="alert">
@@ -164,9 +177,9 @@ export function FeedbackDialog(p: { onClose: () => void }) {
 }
 
 /** The "Feedback" opener: a top-bar button (`variant: "bar"`) or a quiet text link. Hidden while
- * the server has the form off. */
-export function FeedbackButton(p: { variant: "bar" | "link" }) {
-  const [open, setOpen] = createSignal(false);
+ * the server has the form off. `match`, on a board: the match open in Player, read on opening. */
+export function FeedbackButton(p: { variant: "bar" | "link"; match?: () => FeedbackMatch | undefined }) {
+  const [open, setOpen] = createSignal<{ match?: FeedbackMatch | undefined }>();
   return (
     <Show when={feedbackEnabled()}>
       <button
@@ -174,7 +187,7 @@ export function FeedbackButton(p: { variant: "bar" | "link" }) {
         type="button"
         data-testid="feedback-open"
         aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
+        onClick={() => setOpen({ match: p.match?.() })}
       >
         <Show when={p.variant === "bar"}>
           <Ico d={BUBBLE} />
@@ -182,7 +195,7 @@ export function FeedbackButton(p: { variant: "bar" | "link" }) {
         Feedback
       </button>
       <Show when={open()}>
-        <FeedbackDialog onClose={() => setOpen(false)} />
+        {(o) => <FeedbackDialog match={o().match} onClose={() => setOpen(undefined)} />}
       </Show>
     </Show>
   );

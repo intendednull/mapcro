@@ -1287,7 +1287,19 @@ issue in the Github repo." Code: `crates/server/src/feedback.rs`, `web/src/ui/Fe
   other dialogs can reuse: it renders through a Portal, the rest of the page is `inert`, Tab and
   Shift+Tab wrap inside it, Escape closes it, focus goes back to the opener, and key presses
   don't reach the board's window listeners.
-- **`POST /api/feedback`** `{title, description}` → 201 `{url}`. The server trims both fields,
+- **The match (operator, 2026-11-09: "maybe we should include the match id in the feedback
+  issue?").** Opened from a board in Player with a match loaded, the dialog shows "Includes:
+  match 134570618 at 9:02 (Full replay)" (or "(API summary)"), with a checkbox, ticked by
+  default, and "Helps find the moment. Untick to leave it out of the issue." The match and time
+  are read when the dialog opens, not as playback moves on. In the sandbox, from the landing, or
+  with no match (or while another one loads) there's no line and nothing is sent.
+- **`POST /api/feedback`** `{title, description, match?: {id, t_s, tier}}` → 201 `{url}`.
+  `match` is absent (an older client, or the box unticked) or null for none; otherwise the
+  server checks it strictly and refuses the whole submission with a 400 ("the match details
+  aren't valid") rather than dropping it: `id` a string the match routes accept
+  (`matches::valid_id`: 1–12 digits, no leading zero), `t_s` a whole number of seconds up to the
+  timeline's `MAX_DURATION_S` (4 h), and `tier` exactly `"replay"` or `"summary"`. Other fields
+  in it are ignored. The server trims both fields,
   drops control characters (a description keeps newlines and tabs, and CRLF becomes LF), and
   checks the lengths in characters itself. It then inserts zero-width joiners so the issue,
   opened under the operator's account, can't ping anyone or backlink into other repositories:
@@ -1296,12 +1308,16 @@ issue in the Github repo." Code: `crates/server/src/feedback.rs`, `web/src/ui/Fe
   `github.com` (so no GitHub URL links or references). Then it calls GitHub's
   `POST /repos/{FEEDBACK_GITHUB_REPO}/issues` with `Authorization: Bearer`,
   `X-GitHub-Api-Version: 2022-11-28`, a User-Agent and a 10 s timeout. The body is the
-  description, then `---` and "— Sent from the mapcro feedback form (build <BUILD_ID>)". The
+  description, then `---`, then the server's own line for a match, "Match 134570618 at 9:02
+  (full replay)" or "(API summary)" (m:ss, the minutes past 59 when a match runs over an
+  hour), built from the checked values only, and "— Sent from the mapcro feedback form (build
+  <BUILD_ID>)". The
   label is `feedback`; on a 422 it retries once without the label. Only an `https://` link is
   passed back. Answers: 400 invalid, 404 off, 429 limited, 502 GitHub failed (a clean message,
   never GitHub's). The body cap is 32 KiB, its own, since 5,000 four-byte characters are past
   the API's 16 KiB.
-- **Privacy.** The issue holds the cleaned text and the footer only. No address, client key,
+- **Privacy.** The issue holds the cleaned text and the footer only (with the match line when
+  the sender leaves it in: a public match id, a time and a tier). No address, client key,
   board, link, name, account id or user agent goes into the issue, the log or the metrics, and
   the text is never logged. The token is read once from the file `FEEDBACK_GITHUB_TOKEN_FILE`
   names (a systemd credential, like `DEADLOCK_API_KEY_FILE`), and its `Debug` is redacted.
