@@ -5,7 +5,13 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## Production
 
-- `web` runs **f53127b**, deployed 2026-11-09 ~20:45 UTC: a fading team-coloured skull at a death
+- `web` runs **c02d230**, deployed 2026-11-09 ~22:10 UTC: timeline FORMAT 7 (hero builds, abilities,
+  casts + cooldown ends, charges, CC, icon effects, death recaps, height, zipline: STORED ONLY, the
+  operator holds the UI as too cluttered; plus Heavy boxes, tough crates broken/back in Player),
+  zstd/gzip timelines, MAX_BYTES 6 MiB, test-harness port races fixed (server 442ebcd, web afcaa04).
+  Verified on prod (129738985: format 7, counts match, zstd, 78 crates). Pack re-extract for the
+  crates pending (built-in fallback positions match meanwhile).
+- Before that, **f53127b** (~20:45 UTC): a fading team-coloured skull at a death
   (Vision rules; verified on prod). 111a40d (~20:25) before it: feedback issues carry the open match
   (checkbox, server-validated). Feedback issue #2 (pause bug) closed with a comment, operator OK'd.
   Studies on main, awaiting the operator: elevation.md, abilities-and-items.md (decisions section;
