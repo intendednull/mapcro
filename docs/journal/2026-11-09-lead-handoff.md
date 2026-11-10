@@ -9,13 +9,11 @@ compaction). The newest state is at the top; the history is in git and the other
   enemies by default ("Show last seen location" brings ghosts back), the carried urn follows
   vision, and hero kill/vision moved to a right-click menu on the portrait. 
   The infra main pin is pushed.
-- **Feedback form:** deployed off (8d6af34, `/api/feedback` → enabled:false); the `feedback` label
-  exists on the repo. Waiting on the operator (away, 2026-11-09) to create the fine-grained token
-  (intendednull/mapcro only, Issues read/write) and save it to
-  `~/.config/mapcro-secrets/github-feedback-token`. Then: copy it by path to
-  `/var/lib/secrets/mapcro-feedback-github-token` on `web` (root 600, never read or printed), set
-  `services.mapcro.feedbackGithubTokenFile` in infra, deploy, and file one test issue then close
-  it (the operator OK'd real test issues).
+- **Feedback form: live** since 2026-11-09 ~18:10 UTC. The token is a fine-grained PAT (intendednull/mapcro
+  only, Issues read/write); the operator's copy is in `~/.config/mapcro-secrets/github-feedback-token`, the server's
+  in `/var/lib/secrets/mapcro-feedback-github-token` (root 600, out of band, not sops). Infra sets
+  `services.mapcro.feedbackGithubTokenFile`. Tested end to end with issue #1, then closed. When the token
+  expires the form fails with 502s (`stats failures`); nothing alerts yet (backlog).
 - **Held for the operator's review:** the GPT Sol UX pass. Its findings are on branch `ux-pass-2`
   (Paseo worktree `~/.paseo/worktrees/3mqv6wf1/ux-pass-2`, kept). Its one code fix, 11506df
   (keyboard-reachable replay picker), is reverted on main in c561062 until the review. Don't act on
