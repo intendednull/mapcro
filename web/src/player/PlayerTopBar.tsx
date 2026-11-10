@@ -5,6 +5,7 @@
 // Only what the match's tier has is shown: no ult data (the metadata tier) reads as untracked,
 // never as ready.
 
+import { hasVision, seenAt } from "./vision";
 import { killsAt } from "../match/builds";
 import { BuildColumn } from "./BuildColumn";
 import { rosterTeamShort } from "../map/model";
@@ -211,6 +212,12 @@ export function PlayerTopBar(p: {
           const hero = () => (x() ? p.art.heroes.get(x()!.hero_id) : undefined);
           const label = () => s.slot.name || `${rosterTeamShort(t)} ${s.slot.slot + 1}`;
           const dead = () => !!x() && x()!.pos === null;
+          const unseen = () => {
+            const tl = p.host.tl(), view = p.host.vision();
+            if (!tl || view === "all" || view === t.toLowerCase() || !hasVision(tl)) return false;
+            const player = tl.players.find(q => q.team === t.toLowerCase() && q.slot === s.slot.slot);
+            return !!player && !seenAt(player, p.host.t())?.seen;
+          };
           const nameOf = () => p.host.playerName(t.toLowerCase(), s.slot.slot);
           /** Health to draw: replay tier, Health on, alive (.Dead #HealthBar collapses). */
           const hp = () => (p.host.showHealth() && !dead() && x()?.health != null ? Math.max(0, Math.min(100, x()!.health!)) : null);
@@ -222,10 +229,11 @@ export function PlayerTopBar(p: {
           const respawn = easedNumber(() => (dead() ? (x()?.respawn ?? null) : null));
           return (
             <div
-              class={cx("tb-player", t.toLowerCase(), side, hasCard(p.art, hero()) && "card-art", dead() && "dead", low() && "health-low", expanded(slotKey(t, s.slot.slot)) && "build-open")}
+              class={cx("tb-player", t.toLowerCase(), side, hasCard(p.art, hero()) && "card-art", dead() && "dead", unseen() && "unseen", low() && "health-low", expanded(slotKey(t, s.slot.slot)) && "build-open")}
               data-slot={`${t}-${s.slot.slot}`}
               data-hero={x()?.hero_id ?? ""}
               data-alive={x() ? String(!dead()) : "unknown"}
+              data-seen={String(!unseen())}
               title={`${label()}${hero() ? `, ${hero()!.name}` : ""}`}
             >
               <button type="button" class="tb-souls tb-build-trigger" data-testid="souls-banner"
@@ -239,6 +247,9 @@ export function PlayerTopBar(p: {
               </button>
               {/* The hero badge; low health swaps in the critical card (m_strIconHeroCardCritical), as the HUD does. */}
               <HeroBadge art={p.art} slot={s.slot} hero={hero()} low={low()} />
+              <Show when={unseen()}><span class="tb-vis off" data-testid="tb-vision" title="Not seen by the selected team" role="img" aria-label="Not seen by the selected team">
+                <svg viewBox="-8 -8 16 16" aria-hidden="true"><path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z M-6 6L6 -6" /></svg>
+              </span></Show>
               <Show when={x()}>
                 <button class="tb-focus" data-testid="focus-hero" title={`Inspect ${hero()?.name ?? label()} build and show on map`} aria-label={`Inspect ${label()}${hero() ? `, ${hero()!.name},` : ""} build and show on the map`} aria-expanded={expanded(slotKey(t, s.slot.slot))} aria-controls={`build-${t}-${s.slot.slot}`} onClick={() => { toggleBuild(slotKey(t, s.slot.slot)); p.onFocus?.(t, s.slot.slot); }} />
               </Show>
