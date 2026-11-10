@@ -39,6 +39,12 @@ pub struct AppState {
     pub base_sends: Arc<tokio::sync::Semaphore>,
 }
 
+/// Gzip or zstd for a client that accepts it: for the timeline routes, whose JSON is 1–2 MB and
+/// compresses about 3× (the edge proxy doesn't compress it; FORMAT 7 study).
+pub fn compression() -> tower_http::compression::CompressionLayer {
+    tower_http::compression::CompressionLayer::new().no_br().no_deflate()
+}
+
 fn header(name: &'static str, value: &'static str) -> SetResponseHeaderLayer<HeaderValue> {
     SetResponseHeaderLayer::overriding(HeaderName::from_static(name), HeaderValue::from_static(value))
 }
@@ -163,7 +169,7 @@ async fn serve() {
         .route("/api/boards/{board}/owner/rotate", post(api::rotate_owner))
         .route("/api/boards/{board}/clone", post(api::clone_board))
         .route("/api/packs", get(packs::list))
-        .route("/api/matches/{id}", get(matches::get))
+        .route("/api/matches/{id}", get(matches::get).layer(compression()))
         .route("/packs/{pack}/{*file}", get(packs::file));
     if let Some(web) = &config.web_dir {
         // Vite's /assets/* names carry a content hash: cache them forever. Everything else

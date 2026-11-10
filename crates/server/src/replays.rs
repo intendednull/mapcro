@@ -244,7 +244,8 @@ pub fn routes() -> Router<AppState> {
                 .route("/api/boards/{board}/replays/{id}", get(status))
                 .route("/api/boards/{board}/replays/{id}/fetch", post(fetch))
                 .route("/api/boards/{board}/replays/{id}/reserve", post(reserve).delete(release))
-                .route("/api/boards/{board}/matches/{id}", get(timeline).put(attach))
+                // A timeline is 1–2 MB of JSON that compresses ~3× (FORMAT 7 study).
+                .route("/api/boards/{board}/matches/{id}", get(timeline).layer(crate::compression()).put(attach))
                 .route("/api/boards/{board}/matches", get(attached))
                 .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024)),
         )

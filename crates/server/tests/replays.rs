@@ -400,6 +400,9 @@ fn a_job_runs_to_a_cached_timeline_that_only_its_board_sees() {
     assert_eq!(code, 200);
     assert_eq!(got["tier"], "replay");
     assert_eq!(serde_json::from_value::<Timeline>(got).expect("timeline"), t);
+    // Compressed for a client that accepts it (FORMAT 7: the edge proxy doesn't).
+    let r = agent().get(&server.url(&format!("/api/boards/{board}/matches/{id}"))).header("authorization", &format!("Bearer {view}")).header("accept-encoding", "zstd").call().expect("request");
+    assert_eq!(r.headers().get("content-encoding").and_then(|v| v.to_str().ok()), Some("zstd"));
     assert_eq!(server.call("GET", &format!("/api/boards/{other}/matches/{id}"), &other_owner).0, 404);
     assert_eq!(server.call("GET", &format!("/api/boards/{other}/matches/{id}"), &owner).0, 403, "a link only opens its own board");
 

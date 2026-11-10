@@ -387,3 +387,52 @@ fn a_cache_without_its_mode_is_fetched_again_once() {
     assert_eq!(s.get("111"), (200, body));
     assert_eq!(up.hits("111"), 1, "then a cache hit");
 }
+
+/// One raw GET (no client-side decoding): the response's headers, lower-cased, and its body
+/// with any chunked framing removed.
+fn raw_get(port: u16, path: &str, accept: Option<&str>) -> (String, Vec<u8>) {
+    use std::io::Read;
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).expect("connect");
+    let enc = accept.map(|a| format!("accept-encoding: {a}\r\n")).unwrap_or_default();
+    write!(s, "GET {path} HTTP/1.1\r\nhost: 127.0.0.1\r\n{enc}connection: close\r\n\r\n").expect("send");
+    let mut all = Vec::new();
+    s.read_to_end(&mut all).expect("read");
+    let at = all.windows(4).position(|w| w == b"\r\n\r\n").expect("head") + 4;
+    let head = String::from_utf8_lossy(&all[..at]).to_ascii_lowercase();
+    let mut body = all[at..].to_vec();
+    if head.contains("transfer-encoding: chunked") {
+        let (mut out, mut rest) = (Vec::new(), &body[..]);
+        while let Some(eol) = rest.windows(2).position(|w| w == b"\r\n") {
+            let n = usize::from_str_radix(std::str::from_utf8(&rest[..eol]).expect("size").trim(), 16).expect("hex");
+            if n == 0 {
+                break;
+            }
+            out.extend_from_slice(&rest[eol + 2..eol + 2 + n]);
+            rest = &rest[eol + 2 + n + 2..];
+        }
+        body = out;
+    }
+    (head, body)
+}
+
+/// The timeline routes compress for a client that accepts gzip or zstd (the edge proxy doesn't,
+/// and a FORMAT 7 timeline is ~1.8 MB of JSON), and not otherwise.
+#[test]
+fn a_timeline_is_compressed_for_a_client_that_accepts_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let up = upstream(routes());
+    let s = Server::start(dir.path(), up.port, &[]);
+    let (head, plain) = raw_get(s.port, "/api/matches/130816395", None);
+    assert!(head.starts_with("http/1.1 200"), "{head}");
+    assert!(!head.contains("content-encoding"), "{head}");
+    assert!(serde_json::from_slice::<serde_json::Value>(&plain).is_ok(), "plain JSON without accept-encoding");
+    for (accept, encoding, magic) in [("gzip", "gzip", &[0x1f, 0x8b][..]), ("zstd", "zstd", &[0x28, 0xb5, 0x2f, 0xfd][..]), ("gzip;q=0, zstd", "zstd", &[0x28, 0xb5, 0x2f, 0xfd][..])] {
+        let (head, body) = raw_get(s.port, "/api/matches/130816395", Some(accept));
+        assert!(head.contains(&format!("content-encoding: {encoding}")), "{accept}: {head}");
+        assert!(head.contains("vary: accept-encoding"), "{accept}: {head}");
+        assert!(body.starts_with(magic), "{accept}: a {encoding} body");
+        assert!(body.len() * 2 < plain.len(), "{accept}: {} of {} bytes", body.len(), plain.len());
+    }
+    let (head, _) = raw_get(s.port, "/api/matches/130816395", Some("br"));
+    assert!(!head.contains("content-encoding"), "brotli isn't offered: {head}");
+}

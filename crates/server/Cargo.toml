@@ -20,7 +20,7 @@ thiserror.workspace = true
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "fs", "io-util"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs", "set-header", "limit"] }
+tower-http = { version = "0.6", features = ["fs", "set-header", "limit", "compression-gzip", "compression-zstd"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 sha2 = "0.10"
 base64 = "0.22"
