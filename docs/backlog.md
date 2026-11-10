@@ -3,6 +3,49 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Three modifiers on heroes have no name in the pack (2026-11-10, from pack-abilities)
+
+The names table resolves 476 of the 479 modifiers seen on heroes in 129738985, and 707 of the
+711 on any entity. Six engine modifiers that no vdata defines are listed by name in
+`abilities::ENGINE_MODIFIERS`, among them `modifier_citadel_tossup` and `modifier_player_pinged`.
+The other 3 are engine modifiers too, and we don't know their names: tokens 2332482372,
+2693099904 and 3959802243 (on any entity, 2072993276 as well). Hashing a candidate name list
+against those tokens would find them; boon-data's catalog has them from `client_strings.txt`.
+A patch that adds an engine modifier needs the list extended by hand.
+
+## Icons the pack leaves out (2026-11-10, from pack-abilities)
+
+The pack carries icons for items still in the shop, playable heroes' four signature abilities and
+modifiers with a HUD icon (spec §12). It leaves out:
+- disabled items (74 with an image);
+- unreleased heroes' abilities;
+- weapon, melee and innate abilities;
+- NPC abilities;
+- HUD images outside the allow-list's four folders (one is `hud/crosshair/…`).
+
+A replay from an older patch that has a since-disabled item shows it without an icon. Widening
+`abilities::wants_icon` is a one-line change; it adds about 1 MB.
+
+## Fallback labels keep their underscores (2026-11-10, from pack-abilities)
+
+A record with no localised name gets its internal name with the prefix stripped
+(`label_from: internal`, for example `citadel_knockdown`), as abilities-and-items.md §3 says.
+821 of the 2,061 modifiers end up there. Whether the UI shows those at all, or turns `_` into
+spaces, waits on the build-card UX.
+
+## Clippy fails on engine and server under rust 1.99 (2026-11-10, from pack-abilities)
+
+`cargo clippy --workspace --all-targets -- -D warnings` (nix dev shell, rust 1.99.1) stops before
+it reaches most crates:
+- `large_enum_variant` on `WireIn` (crates/engine/src/wire.rs:32) and on `RoomCmd`
+  (crates/server/src/room.rs:48);
+- `unwrap_used` in wire.rs's tests (lines 377–385);
+- the replay and packs.rs entries below.
+
+All of these are on main 38d8a5a, untouched by pack-abilities. `mapcro-extract` is clippy-clean.
+`cargo fmt --check` also reports about 1,500 diffs on main, so the gate's fmt step can't pass as
+written either.
+
 ## The dev-warnings e2e picks Vite's port the old way (2026-11-09, from web-test-ports)
 
 web/e2e/solid-dev-warnings.spec.ts listens on 0, closes, and starts Vite on that port with
@@ -28,6 +71,17 @@ boon-data's catalog for client 6860 by `tools/modifier-tokens/gen.py`. A modifie
 adds isn't stored as an effect, and it can't be recovered without a re-parse. Regenerate per
 patch, or have the worker read the list from the pack once the extractor reads
 `modifiers.vdata` and `abilities.vdata` (the names-and-icons task).
+
+**Update (2026-11-10, pack-abilities):** the pack's names table now has what gen.py reads from
+boon-data, for 2,067 modifiers: `icon_class` and a HUD icon for `ICON_MODIFIERS`, and the
+enabled-state mask's names (`states`) for `CC_MODIFIERS`. gen.py could read `data/abilities.json`
+instead. The CC bits still need the state name → index map (boon-data's `modifier_states`), and no
+vdata holds it, so the 9 `CC_STATES` would be vendored by name. The generic CC list by hand stays
+as it is. Two caveats:
+- The pack is only on the operator's machine, so regenerating stays a local step.
+- The pack's `icon` is set only where the HUD icon file is under the allow-list. Read
+  `icon_class`, and a non-empty `m_strHudIcon` if gen.py needs it exactly, which would mean
+  keeping the raw path in the table.
 
 ## Format 7 costs 3.4 s of parse time (2026-11-09, from match-data-v7)
 

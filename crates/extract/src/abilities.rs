@@ -122,7 +122,7 @@ pub struct Record {
 pub struct Table {
     pub records: BTreeMap<u32, Record>,
     /// Names whose token another name already took (kept: the first).
-    pub collisions: Vec<(String, String)>,
+    pub collisions: Vec<[String; 2]>,
 }
 
 impl Table {
@@ -248,8 +248,26 @@ pub fn parse(
         }
     }
 
+    // Engine modifiers no vdata defines, by their bare names (after the vdata, so a patch that
+    // defines one there wins).
+    for name in ENGINE_MODIFIERS {
+        insert(&mut table, modifier(names, name, &[], None));
+    }
+
     table
 }
+
+/// Modifiers the game applies to heroes that no vdata file defines, seen in 129738985's
+/// modifier table (docs/research/status-effects.md §3). Internal names only; any display name
+/// still comes from the localisation.
+pub const ENGINE_MODIFIERS: [&str; 6] = [
+    "modifier_citadel_tossup",
+    "modifier_citadel_push",
+    "modifier_player_pinged",
+    "modifier_citadel_pre_match_wait",
+    "modifier_invis_fading",
+    "modifier_learning_hero_ability",
+];
 
 /// Walk `value` for nested subclasses under `path`, the qualified name of the record above;
 /// `owner` is the item or ability record they're under, if any.
@@ -347,7 +365,7 @@ fn insert(table: &mut Table, record: Record) {
     let id = token(&record.name);
     if let Some(first) = table.records.get(&id) {
         if first.name != record.name {
-            table.collisions.push((first.name.clone(), record.name));
+            table.collisions.push([first.name.clone(), record.name]);
         }
         return;
     }
@@ -476,6 +494,13 @@ mod tests {
             1_398_909_042,
             "lower-cased first"
         );
+        // Ids the game itself sent in 129738985 (an ability_subclass or modifier_subclass in
+        // its modifier table), one for each remainder past the last 4-byte chunk: 1, 2, 3, 3.
+        assert_eq!(token("ability_afterburn"), 1_593_133_799);
+        assert_eq!(token("ability_flame_dash"), 3_516_947_824);
+        assert_eq!(token("upgrade_fleetfoot_boots"), 3_403_085_434);
+        assert_eq!(token("modifier_citadel_tossup"), 2_696_315_756);
+        assert_eq!(token("modifier_citadel_push"), 1_823_209_505);
         // Every remainder length (0–3 bytes past the last 4-byte chunk) takes part.
         let ids: BTreeSet<u32> = ["abcd", "abcde", "abcdef", "abcdefg"].map(token).into();
         assert_eq!(ids.len(), 4);

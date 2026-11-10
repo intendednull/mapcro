@@ -29,7 +29,8 @@ mod vtex;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
-pub use abilities::{Kind, NameFrom, Record, fallback_name, token};
+use abilities::Kind;
+pub use abilities::token;
 pub use allow::GameDir;
 pub use error::{Error, Result};
 pub use kv3::Value;
@@ -399,6 +400,7 @@ fn extract_abilities(
         modifiers: table.count(Kind::Modifier),
         icons,
         icons_missing: missing,
+        collisions: table.collisions,
     });
     Ok(())
 }

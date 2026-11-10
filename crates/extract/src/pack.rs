@@ -41,6 +41,9 @@ pub struct AbilityTable {
     /// Icons a record names that the pack doesn't carry: outside the allow-list, missing from
     /// the VPK or in a texture format the decoder doesn't read.
     pub icons_missing: usize,
+    /// Pairs of different names with the same token: the second is left out. None on 6860.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub collisions: Vec<[String; 2]>,
 }
 
 #[derive(Debug, Serialize)]

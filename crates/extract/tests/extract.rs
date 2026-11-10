@@ -664,6 +664,14 @@ fn abilities_tree() -> T {
                         )],
                     ),
                 ),
+                // The same subclass reached twice is one record, not a collision.
+                (
+                    "m_Again",
+                    T::Array(vec![
+                        sub("modifier_base", "modifier_test_twice", vec![]),
+                        sub("modifier_base", "modifier_test_twice", vec![]),
+                    ]),
+                ),
                 // An empty subclass name adds nothing to the chain.
                 (
                     "m_Anon",
@@ -688,6 +696,11 @@ fn abilities_tree() -> T {
                 (
                     "m_strAbilityImage",
                     s("file://{images}/hud/modifiers/icon_test.svg"),
+                ),
+                // No localised name here or on the item: it keeps its own, stripped.
+                (
+                    "m_Aura",
+                    sub("modifier_base", "modifier_test_part_aura", vec![]),
                 ),
             ]),
         ),
@@ -895,7 +908,7 @@ fn extract_writes_the_names_table_and_its_icons() {
     assert_eq!(pack["schema"].as_u64(), Some(4));
     assert_eq!(
         pack["abilities"],
-        serde_json::json!({"blob": "data/abilities", "items": 4, "abilities": 3, "modifiers": 8, "icons": 5, "icons_missing": 1})
+        serde_json::json!({"blob": "data/abilities", "items": 4, "abilities": 3, "modifiers": 16, "icons": 5, "icons_missing": 1})
     );
     let blob = &pack["blobs"]["data/abilities"];
     assert_eq!(blob["mime"].as_str(), Some("application/json"));
@@ -937,17 +950,25 @@ fn extract_writes_the_names_table_and_its_icons() {
             "ability_test_sig",
             "ability_test_unreleased",
             "citadel_modifier_test_teleport",
+            "modifier_citadel_pre_match_wait",
+            "modifier_citadel_push",
             "modifier_citadel_test_stun",
             "modifier_citadel_test_stun/bonus_speed",
+            "modifier_citadel_tossup",
+            "modifier_invis_fading",
+            "modifier_learning_hero_ability",
+            "modifier_player_pinged",
             "test_pickup/regen",
             "upgrade_test_armor",
             "upgrade_test_boots",
             "upgrade_test_boots/modifier_test_buff",
             "upgrade_test_boots/modifier_test_buff/modifier_test_dot",
             "upgrade_test_boots/modifier_test_inner",
+            "upgrade_test_boots/modifier_test_twice",
             "upgrade_test_boots/test_projectile/modifier_test_slow",
             "upgrade_test_old",
             "upgrade_test_part",
+            "upgrade_test_part/modifier_test_part_aura",
         ]
     );
     for (id, record) in records {
@@ -1030,6 +1051,18 @@ fn extract_writes_the_names_table_and_its_icons() {
     assert_eq!(
         get("upgrade_test_boots/test_projectile/modifier_test_slow")["debuff"],
         "yes"
+    );
+    let tossup = get("modifier_citadel_tossup");
+    assert_eq!(
+        (tossup["kind"].as_str(), tossup["label"].as_str()),
+        (Some("modifier"), Some("citadel_tossup")),
+        "an engine modifier no vdata defines"
+    );
+    let aura = get("upgrade_test_part/modifier_test_part_aura");
+    assert_eq!(
+        (aura["label"].as_str(), aura["label_from"].as_str()),
+        (Some("test_part_aura"), Some("internal")),
+        "an unnamed item lends no name"
     );
     let stun = get("modifier_citadel_test_stun");
     assert_eq!(stun["label"], "Stunned");
@@ -1140,7 +1173,7 @@ fn real_install() {
     // The 78 tough crates; not the 423 wooden crates, 168 item containers or 3 bells.
     assert_eq!(of("tough_crate").len(), 78);
     assert!(pack["icons"].as_array().expect("icons").len() > 50);
-    // The names table (client 6860: 257 items, 552 abilities, 2061 modifiers, 383 icons).
+    // The names table (client 6860: 257 items, 552 abilities, 2067 modifiers, 383 icons).
     let summary = &pack["abilities"];
     assert!(summary["items"].as_u64() > Some(200) && summary["abilities"].as_u64() > Some(400));
     assert!(summary["modifiers"].as_u64() > Some(1800) && summary["icons"].as_u64() > Some(300));

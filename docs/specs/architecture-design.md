@@ -1438,6 +1438,10 @@ syncs that pack to the server's data directory. The server never needs the game 
 **What it derives from the install**, so deadlock-api is no longer needed:
 
 - Heroes come from `scripts/heroes.vdata_c`, with names from the localisation files.
+- Items, abilities and status effects (modifiers) come from `scripts/abilities.vdata_c`,
+  `scripts/modifiers.vdata_c` and the modifiers nested in `scripts/misc.vdata_c` (pickups, props)
+  and `scripts/npc_units.vdata_c`. Item prices come from `scripts/generic_data.vdata_c`. All of it
+  goes into one names table keyed by the token the replay timeline uses (below).
 - Objectives, camps, rifts, ziplines and sentries come from the map entity lump.
 - The world→minimap transform is fitted against extracted objectives. deadlock-api's hard-coded
   radius of 10752 has no in-game source.
@@ -1448,12 +1452,73 @@ syncs that pack to the server's data directory. The server never needs the game 
 pack.json   schema, extractor version,
             game { client_version, source_revision, date },
             sources [{ vpk, path, crc32, size }],       the cheap "did anything change" key
-            heroes [{ hero_id, name, minimap_blob, state }],
+            heroes [{ hero_id, name, minimap_blob, state,
+                      abilities [4 tokens, slot 1 to 4; 0 unbound] }],
             map { id, transform, layers [] },
             entities [{ key, kind, team, lane, world [x, y, z], src {...} }],
-            geometry_hash
+            geometry_hash,
+            abilities { blob, items, abilities, modifiers, icons, icons_missing }   (schema 4)
 blobs/<sha256>.png
+data/abilities.json   the names table, a blob of type application/json
+abilities/<path under panorama/images>.png|.svg   item, ability and modifier icons
 ```
+
+**The names table** (`data/abilities.json`, pack schema 4) is `{"records": {"<token>": record}}`.
+The token is the game's `CUtlStringToken`: MurmurHash2 of the lower-cased name, seed `0x31415926`,
+the same as `mapcro_replay::timeline::token`. One table serves every id the timeline carries:
+items, ability levels, casts, charges, hard-CC causes, status effects and their causes.
+
+- **Records.**
+  - An item or ability is a top-level record of `abilities.vdata`, keyed by its name. Records
+    marked `_not_pickable` are base classes and are left out, since the compiled vdata already
+    folds in what each record inherits.
+  - A modifier is any object with `_class` and `_my_subclass_name` nested in a record, keyed by its
+    qualified name: the record's name, then each subclass name on the way down, joined by `/`
+    (`upgrade_toxic_bullets/modifier_item_bleeding_bullets_active/…`). A modifier is one whose
+    `_class` contains `modifier`. Projectiles still add their names to the chain, but scale
+    functions don't. `modifiers.vdata`'s own records keep their bare names, and so do a few engine
+    modifiers listed by name.
+- **Fields.**
+  - Every record has `name`, `kind` (`item`, `ability` or `modifier`), `label` and `label_from`.
+  - Items and abilities have `ability_type`.
+  - Items also have `slot` (`weapon`, `vitality` or `spirit`), `tier`, `cost` (the tier's price),
+    `components` (tokens) and `disabled`.
+  - Modifiers have `ability`, the token of the record they're nested in, plus `hidden`,
+    `icon_class` (the Panorama class of the game's small icon), `debuff` and `states` (the
+    `MODIFIER_STATE_*` names of the enabled-state mask).
+  - A record has `icon`, a blob key, when the pack carries its icon.
+- **Display names** come from the English localisation, which is loose in the install. The VPK holds
+  only a stub `items_english.txt`. The files are read in this lookup order:
+  - `citadel_gc_mod_names` (items);
+  - `citadel_heroes` (hero abilities and many modifiers);
+  - `citadel_attributes` (generic modifiers such as stun);
+  - `citadel_mods`;
+  - `citadel_main`.
+
+  A modifier is looked up by its `m_sLocalizationName`, else by its own name. Without a name of its
+  own, it takes the localised name of the item or ability it's under (`label_from: ability`).
+  Otherwise the label is the internal name with `upgrade_`, `ability_` or `modifier_` stripped
+  (`label_from: internal`).
+- **Icons.** An item's icon is `m_strAbilityImage`, else `m_strShopIconLarge`. A modifier's icon is
+  its own `m_strHudIcon`; without one, the client shows the icon of its `ability`. `.psd` and `.png`
+  sources are textures decoded to PNG, and `.svg` sources are SVGs. Only entries under
+  `panorama/images/{hud/abilities,upgrades,items,hud/modifiers}/`, at most one folder deep, are
+  read. The pack carries icons for:
+  - items still in the shop;
+  - playable heroes' four signature abilities;
+  - modifiers with a HUD icon.
+
+  Each source file is written once, however many records name it.
+- **Client 6860:**
+  - 257 items, 552 abilities and 2067 modifiers;
+  - 383 records with an icon, from 318 files (316 PNG, 2 SVG) totalling 3.6 MB;
+  - a 516 KB table, in a 21 MB pack.
+
+  On 129738985, every one of the 57 cast names resolves, with an icon and a localised name. So do
+  all 182 `ability_subclass` ids (179 of them on heroes). 476 of the 479 modifiers on heroes
+  resolve, and 707 of the 711 overall. Six of the resolved ones are engine modifiers that no vdata
+  defines, such as `modifier_citadel_tossup`. The extractor lists them by name
+  (`abilities::ENGINE_MODIFIERS`). The other 3 are engine modifiers whose names we don't know.
 
 The server serves packs at `/packs/<pack_id>/…`. Responses are immutable and cached forever,
 because the content is hashed. The server keeps every pack it has had, so an old board can still

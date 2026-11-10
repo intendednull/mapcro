@@ -228,6 +228,11 @@ mapcro: boards are durable in SQLite, and open clients reconnect. A pack that fa
 skipped with an error in the journal, so a bad copy never half-serves. Keep old packs: boards
 record the pack they were made on (spec §12).
 
+**Schema 4 packs need the server first.** A pack from schema 4 on carries the items, abilities and
+modifiers names table as an `application/json` blob (spec §12). A server from before that change
+serves only image types, so it skips the whole pack as invalid ("type \"application/json\" not
+served" in the journal). Deploy the server, then place the pack.
+
 `deploy` is in `wheel` with passwordless sudo, and `/var/lib/mapcro` is `mapcro`-owned 0700, so
 the copy goes through `sudo`. The commands below run unchanged in bash or fish. Replace
 `OUT_DIR` with the extractor's output directory, and `NAME` with a new directory name, such as
