@@ -435,12 +435,12 @@ export function downAt(tl: Timeline, t: number, markers: Array<Pick<Marker, "key
  * in the guardian's death second; docs/research/map-objectives-audit.md, "Shops"). A shop belongs
  * to its team's nearest guardian, not to its key's lane: the map's sapphire shops have their
  * `LaneNum` mirrored (`shop_combine_t1_purple` is `LaneNum` 1, beside the lane 6 guardian). The
- * secret shops (neutral) stay open all match.
+ * secret shops stay open all match: they're neutral, and no guardian is.
  */
 export function shopsClosed(down: Set<string>, markers: Array<Pick<Marker, "key" | "kind" | "team" | "at">>): Set<string> {
   const closed = new Set<string>();
   for (const s of markers) {
-    if (s.kind !== "shop" || (s.team !== "amber" && s.team !== "sapphire")) continue;
+    if (s.kind !== "shop") continue;
     let best: { key: string; d: number } | undefined;
     for (const g of markers) {
       if (g.kind !== "t1" || g.team !== s.team) continue;
