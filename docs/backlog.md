@@ -3,6 +3,20 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## A malformed feedback `match` gets the generic 400 (2026-11-09, from feedback-match)
+
+`POST /api/feedback` refuses a `match` whose fields are the wrong JSON type (a numeric id, a
+negative or fractional `t_s`, a missing `tier`) at deserialisation, so the answer is the generic
+"expected a title and a description" rather than "the match details aren't valid", which only
+well-typed but invalid values get. Only a client other than ours can send those shapes; parsing
+`match` as a raw value and checking it by hand would give one message for both.
+
+## clippy: `unwrap()` in packs.rs (2026-11-09, from feedback-match)
+
+`cargo clippy -p mapcro-server --all-targets` warns `clippy::unwrap_used` at
+crates/server/src/packs.rs:188 (`p.0.parse().unwrap()` in `newest_first`). Already on main; an
+`expect` with a reason would quiet it.
+
 ## Mark in-game pauses on the scrubber (2026-11-09, from replay-pauses)
 
 Since format 6 the replay timeline leaves pauses out: its clock holds through them, as the game's
