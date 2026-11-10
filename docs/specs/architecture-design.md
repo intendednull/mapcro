@@ -458,6 +458,14 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     a site takes only the entities that only ever come up on it. A take the recording ends inside
     is back on the map's 180 s. On 129738985: 36 sites, up at 150 s, 6 takes each back 180 to
     181 s later, 2.2 KB (128 bytes gzipped).
+  - **Tough crates** (`crates`, format 7, 2026-11-09; the Heavy boxes): the heals' shape, per
+    `tough_crate:` site: first up, then `[broken_s, back_s]`, from the same code. Every
+    `CCitadel_BreakableProp` whose `m_nSubclassID` is the tough crate's token (MurmurHash2 of
+    `citadel_breakable_prop_tough_crate`) is read every tick: one entity per crate all match,
+    created when its spawn group comes up and inactive while broken. The token, not the place:
+    a wooden crate sits 11 units from one. A break the recording ends inside is back on 180 s.
+    On 129738985: 78 sites, up at 180 s (64), 300 s (8) and 600 s (6), 232 breaks over 64 crates,
+    231 back 180 s later and one 300 s, 7.7 KB of the 1.54 MB.
   - **Respawns** (`Player.respawn`, 2026-11-08, both tiers): `[died_s, back_s]` per death.
     Replay: the second the hero is next seen alive, else (the recording ends first) the pawn's
     `m_flRespawnTime`, last read while dead (exploration round 5: the two agree to 0.1 s in 70
@@ -529,11 +537,12 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
   - **Format stamp** (`mapcro_replay::timeline::FORMAT`, the one constant the worker and the
     server share): each worker timeline carries `format` (1 from respawns and the urn; 2 buff
     types and rift openings; 3 the Rejuvenator and rift capture; 4 vision; 5 healing pickups; 6
-    the clock holding through a pause; 7 builds, casts, status effects and height; 0 before).
-    Format 3 adds 4.2 KB to 129738985's 1.50 MB; format 4, 26.6 KB (1,501,758 to 1,528,328
-    bytes); format 7, 304 KB (1,530,253 to 1,834,572 bytes; 577 to 657 KB gzipped), effects 160
-    KB and casts 53 KB of it. The timeline routes answer gzip or zstd to a client that accepts
-    it. New fields are optional, so older cached timelines still load without them.
+    the clock holding through a pause; 7 builds, casts, status effects, height and the tough
+    crates; 0 before). Format 3 adds 4.2 KB to 129738985's 1.50 MB; format 4, 26.6 KB (1,501,758
+    to 1,528,328 bytes); format 7, 304 KB for the hero data (1,530,253 to 1,834,572 bytes; 577 to
+    657 KB gzipped), effects 160 KB and casts 53 KB of it, plus 7.7 KB for the crates. The
+    timeline routes answer gzip or zstd to a client that accepts it. New fields are optional, so
+    older cached timelines still load without them.
     - **A fetched timeline in an older format** (2026-11-08), for a match inside Valve's three
       weeks, is fetched and parsed again when an editor opens the match: the same line, caps and
       fairness as any fetch on open. The old one is served meanwhile; the job's status (fetching,
@@ -713,7 +722,15 @@ makes a board with that match attached and lands in Player; **New board** is tod
     Sandbox and Player), off by default. Like Names it's this browser's alone (localStorage, every
     board), never in presence. On the replay tier from format 5, a pickup is timed like a camp:
     down before it first comes up and while taken, "Respawns in m:ss" on hover, nothing while up.
-  - A pack without them (extracted before 2026-11-09) borrows the built-in map's.
+  - **Heavy boxes** (2026-11-09, operator: "can we do heavy boxes like we did the bats? as a
+    separate toggle too"): the 78 tough crates (`citadel_breakable_prop_tough_crate`; not the
+    wooden crates, item containers or bells), behind their own toggle beside Heals, off by
+    default, this browser's alone like Heals. The game's minimap doesn't draw crates and the pack
+    has no icon for them, so they're our own small braced box. On the replay tier from format 7,
+    a crate is timed like a heal: down before its spawn group comes up (3:00, 5:00 or 10:00) and
+    while broken, "Spawns in" / "Respawns in m:ss" on hover, nothing while up.
+  - A pack without them (extracted before 2026-11-09) borrows the built-in map's, and so does one without
+    tough crates (every pack before the Heavy boxes).
 - **Hover labels** (operator, 2026-11-08: "a label should pop up with the info, just like how a
   label instantly pops up when a neutral camp is hovered"): one label, one look, for everything
   on the map, Player and Sandbox alike (`map/HoverLabel.tsx`). It shows at once on hover (a tap

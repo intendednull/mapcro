@@ -69,8 +69,8 @@ timer comes from.
 | `citadel_trigger_idol_return` (Soul Urn sites) | 2 | 2 `CCitadelIdolReturnTrigger`; 11 urns | yes | `soul_jar_marker_return_psd` | urn spawns and the 180 s walk-back |
 | `info_koth_spawn_location` (Unstable Rift) | 2 | 5 `CCitadel_KothCashIn` at ±7648, 0 | yes | `minimap_icon_koth_png` | `m_timeKothCashInStarted`, give-up |
 | `npc_neutral_bug` spawns (sewer critters) | 60 in 11 groups, no camp | 76 `CNPC_Neutral_Bug` | no | — | ambient, not an objective |
-| Statues | **none on this map** | none (709 `CCitadel_BreakableProp`, none break) | — | — | — |
-| `citadel_breakable_prop` | 672: 423 wooden crates, 168 item containers, 78 tough crates, 3 `citadel_breakable_bell_chinatown` | 709 | no | — | none in the replay |
+| Statues | **none on this map** | none (the 709 `CCitadel_BreakableProp` are the crates below) | — | — | — |
+| `citadel_breakable_prop` | 672: 423 wooden crates, 168 item containers, 78 tough crates, 3 `citadel_breakable_bell_chinatown`; `breakable_spawn_group` 0 / 3 / 2 for 64 / 8 / 6 tough crates | 709, one entity each, `m_nSubclassID` the subclass token; inactive while broken (this row once said none break: health stays 1, the break is the entity going inactive) | **tough crates only, behind Heavy boxes** (branch `heavy-crates`) | none (our own box) | `active`, read every tick (format 7): up at 3:00 / 5:00 / 10:00 by spawn group, back 180 s after a break |
 | `citadel_pickup_spawner` `citadel_pickup_floating_health` | 36 (`spawn_delay_override` 180) | 36 `CCitadel_PickupSpawner`; 36 `CCitadel_Pickup_Health` on them | **yes, behind Heals** (branch `map-layers`) | `health_pad_psd` | `m_bActive`, read every tick (format 5) |
 | `trigger_item_shop` | 9: 3 lane shops a team, 2 secret (team 4), the King's base shop | 9 `CTriggerItemShop`, 8 `CCitadel_ShopProp` | **yes** (branch `map-layers`; not the base's) | `minimap_shop_psd` | — |
 | `citadel_trigger_teleport` | 4, each with an `ExitPoint` | 4 `CCitadelTeleportTrigger` | **yes** (branch `map-layers`) | `minimap_teleporter_go_right` | — |
@@ -203,7 +203,7 @@ Report only; none is built. Value and cost are rough.
 | Who took a heal | `m_hVacuumTarget` is set on the pickup as it flies to the hero, just before `m_bActive` goes false | Low to medium: a "healed at" event in the list | Low: one handle per take |
 | Soul dealer | 2 `citadel_trigger_corrupted_item_shop` (`souls_dealer_shop_trigger`, ±1056, ±3108); HUD `.corrupted_item_shop` with the broker icon, lit by `canPurchaseItem`. What it sells isn't checked | Unknown until checked | Low to draw; a timer needs its replay fields |
 | Mid boss stairs | 2 `citadel_base_prop_stairs`; HUD `.mid_stairs` (`icon_stairs_mid`, 24 px, opacity 0 by default) | Low | Low |
-| Breakable crates and item containers | Lump: 423 wooden crates, 168 item containers, 78 tough crates; 709 `CCitadel_BreakableProp` in the replay; 20 `CCitadel_Pickup_Gold` drops from 3:00 | Low: farm spots, and 669 icons | High: a toggle at least, and per-prop break state would cost timeline size |
+| Wooden crates and item containers | Lump: 423 wooden crates, 168 item containers; their breaks show as the entity going inactive, like the tough crates' (built: Heavy boxes); 20 `CCitadel_Pickup_Gold` drops from 3:00 | Low: farm spots, and 591 icons | Medium: the Heavy boxes' path, at about 8 times their timeline bytes |
 
 Not candidates: `CCitadel_Pickup_HalloweenCandy` (16, seasonal), the sewer critters
 (`npc_neutral_bug`, ambient), and the base teleport spots (`info_teleport_location`).

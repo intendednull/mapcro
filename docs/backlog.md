@@ -73,6 +73,32 @@ well-typed but invalid values get. Only a client other than ours can send those 
 crates/server/src/packs.rs:188 (`p.0.parse().unwrap()` in `newest_first`). Already on main; an
 `expect` with a reason would quiet it.
 
+## Why one tough crate took 300 s to come back (2026-11-09, from heavy-crates)
+
+On 129738985, 231 of 232 tough crate breaks are back 180 s later; `tough_crate:neutral:lane1:18`
+(-6033, -3520), broken at 815.9 s, was back at 1115.9 s. The timeline keeps the real back time,
+so Player is right; only a break the recording ends inside is assumed back on 180 s. Worth a look
+on a second replay: a hero standing on the spot, or a longer timer for some spots.
+
+## Wooden crates and item containers (2026-11-09, from heavy-crates)
+
+Their breaks are as observable as the tough crates' (the entity goes inactive; the subclass
+token tells them apart). 591 more icons and about 8 times the Heavy boxes' timeline bytes, so a
+toggle of their own at least. Not asked for; the audit's candidates list has the row.
+
+## heal_probe is slow on the breakable props (2026-11-09, from heavy-crates)
+
+`crates/replay/examples/heal_probe.rs` formats every field of every entity on every tick, so on
+`CCitadel_BreakableProp` (709 entities) it runs at about real time (30 min for 129738985).
+Comparing raw field values and formatting only the changes would make it a seconds-long probe.
+
+## Clippy: collapsible_if in derive.rs's buffs (2026-11-09, from heavy-crates)
+
+`cargo clippy -p mapcro-replay --all-targets` warns `collapsible_if` at
+crates/replay/src/derive.rs:751 (`} else if !b.active && up { if let Some(l) = out.last_mut()`),
+in the powerup code, not touched by heavy-crates. Likely one of the "two more errors in the lib"
+in the clippy entry below.
+
 ## Mark in-game pauses on the scrubber (2026-11-09, from replay-pauses)
 
 Since format 6 the replay timeline leaves pauses out: its clock holds through them, as the game's
