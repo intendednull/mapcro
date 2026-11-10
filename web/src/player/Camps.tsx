@@ -8,7 +8,7 @@
 
 import { Show, createMemo, onCleanup, onMount } from "solid-js";
 import type { Art } from "../map/pack";
-import { HUD_MAP_PX, type Marker, teamName } from "../map/model";
+import { HUD_MAP_PX, type Marker, type OptionalFurniture, optionalShown, teamName } from "../map/model";
 import { type Pt, mapToView, worldToView } from "../map/transform";
 import { svgPoint } from "../board/Tokens";
 import { type CampAt, type PowerupAt, type RejuvNow, type RiftAt, type UrnNow, clockLabel } from "../match/timeline";
@@ -81,7 +81,7 @@ export function markerTip(m: Pick<Marker, "key" | "kind">, pv: MatchPreview | un
   if (!pv) return undefined;
   const c = pv.camps.get(m.key);
   // A healing pickup has a camp's timers: taken, when it's back; up, nothing to say.
-  if ((m.kind === "camp" || m.kind === "heal") && c) return campTip(c, t);
+  if ((m.kind === "camp" || m.kind === "heal" || m.kind === "crate") && c) return campTip(c, t);
   const hp = pv.down.has(m.key) ? undefined : pv.health?.get(m.key)?.pct;
   if (m.kind === "midboss") {
     // Down: its timer; up: its health. The reward a team holds goes with it: the mid boss is
@@ -100,10 +100,14 @@ export function markerTip(m: Pick<Marker, "key" | "kind">, pv: MatchPreview | un
 }
 
 /** `hidden`: a marker hidden from the map (an objective turned off), which has nothing to say.
- * `heals`: whether the healing pickups are drawn (the Heals toggle); off, they can't be hovered. */
-export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; hidden: (key: string) => boolean; heals?: () => boolean; preview: () => MatchPreview | undefined; t: () => number; k: number }) {
+ * `shown`: the healing pickups and heavy boxes this browser draws (their toggles); off, they
+ * can't be hovered. */
+export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; hidden: (key: string) => boolean; shown?: () => OptionalFurniture; preview: () => MatchPreview | undefined; t: () => number; k: number }) {
   let g!: SVGGElement;
-  const markers = () => (p.heals?.() ? p.art.model.markers : p.art.model.markers.filter((m) => m.kind !== "heal"));
+  const markers = () => {
+    const on = p.shown?.() ?? {};
+    return p.art.model.markers.filter((m) => optionalShown(m.kind, on));
+  };
   const urn = () => {
     const u = p.preview()?.urn;
     return u?.state === "ground" && u.at ? { u, at: worldToView(u.at, p.vp) } : undefined;

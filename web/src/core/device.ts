@@ -160,6 +160,18 @@ export function setMapHealsShown(on: boolean) {
   write(HEALS, on);
 }
 
+const CRATES = "mapcro.mapCrates";
+
+/** Whether this browser draws the map's tough crates (the Heavy boxes toggle, spec §6b), on the
+ * board and in Player alike: 78 of them, so off unless turned on here. Never shared. */
+export function mapCratesShown(): boolean {
+  return read<boolean>(CRATES, false) === true;
+}
+
+export function setMapCratesShown(on: boolean) {
+  write(CRATES, on);
+}
+
 const SUMMARY = "mapcro.summaryChosen";
 const OPENED = "mapcro.opened";
 

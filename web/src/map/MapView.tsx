@@ -5,7 +5,7 @@
 import { For, type JSX, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { cx } from "../ui/cx";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
-import { type Marker, HUD_MAP_PX, isFriendly, isFurniture, laneStroke, offByDefault, washFor } from "./model";
+import { type Marker, HUD_MAP_PX, isFriendly, isFurniture, laneStroke, offByDefault, optionalShown, washFor } from "./model";
 import { defaultSplit, pathOf, splitAt, splitEdges } from "./lanes";
 import { type Art, artCss } from "./pack";
 import { FIT_VIEW, MARGIN, type Viewpoint } from "./transform";
@@ -18,6 +18,9 @@ export const URN = "#34ddff";
 /** The healing pickups' green: the art is a white cross, washed as the game washes its healing
  * buff (.powerup_survival's #D7FF9A reads pale on the terrain, so a deeper green). */
 export const HEAL = "#7EE07A";
+/** The heavy boxes' wood: a warm tan that reads on the terrain without competing with the
+ * objectives' team colours. */
+export const CRATE = "#C9965A";
 const CAMP_IMG = { weak: "neutral-small", medium: "neutral-medium", strong: "neutral-large", vaults: "neutral-vault" } as const;
 
 function Layer(p: { img: string; wash?: string; style?: JSX.CSSProperties; part?: string; span?: readonly [number, number] }) {
@@ -105,6 +108,10 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
         return [<Fb shape="dot" color="#c9b994" k={0.75} />, <Layer img="teleporter" style={(p.vp === "sapphire" ? m.at.x < 500 : m.at.x > 500) ? { transform: "scaleX(-1)" } : {}} />];
       case "heal":
         return [<Fb shape="plus" color={HEAL} k={0.75} />, <Layer img="heal" wash={HEAL} />];
+      case "crate":
+        // No game art (the minimap doesn't draw crates): our own braced box, with or without a
+        // pack (`keep`).
+        return [<Fb shape="crate" color={CRATE} k={0.9} part="keep" />];
       case "urn":
         // The jar; open (lit), the game's three pulses closing in on it, washed the urn's cyan
         // (hud_minimap.vxml MinimapCrateSnippet, .pingIdol1-3; styles/app.css).
@@ -220,6 +227,8 @@ export function MapView(p: {
   buff?: (key: string) => string | undefined;
   /** The healing pickups (this browser's Heals toggle); off by default. */
   heals?: boolean;
+  /** The tough crates (this browser's Heavy boxes toggle); off by default. */
+  crates?: boolean;
 }) {
   useArtCss(() => p.art);
   let host!: HTMLDivElement;
@@ -250,9 +259,7 @@ export function MapView(p: {
   const markers = createMemo(() =>
     p.lite
       ? p.art.model.markers.filter((m) => m.kind !== "barracks" && m.kind !== "shrine" && m.kind !== "camp" && m.kind !== "koth" && m.kind !== "powerup" && m.kind !== "urn" && !isFurniture(m.kind))
-      : p.heals
-        ? p.art.model.markers
-        : p.art.model.markers.filter((m) => m.kind !== "heal"),
+      : p.art.model.markers.filter((m) => optionalShown(m.kind, { heals: p.heals, crates: p.crates })),
   );
   const hasArt = () => p.art.images.has("terrain-mid");
   return (

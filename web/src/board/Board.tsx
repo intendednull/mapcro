@@ -5,7 +5,7 @@ import { rosterTeamName, teamName } from "../map/model";
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
-import { type Me, colorOf, commentsOpen, mapHealsShown, setCommentsOpen, setMapHealsShown, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe } from "../core/device";
+import { type Me, colorOf, commentsOpen, mapCratesShown, mapHealsShown, setCommentsOpen, setMapCratesShown, setMapHealsShown, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe } from "../core/device";
 import type { RecordId } from "../gen/RecordId";
 import { MapView } from "../map/MapView";
 import type { Art } from "../map/pack";
@@ -353,6 +353,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const [allOpen, setAllOpen] = createSignal(commentsOpen(p.board));
   // The healing pickups, drawn on this browser only (the Heals toggle).
   const [heals, setHeals] = createSignal(mapHealsShown());
+  // The tough crates, likewise (the Heavy boxes toggle).
+  const [crates, setCrates] = createSignal(mapCratesShown());
   createEffect(() => state.presence({ focus: openComment() ?? null }));
   const followFocus = () => followed()?.state?.focus ?? undefined;
   const isOpen = (id: RecordId) => allOpen() || openComment() === id || followFocus() === id;
@@ -760,6 +762,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               picked={(k) => objSelection().has(k)}
               showHidden={state.canEdit()}
               heals={heals()}
+              crates={crates()}
             >
               <Show when={inPlayer()}>
                 <TrooperDots host={player} vp={viewpoint()} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
@@ -806,7 +809,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 <DeathSkulls vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               </Show>
               <TeleporterLink art={p.art} vp={viewpoint()} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
-              <MarkerTips art={p.art} vp={viewpoint()} hidden={(k) => markerStatus(k) === "Hidden"} heals={heals} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
+              <MarkerTips art={p.art} vp={viewpoint()} hidden={(k) => markerStatus(k) === "Hidden"} shown={() => ({ heals: heals(), crates: crates() })} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               <Highlight at={inPlayer() ? player.ring() : undefined} vp={viewpoint()} />
               <Show when={inPlayer()}>
                 <EventPings host={player} art={p.art} vp={viewpoint()} />
@@ -978,6 +981,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
             toggleHeals={() => {
               setHeals(!heals());
               setMapHealsShown(heals());
+            }}
+            cratesShown={crates()}
+            toggleCrates={() => {
+              setCrates(!crates());
+              setMapCratesShown(crates());
             }}
             clear={(what) => {
               // In transactions that each fit the cap (one undo step each); the toast speaks for

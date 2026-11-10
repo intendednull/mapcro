@@ -2,7 +2,8 @@
 // docs/research/map-objectives-audit.md): the shops and teleporters, the healing pickups with
 // the Heals toggle on, a teleporter's pair on hover, and 129738985's taken pickups at 8:00 with
 // their timers. Set MAPCRO_SHOT_REPLAY to 129738985's format-5 timeline (`mapcro-replay parse
-// x.dem out.json 129738985`) and MAPCRO_SHOT_PACKS to the asset packs. Skipped otherwise.
+// x.dem out.json 129738985`; format 7 for the heavy boxes) and MAPCRO_SHOT_PACKS to the asset packs.
+// Skipped otherwise.
 
 import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -74,4 +75,28 @@ test("shops, teleporters and heals on a real pack and replay", async ({ browser 
     console.log(`${key}: ${await a.getByTestId("hover-label").textContent()}`);
     await a.screenshot({ path: `${out}-player-480-${key.replaceAll(":", "_")}.png`, clip: near(b) });
   }
+});
+
+test("heavy boxes on a real pack and replay", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Heavy boxes"), "Coach");
+  await a.getByTestId("crates-toggle").click();
+  await expect(marks(a, "crate")).toHaveCount(78);
+  await a.screenshot({ path: `${out}-board-crates.png` });
+  await a.getByTestId("mode-player").click();
+  await a.getByTestId("match-id").fill(ID);
+  await a.getByTestId("match-load").click();
+  await expect(a.getByTestId("match-tier")).toHaveText("Full replay");
+  await a.getByTestId("match-time").evaluate((el) => {
+    (el as HTMLInputElement).value = "480";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await a.waitForTimeout(400);
+  // 8:00 on 129738985 (format 7): 12 crates broken, back at 9:04 to 9:21.
+  const broken = a.locator('[data-testid=map] .mk.crate[data-camp="cleared"]');
+  await expect(broken).toHaveCount(12);
+  await a.screenshot({ path: `${out}-player-480-crates.png` });
+  const key = (await broken.first().getAttribute("data-key"))!;
+  const b = await hoverKey(a, key);
+  await expect(a.getByTestId("hover-label")).toHaveText(/^Respawns in \d+:\d\d$/);
+  await a.screenshot({ path: `${out}-player-480-crate-hover.png`, clip: near(b) });
 });

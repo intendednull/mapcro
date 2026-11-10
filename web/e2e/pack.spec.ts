@@ -92,6 +92,14 @@ test.describe("with a synthetic pack", () => {
     await expect(a.locator(".mapbox .mk.shop")).toHaveCount(8);
     await expect(a.locator(".mapbox .mk.teleporter")).toHaveCount(4);
     await expect(a.locator(".mapbox .mk.heal")).toHaveCount(0);
+    // Nor tough crates (a pack from before the Heavy boxes): the toggle borrows the built-in
+    // map's, and our box shows with the pack's art on, where the fallback shapes don't.
+    await expect(a.locator(".mapbox .mk.crate")).toHaveCount(0);
+    await a.getByTestId("crates-toggle").click();
+    await expect(a.locator(".mapbox .mk.crate")).toHaveCount(78);
+    await expect(a.locator(".mapbox .mk.crate .fb.crate").first()).toBeVisible();
+    await expect(a.locator(".mapbox .mk.shop .fb").first()).toBeHidden();
+    await a.getByTestId("crates-toggle").click();
     const walker = a.locator('.mapbox .mk[data-key="walker:amber:lane1:1"]');
     await expect(walker).toHaveAttribute("style", /left: 20\.83\d*%; top: 72\.02\d*%/);
 

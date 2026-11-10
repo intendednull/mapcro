@@ -19,4 +19,6 @@ export const ICON_UNDO = '<path d="M9 6L4 11l5 5"/><path d="M4 11h10a5 5 0 010 1
 export const ICON_REDO = '<path d="M15 6l5 5-5 5"/><path d="M20 11H10a5 5 0 000 10h3"/>';
 /** The Heals toggle: a cross in a ring, the healing pickups' own shape. */
 export const ICON_HEALS = '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v9M7.5 12h9"/>';
+/** The Heavy boxes toggle: a crate, its lid's edge and one brace. */
+export const ICON_CRATES = '<rect x="4.5" y="6.5" width="15" height="13" rx="1"/><path d="M4.5 10.5h15M7.5 19.5l9-9"/>';
 export const ICON_COMMENTS = '<path d="M4 5h16v10h-9l-4 4v-4H4z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/>';
