@@ -1,21 +1,12 @@
-// The server under test: the real mapcro-server binary on a free port, its data dir on the
+// The server under test: the real mapcro-server binary on a port of its own, its data dir on the
 // filesystem being measured (a real disk, or tmpfs to take fsync out). Samples its CPU and RSS
 // from /proc, and reads the per-stage timings the optional instrumentation patch logs
 // (web/perf/server-timing.patch; target `mapcro_perf`). An unpatched binary just logs none.
 
-import { type ChildProcess, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
+import type { ChildProcess } from "node:child_process";
+import { mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeSync } from "node:fs";
 import { join } from "node:path";
-
-function freePort(): Promise<number> {
-  return new Promise((ok) => {
-    const s = createServer().listen(0, "127.0.0.1", () => {
-      const p = (s.address() as { port: number }).port;
-      s.close(() => ok(p));
-    });
-  });
-}
+import { startServer } from "../test/support/server";
 
 const TICK = 100; // USER_HZ on Linux
 
@@ -75,27 +66,17 @@ export class PerfServer {
   }
 
   async start() {
-    this.port = await freePort();
     const out = openSync(this.log, "a");
-    this.child = spawn(this.bin, [], {
-      env: {
-        ...process.env,
-        PORT: String(this.port),
-        DATA_DIR: this.dataDir,
-        PUBLIC_ORIGIN: `http://127.0.0.1:${this.port},http://localhost:5173`,
-        RUST_LOG: "warn,mapcro_perf=info",
-        NO_COLOR: "1",
-        ...this.env,
-      },
-      stdio: ["ignore", out, out],
+    const s = await startServer({
+      bin: this.bin,
+      env: { ...process.env, DATA_DIR: this.dataDir, RUST_LOG: "warn,mapcro_perf=info", NO_COLOR: "1", ...this.env },
+      // Its browsers load its own pages, so the origin names its port.
+      namesPort: (port) => ({ PUBLIC_ORIGIN: `http://127.0.0.1:${port},http://localhost:5173`, ...this.env }),
+      stdout: out,
+      onStderr: (t) => void writeSync(out, t),
     });
-    for (let i = 0; i < 400; i++) {
-      try {
-        if ((await fetch(`${this.http}/healthz`)).ok) break;
-      } catch {}
-      if (i === 399) throw new Error(`server never became healthy (log: ${this.log})`);
-      await new Promise((r) => setTimeout(r, 25));
-    }
+    this.child = s.child;
+    this.port = s.port;
     this.markCpu();
     let last = { t: performance.now(), ticks: cpuTicks(this.child.pid!) };
     this.sampler = setInterval(() => {

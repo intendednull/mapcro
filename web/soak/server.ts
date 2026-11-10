@@ -1,20 +1,11 @@
-// The real mapcro-server binary on a free port and a temporary data dir: started, kill -9'd and
-// restarted on the same data, with its memory sampled throughout.
+// The real mapcro-server binary on a port of its own and a temporary data dir: started, kill -9'd
+// and restarted on the same port and data, with its memory sampled throughout.
 
-import { type ChildProcess, spawn } from "node:child_process";
-import { openSync, readFileSync } from "node:fs";
-import { createServer } from "node:net";
+import type { ChildProcess } from "node:child_process";
+import { openSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
+import { startServer } from "../test/support/server";
 import { ORIGIN } from "./peer";
-
-function freePort(): Promise<number> {
-  return new Promise((ok) => {
-    const s = createServer().listen(0, "127.0.0.1", () => {
-      const p = (s.address() as { port: number }).port;
-      s.close(() => ok(p));
-    });
-  });
-}
 
 export class SoakServer {
   child: ChildProcess | undefined;
@@ -39,20 +30,18 @@ export class SoakServer {
     return `ws://127.0.0.1:${this.port}/ws`;
   }
 
+  /** Starts on a port of its own, or again on the same port and data (a restart). */
   async start() {
-    if (!this.port) this.port = await freePort();
     const out = openSync(this.log, "a");
-    this.child = spawn(this.bin, [], {
-      env: { ...process.env, PORT: String(this.port), DATA_DIR: this.dataDir, PUBLIC_ORIGIN: ORIGIN, RUST_LOG: "warn", ...this.env },
-      stdio: ["ignore", out, out],
+    const s = await startServer({
+      bin: this.bin,
+      env: { ...process.env, DATA_DIR: this.dataDir, PUBLIC_ORIGIN: ORIGIN, RUST_LOG: "warn", ...this.env },
+      port: this.port,
+      stdout: out,
+      onStderr: (t) => void writeSync(out, t),
     });
-    for (let i = 0; i < 400; i++) {
-      try {
-        if ((await fetch(`${this.http}/healthz`)).ok) break;
-      } catch {}
-      if (i === 399) throw new Error(`server never became healthy (log: ${this.log})`);
-      await new Promise((r) => setTimeout(r, 25));
-    }
+    this.child = s.child;
+    this.port = s.port;
     clearInterval(this.sampler);
     this.sampler = setInterval(() => this.sample(), 250);
   }

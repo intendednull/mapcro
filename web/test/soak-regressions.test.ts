@@ -5,13 +5,13 @@
 //   300-frame burst the socket was closed as abuse and everything was resent, again and again
 //   (2000 edits took 78 s and 683 abuse closes to drain).
 
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import WebSocket from "ws";
+import { startServer } from "./support/server";
 import { initSync } from "../src/wasm/mapcro_wasm.js";
 import { Api } from "../src/core/api";
 import { MemoryPersist } from "../src/core/persist";
@@ -36,25 +36,14 @@ let server: ChildProcess;
 let api: Api;
 let wsUrl = "";
 beforeAll(async () => {
-  const port = await new Promise<number>((ok) => {
-    const s = createServer().listen(0, "127.0.0.1", () => {
-      const p = (s.address() as { port: number }).port;
-      s.close(() => ok(p));
-    });
+  const started = await startServer({
+    bin: join(ROOT, "target/debug/mapcro-server"),
+    env: { ...process.env, DATA_DIR: mkdtempSync(join(tmpdir(), "mapcro-web-")), PUBLIC_ORIGIN: ORIGIN, RUST_LOG: "error" },
   });
-  server = spawn(join(ROOT, "target/debug/mapcro-server"), [], {
-    env: { ...process.env, PORT: String(port), DATA_DIR: mkdtempSync(join(tmpdir(), "mapcro-web-")), PUBLIC_ORIGIN: ORIGIN, RUST_LOG: "error" },
-    stdio: ["ignore", "ignore", "inherit"],
-  });
+  server = started.child;
+  const port = started.port;
   api = new Api(`http://127.0.0.1:${port}`);
   wsUrl = `ws://127.0.0.1:${port}/ws`;
-  for (let i = 0; i < 200; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${port}/healthz`)).ok) return;
-    } catch {}
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error("server never became healthy");
 });
 afterAll(() => server.kill("SIGKILL"));
 

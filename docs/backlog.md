@@ -3,15 +3,15 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
-## The web tests pick a port the way the server tests did (2026-11-09, from test-flakes)
+## The dev-warnings e2e picks Vite's port the old way (2026-11-09, from web-test-ports)
 
-web/test/{journal,outdated,resend-durable,soak-regressions,stroke-move}.test.ts, web/soak/server.ts
-and web/perf/server.ts, choose a port by listening on 0, closing, and passing the number as
-`PORT`, then poll `/healthz`. This race made the Rust server tests flaky on a busy box (fixed in
-crates/server/tests/support): the port can be taken before the child binds it. The child then
-dies of `cannot bind`, and the poll is either never answered or answered by someone else's
-server. The fix is the same: `PORT=0`, then read the child's stderr for
-`mapcro-server: listening on <addr>`.
+web/e2e/solid-dev-warnings.spec.ts listens on 0, closes, and starts Vite on that port with
+`--port` (no `--strictPort`), then polls `${base}/healthz`. If the port is taken in between, Vite
+quietly moves to the next free one, so `base` and the server's `PUBLIC_ORIGIN` name a port that is
+not Vite's: the poll times out ("vite never came up") or reaches someone else's server. The
+mapcro-server half of that spec now starts on a port of its own (web/test/support/server.ts);
+Vite's half could pass `--strictPort` (fail rather than move) and retry on a fresh port, or start
+Vite through its JS API and use the address it actually bound.
 
 ## Under Vision, a death ping marks a death the skull hides (2026-11-09, from death-skull)
 

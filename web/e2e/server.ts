@@ -1,24 +1,15 @@
-// Starts the real mapcro-server binary on a free port, serving the built client from dist/.
-import { type ChildProcess, spawn } from "node:child_process";
+// Starts the real mapcro-server binary on a port of its own, serving the built client from dist/.
+import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { startServer } from "../test/support/server";
 
 export const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 /** The replay worker's current timeline format (`mapcro_replay::timeline::FORMAT`), read from its
  * source, so a synthetic "current" timeline stays current when the format moves on. */
 export const TIMELINE_FORMAT = Number(/pub const FORMAT: u32 = (\d+);/.exec(readFileSync(join(ROOT, "crates/replay/src/timeline.rs"), "utf8"))![1]);
-
-function freePort(): Promise<number> {
-  return new Promise((ok) => {
-    const s = createServer().listen(0, "127.0.0.1", () => {
-      const p = (s.address() as { port: number }).port;
-      s.close(() => ok(p));
-    });
-  });
-}
 
 export class Server {
   child!: ChildProcess;
@@ -33,28 +24,27 @@ export class Server {
     return `http://127.0.0.1:${this.port}`;
   }
 
-  /** Starts on a free port, or again on the same port and data (a restart). */
+  /** Starts on a port of its own, or again on the same port and data (a restart). */
   async start() {
-    if (!this.port) this.port = await freePort();
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      PORT: String(this.port),
       DATA_DIR: this.dataDir,
-      PUBLIC_ORIGIN: this.url,
       // A build of its own (MAPCRO_WEB_DIR) keeps a run off the dist another run is serving.
       WEB_DIR: process.env.MAPCRO_WEB_DIR ?? join(ROOT, "web/dist"),
       RUST_LOG: "warn",
     };
     if (this.packsDir) env.PACKS_DIR = this.packsDir;
     Object.assign(env, this.extraEnv);
-    this.child = spawn(join(ROOT, "target/debug/mapcro-server"), [], { env, stdio: ["ignore", "ignore", "inherit"] });
-    for (let i = 0; i < 200; i++) {
-      try {
-        if ((await fetch(`${this.url}/healthz`)).ok) return;
-      } catch {}
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    throw new Error("server never became healthy");
+    const s = await startServer({
+      bin: join(ROOT, "target/debug/mapcro-server"),
+      env,
+      port: this.port,
+      // The browser loads the server's own pages, so its origin names the port; unless the
+      // spec serves the pages from elsewhere and says so.
+      ...(this.extraEnv.PUBLIC_ORIGIN ? {} : { namesPort: (port: number) => ({ PUBLIC_ORIGIN: `http://127.0.0.1:${port}` }) }),
+    });
+    this.child = s.child;
+    this.port = s.port;
   }
 
   stop() {

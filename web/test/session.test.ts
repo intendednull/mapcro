@@ -1,13 +1,13 @@
 // The TypeScript session + the real WASM replica + the real server binary (spec §14 layer 4,
 // minus the browser). Sockets come from the `ws` package so tests can set an Origin.
 
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
+import { startServer } from "./support/server";
 import "fake-indexeddb/auto";
 import { initSync } from "../src/wasm/mapcro_wasm.js";
 import { Api } from "../src/core/api";
@@ -20,18 +20,11 @@ const ROOT = resolve(__dirname, "../..");
 const ORIGIN = "http://localhost:5173";
 initSync({ module: readFileSync(join(ROOT, "web/src/wasm/mapcro_wasm_bg.wasm")) });
 
-function freePort(): Promise<number> {
-  return new Promise((ok) => {
-    const s = createServer().listen(0, "127.0.0.1", () => {
-      const p = (s.address() as { port: number }).port;
-      s.close(() => ok(p));
-    });
-  });
-}
-
 class Server {
   child!: ChildProcess;
-  constructor(readonly dir: string, readonly port: number, readonly env: Record<string, string> = {}) {}
+  /** 0 until it first listens; then a restart comes back to the same port. */
+  port = 0;
+  constructor(readonly dir: string, readonly env: Record<string, string> = {}) {}
   get http() {
     return `http://127.0.0.1:${this.port}`;
   }
@@ -39,17 +32,13 @@ class Server {
     return `ws://127.0.0.1:${this.port}/ws`;
   }
   async start() {
-    this.child = spawn(join(ROOT, "target/debug/mapcro-server"), [], {
-      env: { ...process.env, PORT: String(this.port), DATA_DIR: this.dir, PUBLIC_ORIGIN: ORIGIN, RUST_LOG: "warn", ...this.env },
-      stdio: ["ignore", "ignore", "inherit"],
+    const s = await startServer({
+      bin: join(ROOT, "target/debug/mapcro-server"),
+      env: { ...process.env, DATA_DIR: this.dir, PUBLIC_ORIGIN: ORIGIN, RUST_LOG: "warn", ...this.env },
+      port: this.port,
     });
-    for (let i = 0; i < 200; i++) {
-      try {
-        if ((await fetch(`${this.http}/healthz`)).ok) return;
-      } catch {}
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    throw new Error("server never became healthy");
+    this.child = s.child;
+    this.port = s.port;
   }
   kill9() {
     this.child.kill("SIGKILL");
@@ -84,7 +73,7 @@ describe("board sessions against the real server", () => {
   let server: Server;
   let api: Api;
   beforeAll(async () => {
-    server = new Server(mkdtempSync(join(tmpdir(), "mapcro-web-")), await freePort());
+    server = new Server(mkdtempSync(join(tmpdir(), "mapcro-web-")));
     await server.start();
     api = new Api(server.http);
   });
@@ -218,7 +207,7 @@ describe("board sessions against the real server", () => {
 
   it("a full board refuses edits as BoardFull and keeps what it has", async () => {
     // Security review 2026-11-07, C1: the op log has a quota. Five transactions here.
-    const small = new Server(mkdtempSync(join(tmpdir(), "mapcro-web-")), await freePort(), { BOARD_MAX_OPS: "5" });
+    const small = new Server(mkdtempSync(join(tmpdir(), "mapcro-web-")), { BOARD_MAX_OPS: "5" });
     await small.start();
     try {
       const { board, owner_token } = await new Api(small.http).createBoard("full");
@@ -240,7 +229,7 @@ describe("board sessions against the real server", () => {
   it("a copy older than the server keeps is rebased, and its pending work lands once", async () => {
     // Compaction (spec §9): the server keeps only its newest entries. A tab that comes back
     // with an older copy gets the board as it is, keeps its unsent edits on top, and sends them.
-    const small = new Server(mkdtempSync(join(tmpdir(), "mapcro-web-")), await freePort(), { BOARD_COMPACT_OPS: "20", BOARD_KEEP_OPS: "5" });
+    const small = new Server(mkdtempSync(join(tmpdir(), "mapcro-web-")), { BOARD_COMPACT_OPS: "20", BOARD_KEEP_OPS: "5" });
     await small.start();
     try {
       const api = new Api(small.http);

@@ -4,13 +4,13 @@
 // write landed. If the tab died, the reopened tab reused the cseq: it looped on AckMismatch
 // forever, and an edit it made before Ready was silently swapped for the old one.
 
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import WebSocket from "ws";
+import { startServer } from "./support/server";
 import { initSync } from "../src/wasm/mapcro_wasm.js";
 import { Api } from "../src/core/api";
 import { MemoryPersist, type Persist } from "../src/core/persist";
@@ -36,23 +36,12 @@ const pos = (s: BoardSession, id: RecordId) => {
 let server: ChildProcess;
 let port = 0;
 beforeAll(async () => {
-  port = await new Promise<number>((ok) => {
-    const s = createServer().listen(0, "127.0.0.1", () => {
-      const p = (s.address() as { port: number }).port;
-      s.close(() => ok(p));
-    });
+  const started = await startServer({
+    bin: join(ROOT, "target/debug/mapcro-server"),
+    env: { ...process.env, DATA_DIR: mkdtempSync(join(tmpdir(), "mapcro-web-")), PUBLIC_ORIGIN: ORIGIN, RUST_LOG: "error" },
   });
-  server = spawn(join(ROOT, "target/debug/mapcro-server"), [], {
-    env: { ...process.env, PORT: String(port), DATA_DIR: mkdtempSync(join(tmpdir(), "mapcro-web-")), PUBLIC_ORIGIN: ORIGIN, RUST_LOG: "error" },
-    stdio: ["ignore", "ignore", "inherit"],
-  });
-  for (let i = 0; i < 200; i++) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${port}/healthz`)).ok) return;
-    } catch {}
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error("server never became healthy");
+  server = started.child;
+  port = started.port;
 });
 afterAll(() => server.kill("SIGKILL"));
 
