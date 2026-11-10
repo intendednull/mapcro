@@ -3,6 +3,31 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Fill the in-game scoreboard's missing values (2026-11-10, operator)
+
+The topbar UX worktree now follows the operator's in-game scoreboard reference. Keep the
+remaining data work separate from visual refinement; unavailable values display as “—”.
+
+- **Hero level over time.** The timeline's ability levels are unlock/upgrade tiers, not hero
+  level. Capture the real level changes for the portrait's circular level badge.
+- **Kills and assists over time.** Deaths are already recorded. Death-event killer attribution
+  is optional and the current sample lacks it, so it cannot produce exact kill totals or the
+  center team-kill counters. Capture authoritative killer and assist credit; damage recaps are
+  not assist credit. Preserve a distinction between a true zero and unavailable data.
+- **Maximum HP and bullet/spirit resistance over time.** Current health is only a percentage.
+  Capture the actual scoreboard values, including changes due to items, upgrades and effects;
+  do not reverse-engineer them from health percentage or today's shop stats.
+- **Weapon / Spirit / Vitality bar progression.** Verify and capture the game's category
+  progression/tier values. The current UI labels its bars as equipped-item value at current
+  catalog prices; that is not verified as the game's progression formula.
+- **Active-item designation.** The reference marks active items. Add authoritative item metadata
+  to the pack; absence of a recorded cast does not establish that an item is passive.
+
+Audit the demo/controller properties and metadata payload before choosing sources. Keep times,
+units, missing-data behavior and replay/API-summary coverage explicit. Any persisted timeline
+addition needs the format/cache-upgrade policy, focused boundary tests, and verification on
+standard 6v6 replay 129738985. No extraction implementation is authorized by this backlog entry.
+
 ## Three modifiers on heroes have no name in the pack (2026-11-10, from pack-abilities)
 
 The names table resolves 476 of the 479 modifiers seen on heroes in 129738985, and 707 of the

@@ -1,11 +1,11 @@
 // The HUD's PlayerNameNWContainer: abilities above the two-column inventory.
 import { For, Index, Show, createMemo } from "solid-js";
 import type { Art, Hero } from "../map/pack";
-import { buildAt, type BuildEntry } from "../match/builds";
-import type { TimelinePlayer } from "../match/timeline";
+import { buildAt, killsAt, type BuildEntry } from "../match/builds";
+import type { Timeline, TimelinePlayer } from "../match/timeline";
 import { cx } from "../ui/cx";
 
-export function BuildColumn(p: { player: TimelinePlayer; t: number; art: Art; hero: Hero | undefined; name: string | undefined; id: string }) {
+export function BuildColumn(p: { player: TimelinePlayer; timeline: Timeline | undefined; t: number; art: Art; hero: Hero | undefined; name: string | undefined; id: string }) {
   const build = createMemo(() => buildAt(p.player, p.t));
   const record = (id: number) => p.art.buildCatalog?.records.get(id);
   const abilityIds = () => p.hero?.abilities?.length ? p.hero.abilities : (build().abilities ?? []).map(a => a.id);
@@ -19,11 +19,38 @@ export function BuildColumn(p: { player: TimelinePlayer; t: number; art: Art; he
     const cd = entry?.cooldown;
     return `${cd == null ? "Cooldown unavailable" : cd > 0 ? `${Math.ceil(cd)}s cooldown` : "Cooldown complete"}${entry?.charges != null ? ` · ${entry.charges} charges` : ""}`;
   };
+  const kills = createMemo(() => killsAt(p.timeline, p.t, p.player.team, p.player.slot));
+  const deaths = createMemo(() => p.player.deaths.filter(t => t <= p.t).length);
+  const investment = createMemo(() => {
+    const values = { weapon: 0, vitality: 0, spirit: 0 };
+    for (const item of build().items ?? []) {
+      const info = record(item.id);
+      if (info?.slot && info.cost != null) values[info.slot] += info.cost;
+    }
+    return values;
+  });
+  const investmentMax = () => Math.max(1, ...Object.values(investment()));
   const tier = (n?: number) => n ? ["", "I", "II", "III", "IV", "V"][n] ?? String(n) : "";
   return (
     <section id={p.id} class="tb-build-column" data-testid="hero-build" aria-label={`${p.hero?.name ?? "Hero"} abilities and items`}>
       <Show when={p.name}><div class="tb-build-name">{p.name}</div></Show>
       <div class="tb-build-hero">{p.hero?.name ?? "Hero"}</div>
+      <div class="tb-build-kda" aria-label="Kills, deaths, assists">
+        <div title={kills() == null ? "Kill attribution is unavailable in this replay" : "Kills"}><small>K</small><b>{kills() ?? "—"}</b></div>
+        <div><small>D</small><b>{deaths()}</b></div>
+        <div title="Assists are not recorded in this replay"><small>A</small><b>—</b></div>
+      </div>
+      <div class="tb-build-investment" aria-label="Equipped item value by category">
+        <For each={["weapon", "spirit", "vitality"] as const}>{category =>
+          <span class={category} title={`${category}: ${investment()[category].toLocaleString()} souls in equipped items (current shop prices)`}>
+            <i style={{ height: `${investment()[category] / investmentMax() * 100}%` }} />
+          </span>
+        }</For>
+      </div>
+      <div class="tb-build-vitals">
+        <div title="Maximum health is not recorded in this replay"><span aria-hidden="true">♥</span> —</div>
+        <div class="tb-build-resists" title="Bullet and spirit resistance are not recorded in this replay"><span aria-hidden="true">⛨</span> — &nbsp; —</div>
+      </div>
       <div class="tb-build-abilities" aria-label="Abilities">
         <Index each={abilities()}>{(a, i) => {
           const info = () => a().id == null ? undefined : record(a().id!);

@@ -81,8 +81,8 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .ie-input.bad { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 25%, transparent); }
 .scene-title h1 .ie-input.clock { width: 4.2em; color: var(--brass); }
 
-/* The in-game top bar above the map: up to 1008 px wide, its height follows (172/1260). */
-.board-app .stage > .tb-host { width: var(--bar-w); margin: 14px 0 2px; }
+/* The HUD fills the center column, with 8 px clearance from each sidebar. */
+.board-app .stage > .tb-host { width: calc(100% + 20px); margin: 26px -10px 10px; z-index: 25; }
 .board-app .stage:has(.tb-host) .stage-head { width: var(--bar-w); }
 .tb-host .ie { border: 0; }
 .tb-host .ie-input.tb-souls-value { width: calc(60 * var(--u)); padding: 0 2px; color: #10130D; background: #FFEFD7; border-radius: 2px; text-align: center; box-shadow: none; border: 0; }

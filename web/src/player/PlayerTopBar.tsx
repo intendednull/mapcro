@@ -5,6 +5,7 @@
 // Only what the match's tier has is shown: no ult data (the metadata tier) reads as untracked,
 // never as ready.
 
+import { killsAt } from "../match/builds";
 import { BuildColumn } from "./BuildColumn";
 import { rosterTeamShort } from "../map/model";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
@@ -263,7 +264,7 @@ export function PlayerTopBar(p: {
               </Show>
               <Ult left={x()?.ult ?? null} label={label()} />
               <Show when={expanded(slotKey(t, s.slot.slot)) && p.host.tl()?.players.find(q => q.team === t.toLowerCase() && q.slot === s.slot.slot)}>
-                {player => <BuildColumn player={player()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} />}
+                {player => <BuildColumn player={player()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} />}
               </Show>
               <Show when={nameOf()}>
                 <span class="pl-tb-name" data-testid="tb-name">
@@ -317,6 +318,9 @@ export function PlayerTopBar(p: {
           <button type="button" class="tb-all-builds" aria-expanded={allBuilds() || tabHeld()} onClick={toggleAll} title="Show all hero builds (or hold Tab)">
             {allBuilds() || tabHeld() ? "▴" : "▾"} All builds <kbd>Hold Tab</kbd>
           </button>
+          <Show when={allBuilds() || tabHeld()}>
+            <div class="tb-build-team-kills"><b>{killsAt(p.host.tl(), p.host.t(), friend().toLowerCase()) ?? "—"}</b><span>Kills</span><b>{killsAt(p.host.tl(), p.host.t(), enemy().toLowerCase()) ?? "—"}</b></div>
+          </Show>
           <div class="tb-scores">
             {score(friend(), false)}
             {score(enemy(), true)}

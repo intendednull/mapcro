@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { buildAt } from "../src/match/builds";
+import { buildAt, killsAt } from "../src/match/builds";
 import { artFromManifest, buildCatalogFromData, loadArt, type PackManifest } from "../src/map/pack";
 
 it("distinguishes unavailable builds from tracked empty builds", () => {
@@ -43,4 +43,16 @@ it("loads the selected catalog and retains art when its catalog is unavailable",
     expect(art.packId).toBe("selected");
     expect(art.buildCatalog).toBeUndefined();
   } finally { mock.mockRestore(); }
+});
+
+it("does not turn missing kill attribution into zero or an incomplete total", () => {
+  const timeline = { events: [
+    { t: 10, kind: "death" as const, by: { team: "amber", slot: 0, hero_id: 1 } },
+    { t: 20, kind: "death" as const },
+  ] };
+  expect(killsAt(undefined, 10, "amber")).toBeNull();
+  expect(killsAt(timeline, 9, "amber", 0)).toBe(0);
+  expect(killsAt(timeline, 10, "amber", 0)).toBe(1);
+  expect(killsAt(timeline, 10, "amber", 1)).toBe(0);
+  expect(killsAt(timeline, 20, "amber")).toBeNull();
 });

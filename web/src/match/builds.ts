@@ -1,4 +1,4 @@
-import type { TimelinePlayer } from "./timeline";
+import type { Timeline, TimelinePlayer } from "./timeline";
 
 export interface BuildEntry {
   id: number;
@@ -39,4 +39,13 @@ export function buildAt(player: Pick<TimelinePlayer, "items" | "abilities" | "ca
     items: player.items == null ? null : [...owned].map(entry),
     abilities: player.abilities == null ? null : [...levels].map(([id, level]) => ({ ...entry(id), level })),
   };
+}
+
+/** A kill total is unknown if any death so far lacks attribution. Never turn missing killers
+ * into zero kills. An omitted slot asks for the team's total. */
+export function killsAt(timeline: Pick<Timeline, "events"> | undefined, t: number, team: string, slot?: number): number | null {
+  if (!timeline?.events) return null;
+  const deaths = timeline.events.filter(e => e.kind === "death" && e.t <= t);
+  if (deaths.some(e => !e.by)) return null;
+  return deaths.filter(e => e.by!.team === team && (slot == null || e.by!.slot === slot)).length;
 }
