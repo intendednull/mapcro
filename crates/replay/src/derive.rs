@@ -1009,10 +1009,10 @@ fn heals(obs: &Obs, m: &Map) -> Vec<Camp> {
     }
     // Taken and not back before the recording ends: back on the map's own delay.
     for (key, from) in down {
-        if let Some(c) = out.get_mut(key) {
-            if c.cleared.last().is_none_or(|l| l[1] <= from) {
-                c.cleared.push([from, from + HEAL_RESPAWN_S]);
-            }
+        if let Some(c) = out.get_mut(key)
+            && c.cleared.last().is_none_or(|l| l[1] <= from)
+        {
+            c.cleared.push([from, from + HEAL_RESPAWN_S]);
         }
     }
     out.into_values().collect()
