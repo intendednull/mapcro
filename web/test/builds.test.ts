@@ -56,3 +56,13 @@ it("does not turn missing kill attribution into zero or an incomplete total", ()
   expect(killsAt(timeline, 10, "amber", 1)).toBe(0);
   expect(killsAt(timeline, 20, "amber")).toBeNull();
 });
+
+
+it("prefers recorded kills without leaking future totals or bridging unknown samples", () => {
+  const player = (kills: Array<[number, number | null]>) => ({ team: "amber", slot: 0, kills }) as import("../src/match/timeline").TimelinePlayer;
+  const timeline = { events: [], players: [player([[0, 0], [5, 2], [8, null], [10, 3]])] };
+  expect(killsAt(timeline, 4, "amber")).toBe(0);
+  expect(killsAt(timeline, 5, "amber", 0)).toBe(2);
+  expect(killsAt(timeline, 9, "amber")).toBeNull();
+  expect(killsAt(timeline, 10, "amber")).toBe(3);
+});

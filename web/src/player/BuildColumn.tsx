@@ -2,7 +2,7 @@
 import { For, Index, Show, createMemo } from "solid-js";
 import type { Art, Hero } from "../map/pack";
 import { buildAt, killsAt, type BuildEntry } from "../match/builds";
-import type { Timeline, TimelinePlayer } from "../match/timeline";
+import { scoreboardValueAt, type Timeline, type TimelinePlayer } from "../match/timeline";
 import { cx } from "../ui/cx";
 
 export function BuildColumn(p: { player: TimelinePlayer; timeline: Timeline | undefined; t: number; art: Art; hero: Hero | undefined; name: string | undefined; id: string }) {
@@ -19,7 +19,10 @@ export function BuildColumn(p: { player: TimelinePlayer; timeline: Timeline | un
     const cd = entry?.cooldown;
     return `${cd == null ? "Cooldown unavailable" : cd > 0 ? `${Math.ceil(cd)}s cooldown` : "Cooldown complete"}${entry?.charges != null ? ` · ${entry.charges} charges` : ""}`;
   };
-  const kills = createMemo(() => killsAt(p.timeline, p.t, p.player.team, p.player.slot));
+  const kills = createMemo(() => p.player.kills != null ? scoreboardValueAt(p.player.kills, p.t) : killsAt(p.timeline, p.t, p.player.team, p.player.slot));
+  const assists = () => scoreboardValueAt(p.player.assists, p.t);
+  const level = () => scoreboardValueAt(p.player.level, p.t);
+  const maxHealth = () => scoreboardValueAt(p.player.max_health, p.t);
   const deaths = createMemo(() => p.player.deaths.filter(t => t <= p.t).length);
   const investment = createMemo(() => {
     const values = { weapon: 0, vitality: 0, spirit: 0 };
@@ -34,11 +37,11 @@ export function BuildColumn(p: { player: TimelinePlayer; timeline: Timeline | un
   return (
     <section id={p.id} class="tb-build-column" data-testid="hero-build" aria-label={`${p.hero?.name ?? "Hero"} abilities and items`}>
       <Show when={p.name}><div class="tb-build-name">{p.name}</div></Show>
-      <div class="tb-build-hero">{p.hero?.name ?? "Hero"}</div>
+      <div class="tb-build-hero">{p.hero?.name ?? "Hero"}<Show when={level() != null}><span class="tb-build-hero-level" title="Hero level"> · Lv {level()}</span></Show></div>
       <div class="tb-build-kda" aria-label="Kills, deaths, assists">
         <div title={kills() == null ? "Kill attribution is unavailable in this replay" : "Kills"}><small>K</small><b>{kills() ?? "—"}</b></div>
         <div><small>D</small><b>{deaths()}</b></div>
-        <div title="Assists are not recorded in this replay"><small>A</small><b>—</b></div>
+        <div title={assists() == null ? "Assists are unavailable in this replay" : "Assists"}><small>A</small><b>{assists() ?? "—"}</b></div>
       </div>
       <div class="tb-build-investment" aria-label="Equipped item value by category">
         <For each={["weapon", "spirit", "vitality"] as const}>{category =>
@@ -48,7 +51,7 @@ export function BuildColumn(p: { player: TimelinePlayer; timeline: Timeline | un
         }</For>
       </div>
       <div class="tb-build-vitals">
-        <div title="Maximum health is not recorded in this replay"><span aria-hidden="true">♥</span> —</div>
+        <div title={maxHealth() == null ? "Maximum health is unavailable in this replay" : "Maximum health"}><span aria-hidden="true">♥</span> {maxHealth()?.toLocaleString() ?? "—"}</div>
         <div class="tb-build-resists" title="Bullet and spirit resistance are not recorded in this replay"><span aria-hidden="true">⛨</span> — &nbsp; —</div>
       </div>
       <div class="tb-build-abilities" aria-label="Abilities">
