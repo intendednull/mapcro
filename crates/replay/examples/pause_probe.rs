@@ -3,7 +3,7 @@
 //!
 //! `cargo run -p mapcro-replay --release --example pause_probe -- <replay.dem>`
 //!
-//! Prints, for every tick where a pause field changes and every 32nd tick while paused or within
+//! Prints the header's server start tick, then, for every tick where a pause field changes and every 32nd tick while paused or within
 //! 10 s of a pause, the tick, the rules' pause fields, the parser's match clock, and one pawn's
 //! simulation time and position (a `GameTime_t` that tracks the server's `curtime`). No controller
 //! is read, so no Steam id is.
@@ -22,6 +22,7 @@ fn main() {
     let mut last: Option<(bool, i64, i64, f32)> = None;
     let mut pause_tick: Option<i32> = None;
     let mut unpause_tick: Option<i32> = None;
+    println!("# server_start_tick {server_start}");
     println!("tick\tpaused\tpause_start\ttotal_paused\tunpause_raw\tparser_game\tsim_time-start\tpawn_respawn-start\tpawn_x");
     parser
         .run_to_end_with_events_filtered(&classes, |ctx, _| {

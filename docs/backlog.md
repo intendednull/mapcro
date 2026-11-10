@@ -3,6 +3,25 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Mark in-game pauses on the scrubber (2026-11-09, from replay-pauses)
+
+Since format 6 the replay timeline leaves pauses out: its clock holds through them, as the game's
+does, so playback runs straight over a pause with no sign of it. deadlock-api's metadata lists
+them (`match_pauses[]`: `game_time_s`, `pause_duration_s`, `player_slot`, one zero-length row
+for the pause call and one for its length; 134570618 has four, 296 s in all), and the replay's
+rules carry `m_bGamePaused`, `m_nPauseStartTick` and `m_iPauseTeam`. A tick on the scrubber, or a
+"Paused (Sapphire), 1:57" event, would explain a sudden jump in positions. Needs a timeline field
+or an event kind (a format bump) and a summary-tier counterpart.
+
+## Does the API tier's path drift come from pauses? (2026-11-09, from replay-pauses)
+
+docs/research/match-replay.md found deadlock-api's per-player path index drifting up to 59
+samples from the death times in 130816395, which paused for 29 s at 538 s. If the API's paths
+sample through a pause (the replay's own clock bug before format 6), each pause adds its length
+of drift. `reanchored` in matches.rs re-anchors paths to deaths, which hides it between deaths.
+Checking where the drift starts against `match_pauses` on a few paused matches would tell; if it
+fits, cutting each pause's samples from the paths would fix the summary tier's clock.
+
 ## A server test times out starting under load (2026-11-09, from follow-vision)
 
 `a_board_keeps_the_matches_it_opened` (crates/server/tests/replays.rs) failed once with "server
