@@ -11,6 +11,7 @@ gemini-4-argon-medium), flash (antigravity gemini-3.8-flash-high). Docs and stat
 code. Operator: keep pushing and routing them; restart each when its quota resets, until a finished
 proposal/prototype or the week's tokens run out. **argon resets 2026-11-17 06:48 UTC**: restart it
 then with "read BRIEF.md and your NOTES.md, continue".
+**Finished 2026-11-11:** `team/prototype/index.html` (+ `flows.html`) and `team/proposal.md` (52 features: 51 kept/moved, 1 deferred, 4 open decisions) on `mobile-ux` (unpushed). Team stopped; argon not needed unless the operator wants another round. Known nit: landscape tool rail overlaps the Layers button.
 
 ## Production
 
