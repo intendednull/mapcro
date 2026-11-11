@@ -20,8 +20,11 @@ Decided; to build after fix-batch-3 (#24 #26 #27 #34 #36) lands, as one batch:
 After view-state (the registry) lands:
 
 - **#35 / #37 draggable panels:** the death recap and hero panels drag by their top; several hero
-  panels can be open at once. Followers get *which* panels are open (view-state), not where the
-  presenter put them; each screen places them itself.
+  panels can be open at once. Followers get which panels are open **and where** (operator,
+  2026-11-11: "if possible"): positions travel relative to the board pane (fractions of its
+  width and height, anchored to the nearest edge), so a different screen size keeps the layout,
+  clamped so a panel never sits off-screen or over the follower's own controls. Both are
+  view-state registry rows.
 
 ## Rift troopers: follow-ups (2026-11-11, lead QA of 03fda8c)
 
