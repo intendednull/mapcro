@@ -1062,10 +1062,11 @@ makes a board with that match attached and lands in Player; **New board** is tod
   control is nearer), its height capped to the room between them; so a screen of another size
   keeps the layout and never shows a panel off-screen or over its controls. The next death's
   recap opens where the last was left; another match puts it back.
-- **The match source** (the bar's "Match …" disclosure) closes once a match it loaded is in (Load,
-  or a recent replay from the linked folder), as a menu does after its choice; it opens upward
-  over the toolbar's left end, which it covered. A refused id or a failed load leaves it open,
-  its status saying why.
+- **The match source** (the bar's "Match …" disclosure) closes once a match is in (loaded, or its
+  replay parsed) and it offers nothing more for it, as a menu does after its choice; it opens
+  upward over the toolbar's left end, which it covered. A match with only the API summary keeps
+  it open on its upload, the next step; a refused id or a failed load leaves it open, its status
+  saying why.
 - **The Soul Urn** (replay tier, 2026-11-08): the urn drawn as the game's minimap draws it
   (`hud_minimap.vcss`, in the pack; operator, 2026-11-08: "match how the real map looks").
   - On the ground, `.idol_spawn`: `soul_jar_marker` in a 32 px box, a rift's box

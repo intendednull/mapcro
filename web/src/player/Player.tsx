@@ -59,17 +59,19 @@ export function Player(p: {
   const lanes = () => p.art.model.lanes.map((l) => l.key);
   let source: HTMLDetailsElement | undefined;
   onMount(() => dismissDisclosure(() => source ?? null));
-  // Once a match is in (loaded, or its replay parsed), the source panel's work is done: it
-  // closes, as a menu does after its choice, so it no longer covers the tools under it (the
-  // bar's left end). A refused id or a failed load keeps it open, its status saying why.
+  // Once a match is in (loaded, or its replay parsed) and the panel has nothing more to offer
+  // for it, its work is done: it closes, as a menu does after its choice, so it no longer covers
+  // the tools under it (the bar's left end). Decided once the match's replay state is known too:
+  // a match with only the API summary keeps it open on its upload (the next step). A refused
+  // id or a failed load keeps it open, its status saying why.
   createEffect(
     on(
       () => {
         const m = h.tl();
-        return m ? `${m.match_id}:${tierOf(m)}` : "";
+        return m && h.job() ? `${m.match_id}:${tierOf(m)}` : "";
       },
       (now, was) => {
-        if (now && now !== was && source?.open) source.open = false;
+        if (now && now !== was && source?.open && !untrack(() => canUpload() && !h.notice())) source.open = false;
       },
       { defer: true },
     ),
