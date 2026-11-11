@@ -63,6 +63,10 @@ export function createBoardState(board: string, token: string) {
   const [status, setStatus] = createSignal<SaveStatus>({ kind: "saved" });
   const [connection, setConnection] = createSignal<Connection>({ kind: "connecting", attempt: 0 });
   const [myPeer, setMyPeer] = createSignal<number | undefined>();
+  const [current, setCurrent] = createSignal(false);
+  /** This page's joins of the room (each Ready) and when the last was: peer ids from an earlier
+   * one name nobody now (they restart with the server), so a follow re-finds its presenter. */
+  const [joined, setJoined] = createSignal({ n: 0, at: 0 });
   const [problems, setProblems] = createSignal<string[]>([]);
   const [undoable, setUndoable] = createSignal({ undo: false, redo: false });
   const [lastRole, setLastRole] = createSignal<LinkRole | undefined>();
@@ -141,7 +145,10 @@ export function createBoardState(board: string, token: string) {
     onRecords: applyChanged,
     onPeers: (changed, reset) =>
       batch(() => {
-        if (reset) setPeers(reconcile({}));
+        if (reset) {
+          setPeers(reconcile({}));
+          setJoined((j) => ({ n: j.n + 1, at: Date.now() }));
+        }
         for (const p of changed) setPeers(String(p.peer), p.state ? reconcile(p) : undefined!);
       }),
     onChange: (s) => {
@@ -154,6 +161,7 @@ export function createBoardState(board: string, token: string) {
       if (c.kind === "live") setLastRole(c.role);
       if (c.kind === "closed") setLastRole(undefined);
       setMyPeer(s.myPeer);
+      setCurrent(s.current());
       if (s.canUndo !== undoable().undo || s.canRedo !== undoable().redo) setUndoable({ undo: s.canUndo, redo: s.canRedo });
       if (s.problems.length !== problems().length) setProblems([...s.problems]);
     },
@@ -245,6 +253,7 @@ export function createBoardState(board: string, token: string) {
     status,
     connection,
     myPeer,
+    joined,
     problems,
     title,
     metaId,
@@ -270,6 +279,11 @@ export function createBoardState(board: string, token: string) {
     madeHere: (id: RecordId) => made.has(id),
     /** An edit that isn't the user's to undo: Player's live layer (spec §6b). */
     editSilent: (ops: Op[]) => session.editSilent(ops),
+    /** A silent edit of records anyone would make the same (the live layer): losing the race
+     * to make them is not a problem (session.ts `ensure`). */
+    ensure: (ops: Op[]) => session.ensure(ops),
+    /** This copy has everything logged before it connected (session.ts `current`). */
+    current,
     undo: () => session.undo(),
     redo: () => session.redo(),
     canUndo: () => undoable().undo,

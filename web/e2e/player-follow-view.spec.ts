@@ -200,7 +200,8 @@ test("a follower draws the presenter's map layers but keeps its own names; stopp
   await expectLayers(b, theirs);
   await expect(b.getByTestId("vision-select")).toHaveValue("all");
   await a.context().close();
-  await expect(following(b)).toHaveCount(0);
+  // The follower waits a few seconds for a presenter's own reconnect first (spec §8).
+  await expect(following(b)).toHaveCount(0, { timeout: 15_000 });
   await expectLayers(b, mine);
   await expect(b.getByTestId("vision-select")).toHaveValue("sapphire");
 });

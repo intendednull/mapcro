@@ -3,6 +3,15 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Follow across restarts: small leftovers (2026-11-11, restart-follow)
+
+- **"Follow again" right after a restart waits only 5 s** (`RECONNECT_MS`) for the seat, not 20 s
+  from the rejoin: the toast records the join it was clicked on. Pass the original join through.
+- **The people list can briefly mark the wrong person as followed** while that wait runs
+  (`followingHere()` still holds a reused peer id). Presence itself sends `null`, so peers are told
+  the truth.
+- The `just e2e` recipe doesn't quote `{{args}}`: `-g "a|b"` becomes a shell pipe.
+
 ## Feedback wave 3: hotkeys, names, layout (2026-11-11, operator decisions)
 
 Decided; to build after fix-batch-3 (#24 #26 #27 #34 #36) lands, as one batch (the first group
@@ -136,7 +145,17 @@ registry, branch `view-state`). Held:
 - **Sidebar tab (Events or Notes), the Layers popover being open, and the side panels on the
   phone:** layout, each person's own (operator 2026-11-11).
 
-## A server restart ends every follow, and a follower may see "Conflict" after it (2026-11-11, view-state)
+## A server restart ends every follow, and a follower may see "Conflict" after it (2026-11-11, view-state): resolved
+
+Resolved 2026-11-11 (branch `restart-follow`). The follow: presence carries a random per-page
+`seat`, and a follower finds its presenter by it after a reconnect, its own or theirs (spec §8
+"A follow survives a reconnect"); the follow matrix's restart rows now say `follows`. The
+Conflict was not the restart: a second editor joining a board in Player started from the
+room's reused snapshot (behind the log), made Player's live layer again before its catch-up,
+and was refused `IdTaken` (the layer's ids are derived). Every such joiner saw it. Ready now
+carries `head`, the live layer waits for a current copy, and an `ensure` that loses the race
+isn't reported (spec §5).
+
 
 Found pinning follow behaviour (`web/e2e/follow-matrix.spec.ts`, the restart scenario): after the
 server restarts, everyone reconnects with a new peer id, so a follower's `following` points at

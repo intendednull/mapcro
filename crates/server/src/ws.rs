@@ -180,7 +180,7 @@ async fn session(app: AppState, mut socket: WebSocket) -> Option<CloseReason> {
             return send_closed(&mut socket, CloseReason::StorageFailure).await;
         }
     };
-    let (conn, mut outbox, queued, base) = match joined {
+    let (conn, mut outbox, queued, base, head) = match joined {
         Ok(j) => j,
         Err(reason) => return send_closed(&mut socket, reason).await,
     };
@@ -214,11 +214,11 @@ async fn session(app: AppState, mut socket: WebSocket) -> Option<CloseReason> {
         Some((doc, seq)) => {
             let kib = (2 * doc.len() / 1024 + 1).min(BASE_SENDS_KIB) as u32;
             permit = app.base_sends.clone().acquire_many_owned(kib).await.ok();
-            Message::Text(crate::store::ready_frame(link.role, &doc, seq, conn.0).into())
+            Message::Text(crate::store::ready_frame(link.role, &doc, seq, conn.0, head).into())
         }
         None => {
             permit = None;
-            frame(&WireOut::Ready { role: link.role, base: None, peer: conn.0 })
+            frame(&WireOut::Ready { role: link.role, base: None, peer: conn.0, head: Some(head) })
         }
     };
     let sent = socket.send(ready).await;

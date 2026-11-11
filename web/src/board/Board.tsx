@@ -20,7 +20,7 @@ import { TopBar } from "./TopBar";
 import { createBoardState } from "./state";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
-import { FIT, type ViewRect, clampView, fromViewport, presenters, sideOf, toViewport, zoomAt } from "./follow";
+import { FIT, type FollowTarget, type ViewRect, clampView, fromViewport, locate, presenters, sideOf, startFollow, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
 import type { MatchPreview } from "../match/preview";
 import { EventPings, Highlight, MapControls, Player, PlayerSide, PlayerSwitch, TierChip, TrooperDots } from "../player/Player";
@@ -175,14 +175,38 @@ export function Board(p: { board: string; token: string; art: Art }) {
   // change you make to what you see stops it, and following again is one click ----
   const [view, setView] = createSignal<ViewRect>(FIT);
   const [following, setFollowing] = createSignal<number | undefined>();
-  const followed = () => {
-    const f = following();
-    return f === undefined ? undefined : state.peerList().find((x) => x.peer === f);
+  // Whom the follow is on, by seat as well as peer id: peer ids are per connection, so after a
+  // reconnect (a server restart: every deploy) the presenter is found again by seat (spec §8).
+  let target: FollowTarget | undefined;
+  /** The presenter's presence: live, or the last seen while waiting for them to come back. */
+  const [followedNow, setFollowedNow] = createSignal<PeerPresence | undefined>();
+  const followed = () => (following() === undefined ? undefined : followedNow());
+  /** Looks for a presenter who's away again when its wait ends. */
+  const [recheck, setRecheck] = createSignal(0);
+  let recheckTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(recheckTimer));
+  /** The join the followed peer id is from: on an earlier one, the id names nobody now. */
+  const [followJoin, setFollowJoin] = createSignal(0);
+  /** The followed peer, while its id is from this join (the people list and presenters). */
+  const followingHere = () => (followJoin() === state.joined().n ? following() : undefined);
+  /** What our presence last said we follow, so it's sent on change only. */
+  let told: number | null = null;
+  const tell = (peer: number | null) => {
+    if (told === peer) return;
+    told = peer;
+    state.presence({ following: peer });
   };
   const nameOfPeer = (x: PeerPresence | undefined) => x?.state?.name || "them";
-  const follow = (peer: number) => {
+  /** `was`: their presence when last seen ("Follow again"), shown while they're looked for. */
+  const follow = (peer: number, seat?: number, was?: PeerPresence) => {
+    const joins = state.joined().n;
+    const begun = startFollow(peer, seat, state.peerList(), joins);
+    target = begun.target;
+    setFollowJoin(joins);
+    setFollowedNow(begun.seen ?? was);
     setFollowing(peer);
-    state.presence({ following: peer });
+    // Not `peer` if that id is someone else now: the effect below says whom, once found.
+    tell(begun.seen ? peer : null);
     setToast(undefined);
   };
   /** `why`: your own change stopped it, and you keep what you were seeing with it (operator
@@ -190,20 +214,44 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const stopFollowing = (why?: string) => {
     const was = followed();
     if (following() === undefined) return;
+    target = undefined;
     setFollowing(undefined);
     player.forget(why ? "keep" : "restore");
-    state.presence({ following: null });
-    if (why && was) say(`Stopped following ${nameOfPeer(was)}`, { label: "Follow again", run: () => follow(was.peer) });
+    tell(null);
+    if (why && was) say(`Stopped following ${nameOfPeer(was)}`, { label: "Follow again", run: () => follow(was.peer, was.state?.seat, was) });
   };
   createEffect(() => {
+    recheck();
     const f = following();
-    if (f === undefined) return;
-    const x = followed();
-    if (!x) {
+    if (f === undefined || !target) return;
+    const now = Date.now();
+    const at = locate(target, state.peerList(), state.myPeer(), state.joined(), now);
+    if (at.kind === "gone") {
+      target = undefined;
       setFollowing(undefined);
       player.forget("restore");
-      state.presence({ following: null });
+      tell(null);
       say("Presenter left");
+      return;
+    }
+    if (at.kind === "wait") {
+      // Away, maybe reconnecting: keep showing what they showed, and look again at the end.
+      target.lostAt ??= now;
+      // An id from an earlier join may be someone else's now: say we follow nobody meanwhile.
+      if (target.joins !== state.joined().n) tell(null);
+      clearTimeout(recheckTimer);
+      recheckTimer = setTimeout(() => setRecheck((n) => n + 1), at.until - now + 1);
+      return;
+    }
+    const x = at.peer;
+    const joins = state.joined().n;
+    target = { peer: x.peer, seat: x.state?.seat ?? target.seat, joins };
+    setFollowJoin(joins);
+    setFollowedNow(x);
+    tell(x.peer);
+    if (x.peer !== f) {
+      // Found again on another connection: follow it there (the effect runs again on it).
+      setFollowing(x.peer);
       return;
     }
     const s = x.state!;
@@ -336,7 +384,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const hasRecap = (slot: string, t: number) => !!recapOf(player.tl()?.players.find((q) => slotKey(q.team, q.slot) === slot), t);
   /** In a scene, the open match's in-game name for a slot (spec §6b "Names"); a typed one wins. */
   const matchName = (team: string, n: number) => sceneMatchName(player.tl(), scene()?.scene.source, player.playerName, team, n);
-  const presenterList = createMemo(() => presenters(state.peerList(), state.myPeer(), following()));
+  const presenterList = createMemo(() => presenters(state.peerList(), state.myPeer(), followingHere()));
   const followersOf = (peer: number | undefined) =>
     peer === undefined ? 0 : state.peerList().filter((x) => x.state?.following === peer).length;
   const sceneLabel = (id: RecordId | null | undefined) => {
@@ -1110,7 +1158,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               myRole={state.role()}
               myPeer={state.myPeer()}
               peers={people()}
-              following={following()}
+              following={followingHere()}
               followersOf={followersOf}
               sceneLabel={sceneLabel}
               follow={follow}
