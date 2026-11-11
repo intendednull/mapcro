@@ -28,6 +28,10 @@ function samples(k: ViewKey): [unknown, unknown, unknown] {
       return [[], [{ slot: "sapphire-2", t: 40 }], [{ slot: "amber-1", t: 20 }]];
     case "text":
       return ["", "urn", "haze"];
+    case "place":
+      return [undefined, { x: 120, y: 400, right: false, bottom: true }, { x: 9000, y: 0, right: true, bottom: false }];
+    case "heroes":
+      return [[], [{ slot: "amber-0", at: { x: 120, y: 440, right: false, bottom: false } }, { slot: "sapphire-1" }], [{ slot: "sapphire-5", at: { x: 0, y: 10_000, right: true, bottom: true } }]];
   }
   throw new Error(`${k}: kind ${r.kind}`);
 }

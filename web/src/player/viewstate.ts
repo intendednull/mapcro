@@ -10,7 +10,7 @@
 
 import { type Accessor, type Setter, batch, createSignal, untrack } from "solid-js";
 import { VIEW_STATE, type ViewKey } from "../gen/viewState";
-import { type Death, deathFromWire, deathKey, deathToWire, slotFromWire, slotToWire } from "./layers";
+import { type Death, type HeroPanelOpen, type Place, deathFromWire, deathKey, deathToWire, heroPanelsFromWire, heroPanelsToWire, placeFromWire, placeToWire, slotFromWire, slotToWire } from "./layers";
 
 export const VIEW_KEYS = Object.keys(VIEW_STATE) as ViewKey[];
 type Rows = typeof VIEW_STATE;
@@ -29,7 +29,11 @@ type KindValue<R> = R extends { kind: "bool" }
           ? Death[]
           : R extends { kind: "text" }
             ? string
-            : never;
+            : R extends { kind: "place" }
+              ? Place | undefined
+              : R extends { kind: "heroes" }
+                ? HeroPanelOpen[]
+                : never;
 export type ValueOf<K extends ViewKey> = KindValue<Rows[K]>;
 export type Values = { [K in ViewKey]: ValueOf<K> };
 
@@ -44,6 +48,8 @@ const extra = (r: Row) => r as Row & Extra;
 function same(r: Row, a: unknown, b: unknown): boolean {
   if (r.kind === "death") return deathKey(a as Death | undefined) === deathKey(b as Death | undefined);
   if (r.kind === "deaths") return (a as Death[]).map(deathKey).join() === (b as Death[]).map(deathKey).join();
+  // A place and the hero panels by what presence would carry for them.
+  if (r.kind === "place" || r.kind === "heroes") return JSON.stringify(toWire(r, a) ?? null) === JSON.stringify(toWire(r, b) ?? null);
   return a === b;
 }
 
@@ -87,6 +93,12 @@ function toWire(r: Row, v: unknown): unknown {
       const s = clipText(v as string, extra(r).max!);
       return r.omit && !s ? undefined : s;
     }
+    case "place":
+      return placeToWire(v as Place | undefined);
+    case "heroes": {
+      const list = heroPanelsToWire(v as HeroPanelOpen[], extra(r).max!);
+      return r.omit && !list.length ? undefined : list;
+    }
   }
 }
 /** A value presence carried (its parent is there: a missing value is the default). */
@@ -105,6 +117,10 @@ function fromWire(r: Row, w: unknown): unknown {
       return deathFromWire(w as never);
     case "text":
       return typeof w === "string" ? clipText(w, extra(r).max!) : "";
+    case "place":
+      return placeFromWire(w);
+    case "heroes":
+      return heroPanelsFromWire(w, extra(r).max!);
   }
 }
 

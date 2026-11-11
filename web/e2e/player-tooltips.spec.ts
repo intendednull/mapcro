@@ -283,7 +283,7 @@ test("a click on a hero's token opens its panel; Escape and × close it; an unse
   await expect(float(a)).toHaveCount(0);
   await a.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
-  // Another token swaps; × closes.
+  // Another token opens its own beside it (#37); × closes.
   await token("Amber-0").click();
   await expect(card).toHaveAttribute("data-slot", "amber-0");
   await card.getByTestId("hero-card-close").click();

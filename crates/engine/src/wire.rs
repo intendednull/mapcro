@@ -236,6 +236,74 @@ pub struct Playback {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub event_search: Option<String>,
+    /// Where the death recap on the map (`skull_recap`) sits, once moved (#35): left out while
+    /// it is where it opens. A shape this build doesn't read (a newer client's) is none.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_place")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub skull_place: Option<PanelPlace>,
+    /// The hero panels open from the map's tokens (#37), back to front, each with its place, at
+    /// most `MAX_HERO_PANELS`. Left out when none; a shape this build doesn't read is none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty", deserialize_with = "lenient_panels")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<HeroPanel>>", optional))]
+    pub hero_panels: Vec<HeroPanel>,
+}
+
+/// Where a panel sits in the board pane (the map's box), so a screen of another size keeps the
+/// layout: from the pane's nearer edge on each axis, to the panel's edge on that side, in
+/// `PLACE_SCALE`ths of the pane's width (`x`) and height (`y`). Each screen clamps it so it
+/// stays in the pane and off its own controls.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PanelPlace {
+    pub x: u16,
+    pub y: u16,
+    /// From the right edge (else the left).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub right: bool,
+    /// From the bottom edge (else the top).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub bottom: bool,
+}
+
+impl PanelPlace {
+    pub fn is_valid(&self) -> bool {
+        self.x <= PLACE_SCALE && self.y <= PLACE_SCALE
+    }
+}
+
+/// `PanelPlace` units in a pane's width or height.
+pub const PLACE_SCALE: u16 = 10_000;
+
+/// One hero panel open from the map (#37): whose, and where (none: where it opened).
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeroPanel {
+    pub team: mapcro_schema::Team,
+    pub slot: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub at: Option<PanelPlace>,
+}
+
+/// Hero panels presence carries: every hero's in a 6v6 match.
+pub const MAX_HERO_PANELS: usize = 12;
+
+/// `skull_place`: a place this build doesn't read is none.
+fn lenient_place<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<PanelPlace>, D::Error> {
+    Ok(match Option::<Lenient<PanelPlace>>::deserialize(d)? {
+        Some(Lenient::Known(p)) => Some(p),
+        _ => None,
+    })
+}
+
+/// `hero_panels`: a list this build doesn't read is none.
+fn lenient_panels<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<HeroPanel>, D::Error> {
+    Ok(match Option::<Lenient<Vec<HeroPanel>>>::deserialize(d)? {
+        Some(Lenient::Known(v)) => v,
+        _ => Vec::new(),
+    })
 }
 
 fn is_zero(n: &u16) -> bool {
@@ -434,6 +502,10 @@ impl Presence {
                     && [b.skull_recap, b.event_recap].iter().flatten().all(|d| d.slot < MAX_SLOT && d.t <= 86_400)
                     && b.inspect.is_none_or(|s| s.slot < MAX_SLOT)
                     && b.event_search.as_deref().is_none_or(|q| text_ok(q, MAX_EVENT_SEARCH))
+                    && b.skull_place.as_ref().is_none_or(PanelPlace::is_valid)
+                    && b.hero_panels.len() <= MAX_HERO_PANELS
+                    && b.hero_panels.iter().all(|h| h.slot < MAX_SLOT && h.at.as_ref().is_none_or(PanelPlace::is_valid))
+                    && b.hero_panels.iter().enumerate().all(|(i, h)| b.hero_panels[..i].iter().all(|o| (o.team, o.slot) != (h.team, h.slot)))
             })
             && self.cursor.as_ref().is_none_or(ok_pos)
             && self.drag.as_ref().is_none_or(|d| ok_pos(&d.pos))
@@ -491,7 +563,7 @@ mod tests {
     }
 
     fn playback() -> Playback {
-        Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: None, vision: None, skull_recap: None, event_recap: None, inspect: None, all_builds: false, build_popover: None, event_filters: 0, event_search: None }
+        Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: None, vision: None, skull_recap: None, event_recap: None, inspect: None, all_builds: false, build_popover: None, event_filters: 0, event_search: None, skull_place: None, hero_panels: Vec::new() }
     }
 
     #[test]
@@ -518,6 +590,79 @@ mod tests {
         assert_eq!(back, open);
         let p = Presence { layers: Some(LAYER_TROOPERS | LAYER_CRATES), ..Default::default() };
         assert_eq!(serde_json::from_str::<Presence>(&serde_json::to_string(&p).expect("serialises")).expect("parses").layers, Some(0b100_0001));
+    }
+
+    /// Every hero's panel, each moved, and the death recap moved (#35, #37).
+    fn all_panels() -> Playback {
+        use mapcro_schema::Team::{Amber, Sapphire};
+        let at = |i: u16| Some(PanelPlace { x: PLACE_SCALE - i, y: PLACE_SCALE, right: true, bottom: true });
+        let hero_panels = [Amber, Sapphire].into_iter().flat_map(|team| (0..6u8).map(move |slot| HeroPanel { team, slot: slot + 10, at: at(u16::from(slot)) })).collect();
+        Playback { skull_recap: Some(DeathRef { team: Amber, slot: 1, t: 86_400 }), skull_place: at(0), hero_panels, ..playback() }
+    }
+
+    #[test]
+    fn moved_panels_are_bounded_and_left_out_where_they_opened() {
+        use mapcro_schema::Team::{Amber, Sapphire};
+        let with = |pb: Playback| Presence { playback: Some(pb), ..Default::default() };
+        let full = all_panels();
+        assert_eq!(full.hero_panels.len(), MAX_HERO_PANELS);
+        assert!(with(full.clone()).is_valid());
+        // One more, a place past the pane, a slot out of range, the same hero twice.
+        let mut more = full.clone();
+        more.hero_panels.push(HeroPanel { team: Amber, slot: 0, at: None });
+        assert!(!with(more).is_valid());
+        let far = PanelPlace { x: PLACE_SCALE + 1, y: 0, right: false, bottom: false };
+        assert!(!with(Playback { skull_place: Some(far), ..playback() }).is_valid());
+        assert!(!with(Playback { skull_place: Some(PanelPlace { x: 0, y: PLACE_SCALE + 1, ..far }), ..playback() }).is_valid());
+        assert!(!with(Playback { hero_panels: vec![HeroPanel { team: Sapphire, slot: 0, at: Some(far) }], ..playback() }).is_valid());
+        assert!(!with(Playback { hero_panels: vec![HeroPanel { team: Sapphire, slot: MAX_SLOT, at: None }], ..playback() }).is_valid());
+        let twice = HeroPanel { team: Sapphire, slot: 2, at: None };
+        assert!(!with(Playback { hero_panels: vec![twice, HeroPanel { at: Some(PanelPlace { x: 1, ..far }), ..twice }], ..playback() }).is_valid());
+        assert!(with(Playback { hero_panels: vec![twice, HeroPanel { team: Amber, ..twice }], ..playback() }).is_valid());
+        // Where they opened, and none open, costs nothing; moved, they round-trip.
+        let json = serde_json::to_string(&with(Playback { hero_panels: vec![twice], ..playback() })).expect("serialises");
+        assert!(!json.contains("skull_place") && !json.contains(r#""at""#), "{json}");
+        assert!(!serde_json::to_string(&with(playback())).expect("serialises").contains("hero_panels"));
+        let left = PanelPlace { x: 120, y: 400, right: false, bottom: false };
+        assert_eq!(serde_json::to_string(&left).expect("serialises"), r#"{"x":120,"y":400}"#);
+        let back: Playback = serde_json::from_str(&serde_json::to_string(&full).expect("serialises")).expect("parses");
+        assert_eq!(back, full);
+    }
+
+    #[test]
+    fn a_full_set_of_panels_fits_in_a_frame_beside_the_largest_presence() {
+        // The largest presence is_valid lets through: a full laser trail, the longest stroke,
+        // the whole roster dragged, every objective picked, every panel open and moved.
+        let at = WorldPos { x: -16_384, y: -16_384 };
+        let p = Presence {
+            name: "n".repeat(mapcro_schema::LIMITS.max_name),
+            laser: vec![at; MAX_LASER_POINTS],
+            laser_starts: (1..MAX_LASER_POINTS as u8).collect(),
+            ink: Some(LiveInk { color: 15, points: vec![at; MAX_INK_POINTS] }),
+            drag_group: vec![RecordId(u128::MAX); MAX_DRAG_GROUP],
+            hover: Some("k".repeat(MAX_HOVER)),
+            playback: Some(Playback { jump: Some(Jump { key: "k".repeat(MAX_JUMP_KEY), at: 86_400.0 }), event_search: Some("x".repeat(MAX_EVENT_SEARCH)), ..all_panels() }),
+            ..Default::default()
+        };
+        assert!(p.is_valid());
+        let frame = serde_json::to_string(&WireIn::Presence { state: Box::new(p) }).expect("serialises");
+        // The server takes frames up to max_tx_bytes + 1024 (ws.rs MAX_FRAME).
+        assert!(frame.len() <= mapcro_schema::LIMITS.max_tx_bytes, "{} bytes", frame.len());
+        let panels = serde_json::to_string(&all_panels().hero_panels).expect("serialises").len();
+        assert!(panels < 1024, "{panels} bytes for every hero panel");
+    }
+
+    #[test]
+    fn panels_from_a_newer_client_that_this_build_cannot_read_are_none() {
+        let pb = |extra: &str| parsed(&frame_with(extra)).unwrap_or_else(|| panic!("parses: {extra}")).playback.expect("playback");
+        assert_eq!(pb(r#","skull_place":{"x":5,"y":6,"bottom":true}"#).skull_place, Some(PanelPlace { x: 5, y: 6, right: false, bottom: true }));
+        assert_eq!(pb(r#","hero_panels":[{"team":"Amber","slot":2,"at":{"x":1,"y":2},"z":3}]"#).hero_panels.len(), 1);
+        for v in ["null", "3", r#""a""#, r#"{"x":-1,"y":0}"#, r#"{"x":1}"#, "[]"] {
+            assert_eq!(pb(&format!(r#","skull_place":{v}"#)).skull_place, None, "{v}");
+        }
+        for v in ["null", "3", r#"{"team":"Amber"}"#, r#"[{"team":"Purple","slot":1}]"#, r#"[{"team":"Amber","slot":300}]"#] {
+            assert!(pb(&format!(r#","hero_panels":{v}"#)).hero_panels.is_empty(), "{v}");
+        }
     }
 
     /// A presence frame as a client sends it, its playback's JSON ending in `extra` (raw JSON

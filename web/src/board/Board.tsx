@@ -32,6 +32,7 @@ import { UrnMark } from "../player/Urn";
 import { DeathSkulls } from "../player/Skulls";
 import { SkullRecap } from "../player/SkullRecap";
 import { HeroCard, type HeroCardSlot } from "../player/HeroCard";
+import { cascade, paneOf } from "../player/panelPlace";
 import { recapOf } from "../player/recap";
 import { RiftRings } from "../player/Rift";
 import { liveLayer } from "../player/layer";
@@ -101,6 +102,14 @@ function SaveStatus(p: { state: ReturnType<typeof createBoardState>; rejected: R
 }
 
 const avatarLetter = (name: string) => (name.trim()[0] ?? "?").toUpperCase();
+/** A hero panel's slot key ("amber-0") as HeroCard takes it. */
+const heroCardSlot = (key: string): HeroCardSlot => {
+  const [team, n] = key.split("-");
+  return { team: team!, slot: Number(n) };
+};
+/** Where a hero panel sits until it is placed: the pane's top left (one opened from the map is
+ * always placed, a step from the last: panelPlace.ts `cascade`). */
+const HERO_HOME = { left: 12, top: 44 };
 
 export function Board(p: { board: string; token: string; art: Art }) {
   const state = createBoardState(p.board, p.token);
@@ -311,10 +320,16 @@ export function Board(p: { board: string; token: string; art: Art }) {
    * open it too; gone with the match. */
   const skullRecap = player.skullRecap;
   const setSkullRecap = player.setSkullRecap;
-  /** The hero panel opened from a token on the map (HeroCard.tsx); this browser's, gone with the
-   * match. */
-  const [heroCard, setHeroCard] = createSignal<HeroCardSlot>();
-  createEffect(on(() => player.matchId(), () => setHeroCard(undefined), { defer: true }));
+  /** The hero panels opened from tokens on the map (HeroCard.tsx, #37): the host's, so followers
+   * open and place them too; gone with the match. In the page by slot, so bringing one to the
+   * front (its z-index) never moves it in the DOM mid-press; back to front in the host's list. */
+  const heroSlots = createMemo(() => player.heroPanels().map((h) => h.slot).sort(), undefined, { equals: (a, b) => a.join() === b.join() });
+  const heroPanel = (slot: string) => player.heroPanels().find((h) => h.slot === slot);
+  const heroZ = (slot: string) => 8 + Math.max(0, player.heroPanels().findIndex((h) => h.slot === slot));
+  const openHero = (team: string, slot: number) => {
+    const pane = mapEl && paneOf(mapEl, mapEl.parentElement?.querySelectorAll(".map-controls > *") ?? []);
+    player.openHeroPanel(slotKey(team, slot), cascade(player.heroPanels().length, pane || { w: 1, h: 1, top: 0, bottom: 0 }));
+  };
   const hasRecap = (slot: string, t: number) => !!recapOf(player.tl()?.players.find((q) => slotKey(q.team, q.slot) === slot), t);
   /** In a scene, the open match's in-game name for a slot (spec §6b "Names"); a typed one wins. */
   const matchName = (team: string, n: number) => sceneMatchName(player.tl(), scene()?.scene.source, player.playerName, team, n);
@@ -704,7 +719,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
 
   // The map's width on screen, so comments can be drawn at screen size.
   const [mapPx, setMapPx] = createSignal(500);
+  /** The board pane: the panels on it are placed relative to it. */
+  let mapEl: HTMLDivElement | undefined;
   const measureMap = (el: HTMLDivElement) => {
+    mapEl = el;
     // A press on the map leaves the focused control too (operator, 2026-11-08); capture, so it
     // happens before the map's own handlers, which may stop the event. A field on the map (a
     // callout being written) keeps its focus.
@@ -823,7 +841,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 bindPing={(f) => (pingAt = f)}
                 focused={focused}
                 matchName={matchName}
-                onOpenHero={(team, slot) => setHeroCard({ team, slot })}
+                onOpenHero={openHero}
                 svg={overlay}
                 objectives={objectives}
                 k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)}
@@ -861,10 +879,29 @@ export function Board(p: { board: string; token: string; art: Art }) {
               <HoverLabels k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
             </MapView>
             <Show when={inPlayer() && player.tl() && skullRecap()}>
-              {(d) => <SkullRecap death={d()} timeline={player.tl()!} vision={player.vision()} art={p.art} name={player.playerName} onSeek={seekMatch} onClose={() => setSkullRecap(undefined)} />}
+              {(d) => <SkullRecap death={d()} timeline={player.tl()!} vision={player.vision()} art={p.art} name={player.playerName} onSeek={seekMatch} onClose={() => setSkullRecap(undefined)} place={player.skullPlace()} onPlace={player.setSkullPlace} escape={player.heroPanels().length === 0} />}
             </Show>
-            <Show when={inPlayer() && player.tl() && heroCard()}>
-              {(c) => <HeroCard open={c()} timeline={player.tl()!} t={player.t()} vision={player.vision()} art={p.art} name={player.playerName} onSeek={seekMatch} onClose={() => setHeroCard(undefined)} />}
+            <Show when={inPlayer() && player.tl()}>
+              <For each={heroSlots()}>
+                {(slot) => (
+                  <HeroCard
+                    open={heroCardSlot(slot)}
+                    timeline={player.tl()!}
+                    t={player.t()}
+                    vision={player.vision()}
+                    art={p.art}
+                    name={player.playerName}
+                    onSeek={seekMatch}
+                    onClose={() => player.closeHeroPanel(slot)}
+                    place={heroPanel(slot)?.at}
+                    home={HERO_HOME}
+                    onPlace={(at) => player.placeHeroPanel(slot, at)}
+                    onPress={() => player.raiseHeroPanel(slot)}
+                    z={heroZ(slot)}
+                    front={player.heroPanels().at(-1)?.slot === slot}
+                  />
+                )}
+              </For>
             </Show>
           </div>
   );

@@ -14,7 +14,7 @@ import { createServer } from "node:http";
 import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Browser, type Page, expect, test } from "./fixtures";
+import { type Browser, type Locator, type Page, expect, test } from "./fixtures";
 import { joinNew, revealControls, viewOf } from "./helpers";
 import { Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 
@@ -237,6 +237,38 @@ const hoverOf = async (p: Page) => {
   return `${await l.getAttribute("data-key")}${by ? `@${by}` : ""}`;
 };
 
+const SKULL: Row = {
+  key: "skull_recap",
+  read: async (p) => ((await p.getByTestId("skull-recap").count()) ? ((await p.getByTestId("skull-recap").getAttribute("data-slot")) ?? "") : "none"),
+  set: async (p, v) => {
+    const open = (await p.getByTestId("skull-recap").count()) > 0;
+    if (v === "none" && open) await p.getByTestId("skull-recap-close").click();
+    if (v !== "none" && !open) await skull(p).click();
+  },
+  own: "sapphire-2",
+  theirs: "none",
+  prep: at41,
+  policy: panel,
+};
+/** The half of the board pane a panel's centre is in. */
+const half = async (p: Page, panel: Locator) => {
+  const pane = (await p.getByTestId("map").boundingBox())!;
+  const b = (await panel.boundingBox())!;
+  return b.x + b.width / 2 < pane.x + pane.width / 2 ? "left" : "right";
+};
+/** Drag a panel by its top to the pane's left or right edge, as a person does. */
+async function moveTo(p: Page, panel: Locator, head: string, v: V) {
+  if ((await half(p, panel)) === v) return;
+  const pane = (await p.getByTestId("map").boundingBox())!;
+  const h = (await panel.locator(head).boundingBox())!;
+  const x = h.x + 40;
+  const y = h.y + h.height / 2;
+  await p.mouse.move(x, y);
+  await p.mouse.down();
+  await p.mouse.move(v === "right" ? pane.x + pane.width + 40 : pane.x - 300, y, { steps: 6 });
+  await p.mouse.up();
+}
+
 const MODE: Row = {
     key: "mode",
     read: async (p) => (await p.getByTestId("player").getAttribute("data-state")) ?? "",
@@ -380,21 +412,10 @@ const ROWS: Row[] = [
   layer("movement", false),
   layer("heals", false),
   layer("crates", false),
+  SKULL,
   {
-    key: "skull_recap",
-    read: async (p) => ((await p.getByTestId("skull-recap").count()) ? ((await p.getByTestId("skull-recap").getAttribute("data-slot")) ?? "") : "none"),
-    set: async (p, v) => {
-      const open = (await p.getByTestId("skull-recap").count()) > 0;
-      if (v === "none" && open) await p.getByTestId("skull-recap-close").click();
-      if (v !== "none" && !open) await skull(p).click();
-    },
-    own: "sapphire-2",
-    theirs: "none",
-    prep: at41,
-    policy: panel,
-  },
-  {
-    // The hero panel opened from a token on the map (HeroCard.tsx).
+    // The hero panels opened from tokens on the map (HeroCard.tsx; #37: several at once, shared).
+    // Characterised as each browser's own before #37 (personal); a panel since.
     key: "hero_panel",
     read: heroPanels,
     set: async (p, v) => {
@@ -402,8 +423,33 @@ const ROWS: Row[] = [
       for (const slot of v.split(" ")) if (slot !== "none" && (await heroPanel(p, slot).count()) === 0) await token(p, slot).click();
     },
     own: "sapphire-1",
-    theirs: "amber-0",
-    policy: personal,
+    theirs: "amber-5 sapphire-4",
+    policy: panel,
+  },
+  {
+    // Where the map's death recap sits (#35): the half of the pane its centre is in.
+    key: "skull_place",
+    read: async (p) => ((await p.getByTestId("skull-recap").count()) ? half(p, p.getByTestId("skull-recap")) : "none"),
+    set: async (p, v) => moveTo(p, p.getByTestId("skull-recap"), ".skull-recap-head", v),
+    own: "left",
+    theirs: "right",
+    prep: async (a, b) => {
+      await at41(a, b);
+      for (const p of [a, b]) await SKULL.set(p, "sapphire-2");
+    },
+    policy: panel,
+  },
+  {
+    // Where a hero panel sits (#37).
+    key: "hero_place",
+    read: async (p) => ((await heroPanel(p, "amber-0").count()) ? half(p, heroPanel(p, "amber-0")) : "none"),
+    set: async (p, v) => moveTo(p, heroPanel(p, "amber-0"), ".hero-panel-head", v),
+    own: "left",
+    theirs: "right",
+    prep: async (a, b) => {
+      for (const p of [a, b]) await token(p, "amber-0").click();
+    },
+    policy: panel,
   },
   {
     key: "event_recap",
