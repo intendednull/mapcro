@@ -3,6 +3,35 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Several replays on one board, as game tabs (2026-11-10, operator)
+
+A multi-game review (series, scrim block) on one board and one URL: a strip of game tabs under the
+header selects the replay; its timeline, events and scenes follow. Design sketch (clickable):
+`/home/intendednull/concierge/artifacts/mapcro-multi-replay/index.html`.
+- Exists: the board's attached-match list (`web/src/player/host.ts` `matches`) and each scene's
+  `source.match_id`, so scenes per game is a filter, not a migration.
+- New: tab order and display names; `?game=<match>` deep link; per-game remembered UI state
+  (time, paused, vision, layers); an LRU of loaded timelines (a long one is ~6 MiB); a
+  Whiteboard tab for scenes with no match; follow/presence carries the presenter's game;
+  per-tab replay-job status (fresh games queue behind the 3/hour lookup limit).
+- Open: removing a game that has scenes (delete them, keep as frozen snapshots, or refuse);
+  per-game notes; a cap (10?). Later: cross-game build comparison, series scoreline.
+
+## UX follow-ups from the Argon and Sol passes (2026-11-10, operator approved the first batch)
+
+First batch, one agent after the prototype deploys: (1) per-hero build-order list in the single-hero
+dropdown, click a buy to seek; (2) open the death recap from the map skull; (4) souls-leader
+highlight on the souls tab (the HUD's mint `#90FFE3`); (5) Save scene keeps drawings visible and
+shows "Saved · Switch to scene" (check the Argon bug "Save scene makes live drawings vanish"
+first); (9) dialog focus trapping, Escape, focus return (Share, Join, Clone, hero picker).
+Later: (3) "ACTIVE" badge on active items (with the tooltip extraction, plan
+`docs/plans/2026-11-10-game-tooltips.md`); (6) "Play with scene plan" (scene drawings over the
+live replay); (7) remaining-time sweep on the CC label; (8) a Remove-replay action on the
+open-match form; (10) tablet layout: sidebars as drawers below ~1024 px. Reproduce on the
+prototype before fixing: the two-tab disconnect loop, Save scene clipped at 1280 px, scene save
+ignoring team vision, scene hover preview over portraits, Feedback missing match info from a scene.
+The passes' branches (`argon-ux`, `ux-pass-2`) are kept, not merged.
+
 ## Sixteen e2e tests act on controls the prototype moved into disclosures (2026-11-10, from scene-parity)
 
 On `prototype-layout` (base of scene-parity, checked on its own build too) these time out on a
