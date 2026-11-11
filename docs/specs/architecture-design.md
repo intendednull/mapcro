@@ -1216,6 +1216,30 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   exponential backoff (2 s doubling to 2 min) and gives up after 8 starts in 15 minutes, so a
   crash loop stops rather than spinning.
 
+## 9a. Data retention
+
+Agreed with the operator on 2026-11-10. **Policy, not built yet:** it is implemented when a stored
+quantity nears its cap (the prod watcher's `plan:` alert, below), together with raising the caps
+and moving bulk data to cheaper storage.
+
+| Data | Rule |
+| --- | --- |
+| Boards (server) | Expire after **180 days with no opens**. A banner warns from day 150; any open resets the clock; Clone/export keeps a copy. |
+| Boards (browser) | The user's own IndexedDB; we only ask for persistent storage. |
+| Replay timelines, match metadata | Dropped **90 days after last opened**, within the replay cache's 1 GiB cap. Kept while a live board uses the match. Valve keeps replays about three weeks, so an older one can't be fetched again. |
+| Replay files (`.dem`) | Deleted as soon as they are parsed (already so). |
+| Metrics | Minutes 7 days, hourly rollups 400 days, failures 30 days or 1,000 rows (already so; unlinkable counts). |
+| Server logs | journald capped at 30 days; no IPs in mapcro's own logs. |
+| Feedback | Becomes a GitHub issue (the form says so); deleted or redacted on request. |
+
+Players' in-game names come from Valve's match data and stay as shown. A short privacy note in the
+footer says all of this, with a way to ask for a board's deletion.
+
+**When to build:** the prod watcher (`tools/prod-watch/watch.py`) opens a `plan:<limit>` alert
+when a stored quantity (disk, database, boards stored) passes 60% of its cap, or its 7-day
+growth puts it at the cap within 30 days; `limit:` at 85% stays the urgent one. Check `just stats
+limits` after each deploy.
+
 ## 10. Schema versioning and migrations
 
 - The board snapshot, the transaction format and the wire protocol each carry a version.
@@ -1719,8 +1743,8 @@ Settled on 2026-11-06: a Rust core (§13), and server-hosted art that users neve
    (Leptos/Dioxus)?
 2. **Notes:** real simultaneous typing (the text OT in §3), or last-writer-wins plus a "someone else
    is editing" indicator for v1?
-3. **Anonymous storage:** should idle boards expire, for example after 180 days with no opens? And
-   are per-IP limits on board creation acceptable?
+3. **Anonymous storage:** decided 2026-11-10: idle boards expire after 180 days with no opens
+   (§9a, built when the limits call for it). Per-IP limits on board creation: still open.
 4. **Scenes:** is "a board is a sequence of scenes sharing one roster" the right model?
 5. **Later:** the backup bucket. Decided: MIT licence; hosted at `https://mapcro.dmgdeadlock.com`
    (2026-11-07). The apex `dmgdeadlock.com` is a separate live site, so DNS for the subdomain

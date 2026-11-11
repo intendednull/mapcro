@@ -330,5 +330,5 @@ For whoever instruments the next call site:
 2. **Shared monitoring:** should `/metrics` also feed a Prometheus/Grafana on `web` for every app?
    This is an infra and concierge call; until then, `mapcro-server stats` is the way in. A human
    view is deferred (operator, 2026-11-08).
-3. **Retention:** is 400 days of hourly rollups right?
+3. **Retention:** 400 days of hourly rollups, kept (operator, 2026-11-10; architecture-design.md §9a).
 4. **Feature usage counts (§1 C.5):** worth having, or more than we need?

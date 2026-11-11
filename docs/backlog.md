@@ -3,6 +3,19 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Build the data retention policy, raise caps, cheap storage (2026-11-10, operator: when the limits call for it)
+
+The policy is agreed (architecture-design.md §9a): idle boards expire at 180 days, replay
+timelines and metadata 90 days after last opened, journald 30 days, a privacy note. Build it, and
+work out cheap bulk storage (e.g. object storage for timelines and board snapshots) so the caps
+can rise, when the prod watcher opens a `plan:<limit>` alert (60% of a cap, or the cap within 30
+days at the 7-day trend). Gaps found while wiring that alert:
+- `stats limits` shows no cap for the replay cache (deploy.md says 1 GiB) or the match cache, so
+  neither can alert. Report their caps.
+- `memory, server` peaked at 268.2 MB of its 268.4 MB cap in the 7 days to 2026-11-11, with no
+  OOM kill (likely reclaimable page cache counted in the cgroup). Confirm what it was before
+  raising the limit.
+
 ## Several replays on one board, as game tabs (2026-11-10, operator)
 
 A multi-game review (series, scrim block) on one board and one URL: a strip of game tabs under the

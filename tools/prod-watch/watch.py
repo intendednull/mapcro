@@ -29,6 +29,10 @@ CONCIERGE = "89f02356-e7ef-4821-aeb5-eda251c387a0"
 WINDOW = "20m"  # a little over the 15 min cadence, so nothing falls between runs
 REPEAT_S = 6 * 3600
 LIMIT_FRACTION = 0.85
+# A stored quantity past this share of its cap, or on course to reach the cap within PLAN_DAYS at
+# its 7-day growth, opens a "plan" alert: the retention policy and cheaper storage come next.
+PLAN_FRACTION = 0.6
+PLAN_DAYS = 30
 BACKOFF_S = 1800
 # Replay outcomes a user's file or match causes: expected, never an alert.
 USER_CODES = {"not_a_replay", "too_large", "old_map", "brawl", "unsupported_mode", "expired", "no_replay", "not_found", "aborted", "corrupt", "rate_limited", "busy", "queue_full"}
@@ -80,9 +84,23 @@ def checks() -> dict[str, str]:
         lines = "; ".join(f"{f['kind']}/{f['code']} ×{f['count']} ({f['message']})" for f in ours[:6])
         problems["failures"] = f"{sum(f['count'] for f in ours)} failure(s) on our side: {lines}"
     for lim in (stats("limits") or {}).get("limits", []):
-        cap, now = lim.get("cap"), lim.get("now")
-        if cap and now is not None and now / cap >= LIMIT_FRACTION:
+        cap, now, ago = lim.get("cap"), lim.get("now"), lim.get("week_ago")
+        if not cap or now is None:
+            continue
+        if now / cap >= LIMIT_FRACTION:
             problems[f"limit:{lim['name']}"] = f"{lim['name']} at {now / cap:.0%} of its cap"
+            continue
+        # Early warnings, so storage and retention work (docs/specs/architecture-design.md,
+        # "Data retention") starts before a cap is near. Memory, cpu and the queue swing, so only
+        # stored quantities are projected.
+        if lim["name"].startswith(("memory", "cpu", "queue")):
+            continue
+        growth = (now - ago) / 7 if ago is not None else 0.0
+        days = (cap - now) / growth if growth > 0 else None
+        if now / cap >= PLAN_FRACTION:
+            problems[f"plan:{lim['name']}"] = f"{lim['name']} at {now / cap:.0%} of its cap: time to plan storage or retention"
+        elif days is not None and days < PLAN_DAYS:
+            problems[f"plan:{lim['name']}"] = f"{lim['name']} at {now / cap:.0%} of its cap, on course to reach it in ~{days:.0f} days (7-day trend)"
     return problems
 
 
