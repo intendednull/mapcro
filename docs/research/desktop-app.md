@@ -111,7 +111,8 @@ is the only way to get "it just appears" for most players.
   - `FileSystemObserver` shipped in Chrome 133, desktop only (chromestatus), and persistent "Allow
     on every visit" grants came in Chrome 120–122 [10]. Both still need an open tab.
   - **Not yet tried in a real browser.** It is the first thing to check (Phase 0). The
-    `replaywatch` agent has been told.
+    `replaywatch` agent and the lead have since confirmed it in the Chromium source. The page now
+    says "Browsers can't link Steam's default folder. Upload the file instead."
 
 ## 3. Replay salts: no-go
 
@@ -180,6 +181,10 @@ come from somewhere legitimate, and nothing above qualifies.
   - A toast, "Replay 13xxxxxxx is ready: Open board": it creates a board, uploads the timeline
     and opens it.
   - The web app feature-detects the IPC and otherwise behaves exactly as in a browser.
+  - Plug in through `ReplaySource` (branch `replay-watch`, `web/src/player/folder.ts`): `list()`
+    gives `{id, lastModified, size}` newest first, and `read(id)` gives a `File`. A desktop
+    source implements it, so the folder UI is shared. Its `read` hands over the whole demo, so
+    the local parse needs one extra call, such as `timeline(id)`, alongside it.
   - Updater on minisign. Built and signed on a `windows-latest` CI job.
 - **Phase 3 (maybe):** a Linux AppImage or Nix package, only after Playwright `webkit` passes
   Player's specs. Never macOS.
