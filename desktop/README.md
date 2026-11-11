@@ -335,7 +335,10 @@ Each release:
    NSIS installer, the AppImage and the .deb, signs the updates with the key, and makes a
    **draft** release with them, their `.sig`s and `latest.json` (`windows-x86_64` and
    `linux-x86_64`).
-3. Check the draft, then publish it. `releases/latest` only points at a published release.
+3. The workflow's `publish` job checks the draft (every asset the site and the updater link to,
+   and `latest.json` naming this version for both platforms), then publishes it. Installed apps
+   offer the update on their next start. If `publish` fails, the draft stays a draft: fix it and
+   re-run the job. `releases/latest` only points at a published release.
 4. After the first release, turn the site's download link on. Set `WINDOWS_APP_RELEASED = true`
    in `web/src/player/desktop.ts` and deploy. "Get the Windows app" then shows on Windows
    browsers only (never inside the app): beside the replays folder link, in "Where's my

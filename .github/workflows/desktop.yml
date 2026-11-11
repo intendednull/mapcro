@@ -6,10 +6,12 @@
 # IPC bridge answers, no plugin is the page's, a fake Steam install's replays are found, and a
 # mapcro:// board link reaches the window, from a second launch and at start). The installer's
 # and the .deb's mapcro:// registration is checked after each install.
-# A tag `desktop-v<version>` also builds the signed release bundles into a **draft** GitHub
+# A tag `desktop-v<version>` also builds the signed release bundles into a draft GitHub
 # release with the updater's `latest.json` (Windows NSIS, Linux AppImage and .deb), once both
 # smoke tests pass, plus the Windows portable zip and stable-named copies of it and the installer
-# (desktop/README.md, Installer or portable). A manual run does the tests only.
+# (desktop/README.md, Installer or portable). The `publish` job then checks the draft is complete
+# and publishes it: a green tag run is a release, and installed apps update from it. A manual run
+# does the tests only.
 #
 # Secrets (repository settings, never in the repo):
 #   TAURI_SIGNING_PRIVATE_KEY           the updater's minisign private key (the file's contents)
@@ -308,3 +310,37 @@ jobs:
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
+
+  # Publishes the draft once both platforms are in it (operator, 2026-11-11: publish automatically
+  # when the checks pass). It checks what the lead checked by hand: every asset the site and the
+  # updater link to is there, and latest.json names this version for both platforms.
+  publish:
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    needs: [release-linux]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: The draft is complete
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          v="${TAG#desktop-v}"
+          names=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')
+          for a in latest.json "mapcro_${v}_x64-setup.exe" "mapcro_${v}_x64-setup.exe.sig" \
+                   "mapcro_${v}_x64-portable.zip" mapcro_x64-setup.exe mapcro_x64-portable.zip \
+                   "mapcro_${v}_amd64.AppImage" "mapcro_${v}_amd64.AppImage.sig" "mapcro_${v}_amd64.deb"; do
+            grep -qxF "$a" <<<"$names" || { echo "::error::missing asset $a"; exit 1; }
+          done
+          dir=$(mktemp -d)
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p latest.json -D "$dir"
+          jq -e --arg v "$v" '.version == $v
+            and (.platforms["windows-x86_64"].url | endswith("_x64-setup.exe"))
+            and (.platforms["linux-x86_64"].url | endswith(".AppImage"))
+            and ([.platforms[].signature | length > 0] | all)' "$dir/latest.json"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" --draft=false --latest
