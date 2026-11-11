@@ -622,3 +622,66 @@ deadlock-api returns it on the player): per player and buff, `type`, `value` (co
 for the statues' permanent pickups). So the summary says who took how many of each, not when or
 where: no per-spawn type, no timer. The metadata tier shows none; its mid boss says only up, or
 down with its respawn unknown.
+
+## Round 8: rift troopers (2026-11-11)
+
+**Question (feedback #5):** the minimap draws the troopers a captured rift spawns darker and
+bigger. Does the recording mark them? The first pass compared only `m_nSubclassID`, `m_iLane`,
+`m_iTeamNum` and `m_hOwnerEntity` (`examples/trooper_probe.rs`) and found nothing.
+
+**Probe:** `examples/rift_trooper_probe.rs` on 129738985. For each trooper life, 2 s in, it dumps
+every decoded `CNPC_Trooper` field (200–260 paths), the trooper's entry in each team's
+`m_vecFOWEntities`, and the `ActiveModifiers` tokens applied to it. It also records each rise of
+`m_pGameRules.m_nKothScoringTeam` above 0. A script then diffs the lives born within 60 s of a
+capture against the rest: values found mostly inside the windows, and fields whose values never
+overlap. Output went to /tmp only.
+
+### Verdict: marked, two ways that agree
+
+**Correction (same day, from the built timeline):** the probe's 23 undercounts. A dormant rift
+entity can be reused at the next capture with no death showing in its state, so the probe merged
+those lives. The timeline counts **33 units, 7, 8, 5, 5 and 8 per capture, on a pool of 8
+entities** (`local_replay.rs` `match_129738985_marks_its_rift_troopers_and_draws_no_base_units`).
+The table below is the probe's 23 lives that it saw begin.
+
+| | rift troopers (23 lives seen) | all other troopers (951 real units) |
+|---|---|---|
+| modifier `citadel_koth_cashin/kothtrooper` (token 3298957459) | 23 | 0 |
+| `CBodyComponent.m_skeletonInstance.m_flScale` | 1.57, 1.60, 1.63, 1.66 (rifts 1–5: rifts 4 and 5 both 1.66) | 1.0; 1.2 from minute 36, 1.1 from minute 42 |
+| `m_iMaxHealth` | 600/800 at rift 1 (normal × 2), rising to 1170/1560 at rift 5 (about × 2.6) | 300/350/400 early |
+| spawn | in the second `m_nKothScoringTeam` rises (0–3.5 s after), at the rift site (x ≈ ∓7,300…7,900, y ≈ 0) | lane spawns |
+| lane, team | 1 (west rift) or 6 (east rift); the capturing team | |
+| subclass, model | the normal `trooper_normal` / `trooper_medic` tokens and the team's normal `m_hModel` | |
+
+The token and the scale pick out the same 23 lives, and in the timeline the same 8 entities. No
+other field separates the groups. The only disjoint ones are per-entity: `m_flCreateTime`,
+collision ids and the weak-point handle, because the rift troopers are their own 8 entities,
+created at the first capture.
+
+**Ruled out (the same values in both groups):** `m_clrRender` (0xFFFFFFFF), `m_nRenderMode` and
+`m_nRenderFX` (0), `m_fEffects`, `m_Glow.*`, `m_MeshGroupMask`, `m_spawnflags`, `m_bMinion`,
+`m_hOwnerEntity` (empty), `m_NPCState`, the collision fields. **No trooper has a
+`m_vecFOWEntities` entry**, and `hud_minimap.vcss`/`.vxml` style no trooper class (`.map_button.npc`
+only sets a position transition). So the HUD draws trooper dots in code. The "darker" look isn't a
+networked colour: the game's own code must draw it from the modifier or the scale.
+
+**Pooling trap.** `CNPC_Trooper` entities are pooled: 122 at minute 0 and 216 by the end of
+129738985, against 3,458 lives. A pooled entity keeps its serial and its `m_flCreateTime` when it
+respawns. A new life shows only as `m_lifeState` 0 with `m_iHealth` > 0 again. Count "new
+troopers" by entity and you see about 200, which is how the first pass's census got its numbers.
+
+**Base units:** entities with the unnamed subclass 3237674373 (96 have max health 1 at some point; 56 in the probe's dumps) sit at the bases
+(y ≈ ±9,300…9,600) on all lanes, with `m_iMaxHealth` 1 and `m_iHealth` 1, alive and active. The
+old filter (max health 0, dead, health ≤ 0) let them through: 5,467 dots inside the bases on
+129738985. parse.rs now leaves out max health ≤ 1, and the bases have 2 dots.
+
+### In the timeline (built, within format 9)
+
+Bit 15 of a `troopers` id (`timeline::RIFT_TROOPER`) is set on a rift's trooper. An entity
+index is at most 16,383, so the bit is free. parse_hero.rs keeps the handles of the units
+carrying `kothtrooper`: added when the modifier is applied, dropped when it's removed. parse.rs
+`sample` sets the flag on a trooper whose handle is one of them. The model scale is the
+cross-check in the local-replay test, not a read. The client draws a flagged dot 1.6 times the
+size (the game's scale) in a darker shade of the team colour, with the hover tag "Rift trooper",
+for the presenter and for its followers. There's no FORMAT bump: older timelines just lack the
+bit, and an older client draws the unit as any other.

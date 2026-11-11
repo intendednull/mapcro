@@ -5,8 +5,9 @@
 use crate::derive::{AbilityObs, BuffObs, CampSlot, CrateObs, HealObs, HeroObs, KothObs, ObjObs, Obs, PowerupObs, RejuvCount, RejuvObs, RejuvWhat, Sample, TrooperObs, UrnObs, VisionObs, ZipNode};
 use prost::Message;
 use crate::{FIRST_CURRENT_BUILD, content_build, reason};
-use boon::{Parser, world_position};
+use boon::world_position;
 use std::collections::{HashMap, HashSet};
+use std::io::Read as _;
 use std::path::Path;
 
 const CONTROLLER: &str = "CCitadelPlayerController";
@@ -228,10 +229,15 @@ pub type Failure = &'static str;
 
 /// The demo's content build and server start tick, from its header alone (cheap: read before
 /// the full parse).
+#[cfg(feature = "mmap")]
 pub fn header(path: &Path) -> Result<(u32, i32), Failure> {
-    let parser = Parser::from_file(path).map_err(|_| reason::NOT_A_REPLAY)?;
+    let parser = boon::Parser::from_file(path).map_err(|_| reason::NOT_A_REPLAY)?;
     parser.verify().map_err(|_| reason::NOT_A_REPLAY)?;
-    let header = parser.file_header().map_err(|_| reason::NOT_A_REPLAY)?;
+    checked(parser.file_header().map_err(|_| reason::NOT_A_REPLAY)?)
+}
+
+/// A Deadlock demo's content build and server start tick from its `DEM_FileHeader`.
+fn checked(header: boon_proto::proto::CDemoFileHeader) -> Result<(u32, i32), Failure> {
     let dir = header.game_directory.unwrap_or_default();
     if !dir.contains("citadel") {
         return Err(reason::NOT_A_REPLAY);
@@ -239,17 +245,75 @@ pub fn header(path: &Path) -> Result<(u32, i32), Failure> {
     Ok((content_build(&dir).ok_or(reason::NOT_A_REPLAY)?, header.server_start_tick.unwrap_or(0).max(0)))
 }
 
-/// Read the whole demo into one sample per game second.
+/// Read the whole demo into one sample per game second, streamed from the file
+/// ([`observe_stream`]).
 pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
+    observe_stream(|| std::fs::File::open(path), match_id)
+}
+
+/// [`observe`] over the memory-mapped file: boon's own index and run. The streamed parse gives
+/// the same bytes (docs/research/parser-memory.md, "Streamed"); this stays for that check.
+#[cfg(feature = "mmap")]
+pub fn observe_mapped(path: &Path, match_id: u64) -> Result<Obs, Failure> {
     let (build, server_start) = header(path)?;
     if build < FIRST_CURRENT_BUILD {
         return Err(reason::OLD_MAP);
     }
-    let parser = Parser::from_file(path).map_err(|_| reason::NOT_A_REPLAY)?;
+    let parser = boon::Parser::from_file(path).map_err(|_| reason::NOT_A_REPLAY)?;
     let ability_classes = crate::parse_hero::ability_classes(&parser);
     observe_with(match_id, build, server_start, &ability_classes, |classes, properties, events, on_tick| {
         parser.run_to_end_with_properties(classes, properties, Some(events), on_tick).map_err(|_| reason::PARSE_FAILED)
     })
+}
+
+/// Read the whole demo front to back from `open()`'s reader, through a bounded buffer: no map
+/// and no whole-file buffer (boon's vendored `StreamParser`, crates/vendor/VENDORED.md). The
+/// header checks come from the stream's own `DEM_FileHeader`. `open` is called again only for a
+/// demo whose schema changes after signon, which the property filter can't follow: that one is
+/// played a second time with full decoding, as the mapped parse does from its index.
+pub fn observe_stream<R: std::io::Read>(mut open: impl FnMut() -> std::io::Result<R>, match_id: u64) -> Result<Obs, Failure> {
+    let mut full = false;
+    loop {
+        let mut reader = open().map_err(|_| reason::NOT_A_REPLAY)?;
+        let ((build, server_start), read) = peek_header(&mut reader)?;
+        if build < FIRST_CURRENT_BUILD {
+            return Err(reason::OLD_MAP);
+        }
+        let parser = boon::StreamParser::new(std::io::Cursor::new(read).chain(reader)).map_err(|_| reason::NOT_A_REPLAY)?;
+        let ability_classes = crate::parse_hero::ability_classes_of(parser.class_info(), parser.serializers());
+        let mut schema_changed = false;
+        let obs = observe_with(match_id, build, server_start, &ability_classes, |classes, properties, events, on_tick| {
+            let properties = if full { &[] } else { properties };
+            parser.run_to_end_with_properties(classes, properties, Some(events), on_tick).map_err(|e| {
+                schema_changed = e.is_schema_change();
+                reason::PARSE_FAILED
+            })
+        });
+        match obs {
+            Err(_) if schema_changed && !full => full = true,
+            obs => return obs,
+        }
+    }
+}
+
+/// The header checks on a stream's first command (`DEM_FileHeader`), before its signon is
+/// parsed, as [`header`] does for a file. Returns the bytes it read, to be read again.
+fn peek_header(r: &mut impl std::io::Read) -> Result<((u32, i32), Vec<u8>), Failure> {
+    use crate::preview::{cmd, header};
+    // The file header (16 bytes) and the longest command header (three 5-byte varints).
+    let mut read = vec![0; 16 + 15];
+    r.read_exact(&mut read).map_err(|_| reason::NOT_A_REPLAY)?;
+    let h = header(&read[16..]).filter(|h| read[..8] == *crate::DEM_MAGIC && h.cmd == cmd::FILE_HEADER && h.size <= 1 << 20).ok_or(reason::NOT_A_REPLAY)?;
+    let body = 16 + h.len..16 + h.len + h.size as usize;
+    if read.len() < body.end {
+        let have = read.len();
+        read.resize(body.end, 0);
+        r.read_exact(&mut read[have..]).map_err(|_| reason::NOT_A_REPLAY)?;
+    }
+    let raw = &read[body];
+    let raw = if h.compressed { snap::raw::Decoder::new().decompress_vec(raw).map_err(|_| reason::NOT_A_REPLAY)? } else { raw.to_vec() };
+    let header = boon_proto::proto::CDemoFileHeader::decode(&raw[..]).map_err(|_| reason::NOT_A_REPLAY)?;
+    Ok((checked(header)?, read))
 }
 
 /// The callback a parse runs on every tick: the entities and the tick's collected messages.
@@ -353,7 +417,7 @@ pub fn observe_with(
         if start <= 0.0 || game < seconds.len() as f64 || game > f64::from(crate::timeline::MAX_DURATION_S) {
             return;
         }
-        let mut s = sample(ctx, k, rules, now as f32);
+        let mut s = sample(ctx, k, rules, now as f32, hero.rift_troopers());
         s.abilities = std::mem::take(&mut casts);
         s.zip_teams = zip_teams(ctx, k, &mut zip_index, &mut zip_nodes);
         // Fill every second up to this one (a gap in ticks repeats the sample).
@@ -716,7 +780,8 @@ fn ability_used(ctx: &boon::Context, k: &Keys, payload: &[u8]) -> Option<Ability
     None
 }
 
-fn sample(ctx: &boon::Context, k: &Keys, rules: &boon::entity::Entity, now: f32) -> Sample {
+/// `rift_troopers`: the handles of the units carrying the rift's `kothtrooper` modifier.
+fn sample(ctx: &boon::Context, k: &Keys, rules: &boon::entity::Entity, now: f32, rift_troopers: &HashSet<u32>) -> Sample {
     let mut s = Sample { now, ..Default::default() };
     let ents = ctx.entities();
     for (_, e) in ents.iter() {
@@ -751,10 +816,12 @@ fn sample(ctx: &boon::Context, k: &Keys, rules: &boon::entity::Entity, now: f32)
         } else if !e.active {
             continue;
         } else if class == TROOPER {
-            if e.get_i64(k.trooper.max_health) == 0 || e.get_i64(k.trooper.life) != 0 || e.get_i64(k.trooper.health) <= 0 {
+            // Max health 1: the units waiting at the bases (exploration round 8), not lane troopers.
+            if e.get_i64(k.trooper.max_health) <= 1 || e.get_i64(k.trooper.life) != 0 || e.get_i64(k.trooper.health) <= 0 {
                 continue;
             }
-            s.troopers.push(TrooperObs { id: e.index, team: e.get_i64(k.trooper.team), lane: e.get_i64(k.trooper.lane), pos: k.trooper.pos(e) });
+            let rift = rift_troopers.iter().any(|h| ents.get_by_handle(*h).is_some_and(|r| r.index == e.index));
+            s.troopers.push(TrooperObs { id: e.index, team: e.get_i64(k.trooper.team), lane: e.get_i64(k.trooper.lane), pos: k.trooper.pos(e), rift });
         } else if class == KOTH {
             s.rift_spawner = Some(k.koth.pos(e));
         } else if class == PICKUP {

@@ -72,12 +72,12 @@ fn jobs_fail_with_their_reason_and_their_demos_go() {
     assert_eq!(files(&p.join("inbox")).len(), 6);
     assert!(files(&p.join("work")).is_empty(), "every expanded demo is deleted when its parse ends");
     assert!(files(&p.join("outbox")).iter().all(|f| f.ends_with(".failed") || f.ends_with(".stats")), "{:?}", files(&p.join("outbox")));
-    // Each job's record (docs/specs/observability.md §2): the demo's size, and how long the
-    // compressed one took to expand.
+    // Each job's record (docs/specs/observability.md §2): the demo's size. A compressed one
+    // decompresses into the parse, so it has no expansion of its own.
     let record = |job: &str| -> mapcro_replay::JobStats { serde_json::from_slice(&std::fs::read(p.join("outbox").join(format!("{job}.stats"))).expect("record")).expect("json") };
     assert_eq!(record("3-cdn").demo_bytes, Some(34));
-    assert!(record("5-cdn").decompress_s.is_some(), "a compressed demo was expanded");
-    assert_eq!(record("4-cdn").decompress_s, None, "a raw demo isn't");
+    assert_eq!(record("5-cdn").decompress_s, None, "a compressed demo streams into the parse");
+    assert!(record("5-cdn").parse_s.is_some());
     assert!(record("4-cdn").peak_rss_bytes.is_some_and(|b| b > 0), "the child's peak memory");
     assert!(record("4-cdn").peak_anon_bytes.is_some_and(|b| b > 0), "the child's anonymous peak");
     // A second run doesn't redo jobs whose results wait for the server.
@@ -90,8 +90,14 @@ fn jobs_fail_with_their_reason_and_their_demos_go() {
 fn a_job_over_its_limits_fails_and_a_crashed_run_is_recovered() {
     let q = queue();
     let p = q.path();
+    // A current demo's header, then a command whose body runs past the cap.
+    let mut bomb = header_only("citadel_v6813");
+    bomb.truncate(bomb.len() - 3);
+    bomb.extend_from_slice(&[10, 0]); // DEM_CustomData at tick 0
+    varint(100_000, &mut bomb);
+    bomb.resize(bomb.len() + 100_000, 7);
     let mut bz = bzip2::write::BzEncoder::new(Vec::new(), bzip2::Compression::fast());
-    bz.write_all(&vec![7u8; 100_000]).expect("bz2");
+    bz.write_all(&bomb).expect("bz2");
     std::fs::write(p.join("inbox/1-cdn.bz2"), bz.finish().expect("bz2")).expect("bomb");
     // Left over from a worker that died mid-parse.
     std::fs::write(p.join("work/2-cdn.dem"), b"PBDEMS2\0").expect("left over");

@@ -137,6 +137,8 @@ pub struct TrooperObs {
     /// The trooper's `m_iLane` (1, 4, 6 on the current map: our lane keys' numbers).
     pub lane: i64,
     pub pos: [f32; 2],
+    /// Spawned by a captured rift: it carries `citadel_koth_cashin/kothtrooper`.
+    pub rift: bool,
 }
 
 /// A bridge powerup's pickup (`CCitadel_Pickup_Modifier` at a powerup site) where it changes, read
@@ -1107,10 +1109,10 @@ pub const TROOPER_EVERY_S: usize = 1;
 
 /// The lane troopers in the recording every `every` seconds, per team (timeline.rs `Troopers`).
 pub fn troopers_at(obs: &Obs, every: usize) -> crate::timeline::Troopers {
-    use crate::timeline::{MAX_TROOPERS, encode_troopers};
+    use crate::timeline::{MAX_TROOPERS, RIFT_TROOPER, encode_troopers};
     let q = |v: f32| v.round().clamp(-16384.0, 16384.0) as i16;
     let pack = |team: i64, s: &Sample| {
-        let list: Vec<(u16, i16, i16)> = s.troopers.iter().filter(|t| t.team == team).take(MAX_TROOPERS).map(|t| (t.id as u16, q(t.pos[0]), q(t.pos[1]))).collect();
+        let list: Vec<(u16, i16, i16)> = s.troopers.iter().filter(|t| t.team == team).take(MAX_TROOPERS).map(|t| ((t.id as u16 & !RIFT_TROOPER) | if t.rift { RIFT_TROOPER } else { 0 }, q(t.pos[0]), q(t.pos[1]))).collect();
         encode_troopers(&list)
     };
     let picked: Vec<&Sample> = obs.seconds.iter().step_by(every.max(1)).collect();
@@ -1631,8 +1633,8 @@ mod tests {
     fn troopers_are_packed_per_team_per_second_and_gaps_stay_empty() {
         let mut s = seconds(3);
         s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
-        s[0].troopers = vec![TrooperObs { id: 70001, team: 2, lane: 4, pos: [100.4, -200.6] }, TrooperObs { id: 5, team: 3, lane: 1, pos: [9.0, 9.0] }];
-        s[2].troopers = vec![TrooperObs { id: 70001, team: 2, lane: 4, pos: [150.0, -150.0] }];
+        s[0].troopers = vec![TrooperObs { id: 70001, team: 2, lane: 4, pos: [100.4, -200.6], rift: false }, TrooperObs { id: 5, team: 3, lane: 1, pos: [9.0, 9.0], rift: false }];
+        s[2].troopers = vec![TrooperObs { id: 70001, team: 2, lane: 4, pos: [150.0, -150.0], rift: false }];
         let t = derive(&obs(s), map::current()).expect("timeline");
         let tr = t.troopers.expect("troopers");
         assert_eq!(tr.every_s, 1);
@@ -1640,6 +1642,19 @@ mod tests {
         assert_eq!(decode_troopers(&tr.sapphire[0]), Some(vec![(5, 9, 9)]));
         assert_eq!(tr.amber[1], "", "a gap is an empty sample");
         assert_eq!(decode_troopers(&tr.amber[2]), Some(vec![(70001u32 as u16, 150, -150)]));
+    }
+
+    #[test]
+    fn a_rift_trooper_carries_bit_15_of_its_id_and_others_never_do() {
+        use crate::timeline::RIFT_TROOPER;
+        let mut s = seconds(1);
+        s[0].heroes = vec![hero(1, 2, true, [0.0, 0.0])];
+        let t = |id, rift| TrooperObs { id, team: 2, lane: 1, pos: [0.0, 0.0], rift };
+        // 16,383 is the largest entity index; one at or above 32,768 must not read as a rift's.
+        s[0].troopers = vec![t(16383, true), t(16383, false), t(7, true), t(40000, false)];
+        let tr = derive(&obs(s), map::current()).expect("timeline").troopers.expect("troopers");
+        let ids: Vec<u16> = decode_troopers(&tr.amber[0]).expect("sample").into_iter().map(|(id, _, _)| id).collect();
+        assert_eq!(ids, [16383 | RIFT_TROOPER, 16383, 7 | RIFT_TROOPER, 40000 & !RIFT_TROOPER]);
     }
 
     #[test]

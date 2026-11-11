@@ -308,6 +308,22 @@ is found through `XDG_DATA_HOME`). On Windows CI the registry value `HKLM\SOFTWA
 `InstallPath` points at the fake root (the job also writes `HKCU\Software\Valve\Steam`
 `SteamPath`, as Steam does, though the app doesn't read it).
 
+On Windows, two things differ from Linux:
+
+- **DevTools.** msedgedriver asks for WebView2's DevTools through `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`
+  (`--remote-debugging-port=0` and its automation switches), but WebView2 ignores that variable
+  when the app passes browser arguments of its own, as wry always does. The session then fails
+  after 60 s with `DevToolsActivePort file doesn't exist`. So a **debug** build with tauri-driver's
+  `TAURI_WEBVIEW_AUTOMATION=true` set passes the variable's arguments on itself, merged with wry's
+  defaults (`automation_browser_args` in `app/src/main.rs`). A release build reads neither.
+- **Start by a link.** msedgedriver turns each `args` entry into a lowercased `--` switch, so it
+  can't start the app with a link. The test starts the app itself with the link, its DevTools on
+  a fixed port, and reads the page's URL from DevTools' `/json/list`.
+
+On a failure, CI uploads `windows-smoke-diag`: msedgedriver's verbose log (the capabilities, the
+arguments it set, the launch) and the app's and WebView2's processes with their command lines,
+every 3 s.
+
 ## CI
 
 `.github/workflows/desktop.yml` runs on every push to main and every PR that touches `desktop/`,

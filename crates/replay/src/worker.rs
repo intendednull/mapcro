@@ -10,8 +10,8 @@
 //! outbox/<job>.parsing        the worker's: a job it is on now
 //! outbox/<job>.json           the timeline; the server checks it and caches it
 //! outbox/<job>.failed         one reason code from `reason`
-//! work/                       the worker's own scratch (a decompressed demo, a result being
-//!                             written); the server never touches it
+//! work/                       the worker's own scratch (a result being written, its record);
+//!                             the server never touches it
 //! ```
 //!
 //! A job name is `<match id>-<scope>` (`[0-9a-z-]`, ≤ 64 bytes). Up to `REPLAY_WORKERS` jobs run
@@ -21,10 +21,12 @@
 //! else oldest first.
 
 use crate::{JobStats, reason};
+use std::cell::Cell;
 use std::collections::HashSet;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime};
 
 pub struct Limits {
@@ -246,7 +248,8 @@ fn publish_stats(root: &Path, job: &str, stats: &JobStats) {
 /// marker.
 fn finish(root: &Path, r: Running, result: Result<(), &'static str>) {
     let job = &r.job;
-    // The expanded copy goes now; the server deletes the original when it collects the result.
+    // A worker before the streamed parse left the expanded demo here; the server deletes the
+    // original when it collects the result.
     let _ = std::fs::remove_file(r.out.with_extension("dem"));
     let secs = r.started.elapsed().as_secs_f64();
     let mut stats = child_stats(&r.out);
@@ -306,9 +309,6 @@ pub fn run_one(root: &Path, exe: &Path, limits: &Limits, tried: &mut HashSet<Str
     true
 }
 
-/// SIGBUS: the memory-mapped demo changed or shrank under the parser.
-const SIGBUS: i32 = 7;
-
 fn spawn_child(exe: &Path, input: &Path, out: &Path, match_id: u64, limits: &Limits) -> std::io::Result<Child> {
     Command::new(exe)
         .arg("job")
@@ -335,12 +335,11 @@ fn outcome(child: &mut Child, status: std::process::ExitStatus) -> Result<(), &'
     #[cfg(unix)]
     {
         use std::os::unix::process::ExitStatusExt;
-        match status.signal() {
-            // A demo that changed or shrank while mapped (security review 2026-11-08, L5).
-            Some(SIGBUS) => return Err(reason::CORRUPT),
-            // Otherwise the kernel killed it: the cgroup's memory cap.
-            Some(_) => return Err(reason::TOO_LARGE),
-            None => {}
+        // The kernel killed it: the cgroup's memory cap. (The demo is read, not mapped, so a
+        // file changed under the parse is a parse failure, not a SIGBUS: security review
+        // 2026-11-08, L5.)
+        if status.signal().is_some() {
+            return Err(reason::TOO_LARGE);
         }
     }
     Err(reason::ALL.iter().copied().find(|r| *r == said.trim()).unwrap_or(reason::PARSE_FAILED))
@@ -438,18 +437,17 @@ fn run_job(input: &Path, out: &Path, match_id: u64, max_dem_bytes: u64, stats: &
     }
     stats.zstd_window_bytes = zstd_window(&head);
     let t = Instant::now();
-    let dem = expand(input, &out.with_extension("dem"), max_dem_bytes)?;
-    if dem != input {
-        stats.decompress_s = Some(t.elapsed().as_secs_f64());
-    }
-    let t = Instant::now();
-    // Timed whether it works or not: a parse that fails late costs as much as one that doesn't.
-    let parsed = crate::parse::observe(&dem, match_id).and_then(|obs| {
+    // A compressed download decompresses into the parse as it reads it: no expanded copy is
+    // written. Timed whether it works or not: a parse that fails late costs as much as one
+    // that doesn't.
+    let fault = Rc::new(Cell::new(None));
+    let parsed = crate::parse::observe_stream(|| demo_reader(input, max_dem_bytes, &fault), match_id).and_then(|obs| {
         let tl = crate::derive::derive(&obs, crate::map::current()).map_err(|e| e.reason())?;
         serde_json::to_vec(&tl).map_err(|_| reason::PARSE_FAILED)
     });
     stats.parse_s = Some(t.elapsed().as_secs_f64());
-    let bytes = parsed?;
+    // A decoder's failure or the size cap, not what the parse made of the cut-off stream.
+    let bytes = parsed.map_err(|why| fault.get().unwrap_or(why))?;
     stats.timeline_bytes = Some(bytes.len() as u64);
     if bytes.len() as u64 > crate::timeline::MAX_BYTES {
         return Err(reason::TOO_LARGE);
@@ -457,35 +455,58 @@ fn run_job(input: &Path, out: &Path, match_id: u64, max_dem_bytes: u64, stats: &
     std::fs::write(out, bytes).map_err(|_| reason::PARSE_FAILED)
 }
 
-/// A `.dem` path for `input`: itself, or a streamed, capped decompression to `scratch`.
-fn expand(input: &Path, scratch: &Path, max: u64) -> Result<PathBuf, &'static str> {
-    let mut head = [0u8; 8];
-    let mut f = std::fs::File::open(input).map_err(|_| reason::PARSE_FAILED)?;
-    let n = f.read(&mut head).map_err(|_| reason::PARSE_FAILED)?;
-    let head = &head[..n];
+/// Why a decompressed stream stopped early: the decoder failed (`not_a_replay`) or the demo
+/// passed the cap (`too_large`).
+type Fault = Rc<Cell<Option<&'static str>>>;
+
+/// The demo as a stream: the file itself, or its decompression (bz2 or zstd) capped at `max`
+/// bytes. An input that is neither is an error.
+fn demo_reader(input: &Path, max: u64, fault: &Fault) -> std::io::Result<Box<dyn Read>> {
+    let mut head = Vec::new();
+    std::fs::File::open(input)?.take(8).read_to_end(&mut head)?;
+    let f = std::fs::File::open(input)?;
     if head == crate::DEM_MAGIC {
-        return Ok(input.to_owned());
+        return Ok(Box::new(f));
     }
-    let f = std::fs::File::open(input).map_err(|_| reason::PARSE_FAILED)?;
-    let reader: Box<dyn Read> = if crate::is_bz2(head) {
+    let decoder: Box<dyn Read> = if crate::is_bz2(&head) {
         Box::new(bzip2::read::MultiBzDecoder::new(std::io::BufReader::new(f)))
     } else if head.starts_with(crate::ZSTD_MAGIC) {
-        let mut d = zstd::stream::read::Decoder::new(f).map_err(|_| reason::NOT_A_REPLAY)?;
+        let mut d = zstd::stream::read::Decoder::new(f)?;
         // zstd's default limit (128 MiB): the decoder's memory stays inside the job's budget.
-        d.window_log_max(27).map_err(|_| reason::PARSE_FAILED)?;
+        d.window_log_max(27)?;
         Box::new(d)
     } else {
-        return Err(reason::NOT_A_REPLAY);
+        return Err(std::io::ErrorKind::InvalidData.into());
     };
-    let dem = scratch.to_owned();
-    let mut out = std::fs::File::create(&dem).map_err(|_| reason::PARSE_FAILED)?;
-    let copied = std::io::copy(&mut reader.take(max + 1), &mut out).map_err(|_| reason::NOT_A_REPLAY)?;
-    out.flush().map_err(|_| reason::PARSE_FAILED)?;
-    if copied > max {
-        let _ = std::fs::remove_file(&dem);
-        return Err(reason::TOO_LARGE);
+    Ok(Box::new(Expanded { decoder, left: max, fault: fault.clone() }))
+}
+
+/// A decompressing reader that stops past its cap and notes why it stopped.
+struct Expanded {
+    decoder: Box<dyn Read>,
+    left: u64,
+    fault: Fault,
+}
+
+impl Read for Expanded {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self.decoder.read(buf) {
+            Ok(n) if n as u64 > self.left => {
+                self.fault.set(Some(reason::TOO_LARGE));
+                Err(std::io::Error::other("the demo passes the size cap"))
+            }
+            Ok(n) => {
+                self.left -= n as u64;
+                Ok(n)
+            }
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::Interrupted {
+                    self.fault.set(Some(reason::NOT_A_REPLAY));
+                }
+                Err(e)
+            }
+        }
     }
-    Ok(dem)
 }
 
 /// `work` mode: the service. Polls the inbox; `once` stops when it's empty (tests).
@@ -534,6 +555,7 @@ pub fn serve_with(root: &Path, exe: &Path, limits: &Limits, once: bool) -> std::
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write as _;
 
     #[test]
     fn job_names() {
@@ -548,31 +570,43 @@ mod tests {
         assert_eq!(job_of(Path::new("/x/inbox/5-cdn.exe")), None);
     }
 
+    /// Everything a reader gives, or why it stopped.
+    fn read_all(input: &Path, max: u64) -> Result<Vec<u8>, &'static str> {
+        let fault = Rc::new(Cell::new(None));
+        let mut out = Vec::new();
+        demo_reader(input, max, &fault).and_then(|mut r| r.read_to_end(&mut out)).map_err(|_| fault.get().unwrap_or(reason::NOT_A_REPLAY))?;
+        Ok(out)
+    }
+
     #[test]
-    fn compressed_inputs_expand_under_a_cap() {
+    fn compressed_inputs_stream_under_a_cap() {
         let dir = tempfile::tempdir().expect("dir");
         let body: Vec<u8> = crate::DEM_MAGIC.iter().copied().chain(std::iter::repeat_n(7u8, 10_000)).collect();
         let bz = dir.path().join("1-a.bz2");
         let mut enc = bzip2::write::BzEncoder::new(std::fs::File::create(&bz).expect("f"), bzip2::Compression::fast());
         enc.write_all(&body).expect("w");
         enc.finish().expect("finish");
-        let scratch = dir.path().join("x.dem");
-        let dem = expand(&bz, &scratch, 1 << 20).expect("expands");
-        assert_eq!(std::fs::read(&dem).expect("read"), body);
-        assert_eq!(expand(&bz, &scratch, 1000), Err(reason::TOO_LARGE));
-        assert!(!scratch.exists(), "a capped expansion leaves nothing behind");
+        assert_eq!(read_all(&bz, 1 << 20), Ok(body.clone()));
+        assert_eq!(read_all(&bz, body.len() as u64), Ok(body.clone()), "the cap is inclusive");
+        assert_eq!(read_all(&bz, 1000), Err(reason::TOO_LARGE));
 
         let zst = dir.path().join("2-a.zst");
-        std::fs::write(&zst, zstd::encode_all(&body[..], 3).expect("zstd")).expect("w");
-        assert_eq!(std::fs::read(expand(&zst, &scratch, 1 << 20).expect("expands")).expect("read"), body);
+        let packed = zstd::encode_all(&body[..], 3).expect("zstd");
+        std::fs::write(&zst, &packed).expect("w");
+        assert_eq!(read_all(&zst, 1 << 20), Ok(body.clone()));
+        // A download cut short: the decoder fails, and says so.
+        std::fs::write(&zst, &packed[..packed.len() / 2]).expect("w");
+        assert_eq!(read_all(&zst, 1 << 20), Err(reason::NOT_A_REPLAY));
 
-        let junk = dir.path().join("3-a.dem");
+        let dem = dir.path().join("3-a.dem");
+        std::fs::write(&dem, &body).expect("w");
+        assert_eq!(read_all(&dem, 10), Ok(body), "a raw demo is read as it is");
+
+        let junk = dir.path().join("4-a.dem");
         std::fs::write(&junk, b"MZ\x90\0not a demo").expect("w");
-        assert_eq!(expand(&junk, &scratch, 1 << 20), Err(reason::NOT_A_REPLAY));
+        assert_eq!(read_all(&junk, 1 << 20), Err(reason::NOT_A_REPLAY));
     }
 
-    /// A child killed by SIGBUS (a demo changed under its memory map) is `corrupt`; one killed
-    /// otherwise (the memory cap) is `too_large` (security review 2026-11-08, L5).
     /// work/ and outbox/ on different filesystems, as in the worker's sandbox, where they are
     /// separate bind mounts: a finished timeline still reaches the outbox. On 2026-11-08 a rename
     /// across them failed every successful parse in production.
@@ -667,6 +701,7 @@ mod tests {
         assert_eq!(zstd_window(&crate::ZSTD_MAGIC[..]), None, "truncated");
     }
 
+    /// A child killed by a signal (the memory cap) is `too_large`.
     #[cfg(unix)]
     #[test]
     fn a_child_killed_by_a_signal_says_why() {
@@ -680,7 +715,6 @@ mod tests {
         };
         let (input, out) = (dir.path().join("1-a.dem"), dir.path().join("1-a.json"));
         let limits = Limits::default();
-        assert_eq!(run_child(&script("bus", "BUS"), &input, &out, 1, &limits), Err(reason::CORRUPT));
         assert_eq!(run_child(&script("kill", "KILL"), &input, &out, 1, &limits), Err(reason::TOO_LARGE));
     }
 

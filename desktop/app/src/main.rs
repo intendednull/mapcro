@@ -295,12 +295,64 @@ fn dev_capability(app: &AppHandle, site: &Url) -> tauri::Result<()> {
 /// The one window: the site. A link off the site opens in the system browser, and no second
 /// window opens (routes.rs). Closing it quits: nothing runs in the background.
 fn window(app: &AppHandle, site: &Url) -> tauri::Result<()> {
-    let builder = WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::External(site.clone()))
+    let builder = WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::External(site.clone()));
+    #[cfg(debug_assertions)]
+    let builder = match automation_browser_args() {
+        Some(args) => builder.additional_browser_args(&args),
+        None => builder,
+    };
+    let builder = builder
         .title("mapcro")
         .inner_size(1440.0, 900.0)
         .min_inner_size(960.0, 600.0);
     routes::handle(builder, app, WINDOW, site).build()?;
     Ok(())
+}
+
+/// A debug build under WebDriver (the smoke test, Windows): the browser arguments msedgedriver
+/// sets in `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` (`--remote-debugging-port=0` among them), merged
+/// with wry's defaults. WebView2 ignores that variable when the app passes arguments of its own,
+/// as wry always does, so without this the driver never finds the DevTools port ("DevToolsActivePort
+/// file doesn't exist"). Only with tauri-driver's `TAURI_WEBVIEW_AUTOMATION=true` set too; a
+/// release build reads neither.
+#[cfg(debug_assertions)]
+fn automation_browser_args() -> Option<String> {
+    if std::env::var("TAURI_WEBVIEW_AUTOMATION").as_deref() != Ok("true") {
+        return None;
+    }
+    let driver = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").ok().filter(|a| !a.trim().is_empty())?;
+    Some(merge_browser_args("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required", &driver))
+}
+
+/// `base` then `extra`, with one `--disable-features=` holding both lists (Chromium reads only the
+/// last of a repeated switch).
+#[cfg(debug_assertions)]
+fn merge_browser_args(base: &str, extra: &str) -> String {
+    const DISABLE: &str = "--disable-features=";
+    let (mut features, mut rest) = (Vec::new(), Vec::new());
+    for arg in base.split_whitespace().chain(extra.split_whitespace()) {
+        match arg.strip_prefix(DISABLE) {
+            Some(list) => {
+                for f in list.split(',') {
+                    if !f.is_empty() && !features.contains(&f) {
+                        features.push(f);
+                    }
+                }
+            }
+            None => rest.push(arg),
+        }
+    }
+    let disable = format!("{DISABLE}{}", features.join(","));
+    std::iter::once(disable.as_str()).chain(rest).collect::<Vec<_>>().join(" ")
+}
+
+#[cfg(all(test, debug_assertions))]
+mod tests {
+    #[test]
+    fn merges_disable_features() {
+        let merged = super::merge_browser_args("--disable-features=a,b --x", "--y --disable-features=b,c --remote-debugging-port=0");
+        assert_eq!(merged, "--disable-features=a,b,c --x --y --remote-debugging-port=0");
+    }
 }
 
 /// Check the update feed once at start, and install what it offers (Windows: the installer runs

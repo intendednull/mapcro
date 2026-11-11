@@ -7,7 +7,9 @@
 //! `cargo run --release --example memory_probe -- <mode> <demo> [out.json]`
 //!
 //! - `full`: the worker's job (`parse::observe`, `derive`, `serde_json::to_vec`), phase by phase,
-//!   with the observations' size by field.
+//!   with the observations' size by field. The parse is streamed from the file.
+//! - `full-mapped`: the same over the memory-mapped file (`parse::observe_mapped`), main's parse
+//!   before the streamed one: the A/B (docs/research/parser-memory.md, "Streamed").
 //! - `boon`: boon alone over the mmapped demo (`from_file`, its index, then the filtered run with
 //!   events and the worker's classes, an empty callback): its own state and buffers.
 //! - `bytes`: the same as `boon` from `std::fs::read` + `from_bytes` (what a wasm build without
@@ -365,8 +367,9 @@ fn main() {
     });
     let t = Instant::now();
     match mode {
-        "full" => {
-            let obs = phase("observe", || mapcro_replay::parse::observe(&path, 0).expect("observe"));
+        "full" | "full-mapped" => {
+            let observe = if mode == "full" { mapcro_replay::parse::observe } else { mapcro_replay::parse::observe_mapped };
+            let obs = phase("observe", || observe(&path, 0).expect("observe"));
             obs_sizes(&obs);
             let tl = phase("derive", || mapcro_replay::derive::derive(&obs, mapcro_replay::map::current()).expect("derive"));
             let bytes = phase("serialise", || serde_json::to_vec(&tl).expect("json"));
@@ -390,7 +393,7 @@ fn main() {
         }
         "state" => state(&path, false),
         "state-filtered" => state(&path, true),
-        _ => panic!("mode: full | boon | bytes | census"),
+        _ => panic!("mode: full | full-mapped | boon | bytes | census | spliced | state | state-filtered"),
     }
     STOP.store(true, Relaxed);
     let _ = sampler.join();

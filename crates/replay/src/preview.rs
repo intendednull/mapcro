@@ -167,10 +167,10 @@ pub fn last_full_packet(b: &[u8], floor: usize, target: usize, body_ok: impl Fn(
     })
 }
 
-#[cfg(feature = "parse")]
+#[cfg(feature = "mmap")]
 pub use reader::{Read, read, read_counted};
 
-#[cfg(feature = "parse")]
+#[cfg(feature = "mmap")]
 mod reader {
     use super::*;
     use crate::{content_build, reason};

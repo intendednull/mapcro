@@ -6,10 +6,16 @@ import type { Timeline } from "../match/timeline";
 
 export interface Dot {
   team: "amber" | "sapphire";
+  /** As recorded: the entity index, with [`RIFT_TROOPER`] set on a rift's. */
   id: number;
   x: number;
   y: number;
+  /** Spawned by a captured rift: the game draws it bigger and darker. */
+  rift: boolean;
 }
+
+/** Bit 15 of a trooper's id: a captured rift spawned it (timeline.rs `RIFT_TROOPER`). */
+export const RIFT_TROOPER = 0x8000;
 
 /** One packed sample: little-endian `[id: u16, x: i16, y: i16]` triples, base64. */
 export function decodeSample(b64: string): Array<[number, number, number]> {
@@ -77,9 +83,10 @@ export function troopersAt(tl: Timeline, t: number): Dot[] {
   const f = Math.max(0, Math.min(1, t / every - k0));
   const out: Dot[] = [];
   for (const { team, id, a, b } of pairsAt(tl, k0)) {
-    if (a && b) out.push({ team, id, x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f });
-    else if (a && f < 0.5) out.push({ team, id, x: a[0], y: a[1] });
-    else if (b && f >= 0.5) out.push({ team, id, x: b[0], y: b[1] });
+    const rift = (id & RIFT_TROOPER) !== 0;
+    if (a && b) out.push({ team, id, x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f, rift });
+    else if (a && f < 0.5) out.push({ team, id, x: a[0], y: a[1], rift });
+    else if (b && f >= 0.5) out.push({ team, id, x: b[0], y: b[1], rift });
   }
   return out;
 }

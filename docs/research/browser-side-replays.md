@@ -224,6 +224,10 @@ back to the forwarding variant only if priming fails.
 
 ## Later (backlog)
 
+**Superseded in part (2026-11-11):** boon is vendored with a streamed reader and the parse built
+for wasm32 ran in node in 30.7 MiB with the same timeline ([parser-memory](parser-memory.md) §5);
+reqwest and memmap2 are features now. The notes below are from before.
+
 **Parsing in the browser (WebAssembly): not built, not measured.** Learned so far:
 - boon-deadlock 0.19.0 has `Parser::from_bytes(Vec<u8>)` (its docs mention WASM). `from_file`
   memory-maps the file.

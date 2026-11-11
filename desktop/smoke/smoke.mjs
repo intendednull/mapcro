@@ -20,11 +20,11 @@
 // it needs the registry value, which only the CI job writes (`.github/workflows/desktop.yml`).
 // No dependencies: the WebDriver calls are plain fetch.
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -285,11 +285,44 @@ try {
 
 // The app started by a link opens on its board.
 session = undefined;
+const link = `mapcro://b/${BOARD}#${TOKEN}`;
+const want = `${site}b/${BOARD}#${TOKEN}`;
+if (process.platform === "win32") {
+  // msedgedriver turns each `args` entry into a lowercased `--` switch, so it can't start the app
+  // with a link. Start it as the system does instead, with WebView2's DevTools on a port (the debug
+  // build passes WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS on under TAURI_WEBVIEW_AUTOMATION), and read
+  // the page's URL from the DevTools target list.
+  spawnSync("taskkill", ["/F", "/T", "/IM", basename(app)], { stdio: "ignore" });
+  const cdp = 9223;
+  const p = spawn(resolve(app), [link], {
+    env: {
+      ...env,
+      TAURI_WEBVIEW_AUTOMATION: "true",
+      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdp}`,
+      WEBVIEW2_USER_DATA_FOLDER: mkdtempSync(join(tmpdir(), "mapcro-smoke-wv2-")),
+    },
+    stdio: "ignore",
+  });
+  try {
+    const url = await until("the first page", async () => {
+      const targets = await (await fetch(`http://127.0.0.1:${cdp}/json/list`)).json();
+      return targets.find((t) => t.type === "page" && t.url.startsWith(site))?.url ?? null;
+    });
+    check("started by a mapcro:// link, the app opens on its board", url === want, url);
+  } catch (e) {
+    check("the start by a link", false, e.message);
+  } finally {
+    p.kill();
+    spawnSync("taskkill", ["/F", "/T", "/IM", basename(app)], { stdio: "ignore" });
+    driver.kill();
+    server.close();
+  }
+  console.log(failures.length ? `${failures.length} failed` : "all passed");
+  process.exit(failures.length ? 1 : 0);
+}
 try {
-  const link = `mapcro://b/${BOARD}#${TOKEN}`;
   const s = await wd("POST", "/session", { capabilities: { alwaysMatch: { "tauri:options": { application: resolve(app), args: [link] } } } });
   session = s.sessionId;
-  const want = `${site}b/${BOARD}#${TOKEN}`;
   const url = await until("the first page", async () => {
     const u = await wd("GET", `/session/${session}/url`);
     return u.startsWith(site) ? u : null;

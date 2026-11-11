@@ -41,13 +41,16 @@ Ids are `CUtlStringToken`s: MurmurHash2 of the lower-cased name, seed `0x3141592
 | `rejuv` | msg `k_EUserMsg_RejuvStatus` (4 taken, 5 used, 6 expired); rules `m_iAmber/SapphireRejuvCount` | derive.rs `rejuvs` | timers audit gap 1 |
 | `heals`, `crates` | `CCitadel_Pickup_Health`; `CCitadel_BreakableProp` with the tough-crate token | derive.rs `up_down_sites` | [map-objectives-audit](map-objectives-audit.md) |
 | `zips` | `CCitadelZipLineNode.m_iTeamNum` | derive.rs `zips` | exploration round 4 |
-| `troopers` | `CNPC_Trooper` | derive.rs `troopers_at` | exploration §5 |
+| `troopers` | `CNPC_Trooper`, alive, max health above 1 (the one-health units waiting at the bases are left out). Bit 15 of the id (`RIFT_TROOPER`, within format 9) marks a rift's trooper: the unit carries `citadel_koth_cashin/kothtrooper` in `ActiveModifiers` | parse.rs `sample`, parse_hero.rs `rift_troopers`, derive.rs `troopers_at` | exploration §5, round 8 |
 | clock, mode, build | rules `m_flGameStartTime`, `m_bGamePaused`, `m_nTotalPausedTicks`, `m_iWinningTeam`, `m_eGameMode`; build from `game_directory` | parse.rs, lib.rs | exploration "Clock correction"; timers audit "Clocks" |
 
 **Format history** (`timeline::FORMAT`, now 9): 0 unstamped; 1 respawns, urn; 2 buff types,
 rift opening; 3 Rejuvenator, rift capture; 4 vision; 5 healing pickups; 6 clock holds through a
 pause; 7 builds, abilities, casts, charges, CC, effects, recaps, height, zipline, tough crates;
 8 level, max HP, kills, assists; 9 statue pickups (`pickups`). Format 7 runs about 41 KB per match minute.
+Within 9, without a bump: `troopers` ids carry bit 15 for a rift's trooper, and the base units
+are left out. Older format-9 timelines just lack both; a client that ignores the bit draws the
+unit as any other (the id stays stable for following it), so no app update is needed.
 
 **Cache re-fetch** (`crates/server/src/replays.rs` `stale`; spec §6a "Format stamp"; backlog
 "Replay timeline format versions"): a cached fetched timeline whose `format` is below `FORMAT`,
@@ -77,10 +80,18 @@ props 6.2, troopers 3.4, zipline nodes 1.5) and our per-second `Obs` ~14 MB. Bra
 `parser-memory` keeps only the modifier fields read, filters those three classes' properties and
 collects only the 5 message types read. That gives 32.5 MB, the same timeline, and a parse that
 survives a 36M cap (main is killed at 40M). `from_bytes` adds 481 MB. boon has no reader API, but
-the forward pass needs none: a streamed reader means a small vendored pbdems2+boon patch
-(projected wasm peak 35–40 MB). The no-patch spliced read (minute stretches through `from_bytes`)
-gets every field right except the tough crates (70 of 78). `cargo check` for wasm32 passes, but
-zstd-sys builds host (x86-64) objects there.
+the forward pass needs none. The no-patch spliced read (minute stretches through `from_bytes`)
+gets every field right except the tough crates (70 of 78).
+
+**Streamed parse** (branch `stream-parse`, [parser-memory](parser-memory.md) "Streamed";
+`crates/vendor/VENDORED.md`): boon and pbdems2 are vendored with `StreamParser`, a forward run
+over any `Read` through a 256 KiB buffer. 129738985's timeline is **byte-identical** to the
+mapped parse from the `.dem`, a `.zst` and a `.bz2`, and from a wasm32 build run in node (30.7 MiB
+of wasm memory, 21 s). A job's VmHWM drops from ~540 MB to 37–40 MB, the anonymous peak from 35 to
+33 MB, a download writes 1.9 MB instead of 506 MB, and wall time is unchanged. It parses under a
+34M cap; the mapped one is killed there. A stream can't see a later schema command ahead, so a run
+with a property filter that meets one fails (`Error::is_schema_change`) and `observe_stream` plays
+the demo again in full. A cdylib over the `parse` feature builds for wasm32 with no C code.
 
 **Client-parsed timelines** (`replays.rs` `client_timeline`; spec §6a "Timelines parsed on the
 user's machine"): a timeline sent by the desktop app is refused unless its `format` equals
@@ -236,13 +247,29 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   modifier table (no values), the user messages, and the `damage`/`pre_damage` ratio (rejected).
   The UI keeps "—". [scoreboard-values](scoreboard-values.md) "Bullet and spirit resistance";
   probes in `crates/replay/examples/{schema,statviewer,damage_ratio}_probe.rs`.
-- **No rift-spawned troopers to tell apart** (feedback #5, checked 2026-11-11 on 129738985, 5
-  rifts; `examples/trooper_probe.rs`). `CNPC_Trooper` carries `m_nSubclassID` (the token of
-  `trooper_normal`, `trooper_medic`, `trooper_melee`, plus one unnamed token on 96 units at
-  minute 0 only), `m_iLane` (1, 4, 6 only) and an empty `m_hOwnerEntity`; no other unit kind or
-  lane appears around the rifts, and `hud_minimap.vcss` styles every `.npc` alike. Nothing in the
-  recording or the HUD marks a trooper the rift spawned, so the minimap can't colour them. An
-  operator screenshot of one in game, or a replay where they appear, would reopen it.
+- **Rift-spawned troopers are marked** (feedback #5; this corrects the first pass, which
+  found nothing). Checked 2026-11-11 on 129738985, 5 captures; `examples/rift_trooper_probe.rs`,
+  exploration round 8; built as the `troopers` bit above, and tested against the replay by
+  `local_replay.rs` `match_129738985_marks_its_rift_troopers_and_draws_no_base_units`. Each one
+  carries the modifier `citadel_koth_cashin/kothtrooper` (token 3298957459 = `token` of that
+  path), and nothing else does. They also have `CBodyComponent.m_skeletonInstance.m_flScale`
+  1.57 to 1.66: other troopers are 1.0, or 1.1/1.2 late in the match. The two pick out the same
+  8 entities, and those are never drawn without the flag. The captures spawn 7, 8, 5, 5 and 8
+  units (33) at the rift, in the 0–3 s after the rules' `m_nKothScoringTeam` rises (the
+  `rift_capture` event). They get lane 1 or 6, 2 to 2.6 times the normal health, the normal
+  subclass and the team's normal model. The first pass missed them because it compared only
+  subclass, lane and owner. Render colour/mode/FX, glow, model and mesh group, flags and
+  `m_hOwnerEntity` hold the same values in both groups. Troopers have no `m_vecFOWEntities`
+  entry, and `hud_minimap.vcss` has no trooper class, so the "darker" look comes from the game's
+  own code, from the modifier or the scale. **Trap:** trooper entities are pooled (216 on
+  129738985, the rift's own pool of 8). A unit's life is a rise of `m_lifeState` 0 with health
+  above 0, and `m_flCreateTime` and the serial don't change. A dormant (out-of-PVS) entity can
+  also be reused with no death showing, so count units from the timeline's samples, not from
+  entity state.
+- **One-health units at the bases were drawn as troopers** (fixed 2026-11-11). Up to 96 `CNPC_Trooper`s with
+  `m_iMaxHealth` 1 (subclass token 3237674373, unnamed) sit alive and active at the bases
+  (|y| 9,300–9,600). Before they were left out, 129738985's timeline had 5,467 dots there;
+  now it has 2.
 - **Recorded `max_health` refreshes only at (re)spawn.** It matched the live metadata value at
   10 of 132 snapshots, so it's stale between spawns. stat-calc-spike.md "Recorded max health" (branch
   `stat-calc`); lead handoff 2026-11-09; timeline.rs and scoreboard-values.md note it.
@@ -299,8 +326,10 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   `~/.local/share` on Linux are `kBlockAllChildren`. A browser folder picker can't open the
   default replays folder, only a secondary library's. Drop and `<input type=file>` still work.
   This is from the source and hasn't been tried in a real browser yet ([desktop-app](desktop-app.md) §2).
-- **Main's timelines aren't byte-stable:** same-instant `charges` reads came out in `HashMap` order
-  (fixed on branch `parser-memory`, TD-24). Compare with each player's `charges` sorted.
+- **Timelines before 4a7634a aren't byte-stable:** same-instant `charges` reads came out in
+  `HashMap` order (fixed, TD-24). Compare an older one with each player's `charges` sorted.
+- **A probe's timeline differs from a job's** in its match id (the probe passes 0): compare a
+  probe's output with another probe's, a job's with a job's.
 - **A full packet at tick T follows tick T's packet** (`7@3841 13@3841`): a splice cut at a full
   packet's offset splits that tick (parser-memory §2).
 - **Heavy probes** (`timer_audit` took 754 s) run alone under the load gate: the box is shared.

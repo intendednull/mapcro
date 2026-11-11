@@ -23,7 +23,7 @@ pub mod timeline;
 pub mod parse;
 #[cfg(feature = "parse")]
 pub mod parse_hero;
-#[cfg(feature = "parse")]
+#[cfg(feature = "worker")]
 pub mod worker;
 
 /// Source 2 demo files start with these eight bytes.
