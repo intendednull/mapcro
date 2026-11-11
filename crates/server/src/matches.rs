@@ -149,6 +149,9 @@ struct MatchInfo {
     /// `ECitadelGameMode`, absent in older shapes (read as standard).
     #[serde(default)]
     game_mode: Option<i64>,
+    /// The lobby team that won (0 Amber, 1 Sapphire), as `players[].team`.
+    #[serde(default)]
+    winning_team: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -193,6 +196,9 @@ struct Player {
     /// matches too). Only the item's token and its times are read.
     #[serde(default)]
     items: Vec<Item>,
+    /// The player's kills at the end (the scoreboard's), for the team's total in the preview.
+    #[serde(default)]
+    kills: Option<u32>,
 }
 
 /// One `items[]` entry (`CMsgMatchMetaDataContents.Items`).
@@ -296,6 +302,13 @@ pub struct Timeline {
     /// refused now rather than served (QA 2026-11-08).
     #[serde(default)]
     pub game_mode: Option<i64>,
+    /// "amber" or "sapphire", when the metadata says. Absent in timelines cached before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub winner: Option<String>,
+    /// Each team's kills at the end, `[amber, sapphire]`, from the players' scoreboard kills,
+    /// when every player has them. Absent in timelines cached before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_kills: Option<[u32; 2]>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -588,6 +601,16 @@ pub fn derive(raw: &[u8]) -> Result<Timeline, String> {
         mid_boss,
         reanchored,
         game_mode: Some(m.game_mode.unwrap_or(mapcro_replay::STANDARD_GAME_MODE)),
+        winner: m.winning_team.filter(|t| *t <= 1).map(|t| team_name(t).to_owned()),
+        team_kills: (!m.players.is_empty() && m.players.iter().all(|p| p.kills.is_some())).then(|| {
+            let mut k = [0u32; 2];
+            for p in &m.players {
+                if p.team <= 1 {
+                    k[p.team as usize] += p.kills.unwrap_or(0);
+                }
+            }
+            k
+        }),
         events: {
             let mut e = events;
             for o in &objectives_for_events(&m) {
@@ -817,11 +840,46 @@ pub fn valid_id(id: &str) -> bool {
 }
 
 pub async fn get(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Path(id): Path<String>) -> Response {
+    match summary(&app, peer, &headers, &id, Use::Open).await {
+        Ok(bytes) => json(bytes),
+        Err(r) => r,
+    }
+}
+
+/// Who asks for a match's summary: an open (counted as one), or a replay picker's preview card,
+/// which holds back while deadlock-api is limiting us (`preview_held`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Use {
+    Open,
+    Preview,
+}
+
+/// After the metadata call says 429, previews don't ask it for this long (opens still do).
+const PREVIEW_HOLD: Duration = Duration::from_secs(60);
+
+fn preview_hold() -> &'static Mutex<Option<Instant>> {
+    static H: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+    H.get_or_init(|| Mutex::new(None))
+}
+
+fn preview_held() -> bool {
+    preview_hold().lock().unwrap_or_else(|p| p.into_inner()).is_some_and(|until| Instant::now() < until)
+}
+
+/// The match's summary timeline (JSON), from the cache or fetched (the per-client and global
+/// limits apply either way), or the error response.
+async fn summary(app: &AppState, peer: SocketAddr, headers: &HeaderMap, id: &str, by: Use) -> Result<Vec<u8>, Response> {
+    let (app, id) = (app.clone(), id.to_owned());
+    let opened = |path: MatchPath| {
+        if by == Use::Open {
+            crate::metrics::get().matches_opened.inc((Tier::Summary, path));
+        }
+    };
     if !valid_id(&id) {
-        return err(StatusCode::BAD_REQUEST, "bad_id");
+        return Err(err(StatusCode::BAD_REQUEST, "bad_id"));
     }
     if let Some(why) = refused(&app, &id).await {
-        return err(StatusCode::UNPROCESSABLE_ENTITY, why);
+        return Err(err(StatusCode::UNPROCESSABLE_ENTITY, why));
     }
     let path = cache_path(&app, &id);
     // A cache is served only if it has events and says its mode, and the mode is standard. One
@@ -834,33 +892,39 @@ pub async fn get(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<Soc
     {
         if let Some(why) = refusal_for(mode) {
             remember_refusal(&app, &id, why).await;
-            return err(StatusCode::UNPROCESSABLE_ENTITY, why);
+            return Err(err(StatusCode::UNPROCESSABLE_ENTITY, why));
         }
-        crate::metrics::get().matches_opened.inc((Tier::Summary, MatchPath::Cached));
-        return json(bytes);
+        opened(MatchPath::Cached);
+        return Ok(bytes);
     }
-    match admit(client_key(client_ip(peer, &headers))) {
+    if by == Use::Preview && preview_held() {
+        return Err(err(StatusCode::TOO_MANY_REQUESTS, "upstream_limited"));
+    }
+    match admit(client_key(client_ip(peer, headers))) {
         Ok(()) => {}
-        Err(code) => return err(StatusCode::TOO_MANY_REQUESTS, code),
+        Err(code) => return Err(err(StatusCode::TOO_MANY_REQUESTS, code)),
     }
     let fetch_id = id.clone();
     let fetched = match tokio::task::spawn_blocking(move || fetch(&fetch_id)).await {
         Ok(f) => f,
-        Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
+        Err(_) => return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "internal")),
     };
     let raw = match fetched {
         Fetched::Ok(b) => b,
-        Fetched::NotFound => return err(StatusCode::NOT_FOUND, "not_found"),
-        Fetched::Limited => return err(StatusCode::TOO_MANY_REQUESTS, "upstream_limited"),
-        Fetched::Down(_) => return err(StatusCode::BAD_GATEWAY, "upstream_down"),
-        Fetched::TooLarge => return err(StatusCode::BAD_GATEWAY, "too_large"),
+        Fetched::NotFound => return Err(err(StatusCode::NOT_FOUND, "not_found")),
+        Fetched::Limited => {
+            *preview_hold().lock().unwrap_or_else(|p| p.into_inner()) = Some(Instant::now() + PREVIEW_HOLD);
+            return Err(err(StatusCode::TOO_MANY_REQUESTS, "upstream_limited"));
+        }
+        Fetched::Down(_) => return Err(err(StatusCode::BAD_GATEWAY, "upstream_down")),
+        Fetched::TooLarge => return Err(err(StatusCode::BAD_GATEWAY, "too_large")),
     };
     if let Some(why) = mode_refusal(&raw) {
         upstream(Endpoint::Metadata, ApiResult::Ok);
         tracing::info!(match_id = id, why, "match refused for its mode");
         remember_refusal(&app, &id, why).await;
         let _ = tokio::fs::remove_file(&path).await;
-        return err(StatusCode::UNPROCESSABLE_ENTITY, why);
+        return Err(err(StatusCode::UNPROCESSABLE_ENTITY, why));
     }
     let timeline = match tokio::task::spawn_blocking(move || {
         derive(&raw).map(|mut t| {
@@ -877,18 +941,18 @@ pub async fn get(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<Soc
         Ok(Err(e)) => {
             tracing::warn!(error = e, "match not understood");
             upstream(Endpoint::Metadata, ApiResult::Shape);
-            return err(StatusCode::BAD_GATEWAY, "upstream_shape");
+            return Err(err(StatusCode::BAD_GATEWAY, "upstream_shape"));
         }
-        Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
+        Err(_) => return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "internal")),
     };
     if timeline.match_id.to_string() != id {
         upstream(Endpoint::Metadata, ApiResult::Shape);
-        return err(StatusCode::BAD_GATEWAY, "upstream_shape");
+        return Err(err(StatusCode::BAD_GATEWAY, "upstream_shape"));
     }
     upstream(Endpoint::Metadata, ApiResult::Ok);
     let bytes = match serde_json::to_vec(&timeline) {
         Ok(b) => b,
-        Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "internal"),
+        Err(_) => return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "internal")),
     };
     let to_write = bytes.clone();
     let reanchored = timeline.reanchored;
@@ -896,8 +960,95 @@ pub async fn get(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<Soc
         Ok(Ok(())) => tracing::info!(match_id = id, reanchored, "match imported"),
         _ => tracing::warn!(match_id = id, "match cache not written"),
     }
-    crate::metrics::get().matches_opened.inc((Tier::Summary, MatchPath::Fetched));
-    json(bytes)
+    opened(MatchPath::Fetched);
+    let _ = tokio::fs::remove_file(preview_path(&app, &id)).await;
+    Ok(bytes)
+}
+
+// ---- the replay picker's preview card (spec §6a, "Previews") ----
+
+/// A match at a glance, for the Windows app's replay picker: who played (heroes by slot), the
+/// score and the winner. Derived from the summary timeline, so it carries no names and no ids.
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct Preview {
+    pub match_id: u64,
+    pub start_time: u64,
+    pub duration_s: u32,
+    /// `ECitadelGameMode` (1 standard).
+    pub game_mode: i64,
+    /// "amber" or "sapphire"; `null` when the summary doesn't say.
+    pub winner: Option<String>,
+    /// Amber, then Sapphire.
+    pub teams: Vec<PreviewTeam>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct PreviewTeam {
+    pub team: String,
+    /// `[slot, hero_id]`, in slot order.
+    pub heroes: Vec<[u32; 2]>,
+    /// The players' scoreboard kills summed; without them, the other team's deaths.
+    pub kills: u32,
+    /// The players' last souls samples (net worth) summed.
+    pub souls: u32,
+}
+
+/// The preview of a summary timeline.
+pub fn preview_of(t: &Timeline) -> Preview {
+    let teams = ["amber", "sapphire"]
+        .iter()
+        .enumerate()
+        .map(|(i, team)| {
+            let mine: Vec<&TimelinePlayer> = t.players.iter().filter(|p| p.team == *team).collect();
+            let mut heroes: Vec<[u32; 2]> = mine.iter().map(|p| [p.slot, p.hero_id]).collect();
+            heroes.sort_unstable();
+            let deaths_of_other = t.players.iter().filter(|p| p.team != *team).map(|p| p.deaths.len() as u32).sum();
+            PreviewTeam {
+                team: (*team).to_owned(),
+                heroes,
+                kills: t.team_kills.map_or(deaths_of_other, |k| k[i]),
+                souls: mine.iter().filter_map(|p| p.souls.last().map(|s| s[1])).sum(),
+            }
+        })
+        .collect();
+    Preview {
+        match_id: t.match_id,
+        start_time: t.start_time,
+        duration_s: t.duration_s,
+        game_mode: t.game_mode.unwrap_or(mapcro_replay::STANDARD_GAME_MODE),
+        winner: t.winner.clone(),
+        teams,
+    }
+}
+
+fn preview_path(app: &AppState, id: &str) -> PathBuf {
+    app.config.data_dir.join("matches").join(format!("{id}.preview.json"))
+}
+
+/// `GET /api/matches/{id}/preview`: the match's preview card, cached beside its summary. An
+/// uncached match goes the same way as opening it (the same limits, and the summary is cached
+/// for the open that follows); while deadlock-api is limiting us, previews don't ask it.
+pub async fn preview(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Path(id): Path<String>) -> Response {
+    if !valid_id(&id) {
+        return err(StatusCode::BAD_REQUEST, "bad_id");
+    }
+    let path = preview_path(&app, &id);
+    if refused(&app, &id).await.is_none()
+        && let Ok(bytes) = tokio::fs::read(&path).await
+    {
+        return json(bytes);
+    }
+    let bytes = match summary(&app, peer, &headers, &id, Use::Preview).await {
+        Ok(b) => b,
+        Err(r) => return r,
+    };
+    let derived = tokio::task::spawn_blocking(move || serde_json::from_slice::<Timeline>(&bytes).ok().and_then(|t| serde_json::to_vec(&preview_of(&t)).ok())).await;
+    let Ok(Some(out)) = derived else { return err(StatusCode::INTERNAL_SERVER_ERROR, "internal") };
+    let to_write = out.clone();
+    if tokio::task::spawn_blocking(move || write_cache(&path, &to_write)).await.map_or(true, |r| r.is_err()) {
+        tracing::warn!(match_id = id, "match preview not written");
+    }
+    json(out)
 }
 
 #[cfg(test)]

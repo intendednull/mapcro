@@ -43,8 +43,17 @@ impl Server {
 
     /// Status and body of `GET /api/matches/{id}`.
     fn get(&self, id: &str) -> (u16, String) {
+        self.get_path(&format!("/api/matches/{id}"))
+    }
+
+    /// Status and body of `GET /api/matches/{id}/preview`.
+    fn preview(&self, id: &str) -> (u16, String) {
+        self.get_path(&format!("/api/matches/{id}/preview"))
+    }
+
+    fn get_path(&self, path: &str) -> (u16, String) {
         let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).build().into();
-        let mut r = agent.get(&self.url(&format!("/api/matches/{id}"))).call().expect("request");
+        let mut r = agent.get(&self.url(path)).call().expect("request");
         let status = r.status().as_u16();
         (status, r.body_mut().read_to_string().expect("body"))
     }
@@ -126,7 +135,7 @@ fn synthetic(id: u64) -> Vec<u8> {
             "account_id": ACCOUNT_A + u64::from(slot),
             "steam_id": format!("7656119{}", ACCOUNT_A + u64::from(slot)),
             "persona": "should not leak",
-            "player_slot": slot, "team": team, "hero_id": 10 + slot, "assigned_lane": 1,
+            "player_slot": slot, "team": team, "hero_id": 10 + slot, "assigned_lane": 1, "kills": slot % 3,
             "death_details": deaths,
             "stats": [{ "time_stamp_s": 60, "net_worth": 1000 * slot }, { "time_stamp_s": 120, "net_worth": 2000 * slot }],
         }));
@@ -140,7 +149,7 @@ fn synthetic(id: u64) -> Vec<u8> {
     }
     serde_json::to_vec(&serde_json::json!({
         "match_info": {
-            "duration_s": 120, "start_time": 1_793_753_219u64, "match_id": id, "game_mode": 1, "match_mode": 1,
+            "duration_s": 120, "start_time": 1_793_753_219u64, "match_id": id, "game_mode": 1, "match_mode": 1, "winning_team": 1,
             "players": players,
             "objectives": [
                 { "team_objective_id": 5, "team": 0, "first_damage_time_s": 30, "destroyed_time_s": 60 },
@@ -435,4 +444,102 @@ fn a_timeline_is_compressed_for_a_client_that_accepts_it() {
     }
     let (head, _) = raw_get(s.port, "/api/matches/130816395", Some("br"));
     assert!(!head.contains("content-encoding"), "brotli isn't offered: {head}");
+}
+
+/// The replay picker's card (spec §6a, "Previews"): heroes by slot, the score and the winner,
+/// from the same cached summary; no names or ids, and a second look is free.
+#[test]
+fn a_preview_is_small_cached_and_carries_no_names() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut routes = routes();
+    let profiles = serde_json::json!([{ "account_id": ACCOUNT_A + 1, "personaname": "Marrow", "profileurl": "https://y", "avatar": "", "avatarmedium": "", "avatarfull": "", "last_updated": "2026-01-01T00:00:00Z", "friends": [], "matches_played_last_30d": 3 }]);
+    routes.insert("steam".to_owned(), (200, serde_json::to_vec(&profiles).expect("json")));
+    let up = upstream(routes);
+    let s = Server::start(dir.path(), up.port, &[]);
+    let (status, body) = s.preview("111");
+    assert_eq!(status, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).expect("json");
+    // Amber is slots 1–6 (heroes 11–16), Sapphire 7–12; kills are slot % 3 summed per team; souls
+    // the last samples (2000 × slot) summed; slot 1's one death doesn't count when kills are known.
+    assert_eq!(
+        v,
+        serde_json::json!({
+            "match_id": 111, "start_time": 1_793_753_219u64, "duration_s": 120, "game_mode": 1, "winner": "sapphire",
+            "teams": [
+                { "team": "amber", "heroes": [[0, 11], [1, 12], [2, 13], [3, 14], [4, 15], [5, 16]], "kills": 1 + 2 + 0 + 1 + 2 + 0, "souls": 2000 * 21 },
+                { "team": "sapphire", "heroes": [[0, 17], [1, 18], [2, 19], [3, 20], [4, 21], [5, 22]], "kills": 1 + 2 + 0 + 1 + 2 + 0, "souls": 2000 * 57 },
+            ],
+        })
+    );
+    assert!(body.len() < 1024, "{} bytes", body.len());
+    let cached = std::fs::read_to_string(dir.path().join("matches/111.preview.json")).expect("preview cache");
+    for text in [&body, &cached] {
+        for leak in ["name", "Marrow", "account", "steam", "persona", &(ACCOUNT_A + 1).to_string()] {
+            assert!(!text.contains(leak), "{leak} leaked");
+        }
+    }
+    // One upstream call: the preview again, and opening the match, are cache hits.
+    assert_eq!(s.preview("111"), (200, body));
+    assert_eq!(s.get("111").0, 200);
+    assert_eq!(up.hits("111"), 1);
+    assert_eq!(up.hits("steam"), 1, "the open's own names lookup, no more");
+}
+
+/// A match without kills in its metadata (the trimmed real one, or a summary cached before
+/// kills were kept) counts the other team's deaths; no winner is `null`.
+#[test]
+fn a_preview_without_kills_counts_deaths() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let up = upstream(routes());
+    let s = Server::start(dir.path(), up.port, &[]);
+    let (status, full) = s.get("130816395");
+    assert_eq!(status, 200, "{full}");
+    let t: serde_json::Value = serde_json::from_str(&full).expect("json");
+    let deaths = |team: &str| t["players"].as_array().expect("players").iter().filter(|p| p["team"] == team).map(|p| p["deaths"].as_array().map_or(0, Vec::len) as u64).sum::<u64>();
+    let (status, body) = s.preview("130816395");
+    assert_eq!(status, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).expect("json");
+    assert!(v["winner"].is_null());
+    assert_eq!(v["teams"][0]["kills"].as_u64(), Some(deaths("sapphire")));
+    assert_eq!(v["teams"][1]["kills"].as_u64(), Some(deaths("amber")));
+    assert_eq!(v["teams"][0]["heroes"].as_array().map(Vec::len), Some(6));
+    assert_eq!(up.hits("130816395"), 1);
+}
+
+/// No metadata (a fresh match): a 404 the card reads as "Not recorded", and nothing cached.
+/// Bad ids never reach the upstream.
+#[test]
+fn an_unknown_match_has_no_preview() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let up = upstream(routes());
+    let s = Server::start(dir.path(), up.port, &[]);
+    let (status, body) = s.preview("404");
+    assert_eq!(status, 404, "{body}");
+    assert!(body.contains("not_found"));
+    assert!(!dir.path().join("matches/404.preview.json").exists());
+    assert_eq!(s.preview("0123").0, 400);
+    assert_eq!(up.hits("0123"), 0);
+}
+
+/// deadlock-api said 429: previews stop asking it for a while (an open still may), and cached
+/// ones are still served. Previews count against the same per-client limit as opens.
+#[test]
+fn previews_hold_back_after_a_429_and_share_the_open_limits() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let up = upstream(routes());
+    let s = Server::start(dir.path(), up.port, &[("MATCH_PER_CLIENT", "3")]);
+    assert_eq!(s.preview("112").0, 200);
+    let (status, body) = s.preview("429");
+    assert_eq!((status, body.contains("upstream_limited")), (429, true), "{body}");
+    let (status, body) = s.preview("111");
+    assert_eq!((status, body.contains("upstream_limited")), (429, true), "{body}");
+    assert_eq!(up.hits("111"), 0, "held back: no upstream call");
+    assert_eq!(s.preview("112").0, 200, "a cached preview is served");
+    assert_eq!(s.get("111").0, 200, "an open still goes");
+    assert_eq!(s.preview("111").0, 200, "and its summary makes the preview");
+    assert_eq!(up.hits("111"), 1);
+    // Still held, and the per-client limit (3) is spent besides: 112, 429 and the open of 111.
+    let (status, body) = s.preview("113");
+    assert_eq!(status, 429, "{body}");
+    assert_eq!(up.hits("113"), 0);
 }
