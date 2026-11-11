@@ -52,7 +52,10 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   await a.keyboard.press("q");
   await callouts(a).locator(".bubble-body").click();
   await expect(callouts(a)).toHaveAttribute("data-open", "true");
-  await callouts(a).locator("text").dblclick();
+  // At the text's client rect: Playwright's WebKit places an SVG <text> at its <svg>'s origin
+  // (its own x/y left out), so a locator click there lands beside it. The page hit-tests it right.
+  const text = await callouts(a).locator("text").evaluate((e) => (({ x, y, width, height }) => ({ x: x + width / 2, y: y + height / 2 }))(e.getBoundingClientRect()));
+  await a.mouse.dblclick(text.x, text.y);
   await expect(a.getByTestId("comment-input")).toBeVisible();
   await expect(callouts(b).locator('.p-tag[data-tag="Coach"]')).toContainText("Coach");
   await a.getByTestId("comment-input").fill("Smoke the bridge first");

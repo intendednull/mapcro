@@ -70,6 +70,12 @@ e2e *args: wasm
     cargo build -q -p mapcro-server
     cd web && npx vite build --logLevel warn && npx playwright test {{args}}
 
+# The same specs in WebKit (from nix), the stand-in for the Linux app's WebKitGTK webview
+# (desktop/README.md, Linux). Opt-in; specs on a Chromium-only API skip with the reason.
+e2e-webkit *args: wasm
+    cargo build -q -p mapcro-server
+    cd web && npx vite build --logLevel warn && MAPCRO_E2E_WEBKIT=1 npx playwright test --project webkit {{args}}
+
 # Many-peer soak on the real stack: the real server binary (release), real WebSockets, the
 # TypeScript session over the WASM replica, IndexedDB via fake-indexeddb; drops, reloads, offline
 # bursts and server kill -9s. Same seed, same schedule of actions. `just soak 0x2a 40 600`;

@@ -157,7 +157,9 @@ test("the Rejuvenator: its events, its badge on the holder's side of the top bar
   const ring = async (team: string, pct: string | null) => {
     if (pct == null) return expect(timer(team)).toBeHidden();
     await expect(timer(team)).toBeVisible();
-    await expect(timer(team).locator(".pl-rejuv-ring")).toHaveCSS("stroke-dasharray", new RegExp(`^${pct.replace(".", "\\.")}(px)?,? 100`));
+    // As numbers: WebKit gives the float stored (91.67 → "91.669998px, 100px").
+    const dash = timer(team).locator(".pl-rejuv-ring");
+    await expect.poll(async () => (await dash.evaluate((e) => getComputedStyle(e).strokeDasharray)).split(/[ ,]+/).map((v) => Math.round(parseFloat(v) * 100) / 100)).toEqual([Number(pct), 100]);
   };
   const box = async (l: ReturnType<typeof a.locator>) => (await l.boundingBox())!;
   const bar = await box(a.getByTestId("topbar"));

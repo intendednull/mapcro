@@ -143,8 +143,10 @@ test("Where's my replay? walks through the game and Steam, on the landing and in
   await a.getByTestId("replay-help-open").click();
   await expect(a.getByTestId("replay-help-file")).toHaveText(`${NEW}.dem`);
   await shot(a, "help-player-1440");
-  // A press elsewhere closes it.
-  await a.locator(".pl-bar").click({ position: { x: 4, y: 4 } });
+  // A press elsewhere closes it: the bar's bottom-right corner, which the steps (opening up from
+  // the link) never cover however the notice wraps (it fits one line in WebKit, two in Chromium).
+  const bar = (await a.locator(".pl-bar").boundingBox())!;
+  await a.locator(".pl-bar").click({ position: { x: bar.width - 4, y: bar.height - 4 } });
   await expect(a.getByTestId("replay-help-steps")).toBeHidden();
 });
 
@@ -252,7 +254,8 @@ test("Player: a replay Valve hasn't got says so, Try again asks again, and a dro
   await expect(a.getByTestId("drop-overlay")).toHaveCount(0);
 });
 
-test("upload progress shows the percent and the size, the board stays in use, and Cancel stops it", async ({ browser }) => {
+test("upload progress shows the percent and the size, the board stays in use, and Cancel stops it", async ({ browser, browserName }) => {
+  test.skip(browserName !== "chromium", "Chromium-only: throttles the upload with a CDP session (Network.emulateNetworkConditions)");
   const a = await joinNew(browser, await newBoardUrl(server, "Progress"), "Coach");
   await a.getByTestId("mode-player").click();
   await revealControls(a, "match-id");
@@ -395,7 +398,8 @@ test.describe("a real replay", () => {
     worker?.kill("SIGKILL");
   });
 
-  test("uploads with progress from the landing's not-found, parses, and plays", async ({ browser }) => {
+  test("uploads with progress from the landing's not-found, parses, and plays", async ({ browser, browserName }) => {
+    test.skip(browserName !== "chromium", "Chromium-only: throttles the upload with a CDP session (Network.emulateNetworkConditions)");
     const p = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
     await p.goto(`${real.url}/`);
     await p.getByTestId("open-match-id").fill(id);
