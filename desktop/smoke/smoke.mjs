@@ -35,7 +35,7 @@ const DRIVER_PORT = 4444;
 
 // The CSP the live site sends, read from the server's source so the two can't drift apart.
 const main = readFileSync(join(ROOT, "crates/server/src/main.rs"), "utf8");
-const csp = /"content-security-policy",\s*"((?:[^"\\]|\\.)*)"/s.exec(main)?.[1].replace(/\\\n\s*/g, "");
+const csp = /"content-security-policy",\s*"((?:[^"\\]|\\.)*)"/s.exec(main)?.[1].replace(/\\\r?\n\s*/g, "");
 if (!csp?.includes("connect-src")) throw new Error("couldn't read the CSP from crates/server/src/main.rs");
 
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>mapcro smoke</title></head>
