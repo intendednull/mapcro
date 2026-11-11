@@ -3,6 +3,43 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## In flight at compaction (2026-11-11 ~14:00 UTC, lead mapcro-2d)
+
+- **Prod:** `web` runs 4a5a384 + pack 6860-tooltips. **Main is 3cbc680** (+ handoff docs): adds the
+  streamed parse (vendored boon/pbdems2) and desktop 0.2.0 bump/smoke fix. Gate on 3cbc680: clippy,
+  test, web-test, model-sim green; e2e 226 passed / **1 failed** (`upload-ux.spec.ts:260` upload
+  progress + Cancel; re-running with --repeat-each 2 → `/tmp/lead-upload-e2e.log`); **VM test failed
+  only on a corrupt local nix store path** (`mapcro-replay-deps` checksum), deleted and rebuilding
+  → `/tmp/lead-vm.log`. Deploy 3cbc680 once both are green (normal flow), then run the old-map and
+  Brawl refusal tests (`MAPCRO_OLD_REPLAY`, `MAPCRO_BRAWL_REPLAY`; local demos by exact path, refusal
+  only, never as data). Then lower the worker's `memoryMax`/`LimitFSIZE` once
+  `stats series zstd_window_bytes` + `parse_peak_anon_bytes` have real fetches.
+- **Desktop 0.2.0:** tag `desktop-v0.2.0` (d323e70) release run 43011973558 builds a **draft**.
+  Check its assets (setup.exe, portable zip, stable-named copies, Linux AppImage/.deb, latest.json
+  with windows + linux), then **ask the operator before publishing**. 0.1.0 installs (operator +
+  a friend) self-update after publish. `WINDOWS_APP_RELEASED` (web) stays false until the operator
+  says to show the download link.
+- **Agents running** (worktrees under `mapcro.worktrees/`):
+  - `view-state` (agent viewstateimpl): registry steps 1–3, test-first (characterisation matrix,
+    mutation testing). Operator: extra vigilance; **after it reports, run an independent adversarial
+    review (fresh Fable agent, medium effort, given the diff) before merging.**
+  - `rift-troopers` (rifttroopers): flag rift troopers (kothtrooper modifier / scale ≥ 1.5, bit 15
+    of the trooper id, no FORMAT bump), draw bigger + darker, filter 56 base phantom units. Merge →
+    close feedback #5.
+  - `sessions-spec` (sessionsspec): docs-only spec for **sessions of linked boards** (operator's
+    reframe of multi-replay tabs: each tab a full board, switch = fresh mount, remove = unlink,
+    undo = relink, existing boards addable, notes per board, no tab cap). Build only after view-state
+    lands (active tab = a registry row).
+  - `fix-batch-2` (fixbatch2): feedback #21 (map cutout clip + border over), #22 (All builds vs
+    Rejuvenator overlap), #23 (desktop off-site links incl. target=_blank → system browser). Close
+    those issues when merged.
+- **Waiting on the operator:** the 4 mobile decisions in `mobile-ux` `team/proposal.md` (team done
+  and stopped; argon quota resets 2026-11-17, not needed).
+- **Rules learned today** (also in memory): follow the game's words/behaviour over suggestions;
+  labels are tags (spec §4b); close feedback issues when their fix merges; feedback = suggestions
+  weighed against the plan; state changes need characterisation tests + mutation testing +
+  adversarial review; consult Fable when research stalls; tech-debt register reviewed each deploy.
+
 ## Mobile UX design team (throwaway branch `mobile-ux`, operator 2026-11-11)
 
 Four Paseo designers in `/storage/projects/mapcro.worktrees/mobile-ux` (brief and roster:
