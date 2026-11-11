@@ -7,6 +7,8 @@
 //! - [`folder`]: which folder the picker lists: the one the user chose, else Deadlock's own.
 //! - [`replays`]: the folder's `<match id>.dem` files, and nothing else in it.
 //! - [`parse`]: a demo to a gzip timeline, in a child process.
+//! - [`preview`]: a picker card's preview from the demo's signon and last minute, in a child,
+//!   cached by file size and time.
 //!
 //! Privacy: nothing here logs a path, a player name or an account id. A replay leaves this crate
 //! only as its match id, its size, its time and its timeline (which the server shows on the board
@@ -14,6 +16,7 @@
 
 pub mod folder;
 pub mod parse;
+pub mod preview;
 pub mod replays;
 pub mod steam;
 mod vdf;

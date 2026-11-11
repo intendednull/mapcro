@@ -7,6 +7,8 @@
 //!   client uses for `Wave.t`.
 //! - [`derive`]: per-second observations to a timeline. Pure; unit-tested without a replay.
 //! - `parse` (feature `parse`): boon reads a demo into observations.
+//! - [`preview`]: a replay picker card from the demo's signon and its last minute (`read`, feature
+//!   `parse`), without the full parse.
 //! - `worker` (feature `parse`): the on-disk queue, run as its own sandboxed service.
 
 pub mod derive;
@@ -14,6 +16,7 @@ pub mod hero_data;
 pub mod map;
 mod map_data;
 pub mod modifiers;
+pub mod preview;
 pub mod timeline;
 
 #[cfg(feature = "parse")]
