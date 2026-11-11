@@ -153,6 +153,13 @@ test("the scoreboard shows the build's calculated stats from its own patch's tab
   await expect(bar("weapon")).toHaveAttribute("aria-label", "Weapon invest, 1,600");
   const height = await bar("weapon").locator("i").evaluate((el) => (el as HTMLElement).style.height);
   expect(parseFloat(height)).toBeCloseTo(14, 3);
+  // #19: the tier badge is the game's corner wedge in the category colour, the numeral dark on it.
+  const tier = c.locator(`[data-item-id="${WEAPON}"] .tb-build-tier`);
+  await expect(tier).toHaveText("II");
+  const look = await tier.evaluate((el) => ({ color: getComputedStyle(el).color, bg: getComputedStyle(el).backgroundImage }));
+  expect(look.color).toBe("rgb(16, 19, 13)");
+  expect(look.bg).toContain("rgb(224, 172, 81)");
+  expect(await c.locator(`[data-item-id="${VIT}"] .tb-build-tier`).evaluate((el) => getComputedStyle(el).backgroundImage)).toContain("rgb(145, 199, 97)");
   // #14: each team's kill count sits in a dark box, readable over the map.
   const kills = a.locator(".tb-build-team-kills b");
   await expect(kills).toHaveCount(2);

@@ -282,7 +282,11 @@
 .tb-build-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(6 * var(--u)); padding: 0 calc(4 * var(--u)); }
 .tb-build-item { position: relative; aspect-ratio: 1; display: grid; place-items: center; background: #10130d30; }
 .tb-build-item img { width: 100%; height: 100%; object-fit: contain; }
-.tb-build-tier { position: absolute; top: 0; right: 1px; font: 600 max(7px, calc(9 * var(--u))) "VALVEOracle", var(--ui); color: #FFF6D8; text-shadow: 0 1px 2px #000; }
+/* The tier badge as the game draws it (reference item-infuser, tab-scoreboard-2230; feedback
+   #19): a corner wedge in the item's category colour, the numeral dark on it. */
+.tb-build-tier { position: absolute; top: 0; right: 0; width: 46%; height: 46%; box-sizing: border-box; display: flex; justify-content: flex-end; align-items: flex-start; padding: 1px 2px 0 0; background: linear-gradient(45deg, transparent 50%, var(--item-color, #10130Dcc) 50%); font: 700 max(7px, calc(9 * var(--u))) / 1 "VALVEOracle", var(--ui); color: #10130D; pointer-events: none; }
+.tb-build-item:not(.weapon, .vitality, .spirit) .tb-build-tier { color: #FFF6D8; }
+.tb-build-tier:empty { display: none; }
 .tb-build-cooldown { position: absolute; inset: 0; display: grid; place-items: center; background: rgb(48 48 48 / 58%); color: #f0eee8; text-shadow: 0 1px 2px #000; font: 700 max(9px, calc(13 * var(--u))) "VALVEOracle", var(--ui); border-radius: inherit; }
 .tb-build-circle .tb-build-cooldown { font-size: max(7px, calc(9 * var(--u))); }
 .tb-build-charges { position: absolute; right: -1px; bottom: -1px; min-width: calc(10 * var(--u)); border-radius: 2px; color: #10130D; background: #FFEFD7; font: 700 max(7px, calc(8 * var(--u))) var(--ui); }
