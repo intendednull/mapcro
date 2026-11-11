@@ -275,7 +275,7 @@ export function PlayerTopBar(p: {
               </Show>
               <Ult left={x()?.ult ?? null} label={label()} />
               <Show when={expanded(slotKey(t, s.slot.slot)) && p.host.tl()?.players.find(q => q.team === t.toLowerCase() && q.slot === s.slot.slot)}>
-                {player => <BuildColumn player={player()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} />}
+                {player => <BuildColumn inspect={!allBuilds() && !tabHeld()} player={player()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} />}
               </Show>
               <Show when={nameOf()}>
                 <span class="pl-tb-name" data-testid="tb-name">

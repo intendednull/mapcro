@@ -44,6 +44,10 @@ export interface BuildRecord {
   label: string;
   icon?: string | undefined;
   ability_type?: string;
+  /** Parent ability token for modifier icon fallback. */
+  ability?: number;
+  /** How the label was found; `internal` means no localised name exists. */
+  label_from?: "localisation" | "ability" | "internal";
   cost?: number;
   slot?: "weapon" | "vitality" | "spirit";
   tier?: number;
