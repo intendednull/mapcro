@@ -487,10 +487,12 @@ By decision 1 of the view-state plan, new view state is a registry row:
 
 ### 7.2 Editing the strip
 
-- **Add** (session editors): the strip's last tab is "+ Add game", and opens a menu:
-  - **Load a game**: the landing's form (match id or replay). It creates a board with the match,
-    as the landing does, then adds it. The adder gets the owner token, kept in Your boards, so
-    the grant is edit.
+- **Add** (any session editor, not only the owner): the strip's last tab is "+ Add game", and opens a menu:
+  - **Load a game**: the landing's form: a match id, or **an uploaded replay** (the browser's
+    file drop, or the desktop app's replay picker). It creates a board with the match, as the
+    landing does, then adds it. The adder gets the owner token, kept in Your boards, so the grant
+    is edit. This is how a group gathers the replays it wants to review: every session editor
+    can upload their own games into the session (operator, 2026-11-11).
   - **Your boards**: the device's known boards (and sessions are left out), then add.
   - **Paste link**: a `/b/…#token` or `mapcro://b/…` link (`parseBoardLink`), then add.
   - **New board**: an empty board (Sandbox), as the landing's New board, then add.
