@@ -24,6 +24,7 @@ label! {
         Match => "match",
         PackFile => "pack_file",
         ReplayUpload => "replay_upload",
+        ReplayTimeline => "replay_timeline",
         Replay => "replay",
         ReplayFetch => "replay_fetch",
         ReplayReserve => "replay_reserve",
@@ -53,6 +54,7 @@ impl Route {
             "/api/matches/{id}" => Route::Match,
             "/packs/{pack}/{*file}" => Route::PackFile,
             "/api/boards/{board}/replays/{id}/upload" => Route::ReplayUpload,
+            "/api/boards/{board}/replays/{id}/timeline" => Route::ReplayTimeline,
             "/api/boards/{board}/replays/{id}" => Route::Replay,
             "/api/boards/{board}/replays/{id}/fetch" => Route::ReplayFetch,
             "/api/boards/{board}/replays/{id}/reserve" => Route::ReplayReserve,
@@ -268,8 +270,9 @@ impl QueueRefusal {
 }
 
 label! {
-    /// How a replay job got its demo.
-    pub enum Source: "source" { Fetched => "fetched", Uploaded => "uploaded" }
+    /// How a replay job got its demo, or `client`: a timeline parsed on the user's machine
+    /// (`POST …/timeline`), no demo at all.
+    pub enum Source: "source" { Fetched => "fetched", Uploaded => "uploaded", Client => "client" }
 }
 
 label! {
@@ -290,6 +293,12 @@ label! {
         UpstreamDown => "upstream_down",
         UpstreamLimited => "upstream_limited",
         UpstreamShape => "upstream_shape",
+        // A client-parsed timeline's refusals (`replays::client_timeline`).
+        OutdatedParser => "outdated_parser",
+        NewerParser => "newer_parser",
+        NotATimeline => "not_a_timeline",
+        WrongMatch => "wrong_match",
+        BadEncoding => "bad_encoding",
         Other => "other",
     }
 }

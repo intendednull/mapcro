@@ -95,7 +95,8 @@ collector inside the server, a command-line way for the lead to query it, alerts
 - `outdated_reloads`
 - `boards_created`
 - `matches_opened{tier, path}`
-- `replay_jobs{source, outcome}`, where outcome is `done` or one of the reason codes
+- `replay_jobs{source, outcome}`, where outcome is `done` or one of the reason codes (source
+  `fetched`, `uploaded`, or `client`: a timeline parsed on the user's machine, spec §6a)
 - `deadlock_api_calls{endpoint, result}`
 - `queue_refusals{reason}`
 - `feedback_sent`, `feedback_rejected{reason}`

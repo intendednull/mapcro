@@ -55,6 +55,12 @@ it. The old one is served meanwhile. "Once" is kept in memory, so a restart allo
 Past three weeks, it stays. A stale upload stays (its demo is gone) and is marked `stale`;
 Player offers "Upload replay file".
 
+**Client-parsed timelines** (`replays.rs` `client_timeline`; spec §6a "Timelines parsed on the
+user's machine"): a timeline sent by the desktop app is refused unless its `format` equals
+`FORMAT` (`outdated_parser` / `newer_parser`), checked before the shape, so a parser change that
+bumps `FORMAT` needs an app update before its users' timelines are taken again. Stored in the
+board's scope with `source: "client"`; the stamp is the server's, not the client's.
+
 ## Game files → pack
 
 `crates/extract` (`just extract <citadel dir> <out>`; output outside the repo). Spec §12 is the

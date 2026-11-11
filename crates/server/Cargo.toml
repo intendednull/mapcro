@@ -28,6 +28,8 @@ getrandom = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures-util = "0.3"
+# Client-parsed timelines arrive gzipped (replays.rs `client_timeline`); already in the tree via tower-http.
+flate2 = "1"
 # The replay timeline's format and checks only: the parser runs in the worker, never here.
 mapcro-replay = { path = "../replay", default-features = false }
 # O_NOFOLLOW for the replay queue's files.

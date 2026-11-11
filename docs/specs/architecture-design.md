@@ -682,6 +682,65 @@ board server (`MemoryMax=256M`; a 480 MB demo's pages alone exceed it).
 - **Dedupe** stays: one `cdn` job per match for every board, and a board shows the `cdn`
   timeline when it has no upload of its own.
 
+### Timelines parsed on the user's machine (2026-11-10, desktop plan Phase 1)
+
+The desktop app (and later perhaps a wasm parse in the browser) parses the `.dem` locally with
+`crates/replay` and sends only the timeline: ~1.8 MB raw / ~0.7 MB gzipped for 44 minutes,
+against a 504 MB demo (docs/research/desktop-app.md §4). The server checks it and caches it;
+it takes no queue slot and no parse (`crates/server/src/replays.rs` `client_timeline`).
+
+- **Request:** `POST /api/boards/{board}/replays/{id}/timeline`, `Authorization: Bearer <board
+  link token>` (owner or edit, as `/upload`), body the timeline JSON exactly as
+  `mapcro-replay parse` writes it. `Content-Encoding: gzip` (or `x-gzip`) is decoded; none or
+  `identity` is plain JSON; any other encoding is refused.
+- **Checks, in order:** the editor's link; `{id}` a match id; the match not refused for its
+  mode (`<id>.refused` from the metadata, as for uploads: a timeline carries no mode, so the
+  client parser refuses Brawl and `old_map` itself, as the worker does); replays on; the body
+  under its caps; then the format stamp before the shape, so an old app hears "update" rather
+  than a shape error; then `timeline::validate` (the worker's checks) and `match_id == {id}`.
+- **Limits:** the body as sent at most 4 MiB (`REPLAY_MAX_TIMELINE_BYTES`) when gzipped,
+  checked against `Content-Length` and again while streaming; decoded, at most
+  `timeline::MAX_BYTES` (6 MiB), stream-decoded with a hard stop (a gzip bomb stops there). A
+  plain body's cap is the decoded one. No body bytes for 60 s (`REPLAY_IDLE_S`) ends it. Each
+  client (the address key, across boards) may send 30 an hour
+  (`REPLAY_TIMELINES_PER_CLIENT_PER_HOUR`), counted when sent, taken or refused (the check is
+  the cost). It is its own count: demo uploads keep their 6.
+- **Stored** as the board's own replay (`DATA_DIR/replays/<id>-<board hash>.json`), the same
+  scope and visibility as an uploaded demo's timeline (this board and its clones), never `cdn`.
+  It replaces the board's older timeline for the match. The server sets the timeline's
+  `source` to `"client"` whatever was sent; the board's status then says
+  `{"state": "done", "source": "upload", "client": true}` (`source` stays `upload`: it names
+  the board's scope, which the client's logic keys on). Refused while the board's demo upload
+  for the match is under way.
+- **Answers** (errors are `{"error": code}`, plus `"message"` where the code alone doesn't say
+  what to do):
+
+  | Status | `error` | When |
+  |---|---|---|
+  | 200 | none: `{"state": "done", "source": "upload", "client": true}` | cached |
+  | 401 | `link_required` | no or malformed token |
+  | 403 | `not_this_board`, `view_only` | another board's link; a view link |
+  | 404 | `no_board` | not a board id (an old server without the route answers 404 with no body) |
+  | 400 | `bad_id` | `{id}` not a match id |
+  | 400 | `bad_encoding` | the gzip doesn't decode |
+  | 400 | `aborted` | the body broke off |
+  | 408 | `timeout` | the body stalled |
+  | 409 | `in_progress` | the board's demo upload for this match is queued or parsing |
+  | 413 | `too_large` | over either cap |
+  | 415 | `unsupported_encoding` | a `Content-Encoding` other than gzip or identity |
+  | 422 | `brawl`, `unsupported_mode` | the match was refused for its mode |
+  | 422 | `outdated_parser` | `format` below the server's `timeline::FORMAT`; message "Update the mapcro app" |
+  | 422 | `newer_parser` | `format` above it (the app is ahead of the server); a message says try later |
+  | 422 | `not_a_timeline` | not JSON, or fails the timeline checks |
+  | 422 | `wrong_match` | its `match_id` isn't `{id}` |
+  | 429 | `rate_limited` | the client's hour is used |
+  | 503 | `replays_off` | the replay tier is off |
+
+- **Counted** as a replay job with `source=client` (`replay_jobs`, `replay_job_s`): `done`, or
+  the refusal's code as its outcome, and refusals in `failures` (`replay client <code> after
+  <s> s`, no ids), so `just stats` shows them beside uploads. `rate_limited` counts as a queue
+  refusal, as for uploads.
+
 ## 6b. Player
 
 **Decision (operator, 2026-11-08):** a board with a match opens in **Player**, which replaces the

@@ -11,7 +11,9 @@
 //!
 //! **Scope.** A demo carries no match id, so an upload's claim can't be checked: an uploaded
 //! timeline is visible only on the board that uploaded it, and its clones (`carry_to_clone`). A
-//! timeline fetched from Valve's CDN by match id is shared by every board.
+//! timeline fetched from Valve's CDN by match id is shared by every board. A timeline parsed on
+//! the user's machine (`client_timeline`) is no more trusted than a demo: it gets the worker's
+//! checks and the upload's scope, and the server stamps its `source` as `client`.
 //!
 //! **Queue** (`REPLAY_DIR`, shared with the worker; crates/replay/src/worker.rs): `inbox/` is
 //! the server's alone (complete, magic-checked files, written as `.<job>.part`, opened with
@@ -73,6 +75,12 @@ pub struct Settings {
     /// off), and the queue's room bounds what we hold (operator, 2026-11-08); only how many a
     /// client has waiting at once is capped (`PER_CLIENT_WAITING`).
     pub per_client: usize,
+    /// Timelines parsed on the user's machine (`POST …/timeline`) per client per hour. Its own
+    /// count: such a timeline takes no queue slot or parse, only a JSON check.
+    pub timelines_per_client: usize,
+    /// A client-parsed timeline's body as sent, gzipped or not. Decoded, it may be at most
+    /// `timeline::MAX_BYTES` (6 MiB) whatever this says.
+    pub max_timeline_body: u64,
     /// No body bytes for this long ends an upload.
     pub idle: Duration,
     /// A whole upload or download.
@@ -105,6 +113,9 @@ fn settings() -> &'static Settings {
             uploads_at_once: num("REPLAY_UPLOADS_AT_ONCE", 4) as usize,
             downloads_at_once: num("REPLAY_DOWNLOADS_AT_ONCE", 2) as usize,
             per_client: num("REPLAY_PER_CLIENT_PER_HOUR", 6) as usize,
+            timelines_per_client: num("REPLAY_TIMELINES_PER_CLIENT_PER_HOUR", 30) as usize,
+            // Format 8 is ~41 KB a match minute raw and gzips ~3×: a 60-minute match is ~0.8 MB.
+            max_timeline_body: num("REPLAY_MAX_TIMELINE_BYTES", 4 * MIB),
             idle: Duration::from_secs(num("REPLAY_IDLE_S", 60)),
             transfer: Duration::from_secs(num("REPLAY_TRANSFER_S", 1800)),
             stale: Duration::from_secs(num("REPLAY_STALE_S", 3600)),
@@ -161,6 +172,8 @@ struct Jobs {
     /// (`auto_fetch`): once a match, whatever came of it, so opening it again doesn't (lost on
     /// restart, which costs at most one more fetch).
     refreshed: HashSet<String>,
+    /// Client-parsed timelines sent, per client, for their hourly cap (`client_timeline`).
+    timelines: HashMap<Client, Vec<Instant>>,
 }
 
 struct Grant {
@@ -240,8 +253,10 @@ fn negative(j: &Jobs, id: &str) -> Option<&'static str> {
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        // The only route without the 16 KiB body limit: its own cap applies while streaming.
+        // The two routes without the 16 KiB body limit: each applies its own cap while reading.
         .route("/api/boards/{board}/replays/{id}/upload", post(upload))
+        // Its own caps too, on the body as sent and decoded (`client_timeline`).
+        .route("/api/boards/{board}/replays/{id}/timeline", post(client_timeline))
         .merge(
             Router::new()
                 .route("/api/boards/{board}/replays/{id}", get(status))
@@ -430,21 +445,29 @@ fn cached_path(app: &AppState, job: &str) -> PathBuf {
     cache_dir(app).join(format!("{job}.json"))
 }
 
-/// A cached timeline's format stamp (0 before the stamp), if it can be read.
-async fn cached_format(app: &AppState, job: &str) -> Option<u32> {
-    #[derive(Deserialize)]
-    struct Stamp {
-        #[serde(default)]
-        format: u32,
-    }
+/// A cached timeline's format stamp (0 before the stamp) and its `source` (`client` when it was
+/// parsed on the user's machine), if it can be read.
+#[derive(Deserialize)]
+struct Stamp {
+    #[serde(default)]
+    format: u32,
+    #[serde(default)]
+    source: String,
+}
+
+async fn cached_stamp(app: &AppState, job: &str) -> Option<Stamp> {
     let bytes = tokio::fs::read(cached_path(app, job)).await.ok()?;
-    serde_json::from_slice::<Stamp>(&bytes).ok().map(|s| s.format)
+    serde_json::from_slice::<Stamp>(&bytes).ok()
+}
+
+fn is_stale(s: &Stamp) -> bool {
+    s.format < mapcro_replay::timeline::FORMAT
 }
 
 /// Whether a cached timeline predates the worker's current format (backlog, "Replay timeline
 /// format versions"): it lacks the layers added since.
 async fn stale(app: &AppState, job: &str) -> bool {
-    cached_format(app, job).await.is_some_and(|f| f < mapcro_replay::timeline::FORMAT)
+    cached_stamp(app, job).await.is_some_and(|s| is_stale(&s))
 }
 
 fn state_json(s: &State_, source: &str) -> serde_json::Value {
@@ -583,8 +606,16 @@ pub async fn status(State(app): State<AppState>, Path((board, id)): Path<(String
         let mut v = state_json(&up, "upload");
         // An older parse of this board's upload: its demo is gone, so uploading it again is the
         // way to the newer layers (the client offers "Upload replay file").
-        if up == State_::Done && stale(&app, &mine).await {
-            v["stale"] = true.into();
+        if up == State_::Done
+            && let Some(stamp) = cached_stamp(&app, &mine).await
+        {
+            if is_stale(&stamp) {
+                v["stale"] = true.into();
+            }
+            // Parsed on the user's machine, not by our worker (`client_timeline`).
+            if stamp.source == CLIENT_SOURCE {
+                v["client"] = true.into();
+            }
         }
         return json(v);
     }
@@ -999,6 +1030,180 @@ pub async fn release(State(app): State<AppState>, Path((board, id)): Path<(Strin
     StatusCode::NO_CONTENT.into_response()
 }
 
+/// Why a client-parsed timeline was refused: the status and the code (`{"error": code}`).
+type Refusal = (StatusCode, &'static str);
+
+/// Read a body of at most `cap` bytes, `idle` at most between chunks.
+async fn read_capped_body(body: Body, cap: u64, idle: Duration) -> Result<Vec<u8>, Refusal> {
+    let mut stream = body.into_data_stream();
+    let mut out = Vec::new();
+    loop {
+        match tokio::time::timeout(idle, stream.next()).await {
+            Err(_) => return Err((StatusCode::REQUEST_TIMEOUT, "timeout")),
+            Ok(None) => return Ok(out),
+            Ok(Some(Err(_))) => return Err((StatusCode::BAD_REQUEST, "aborted")),
+            Ok(Some(Ok(chunk))) => {
+                if (out.len() + chunk.len()) as u64 > cap {
+                    return Err((StatusCode::PAYLOAD_TOO_LARGE, "too_large"));
+                }
+                out.extend_from_slice(&chunk);
+            }
+        }
+    }
+}
+
+/// A client-parsed timeline's body to its checked, server-stamped bytes: decoded under the
+/// decoded cap (`timeline::MAX_BYTES`, so a gzip bomb stops there), its format stamp checked
+/// before anything else (an old app hears "update", not a shape error), then the same checks a
+/// worker's timeline gets (`collect`), and `source` set to `client` by the server.
+fn check_client_timeline(body: &[u8], gzip: bool, match_id: u64) -> Result<Vec<u8>, Refusal> {
+    use mapcro_replay::timeline::{FORMAT, MAX_BYTES, validate};
+    use std::io::Read;
+    let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
+    let decoded;
+    let json = if gzip {
+        let mut out = Vec::new();
+        flate2::read::GzDecoder::new(body).take(MAX_BYTES + 1).read_to_end(&mut out).map_err(|_| (StatusCode::BAD_REQUEST, "bad_encoding"))?;
+        decoded = out;
+        &decoded[..]
+    } else {
+        body
+    };
+    if json.len() as u64 > MAX_BYTES {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, "too_large"));
+    }
+    #[derive(Deserialize)]
+    struct Stamp {
+        #[serde(default)]
+        format: u32,
+    }
+    let Stamp { format } = serde_json::from_slice(json).map_err(|_| (unprocessable, "not_a_timeline"))?;
+    if format < FORMAT {
+        return Err((unprocessable, "outdated_parser"));
+    }
+    if format > FORMAT {
+        return Err((unprocessable, "newer_parser"));
+    }
+    let mut t = validate(json).map_err(|_| (unprocessable, "not_a_timeline"))?;
+    if t.match_id != match_id {
+        return Err((unprocessable, "wrong_match"));
+    }
+    t.source = CLIENT_SOURCE.to_owned();
+    serde_json::to_vec(&t).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "internal"))
+}
+
+/// The `source` the server stamps on a timeline parsed on the user's machine.
+const CLIENT_SOURCE: &str = "client";
+
+/// A refusal's words for the person: only where the code alone doesn't say what to do.
+fn refusal_message(code: &str) -> Option<&'static str> {
+    match code {
+        "outdated_parser" => Some("Update the mapcro app"),
+        "newer_parser" => Some("This mapcro app is newer than the server. Try again later"),
+        _ => None,
+    }
+}
+
+/// `POST /api/boards/{board}/replays/{id}/timeline`: a timeline parsed on the user's machine
+/// (the desktop app, later a parse in the browser), JSON, gzipped (`Content-Encoding: gzip`) or
+/// not (spec §6a, "Timelines parsed on the user's machine"). It takes no queue slot and no parse:
+/// it is checked as a worker's timeline is and cached for this board alone, as an upload's is
+/// (a forger reaches only a board they can draw on anyway). The mode refusal holds as for
+/// uploads: the timeline carries no mode, so only the match's metadata can say Brawl.
+pub async fn client_timeline(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Path((board, id)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Body,
+) -> Response {
+    if let Err(r) = editor(&app, &board, &headers).await {
+        return r;
+    }
+    if !crate::matches::valid_id(&id) {
+        return err(StatusCode::BAD_REQUEST, "bad_id");
+    }
+    let Ok(match_id) = id.parse::<u64>() else { return err(StatusCode::BAD_REQUEST, "bad_id") };
+    if let Some(why) = crate::matches::refused(&app, &id).await {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, why);
+    }
+    if root(&app).is_none() {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "replays_off");
+    }
+    let s = settings();
+    let encoding = headers.get(header::CONTENT_ENCODING).map(|v| v.to_str().unwrap_or("?").trim().to_ascii_lowercase());
+    let gzip = match encoding.as_deref() {
+        None | Some("identity") => false,
+        Some("gzip" | "x-gzip") => true,
+        Some(_) => return err(StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported_encoding"),
+    };
+    // Sent plain, the body is the decoded timeline: its cap is the decoded one.
+    let cap = if gzip { s.max_timeline_body } else { mapcro_replay::timeline::MAX_BYTES };
+    let declared = headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<u64>().ok());
+    let started = Instant::now();
+    let refused = |code: StatusCode, why: &'static str| {
+        job_ended_as(crate::metrics::Source::Client, crate::metrics::JobOutcome::from_code(why), started.elapsed().as_secs_f64());
+        let mut v = serde_json::json!({ "error": why });
+        if let Some(m) = refusal_message(why) {
+            v["message"] = m.into();
+        }
+        (code, axum::Json(v)).into_response()
+    };
+    if declared.is_some_and(|n| n > cap) {
+        return refused(StatusCode::PAYLOAD_TOO_LARGE, "too_large");
+    }
+    let job = job_name(&id, &scope_of(&board));
+    match job_state(&app, &job) {
+        State_::Uploading | State_::Queued(..) | State_::Parsing => return err(StatusCode::CONFLICT, "in_progress"),
+        _ => {}
+    }
+    {
+        // Every timeline sent counts, taken or not: the check is the cost.
+        let client = client_key(client_ip(peer, &headers)).to_string();
+        let mut j = lock();
+        let now = Instant::now();
+        j.timelines.retain(|_, v| {
+            v.retain(|t| now.duration_since(*t) < HOUR);
+            !v.is_empty()
+        });
+        let sent = j.timelines.entry(client).or_default();
+        if sent.len() >= s.timelines_per_client {
+            drop(j);
+            return err(StatusCode::TOO_MANY_REQUESTS, "rate_limited");
+        }
+        sent.push(now);
+    }
+    let bytes = match read_capped_body(body, cap, s.idle).await {
+        Ok(b) => b,
+        Err((code, why)) => return refused(code, why),
+    };
+    let path = cached_path(&app, &job);
+    let checked = tokio::task::spawn_blocking(move || {
+        let out = check_client_timeline(&bytes, gzip, match_id)?;
+        write_atomic(&path, &out).map_err(|e| {
+            tracing::error!(error = %e, "client timeline not written");
+            (StatusCode::INTERNAL_SERVER_ERROR, "internal")
+        })?;
+        Ok::<usize, Refusal>(out.len())
+    })
+    .await
+    .unwrap_or(Err((StatusCode::INTERNAL_SERVER_ERROR, "internal")));
+    match checked {
+        Ok(n) => {
+            lock().failed.remove(&job);
+            job_ended_as(crate::metrics::Source::Client, crate::metrics::JobOutcome::Done, started.elapsed().as_secs_f64());
+            tracing::info!(match_id = id, bytes = n, "client timeline cached");
+            let mut v = state_json(&State_::Done, "upload");
+            v["client"] = true.into();
+            json(v)
+        }
+        Err((code, why)) => {
+            tracing::info!(match_id = id, why, "client timeline refused");
+            refused(code, why)
+        }
+    }
+}
+
 /// An upload in flight: its place in the limits, and its partial file.
 struct UploadSlot {
     job: String,
@@ -1379,9 +1584,12 @@ fn out_path(root: &FsPath, job: &str, ext: &str) -> PathBuf {
 
 /// A replay job is over: count it by source and outcome, time it, and log a failure.
 fn job_ended(job: &str, outcome: crate::metrics::JobOutcome, secs: f64) {
+    job_ended_as(source_of(job), outcome, secs);
+}
+
+fn job_ended_as(source: crate::metrics::Source, outcome: crate::metrics::JobOutcome, secs: f64) {
     use crate::metrics::{JobOutcome, Label};
     let m = crate::metrics::get();
-    let source = source_of(job);
     m.replay_jobs.inc((source, outcome));
     m.replay_job_s.observe((source,), secs);
     if outcome != JobOutcome::Done {

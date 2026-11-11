@@ -131,7 +131,10 @@ settings the module leaves at their defaults: `REPLAY_RESERVE_TTL_S` (90), how l
 line is kept without being asked about (past a hidden tab's minute between timers), and
 `REPLAY_GRANT_USE_S` (75), how soon a turn given must be used. Each turn given counts against
 `REPLAY_PER_CLIENT_PER_HOUR` (6), used or not. A worker restarted mid-parse (a deploy) puts the
-job back once rather than failing it.
+job back once rather than failing it. Timelines parsed on the user's machine (`POST
+…/timeline`, spec §6a) take no queue room: `REPLAY_MAX_TIMELINE_BYTES` (4 MiB) caps one as sent
+(decoded, 6 MiB, fixed), and `REPLAY_TIMELINES_PER_CLIENT_PER_HOUR` (30) is their own hourly
+count; the module leaves both at their defaults.
 
 ## Behind Caddy
 

@@ -3,6 +3,17 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Client-parsed timelines: follow-ups (2026-11-10, from client-timeline)
+
+`POST …/timeline` (spec §6a, "Timelines parsed on the user's machine") is server-only so far.
+- Player's source line says "Replay: uploaded" for a client timeline; the status carries
+  `client: true` (and the timeline `source: "client"`) for a "parsed on your machine" label.
+- `matches_opened{path}` counts a client timeline as `uploaded`, and `just stats funnel --path`
+  has no `client`; `replay_jobs{source=client}` is the only place it shows apart.
+- A board's stale client timeline is marked `stale` like an upload's, so Player offers "Upload
+  replay file"; for a desktop user, re-parsing locally would be the better offer.
+- zstd bodies aren't accepted (gzip only); add one if the wasm parse prefers it.
+
 ## The salts backoff holds back free reads (2026-11-10, from salts-docs)
 
 deadlock-api answers a stored salts row before its rate limiter, so only a lookup of a match with

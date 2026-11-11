@@ -1300,3 +1300,189 @@ fn a_clone_keeps_the_matches_and_the_uploaded_replay() {
     let (c2, c2_owner) = (v["board"].as_str().unwrap_or_default().to_owned(), v["owner_token"].as_str().unwrap_or_default().to_owned());
     assert_eq!(server.call("GET", &format!("/api/boards/{c2}/matches"), &c2_owner).1, serde_json::json!({ "matches": [] }));
 }
+
+// ---- timelines parsed on the user's machine (spec §6a) ----
+
+fn gz(bytes: &[u8]) -> Vec<u8> {
+    let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    e.write_all(bytes).expect("gzip");
+    e.finish().expect("gzip")
+}
+
+impl Server {
+    /// Send a timeline parsed on the user's machine, as the client at `ip`, gzipped when
+    /// `encoding` says so.
+    fn send_timeline(&self, board: &str, token: &str, id: &str, body: &[u8], encoding: Option<&str>, ip: &str) -> (u16, serde_json::Value) {
+        let mut req = agent()
+            .post(&self.url(&format!("/api/boards/{board}/replays/{id}/timeline")))
+            .header("authorization", &format!("Bearer {token}"))
+            .header("x-forwarded-for", ip)
+            .header("content-type", "application/json");
+        if let Some(e) = encoding {
+            req = req.header("content-encoding", e);
+        }
+        match req.send(body) {
+            Ok(mut r) => (r.status().as_u16(), r.body_mut().read_json().unwrap_or_default()),
+            // The server may refuse by the declared length and close while the body is still
+            // going out: that's a refusal too, status unread.
+            Err(ureq::Error::Io(_)) => (0, serde_json::Value::Null),
+            Err(e) => panic!("request: {e}"),
+        }
+    }
+
+    fn send_gz(&self, board: &str, token: &str, id: &str, t: &Timeline) -> (u16, serde_json::Value) {
+        self.send_timeline(board, token, id, &gz(&serde_json::to_vec(t).expect("json")), Some("gzip"), "10.0.0.1")
+    }
+}
+
+#[test]
+fn a_client_parsed_timeline_is_checked_and_cached_for_its_board_alone() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[]);
+    let (board, owner, view) = server.board();
+    let (other, other_owner, _) = server.board();
+    let id = "4242";
+    let t = timeline(4242);
+
+    assert_eq!(server.send_gz(&board, "", id, &t).0, 401, "no link");
+    assert_eq!(server.send_gz(&board, &view, id, &t), (403, serde_json::json!({ "error": "view_only" })), "view links can't send one");
+    assert_eq!(server.send_gz(&board, &other_owner, id, &t).0, 403, "another board's link");
+    assert_eq!(server.send_gz(&board, &owner, "0123", &t).0, 400, "bad id");
+    assert_eq!(server.status(&board, &owner, id)["state"], "none", "nothing refused was cached");
+
+    let (code, body) = server.send_gz(&board, &owner, id, &t);
+    assert_eq!((code, body), (200, serde_json::json!({ "state": "done", "source": "upload", "client": true })));
+    assert_eq!(server.status(&board, &view, id), serde_json::json!({ "state": "done", "source": "upload", "client": true }), "the status says who parsed it");
+    let (code, served) = server.call("GET", &format!("/api/boards/{board}/matches/{id}"), &view);
+    assert_eq!(code, 200);
+    let served: Timeline = serde_json::from_value(served).expect("a timeline");
+    assert_eq!(served.source, "client", "the server marks it, whatever the client said");
+    assert_eq!(Timeline { source: t.source.clone(), ..served }, t, "otherwise as sent");
+    assert_eq!(server.status(&other, &other_owner, id)["state"], "none", "another board doesn't see it");
+    assert!(files(&server.q("inbox")).is_empty(), "no queue slot, no parse");
+
+    // Sent plain, it's taken too, and replaces the board's older one.
+    let mut t2 = timeline(4242);
+    t2.build = 6900;
+    let (code, _) = server.send_timeline(&board, &owner, id, &serde_json::to_vec(&t2).expect("json"), None, "10.0.0.1");
+    assert_eq!(code, 200);
+    assert_eq!(server.call("GET", &format!("/api/boards/{board}/matches/{id}"), &owner).1["build"], 6900);
+
+    // An upload under way for the board's match comes first.
+    let (code, _) = server.upload(&board, &owner, "4343", &fake_demo(100));
+    assert_eq!(code, 202);
+    assert_eq!(server.send_gz(&board, &owner, "4343", &timeline(4343)), (409, serde_json::json!({ "error": "in_progress" })));
+}
+
+#[test]
+fn a_client_timeline_for_another_match_or_not_a_timeline_is_refused() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[]);
+    let (board, owner, _) = server.board();
+    let id = "4242";
+    let send = |body: &[u8], enc: Option<&str>| server.send_timeline(&board, &owner, id, body, enc, "10.0.0.1");
+    let err = |e: &str| serde_json::json!({ "error": e });
+
+    assert_eq!(server.send_gz(&board, &owner, id, &timeline(4243)), (422, err("wrong_match")), "its match id must be the route's");
+    assert_eq!(send(&gz(b"{\"format\": 8, \"match_id\": "), Some("gzip")), (422, err("not_a_timeline")), "cut short");
+    assert_eq!(send(b"[1, 2, 3]", None), (422, err("not_a_timeline")), "not an object");
+    let mut bad = timeline(4242);
+    bad.players[0].health = vec![100, 250];
+    assert_eq!(server.send_gz(&board, &owner, id, &bad), (422, err("not_a_timeline")), "the worker's checks hold");
+    assert_eq!(send(b"not gzip at all", Some("gzip")), (400, err("bad_encoding")));
+    assert_eq!(send(&gz(b"{}"), Some("br")), (415, err("unsupported_encoding")));
+    assert_eq!(server.status(&board, &owner, id)["state"], "none", "nothing refused was cached");
+}
+
+#[test]
+fn a_client_timeline_from_another_parser_version_is_refused_with_an_update_hint() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[]);
+    let (board, owner, _) = server.board();
+    let mut old = timeline(4242);
+    old.format = mapcro_replay::timeline::FORMAT - 1;
+    assert_eq!(server.send_gz(&board, &owner, "4242", &old), (422, serde_json::json!({ "error": "outdated_parser", "message": "Update the mapcro app" })));
+    // Older still: a timeline from before the stamp, whose shape the checks might not take.
+    assert_eq!(server.send_timeline(&board, &owner, "4242", b"{\"match_id\": 4242}", None, "10.0.0.1").1["error"], "outdated_parser");
+    let mut new = timeline(4242);
+    new.format = mapcro_replay::timeline::FORMAT + 1;
+    let (code, body) = server.send_gz(&board, &owner, "4242", &new);
+    assert_eq!((code, body["error"].as_str()), (422, Some("newer_parser")));
+    assert!(body["message"].is_string());
+    assert_eq!(server.status(&board, &owner, "4242")["state"], "none");
+}
+
+#[test]
+fn a_client_timeline_is_capped_as_sent_and_decoded() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[("REPLAY_MAX_TIMELINE_BYTES", "10000")]);
+    let (board, owner, _) = server.board();
+    let id = "4242";
+    let too_large = serde_json::json!({ "error": "too_large" });
+    let send = |body: &[u8], enc: Option<&str>| server.send_timeline(&board, &owner, id, body, enc, "10.0.0.1");
+
+    let t = serde_json::to_vec(&timeline(4242)).expect("json");
+    assert!(gz(&t).len() < 10_000, "the real one fits");
+    assert_eq!(send(&gz(&t), Some("gzip")).0, 200);
+    // Gzipped past the cap as sent: refused up front by its length, and mid-stream when chunked.
+    let mut x: u64 = 0x9e37_79b9_7f4a_7c15;
+    let noise: Vec<u8> = (0..20_000)
+        .map(|_| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x as u8
+        })
+        .collect();
+    assert!(gz(&noise).len() > 10_000);
+    let refused = |r: (u16, serde_json::Value)| r == (413, too_large.clone()) || r.0 == 0;
+    assert!(refused(send(&gz(&noise), Some("gzip"))), "over the cap as sent");
+    let big = gz(&noise);
+    match agent()
+        .post(&server.url(&format!("/api/boards/{board}/replays/{id}/timeline")))
+        .header("authorization", &format!("Bearer {owner}"))
+        .header("content-encoding", "gzip")
+        .send(ureq::SendBody::from_reader(&mut &big[..]))
+    {
+        Ok(mut r) => assert_eq!((r.status().as_u16(), r.body_mut().read_json::<serde_json::Value>().unwrap_or_default()), (413, too_large.clone()), "chunked over the cap"),
+        Err(e) => assert!(matches!(e, ureq::Error::Io(_)), "{e}"),
+    }
+    // A small body that inflates past the decoded cap (6 MiB): a zip bomb stops there.
+    let max = mapcro_replay::timeline::MAX_BYTES as usize;
+    let mut bomb = b"{\"format\": 8".to_vec();
+    bomb.resize(max + 1024, b' ');
+    let bomb = gz(&bomb);
+    assert!(bomb.len() < 10_000, "{}", bomb.len());
+    assert_eq!(send(&bomb, Some("gzip")), (413, too_large.clone()), "decoded past the cap");
+    // Sent plain, the body is the decoded timeline: its cap is the decoded one.
+    let mut plain = b"{\"format\": 8".to_vec();
+    plain.resize(max + 1, b' ');
+    assert!(refused(send(&plain, None)), "plain, over the decoded cap");
+}
+
+#[test]
+fn client_timelines_have_an_hourly_cap_per_client() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[("REPLAY_TIMELINES_PER_CLIENT_PER_HOUR", "2"), ("REPLAY_PER_CLIENT_PER_HOUR", "1")]);
+    let (board, owner, _) = server.board();
+    let (other, other_owner, _) = server.board();
+    let body = |id: u64| gz(&serde_json::to_vec(&timeline(id)).expect("json"));
+    // Refused ones count: the check is the cost. Boards don't matter, the address does.
+    assert_eq!(server.send_timeline(&board, &owner, "1", &body(2), Some("gzip"), "10.0.0.1").0, 422);
+    assert_eq!(server.send_timeline(&other, &other_owner, "1", &body(1), Some("gzip"), "10.0.0.1").0, 200);
+    assert_eq!(server.send_timeline(&board, &owner, "3", &body(3), Some("gzip"), "10.0.0.1"), (429, serde_json::json!({ "error": "rate_limited" })));
+    assert_eq!(server.send_timeline(&board, &owner, "3", &body(3), Some("gzip"), "10.0.0.2").0, 200, "another client has its own");
+    // Its own count: a demo upload's hour is untouched.
+    assert_eq!(server.upload_as(&board, &owner, "5", &fake_demo(100), "10.0.0.1").0, 202);
+}
+
+#[test]
+fn a_client_timeline_of_a_match_refused_for_its_mode_is_refused() {
+    let meta = serde_json::to_vec(&serde_json::json!({ "match_info": { "match_id": 77, "duration_s": 60, "start_time": 0, "game_mode": 4, "match_mode": 1, "players": [] } })).expect("json");
+    let up = upstream(HashMap::from([("/v1/matches/77/metadata?disable_steam=true".to_owned(), (200, meta))]));
+    let server = Server::start(up.port, &[]);
+    let (board, owner, _) = server.board();
+    assert_eq!(server.call("GET", "/api/matches/77", "").1["error"], "brawl");
+    assert_eq!(server.send_gz(&board, &owner, "77", &timeline(77)), (422, serde_json::json!({ "error": "brawl" })));
+    assert_eq!(server.status(&board, &owner, "77")["state"], "none");
+}
