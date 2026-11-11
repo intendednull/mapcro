@@ -171,6 +171,8 @@ export function Player(p: {
   // Keys while watching (spec §6b; the scene tree has ← → while viewing a scene): ↑ ↓ step
   // through events, ← → seek SEEK_KEY s (Shift: SEEK_KEY_SHIFT s), a Space tap plays or pauses.
   const events = createMemo(() => [...(h.tl()?.events ?? [])].sort((a, b) => a.t - b.t));
+  /** The scrubber ticks' tags (shortLabel), with names as the events list has them. */
+  const tickNames = createMemo(() => (h.tl() ? (h.showNames(), namesFor(h.tl()!, (id) => p.art.heroes.get(id)?.name ?? `Hero ${id}`, h.playerName)) : undefined));
   onMount(() => {
     const typing = (el: HTMLElement | null) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
     const plain = (e: KeyboardEvent) => watching() && !!h.tl() && !e.altKey && !e.ctrlKey && !e.metaKey;
@@ -412,8 +414,17 @@ export function Player(p: {
                 <For each={SPEEDS}>{(s) => <option value={String(s)}>{s}×</option>}</For>
               </select>
               <div class="pl-scrub">
-                <div class="pl-ticks" aria-hidden="true">
-                  <For each={m().events ?? []}>{(e) => <i class={cx("pl-tick", e.kind)} style={{ left: `${(e.t / Math.max(1, m().duration_s)) * 100}%` }} />}</For>
+                {/* Events (#6): a hover grows the tick and shows its tag; a press jumps there, as
+                    ↑ ↓ do (which is the keyboard's way: the ticks aren't in the tab order). */}
+                <div class="pl-ticks">
+                  <For each={m().events ?? []}>{(e) => (
+                    <button type="button" tabindex="-1" class={cx("pl-tick", e.kind)} data-testid="scrub-tick" data-t={e.t} data-kind={e.kind}
+                      style={{ left: `${(e.t / Math.max(1, m().duration_s)) * 100}%` }}
+                      aria-label={`${tickNames() ? shortLabel(e, tickNames()!) : e.kind}, ${clockLabel(e.t)}`}
+                      onClick={() => jumpTo(e, h.lead())}>
+                      <span class="pl-tick-tag" aria-hidden="true">{tickNames() ? shortLabel(e, tickNames()!) : ""}</span>
+                    </button>
+                  )}</For>
                 </div>
                 <div class="pl-marks">
                   <For each={marks()}>

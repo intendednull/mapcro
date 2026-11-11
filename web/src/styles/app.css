@@ -336,7 +336,13 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-scrub { position: relative; flex: 1; display: flex; align-items: center; padding-top: 16px; }
 .pl-scrub .match-range { width: 100%; }
 .pl-ticks { position: absolute; left: 7px; right: 7px; top: 12px; height: 6px; pointer-events: none; }
-.pl-tick { position: absolute; width: 2px; height: 6px; background: var(--faint); transform: translateX(-1px); }
+/* A tick takes the pointer over a few px either side (::before); hovered it grows and shows its
+   tag above the scrubber. */
+.pl-tick { position: absolute; bottom: 0; width: 2px; height: 6px; padding: 0; border: 0; background: var(--faint); transform: translateX(-1px); cursor: pointer; pointer-events: auto; transition: height .1s, width .1s, transform .1s; }
+.pl-tick::before { content: ""; position: absolute; left: -3px; right: -3px; top: -3px; bottom: -2px; }
+.pl-tick:hover { z-index: 2; width: 4px; height: 12px; transform: translateX(-2px); }
+.pl-tick-tag { display: none; position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); padding: 2px 6px; border-radius: 3px; background: var(--panel); border: 1px solid var(--line); color: var(--text); font-size: 11px; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 8px #0006; }
+.pl-tick:hover .pl-tick-tag { display: block; }
 .pl-tick.death { background: var(--warn); }
 .pl-tick.objective, .pl-tick.mid_boss { background: var(--brass); }
 .pl-side { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; height: 62vh; overflow: hidden; border-bottom: 1px solid var(--line-soft); }

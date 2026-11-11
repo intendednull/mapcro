@@ -971,6 +971,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
     default, one open at a time. The metadata tier has no urn.
 - **The transport:** play and pause, speed (0.5×, 1×, 2×, 4×, 8×), a scrubber with a tick per
   event, ±10 s, the match clock, and the replay tier's toggles (Troopers, Health), with Pings.
+  A tick hovered grows and shows its event's tag above it (the events list's short label, "Walker
+  down", "Haze died"); a press jumps there as a row does (less the lead, with the ring). Ticks
+  aren't in the tab order: ↑ ↓ step events from the keyboard (2026-11-11, feedback #6).
 - **Names** (2026-11-08, operator: content creators hide usernames in videos): a transport toggle,
   shown when the timeline has players' names, on by default. Off, no player name is on screen
   (top bar, events and their search, tokens' hover titles; the hero or slot label stands in).
