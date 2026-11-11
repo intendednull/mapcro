@@ -182,7 +182,8 @@ test("ult rings, souls, totals, the respawn countdown and the ziplines ease to e
   }
 });
 
-test("the upload's bar and percent ease to each progress event, and jump with reduced motion", async ({ browser }) => {
+test("the upload's bar and percent ease to each progress event, and jump with reduced motion", async ({ browser, browserName }) => {
+  test.skip(browserName !== "chromium", "Chromium-only: throttles the upload with a CDP session (Network.emulateNetworkConditions)");
   for (const reduced of [false, true]) {
     const a = await joinNew(browser, await newBoardUrl(server, `Upload ease ${reduced}`), "Coach");
     await a.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });

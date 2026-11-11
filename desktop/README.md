@@ -1,4 +1,4 @@
-# mapcro for Windows
+# The mapcro app (Windows, and Linux)
 
 A thin Tauri 2 shell around the live site (`https://mapcro.dmgdeadlock.com`): one window, the
 same web app, plus the native side of its replay picker. When you upload (the landing's
@@ -121,14 +121,81 @@ browser's linked-folder UI (`ReplaysFolder.tsx`) doesn't show in the app. A pick
 
 ## Building
 
-- Linux check (not a release target yet): `nix develop .#desktop`, then `cd desktop/app &&
-  cargo check`. That shell adds WebKitGTK and friends (GTK also serves the folder chooser), so a
-  debug build can run: `MAPCRO_URL=http://127.0.0.1:5173/ cargo run`.
-- Windows: `.github/workflows/desktop.yml` on `windows-latest`. It runs `cargo test -p
-  mapcro-desktop-core`, then `cargo tauri build --bundles nsis`. The installer is per-user and
-  fetches WebView2 if it's missing.
+- Windows: `.github/workflows/desktop.yml` on `windows-latest`. The release build is `cargo tauri
+  build --bundles nsis`. The installer is per-user and fetches WebView2 if it's missing.
+- Linux, for development: `nix develop .#desktop`, then `cd desktop/app && cargo build`. That
+  shell adds WebKitGTK and friends (GTK also serves the folder chooser), glib-networking for
+  https, and the smoke test's tools. A debug build can run against a dev server:
+  `MAPCRO_URL=http://127.0.0.1:5173/ cargo run`.
 - Icons: `app/icons/` holds a placeholder (a ring and a dot) drawn for this app. Never use game
   art.
+
+## Linux
+
+The same app on WebKitGTK (Tauri's Linux webview) instead of WebView2. The operator's condition
+for shipping it was the e2e suite passing on WebKit: `just e2e-webkit` runs every spec in
+Playwright's WebKit (from nix), which stands in for WebKitGTK. It passes, apart from specs on a
+Chromium-only API, which skip with the reason (docs/research/README.md, "WebKit").
+
+- **Packages.** `nix build .#mapcro-desktop` (or `nix run .#mapcro-desktop`) builds it with
+  nixpkgs' `cargo-tauri.hook` on our toolchain: a release build, the .deb's files unpacked into
+  the store path, wrapped for GTK. It has no updater artifacts (`app/tauri.nosign.conf.json`):
+  the package manager updates it. CI builds an **AppImage** and a **.deb** on `ubuntu-22.04` (the
+  oldest supported Ubuntu, for a low glibc floor) for the release. The updater replaces only an
+  AppImage, so `latest.json`'s `linux-x86_64` entry is the AppImage; a .deb user installs the new
+  .deb.
+- **Steam on Linux** is found at steamlocate's fixed candidates (`$XDG_DATA_HOME/Steam`,
+  `~/.steam/steam`, `~/.steam/root`, `~/.steam/debian-installation`, Flatpak, Snap), each tested
+  with `is_dir`. Proton keeps Deadlock under `steamapps/common`, so the replays folder is where it
+  is on Windows.
+- **Blank window on NVIDIA.** WebKitGTK's DMA-BUF renderer can leave the window blank (or fail
+  with "AcceleratedSurfaceDMABuf was unable to construct a complete framebuffer") on NVIDIA's
+  proprietary driver. The fix Tauri documents is `WEBKIT_DISABLE_DMABUF_RENDERER=1`, at the cost of
+  the faster rendering path; `WEBKIT_DISABLE_COMPOSITING_MODE=1` is the last resort (it turns
+  accelerated compositing off). Tauri advises against setting it for everyone unless you know
+  your app is affected (https://v2.tauri.app/develop/debug/linux-graphics/; WebKit bug 261874).
+  The nix package's wrapper sets the first one only when `/proc/driver/nvidia/version` exists
+  and you haven't set the variable yourself. The AppImage and the .deb don't set it: setting it in
+  the app means `std::env::set_var` in `main()`, which is `unsafe` in edition 2024, and the crate
+  forbids `unsafe` (backlog). Until then, an NVIDIA user starts it as
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1 mapcro-desktop`.
+- **Not checked yet:** a real desktop session (here it ran under Xvfb only), a real Steam install,
+  the folder chooser on GNOME/KDE, and speed on real hardware. Headless WebKit drew a scene flip
+  at ~10 frames a second here, against ~30 in Chromium (backlog).
+
+## Smoke test
+
+`desktop/smoke/smoke.mjs` drives the real app over WebDriver: `tauri-driver` in front of
+WebKitWebDriver (Linux) or msedgedriver (Windows). It serves a page with the site's own CSP (read
+from `crates/server/src/main.rs`), points a debug build at it with `MAPCRO_URL`, and checks:
+
+- the page loads, and the IPC bridge (`__TAURI_INTERNALS__.invoke`) is there;
+- `replay_read` refuses an id that isn't digits;
+- no plugin command is the page's: opener, dialog, updater, window, webview and event are each
+  refused by the ACL;
+- with `--fake-steam`, a fake Steam install (its `libraryfolders.vdf`, Deadlock's manifest, and
+  three synthetic `<digits>.dem` files: the 8-byte magic and zeros, never a real demo) is found,
+  and `replays_list` lists them newest first, as the replay picker asks for them.
+
+It never calls `replays_choose_folder` (that opens the native dialog). Locally:
+`nix develop .#desktop -c just desktop-smoke` (Xvfb; the fake Steam is found through
+`XDG_DATA_HOME`). On Windows CI the registry value `HKLM\SOFTWARE\Wow6432Node\Valve\Steam`
+`InstallPath` points at the fake root (the job also writes `HKCU\Software\Valve\Steam`
+`SteamPath`, as Steam does, though the app doesn't read it).
+
+## CI
+
+`.github/workflows/desktop.yml` runs on every push to main and every PR that touches `desktop/`,
+`web/`, `crates/replay`, `crates/stats` or the workflow, and on `desktop-v*` tags:
+
+- `windows` and `linux`: `cargo test -p mapcro-desktop-core`, a **debug** bundle (NSIS; .deb)
+  with `tauri.nosign.conf.json` (no signing key needed, so fork PRs run it), installed as a user
+  would (`/S`; `apt-get install ./….deb`), then the smoke test against the installed app. Windows
+  also starts the installed app on its own for 15 s. A debug build is used because only a debug
+  build takes `MAPCRO_URL`.
+- On a tag only, after both pass: `release-windows` (NSIS) and then `release-linux` (AppImage and
+  .deb) build the signed release bundles into the same draft release. Linux runs after Windows
+  because tauri-action adds its platform to `latest.json` by reading and rewriting it.
 
 ## Releasing
 
@@ -151,9 +218,10 @@ One-time setup (the operator, on a trusted machine):
 Each release:
 
 1. Bump `version` in `app/tauri.conf.json` and `app/Cargo.toml`.
-2. Tag `desktop-v<version>` and push the tag. The workflow builds the NSIS installer, signs the
-   update with the key, and makes a **draft** release with the installer, its `.sig` and
-   `latest.json`.
+2. Tag `desktop-v<version>` and push the tag. The workflow tests both platforms, then builds the
+   NSIS installer, the AppImage and the .deb, signs the updates with the key, and makes a
+   **draft** release with them, their `.sig`s and `latest.json` (`windows-x86_64` and
+   `linux-x86_64`).
 3. Check the draft, then publish it. `releases/latest` only points at a published release.
 4. After the first release, turn the site's download link on. Set `WINDOWS_APP_RELEASED = true`
    in `web/src/player/desktop.ts` and deploy. "Get the Windows app" then shows on Windows

@@ -16,7 +16,8 @@ test("unnamed scenes are named by their place, so a reorder keeps Scene 1 first"
   const url = await newBoardUrl(server, "scene names");
   const a = await joinNew(browser, url, "Coach");
   const rows = a.getByTestId("scene-card");
-  const names = () => rows.locator(".name").allInnerTexts();
+  // Trimmed: WebKit's innerText ends a block child (the name's `.ie`) with a newline.
+  const names = async () => (await rows.locator(".name").allInnerTexts()).map((t) => t.trim());
   await a.getByTestId("scene-add").click();
   await a.getByTestId("scene-add").click();
   await expect.poll(names).toEqual(["Scene 1", "Scene 2", "Scene 3"]);

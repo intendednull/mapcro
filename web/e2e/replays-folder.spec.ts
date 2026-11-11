@@ -121,7 +121,8 @@ async function queued(id: number) {
   await expect.poll(() => readdirSync(join(queue, "inbox")).some((f) => f.startsWith(`${id}-`) && f.endsWith(".dem")), { timeout: 15_000 }).toBe(true);
 }
 
-test("link the folder, a new replay is found on focus, and one click uploads it", async ({ browser }) => {
+test("link the folder, a new replay is found on focus, and one click uploads it", async ({ browser, browserName }) => {
+  test.skip(browserName !== "chromium", "Chromium-only: linking a folder is the File System Access API, and the stubbed picker hands out an OPFS handle (no navigator.storage.getDirectory in this WebKit)");
   const a = await board(browser, "Folder", [PICKER]);
   await put(a, OTHER);
   await load(a, KNOWN);
@@ -148,7 +149,8 @@ test("link the folder, a new replay is found on focus, and one click uploads it"
   expect(await a.evaluate(() => sessionStorage.getItem("picked"))).toBe("1");
 });
 
-test("a later visit reuses the folder; with no match open, its recent replays open one", async ({ browser }) => {
+test("a later visit reuses the folder; with no match open, its recent replays open one", async ({ browser, browserName }) => {
+  test.skip(browserName !== "chromium", "Chromium-only: linking a folder is the File System Access API, and the stubbed picker hands out an OPFS handle (no navigator.storage.getDirectory in this WebKit)");
   const a = await board(browser, "Reload", [PICKER]);
   await a.getByTestId("mode-player").click();
   await revealControls(a, "match-id");
@@ -173,7 +175,8 @@ test("a later visit reuses the folder; with no match open, its recent replays op
   await queued(RELOADED);
 });
 
-test("after a browser restart, a click gives read access back", async ({ browser }) => {
+test("after a browser restart, a click gives read access back", async ({ browser, browserName }) => {
+  test.skip(browserName !== "chromium", "Chromium-only: linking a folder is the File System Access API, and the stubbed picker hands out an OPFS handle (no navigator.storage.getDirectory in this WebKit)");
   const a = await board(browser, "Ask", [PICKER, ASK]);
   await put(a, ASKED);
   await load(a, ASKED);

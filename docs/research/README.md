@@ -148,6 +148,19 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   `ArrayBuffer`s (checked under Xvfb). Getting replay
   salts from a desktop app (Steamworks, the user's Steam session, game memory, Steam's HTTP
   cache) is a no-go under SSA §1.C, §4.B and §4.C (updated 2026-09-10).
+- **WebKit, the Linux app's engine** (`just e2e-webkit`; desktop/README.md "Linux"; 2026-11-10,
+  linux-desktop): Playwright's WebKit (nix `playwright-driver.browsers`, webkit-2272 for
+  Playwright 1.59.1) is the stand-in for WebKitGTK. The first full run found no page bug; every
+  failure was a test assumption. WebKit's `innerText` ends a block child with `\n`; it
+  serializes a stored float (`stroke-dasharray` 91.67 → `91.669998px`); text widths differ, so
+  wraps differ; Playwright's WebKit puts an SVG `<text>`'s quad at its `<svg>`'s origin (the
+  page's own `elementFromPoint` is right), so locator clicks on SVG text miss; and there is no
+  `navigator.storage.getDirectory`, `showDirectoryPicker` or CDP. **Speed:** headless WebKit
+  drew a scene flip at one frame per ~100 ms against Chromium's ~30 ms (heroes-live glide spec,
+  fixme on WebKit). The real WebKitGTK app's speed is unmeasured. WebKitGTK's blank window on
+  NVIDIA: `WEBKIT_DISABLE_DMABUF_RENDERER=1` (Tauri's linux-graphics page, WebKit bug 261874).
+  The app's WebDriver smoke test (WebKitWebDriver, Xvfb) passes: the bridge works under the live
+  CSP, and every plugin is refused to the page.
 - **Licensing:** Valve's SSA §2.G bars redistribution, so art is extracted by the operator and
   never committed (deadlock-assets-and-extraction "Risks"; spec §12). deadlock-api's code is MIT
   and the main API has no published terms; we credit it as a courtesy. deadlock-plus is GPL-3.0,

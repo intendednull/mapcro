@@ -18,6 +18,7 @@ const FROM = Number(process.env.MAPCRO_PERF_FROM ?? "2490");
 let server: Server;
 
 test.skip(!src, "set MAPCRO_SHOT_REPLAY to a parsed timeline");
+test.skip(({ browserName }) => browserName !== "chromium", "Chromium-only: frame cost from a CDP session (Performance.getMetrics)");
 
 test.beforeAll(async () => {
   server = new Server(process.env.MAPCRO_SHOT_PACKS, { REPLAY_DIR: mkdtempSync(join(tmpdir(), "mapcro-perf-")), MATCH_API_BASE: "http://127.0.0.1:9" });
