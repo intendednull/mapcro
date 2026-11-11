@@ -417,7 +417,7 @@ pub fn observe_with(
         if start <= 0.0 || game < seconds.len() as f64 || game > f64::from(crate::timeline::MAX_DURATION_S) {
             return;
         }
-        let mut s = sample(ctx, k, rules, now as f32);
+        let mut s = sample(ctx, k, rules, now as f32, hero.rift_troopers());
         s.abilities = std::mem::take(&mut casts);
         s.zip_teams = zip_teams(ctx, k, &mut zip_index, &mut zip_nodes);
         // Fill every second up to this one (a gap in ticks repeats the sample).
@@ -780,7 +780,8 @@ fn ability_used(ctx: &boon::Context, k: &Keys, payload: &[u8]) -> Option<Ability
     None
 }
 
-fn sample(ctx: &boon::Context, k: &Keys, rules: &boon::entity::Entity, now: f32) -> Sample {
+/// `rift_troopers`: the handles of the units carrying the rift's `kothtrooper` modifier.
+fn sample(ctx: &boon::Context, k: &Keys, rules: &boon::entity::Entity, now: f32, rift_troopers: &HashSet<u32>) -> Sample {
     let mut s = Sample { now, ..Default::default() };
     let ents = ctx.entities();
     for (_, e) in ents.iter() {
@@ -815,10 +816,12 @@ fn sample(ctx: &boon::Context, k: &Keys, rules: &boon::entity::Entity, now: f32)
         } else if !e.active {
             continue;
         } else if class == TROOPER {
-            if e.get_i64(k.trooper.max_health) == 0 || e.get_i64(k.trooper.life) != 0 || e.get_i64(k.trooper.health) <= 0 {
+            // Max health 1: the units waiting at the bases (exploration round 8), not lane troopers.
+            if e.get_i64(k.trooper.max_health) <= 1 || e.get_i64(k.trooper.life) != 0 || e.get_i64(k.trooper.health) <= 0 {
                 continue;
             }
-            s.troopers.push(TrooperObs { id: e.index, team: e.get_i64(k.trooper.team), lane: e.get_i64(k.trooper.lane), pos: k.trooper.pos(e) });
+            let rift = rift_troopers.iter().any(|h| ents.get_by_handle(*h).is_some_and(|r| r.index == e.index));
+            s.troopers.push(TrooperObs { id: e.index, team: e.get_i64(k.trooper.team), lane: e.get_i64(k.trooper.lane), pos: k.trooper.pos(e), rift });
         } else if class == KOTH {
             s.rift_spawner = Some(k.koth.pos(e));
         } else if class == PICKUP {

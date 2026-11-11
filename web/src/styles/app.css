@@ -401,6 +401,10 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-trooper { stroke: #0b1714; stroke-width: 1.5; vector-effect: non-scaling-stroke; fill-opacity: 0.85; pointer-events: none; }
 .pl-trooper.amber { fill: var(--amber); }
 .pl-trooper.sapphire { fill: var(--sapphire); }
+/* A captured rift's troopers: bigger and darker, as the game draws them (feedback #5). */
+.pl-trooper.rift.amber { fill: color-mix(in srgb, var(--amber) 55%, #000); }
+.pl-trooper.rift.sapphire { fill: color-mix(in srgb, var(--sapphire) 55%, #000); }
+.pl-trooper.rift { fill-opacity: 1; }
 /* The pulse scales each circle about its own centre: without fill-box an SVG element scales
    about the view's centre, which pulled the ring off its place (review: "the ping is off"). */
 .pl-highlight circle { fill: none; stroke: #fff; stroke-width: 2.5; vector-effect: non-scaling-stroke; animation: pl-pulse 1s ease-out infinite; transform-box: fill-box; transform-origin: center; }
