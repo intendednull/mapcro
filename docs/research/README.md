@@ -107,6 +107,13 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   and items with tooltips resolved; `assets.deadlock-api.com` no longer resolves.
   **SteamTracking/GameTracking-Deadlock**: raw vdata, localisation, protobufs and schema dumps,
   one commit per build. Both: stat-datamining.md (on branch `stat-calc`, pending merge).
+- **Desktop build** ([desktop-app](desktop-app.md)): Deadlock has no macOS client, so it runs in
+  CrossOver or Whisky only. The replays folder is `<library>/steamapps/common/Deadlock/game/citadel/replays/<id>.dem`,
+  about 11 MB per match minute. It can be missing, which breaks the in-game download until it is
+  made. `steamlocate` 2.1.1 `find_app(1422450)` reads only the registry key or fixed Linux
+  roots, `libraryfolders.vdf` and one app manifest, with no directory listing. Getting replay
+  salts from a desktop app (Steamworks, the user's Steam session, game memory, Steam's HTTP
+  cache) is a no-go under SSA §1.C, §4.B and §4.C (updated 2026-09-10).
 - **Licensing:** Valve's SSA §2.G bars redistribution, so art is extracted by the operator and
   never committed (deadlock-assets-and-extraction "Risks"; spec §12). deadlock-api's code is MIT
   and the main API has no published terms; we credit it as a courtesy. deadlock-plus is GPL-3.0,
@@ -167,6 +174,11 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
 - **Game art is never committed:** not packs, screenshots or mocks drawn over pack art.
 - **Playwright e2e serves the built `web/dist`** (`web/e2e/server.ts`). Rebuild first; `just e2e`
   does it.
+- **Chrome's File System Access blocklist covers default Steam roots** (Chromium `main`,
+  `chrome_file_system_access_permission_context.cc`): `Program Files (x86)` on Windows and
+  `~/.local/share` on Linux are `kBlockAllChildren`. A browser folder picker can't open the
+  default replays folder, only a secondary library's. Drop and `<input type=file>` still work.
+  This is from the source and hasn't been tried in a real browser yet ([desktop-app](desktop-app.md) §2).
 - **Heavy probes** (`timer_audit` took 754 s) run alone under the load gate: the box is shared.
 
 ## Keeping this current
