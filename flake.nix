@@ -209,8 +209,6 @@
         desktop = pkgs.mkShell {
           packages = with pkgs; [ rust just pkg-config cargo-tauri ];
           buildInputs = with pkgs; [ webkitgtk_4_1 gtk3 libsoup_3 glib cairo pango gdk-pixbuf atk openssl librsvg ];
-          # The tray loads it at run time (dlopen), for a local run of a debug build.
-          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libayatana-appindicator ];
         };
         default = pkgs.mkShell {
           packages = with pkgs; [

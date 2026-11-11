@@ -1,7 +1,7 @@
-// The Windows app's bridge (desktop/README.md): the same site, in the app's window, with three
-// commands to the native side: list the replays folder, read one replay, and parse one here. The
-// page passes only match ids, never paths, and the app grants the commands to this site's
-// origin only. Feature-detected: in a browser none of this exists, and nothing changes.
+// The Windows app's bridge (desktop/README.md): the same site, in the app's window, with four
+// commands to the native side: list the replays folder, read one replay, parse one here, and
+// change the folder (the system's folder chooser). The page passes only match ids, never paths,
+// and the app grants the commands to this site's origin only. Feature-detected: in a browser none of this exists, and nothing changes.
 //
 // Also the download link for the app (`windowsAppLink`), shown on Windows browsers only.
 
@@ -19,9 +19,11 @@ export function bridge(w: unknown = globalThis): Invoke | undefined {
   return typeof invoke === "function" ? (cmd, args) => invoke.call(t, cmd, args) : undefined;
 }
 
-/** A source that can also parse a replay where it is (the app): its timeline, gzipped JSON. */
+/** A source that can also parse a replay where it is (the app): its timeline, gzipped JSON. And
+ * change which folder it lists (the app opens its folder chooser), kept for later runs. */
 export interface LocalSource extends ReplaySource {
   timeline(id: string): Promise<Blob>;
+  chooseFolder(): Promise<"chosen" | "cancelled">;
 }
 
 export const isLocal = (s: ReplaySource | undefined): s is LocalSource => typeof (s as LocalSource | undefined)?.timeline === "function";
@@ -66,6 +68,7 @@ export function desktopSource(invoke: Invoke): LocalSource {
     },
     read: async (id) => new File([bytes(await call("replay_read", { id }))], `${id}.dem`, { type: "application/octet-stream" }),
     timeline: async (id) => new Blob([bytes(await call("replay_timeline", { id }))], { type: "application/json" }),
+    chooseFolder: async () => ((await call("replays_choose_folder")) === "chosen" ? "chosen" : "cancelled"),
   };
 }
 

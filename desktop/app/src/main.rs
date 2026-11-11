@@ -1,22 +1,19 @@
-//! mapcro for Windows (desktop/README.md): one window on the live site, a tray icon, and a watch
-//! of Deadlock's replays folder. The site reaches the native side through three commands only
+//! mapcro for Windows (desktop/README.md): one window on the live site, and the replay picker's
+//! native side: the replays folder, looked up when the picker asks (no watch), and the parse of the
+//! one replay the user picks. The site reaches it through four commands only
 //! (capabilities/site.json); it never passes a path, only a match id.
 //!
 //! Logs carry reason codes and match ids, never a path, a player name or an account id.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use mapcro_desktop_core::{parse, replays, settle::Settle, steam};
-use std::collections::HashSet;
+use mapcro_desktop_core::{folder, parse, replays, steam};
 use std::path::PathBuf;
-use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 use tauri::ipc::Response;
-use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
-use tauri_plugin_notification::NotificationExt;
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
@@ -24,13 +21,9 @@ use url::Url;
 const SITE: &str = "https://mapcro.dmgdeadlock.com";
 const WINDOW: &str = "main";
 /// The app's own commands: the only IPC the site gets.
-const COMMANDS: [&str; 3] = ["allow-replays-list", "allow-replay-read", "allow-replay-timeline"];
+const COMMANDS: [&str; 4] = ["allow-replays-list", "allow-replay-read", "allow-replay-timeline", "allow-replays-choose-folder"];
 /// Timelines kept parsed (each ~0.6 MB gzip for a 44 min match).
 const CACHED: usize = 8;
-/// How long to wait between looks when nothing is settling, and how often to look for a folder
-/// that isn't there yet.
-const IDLE: Duration = Duration::from_secs(30);
-const SETTLING: Duration = Duration::from_secs(1);
 
 fn main() {
     let args: Vec<_> = std::env::args_os().collect();
@@ -58,8 +51,8 @@ struct Parsed {
 
 #[derive(Default)]
 struct Shared {
-    /// The replays folder, once found.
-    dir: Mutex<Option<PathBuf>>,
+    /// The folder the user chose (Change folder), kept in the app's config folder.
+    chosen: Mutex<Option<PathBuf>>,
     /// Recent parses, by match id, newest last.
     parsed: Mutex<Vec<(String, Parsed)>>,
     /// One parse at a time.
@@ -67,8 +60,14 @@ struct Shared {
 }
 
 impl Shared {
+    /// The folder to list, looked up now: the chosen one while it's there, else Deadlock's own
+    /// (`folder::resolve`). Blocking (it reads two small Steam files).
     fn dir(&self) -> Result<PathBuf, String> {
-        self.dir.lock().map_err(|_| "busy".to_string())?.clone().ok_or_else(|| "not_found".to_string())
+        let chosen = self.chosen.lock().map_err(|_| "busy".to_string())?.clone();
+        folder::resolve(chosen.as_deref(), steam::locate, steam::Missing::code).map_err(|e| {
+            eprintln!("mapcro: replays folder not found: {}", e.reason());
+            e.code().to_string()
+        })
     }
 
     /// Match `id`'s timeline, gzipped: from the cache while the file is unchanged, else parsed
@@ -105,24 +104,25 @@ impl Shared {
     }
 }
 
-/// The folder's replays, newest first: `[{id, lastModified, size}]`.
+/// The folder's replays, newest first: `[{id, lastModified, size}]`. The folder is looked up on
+/// each call (the picker calls it while it's open).
 #[tauri::command]
 async fn replays_list(state: tauri::State<'_, Arc<Shared>>) -> Result<Vec<replays::Replay>, String> {
-    let dir = state.dir()?;
-    tauri::async_runtime::spawn_blocking(move || replays::list(&dir).map_err(|_| "not_found".to_string())).await.map_err(|_| "failed".to_string())?
+    let shared = Arc::clone(&state);
+    tauri::async_runtime::spawn_blocking(move || replays::list(&shared.dir()?).map_err(|_| "not_found".to_string())).await.map_err(|_| "failed".to_string())?
 }
 
 /// One replay's file, by match id (the fallback when the server takes no timelines yet).
 #[tauri::command]
 async fn replay_read(state: tauri::State<'_, Arc<Shared>>, id: String) -> Result<Response, String> {
-    let dir = state.dir()?;
-    let demo = replays::demo_path(&dir, &id).ok_or("bad_id")?;
+    let shared = Arc::clone(&state);
     let bytes = tauri::async_runtime::spawn_blocking(move || {
+        let demo = replays::demo_path(&shared.dir()?, &id).ok_or("bad_id")?;
         let len = std::fs::metadata(&demo).map_err(|_| "not_found")?.len();
         if len > parse::MAX_DEM_BYTES {
-            return Err("too_large");
+            return Err("too_large".to_string());
         }
-        std::fs::read(&demo).map_err(|_| "not_found")
+        std::fs::read(&demo).map_err(|_| "not_found".to_string())
     })
     .await
     .map_err(|_| "failed".to_string())??;
@@ -135,6 +135,31 @@ async fn replay_timeline(app: AppHandle, state: tauri::State<'_, Arc<Shared>>, i
     let shared = Arc::clone(&state);
     let gz = tauri::async_runtime::spawn_blocking(move || shared.timeline(&app, &id)).await.map_err(|_| "failed".to_string())??;
     Ok(Response::new(gz.as_ref().clone()))
+}
+
+/// Change folder: the system's folder chooser (never a file chooser), opened at the folder listed
+/// now. The choice is kept for later runs. `chosen`, or `cancelled`. The page gets no path.
+#[tauri::command]
+async fn replays_choose_folder(app: AppHandle, state: tauri::State<'_, Arc<Shared>>) -> Result<&'static str, String> {
+    let shared = Arc::clone(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut dialog = app.dialog().file().set_title("Replays folder");
+        if let Ok(now) = shared.dir() {
+            dialog = dialog.set_directory(now);
+        }
+        if let Some(w) = app.get_webview_window(WINDOW) {
+            dialog = dialog.set_parent(&w);
+        }
+        let Some(picked) = dialog.blocking_pick_folder().and_then(|p| p.into_path().ok()) else { return Ok("cancelled") };
+        let config = app.path().app_config_dir().map_err(|_| "failed".to_string())?;
+        if folder::save(&config, &picked).is_err() {
+            eprintln!("mapcro: replays folder choice not kept");
+        }
+        *shared.chosen.lock().map_err(|_| "busy".to_string())? = Some(picked);
+        Ok("chosen")
+    })
+    .await
+    .map_err(|_| "failed".to_string())?
 }
 
 fn show(app: &AppHandle) {
@@ -151,21 +176,22 @@ fn run() {
     tauri::Builder::default()
         // First: a second launch shows this one's window instead.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| show(app)))
-        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::clone(&shared))
-        .invoke_handler(tauri::generate_handler![replays_list, replay_read, replay_timeline])
+        .invoke_handler(tauri::generate_handler![replays_list, replay_read, replay_timeline, replays_choose_folder])
         .setup(move |app| {
             let handle = app.handle().clone();
             if site.as_str().trim_end_matches('/') != SITE {
                 dev_capability(&handle, &site)?;
             }
+            if let Ok(config) = handle.path().app_config_dir()
+                && let Ok(mut c) = shared.chosen.lock()
+            {
+                *c = folder::load(&config);
+            }
             window(&handle, &site)?;
-            tray(&handle)?;
-            let watch_shared = Arc::clone(&shared);
-            let watch_app = handle.clone();
-            std::thread::Builder::new().name("replays".into()).spawn(move || watch(&watch_app, &watch_shared))?;
             check_for_update(&handle);
             Ok(())
         })
@@ -173,7 +199,7 @@ fn run() {
         .expect("mapcro failed to start");
 }
 
-/// A debug build pointed at a dev server: the same three commands for its origin.
+/// A debug build pointed at a dev server: the same four commands for its origin.
 fn dev_capability(app: &AppHandle, site: &Url) -> tauri::Result<()> {
     let mut origin = site.clone();
     origin.set_path("/*");
@@ -186,12 +212,12 @@ fn dev_capability(app: &AppHandle, site: &Url) -> tauri::Result<()> {
     app.add_capability(cap)
 }
 
-/// The one window: the site. A link off the site opens in the system browser; closing hides it
-/// to the tray (the watch keeps going).
+/// The one window: the site. A link off the site opens in the system browser. Closing it quits:
+/// nothing runs in the background.
 fn window(app: &AppHandle, site: &Url) -> tauri::Result<()> {
     let origin = site.origin();
     let opener = app.clone();
-    let w = WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::External(site.clone()))
+    WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::External(site.clone()))
         .title("mapcro")
         .inner_size(1440.0, 900.0)
         .min_inner_size(960.0, 600.0)
@@ -205,106 +231,7 @@ fn window(app: &AppHandle, site: &Url) -> tauri::Result<()> {
             false
         })
         .build()?;
-    let hide = w.clone();
-    w.on_window_event(move |e| {
-        if let WindowEvent::CloseRequested { api, .. } = e {
-            api.prevent_close();
-            let _ = hide.hide();
-        }
-    });
     Ok(())
-}
-
-fn tray(app: &AppHandle) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Open mapcro", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &quit])?;
-    let mut tray = TrayIconBuilder::with_id("mapcro").tooltip("mapcro").menu(&menu).show_menu_on_left_click(false);
-    if let Some(icon) = app.default_window_icon() {
-        tray = tray.icon(icon.clone());
-    }
-    tray.on_menu_event(|app, e| match e.id().as_ref() {
-        "open" => show(app),
-        "quit" => app.exit(0),
-        _ => {}
-    })
-    .on_tray_icon_event(|t, e| {
-        if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {
-            show(t.app_handle());
-        }
-    })
-    .build(app)?;
-    Ok(())
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
-}
-
-/// Find the replays folder, watch it (that folder only, not its parents), and parse each new
-/// replay once its size has settled; then a notification. Replays already there at start aren't
-/// announced. A folder that isn't there (yet) is looked for again every `IDLE`.
-fn watch(app: &AppHandle, shared: &Shared) {
-    use notify::{RecursiveMode, Watcher};
-    let (tx, rx) = mpsc::channel::<()>();
-    let mut watcher: Option<(PathBuf, notify::RecommendedWatcher)> = None;
-    let mut settle = Settle::default();
-    let mut primed = false;
-    // Each reason is logged once.
-    let mut said = HashSet::<&'static str>::new();
-    loop {
-        // Where the folder is: found once, kept while it's there.
-        let dir = match shared.dir().ok().filter(|d| d.is_dir()) {
-            Some(d) => Some(d),
-            None => match steam::locate() {
-                Ok(d) if d.is_dir() => Some(d),
-                Ok(_) => {
-                    if said.insert("no_folder") {
-                        eprintln!("mapcro: replays folder not there yet");
-                    }
-                    None
-                }
-                Err(e) => {
-                    if said.insert(e.code()) {
-                        eprintln!("mapcro: replays folder not found: {}", e.code());
-                    }
-                    None
-                }
-            },
-        };
-        if let Ok(mut d) = shared.dir.lock() {
-            d.clone_from(&dir);
-        }
-        let Some(dir) = dir else {
-            watcher = None;
-            primed = false;
-            let _ = rx.recv_timeout(IDLE);
-            continue;
-        };
-        if watcher.as_ref().is_none_or(|(p, _)| p != &dir) {
-            let tx = tx.clone();
-            watcher = notify::recommended_watcher(move |_: notify::Result<notify::Event>| {
-                let _ = tx.send(());
-            })
-            .and_then(|mut w| w.watch(&dir, RecursiveMode::NonRecursive).map(|()| w))
-            .ok()
-            .map(|w| (dir.clone(), w));
-        }
-        let list = replays::list(&dir).unwrap_or_default();
-        if !primed {
-            settle.prime(&list, now_ms());
-            primed = true;
-        }
-        for id in settle.observe(&list, now_ms()) {
-            if shared.timeline(app, &id).is_ok() {
-                let _ = app.notification().builder().title("mapcro").body(format!("Replay {id} ready: open board")).show();
-            }
-        }
-        let wait = if settle.waiting() { SETTLING } else { IDLE };
-        // Woken early by a change in the folder; several events at once are one look.
-        let _ = rx.recv_timeout(wait);
-        while rx.try_recv().is_ok() {}
-    }
 }
 
 /// Check the update feed once at start, and install what it offers (Windows: the installer runs

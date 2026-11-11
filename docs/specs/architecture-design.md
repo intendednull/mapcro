@@ -320,6 +320,17 @@ and shared boards therefore follow one code path and one set of tests.
     nearest sample at or before t), and objective states.
   - If the board's heroes differ from the match's, the same transaction sets the roster to the
     match's ("Roster → match heroes"). One undo reverts all of it.
+- **Previews (2026-11-10, the Windows app's replay picker, §6b):** `GET /api/matches/{id}/preview`
+  is one card's data, under 1 KB: `{match_id, start_time, duration_s, game_mode, winner, teams:
+  [{team, heroes: [[slot, hero_id]], kills, souls}]}` (Amber first). It's derived from the cached
+  summary and cached beside it (`<id>.preview.json`, dropped when the summary is fetched again).
+  The summary now keeps `winner` (`winning_team`) and `team_kills` (the players' `kills`) when the
+  metadata has them; without them `winner` is `null` and a team's kills are the other team's
+  deaths (equal on 129738985: 39/35). Souls are the players' last `stats[]` net worth (equal to
+  their final `net_worth` there). No names or ids. An uncached match goes the way an open does:
+  the per-client and global limits, and the summary it fetches is cached for the open that
+  follows. After the metadata call says 429, previews don't ask deadlock-api for 60 s (opens
+  still do). Errors are the summary's (`not_found`, `brawl`, `upstream_limited`, …).
 - **Not in the metadata tier:** ults, zipline colours, camps, rifts, powerups and z. A match older than the
   pack is drawn on it with an "Older map" label.
 - The mid boss's respawn time isn't in the match data. The preview shows it down from a kill
@@ -1092,23 +1103,43 @@ makes a board with that match attached and lands in Player; **New board** is tod
       still open the default folder. Without the API nothing shows; the help's extra line
       (Chromium only) gives `…/steamapps/common/Deadlock/game/citadel/replays`.
   - **The Windows app (2026-11-10; `desktop/`, `player/desktop.ts`; desktop/README.md):** a
-    Tauri 2 shell that loads the live site, one UI, plus a tray icon. It finds the replays folder
-    itself, watches it, and parses each new replay on the user's machine once its size has been
-    still for 5 s. Then a notification says "Replay <id> ready: open board". In the app, the
-    page's `ReplaySource` is the app's (`desktopSource`, feature-detected by
-    `__TAURI_INTERNALS__.invoke`), so there's nothing to link and no Change folder.
-    - **Upload:** **Upload <match> from your replays folder** sends only the parsed timeline
-      (gzip) to `POST …/replays/{id}/timeline` (§6a, Timelines parsed on the user's machine).
-      Against a server without that route (a 404 with no `{error}`), it sends the `.dem` as
-      before.
-    - **IPC:** three commands (list, read one, parse one), by match id, granted to the site's
-      origin only.
+    Tauri 2 shell that loads the live site, one UI. In the app, the page's `ReplaySource` is the
+    app's (`desktopSource`, feature-detected by `__TAURI_INTERNALS__.invoke`), and the linked
+    folder's controls don't show. Nothing runs in the background: no watch, no notification, no
+    tray (operator, 2026-11-10: discovery is part of the upload).
+    - **Replay picker (operator, 2026-11-10; `player/ReplayPicker.tsx`, `player/picker.ts`;
+      desktop app only, a browser keeps the file input, the drop and the linked folder):** the
+      landing's **Select replay** (beside the match id), Player's **Upload replay** (match
+      source and notice; **Select replay** with no match open) and the prompt's **Upload replay**
+      open a dialog, "Replays", listing the folder's replays as cards: the open match's first
+      ("This match"), then newest first, ten at a time (**More**). A file younger than 5 s
+      isn't listed (it may be downloading). The folder is looked up and listed when the picker
+      opens, on focus and every 5 s while it's open and shown; never while it's closed. Each
+      card: the match id, the file's time ("2 h ago"), the length ("34:12"), and, from the
+      preview (§6a, fetched once a card is in view, once per match for the tab; a miss is asked
+      again after a minute, ten for `not_found`), each team's name, its six heroes (the newest
+      pack's minimap icons, the hero's name on hover), its kills ("Kills" on hover), its souls
+      ("Souls") and **Win** on the winner's row. A mode the board doesn't take shows its name
+      ("Street Brawl"). With no metadata: "Not recorded" and "—". A pick is the upload: parsed
+      in the app, then its timeline sent. Another match's pick opens that match (attached)
+      first, and isn't sent if it has its full replay or Valve's is on its way. A landing pick
+      makes the board and hands the pick over (`handoff.ts` `local`); the board sends it and
+      attaches the match. **Change folder** opens the system's folder chooser (never a file
+      chooser) and the choice is kept for later runs; without one, the app uses Deadlock's own
+      folder, found through Steam. "Replays folder not found" and "No replays" are its empty
+      states. The file drop still works in the app.
+    - **Upload:** the pick sends only the parsed timeline (gzip) to `POST …/replays/{id}/timeline`
+      (§6a, Timelines parsed on the user's machine). Against a server without that route (a 404
+      with no `{error}`), it sends the `.dem` as before.
+    - **IPC:** four commands (list, read one, parse one, change the folder), by match id, granted
+      to the site's origin only.
     - **Download link:** "Get the Windows app" (GitHub Releases) shows on Windows browsers only,
       never in the app. It sits beside Link replays folder, in "Where's my replay?" and in the
       landing's footer. It stays off until the first release (`WINDOWS_APP_RELEASED`).
     - **Privacy:** the app reads only the Steam root (the registry key on Windows, fixed
-      candidate paths on Linux), `libraryfolders.vdf`, Deadlock's one app manifest and the
-      replays folder, and nothing else. It never lists Steam's folders. It sends and logs nothing
+      candidate paths on Linux), `libraryfolders.vdf`, Deadlock's one app manifest, the replays
+      folder (or the one chosen with Change folder, whose path stays in the app) and its own
+      config file, and nothing else. Previews carry heroes and scores, no names or ids. It never lists Steam's folders. It sends and logs nothing
       but match ids and reason codes: no paths, player names or account ids. It gets no replay
       salts in any form.
   - **Progress:** while the queue has no room, "Waiting for a slot · N ahead" (the file isn't

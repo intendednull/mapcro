@@ -682,3 +682,42 @@ svg[data-tool="move"] .pl-skull[data-recap] { pointer-events: auto; cursor: poin
 .recap-cc { margin: 6px 0; }
 .recap-cc > div { position: relative; height: 5px; background: var(--line); margin-top: 3px; }
 .recap-cc i { position: absolute; height: 100%; background: var(--danger); }
+
+/* The Windows app's replay picker (spec §6b, The Windows app): a list of compact match cards. */
+.picker-scrim { position: fixed; z-index: 70; padding: 16px; }
+.dialog.picker { width: min(560px, 100%); display: flex; flex-direction: column; max-height: calc(100dvh - 40px); }
+.dialog.picker header { align-items: center; padding: 16px 20px 12px; }
+.dialog.picker h2 { font-size: 22px; }
+.picker-body { padding: 12px 16px !important; overflow: auto; flex: 1 1 auto; }
+.dialog.picker footer { margin-top: 0; padding: 10px 16px 12px; }
+.picker-note { margin: 18px 4px; color: var(--muted); font-size: 13px; }
+.picker-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.picker-card { width: 100%; display: grid; gap: 6px; padding: 9px 12px; text-align: left; color: var(--text); background: var(--bg-deep); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font: inherit; }
+.picker-card:hover, .picker-card:focus-visible { border-color: var(--brass-dim); background: color-mix(in srgb, var(--panel) 70%, var(--bg-deep)); }
+.picker-card.current { border-color: var(--brass-dim); }
+.picker-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--muted); }
+.picker-head .spacer { flex: 1; }
+.picker-id { font: 600 13.5px ui-monospace, monospace; color: var(--text); }
+.picker-tag { padding: 0 6px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; color: var(--brass); }
+.picker-tag.mode { color: var(--warn); }
+.picker-len { font-variant-numeric: tabular-nums; min-width: 4ch; text-align: right; color: var(--text); }
+.picker-card[data-state="loading"] .picker-head { opacity: 0.85; }
+.picker-none { font-size: 12px; color: var(--faint); }
+.picker-teams { display: grid; gap: 3px; }
+.picker-team { display: grid; grid-template-columns: 92px auto 1fr auto auto 3ch; align-items: center; gap: 8px; font-size: 12px; }
+.picker-team-name { font-weight: 600; white-space: nowrap; }
+.picker-team.amber .picker-team-name { color: var(--amber); }
+.picker-team.sapphire .picker-team-name { color: var(--sapphire); }
+.picker-heroes { display: flex; gap: 2px; }
+.picker-hero { width: 24px; height: 24px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; background: var(--panel); border: 1px solid var(--line); font-style: normal; }
+.picker-team.amber .picker-hero { border-color: color-mix(in srgb, var(--amber) 55%, transparent); }
+.picker-team.sapphire .picker-hero { border-color: color-mix(in srgb, var(--sapphire) 55%, transparent); }
+.picker-hero img { width: 100%; height: 100%; object-fit: cover; }
+.picker-hero b { font-size: 10px; color: var(--muted); }
+.picker-kills, .picker-souls { font-variant-numeric: tabular-nums; text-align: right; min-width: 3ch; }
+.picker-kills { grid-column: 4; font-weight: 600; }
+.picker-souls { grid-column: 5; color: var(--brass); min-width: 5ch; }
+.picker-souls small { font-size: 0.8em; }
+.picker-won { display: none; }
+.picker-team.won .picker-won { display: inline; grid-column: 6; font-size: 11px; font-weight: 600; color: var(--text); }
+.picker-more { margin: 8px auto 0; display: block; }
