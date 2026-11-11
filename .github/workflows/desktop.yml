@@ -1,20 +1,145 @@
-# The Windows app (desktop/README.md, Releasing). Not run on every push: a tag `desktop-v<version>`
-# builds the installer and a draft GitHub release with it and the updater's `latest.json`; a
-# manual run builds the installer as an artifact only.
+# The desktop app (desktop/README.md, Building and Releasing), on Windows and Linux.
+#
+# Every push to main and every PR that touches the app, the web client it shows, the parser it
+# runs or this file: a debug build of each, installed as a user would (NSIS `/S`; the .deb), then
+# a smoke test of the installed app over WebDriver (desktop/smoke/smoke.mjs: the page loads, the
+# IPC bridge answers, no plugin is the page's, and a fake Steam install's replays are found).
+# A tag `desktop-v<version>` also builds the signed release bundles into a **draft** GitHub
+# release with the updater's `latest.json` (Windows NSIS, Linux AppImage and .deb), once both
+# smoke tests pass. A manual run does the tests only.
 #
 # Secrets (repository settings, never in the repo):
 #   TAURI_SIGNING_PRIVATE_KEY           the updater's minisign private key (the file's contents)
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  its password
-# The matching public key goes in desktop/app/tauri.conf.json `plugins.updater.pubkey`.
-# No Authenticode signing yet (unsigned beta: Windows SmartScreen warns on first run).
+# The matching public key goes in desktop/app/tauri.conf.json `plugins.updater.pubkey`. The test
+# builds need neither (`tauri.nosign.conf.json` turns the updater artifacts off), so PRs from forks
+# run them too. No Authenticode signing yet (unsigned beta: Windows SmartScreen warns on first run).
 name: desktop
 on:
   push:
+    branches: [main]
+    # Path filters don't apply to tag pushes: every desktop tag builds.
     tags: ["desktop-v*"]
+    paths:
+      - "desktop/**"
+      - "web/**"
+      - "crates/replay/**"
+      - "crates/stats/**"
+      - ".github/workflows/desktop.yml"
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "web/**"
+      - "crates/replay/**"
+      - "crates/stats/**"
+      - ".github/workflows/desktop.yml"
   workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  TAURI_DRIVER_VERSION: 2.1.0
 
 jobs:
   windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: debug
+          workspaces: |
+            . -> target
+            desktop/app -> target
+      - name: Native logic on Windows (path discovery, settle, parse child)
+        run: cargo test -p mapcro-desktop-core
+      - name: Tauri CLI and tauri-driver
+        run: |
+          cargo install tauri-cli --version "^2" --locked
+          cargo install tauri-driver --version $env:TAURI_DRIVER_VERSION --locked
+      - name: Debug installer (takes MAPCRO_URL; no updater artifacts)
+        working-directory: desktop/app
+        run: cargo tauri build --debug --bundles nsis --config tauri.nosign.conf.json
+      - name: Silent install, then launch the installed app
+        id: install
+        run: |
+          $setup = Get-ChildItem desktop/app/target/debug/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Get-ChildItem "$env:LOCALAPPDATA\mapcro\*.exe" | Where-Object { $_.Name -notmatch '^uninstall' } | Select-Object -First 1
+          if (-not $exe) { Get-ChildItem -Recurse "$env:LOCALAPPDATA\mapcro" | Out-Host; throw "no installed exe" }
+          "exe=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+          # Up for 15 s on the live site (no MAPCRO_URL), then closed.
+          $p = Start-Process -FilePath $exe.FullName -PassThru
+          Start-Sleep -Seconds 15
+          if ($p.HasExited) { throw "the installed app exited ($($p.ExitCode))" }
+          Stop-Process -Id $p.Id -Force
+      - name: A fake Steam install (registry here; the files and synthetic replays in the smoke test)
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'Steam'
+          New-Item -ItemType Directory -Force $root | Out-Null
+          # What the app reads (steamlocate: HKLM InstallPath), and what Steam itself also writes.
+          reg add 'HKLM\SOFTWARE\Wow6432Node\Valve\Steam' /v InstallPath /d $root /f
+          reg add 'HKCU\Software\Valve\Steam' /v SteamPath /d $root /f
+          "MAPCRO_SMOKE_STEAM=$root" >> $env:GITHUB_ENV
+      - name: msedgedriver for the installed WebView2
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $v = (Get-ItemProperty $key).pv
+          Write-Output "WebView2 $v"
+          $zip = Join-Path $env:RUNNER_TEMP 'edgedriver.zip'
+          Invoke-WebRequest "https://msedgedriver.microsoft.com/$v/edgedriver_win64.zip" -OutFile $zip
+          Expand-Archive $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'edgedriver')
+          "NATIVE_DRIVER=$(Join-Path $env:RUNNER_TEMP 'edgedriver\msedgedriver.exe')" >> $env:GITHUB_ENV
+      - name: Smoke test of the installed app (tauri-driver + msedgedriver)
+        run: node desktop/smoke/smoke.mjs "${{ steps.install.outputs.exe }}" --fake-steam
+
+  linux:
+    # The oldest supported Ubuntu, so the AppImage's glibc floor stays low.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: WebKitGTK and the bundle tools (Tauri's Linux prerequisites), WebKitWebDriver, Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev \
+            patchelf file webkit2gtk-driver xvfb
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: debug
+          workspaces: |
+            . -> target
+            desktop/app -> target
+      - name: Native logic on Linux
+        run: cargo test -p mapcro-desktop-core
+      - name: Tauri CLI and tauri-driver
+        run: |
+          cargo install tauri-cli --version "^2" --locked
+          cargo install tauri-driver --version "$TAURI_DRIVER_VERSION" --locked
+      - name: Debug .deb (takes MAPCRO_URL; no updater artifacts)
+        working-directory: desktop/app
+        run: cargo tauri build --debug --bundles deb --config tauri.nosign.conf.json
+      - name: Install the .deb
+        id: install
+        run: |
+          deb=$(ls desktop/app/target/debug/bundle/deb/*.deb | head -1)
+          sudo apt-get install -y "./$deb"
+          bin=$(dpkg -L "$(dpkg-deb -f "$deb" Package)" | grep '^/usr/bin/' | head -1)
+          test -x "$bin"
+          echo "bin=$bin" >> "$GITHUB_OUTPUT"
+      - name: Smoke test of the installed app (tauri-driver + WebKitWebDriver, under Xvfb; fake Steam via XDG_DATA_HOME)
+        run: xvfb-run -a node desktop/smoke/smoke.mjs "${{ steps.install.outputs.bin }}" --fake-steam
+
+  release-windows:
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    needs: [windows, linux]
     runs-on: windows-latest
     permissions:
       contents: write
@@ -24,11 +149,10 @@ jobs:
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
+          key: release
           workspaces: |
             . -> target
             desktop/app -> target
-      - name: Native logic on Windows (path discovery, settle, parse child)
-        run: cargo test -p mapcro-desktop-core
       - name: Updater key is configured
         shell: bash
         env:
@@ -42,8 +166,7 @@ jobs:
           fi
       - name: Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
-      - name: Build, and (on a tag) a draft release with latest.json
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
+      - name: Installer, and a draft release with latest.json
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -54,22 +177,51 @@ jobs:
           tauriScript: cargo tauri
           args: --bundles nsis
           tagName: desktop-v__VERSION__
-          releaseName: mapcro for Windows __VERSION__
-          releaseBody: "Unsigned beta: Windows may say \"Windows protected your PC\"; More info → Run anyway."
+          releaseName: mapcro desktop __VERSION__
+          releaseBody: "Unsigned beta. Windows may say \"Windows protected your PC\": More info → Run anyway. Linux: the AppImage or the .deb."
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
-      - name: Build only (manual run)
-        if: "!startsWith(github.ref, 'refs/tags/desktop-v')"
-        working-directory: desktop/app
+
+  # After Windows, not beside it: tauri-action adds its platform to the draft's latest.json by
+  # reading and rewriting it, so two jobs at once could each drop the other's entry.
+  release-linux:
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    needs: [release-windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: WebKitGTK and the bundle tools (Tauri's Linux prerequisites)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf file
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+          workspaces: |
+            . -> target
+            desktop/app -> target
+      - name: Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+      # The updater replaces an AppImage only, so latest.json's `linux-x86_64` names the AppImage;
+      # a .deb is updated by installing the new one.
+      - name: AppImage and .deb, into the same draft release and latest.json
+        uses: tauri-apps/tauri-action@v0
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: cargo tauri build --bundles nsis
-      - name: Installer artifact (manual run)
-        if: "!startsWith(github.ref, 'refs/tags/desktop-v')"
-        uses: actions/upload-artifact@v4
         with:
-          name: mapcro-windows
-          path: desktop/app/target/release/bundle/nsis/*
+          projectPath: desktop/app
+          tauriScript: cargo tauri
+          args: --bundles appimage,deb
+          tagName: desktop-v__VERSION__
+          releaseName: mapcro desktop __VERSION__
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true

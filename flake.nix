@@ -96,11 +96,58 @@
           runHook postInstall
         '';
       };
+
+      # The Linux app (desktop/README.md, Linux): the Tauri shell, built by nixpkgs' cargo-tauri
+      # hook (`cargo tauri build --bundles deb`, then the deb's /usr unpacked into $out), on our
+      # toolchain. desktop/app is its own workspace, but its path dependencies inherit from the
+      # root one, so the root manifest and every crate come along.
+      desktopLibs = with pkgs; [ webkitgtk_4_1 gtk3 libsoup_3 glib cairo pango gdk-pixbuf atk openssl librsvg ];
+      rustPlatform = pkgs.makeRustPlatform { cargo = rust; rustc = rust; };
+      desktop = rustPlatform.buildRustPackage {
+        pname = "mapcro-desktop";
+        version = (builtins.fromJSON (builtins.readFile ./desktop/app/tauri.conf.json)).version;
+        src = pkgs.lib.fileset.toSource {
+          root = ./.;
+          fileset = pkgs.lib.fileset.unions [ ./Cargo.toml ./Cargo.lock ./crates ./desktop ];
+        };
+        cargoRoot = "desktop/app";
+        buildAndTestSubdir = "desktop/app";
+        cargoLock.lockFile = ./desktop/app/Cargo.lock;
+        # Updates come from the package manager here, not the app's updater: no signing key, no
+        # updater artifacts.
+        tauriBuildFlags = [ "--config" "tauri.nosign.conf.json" ];
+        nativeBuildInputs = with pkgs; [ cargo-tauri.hook pkg-config wrapGAppsHook3 ];
+        # glib-networking: TLS for the webview (the site is https).
+        buildInputs = desktopLibs ++ [ pkgs.glib-networking ];
+        doCheck = false;
+        # The tray loads libayatana-appindicator at run time (dlopen). On NVIDIA's proprietary
+        # driver, WebKitGTK's DMA-BUF renderer can leave the window blank; turning it off is the
+        # fix Tauri documents (v2.tauri.app/develop/debug/linux-graphics, WebKit bug 261874).
+        # Only there, and only if the user hasn't set it themselves.
+        preFixup = ''
+          gappsWrapperArgs+=(
+            --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath [ pkgs.libayatana-appindicator ]}
+            --run 'if [ -e /proc/driver/nvidia/version ] && [ -z "''${WEBKIT_DISABLE_DMABUF_RENDERER+x}" ]; then export WEBKIT_DISABLE_DMABUF_RENDERER=1; fi'
+          )
+        '';
+        meta.mainProgram = "mapcro-desktop";
+      };
+
+      # The WebDriver server for smoke tests of the real app (desktop/smoke), in front of
+      # WebKitGTK's WebKitWebDriver. Not in nixpkgs.
+      tauri-driver = rustPlatform.buildRustPackage rec {
+        pname = "tauri-driver";
+        version = "2.1.0";
+        src = pkgs.fetchCrate { inherit pname version; hash = "sha256-Ttik3t/IUnze3SHcpH9zPS1UwW9B/V70Wvel+eBHhOE="; };
+        cargoHash = "sha256-x7cz2KLNLJRlPqahV/BwyYJcncfUyhIp6/gORhvudZI=";
+        doCheck = false;
+      };
     in
     {
       packages.${system} = {
         default = server;
-        inherit server replay wasm web;
+        inherit server replay wasm web tauri-driver;
+        mapcro-desktop = desktop;
         oci = pkgs.dockerTools.streamLayeredImage {
           name = "mapcro";
           tag = "latest";
@@ -203,12 +250,14 @@
         '';
       };
 
-      # The Tauri shell's Linux build deps (desktop/README.md): only for `cargo check` of
-      # desktop/app on Linux (`nix develop .#desktop`); the release build is Windows, in CI.
+      # The Tauri shell on Linux (desktop/README.md): its build deps, plus what the smoke test of
+      # the real app needs (desktop/smoke: tauri-driver, WebKitGTK's WebKitWebDriver, Xvfb, Node).
       devShells.${system} = {
         desktop = pkgs.mkShell {
-          packages = with pkgs; [ rust just pkg-config cargo-tauri ];
-          buildInputs = with pkgs; [ webkitgtk_4_1 gtk3 libsoup_3 glib cairo pango gdk-pixbuf atk openssl librsvg ];
+          packages = with pkgs; [ rust just pkg-config cargo-tauri tauri-driver webkitgtk_4_1 xvfb-run nodejs_24 ];
+          buildInputs = desktopLibs ++ [ pkgs.glib-networking ];
+          # TLS for the webview in a local run (the wrapper does this in the package).
+          GIO_EXTRA_MODULES = "${pkgs.glib-networking}/lib/gio/modules";
           # The tray loads it at run time (dlopen), for a local run of a debug build.
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libayatana-appindicator ];
         };
