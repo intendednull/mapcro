@@ -992,5 +992,5 @@ kbd {
    or the ring paints solid over the portrait. */
 .map .tok circle.tok-zipline { fill: none; stroke: #efdfc6; stroke-width: 2; stroke-dasharray: 5 4; pointer-events: none; }
 .tok-height { pointer-events: none; }
-.map .tok .tok-height circle { fill: var(--panel); stroke: var(--brass); stroke-width: 1; }
-.tok-height text { fill: var(--text); text-anchor: middle; dominant-baseline: central; font-size: 10px; }
+.map .tok .tok-height circle { fill: var(--panel); stroke: #efdfc6; stroke-width: 1.5; }
+.map .tok .tok-height text { fill: var(--text); text-anchor: middle; dominant-baseline: central; font-size: 12px; font-weight: 800; }
