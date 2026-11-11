@@ -3,13 +3,31 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
-## Sixteen e2e tests act on controls the prototype moved into disclosures (2026-11-10, from scene-parity)
+## Sixteen e2e tests act on controls the prototype moved into disclosures (2026-11-10, from scene-parity): resolved
 
-On `prototype-layout` (base of scene-parity, checked on its own build too) these time out on a
-hidden control: `match-id` inside the closed `.pl-source` (player-ease ×2, player-rejuv-rift ×4,
-player-urn-respawn ×4, player-visible ×3, hero-focus "in Player"), `crates-toggle` inside Map
-layers (pack "terrain, markers and portraits"), and `scene-note-edit` behind the Notes tab (phone
-"a phone viewer follows"). They need `revealControls` (e2e/helpers.ts) or the Notes tab clicked.
+Resolved 2026-11-10 (branch `proto-e2e-fix`). The sixteen were a sample: 46 specs acted on the
+match source's controls (`match-id`, `match-load`, `match-upload`, `mode-sandbox`…), the Map
+layers toggles or the scene note while the prototype keeps them closed. `revealControls`
+(e2e/helpers.ts) now knows each control's place (source disclosure, Map layers, Scene Notes tab),
+throws for one it doesn't, and every spec reveals before it acts; each disclosure closes on a
+press outside it, so a reveal goes before each use. player-visible's top-bar test and pack's
+"terrain, markers and portraits" failed on the base for the same cause (`match-id`,
+`crates-toggle` hidden), not another; both pass 4 of 4 repeated.
+
+The specs also follow the prototype's deliberate changes (journal 2026-11-10-prototype-controls):
+saving a replay scene shows it (a second save goes Back first), no scene is current in the tree
+while watching, the heals toggle is "Healing pickups", the play title is static, and a format-7
+timeline's death recap shows in the events list (player-format7 allows exactly that line).
+
+App fixes the run turned up: the phone had lost the tier chip (moved to the desktop header only;
+now in the phone header too, its role chip ellipsised so the page doesn't overflow); the source
+popover opened under the replay prompt's map scrim, so Scenes, Load and Upload couldn't be
+pressed while the prompt was up (now above it); the layer toggles' ○/✓ marks were read into
+their accessible names (CSS alt text drops them).
+
+Left for the operator: the phone's source summary clips "Match <id>" at its left edge; with no
+match loaded an editor's Player shows a closed "Match source" rather than the id field, and the
+Scenes button lives inside that disclosure.
 
 ## Scenes' stage head repeats what the bar and the list show (2026-11-10, from scene-parity)
 
