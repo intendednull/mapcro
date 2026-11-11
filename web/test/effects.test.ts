@@ -22,3 +22,11 @@ it("merges repeats, marks match-long effects permanent and drops internal bookke
     { id: 4, source: 1, stacks: 3, remaining: null, label: "Mark", icon: "/game/mark.png" },
   ]);
 });
+it("names an internal-named effect after its parent ability or item", () => {
+  const named: BuildCatalog = { records: new Map([
+    [5, { id: 5, kind: "item", name: "upgrade_escalating_exposure", label: "Escalating Exposure", icon: "/game/exposure.png" }],
+    [6, { id: 6, kind: "modifier", name: "escalating_exposure_tech_armor_debuff", label: "escalating_exposure_tech_armor_debuff", label_from: "internal", ability: 5 }],
+  ]) };
+  const player = { effects: [[0, 40, 6, 1, 0, 1]] as Row[] };
+  expect(effectsAt(player, 1, named)).toEqual([{ id: 6, source: 1, stacks: 1, remaining: 3, label: "Escalating Exposure", icon: "/game/exposure.png" }]);
+});

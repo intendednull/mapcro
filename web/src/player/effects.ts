@@ -1,11 +1,12 @@
-import type { BuildCatalog } from "../map/pack";
+import type { BuildCatalog, BuildRecord } from "../map/pack";
 import type { TimelinePlayer } from "../match/timeline";
 
 export interface ActiveEffect { id: number; source: number; stacks: number; remaining: number | null; label: string; icon: string | undefined }
 
 /** Active recorded effects at `t`, one row per effect. An effect lasting to the replay's end
  * (`endDs`) is permanent: no countdown. Effects with neither a localised name nor an icon
- * (internal bookkeeping modifiers) are left out. */
+ * (internal bookkeeping modifiers) are left out. An effect whose own name is internal (the
+ * engine's modifier name) but whose parent ability or item is known takes the parent's name. */
 export function effectsAt(player: Pick<TimelinePlayer, "effects">, t: number, catalog?: BuildCatalog, endDs = Infinity): ActiveEffect[] | null {
   if (player.effects == null) return null;
   const ds = t * 10;
@@ -24,9 +25,17 @@ export function effectsAt(player: Pick<TimelinePlayer, "effects">, t: number, ca
       if (row.remaining !== null) row.remaining = remaining === null ? null : Math.max(row.remaining, remaining);
       continue;
     }
-    rows.set(id, { id, source, stacks, remaining, count: 1, icon,
-      label: effect?.label ?? (cause ? `${cause.label} effect` : "Unknown effect") });
+    rows.set(id, { id, source, stacks, remaining, count: 1, icon, label: effectLabel(effect, cause) });
   }
   return [...rows.values()].map(({ count: _, ...e }) => e)
     .sort((a, b) => (a.remaining ?? Infinity) - (b.remaining ?? Infinity));
+}
+
+/** An effect's own name; if that is the engine's internal name, its parent ability's or item's;
+ * with no record at all, "<parent> effect". */
+function effectLabel(effect: BuildRecord | undefined, cause: BuildRecord | undefined): string {
+  const named = cause && cause.label_from !== "internal" ? cause : undefined;
+  if (!effect) return named ? `${named.label} effect` : "Unknown effect";
+  if (effect.label_from === "internal" && named) return named.label;
+  return effect.label;
 }
