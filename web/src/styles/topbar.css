@@ -113,9 +113,6 @@
 .tb-host.editable .tb-ult { cursor: grab; }
 .tb-host.editable .tb-ult.untracked { display: block; border: calc(1.5 * var(--u)) dashed #FFEFD766; background: none; }   /* untracked: a faint empty ring to click */
 .tb-host.editable .tb-ult.untracked > i { display: none; }
-.tb-souls.editing, .tb-clock.editing { outline: calc(2 * var(--u)) solid #8ee0c4; outline-offset: calc(2 * var(--u)); }
-.tb-caret { display: inline-block; width: calc(1.5 * var(--u)); height: calc(15 * var(--u)); background: currentColor; margin-left: calc(1 * var(--u)); vertical-align: middle; font-style: normal; }
-.tb-clock.editing .tb-caret { color: #FFEFD7; position: absolute; right: calc(14 * var(--u)); top: calc(8 * var(--u)); }
 .tb-ult.adjusting { outline: calc(2 * var(--u)) solid #8ee0c4; outline-offset: calc(3 * var(--u)); }
 .tb-ult-handle { inset: auto !important; left: 50%; top: 50%; width: calc(7 * var(--u)); height: calc(7 * var(--u));
   background: #8ee0c4; border-radius: 50%; box-shadow: 0 0 0 calc(1.5 * var(--u)) #0b1d18; }
@@ -253,7 +250,7 @@
 .tb-build-column::before { content: ""; position: absolute; top: calc(-112 * var(--u)); bottom: 0; left: 0; right: 0; z-index: 0; background: linear-gradient(180deg, #a382626b 0%, #443e3b99 50%, #242723b8 100%); pointer-events: none; }
 .sapphire > .tb-build-column::before { background: linear-gradient(180deg, #4566ab8a 0%, #363e5999 50%, #1b2330b8 100%); }
 .tb-build-column > * { position: relative; z-index: 1; }
-.build-open > .tb-ult, .build-open > .pl-tb-name { visibility: hidden; }
+.build-open > .tb-ult { visibility: hidden; }
 .tb-build-name { height: calc(18 * var(--u)); color: #ded6c4; font-size: max(9px, calc(14 * var(--u))); line-height: 1.2; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tb-build-hero { min-height: calc(14 * var(--u)); font: 600 max(7px, calc(10 * var(--u))) "VALVEPulp", var(--ui); text-transform: uppercase; color: #d7cdb78c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tb-build-kda { display: grid; grid-template-columns: repeat(3, 1fr); margin: calc(5 * var(--u)) 0 calc(9 * var(--u)); }
@@ -308,8 +305,16 @@
 .tb-effect span { flex: 1; }
 .tb-effect b { font-size: 11px; font-variant-numeric: tabular-nums; }
 .tb-effect small { color: var(--brass); }
-/* As in game: replay names appear only in the expanded (Tab) columns, never under the bar. */
-.pl-tb-name.replay { display: none; }
+/* As in game, in both bars (board/TopBarParts.tsx): no names under the bar. A slot's name leads
+   its portrait's hover label, and in Player its expanded (Tab) column; the element stays for
+   them to read. A scene's name editor ("Rename…" in the portrait menu) shows in place, under the
+   portrait, while it is open. */
+.pl-tb-name { display: none; }
+.pl-tb-name.ie-input { display: block; position: absolute; left: 50%; top: calc(122 * var(--u)); transform: translateX(-50%); z-index: 6;
+  width: calc(100 * var(--u)); min-width: 90px; height: max(22px, calc(26 * var(--u))); text-align: center; font: 600 max(11px, calc(12 * var(--u))) var(--ui); color: var(--text); }
+/* The outermost slots' editors stay inside the bar. */
+.tb-team.friend > .tb-player:first-child > .pl-tb-name.ie-input { left: 0; transform: none; }
+.tb-team.enemy > .tb-player:last-child > .pl-tb-name.ie-input { left: auto; right: 0; transform: none; }
 .tb-level { position: absolute; left: 50%; top: calc(68 * var(--u)); transform: translateX(-50%); z-index: 2;
   width: calc(20 * var(--u)); height: calc(20 * var(--u)); border-radius: 50%; display: grid; place-items: center;
   background: #2b2d2a; border: calc(1.5 * var(--u)) solid #8d8f88; color: #e9e4d8;

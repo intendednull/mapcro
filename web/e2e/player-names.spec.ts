@@ -1,7 +1,8 @@
 import { revealControls } from "./helpers";
 // Player names (operator, 2026-11-08): the metadata tier looks the players' public Steam names up
 // once (deadlock-api's profiles, by the match's account ids, which the server never keeps) and
-// shows them by the heroes: in the top bar, the roster, the events and the tokens' hover titles.
+// shows them by the heroes: in the top bar (its portraits' hover labels, never under the bar, as
+// in game), the roster, the events and the tokens' hover titles.
 // The Names toggle (operator, 2026-11-08: content creators hide them for videos) hides every one,
 // for this browser only. With MAPCRO_SHOT_PACKS set
 // (`MAPCRO_SHOT_PACKS=~/.local/share/mapcro/packs`), the screenshots use the real art.
@@ -59,7 +60,10 @@ test("names show by their heroes: top bar, roster, events", async ({ browser }) 
   // Slot order: the server sorts each team by player slot (1–6 Amber, 7–12 Sapphire).
   await expect(a.locator('.tb-player[data-slot="Amber-0"] [data-testid=tb-name]')).toHaveText("Coach");
   await expect(a.locator('.tb-player[data-slot="Sapphire-5"] [data-testid=tb-name]')).toHaveText("Moss");
-  // The names sit under the bar, never under the map (QA 2026-11-08: the map's disc covered them).
+  await expect(a.locator('.tb-player[data-slot="Amber-0"]')).toHaveAttribute("title", /^Coach(, |$)/);
+  // As in game, never under the bar (operator, 2026-11-10), so never under the map either (QA
+  // 2026-11-08: the map's disc covered them).
+  await expect(a.locator('.tb-player[data-slot="Amber-0"] [data-testid=tb-name]')).toBeHidden();
   const covered = await a.evaluate(() => {
     const map = document.querySelector(".stage .mapfit")!;
     const top = map.getBoundingClientRect().top;
@@ -148,9 +152,10 @@ test("a token's hover label names its player; Names off hides every name, here o
 });
 
 // Scenes on a match board (operator, 2026-11-09: "in the scene the player names are not showing"):
-// a slot with no name of its own takes the open match's, under its portrait, in its title and in
-// its token's label, for the default scene and one saved from a moment; a name typed into the slot
-// ("Rename…" in the portrait menu) wins. No roster in the side panel: the top bar has it all.
+// a slot with no name of its own takes the open match's, in its portrait's hover label (as in
+// Player, never under the bar: operator, 2026-11-10) and in its token's label, for the default
+// scene and one saved from a moment; a name typed into the slot ("Rename…" in the portrait menu,
+// its editor in place while open) wins. No roster in the side panel: the top bar has it all.
 test("Scenes show the match's names; a typed name wins; no side roster", async ({ browser }) => {
   const url = await newBoardUrl(server, "Scene names");
   const a = await joinNew(browser, url, "Viewer");
@@ -166,8 +171,9 @@ test("Scenes show the match's names; a typed name wins; no side roster", async (
 
   const col = (p: typeof a, slot: string) => p.locator(`.tb-player[data-slot="${slot}"]:visible`).first();
   const tok = (p: typeof a, slot: string) => p.locator(`.mapbox .tok[data-slot="${slot}"]`);
-  // The default scene: names by the portraits and on the tokens.
+  // The default scene: names on the portraits' hover labels and on the tokens.
   await expect(col(a, "Amber-0").getByTestId("tb-name")).toHaveText("Coach");
+  await expect(col(a, "Amber-0").getByTestId("tb-name")).toBeHidden();
   await expect(col(a, "Sapphire-5").getByTestId("tb-name")).toHaveText("Moss");
   await expect(col(a, "Amber-0")).toHaveAttribute("title", /^Coach(, |$)/);
   await expect(tok(a, "Amber-0")).toHaveAttribute("aria-label", /^Coach(, |$)/);
@@ -175,7 +181,7 @@ test("Scenes show the match's names; a typed name wins; no side roster", async (
   await a.mouse.move(tb.x + tb.width / 2, tb.y + 2);
   await expect(a.getByTestId("hover-label")).toHaveText(/^Moss(, |$)/);
   await a.mouse.move(5, 5);
-  // Under the bar, never under the map.
+  // Never under the bar, so never under the map.
   const covered = await a.evaluate(() => {
     const map = document.querySelector(".stage .mapfit")!;
     const top = map.getBoundingClientRect().top;
@@ -199,10 +205,13 @@ test("Scenes show the match's names; a typed name wins; no side roster", async (
   await a.getByTestId("hero-menu-rename").click();
   const input = col(a, "Amber-0").getByTestId("tb-name-input");
   await expect(input).toBeFocused();
+  await expect(input).toBeVisible();
   await input.fill("Captain");
   await a.keyboard.press("Enter");
+  await expect(input).toHaveCount(0);
   for (const p of [a, b]) {
     await expect(col(p, "Amber-0").getByTestId("tb-name")).toHaveText("Captain");
+    await expect(col(p, "Amber-0").getByTestId("tb-name")).toBeHidden();
     await expect(col(p, "Amber-0")).toHaveAttribute("title", /^Captain(, |$)/);
     await expect(tok(p, "Amber-0")).toHaveAttribute("aria-label", /^Captain(, |$)/);
   }
