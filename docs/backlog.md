@@ -51,6 +51,23 @@ in the pack sets it (the top-bar layouts have no `<scripts>`; `CitadelHudTopBarP
 native panel, so code sets the class). The extractor would need to look in `panorama/scripts`
 and the `kill_hype_*` localisation (citadel_gc / hud english strings). Don't guess the threshold.
 
+The whole streak look (the lead's check, 2026-11-10; backlog only, not built):
+- **Gloat card.** heroes.vdata has `m_strIconHeroCardGloat` (`heroes/<name>_card_gloat.psd`) for
+  45 of 64 heroes. The extractor takes only `m_strIconHeroCard` and `m_strIconHeroCardCritical`
+  (`crates/extract/src/heroes.rs`), so the pack has no gloat card. No vcss references it, so code
+  swaps it in. We don't know when.
+- **While on a streak** (`CitadelHudTopBarPlayer.KillStreak`, citadel_hud_top_bar.vcss and
+  citadel_hud_top_bar_player.vxml): `.HeroImageBackground` turns mint `#90FFE3`; the souls tab
+  turns mint with offBlack text; `#KillStreakContainer` shows at 0.25 opacity with the particle
+  `particles/ui/ui_topbar_killstreak_stylized.vpcf`.
+- **At the trigger** (`.TriggerKillStreak`): the container goes to full opacity and
+  `#KillStreakText` plays the 1 s `KillStreakTextIn` animation. It holds the count
+  (`#kill_hype_KillStreak_count`, `.KillStreakNum` in `#25FFAF`) and the label
+  (`#kill_hype_KillStreak`, localised), or First Blood (`#kill_hype_FirstBlood`, with
+  `.IsFirstBlood`).
+- **The threshold** is set in code and still unknown. An operator screenshot of a streak would
+  confirm it.
+
 ## Sixteen e2e tests act on controls the prototype moved into disclosures (2026-11-10, from scene-parity): resolved
 
 Resolved 2026-11-10 (branch `proto-e2e-fix`). The sixteen were a sample: 46 specs acted on the
