@@ -14,7 +14,7 @@ test.afterAll(() => server.stop());
 
 const comment = (p: Page) => p.locator(".mapbox [data-callout]");
 async function place(p: Page, f: [number, number], text: string) {
-  await p.keyboard.press("t");
+  await p.keyboard.press("s");
   const at = await mapPoint(p, ...f);
   await p.mouse.click(at.x, at.y);
   // A new comment is open, and editing.
@@ -86,7 +86,7 @@ test("a follower sees the presenter's open comment open", async ({ browser }) =>
   await expect(comment(b)).toHaveAttribute("data-open", "false");
 });
 
-test("a bubble drags with Move and erases with Erase", async ({ browser }) => {
+test("a bubble drags with Select and erases with Erase", async ({ browser }) => {
   const url = await newBoardUrl(server, "drag");
   const a = await joinNew(browser, url, "Coach");
   const b = await joinNew(browser, url, "Marrow");
@@ -101,8 +101,8 @@ test("a bubble drags with Move and erases with Erase", async ({ browser }) => {
   await a.mouse.up();
   await expect.poll(async () => (await spot(b)).x).toBeLessThan(before.x - 50);
   await expect(comment(a)).toHaveAttribute("data-open", "false"); // a drag doesn't open it
-  await a.mouse.move(5, 5); // S over the comment would delete it outright (hover + S)
-  await a.keyboard.press("s");
+  await a.mouse.move(5, 5); // D over the comment would delete it outright (hover + D)
+  await a.keyboard.press("d");
   const nb = (await comment(a).locator(".bubble-body").boundingBox())!;
   await a.mouse.click(nb.x + nb.width / 2, nb.y + nb.height / 2);
   await expect(comment(b)).toHaveCount(0);

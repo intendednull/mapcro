@@ -2,7 +2,7 @@
 // timeline handed to the server as the worker would:
 // - the build order lists the inspected hero's buys, sales and upgrades in time order, and a row
 //   seeks the replay to its moment;
-// - a skull whose death has a recap opens it with the Move tool; the recap closes when a Vision
+// - a skull whose death has a recap opens it with the Select tool; the recap closes when a Vision
 //   whose team didn't see the death is picked, and that view draws no skull to open it from.
 
 import { createServer } from "node:http";

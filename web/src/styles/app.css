@@ -101,7 +101,7 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .mm-overlay.map .laser { pointer-events: none; }
 .mm-overlay.map .co .p-outline { pointer-events: none; }
 .mm-overlay.map[data-tool="erase"] [data-erase]:hover { opacity: 0.45; }
-.mm-overlay.map:not([data-tool="move"]) .tok, .mm-overlay.map:not([data-tool="move"]) .co { cursor: inherit; }
+.mm-overlay.map:not([data-tool="select"]) .tok, .mm-overlay.map:not([data-tool="select"]) .co { cursor: inherit; }
 .callout-input { width: 100%; height: 37px; font: 600 17px var(--ui); color: var(--text); background: #0c1917; border: 2px solid var(--accent); border-radius: 6px; padding: 0 10px; outline: none; }
 .mk.down { filter: grayscale(1) brightness(0.6); opacity: 0.55; }
 .mk.gone { opacity: 0.18; filter: grayscale(1); outline: 1px dashed #ffffff55; border-radius: 50%; }
@@ -422,9 +422,9 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 /* The fallen minimap portrait and game skull share the parent's replay-time opacity. The
    restrained red wash distinguishes dying from the grey last-seen treatment. */
 .pl-skull { pointer-events: none; }
-/* With the Move tool, a skull whose death has a recap opens it (SkullRecap.tsx), in a card under
+/* With the Select tool, a skull whose death has a recap opens it (SkullRecap.tsx), in a card under
    the map controls (and their popovers, z-index 20). */
-svg[data-tool="move"] .pl-skull[data-recap] { pointer-events: auto; cursor: pointer; }
+svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: pointer; }
 .skull-recap { position: absolute; top: 44px; left: 12px; z-index: 19; width: 280px; max-width: calc(100% - 24px); max-height: calc(100% - 56px); overflow-y: auto; padding: 8px; background: var(--raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 10px 30px #0008; font-size: 12px; }
 .skull-recap-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .skull-recap-head img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
@@ -624,7 +624,9 @@ svg[data-tool="move"] .pl-skull[data-recap] { pointer-events: auto; cursor: poin
 .linkish:hover { color: var(--text); }
 
 /* Replay workspace: existing board surfaces, with display, drawing and playback separated. */
-.map-controls { position: absolute; top: 4px; left: 4px; right: 4px; z-index: 20; display: flex; align-items: center; gap: 6px; pointer-events: none; }
+/* At the map pane's bottom left, just above the dock's tools and timeline (#33): the top bar's
+   builds (Tab) drop over the map's top and never reach them. Map layers opens upward. */
+.map-controls { position: absolute; bottom: 4px; left: 4px; right: 4px; z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; pointer-events: none; }
 .map-controls > * { pointer-events: auto; }
 .map-controls > .vision-mark { margin-left: auto; }
 .map-controls .btn, .map-controls .input { background: var(--panel); }
@@ -641,7 +643,8 @@ svg[data-tool="move"] .pl-skull[data-recap] { pointer-events: auto; cursor: poin
 .map-controls summary, .pl-source summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .map-controls summary::-webkit-details-marker, .pl-source summary::-webkit-details-marker { display: none; }
 .map-layers { position: relative; }
-.map-layers-pop { position: absolute; top: calc(100% + 6px); left: 0; width: 216px; padding: 10px; display: flex; flex-direction: column; align-items: stretch; gap: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 8px 24px #0005; }
+.map-layers-pop { position: absolute; bottom: calc(100% + 6px); left: 0; width: min(216px, 100cqw - 8px); box-sizing: border-box; padding: 10px; display: flex; flex-direction: column; align-items: stretch; gap: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 -8px 24px #0005; }
+.p-map-wrap .map-layers-pop { top: calc(100% + 6px); bottom: auto; box-shadow: 0 8px 24px #0005; }
 .map-layers-pop h3 { margin: 6px 4px; color: var(--faint); font: 600 11px var(--ui); }
 .map-layers-pop button { text-align: left; justify-content: space-between; }
 /* The mark is decoration: aria-pressed says the state, so it stays out of the button's name. */
@@ -681,7 +684,7 @@ svg[data-tool="move"] .pl-skull[data-recap] { pointer-events: auto; cursor: poin
   .pl-source > summary { max-width: 112px; overflow: hidden; }
   .pl-tail .match-clock { font-size: 11px; }
 }
-.p-map-wrap > .map-controls { position: relative; top: auto; left: auto; right: auto; flex-wrap: wrap; margin: 0 0 8px; }
+.p-map-wrap > .map-controls { position: relative; top: auto; bottom: auto; left: auto; right: auto; flex-wrap: wrap; margin: 0 0 8px; }
 @media (max-width: 800px) {
   .pl-bar { grid-template-columns: minmax(0, 1fr); }
   .pl-transport { flex-wrap: wrap; }

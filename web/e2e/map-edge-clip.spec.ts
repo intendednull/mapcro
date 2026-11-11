@@ -147,7 +147,7 @@ test("a hero at the edge is clipped to the map's stencil, under its edge, and ta
   // Zoomed in about the map's centre: the token, on the disc's north-west, moves out past the
   // view's fixed stencil while still inside its box (its corner). The clip hides it there, and
   // it takes no pointer (the zoomed view's mask, before, let it).
-  await a.getByTestId("tool-move").click();
+  await a.getByTestId("tool-select").click();
   const centre = await mapPoint(a, 0.5, 0.5);
   await a.mouse.move(centre.x, centre.y);
   // Far enough that 43 of the default view's units lands past the stencil, not past the box:

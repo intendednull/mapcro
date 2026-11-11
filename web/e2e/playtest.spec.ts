@@ -227,7 +227,7 @@ test.describe("on the fallback map", () => {
     await expect.poll(() => tOf(b)).toBeLessThan(t0);
     const t2 = await tOf(a);
     // Erase leaves it alone.
-    await a.keyboard.press("s");
+    await a.keyboard.press("d");
     const g2 = (await a.locator('.mapbox .lanes g[data-key="lane4"] path[data-half="amber"]').boundingBox())!;
     await a.mouse.click(g2.x + g2.width / 2, g2.y + g2.height - 4);
     expect(await tOf(a)).toBe(t2);

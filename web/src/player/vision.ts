@@ -6,7 +6,18 @@ import { type Timeline, type TimelinePlayer, positionAt } from "../match/timelin
 
 /** Whose view the map draws: every hero (as before), or one team's. */
 export type Vision = "all" | "amber" | "sapphire";
-export const VISIONS: readonly Vision[] = ["all", "amber", "sapphire"];
+/** In the order of their keys (feedback #32): 1 Hidden King, 2 Archmother, 3 All, so the teams
+ * read as team 1 and team 2. The select lists them so too. */
+export const VISIONS: readonly Vision[] = ["amber", "sapphire", "all"];
+
+/** Vision's key: "1", "2", "3", as `VISIONS` orders them. */
+export const visionKey = (v: Vision): string => String(VISIONS.indexOf(v) + 1);
+
+/** The Vision a key's `code` picks (the digit row or the numpad), if any. */
+export function visionForCode(code: string): Vision | undefined {
+  const m = /^(?:Digit|Numpad)([1-9])$/.exec(code);
+  return m ? VISIONS[Number(m[1]) - 1] : undefined;
+}
 
 /** What a followed presenter's map draws (presence's `playback.vision`), in the Vision control's
  * terms; absent (an older presenter, or none sent): `undefined`, and the follower keeps its own. */

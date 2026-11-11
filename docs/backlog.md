@@ -5,7 +5,8 @@ what it is, and what it depends on.
 
 ## Feedback wave 3: hotkeys, names, layout (2026-11-11, operator decisions)
 
-Decided; to build after fix-batch-3 (#24 #26 #27 #34 #36) lands, as one batch:
+Decided; to build after fix-batch-3 (#24 #26 #27 #34 #36) lands, as one batch (the first group
+below is built on branch `feedback-keys`, 2026-11-11):
 
 - **#28 tool keys:** Q Select, W Laser, E Draw, A Arrow, S Comment, D Erase. **C opens the Clear
   menu; Shift+C clears everything at once** (one undoable step; operator: "a button that clears

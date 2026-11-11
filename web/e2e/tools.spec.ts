@@ -29,7 +29,7 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   await expect(strokes(b).locator("path.ink")).toHaveAttribute("stroke", "#c5e07a");
 
   // An arrow from a hero takes the hero's team.
-  await a.keyboard.press("r");
+  await a.keyboard.press("a");
   const tok = (await a.locator('.tok[data-slot="Amber-0"]').boundingBox())!;
   const to = await mapPoint(a, 0.45, 0.55);
   await a.mouse.move(tok.x + tok.width / 2, tok.y + tok.height / 2);
@@ -40,7 +40,7 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   await expect(arrows(b).locator(".arw")).toHaveClass(/amber/);
 
   // A comment, typed in place: a bubble once placed.
-  await a.keyboard.press("t");
+  await a.keyboard.press("s");
   const at = await mapPoint(a, 0.55, 0.7);
   await a.mouse.click(at.x, at.y);
   await a.getByTestId("comment-input").fill("Smoke on the bridge");
@@ -62,7 +62,7 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   await a.keyboard.press("Enter");
   await expect(callouts(b).locator("text").first()).toHaveText("Smoke the bridge first");
   await expect(callouts(b).locator(".p-tag")).toHaveCount(0);
-  // Drag the bubble with Move: B watches it go, tagged, and it lands where A drops it.
+  // Drag the bubble with Select: B watches it go, tagged, and it lands where A drops it.
   const spot = async (p: Page) => translate(await callouts(p).locator("g[transform]").first().getAttribute("transform"));
   const before = await spot(b);
   const bb = (await callouts(a).locator(".bubble-body").boundingBox())!;
@@ -77,7 +77,7 @@ test("draw, arrow, callout, erase, clear ink, undo and redo", async ({ browser }
   // Erase: one scrub over the ink and the arrow is one transaction, so one undo brings both back.
   // (E over a comment would delete just that comment: the pointer leaves the map first.)
   await a.mouse.move(5, 5);
-  await a.keyboard.press("s");
+  await a.keyboard.press("d");
   const s = (await strokes(a).locator("path.ink").boundingBox())!;
   const ar = (await arrows(a).locator(".arw").boundingBox())!;
   await a.mouse.move(s.x + s.width / 2, s.y + s.height / 2);
@@ -168,8 +168,8 @@ test("objectives toggle on click (camps, mid boss, one rift at a time); a viewer
   await expect(rift(v, point)).toHaveAttribute("data-status", "Destroyed");
   // The viewer's picker: Look and Laser only.
   await expect(v.getByTestId("toolbar").locator('[data-testid^="tool-"]')).toHaveCount(2);
-  await expect(v.getByTestId("tool-move")).toContainText("Look");
-  await v.keyboard.press("a");
+  await expect(v.getByTestId("tool-select")).toContainText("Look");
+  await v.keyboard.press("w");
   const p0 = await mapPoint(v, 0.3, 0.5);
   const p1 = await mapPoint(v, 0.6, 0.65); // diagonal: a flat line has a zero-height box, which Playwright calls hidden
   await v.mouse.move(p0.x, p0.y);

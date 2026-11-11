@@ -1,7 +1,7 @@
 // The board's own layers over the minimap, and every gesture the tools make on it
 // (spec §4: the map is the interface, the picker only chooses the gesture):
 //
-//   Move     drag heroes and callouts, click objectives to cycle them, double-click a callout to edit
+//   Select   drag heroes and callouts, click objectives to cycle them, double-click a callout to edit
 //   Draw     freehand ink in the palette colour            → one Stroke
 //   Arrow    drag out a rotation arrow (team from the hero it starts on) → one Arrow
 //   Callout  click to place a label, typed in place        → one Callout
@@ -67,13 +67,13 @@ export function Layers(p: {
   objectives: () => Map<string, { id: RecordId; status: ObjectiveStatus }>;
   /** Zoom scale (view width / 1000): tokens, tags and cursors keep their screen size. */
   k: number;
-  /** Move tool on empty map: pan by this much (view units). */
+  /** Select tool on empty map: pan by this much (view units). */
   onPan: (dx: number, dy: number) => void;
   /** Wheel: zoom about a point (view units); factor > 1 zooms out. */
   onZoom: (at: Pt, factor: number) => void;
   /** Phone: callouts as numbered pins, their text listed under the map. */
   compactCallouts?: boolean;
-  /** Selected heroes (Move): a drag on any of them moves them all. */
+  /** Selected heroes (Select): a drag on any of them moves them all. */
   selection: () => Set<RecordId>;
   setSelection: (s: Set<RecordId>) => void;
   /** Space is held: a drag pans. */
@@ -86,7 +86,7 @@ export function Layers(p: {
   setWaveDrag: (w: { key: string; t: number; id: RecordId } | undefined) => void;
   /** Effective split per lane key (recorded, previewed, or the default). */
   splitOf: (key: string) => number;
-  /** Objectives selected as a group (Move, editors), by key. */
+  /** Objectives selected as a group (Select, editors), by key. */
   objSelection: () => Set<string>;
   setObjSelection: (s: Set<string>) => void;
   /** Comments: whether one shows as its full card, and this person's open one. */
@@ -364,7 +364,7 @@ export function Layers(p: {
     }
   });
 
-  // ---- moving placed things (Move): arrows whole or by one end, strokes whole ----
+  // ---- moving placed things (Select): arrows whole or by one end, strokes whole ----
   const [movingArrow, setMovingArrow] = createSignal<{ id: RecordId; from: WorldPos; to: WorldPos }>();
   const [movingStroke, setMovingStroke] = createSignal<{ id: RecordId; d: { x: number; y: number } }>();
   /** A press that didn't move: what a press on the map there would have done (an objective). */
@@ -435,7 +435,7 @@ export function Layers(p: {
   /** Others moving a placed thing: who, and where its anchor is now (smoothed per record below). */
   const moverOf = (id: RecordId) => st.peerList().find((x) => x.state?.drag?.id === id && x.state.scene === p.scene);
 
-  /** Move on empty map: drag a rectangle to select heroes (Shift adds); a click clears. */
+  /** Select on empty map: drag a rectangle to select heroes (Shift adds); a click clears. */
   const marquee = (e: PointerEvent, start: Pt) => {
     e.preventDefault();
     const add = e.shiftKey;
@@ -501,7 +501,7 @@ export function Layers(p: {
       track(e, (pt) => pushLaser(pt), () => {});
       return;
     }
-    if (tool === "move") {
+    if (tool === "select") {
       // A death skull with a recap handles its own press (Skulls.tsx).
       if ((e.target as Element).closest?.(".pl-skull[data-recap]")) return;
       if (!editor()) {
@@ -643,7 +643,7 @@ export function Layers(p: {
       e.preventDefault();
       p.onZoom(svgPoint(svg, e), Math.exp(Math.max(-1, Math.min(1, e.deltaY / 300))));
     };
-    // Hover + Erase's key (S) deletes the placed thing under the pointer, whatever the tool
+    // Hover + Erase's key (D) deletes the placed thing under the pointer, whatever the tool
     // (operator, 2026-11-07). Ahead of the toolbar's Erase, which still applies over empty map.
     const eraseKey = TOOLS.find((x) => x.tool === "erase")!.key.toLowerCase();
     let hover: { x: number; y: number } | undefined;
@@ -679,7 +679,7 @@ export function Layers(p: {
     });
   });
 
-  // ---- callouts: drag (Move), edit in place (double-click, or the Callout tool) ----
+  // ---- callouts: drag (Select), edit in place (double-click, or the Callout tool) ----
   const openEditor = (ed: { id: RecordId | undefined; pos: WorldPos; text: string; scene?: RecordId }) => {
     setEditing(ed);
     st.presence({ focus: ed.id ?? null });
@@ -703,7 +703,7 @@ export function Layers(p: {
   // receives a dblclick event.
   let lastTap: { id: RecordId; t: number } | undefined;
   const calloutDown = (c: Rec<Callout>, e: PointerEvent) => {
-    if (p.tool !== "move" || e.button !== 0) return;
+    if (p.tool !== "select" || e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
     if (!editor()) {
@@ -776,7 +776,7 @@ export function Layers(p: {
                 <path class="hit" d={`M${f().x} ${f().y} L${t().x} ${t().y}`} />
                 <path class={cx("arw", arrowClass(a.r.team))} d={polyline([f(), shaftEnd(f(), t(), 10)])} style={a.r.color != null ? { stroke: colorOf(a.r.color) } : {}} />
                 <polygon class={cx("head", arrowClass(a.r.team))} points={arrowHead(f(), t(), 22)} style={a.r.color != null ? { fill: colorOf(a.r.color) } : {}} />
-                <Show when={editor() && p.tool === "move"}>
+                <Show when={editor() && p.tool === "select"}>
                   <circle class="arrow-end" data-arrow-end="From" cx={f().x} cy={f().y} r={9 * p.k} />
                   <circle class="arrow-end" data-arrow-end="To" cx={t().x} cy={t().y} r={9 * p.k} />
                 </Show>
@@ -991,7 +991,7 @@ export function Layers(p: {
                     <path d={pathOf(halves().sapphire.map((q) => mapToView(q, p.vp)))} stroke={laneStroke(l.lane, "sapphire", p.vp)} />
                   </g>
                 </Show>
-                <Show when={editor() && p.tool === "move"}>
+                <Show when={editor() && p.tool === "select"}>
                   <circle
                     class={cx("wave-hit", raised() && "active")}
                     data-testid={`wave-gap-${l.key}`}

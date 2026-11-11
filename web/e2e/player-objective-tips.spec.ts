@@ -332,7 +332,7 @@ test("the wave's handle, gone with a tool switched by key, takes its label and k
   await a.keyboard.press("e");
   await expect(a.getByTestId("wave-gap-lane1")).toHaveCount(0);
   await expect(label(a)).toHaveCount(0, AT_ONCE);
-  // Off the map while it's gone (no pointerleave to hear), then back to Move: the handle is
+  // Off the map while it's gone (no pointerleave to hear), then back to Select: the handle is
   // back, but it isn't under the pointer, so no label.
   await a.mouse.move(5, 5);
   await a.keyboard.press("q");
