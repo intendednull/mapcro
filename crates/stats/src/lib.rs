@@ -165,8 +165,10 @@ pub struct Hero {
     pub per_boon: Growth,
     /// Levels that grant a boon, ascending.
     pub boon_levels: Vec<u32>,
-    /// Per slot ([`SLOTS`]): `(souls threshold, bonus)` rows, ascending.
-    pub cost_bonuses: [Vec<(f64, f64)>; 3],
+    /// Per slot ([`SLOTS`]): `(souls threshold, bonus, percent of the bar)` rows, ascending. The
+    /// third is `flPercentOnGraph`, the share of the HUD's investment bar the row's step takes
+    /// (they sum to 100), which the scoreboard's bars fill along.
+    pub cost_bonuses: [Vec<(f64, f64, f64)>; 3],
     /// Innate resist, percent.
     pub bullet_resist: f64,
     pub spirit_resist: f64,
@@ -329,7 +331,7 @@ impl StatTable {
                 sources.extend(a.upgrades.iter().take(usize::from(*tiers)).flatten());
             }
         }
-        let bonus = |slot: usize| hero.cost_bonuses[slot].iter().rev().find(|(t, _)| invested[slot] >= *t).map_or(0.0, |(_, b)| *b);
+        let bonus = |slot: usize| hero.cost_bonuses[slot].iter().rev().find(|(t, _, _)| invested[slot] >= *t).map_or(0.0, |(_, b, _)| *b);
         let sum = |s: Stat| sources.iter().filter(|(x, _)| *x == s).map(|(_, v)| v).sum::<f64>();
         let prod = |s: Stat| sources.iter().filter(|(x, _)| *x == s).map(|(_, v)| 1.0 + v / 100.0).product::<f64>();
         let g = &hero.per_boon;

@@ -25,7 +25,9 @@ pub const TIER: &str = "replay";
 /// `Player::zipline`; docs/research/abilities-and-items.md, status-effects.md, elevation.md), and
 /// the tough crates, broken and back (`Timeline::crates`).
 /// 8: authoritative scoreboard scalar changes (`Player::level`, `Player::max_health`, kills and assists).
-pub const FORMAT: u32 = 8;
+/// 9: statue pickups, the permanent stat bonuses the calculated stats add (`Player::pickups`;
+/// docs/research/stat-calc-spike.md).
+pub const FORMAT: u32 = 9;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Timeline {
@@ -212,6 +214,12 @@ pub struct Player {
     /// live metadata at 10 of 132 snapshots; docs/research/README.md "Known dead ends").
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub max_health: Vec<(u32, Option<u32>)>,
+    /// Format 9, replay tier: `[second, [max health, spirit power, weapon damage %, bullet resist
+    /// %, spirit resist %]]` where the hero's statue-pickup totals change ([`PICKUP_STATS`]; the
+    /// controller's stat viewer, `m_vecStatViewerModifierValues`). Zero before the first entry;
+    /// empty: no pickups, or a timeline from before format 9.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pickups: Vec<(u32, [f32; 5])>,
     /// Controller's authoritative player-kill total; zero is known, null unavailable.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub kills: Vec<(u32, Option<u32>)>,
@@ -290,6 +298,23 @@ pub struct Recap {
     /// The hero's `cc` rows that overlap the window.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cc: Vec<[u32; 5]>,
+}
+
+/// The statue pickups each [`Player::pickups`] column sums: the stat-viewer source modifier
+/// (`<kind>_permanent_pickup[_lv2|_lv3]/modifier_permanent_pickup`) and its `EModifierValue`
+/// (6839/6860 enum: 46 health, 169 spirit power, 20 weapon damage, 36 bullet resist, 33 spirit
+/// resist). Each stat-viewer entry is that source's running total.
+pub const PICKUP_STATS: [(&str, u32); 5] = [("hp", 46), ("spirit", 169), ("wp", 20), ("bulletresist", 36), ("spiritresist", 33)];
+
+/// [`PICKUP_STATS`] as `(source modifier token, value type, column)`.
+pub fn pickup_sources() -> Vec<(u32, u32, usize)> {
+    let mut out = Vec::new();
+    for (column, (kind, value_type)) in PICKUP_STATS.iter().enumerate() {
+        for level in ["", "_lv2", "_lv3"] {
+            out.push((token(&format!("{kind}_permanent_pickup{level}/modifier_permanent_pickup")), *value_type, column));
+        }
+    }
+    out
 }
 
 /// `Player::items` kinds.
@@ -879,6 +904,7 @@ mod tests {
                 assists: vec![(0, Some(0))],
                 level: vec![(0, Some(1)), (2, Some(2))],
                 max_health: vec![(0, Some(1000)), (1, None), (2, Some(1200))],
+                pickups: vec![(1, [20.0, 0.0, 0.0, 0.0, 0.0])],
                 souls: vec![[0, 500]],
                 ult: vec![None, Some(50), Some(0)],
                 respawn: vec![[1, 2]],

@@ -148,3 +148,41 @@ fn shown_truncates_health_and_rounds_the_rest() {
     assert_eq!(c.shown(), Shown { max_health: 3008, spirit_power: 176, weapon_damage: 91, bullet_resist: 0, spirit_resist: 33 });
     assert_eq!(Calculated { max_health: 1094.9999999, ..Default::default() }.shown().max_health, 1095);
 }
+
+/// The game's own vdata reads the same as boon-data: a modifier lists the properties it registers
+/// (`m_vecAutoRegisterModifierValueFromAbilityPropertyName`) where boon-data writes `modifier_keys`.
+#[test]
+fn vdata_and_boon_data_reduce_alike() {
+    let prop = |stat: &str, v: &str, flags: &str| json!({"m_eProvidedPropertyType": stat, "m_strValue": v, "m_eStatsUsageFlags": flags});
+    let abilities = json!({
+        "upgrade_infuser": {"m_eAbilityType": "EAbilityType_Item", "m_eItemSlotType": "EItemSlotType_Armor", "m_iItemTier": "EModTier_4",
+            "m_AutoIntrinsicModifiers": [{"_class": "modifier_intrinsic_base", "m_vecAutoRegisterModifierValueFromAbilityPropertyName": ["BonusHealth", "TechPower"]}],
+            "m_BuffModifier": {"_class": "modifier_infuser_buff", "m_vecAutoRegisterModifierValueFromAbilityPropertyName": ["BonusSpirit"]},
+            "m_mapAbilityProperties": {"BonusHealth": prop(HP, "100", ""), "TechPower": prop(SP, "8", ""),
+                "TechResist": prop(SR, "10", "IntrinsicallyProvidedInAbility"), "BonusSpirit": prop(SP, "30", "ConditionallyApplied"),
+                "Cooldown": {"m_strValue": "30"}}},
+        // A hero ability: an unbound property needs a binding to count (passive.v2), so its
+        // upgrade adds nothing; a bound one counts.
+        "ability_icepath": {"m_eAbilityType": "EAbilityType_Signature",
+            "m_mapAbilityProperties": {"BonusSpirit": prop(SP, "0", "IntrinsicallyProvidedInAbility")},
+            "m_vecAbilityUpgrades": [{"m_vecPropertyUpgrades": [{"m_strPropertyName": "BonusSpirit", "m_strBonus": "20"}]}]},
+        "citadel_ability_passive_beefy": {"m_eAbilityType": "EAbilityType_Innate",
+            "m_AutoIntrinsicModifiers": [{"_class": "a"}, {"_class": "b", "m_vecAutoRegisterModifierValueFromAbilityPropertyName": ["BonusMaxHealth"]}],
+            "m_mapAbilityProperties": {"BonusMaxHealth": prop(HP, "0", "IntrinsicallyProvidedInAbility")},
+            "m_vecAbilityUpgrades": [{"m_vecPropertyUpgrades": [{"m_strPropertyName": "BonusMaxHealth", "m_strBonus": "200"}]}]},
+    });
+    let generic = json!({"m_nItemPricePerTier": [0, 800, 1600, 3200, 6400, 9999]});
+    let heroes = json!({"hero_base": {}, "hero_mirage": {"m_HeroID": 52, "m_mapStartingStats": {"EMaxHealth": 730.0}}});
+    let t = StatTable::from_vdata(6860, &heroes, &abilities, &generic, |n| match n { "upgrade_infuser" => 12, "ability_icepath" => 40, _ => 30 });
+    assert_eq!(t.items[&12], catalog().items[&12]);
+    assert!(!t.items.contains_key(&40), "{:?}", t.items.get(&40));
+    assert_eq!(t.items[&30].upgrades, vec![vec![(Stat::MaxHealth, 200.0)]]);
+    assert_eq!((t.heroes.len(), t.heroes[&52].max_health, t.client_version, t.source.as_str()), (1, 730.0, 6860, "vdata"));
+}
+
+#[test]
+fn a_table_survives_its_json() {
+    let t = catalog();
+    let back: StatTable = serde_json::from_slice(&serde_json::to_vec(&t).expect("json")).expect("parses");
+    assert_eq!(back, t);
+}

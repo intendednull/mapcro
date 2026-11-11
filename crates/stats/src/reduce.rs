@@ -49,7 +49,7 @@ fn hero(d: &Value) -> Hero {
     }
     for (i, slot) in SLOTS.iter().enumerate() {
         if let Some(rows) = d["m_MapModCostBonuses"][slot].as_array() {
-            hero.cost_bonuses[i] = rows.iter().filter_map(|r| Some((num(&r["nGoldThreshold"])?, num(&r["flBonus"])?))).collect();
+            hero.cost_bonuses[i] = rows.iter().filter_map(|r| Some((num(&r["nGoldThreshold"])?, num(&r["flBonus"])?, num(&r["flPercentOnGraph"]).unwrap_or(0.0)))).collect();
             hero.cost_bonuses[i].sort_by(|a, b| a.0.total_cmp(&b.0));
         }
     }
