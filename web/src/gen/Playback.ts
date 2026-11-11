@@ -73,6 +73,8 @@ event_search?: string,
 skull_place?: PanelPlace, 
 /**
  * The hero panels open from the map's tokens (#37), back to front, each with its place, at
- * most `MAX_HERO_PANELS`. Left out when none; a shape this build doesn't read is none.
+ * most `MAX_HERO_PANELS`. Sent whenever playback is, `[]` for none: left out means an
+ * older client, whose follower keeps its own. A list this build doesn't read is left out;
+ * entries past the bounds are dropped or clipped (`lenient_panels`), not the frame.
  */
 hero_panels?: Array<HeroPanel>, };

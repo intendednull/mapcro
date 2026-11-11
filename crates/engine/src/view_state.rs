@@ -191,7 +191,12 @@ pub const VIEW_STATE: &[ViewKey] = &[
     panel("builds.inspect", Kind::Slot, "playback.inspect", "The hero whose build the top bar has open"),
     panel("builds.popover", Kind::Choice(POPOVERS), "playback.build_popover", "Effects or Build order open in that build (operator 2026-11-11: shared)"),
     panel("recap.skull.place", Kind::Place, "playback.skull_place", "Where the death recap on the map was moved to (#35)"),
-    panel("heroes.panels", Kind::HeroPanels { max: MAX_HERO_PANELS }, "playback.hero_panels", "The hero panels open from the map's tokens, and where (#37)"),
+    // Sent whenever playback is (`[]` for none): an older presenter leaves it out, and its
+    // follower keeps its own hero panels.
+    ViewKey {
+        wire: Wire::Value { field: "playback.hero_panels" },
+        ..panel("heroes.panels", Kind::HeroPanels { max: MAX_HERO_PANELS }, "playback.hero_panels", "The hero panels open from the map's tokens, and where (#37)")
+    },
     filter("events.filter.death", 0),
     filter("events.filter.ult", 1),
     filter("events.filter.objective", 2),
@@ -373,7 +378,7 @@ mod tests {
                 event_filters: 1,
                 event_search: Some("q".into()),
                 skull_place: Some(PanelPlace { x: 1, y: 2, right: true, bottom: false }),
-                hero_panels: vec![HeroPanel { team: Team::Sapphire, slot: 2, at: None }],
+                hero_panels: Some(vec![HeroPanel { team: Team::Sapphire, slot: 2, at: None }]),
             }),
             hover: Some("marker:k".into()),
             layers: Some(0x7f),

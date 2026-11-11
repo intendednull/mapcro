@@ -73,6 +73,9 @@ export function clipText(s: string, max: number): string {
   return out;
 }
 
+/** A presenter sent nothing for a key: an older client, or nothing at its place (no match). */
+const ABSENT = Symbol("absent");
+
 /** A value as presence carries it (`undefined`: left out). */
 function toWire(r: Row, v: unknown): unknown {
   switch (r.kind) {
@@ -120,12 +123,26 @@ function fromWire(r: Row, w: unknown): unknown {
     case "place":
       return placeFromWire(w);
     case "heroes":
-      return heroPanelsFromWire(w, extra(r).max!);
+      // Always sent with playback (`[]` for none): left out is an older presenter's, which
+      // leaves the follower's own (review 2026-11-11).
+      return Array.isArray(w) ? heroPanelsFromWire(w, extra(r).max!) : ABSENT;
   }
 }
 
-/** A presenter sent nothing for a key: an older client, or nothing at its place (no match). */
-const ABSENT = Symbol("absent");
+/** A heard value of a group's key, to tell a change. */
+function heardAs(r: Row, w: unknown): string {
+  if (w === ABSENT) return "absent";
+  return JSON.stringify(r.kind === "death" || r.kind === "deaths" ? deathKey(w as Death | undefined) : (w ?? null));
+}
+/** What a heard value opens: where panels sit and their order aren't part of it (a place is
+ * none; the hero panels are their set of slots). */
+function opensOf(r: Row, w: unknown): string {
+  if (w === ABSENT) return "absent";
+  if (r.kind === "place") return "";
+  if (r.kind === "heroes") return (w as HeroPanelOpen[]).map((h) => h.slot).sort().join(" ");
+  return heardAs(r, w);
+}
+
 function read(src: Wire | null | undefined, r: Row): unknown {
   if (!r.field) return ABSENT;
   const parts = r.field.split(".");
@@ -159,9 +176,11 @@ export interface ViewState {
   /**
    * A followed presenter's presence. With no `group`: the keys outside a group (the map layers,
    * Vision), on every frame. With one: that group's keys, only when the presenter's values for
-   * it changed since last heard, so a follower's own stays until then. A key whose place isn't
-   * in `src` (an older client, no match) leaves the follower on its own; unknown bits and
-   * choices are ignored.
+   * it changed since last heard, so a follower's own stays until then: a change to what is
+   * open applies the whole group; one only to where panels sit, or their order, moves those of
+   * the follower's own that are the presenter's too, and opens or closes nothing. A key whose
+   * place isn't in `src` (an older client, no match) leaves the follower on its own; unknown
+   * bits and choices are ignored.
    */
   mirror(src: Wire | null | undefined, group?: string): void;
   /**
@@ -208,8 +227,9 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
       setOwn(k, t);
       cells[k].setTheirs(() => ABSENT);
     });
-  /** The presenter's values for each group, as last heard: a change applies the group. */
-  let heard: Record<string, string> = {};
+  /** The presenter's values for each group, as last heard: what they open (a change applies
+   * the group), and each key's whole value (a change to where a panel sits moves it alone). */
+  let heard: Record<string, { opens: string; each: string[] }> = {};
   /** The death a `deaths` key last heard: the presenter's next change closes it. */
   let lastDeath: Partial<Record<ViewKey, Death | undefined>> = {};
   const apply = (k: ViewKey, w: unknown) => {
@@ -225,6 +245,20 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
     if (now && !list.some((d) => deathKey(d) === deathKey(now))) list = [...list, now];
     lastDeath[k] = now;
     cells[k].setOwn(() => list);
+  };
+  /**
+   * The presenter only moved panels or brought one to the front: the follower's own panels that
+   * are also the presenter's take its places and order; nothing opens or closes (lead
+   * 2026-11-11: a drag, at pointer rate, mustn't undo the follower's own panels).
+   */
+  const arrange = (k: ViewKey, w: unknown) => {
+    const r = row(k);
+    if (w === ABSENT || r.kind !== "heroes") return apply(k, w);
+    const theirs = w as HeroPanelOpen[];
+    const own = untrack(cells[k].own) as HeroPanelOpen[];
+    const both = theirs.filter((t) => own.some((o) => o.slot === t.slot));
+    let i = 0;
+    cells[k].setOwn(() => own.map((o) => (both.some((t) => t.slot === o.slot) ? both[i++]! : o)));
   };
   const shared = (group: string | undefined) => VIEW_KEYS.filter((k) => row(k).sync === "shared" && (row(k).group ?? undefined) === group);
   return {
@@ -260,15 +294,17 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
       const heardNow = keys.map((k) => read(src, row(k)));
       untrack(() =>
         batch(() => {
-          if (group !== undefined) {
-            const now = JSON.stringify(heardNow.map((w, i) => {
-              const r = row(keys[i]!);
-              return w === ABSENT ? null : r.kind === "death" || r.kind === "deaths" ? deathKey(w as Death | undefined) : (w ?? null);
-            }));
-            if (heard[group] === now) return;
-            heard[group] = now;
-          }
-          keys.forEach((k, i) => apply(k, heardNow[i]));
+          if (group === undefined) return keys.forEach((k, i) => apply(k, heardNow[i]));
+          const each = heardNow.map((w, i) => heardAs(row(keys[i]!), w));
+          const opens = JSON.stringify(heardNow.map((w, i) => opensOf(row(keys[i]!), w)));
+          const was = heard[group];
+          heard[group] = { opens, each };
+          // What is open changed: the group applies whole (spec §8).
+          if (was?.opens !== opens) return keys.forEach((k, i) => apply(k, heardNow[i]));
+          // Only where panels sit or their order: those keys alone.
+          keys.forEach((k, i) => {
+            if (each[i] !== was.each[i]) arrange(k, heardNow[i]);
+          });
         }),
       );
     },

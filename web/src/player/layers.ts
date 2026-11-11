@@ -62,19 +62,20 @@ export interface HeroPanelOpen {
   slot: string;
   at?: Place | undefined;
 }
-/** The open hero panels as presence carries them: back to front, each slot once, at most `max`
- * (the front ones). */
+/** The open hero panels as presence carries them, within wire.rs `is_valid`'s bounds: back to
+ * front, each slot once (its first), slots under `MAX_SLOT`, at most `max` (the front ones). */
 export const heroPanelsToWire = (list: HeroPanelOpen[], max: number): HeroPanel[] => {
   const out: HeroPanel[] = [];
   for (const h of list) {
     const s = slotToWire(h.slot);
-    if (!s || out.some((o) => o.team === s.team && o.slot === s.slot)) continue;
+    if (!s || s.slot >= MAX_SLOT || out.some((o) => o.team === s.team && o.slot === s.slot)) continue;
     const at = placeToWire(h.at);
     out.push(at ? { ...s, at } : s);
   }
   return out.slice(-max);
 };
-/** The open hero panels presence carried; what isn't one is left out. */
+/** The open hero panels presence carried; what isn't one is left out. Not a list (left out by
+ * an older client): none, and the store treats it as nothing heard (viewstate.ts). */
 export const heroPanelsFromWire = (w: unknown, max: number): HeroPanelOpen[] => {
   if (!Array.isArray(w)) return [];
   const out: HeroPanelOpen[] = [];

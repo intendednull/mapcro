@@ -242,10 +242,12 @@ pub struct Playback {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub skull_place: Option<PanelPlace>,
     /// The hero panels open from the map's tokens (#37), back to front, each with its place, at
-    /// most `MAX_HERO_PANELS`. Left out when none; a shape this build doesn't read is none.
-    #[serde(default, skip_serializing_if = "Vec::is_empty", deserialize_with = "lenient_panels")]
-    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<HeroPanel>>", optional))]
-    pub hero_panels: Vec<HeroPanel>,
+    /// most `MAX_HERO_PANELS`. Sent whenever playback is, `[]` for none: left out means an
+    /// older client, whose follower keeps its own. A list this build doesn't read is left out;
+    /// entries past the bounds are dropped or clipped (`lenient_panels`), not the frame.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_panels")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub hero_panels: Option<Vec<HeroPanel>>,
 }
 
 /// Where a panel sits in the board pane (the map's box), so a screen of another size keeps the
@@ -271,6 +273,10 @@ impl PanelPlace {
     pub fn is_valid(&self) -> bool {
         self.x <= PLACE_SCALE && self.y <= PLACE_SCALE
     }
+    /// The place, at the pane's edge on an axis it is past.
+    fn clipped(self) -> Self {
+        Self { x: self.x.min(PLACE_SCALE), y: self.y.min(PLACE_SCALE), ..self }
+    }
 }
 
 /// `PanelPlace` units in a pane's width or height.
@@ -290,19 +296,47 @@ pub struct HeroPanel {
 /// Hero panels presence carries: every hero's in a 6v6 match.
 pub const MAX_HERO_PANELS: usize = 12;
 
-/// `skull_place`: a place this build doesn't read is none.
+/// `skull_place`: a place this build doesn't read is none; one past the pane is clipped to its
+/// edge (a newer client's wider bound costs the place, not the whole presence).
 fn lenient_place<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<PanelPlace>, D::Error> {
     Ok(match Option::<Lenient<PanelPlace>>::deserialize(d)? {
-        Some(Lenient::Known(p)) => Some(p),
+        Some(Lenient::Known(p)) => Some(p.clipped()),
         _ => None,
     })
 }
 
-/// `hero_panels`: a list this build doesn't read is none.
-fn lenient_panels<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<HeroPanel>, D::Error> {
-    Ok(match Option::<Lenient<Vec<HeroPanel>>>::deserialize(d)? {
-        Some(Lenient::Known(v)) => v,
-        _ => Vec::new(),
+/// `hero_panels`: a list this build doesn't read is none (left out: the follower keeps its own).
+/// Within a list, an entry this build doesn't read, or whose slot is past `MAX_SLOT`, is dropped;
+/// a place it doesn't read is none and one past the pane is clipped; a slot's second entry is
+/// dropped; past `MAX_HERO_PANELS`, the back ones are (as the client's `heroPanelsToWire`). So a
+/// newer client's presence is relayed, not refused, by an older server.
+fn lenient_panels<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Vec<HeroPanel>>, D::Error> {
+    #[derive(Deserialize)]
+    struct Loose {
+        team: mapcro_schema::Team,
+        slot: u8,
+        #[serde(default)]
+        at: Option<Lenient<PanelPlace>>,
+    }
+    Ok(match Option::<Lenient<Vec<Lenient<Loose>>>>::deserialize(d)? {
+        Some(Lenient::Known(list)) => {
+            let mut out: Vec<HeroPanel> = Vec::new();
+            for h in list {
+                let Lenient::Known(h) = h else { continue };
+                if h.slot >= MAX_SLOT || out.iter().any(|o| (o.team, o.slot) == (h.team, h.slot)) {
+                    continue;
+                }
+                let at = match h.at {
+                    Some(Lenient::Known(p)) => Some(p.clipped()),
+                    _ => None,
+                };
+                out.push(HeroPanel { team: h.team, slot: h.slot, at });
+            }
+            let extra = out.len().saturating_sub(MAX_HERO_PANELS);
+            out.drain(..extra);
+            Some(out)
+        }
+        _ => None,
     })
 }
 
@@ -503,9 +537,11 @@ impl Presence {
                     && b.inspect.is_none_or(|s| s.slot < MAX_SLOT)
                     && b.event_search.as_deref().is_none_or(|q| text_ok(q, MAX_EVENT_SEARCH))
                     && b.skull_place.as_ref().is_none_or(PanelPlace::is_valid)
-                    && b.hero_panels.len() <= MAX_HERO_PANELS
-                    && b.hero_panels.iter().all(|h| h.slot < MAX_SLOT && h.at.as_ref().is_none_or(PanelPlace::is_valid))
-                    && b.hero_panels.iter().enumerate().all(|(i, h)| b.hero_panels[..i].iter().all(|o| (o.team, o.slot) != (h.team, h.slot)))
+                    && b.hero_panels.as_deref().is_none_or(|list| {
+                        list.len() <= MAX_HERO_PANELS
+                            && list.iter().all(|h| h.slot < MAX_SLOT && h.at.as_ref().is_none_or(PanelPlace::is_valid))
+                            && list.iter().enumerate().all(|(i, h)| list[..i].iter().all(|o| (o.team, o.slot) != (h.team, h.slot)))
+                    })
             })
             && self.cursor.as_ref().is_none_or(ok_pos)
             && self.drag.as_ref().is_none_or(|d| ok_pos(&d.pos))
@@ -563,7 +599,7 @@ mod tests {
     }
 
     fn playback() -> Playback {
-        Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: None, vision: None, skull_recap: None, event_recap: None, inspect: None, all_builds: false, build_popover: None, event_filters: 0, event_search: None, skull_place: None, hero_panels: Vec::new() }
+        Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: None, vision: None, skull_recap: None, event_recap: None, inspect: None, all_builds: false, build_popover: None, event_filters: 0, event_search: None, skull_place: None, hero_panels: None }
     }
 
     #[test]
@@ -597,31 +633,35 @@ mod tests {
         use mapcro_schema::Team::{Amber, Sapphire};
         let at = |i: u16| Some(PanelPlace { x: PLACE_SCALE - i, y: PLACE_SCALE, right: true, bottom: true });
         let hero_panels = [Amber, Sapphire].into_iter().flat_map(|team| (0..6u8).map(move |slot| HeroPanel { team, slot: slot + 10, at: at(u16::from(slot)) })).collect();
-        Playback { skull_recap: Some(DeathRef { team: Amber, slot: 1, t: 86_400 }), skull_place: at(0), hero_panels, ..playback() }
+        Playback { skull_recap: Some(DeathRef { team: Amber, slot: 1, t: 86_400 }), skull_place: at(0), hero_panels: Some(hero_panels), ..playback() }
     }
 
     #[test]
     fn moved_panels_are_bounded_and_left_out_where_they_opened() {
         use mapcro_schema::Team::{Amber, Sapphire};
         let with = |pb: Playback| Presence { playback: Some(pb), ..Default::default() };
+        let panels = |v: Vec<HeroPanel>| Playback { hero_panels: Some(v), ..playback() };
         let full = all_panels();
-        assert_eq!(full.hero_panels.len(), MAX_HERO_PANELS);
+        let list = full.hero_panels.clone().expect("panels");
+        assert_eq!(list.len(), MAX_HERO_PANELS);
         assert!(with(full.clone()).is_valid());
-        // One more, a place past the pane, a slot out of range, the same hero twice.
-        let mut more = full.clone();
-        more.hero_panels.push(HeroPanel { team: Amber, slot: 0, at: None });
-        assert!(!with(more).is_valid());
+        // Built here (not parsed): one more, a place past the pane, a slot out of range, the
+        // same hero twice.
+        let mut more = list.clone();
+        more.push(HeroPanel { team: Amber, slot: 0, at: None });
+        assert!(!with(panels(more)).is_valid());
         let far = PanelPlace { x: PLACE_SCALE + 1, y: 0, right: false, bottom: false };
         assert!(!with(Playback { skull_place: Some(far), ..playback() }).is_valid());
         assert!(!with(Playback { skull_place: Some(PanelPlace { x: 0, y: PLACE_SCALE + 1, ..far }), ..playback() }).is_valid());
-        assert!(!with(Playback { hero_panels: vec![HeroPanel { team: Sapphire, slot: 0, at: Some(far) }], ..playback() }).is_valid());
-        assert!(!with(Playback { hero_panels: vec![HeroPanel { team: Sapphire, slot: MAX_SLOT, at: None }], ..playback() }).is_valid());
+        assert!(!with(panels(vec![HeroPanel { team: Sapphire, slot: 0, at: Some(far) }])).is_valid());
+        assert!(!with(panels(vec![HeroPanel { team: Sapphire, slot: MAX_SLOT, at: None }])).is_valid());
         let twice = HeroPanel { team: Sapphire, slot: 2, at: None };
-        assert!(!with(Playback { hero_panels: vec![twice, HeroPanel { at: Some(PanelPlace { x: 1, ..far }), ..twice }], ..playback() }).is_valid());
-        assert!(with(Playback { hero_panels: vec![twice, HeroPanel { team: Amber, ..twice }], ..playback() }).is_valid());
-        // Where they opened, and none open, costs nothing; moved, they round-trip.
-        let json = serde_json::to_string(&with(Playback { hero_panels: vec![twice], ..playback() })).expect("serialises");
+        assert!(!with(panels(vec![twice, HeroPanel { at: Some(PanelPlace { x: 1, ..far }), ..twice }])).is_valid());
+        assert!(with(panels(vec![twice, HeroPanel { team: Amber, ..twice }])).is_valid());
+        // Where they opened costs nothing; none open is `[]`, an older client's none is left out.
+        let json = serde_json::to_string(&with(panels(vec![twice]))).expect("serialises");
         assert!(!json.contains("skull_place") && !json.contains(r#""at""#), "{json}");
+        assert!(serde_json::to_string(&with(panels(Vec::new()))).expect("serialises").contains(r#""hero_panels":[]"#));
         assert!(!serde_json::to_string(&with(playback())).expect("serialises").contains("hero_panels"));
         let left = PanelPlace { x: 120, y: 400, right: false, bottom: false };
         assert_eq!(serde_json::to_string(&left).expect("serialises"), r#"{"x":120,"y":400}"#);
@@ -648,7 +688,7 @@ mod tests {
         let frame = serde_json::to_string(&WireIn::Presence { state: Box::new(p) }).expect("serialises");
         // The server takes frames up to max_tx_bytes + 1024 (ws.rs MAX_FRAME).
         assert!(frame.len() <= mapcro_schema::LIMITS.max_tx_bytes, "{} bytes", frame.len());
-        let panels = serde_json::to_string(&all_panels().hero_panels).expect("serialises").len();
+        let panels = serde_json::to_string(&all_panels().hero_panels.expect("panels")).expect("serialises").len();
         assert!(panels < 1024, "{panels} bytes for every hero panel");
     }
 
@@ -656,13 +696,46 @@ mod tests {
     fn panels_from_a_newer_client_that_this_build_cannot_read_are_none() {
         let pb = |extra: &str| parsed(&frame_with(extra)).unwrap_or_else(|| panic!("parses: {extra}")).playback.expect("playback");
         assert_eq!(pb(r#","skull_place":{"x":5,"y":6,"bottom":true}"#).skull_place, Some(PanelPlace { x: 5, y: 6, right: false, bottom: true }));
-        assert_eq!(pb(r#","hero_panels":[{"team":"Amber","slot":2,"at":{"x":1,"y":2},"z":3}]"#).hero_panels.len(), 1);
+        assert_eq!(pb(r#","hero_panels":[{"team":"Amber","slot":2,"at":{"x":1,"y":2},"z":3}]"#).hero_panels.map(|v| v.len()), Some(1));
         for v in ["null", "3", r#""a""#, r#"{"x":-1,"y":0}"#, r#"{"x":1}"#, "[]"] {
             assert_eq!(pb(&format!(r#","skull_place":{v}"#)).skull_place, None, "{v}");
         }
-        for v in ["null", "3", r#"{"team":"Amber"}"#, r#"[{"team":"Purple","slot":1}]"#, r#"[{"team":"Amber","slot":300}]"#] {
-            assert!(pb(&format!(r#","hero_panels":{v}"#)).hero_panels.is_empty(), "{v}");
+        // Not a list: left out, as an older client's (the follower keeps its own).
+        for v in ["null", "3", r#"{"team":"Amber"}"#] {
+            assert_eq!(pb(&format!(r#","hero_panels":{v}"#)).hero_panels, None, "{v}");
         }
+        assert_eq!(pb("").hero_panels, None);
+        assert_eq!(pb(r#","hero_panels":[]"#).hero_panels, Some(Vec::new()));
+        // Entries it can't read are dropped, the rest kept.
+        for v in [r#"[{"team":"Purple","slot":1}]"#, r#"[{"team":"Amber","slot":300}]"#, "[7]"] {
+            assert_eq!(pb(&format!(r#","hero_panels":{v}"#)).hero_panels, Some(Vec::new()), "{v}");
+        }
+    }
+
+    #[test]
+    fn panels_past_this_builds_bounds_are_dropped_or_clipped_not_the_presence() {
+        use mapcro_schema::Team::{Amber, Sapphire};
+        // A newer client against an older server: a 13th panel, a place past the pane, a slot
+        // past MAX_SLOT, a hero twice. The presence is still relayed, within the bounds.
+        let panel = |team: &str, slot: u32, at: &str| format!(r#"{{"team":"{team}","slot":{slot}{at}}}"#);
+        let mut list: Vec<String> = (0..7).map(|s| panel("Amber", s, "")).collect();
+        list.extend((0..6).map(|s| panel("Sapphire", s, "")));
+        list.push(panel("Sapphire", MAX_SLOT.into(), ""));
+        list.push(panel("Amber", 1, r#","at":{"x":0,"y":0}"#));
+        list[3] = panel("Amber", 3, r#","at":{"x":12000,"y":40000,"right":true}"#);
+        list[4] = panel("Amber", 4, r#","at":{"x":-1,"y":0}"#);
+        let frame = frame_with(&format!(r#","hero_panels":[{}],"skull_place":{{"x":10001,"y":3,"bottom":true}}"#, list.join(",")));
+        let p = parsed(&frame).expect("parses");
+        assert!(p.is_valid(), "relayed");
+        let pb = p.playback.expect("playback");
+        let got = pb.hero_panels.expect("panels");
+        assert_eq!(got.len(), MAX_HERO_PANELS);
+        // The front ones (the back one, Amber 0, dropped); Amber 1 once, where it first was.
+        assert_eq!(got[0], HeroPanel { team: Amber, slot: 1, at: None });
+        assert_eq!(got[2], HeroPanel { team: Amber, slot: 3, at: Some(PanelPlace { x: PLACE_SCALE, y: PLACE_SCALE, right: true, bottom: false }) });
+        assert_eq!(got[3], HeroPanel { team: Amber, slot: 4, at: None });
+        assert_eq!(got.last(), Some(&HeroPanel { team: Sapphire, slot: 5, at: None }));
+        assert_eq!(pb.skull_place, Some(PanelPlace { x: PLACE_SCALE, y: 3, right: false, bottom: true }));
     }
 
     /// A presence frame as a client sends it, its playback's JSON ending in `extra` (raw JSON
