@@ -316,6 +316,7 @@ test("an objective with health says its name and health, live with the playback;
   const w = (await marker(a, WALKER).boundingBox())!;
   await a.mouse.move(w.x + w.width / 2, w.y + w.height / 2);
   await expect(label(a)).toHaveCount(0, AT_ONCE);
+  await revealControls(a, "health-toggle");
   await a.getByTestId("health-toggle").click();
   await says(a, WALKER, "Walker 40%");
   // Destroyed: nothing.

@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew, viewLink } from "./helpers";
+import { joinNew, revealControls, viewLink } from "./helpers";
 import { ROOT, Server, newBoardUrl, translate } from "./server";
 
 const ID = "130816395";
@@ -52,12 +52,15 @@ test("import, scrub, save two moments; a second browser sees them; undo reverts 
   const startB = await tokens(b);
 
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill("bogus");
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-status")).toHaveText("Invalid id");
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill("404");
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-notice-text")).toHaveText("Match not found yet.");
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-clock")).toHaveText("10:00 / 21:40");
@@ -104,6 +107,7 @@ test("import, scrub, save two moments; a second browser sees them; undo reverts 
   await a.screenshot({ path: "shots/match-import.png" });
 
   // Sandbox clears the preview; undo reverts the last save.
+  await revealControls(a, "mode-sandbox");
   await a.getByTestId("mode-sandbox").click();
   await expect(a.getByTestId("player")).toHaveAttribute("data-state", "scene");
   await expect(a.getByTestId("mode-player")).toBeVisible();

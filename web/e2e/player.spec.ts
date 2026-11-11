@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { gesture, joinNew, useSummary } from "./helpers";
+import { gesture, joinNew, revealControls, useSummary } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -43,6 +43,7 @@ test("events: search, filter, jump, and save several as scenes with one undo", a
   const url = await newBoardUrl(server, "Events");
   const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
@@ -91,6 +92,7 @@ test("events: search, filter, jump, and save several as scenes with one undo", a
   await expect(cards.nth(1)).toHaveAttribute("aria-label", /^Scene 2: 8:44 Guardian down$/);
   await expect(cards.nth(2)).toHaveAttribute("aria-label", /^Scene 3: 9:14 Guardian down$/);
   await expect(cards.nth(3)).toHaveAttribute("aria-label", /^Scene 4: 9:59 Guardian down$/);
+  await revealControls(a, "mode-sandbox");
   await a.getByTestId("mode-sandbox").click();
   await a.getByTestId("undo").click();
   await expect(cards).toHaveCount(1);
@@ -108,6 +110,7 @@ test("Player draws only the match, Sandbox only the scene, and neither leaks int
   const a = await joinNew(browser, url, "Coach");
   const x = a.locator('.mapbox .tok[data-slot="Amber-2"]');
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
@@ -116,6 +119,7 @@ test("Player draws only the match, Sandbox only the scene, and neither leaks int
   await scrubTo(a, 386);
   await expect(x).toHaveCount(0);
   // Sandbox shows the scene's record: there, alive and not dark.
+  await revealControls(a, "mode-sandbox");
   await a.getByTestId("mode-sandbox").click();
   await expect(x).toHaveCount(1);
   await expect(x).not.toHaveClass(/\bdead\b/);
@@ -132,6 +136,7 @@ test("Player draws only the match, Sandbox only the scene, and neither leaks int
   await scrubTo(a, 120);
   await expect(x).toHaveCount(1);
   await expect(x).not.toHaveClass(/\bdead\b/);
+  await revealControls(a, "mode-sandbox");
   await a.getByTestId("mode-sandbox").click();
   await expect(x).toHaveClass(/\bdead\b/);
   await a.getByTestId("scene-card").nth(0).click();
@@ -147,6 +152,7 @@ test("a follower mirrors the presenter's playback and mode; its own scrub stops 
   const url = await newBoardUrl(server, "Watch party");
   const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
@@ -168,6 +174,7 @@ test("a follower mirrors the presenter's playback and mode; its own scrub stops 
   const stopped = await clock(a);
   await expect.poll(() => clock(b)).toBe(stopped);
   // The presenter's mode carries.
+  await revealControls(a, "mode-sandbox");
   await a.getByTestId("mode-sandbox").click();
   await expect(b.getByTestId("player")).toHaveAttribute("data-state", "scene");
   await a.getByTestId("mode-player").click();
@@ -191,6 +198,7 @@ test("the landing page opens a match, by id or by replay, straight into Player",
   await expect(page.getByTestId("match-tier")).toHaveText("API summary");
   await expect(page.getByTestId("match-clock")).toHaveText("10:00 / 21:40");
   // Sandbox and back: the board keeps its match.
+  await revealControls(page, "mode-sandbox");
   await page.getByTestId("mode-sandbox").click();
   await page.reload();
   await expect(page.getByTestId("player")).toBeVisible();
@@ -216,6 +224,7 @@ test("ink over playback is live, kept only by saving a scene, and cleared when t
   const b = await joinNew(browser, url, "Marrow");
   const strokes = (p: Page) => p.locator(".mapbox [data-stroke]");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
@@ -236,6 +245,7 @@ test("ink over playback is live, kept only by saving a scene, and cleared when t
   await expect(a.getByTestId("scene-card")).toHaveCount(2);
   await expect(strokes(a)).toHaveCount(0);
   await expect(strokes(b)).toHaveCount(0);
+  await revealControls(b, "mode-sandbox");
   await b.getByTestId("mode-sandbox").click();
   await b.getByTestId("scene-card").nth(1).click();
   await expect(strokes(b)).toHaveCount(1);
@@ -247,11 +257,14 @@ test("ink over playback is live, kept only by saving a scene, and cleared when t
   await a.keyboard.press("e");
   await gesture(a, [[0.6, 0.6], [0.65, 0.62]]);
   await expect(strokes(b)).toHaveCount(1);
+  await revealControls(a, "mode-sandbox");
   await a.getByTestId("mode-sandbox").click();
   await expect(strokes(b)).toHaveCount(1);
+  await revealControls(b, "mode-sandbox");
   await b.getByTestId("mode-sandbox").click();
   await a.getByTestId("mode-player").click();
   await expect(strokes(a)).toHaveCount(1);
+  await revealControls(a, "mode-sandbox");
   await a.getByTestId("mode-sandbox").click();
   await a.reload();
   await expect(a.getByTestId("player")).toHaveAttribute("data-state", "match");
@@ -262,6 +275,7 @@ test("entering Player alone clears last session's ink, not what you draw straigh
   const a = await joinNew(browser, await newBoardUrl(server, "Fresh ink"), "Coach");
   const strokes = (p: Page) => p.locator(".mapbox [data-stroke]");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
@@ -287,6 +301,7 @@ test("entering Player alone clears last session's ink, not what you draw straigh
 test("Escape, or a press on the map, leaves the events search so the board's keys work again", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Search focus"), "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");

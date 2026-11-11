@@ -9,7 +9,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew, useSummary } from "./helpers";
+import { joinNew, revealControls, useSummary } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ISSUE = "https://github.com/intendednull/mapcro/issues/7";
@@ -216,6 +216,7 @@ async function scrubTo(p: Page, t: number) {
 test("on a board with a match open, the issue names the match and the time; unticked, it doesn't", async ({ browser }) => {
   const page = await joinNew(browser, await newBoardUrl(player, "Match feedback"), "Coach");
   await page.getByTestId("mode-player").click();
+  await revealControls(page, "match-id");
   await page.getByTestId("match-id").fill(MATCH);
   await page.getByTestId("match-load").click();
   await expect(page.getByTestId("match-tier")).toHaveText("API summary");
@@ -258,6 +259,7 @@ test("on a board with a match open, the issue names the match and the time; unti
   await dlg.getByTestId("feedback-close").click();
 
   // Back in the sandbox, no match is attached.
+  await revealControls(page, "mode-sandbox");
   await page.getByTestId("mode-sandbox").click();
   await open.click();
   await expect(dlg).toBeVisible();

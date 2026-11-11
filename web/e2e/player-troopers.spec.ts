@@ -6,7 +6,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 const ID = "122134063";
@@ -67,6 +67,7 @@ const spots = (p: Page) => p.locator("[data-testid=trooper]").evaluateAll((els) 
 test("trooper dots render, move between times, keep gaps empty, and toggle off", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Troopers"), "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
@@ -85,6 +86,7 @@ test("trooper dots render, move between times, keep gaps empty, and toggle off",
   await scrubTo(a, 65);
   await expect(a.locator("[data-testid=trooper]")).toHaveCount(0);
   await scrubTo(a, 40);
+  await revealControls(a, "troopers-toggle");
   await a.getByTestId("troopers-toggle").click();
   await expect(a.locator("[data-testid=trooper]")).toHaveCount(0);
 });

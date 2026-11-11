@@ -4,7 +4,7 @@
 // doesn't switch tools.
 
 import { expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
 let server: Server;
@@ -40,6 +40,7 @@ test("each tool's key picks it, the toolbar shows the keys, and typing in a fiel
   await a.getByTestId("toolbar").screenshot({ path: "shots/tool-keys.png" });
   // In the scene note, the keys are text.
   const note = a.getByTestId("scene-note-edit");
+  await revealControls(a, "scene-note-edit");
   await note.click();
   await a.keyboard.type("qrtas");
   await expect(on).toHaveAttribute("data-testid", "tool-draw");

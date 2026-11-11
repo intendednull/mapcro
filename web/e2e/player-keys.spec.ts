@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew, mapPoint, viewOf } from "./helpers";
+import { joinNew, mapPoint, revealControls, viewOf } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -48,6 +48,7 @@ const unfocus = (p: Page) => p.evaluate(() => (document.activeElement as HTMLEle
 test("← → seek, ↑ ↓ step events, a Space tap plays and pauses, a Space-drag only pans", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Keys"), "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(clock(a)).toHaveText(/ \/ 21:40$/);
@@ -105,6 +106,7 @@ test("← → seek, ↑ ↓ step events, a Space tap plays and pauses, a Space-d
   await play.click();
   await expect(play).toHaveText("Play");
   // On another focused button, Space still plays and doesn't press the button.
+  await revealControls(a, "pings-toggle");
   await a.getByTestId("pings-toggle").focus();
   await a.keyboard.press("Space");
   await expect(play).toHaveText("Pause");

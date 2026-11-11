@@ -9,7 +9,7 @@ import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
 const src = process.env.MAPCRO_SHOT_REPLAY;
@@ -42,6 +42,7 @@ test("shops, teleporters and heals on a real pack and replay", async ({ browser 
   await expect(marks(a, "shop")).toHaveCount(8);
   await expect(marks(a, "teleporter")).toHaveCount(4);
   await a.screenshot({ path: `${out}-board.png` });
+  await revealControls(a, "heals-toggle");
   await a.getByTestId("heals-toggle").click();
   await expect(marks(a, "heal")).toHaveCount(36);
   await a.screenshot({ path: `${out}-board-heals.png` });
@@ -57,6 +58,7 @@ test("shops, teleporters and heals on a real pack and replay", async ({ browser 
   await a.getByTestId("viewpoint-flip").first().click();
 
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("Full replay");
@@ -79,10 +81,12 @@ test("shops, teleporters and heals on a real pack and replay", async ({ browser 
 
 test("heavy boxes on a real pack and replay", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Heavy boxes"), "Coach");
+  await revealControls(a, "crates-toggle");
   await a.getByTestId("crates-toggle").click();
   await expect(marks(a, "crate")).toHaveCount(78);
   await a.screenshot({ path: `${out}-board-crates.png` });
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("Full replay");

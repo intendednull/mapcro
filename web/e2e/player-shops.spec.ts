@@ -7,7 +7,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 /** A synthetic match: no real replay's data. */
@@ -53,6 +53,7 @@ function timeline() {
 
 async function open(p: Page) {
   await p.getByTestId("mode-player").click();
+  await revealControls(p, "match-id");
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
   await p.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
@@ -94,6 +95,7 @@ test("in Player a lane shop is gone once its guardian falls; the secret shops an
   await scrubTo(a, 100);
   await expect(shops(a)).toHaveCount(6);
   // The board is the map, not the match: every shop.
+  await revealControls(a, "mode-sandbox");
   await a.getByTestId("mode-sandbox").click();
   await expect(shops(a)).toHaveCount(8);
 });

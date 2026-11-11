@@ -194,6 +194,7 @@ test("the upload's bar and percent ease to each progress event, and jump with re
     const cdp = await a.context().newCDPSession(a);
     await cdp.send("Network.enable");
     await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: 1024 * 1024 });
+    await revealControls(a, "match-file");
     await a.getByTestId("match-file").setInputFiles({ name: `${UPLOAD_ID}.dem`, mimeType: "application/octet-stream", buffer: dem(8 * 1024 * 1024) });
     await expect(a.getByTestId("upload-bar")).toBeVisible();
     // Each frame for a second: the bar drawn, and the bytes the last progress event reported.

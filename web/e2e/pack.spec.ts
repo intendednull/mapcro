@@ -100,6 +100,7 @@ test.describe("with a synthetic pack", () => {
     await expect(a.locator(".mapbox .mk.crate")).toHaveCount(78);
     await expect(a.locator(".mapbox .mk.crate .fb.crate").first()).toBeVisible();
     await expect(a.locator(".mapbox .mk.shop .fb").first()).toBeHidden();
+    await revealControls(a, "crates-toggle");
     await a.getByTestId("crates-toggle").click();
     const walker = a.locator('.mapbox .mk[data-key="walker:amber:lane1:1"]');
     await expect(walker).toHaveAttribute("style", /left: 20\.83\d*%; top: 72\.02\d*%/);

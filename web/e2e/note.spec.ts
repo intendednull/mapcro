@@ -2,7 +2,7 @@
 // what you've typed and not saved, and on blur the last writer wins.
 
 import { expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
 let server: Server;
@@ -18,6 +18,8 @@ test("two people typing in the note: tagged, no lost words while typing, last wr
   const b = await joinNew(browser, url, "Juno");
   const noteA = a.getByTestId("scene-note-edit");
   const noteB = b.getByTestId("scene-note-edit");
+  await revealControls(a, "scene-note-edit");
+  await revealControls(b, "scene-note-edit");
 
   // Coach starts the scene's first note: Juno sees who is in it.
   await noteA.fill("Boss at 8:00");
@@ -45,5 +47,6 @@ test("two people typing in the note: tagged, no lost words while typing, last wr
 
   // A reload agrees.
   await b.reload();
+  await revealControls(b, "scene-note-edit");
   await expect(b.getByTestId("scene-note-edit")).toHaveValue("Hold the west stairs");
 });

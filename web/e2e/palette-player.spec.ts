@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { gesture, joinNew, mapPoint, useSummary } from "./helpers";
+import { gesture, joinNew, mapPoint, revealControls, useSummary } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -38,6 +38,7 @@ test("in Player, the palette colours ink, arrows and comments", async ({ browser
   const url = await newBoardUrl(server, "palette player");
   const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toBeVisible();

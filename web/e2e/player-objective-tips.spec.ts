@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew, mapPoint } from "./helpers";
+import { joinNew, mapPoint, revealControls } from "./helpers";
 import { Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 
 const ID = "122134063";
@@ -107,6 +107,7 @@ function timeline() {
 
 async function open(p: Page) {
   await p.getByTestId("mode-player").click();
+  await revealControls(p, "match-id");
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
   await p.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
@@ -267,6 +268,7 @@ test("a follower sees the presenter's hover, worded from its own state", async (
   await expect(label(b)).toHaveAttribute("data-kind", "token");
   await expect(label(b)).toHaveText(/^Ana(, |$)/);
   // The follower's own Names toggle: the name stays off on its screen.
+  await revealControls(b, "names-toggle");
   await b.getByTestId("names-toggle").click();
   await expect(label(b)).toHaveText(/^King 1(, |$)/);
   await b.screenshot({ path: "/tmp/buffs-timers-shots/follower-token-hover.png" });
