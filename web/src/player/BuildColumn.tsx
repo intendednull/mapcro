@@ -22,7 +22,6 @@ export function BuildColumn(p: { inspect?: boolean; player: TimelinePlayer; time
   };
   const kills = createMemo(() => p.player.kills != null ? scoreboardValueAt(p.player.kills, p.t) : killsAt(p.timeline, p.t, p.player.team, p.player.slot));
   const assists = () => scoreboardValueAt(p.player.assists, p.t);
-  const level = () => scoreboardValueAt(p.player.level, p.t);
   const maxHealth = () => scoreboardValueAt(p.player.max_health, p.t);
   const deaths = createMemo(() => p.player.deaths.filter(t => t <= p.t).length);
   const investment = createMemo(() => {
@@ -38,7 +37,7 @@ export function BuildColumn(p: { inspect?: boolean; player: TimelinePlayer; time
   return (
     <section id={p.id} class="tb-build-column" data-testid="hero-build" aria-label={`${p.hero?.name ?? "Hero"} abilities and items`}>
       <Show when={p.name}><div class="tb-build-name">{p.name}</div></Show>
-      <div class="tb-build-hero">{p.hero?.name ?? "Hero"}</div><Show when={level() != null}><div class="tb-build-hero-level" title="Hero level">Lv {level()}</div></Show>
+      <div class="tb-build-hero">{p.hero?.name ?? "Hero"}</div>
       <div class="tb-build-kda" aria-label="Kills, deaths, assists">
         <div title={kills() == null ? "Kill attribution is unavailable in this replay" : "Kills"}><small>K</small><b>{kills() ?? "—"}</b></div>
         <div><small>D</small><b>{deaths()}</b></div>
@@ -52,7 +51,7 @@ export function BuildColumn(p: { inspect?: boolean; player: TimelinePlayer; time
         }</For>
       </div>
       <div class="tb-build-vitals">
-        <div title={maxHealth() == null ? "Maximum health is unavailable in this replay" : "Maximum health"}><span aria-hidden="true">♥</span> {maxHealth()?.toLocaleString() ?? "—"}</div>
+        <div title={maxHealth() == null ? "Maximum health is unavailable in this replay" : "Maximum health"}><span aria-hidden="true">♥</span> {maxHealth() ?? "—"}</div>
         <div class="tb-build-resists" title="Bullet and spirit resistance are not recorded in this replay"><span aria-hidden="true">⛨</span> — &nbsp; —</div>
       </div>
       <div class="tb-build-abilities" aria-label="Abilities">

@@ -295,7 +295,6 @@
 .tb-host.compact .tb-all-builds { top: calc(62 * var(--u) + 43px); }
 .tb-host.compact .tb-build-column { top: calc(96 * var(--u) + 12px); }
 
-.tb-build-hero-level { font-size: max(8px, calc(10 * var(--u))); color: #ded6c4; }
 /* Keep map controls from showing through the translucent scoreboard. */
 .stage:has(.build-open) .map-controls { visibility: hidden; }
 
@@ -309,3 +308,9 @@
 .tb-effect span { flex: 1; }
 .tb-effect b { font-size: 11px; font-variant-numeric: tabular-nums; }
 .tb-effect small { color: var(--brass); }
+/* As in game: replay names appear only in the expanded (Tab) columns, never under the bar. */
+.pl-tb-name.replay { display: none; }
+.tb-level { position: absolute; left: 50%; top: calc(68 * var(--u)); transform: translateX(-50%); z-index: 2;
+  width: calc(20 * var(--u)); height: calc(20 * var(--u)); border-radius: 50%; display: grid; place-items: center;
+  background: #2b2d2a; border: calc(1.5 * var(--u)) solid #8d8f88; color: #e9e4d8;
+  font: 700 max(8px, calc(10 * var(--u))) / 1 "Gulim", "VALVEOracle", "Noto Sans", sans-serif; pointer-events: none; }

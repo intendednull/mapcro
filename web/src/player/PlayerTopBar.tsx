@@ -12,7 +12,7 @@ import { rosterTeamShort } from "../map/model";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { cx } from "../ui/cx";
 import { formatSouls, teamTotal } from "../core/souls";
-import { clockLabel, playersAt, rejuvAt, type PlayerAt, type RejuvNow } from "../match/timeline";
+import { clockLabel, playersAt, scoreboardValueAt, rejuvAt, type PlayerAt, type RejuvNow } from "../match/timeline";
 import { slotKey } from "../match/save";
 import type { Art } from "../map/pack";
 import { rosterTeamName } from "../map/model";
@@ -273,12 +273,16 @@ export function PlayerTopBar(p: {
                   <span>Critical</span>
                 </span>
               </Show>
+              {/* As the Tab scoreboard: the hero level in a ringed disc on the portrait's lower edge. */}
+              <Show when={expanded(slotKey(t, s.slot.slot)) && scoreboardValueAt(p.host.tl()?.players.find(q => q.team === t.toLowerCase() && q.slot === s.slot.slot)?.level, p.host.t())}>
+                {lv => <span class="tb-level" data-testid="tb-level" title="Hero level">{lv()}</span>}
+              </Show>
               <Ult left={x()?.ult ?? null} label={label()} />
               <Show when={expanded(slotKey(t, s.slot.slot)) && p.host.tl()?.players.find(q => q.team === t.toLowerCase() && q.slot === s.slot.slot)}>
                 {player => <BuildColumn inspect={!allBuilds() && !tabHeld()} player={player()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} />}
               </Show>
               <Show when={nameOf()}>
-                <span class="pl-tb-name" data-testid="tb-name">
+                <span class="pl-tb-name replay" data-testid="tb-name">
                   {nameOf()}
                 </span>
               </Show>
