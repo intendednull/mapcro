@@ -16,10 +16,10 @@ use std::time::UNIX_EPOCH;
 use tauri::ipc::Response;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
 mod links;
+mod routes;
 
 /// The site the window loads. A debug build takes `MAPCRO_URL` instead (a local dev server).
 const SITE: &str = "https://mapcro.dmgdeadlock.com";
@@ -292,25 +292,14 @@ fn dev_capability(app: &AppHandle, site: &Url) -> tauri::Result<()> {
     app.add_capability(cap)
 }
 
-/// The one window: the site. A link off the site opens in the system browser. Closing it quits:
-/// nothing runs in the background.
+/// The one window: the site. A link off the site opens in the system browser, and no second
+/// window opens (routes.rs). Closing it quits: nothing runs in the background.
 fn window(app: &AppHandle, site: &Url) -> tauri::Result<()> {
-    let origin = site.origin();
-    let opener = app.clone();
-    WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::External(site.clone()))
+    let builder = WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::External(site.clone()))
         .title("mapcro")
         .inner_size(1440.0, 900.0)
-        .min_inner_size(960.0, 600.0)
-        .on_navigation(move |u| {
-            if u.origin() == origin {
-                return true;
-            }
-            if matches!(u.scheme(), "http" | "https") {
-                let _ = opener.opener().open_url(u.as_str(), None::<&str>);
-            }
-            false
-        })
-        .build()?;
+        .min_inner_size(960.0, 600.0);
+    routes::handle(builder, app, WINDOW, site).build()?;
     Ok(())
 }
 

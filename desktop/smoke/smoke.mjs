@@ -21,7 +21,7 @@
 // No dependencies: the WebDriver calls are plain fetch.
 
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -48,8 +48,22 @@ const main = readFileSync(join(ROOT, "crates/server/src/main.rs"), "utf8");
 const csp = /"content-security-policy",\s*"((?:[^"\\]|\\.)*)"/s.exec(main)?.[1].replace(/\\\r?\n\s*/g, "");
 if (!csp?.includes("connect-src")) throw new Error("couldn't read the CSP from crates/server/src/main.rs");
 
+/** Synthetic off-site links (a reserved TLD: nothing resolves), a plain one and two that ask for
+ * a new window, and same-site ones that ask for a new window. */
+const OFF_BLANK = "https://smoke.example.invalid/blank";
+const OFF_OPEN = "https://smoke.example.invalid/open";
+const OFF_NAV = "https://smoke.example.invalid/nav";
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>mapcro smoke</title></head>
-<body><p id="ready">ready</p></body></html>`;
+<body><p id="ready">ready</p>
+<p><a id="off-blank" href="${OFF_BLANK}" target="_blank" rel="noopener">off-site, new window</a></p>
+<p><button id="off-open" type="button">window.open</button></p>
+<p><a id="off-nav" href="${OFF_NAV}">off-site</a></p>
+<p><a id="in-blank" href="/smoke-in-blank" target="_blank">same site, new window</a></p>
+<p><button id="in-open" type="button">same site, window.open</button></p>
+<script src="/smoke.js"></script></body></html>`;
+/** As a file, not inline: the site's CSP has no 'unsafe-inline' for scripts. */
+const SCRIPT = `document.getElementById("off-open").addEventListener("click", () => window.open(${JSON.stringify(OFF_OPEN)}, "_blank"));
+document.getElementById("in-open").addEventListener("click", () => window.open("/smoke-in", "_blank"));`;
 
 /** Writes Steam's layout for one library holding Deadlock, with three synthetic replays. */
 function writeFakeSteam(steam) {
@@ -117,13 +131,24 @@ function launch(arg) {
 }
 
 const server = createServer((req, res) => {
-  res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-security-policy": csp, "cache-control": "no-store" });
-  res.end(PAGE);
+  const js = req.url === "/smoke.js";
+  res.writeHead(200, { "content-type": js ? "text/javascript" : "text/html; charset=utf-8", "content-security-policy": csp, "cache-control": "no-store" });
+  res.end(js ? SCRIPT : PAGE);
 });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const site = `http://127.0.0.1:${server.address().port}/`;
 
 const env = { ...process.env, MAPCRO_URL: site };
+// Links off the site: on Linux the opener runs `xdg-open <url>` (the `open` crate, first on its
+// list); a stand-in first on PATH records each URL instead of starting a browser. Elsewhere the
+// opener is the system's (Windows: ShellExecute), so those checks are Linux only.
+const opened = process.platform === "linux" ? join(mkdtempSync(join(tmpdir(), "mapcro-smoke-open-")), "opened.txt") : undefined;
+if (opened) {
+  const bin = dirname(opened);
+  writeFileSync(join(bin, "xdg-open"), `#!/bin/sh\nprintf '%s\\n' "$1" >> '${opened}'\n`, { mode: 0o755 });
+  env.PATH = `${bin}:${env.PATH ?? ""}`;
+}
+const openedUrls = () => (opened && existsSync(opened) ? readFileSync(opened, "utf8").split("\n").filter(Boolean) : []);
 if (fakeSteam) {
   if (process.platform === "linux") {
     const xdg = mkdtempSync(join(tmpdir(), "mapcro-smoke-"));
@@ -194,6 +219,43 @@ try {
   } else {
     const r = await call("replays_list");
     check("replays_list answers", Array.isArray(r.v) || r.e === "not_found", JSON.stringify(r).slice(0, 200));
+  }
+
+  // Links from the page (desktop/README.md, Links off the site): off the site, a plain link and
+  // window.open go to the system browser and leave the window where it was; a same-site
+  // window.open opens in this window; no second window opens. A target=_blank link takes
+  // window.open's path on Windows (WebView2's NewWindowRequested); under WebKitWebDriver its click
+  // raises no new-window request at all, so here it is only checked to open nothing.
+  if (opened) {
+    const page = () => wd("GET", `/session/${session}/url`);
+    const handles = async () => (await wd("GET", `/session/${session}/window/handles`)).length;
+    const click = async (css) => {
+      const el = await wd("POST", `/session/${session}/element`, { using: "css selector", value: css });
+      await wd("POST", `/session/${session}/element/${Object.values(el)[0]}/click`, {});
+    };
+    for (const [css, want, what] of [
+      ["#off-open", OFF_OPEN, "an off-site window.open"],
+      ["#off-nav", OFF_NAV, "an off-site link"],
+    ]) {
+      await click(css);
+      const got = await until(`${what} handed to the opener`, async () => (openedUrls().includes(want) ? true : null), 10_000).catch(() => false);
+      check(`${what} opens in the system browser`, got, got ? undefined : JSON.stringify(openedUrls()));
+      check(`${what} opens no window`, (await handles()) === 1, String(await handles()));
+      check(`${what} leaves the window on the site`, (await page()) === site, await page());
+    }
+    for (const css of ["#off-blank", "#in-blank"]) {
+      await click(css);
+      await new Promise((r) => setTimeout(r, 1500));
+      check(`a target=_blank link (${css}) opens no window`, (await handles()) === 1, String(await handles()));
+      check(`a target=_blank link (${css}) leaves the window on the site`, (await page()) === site, await page());
+    }
+    await click("#in-open");
+    const inApp = await until("the same-site window.open in the window", async () => ((await page()) === `${site}smoke-in` ? true : null), 10_000).catch(() => false);
+    check("a same-site window.open opens in the window", inApp, inApp ? undefined : await page());
+    check("a same-site window.open opens no window", (await handles()) === 1, String(await handles()));
+    check("nothing on the site is handed to the opener", !openedUrls().some((u) => u.startsWith(site)), JSON.stringify(openedUrls()));
+  } else {
+    console.log("skip links off the site: the opener is the system's here (Linux only)");
   }
 
   // A mapcro:// link, handed from a second launch to this one.
