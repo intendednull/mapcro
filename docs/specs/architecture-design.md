@@ -1135,7 +1135,12 @@ makes a board with that match attached and lands in Player; **New board** is tod
       to the site's origin only.
     - **Download link:** "Get the Windows app" (GitHub Releases) shows on Windows browsers only,
       never in the app. It sits beside Link replays folder, in "Where's my replay?" and in the
-      landing's footer. It stays off until the first release (`WINDOWS_APP_RELEASED`).
+      landing's footer. It stays off until the first release (`WINDOWS_APP_RELEASED`). There is
+      no Linux link yet (backlog).
+    - **Linux (2026-11-10, branch `linux-desktop`):** the same app on WebKitGTK, built as an
+      AppImage, a .deb and `nix build .#mapcro-desktop`; it behaves as on Windows. Gated on the
+      e2e suite passing in WebKit (`just e2e-webkit`, operator). The NVIDIA blank-window
+      workaround is desktop/README.md "Linux".
     - **Privacy:** the app reads only the Steam root (the registry key on Windows, fixed
       candidate paths on Linux), `libraryfolders.vdf`, Deadlock's one app manifest, the replays
       folder (or the one chosen with Change folder, whose path stays in the app) and its own

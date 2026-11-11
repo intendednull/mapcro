@@ -116,17 +116,18 @@
         # Updates come from the package manager here, not the app's updater: no signing key, no
         # updater artifacts.
         tauriBuildFlags = [ "--config" "tauri.nosign.conf.json" ];
-        nativeBuildInputs = with pkgs; [ cargo-tauri.hook pkg-config wrapGAppsHook3 ];
+        nativeBuildInputs = with pkgs; [ cargo-tauri.hook pkg-config wrapGAppsHook3 makeWrapper ];
         # glib-networking: TLS for the webview (the site is https).
         buildInputs = desktopLibs ++ [ pkgs.glib-networking ];
         doCheck = false;
         # On NVIDIA's proprietary driver, WebKitGTK's DMA-BUF renderer can leave the window blank;
         # turning it off is the fix Tauri documents (v2.tauri.app/develop/debug/linux-graphics,
         # WebKit bug 261874). Only there, and only if the user hasn't set it themselves.
-        preFixup = ''
-          gappsWrapperArgs+=(
+        # A shell wrapper (the GApps hook's own is a binary one, which can't run a check).
+        dontWrapGApps = true;
+        postFixup = ''
+          wrapProgramShell $out/bin/mapcro-desktop "''${gappsWrapperArgs[@]}" \
             --run 'if [ -e /proc/driver/nvidia/version ] && [ -z "''${WEBKIT_DISABLE_DMABUF_RENDERER+x}" ]; then export WEBKIT_DISABLE_DMABUF_RENDERER=1; fi'
-          )
         '';
         meta.mainProgram = "mapcro-desktop";
       };

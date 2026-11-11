@@ -152,3 +152,10 @@ watch-install:
       --working-directory={{justfile_directory()}} \
       nice -n 19 nix develop {{justfile_directory()}} -c python3 -I tools/prod-watch/watch.py
     systemctl --user list-timers mapcro-prod-watch.timer --no-pager
+
+# The Linux app, smoke-tested for real (desktop/README.md, Smoke test): a debug build driven by
+# tauri-driver and WebKitWebDriver under Xvfb, against a page with the site's CSP and a fake Steam
+# install. Run inside `nix develop .#desktop`.
+desktop-smoke:
+    cd desktop/app && cargo build
+    xvfb-run -a node desktop/smoke/smoke.mjs desktop/app/target/debug/mapcro-desktop --fake-steam

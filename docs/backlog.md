@@ -94,8 +94,20 @@ much they matter.
   deployed everywhere.
 - **Authenticode signing**, when SmartScreen warnings cost users (research §1: Azure Artifact
   Signing ~$10/month, US/Canada individuals).
-- **Linux build:** only after Playwright `webkit` passes Player's specs (research Phase 3).
-  `nix develop .#desktop` already builds and runs it, under Xvfb here.
+- **Linux build:** built (branch `linux-desktop`: `just e2e-webkit`, `.#mapcro-desktop`, the
+  AppImage and .deb in `desktop.yml`, the WebDriver smoke test). Left:
+  - **First Linux run on a real desktop** (only Xvfb so far): GNOME and KDE, the folder chooser,
+    a real Steam install, Wayland and X11, an NVIDIA machine (does the DMA-BUF blank window
+    happen, and does `WEBKIT_DISABLE_DMABUF_RENDERER=1` fix it).
+  - **NVIDIA workaround in the AppImage/.deb.** Only the nix wrapper sets it. In the app it is
+    `std::env::set_var` before the webview, which is `unsafe` under edition 2024 and the crate
+    forbids `unsafe`; a launcher script in the bundle is the other way. Decide after the real run.
+  - **WebKit frame cost.** Headless WebKit drew a scene flip at ~10 fps (Chromium ~30), so the
+    heroes-live glide spec is fixme on WebKit. Measure Player at 8× in the real app before calling
+    it slow.
+  - **Download link for Linux.** "Get the Windows app" shows on Windows only; a Linux link
+    (AppImage) would need a label and a release flag like `WINDOWS_APP_RELEASED`.
+  - **WebKit in CI.** `just e2e-webkit` is opt-in and local; the main CI runs no e2e at all.
 
 ## The salts backoff holds back free reads (2026-11-10, from salts-docs)
 
