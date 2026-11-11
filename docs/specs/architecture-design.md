@@ -965,6 +965,25 @@ makes a board with that match attached and lands in Player; **New board** is tod
     match X, not Y"), and so is a file that isn't `.dem` or doesn't start as a demo does
     (`PBDEMS2\0`, read before uploading). A drop anywhere else is caught, so the tab never
     leaves the board to open the file.
+  - **Linked replays folder (2026-11-10; `player/folder.ts`, `player/ReplaysFolder.tsx`):** on a
+    browser with `showDirectoryPicker` (Chromium, secure context), a quiet **Link replays
+    folder** beside the upload (Player's match source, its notice, the prompt). The directory
+    handle is kept in IndexedDB (`mapcro-replays-folder`); a later visit reuses it, and when the
+    browser wants a fresh OK, **Reconnect replays folder** asks on the click. While Player is
+    shown it lists the folder on focus, when the tab is shown again and every 15 s: only
+    `<digits>.dem` names are opened, newest first by `lastModified`; a file younger than 5 s
+    waits (it may still be downloading). The open match's file shows **Upload <match> from
+    your replays folder** (primary; Upload replay file steps down), which goes through the
+    usual checks and upload. With no match open, up to three recent ids open their match.
+    Nothing about the folder is sent or logged; a name leaves `folder.ts` only as its id. The
+    UI reads only through `ReplaySource` (list by match id, read one), so a desktop bridge can
+    plug in (lead, 2026-11-10).
+    - **Limit:** Chromium's File System Access blocklist refuses Program Files (Windows) and
+      `~/.local/share` (Linux) and their children, where Steam installs by default, so only a
+      second Steam library can be linked. A cancelled or refused pick says "Browsers can't link
+      Steam's default folder. Upload the file instead."; the plain file picker and the drop
+      still open the default folder. Without the API nothing shows; the help's extra line
+      (Chromium only) gives `…/steamapps/common/Deadlock/game/citadel/replays`.
   - **Progress:** while the queue has no room, "Waiting for a slot · N ahead" (the file isn't
     sent until its turn, §6a The queue); then a bar with the percent and the size ("212 / 504
     MB", decimal MB), then the chip's "Queued · N ahead" and "Parsing replay…", then "Full

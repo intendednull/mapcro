@@ -6,6 +6,8 @@ import { Show, onMount } from "solid-js";
 import type { PlayerHost } from "./host";
 import { PROMPT, canRetry } from "./notice";
 import { ReplayHelp } from "./ReplayHelp";
+import { FolderFound, FolderLink, folderHas, useReplaysFolder } from "./ReplaysFolder";
+import { cx } from "../ui/cx";
 
 export function ReplayPrompt(p: { host: PlayerHost }) {
   const h = p.host;
@@ -20,6 +22,8 @@ function Dialog(p: { host: PlayerHost; why: NonNullable<ReturnType<PlayerHost["u
   const h = p.host;
   let box!: HTMLDivElement;
   let file!: HTMLInputElement;
+  const folder = useReplaysFolder();
+  const inFolder = () => !!folderHas(folder, h.matchId());
   onMount(() => box.querySelector<HTMLButtonElement>("button")?.focus());
   return (
     <div class="rp-scrim" data-testid="replay-prompt-scrim">
@@ -55,7 +59,8 @@ function Dialog(p: { host: PlayerHost; why: NonNullable<ReturnType<PlayerHost["u
                 Try again
               </button>
             </Show>
-            <button class="btn primary" type="button" data-testid="replay-prompt-upload" onClick={() => file.click()}>
+            <FolderFound id={h.matchId()} onFile={(f) => void h.take(f)} large />
+            <button class={cx("btn", !inFolder() && "primary")} type="button" data-testid="replay-prompt-upload" onClick={() => file.click()}>
               Upload replay file
             </button>
             <button class="btn ghost" type="button" data-testid="replay-prompt-summary" onClick={() => h.prompt.dismiss()}>
@@ -75,6 +80,9 @@ function Dialog(p: { host: PlayerHost; why: NonNullable<ReturnType<PlayerHost["u
             }}
           />
           <ReplayHelp id={h.matchId()} class="inline rp-help" />
+          <div class="rp-folder">
+            <FolderLink id={h.matchId()} />
+          </div>
         </div>
       </div>
     </div>

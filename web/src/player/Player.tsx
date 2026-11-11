@@ -16,6 +16,7 @@ import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensure
 import { FETCH_WHY, busy, jobLabel, queueLabel, staleUpload } from "./api";
 import { PROMPT, sizeLabel } from "./notice";
 import { DropOverlay, ReplayHelp, createDemDrop } from "./ReplayHelp";
+import { FolderFound, FolderLink, FolderRecent, folderHas, useReplaysFolder } from "./ReplaysFolder";
 import { SPEEDS } from "./clock";
 import { troopersAt } from "./troopers";
 import { easedNumber } from "../board/smooth";
@@ -141,6 +142,9 @@ export function Player(p: {
   // A stale upload (an older parse) is upgraded by uploading the file again.
   const canUpload = () => canEdit() && !!h.matchId() && (!h.tl() || tierOf(h.tl()!) !== "replay" || staleUpload(h.job())) && !!h.job() && h.job()!.state !== "off" && !busy(h.job()) && !h.uploading();
   const take = (f: File) => h.take(f);
+  // The linked replays folder (spec §6b): its file for this match, offered first when it's there.
+  const folder = useReplaysFolder();
+  const inFolder = () => !!folderHas(folder, h.matchId());
   // Dropped anywhere on the board while Player shows a match without its replay.
   const dragging = createDemDrop({ enabled: () => watching() && canUpload(), onFile: (f) => void take(f), onRefuse: (t) => h.setStatus(t) });
 
@@ -261,14 +265,19 @@ export function Player(p: {
           <span class="match-job pl-hidden" data-testid="match-job">
             {jobLabel(h.job(), h.progress())}
           </span>
+          <Show when={canEdit() && !h.matchId()}>
+            <FolderRecent onOpen={(id) => { p.onUserPlayback(); void h.open(id, { attach: true }); }} />
+          </Show>
           <Show when={canUpload() && !h.notice()}>
-            <button class="btn primary small" type="button" data-testid="match-upload" onClick={() => file.click()}>
+            <FolderFound id={h.matchId()} onFile={(f) => void take(f)} />
+            <button class={cx("btn small", !inFolder() && "primary")} type="button" data-testid="match-upload" onClick={() => file.click()}>
               Upload replay file
             </button>
             <button class="btn ghost small" type="button" data-testid="match-fetch" onClick={() => void h.fetchReplay()} title="Fetch the replay from Valve">
               Fetch replay
             </button>
             <ReplayHelp id={h.matchId()} />
+            <FolderLink id={h.matchId()} />
           </Show>
           <span class="spacer" />
           <input
@@ -331,10 +340,12 @@ export function Player(p: {
                 </button>
               </Show>
               <Show when={n().actions.includes("upload") && canUpload()}>
-                <button class="btn primary small" type="button" data-testid="match-upload" onClick={() => file.click()}>
+                <FolderFound id={h.matchId()} onFile={(f) => void take(f)} />
+                <button class={cx("btn small", !inFolder() && "primary")} type="button" data-testid="match-upload" onClick={() => file.click()}>
                   Upload replay file
                 </button>
                 <ReplayHelp id={h.matchId()} />
+                <FolderLink id={h.matchId()} />
               </Show>
             </div>
           )}

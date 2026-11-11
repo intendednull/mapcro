@@ -113,6 +113,15 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   so don't copy its code. deadlock-damage-lab has no licence: read it for ideas only.
   The wiki text licence is unverified (stat-datamining).
 
+- **The replays folder** (`<Steam library>/steamapps/common/Deadlock/game/citadel/replays/`, files
+  `<match id>.dem`; journal 2026-11-08-player-handoff). Chromium's File System Access blocklist
+  (`chrome/browser/file_system_access/chrome_file_system_access_permission_context.cc`
+  `kBlockPaths`, read 2026-11-10) blocks Program Files, Program Files (x86) and `~/.local/share`
+  with all children, after resolving symlinks, so a browser can link the folder only in a second
+  Steam library. `<input type=file>` and drop aren't affected. Not checked: whether the game
+  writes a download in place (a partial `.dem`) or renames it when done. Player waits until a
+  file is 5 s old (spec §6b "Linked replays folder").
+
 ## Known dead ends and corrections
 
 - **No recorded bullet/spirit resist total.** Checked: the schemas of all 929 classes, the
