@@ -208,8 +208,9 @@ label! {
 }
 
 label! {
-    /// deadlock-api's endpoints we call.
-    pub enum Endpoint: "endpoint" { Metadata => "metadata", SteamProfiles => "steam_profiles", Salts => "salts" }
+    /// deadlock-api's endpoints we call. `salts` is the free read (`disable_steam=true`),
+    /// `salts_steam` the read that may ask Steam: only that one spends the 3/h budget.
+    pub enum Endpoint: "endpoint" { Metadata => "metadata", SteamProfiles => "steam_profiles", Salts => "salts", SaltsSteam => "salts_steam" }
 }
 
 label! {

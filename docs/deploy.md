@@ -134,7 +134,9 @@ line is kept without being asked about (past a hidden tab's minute between timer
 job back once rather than failing it. Timelines parsed on the user's machine (`POST
 …/timeline`, spec §6a) take no queue room: `REPLAY_MAX_TIMELINE_BYTES` (4 MiB) caps one as sent
 (decoded, 6 MiB, fixed), and `REPLAY_TIMELINES_PER_CLIENT_PER_HOUR` (30) is their own hourly
-count; the module leaves both at their defaults.
+count; the module leaves both at their defaults. `REPLAY_SALT_PASS_S` (7800, 2 h 10 min) is
+how long after a match's end its salts are read only for free, and when a match with no replay
+salt yet is tried again on open (spec §6a, Remembered failures); left at its default too.
 
 ## Behind Caddy
 

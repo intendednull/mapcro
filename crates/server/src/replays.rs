@@ -87,6 +87,9 @@ pub struct Settings {
     pub transfer: Duration,
     /// A job still queued after this (the worker is down) is dropped.
     pub stale: Duration,
+    /// Seconds after a match's end before which its salts aren't looked up through Steam, and
+    /// at which a match with no replay salt yet is tried again (`SALT_PASS_S`).
+    pub salt_pass_s: u64,
 }
 
 fn settings() -> &'static Settings {
@@ -119,6 +122,7 @@ fn settings() -> &'static Settings {
             idle: Duration::from_secs(num("REPLAY_IDLE_S", 60)),
             transfer: Duration::from_secs(num("REPLAY_TRANSFER_S", 1800)),
             stale: Duration::from_secs(num("REPLAY_STALE_S", 3600)),
+            salt_pass_s: num("REPLAY_SALT_PASS_S", SALT_PASS_S),
         }
     })
 }
@@ -156,14 +160,15 @@ struct Jobs {
     starts: HashMap<Client, Vec<Instant>>,
     /// Fetches downloading now (the rest of `fetching` wait in line for room).
     downloading: HashSet<String>,
-    /// Matches whose fetch can't work for a while, by match id: no salts or demo, the download
-    /// failed, or the match is past Valve's three weeks. Until then, opening the match doesn't
-    /// ask deadlock-api again: a no-row lookup spends one of its 3 Steam lookups an hour per
-    /// address (see `salts`). "Fetch replay" goes past it.
+    /// Matches whose fetch can't work for a while, by match id: no salts or demo (until the
+    /// salts are likely to have come, `no_replay_for`), the download failed, the match is past
+    /// Valve's three weeks, or its lookup would spend deadlock-api's Steam budget while that's
+    /// backing us off (`upstream_limited`, until the backoff ends). Until then, opening the match
+    /// doesn't ask deadlock-api again. "Fetch replay" goes past it, but not past the backoff.
     negative: HashMap<String, (&'static str, Instant)>,
     /// deadlock-api's salts endpoint said 429 (in practice its Steam limit, met by a lookup of a
-    /// match it has no row for): no fetch asks it before this, and the last wait, which the next
-    /// 429 doubles.
+    /// match it has no row for): no Steam-capable lookup asks it before this, and the last wait,
+    /// which the next 429 doubles. Free reads of the rows it holds still go (`salts`).
     backoff: Option<(Instant, Duration)>,
     /// Opens whose fetch didn't start on its own for our caps (`fetch_refused`), by the board's
     /// job for the match: its status says `busy` for a while, so the opener hears why.
@@ -197,6 +202,10 @@ const HOUR: Duration = Duration::from_secs(3600);
 const FAILED_FOR: Duration = Duration::from_secs(3600);
 /// How long a match's fetch that can't work isn't tried again on its own.
 const NEGATIVE_FOR: Duration = Duration::from_secs(6 * 3600);
+/// Rows without a replay salt get one mostly in a pass about two hours after the match ends: 10%
+/// have one at 1 h, 42% at 2 h, then 45–48% to 32 h (docs/research/deadlock-api-salts.md
+/// "Results"; 13 of 19 arrived at 120–121 min). Plus a few minutes for Cloudflare's cache.
+const SALT_PASS_S: u64 = 2 * 3600 + 10 * 60;
 /// Valve keeps a replay three weeks from the match's start; past that, opening it doesn't try.
 const REPLAY_KEPT_S: u64 = 21 * 24 * 3600;
 /// How long an open whose fetch our caps skipped says so (`Jobs::skipped`).
@@ -235,9 +244,29 @@ fn limited(j: &Jobs) -> bool {
     j.backoff.is_some_and(|(until, _)| Instant::now() < until)
 }
 
+fn unix_now() -> u64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// Whether a match that ended at `ended` (unix seconds) is still before deadlock-api's salts
+/// pass (`SALT_PASS_S`): a Steam lookup for it then has never found a replay salt that the free
+/// read lacked, so it isn't spent (salts "Results", conclusion 1). Not known: not fresh.
+fn fresh(ended: Option<u64>, now: u64) -> bool {
+    ended.is_some_and(|e| now.saturating_sub(e) < settings().salt_pass_s)
+}
+
+/// How long a match whose salts carry no replay salt (or that has no row yet) isn't asked about
+/// again on its own: until the salts pass if it's before it, else `NEGATIVE_FOR` (one more try
+/// later; past a day, one rarely comes).
+fn no_replay_for(ended: Option<u64>, now: u64) -> Duration {
+    match ended.map(|e| now.saturating_sub(e)) {
+        Some(age) if age < settings().salt_pass_s => Duration::from_secs(settings().salt_pass_s - age),
+        _ => NEGATIVE_FOR,
+    }
+}
+
 /// A 429 from the salts endpoint: wait what it said, else twice the last wait (60 s first). It
-/// holds back every fetch, though reads of stored rows would still be free (backlog "The salts
-/// backoff holds back free reads").
+/// holds back only lookups that can spend the Steam budget; reads of stored rows still go.
 fn back_off(j: &mut Jobs, retry_after: Option<Duration>) {
     let last = j.backoff.map(|(_, d)| d);
     let wait = retry_after.unwrap_or_else(|| last.map_or(BACKOFF_FIRST, |d| d * 2)).min(BACKOFF_MAX);
@@ -625,15 +654,13 @@ pub async fn status(State(app): State<AppState>, Path((board, id)): Path<(String
         let j = lock();
         if let Some(why) = negative(&j, &id) {
             cdn = State_::Failed(why);
-        } else if limited(&j) {
-            cdn = State_::Failed("upstream_limited");
         } else if j.skipped.get(&job_name(&id, &scope_of(&board))).is_some_and(|at| at.elapsed() < SKIPPED_FOR) {
             cdn = State_::Failed("busy");
         }
     }
     // Past Valve's three weeks with nothing cached: no fetch can work, remembered or not (the
     // negative cache forgets after hours, and a restart forgets it all).
-    if cdn == State_::None && crate::matches::cached_start(&app, &id).await.is_some_and(expired) {
+    if cdn == State_::None && crate::matches::cached_span(&app, &id).await.is_some_and(|(start, _)| expired(start)) {
         cdn = State_::Failed("expired");
     }
     json(state_json(&cdn, "cdn"))
@@ -779,14 +806,15 @@ pub async fn carry_to_clone(app: &AppState, from: &str, to: &str) {
 
 /// Whether a match that started at `start` (unix seconds) is past Valve's three weeks.
 fn expired(start: u64) -> bool {
-    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    now.saturating_sub(start) > REPLAY_KEPT_S
+    unix_now().saturating_sub(start) > REPLAY_KEPT_S
 }
 
 /// Opening a match tries for its full replay on its own (operator, 2026-11-08): the CDN fetch
 /// starts unless the replay is there or coming (fetched, or this board's upload), the match is
-/// past Valve's three weeks, its fetch can't work for now (`negative`), or deadlock-api is
-/// backing us off. The mode refusal came first (`attach`). One job for every board.
+/// past Valve's three weeks, or its fetch can't work for now (`negative`: that includes a match
+/// whose lookup met deadlock-api's backoff). A backoff alone doesn't stop it: the match's salts
+/// may be a stored row, read for free (`salts`). The mode refusal came first (`attach`). One job
+/// for every board.
 ///
 /// A fetched timeline in an older format than the worker's is fetched and parsed again, once a
 /// match, the same way (the same line, caps and fairness), while the old one is served; the new
@@ -810,17 +838,17 @@ async fn auto_fetch(app: &AppState, board: &str, id: &str, client: Client) {
     }
     {
         let j = lock();
-        if j.fetching.contains(&job) || negative(&j, id).is_some() || limited(&j) {
+        if j.fetching.contains(&job) || negative(&j, id).is_some() {
             return;
         }
     }
-    let Some(start) = crate::matches::cached_start(app, id).await else { return };
+    let Some((start, ended)) = crate::matches::cached_span(app, id).await else { return };
     let mut j = lock();
     if expired(start) {
         j.negative.insert(id.to_owned(), ("expired", Instant::now() + NEGATIVE_FOR));
         return;
     }
-    if j.fetching.contains(&job) || negative(&j, id).is_some() || limited(&j) {
+    if j.fetching.contains(&job) || negative(&j, id).is_some() {
         return;
     }
     let mine = job_name(id, &scope_of(board));
@@ -837,7 +865,7 @@ async fn auto_fetch(app: &AppState, board: &str, id: &str, client: Client) {
     let turn = enqueue_fetch(&mut j, &root, &job, &client);
     drop(j);
     tracing::info!(job, refresh, "replay fetch started on open");
-    spawn_fetch(root, id.to_owned(), job, turn);
+    spawn_fetch(root, id.to_owned(), job, turn, Some(ended));
 }
 
 /// `POST /api/boards/{board}/replays/{id}/upload`: an editor's `.dem`, streamed to the queue.
@@ -1304,6 +1332,7 @@ pub async fn fetch(
         return err(StatusCode::UNPROCESSABLE_ENTITY, why);
     }
     let Some(root) = root(&app).map(FsPath::to_owned) else { return err(StatusCode::SERVICE_UNAVAILABLE, "replays_off") };
+    let ended = crate::matches::cached_span(&app, &id).await.map(|(_, end)| end);
     let job = job_name(&id, "cdn");
     match job_state(&app, &job) {
         // A failure is tried again: pressing "Fetch replay" goes past the negative cache.
@@ -1315,8 +1344,9 @@ pub async fn fetch(
         if j.fetching.contains(&job) {
             return (StatusCode::ACCEPTED, axum::Json(state_json(&State_::Fetching, "cdn"))).into_response();
         }
-        // deadlock-api's rate limit is the one limit a press doesn't go past.
-        if limited(&j) {
+        // deadlock-api's rate limit is the one limit a press doesn't go past: a match whose
+        // lookup met it waits for the backoff (any other may be a stored row, read for free).
+        if limited(&j) && negative(&j, &id) == Some("upstream_limited") {
             return err(StatusCode::TOO_MANY_REQUESTS, "upstream_limited");
         }
         // A client waits for a few at once, and the line has its last resort: a fetch waiting
@@ -1330,7 +1360,7 @@ pub async fn fetch(
         j.fetching.insert(job.clone());
         enqueue_fetch(&mut j, &root, &job, &client)
     };
-    spawn_fetch(root, id, job, turn);
+    spawn_fetch(root, id, job, turn, ended);
     (StatusCode::ACCEPTED, axum::Json(state_json(&State_::Fetching, "cdn"))).into_response()
 }
 
@@ -1347,15 +1377,15 @@ fn enqueue_fetch(j: &mut Jobs, root: &FsPath, job: &str, client: &Client) -> tok
 
 /// Run a fetch already in `fetching` and in line: wait to be told its turn came (a download slot
 /// and the queue's room; a burst waits rather than being refused), then salts, then the demo.
-/// Its failure is recorded.
-fn spawn_fetch(root: PathBuf, id: String, job: String, turn: tokio::sync::oneshot::Receiver<()>) {
+/// Its failure is recorded. `ended`: the match's end (unix seconds), when its metadata is cached.
+fn spawn_fetch(root: PathBuf, id: String, job: String, turn: tokio::sync::oneshot::Receiver<()>, ended: Option<u64>) {
     tokio::spawn(async move {
         let s = settings();
         let told = tokio::time::timeout(s.stale, turn).await;
         let outcome = {
             let mut j = lock();
             if j.downloading.contains(&job) {
-                if limited(&j) { Err(("upstream_limited", None)) } else { Ok(()) }
+                Ok(())
             } else if told.is_err() {
                 // Waited past the stale limit: it gives up its place.
                 j.line.retain(|w| w.job != job);
@@ -1370,7 +1400,7 @@ fn spawn_fetch(root: PathBuf, id: String, job: String, turn: tokio::sync::onesho
             Ok(()) => {
                 let (r2, id2, j2) = (root.clone(), id.clone(), job.clone());
                 tokio::task::spawn_blocking(move || {
-                    salts(&id2).and_then(|(cluster, salt)| {
+                    salts(&id2, ended).and_then(|(cluster, salt)| {
                         let t = Instant::now();
                         let n = download(&r2, &id2, &j2, cluster, salt).map_err(|why| (why, None))?;
                         crate::metrics::get().download_s.observe((), t.elapsed().as_secs_f64());
@@ -1402,10 +1432,17 @@ fn spawn_fetch(root: PathBuf, id: String, job: String, turn: tokio::sync::onesho
                 // The status reads each from where it's kept: the backoff, the match's negative
                 // cache, or (ours, not the match's) the job's failure.
                 match why {
+                    // Only this match waits for the backoff: its lookup is the kind that spends the
+                    // Steam budget. Others still read their stored rows.
                     "upstream_limited" => {
                         if retry_after.is_some() || !limited(&j) {
                             back_off(&mut j, retry_after);
                         }
+                        let until = j.backoff.map_or_else(|| Instant::now() + BACKOFF_FIRST, |(until, _)| until);
+                        j.negative.insert(id, (why, until));
+                    }
+                    "no_replay" => {
+                        j.negative.insert(id, (why, Instant::now() + no_replay_for(ended, unix_now())));
                     }
                     "queue_full" | "internal" => {
                         j.failed.insert(job, (why, Instant::now()));
@@ -1435,40 +1472,91 @@ fn agent(timeout: Duration) -> ureq::Agent {
         .into()
 }
 
+/// How one salts read went.
+#[derive(Debug, PartialEq)]
+enum Read {
+    Salts(u32, u64),
+    /// A stored row without a replay salt.
+    NoSalt,
+    /// No row (404). From a free read: the match isn't in its database. From a Steam-capable
+    /// one: the GC had nothing (`steam_failed`, an invalid match).
+    NoRow,
+    /// The free 400 "won't be fetched, as it has metadata already": no row, and Steam won't be
+    /// asked for this match. Checked before the limiter, so it spends nothing.
+    HasMetadata,
+    Limited(Option<Duration>),
+}
+
 /// The match's replay salts from deadlock-api, or why not (with a 429's `Retry-After`). Blocking.
-/// Without `disable_steam`, on purpose. deadlock-api answers a stored row before its rate limiter,
-/// so reading a match it has costs nothing, `replay_salt` or not. Only a match with no row (and
-/// no metadata: that's a free 400) reaches the limiter, 3 an hour per address (300 with a key),
-/// and then the GC, the one path that can create a working replay salt
-/// (docs/research/deadlock-api-salts.md "When the backend asks the GC", "Results").
-fn salts(id: &str) -> Result<(u32, u64), (&'static str, Option<Duration>)> {
+/// deadlock-api answers a stored row before its rate limiter, so reading a match it has costs
+/// nothing; only a match with no row (and no metadata: that's a free 400) reaches the limiter, 3
+/// an hour per address (300 with a key), and then the GC, the one path that can create a working
+/// replay salt (docs/research/deadlock-api-salts.md "When the backend asks the GC", "Results").
+/// So the free read (`disable_steam=true`) goes first, whatever the backoff; the Steam-capable
+/// one only for a match with no row that is past the salts pass (`fresh`) while we aren't backed
+/// off.
+fn salts(id: &str, ended: Option<u64>) -> Result<(u32, u64), (&'static str, Option<Duration>)> {
+    let no = |why| Err((why, None));
+    match read_salts(id, false).map_err(|why| (why, None))? {
+        Read::Salts(cluster, salt) => return Ok((cluster, salt)),
+        Read::NoSalt | Read::HasMetadata => return no("no_replay"),
+        Read::Limited(after) => return Err(("upstream_limited", after)),
+        Read::NoRow => {}
+    }
+    if fresh(ended, unix_now()) {
+        return no("no_replay");
+    }
+    if limited(&lock()) {
+        return no("upstream_limited");
+    }
+    match read_salts(id, true).map_err(|why| (why, None))? {
+        Read::Salts(cluster, salt) => Ok((cluster, salt)),
+        Read::NoSalt | Read::NoRow | Read::HasMetadata => no("no_replay"),
+        Read::Limited(after) => Err(("upstream_limited", after)),
+    }
+}
+
+/// One read of the salts endpoint: free (`steam: false`, `disable_steam=true`) or one that may
+/// ask Steam. Counted under its own endpoint, so `stats` shows the Steam-capable ones apart.
+fn read_salts(id: &str, steam: bool) -> Result<Read, &'static str> {
     use crate::metrics::{ApiResult, Endpoint};
     let s = settings();
-    let called = |r: ApiResult| crate::matches::upstream(Endpoint::Salts, r);
-    let mut r = crate::matches::api_get(&agent(Duration::from_secs(20)), &format!("{}/v1/matches/{id}/salts", s.api_base)).call().map_err(|e| {
+    let (endpoint, query) = if steam { (Endpoint::SaltsSteam, "") } else { (Endpoint::Salts, "?disable_steam=true") };
+    let called = |r: ApiResult| crate::matches::upstream(endpoint, r);
+    let mut r = crate::matches::api_get(&agent(Duration::from_secs(20)), &format!("{}/v1/matches/{id}/salts{query}", s.api_base)).call().map_err(|e| {
         called(ApiResult::of_error(&e));
-        ("upstream_down", None)
+        "upstream_down"
     })?;
-    let status = r.status().as_u16();
-    if status != 200 {
-        called(ApiResult::of_status(status));
-    }
-    match status {
+    match r.status().as_u16() {
         200 => {}
-        404 => return Err(("no_replay", None)),
-        429 => {
-            let after = r.headers().get(header::RETRY_AFTER).and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<u64>().ok()).map(Duration::from_secs);
-            return Err(("upstream_limited", after));
+        404 => {
+            called(ApiResult::NotFound);
+            return Ok(Read::NoRow);
         }
-        _ => return Err(("upstream_down", None)),
+        429 => {
+            called(ApiResult::RateLimited);
+            let after = r.headers().get(header::RETRY_AFTER).and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<u64>().ok()).map(Duration::from_secs);
+            return Ok(Read::Limited(after));
+        }
+        400 if r.body_mut().with_config().limit(4 * 1024).read_to_string().is_ok_and(|b| b.contains("metadata already")) => {
+            // An answer, as a 404 is: there are no salts to have.
+            called(ApiResult::NotFound);
+            return Ok(Read::HasMetadata);
+        }
+        status => {
+            called(ApiResult::of_status(status));
+            return Err("upstream_down");
+        }
     }
     let salts: Salts = r.body_mut().with_config().limit(64 * 1024).read_json().map_err(|e| {
         called(ApiResult::of_error(&e));
-        ("upstream_shape", None)
+        "upstream_shape"
     })?;
     called(ApiResult::Ok);
-    let (Some(cluster), Some(salt)) = (salts.cluster_id, salts.replay_salt) else { return Err(("no_replay", None)) };
-    Ok((cluster, salt))
+    Ok(match (salts.cluster_id, salts.replay_salt) {
+        (Some(cluster), Some(salt)) => Read::Salts(cluster, salt),
+        _ => Read::NoSalt,
+    })
 }
 
 /// The demo, streamed to `inbox/.<job>.part` under the size cap. Blocking.
@@ -1875,6 +1963,23 @@ fn trim_cache(cache: &FsPath, max: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A match with no replay salt yet is held until the salts pass (2 h 10 min after its end),
+    /// then 6 h; with no end known, 6 h. Only before the pass is it fresh (no Steam lookup).
+    #[test]
+    fn no_replay_holds_until_the_salts_pass_then_six_hours() {
+        let end = 1_000_000;
+        assert_eq!(no_replay_for(Some(end), end + 60), Duration::from_secs(SALT_PASS_S - 60));
+        assert_eq!(no_replay_for(Some(end), end + 30 * 60), Duration::from_secs(100 * 60));
+        assert_eq!(no_replay_for(Some(end), end + SALT_PASS_S), NEGATIVE_FOR);
+        assert_eq!(no_replay_for(Some(end), end + 3 * 86_400), NEGATIVE_FOR);
+        assert_eq!(no_replay_for(None, end), NEGATIVE_FOR);
+        // A clock behind the match's end reads as just ended.
+        assert_eq!(no_replay_for(Some(end), end - 100), Duration::from_secs(SALT_PASS_S));
+        assert!(fresh(Some(end), end + SALT_PASS_S - 1));
+        assert!(!fresh(Some(end), end + SALT_PASS_S));
+        assert!(!fresh(None, end));
+    }
 
     #[test]
     fn job_names_fit_the_workers_rules() {

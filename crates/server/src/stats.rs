@@ -650,8 +650,9 @@ fn limits(c: &Connection, now: i64) -> Res<Report> {
     for x in &l {
         t += &x.line();
     }
-    // deadlock-api's budget: calls in the last hour by endpoint (salts of a match it has no row
-    // for: 3/h per address without a key, 300 with; stored rows and data: 100/s).
+    // deadlock-api's budget: calls in the last hour by endpoint. `salts_steam` is the one with a
+    // budget (it spends it only for a match with no row: 3/h per address without a key, 300
+    // with); free salts reads, stored rows and data: 100/s.
     let api = counter(c, "deadlock_api_calls", now - 3600, now + 60)?;
     let mut per: BTreeMap<String, f64> = BTreeMap::new();
     let mut limited: BTreeMap<String, f64> = BTreeMap::new();

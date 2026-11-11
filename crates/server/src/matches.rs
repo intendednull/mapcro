@@ -799,14 +799,17 @@ fn refused_path(app: &AppState, id: &str) -> PathBuf {
     app.config.data_dir.join("matches").join(format!("{id}.refused"))
 }
 
-/// The match's start (unix seconds) from its cached metadata, if it's cached.
-pub async fn cached_start(app: &AppState, id: &str) -> Option<u64> {
+/// The match's start and end (unix seconds) from its cached metadata, if it's cached.
+pub async fn cached_span(app: &AppState, id: &str) -> Option<(u64, u64)> {
     #[derive(Deserialize)]
-    struct Start {
+    struct Span {
         start_time: u64,
+        #[serde(default)]
+        duration_s: u64,
     }
     let bytes = tokio::fs::read(cache_path(app, id)).await.ok()?;
-    Some(serde_json::from_slice::<Start>(&bytes).ok()?.start_time)
+    let s = serde_json::from_slice::<Span>(&bytes).ok()?;
+    Some((s.start_time, s.start_time.saturating_add(s.duration_s)))
 }
 
 /// The reason a match was refused for its mode, if it was.

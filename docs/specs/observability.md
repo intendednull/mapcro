@@ -260,8 +260,10 @@ can't be reached through Caddy.
     reason `invalid`, `rate_limited`, `github_error` or `disabled`. Counts only. A GitHub
     failure is also a failures row, kind `upstream`, message `github issues <result>`.
     `stats summary` shows both under USAGE.
-  - deadlock-api: `deadlock_api_calls{endpoint, result}` for `metadata`, `steam_profiles` and
-    `salts`, and `deadlock_api_backoff_s`.
+  - deadlock-api: `deadlock_api_calls{endpoint, result}` for `metadata`, `steam_profiles`,
+    `salts` (the free read, `disable_steam=true`) and `salts_steam` (the read that may ask
+    Steam, the one with the 3/h budget), and `deadlock_api_backoff_s` (the backoff holds back
+    `salts_steam` only). The salts 400 "has metadata already" counts as `not_found`.
   - The replay queue: `queue_waiting`, `queue_bytes` and their caps, `parses_running`,
     `queue_refusals{reason}`, `replay_jobs{source, outcome}`, `replay_job_s{source}` (from the
     demo queued to its result collected), and `download_s`.
