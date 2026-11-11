@@ -35,6 +35,11 @@ type K = Option<u64>;
 /// owner (568 of 892 classes on 129738985 match by name; this keeps exactly the ones that work).
 pub fn ability_classes(parser: &boon::Parser) -> Vec<String> {
     let (Ok(info), Ok(sers)) = (parser.parse_class_info(), parser.parse_send_tables()) else { return Vec::new() };
+    ability_classes_of(&info, &sers)
+}
+
+/// [`ability_classes`] from the signon's class info and send tables (a streamed parse).
+pub fn ability_classes_of(info: &boon::ClassInfo, sers: &boon::SerializerContainer) -> Vec<String> {
     info.classes()
         .iter()
         .map(|c| c.network_name.to_string())

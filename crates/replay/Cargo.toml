@@ -6,16 +6,20 @@ license.workspace = true
 publish.workspace = true
 description = "mapcro replay worker: parses a Deadlock .dem in a sandbox into a compact match timeline"
 
-# The timeline format and its checks build without the parser (the server uses only those);
-# the worker binary needs `parse`.
+# The timeline format and its checks build without the parser (the server uses only those).
+# `parse` is the parser alone, for any target (a wasm build: no C, no processes); the worker
+# binary and its queue need `worker` (TD-25).
 [features]
-default = ["parse"]
-parse = ["dep:boon-deadlock", "dep:boon-proto", "dep:prost", "dep:bzip2", "dep:zstd", "dep:libc", "dep:snap"]
+default = ["worker"]
+parse = ["dep:boon-deadlock", "dep:boon-proto", "dep:prost", "dep:snap"]
+# boon's memory-mapped `Parser::from_file`: the preview's fallback, `parse::header`, the probes.
+mmap = ["parse", "boon-deadlock/mmap"]
+worker = ["parse", "mmap", "dep:bzip2", "dep:zstd", "dep:libc"]
 
 [[bin]]
 name = "mapcro-replay"
 path = "src/main.rs"
-required-features = ["parse"]
+required-features = ["worker"]
 
 [dependencies]
 serde.workspace = true
@@ -23,7 +27,9 @@ serde_json = "1"
 base64 = "0.22"
 # MIT; pinned: field paths and the coordinate decoding are checked against this version
 # (docs/research/replay-parsing-exploration.md).
-boon-deadlock = { version = "=0.19.0", optional = true }
+# Vendored with a streamed reader (crates/vendor/VENDORED.md); boon-data downloads (reqwest)
+# and the memory map are features, off unless asked for.
+boon-deadlock = { version = "=0.19.0", default-features = false, optional = true }
 # boon's own protobuf types, to decode the ult-cast user message.
 boon-proto = { version = "0.4", optional = true }
 prost = { version = "0.14", optional = true }
