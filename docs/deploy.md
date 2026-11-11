@@ -109,7 +109,7 @@ in the board server. It runs as user `mapcro-replay` with no network, only its q
 under `/var/lib`, and the rest of the sandbox listed in spec §11. It parses
 `services.mapcro.replay.workers` demos at once (default 2, for the 3-core `web` host), each in
 its own child under a 300 s wall clock (`jobTimeoutSec`). Its caps follow the worker count
-unless set: `memoryMax` 384M a parse (768M) and `cpuQuota` a core a parse (200%), at a low CPU
+unless set: `memoryMax` 192M a parse (384M) and `cpuQuota` a core a parse (200%), at a low CPU
 weight; `TasksMax` is 8 + 4 a parse. A parse of the largest demos costs a core and ~26 MB of
 anonymous memory; the rest is the demo's own pages, which the cap reclaims (journal
 2026-11-08-replay-capacity). On a box with more cores, raise `workers` and the caps follow. The queue directory `/var/lib/mapcro-replay` is made by tmpfiles, setgid

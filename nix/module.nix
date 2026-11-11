@@ -113,10 +113,10 @@ in
       };
       memoryMax = lib.mkOption {
         type = lib.types.str;
-        default = "${toString (cfg.replay.workers * 384)}M";
-        defaultText = lib.literalExpression ''"''${toString (workers * 384)}M"'';
+        default = "${toString (cfg.replay.workers * 192)}M";
+        defaultText = lib.literalExpression ''"''${toString (workers * 192)}M"'';
         description = ''
-          The worker's memory cap, 384M a parse by default. Measured on the real 504 MB demo
+          The worker's memory cap, 192M a parse by default (was 384M until 2026-11-11; prod's peak since the streamed parse: 33 MB anonymous a parse, 221 MB cgroup with reclaimable page cache). Measured on the real 504 MB demo
           (format 9, 2026-11-11, streamed parse): 33 MB anonymous from a .dem, 36 MB from zstd
           (a 2 MiB window), 37 MB from bzip2, and VmHWM 37-40 MB: the demo is read, not mapped,
           so there are no file pages to reclaim. One parses under a 34M cap. The headroom covers
@@ -297,9 +297,9 @@ in
         IOSchedulingClass = "idle";
         TasksMax = 8 + 4 * cfg.replay.workers;
         LimitNOFILE = 64;
-        # No file it writes can pass the demo cap. It writes only timelines and job records
-        # now (the parse is streamed), so this could be a few MiB.
-        LimitFSIZE = 1100 * 1024 * 1024;
+        # It writes only timelines and job records (the parse is streamed): a timeline is
+        # ~1.5 MB (129738985), so 64 MiB is ample.
+        LimitFSIZE = 64 * 1024 * 1024;
         # Nothing but the queue: /var/lib is empty but for it (the inbox read-only), and there
         # is no network at all.
         TemporaryFileSystem = [ "/var/lib" ];

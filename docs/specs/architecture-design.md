@@ -680,10 +680,10 @@ board server (`MemoryMax=256M`; a 480 MB demo's pages alone exceed it).
   in the same NixOS module, as its own user. It has no network (`PrivateNetwork`,
   `RestrictAddressFamilies=none`, `IPAddressDeny=any`), sees nothing of `/var/lib` but its
   queue, can't see other processes, and has a full systemd sandbox (no capabilities, a system
-  call filter, `MemoryDenyWriteExecute`, `LimitFSIZE` at the demo cap).
+  call filter, `MemoryDenyWriteExecute`, `LimitFSIZE` 64 MiB).
 - **Caps** (2026-11-08, journal 2026-11-08-replay-capacity): `REPLAY_WORKERS` jobs at once
-  (2), each in its own child process under its own 300 s wall clock; `MemoryMax` 384M a job
-  (768M) with no swap, `CPUQuota` a core a job (200%) at a low CPU weight and idle I/O. A child
+  (2), each in its own child process under its own 300 s wall clock; `MemoryMax` 192M a job
+  (384M; 384M a job until 2026-11-11) with no swap, `CPUQuota` a core a job (200%) at a low CPU weight and idle I/O. A child
   killed at the memory cap fails its job as `too_large` (`OOMPolicy=continue`), one past its
   clock as `timeout`; the
   worker and the other jobs carry on. The next job is the first the server's order lists
