@@ -216,7 +216,7 @@ Reviewers check new or changed `title`, `aria-label` and tooltip text against th
    computed by `crates/schema/build.rs` and shared by the server and the browser's WASM. If it
    differs from the server's, the server answers `closed: outdated`. A missing `build` (older
    clients, tools) skips the check. The server answers
-   `ready { role, base? }`, sending a base document only to a client that has none. Then the
+   `ready { role, base?, peer, head? }`, sending a base document only to a client that has none. Then the
    engine's `hello { client, last_seq, pending_from }`, where `pending_from` is the client's oldest
    unacknowledged cseq.
    - **A fresh join gets the board as it is.** `base` is `{ doc, seq }`: the room's current
@@ -231,6 +231,15 @@ Reviewers check new or changed `title`, `aria-label` and tooltip text against th
    - **One snapshot serves a burst of joiners.** The room keeps the last snapshot it sent, as
      JSON, counted in its memory weight (§9), and reuses it at the position it was taken at while
      it's at most 256 entries behind; those joiners catch up the difference.
+   - **A copy is current once it reaches `head`.** `head` is the log length when the room took
+     the join (2026-11-11). Until its copy is there, a client's view can lack records others
+     made, so the client doesn't make records from it automatically: Player's live layer, whose
+     ids anyone would derive the same, waits (`BoardSession.current()`). Before this, a second
+     editor opening a board in Player made the layer again from its stale snapshot, the server
+     refused it `IdTaken`, and its save status said "Conflict" (backlog 2026-11-11). Two editors
+     making it at once still race; the loser's `IdTaken` is the outcome wanted, so the session's
+     `ensure` doesn't report it. An older server sends no `head`; a live copy then counts as
+     current.
    - **Size.** A base is one frame, and while it's sent it costs its size several times over (the
      JSON, the frame, the socket's buffer). Base frames being sent are capped server-wide at
      32 MiB, so joiners past that wait their turn. A board whose document is over 8 MiB as JSON,
@@ -1479,11 +1488,27 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
     in Player, has no declared policy (`web/test/view-state-ledger.ts` lists the ones that
     aren't registry keys, with why); `web/e2e/follow-matrix.spec.ts` pins, per key, what a
     follower sees on following, after its own change, Stop following, the presenter leaving, a
-    late join and a server restart.
+    late join and a server restart (every key keeps following, by seat, below).
   - **Presence bytes are measured** (operator 2026-11-11): the server records each valid
     presence frame's size (`presence_bytes`, in `stats summary`), to decide from production
     numbers whether to send slow state (name, scene, playback, view state) apart from fast
     (cursor, laser, drag, ink). Until then, one frame carries all of it.
+- **A follow survives a reconnect** (2026-11-11). Peer ids are per connection and start again
+  with the server, so a server restart (every deploy) used to end every follow, and an old id
+  could name someone else. Presence carries a **`seat`**: random per page load (at most 2^53 − 1,
+  so a JavaScript number holds it), kept across reconnects, never derived from the name or
+  anything else (sessions.md §6.1, which reuses it). A follower holds on to its presenter's seat
+  and finds them by it: on the same join, by peer id unless that peer now has another seat;
+  otherwise the newest editor with the seat, never itself. Missing, it keeps what it shows and
+  waits: up to 20 s after its own reconnect (everyone is coming back; reconnect backoff reaches
+  15 s), up to 5 s after the presenter's connection alone went (its own reconnect). Then
+  "Presenter left", as before. A peer id from an earlier join is never trusted, and meanwhile
+  the follower's presence says it follows nobody. A presenter with no seat (an older tab) is
+  found by peer only, on the same join. A seat is not authority: copying one is as easy as
+  copying a name. A reload is a new page, so a new seat: its followers are told it left.
+  "Follow again" follows the seat it was on, not whoever holds that peer id now. The seat is
+  the same on every board a page opens (by design, sessions.md §6.1), so someone in two of
+  those boards can tell it is the same person in both, for that page load.
 - Presence timeout: 30 s without a heartbeat removes the entry.
 - **A peer that falls behind isn't sent presence it can't keep up with, but it isn't left stale
   either.** A batch is skipped for a peer more than 64 KiB behind. The room remembers whose

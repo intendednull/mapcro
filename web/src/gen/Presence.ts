@@ -57,6 +57,14 @@ focus: RecordId | null,
  */
 following: number | null, 
 /**
+ * Random per page load, kept across reconnects (spec §8, sessions.md §6.1): peer ids are
+ * per connection, so after a reconnect (a server restart: every deploy) a follower finds
+ * its presenter again by seat. Never derived from anything about the person. Not
+ * authority: copying a seat is as easy as copying a name. At most `MAX_SEAT`, so a
+ * JavaScript number holds it exactly. Absent: an older client.
+ */
+seat?: number, 
+/**
  * A stroke being drawn right now, so others see it as it's drawn. It becomes a Stroke
  * record on release. Optional in TypeScript, like `picked`.
  */

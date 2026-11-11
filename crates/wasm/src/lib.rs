@@ -97,6 +97,12 @@ impl BoardReplica {
         self.inner.last_seq() as f64
     }
 
+    /// The cseq the next transaction gets: after an edit, that edit's is one less.
+    #[wasm_bindgen(js_name = nextCseq)]
+    pub fn next_cseq(&self) -> f64 {
+        self.inner.next_cseq() as f64
+    }
+
     /// `Op[]` as JSON, applied as one transaction (one undo step).
     pub fn edit(&mut self, ops_json: &str) -> Result<String, JsError> {
         let ops: Vec<Op> = serde_json::from_str(ops_json).map_err(js_err)?;

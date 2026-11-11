@@ -5,4 +5,4 @@ import type { LinkRole } from "./LinkRole";
 import type { PeerPresence } from "./PeerPresence";
 import type { ServerMsg } from "./ServerMsg";
 
-export type WireOut = { "t": "ready", role: LinkRole, base: Base | null, peer: number, } | { "t": "msg", msg: ServerMsg, } | { "t": "presence", peers: Array<PeerPresence>, } | { "t": "closed", reason: CloseReason, };
+export type WireOut = { "t": "ready", role: LinkRole, base: Base | null, peer: number, head?: number, } | { "t": "msg", msg: ServerMsg, } | { "t": "presence", peers: Array<PeerPresence>, } | { "t": "closed", reason: CloseReason, };

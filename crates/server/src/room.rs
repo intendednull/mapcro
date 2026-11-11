@@ -231,8 +231,10 @@ pub enum FreshBase {
     Stored,
 }
 
-/// The counter is the outbox's queued bytes, which the socket task decrements as it sends.
-pub type Joined = (ConnId, mpsc::Receiver<Out>, Arc<AtomicUsize>, Option<FreshBase>);
+/// The counter is the outbox's queued bytes, which the socket task decrements as it sends. The
+/// `u64` is the log length when the room took the join (Ready's `head`); everything up to it is
+/// durable, as joins are handled between batches.
+pub type Joined = (ConnId, mpsc::Receiver<Out>, Arc<AtomicUsize>, Option<FreshBase>, u64);
 
 /// Sessions per room. Beyond this, joins are refused (security review M1).
 pub const MAX_SESSIONS: usize = 64;
@@ -726,7 +728,8 @@ impl Room {
         self.peers.insert(conn, peer);
         self.occupancy.store(self.peers.len(), Ordering::Relaxed);
         let base = want_base.then(|| self.base_snapshot());
-        if reply.send(Ok((conn, rx, queued, base))).is_err() {
+        let head = self.authority.log_len();
+        if reply.send(Ok((conn, rx, queued, base, head))).is_err() {
             self.forget_peer(conn);
         }
     }

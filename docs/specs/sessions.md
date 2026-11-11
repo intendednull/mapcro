@@ -420,7 +420,10 @@ fields are filled, and it is sent on change only:
 
 - `name` and `color`, the same values as in the board room;
 - **`tab: Option<RecordId>`**: the tab this person has open. New field, `#[serde(default)]`;
-- **`seat: u64`**: random per page load, also sent in the board room's presence. A follower uses
+- **`seat: u64`**: random per page load, also sent in the board room's presence (built
+  2026-11-11 for the board room: `Option<u64>`, absent from older tabs, at most 2^53 − 1 so a
+  JavaScript number holds it; `web/src/core/seat.ts` `pageSeat()`, one per page across rooms;
+  the follower's rules in architecture-design §8 "A follow survives a reconnect"). A follower uses
   it to find the presenter's connection in the next board room, because peer ids differ per
   room. It also covers the follow-matrix finding that a server restart ends every follow (peers
   come back with new ids), since the seat survives a reconnect. A seat is not authority. Copying

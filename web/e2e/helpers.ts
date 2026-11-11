@@ -3,8 +3,10 @@ import { type Browser, type Page, expect } from "@playwright/test";
 import { translate } from "./server";
 
 /** A fresh browser context (a separate device: its own storage) that joins `url` as `name`. */
-export async function joinNew(browser: Browser, url: string, name: string): Promise<Page> {
+/** `setup` runs on the page before it opens the board (to watch its sockets, say). */
+export async function joinNew(browser: Browser, url: string, name: string, setup?: (p: Page) => void): Promise<Page> {
   const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+  setup?.(page);
   await page.goto(url);
   await page.locator("#join-name").fill(name);
   await page.keyboard.press("Enter");
