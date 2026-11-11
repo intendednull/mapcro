@@ -137,6 +137,9 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .p-top .spacer { flex: 1; }
 .p-top .save { font-size: 11px; }
 .viewonly { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 3px 7px; white-space: nowrap; }
+/* With the tier chip beside it the header is full on a phone: the role chip gives way first. */
+.p-top .viewonly { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.p-top > :not(.viewonly):not(.spacer) { flex: none; }
 .p-follow { margin: 10px 12px 0; min-height: 40px; display: flex; align-items: center; gap: 9px; padding: 0 6px 0 10px; border-radius: 20px;
   border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 8%, var(--bg-deep)); }
 .p-follow.off { border-color: var(--line); background: var(--panel); }
@@ -607,7 +610,8 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-bar { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 8px 12px; }
 .pl-source { position: relative; }
 .pl-source > summary { white-space: nowrap; padding: 4px 6px; }
-.pl-source .pl-head { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 30; width: 300px; flex-wrap: wrap; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 -8px 24px #0005; }
+/* Over the replay prompt's map scrim (40): the source opens upward over the map, and the bar stays in use. */
+.pl-source .pl-head { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 41; width: 300px; flex-wrap: wrap; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 -8px 24px #0005; }
 .pl-source .pl-head > .spacer { display: none; }
 .pl-transport { flex-wrap: nowrap; gap: 6px; min-width: 0; }
 .pl-transport .pl-scrub { flex: 1 1 100px; min-width: 40px; padding-top: 10px; }

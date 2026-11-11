@@ -226,6 +226,8 @@ test("Player: a replay Valve hasn't got says so, Try again asks again, and a dro
   await a.getByTestId("replay-prompt-summary").click();
   await expect(a.getByTestId("match-upload")).toHaveText("Upload replay file");
   await a.setViewportSize({ width: 1280, height: 768 });
+  // The help sits beside Upload, in the match source (Use API summary closed it).
+  await revealControls(a, "match-upload");
   await a.getByTestId("replay-help-open").click();
   const steps = (await a.getByTestId("replay-help-steps").boundingBox())!;
   expect(steps.x + steps.width).toBeLessThanOrEqual(1280);

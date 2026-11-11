@@ -139,7 +139,8 @@ test("the tree chip and the scrubber marker each do their job; the arrows follow
   await expect.poll(() => clock(a)).toBeGreaterThan(t0);
   const t1 = await clock(a);
   await expect(a.getByTestId("event-highlight")).toBeVisible();
-  await expect(a.locator('[data-testid="scene-card"][aria-current="true"]')).toHaveAttribute("aria-label", /^Scene 1:/);
+  // Watching the match, no saved scene is the current one in the tree (prototype journal).
+  await expect(a.locator('[data-testid="scene-card"][aria-current="true"]')).toHaveCount(0);
   await a.keyboard.press("ArrowUp");
   await expect.poll(() => clock(a)).toBeLessThan(t1);
 });

@@ -92,8 +92,8 @@ test("events: search, filter, jump, and save several as scenes with one undo", a
   await expect(cards.nth(1)).toHaveAttribute("aria-label", /^Scene 2: 8:44 Guardian down$/);
   await expect(cards.nth(2)).toHaveAttribute("aria-label", /^Scene 3: 9:14 Guardian down$/);
   await expect(cards.nth(3)).toHaveAttribute("aria-label", /^Scene 4: 9:59 Guardian down$/);
-  await revealControls(a, "mode-sandbox");
-  await a.getByTestId("mode-sandbox").click();
+  // Saving shows the first new scene.
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "scene");
   await a.getByTestId("undo").click();
   await expect(cards).toHaveCount(1);
 });
@@ -243,6 +243,10 @@ test("ink over playback is live, kept only by saving a scene, and cleared when t
   // Saving moves it into the new scene, and the live layer is clear again.
   await a.getByTestId("match-save").click();
   await expect(a.getByTestId("scene-card")).toHaveCount(2);
+  // Saving shows the new scene, the ink in it; Back is the match, its live layer clear.
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "scene");
+  await expect(strokes(a)).toHaveCount(1);
+  await a.getByTestId("mode-player").click();
   await expect(strokes(a)).toHaveCount(0);
   await expect(strokes(b)).toHaveCount(0);
   await revealControls(b, "mode-sandbox");

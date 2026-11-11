@@ -140,8 +140,8 @@ test("upload a replay, scrub ults, rifts, powerups and zipline colours, save the
   await expect(split(a, "lane4")).toHaveAttribute("data-sapphire", "580");
   await a.screenshot({ path: "shots/match-replay.png" });
   await a.getByTestId("match-save").click();
-  await revealControls(a, "mode-sandbox");
-  await a.getByTestId("mode-sandbox").click();
+  // Saving shows the new scene.
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "scene");
 
   // The saved scene carries them, for everyone.
   const cards = b.getByTestId("scene-card");

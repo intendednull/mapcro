@@ -52,7 +52,7 @@ const misfits = (p: Page) =>
   p.getByTestId("player").evaluate((bar) => {
     const b = bar.getBoundingClientRect();
     const out: string[] = [];
-    const controls = [...bar.querySelectorAll<HTMLElement>("button:not(.pl-mark), select, input:not([type=file]), .match-clock, .match-tier, .pl-scene-label")].filter((el) => el.offsetParent !== null && el.getClientRects().length);
+    const controls = [...bar.querySelectorAll<HTMLElement>("button:not(.pl-mark), select, input:not([type=file]), .match-clock, .match-tier, .pl-scene-label")].filter((el) => el.checkVisibility());
     for (const el of controls) {
       const r = el.getBoundingClientRect();
       const name = el.dataset.testid ?? el.className;
@@ -99,7 +99,10 @@ for (const [w, h] of [[390, 844], [1280, 768], [1440, 900], [1920, 1080]] as con
 
     const check = async (state: string) => {
       const { out, n } = await misfits(a);
-      expect(n, state).toBeGreaterThan(state === "scene" ? 2 : 12);
+      // Watching: −10, play, +10, speed, the scrubber, the clock and Save scene. The match
+      // source's controls wait in their closed disclosure (laid out, not shown: hence
+      // checkVisibility), the tier in the header.
+      expect(n, state).toBeGreaterThan(state === "scene" ? 2 : 6);
       expect(out, `${w}×${h} ${state}`).toEqual([]);
       await a.screenshot({ path: `shots/transport-${state}-${w}x${h}.png` });
     };

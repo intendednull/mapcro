@@ -555,6 +555,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
         <span class="viewonly" data-testid="role-chip">
           {state.canEdit() ? "Can edit" : "View only"} · {teamName(viewpoint() === "sapphire" ? "sapphire" : "amber")} side
         </span>
+        {/* The tier left the Player bar for the header (prototype): the phone's header too. */}
+        <Show when={player.matchId()}><TierChip host={player} /></Show>
         <div class="spacer" />
         <SaveStatus state={state} rejected={rejected()} dismiss={() => setSeenProblems(state.problems().length)} />
       </header>
