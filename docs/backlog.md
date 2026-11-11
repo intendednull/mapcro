@@ -23,8 +23,9 @@ buffer (`from_bytes`: +481 MB).
    wasm entry `observe_with` → `derive` → JSON over a `FileReaderSync`-backed `Read` in a Web
    Worker. Projected 35–40 MB of wasm memory.
 5. Then decide the worker's `memoryMax`: 384M a job is far above the 32.5 MB anonymous peak.
-   First measure a CDN download's zstd window, which `window_log_max(27)` lets reach 128 MiB, and
-   record the anonymous peak in `JobStats` (TD-26).
+   The job record now carries the anonymous peak and a zstd download's window (TD-26): read
+   `stats series parse_peak_anon_bytes` and `zstd_window_bytes` after the first fetches
+   (`window_log_max(27)` allows up to 128 MiB).
 
 Cheaper wins that don't need the reader, in order: slimmer per-second `Obs` (~14 → ~6 MB: the
 name once, objectives as changes, narrower types), and trackers that walk only changed entities

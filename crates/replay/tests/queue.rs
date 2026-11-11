@@ -79,6 +79,7 @@ fn jobs_fail_with_their_reason_and_their_demos_go() {
     assert!(record("5-cdn").decompress_s.is_some(), "a compressed demo was expanded");
     assert_eq!(record("4-cdn").decompress_s, None, "a raw demo isn't");
     assert!(record("4-cdn").peak_rss_bytes.is_some_and(|b| b > 0), "the child's peak memory");
+    assert!(record("4-cdn").peak_anon_bytes.is_some_and(|b| b > 0), "the child's anonymous peak");
     // A second run doesn't redo jobs whose results wait for the server.
     let before: Vec<_> = files(&p.join("outbox"));
     run(p, &[]);

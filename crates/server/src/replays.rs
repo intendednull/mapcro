@@ -1711,6 +1711,12 @@ fn ingest(r: &mapcro_replay::JobStats) {
     if let Some(v) = size(r.peak_rss_bytes) {
         m.parse_peak_rss_bytes.observe((), v);
     }
+    if let Some(v) = size(r.peak_anon_bytes) {
+        m.parse_peak_anon_bytes.observe((), v);
+    }
+    if let Some(v) = size(r.zstd_window_bytes) {
+        m.zstd_window_bytes.observe((), v);
+    }
     if let Some(v) = size(r.demo_bytes) {
         m.demo_bytes.observe((), v);
     }

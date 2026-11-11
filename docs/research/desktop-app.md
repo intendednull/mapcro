@@ -146,10 +146,9 @@ come from somewhere legitimate, and nothing above qualifies.
 ## 4. Local parsing and server trust
 
 - **Cost** (spec §6a "The replay worker", 129738985, 504 MB, release build): 5.3 s on one core,
-  26 MB anonymous memory plus the mapped demo's clean, reclaimable pages. Capped at 64M it still
-  takes only 6.2 s. **Correction (parser-memory, 2026-11-11):** at format 9 it is 48 MB anonymous
-  on main, and 32.5 MB on branch `parser-memory`, which still parses under a 36M cap
-  ([parser-memory](parser-memory.md)). Any gaming PC handles this. Run it at low priority, once the file is stable.
+  32.5 MB anonymous memory (format 9, after parser-memory; 48 MB before it, and 26 MB at format
+  6) plus the mapped demo's clean, reclaimable pages. It still parses under a 36M cap
+  ([parser-memory](parser-memory.md)); 13–15 s on a loaded box at format 9. Any gaming PC handles this. Run it at low priority, once the file is stable.
 - **Upload size:** 504 MB demo, against a timeline of 1.53 MB raw / 578 KB gzip at format 7
   (status-effects.md). Format 8 runs about 41 KB per match minute, so ~1.8 MB raw for 44 min.
   That is about 300× less raw and 800× less gzipped. It takes uploads out of our bandwidth, the

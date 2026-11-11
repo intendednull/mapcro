@@ -270,7 +270,10 @@ can't be reached through Caddy.
     `queue_refusals{reason}`, `replay_jobs{source, outcome}`, `replay_job_s{source}` (from the
     demo queued to its result collected), and `download_s`.
   - From the worker's record: `queue_wait_s`, `decompress_s`, `parse_s`, `publish_s`,
-    `parse_peak_rss_bytes`, `demo_bytes` and `timeline_bytes`.
+    `parse_peak_rss_bytes` (VmHWM, which counts the mapped demo's file pages, so about the
+    demo's size), `parse_peak_anon_bytes` (the child's RssAnon peak, sampled every 20 ms: what
+    the cap has to hold), `zstd_window_bytes` (a zstd download's window, from its frame
+    header), `demo_bytes` and `timeline_bytes`.
   - Storage and host: `db_bytes`, `boards_stored` and their caps, `cache_bytes{cache}`,
     `disk_free_bytes`, `disk_total_bytes`, and per unit `unit_memory_bytes`,
     `unit_memory_peak_bytes`, `unit_memory_max_bytes`, `unit_memory_anon_bytes` (`memory.stat`

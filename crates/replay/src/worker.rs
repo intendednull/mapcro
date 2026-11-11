@@ -368,7 +368,25 @@ pub fn job(input: &Path, out: &Path, match_id: u64, max_dem_bytes: u64) -> Resul
 /// to publish: phase times, sizes and the child's peak memory.
 pub fn job_child(input: &Path, out: &Path, match_id: u64, max_dem_bytes: u64) -> Result<(), &'static str> {
     let mut stats = JobStats::default();
+    // VmHWM counts the mapped demo's file pages; the anonymous peak has no high-water mark in
+    // /proc, so a thread samples it.
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let anon = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let sampler = {
+        let (stop, anon) = (stop.clone(), anon.clone());
+        std::thread::spawn(move || {
+            use std::sync::atomic::Ordering::Relaxed;
+            while !stop.load(Relaxed) {
+                anon.fetch_max(rss_anon().unwrap_or(0), Relaxed);
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        })
+    };
     let result = run_job(input, out, match_id, max_dem_bytes, &mut stats);
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = sampler.join();
+    let anon = anon.load(std::sync::atomic::Ordering::Relaxed).max(rss_anon().unwrap_or(0));
+    stats.peak_anon_bytes = (anon > 0).then_some(anon);
     stats.peak_rss_bytes = peak_rss();
     let _ = std::fs::write(out.with_extension(crate::STATS_EXT), serde_json::to_vec(&stats).unwrap_or_default());
     result
@@ -377,13 +395,48 @@ pub fn job_child(input: &Path, out: &Path, match_id: u64, max_dem_bytes: u64) ->
 /// This process's peak resident memory (`VmHWM`, what `getrusage`'s `ru_maxrss` reports,
 /// read without unsafe code).
 fn peak_rss() -> Option<u64> {
+    status_bytes("VmHWM:")
+}
+
+/// This process's anonymous resident memory now (`RssAnon`).
+fn rss_anon() -> Option<u64> {
+    status_bytes("RssAnon:")
+}
+
+/// A kB field of `/proc/self/status`, in bytes.
+fn status_bytes(key: &str) -> Option<u64> {
     let s = std::fs::read_to_string("/proc/self/status").ok()?;
-    let kb = s.lines().find_map(|l| l.strip_prefix("VmHWM:"))?.trim().trim_end_matches("kB").trim().parse::<u64>().ok()?;
+    let kb = s.lines().find_map(|l| l.strip_prefix(key))?.trim().trim_end_matches("kB").trim().parse::<u64>().ok()?;
     Some(kb * 1024)
+}
+
+/// A zstd frame's window size from its header (RFC 8878 §3.1.1.1): the window descriptor, or the
+/// content size for a single-segment frame. `None` if `head` isn't a zstd frame header.
+fn zstd_window(head: &[u8]) -> Option<u64> {
+    if !head.starts_with(crate::ZSTD_MAGIC) {
+        return None;
+    }
+    let fhd = *head.get(4)?;
+    let (fcs_flag, single, dict_flag) = (fhd >> 6, fhd >> 5 & 1 == 1, fhd & 3);
+    if !single {
+        let wd = *head.get(5)?;
+        let base = 1u64 << (10 + u32::from(wd >> 3));
+        return Some(base + base / 8 * u64::from(wd & 7));
+    }
+    let at = 5 + [0, 1, 2, 4][usize::from(dict_flag)];
+    let n = [1, 2, 4, 8][usize::from(fcs_flag)];
+    let bytes = head.get(at..at + n)?;
+    let v = bytes.iter().rev().fold(0u64, |v, b| v << 8 | u64::from(*b));
+    Some(if n == 2 { v + 256 } else { v })
 }
 
 fn run_job(input: &Path, out: &Path, match_id: u64, max_dem_bytes: u64, stats: &mut JobStats) -> Result<(), &'static str> {
     stats.demo_bytes = std::fs::metadata(input).ok().map(|m| m.len());
+    let mut head = Vec::new();
+    if let Ok(f) = std::fs::File::open(input) {
+        let _ = f.take(18).read_to_end(&mut head);
+    }
+    stats.zstd_window_bytes = zstd_window(&head);
     let t = Instant::now();
     let dem = expand(input, &out.with_extension("dem"), max_dem_bytes)?;
     if dem != input {
@@ -590,6 +643,28 @@ mod tests {
     #[test]
     fn peak_memory_reads_from_proc() {
         assert!(peak_rss().is_some_and(|b| b > 1 << 20));
+        assert!(rss_anon().is_some_and(|b| b > 0 && b <= peak_rss().unwrap_or(0)));
+    }
+
+    #[test]
+    fn zstd_window_from_the_frame_header() {
+        // Window descriptor 0x58: exponent 11, mantissa 0 → 2 MiB; 0x5A: + 2/8 of it.
+        let mut h = crate::ZSTD_MAGIC.to_vec();
+        h.extend([0x00, 0x58]);
+        assert_eq!(zstd_window(&h), Some(2 << 20));
+        h[5] = 0x5A;
+        assert_eq!(zstd_window(&h), Some((2 << 20) + (2 << 20) / 8 * 2));
+        // A single-segment frame: the window is its content size (1 byte; 2 bytes + 256; after a
+        // 1-byte dictionary id).
+        let single = |fhd: u8, rest: &[u8]| [&crate::ZSTD_MAGIC[..], &[fhd], rest].concat();
+        assert_eq!(zstd_window(&single(0x20, &[200])), Some(200));
+        assert_eq!(zstd_window(&single(0x60, &[0x10, 0x00])), Some(272));
+        assert_eq!(zstd_window(&single(0x21, &[9, 200])), Some(200));
+        // The streaming encoder (what a download's frames look like) writes a descriptor.
+        let frame = zstd::encode_all(&vec![7u8; 1000][..], 3).expect("zstd");
+        assert!(zstd_window(&frame[..18.min(frame.len())]).is_some_and(|w| w >= 1 << 10));
+        assert_eq!(zstd_window(b"PBDEMS2\0"), None);
+        assert_eq!(zstd_window(&crate::ZSTD_MAGIC[..]), None, "truncated");
     }
 
     #[cfg(unix)]

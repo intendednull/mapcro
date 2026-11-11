@@ -36,7 +36,16 @@ attribution comes from `valgrind --tool=massif` (system valgrind) on `full`, and
 The worker's `peak_rss_bytes` metric is VmHWM, so the mapped file dominates it. It reads ~530 MB
 for any parse of this demo and says nothing about the anonymous part. The anonymous part is
 what a cap or a wasm heap has to hold. The figure "26 MB anonymous" (spec §6a, desktop-app §4,
-nix/module.nix `memoryMax`) was taken before formats 7 to 9. On main it is now 48 MB.
+nix/module.nix `memoryMax`) was taken before formats 7 to 9; those texts now give the new
+numbers. The record now also carries `peak_anon_bytes` (the child's RssAnon, sampled every
+20 ms): 35.2 MB for this demo's `job` run on the branch (it includes the sampler thread's stack
+and the decompression phase).
+
+**Measuring a CDN download's zstd window:** each fetched job's record carries
+`zstd_window_bytes`, read from the download's first frame header, and the server keeps it as the
+`zstd_window_bytes` histogram (`mapcro-server stats series zstd_window_bytes`). After the first
+fetches, that and `parse_peak_anon_bytes` together give the cap: anonymous peak + window +
+page-cache headroom.
 
 **Breakdown at main's heap peak** (massif snapshot 47 of 61, 48.7 MB, near the end of the match;
 the class split is from `state`, sampled every 640 ticks at its largest):

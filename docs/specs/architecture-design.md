@@ -667,13 +667,18 @@ board server (`MemoryMax=256M`; a 480 MB demo's pages alone exceed it).
   SIGBUS (the mapped demo changed under it) as `corrupt`, one past its clock as `timeout`; the
   worker and the other jobs carry on. The next job is the first the server's order lists
   (`inbox/.order`, below), else the oldest.
-- **Measured** on this machine, release build, the real 504 MB demo of 129738985: 5.3 s, 26 MB
+- **Measured** on this machine, release build, the real 504 MB demo of 129738985 (2026-11-08, format 6): 5.3 s, 26 MB
   anonymous plus 484 MB of the memory-mapped demo's clean pages. Those are reclaimable: under a
   transient cgroup's cap the parse still succeeds, at 96M in 6.1 s, at 64M in 6.2 s (+18%), at
   32M in 7.0 s, never OOM-killed. From zstd (356 MB), uncapped 6.3 s with an 849 MB peak (both
   files' page cache), at 128M 8.9 s. A zstd window adds at most 128 MiB anonymous
-  (`window_log_max(27)`). So a parse costs a core and ~26 MB; the 384M a job is headroom for a
-  window and a page cache that doesn't thrash. On `web` (3 cores, ~2.9 GB available), 2 at once
+  (`window_log_max(27)`). So a parse costs a core and ~33 MB at format 9 (below); the 384M a job is headroom for a
+  window and a page cache that doesn't thrash. **Re-measured 2026-11-11** at format 9
+  (docs/research/parser-memory.md): 48 MB anonymous before the parser-memory change, 32.5 MB
+  after, and a parse completes under a 36M cap (40M killed it before); 13–15 s on a loaded box.
+  The worker's record now carries the child's anonymous peak (`peak_anon_bytes`, beside VmHWM,
+  which counts the mapped pages) and a zstd download's window (`zstd_window_bytes`, from the
+  frame header). The 384M stays until a real CDN download's window has been read from those. On `web` (3 cores, ~2.9 GB available), 2 at once
   leaves a core and ~2 GB to the rest of the box.
 - **The queue** is `/var/lib/mapcro-replay` (`REPLAY_DIR`), group `mapcro-replay`, which the
   board server's user joins. Neither side can write where the other writes (security review
