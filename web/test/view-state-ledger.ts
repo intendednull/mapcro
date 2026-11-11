@@ -78,6 +78,7 @@ export const SIGNALS: Record<string, Entries> = {
     token: ["wired", "hover"],
     marker: ["wired", "hover (the teleporter pair's line reads the local one only: unshared)"],
     handle: ["wired", "hover"],
+    unit: ["wired", "hover (a rift trooper, sent as marker:<key>)"],
     remote: ["local", "a follower's side of hover"],
   },
   "board/Board.tsx": {
