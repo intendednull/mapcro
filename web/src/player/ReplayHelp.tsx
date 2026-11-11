@@ -8,6 +8,7 @@
 import { Show, createSignal, onCleanup } from "solid-js";
 import { cx } from "../ui/cx";
 import { isDem } from "./notice";
+import { REPLAYS_PATH, supported } from "./folder";
 
 export function ReplayHelp(p: { id?: string | undefined; class?: string }) {
   let el!: HTMLDetailsElement;
@@ -36,6 +37,12 @@ export function ReplayHelp(p: { id?: string | undefined; class?: string }) {
           </span>
         </li>
         <li class="replay-help-drop">Or drag it onto this page.</li>
+        <Show when={supported()}>
+          <li class="replay-help-link" data-testid="replay-help-link">
+            Or, for a Steam library outside the default folder, link its replays folder once and Player
+            finds new replays: <code>{REPLAYS_PATH}</code>
+          </li>
+        </Show>
       </ol>
     </details>
   );

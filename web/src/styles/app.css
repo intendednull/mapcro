@@ -493,6 +493,8 @@ svg[data-tool="move"] .pl-skull[data-recap] { pointer-events: auto; cursor: poin
 .rp-lacks { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
 .rp-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .rp-acts .btn { white-space: nowrap; }
+.rp-folder { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.rp-folder:empty { display: none; }
 .rp-dialog .replay-help.inline { margin-top: 14px; }
 .drop-overlay { position: fixed; inset: 0; z-index: 200; pointer-events: none; display: grid; place-items: center; background: color-mix(in srgb, var(--bg-deep) 72%, transparent); outline: 3px dashed var(--brass); outline-offset: -12px; }
 .drop-card { display: grid; gap: 4px; text-align: center; padding: 18px 26px; border-radius: 12px; background: var(--panel); border: 1px solid var(--brass-dim); }
@@ -500,6 +502,9 @@ svg[data-tool="move"] .pl-skull[data-recap] { pointer-events: auto; cursor: poin
 .drop-card span { font: 600 12.5px ui-monospace, monospace; color: var(--brass); }
 .pl-upload { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .pl-upload-label { font-weight: 600; color: var(--brass); }
+.pl-folder-note { font-size: 12px; color: var(--muted); }
+.replay-help-steps .replay-help-link { list-style: none; margin-left: -18px; color: var(--muted); }
+.replay-help-link code { overflow-wrap: anywhere; }
 .pl-upload-bar { flex: 1 1 160px; max-width: 420px; height: 8px; appearance: none; border: 0; border-radius: 999px; background: var(--line-soft); overflow: hidden; }
 .pl-upload-bar::-webkit-progress-bar { background: var(--line-soft); border-radius: 999px; }
 .pl-upload-bar::-webkit-progress-value { background: var(--brass); border-radius: 999px; }

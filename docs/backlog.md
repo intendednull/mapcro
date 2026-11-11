@@ -17,6 +17,16 @@ GC"). Our handling is broader than that, in `crates/server/src/replays.rs`; logg
   grows from about 10% at 1 h to 42% at 2 h (salts "Results"), so a match opened at 30 min isn't
   tried on open again until well after its salt likely arrived. Fetch replay still goes past it.
 
+## Replays folder: follow-ups (2026-11-10, replay-watch)
+
+The linked replays folder (spec §6b) works only for a second Steam library (Chromium's blocklist).
+- A desktop bridge for default installs would plug in as another `ReplaySource`
+  (`web/src/player/folder.ts`).
+- Check in a real Chrome with a real second library: the picker, the "Allow on every visit"
+  prompt, and whether the game writes a partial `.dem` while downloading (the 5 s wait is a
+  guess).
+- The landing page has no folder offer; Player's "Recent replays" covers a board with no match.
+
 ## Build the data retention policy, raise caps, cheap storage (2026-11-10, operator: when the limits call for it)
 
 The policy is agreed (architecture-design.md §9a): idle boards expire at 180 days, replay
