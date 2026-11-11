@@ -437,7 +437,7 @@ export function Tokens(p: {
                   )}
                 </Show>
                 <Show when={live() && !leaving() && ghost() == null && raw()?.pos}>
-                  <Show when={raw()?.zipline}><circle class="tok-zipline" data-testid="tok-zipline" r={r() + 4 * p.k}><title>Riding a zipline</title></circle></Show>
+                  <Show when={raw()?.zipline}><circle class="tok-zipline" data-testid="tok-zipline" r={r() + 6 * p.k}><title>Riding a zipline</title></circle></Show>
                   <Show when={raw()?.height === 1 || raw()?.height === 2}>
                     <g class="tok-height" data-testid="tok-height" transform={`translate(${r() * .7} ${-r() * .75}) scale(${p.k})`}>
                       <title>{raw()?.height === 1 ? "Above street level" : "Below street level"}</title>

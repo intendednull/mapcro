@@ -988,7 +988,9 @@ kbd {
 .mm-overlay.map .tok-cc rect { fill: #211b17; stroke: #bb9c77; stroke-width: 0.7; }
 .mm-overlay.map .tok .tok-cc text { display: inline; fill: #efdfc6; font-size: 10px; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
 
-.tok-zipline { fill: none; stroke: var(--brass); stroke-width: 2; stroke-dasharray: 5 4; pointer-events: none; }
+/* Selectors must outrank `.map .tok.amber circle` (the token's team fill) and the dead fill above,
+   or the ring paints solid over the portrait. */
+.map .tok circle.tok-zipline { fill: none; stroke: #efdfc6; stroke-width: 2; stroke-dasharray: 5 4; pointer-events: none; }
 .tok-height { pointer-events: none; }
-.tok-height circle { fill: var(--panel); stroke: var(--brass); stroke-width: 1; }
+.map .tok .tok-height circle { fill: var(--panel); stroke: var(--brass); stroke-width: 1; }
 .tok-height text { fill: var(--text); text-anchor: middle; dominant-baseline: central; font-size: 10px; }
