@@ -245,7 +245,10 @@
 .tb-all-builds kbd { margin-left: 3px; font: inherit; opacity: .45; }
 .tb-all-builds:hover, .tb-all-builds[aria-expanded="true"] { background: #31342baa; border-color: #FFEFD780; }
 .tb-build-team-kills { position: absolute; top: calc(148 * var(--u)); left: 25%; width: 50%; display: flex; justify-content: space-between; align-items: center; color: #e4dac2; font: 700 calc(12 * var(--u)) "VALVEOracle", var(--ui); }
-.tb-build-team-kills span { text-transform: uppercase; font-size: calc(10 * var(--u)); }
+.tb-build-team-kills span { text-transform: uppercase; font-size: calc(10 * var(--u)); text-shadow: 0 0 3px #000, 0 1px 2px #000; }
+/* Each count in a dark box, the label between them (the in-game Tab view, reference 22:30;
+   feedback #14): readable over the map. */
+.tb-build-team-kills b { min-width: calc(44 * var(--u)); padding: calc(3 * var(--u)) calc(8 * var(--u)); background: #10130Dd9; border-radius: 2px; text-align: center; font-variant-numeric: tabular-nums; }
 .tb-build-column { position: absolute; top: calc(112 * var(--u)); left: 2.5%; width: 95%; padding: calc(5 * var(--u)) calc(6 * var(--u)) calc(10 * var(--u)); color: #ded6c4; text-align: center; font-family: "VALVEOracle", var(--ui); }
 .tb-build-column::before { content: ""; position: absolute; top: calc(-112 * var(--u)); bottom: 0; left: 0; right: 0; z-index: 0; background: linear-gradient(180deg, #a382626b 0%, #443e3b99 50%, #242723b8 100%); pointer-events: none; }
 .sapphire > .tb-build-column::before { background: linear-gradient(180deg, #4566ab8a 0%, #363e5999 50%, #1b2330b8 100%); }

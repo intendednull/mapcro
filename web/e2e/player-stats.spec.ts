@@ -44,8 +44,15 @@ function pack(): string {
     blobs[`data/stats/${key}`] = { sha256: createHash("sha256").update(bytes).digest("hex"), w: 0, h: 0, mime: "application/json", file };
     tables[key] = { blob: `data/stats/${key}`, client_version: t.client_version, source: "test" };
   }
+  // The names table: the two items' category and tier (the tier badge, #19).
+  const names = Buffer.from(JSON.stringify({ records: {
+    [VIT]: { kind: "item", name: "upgrade_vit", label: "Vit item", slot: "vitality", tier: 1, cost: 800 },
+    [WEAPON]: { kind: "item", name: "upgrade_weapon", label: "Weapon item", slot: "weapon", tier: 2, cost: 1600 },
+  } }));
+  writeFileSync(join(dir, "data/abilities.json"), names);
+  blobs["data/abilities"] = { sha256: createHash("sha256").update(names).digest("hex"), w: 0, h: 0, mime: "application/json", file: "data/abilities.json" };
   const manifest = {
-    schema: 4, game: { client_version: 6860, source_revision: 1, date: "Nov 05 2026" }, blobs, heroes: [], entities: [],
+    schema: 4, game: { client_version: 6860, source_revision: 1, date: "Nov 05 2026" }, blobs, heroes: [], entities: [], abilities: { blob: "data/abilities" },
     stats: { format: 1, covered_through: 6860, builds: { 6837: "boon-6837", 6839: "boon-6837", 6860: "vdata-6860" }, tables },
   };
   writeFileSync(join(dir, "pack.json"), JSON.stringify(manifest));
@@ -146,6 +153,10 @@ test("the scoreboard shows the build's calculated stats from its own patch's tab
   await expect(bar("weapon")).toHaveAttribute("aria-label", "Weapon invest, 1,600");
   const height = await bar("weapon").locator("i").evaluate((el) => (el as HTMLElement).style.height);
   expect(parseFloat(height)).toBeCloseTo(14, 3);
+  // #14: each team's kill count sits in a dark box, readable over the map.
+  const kills = a.locator(".tb-build-team-kills b");
+  await expect(kills).toHaveCount(2);
+  expect(await kills.first().evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
   // Before the pickup and the weapon item: 1081, no weapon damage.
   await scrubTo(a, 11);
   await expect(c.getByTestId("stat-max-health")).toContainText("1081");
