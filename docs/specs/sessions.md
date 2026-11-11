@@ -117,7 +117,7 @@ Two record kinds join `Record` in `crates/schema`:
   capped at **2,000 `Tab` records, removed ones included**, because tombstones are kept (§9). At
   about 200 bytes a tab, that is a document of roughly 400 KB at most. No review needs anywhere
   near that many tabs, and it bounds what one edit link can make the server hold. Past the cap,
-  an add is refused as `SessionFull` and the client shows "Session full". (Open question 4.)
+  an add is refused as `SessionFull` and the client shows "Session full". (Decided, §12.)
 - **What the document never holds:** board tokens, link hashes, roles, or anything derived from
   a secret. Every session member, viewers included, receives the whole document. The grant id
   is not a secret (§3.3).
@@ -349,15 +349,15 @@ memory survives into another board's mount unless it is either:
 - **Device settings stay device-wide, as on a board today:** Vision, Show last seen, Player
   names, Heals and Heavy boxes (localStorage, every board). The ink colour is per board already
   (`mapcro.colour.<board>`). Comments open is per board. The tool resets to Move on a new
-  mount. (Open question 7: Vision and layers per tab.)
+  mount. (Decided: Vision and layers per tab, §12.)
 - **An edit in flight at a switch lands on its own board.** A drag dropped, a stroke released or
   an undo pressed while the switch happens goes to the `BoardSession` of the board it began on.
   Never to the newly mounted one: each gesture closes over its own session, and the switch waits
   for the current pointer gesture to end or cancels it (the map's existing cancel), before it
   unmounts.
-- **Undo is per board.** Ctrl+Z on a board undoes that board's own edits only (its
-  `BoardSession`'s stack, §7). The tab strip's edits have their own stack, the session
-  document's (§7.2).
+- **Undo never crosses boards.** Ctrl+Z reaches the current board's own edits (its
+  `BoardSession`'s stack, §7) and the strip's edits, merged into one history (§7.2), never another
+  board's.
 
 ### 4.2 Per-tab remembered UI state
 
@@ -458,7 +458,7 @@ By decision 1 of the view-state plan, new view state is a registry row:
   or owner**, stamped by the server in session presence. Inside a tab's board, a session editor
   whose board role is only view, on a view-only tab, can still be followed by members of the
   same session, through the stamped `session_role`. A board-only viewer (someone not in the
-  session) still can't be followed. (Open question 5.)
+  session) still can't be followed. (Decided: yes, §12.)
 - **Lacking access to the presenter's tab.** Every session member can open every tab whose
   grant is good (§3.2), so "no access" means the tab is unavailable to everyone: a revoked grant,
   an expired board, a junk tab. The follower stays on its tab and stays following, and the
@@ -502,9 +502,12 @@ By decision 1 of the view-state plan, new view state is a registry row:
 - **Rename**: double-click the tab or use the context menu. This sets `TabName`. The board's own
   title is unchanged, and its editors rename it on the board.
 - **Reorder**: drag a tab, which sets `TabOrder` between its new neighbours.
-- **Undo and redo of the strip** are the session document's own stack (§7), reachable from the
-  toast and with Ctrl+Z / Ctrl+Shift+Z while the strip has focus. Ctrl+Z on the map stays the
-  board's. (Open question 10.)
+- **One undo** (operator, 2026-11-11): the app's Undo button, Ctrl+Z and the toast's Undo all
+  walk one history: your own strip edits (the session document's stack, §7) interleaved by time
+  with your own edits on the board you are on. Undo takes the newest of the two. So after removing
+  a tab (and being moved to its neighbour), the next Undo re-links it, wherever focus is. Edits on
+  other tabs' boards stay out of reach (isolation, §4.1): switching back to a board brings its
+  edits back into the history. Redo mirrors it.
 
 ### 7.3 A board becomes a session
 
@@ -675,15 +678,37 @@ Each phase is small, merges on its own, and leaves boards unchanged.
 - **NAT socket budget** halves for people in a session (§3.8). Watch `sockets per address`
   refusals in the stats after deploy. If LAN events hit it, give session-derived board sockets
   their own allowance rather than raising the global cap.
-- **Two undo stacks** (the strip's and the board's) may surprise people. Keyboard focus decides,
-  and the toast's Undo is explicit.
+- **One history over two documents** (§7.2). The client merges the session stack and the
+  current board's stack by local time. Risks: an entry that the server refuses on one side must
+  not block the other; and remote edits that make an entry a no-op skip it as they do today. If
+  this proves unworkable, report it to the operator before falling back to two stacks.
 - **Session room auth on every tab open** adds a lookup (check 4). It is cheap (one in-memory
   room), but it makes board auth depend on the session room loading. A session over its caps,
   or a busy server, therefore blocks its tabs: they fail closed and retry with backoff.
 - **The `Id` value kind** widens the registry's kinds by one. It's held to "a record id, shape
   checked only".
 
-## 12. Questions for the operator
+## 12. Operator decisions (2026-11-11)
+
+All as proposed except 10 and 11:
+
+1. Removing a tab cuts session access at once; people on it move to its neighbour; undo restores.
+2. The add dialog offers "Can view".
+3. Adding delegates edit (capped at the adder's role and at edit).
+4. The internal cap of 2,000 tab records is fine as "no hard limit".
+5. Session editors can be followed on a view-only tab.
+6. Session viewers see who is on which tab.
+7. Vision and map layers are remembered per tab.
+8. Session grants appear in the board owner's Share list, revocable there.
+9. No Whiteboard tab, no "scenes per game" filter.
+10. **Changed: one undo**, not two (§7.2). Two undos would confuse: people press the undo button to
+    undo a removal. If one merged history causes problems, raise it.
+11. **Changed: cloning a session clones every board** too. A clone exists to edit without touching
+    the original, so it never links the source boards.
+
+The original questions follow, for the record.
+
+### Questions as asked
 
 1. **Removing a tab blocks access through the session at once.** People on that tab are moved
    to its neighbour, and undo restores the tab. Is that right? (The alternative is that removal
