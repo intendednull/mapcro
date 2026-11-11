@@ -3,6 +3,15 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Follow across restarts: small leftovers (2026-11-11, restart-follow)
+
+- **"Follow again" right after a restart waits only 5 s** (`RECONNECT_MS`) for the seat, not 20 s
+  from the rejoin: the toast records the join it was clicked on. Pass the original join through.
+- **The people list can briefly mark the wrong person as followed** while that wait runs
+  (`followingHere()` still holds a reused peer id). Presence itself sends `null`, so peers are told
+  the truth.
+- The `just e2e` recipe doesn't quote `{{args}}`: `-g "a|b"` becomes a shell pipe.
+
 ## Feedback wave 3: hotkeys, names, layout (2026-11-11, operator decisions)
 
 Decided; to build after fix-batch-3 (#24 #26 #27 #34 #36) lands, as one batch (the first group
