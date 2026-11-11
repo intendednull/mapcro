@@ -180,9 +180,10 @@ presence   = other users' cursors and drag previews                   (ephemeral
 Operator, 2026-11-10, after the Tab scoreboard's investment bars read "weapon: 4,800 souls in
 equipped items (current shop prices)": hover text had grown into explanations. The rules:
 
-1. **A hover names the thing; it doesn't explain it.** One to three words, sentence case:
-   "Weapon invest", "Kills", "Max health". No caveats, provenance or method ("current shop
-   prices", "calculated", "in this replay") and no numbers the element already shows.
+1. **Labels are tags, not prose.** One to three words naming the thing: "Weapon invest",
+   "Kills", "Max health". No sentences and no voice (no "you", "we", "this replay", nothing
+   addressed to the reader), no caveats, provenance or method ("current shop prices",
+   "calculated") and no numbers the element already shows.
 2. **Use the game's word when the game has one** (its localisation, HUD or the operator's
    reference screenshots), shortened only as the operator asks. Don't invent labels for things
    the game names.
@@ -195,7 +196,7 @@ equipped items (current shop prices)": hover text had grown into explanations. T
    if the operator approves it.
 
 Reviewers check new or changed `title`, `aria-label` and tooltip text against these rules.
-`aria-label` may say more than the hover when a screen reader needs the context.
+`aria-label` follows the same rule; it may add a tag a screen reader needs ("Weapon invest, 4,800"), still not a sentence.
 
 ## 5. Offline and reconnect
 
