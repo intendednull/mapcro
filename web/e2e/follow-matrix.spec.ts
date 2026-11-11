@@ -635,3 +635,17 @@ for (const r of ROWS) {
     });
   });
 }
+
+// Not a follow scenario, but the popover's state moved from the DOM into the store: a build you
+// open yourself opens with neither popover open, as a fresh <details> did.
+test("a build opened again opens with Effects and Build order closed", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Popover reset"), "Coach");
+  await load(a, ID);
+  await openInspect(a);
+  await inspected(a).getByTestId("active-effects").locator(":scope > summary").click();
+  await expect.poll(() => popover(a)).toBe("effects");
+  await a.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').click();
+  await expect(inspected(a)).toHaveCount(0);
+  await openInspect(a);
+  await expect.poll(() => popover(a)).toBe("none");
+});

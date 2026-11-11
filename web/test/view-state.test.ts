@@ -225,6 +225,13 @@ describe("every registry key follows its row", () => {
     p.set("builds.inspect", "amber-0");
     hear(f, p);
     expect(f.s.get("recap.skull")).toEqual({ slot: "amber-1", t: 20 });
+    // The inspected build's popover is one of the panels.
+    p.set("builds.popover", "order");
+    hear(f, p);
+    f.s.set("builds.popover", "none");
+    p.set("recap.skull", { slot: "sapphire-2", t: 40 });
+    hear(f, p);
+    expect(f.s.get("builds.popover")).toBe("order");
     // Another group's change doesn't: typing in the events search leaves the panels alone.
     f.s.set("recap.skull", undefined);
     p.set("events.search", "urn");
