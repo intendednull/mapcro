@@ -264,11 +264,15 @@ impl World {
         for (client, h) in self.stored_clients.clone() {
             fresh.replay_client(client, h);
         }
-        for tx in self.stored_log[base_seq as usize..].to_vec() {
-            if let Err(r) = fresh.replay(&tx, mapcro_engine::encoded_len(&tx)) {
+        let mut failed = Vec::new();
+        for tx in &self.stored_log[base_seq as usize..] {
+            if let Err(r) = fresh.replay(tx, mapcro_engine::encoded_len(tx)) {
                 // Surfaces as an oracle mismatch on the next check.
-                self.log(format!("replay failed: {r}"));
+                failed.push(format!("replay failed: {r}"));
             }
+        }
+        for line in failed {
+            self.log(line);
         }
         for (client, n) in self.stored_client_seqs.clone() {
             fresh.replay_next_cseq(client, n);

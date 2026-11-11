@@ -54,7 +54,8 @@ pub enum RoomCmd {
         reply: oneshot::Sender<Result<Joined, CloseReason>>,
     },
     Msg { conn: ConnId, msg: ClientMsg },
-    Presence { conn: ConnId, state: Presence },
+    /// Boxed as it arrives (`WireIn::Presence`): several times the other commands' size.
+    Presence { conn: ConnId, state: Box<Presence> },
     Leave { conn: ConnId },
     /// The board as it is now (for cloning).
     Snapshot { reply: oneshot::Sender<mapcro_schema::Doc> },
@@ -585,7 +586,7 @@ impl Room {
                         state.drag = None;
                         state.ink = None;
                     }
-                    peer.presence = Some(state);
+                    peer.presence = Some(*state);
                     let role = peer.role;
                     self.mark_presence(conn, role);
                 }
