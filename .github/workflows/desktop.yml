@@ -83,9 +83,7 @@ jobs:
           Start-Sleep -Seconds 15
           if ($p.HasExited) { throw "the installed app exited ($($p.ExitCode))" }
           Stop-Process -Id $p.Id -Force
-          # Its WebView2 children outlive it and keep the profile locked; the smoke test's
-          # WebView2 (with remote debugging) would then hand off to them and never open the
-          # DevTools port msedgedriver waits for ("DevToolsActivePort file doesn't exist").
+          # Its WebView2 children can outlive it; none should be left for the smoke test.
           Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep -Seconds 3
       - name: The installer registered mapcro:// (per-user)
@@ -120,7 +118,7 @@ jobs:
           "NATIVE_DRIVER=$cmd" >> $env:GITHUB_ENV
       - name: Smoke test of the installed app (tauri-driver + msedgedriver)
         run: |
-          # DIAG: sample the app's and WebView2's processes (command lines) while the test runs.
+          # For a failure: the app's and WebView2's processes (command lines), every 3 s.
           $out = Join-Path $env:RUNNER_TEMP 'diag\processes.txt'
           $sampler = Start-Job -ArgumentList $out -ScriptBlock {
             param($out)
@@ -134,34 +132,8 @@ jobs:
           try { node desktop/smoke/smoke.mjs "${{ steps.install.outputs.exe }}" --fake-steam }
           finally { Stop-Job $sampler; Remove-Job $sampler -Force }
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: DIAG probe remote debugging in the installed app
-        if: always() && steps.install.outcome == 'success'
-        continue-on-error: true
-        run: |
-          $d = Join-Path $env:RUNNER_TEMP 'diag'
-          Get-Process mapcro-desktop, msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force
-          Start-Sleep -Seconds 2
-          Get-ChildItem -Recurse -Filter DevToolsActivePort "$env:LOCALAPPDATA", "$env:TEMP" -ErrorAction SilentlyContinue | ForEach-Object { "found before: $($_.FullName)" }
-          foreach ($probe in @(
-            @{ name = 'port9222'; args = '--remote-debugging-port=9222'; udf = $null },
-            @{ name = 'port0-udf'; args = '--remote-debugging-port=0'; udf = (Join-Path $d 'udf') }
-          )) {
-            Write-Output "--- probe $($probe.name)"
-            $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $probe.args
-            if ($probe.udf) { $env:WEBVIEW2_USER_DATA_FOLDER = $probe.udf } else { Remove-Item Env:WEBVIEW2_USER_DATA_FOLDER -ErrorAction SilentlyContinue }
-            $p = Start-Process -FilePath "${{ steps.install.outputs.exe }}" -PassThru `
-              -RedirectStandardOutput (Join-Path $d "$($probe.name).out.txt") -RedirectStandardError (Join-Path $d "$($probe.name).err.txt")
-            Start-Sleep -Seconds 20
-            Write-Output "exited: $($p.HasExited) $(if ($p.HasExited) { $p.ExitCode })"
-            Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'mapcro|msedgewebview2' } | ForEach-Object { "$($_.ProcessId) <- $($_.ParentProcessId) $($_.Name): $($_.CommandLine)" } | Select-Object -First 4
-            Get-ChildItem -Recurse -Filter DevToolsActivePort "$env:LOCALAPPDATA", "$env:TEMP", $d -ErrorAction SilentlyContinue | ForEach-Object { "DevToolsActivePort: $($_.FullName): $(Get-Content $_.FullName -First 1)" }
-            try { (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9222/json/version -TimeoutSec 5).Content } catch { "9222: $($_.Exception.Message)" }
-            Get-Content (Join-Path $d "$($probe.name).err.txt") -ErrorAction SilentlyContinue | Select-Object -Last 20
-            Get-Process mapcro-desktop, msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force
-            Start-Sleep -Seconds 2
-          }
-      - name: DIAG artifacts
-        if: always()
+      - name: On failure, msedgedriver's verbose log and the process samples
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: windows-smoke-diag
