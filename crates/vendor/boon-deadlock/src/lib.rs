@@ -92,7 +92,8 @@ pub mod ziplines;
 // Re-export commonly used types at the crate root for convenience
 pub use catalog_names::CatalogNames;
 pub use demo::{
-    CmdHeader, Context, GameEvent, MessageInfo, Parser, command_name, decode_event_payload,
+    CmdHeader, Context, GameEvent, MessageInfo, Parser, StreamParser, command_name,
+    decode_event_payload,
 };
 pub use entity::{
     ClassEntry, ClassInfo, ENTITY_HANDLE_INDEX_MASK, Entity, EntityChange, EntityChangeKind,

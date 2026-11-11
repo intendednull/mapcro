@@ -3,10 +3,12 @@
 use std::collections::HashSet;
 
 mod prepared;
+mod stream;
 
 pub use prepared::{
     CheckpointAdapter, PlaybackCheckpoint, PlaybackSegment, PlaybackSession, PreparedPlayback,
 };
+pub use stream::{SCHEMA_CHANGED, StreamPlayback};
 
 use crate::demo::{CommandFrame, Demo, DemoIndex, command};
 use crate::entity::field_path::FieldPath;

@@ -135,6 +135,18 @@ pub struct CommandFrame<'a> {
 }
 
 impl<'a> CommandFrame<'a> {
+    /// A frame read from a stream rather than borrowed from a whole file
+    /// (mapcro patch: [`crate::playback::StreamPlayback`]).
+    pub(crate) const fn streamed(
+        index: usize,
+        (offset, end_offset): (usize, usize),
+        header: CmdHeader,
+        encoded_body: &'a [u8],
+        limits: DecodeLimits,
+    ) -> Self {
+        Self { index, offset, end_offset, header, encoded_body, limits }
+    }
+
     /// Zero-based command index relative to the iterator's starting offset.
     pub const fn index(&self) -> usize {
         self.index

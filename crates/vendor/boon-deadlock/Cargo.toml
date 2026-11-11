@@ -41,6 +41,11 @@ license = "MIT"
 repository = "https://github.com/pnxenopoulos/boon"
 resolver = "2"
 
+[features]
+default = ["download", "mmap"]
+download = ["dep:reqwest"]
+mmap = ["dep:memmap2"]
+
 [lib]
 name = "boon"
 path = "src/lib.rs"
@@ -91,6 +96,7 @@ version = "0.4"
 
 [dependencies.memmap2]
 version = "0.9"
+optional = true
 
 [dependencies.pbdems2]
 version = "0.4.1"
@@ -100,6 +106,7 @@ version = "0.14"
 
 [dependencies.reqwest]
 version = "0.12"
+optional = true
 features = [
     "blocking",
     "rustls-tls",

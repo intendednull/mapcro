@@ -58,5 +58,5 @@ pub use mmap::MappedDemo;
 pub use packet::{PacketMessageFrame, PacketMessageIter};
 pub use playback::{
     CheckpointAdapter, CommandContext, DemoAdapter, DemoParser, ParserState, PlaybackCheckpoint,
-    PlaybackSegment, PlaybackSession, PreparedPlayback,
+    PlaybackSegment, PlaybackSession, PreparedPlayback, StreamPlayback,
 };

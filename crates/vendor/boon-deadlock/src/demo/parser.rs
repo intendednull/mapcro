@@ -1,5 +1,7 @@
+#[cfg(feature = "mmap")]
 use std::path::Path;
 
+#[cfg(feature = "mmap")]
 use memmap2::Mmap;
 use pbdems2::{ParserState, PreparedPlayback};
 use prost::Message;
@@ -114,6 +116,7 @@ fn format_event_key(key: &boon_proto::proto::c_msg_source1_legacy_game_event::Ke
 
 /// Internal storage for demo data — either memory-mapped or an owned byte buffer.
 enum Storage {
+    #[cfg(feature = "mmap")]
     Mmap(Mmap),
     Bytes(Vec<u8>),
 }
@@ -121,6 +124,7 @@ enum Storage {
 impl AsRef<[u8]> for Storage {
     fn as_ref(&self) -> &[u8] {
         match self {
+            #[cfg(feature = "mmap")]
             Storage::Mmap(m) => m,
             Storage::Bytes(b) => b,
         }
@@ -137,6 +141,7 @@ pub struct Parser {
 
 impl Parser {
     /// Open a demo file and memory-map it for zero-copy parsing.
+    #[cfg(feature = "mmap")]
     pub fn from_file(path: &Path) -> Result<Self> {
         let file = std::fs::File::open(path)?;
         // SAFETY: The file is opened read-only and the mapping lives as

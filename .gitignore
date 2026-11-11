@@ -9,6 +9,8 @@ extracted/
 node_modules/
 dist/
 target/
+# `just vendor-test` resolves the vendored crates on their own.
+/crates/vendor/*/Cargo.lock
 result
 result-*
 .direnv/

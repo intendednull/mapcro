@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "download", not(target_family = "wasm")))]
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -41,6 +41,7 @@ pub enum DataError {
     #[error(
         "could not download boon-data: {0}; use `boon versions` and `boon get VERSION` to install catalogs"
     )]
+    #[cfg(feature = "download")]
     Http(#[from] reqwest::Error),
     #[error("{0}")]
     Invalid(String),
@@ -209,10 +210,10 @@ pub fn cache_dir() -> Result<PathBuf> {
 /// installations require `boon get VERSION --force` to repair them.
 pub fn catalog_dir(version: Option<&str>) -> Result<PathBuf> {
     let root = cache_dir()?;
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(feature = "download", not(target_family = "wasm")))]
     let mut client = None;
     resolve(&root, version, &mut |url, limit| {
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(all(feature = "download", not(target_family = "wasm")))]
         {
             if client.is_none() {
                 client = Some(
@@ -237,11 +238,11 @@ pub fn catalog_dir(version: Option<&str>) -> Result<PathBuf> {
             }
             Ok(bytes)
         }
-        #[cfg(target_family = "wasm")]
+        #[cfg(any(not(feature = "download"), target_family = "wasm"))]
         {
             let _ = (url, limit);
             Err(invalid(
-                "boon-data downloads are unavailable on WebAssembly",
+                "boon-data downloads are unavailable on WebAssembly or without the download feature",
             ))
         }
     })
