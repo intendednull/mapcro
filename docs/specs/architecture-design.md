@@ -126,6 +126,11 @@ transaction and one undo step.
 
 The map is still the surface for every tool; the picker only chooses the gesture.
 
+**The map's edge (feedback #21):** heroes, troopers and their rings and labels are clipped to the
+map's stencil (the HUD frame's shape) and take no pointer past it, and the edge is drawn over
+them. A dragged hero stops at the map's disc. Ink, arrows and comments may still go into the
+notes margin round the map (design/parity/README.md, Stencil and edge).
+
 **Keys (operator, 2026-11-09):** close together under the left hand, the most used on the nearest:
 Move Q, Draw E, Arrow R, Comment T, Laser A, Erase S (and S over a placed thing deletes it, in any
 tool). W is unbound; F follows the presenter, K

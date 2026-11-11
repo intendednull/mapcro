@@ -302,7 +302,6 @@ export function artCss(art: Art): string {
   if (frame) {
     css.push(`.mm-host.pack-art .mm-frame .frame-art { background-image: ${frame}; }`);
     if (frameMask) css.push(`.mm-host.pack-art .mm-frame .frame-art { ${mask(frameMask)} }`);
-    if (frameMask) css.push(`.mm-host.pack-art.zoomed .mm-clip { ${mask(frameMask)} }`);
   }
   return css.join("\n");
 }
