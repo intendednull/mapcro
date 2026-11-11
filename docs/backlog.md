@@ -3,6 +3,29 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Feedback wave 3: hotkeys, names, layout (2026-11-11, operator decisions)
+
+Decided; to build after fix-batch-3 (#24 #26 #27 #34 #36) lands, as one batch:
+
+- **#28 tool keys:** Q Select, W Laser, E Draw, A Arrow, S Comment, D Erase. **C opens the Clear
+  menu; Shift+C clears everything at once** (one undoable step; operator: "a button that clears
+  without opening the menu").
+- **#30 split scene:** T.
+- **#31:** the Move tool is renamed **Select**.
+- **#32 Vision keys:** 1 Hidden King, 2 Archmother, 3 All.
+- **#29:** each Vision option shows its key, e.g. "Vision: All [3]"; tool hovers show the new keys.
+- **#33:** Map layers and Vision sit at the bottom left of the map pane, just above the timeline
+  controls, so the Tab panel never covers them.
+
+After view-state (the registry) lands:
+
+- **#35 / #37 draggable panels:** the death recap and hero panels drag by their top; several hero
+  panels can be open at once. Followers get which panels are open **and where** (operator,
+  2026-11-11: "if possible"): positions travel relative to the board pane (fractions of its
+  width and height, anchored to the nearest edge), so a different screen size keeps the layout,
+  clamped so a panel never sits off-screen or over the follower's own controls. Both are
+  view-state registry rows.
+
 ## Rift troopers: follow-ups (2026-11-11, lead QA of 03fda8c)
 
 - **The "Rift trooper" hover rarely wins on real data.** On 129738985 at the 13:00 capture, the
@@ -200,7 +223,14 @@ much they matter.
   - the replay picker: the folder is found, a download in progress is left out until it settles
     (whether the game writes the `.dem` in place or renames it in; the 5 s is a guess), and
     Change folder's chooser opens over the window and is kept across runs;
-  - the passive update path works end to end.
+  - the passive update path works end to end;
+  - links off the site (desktop/README.md, Links off the site; feedback #23), installer and
+    portable: the feedback form's "See this issue in GitHub" (`target="_blank"`) and a landing
+    or help page link open in the default browser, the app's window stays put and no second
+    window opens. The smoke test checks `window.open` and plain links on Linux (a stand-in
+    `xdg-open`), but a `target="_blank"` click there raises no new-window request, so the
+    link the bug was about is checked only here. A real Linux desktop: does a `target="_blank"`
+    link open anything at all (it didn't under WebKitWebDriver)?
 - **Picker follow-ups (2026-11-10, replay-picker).** Held out of the first cut:
   - **Back to Steam's folder.** After Change folder there's no "use the default" action: the
     chosen folder wins while it exists (choose Steam's folder again, or delete

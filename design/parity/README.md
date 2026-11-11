@@ -165,7 +165,18 @@ image's own alpha.
 **Zoom.** For a view rectangle `(x, y, w)`:
 - the map square scales by `1000/w` and shifts by `(−x, −y)`;
 - markers stay at their unzoomed size (`scale: w/1000`), as in game;
-- the view is clipped by the frame mask, scaled to 111.1% of the map box.
+- the view is clipped to the frame mask's shape, scaled to 111.1% of the map box.
+
+**Stencil and edge** (feedback #21; `web/src/map/stencil.ts`). The stencil is
+`compass_frame_mask`'s shape, measured from its alpha: a disc (centre 49.83, 49.94, radius
+44.83 of the frame's 100) and two bumps (radius 11.63, centred 55.34, 11.59 and its 180° turn),
+the small fillets left out; the same shape without the pack (the drawn frame is a stand-in). It
+is a clip-path, so what it hides takes no pointer. Zoomed in, the view is clipped to it, fixed. At
+any zoom the map's art, the heroes, the troopers and selection rings are clipped to the map's
+own stencil, which moves with the map; ink, arrows and comments keep the notes margin. The edge
+is drawn over all of it: compass_frame's rim colour (`#5A5A5A`, 3 of 880 px at 29% in the art),
+opaque and 0.45 frame units wide; the frame's cream without the pack. A dragged hero stops on
+the disc (radius 43 of 45), so none is lost past the clip.
 
 **Fallback.** Without `_art/parity/parity.css`, the frame becomes an SVG outline and markers
 become CSS shapes in the same tints. The lanes are unchanged.

@@ -14,6 +14,8 @@ serde.workspace = true
 steamlocate = "=2.1.1"
 flate2 = "1"
 serde_json = "1"
+# Link routing (nav.rs): origins as the WHATWG URL spec defines them.
+url = "2"
 
 [dev-dependencies]
 tempfile = "3"

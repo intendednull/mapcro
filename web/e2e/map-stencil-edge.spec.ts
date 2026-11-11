@@ -1,9 +1,10 @@
-// Zoomed in, the map is seen through the HUD's disc (the stencil: the frame mask with the pack's
-// art, a circle clip-path without it, both on `.mm-clip`). Operator, 2026-11-08: the stencil
+// Zoomed in, the map is seen through the HUD's disc (the stencil, map/stencil.ts: the frame
+// mask's shape with the pack's art, the drawn frame's disc without it; a clip-path on `.mm-clip`
+// either way, feedback #21). Operator, 2026-11-08: the stencil
 // vanished when a zoomed-in view panned past the map's border. It now holds at every edge.
 //
-// Two checks at each edge. The computed style: `.mm-clip` still carries the stencil (here, with no
-// pack, `clip-path: circle(...)`; with art it is the same `zoomed` rule's mask). And what it does:
+// Two checks at each edge. The computed style: `.mm-clip` still carries the stencil (its clip-path
+// names the stencil's `<clipPath>`). And what it does:
 // a press near the clip box's corner, outside the disc, lands on nothing inside the clip, since a
 // clip-path also clips hit-testing; unstencilled, the map's overlay (and its notes margin) takes it.
 
@@ -37,7 +38,7 @@ const stencil = (page: Page) =>
     // 4% in from the clip box's top-left corner: 0.65 of its width from the centre, well outside
     // the disc (radius 0.478).
     const hit = document.elementFromPoint(r.x + r.width * 0.04, r.y + r.height * 0.04);
-    return { clipPath: cs.clipPath, mask: cs.maskImage, cornerInClip: !!hit && clip.contains(hit) };
+    return { clipPath: cs.clipPath, cornerInClip: !!hit && clip.contains(hit) };
   });
 
 test("zoomed in, the map's stencil holds when the view pans past each edge", async ({ browser }) => {
@@ -50,7 +51,7 @@ test("zoomed in, the map's stencil holds when the view pans past each edge", asy
   const host = a.locator("[data-testid=map] .mm-host");
   await expect(host).toHaveClass(/zoomed/);
   const before = await stencil(a);
-  expect(before.clipPath).toMatch(/^circle/);
+  expect(before.clipPath).toMatch(/^url\("?#mm-stencil-\d+-box"?\)$/);
   expect(before.cornerInClip).toBe(false);
 
   const edges: Array<[string, number, number, (v: [number, number, number]) => boolean]> = [
@@ -67,7 +68,7 @@ test("zoomed in, the map's stencil holds when the view pans past each edge", asy
     }
     await expect(host, edge).toHaveClass(/zoomed/);
     const s = await stencil(a);
-    expect(s.clipPath, edge).toMatch(/^circle/);
+    expect(s.clipPath, edge).toMatch(/^url\("?#mm-stencil-\d+-box"?\)$/);
     expect(s.cornerInClip, edge).toBe(false);
     await a.locator("[data-testid=map]").screenshot({ path: `shots/stencil-edge-${edge}.png` });
     for (let i = 0; i < n; i++) await drag(a, -dx, -dy); // back to the middle

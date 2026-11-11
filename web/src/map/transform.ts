@@ -92,6 +92,20 @@ export function clampShift(points: WorldPos[], d: { x: number; y: number }, t: T
   };
 }
 
+/**
+ * Keep a dragged hero on the map's disc: the stencil (map/stencil.ts) clips heroes to it, so one
+ * dragged past it would be gone, and out of reach. Its disc is 44.83 of the map square's 45 (frame
+ * units); this one, 43, keeps the token's centre a token's radius inside it.
+ */
+export function clampToDisc(w: WorldPos, t: Transform = DEFAULT_TRANSFORM): WorldPos {
+  const r = (t.r * 43) / 45 - 1; // a unit in, so rounding never lands past it
+  const dx = w.x - t.cx;
+  const dy = w.y - t.cy;
+  const d = Math.hypot(dx, dy);
+  if (d <= r) return clampToMap(w, t);
+  return { x: Math.round(t.cx + (dx * r) / d), y: Math.round(t.cy + (dy * r) / d) };
+}
+
 /** Keep a dragged position on the map square (the schema allows a little more, ±16384). */
 export function clampToMap(w: WorldPos, t: Transform = DEFAULT_TRANSFORM): WorldPos {
   const c = (v: number, mid: number) => Math.max(mid - t.r, Math.min(mid + t.r, v));

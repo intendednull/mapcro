@@ -72,8 +72,8 @@ from Rust.
 5 s while open); with none it answers `not_found`.
 
 The page never passes a path. An id that isn't plain digits is refused (`bad_id`). The window
-only navigates within the site's origin; any other link opens in the system browser. On the
-web side, `web/src/player/desktop.ts` feature-detects `window.__TAURI_INTERNALS__.invoke`. In a
+only navigates within the site's origin; any other link opens in the system browser (Links off
+the site, below). On the web side, `web/src/player/desktop.ts` feature-detects `window.__TAURI_INTERNALS__.invoke`. In a
 browser it isn't there and nothing changes.
 
 **The site's CSP and the IPC.** Tauri's IPC first tries a request to its own protocol
@@ -87,6 +87,25 @@ is a server CSP change and an open decision (spec §6a keeps `connect-src 'self'
 
 No `deep-link` plugin command is granted either (`get_current`, `register`, …): the app reads
 the link in Rust (`app/src/links.rs`).
+
+## Links off the site
+
+One rule for every link the page follows (`core/src/nav.rs` `route`), installer and portable
+alike, whether it navigates (a plain link, a redirect, `location`) or asks for a new window
+(`target="_blank"`, `window.open`):
+
+- the site's own origin stays in the app's window. A same-site new-window link opens in this
+  window, not a second one;
+- `http`, `https` and `mailto` off the site go to the system's default handler (the browser, the
+  mail app) through the opener plugin, called from Rust (`on_navigation`, `on_new_window` in
+  `app/src/routes.rs`); the window stays where it was;
+- anything else (`file:`, `javascript:`, `data:`, another scheme) is dropped.
+
+No second window is ever opened: one would be outside the `main` window the IPC allow-list names,
+with no way back. Feedback #23: on Windows the feedback form's "See this issue in GitHub" link
+(`target="_blank"`) did nothing, since only navigations were handled and WebView2 drops an
+unhandled new-window request. The opener stays the app's: no opener command is granted to the
+page.
 
 **A debug build only** takes `MAPCRO_URL` (for example `http://127.0.0.1:5173/`, `just dev`) and
 grants the same six commands to that origin at run time (`dev_capability`). A release build
@@ -269,6 +288,15 @@ from `crates/server/src/main.rs`), points a debug build at it with `MAPCRO_URL`,
 - with `--fake-steam`, a fake Steam install (its `libraryfolders.vdf`, Deadlock's manifest, and
   three synthetic `<digits>.dem` files: the 8-byte magic and zeros, never a real demo) is found,
   and `replays_list` lists them newest first, as the replay picker asks for them.
+- links from the page (Links off the site; Linux only, where a stand-in `xdg-open` first on
+  `PATH` records what the opener is handed, so no browser starts): an off-site `window.open` and
+  an off-site plain link each reach the opener and leave the window on the site with no second
+  window; a same-site `window.open` opens in the window and isn't handed to the opener. A
+  `target="_blank"` link is only checked to open no window: clicked over WebKitWebDriver it
+  raises no new-window request at all (neither wry's `create` nor a new-window `decide-policy`;
+  2026-11-11, Xvfb, also with a real X click), so its route is checked on Windows by hand
+  (backlog). On Windows it is WebView2's `NewWindowRequested`, the same `on_new_window` handler
+  `window.open` takes here;
 - a `mapcro://` board link from a second launch opens the board in the window (and the same
   board's other token), links that aren't a board's change nothing, and the app started by a
   link opens on its board (Deep links). On Linux that needs a D-Bus session (`dbus-run-session`;
