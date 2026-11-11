@@ -10,6 +10,7 @@ import type { Death } from "./layers";
 import { slotKey } from "../match/save";
 import { cx } from "../ui/cx";
 import { type MatchEvent, type Timeline, clockLabel } from "../match/timeline";
+import { VIEW_STATE } from "../gen/viewState";
 import { type EventGroup, GROUPS, type Named, eventKey, groupOf, labelParts, search, majorPurchases } from "./events";
 
 export function EventsList(p: {
@@ -33,6 +34,11 @@ export function EventsList(p: {
   /** Whether a death's recap is open, and its toggle (the host's: followers mirror it). */
   recapOpen?: (d: Death) => boolean;
   onRecap?: (d: Death, open: boolean) => void;
+  /** The filter chips on and the search (the host's: followers get the presenter's, spec §8). */
+  filters: () => Set<EventGroup>;
+  setFilter: (g: EventGroup, on: boolean) => void;
+  query: () => string;
+  setQuery: (q: string) => void;
 }) {
   // A purchase's item, or an ult's ability, shows its tooltip on hover (GameTooltip.tsx).
   const tips = useTooltips(() => p.art, () => p.tl.build);
@@ -40,8 +46,8 @@ export function EventsList(p: {
     const id = e.kind === "item_buy" ? Number(e.key) : e.kind === "ult" && e.hero_id != null ? p.art.heroes.get(e.hero_id)?.abilities?.[3] : undefined;
     return id && Number.isFinite(id) && tips()?.tip(id) ? id : undefined;
   };
-  const [query, setQuery] = createSignal("");
-  const [on, setOn] = createSignal(new Set<EventGroup>());
+  const query = () => p.query();
+  const on = () => p.filters();
   const lead = () => p.lead();
   const setLead = (n: number) => p.setLead(n);
   // Ticked events by a stable key, not a position: a replay arriving reorders the list.
@@ -96,7 +102,7 @@ export function EventsList(p: {
   return (
     <div class="pl-events" data-testid="events">
       <div class="pl-events-head">
-        <input class="input" data-testid="events-search" placeholder="Search" aria-label="Search events" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} />
+        <input class="input" data-testid="events-search" placeholder="Search" aria-label="Search events" maxLength={VIEW_STATE["events.search"].max} value={query()} onInput={(e) => p.setQuery(e.currentTarget.value)} />
         <label class="pl-lead" title="Lead">
           −
           <input type="number" min="0" max="60" data-testid="events-lead" aria-label="Lead seconds" value={lead()} onInput={(e) => setLead(Math.max(0, Math.min(60, Number(e.currentTarget.value) || 0)))} />s
@@ -105,7 +111,7 @@ export function EventsList(p: {
       <div class="pl-chips">
         <For each={present()}>
           {(g) => (
-            <button type="button" class={cx("pl-chip", on().has(g.id) && "on")} data-testid={`chip-${g.id}`} aria-pressed={on().has(g.id)} onClick={() => setOn(toggle(on(), g.id))}>
+            <button type="button" class={cx("pl-chip", on().has(g.id) && "on")} data-testid={`chip-${g.id}`} aria-pressed={on().has(g.id)} onClick={() => p.setFilter(g.id, !on().has(g.id))}>
               {g.label}
             </button>
           )}

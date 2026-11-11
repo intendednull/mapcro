@@ -218,6 +218,43 @@ pub struct Playback {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub all_builds: bool,
+    /// Which of Effects and Build order is open in the hero's build `inspect` names (operator
+    /// 2026-11-11). Left out when neither.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub build_popover: Option<BuildPopover>,
+    /// The events list's filter chips that are on, a bit each in `view_state::EVENT_GROUPS`
+    /// order (operator 2026-11-11). Left out when none. Unknown bits are ignored.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<u16>", optional))]
+    pub event_filters: u16,
+    /// The events list's search, at most `MAX_EVENT_SEARCH` bytes, no control characters.
+    /// Left out when empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub event_search: Option<String>,
+}
+
+fn is_zero(n: &u16) -> bool {
+    *n == 0
+}
+
+/// The hero build's two popovers (BuildColumn.tsx); they are one `<details name>` group, so at
+/// most one is open.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BuildPopover {
+    Effects,
+    Order,
+}
+
+/// The events search a presence may carry (bytes).
+pub const MAX_EVENT_SEARCH: usize = 64;
+
+/// Text a person typed that presence carries: short, and no control characters.
+pub fn text_ok(s: &str, max: usize) -> bool {
+    s.len() <= max && !s.chars().any(char::is_control)
 }
 
 /// A roster slot in the open match, as presence carries it.
@@ -369,6 +406,7 @@ impl Presence {
                     && b.jump.as_ref().is_none_or(|j| clock(j.at) && j.key.len() <= MAX_JUMP_KEY && !j.key.chars().any(char::is_control))
                     && [b.skull_recap, b.event_recap].iter().flatten().all(|d| d.slot < MAX_SLOT && d.t <= 86_400)
                     && b.inspect.is_none_or(|s| s.slot < MAX_SLOT)
+                    && b.event_search.as_deref().is_none_or(|q| text_ok(q, MAX_EVENT_SEARCH))
             })
             && self.cursor.as_ref().is_none_or(ok_pos)
             && self.drag.as_ref().is_none_or(|d| ok_pos(&d.pos))
@@ -426,7 +464,7 @@ mod tests {
     }
 
     fn playback() -> Playback {
-        Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: None, vision: None, skull_recap: None, event_recap: None, inspect: None, all_builds: false }
+        Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: None, vision: None, skull_recap: None, event_recap: None, inspect: None, all_builds: false, build_popover: None, event_filters: 0, event_search: None }
     }
 
     #[test]
@@ -438,12 +476,17 @@ mod tests {
         assert!(!with(Playback { skull_recap: death(MAX_SLOT, 40), ..playback() }).is_valid());
         assert!(!with(Playback { event_recap: death(1, 86_401), ..playback() }).is_valid());
         assert!(!with(Playback { inspect: Some(SlotRef { team: Amber, slot: 200 }), ..playback() }).is_valid());
+        // The events search: bounded, and no control characters.
+        let search = |q: &str| with(Playback { event_search: Some(q.to_owned()), ..playback() }).is_valid();
+        assert!(search("haze ult") && search(&"é".repeat(MAX_EVENT_SEARCH / 2)));
+        assert!(!search(&"x".repeat(MAX_EVENT_SEARCH + 1)) && !search("a\nb") && !search("\u{7}"));
+        assert!(with(Playback { build_popover: Some(BuildPopover::Order), event_filters: u16::MAX, ..playback() }).is_valid());
         // Closed panels and absent layers cost nothing on the wire; an older client parses.
         let json = serde_json::to_string(&with(playback())).expect("serialises");
-        for k in ["skull_recap", "event_recap", "inspect", "all_builds", "layers"] {
+        for k in ["skull_recap", "event_recap", "inspect", "all_builds", "layers", "build_popover", "event_filters", "event_search"] {
             assert!(!json.contains(k), "{k} in {json}");
         }
-        let open = Playback { skull_recap: death(3, 12), all_builds: true, ..playback() };
+        let open = Playback { skull_recap: death(3, 12), all_builds: true, build_popover: Some(BuildPopover::Effects), event_filters: 5, event_search: Some("urn".into()), ..playback() };
         let back: Playback = serde_json::from_str(&serde_json::to_string(&open).expect("serialises")).expect("parses");
         assert_eq!(back, open);
         let p = Presence { layers: Some(LAYER_TROOPERS | LAYER_CRATES), ..Default::default() };

@@ -176,11 +176,13 @@ export function Board(p: { board: string; token: string; art: Art }) {
     state.presence({ following: peer });
     setToast(undefined);
   };
+  /** `why`: your own change stopped it, and you keep what you were seeing with it (operator
+   * 2026-11-11); none (the Stop button): your own layers and Vision come back. */
   const stopFollowing = (why?: string) => {
     const was = followed();
     if (following() === undefined) return;
     setFollowing(undefined);
-    player.forget();
+    player.forget(why ? "keep" : "restore");
     state.presence({ following: null });
     if (why && was) say(`Stopped following ${nameOfPeer(was)}`, { label: "Follow again", run: () => follow(was.peer) });
   };
@@ -190,7 +192,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
     const x = followed();
     if (!x) {
       setFollowing(undefined);
-      player.forget();
+      player.forget("restore");
       state.presence({ following: null });
       say("Presenter left");
       return;
@@ -202,10 +204,13 @@ export function Board(p: { board: string; token: string; art: Art }) {
     const side = sideOf(s.view);
     if (side && side !== viewpoint()) setViewpoint(side);
     setView(fromViewport(s.view, side ?? viewpoint()));
-    // Player too: the presenter's mode, match and playback (spec §6b), and their map layers.
-    player.mirrorLayers(s.layers);
-    player.mirror(s.playback);
+    // Player too: the presenter's mode, match and playback (spec §6b), and the registry's view
+    // state (map layers, Vision, panels, events filters).
+    player.mirror(s);
   });
+  // A change of your own to a view-state key that stops following (the registry's `stop`
+  // keys: the map layers, Vision) stops it here.
+  player.onStop(() => stopFollowing("changed map view"));
   createEffect(() => state.presence({ view: toViewport(view(), viewpoint()) }));
   createEffect(() => state.presence({ layers: player.layersWire() }));
   playbackPresence(player, (playback) => state.presence(playback ? { playback } : ({ playback: undefined } as never)));
@@ -768,7 +773,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const mapControls = () => (<MapControls host={player} heals={heals()} crates={crates()}
               toggleHeals={() => player.setShowHeals(!heals())}
               toggleCrates={() => player.setShowCrates(!crates())}
-              flip={flipSide} onUserPlayback={() => stopFollowing("changed map view")} />);
+              flip={flipSide} />);
   const mapBox = (phone: boolean) => (
           <div
             ref={measureMap}

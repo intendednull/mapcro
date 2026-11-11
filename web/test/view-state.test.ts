@@ -4,97 +4,221 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { VIEW_STATE, type ViewKey } from "../src/gen/viewState";
-import { type BitField, type FlagKey, VIEW_KEYS, createViewState } from "../src/player/viewstate";
+import { type ValueOf, type Values, VIEW_KEYS, clipText, createViewState } from "../src/player/viewstate";
+import { GROUPS } from "../src/player/events";
 import { DISCLOSURES, SCANNED, SIGNALS } from "./view-state-ledger";
 
-const all = (on: boolean) => Object.fromEntries(VIEW_KEYS.map((k) => [k, on])) as Record<ViewKey, boolean>;
-const row = (k: ViewKey): { sync: string; field: string | null; mask: number | null; unfollow: string; override: string } => VIEW_STATE[k];
-/** A presenter's value for one key arrives, as presence carries that key. */
-const hear = (s: ReturnType<typeof createViewState>, k: ViewKey, on: boolean, others = false) => {
-  const d = row(k);
-  if (d.mask !== null) {
-    const rest = VIEW_KEYS.filter((j) => j !== k && row(j).field === d.field).reduce((n, j) => (others ? n | row(j).mask! : n), 0);
-    s.mirrorBits(d.field as BitField, rest | (on ? d.mask : 0));
-  } else s.mirrorFlag(k as FlagKey, on);
-};
+type Row = { sync: string; kind: string; options?: readonly string[]; max?: number; field: string | null; mask: number | null; omit: boolean; unfollow: string; override: string; group: string | null; reset: boolean };
+const row = (k: ViewKey): Row => VIEW_STATE[k];
 
-describe("the map layers on the wire", () => {
-  it("has the bits shipped in presence's `layers` (wire.rs LAYER_*)", () => {
-    const bit = (k: ViewKey) => createViewState({ ...all(false), [k]: true }).bits("layers");
-    expect(["layer.troopers", "layer.health", "layer.pings", "layer.cc", "layer.movement", "layer.heals", "layer.crates"].map((k) => bit(k as ViewKey))).toEqual([1, 2, 4, 8, 16, 32, 64]);
-    expect(createViewState(all(true)).bits("layers")).toBe(127);
+/** Three values of a key, all different: a first one, and two others. */
+function samples(k: ViewKey): [unknown, unknown, unknown] {
+  const r = row(k);
+  switch (r.kind) {
+    case "bool":
+      // A boolean has two: the third is the first again (enough to tell a change).
+      return [false, true, false];
+    case "choice":
+      return [r.options![0], r.options![1], r.options![2] ?? r.options![0]];
+    case "slot":
+      return [undefined, "amber-2", "sapphire-4"];
+    case "death":
+      return [undefined, { slot: "sapphire-2", t: 40 }, { slot: "amber-1", t: 20 }];
+    case "deaths":
+      return [[], [{ slot: "sapphire-2", t: 40 }], [{ slot: "amber-1", t: 20 }]];
+    case "text":
+      return ["", "urn", "haze"];
+  }
+  throw new Error(`${k}: kind ${r.kind}`);
+}
+/** Every key at its first sample, or at its second with `others`. */
+const everything = (i: 0 | 1 = 0) => Object.fromEntries(VIEW_KEYS.map((k) => [k, samples(k)[i]])) as Values;
+/** A presenter: a store of its own; its `wire()` is what presence carries. */
+const presenter = (vals: Partial<Values> = {}) => createViewState({ ...everything(), ...vals });
+type Follower = ReturnType<typeof follower>;
+function follower(first = everything()) {
+  const remembered: Array<[ViewKey, unknown]> = [];
+  let stops = 0;
+  const s = createViewState(first, { onOwn: (k, v) => remembered.push([k, v]), onStop: () => void stops++ });
+  return { s, remembered, stopped: () => stops };
+}
+/** A follower hears a presenter's presence, as host.ts `mirror` passes it: every group. */
+const hear = (f: Follower, from: ReturnType<typeof presenter>) => {
+  const w = from.wire();
+  f.s.mirror(w);
+  for (const g of new Set(VIEW_KEYS.map((k) => row(k).group).filter((g) => g !== null))) f.s.mirror(w, g!);
+};
+const shownAs = (k: ViewKey, v: unknown) => JSON.stringify(v ?? null) + `@${k}`;
+const shows = (f: Follower, k: ViewKey) => shownAs(k, f.s.get(k));
+
+describe("the wire", () => {
+  it("has the map layers' bits shipped in presence's `layers` (wire.rs LAYER_*)", () => {
+    const layers = ["layer.troopers", "layer.health", "layer.pings", "layer.cc", "layer.movement", "layer.heals", "layer.crates"] as const;
+    expect(layers.map((k) => presenter({ [k]: true }).wire("layers").layers)).toEqual([1, 2, 4, 8, 16, 32, 64]);
+    expect(presenter(Object.fromEntries(layers.map((k) => [k, true]))).wire().layers).toBe(127);
+    // Sent whole, even all off: absent means an older client.
+    expect(presenter().wire().layers).toBe(0);
   });
-  it("a follower ignores unknown bits, and keeps its own under an older presenter", () => {
-    const s = createViewState(all(false));
-    s.mirrorBits("layers", 128 | 2);
-    expect(s.bits("layers")).toBe(2);
-    s.mirrorBits("layers", undefined);
-    expect(s.bits("layers")).toBe(0);
-    s.mirrorBits("layers", 2);
-    s.mirrorBits("layers", null);
-    expect(s.bits("layers")).toBe(0);
+  it("leaves out what is closed, and carries Vision whole", () => {
+    const w = presenter().wire();
+    expect(w.playback).toEqual({ vision: { team: null, last_seen: false } });
+    const open = presenter({ "builds.all": true, "recap.skull": { slot: "amber-1", t: 20 }, "builds.popover": "order", "events.filter.urn": true, "events.search": "x", "vision.team": "sapphire" }).wire().playback as Record<string, unknown>;
+    expect(open).toMatchObject({ all_builds: true, skull_recap: { team: "Amber", slot: 1, t: 20 }, build_popover: "order", event_filters: 64, event_search: "x", vision: { team: "Sapphire", last_seen: false } });
+  });
+  it("the events filters are the list's chips, a bit each in order", () => {
+    expect(GROUPS.map((g) => g.id).map((id) => row(`events.filter.${id}` as ViewKey).mask)).toEqual(GROUPS.map((_, i) => 1 << i));
+    expect(VIEW_KEYS.filter((k) => k.startsWith("events.filter.")).length).toBe(GROUPS.length);
+  });
+  it("a follower ignores unknown bits and choices, and keeps its own under an older presenter", () => {
+    const f = follower();
+    f.s.mirror({ layers: 128 | 2 });
+    expect(f.s.wire("layers").layers).toBe(2);
+    f.s.mirror({ layers: undefined, playback: { vision: { team: "Purple", last_seen: true } } });
+    expect(f.s.get("layer.health")).toBe(false);
+    expect(f.s.get("vision.team")).toBe("all");
+    expect(f.s.get("vision.last_seen")).toBe(true);
+    // No playback at all (Sandbox without a match, an older client): your own Vision.
+    const mine = follower({ ...everything(), "vision.team": "amber" });
+    mine.s.mirror({ playback: { vision: { team: "Sapphire", last_seen: false } } });
+    expect(mine.s.get("vision.team")).toBe("sapphire");
+    mine.s.mirror({});
+    expect(mine.s.get("vision.team")).toBe("amber");
+    // Filters left out at zero mean none when the presenter's playback is there.
+    const g = follower({ ...everything(), "events.filter.death": true });
+    g.s.mirror({ playback: { player: true } }, "events");
+    expect(g.s.get("events.filter.death")).toBe(false);
+    g.s.set("events.filter.death", true);
+    g.s.mirror({}, "events");
+    expect(g.s.get("events.filter.death")).toBe(true);
+  });
+  it("text is clipped to its bytes and loses control characters", () => {
+    const max = VIEW_STATE["events.search"].max;
+    expect(clipText("a\nb\u0007c", max)).toBe("abc");
+    expect(new TextEncoder().encode(clipText("é".repeat(max), max)).length).toBeLessThanOrEqual(max);
+    expect((presenter({ "events.search": "x".repeat(max + 10) }).wire().playback as { event_search: string }).event_search.length).toBe(max);
   });
 });
 
 describe("every registry key follows its row", () => {
   for (const k of VIEW_KEYS) {
     const d = row(k);
-    for (const mine of [false, true]) {
-      const theirs = !mine;
-      const fresh = () => {
-        const remembered: Array<[ViewKey, boolean]> = [];
-        const s = createViewState(all(mine), (key, on) => remembered.push([key, on]));
-        return { s, remembered };
-      };
-      if (d.sync === "personal") {
-        it(`${k} (personal, own ${mine}): never sent, never a presenter's`, () => {
-          const { s, remembered } = fresh();
-          expect(d.field).toBeNull();
-          for (const j of VIEW_KEYS) if (j !== k && row(j).sync === "shared") hear(s, j, theirs, theirs);
-          expect(s.get(k)).toBe(mine);
-          s.set(k, theirs);
-          expect(s.get(k)).toBe(theirs);
-          expect(remembered).toEqual([[k, theirs]]);
-          expect(s.stops(k)).toBe(false);
-          s.forget();
-          expect(s.get(k)).toBe(theirs);
-        });
-        continue;
-      }
-      it(`${k} (own ${mine}): a follower shows the presenter's, and sends what it shows`, () => {
-        const { s, remembered } = fresh();
-        hear(s, k, theirs, mine);
-        expect(s.get(k)).toBe(theirs);
-        if (d.mask !== null) expect((s.bits(d.field as BitField) & d.mask) !== 0).toBe(theirs);
-        // A presenter's value is not your choice: nothing is remembered.
-        expect(remembered).toEqual([]);
+    const [first, second, third] = samples(k);
+    if (d.sync === "personal") {
+      it(`${k} (personal): never sent, never a presenter's, never stops a follow`, () => {
+        const f = follower();
+        expect(d.field).toBeNull();
+        hear(f, presenter(everything(1)));
+        expect(f.s.get(k)).toEqual(first);
+        f.s.set(k, second as never);
+        expect(f.s.get(k)).toEqual(second);
+        expect(f.remembered.filter(([j]) => j === k)).toEqual([[k, second]]);
+        expect(f.stopped()).toBe(0);
+        f.s.forget("restore");
+        expect(f.s.get(k)).toEqual(second);
+        const sent = JSON.stringify(f.s.wire());
+        f.s.set(k, first as never);
+        expect(JSON.stringify(f.s.wire())).toBe(sent);
       });
-      it(`${k} (own ${mine}): stopping ${d.unfollow === "restore" ? "brings your own back" : "leaves it"}`, () => {
-        const { s } = fresh();
-        hear(s, k, theirs, mine);
-        s.forget();
-        expect(s.get(k)).toBe(d.unfollow === "restore" ? mine : theirs);
-      });
-      it(`${k} (own ${mine}): your change while following ${d.override === "stop" ? "stops, keeping the rest of what you saw" : "is yours until theirs changes"}`, () => {
-        const { s, remembered } = fresh();
-        hear(s, k, theirs, theirs);
-        expect(s.stops(k)).toBe(d.override === "stop");
-        s.set(k, mine);
-        // The caller stops the follow for a `stop` key (Player's `mine`); a `local` one goes on.
-        if (d.override === "stop") s.forget();
-        expect(s.get(k)).toBe(mine);
-        const kept = VIEW_KEYS.filter((j) => j !== k && row(j).field === d.field && row(j).override === "stop");
-        // The field's other keys: the presenter's stay on screen, now as your own (remembered).
-        if (d.override === "stop") for (const j of kept) expect(s.get(j)).toBe(theirs);
-        expect(new Map(remembered).get(k)).toBe(mine);
-        if (d.override === "stop") expect(remembered.map(([j]) => j).sort()).toEqual([k, ...kept].sort());
-        if (d.override === "local") {
-          hear(s, k, theirs);
-          expect(s.get(k)).toBe(theirs);
-        }
-      });
+      continue;
     }
+    it(`${k}: a follower shows the presenter's, sends what it shows, and remembers nothing of it`, () => {
+      const f = follower();
+      hear(f, presenter({ [k]: second }));
+      expect(shows(f, k)).toBe(shownAs(k, second));
+      expect(JSON.stringify(f.s.wire())).toBe(JSON.stringify(presenter({ [k]: second }).wire()));
+      expect(f.remembered).toEqual([]);
+      expect(f.stopped()).toBe(0);
+    });
+    it(`${k}: Stop following ${d.unfollow === "restore" ? "brings your own back" : "leaves it"}; the presenter's ${d.unfollow === "restore" ? "comes back on following again" : "stays"}`, () => {
+      const f = follower();
+      const p = presenter({ [k]: second });
+      hear(f, p);
+      f.s.forget("restore");
+      expect(shows(f, k)).toBe(shownAs(k, d.unfollow === "restore" ? first : second));
+      hear(f, p);
+      expect(shows(f, k)).toBe(shownAs(k, second));
+    });
+    it(`${k}: your own change that stops a follow keeps what you saw (operator 2026-11-11)`, () => {
+      const f = follower();
+      hear(f, presenter({ [k]: second }));
+      f.s.forget("keep");
+      expect(shows(f, k)).toBe(shownAs(k, second));
+      // Now your own: a presenter's frame from before no longer counts.
+      f.s.mirror({});
+      expect(shows(f, k)).toBe(shownAs(k, second));
+    });
+    it(`${k}: your change while following ${d.override === "stop" ? "stops it, keeping everything else you saw" : "is yours until the presenter's next change"}`, () => {
+      const f = follower();
+      const p = presenter(everything(1));
+      hear(f, p);
+      f.s.set(k, third as never);
+      expect(shows(f, k)).toBe(shownAs(k, third));
+      expect(new Map(f.remembered).get(k)).toEqual(third);
+      if (d.override === "stop") {
+        expect(f.stopped()).toBe(1);
+        // Every other shared key keeps the presenter's on screen, now as your own: remembered,
+        // and kept when following ends.
+        f.s.forget("restore");
+        for (const j of VIEW_KEYS) if (j !== k && row(j).sync === "shared") expect(shows(f, j)).toBe(shownAs(j, samples(j)[1]));
+        for (const j of VIEW_KEYS) if (j !== k && row(j).unfollow === "restore") expect(new Map(f.remembered).get(j)).toEqual(samples(j)[1]);
+        return;
+      }
+      expect(f.stopped()).toBe(0);
+      // The same presence again (it is resent on every cursor move) doesn't undo yours.
+      hear(f, p);
+      expect(shows(f, k)).toBe(shownAs(k, third));
+      // The presenter's next change to the group wins (for open deaths, the presenter's own:
+      // the follower's stay open beside them).
+      const plus = (v: unknown) => (d.kind === "deaths" ? [...(third as unknown[]), ...(v as unknown[])] : v);
+      p.set(k, first as never);
+      hear(f, p);
+      expect(shows(f, k)).toBe(shownAs(k, plus(first)));
+      p.set(k, second as never);
+      hear(f, p);
+      expect(shows(f, k)).toBe(shownAs(k, plus(second)));
+    });
+    it(`${k}: another match ${d.reset ? "resets it" : "leaves it"}`, () => {
+      const f = follower();
+      f.s.set(k, second as never);
+      f.s.reset();
+      expect(shows(f, k)).toBe(shownAs(k, d.reset ? first : second));
+    });
   }
+  it("a presenter's events recap closes its last; the follower's own stay open", () => {
+    const f = follower();
+    const mine = { slot: "amber-1", t: 20 };
+    const theirs = { slot: "sapphire-2", t: 40 };
+    f.s.set("recap.event", [mine]);
+    const p = presenter();
+    p.set("recap.event", [theirs]);
+    hear(f, p);
+    expect(f.s.get("recap.event")).toEqual([mine, theirs]);
+    p.set("recap.event", []);
+    hear(f, p);
+    expect(f.s.get("recap.event")).toEqual([mine]);
+  });
+  it("a group applies whole: a presenter's change to one panel brings back the panels you closed", () => {
+    const f = follower();
+    const p = presenter({ "recap.skull": { slot: "amber-1", t: 20 } });
+    hear(f, p);
+    f.s.set("recap.skull", undefined);
+    p.set("builds.inspect", "amber-0");
+    hear(f, p);
+    expect(f.s.get("recap.skull")).toEqual({ slot: "amber-1", t: 20 });
+    // Another group's change doesn't: typing in the events search leaves the panels alone.
+    f.s.set("recap.skull", undefined);
+    p.set("events.search", "urn");
+    hear(f, p);
+    expect(f.s.get("recap.skull")).toBeUndefined();
+    expect(f.s.get("events.search")).toBe("urn");
+  });
+  it("a local key's change doesn't stop a follow; nothing stops one but a stop key", () => {
+    for (const k of VIEW_KEYS) {
+      const f = follower();
+      f.s.set(k, samples(k)[1] as never);
+      expect(f.stopped(), k).toBe(row(k).override === "stop" ? 1 : 0);
+    }
+  });
 });
 
 describe("no state in Player or the board without a follow policy", () => {
@@ -128,6 +252,6 @@ describe("no state in Player or the board without a follow policy", () => {
   it("no registry key is also kept as a signal of its own in the host", () => {
     // The migrated ones, by the names they had: back as signals, they would bypass the store.
     const host = readFileSync(new URL("player/host.ts", src), "utf8");
-    for (const gone of ["ownLayers", "theirLayers", "allBuilds", "showNames"]) expect(host).not.toMatch(new RegExp(`\\[\\s*${gone}\\s*,[^\\]]*\\]\\s*=\\s*createSignal`));
+    for (const gone of ["ownLayers", "theirLayers", "allBuilds", "showNames", "ownVision", "ownLastSeen", "theirVision", "skullRecap", "eventRecaps", "openBuild"]) expect(host).not.toMatch(new RegExp(`\\[\\s*${gone}\\s*,[^\\]]*\\]\\s*=\\s*createSignal`));
   });
 });

@@ -173,7 +173,7 @@ const layer = (k: string, d: boolean): Row => ({
   own: onOff(!d),
   theirs: onOff(d),
   noWitness: k === "cc" ? ["cc"] : [],
-  policy: { mirror: true, own: "stops", witness: { vision: "own", cc: "theirs" }, stop: "own", leave: "own", reconnect: "drops" },
+  policy: { mirror: true, own: "stops", witness: { vision: "theirs", cc: "theirs" }, stop: "own", leave: "own", reconnect: "drops" },
 });
 
 const VISION: Row = {
@@ -185,13 +185,13 @@ const VISION: Row = {
   own: "sapphire",
   theirs: "all",
   noWitness: ["vision"],
-  policy: { mirror: true, own: "stops", witness: { cc: "own" }, stop: "own", leave: "own", reconnect: "drops" },
+  policy: { mirror: true, own: "stops", witness: { cc: "theirs" }, stop: "own", leave: "own", reconnect: "drops" },
 };
 const CC = layer("cc", false);
 const WITNESS = { vision: VISION, cc: CC } as const;
 
 /** Stopping the follow by a change to the board, not the store (Board.tsx `stopFollowing(why)`). */
-const boardStop: Policy = { mirror: true, own: "stops", witness: { vision: "own", cc: "own" }, stop: "theirs", leave: "theirs", reconnect: "drops" };
+const boardStop: Policy = { mirror: true, own: "stops", witness: { vision: "theirs", cc: "theirs" }, stop: "theirs", leave: "theirs", reconnect: "drops" };
 /** The panels (spec §8): a follower's own is its own until the presenter's next change. */
 const panel: Policy = { mirror: true, own: "local", stop: "theirs", leave: "theirs", reconnect: "drops" };
 /** The top bar's builds: Stop following is a press outside the top bar, which closes them
@@ -315,7 +315,7 @@ const ROWS: Row[] = [
       await VISION.set(b, "amber");
     },
     noWitness: ["vision"],
-    policy: { mirror: true, own: "stops", witness: { cc: "own" }, stop: "own", leave: "own", reconnect: "drops" },
+    policy: { mirror: true, own: "stops", witness: { cc: "theirs" }, stop: "own", leave: "own", reconnect: "drops" },
   },
   {
     key: "scene",
@@ -446,7 +446,7 @@ const ROWS: Row[] = [
     policy: personal,
   },
   {
-    key: "build.popover",
+    key: "builds.popover",
     read: popover,
     set: async (p, v) => {
       await openInspect(p);
@@ -462,7 +462,7 @@ const ROWS: Row[] = [
       await openInspect(b);
     },
     noWitness: ["vision", "cc"],
-    policy: personal,
+    policy: buildsPanel,
   },
   {
     key: "events.filters",
@@ -472,7 +472,7 @@ const ROWS: Row[] = [
     },
     own: "death",
     theirs: "",
-    policy: personal,
+    policy: panel,
   },
   {
     key: "events.search",
@@ -480,7 +480,7 @@ const ROWS: Row[] = [
     set: (p, v) => p.getByTestId("events-search").fill(v),
     own: "walker",
     theirs: "",
-    policy: personal,
+    policy: panel,
   },
   {
     key: "sidebar.tab",

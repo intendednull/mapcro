@@ -12,7 +12,7 @@ import { BuildColumn } from "./BuildColumn";
 import { GameTip, Hover, useTooltips } from "./GameTooltip";
 import { buildAt } from "../match/builds";
 import { rosterTeamShort } from "../map/model";
-import { For, Show, createMemo, createResource, onCleanup, onMount } from "solid-js";
+import { For, Show, batch, createMemo, createResource, onCleanup, onMount } from "solid-js";
 import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
 import { cx } from "../ui/cx";
 import { teamTotal } from "../core/souls";
@@ -110,13 +110,18 @@ export function PlayerTopBar(p: {
   let el!: HTMLDivElement;
   // The host's, so a follower opens the builds its presenter opens (spec §8).
   const { openBuild, setOpenBuild, allBuilds, setAllBuilds, tabHeld, setTabHeld } = p.host;
+  const popover = { open: p.host.buildPopover, set: p.host.setBuildPopover };
   const expanded = (key: string) => tabHeld() || allBuilds() || openBuild() === key;
-  const closeBuilds = () => { setOpenBuild(undefined); setAllBuilds(false); };
-  const toggleAll = () => { setOpenBuild(undefined); setAllBuilds(v => !v); };
+  // A build opens with neither popover open, as a fresh one did when the popovers were the DOM's.
+  const closeBuilds = () => batch(() => { setOpenBuild(undefined); setAllBuilds(false); p.host.setBuildPopover("none"); });
+  const toggleAll = () => batch(() => { setOpenBuild(undefined); setAllBuilds(v => !v); p.host.setBuildPopover("none"); });
   const toggleBuild = (key: string) => {
     const wasOpen = expanded(key);
-    setAllBuilds(false);
-    setOpenBuild(wasOpen ? undefined : key);
+    batch(() => {
+      setAllBuilds(false);
+      setOpenBuild(wasOpen ? undefined : key);
+      p.host.setBuildPopover("none");
+    });
   };
   // The replay build's stat table (calculated stats) and the investment ladder's (match/stats.ts).
   const build = () => p.host.tl()?.build;
@@ -278,7 +283,7 @@ export function PlayerTopBar(p: {
                 );
               })()}
               <Show when={expanded(key) && player()}>
-                {pl => <BuildColumn inspect={!allBuilds() && !tabHeld()} onSeek={p.onSeek} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} stats={current(statTable(), tableKeyFor(p.art.stats, build()))} ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />}
+                {pl => <BuildColumn inspect={!allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} stats={current(statTable(), tableKeyFor(p.art.stats, build()))} ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />}
               </Show>
               {/* Never under the bar (styles/topbar.css): the name is the portrait's hover label's,
                   and the expanded column's. */}

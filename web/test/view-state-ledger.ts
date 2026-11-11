@@ -7,14 +7,16 @@
 // value in the store (src/player/viewstate.ts). List it here only when it isn't view state, or
 // when it is deliberately each browser's own.
 //
+//   registry  a <details> whose open state is a registry key, passed in as a prop.
 //   wired     view state a follower mirrors through hand-written code (names the presence
-//             field). To be moved into the registry: docs/plans/2026-11-11-view-state-sync.md.
+//             field): the board's scene, viewport and hover, and the playback and jump, left
+//             outside the registry (operator 2026-11-11; plan steps 5, and §3 for the clock).
 //   unshared  view state a follower doesn't get today (docs/backlog.md "Follow: what a follower
 //             still doesn't share"); each needs the operator's yes before it is shared.
 //   personal  each browser's own on purpose.
 //   local     not view state: data, plumbing, a gesture in progress, a dialog.
 
-export type Policy = "wired" | "unshared" | "personal" | "local";
+export type Policy = "registry" | "wired" | "unshared" | "personal" | "local";
 type Entries = Record<string, [Policy, string]>;
 
 /** `createSignal`s, by file (under web/src) and the getter's name. */
@@ -23,14 +25,8 @@ export const SIGNALS: Record<string, Entries> = {
     matches: ["local", "the board's attached matches"],
     mode: ["wired", "playback.player"],
     held: ["local", "the playback kept while in Sandbox"],
-    skullRecap: ["wired", "playback.skull_recap"],
-    eventRecaps: ["wired", "playback.event_recap (the last opened only)"],
-    openBuild: ["wired", "playback.inspect"],
-    tabHeld: ["wired", "playback.all_builds: sent as builds.all's flag while held"],
-    ownVision: ["wired", "playback.vision"],
-    ownLastSeen: ["wired", "playback.vision"],
-    theirVision: ["wired", "playback.vision (the presenter's, beside your own)"],
-    pingable: ["local", "the events shown under the list's filters, which are unshared (Events.tsx)"],
+    tabHeld: ["wired", "playback.all_builds: sent as builds.all's value while held"],
+    pingable: ["local", "the events shown under the list's filters and search (registry keys events.*), from Events.tsx"],
     pings: ["local", "event pings in flight, from playback"],
     lead: ["personal", "the jump lead: a follower gets where the jump landed"],
     matchId: ["wired", "playback.match_id"],
@@ -53,8 +49,6 @@ export const SIGNALS: Record<string, Entries> = {
     theirs: ["local", "the registry store's cells"],
   },
   "player/Events.tsx": {
-    query: ["unshared", "the events search"],
-    on: ["unshared", "the events filters"],
     picked: ["local", "rows ticked to save as scenes"],
     follow: ["unshared", "the list's scroll: following Now or not"],
   },
@@ -92,7 +86,7 @@ export const SIGNALS: Record<string, Entries> = {
     joined: ["local", "the join card"],
     viewpoint: ["wired", "view.side"],
     sceneId: ["wired", "scene"],
-    sideTab: ["unshared", "the sidebar tab, Events or Notes"],
+    sideTab: ["personal", "the sidebar tab, Events or Notes: layout (operator 2026-11-11)"],
     tool: ["personal", "your tool"],
     ink: ["personal", "your colour"],
     toast: ["local", "a message"],
@@ -120,11 +114,11 @@ export const SIGNALS: Record<string, Entries> = {
 
 /** `<details>` elements (their open state lives in the DOM), by file and class. */
 export const DISCLOSURES: Record<string, Entries> = {
-  "player/DeathRecap.tsx": { "death-recap": ["wired", "playback.skull_recap and event_recap: open is a prop from the host"] },
-  "player/BuildOrder.tsx": { "tb-effects tb-order": ["unshared", "Build order open in a hero's build"] },
-  "player/ActiveEffects.tsx": { "tb-effects": ["unshared", "Effects open in a hero's build"] },
+  "player/DeathRecap.tsx": { "death-recap": ["registry", "recap.skull and recap.event: open is a prop from the host"] },
+  "player/BuildOrder.tsx": { "tb-effects tb-order": ["registry", "builds.popover (the inspected build's): open is a prop from the host"] },
+  "player/ActiveEffects.tsx": { "tb-effects": ["registry", "builds.popover (the inspected build's): open is a prop from the host"] },
   "player/ReplayHelp.tsx": { "replay-help": ["local", "help"] },
-  "player/Player.tsx": { "pl-source": ["local", "the replay source"], "map-layers": ["unshared", "the Map layers popover being open"] },
+  "player/Player.tsx": { "pl-source": ["local", "the replay source"], "map-layers": ["personal", "the Map layers popover being open: layout (operator 2026-11-11)"] },
 };
 
 /** The files the guard reads: Player, the board's root and the map's hover. A new file under

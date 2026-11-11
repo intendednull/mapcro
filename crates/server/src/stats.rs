@@ -445,6 +445,7 @@ fn summary(c: &Connection, now: i64, len: i64) -> Res<Report> {
     let job = hist(c, "replay_job_s", since, now)?;
     let parse = hist(c, "parse_s", since, now)?;
     let wait = hist(c, "queue_wait_s", since, now)?;
+    let presence = hist(c, "presence_bytes", since, now)?;
     let _ = writeln!(t, "\nSPEED");
     let _ = writeln!(t, "  op ack ms           {} | prev {}", qtext(ack.get("")), qtext(ack_p.get("")));
     let _ = writeln!(t, "  commit ms           {}", qtext(commit.get("")));
@@ -453,6 +454,7 @@ fn summary(c: &Connection, now: i64, len: i64) -> Res<Report> {
     }
     let _ = writeln!(t, "  queue wait s        {}", qtext(wait.get("")));
     let _ = writeln!(t, "  parse s             {}", qtext(parse.get("")));
+    let _ = writeln!(t, "  presence bytes      {}", qtext(presence.get("")));
 
     // Limits, one line.
     let lim = limits_data(c, now)?;
@@ -484,6 +486,7 @@ fn summary(c: &Connection, now: i64, len: i64) -> Res<Report> {
             "commit_ms": commit.get("").map(quantiles),
             "replay_job_s": job.iter().map(|(k, r)| (k.clone(), quantiles(r))).collect::<BTreeMap<_, _>>(),
             "queue_wait_s": wait.get("").map(quantiles), "parse_s": parse.get("").map(quantiles),
+            "presence_bytes": presence.get("").map(quantiles),
         },
         "limits": lim.iter().map(Limit::json).collect::<Vec<_>>(),
     });
