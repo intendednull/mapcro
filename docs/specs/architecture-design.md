@@ -1506,6 +1506,9 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
     the client clips what it sends, as the server closes a socket that sends more). A follower's
     list, and so its event pings, show the presenter's; like a panel, a follower may filter its
     own without stopping, and the presenter's next change to either wins; stopping keeps them.
+    A presenter's search may hold a player's name (operator 2026-11-11): with Names off, a
+    follower's box shows none of it (blank, "Search"), and its list still finds by name as the
+    presenter's does; Names on, or its own typing, shows the text.
   - **Each browser's own:** Player names, the sidebar tab (Events or Notes) and whether the Map
     layers popover is open (operator 2026-11-11: layout), the tool, ink colour, Comments toggle
     and jump lead. Not followed yet (docs/backlog.md): the events list's scroll and the teleporter

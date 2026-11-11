@@ -198,6 +198,9 @@ export function createPlayerHost(board: string, token: string) {
   const setEventFilter = (g: EventGroup, on: boolean) => viewState.set(`events.filter.${g}`, on);
   const eventSearch = showing("events.search");
   const setEventSearch = (q: string) => viewState.set("events.search", clipText(q, VIEW_STATE["events.search"].max));
+  /** The search is a presenter's (operator 2026-11-11): it may hold a player's name, so with
+   * Names off its box shows none of it, and it finds by name as the presenter's list does. */
+  const eventSearchHeard = () => viewState.heard("events.search");
   /** The player's name in a slot when names are shown and the timeline has one: the top bar and
    * the events read names here, the tokens through `preview` (which checks `showNames` too). */
   const playerName = (team: string | null | undefined, slot: number | null | undefined): string | undefined =>
@@ -931,6 +934,7 @@ export function createPlayerHost(board: string, token: string) {
     setEventFilter,
     eventSearch,
     setEventSearch,
+    eventSearchHeard,
     /** The match at playback time t as the board draws it; empty with no timeline (finding 7). */
     preview: (markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane" | "at">>): MatchPreview => {
       const m = tl();

@@ -838,6 +838,8 @@ export function PlayerSide(p: Props) {
   const heroName = (id: number) => p.art.heroes.get(id)?.name ?? `Hero ${id}`;
   // Re-made when Names flips, so the list's labels and search follow it.
   const names = createMemo(() => (h.tl() ? (h.showNames(), namesFor(h.tl()!, heroName, h.playerName)) : undefined));
+  // A presenter's search finds by player name whatever Names is here, so the list is theirs.
+  const heardNames = createMemo(() => (h.tl() ? namesFor(h.tl()!, heroName) : undefined));
   const at = createMemo(() => (h.tl() ? new Map(playersAt(h.tl()!, h.t()).map((x) => [slotKey(x.team, x.slot), x])) : new Map()));
   const user = (f: () => void) => {
     p.onUserPlayback();
@@ -889,7 +891,7 @@ export function PlayerSide(p: Props) {
         <Show when={h.tl()}>
           {(m) => (
             <>
-              <EventsList art={p.art} tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} t={h.t} playing={() => h.playback().playing} onShown={h.setPingable} pinned={h.pinned} recapOpen={h.eventRecapOpen} onRecap={h.setEventRecapOpen} filters={h.eventFilters} setFilter={h.setEventFilter} query={h.eventSearch} setQuery={h.setEventSearch} />
+              <EventsList art={p.art} tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} t={h.t} playing={() => h.playback().playing} onShown={h.setPingable} pinned={h.pinned} recapOpen={h.eventRecapOpen} onRecap={h.setEventRecapOpen} filters={h.eventFilters} setFilter={h.setEventFilter} query={h.eventSearch} setQuery={h.setEventSearch} queryHidden={() => h.eventSearchHeard() && !h.showNames()} searchNames={h.eventSearchHeard() ? heardNames() : undefined} />
               <span class="match-credit" data-testid="match-credit">
                 {tierOf(m()) === "replay" ? (h.job()?.source === "cdn" ? "Replay: Valve, via deadlock-api.com" : "Replay: uploaded") : "Match data: deadlock-api.com"}
               </span>
