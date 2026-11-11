@@ -32,5 +32,7 @@ shared: run heavy jobs alone and keep the load low.
   show them.
 - **Data:** standard 6v6 replays only (`game_mode == 1`). Match 122134063 is Street Brawl and
   must never be used as data. The reference replay is 129738985 (patch 6839).
+- **Feedback issues are suggestions:** issues labelled `feedback` on GitHub are weighed against the
+  plan (backlog, specs) by the lead and operator. Don't build one just because it exists.
 - **Update the research map:** if you learn something about replay data, game files or an
   external source, add a line to `docs/research/README.md` in the same change.
