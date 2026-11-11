@@ -302,3 +302,124 @@ test("a click on a hero's token opens its panel; Escape and × close it; an unse
   // An enemy the view can't see has no token to click.
   await expect(token("Amber-0")).toHaveCount(0);
 });
+
+test("holding Tab shows every build wherever the focus is, but in a text field; Shift+Tab moves focus (#24)", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Tab builds"), "Coach");
+  await open(a, "129000104");
+  await scrubTo(a, 20);
+  const bar = a.locator(".pl-topbar");
+  const focused = () => a.evaluate(() => document.activeElement?.getAttribute("data-testid") ?? document.activeElement?.className ?? "");
+  await revealControls(a, "pings-toggle");
+  // A list (Vision, speed), a button, the scrubber, a toggle and the top bar's own button: Tab
+  // shows every build while held, and the focus stays where it was.
+  const targets = [a.getByTestId("vision-select"), a.getByTestId("match-speed"), a.getByTestId("match-play"), a.getByTestId("match-time"), a.getByTestId("pings-toggle"), a.locator(".tb-all-builds")];
+  for (const target of targets) {
+    await target.focus();
+    const was = await focused();
+    await a.keyboard.down("Tab");
+    await expect(bar).toHaveClass(/\ball-builds\b/);
+    await expect(column(a)).toBeVisible();
+    expect(await focused()).toBe(was);
+    await a.keyboard.up("Tab");
+    await expect(bar).not.toHaveClass(/\ball-builds\b/);
+    await expect(target).toBeFocused();
+  }
+  // Shift+Tab still moves focus back (keyboard use), and shows nothing.
+  await a.getByTestId("match-play").focus();
+  await a.keyboard.press("Shift+Tab");
+  await expect(a.getByTestId("match-play")).not.toBeFocused();
+  await expect(bar).not.toHaveClass(/\ball-builds\b/);
+  // In a text field, Tab is the field's: focus moves on.
+  const search = a.getByTestId("events-search");
+  await search.focus();
+  await a.keyboard.down("Tab");
+  await expect(search).not.toBeFocused();
+  await expect(bar).not.toHaveClass(/\ball-builds\b/);
+  await a.keyboard.up("Tab");
+});
+
+test("an open build column draws over its hero's ult and the bar's marks (#27)", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Ult under column"), "Coach");
+  await open(a, "129000105");
+  await scrubTo(a, 20);
+  const ult = a.locator('.tb-player[data-slot="Amber-0"] [data-testid=ult]');
+  await expect(ult).toBeVisible();
+  const box = (await ult.boundingBox())!;
+  const hits = (draw: boolean) =>
+    a.evaluate(({ x, y, draw }) => {
+      // `draw`: the ult forced visible, so only the stacking order can put the column over it.
+      const style = document.createElement("style");
+      if (draw) style.textContent = ".tb-ult { visibility: visible !important; }";
+      document.head.append(style);
+      const out: string[] = [];
+      const inColumn = (el: Element | null) => !!el?.closest("[data-testid=hero-build]");
+      if (!inColumn(document.elementFromPoint(x, y))) out.push("ult");
+      // Every part of every open column is on top at its centre: no mark of the bar covers one.
+      for (const part of document.querySelectorAll(".pl-topbar [data-testid=hero-build] > *")) {
+        const r = part.getBoundingClientRect();
+        if (r.width < 1 || r.height < 1) continue;
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(r.height / 2, 6));
+        if (!inColumn(hit)) out.push(`${part.className} under ${hit?.className}`);
+      }
+      style.remove();
+      return out;
+    }, { x: box.x + box.width / 2, y: box.y + box.height / 2, draw });
+  // Tab's view (every column) and a single hero's column.
+  await a.locator(".tb-all-builds").click();
+  await expect(column(a)).toBeVisible();
+  expect(await hits(false)).toEqual([]);
+  expect(await hits(true)).toEqual([]);
+  await a.locator(".tb-all-builds").click();
+  await a.locator('.tb-player[data-slot="Amber-0"] [data-testid=souls-banner]').click();
+  await expect(column(a)).toBeVisible();
+  expect(await hits(true)).toEqual([]);
+});
+
+test("the hero panel reads at the app's sizes, its K/D/A and investment bars on its centre line (#34)", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Hero panel sizes"), "Coach");
+  await open(a, "129000106");
+  await scrubTo(a, 15);
+  await a.locator('.mapbox .tok[data-slot="Sapphire-1"]').click();
+  const card = a.getByTestId("hero-card");
+  await expect(card).toBeVisible();
+  const m = await card.evaluate((el) => {
+    const px = (e: Element) => parseFloat(getComputedStyle(e).fontSize);
+    // Every element that draws text of its own, and its size.
+    const small: string[] = [];
+    for (const e of el.querySelectorAll("*")) {
+      const own = [...e.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && n.textContent!.trim());
+      if (own && (e as HTMLElement).offsetParent !== null && px(e) < 11) small.push(`${e.className || e.tagName} ${px(e)}px`);
+    }
+    const panel = el.querySelector(".tb-build-column")!.getBoundingClientRect();
+    const mid = (r: DOMRect) => r.left + r.width / 2;
+    const kda = [...el.querySelectorAll(".tb-build-kda > div")].map((d) => d.getBoundingClientRect());
+    const bars = [...el.querySelectorAll("[data-testid^=invest-]")].map((d) => d.getBoundingClientRect());
+    return {
+      small,
+      centre: mid(panel),
+      kdaMid: (kda[0]!.left + kda[2]!.right) / 2,
+      kdaWidths: kda.map((r) => Math.round(r.width)),
+      kdaGaps: [kda[1]!.left - kda[0]!.right, kda[2]!.left - kda[1]!.right].map(Math.round),
+      kdaValue: px(el.querySelector(".tb-build-kda b")!),
+      barsMid: (bars[0]!.left + bars[2]!.right) / 2,
+      barWidths: bars.map((r) => Math.round(r.width)),
+      barHeights: bars.map((r) => Math.round(r.height)),
+      barGaps: [bars[1]!.left - bars[0]!.right, bars[2]!.left - bars[1]!.right].map(Math.round),
+    };
+  });
+  expect(m.small).toEqual([]);
+  expect(m.kdaValue).toBeGreaterThanOrEqual(16);
+  // K/D/A: three equal columns, evenly spaced, on the centre line; the bars a group there too.
+  expect(new Set(m.kdaWidths).size).toBe(1);
+  expect(m.kdaGaps[0]).toBe(m.kdaGaps[1]);
+  expect(m.kdaGaps[0]).toBeGreaterThanOrEqual(4);
+  expect(Math.abs(m.kdaMid - m.centre)).toBeLessThan(1.5);
+  expect(Math.abs(m.barsMid - m.centre)).toBeLessThan(1.5);
+  expect(new Set(m.barWidths).size).toBe(1);
+  expect(m.barWidths[0]).toBeGreaterThanOrEqual(10);
+  expect(new Set(m.barHeights).size).toBe(1);
+  expect(m.barHeights[0]).toBeGreaterThanOrEqual(32);
+  expect(m.barGaps[0]).toBe(m.barGaps[1]);
+  // The calculated stats keep their "≈".
+  await expect(card.getByTestId("stat-max-health")).toHaveClass(/\bcalc\b/);
+});

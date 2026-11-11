@@ -179,13 +179,34 @@
 
 /* ---- the minimap's hero panel (HeroCard.tsx) ---- */
 .hero-panel {
-  position: absolute; z-index: 19; left: 12px; top: 44px; width: min(240px, calc(100% - 24px)); max-height: calc(100% - 56px); overflow: auto;
+  position: absolute; z-index: 19; left: 12px; top: 44px; width: min(256px, calc(100% - 24px)); max-height: calc(100% - 56px); overflow: auto;
   background: #10130Dee; border: 1px solid #ffffff18; border-radius: 6px; box-shadow: 0 10px 30px #0008; color: #FFEFD7;
 }
 .hero-panel-head { display: flex; align-items: center; gap: 8px; padding: 6px 6px 0 8px; font-size: 13px; }
 .hero-panel-head img { width: 24px; height: 24px; }
 .hero-panel-head span { flex: 1; }
-/* The Tab column's parts at a compact scale, in flow. */
-.hero-panel .tb-build-column { position: static; width: auto; --u: 1px; padding: 0 8px 8px; }
+/* The Tab column's parts in flow, at the panel's reading sizes (#34): the top bar's Tab column
+   keeps the HUD's scale. Text no smaller than 11 px; a centred column on one spacing step
+   (4, 8, 12 px): K/D/A in three fixed columns, the investment bars a group under them, both on
+   the panel's centre line. */
+.hero-panel .tb-build-column { position: static; width: auto; --u: 1px; padding: 2px 10px 10px; }
 .hero-panel .tb-build-column::before { display: none; }
-.hero-panel .tb-build-items { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.hero-panel .tb-build-name { height: auto; font-size: 15px; line-height: 1.25; }
+.hero-panel .tb-build-hero { min-height: 0; margin-top: 1px; font-size: 11px; letter-spacing: 0.04em; color: #d7cdb7a6; }
+.hero-panel .tb-build-kda { grid-template-columns: repeat(3, 48px); justify-content: center; column-gap: 8px; margin: 12px 0 8px; }
+.hero-panel .tb-build-kda small { font-size: 11px; line-height: 1.2; color: #d7cdb7a6; }
+.hero-panel .tb-build-kda b { font-size: 17px; line-height: 1.2; }
+.hero-panel .tb-build-investment { gap: 8px; height: 36px; margin: 0 0 12px; }
+.hero-panel .tb-build-investment > .gt-anchor > span, .hero-panel .tb-build-investment > span { width: 10px; border-radius: 2px; }
+.hero-panel .tb-build-vitals { margin-bottom: 12px; font-size: 15px; }
+.hero-panel .tb-build-resists, .hero-panel .tb-build-power { gap: 12px; margin-top: 4px; font-size: 13px; }
+.hero-panel .tb-build-abilities { gap: 8px; margin: 0; padding-bottom: 12px; }
+.hero-panel .tb-build-levels { gap: 3px; height: 15px; margin-bottom: 4px; }
+.hero-panel .tb-build-cooldown { font-size: 14px; }
+.hero-panel .tb-build-circle .tb-build-cooldown { font-size: 12px; }
+.hero-panel .tb-build-tier { font-size: 11px; }
+.hero-panel .tb-build-charges { min-width: 14px; font-size: 11px; }
+.hero-panel .tb-build-circle .tb-build-charges { width: 16px; height: 16px; }
+.hero-panel .tb-build-items { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 0; }
+.hero-panel .tb-effects, .hero-panel .tb-build-empty, .hero-panel .tb-build-column .tb-order .tb-order-row { font-size: 12px; }
+.hero-panel .tb-build-popovers { margin-bottom: 12px; }

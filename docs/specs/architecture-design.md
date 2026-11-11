@@ -1137,8 +1137,11 @@ makes a board with that match attached and lands in Player; **New board** is tod
   or pauses. A Space-drag still only pans, and nothing fires while typing. Viewing a scene, ← →
   step scenes instead. Space plays or pauses wherever the focus is (2026-11-11, feedback #11,
   #3: a clicked button, the scrubber, the speed or Vision list, a checkbox or a disclosure no
-  longer takes it), except in a text field, a dialog or a menu (`core/keys.ts` `spacePlays`).
+  longer takes it), except in a text field, a dialog or a menu (`core/keys.ts` `boardKeys`).
   Keyboard-only users press a focused button with Enter; Space on it plays or pauses.
+  Holding Tab shows every build (All builds, as the game's scoreboard) wherever the focus is, in
+  the same places (2026-11-11, feedback #24): plain Tab no longer moves focus through the board's
+  controls, while Shift+Tab still does, and a text field, a dialog or a menu keeps its Tab.
 - **Troopers** (replay tier, on by default): each lane trooper as a small dot in its team's
   colour with a dark rim, under the heroes, sliding between the 1 Hz samples and gone when it
   dies; like the map's icons it keeps its size on screen as you zoom. The game's files don't

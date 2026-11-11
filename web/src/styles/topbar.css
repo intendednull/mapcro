@@ -252,8 +252,13 @@
 .tb-build-column { position: absolute; top: calc(112 * var(--u)); left: 2.5%; width: 95%; padding: calc(5 * var(--u)) calc(6 * var(--u)) calc(10 * var(--u)); color: #ded6c4; text-align: center; font-family: "VALVEOracle", var(--ui); }
 .tb-build-column::before { content: ""; position: absolute; top: calc(-112 * var(--u)); bottom: 0; left: 0; right: 0; z-index: 0; background: linear-gradient(180deg, #a382626b 0%, #443e3b99 50%, #242723b8 100%); pointer-events: none; }
 .sapphire > .tb-build-column::before { background: linear-gradient(180deg, #4566ab8a 0%, #363e5999 50%, #1b2330b8 100%); }
-.tb-build-column > * { position: relative; z-index: 1; }
-.build-open > .tb-ult { visibility: hidden; }
+/* The column's parts draw over every mark of the slot and the bar under them (#27): the souls
+   tab (1), the badge (2), health, respawn and the portrait's button (3), the ult and the vision
+   eye (4), and the bar's centre (z-index auto). Its backer (::before, 0) stays under the
+   portrait. The open hero's ult hides under its column (the column shows the ult's state), as
+   before its hover wrapper (a display: contents anchor) broke the child selector. */
+.tb-build-column > * { position: relative; z-index: 5; }
+.build-open .tb-ult { visibility: hidden; }
 .tb-build-name { height: calc(18 * var(--u)); color: #ded6c4; font-size: max(9px, calc(14 * var(--u))); line-height: 1.2; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tb-build-hero { min-height: calc(14 * var(--u)); font: 600 max(7px, calc(10 * var(--u))) "VALVEPulp", var(--ui); text-transform: uppercase; color: #d7cdb78c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tb-build-kda { display: grid; grid-template-columns: repeat(3, 1fr); margin: calc(5 * var(--u)) 0 calc(9 * var(--u)); }
@@ -302,12 +307,14 @@
 .tb-host.compact .tb-all-builds { top: calc(62 * var(--u) + 43px); }
 .tb-host.compact .tb-build-column { top: calc(96 * var(--u) + 12px); }
 
-/* Keep map controls from showing through the translucent scoreboard. */
-.stage:has(.build-open) .map-controls { visibility: hidden; }
+/* Keep map controls from showing through the translucent scoreboard. Faded, not hidden: a
+   focused control (the Vision list) keeps the focus while Tab is held (#24). */
+.stage:has(.build-open) .map-controls { opacity: 0; }
+.stage:has(.build-open) .map-controls * { pointer-events: none !important; }
 
 .tb-effects { margin: 0 0 calc(8 * var(--u)); font: max(9px, calc(11 * var(--u))) var(--ui); text-align: left; }
 .tb-effects summary { color: var(--muted); cursor: pointer; white-space: nowrap; }
-.tb-build-column > .tb-effects[open], .tb-build-column > .tb-build-popovers:has(details[open]) { z-index: 6; }
+.tb-build-column > .tb-effects[open], .tb-build-column > .tb-build-popovers:has(details[open]) { z-index: 7; }
 .tb-build-popovers { margin: 0 0 calc(8 * var(--u)); }
 .tb-build-popovers > .tb-effects { margin: 0 0 calc(3 * var(--u)); }
 /* Build order (BuildOrder.tsx): a row per buy, sale or upgrade; a press seeks there. Rows after

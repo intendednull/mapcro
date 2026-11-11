@@ -19,6 +19,9 @@ const open: Open[] = [];
 /** The body children this module made inert (and only those are given back). */
 const made = new Set<HTMLElement>();
 
+/** A modal is open: Tab is its own (it wraps inside it), not the board's. */
+export const modalOpen = () => open.length > 0;
+
 /** Inert everything but the top modal's host; with none open, give everything back. */
 function settle() {
   const el = open[open.length - 1]?.root();

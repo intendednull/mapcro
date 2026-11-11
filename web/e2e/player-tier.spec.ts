@@ -81,7 +81,8 @@ test("the chip names the tier; an upload upgrades it in place, keeping the time,
   const b = await joinNew(browser, url, "Marrow");
   await b.getByTestId("follow-Coach").click();
   await expect(chip(b)).toHaveText("API summary");
-  // For everyone else it says what the summary lacks.
+  // For everyone else it says what the summary lacks: there the chip is a button.
+  expect(await chip(b).evaluate((el) => el.tagName)).toBe("BUTTON");
   await chip(b).click();
   await expect(b.getByTestId("tier-why")).toContainText("No health, ult timers, zipline colours, camps, rifts or powerups");
   await b.screenshot({ path: "shots/tier-api-summary.png" });
@@ -103,10 +104,18 @@ test("the chip names the tier; an upload upgrades it in place, keeping the time,
   writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify(replayTimeline()));
   await expect(chip(a)).toHaveText("Full replay");
   await expect(chip(a)).toHaveClass(/\breplay\b/);
+  // At the full replay a press opens nothing (#36): a tag with its hover hint, not a button.
+  const tag = await chip(a).evaluate((el) => ({ tag: el.tagName, role: el.getAttribute("role"), tabIndex: el.tabIndex, cursor: getComputedStyle(el).cursor }));
+  expect(tag).toEqual({ tag: "SPAN", role: null, tabIndex: -1, cursor: "default" });
+  await expect(chip(a)).toHaveAttribute("title", "Parsed from the replay file");
+  await chip(a).click();
+  await expect(a.getByTestId("tier-why")).toHaveCount(0);
+  await expect(a.getByTestId("replay-prompt")).toHaveCount(0);
   await expect(a.getByTestId("match-clock")).toHaveText("5:00 / 21:40");
   await expect(a.getByTestId("match-upload")).toHaveCount(0);
   await a.screenshot({ path: "shots/tier-full-replay.png" });
   // The follower upgrades too (it's watching the same board's match), and stays on the time.
   await expect(chip(b)).toHaveText("Full replay", { timeout: 15000 });
+  expect(await chip(b).evaluate((el) => el.tagName)).toBe("SPAN");
   await expect(b.getByTestId("match-clock")).toHaveText("5:00 / 21:40");
 });
