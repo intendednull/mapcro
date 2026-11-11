@@ -1,7 +1,7 @@
 //! Match import (docs/research/match-replay.md, v1): `GET /api/matches/{id}` fetches a match's
 //! metadata from deadlock-api.com, derives a compact timeline (positions at 1 s, health, deaths,
 //! objectives, mid boss kills, souls samples) and caches it under `DATA_DIR/matches/<id>.json`.
-//! Browsers never call the upstream: the CSP stays `connect-src 'self'`, users' addresses stay
+//! Browsers never call the upstream: the CSP's `connect-src` is `'self'` (plus the desktop app's IPC channel only), users' addresses stay
 //! private, and one cached copy serves a whole room.
 //!
 //! **Personal data:** a player is a team, a slot and a hero. Account ids in the upstream response

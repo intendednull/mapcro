@@ -213,7 +213,7 @@ async fn serve() {
         .layer(header(
             "content-security-policy",
             "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; \
-             img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; \
+             img-src 'self' blob: data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; \
              form-action 'none'",
         ))
         // Outermost, so every route, the fallback and every status is counted.

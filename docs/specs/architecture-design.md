@@ -300,7 +300,7 @@ and shared boards therefore follow one code path and one set of tests.
 [match replay](../research/match-replay.md); this is its v1 path.
 
 - **Source:** deadlock-api.com's match metadata, through our server only. Browsers never call it,
-  so the CSP keeps `connect-src 'self'`. We hold no Steam account.
+  so the CSP's `connect-src` is `'self'` plus only the Windows app's IPC channel (`ipc: http://ipc.localhost`, operator 2026-11-10; nothing answers there in a browser). We hold no Steam account.
 - **Server:** `GET /api/matches/{id}` derives a compact timeline and caches it as
   `DATA_DIR/matches/<id>.json` (matches don't change). The timeline has, for each player, team,
   slot and hero, world x/y at each game second, health, deaths and souls samples. It also has

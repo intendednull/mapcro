@@ -1169,6 +1169,8 @@ async fn the_csp_forbids_plugins() {
     let r = ureq::get(&server.url("/healthz")).call().expect("healthz");
     let csp = r.headers().get("content-security-policy").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
     assert!(csp.contains("object-src 'none'"), "{csp}");
+    // connect-src is ours plus only the Windows app's IPC channel (spec §6a): no other origin.
+    assert!(csp.contains("connect-src 'self' ipc: http://ipc.localhost;"), "{csp}");
 }
 
 /// A hand-driven session: authenticated and helloed, nothing read yet.
