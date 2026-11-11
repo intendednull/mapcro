@@ -18,6 +18,8 @@ let server: Server;
 let release!: () => void;
 const released = new Promise<void>((ok) => (release = ok));
 const hits: string[] = [];
+/** The salts reads of match `id`, in order, with their query. */
+const saltsReads = (id: number) => hits.filter((h) => h.split("?")[0] === `/v1/matches/${id}/salts`);
 
 /** The trimmed real metadata as match `id`, started a day ago (inside Valve's three weeks). */
 function meta(id: number) {
@@ -29,8 +31,10 @@ function meta(id: number) {
 
 test.beforeAll(async () => {
   upstream = createServer(async (req, res) => {
-    const url = req.url ?? "";
-    hits.push(url.split("?")[0]!);
+    // Kept with its query: the server reads salts free (`?disable_steam=true`) first, and asks
+    // the read that may go to Steam only for a match with no row (spec §6a, Fetch).
+    hits.push(req.url ?? "");
+    const url = (req.url ?? "").split("?")[0]!;
     const m = /^\/v1\/matches\/(\d+)\/metadata/.exec(url);
     if (m) {
       res.writeHead(200, { "content-type": "application/json" });
@@ -98,7 +102,8 @@ test("opening a match fetches its replay: the chip goes from fetching to Full re
   await expect(chip).toHaveText("Full replay", { timeout: 15_000 });
   await expect(chip).toHaveAttribute("data-tier", "replay");
   await a.screenshot({ path: "shots/autofetch-full.png" });
-  expect(hits.filter((h) => h === `/v1/matches/${ID}/salts`)).toHaveLength(1);
+  // One free read: deadlock-api has its row, so no Steam lookup.
+  expect(saltsReads(ID)).toEqual([`/v1/matches/${ID}/salts?disable_steam=true`]);
 });
 
 test("a match Valve has no replay for settles on the summary and asks the tab that opened it", async ({ browser }) => {
@@ -114,5 +119,7 @@ test("a match Valve has no replay for settles on the summary and asks the tab th
   // Opened again (a new board): deadlock-api isn't asked again.
   const b = await openFromLanding(browser, NONE);
   await expect(b.getByTestId("match-tier")).toHaveAttribute("data-why", "Replay not found yet");
-  expect(hits.filter((h) => h === `/v1/matches/${NONE}/salts`)).toHaveLength(1);
+  // No row: the free read, then one Steam lookup (the match ended a day ago, past the ~2 h salts
+  // pass). The second open asks nothing.
+  expect(saltsReads(NONE)).toEqual([`/v1/matches/${NONE}/salts?disable_steam=true`, `/v1/matches/${NONE}/salts`]);
 });

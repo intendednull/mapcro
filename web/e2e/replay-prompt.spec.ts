@@ -24,7 +24,7 @@ const BAD = 130816403;
 const LOADED = 130816404;
 /** For the upload from the prompt (salts 404). */
 const UP = 130816405;
-/** Rate-limited (asked last: the backoff holds every fetch). */
+/** Rate-limited on the Steam read (asked last: the backoff holds every no-row lookup). */
 const LIMITED = 130816406;
 
 const queue = mkdtempSync(join(tmpdir(), "mapcro-e2e-prompt-"));
@@ -54,8 +54,9 @@ function meta(id: number, ageDays: number) {
 
 test.beforeAll(async () => {
   upstream = createServer(async (req, res) => {
+    hits.push(req.url ?? "");
+    const free = (req.url ?? "").includes("disable_steam=true");
     const url = (req.url ?? "").split("?")[0]!;
-    hits.push(url);
     const m = /^\/v1\/matches\/(\d+)\/metadata$/.exec(url);
     if (m) {
       res.writeHead(200, { "content-type": "application/json" });
@@ -66,7 +67,8 @@ test.beforeAll(async () => {
       const id = Number(s[1]);
       await held.get(id);
       if (id === DOWN) return res.writeHead(500).end("{}");
-      if (id === LIMITED) return res.writeHead(429, { "retry-after": "600" }).end("{}");
+      // deadlock-api's 429 is its Steam budget: the free read of a match with no row is a 404.
+      if (id === LIMITED && !free) return res.writeHead(429, { "retry-after": "600" }).end("{}");
       if (id === BAD) return res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ match_id: id, cluster_id: 404, replay_salt: 77, metadata_salt: 9 }));
     }
     if (url === `/cdn/404/1422450/${BAD}_77.dem.bz2`) return res.writeHead(200).end("<html>not a replay</html>");
@@ -101,7 +103,9 @@ function timeline(id: number) {
   };
 }
 const demo = (kb = 64) => Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(kb * 1024, 7)]);
-const salts = (id: number) => hits.filter((h) => h === `/v1/matches/${id}/salts`).length;
+/** Lookups of match `id`: each starts with the free read (`?disable_steam=true`); a match with no
+ *  row past the ~2 h salts pass then also gets one Steam read (spec §6a, Fetch). */
+const salts = (id: number) => hits.filter((h) => h === `/v1/matches/${id}/salts?disable_steam=true`).length;
 
 async function openFromLanding(browser: Browser, id: number, viewport = { width: 1440, height: 900 }, phone = false) {
   const p = await (await browser.newContext({ viewport, ...(phone ? { hasTouch: true, isMobile: true } : {}) })).newPage();
