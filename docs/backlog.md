@@ -3,6 +3,26 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Feedback wave 3: hotkeys, names, layout (2026-11-11, operator decisions)
+
+Decided; to build after fix-batch-3 (#24 #26 #27 #34 #36) lands, as one batch:
+
+- **#28 tool keys:** Q Select, W Laser, E Draw, A Arrow, S Comment, D Erase. **C opens the Clear
+  menu; Shift+C clears everything at once** (one undoable step; operator: "a button that clears
+  without opening the menu").
+- **#30 split scene:** T.
+- **#31:** the Move tool is renamed **Select**.
+- **#32 Vision keys:** 1 Hidden King, 2 Archmother, 3 All.
+- **#29:** each Vision option shows its key, e.g. "Vision: All [3]"; tool hovers show the new keys.
+- **#33:** Map layers and Vision sit at the bottom left of the map pane, just above the timeline
+  controls, so the Tab panel never covers them.
+
+After view-state (the registry) lands:
+
+- **#35 / #37 draggable panels:** the death recap and hero panels drag by their top; several hero
+  panels can be open at once. Followers get *which* panels are open (view-state), not where the
+  presenter put them; each screen places them itself.
+
 ## Rift troopers: follow-ups (2026-11-11, lead QA of 03fda8c)
 
 - **The "Rift trooper" hover rarely wins on real data.** On 129738985 at the 13:00 capture, the
