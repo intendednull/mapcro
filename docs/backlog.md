@@ -122,6 +122,16 @@ much they matter.
   - **Download link for Linux.** "Get the Windows app" shows on Windows only; a Linux link
     (AppImage) would need a label and a release flag like `WINDOWS_APP_RELEASED`.
   - **WebKit in CI.** `just e2e-webkit` is opt-in and local; the main CI runs no e2e at all.
+- **Board links (2026-11-11, deep-links; desktop/README.md, Deep links).** Built: `mapcro://`
+  registration, the hand-off to the running app, Open in app, Open link and Ctrl+L. Left:
+  - **Check on Windows by hand:** a browser's "Open in app" asks to open mapcro and the app
+    opens the board, cold and running; the NSIS uninstaller removes `HKCU\Software\Classes\mapcro`.
+  - **Check on a real Linux desktop:** clicking a `mapcro://` link in Firefox and Chrome with
+    the .deb installed, and with an AppImage (its self-registration writes a desktop file in
+    `~/.local/share/applications` on every start).
+  - **Open in app on Linux browsers,** with the Linux download link (above): the same gate.
+  - **Open in app when the app isn't installed** does nothing visible (the browser drops an
+    unknown scheme). A "Get the Windows app" fallback beside it is one option.
 
 ## The salts backoff holds back free reads (2026-11-10, from salts-docs)
 

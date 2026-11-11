@@ -37,6 +37,12 @@ The app reads these and nothing else on the machine:
 We don't use steamlocate's `find_app`, because it lists each library's `steamapps` folder (every
 installed game's manifest).
 
+A `mapcro://` board link (below) is read, checked and followed, never logged or kept: its
+token stays in the URL's fragment, which the site never sends to the server (spec §11). An
+AppImage writes one file to register the scheme (`~/.local/share/applications/
+mapcro-desktop-handler.desktop`, Deep links); the installers and packages write nothing at run
+time.
+
 The page asks the server for each listed match's preview (heroes, kills, souls, the winner: no
 names or ids). Nothing is sent or logged except match ids and reason codes. That means no paths, no player
 names and no account ids. A timeline does carry the match's hero and player data, the same data
@@ -75,9 +81,53 @@ both). This was checked under Xvfb with a debug build against a page that sent t
 `ipc: http://ipc.localhost` to `connect-src` gives `ArrayBuffer`s (checked the same way). That
 is a server CSP change and an open decision (spec §6a keeps `connect-src 'self'`).
 
+No `deep-link` plugin command is granted either (`get_current`, `register`, …): the app reads
+the link in Rust (`app/src/links.rs`).
+
 **A debug build only** takes `MAPCRO_URL` (for example `http://127.0.0.1:5173/`, `just dev`) and
 grants the same four commands to that origin at run time (`dev_capability`). A release build
 ignores the variable.
+
+## Deep links
+
+A shared board opens in the app from a link. The canonical form is
+
+    mapcro://b/<board>#<token>
+
+the site's share link (`https://mapcro.dmgdeadlock.com/b/<board>#<token>`, spec §11) with
+`https://mapcro.dmgdeadlock.com` swapped for `mapcro://`. The token stays in the fragment.
+
+- **Registration.** `tauri.conf.json` `plugins.deep-link.desktop.schemes` is `["mapcro"]`
+  (`tauri-plugin-deep-link`). The NSIS installer writes it per-user (`HKCU\Software\Classes\mapcro`,
+  `"<app>.exe" "%1"`); the .deb's desktop file (and so the nix package's) carries
+  `MimeType=x-scheme-handler/mapcro` and `Exec=… %u` (our template, `app/linux/mapcro.desktop`:
+  Tauri's own has no `%u`, so a launcher wouldn't pass the link). An AppImage isn't installed, so it
+  registers itself on each start (`register_all`: a `…-handler.desktop` in
+  `~/.local/share/applications` made the `x-scheme-handler/mapcro` default with `xdg-mime`). CI
+  checks the installer's registry key and the .deb's desktop file.
+- **Delivery.** The system starts the app with the link as its one argument. A first instance
+  opens its window on the board instead of the landing (`links::first_page`). With the app
+  running, the second launch hands its argument over (`tauri-plugin-single-instance` with its
+  `deep-link` feature: a named pipe on Windows, D-Bus on Linux) and exits; the running app shows
+  its window and navigates it to the board (`links::listen`). The same board with another token
+  is a fragment change, and the page reloads on `hashchange` (`web/src/core/applink.ts`).
+- **Validation** (`core/src/link.rs`, tests there): only `mapcro://b/<22 base64url>#<43
+  base64url>` (one `/` after the board id allowed) or the site's own
+  `https://mapcro.dmgdeadlock.com/b/<board>#<token>`, at most 256 ASCII bytes; scheme and host
+  without case. Anything else (another host, a query, more path, escapes, padding, another
+  length) is ignored with `link ignored: not a board link`. The target is always the window's
+  own site (`<site>/b/<board>#<token>`; a debug build's `MAPCRO_URL` origin), so a link can't
+  point the window anywhere else. `Board`'s `Debug` prints no token; nothing logs the link.
+- **In the page** (spec §6b): on a board page in a browser, **Open in app** is the board's
+  `mapcro://` link. It shows where "Get the Windows app" does: a Windows browser, never in the
+  app, once `WINDOWS_APP_RELEASED` is on (Linux when its download link ships, backlog). In the
+  app, the landing's **Open link** field and **Ctrl+L** anywhere take a pasted link in either
+  form (or on the page's own origin, for a dev server), checked by the same rules
+  (`parseBoardLink`); anything else says "Not a board link".
+- **Smoke test:** a second launch with a board link moves the window to it, the same board's
+  other token too, three links that aren't a board's change nothing, and the app started by a
+  link opens on its board. On Linux the hand-off needs a D-Bus session: `just desktop-smoke`
+  and CI run `dbus-run-session`, so it never reaches an app on your desktop's bus.
 
 ## The parse: a child process
 
@@ -171,15 +221,19 @@ from `crates/server/src/main.rs`), points a debug build at it with `MAPCRO_URL`,
 
 - the page loads, and the IPC bridge (`__TAURI_INTERNALS__.invoke`) is there;
 - `replay_read` refuses an id that isn't digits;
-- no plugin command is the page's: opener, dialog, updater, window, webview and event are each
-  refused by the ACL;
+- no plugin command is the page's: opener, dialog, updater, window, webview, event and deep-link are
+  each refused by the ACL;
 - with `--fake-steam`, a fake Steam install (its `libraryfolders.vdf`, Deadlock's manifest, and
   three synthetic `<digits>.dem` files: the 8-byte magic and zeros, never a real demo) is found,
   and `replays_list` lists them newest first, as the replay picker asks for them.
+- a `mapcro://` board link from a second launch opens the board in the window (and the same
+  board's other token), links that aren't a board's change nothing, and the app started by a
+  link opens on its board (Deep links). On Linux that needs a D-Bus session (`dbus-run-session`;
+  without one those checks are skipped).
 
 It never calls `replays_choose_folder` (that opens the native dialog). Locally:
-`nix develop .#desktop -c just desktop-smoke` (Xvfb; the fake Steam is found through
-`XDG_DATA_HOME`). On Windows CI the registry value `HKLM\SOFTWARE\Wow6432Node\Valve\Steam`
+`nix develop .#desktop -c just desktop-smoke` (Xvfb and a private D-Bus session; the fake Steam
+is found through `XDG_DATA_HOME`). On Windows CI the registry value `HKLM\SOFTWARE\Wow6432Node\Valve\Steam`
 `InstallPath` points at the fake root (the job also writes `HKCU\Software\Valve\Steam`
 `SteamPath`, as Steam does, though the app doesn't read it).
 
@@ -226,7 +280,8 @@ Each release:
 4. After the first release, turn the site's download link on. Set `WINDOWS_APP_RELEASED = true`
    in `web/src/player/desktop.ts` and deploy. "Get the Windows app" then shows on Windows
    browsers only (never inside the app): beside the replays folder link, in "Where's my
-   replay?", and in the landing page's footer.
+   replay?", and in the landing page's footer. Board pages
+   get **Open in app** (their `mapcro://` link) the same way.
 
 Builds have no Authenticode signature (operator, 2026-11-10: unsigned beta). On first run,
 Windows SmartScreen says "Windows protected your PC" (More info → Run anyway).

@@ -250,10 +250,11 @@
       };
 
       # The Tauri shell on Linux (desktop/README.md): its build deps, plus what the smoke test of
-      # the real app needs (desktop/smoke: tauri-driver, WebKitGTK's WebKitWebDriver, Xvfb, Node).
+      # the real app needs (desktop/smoke: tauri-driver, WebKitGTK's WebKitWebDriver, Xvfb, a private
+      # D-Bus session for the single-instance hand-off of a mapcro:// link, Node).
       devShells.${system} = {
         desktop = pkgs.mkShell {
-          packages = with pkgs; [ rust just pkg-config cargo-tauri tauri-driver webkitgtk_4_1 xvfb-run nodejs_24 ];
+          packages = with pkgs; [ rust just pkg-config cargo-tauri tauri-driver webkitgtk_4_1 xvfb-run dbus nodejs_24 ];
           buildInputs = desktopLibs ++ [ pkgs.glib-networking ];
           # TLS for the webview in a local run (the wrapper does this in the package).
           GIO_EXTRA_MODULES = "${pkgs.glib-networking}/lib/gio/modules";

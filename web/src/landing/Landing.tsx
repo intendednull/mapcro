@@ -15,7 +15,8 @@ import { navigate } from "../core/nav";
 import { LIMITS } from "../gen/limits";
 import { feedbackEnabled } from "../core/feedback";
 import { FeedbackButton } from "../ui/Feedback";
-import { windowsAppLink } from "../player/desktop";
+import { bridge, windowsAppLink } from "../player/desktop";
+import { OpenLinkForm } from "../ui/OpenLink";
 import { type Picked, ReplayPicker, pickerSource } from "../player/ReplayPicker";
 
 export function Landing() {
@@ -219,6 +220,12 @@ export function Landing() {
         </form>
         <Show when={error()}>
           <p class="error">{error()}</p>
+        </Show>
+        {/* The app has no address bar: a shared board link is pasted here (or Ctrl+L). */}
+        <Show when={bridge()}>
+          <p class="entry-or">or</p>
+          <p class="entry-label">Open link</p>
+          <OpenLinkForm />
         </Show>
         <Show when={boards.length > 0}>
           <h2>Your boards</h2>

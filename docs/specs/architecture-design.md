@@ -1137,6 +1137,17 @@ makes a board with that match attached and lands in Player; **New board** is tod
       never in the app. It sits beside Link replays folder, in "Where's my replay?" and in the
       landing's footer. It stays off until the first release (`WINDOWS_APP_RELEASED`). There is
       no Linux link yet (backlog).
+    - **Board links (operator, 2026-11-11; desktop/README.md, Deep links):** a shared board
+      opens in the app. `mapcro://b/<board>#<token>` is the canonical form: the share link (§11)
+      with the scheme and host swapped, the token still in the fragment. The installer (per-user)
+      and the Linux packages register the scheme; a link starts the app on that board, or the
+      running app's window goes to it. Only a board id and token of the site's shapes are
+      followed, and only to the board's page on the site; anything else is ignored. The link is
+      never logged. On a board page in a browser, **Open in app** is that link, gated like the
+      download link (a Windows browser, never in the app, `WINDOWS_APP_RELEASED`). In the app
+      (no address bar), the landing's **Open link** field and **Ctrl+L** anywhere take a pasted
+      share link, the site's or the `mapcro://` form; anything else reads "Not a board link". A
+      board page whose fragment changes (the same board, another token) loads again.
     - **Linux (2026-11-10, branch `linux-desktop`):** the same app on WebKitGTK, built as an
       AppImage, a .deb and `nix build .#mapcro-desktop`; it behaves as on Windows. Gated on the
       e2e suite passing in WebKit (`just e2e-webkit`, operator). The NVIDIA blank-window

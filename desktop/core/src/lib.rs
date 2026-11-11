@@ -7,12 +7,14 @@
 //! - [`folder`]: which folder the picker lists: the one the user chose, else Deadlock's own.
 //! - [`replays`]: the folder's `<match id>.dem` files, and nothing else in it.
 //! - [`parse`]: a demo to a gzip timeline, in a child process.
+//! - [`link`]: a `mapcro://` board link, checked and mapped to the board's page on the site.
 //!
 //! Privacy: nothing here logs a path, a player name or an account id. A replay leaves this crate
 //! only as its match id, its size, its time and its timeline (which the server shows on the board
 //! anyway).
 
 pub mod folder;
+pub mod link;
 pub mod parse;
 pub mod replays;
 pub mod steam;

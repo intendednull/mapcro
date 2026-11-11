@@ -35,6 +35,7 @@ import { recapOf } from "../player/recap";
 import { RiftRings } from "../player/Rift";
 import { liveLayer } from "../player/layer";
 import { PlayerTopBar } from "../player/PlayerTopBar";
+import { OpenInApp } from "../ui/OpenLink";
 import { Layers, calloutOrder } from "./Layers";
 import { FRESH_BOARD, randomRosterOps, sceneMatchName } from "./roster";
 import { HeroPicker } from "./HeroPicker";
@@ -901,6 +902,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           <For each={people()}>{(peer) => <Avatar name={peer.state!.name || "?"} color={peer.state!.color} title={peer.state!.name || "Joining"} />}</For>
         </div>
         <FeedbackButton variant="bar" match={feedbackMatch} />
+        <OpenInApp board={p.board} token={p.token} />
         <Show when={state.role()}>
           <button class="btn ghost" data-testid="clone" onClick={() => setDialog("clone")}>
             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">

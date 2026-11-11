@@ -17,6 +17,8 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
+mod links;
+
 /// The site the window loads. A debug build takes `MAPCRO_URL` instead (a local dev server).
 const SITE: &str = "https://mapcro.dmgdeadlock.com";
 const WINDOW: &str = "main";
@@ -174,8 +176,10 @@ fn run() {
     let shared = Arc::new(Shared::default());
     let site = site();
     tauri::Builder::default()
-        // First: a second launch shows this one's window instead.
+        // First: a second launch shows this one's window instead, and (its `deep-link` feature)
+        // hands its mapcro:// link to the deep-link plugin first (links.rs).
         .plugin(tauri_plugin_single_instance::init(|app, _, _| show(app)))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -191,7 +195,9 @@ fn run() {
             {
                 *c = folder::load(&config);
             }
-            window(&handle, &site)?;
+            window(&handle, &links::first_page(&handle, &site))?;
+            links::listen(&handle, &site, WINDOW);
+            links::register_appimage(&handle);
             check_for_update(&handle);
             Ok(())
         })
