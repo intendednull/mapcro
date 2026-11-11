@@ -1,0 +1,40 @@
+[package]
+name = "boon-deadlock"
+version.workspace = true
+rust-version.workspace = true
+edition = "2024"
+description = "Boon is a Deadlock demo / replay file parser"
+license = "MIT"
+repository = "https://github.com/pnxenopoulos/boon"
+documentation = "https://docs.rs/boon-deadlock"
+authors = ["Peter Xenopoulos"]
+keywords = ["deadlock", "demo", "parser", "replay", "source2"]
+categories = ["game-development", "parser-implementations", "encoding", "parsing"]
+
+[dependencies]
+memmap2 = "0.9"
+pbdems2 = { workspace = true }
+prost.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+snap = "1.1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+sha2 = "0.10"
+tempfile = "3"
+thiserror = "2.0"
+
+boon-proto = { workspace = true }
+
+[dev-dependencies]
+criterion.workspace = true
+
+[lib]
+name = "boon"
+path = "src/lib.rs"
+
+[[bench]]
+name = "parse"
+harness = false
+
+[lints]
+workspace = true

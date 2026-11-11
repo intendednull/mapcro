@@ -2,7 +2,12 @@
 resolver = "3"
 members = ["crates/schema", "crates/engine", "crates/sim", "crates/server", "crates/wasm", "crates/extract", "crates/replay", "crates/stats", "desktop/core"]
 # The Tauri shell is its own workspace: it needs WebKitGTK to build on Linux (desktop/README.md).
-exclude = ["desktop/app"]
+exclude = ["desktop/app", "crates/vendor"]
+
+# boon and pbdems2, vendored (MIT) with a streamed-reader patch: crates/vendor/VENDORED.md.
+[patch.crates-io]
+boon-deadlock = { path = "crates/vendor/boon-deadlock" }
+pbdems2 = { path = "crates/vendor/pbdems2" }
 
 [workspace.package]
 edition = "2024"

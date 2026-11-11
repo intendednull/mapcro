@@ -1,0 +1,654 @@
+use super::CalculationError;
+use serde::Deserialize;
+use serde_json::{Value, json};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+};
+
+type Result<T> = std::result::Result<T, CalculationError>;
+
+#[derive(Debug, Deserialize)]
+pub(super) struct CatalogFile {
+    catalog: String,
+    pub client_version: String,
+    pub source_commit: String,
+    records: Vec<Record>,
+    #[serde(default)]
+    modifier_value_types: HashMap<u32, String>,
+    #[serde(default)]
+    modifier_states: HashMap<u32, String>,
+    #[serde(default)]
+    scaling_class_defaults: Value,
+    #[serde(default)]
+    generic_data: Value,
+    #[serde(default)]
+    engine_modifier_names: EngineModifierNames,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct EngineModifierNames {
+    records: Vec<EngineModifierName>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EngineModifierName {
+    modifier_id: u32,
+    modifier_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct Record {
+    pub record_key: String,
+    pub definition_path: String,
+    pub definition: Value,
+    pub stat_changes: Vec<Value>,
+    pub hero_id: Option<i64>,
+    pub ability_id: Option<u32>,
+    pub ability_name: Option<String>,
+    pub display_name: Option<String>,
+    pub modifier_id: Option<u32>,
+    pub qualified_modifier_id: Option<u32>,
+    pub misc_id: Option<u32>,
+}
+
+impl Record {
+    /// Borrow the primary weapon block and retain its path for explanations.
+    pub(super) fn weapon_info(&self) -> (&Value, &'static str) {
+        (
+            &self.definition["m_mapWeaponInfos"]["primary"],
+            "m_mapWeaponInfos/primary",
+        )
+    }
+
+    pub(super) fn upgrades_property(&self, property: &str) -> bool {
+        self.definition["m_vecAbilityUpgrades"]
+            .as_array()
+            .is_some_and(|tiers| {
+                tiers.iter().any(|tier| {
+                    tier["m_vecPropertyUpgrades"]
+                        .as_array()
+                        .is_some_and(|changes| {
+                            changes
+                                .iter()
+                                .any(|change| change["m_strPropertyName"] == property)
+                        })
+                })
+            })
+    }
+
+    pub(super) fn is_intrinsic_modifier_of(&self, ability: &Self) -> bool {
+        self.definition_path
+            .strip_prefix(&ability.definition_path)
+            .and_then(|path| path.strip_prefix("/m_AutoIntrinsicModifiers/"))
+            .is_some_and(|index| index.parse::<usize>().is_ok())
+    }
+
+    pub(super) fn is_effect_modifier_of(&self, ability: &Self) -> bool {
+        self.definition_path
+            .strip_prefix(&ability.definition_path)
+            .and_then(|path| path.strip_prefix('/'))
+            .is_some_and(|path| {
+                !path
+                    .split('/')
+                    .any(|part| part == "m_AutoIntrinsicModifiers")
+            })
+    }
+}
+
+/// Parsed definitions from one boon-data snapshot. Reuse across queries.
+#[derive(Debug)]
+pub struct StatCatalog {
+    pub(super) identity: std::sync::Arc<()>,
+    pub data_version: String,
+    pub snapshot_version: String,
+    pub source_commit: String,
+    pub(super) heroes: HashMap<i64, Record>,
+    pub(super) abilities: HashMap<u32, Record>,
+    pub(super) ability_names: HashMap<String, u32>,
+    pub(super) modifier_value_types: HashMap<u32, String>,
+    pub(super) modifier_states: HashMap<String, u32>,
+    pub(super) modifiers: Vec<Record>,
+    modifier_ids: HashMap<u32, Vec<usize>>,
+    engine_modifier_names: HashMap<u32, Option<String>>,
+    conditional_modifiers: HashMap<u32, Option<usize>>,
+    pub(super) misc: HashMap<u32, Record>,
+    pub(super) generic_data: Value,
+    pub(super) scaling_class_defaults: Value,
+}
+
+impl StatCatalog {
+    pub(crate) fn ability_modifier_ids(
+        &self,
+        ability_name: &str,
+        field: &str,
+    ) -> Result<(u32, HashSet<u32>)> {
+        if let Some(&id) = self.ability_names.get(ability_name)
+            && let Some(ability) = self.abilities.get(&id)
+        {
+            let path = format!("{}/{field}", ability.definition_path);
+            let ids: HashSet<_> = self
+                .modifiers
+                .iter()
+                .filter(|record| record.ability_id == Some(id) && record.definition_path == path)
+                .flat_map(|record| {
+                    [record.modifier_id, record.qualified_modifier_id]
+                        .into_iter()
+                        .flatten()
+                })
+                .collect();
+            if !ids.is_empty() {
+                return Ok((id, ids));
+            }
+        }
+        Err(CalculationError::Invalid(format!(
+            "catalog lacks {ability_name}.{field}; refresh boon-data with `boon get VERSION --force`"
+        )))
+    }
+
+    /// Read a verified version installed by `boon get`, downloading it if missing.
+    ///
+    /// # Errors
+    /// Returns an error for unavailable versions, invalid downloads or catalogs.
+    pub fn load(version: &str) -> Result<Self> {
+        let directory = crate::data::catalog_dir(Some(version))?;
+        let mut catalog = Self::from_directory(&directory)?;
+        catalog.data_version = version.into();
+        Ok(catalog)
+    }
+
+    /// Read local catalogs. No network or checksum validation is performed.
+    /// All four files must come from the same snapshot and contain stat lookups.
+    pub fn from_directory(directory: &Path) -> Result<Self> {
+        let heroes = fs::read(directory.join("heroes.json"))?;
+        let abilities = fs::read(directory.join("abilities.json"))?;
+        let modifiers = fs::read(directory.join("modifiers.json"))?;
+        let misc = fs::read(directory.join("misc.json"))?;
+        Self::from_json_bytes(&heroes, &abilities, &modifiers, &misc)
+    }
+
+    /// Read the four boon-data catalogs from JSON bytes.
+    ///
+    /// This is the filesystem-free counterpart to [`Self::from_directory`].
+    /// No network or checksum validation is performed. All four files must
+    /// come from the same snapshot and contain stat lookups.
+    ///
+    /// # Errors
+    /// Returns an error for invalid JSON, catalog definitions or mixed snapshots.
+    pub fn from_json_bytes(
+        heroes: &[u8],
+        abilities: &[u8],
+        modifiers: &[u8],
+        misc: &[u8],
+    ) -> Result<Self> {
+        let read = |name: &str, bytes: &[u8]| -> Result<CatalogFile> {
+            let file: CatalogFile = serde_json::from_slice(bytes).map_err(|e| CalculationError::Invalid(format!(
+                "{name}.json lacks usable stat definitions: {e}; check `boon versions` and install a catalog with `boon get VERSION --force`"
+            )))?;
+            if file.catalog != name {
+                return Err(CalculationError::Invalid(format!(
+                    "expected {name} catalog"
+                )));
+            }
+            Ok(file)
+        };
+        let heroes = read("heroes", heroes)?;
+        let abilities = read("abilities", abilities)?;
+        let mut modifiers = read("modifiers", modifiers)?;
+        let misc = read("misc", misc)?;
+        for file in [&abilities, &modifiers, &misc] {
+            if file.client_version != heroes.client_version
+                || file.source_commit != heroes.source_commit
+            {
+                return Err(CalculationError::Invalid(
+                    "catalogs belong to different snapshots".into(),
+                ));
+            }
+        }
+        let mut modifier_ids: HashMap<u32, Vec<usize>> = HashMap::new();
+        for (i, record) in modifiers.records.iter().enumerate() {
+            for id in [record.modifier_id, record.qualified_modifier_id]
+                .into_iter()
+                .flatten()
+            {
+                let indices = modifier_ids.entry(id).or_default();
+                if !indices.contains(&i) {
+                    indices.push(i);
+                }
+            }
+        }
+        // Engine strings provide names, not effects. Retain collisions as unknown
+        // and use these names only to explain missing stat definitions.
+        let mut engine_modifier_names: HashMap<u32, Option<String>> = HashMap::new();
+        for entry in modifiers.engine_modifier_names.records {
+            engine_modifier_names
+                .entry(entry.modifier_id)
+                .and_modify(|name| {
+                    if name.as_ref() != Some(&entry.modifier_name) {
+                        *name = None;
+                    }
+                })
+                .or_insert(Some(entry.modifier_name));
+        }
+        let ability_names = abilities
+            .records
+            .iter()
+            .filter_map(|r| Some((r.ability_name.clone()?, r.ability_id?)))
+            .collect();
+        let modifier_value_types = abilities.modifier_value_types;
+        let scaling_class_defaults = abilities.scaling_class_defaults;
+        let mut abilities = indexed(abilities.records, |r| r.ability_id)?;
+        bind_undeclared_evasion(&mut abilities, &mut modifiers.records);
+        // Assumption: a unique non-intrinsic modifier can activate its owner's
+        // unbound conditional properties. VData does not prove this link. Keep
+        // ambiguous owners out; the resolver labels uses of this index as inferred.
+        let mut conditional_modifiers = HashMap::new();
+        for (i, record) in modifiers.records.iter().enumerate() {
+            let Some(ability_id) = record.ability_id else {
+                continue;
+            };
+            let Some(owner) = abilities.get(&ability_id) else {
+                continue;
+            };
+            if record.is_effect_modifier_of(owner) {
+                conditional_modifiers
+                    .entry(ability_id)
+                    .and_modify(|candidate| *candidate = None)
+                    .or_insert(Some(i));
+            }
+        }
+        Ok(Self {
+            identity: std::sync::Arc::new(()),
+            data_version: heroes.client_version.clone(),
+            snapshot_version: heroes.client_version,
+            source_commit: heroes.source_commit,
+            heroes: indexed(heroes.records, |r| r.hero_id)?,
+            abilities,
+            ability_names,
+            modifier_value_types,
+            modifier_states: modifiers
+                .modifier_states
+                .into_iter()
+                .map(|(id, name)| (name, id))
+                .collect(),
+            modifiers: modifiers.records,
+            modifier_ids,
+            engine_modifier_names,
+            conditional_modifiers,
+            misc: indexed(misc.records, |r| r.misc_id)?,
+            generic_data: misc.generic_data,
+            scaling_class_defaults,
+        })
+    }
+
+    pub(super) fn weapon(&self, hero: &Record) -> Result<&Record> {
+        let name = hero
+            .definition
+            .pointer("/m_mapBoundAbilities/ESlot_Weapon_Primary")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                CalculationError::Invalid("hero has no primary weapon definition".into())
+            })?;
+        self.ability_names
+            .get(name)
+            .and_then(|id| self.abilities.get(id))
+            .ok_or_else(|| CalculationError::Invalid(format!("missing primary weapon {name}")))
+    }
+
+    pub(super) fn conditional_modifier(&self, ability: u32) -> Option<&Record> {
+        let index = self
+            .conditional_modifiers
+            .get(&ability)
+            .copied()
+            .flatten()?;
+        Some(&self.modifiers[index])
+    }
+
+    pub(crate) fn modifier_state_definitions(
+        &self,
+    ) -> HashMap<u32, Vec<crate::modifier_state::lifetimes::StateDefinition>> {
+        self.modifier_ids
+            .iter()
+            .map(|(&id, indices)| {
+                let definitions = indices
+                    .iter()
+                    .map(|&index| {
+                        let record = &self.modifiers[index];
+                        let mask = record.definition["m_nEnabledStateMask"]
+                            .as_str()
+                            .and_then(|names| {
+                                names
+                                    .split('|')
+                                    .map(str::trim)
+                                    .filter(|name| !name.is_empty())
+                                    .map(|name| {
+                                        let index = *self.modifier_states.get(name)?;
+                                        Some((index as usize / 32, 1 << (index % 32)))
+                                    })
+                                    .collect::<Option<Vec<_>>>()
+                            })
+                            .unwrap_or_default();
+                        crate::modifier_state::lifetimes::StateDefinition {
+                            ability: record.ability_id,
+                            mask,
+                            intrinsic: record
+                                .ability_id
+                                .and_then(|id| self.abilities.get(&id))
+                                .is_some_and(|ability| record.is_intrinsic_modifier_of(ability)),
+                        }
+                    })
+                    .collect();
+                (id, definitions)
+            })
+            .collect()
+    }
+
+    pub(super) fn modifier(&self, id: u32, ability: Option<u32>) -> Result<&Record> {
+        let candidates = self.modifier_ids.get(&id).ok_or_else(|| {
+            let detail = self
+                .engine_modifier_names
+                .get(&id)
+                .and_then(Option::as_deref);
+            CalculationError::Invalid(match detail {
+                Some(name) => format!("modifier ID {id} ({name}) has no stat definition"),
+                None => format!("unresolved modifier ID {id}"),
+            })
+        })?;
+        let mut records = candidates.iter().map(|&i| &self.modifiers[i]).filter(|r| {
+            ability.is_none_or(|a| a == 0 || r.ability_id.is_none() || r.ability_id == Some(a))
+        });
+        let record = records.next().ok_or_else(|| {
+            CalculationError::Invalid(format!("modifier {id} has no matching owner"))
+        })?;
+        if records.next().is_some() {
+            return Err(CalculationError::Invalid(format!(
+                "ambiguous modifier ID {id}; an owner is required"
+            )));
+        }
+        Ok(record)
+    }
+}
+
+/// V1 recognizes the exact EvasionPercent property when VData omits its type.
+/// Values and upgrades stay in the catalog; this is not a substring/name search.
+fn bind_undeclared_evasion(abilities: &mut HashMap<u32, Record>, modifiers: &mut [Record]) {
+    for (&id, ability) in abilities {
+        let Some(property) = ability
+            .definition
+            .pointer("/m_mapAbilityProperties/EvasionPercent")
+        else {
+            continue;
+        };
+        // Explicit declarations and bindings always take priority.
+        if property.get("m_eProvidedPropertyType").is_some()
+            || ability
+                .stat_changes
+                .iter()
+                .any(|e| e["property_name"] == "EvasionPercent")
+            || modifiers.iter().any(|m| {
+                m.ability_id == Some(id)
+                    && m.stat_changes
+                        .iter()
+                        .any(|e| e["property_name"] == "EvasionPercent")
+            })
+        {
+            continue;
+        }
+        let mut effect = json!({
+            "stat": "MODIFIER_VALUE_BULLET_EVASION",
+            "property_name": "EvasionPercent",
+            "kind": "ability_property",
+            "value": number(&property["m_strValue"]),
+            "raw_value": property["m_strValue"],
+            "scaling": property["m_subclassScaleFunction"],
+            "usage_flags": "ConditionallyApplied",
+            "definition_path": format!("{}/m_mapAbilityProperties/EvasionPercent", ability.definition_path),
+            "modifier_keys": [],
+        });
+        let mut candidates = modifiers.iter().enumerate().filter(|(_, modifier)| {
+            modifier.ability_id == Some(id)
+                && modifier.is_effect_modifier_of(ability)
+                && !modifier
+                    .definition_path
+                    .split('/')
+                    .any(|part| part == "m_AutoCastDelayModifier")
+        });
+        let first = candidates.next().map(|(index, _)| index);
+        let unique = candidates.next().is_none();
+        if let Some(index) = first.filter(|_| unique) {
+            // Assumption: the owner's unique effect modifier activates this
+            // property. Cast-delay and intrinsic modifiers do not establish it.
+            // Keep the inferred kind so the resolver reports a partial result.
+            let modifier = &mut modifiers[index];
+            let mut bound = effect.clone();
+            bound["kind"] = json!("inferred_property");
+            modifier.stat_changes.push(bound);
+            effect["modifier_keys"] = json!([modifier.record_key]);
+        }
+        // With no unique modifier, retain a declared but unbound contribution.
+        // The resolver reports that missing activation instead of guessing.
+        ability.stat_changes.push(effect);
+    }
+}
+
+fn indexed<K: Eq + std::hash::Hash>(
+    records: Vec<Record>,
+    key: impl Fn(&Record) -> Option<K>,
+) -> Result<HashMap<K, Record>> {
+    let mut result = HashMap::new();
+    for record in records {
+        if let Some(id) = key(&record)
+            && result.insert(id, record).is_some()
+        {
+            return Err(CalculationError::Invalid("duplicate catalog ID".into()));
+        }
+    }
+    Ok(result)
+}
+
+pub(super) fn number(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_str()?.parse().ok())
+        .filter(|v| v.is_finite())
+}
+
+#[cfg(test)]
+pub(super) mod tests {
+    use super::*;
+    use serde_json::json;
+
+    pub fn fixture() -> tempfile::TempDir {
+        let folder = tempfile::tempdir().unwrap();
+        let records = [
+            (
+                "heroes",
+                json!([{"record_key":"heroes#/invented", "definition_path":"/invented", "hero_id":999,
+                "definition":{"m_mapBoundAbilities":{"ESlot_Weapon_Primary":"test_gun"}, "m_mapScalingStats":{"EClipSize":{"eScalingStat":"ETechPower","flScale":0.75}}}, "stat_changes":[]}]),
+            ),
+            (
+                "abilities",
+                json!([{"record_key":"abilities#/test_gun", "definition_path":"/test_gun", "ability_id":123,
+                "ability_name":"test_gun", "definition":{"m_mapWeaponInfos":{"primary":{"m_iClipSize":20}}}, "stat_changes":[]}]),
+            ),
+            (
+                "modifiers",
+                json!([
+                    {"record_key":"misc#/pickup", "definition_path":"/pickup", "modifier_id":5, "qualified_modifier_id":10,
+                        "definition":{}, "stat_changes":[{"stat":"MODIFIER_VALUE_AMMO_CLIP_SIZE_PERCENT","value":4}]},
+                    {"record_key":"abilities#/first", "definition_path":"/first", "modifier_id":6, "qualified_modifier_id":11, "ability_id":123,
+                        "definition":{}, "stat_changes":[]},
+                    {"record_key":"abilities#/second", "definition_path":"/second", "modifier_id":6, "qualified_modifier_id":12, "ability_id":456,
+                        "definition":{}, "stat_changes":[]}
+                ]),
+            ),
+            ("misc", json!([])),
+        ];
+        for (name, records) in records {
+            fs::write(folder.path().join(format!("{name}.json")), serde_json::to_vec(&json!({"catalog":name,"client_version":"12345","source_commit":"test-commit","records":records})).unwrap()).unwrap();
+        }
+        folder
+    }
+
+    fn catalog_files() -> [Vec<u8>; 4] {
+        let folder = fixture();
+        ["heroes", "abilities", "modifiers", "misc"]
+            .map(|name| fs::read(folder.path().join(format!("{name}.json"))).unwrap())
+    }
+
+    fn from_files(files: &[Vec<u8>; 4]) -> Result<StatCatalog> {
+        StatCatalog::from_json_bytes(&files[0], &files[1], &files[2], &files[3])
+    }
+
+    #[test]
+    fn byte_loader_matches_directory() {
+        let folder = fixture();
+        let names = ["heroes", "abilities", "modifiers", "misc"];
+        let files = names.map(|name| fs::read(folder.path().join(format!("{name}.json"))).unwrap());
+        let bytes = from_files(&files).unwrap();
+        let directory = StatCatalog::from_directory(folder.path()).unwrap();
+        assert_eq!(bytes.data_version, directory.data_version);
+        assert_eq!(bytes.snapshot_version, directory.snapshot_version);
+        assert_eq!(bytes.source_commit, directory.source_commit);
+        assert_eq!(
+            bytes.weapon(&bytes.heroes[&999]).unwrap().definition,
+            directory
+                .weapon(&directory.heroes[&999])
+                .unwrap()
+                .definition
+        );
+        assert_eq!(
+            bytes.modifier(10, None).unwrap().stat_changes,
+            directory.modifier(10, None).unwrap().stat_changes
+        );
+    }
+
+    #[test]
+    fn byte_loader_rejects_invalid_json_in_each_catalog() {
+        let files = catalog_files();
+        for index in 0..4 {
+            let mut broken = files.clone();
+            broken[index] = b"not json".to_vec();
+            assert!(from_files(&broken).is_err(), "catalog {index}");
+        }
+    }
+
+    #[test]
+    fn byte_loader_rejects_the_wrong_catalog_kind() {
+        let files = catalog_files();
+        for index in 0..4 {
+            let mut broken = files.clone();
+            let mut file: Value = serde_json::from_slice(&files[index]).unwrap();
+            file["catalog"] = json!("wrong");
+            broken[index] = serde_json::to_vec(&file).unwrap();
+            assert!(from_files(&broken).is_err(), "catalog {index}");
+        }
+    }
+
+    #[test]
+    fn byte_loader_requires_matching_snapshot_metadata() {
+        let files = catalog_files();
+        for index in 0..4 {
+            for key in ["client_version", "source_commit"] {
+                let mut broken = files.clone();
+                let mut file: Value = serde_json::from_slice(&files[index]).unwrap();
+                file[key] = json!("other");
+                broken[index] = serde_json::to_vec(&file).unwrap();
+                assert!(from_files(&broken).is_err(), "{index} {key}");
+            }
+        }
+    }
+
+    #[test]
+    fn arbitrary_hero_and_weapon_values_come_from_catalog() {
+        let folder = fixture();
+        let first = StatCatalog::from_directory(folder.path()).unwrap();
+        assert_eq!(
+            first.weapon(&first.heroes[&999]).unwrap().definition["m_mapWeaponInfos"]["primary"]["m_iClipSize"],
+            20
+        );
+        assert_eq!(
+            first.heroes[&999].definition["m_mapScalingStats"]["EClipSize"]["flScale"],
+            0.75
+        );
+        let path = folder.path().join("abilities.json");
+        let mut json: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        json["records"][0]["definition"]["m_mapWeaponInfos"]["primary"]["m_iClipSize"] = json!(31);
+        fs::write(path, serde_json::to_vec(&json).unwrap()).unwrap();
+        let second = StatCatalog::from_directory(folder.path()).unwrap();
+        assert_eq!(
+            second.weapon(&second.heroes[&999]).unwrap().definition["m_mapWeaponInfos"]["primary"]
+                ["m_iClipSize"],
+            31
+        );
+    }
+
+    #[test]
+    fn source_ids_disambiguate_without_numeric_stat_enums() {
+        let folder = fixture();
+        let catalog = StatCatalog::from_directory(folder.path()).unwrap();
+        assert_eq!(
+            catalog.modifier(10, None).unwrap().stat_changes[0]["stat"],
+            "MODIFIER_VALUE_AMMO_CLIP_SIZE_PERCENT"
+        );
+        assert!(catalog.modifier(6, None).is_err());
+        assert_eq!(
+            catalog
+                .modifier(6, Some(456))
+                .unwrap()
+                .qualified_modifier_id,
+            Some(12)
+        );
+        assert!(catalog.modifier(123456, None).is_err());
+    }
+
+    #[test]
+    fn engine_names_explain_missing_definitions_without_resolving_them() {
+        let folder = fixture();
+        let path = folder.path().join("modifiers.json");
+        let mut file: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        file["engine_modifier_names"] = json!({"records": [
+            {"modifier_id": 90, "modifier_name": "modifier_known_name"},
+            {"modifier_id": 90, "modifier_name": "modifier_known_name"},
+            {"modifier_id": 91, "modifier_name": "modifier_collision_a"},
+            {"modifier_id": 91, "modifier_name": "modifier_collision_b"},
+            {"modifier_id": 10, "modifier_name": "modifier_has_definition"}
+        ]});
+        fs::write(path, serde_json::to_vec(&file).unwrap()).unwrap();
+        let catalog = StatCatalog::from_directory(folder.path()).unwrap();
+        assert_eq!(
+            catalog.modifier(90, None).unwrap_err().to_string(),
+            "modifier ID 90 (modifier_known_name) has no stat definition"
+        );
+        assert_eq!(
+            catalog.modifier(91, None).unwrap_err().to_string(),
+            "unresolved modifier ID 91"
+        );
+        assert!(catalog.modifier(10, None).is_ok());
+    }
+
+    #[test]
+    fn directory_loader_rejects_mixed_snapshots() {
+        let folder = fixture();
+        fs::write(
+            folder.path().join("misc.json"),
+            r#"{"catalog":"misc","client_version":"1","source_commit":"other","records":[]}"#,
+        )
+        .unwrap();
+        let error = StatCatalog::from_directory(folder.path())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("different snapshots"));
+    }
+
+    #[test]
+    fn directory_loader_explains_how_to_replace_an_old_catalog() {
+        let folder = fixture();
+        fs::write(folder.path().join("heroes.json"), r#"{"catalog":"heroes","client_version":"12345","source_commit":"test-commit","records":[{"hero_id":999,"definition":{}}]}"#).unwrap();
+        let error = StatCatalog::from_directory(folder.path())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("boon versions") && error.contains("boon get"));
+    }
+}
