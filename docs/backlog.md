@@ -280,19 +280,20 @@ days at the 7-day trend). Gaps found while wiring that alert:
   OOM kill (likely reclaimable page cache counted in the cgroup). Confirm what it was before
   raising the limit.
 
-## Several replays on one board, as game tabs (2026-11-10, operator)
+## Sessions: several boards as game tabs (2026-11-10, operator; redirected 2026-11-11)
 
-A multi-game review (series, scrim block) on one board and one URL: a strip of game tabs under the
-header selects the replay; its timeline, events and scenes follow. Design sketch (clickable):
-`/home/intendednull/concierge/artifacts/mapcro-multi-replay/index.html`.
-- Exists: the board's attached-match list (`web/src/player/host.ts` `matches`) and each scene's
-  `source.match_id`, so scenes per game is a filter, not a migration.
-- New: tab order and display names; `?game=<match>` deep link; per-game remembered UI state
-  (time, paused, vision, layers); an LRU of loaded timelines (a long one is ~6 MiB); a
-  Whiteboard tab for scenes with no match; follow/presence carries the presenter's game;
-  per-tab replay-job status (fresh games queue behind the 3/hour lookup limit).
-- Open: removing a game that has scenes (delete them, keep as frozen snapshots, or refuse);
-  per-game notes; a cap (10?). Later: cross-game build comparison, series scoreline.
+A multi-game review (series, scrim block) under one URL, with a strip of game tabs. The first
+sketch put several games on one board (`/home/intendednull/concierge/artifacts/mapcro-multi-replay/index.html`).
+**Operator, 2026-11-11:** don't. Use a **session** instead: a shareable view that links several
+existing boards as tabs. Each tab is a full, normal board with its own room, scenes, notes,
+Player and presence. A switch loads that board's whole state, so nothing leaks across games.
+Removing a tab un-links the board, and undo re-links it. Existing boards can be added. Notes
+are per board. No hard limit on tabs.
+- **Spec: [docs/specs/sessions.md](specs/sessions.md)** (draft): the session document on the
+  sync engine, grants (a session never gives more than its adder had, capped at edit), the
+  isolation rules, follow across tabs, a phased build plan, and 11 open questions for the
+  operator.
+- Later: cross-game build comparison, series scoreline.
 
 ## UX follow-ups from the Argon and Sol passes (2026-11-10, operator approved the first batch)
 
