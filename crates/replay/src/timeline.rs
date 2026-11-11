@@ -208,6 +208,8 @@ pub struct Player {
     pub level: Vec<(u32, Option<u32>)>,
     /// `[second, maximum HP]` on observed changes, including while dead if the pawn has it.
     /// Null marks a missing pawn/value; never inferred from health percent or item stats.
+    /// The recorded value refreshes only at (re)spawn, so it's stale between spawns (it matched
+    /// live metadata at 10 of 132 snapshots; docs/research/README.md "Known dead ends").
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub max_health: Vec<(u32, Option<u32>)>,
     /// Controller's authoritative player-kill total; zero is known, null unavailable.

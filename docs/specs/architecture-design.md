@@ -319,7 +319,10 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
   - **Fetch:** `POST /api/boards/{board}/replays/{id}/fetch` asks deadlock-api's salts endpoint
     for the match's cluster and replay salt, then downloads
     `http://replay{cluster}.valve.net/1422450/{id}_{salt}.dem.bz2` (zstd since 2026-07-20; the
-    magic decides).
+    magic decides). The call doesn't send `disable_steam`: a stored row comes back before
+    deadlock-api's rate limiter, so it's free; only a match with no row spends one of the 3
+    Steam lookups an hour per address, and that GC lookup is the one path that can create a
+    replay salt (docs/research/deadlock-api-salts.md).
   - **Fetched on open (operator, 2026-11-08):** attaching a match to a board (the landing's Open
     match by id, Player's Load) starts that fetch on its own, unless the `cdn` timeline is
     cached or its job is under way (one job for every board: a second board joins it), the
@@ -327,8 +330,8 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     start (`expired`, from the cached metadata; a match without it isn't tried), its fetch
     failed lately, or deadlock-api is backing us off. The mode refusal comes first.
     - **Remembered failures:** no salts or no demo (`no_replay`) and a failed download are kept
-      per match for 6 h, so opening it again doesn't ask deadlock-api (its Steam-sourced salts
-      allow 3 an hour per address). **Fetch replay** stays, and goes past this.
+      per match for 6 h, so opening it again doesn't ask deadlock-api (a no-row lookup spends
+      one of its 3 Steam lookups an hour per address). **Fetch replay** stays, and goes past this.
     - **Pacing:** no fetch cap of ours. deadlock-api's own answers pace them: a `429` from the
       salts endpoint backs every fetch off for its `Retry-After`, else 60 s doubling to an hour,
       and a press of Fetch replay meanwhile is refused (`429 upstream_limited`). Fetches wait in
@@ -538,7 +541,7 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     server share): each worker timeline carries `format` (1 from respawns and the urn; 2 buff
     types and rift openings; 3 the Rejuvenator and rift capture; 4 vision; 5 healing pickups; 6
     the clock holding through a pause; 7 builds, casts, status effects, height and the tough
-    crates; 0 before). Format 3 adds 4.2 KB to 129738985's 1.50 MB; format 4, 26.6 KB (1,501,758
+    crates; 8 each hero's level, max HP, kills and assists; 0 before). Format 3 adds 4.2 KB to 129738985's 1.50 MB; format 4, 26.6 KB (1,501,758
     to 1,528,328 bytes); format 7, 304 KB for the hero data (1,530,253 to 1,834,572 bytes; 577 to
     657 KB gzipped), effects 160 KB and casts 53 KB of it, plus 7.7 KB for the crates. The
     timeline routes answer gzip or zstd to a client that accepts it. New fields are optional, so
@@ -1476,7 +1479,8 @@ syncs that pack to the server's data directory. The server never needs the game 
 pack.json   schema, extractor version,
             game { client_version, source_revision, date },
             sources [{ vpk, path, crc32, size }],       the cheap "did anything change" key
-            heroes [{ hero_id, name, minimap_blob, state,
+            heroes [{ hero_id, class_name, name, dev_state, disabled,
+                      minimap_blob, topbar_blob, card_blob, critical_blob,
                       abilities [4 tokens, slot 1 to 4; 0 unbound] }],
             map { id, transform, layers [] },
             entities [{ key, kind, team, lane, world [x, y, z], src {...} }],

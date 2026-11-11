@@ -17,6 +17,8 @@ Authoritative sources implemented in timeline format 8:
 The level is separate from ability upgrades and pawn `m_nLevel`; no conversion or
 inference is applied. Pregame controller level zero is not treated as a hero level.
 Maximum HP is the recorded integer, independent of health percent and catalog formulas.
+**It refreshes only at (re)spawn,** so it's stale between spawns: it matched the live metadata value at 10 of 132 snapshots (research map "Known dead ends";
+stat-calc-spike.md "Recorded max health", branch `stat-calc`).
 Kills and assists are scoreboard counters, not damage attribution or inferred death credit.
 They establish totals, not which individual death awarded which assistant.
 

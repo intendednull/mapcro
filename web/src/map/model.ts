@@ -6,7 +6,7 @@ import { FALLBACK } from "./fallback-data";
 import { type LaneLine, laneLine, samplePath } from "./lanes";
 import { type Pt, type Transform, type Viewpoint, DEFAULT_TRANSFORM, worldToMap } from "./transform";
 
-/** One entity as the extractor writes it into `pack.json` (schema 2). */
+/** One entity as the extractor writes it into `pack.json` (schema 4; entities since 2). */
 export interface PackEntity {
   key: string;
   kind: string;

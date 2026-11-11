@@ -3,6 +3,20 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## The salts backoff holds back free reads (2026-11-10, from salts-docs)
+
+deadlock-api answers a stored salts row before its rate limiter, so only a lookup of a match with
+no row spends its 3/h Steam budget (docs/research/deadlock-api-salts.md "When the backend asks the
+GC"). Our handling is broader than that, in `crates/server/src/replays.rs`; logged, not changed:
+
+- A 429 sets one backoff for every fetch (`back_off`, `limited`), though reads of matches it
+  holds would still succeed for free. A per-match "no row, limited" mark would let those through.
+- The free 400 "won't be fetched, as it has metadata already" falls into `upstream_down` and the
+  6 h negative cache. It means Steam won't be asked for this match: `no_replay` says it better.
+- A row without `replay_salt` is `no_replay` for 6 h (`NEGATIVE_FOR`), but the share with a salt
+  grows from about 10% at 1 h to 42% at 2 h (salts "Results"), so a match opened at 30 min isn't
+  tried on open again until well after its salt likely arrived. Fetch replay still goes past it.
+
 ## Build the data retention policy, raise caps, cheap storage (2026-11-10, operator: when the limits call for it)
 
 The policy is agreed (architecture-design.md §9a): idle boards expire at 180 days, replay
