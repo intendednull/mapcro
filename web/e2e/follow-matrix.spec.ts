@@ -642,6 +642,8 @@ for (const r of ROWS) {
         await put(r, a, r.theirs);
         await shows(r, b, P.mirror ? seen(r.theirs) : r.own);
         await expect(following(b)).toHaveCount(1);
+        // And says so: the presenter sees its follower on the new connection.
+        await expect(a.getByTestId("presenting")).toContainText("1 following");
       } else {
         await expect(following(b)).toHaveCount(0);
         await shows(r, b, P.leave === "own" || !P.mirror ? r.own : r.theirs);
@@ -689,6 +691,46 @@ test("the presenter's own reconnect keeps the follow", async ({ browser }) => {
   await shows(r, b, r.own);
   await expect(following(b)).toHaveCount(1);
   await expect(b.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  await ctx.close();
+});
+
+// A restart where the presenter is back well after its follower (its reconnect backoff has
+// grown): the follower waits for it longer than for a presenter's own blip (spec §8).
+test("after a restart, a presenter back 9 s after its follower is still followed", async ({ browser }) => {
+  const r = ROWS.find((x) => x.key === "vision.team")!;
+  const url = await newBoardUrl(server, "Presenter back late");
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  let blocked = false;
+  await ctx.routeWebSocket(/\/ws$/, (ws) => {
+    if (blocked) void ws.close();
+    else ws.connectToServer();
+  });
+  const a = await ctx.newPage();
+  await a.goto(url);
+  await a.locator("#join-name").fill("Coach");
+  await a.keyboard.press("Enter");
+  await expect(a.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  await load(a, ID);
+  const b = await joinNew(browser, url, "Second");
+  await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
+  await put(r, b, r.own);
+  await put(r, a, r.theirs);
+  await follow(b);
+  await shows(r, b, r.theirs);
+  blocked = true;
+  await server.kill();
+  await server.start();
+  await expect(b.getByTestId("save-status")).toHaveAttribute("data-connection", "live", { timeout: 20_000 });
+  await b.waitForTimeout(9000);
+  // Still waiting for it, showing what it showed.
+  await expect(following(b)).toHaveCount(1);
+  await shows(r, b, r.theirs);
+  blocked = false;
+  await expect(a.getByTestId("save-status")).toHaveAttribute("data-connection", "live", { timeout: 20_000 });
+  await put(r, a, r.own);
+  await shows(r, b, r.own);
+  await expect(following(b)).toHaveCount(1);
+  await expect(a.getByTestId("presenting")).toContainText("1 following");
   await ctx.close();
 });
 
