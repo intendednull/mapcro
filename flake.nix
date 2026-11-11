@@ -16,10 +16,13 @@
       pkgs = import nixpkgs { inherit system; overlays = [ rust-overlay.overlays.default ]; };
       rust = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
       craneLib = (crane.mkLib pkgs).overrideToolchain (_: rust);
-      # Cargo sources, plus the server's storage dictionaries (`include_bytes!`).
+      # Cargo sources, plus the server's storage dictionaries (`include_bytes!`) and the vendored
+      # crates' markdown (pbdems2 `include_str!`s its guide/*.md as module docs).
       src = pkgs.lib.cleanSourceWith {
         src = ./.;
-        filter = path: type: (craneLib.filterCargoSources path type) || pkgs.lib.hasSuffix ".zdict" path;
+        filter = path: type: (craneLib.filterCargoSources path type)
+          || pkgs.lib.hasSuffix ".zdict" path
+          || (pkgs.lib.hasInfix "/crates/vendor/" path && pkgs.lib.hasSuffix ".md" path);
       };
       commonArgs = { inherit src; strictDeps = true; doCheck = false; };
 
