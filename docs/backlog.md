@@ -3,6 +3,14 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Sixteen e2e tests act on controls the prototype moved into disclosures (2026-11-10, from scene-parity)
+
+On `prototype-layout` (base of scene-parity, checked on its own build too) these time out on a
+hidden control: `match-id` inside the closed `.pl-source` (player-ease ×2, player-rejuv-rift ×4,
+player-urn-respawn ×4, player-visible ×3, hero-focus "in Player"), `crates-toggle` inside Map
+layers (pack "terrain, markers and portraits"), and `scene-note-edit` behind the Notes tab (phone
+"a phone viewer follows"). They need `revealControls` (e2e/helpers.ts) or the Notes tab clicked.
+
 ## Scenes' stage head repeats what the bar and the list show (2026-11-10, from scene-parity)
 
 In Scenes the stage head ("Scene 2 of 2 · 5:00 Match moment", Board.tsx `.stage-head`) sits above
