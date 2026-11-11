@@ -15,6 +15,8 @@ import { rosterTeamShort } from "../map/model";
 import { For, Show, createMemo, createResource, onCleanup, onMount } from "solid-js";
 import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
 import { cx } from "../ui/cx";
+import { boardKeys } from "../core/keys";
+import { modalOpen } from "../ui/modal";
 import { teamTotal } from "../core/souls";
 import { clockLabel, playersAt, scoreboardValueAt, rejuvAt, type PlayerAt, type RejuvNow } from "../match/timeline";
 import { slotKey } from "../match/save";
@@ -137,11 +139,16 @@ export function PlayerTopBar(p: {
         closeBuilds();
         event.preventDefault();
       }
-      // Like the game's scoreboard: holding Tab temporarily reveals every build.
-      if (event.key === "Tab" && !event.shiftKey) {
-        event.preventDefault();
-        setTabHeld(true);
-      }
+    };
+    // Like the game's scoreboard: holding Tab reveals every build, wherever the focus is (#24, as
+    // Space in Player.tsx): a focused button, list or the scrubber doesn't move focus on. A text
+    // field, an open dialog or menu keeps its Tab. Shift+Tab still moves focus back, so the
+    // keyboard can reach the controls. Captured, so no control's own handler sees it first.
+    const tabDown = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.defaultPrevented) return;
+      if (modalOpen() || !boardKeys(event.target as Element | null)) return;
+      event.preventDefault();
+      setTabHeld(true);
     };
     const release = (event: KeyboardEvent) => { if (event.key === "Tab") setTabHeld(false); };
     const blur = () => setTabHeld(false);
@@ -149,7 +156,9 @@ export function PlayerTopBar(p: {
     window.addEventListener("keyup", release);
     window.addEventListener("blur", blur);
     window.addEventListener("keydown", key);
+    window.addEventListener("keydown", tabDown, true);
     onCleanup(() => {
+      window.removeEventListener("keydown", tabDown, true);
       document.removeEventListener("pointerdown", outside);
       window.removeEventListener("keydown", key);
       window.removeEventListener("keyup", release);

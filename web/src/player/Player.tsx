@@ -4,6 +4,7 @@
 
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import type { Art } from "../map/pack";
+import { Dynamic } from "solid-js/web";
 import { cx } from "../ui/cx";
 import { boardKeys } from "../core/keys";
 import type { BoardState } from "../board/state";
@@ -420,7 +421,7 @@ export function Player(p: {
                     ↑ ↓ do (which is the keyboard's way: the ticks aren't in the tab order). */}
                 <div class="pl-ticks">
                   <For each={m().events ?? []}>{(e) => (
-                    <button type="button" tabindex="-1" class={cx("pl-tick", e.kind)} data-testid="scrub-tick" data-t={e.t} data-kind={e.kind}
+                    <button type="button" tabindex="-1" class={cx("pl-tick", e.kind, edge(e.t / Math.max(1, m().duration_s)))} data-testid="scrub-tick" data-t={e.t} data-kind={e.kind}
                       style={{ left: `${(e.t / Math.max(1, m().duration_s)) * 100}%` }}
                       aria-label={`${tickNames() ? shortLabel(e, tickNames()!) : e.kind}, ${clockLabel(e.t)}`}
                       onClick={() => jumpTo(e, h.lead())}>
@@ -666,21 +667,25 @@ export function TierChip(p: { host: PlayerHost }) {
     return !replay() && j?.state === "failed" && j.source === "cdn" ? FETCH_WHY[j.reason ?? ""] : undefined;
   };
   const hint = () => (replay() ? (staleUpload(h.job()) ? `Parsed from the replay file · ${OLDER_PARSE}` : "Parsed from the replay file") : [fetchWhy(), WHAT_SUMMARY_LACKS].filter(Boolean).join(" · "));
+  // A button only where a press opens something (#36): the tab that opened the match gets its
+  // prompt back (spec §6b), and at the API summary everyone else gets the "why". At the full
+  // replay it's a tag with its hover hint.
+  const opens = () => h.canPrompt() || !replay();
   return (
     <span class="pl-tier-wrap">
-      <button
-        type="button"
-        class={cx("pl-tier", replay() ? "replay" : "summary", busy(h.job()) && "busy", fresh() && "fresh")}
+      <Dynamic
+        component={opens() ? "button" : "span"}
+        type={opens() ? "button" : undefined}
+        class={cx("pl-tier", replay() ? "replay" : "summary", busy(h.job()) && "busy", fresh() && "fresh", !opens() && "tag")}
         data-testid="match-tier"
         data-tier={replay() ? "replay" : "metadata"}
         data-why={fetchWhy() ?? ""}
         data-stale={staleUpload(h.job()) ? "true" : undefined}
         title={h.canPrompt() ? PROMPT.chip : hint()}
-        // The tab that opened the match gets its prompt back (spec §6b); everyone else, the hint.
-        onClick={() => (h.canPrompt() ? h.prompt.open() : setWhy(!why()))}
+        onClick={opens() ? () => (h.canPrompt() ? h.prompt.open() : setWhy(!why())) : undefined}
       >
         {text()}
-      </button>
+      </Dynamic>
       <Show when={why() && !replay()}>
         <span class="pl-tier-why" data-testid="tier-why">
           <Show when={fetchWhy()}>
@@ -696,6 +701,9 @@ export function TierChip(p: { host: PlayerHost }) {
     </span>
   );
 }
+
+/** A tick near the scrubber's ends: its tag opens inward, so it stays on screen. */
+const edge = (at: number) => (at < 0.1 ? "near-start" : at > 0.9 ? "near-end" : undefined);
 
 const WHAT_SUMMARY_LACKS = "No health, ult timers, zipline colours, camps, rifts or powerups";
 /** A stale upload's hint (spec §6a, format versions): the newer layers come with the file. */

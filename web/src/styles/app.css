@@ -339,8 +339,11 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-tick { position: absolute; bottom: 0; width: 2px; height: 6px; padding: 0; border: 0; background: var(--faint); transform: translateX(-1px); cursor: pointer; pointer-events: auto; transition: height .1s, width .1s, transform .1s; }
 .pl-tick::before { content: ""; position: absolute; left: -3px; right: -3px; top: -3px; bottom: -2px; }
 .pl-tick:hover { z-index: 2; width: 4px; height: 12px; transform: translateX(-2px); }
-.pl-tick-tag { display: none; position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); padding: 2px 6px; border-radius: 3px; background: var(--panel); border: 1px solid var(--line); color: var(--text); font-size: 11px; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 8px #0006; }
+/* The tick's tag reads as the map's hover label (.hover-label): bold white on the dark pill (#26). */
+.pl-tick-tag { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); padding: 5px 11px; border-radius: 7px; background: #0b1714e6; border: 1px solid #ffffff33; color: #fff; font: 600 15px / 1.2 var(--ui); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 14px #0008; }
 .pl-tick:hover .pl-tick-tag { display: block; }
+.pl-tick.near-start .pl-tick-tag { left: -6px; transform: none; }
+.pl-tick.near-end .pl-tick-tag { left: auto; right: -6px; transform: none; }
 .pl-tick.death { background: var(--warn); }
 .pl-tick.objective, .pl-tick.mid_boss { background: var(--brass); }
 .pl-side { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; height: 62vh; overflow: hidden; border-bottom: 1px solid var(--line-soft); }
@@ -389,6 +392,9 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-tier { font: 600 11.5px var(--ui); border-radius: 999px; padding: 2px 10px; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--faint); }
 .pl-tier.replay { color: #10201c; background: var(--brass); border-color: var(--brass); }
 .pl-tier.busy { color: var(--brass); border-color: var(--brass-dim); }
+/* Not a button where a press opens nothing (#36): the full replay's tag, outlined, as the
+   match panel's (.match-tier.replay). */
+.pl-tier.tag { cursor: default; background: transparent; color: var(--brass); border-color: var(--brass-dim); }
 .pl-tier.fresh { animation: pl-tier-flash 0.8s ease-out 3; }
 @keyframes pl-tier-flash { 50% { box-shadow: 0 0 0 4px #e7b65966; } }
 .pl-tier-why { position: absolute; top: calc(100% + 4px); left: 0; white-space: nowrap; font-size: 11px; color: var(--faint); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; z-index: 2; }

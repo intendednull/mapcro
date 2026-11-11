@@ -157,8 +157,28 @@ test("a scrubber tick grows on hover, shows its tag, and a press jumps there (#6
   await tick.hover();
   await expect(tag).toBeVisible();
   await expect(tag).toHaveText("Walker down");
+  // Readable (#26): as the map's hover label, bold and no smaller than the app's body text, and
+  // all of it on screen.
+  const look = await tag.evaluate((el) => {
+    const s = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    return { size: parseFloat(s.fontSize), weight: Number(s.fontWeight), height: r.height, inside: r.left >= 0 && r.right <= innerWidth && r.top >= 0 };
+  });
+  expect(look.size).toBeGreaterThanOrEqual(14);
+  expect(look.weight).toBeGreaterThanOrEqual(600);
+  expect(look.height).toBeGreaterThanOrEqual(24);
+  expect(look.inside).toBe(true);
   await expect.poll(async () => (await tick.boundingBox())!.height).toBeGreaterThan(before.height);
   await expect(tick).toHaveAttribute("aria-label", "Walker down, 0:30");
+  // The first and last ticks' tags open inward and stay on screen.
+  for (const t of [EVENTS[0]!.t, EVENTS[EVENTS.length - 1]!.t]) {
+    const edge = a.locator(`[data-testid=scrub-tick][data-t="${t}"]`);
+    await edge.hover();
+    const r = (await edge.locator(".pl-tick-tag").boundingBox())!;
+    const bar = (await a.locator(".pl-scrub").boundingBox())!;
+    expect(r.x).toBeGreaterThanOrEqual(bar.x - 8);
+    expect(r.x + r.width).toBeLessThanOrEqual(bar.x + bar.width + 8);
+  }
   await tick.click();
   const lead = Number(await a.getByTestId("events-lead").inputValue());
   await expect.poll(() => clock(a)).toBe(Math.max(0, 30 - lead));
