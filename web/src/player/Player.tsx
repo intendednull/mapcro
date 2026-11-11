@@ -278,7 +278,7 @@ export function Player(p: {
             void h.open(idInput.value.trim(), { attach: canEdit() });
           }}
         >
-          <button class="btn ghost small" type="button" data-testid="mode-sandbox" onClick={() => user(() => { const s = p.scene; h.setMode("sandbox"); if (s) p.onView(s.id); })} title="View the current scene">
+          <button class="btn ghost small" type="button" data-testid="mode-sandbox" onClick={() => user(() => { const s = p.scene; h.setMode("sandbox"); if (s) p.onView(s.id); })} title="Current scene">
             Scenes
           </button>
           <Show when={canEdit()} fallback={<span class="pl-match">{h.matchId() ? `Match ${h.matchId()}` : ""}</span>}>
@@ -305,7 +305,7 @@ export function Player(p: {
           <Show when={canUpload() && !h.notice()}>
             <FolderFound id={h.matchId()} onFile={(f) => void take(f)} />
             <UploadButton />
-            <button class="btn ghost small" type="button" data-testid="match-fetch" onClick={() => void h.fetchReplay()} title="Fetch the replay from Valve">
+            <button class="btn ghost small" type="button" data-testid="match-fetch" onClick={() => void h.fetchReplay()} title="Fetch replay">
               Fetch replay
             </button>
             <ReplayHelp id={h.matchId()} />
@@ -400,7 +400,7 @@ export function Player(p: {
               <button class="btn small" type="button" data-testid="match-back" aria-label="Back 10 s" title="−10 s (← 5 s, Shift+← 30 s)" onClick={() => seekReplay(transportTime() - 10)}>
                 −10
               </button>
-              <button class="btn small pl-play" type="button" data-testid="match-play" aria-label={!watching() ? "Resume replay" : h.playback().playing ? "Pause" : "Play"} title={!watching() ? "Resume replay from this scene" : "Play / Pause (Space)"} onClick={toggleReplay}>
+              <button class="btn small pl-play" type="button" data-testid="match-play" aria-label={!watching() ? "Resume replay" : h.playback().playing ? "Pause" : "Play"} title={!watching() ? "Resume replay" : "Play / Pause (Space)"} onClick={toggleReplay}>
                 {!watching() ? "Resume" : h.playback().playing ? "Pause" : "Play"}
               </button>
               <button class="btn small" type="button" data-testid="match-forward" aria-label="Forward 10 s" title="+10 s (→ 5 s, Shift+→ 30 s)" onClick={() => seekReplay(transportTime() + 10)}>
@@ -516,7 +516,6 @@ export function MapControls(p: {
                   class={cx("btn ghost small", h.showTroopers() && "on")}
                   data-testid="troopers-toggle"
                   aria-pressed={h.showTroopers()}
-                  title="The replay's lane troopers, to check the wave splits"
                   onClick={() => h.setShowTroopers(!h.showTroopers())}
                 >
                   Lane troopers
@@ -528,7 +527,6 @@ export function MapControls(p: {
                   class={cx("btn ghost small", h.showHealth() && "on")}
                   data-testid="health-toggle"
                   aria-pressed={h.showHealth()}
-                  title="Heroes' and objectives' health"
                   onClick={() => h.setShowHealth(!h.showHealth())}
                 >
                   Health bars & arcs
@@ -540,7 +538,6 @@ export function MapControls(p: {
                   class={cx("btn ghost small", h.showNames() && "on")}
                   data-testid="names-toggle"
                   aria-pressed={h.showNames()}
-                  title="Players' names, here only (off for recording without them)"
                   onClick={() => h.setShowNames(!h.showNames())}
                 >
                   Player names
@@ -551,7 +548,6 @@ export function MapControls(p: {
                 class={cx("btn ghost small", h.showPings() && "on")}
                 data-testid="pings-toggle"
                 aria-pressed={h.showPings()}
-                title="Ping each event on the map as playback passes it"
                 onClick={() => h.setShowPings(!h.showPings())}
               >
                 Event pings

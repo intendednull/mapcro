@@ -132,7 +132,7 @@ export function Landing() {
           <Show
             when={app}
             fallback={
-              <label class="btn ghost" title="A .dem from your replays folder">
+              <label class="btn ghost" title="Replay file (.dem)">
                 {file() ? file()!.name : "Select replay file"}
                 <input type="file" accept=".dem" hidden data-testid="open-match-file" onChange={(e) => setFile(e.currentTarget.files?.[0])} />
               </label>
@@ -239,7 +239,7 @@ export function Landing() {
             {(href) => (
               <>
                 {" · "}
-                <a href={href()} target="_blank" rel="noopener" data-testid="windows-app-landing" title="Finds your replays folder on its own">
+                <a href={href()} target="_blank" rel="noopener" data-testid="windows-app-landing" title="Windows app">
                   Get the Windows app
                 </a>
               </>
