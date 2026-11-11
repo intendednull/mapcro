@@ -175,6 +175,28 @@ presence   = other users' cursors and drag previews                   (ephemeral
     upload's bar and percent.
   - **Tested** in `e2e/player-health.spec.ts` and `e2e/player-ease.spec.ts`.
 
+## 4b. Labels and hover text
+
+Operator, 2026-11-10, after the Tab scoreboard's investment bars read "weapon: 4,800 souls in
+equipped items (current shop prices)": hover text had grown into explanations. The rules:
+
+1. **A hover names the thing; it doesn't explain it.** One to three words, sentence case:
+   "Weapon invest", "Kills", "Max health". No caveats, provenance or method ("current shop
+   prices", "calculated", "in this replay") and no numbers the element already shows.
+2. **Use the game's word when the game has one** (its localisation, HUD or the operator's
+   reference screenshots), shortened only as the operator asks. Don't invent labels for things
+   the game names.
+3. **Missing data is "—" on screen and "Not recorded" on hover.** Nothing longer.
+4. **Values follow the game's scale.** A bar, meter or ring fills the way the game's does (its
+   HUD sources or reference screenshots), never relative to something we picked, such as the
+   hero's own largest category.
+5. **Explanations live in docs and dialogs, not hovers**: method and caveats go in the spec, the
+   research map or a help dialog. A calculated value may carry one quiet mark (for example "≈")
+   if the operator approves it.
+
+Reviewers check new or changed `title`, `aria-label` and tooltip text against these rules.
+`aria-label` may say more than the hover when a screen reader needs the context.
+
 ## 5. Offline and reconnect
 
 1. Connect. The socket's first frame is `auth { board, token, known_seq, build? }`. `build` is the
