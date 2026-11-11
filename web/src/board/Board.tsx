@@ -225,6 +225,18 @@ export function Board(p: { board: string; token: string; art: Art }) {
     if (inPlayer()) player.setMode("sandbox");
     userFlip(id);
   };
+  /** A scene saved from the replay: shown (its drawings moved into it), with a toast to go back. */
+  const savedScene = (id: RecordId) => {
+    pickScene(id);
+    const n = state.scenes().findIndex((s) => s.id === id) + 1;
+    say(n ? `Saved scene ${n}` : "Scene saved", {
+      label: "Back to replay",
+      run: () => {
+        stopFollowing("changed the playback");
+        player.setMode("player");
+      },
+    });
+  };
   const userFlip = (id: RecordId) => {
     if (id !== scene()?.id) stopFollowing("flipped the scene");
     setSceneId(id);
@@ -704,7 +716,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
         board={p.board}
         scene={scene()}
         mint={newRecordId}
-        onSaved={pickScene}
+        onSaved={savedScene}
         onView={(id) => {
           stopFollowing("viewed a scene");
           pickScene(id);
@@ -1026,7 +1038,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </div>
           <div id="events-panel" role="tabpanel" aria-labelledby="events-tab" hidden={sideTab() !== "events"}>
           <Show when={player.tl()} fallback={<section class="side-empty">Load a match to browse its events.</section>}>
-            <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={pickScene} onUserPlayback={() => stopFollowing("changed the playback")} />
+            <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={savedScene} onUserPlayback={() => stopFollowing("changed the playback")} />
           </Show>
           </div>
           <section class="people-section">
