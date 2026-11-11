@@ -313,10 +313,8 @@
 .tb-host.compact .tb-build-team-kills { top: calc(62 * var(--u) + 35px + max(calc(40 * var(--u)), 20px) + 1.2 * max(9px, calc(12 * var(--u)))); }
 .tb-host.compact .tb-build-column { top: calc(96 * var(--u) + 12px); }
 
-/* Keep map controls from showing through the translucent scoreboard. Faded, not hidden: a
-   focused control (the Vision list) keeps the focus while Tab is held (#24). */
-.stage:has(.build-open) .map-controls { opacity: 0; }
-.stage:has(.build-open) .map-controls * { pointer-events: none !important; }
+/* The map controls sit at the map pane's foot (#33), below the builds: they stay in sight and in
+   use while Tab is held. */
 
 .tb-effects { margin: 0 0 calc(8 * var(--u)); font: max(9px, calc(11 * var(--u))) var(--ui); text-align: left; }
 .tb-effects summary { color: var(--muted); cursor: pointer; white-space: nowrap; }

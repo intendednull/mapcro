@@ -1,7 +1,7 @@
 // Vision (spec §6b): an enemy hero as the other team saw it, from the timeline's `seen` intervals.
 import { describe, expect, it } from "vitest";
 import type { Timeline } from "../src/match/timeline";
-import { VISIONS, hasVision, seenAt, visionFromWire, visionToWire } from "../src/player/vision";
+import { VISIONS, hasVision, seenAt, visionForCode, visionFromWire, visionKey, visionToWire } from "../src/player/vision";
 
 // Walks east 100 a second; dies at 8 (dead 8 and 9), back at 10. Seen 1.0–3.5 s and 6.0–7.0 s.
 const xs = [0, 100, 200, 300, 400, 500, 600, 700, null, null, 1000, 1100];
@@ -47,5 +47,13 @@ describe("vision in presence (following, spec §6b)", () => {
   it("an older presenter sends none: the follower keeps its own", () => {
     expect(visionFromWire(undefined)).toBeUndefined();
     expect(visionFromWire(null)).toBeUndefined();
+  });
+  it("keys 1 2 3 pick Hidden King, Archmother and All, on the digit row or the numpad (#32)", () => {
+    expect(["Digit1", "Digit2", "Digit3"].map(visionForCode)).toEqual(["amber", "sapphire", "all"]);
+    expect(["Numpad1", "Numpad2", "Numpad3"].map(visionForCode)).toEqual(["amber", "sapphire", "all"]);
+    expect(["Digit4", "Digit0", "KeyA", "Numpad9"].map(visionForCode)).toEqual([undefined, undefined, undefined, undefined]);
+    // The list is in the keys' order, each option's key its place in it.
+    expect(VISIONS.map(visionKey)).toEqual(["1", "2", "3"]);
+    expect(visionKey("all")).toBe("3");
   });
 });

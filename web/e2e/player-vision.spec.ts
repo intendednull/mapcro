@@ -111,7 +111,7 @@ test("each team's view shows its own heroes and the enemies in its sight; Show l
   await a.emulateMedia({ reducedMotion: "reduce" });
   const pick = a.getByTestId("vision-select");
   await expect(pick).toHaveValue("all");
-  await expect(pick.locator("option")).toHaveText(["Vision: All", "Vision: Hidden King", "Vision: Archmother"]);
+  await expect(pick.locator("option")).toHaveText(["Vision: Hidden King [1]", "Vision: Archmother [2]", "Vision: All [3]"]);
 
   // All: every living hero, none a ghost, where the match has it, as before.
   const all: Record<number, Record<string, { x: number; y: number }>> = {};
@@ -184,15 +184,19 @@ test("each team's view shows its own heroes and the enemies in its sight; Show l
   }
 });
 
-test("1 2 3 pick the Vision (the hint on its hover); a mark by the map says whose and whether ghosts show", async ({ browser }) => {
+test("1 2 3 pick Hidden King, Archmother and All, each option showing its key; a mark by the map says whose and whether ghosts show", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Vision keys"), "Coach");
   await open(a);
   const pick = a.getByTestId("vision-select");
   const mark = a.getByTestId("vision-mark");
-  await expect(pick).toHaveAttribute("title", "Vision (1, 2, 3)");
+  await expect(pick).toHaveAttribute("title", "Vision [1 2 3]");
+  await expect(pick).toHaveAttribute("aria-keyshortcuts", "1 2 3");
+  // #29: the closed list reads "Vision: All [3]"; each option has its key.
+  await expect(pick.locator("option:checked")).toHaveText("Vision: All [3]");
+  expect(await pick.locator("option").evaluateAll((os) => os.map((o) => [o.getAttribute("value"), o.getAttribute("aria-keyshortcuts")]))).toEqual([["amber", "1"], ["sapphire", "2"], ["all", "3"]]);
   await expect(mark).toHaveCount(0);
   await a.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-  await a.keyboard.press("2");
+  await a.keyboard.press("1");
   await expect(pick).toHaveValue("amber");
   await expect(mark).toHaveAttribute("data-team", "amber");
   await expect(mark).toHaveText("Hidden King");
@@ -206,13 +210,14 @@ test("1 2 3 pick the Vision (the hint on its hover); a mark by the map says whos
   expect(fb.x).toBeGreaterThan(pb.x);
   expect(fb.x - (pb.x + pb.width)).toBeLessThan(120);
   expect(mb.x).toBeGreaterThan(fb.x + fb.width);
-  await a.keyboard.press("3");
+  await a.keyboard.press("2");
   await expect(pick).toHaveValue("sapphire");
   await expect(mark).toHaveAttribute("data-team", "sapphire");
   // The mark is in the team's colour.
   expect(await mark.locator("i").evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(77, 117, 195)");
-  await a.keyboard.press("1");
+  await a.keyboard.press("3");
   await expect(pick).toHaveValue("all");
+  await expect(pick.locator("option:checked")).toHaveText("Vision: All [3]");
   await expect(mark).toHaveCount(0);
   // Typing, the digits are the field's.
   await a.getByTestId("events-search").fill("");
@@ -520,3 +525,66 @@ test("under reduced motion a hero leaves and enters sight at once", async ({ bro
   expect(await watchFades(a, S0, 2000)).toBe(false);
   await expect(tok(a, "Sapphire-0")).toHaveCount(1);
 });
+
+type Box = { x: number; y: number; width: number; height: number };
+const overlap = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+const boxes = (p: Page, sel: string) => p.locator(sel).evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; }));
+
+for (const [w, h] of [[1280, 720], [1440, 900], [1920, 1080], [2560, 1440], [760, 900]] as const) {
+  test(`at ${w}×${h} Map layers and Vision sit at the map pane's bottom left, above the timeline, and holding Tab never covers them (#33)`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h } });
+    const a = await ctx.newPage();
+    await a.goto(await newBoardUrl(server, "Vision layout"));
+    await a.locator("#join-name").fill("Coach");
+    await a.keyboard.press("Enter");
+    await open(a);
+    await a.getByTestId("vision-select").selectOption("amber");
+    await expect(a.getByTestId("last-seen-toggle")).toBeVisible();
+    await a.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    // At 760 the source panel's Load sits past the narrow stage's edge, and Playwright's click
+    // scrolled the (overflow: hidden) stage to reach it; a person's view starts unscrolled.
+    await a.evaluate(() => (document.querySelector(".stage")!.scrollLeft = 0));
+    const [group] = await boxes(a, ".map-controls");
+    const [pane] = await boxes(a, ".mapfit");
+    const [stage] = await boxes(a, ".stage");
+    const [dock] = await boxes(a, "[data-testid=dock]");
+    const controls = await boxes(a, ".map-controls > :not(.vision-mark)");
+    expect(controls.length).toBeGreaterThanOrEqual(4); // Map layers, Vision, Last seen, Flip map
+    // Bottom left of the map pane, just above the dock (the tools, then the timeline).
+    expect(Math.abs(group!.x - pane!.x)).toBeLessThan(8);
+    expect(group!.y + group!.height).toBeLessThanOrEqual(dock!.y);
+    expect(dock!.y - (group!.y + group!.height)).toBeLessThan(16);
+    for (const c of controls) {
+      expect(c.x).toBeGreaterThanOrEqual(stage!.x);
+      expect(c.x + c.width).toBeLessThanOrEqual(stage!.x + stage!.width + 0.5);
+    }
+    // Clear of the dock: the tools, the scrubber, the transport.
+    const dockParts = await boxes(a, "[data-testid=dock] :is(.toolbar, .pl-transport, .pl-scrub, .pl-tail, .pl-source)");
+    expect(dockParts.length).toBeGreaterThan(0);
+    for (const c of controls) for (const d of dockParts) expect(overlap(c, d)).toBe(false);
+    // Holding Tab, the builds drop over the map's top: the controls stay in sight and on top.
+    await a.keyboard.down("Tab");
+    await expect(a.locator(".build-open").first()).toBeVisible();
+    expect(await a.locator(".map-controls").evaluate((e) => getComputedStyle(e).opacity)).toBe("1");
+    for (const c of await boxes(a, ".tb-build-column")) for (const k of controls) expect(overlap(c, k)).toBe(false);
+    for (const id of ["map-layers-toggle", "vision-select"]) {
+      const hit = await a.getByTestId(id).evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+      });
+      expect(hit, id).toBe(true);
+    }
+    await a.keyboard.up("Tab");
+    // Map layers opens upward, over the map, clear of the dock.
+    await a.getByTestId("map-layers-toggle").click();
+    const [pop] = await boxes(a, ".map-layers-pop");
+    const [toggle] = await boxes(a, "[data-testid=map-layers-toggle]");
+    expect(pop!.y + pop!.height).toBeLessThanOrEqual(toggle!.y);
+    expect(pop!.y).toBeGreaterThanOrEqual(0);
+    expect(overlap(pop!, dock!)).toBe(false);
+    expect(pop!.x).toBeGreaterThanOrEqual(stage!.x);
+    expect(pop!.x + pop!.width).toBeLessThanOrEqual(stage!.x + stage!.width + 0.5);
+    await ctx.close();
+  });
+}
+
