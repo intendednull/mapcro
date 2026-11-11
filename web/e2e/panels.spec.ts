@@ -213,6 +213,13 @@ test("#37 several hero panels open at once; each moves and closes by itself; a p
   await expect(a.getByTestId("hero-card")).toHaveCount(1);
   await a.keyboard.press("Escape");
   await expect(a.getByTestId("hero-card")).toHaveCount(0);
+  // The front one opened first: Escape closes it alone, not the one that comes to the front.
+  for (const s of ["Amber-5", "Amber-4"]) await token(a, s).click();
+  await hero(a, "amber-5").click({ position: { x: 8, y: 120 } });
+  await expect(hero(a, "amber-5")).toHaveAttribute("data-front", "true");
+  await a.keyboard.press("Escape");
+  await expect(hero(a, "amber-5")).toHaveCount(0);
+  await expect(hero(a, "amber-4")).toHaveCount(1);
 });
 
 test("a follower on another screen size sees the same panels at the same places in its pane, each clamped clear of its controls", async ({ browser }) => {
