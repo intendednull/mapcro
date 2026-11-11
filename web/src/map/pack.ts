@@ -3,6 +3,7 @@
 
 import { FALLBACK } from "./fallback-data";
 import { type MapModel, type PackEntity, modelFromEntities, modelFromFallback, withBuiltInFurniture } from "./model";
+import type { TooltipIndex } from "../match/tooltips";
 
 export interface PackBlob {
   sha256: string;
@@ -37,6 +38,8 @@ export interface PackManifest {
   abilities?: { blob: string };
   /** Per-patch stat tables (crates/extract/src/stats.rs); optional, no schema bump. */
   stats?: PackStats;
+  /** Item and ability tooltips (crates/extract/src/tooltips.rs); optional, no schema bump. */
+  tooltips?: { format: number; blob: string; records?: number; overlays?: Record<string, string> };
 }
 
 export interface PackStats {
@@ -113,6 +116,8 @@ export interface Hero {
 export interface Art {
   buildCatalog?: BuildCatalog;
   stats?: StatIndex | undefined;
+  /** The pack's item and ability tooltips (match/tooltips.ts), when it has them. */
+  tooltips?: TooltipIndex | undefined;
   packId: string | undefined;
   version: string | undefined;
   /** The game build's date, as the pack records it ("Nov 05 2026"). */
@@ -203,7 +208,7 @@ export function artFromManifest(base: string, packId: string, m: PackManifest): 
   const entities = m.entities ?? [];
   // A pack without map entities still has portraits; its map falls back to the schematic.
   const model = entities.length ? modelFromEntities(withBuiltInFurniture(entities)) : modelFromFallback(FALLBACK);
-  return { packId, version: String(m.game.client_version), date: m.game.date ? String(m.game.date) : undefined, model, heroes, images, stats: statIndex(m, url) };
+  return { packId, version: String(m.game.client_version), date: m.game.date ? String(m.game.date) : undefined, model, heroes, images, stats: statIndex(m, url), tooltips: tooltipIndex(m, url) };
 }
 
 /** The manifest's `stats` section with blob URLs; undefined when the pack has none. */
@@ -219,6 +224,20 @@ export function statIndex(m: PackManifest, url: (key: string) => string | undefi
   const own = Number(m.game.client_version);
   const installKey = builds.find(([b]) => b === own)?.[1] ?? builds.at(-1)?.[1];
   return { format: s.format, coveredThrough: s.covered_through, builds, tables, installKey };
+}
+
+/** The manifest's `tooltips` section with blob URLs (format 1, `match/tooltips.ts`
+ * `TOOLTIP_FORMAT`); undefined when the pack has none. */
+export function tooltipIndex(m: PackManifest, url: (key: string) => string | undefined): TooltipIndex | undefined {
+  const t = m.tooltips;
+  const u = t && t.format === 1 ? url(t.blob) : undefined;
+  if (!t || !u) return undefined;
+  const overlays = new Map<string, string>();
+  for (const [key, blob] of Object.entries(t.overlays ?? {})) {
+    const o = url(blob);
+    if (o) overlays.set(key, o);
+  }
+  return { url: u, overlays, blob: (key) => (key ? url(key) : undefined) };
 }
 
 /** The newest pack the server has, or the fallback if it has none (or can't be reached). */

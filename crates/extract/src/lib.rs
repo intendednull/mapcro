@@ -23,6 +23,7 @@ mod png_out;
 mod resource;
 mod stats;
 mod steam;
+mod tooltips;
 mod topbar;
 mod vpk;
 mod vtex;
@@ -37,7 +38,7 @@ pub use error::{Error, Result};
 pub use kv3::Value;
 pub use pack::{
     AbilityTable, Blob, Entity, EntitySource, Extractor, Game, Hero, HudSource, Icon, Pack, SCHEMA,
-    SkippedIcon, Source, StatTableRef, StatTables,
+    SkippedIcon, Source, StatTableRef, StatTables, TooltipTables,
 };
 pub use stats::{BoonTables, boon_tables, install_table, to_json};
 pub use png_out::{encode_png, write_png};
@@ -56,6 +57,8 @@ const MODIFIER_HOSTS: [&str; 2] = ["scripts/misc.vdata_c", "scripts/npc_units.vd
 /// The names table's blob key and file.
 const ABILITIES_BLOB: &str = "data/abilities";
 const ABILITIES_FILE: &str = "data/abilities.json";
+/// The tooltip table's blob key (and, below it, the per-patch overlays').
+const TOOLTIPS_BLOB: &str = "data/tooltips";
 const HERO_NAMES_PATH: &str =
     "resource/localization/citadel_gc_hero_names/citadel_gc_hero_names_english.txt";
 const ENTITIES_VPK: &str = "maps/dl_midtown.vpk";
@@ -168,7 +171,8 @@ pub fn extract_with(game_dir: &Path, out_dir: &Path, options: &Options) -> Resul
         (Some(heroes), Some(abilities), Some(generic)) => u32::try_from(steam.client_version).ok().map(|v| stats::install_table(v, &heroes, &abilities, &generic)),
         _ => None,
     };
-    stats::write(out_dir, &mut pack, &mut files, install, boon)?;
+    stats::write(out_dir, &mut pack, &mut files, install, boon.as_ref())?;
+    extract_tooltips(&vpk, &game, out_dir, boon.as_ref(), &mut pack, &mut files)?;
 
     icons::extract(&vpk, out_dir, &mut pack, &mut files)?;
     topbar::extract(&vpk, out_dir, &mut pack, &mut files)?;
@@ -427,6 +431,140 @@ fn extract_abilities(
     Ok(())
 }
 
+/// The tooltip table (`data/tooltips.json`, [`tooltips`]): every item's and hero ability's
+/// tooltip with the install's values, the chrome's localised strings, the property and inline
+/// attribute icons, and the frame art; plus one value overlay per boon-data snapshot a build reads
+/// (`data/tooltips/<stat key>.json`), holding what that patch changes.
+fn extract_tooltips(
+    vpk: &Vpk,
+    game: &GameDir,
+    out_dir: &Path,
+    boon: Option<&BoonTables>,
+    pack: &mut Pack,
+    files: &mut Vec<String>,
+) -> Result<()> {
+    let Some(abilities) = read_vdata(vpk, ABILITIES_PATH, pack)? else {
+        return Ok(());
+    };
+    let abilities = stats::to_json(&abilities);
+    let mut names = BTreeMap::new();
+    for path in allow::ABILITY_NAMES {
+        if let Some(text) = read_localisation(vpk, game, pack, path)? {
+            for (key, value) in kv1::flatten(&text)? {
+                names.entry(key.to_ascii_lowercase()).or_insert(value);
+            }
+        }
+    }
+    let tips = tooltips::tips(&abilities, &names);
+    let base = tooltips::values(abilities.as_object().into_iter().flatten().map(|(k, v)| (k.as_str(), v)));
+
+    // The chrome's words, and the inline attributes' (`{g:citadel_inline_attribute:'X'}` reads
+    // `InlineAttribute_X`).
+    let mut strings: BTreeMap<String, String> = BTreeMap::new();
+    for key in tooltips::UI_STRINGS {
+        if let Some(v) = names.get(&key.to_ascii_lowercase()) {
+            strings.insert(key.to_owned(), v.clone());
+        }
+    }
+    for (key, v) in &names {
+        // Lower-cased, as the localisation's keys are case-blind: the client looks up
+        // `inlineattribute_<name lower-cased>`.
+        if key.starts_with("inlineattribute_") {
+            strings.insert(key.clone(), v.clone());
+        }
+    }
+
+    // Icons, from the game's own rules: `.prop_<class>` and `.InlineAttributeIcon.<Name>`.
+    let base_styles = read_style(vpk, "panorama/styles/citadel_base_styles.vcss_c")?.unwrap_or_default();
+    let palette = tooltips::defines(&base_styles);
+    let prop_styles = read_style(vpk, "panorama/styles/ability_property_icons.vcss_c")?.unwrap_or_default();
+    let mut icons = tooltips::icon_rules(&prop_styles, &palette, tooltips::prop_class);
+    let mut inline = tooltips::icon_rules(&base_styles, &palette, tooltips::inline_class);
+    let mut exported: BTreeMap<String, Option<String>> = BTreeMap::new();
+    let mut export = |vpk: &Vpk, image: &str, pack: &mut Pack, files: &mut Vec<String>| -> Result<Option<String>> {
+        let Some(entry) = tooltips::image_entry(image) else { return Ok(None) };
+        if let Some(done) = exported.get(&entry) {
+            return Ok(done.clone());
+        }
+        let blob = if allow::is_tooltip_entry(&entry) { export_image(vpk, out_dir, &entry, "tooltips", pack, files)? } else { None };
+        exported.insert(entry, blob.clone());
+        Ok(blob)
+    };
+    for rule in icons.values_mut().chain(inline.values_mut()) {
+        if let Some(image) = rule.image.clone() {
+            rule.img = export(vpk, &image, pack, files)?;
+        }
+    }
+    let mut art = BTreeMap::new();
+    for entry in allow::TOOLTIP_ART {
+        let image = entry.strip_suffix("_c").unwrap_or(entry);
+        if let Some(blob) = export(vpk, image, pack, files)? {
+            let name = image.rsplit('/').next().unwrap_or(image).trim_end_matches(".vtex").trim_end_matches(".vsvg");
+            art.insert(name.to_owned(), blob);
+        }
+    }
+
+    let json = serde_json::to_vec(&serde_json::json!({
+        "format": tooltips::TOOLTIP_FORMAT,
+        "client_version": pack.game.client_version,
+        "strings": strings,
+        "icons": icons.into_iter().filter(|(_, r)| r.img.is_some()).collect::<BTreeMap<_, _>>(),
+        "inline": inline,
+        "art": art,
+        "records": tips.iter().map(|(id, t)| (id.to_string(), serde_json::json!({ "tip": t, "values": base.get(id).map(|v| tooltips::trim(t, v)) }))).collect::<BTreeMap<_, _>>(),
+    }))?;
+    write_json(out_dir, TOOLTIPS_BLOB, &json, pack, files)?;
+
+    // One overlay per stat table key a build reads, from that snapshot's values.
+    let mut overlays = BTreeMap::new();
+    if let (Some(boon), Some(stats)) = (boon, pack.stats.as_ref()) {
+        let keys: Vec<String> = stats.tables.keys().cloned().collect();
+        for key in keys {
+            let Some(snapshot) = key.strip_prefix("boon-").and_then(|s| s.parse::<u32>().ok()) else { continue };
+            let Some(values) = boon.tooltip_values.get(&snapshot) else { continue };
+            let diff = tooltips::overlay(&tips, &base, values);
+            let json = serde_json::to_vec(&serde_json::json!({
+                "format": tooltips::TOOLTIP_FORMAT,
+                "client_version": snapshot,
+                "records": diff.iter().map(|(id, v)| (id.to_string(), v)).collect::<BTreeMap<_, _>>(),
+            }))?;
+            let blob = format!("{TOOLTIPS_BLOB}/{key}");
+            write_json(out_dir, &blob, &json, pack, files)?;
+            overlays.insert(key, blob);
+        }
+    }
+    pack.tooltips = Some(TooltipTables { format: tooltips::TOOLTIP_FORMAT, blob: TOOLTIPS_BLOB.to_owned(), records: tips.len(), overlays });
+    Ok(())
+}
+
+/// Write `<blob>.json` and add it to the pack as `application/json`.
+fn write_json(out_dir: &Path, blob: &str, json: &[u8], pack: &mut Pack, files: &mut Vec<String>) -> Result<()> {
+    let file = format!("{blob}.json");
+    let path = out_dir.join(&file);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, json)?;
+    pack.add_blob_with_mime(blob.to_owned(), file.clone(), sha256_hex(json), 0, 0, "application/json");
+    files.push(file);
+    Ok(())
+}
+
+/// An allow-listed HUD style's text (a `.vcss_c`), or `None` when the VPK hasn't it.
+fn read_style(vpk: &Vpk, path: &str) -> Result<Option<String>> {
+    if !allow::is_hud_source_allowed(path) {
+        return Err(Error::PathNotAllowed(path.to_owned()));
+    }
+    let Some(entry) = vpk.entry(path) else {
+        return Ok(None);
+    };
+    let bytes = vpk.read_entry(entry)?;
+    let resource = resource::parse(&bytes)?;
+    let block = resource.block(b"DATA").ok_or(Error::MissingDataBlock)?;
+    let payload = panorama::text_payload(block.data, resource.version)?;
+    String::from_utf8(payload.to_vec()).map(Some).map_err(|_| Error::InvalidUtf8)
+}
+
 /// Decode one allow-listed icon into `abilities/<path under panorama/images>.png` (`.svg` for an
 /// SVG). `None` when the path isn't allow-listed, the VPK hasn't it, or its texture format isn't
 /// supported.
@@ -440,6 +578,19 @@ fn export_ability_icon(
     if !allow::is_ability_icon_entry(entry_path) {
         return Ok(None);
     }
+    export_image(vpk, out_dir, entry_path, "abilities", pack, files)
+}
+
+/// Decode a texture or SVG entry into `<prefix>/<path under panorama/images>.png|.svg`; the caller
+/// checks the allow-list. `None` when the VPK hasn't it or its texture format isn't supported.
+fn export_image(
+    vpk: &Vpk,
+    out_dir: &Path,
+    entry_path: &str,
+    prefix: &str,
+    pack: &mut Pack,
+    files: &mut Vec<String>,
+) -> Result<Option<String>> {
     let Some(entry) = vpk.entry(entry_path) else {
         return Ok(None);
     };
@@ -452,7 +603,7 @@ fn export_ability_icon(
         let block = resource.block(b"DATA").ok_or(Error::MissingDataBlock)?;
         let text = panorama::text_payload(block.data, resource.version)?;
         let text = std::str::from_utf8(text).map_err(|_| Error::InvalidUtf8)?;
-        let key = format!("abilities/{stem}");
+        let key = format!("{prefix}/{stem}");
         let file = format!("{key}.svg");
         let path = out_dir.join(&file);
         if let Some(parent) = path.parent() {
@@ -471,7 +622,7 @@ fn export_ability_icon(
             Err(Error::UnsupportedFormat(_)) => return Ok(None),
             Err(error) => return Err(error),
         };
-        let key = format!("abilities/{stem}");
+        let key = format!("{prefix}/{stem}");
         let file = format!("{key}.png");
         let png = write_png(
             &out_dir.join(&file),

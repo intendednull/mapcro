@@ -5,6 +5,7 @@ import "./styles/minimap.css";
 import "./styles/topbar.css";
 import "./styles/board.css";
 import "./styles/app.css";
+import "./styles/tooltips.css";
 
 suppressContextMenu();
 render(() => <App />, document.getElementById("root")!);

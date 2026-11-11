@@ -31,6 +31,7 @@ import { HoverLabels, hoverFromWire, hoverWire, localHover, setRemoteHover } fro
 import { UrnMark } from "../player/Urn";
 import { DeathSkulls } from "../player/Skulls";
 import { SkullRecap } from "../player/SkullRecap";
+import { HeroCard, type HeroCardSlot } from "../player/HeroCard";
 import { recapOf } from "../player/recap";
 import { RiftRings } from "../player/Rift";
 import { liveLayer } from "../player/layer";
@@ -305,6 +306,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
    * open it too; gone with the match. */
   const skullRecap = player.skullRecap;
   const setSkullRecap = player.setSkullRecap;
+  /** The hero panel opened from a token on the map (HeroCard.tsx); this browser's, gone with the
+   * match. */
+  const [heroCard, setHeroCard] = createSignal<HeroCardSlot>();
+  createEffect(on(() => player.matchId(), () => setHeroCard(undefined), { defer: true }));
   const hasRecap = (slot: string, t: number) => !!recapOf(player.tl()?.players.find((q) => slotKey(q.team, q.slot) === slot), t);
   /** In a scene, the open match's in-game name for a slot (spec §6b "Names"); a typed one wins. */
   const matchName = (team: string, n: number) => sceneMatchName(player.tl(), scene()?.scene.source, player.playerName, team, n);
@@ -813,6 +818,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                 bindPing={(f) => (pingAt = f)}
                 focused={focused}
                 matchName={matchName}
+                onOpenHero={(team, slot) => setHeroCard({ team, slot })}
                 svg={overlay}
                 objectives={objectives}
                 k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)}
@@ -851,6 +857,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
             </MapView>
             <Show when={inPlayer() && player.tl() && skullRecap()}>
               {(d) => <SkullRecap death={d()} timeline={player.tl()!} vision={player.vision()} art={p.art} name={player.playerName} onSeek={seekMatch} onClose={() => setSkullRecap(undefined)} />}
+            </Show>
+            <Show when={inPlayer() && player.tl() && heroCard()}>
+              {(c) => <HeroCard open={c()} timeline={player.tl()!} t={player.t()} vision={player.vision()} art={p.art} name={player.playerName} onSeek={seekMatch} onClose={() => setHeroCard(undefined)} />}
             </Show>
           </div>
   );

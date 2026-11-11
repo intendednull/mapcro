@@ -140,6 +140,8 @@ export function UltDial(p: {
   label: string;
   adjusting?: boolean;
   editable?: boolean;
+  /** No native title: a richer hover (Player's ult tooltip) stands in. */
+  untitled?: boolean;
   ref?: (el: HTMLDivElement) => void;
   onPointerDown?: (e: PointerEvent) => void;
   onWheel?: (e: WheelEvent) => void;
@@ -158,7 +160,7 @@ export function UltDial(p: {
       aria-valuemin={p.editable ? 0 : undefined}
       aria-valuemax={p.editable ? 100 : undefined}
       aria-valuenow={p.editable ? (u() ?? undefined) : undefined}
-      title={u() == null ? "Ult: untracked" : u()! <= 0 ? "Ult ready" : `Ult ${Math.round(u()!)}%`}
+      title={p.untitled ? undefined : u() == null ? "Ult: untracked" : u()! <= 0 ? "Ult ready" : `Ult ${Math.round(u()!)}%`}
       onPointerDown={p.onPointerDown}
       onWheel={p.onWheel}
     >

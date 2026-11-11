@@ -979,6 +979,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
   timeline from before format 9: without statue pickups the values would run short. Hovers are
   the stats' names (§4b); each calculated value carries a quiet "≈" before the number (operator,
   2026-11-10; §4b rule 5), drawn by CSS so the text stays the number.
+  With a pack that has tooltips, hovering a stat or an investment bar shows the stat panel
+  instead (below, "Tooltips"), and the plain title gives way to it.
   - **Investment bars**: the souls in owned items per category, each at its tier price in the
     replay's patch (sold items and components used up by an upgrade don't count), fill along the
     patch's ladder (`m_MapModCostBonuses`, 800 to 28,800 souls): each row takes its
@@ -987,6 +989,50 @@ makes a board with that match attached and lands in Player; **New board** is tod
     pack's own patch's ladder. This rule is ours, read from the vdata; that the game's Tab bars
     fill the same way is on the backlog's in-game checks. Hovers: "Weapon invest", "Spirit
     invest", "Vitality invest".
+- **Tooltips** (replay tier, 2026-11-11, feedback #7 and #9; docs/plans/2026-11-10-game-tooltips.md;
+  `player/GameTooltip.tsx`, `player/StatPanel.tsx`, `match/tooltips.ts`). With a pack that has
+  them (§12 "Tooltips"), hovering (a tap on touch, focus on the keyboard) shows the game's own
+  tooltip beside the thing, one at a time; Escape, a press elsewhere or a scroll closes it.
+  - Also on the events list (a major purchase's item, an ult's ability) and on the death
+    recap's hit icons.
+  - **Items** (the Tab column, the build order, the hero panel): the game's item tooltip
+    (`citadel_tooltip_mod_details.vcss`): the category's torn-paper backer and header art, the
+    name, "Owned" for an item the hero owns at t (else its cost), the innate stat lines, then each
+    Passive / Active section with its cooldown, its description (the localisation's markup:
+    highlights, inline attribute icons, `{s:Prop}` values), its property cards and rows, and
+    "Upgrades From:" / "Upgrades To:" (the components, and the items that list it as one).
+  - **Abilities** (the Tab column's four, and the ult indicator on the top bar): the ability
+    tooltip (`citadel_ability_details_panel.vcss`): the name, the header cooldown, each section's
+    description, cards and rows, and the three upgrade tiers, the bought ones marked. Values are
+    shown with the bought tiers applied (`m_eUpgradeType`: added to the base unless it says to
+    the scale or to multiply). A property that scales with spirit power (Djinn's Mark's ×0.35)
+    shows the "×" factor, and its value at the hero's calculated spirit power with "≈"; without a
+    calculated spirit power, the base value. A tier card's header is the tier's ability-point
+    cost, 1 / 2 / 5, hard-coded (`TIER_COSTS`, operator 2026-11-11) from the reference
+    screenshot: no file we read holds it.
+  - **Values** are the replay's patch's where the pack has them: the overlay of the stat table
+    the build reads (`tableKeyFor`; boon-data snapshots, 6711 onward), else the pack's own. The
+    words are always the pack's localisation. Values recorded at t are the column's (cooldown
+    left, charges); the tooltip itself is static data.
+  - **Stat panels**: hovering an investment bar, or the stats under it, shows the game's WEAPON /
+    VITALITY / SPIRIT STATS panel (`citadel_hero_stats_panels_shared.vcss`) beside its investment
+    ladder (`citadel_tooltip_mod_bonus_display.vcss`): the title and words from the localisation,
+    the calculated stats mapcro has (Weapon Damage; Max Health, Bullet and Spirit Resist; Spirit
+    Power under Spirit Power Impact), each with "≈", and the patch's `m_MapModCostBonuses` rows
+    with the row the hero's souls reach lit, the rows below dimmed as reached and above as not, and
+    the bar filled as the column's. The game's other panel stats (fire rate, ammo, regen, move
+    speed…) need rules mapcro doesn't have, so they aren't shown (backlog "Calculated stats").
+  - Hover only (operator, 2026-11-11: no pinning for now); on touch a tap opens one and a tap
+    elsewhere closes it.
+  - Without a pack's tooltips, the plain titles stay (§4b tags).
+- **Hero panel** (replay tier, 2026-11-11, feedback #8; `player/HeroCard.tsx`). A single click
+  (press and release within 6 px) on a hero's token with the Move tool opens a compact panel at
+  the map's lower left: the hero, and the Tab column's parts for it at t (K/D/A, investment bars,
+  stats, abilities with cooldowns and charges, items), with their tooltips and stat panels.
+  Escape or × closes it; another token swaps it; another match closes it. Vision: in a team's
+  view, a hero it can't see has no token, so no panel opens for it; an enemy that leaves sight
+  while its panel is open keeps only what the Tab scoreboard shows (no cooldowns, charges or
+  effects; `data-limited`). The panel is this browser's: it isn't shared with followers.
 - **The Soul Urn** (replay tier, 2026-11-08): the urn drawn as the game's minimap draws it
   (`hud_minimap.vcss`, in the pack; operator, 2026-11-08: "match how the real map looks").
   - On the ground, `.idol_spawn`: `soul_jar_marker` in a 32 px box, a rift's box
@@ -1761,8 +1807,14 @@ pack.json   schema, extractor version,
             entities [{ key, kind, team, lane, world [x, y, z], src {...} }],
             geometry_hash,
             abilities { blob, items, abilities, modifiers, icons, icons_missing }   (schema 4)
+            stats { format, covered_through, builds, tables }        (optional, no bump)
+            tooltips { format, blob, records, overlays }             (optional, no bump)
 blobs/<sha256>.png
 data/abilities.json   the names table, a blob of type application/json
+data/stats/<key>.json         per-patch stat tables (§6b "Calculated stats")
+data/tooltips.json            item and ability tooltips (below)
+data/tooltips/<key>.json      a patch's tooltip values, keyed like the stat tables
+tooltips/<path under panorama/images>.png|.svg   tooltip frames, property and inline icons
 abilities/<path under panorama/images>.png|.svg   item, ability and modifier icons
 ```
 
@@ -1822,6 +1874,51 @@ items, ability levels, casts, charges, hard-CC causes, status effects and their 
   resolve, and 707 of the 711 overall. Six of the resolved ones are engine modifiers that no vdata
   defines, such as `modifier_citadel_tossup`. The extractor lists them by name
   (`abilities::ENGINE_MODIFIERS`). The other 3 are engine modifiers whose names we don't know.
+
+**Tooltips** (`data/tooltips.json`, 2026-11-11; `crates/extract/src/tooltips.rs`; the
+manifest's optional `tooltips` section, so no schema bump: schema 5 is still unused, and the
+server serves older packs as before). `{"format": 1, "client_version", "strings", "icons",
+"inline", "art", "records": {"<token>": {"tip", "values"}}}`:
+
+- **Records**: every shop item and hero signature or ultimate ability of `abilities.vdata`.
+  - An item's sections are its `m_vecTooltipSectionInfo` (`innate`, `passive`, `active`; a
+    section with no type is `info`), each attribute a block: its description
+    (`m_strLocString`), cards (`m_vecImportantAbilityProperties`) and rows
+    (`m_vecAbilityProperties`, then `m_vecElevatedAbilityProperties`). A passive or active
+    section's first `AbilityCooldown` or `ProcCooldown` row is its header's cooldown.
+  - An ability's are its `m_AbilityTooltipDetails.m_vecAbilityInfoSections` (cards from
+    `m_vecAbilityPropertiesBlock`, rows from `m_vecBasicProperties`; `requires` from
+    `m_strAbilityPropertyUpgradeRequired`), its header `AbilityCooldown` plus
+    `m_vecAdditionalHeaderProperties`, and its upgrade tiers (`m_vecAbilityUpgrades`, the text
+    `<name>_t<n>_desc`, a non-additive bonus's `m_eUpgradeType`).
+  - A record with no description of its own gets `<name>_desc`.
+- **Properties**: `m_mapAbilityProperties` entries; label, prefix and postfix from the
+  localisation's `<key>_label`, `_prefix`, `_postfix` (key: `m_strLocTokenOverride`, else the
+  property name). One without a label, or `m_bIsHidden`, isn't shown; nor is a zero value
+  (client). `css` is `m_strCSSClass`, `scale` a scale function's stat and `m_flStatScale`,
+  `conditional` `ConditionallyApplied`, `negative` `m_bIsNegativeAttribute`. `aliases` maps a
+  token override back to its property, for `{s:Override}` in the text.
+- **Values** are kept apart from the layout: each property's `m_strValue` written as the game
+  writes it (at most two decimals; `"40m"` → `"40"`), cut to what the tooltip shows or
+  substitutes, and each tier's bonuses. `data/tooltips/<stat key>.json` holds, for each
+  boon-data snapshot a stat table is built from, only what that patch changes (properties and
+  tier bonuses); a key with no overlay reads the install's values. Descriptions stay unsubstituted,
+  so a patch's values reach the text too.
+- **Strings**: the chrome's localisation (`Citadel_Mod_Tooltip_Active`, `Citadel_Shop_Purchased`,
+  `Citadel_ComponentRequired`, `CitadelHeroStats_*`, `Citadel_ModBonus_*`, `StatDesc_*`), and every
+  `InlineAttribute_*`, keys lower-cased (the words of `{g:citadel_inline_attribute:'X'}`).
+- **Icons and art**, from the game's own rules, not a mapping of ours: `icons` is
+  `ability_property_icons.vcss`'s `.prop_<class>` rules (image and `wash-color`, the palette
+  resolved from `citadel_base_styles.vcss`), `inline` its `.InlineAttributeIcon.<Name>` and
+  `.InlineAttributeName.<Name>` (colour), `art` the fixed frames (`allow::TOOLTIP_ART`: the item
+  backers and their masks, the category headers, the ability backer, the "Owned" check, the
+  cooldown clock, the souls glyph, the stat panels' backgrounds, the ladder's star). The icon
+  images the rules name are read only under `allow::TOOLTIP_ICON_DIRS`.
+- **Client 6860**: 600 records, a 0.64 MB table (values trimmed), 27 overlays of up to 7 KB
+  (6837's: 16 records), 62 images (8.2 MB, the category headers and backers most of it), in a
+  40 MB pack.
+- The tooltip and stat-panel styles ship as HUD sources (`hud/*.vcss`): the client's port
+  (`web/src/styles/tooltips.css`) names each rule it follows.
 
 The server serves packs at `/packs/<pack_id>/…`. Responses are immutable and cached forever,
 because the content is hashed. The server keeps every pack it has had, so an old board can still

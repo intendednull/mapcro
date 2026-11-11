@@ -3,6 +3,23 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Tooltips: follow-ups (2026-11-11, from tooltips)
+
+Shipped on branch `tooltips` (spec §6b "Tooltips", "Hero panel"; plan 2026-11-10-game-tooltips).
+- **Stat panels' other stats**: the weapon card (gun name, "Medium Range / Heavy Hitter", DPS,
+  falloff) and the panels' fire rate, ammo, reload, bullet velocity, regen, move speed, stamina,
+  CDR, lifesteal and the Spirit Power Impact rows need calculator rules (and hero weapon data
+  from `heroes.vdata` `m_mapStartingStats` / weapon info). The panels show only the five stats
+  mapcro calculates.
+- **Tier cards' ability-point cost**: hard-coded 1 / 2 / 5 (operator, 2026-11-11); if the game's
+  own source turns up, read it instead (and see "To verify in the running game").
+- **Pin a tooltip open**: not now (operator, 2026-11-11).
+- **Live values in the tooltip**: the remaining cooldown and charges at t are on the icon only;
+  the game's tooltip shows the static value.
+- **Hero panel for followers**: the panel is local; a presenter opening one isn't followed.
+- **Spirit-scaled values on items**: only abilities' cards take the calculated spirit power with
+  "≈"; items' scaled properties show the base value.
+
 ## Stream the replay parse: browser, app, worker (2026-11-11, from parser-memory)
 
 The follow-up to [parser-memory](research/parser-memory.md), and the step that makes "Parse
@@ -119,6 +136,9 @@ of claims only the game (or its client) can settle. Add to it; strike items once
   share and fills linearly from the row below; full only at 28.8K. Also check what counts as
   spent: we count each owned item's tier price (not sold items, not components used up by an
   upgrade, not what was paid after an upgrade discount).
+- **Ability tier costs:** the tooltip's tier cards show 1 / 2 / 5 ability points, hard-coded
+  (`web/src/match/tooltips.ts` `TIER_COSTS`, from `item-djinns-mark.png`; no file holds them).
+  Check after a patch that touches ability upgrades that the game still shows these.
 - **HUD:** the kill-streak threshold that switches the souls tab to the mint `.KillStreak` style,
   and when the gloat card portrait appears (backlog "Kill-streak mint souls tab").
 
@@ -148,9 +168,9 @@ in 1:20 · …", spec §6b) and the tier chip's hint (it explains what the summa
 
 ## Calculated stats: follow-ups (2026-11-10, from stat-calc-prod)
 
-- **A quiet "≈" on calculated values** (spec §4b rule 5): only with the operator's approval.
-- **Stat panels** (the tooltips plan's part 2): the ladder's bonus per row and the other panel
-  stats (fire rate, clip, CDR, lifesteal) need more rules; the tables already carry the ladder.
+- **A quiet "≈" on calculated values** (spec §4b rule 5): approved and shipped (topbar.css).
+- **Stat panels** (the tooltips plan's part 2): shipped with the ladder and the five calculated
+  stats (branch `tooltips`); the other panel stats are in "Tooltips: follow-ups".
 - **Stacking items** (Berserker, Cultist Sacrifice, Escalating Resilience …) from `effects`
   stack counts, and Spirit Snatch's stolen values from the stat viewer: later rules, the spike's
   largest remaining misses.

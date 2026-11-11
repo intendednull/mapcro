@@ -95,7 +95,9 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
 
 - **Allow-list** (`allow.rs`): only `steam.inf`, `pak01_dir.vpk` and its chunks,
   `maps/dl_midtown.vpk`, and named loose localisation files. Inside the VPK: `TOPBAR_FIXED`
-  (15 HUD images), `HUD_SOURCES` (11 panorama layouts/styles), `ABILITY_ICON_DIRS`
+  (15 HUD images), `HUD_SOURCES` (18 panorama layouts/styles: the top bar's, the minimap's, and the
+  tooltip and stat-panel styles), `TOOLTIP_ART` (17 frames), `TOOLTIP_ICON_DIRS` (the folders the
+  tooltip styles' icon rules may name), `ABILITY_ICON_DIRS`
   (`panorama/images/{hud/abilities,upgrades,items,hud/modifiers}/`, one folder deep) and hero
   portraits under `panorama/images/heroes/`. Per-account files (`account_*.stats`,
   `cache_*.soc`, `cfg/`) are never opened.
@@ -126,9 +128,28 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   `item_investment.py` reads it there and asserts every hero's is the same); each row has
   `nGoldThreshold`, `flBonus` and `flPercentOnGraph` (its share of the bar, summing to 100).
   [stat-calc-spike](stat-calc-spike.md) "Production plan".
+- **Tooltips** (`tooltips.rs`; spec §12 "Tooltips"): items' layout is
+  `m_vecTooltipSectionInfo` (`EArea_Innate` / `EArea_Passive` / `EArea_Active`, attributes with
+  `m_strLocString`, `m_vecAbilityProperties`, `m_vecImportantAbilityProperties`); hero abilities'
+  is `m_AbilityTooltipDetails.m_vecAbilityInfoSections` (no `m_vecTooltipSectionInfo`). Property
+  words are `<key>_label` / `_prefix` (`{s:sign}`) / `_postfix` in `citadel_attributes` and
+  `citadel_heroes`, key = `m_strLocTokenOverride` or the property name; descriptions use
+  `<span class="highlight|diminish|…">`, `<br>`, `{s:Prop}` (sometimes the override name, as
+  Djinn's Mark's `{s:DMarkMaxMarks}`), `{g:citadel_inline_attribute:'X'}` (word
+  `InlineAttribute_X`) and `{g:citadel_binding:'X'}`. Property icons are
+  `ability_property_icons.vcss` `.prop_<m_strCSSClass>`; inline icons and colours are
+  `citadel_base_styles.vcss` `.InlineAttributeIcon/.InlineAttributeName.<X>`; the chrome
+  ("Active", "Owned", "Upgrades From:", "Weapon Investment", "Spirit Power Impact") is in
+  `citadel_main`. A spirit-scaled value is `m_strValue` + `m_flStatScale` × spirit power (Djinn's
+  Mark 11 + 0.35 × 176 = 73, the operator's screenshot). Upgrade bonuses carry `m_eUpgradeType`
+  (`EAddToScale` 82, `EMultiplyBase/Scale` 15, else added). **Not in the files:** the ability-point
+  cost of each upgrade tier (the "1 / 2 / 5" on the tier cards; `m_nAbilityPointsCost` is 0 on
+  every ability; the client hard-codes it, `TIER_COSTS`), and "Purchased late game in N% of matches" (Valve's stats). boon-data's
+  `abilities.json` `records[].definition` is the full vdata, so older patches' tooltip values
+  come from the same snapshots as the stat tables.
 - **Schema history:** 2 entities (web `map/model.ts`); 3 top-bar art (journal 2026-11-07-web-app);
-  4 names table, `application/json` blob. Schema 5 (tooltips) is planned in
-  `docs/plans/2026-11-10-game-tooltips.md`.
+  4 names table, `application/json` blob. The `stats` and `tooltips` sections are optional, so
+  neither bumped it; schema 5 is still unused.
 - **Deploy:** [deploy.md](../deploy.md) "Asset packs": copy into `PACKS_DIR`, restart (indexed
   once at start), schema 4 needs the server deployed first; keep old packs.
 

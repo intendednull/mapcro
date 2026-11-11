@@ -9,6 +9,8 @@
 import { hasVision, seenAt } from "./vision";
 import { killsAt } from "../match/builds";
 import { BuildColumn } from "./BuildColumn";
+import { GameTip, Hover, useTooltips } from "./GameTooltip";
+import { buildAt } from "../match/builds";
 import { rosterTeamShort } from "../map/model";
 import { For, Show, createMemo, createResource, onCleanup, onMount } from "solid-js";
 import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
@@ -121,6 +123,8 @@ export function PlayerTopBar(p: {
   const [statTable] = createResource(() => tableKeyFor(p.art.stats, build()) ?? false, key => loadStatTable(p.art.stats, key || null));
   // A resource keeps its last value while the next key loads: never show another patch's numbers.
   const current = (t: LoadedTable | undefined, key: string | null) => t && key && p.art.stats?.tables.get(key)?.clientVersion === t.data.client_version ? t : undefined;
+  // The ult indicator's hover: the hero's ultimate's tooltip (feedback #9), its tiers at t.
+  const tips = useTooltips(() => p.art, build);
   const [ladderTable] = createResource(() => ladderKeyFor(p.art.stats, build()) ?? false, key => loadStatTable(p.art.stats, key || null));
   onMount(() => {
     const outside = (event: PointerEvent) => {
@@ -259,7 +263,20 @@ export function PlayerTopBar(p: {
               <Show when={expanded(key) && scoreboardValueAt(player()?.level, p.host.t())}>
                 {lv => <span class="tb-level" data-testid="tb-level" title="Hero level">{lv()}</span>}
               </Show>
-              <UltDial left={x()?.ult ?? null} label={label()} />
+              {(() => {
+                const ult = () => hero()?.abilities?.[3] || undefined;
+                const has = () => ult() != null && !!tips()?.tip(ult()!);
+                const tiers = () => {
+                  const pl = player();
+                  const a = pl && ult() != null ? buildAt(pl, p.host.t()).abilities?.find((e) => e.id === ult()) : undefined;
+                  return a ? Math.max(0, a.level - 1) : null;
+                };
+                return (
+                  <Hover testid="ult-hover" tip={() => has() && <GameTip id={ult()!} art={p.art} tips={tips()!} ctx={{ tiers: tiers() }} />}>
+                    <UltDial left={x()?.ult ?? null} label={label()} untitled={has()} />
+                  </Hover>
+                );
+              })()}
               <Show when={expanded(key) && player()}>
                 {pl => <BuildColumn inspect={!allBuilds() && !tabHeld()} onSeek={p.onSeek} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} stats={current(statTable(), tableKeyFor(p.art.stats, build()))} ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />}
               </Show>
