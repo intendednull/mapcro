@@ -246,6 +246,66 @@ describe("every registry key follows its row", () => {
       expect(f.stopped(), k).toBe(row(k).override === "stop" ? 1 : 0);
     }
   });
+  it("another match while following hears the panels afresh, and leaves the follower's own filters and search", () => {
+    const f = follower();
+    const p = presenter({ "events.filter.urn": true, "events.search": "urn", "recap.skull": { slot: "amber-1", t: 20 } });
+    hear(f, p);
+    expect(f.s.get("events.filter.urn")).toBe(true);
+    // The follower's own chips and search (local: theirs until the presenter changes the group).
+    f.s.set("events.filter.urn", false);
+    f.s.set("events.filter.death", true);
+    f.s.set("events.search", "haze");
+    f.s.reset();
+    hear(f, p);
+    expect(f.s.get("events.filter.urn")).toBe(false);
+    expect(f.s.get("events.filter.death")).toBe(true);
+    expect(f.s.get("events.search")).toBe("haze");
+    // The panels went back to their first values and the presenter's are applied again.
+    expect(f.s.get("recap.skull")).toEqual({ slot: "amber-1", t: 20 });
+    // The presenter's next change to the events still wins.
+    p.set("events.search", "souls");
+    hear(f, p);
+    expect(f.s.get("events.search")).toBe("souls");
+    expect(f.s.get("events.filter.urn")).toBe(true);
+  });
+});
+
+describe("text clipped for presence", () => {
+  const max = VIEW_STATE["events.search"].max;
+  const bytes = (s: string) => new TextEncoder().encode(s).length;
+  /** Valid UTF-16: no lone surrogate (so it is valid UTF-8 on the wire). */
+  const whole = (s: string) => !/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(s);
+  it("cuts by code point: astral characters at every offset around the limit", () => {
+    for (const astral of ["😀", "𝄞", "🇸🇪"]) {
+      for (let n = max - 8; n <= max + 2; n++) {
+        for (const s of [`${"x".repeat(n)}${astral}`, `${"x".repeat(n)}${astral}${astral}`, `${"é".repeat(Math.floor(n / 2))}${astral}x`, `${astral.repeat(n)}`]) {
+          const out = clipText(s, max);
+          expect(whole(out), JSON.stringify(out)).toBe(true);
+          expect(bytes(out)).toBeLessThanOrEqual(max);
+          expect(s.startsWith(out)).toBe(true);
+          // As much as fits: the next code point would go over.
+          const next = [...s.slice(out.length)][0];
+          if (next !== undefined) expect(bytes(out + next)).toBeGreaterThan(max);
+        }
+      }
+    }
+  });
+  it("is the table wire.rs checks the server takes", () => {
+    const x = (n: number) => "x".repeat(n);
+    expect(clipText(`${x(61)}😀`, max)).toBe(x(61));
+    expect(clipText(`${x(60)}😀x`, max)).toBe(`${x(60)}😀`);
+    expect(clipText(`${x(62)}éé`, max)).toBe(`${x(62)}é`);
+    expect(clipText(`${x(61)}\ud83d`, max)).toBe(`${x(61)}�`);
+    expect(clipText("😀".repeat(20), max)).toBe("😀".repeat(16));
+    expect(clipText("ж".repeat(40), max)).toBe("ж".repeat(32));
+  });
+  it("a lone surrogate it was given goes out as U+FFFD, within the bytes", () => {
+    for (const s of ["a\ud83d", "\udc00b", `${"x".repeat(62)}\ud83d`]) {
+      const out = clipText(s, max);
+      expect(whole(out)).toBe(true);
+      expect(bytes(out)).toBeLessThanOrEqual(max);
+    }
+  });
 });
 
 describe("no state in Player or the board without a follow policy", () => {

@@ -50,9 +50,20 @@ function same(r: Row, a: unknown, b: unknown): boolean {
 /** Text as presence may carry it (wire.rs `text_ok`): no control characters, at most `max` bytes. */
 export function clipText(s: string, max: number): string {
   // eslint-disable-next-line no-control-regex
-  let out = s.replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
-  const enc = new TextEncoder();
-  while (enc.encode(out).length > max) out = out.slice(0, -1);
+  const clean = s.replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
+  // By code point, so a cut never splits a surrogate pair: a lone half isn't UTF-8, the
+  // server can't parse the frame and closes the socket (review 2026-11-11). A lone half the
+  // input already had becomes U+FFFD, as TextEncoder would send it.
+  let out = "";
+  let bytes = 0;
+  for (const ch of clean) {
+    const c = ch.codePointAt(0)!;
+    const ok = c < 0xd800 || c > 0xdfff ? ch : "\ufffd";
+    const n = c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+    if (bytes + n > max) break;
+    out += ok;
+    bytes += n;
+  }
   return out;
 }
 
@@ -254,9 +265,16 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
       }),
     reset: () =>
       batch(() => {
-        heard = {};
-        lastDeath = {};
-        for (const k of VIEW_KEYS) if (row(k).reset) setOwn(k, first[k]);
+        // Only what goes back to its first value is heard afresh: a group with no such key
+        // (the events filters and search) keeps the follower's own until the presenter's next
+        // change to it (review 2026-11-11).
+        for (const k of VIEW_KEYS) {
+          const r = row(k);
+          if (!r.reset) continue;
+          if (r.group !== null) delete heard[r.group];
+          delete lastDeath[k];
+          setOwn(k, first[k]);
+        }
       }),
   };
 }

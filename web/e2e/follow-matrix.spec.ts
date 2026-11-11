@@ -649,3 +649,20 @@ test("a build opened again opens with Effects and Build order closed", async ({ 
   await openInspect(a);
   await expect.poll(() => popover(a)).toBe("none");
 });
+
+// The search keeps at most its bytes, while the box's maxLength counts UTF-16 units: the box
+// shows what was kept, so what you see is what a follower sees (review 2026-11-11).
+test("the events search shows exactly what it keeps, and a follower sees the same", async ({ browser }) => {
+  const { a, b } = await board(browser, ROWS.find((r) => r.key === "events.search")!);
+  const box = (p: Page) => p.getByTestId("events-search");
+  await follow(b);
+  // Typed one key at a time: the 33rd two-byte letter doesn't go in.
+  await box(a).pressSequentially("ж".repeat(40));
+  await expect(box(a)).toHaveValue("ж".repeat(32));
+  await expect(box(b)).toHaveValue("ж".repeat(32));
+  // Pasted whole, ending in an emoji that doesn't fit: cut before it, never through it.
+  await box(a).fill(`${"x".repeat(61)}😀`);
+  await expect(box(a)).toHaveValue("x".repeat(61));
+  await expect(box(b)).toHaveValue("x".repeat(61));
+  await expect(a.getByTestId("save-status")).toHaveAttribute("data-connection", "live");
+});

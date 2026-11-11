@@ -10,7 +10,7 @@ import type { WireIn } from "../gen/WireIn";
 import type { WireOut } from "../gen/WireOut";
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { Presence } from "../gen/Presence";
-import { BoardReplica, buildId, newClientId, newClientSecret } from "../wasm/mapcro_wasm.js";
+import { BoardReplica, buildId, newClientId, newClientSecret, presenceFrameOk } from "../wasm/mapcro_wasm.js";
 import { MemoryPersist, type Persist } from "./persist";
 import type { SaveStatus, Update } from "./update";
 
@@ -103,6 +103,8 @@ export class BoardSession {
   };
   private presenceTimer: ReturnType<typeof setTimeout> | undefined;
   private presenceSentAt = 0;
+  /** The last presence was held back as one the server would refuse (`send`). */
+  private presenceRefused = false;
 
   private replica: BoardReplica | undefined;
   /**
@@ -284,7 +286,20 @@ export class BoardSession {
   }
 
   private send(frame: WireIn) {
-    this.socket?.send(JSON.stringify(frame));
+    if (!this.socket) return;
+    const json = JSON.stringify(frame);
+    // A presence the server can't take closes the socket as abuse, and every reconnect would
+    // resend it: a loop. Hold it back instead (others keep the last one sent) and say so once,
+    // until one goes through (review 2026-11-11).
+    if (frame.t === "presence") {
+      if (!presenceFrameOk(json)) {
+        if (!this.presenceRefused) this.problems.push("presence not sent: the server would refuse it");
+        this.presenceRefused = true;
+        return;
+      }
+      this.presenceRefused = false;
+    }
+    this.socket.send(json);
   }
 
   private open() {

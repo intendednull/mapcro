@@ -99,10 +99,18 @@ export function EventsList(p: {
     if (kept.length !== untrack(picked).size) setPicked(new Set(kept));
   });
 
+  /** The search keeps at most its bytes (`maxLength` counts UTF-16 units): the box shows what
+   * was kept, so typing stops at the limit and what a follower sees is what you see. */
+  const typed = (el: HTMLInputElement) => {
+    p.setQuery(el.value);
+    const kept = untrack(query);
+    if (el.value !== kept) el.value = kept;
+  };
+
   return (
     <div class="pl-events" data-testid="events">
       <div class="pl-events-head">
-        <input class="input" data-testid="events-search" placeholder="Search" aria-label="Search events" maxLength={VIEW_STATE["events.search"].max} value={query()} onInput={(e) => p.setQuery(e.currentTarget.value)} />
+        <input class="input" data-testid="events-search" placeholder="Search" aria-label="Search events" maxLength={VIEW_STATE["events.search"].max} value={query()} onInput={(e) => typed(e.currentTarget)} />
         <label class="pl-lead" title="Lead">
           −
           <input type="number" min="0" max="60" data-testid="events-lead" aria-label="Lead seconds" value={lead()} onInput={(e) => setLead(Math.max(0, Math.min(60, Number(e.currentTarget.value) || 0)))} />s
