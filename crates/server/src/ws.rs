@@ -281,6 +281,7 @@ async fn session(app: AppState, mut socket: WebSocket) -> Option<CloseReason> {
                                 }
                             }
                             Ok(WireIn::Presence { state }) if state.is_valid() => {
+                                crate::metrics::get().presence_bytes.observe((), t.len() as f64);
                                 if room.send(RoomCmd::Presence { conn, state }).await.is_err() {
                                     break Some(CloseReason::StorageFailure);
                                 }

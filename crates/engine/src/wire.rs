@@ -218,6 +218,70 @@ pub struct Playback {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     pub all_builds: bool,
+    /// Which of Effects and Build order is open in the hero's build `inspect` names (operator
+    /// 2026-11-11). Left out when neither.
+    /// A variant this build doesn't know (a newer client's) reads as none.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_popover")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub build_popover: Option<BuildPopover>,
+    /// The events list's filter chips that are on, a bit each in `view_state::EVENT_GROUPS`
+    /// order (operator 2026-11-11). Left out when none. Unknown bits are ignored: past 16 they
+    /// are dropped here, and anything but a whole number reads as none, so a newer client's
+    /// presence still parses (an older server after a rollback).
+    #[serde(default, skip_serializing_if = "is_zero", deserialize_with = "lenient_bits")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<u16>", optional))]
+    pub event_filters: u16,
+    /// The events list's search, at most `MAX_EVENT_SEARCH` bytes, no control characters.
+    /// Left out when empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub event_search: Option<String>,
+}
+
+fn is_zero(n: &u16) -> bool {
+    *n == 0
+}
+
+/// A value read leniently: what this build knows, or anything else (ignored).
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Lenient<T> {
+    Known(T),
+    Other(serde::de::IgnoredAny),
+}
+
+/// `event_filters`: the low 16 bits of a whole number; anything else is none.
+fn lenient_bits<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u16, D::Error> {
+    Ok(match Lenient::<u64>::deserialize(d)? {
+        Lenient::Known(n) => (n & u64::from(u16::MAX)) as u16,
+        Lenient::Other(_) => 0,
+    })
+}
+
+/// `build_popover`: a variant this build doesn't know is none.
+fn lenient_popover<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<BuildPopover>, D::Error> {
+    Ok(match Option::<Lenient<BuildPopover>>::deserialize(d)? {
+        Some(Lenient::Known(p)) => Some(p),
+        _ => None,
+    })
+}
+
+/// The hero build's two popovers (BuildColumn.tsx); they are one `<details name>` group, so at
+/// most one is open.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BuildPopover {
+    Effects,
+    Order,
+}
+
+/// The events search a presence may carry (bytes).
+pub const MAX_EVENT_SEARCH: usize = 64;
+
+/// Text a person typed that presence carries: short, and no control characters.
+pub fn text_ok(s: &str, max: usize) -> bool {
+    s.len() <= max && !s.chars().any(char::is_control)
 }
 
 /// A roster slot in the open match, as presence carries it.
@@ -369,6 +433,7 @@ impl Presence {
                     && b.jump.as_ref().is_none_or(|j| clock(j.at) && j.key.len() <= MAX_JUMP_KEY && !j.key.chars().any(char::is_control))
                     && [b.skull_recap, b.event_recap].iter().flatten().all(|d| d.slot < MAX_SLOT && d.t <= 86_400)
                     && b.inspect.is_none_or(|s| s.slot < MAX_SLOT)
+                    && b.event_search.as_deref().is_none_or(|q| text_ok(q, MAX_EVENT_SEARCH))
             })
             && self.cursor.as_ref().is_none_or(ok_pos)
             && self.drag.as_ref().is_none_or(|d| ok_pos(&d.pos))
@@ -426,7 +491,7 @@ mod tests {
     }
 
     fn playback() -> Playback {
-        Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: None, vision: None, skull_recap: None, event_recap: None, inspect: None, all_builds: false }
+        Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: None, vision: None, skull_recap: None, event_recap: None, inspect: None, all_builds: false, build_popover: None, event_filters: 0, event_search: None }
     }
 
     #[test]
@@ -438,16 +503,84 @@ mod tests {
         assert!(!with(Playback { skull_recap: death(MAX_SLOT, 40), ..playback() }).is_valid());
         assert!(!with(Playback { event_recap: death(1, 86_401), ..playback() }).is_valid());
         assert!(!with(Playback { inspect: Some(SlotRef { team: Amber, slot: 200 }), ..playback() }).is_valid());
+        // The events search: bounded, and no control characters.
+        let search = |q: &str| with(Playback { event_search: Some(q.to_owned()), ..playback() }).is_valid();
+        assert!(search("haze ult") && search(&"é".repeat(MAX_EVENT_SEARCH / 2)));
+        assert!(!search(&"x".repeat(MAX_EVENT_SEARCH + 1)) && !search("a\nb") && !search("\u{7}"));
+        assert!(with(Playback { build_popover: Some(BuildPopover::Order), event_filters: u16::MAX, ..playback() }).is_valid());
         // Closed panels and absent layers cost nothing on the wire; an older client parses.
         let json = serde_json::to_string(&with(playback())).expect("serialises");
-        for k in ["skull_recap", "event_recap", "inspect", "all_builds", "layers"] {
+        for k in ["skull_recap", "event_recap", "inspect", "all_builds", "layers", "build_popover", "event_filters", "event_search"] {
             assert!(!json.contains(k), "{k} in {json}");
         }
-        let open = Playback { skull_recap: death(3, 12), all_builds: true, ..playback() };
+        let open = Playback { skull_recap: death(3, 12), all_builds: true, build_popover: Some(BuildPopover::Effects), event_filters: 5, event_search: Some("urn".into()), ..playback() };
         let back: Playback = serde_json::from_str(&serde_json::to_string(&open).expect("serialises")).expect("parses");
         assert_eq!(back, open);
         let p = Presence { layers: Some(LAYER_TROOPERS | LAYER_CRATES), ..Default::default() };
         assert_eq!(serde_json::from_str::<Presence>(&serde_json::to_string(&p).expect("serialises")).expect("parses").layers, Some(0b100_0001));
+    }
+
+    /// A presence frame as a client sends it, its playback's JSON ending in `extra` (raw JSON
+    /// text, so it can hold what `serde_json` would never write).
+    fn frame_with(extra: &str) -> String {
+        let state = serde_json::to_string(&Presence { playback: Some(playback()), ..Default::default() }).expect("serialises");
+        let (head, tail) = state.split_once(r#""speed":1.0"#).expect("speed in playback");
+        format!(r#"{{"t":"presence","state":{head}"speed":1.0{extra}{tail}}}"#)
+    }
+    fn parsed(frame: &str) -> Option<Presence> {
+        match serde_json::from_str::<WireIn>(frame) {
+            Ok(WireIn::Presence { state }) => Some(*state),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_search_the_client_clipped_parses_and_is_valid() {
+        // What viewstate.ts `clipText(s, 64)` gives (web/test/view-state.test.ts has the same
+        // table): cut by code point, a lone surrogate as U+FFFD.
+        let x = |n: usize| "x".repeat(n);
+        let cases = [
+            x(61),                        // 61 x then an emoji: the emoji doesn't fit
+            format!("{}😀", x(60)),       // it fits exactly
+            format!("{}é", x(62)),        // two bytes at the end
+            format!("{}\u{FFFD}", x(61)), // a lone high surrogate
+            "😀".repeat(16),
+            "ж".repeat(32),
+        ];
+        assert!(parsed(&frame_with("")).is_some_and(|p| p.is_valid()));
+        for q in &cases {
+            assert!(q.len() <= MAX_EVENT_SEARCH, "{q}");
+            let frame = frame_with(&format!(r#","event_search":{}"#, serde_json::to_string(q).expect("json")));
+            let state = parsed(&frame).unwrap_or_else(|| panic!("parses: {frame}"));
+            assert!(state.is_valid(), "{q}");
+            assert_eq!(state.playback.and_then(|b| b.event_search).as_deref(), Some(q.as_str()));
+        }
+        // What the old cut sent: half a pair, as JSON.stringify writes it. Unparseable, so the
+        // server closes the socket as abuse.
+        assert!(parsed(&frame_with(&format!(r#","event_search":"{}\ud83d""#, x(61)))).is_none());
+    }
+
+    #[test]
+    fn unknown_filter_bits_and_popovers_from_a_newer_client_are_ignored() {
+        let pb = |extra: &str| parsed(&frame_with(extra)).unwrap_or_else(|| panic!("parses: {extra}")).playback.expect("playback");
+        // Bits past 16 are dropped; the ones that fit are kept (a follower ignores unknown ones).
+        assert_eq!(pb(r#","event_filters":65541"#).event_filters, 5);
+        assert_eq!(pb(r#","event_filters":4294967295"#).event_filters, u16::MAX);
+        assert_eq!(pb(r#","event_filters":18446744073709551615"#).event_filters, u16::MAX);
+        // Anything but a whole number is none.
+        for v in ["-1", "1.5", r#""5""#, "null", "[1]", "{}"] {
+            assert_eq!(pb(&format!(r#","event_filters":{v}"#)).event_filters, 0, "{v}");
+        }
+        // A popover this build doesn't know is none; the known ones still read.
+        assert_eq!(pb(r#","build_popover":"order""#).build_popover, Some(BuildPopover::Order));
+        assert_eq!(pb(r#","build_popover":"effects""#).build_popover, Some(BuildPopover::Effects));
+        for v in [r#""stats""#, "null", "3", r#"{"a":1}"#] {
+            assert_eq!(pb(&format!(r#","build_popover":{v}"#)).build_popover, None, "{v}");
+        }
+        // Still valid, and the bounds is_valid checks still hold beside them.
+        assert!(parsed(&frame_with(r#","event_filters":131071,"build_popover":"stats""#)).expect("parses").is_valid());
+        let long = format!(r#","event_filters":131071,"build_popover":"stats","event_search":"{}""#, "x".repeat(MAX_EVENT_SEARCH + 1));
+        assert!(!parsed(&frame_with(&long)).expect("parses").is_valid());
     }
 
     #[test]

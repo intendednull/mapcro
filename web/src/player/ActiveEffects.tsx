@@ -3,9 +3,9 @@ import type { Art } from "../map/pack";
 import type { TimelinePlayer } from "../match/timeline";
 import { effectsAt } from "./effects";
 
-export function ActiveEffects(p: { player: TimelinePlayer; t: number; art: Art; endDs?: number | undefined }) {
+export function ActiveEffects(p: { player: TimelinePlayer; t: number; art: Art; endDs?: number | undefined; open?: boolean | undefined; onToggle?: ((open: boolean) => void) | undefined }) {
   const effects = createMemo(() => effectsAt(p.player, p.t, p.art.buildCatalog, p.endDs));
-  return <details class="tb-effects" name="tb-build-popover" data-testid="active-effects">
+  return <details class="tb-effects" name="tb-build-popover" data-testid="active-effects" open={p.open} on:toggle={(e) => p.onToggle?.(e.currentTarget.open)}>
     <summary>Effects · {effects()?.length ?? "—"}</summary>
     <div class="tb-effects-body">
       <Show when={effects() !== null} fallback={<p>Effects unavailable in this replay.</p>}>

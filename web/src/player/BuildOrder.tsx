@@ -10,7 +10,7 @@ import { GameTip, Hover, useTooltips } from "./GameTooltip";
 
 const VERB: Record<BuildOrderEntry["kind"], string> = { bought: "Bought", sold: "Sold", merged: "Upgraded", removed: "Lost" };
 
-export function BuildOrder(p: { player: TimelinePlayer; t: number; art: Art; build?: number | undefined; onSeek?: ((t: number) => void) | undefined }) {
+export function BuildOrder(p: { player: TimelinePlayer; t: number; art: Art; build?: number | undefined; onSeek?: ((t: number) => void) | undefined; open?: boolean | undefined; onToggle?: ((open: boolean) => void) | undefined }) {
   const record = (id: number) => p.art.buildCatalog?.records.get(id);
   // Each row's item shows its tooltip on hover (GameTooltip.tsx), the replay patch's values.
   const tips = useTooltips(() => p.art, () => p.build);
@@ -19,7 +19,7 @@ export function BuildOrder(p: { player: TimelinePlayer; t: number; art: Art; bui
   const name = (id: number) => record(id)?.label ?? "Unknown item";
   /** Tags (spec §4b): what, from what, when. */
   const label = (e: BuildOrderEntry) => `${VERB[e.kind]} ${name(e.id)}${e.from.length ? `, from ${e.from.map(name).join(", ")}` : ""}, ${clockLabel(e.t)}`;
-  return <details class="tb-effects tb-order" name="tb-build-popover" data-testid="build-order">
+  return <details class="tb-effects tb-order" name="tb-build-popover" data-testid="build-order" open={p.open} on:toggle={(e) => p.onToggle?.(e.currentTarget.open)}>
     <summary>Build order · {order()?.filter(e => e.kind === "bought").length ?? "—"}</summary>
     <div class="tb-effects-body">
       <Show when={order() !== null} fallback={<p>Build order unavailable in this replay.</p>}>

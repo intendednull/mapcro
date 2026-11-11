@@ -255,7 +255,9 @@ can't be reached through Caddy.
   - Sync: `ws_opens`, `ws_closes{reason}` (the close reason, or `gone`), `outdated_reloads`,
     `ops_rejected{reason}`, `connections_open`, `rooms_open`, `commit_batch_size`,
     `commit_ms` and `op_ack_ms`. `op_ack_ms` runs from a room taking an edit to its ack, so the
-    room's own queue isn't in it.
+    room's own queue isn't in it. `presence_bytes`: each valid presence frame's size as the
+    client sent it (the whole frame; it is resent on every change), in `stats summary` under
+    SPEED, to decide whether slow state should travel apart from cursors (architecture spec §8).
   - Usage: `boards_created{how}`, `matches_opened{tier, path}`, and `users_today`, the daily
     distinct count.
   - Feedback (architecture spec §11a): `feedback_sent`, and `feedback_rejected{reason}` with

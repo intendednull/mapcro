@@ -10,6 +10,7 @@
 mod authority;
 mod protocol;
 mod replica;
+pub mod view_state;
 pub mod wire;
 
 pub use authority::{

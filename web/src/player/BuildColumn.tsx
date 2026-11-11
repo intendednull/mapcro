@@ -1,7 +1,7 @@
 // The HUD's PlayerNameNWContainer: abilities above the two-column inventory.
 import { ActiveEffects } from "./ActiveEffects";
 import { BuildOrder } from "./BuildOrder";
-import { For, Index, Show, createMemo } from "solid-js";
+import { For, Index, Show, createMemo, untrack } from "solid-js";
 import type { Art, Hero } from "../map/pack";
 import { buildAt, killsAt, type BuildEntry } from "../match/builds";
 import { PICKUPS_FORMAT, SLOT, investFill, statBuild, statsAt, type LoadedTable } from "../match/stats";
@@ -21,9 +21,23 @@ import { type Category, StatPanel } from "./StatPanel";
  * Items, abilities, the investment bars and the stats show the game's tooltips and stat panels
  * on hover (GameTooltip.tsx, StatPanel.tsx) when the pack has them.
  */
-export function BuildColumn(p: { inspect?: boolean; limited?: boolean; onSeek?: ((t: number) => void) | undefined; player: TimelinePlayer; timeline: Timeline | undefined; t: number; art: Art; hero: Hero | undefined; name: string | undefined; id: string; stats?: LoadedTable | undefined; ladder?: LoadedTable | undefined }) {
+/** Which of the inspected build's popovers is open, and its toggle (the host's: followers get it). */
+export interface Popover {
+  open: () => "none" | "effects" | "order";
+  set: (v: "none" | "effects" | "order") => void;
+}
+
+export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefined; limited?: boolean; onSeek?: ((t: number) => void) | undefined; player: TimelinePlayer; timeline: Timeline | undefined; t: number; art: Art; hero: Hero | undefined; name: string | undefined; id: string; stats?: LoadedTable | undefined; ladder?: LoadedTable | undefined }) {
   const build = createMemo(() => buildAt(p.player, p.t));
   const record = (id: number) => p.art.buildCatalog?.records.get(id);
+  /** One popover opened or closed. They share one disclosure name, so opening one closes
+   * the other, whose toggle comes too: a close only counts for the one that is open. */
+  const popped = (which: "effects" | "order", open: boolean) => {
+    const pop = p.popover;
+    if (!pop) return;
+    if (open) pop.set(which);
+    else if (untrack(pop.open) === which) pop.set("none");
+  };
   const abilityIds = () => p.hero?.abilities?.length ? p.hero.abilities : (build().abilities ?? []).map(a => a.id);
   const abilities = () => Array.from({ length: 4 }, (_, i) => {
     const id = abilityIds()[i];
@@ -126,8 +140,8 @@ export function BuildColumn(p: { inspect?: boolean; limited?: boolean; onSeek?: 
       <Show when={build().abilities === null}><p class="tb-build-empty" title={LABELS.missing}>—</p></Show>
       <Show when={p.inspect && !p.limited}>
         <div class="tb-build-popovers">
-          <ActiveEffects player={p.player} t={p.t} art={p.art} endDs={p.timeline ? p.timeline.duration_s * 10 : undefined} />
-          <BuildOrder player={p.player} t={p.t} art={p.art} build={p.timeline?.build} onSeek={p.onSeek} />
+          <ActiveEffects player={p.player} t={p.t} art={p.art} endDs={p.timeline ? p.timeline.duration_s * 10 : undefined} open={p.popover ? p.popover.open() === "effects" : undefined} onToggle={(o) => popped("effects", o)} />
+          <BuildOrder player={p.player} t={p.t} art={p.art} build={p.timeline?.build} onSeek={p.onSeek} open={p.popover ? p.popover.open() === "order" : undefined} onToggle={(o) => popped("order", o)} />
         </div>
       </Show>
       <div class="tb-build-items" aria-label="Equipped items">

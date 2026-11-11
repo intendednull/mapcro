@@ -1,7 +1,8 @@
 # Plan: view state that followers get by default (2026-11-11)
 
-Status: design, with a tracer bullet built on branch `view-state` (step 0 below). The rest is
-for the lead and operator to schedule.
+Status: steps 0–4 built on branch `view-state` (2026-11-11), with the operator's decisions
+below; step 5 declined (decision 5); steps 6 and 7 open. "Built" at the end says what differs
+from this design.
 
 ## Problem
 
@@ -185,24 +186,76 @@ step says it changes behaviour.
 
 0. **Done (tracer):** registry, generated TS, store, the seven layers, `builds.all`, `names`, the
    four guards. `layers.ts` lost its bit table.
-1. **The store stops the follow.** `createViewState` takes `onStop`; `set` on a `Stop` key calls
+1. **Done.** **The store stops the follow.** `createViewState` takes `onStop`; `set` on a `Stop` key calls
    it. Remove Player.tsx's `mine()` wrapper around each layer toggle. After this a new `Stop` key
    cannot forget to stop.
-2. **Value kinds, then Vision.** Generalise the store from boolean to the kinds in §3. Move
+2. **Done.** **Value kinds, then Vision.** Generalise the store from boolean to the kinds in §3. Move
    `vision.team` (`Choice(3)`) and `vision.last_seen` in; delete `ownVision`, `ownLastSeen`,
    `theirVision`. Wire stays `playback.vision`.
-3. **Panels.** `skull_recap`, `event_recap`, `inspect` as `Death`/`Slot` keys, `Keep` + `Local`.
+3. **Done.** **Panels.** `skull_recap`, `event_recap`, `inspect` as `Death`/`Slot` keys, `Keep` + `Local`.
    Two things move into the store with them: the "apply only when the group changed" dedupe
    (`heardPanels`: today any panel change re-applies all four, which is why `builds.all` still
    goes through `mirrorPanels`), and "reset on another match" as a row attribute.
-4. **The unshared ones, one row each, after the operator says which:** the build popover
+4. **Done** for the popover, filters and search (decision 3); list follow and the teleporter
+   line not done. **The unshared ones, one row each, after the operator says which:** the build popover
    (`Choice(3)`; lifts `<details>` state into the store), events filters (bits), search (`Text`),
    list follow (flag), sidebar tab. The teleporter line needs no key: derive it from the shown
    hover.
-5. **Board-level state** (`scene`, `view`, `hover`): leave as `Outside::Wired` unless a change
+5. **Declined (decision 5).** **Board-level state** (`scene`, `view`, `hover`): leave as `Outside::Wired` unless a change
    there is planned anyway. It is the oldest and best-tested follow code and gains least.
 6. **Split `host.ts`** (TD-10) once steps 2–3 have taken the mirroring out of it.
 7. **Transport** (§4), if presence bytes turn out to matter.
+
+## Built (steps 1–4, 2026-11-11)
+
+Behaviour was pinned first: `web/e2e/follow-matrix.spec.ts`, a row per key (31 keys and
+scenarios: playback, mode, match, jump, Vision, Last seen, scene, viewport, side, hover, the seven
+layers, both recaps, inspect, All builds, Tab held, names, and the state that wasn't shared),
+each checked on following, live, after the follower's own change (with what Vision and Crowd
+control keep), Stop following, the presenter leaving, a late joiner and a server restart. All
+passed against the code before the change; after it, rows changed only where a decision did.
+
+- **Step 1:** `createViewState(first, { onOwn, onStop })`; `set` on a `stop` key calls
+  `onStop`, which Board wires to `stopFollowing`. Player.tsx's `mine()` wrappers are gone.
+- **Decision 2:** a `stop` change adopts every presenter value on screen as the follower's own
+  (and remembers it), then stops. Board's `stopFollowing(why)` does the same for the board's
+  own stops (a pan, a scrub, a flip, a scene), through `forget("keep")`; the Stop button and
+  the presenter leaving are `forget("restore")`.
+- **Steps 2–3:** kinds `Bool`, `Choice` (each option with how presence carries it: Vision's
+  team is `Team` as serde writes it, `Amber`), `Slot`, `Death`, `Deaths` and `Text { max }`.
+  `Deaths` is a fifth kind not in §3: the events list keeps several recaps open and presence
+  carries the last, and its apply rule (close the presenter's previous, keep the follower's own)
+  had to live somewhere; it is in the store, once. Wire places are `Bit { omit_zero }` (the
+  layers byte is always sent, the filters left out at zero), `Value` (always sent: Vision, so
+  "All" is told from an older client) and `Optional` (left out at the default). A `group`
+  column says which `local` keys apply together (`panels`, `events`): the dedupe moved into the
+  store, per group, as the risk below advised. `reset_on_match` is a column. Vision, both
+  recaps and inspect moved in; `host.ts` lost `ownVision`, `ownLastSeen`, `theirVision`,
+  `skullRecap`, `eventRecaps`, `openBuild`, `mirrorPanels` and `heardPanels`.
+- **Step 4 (decision 3):** `builds.popover` (`Choice`, `playback.build_popover`), nine
+  `events.filter.*` bits (`playback.event_filters`, a bit per chip in `EVENT_GROUPS` order) and
+  `events.search` (`Text { max: 64 }`, `playback.event_search`, checked in `is_valid`; the client
+  clips). The sidebar tab and the Map layers popover are `personal` in the ledger.
+- **Decision 4:** `presence_bytes` histogram (ws.rs, every valid frame) in `stats summary`.
+- **Mutation run** (store, registry, wiring): 51 mutants. The store's 30 (a 31st, on `stops()`, survived: it had no caller, so it went) and the Rust
+  registry's and wire's 10 are all killed by assertions in `view-state.test.ts` and the engine
+  tests; of 10 in the wiring (Board, host, PlayerTopBar, a policy flipped in the generated
+  registry), 9 are killed by the follow matrix or the unit tests. Five survived the first pass
+  and each gained a test (forget not clearing the group dedupe, a repeat remembered, the events
+  recap sending its first, the popover's group, a build reopening with its popover).
+  One named equivalent: the host clipping the search, which the store
+  clips again on the wire.
+- **Review fixes:** `clipText` cuts by code point (a lone surrogate went out as `\ud83d`,
+  serde couldn't parse the frame and the server closed the socket as abuse, every reconnect
+  resending it); the session asks the WASM `presenceFrameOk` (the server's parse and
+  `is_valid`) before sending presence and holds back one it would refuse, logged once. The
+  search box shows what the store kept, so typing stops at 64 bytes (the host's clip is now
+  load-bearing: the follow matrix's search test fails without it). `event_filters` keeps the
+  low 16 bits of any whole number and `build_popover` reads an unknown variant as none, so a
+  newer client parses on an older server. `reset()` hears afresh only groups with a
+  `reset_on_match` key (`panels`), so a match change leaves a follower's own filters and search.
+- `playback.jump` is `Outside::Core` now (its apply logic stays outside, §3); `Outside::Wired`
+  is the board's scene, floor, viewport and hover, by decision 5.
 
 ## What the tracer proves
 
@@ -226,11 +279,11 @@ It does not prove the non-boolean kinds, or that step 3's group dedupe fits the 
 ## Risks
 
 - **Two mechanisms until step 3.** Vision and three panels are still hand-wired beside the
-  store. Stopping here for long leaves the code harder to read than before (TD-22).
+  store. Stopping here for long leaves the code harder to read than before (TD-32).
 - **The value kinds could grow** into a small type system. Hold the line at §3's list.
 - **The ledger is friction.** Every new signal in Player needs a line. That is the point, but
   agents may write `local` by reflex. The reason string and the reviewer are the only check.
-- **The scan is a regex** (TD-23). It is exact about what it counts (it fails on a
+- **The scan is a regex** (TD-33). It is exact about what it counts (it fails on a
   `createSignal` it can't name) but blind to the cases listed under the guard.
 - **Panel semantics in step 3.** Per-key dedupe would change "the presenter's next change wins"
   from "any panel" to "that panel". Keep it per group unless the operator wants otherwise.

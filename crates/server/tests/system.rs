@@ -17,6 +17,8 @@ type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<t
 struct Server {
     child: Child,
     port: u16,
+    /// The `/metrics` listener, when started with `METRICS_ADDR`.
+    metrics: Option<u16>,
     dir: std::path::PathBuf,
 }
 
@@ -38,7 +40,7 @@ impl Server {
             }
             cmd.env("DATA_DIR", dir).env("PUBLIC_ORIGIN", ORIGIN).env("RUST_LOG", "warn").envs(env.iter().copied()).stdout(Stdio::null());
             match support::start(cmd) {
-                Ok(s) => return Server { child: s.child, port: s.port, dir: dir.to_owned() },
+                Ok(s) => return Server { child: s.child, port: s.port, metrics: s.metrics, dir: dir.to_owned() },
                 Err(e) if port.is_some() && e.bind_failed() && Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(200));
                 }
@@ -627,6 +629,28 @@ async fn until_peer(c: &mut Client, pred: impl Fn(&mapcro_engine::wire::PeerPres
         assert!(Instant::now() < deadline, "presence never arrived: {:?}", c.peers);
         c.pump_one().await.expect("connection");
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn presence_frames_are_measured_in_bytes() {
+    // Operator 2026-11-11 (view-state plan, decision 4): how big presence frames are, before
+    // deciding whether to split slow state from fast. Each valid frame a client sends is counted.
+    use mapcro_engine::wire::Presence;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start_with(dir.path(), None, &[("METRICS_ADDR", "127.0.0.1:0")]);
+    let (board, owner) = server.create_board();
+    let mut a = Client::new(0x75);
+    let mut b = Client::new(0x76);
+    a.connect(server.port, &board, &owner).await.expect("a");
+    b.connect(server.port, &board, &owner).await.expect("b");
+    let state = Presence { name: "Coach".into(), ..Default::default() };
+    let bytes = serde_json::to_string(&WireIn::Presence { state: Box::new(state.clone()) }).expect("json").len();
+    send_presence(&mut a, state).await;
+    until_peer(&mut b, |p| p.state.as_ref().is_some_and(|s| s.name == "Coach")).await;
+    let scrape = || ureq::get(&format!("http://127.0.0.1:{}/metrics", server.metrics.expect("metrics"))).call().expect("scrape").body_mut().read_to_string().expect("body");
+    let text = scrape();
+    assert!(text.contains("mapcro_presence_bytes_count 1\n"), "{text}");
+    assert!(text.contains(&format!("mapcro_presence_bytes_sum {bytes}\n")), "{bytes} bytes: {text}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

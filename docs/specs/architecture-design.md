@@ -1130,7 +1130,7 @@ makes a board with that match attached and lands in Player; **New board** is tod
   for All; `last_seen`), and a follower draws it, live, its controls showing the presenter's
   values. Stopping following brings the follower's own pair back untouched. Changing either
   control while following is a change to what you see, so it stops following (§8), and you keep
-  what you were seeing with that one change. A presenter that sends no `vision` (an older
+  everything you were seeing (the presenter's map layers too) with that one change. A presenter that sends no `vision` (an older
   client) leaves a follower on its own. Only the heroes, the urn and death skulls on the map follow
   it: the top bar, events, pings and troopers stay omniscient (docs/backlog.md).
 - **Death skulls** (2026-11-09, operator: "show a little skull when a hero dies, that fades away
@@ -1195,13 +1195,15 @@ makes a board with that match attached and lands in Player; **New board** is tod
   event or you seek elsewhere (operator bug, 2026-11-08). **Save scenes** makes one
   scene per ticked event at its jump time, "<event> @ mm:ss", in one transaction (one undo).
 - **Following** carries Player: presence's `playback` holds the mode, the match, t, playing and
-  speed, the Vision pair (optional; above) and the open panels (death recaps, builds; §8), sent on every change and every 2 s while playing. It also holds the **jump** while it's
+  speed, the Vision pair (optional; above), the open panels (death recaps, builds and the popover
+  open in one) and the events list's filters and search (§8), sent on every change and every 2 s while playing. It also holds the **jump** while it's
   pinned: the event's key in the list and the match time the jump landed at (the key at most 96
   bytes and the time a clock value, in the server's `is_valid`). A follower rings the same event
   at the same place and marks the same row; a new jump, or the presenter's seek back to the same
   one, rings again, and none (they seeked elsewhere) unpins the row (QA 2026-11-08). A follower adopts them, keeping its own
   clock while it is within 0.75 s of the presenter's. Changing your own playback, mode or match
-  stops following, as changing the view does.
+  stops following, as changing the view does, and you keep what you were seeing (the
+  presenter's layers and Vision) with that change.
 - **Getting a replay in (operator, 2026-11-08: people can't find their replay files, and
   deadlock-api can't always fetch one).** Labels and short lines only.
   - **Where's my replay?** sits beside every upload (the landing's file controls, Player's
@@ -1420,32 +1422,68 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   workflow (operator, 2026-11-06):
   - **Following is one click,** and the presenter's name is always visible to click.
   - **A follower who changes what they see stops following:** flipping a scene, panning, zooming or
-    switching floor. There's no half-state.
+    switching floor. There's no half-state. **They keep everything they were seeing, plus that
+    one change** (operator 2026-11-11): the presenter's map layers and Vision stay on their
+    screen, now their own. Stop following (the button), or the presenter leaving, is not a
+    change to what you see: the follower's own layers and Vision come back.
   - **Presenters can't force or nudge anyone;** getting back in is just as easy.
   - **Anyone can follow anyone who holds edit rights** (owner or edit link), so there can be several
     presenters at once. View-only people can follow but can't be followed. Presence carries each
     person's role, and the server stamps it from their link, so it can't be forged.
   - **Map layers** (operator bug, 2026-11-11: "the follower doesn't see the same map layers"):
-    presence's `layers` is one byte, a bit per "Map layers" toggle (wire.rs `LAYER_*`: lane
+    presence's `layers` is one byte, a bit per "Map layers" toggle (wire.rs `LAYER_*`, each a
+    registry row: lane
     troopers, health bars & arcs, event pings, crowd control, elevation & ziplines, healing
-    pickups, heavy boxes). A follower draws the presenter's, its toggles showing them; stopping,
-    or the presenter leaving, brings its own back untouched. A follower's own toggle while
-    following is a change to what it sees, so it stops following and keeps the presenter's
-    layers with that one change, as Vision does (§6b). A presenter that sends no `layers` (an
+    pickups, heavy boxes). A follower draws the presenter's, its toggles showing them; Stop
+    following, or the presenter leaving, brings its own back untouched. A follower's own toggle
+    while following is a change to what it sees, so it stops following and keeps everything it
+    saw (the presenter's layers and Vision) with that one change. A presenter that sends no `layers` (an
     older client) leaves a follower on its own. **Player names is the exception:** it stays each
     browser's own and is never in presence, as it is for recording without names (§6b "Names").
   - **Panels** (same bug: "doesn't see the death recap the presenter has open"): presence's
     `playback` carries the death recap open on the map (`skull_recap`: team, slot, the death's
     second), the events list's last opened recap still open (`event_recap`), the hero whose build
-    the top bar has open (`inspect`) and whether every build is (`all_builds`: All builds or Tab
-    held). Each is left out when closed, so a closed panel costs nothing in a frame resent on every
+    the top bar has open (`inspect`), which of its Effects and Build order is open
+    (`build_popover`, operator 2026-11-11), and whether every build is (`all_builds`: All builds
+    or Tab held). Each is left out when closed, so a closed panel costs nothing in a frame resent on every
     cursor move. A follower opens and closes them as the presenter does; the map card goes by the
     follower's Vision (the presenter's while following) as it does for the presenter, so it never
     shows a death that team didn't see. Unlike the map, a panel is not "what you see" in §8's
     sense: a follower may open or close its own without stopping, and the presenter's next change
-    wins. Stopping leaves the panels as they are. Not followed yet (docs/backlog.md): which of
-    Effects and Build order is open in a hero's build, the events list's filters, search and
-    scroll, and the teleporter pair's line.
+    wins: a change to any one of the panels applies all of them (one group), so a panel the
+    follower closed opens again with it. Stopping leaves the panels as they are.
+  - **The events list's filters and search** (operator 2026-11-11): presence's `playback`
+    carries the filter chips that are on (`event_filters`, a bit per chip in the list's order,
+    left out when none) and the search (`event_search`, at most 64 bytes, no control characters;
+    the client clips what it sends, as the server closes a socket that sends more). A follower's
+    list, and so its event pings, show the presenter's; like a panel, a follower may filter its
+    own without stopping, and the presenter's next change to either wins; stopping keeps them.
+  - **Each browser's own:** Player names, the sidebar tab (Events or Notes) and whether the Map
+    layers popover is open (operator 2026-11-11: layout), the tool, ink colour, Comments toggle
+    and jump lead. Not followed yet (docs/backlog.md): the events list's scroll, the hero panel
+    opened from a token on the map, and the teleporter pair's line.
+  - **The view-state registry** (2026-11-11; plan: `docs/plans/2026-11-11-view-state-sync.md`):
+    what following does with a piece of view state is declared, not wired per feature.
+    `crates/engine/src/view_state.rs` has one row per key: whether a follower mirrors it, the
+    presence field and bit that carry it, whether the follower's own value comes back on
+    stopping, whether its own change stops the follow, its kind (on/off, a choice, a slot, a
+    death, the open deaths, text with a byte bound), the group a presenter's change applies as,
+    and whether another match resets it. `just ts` generates the rows into
+    `web/src/gen/viewState.ts`, and the client's store (`web/src/player/viewstate.ts`) sends,
+    mirrors and restores from them, and stops the follow itself on a follower's own change to a
+    `stop` key. In it: the map layers, Vision and Last seen, the panels (both recaps, the
+    inspected build and its popover, All builds), the events filters and search, and Player
+    names (personal). Outside it by design: the board's scene, floor, viewport and hover
+    (mirrored in Board.tsx, operator 2026-11-11), and the playback clock and the jump, which
+    have apply logic of their own. Tests fail when a presence field, or a signal or `<details>`
+    in Player, has no declared policy (`web/test/view-state-ledger.ts` lists the ones that
+    aren't registry keys, with why); `web/e2e/follow-matrix.spec.ts` pins, per key, what a
+    follower sees on following, after its own change, Stop following, the presenter leaving, a
+    late join and a server restart.
+  - **Presence bytes are measured** (operator 2026-11-11): the server records each valid
+    presence frame's size (`presence_bytes`, in `stats summary`), to decide from production
+    numbers whether to send slow state (name, scene, playback, view state) apart from fast
+    (cursor, laser, drag, ink). Until then, one frame carries all of it.
 - Presence timeout: 30 s without a heartbeat removes the entry.
 - **A peer that falls behind isn't sent presence it can't keep up with, but it isn't left stale
   either.** A batch is skipped for a peer more than 64 KiB behind. The room remembers whose

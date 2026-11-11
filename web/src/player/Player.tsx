@@ -63,12 +63,6 @@ export function Player(p: {
     p.onUserPlayback();
     f();
   };
-  /** Your own Vision choice: made from what the map shows (a presenter's, while following), then
-   * following stops, as any change to what you see does (spec §8). */
-  const mine = (f: () => void) => {
-    f();
-    p.onUserPlayback();
-  };
   const rows = (kind: string, scene: RecordId) => p.state.inScene(kind, scene) as never;
 
   /**
@@ -500,15 +494,15 @@ function dismissDisclosure(element: () => HTMLDetailsElement | null) {
 export function MapControls(p: {
   host: PlayerHost; heals: boolean; crates: boolean;
   toggleHeals: () => void; toggleCrates: () => void;
-  flip: () => void; onUserPlayback: () => void;
+  flip: () => void;
 }) {
   const h = p.host;
   let layers: HTMLDetailsElement | undefined;
   onMount(() => dismissDisclosure(() => layers ?? null));
-  // A change to what the map draws is your own: following stops, and you keep what you were
-  // seeing with that one change (spec §8). Player names are this browser's alone, never followed.
-  const mine = (f: () => void) => { f(); p.onUserPlayback(); };
-  useVisionKeys(h, mine);
+  // A change to what the map draws is your own: the view-state store stops following, and you
+  // keep what you were seeing with that one change (spec §8). Player names are this browser's
+  // alone, never followed.
+  useVisionKeys(h);
   return <div class="map-controls" role="group" aria-label="Map view">
     <details class="map-layers" ref={layers}>
       <summary class="btn small" data-testid="map-layers-toggle">Map layers ▾</summary>
@@ -521,7 +515,7 @@ export function MapControls(p: {
                   class={cx("btn ghost small", h.showTroopers() && "on")}
                   data-testid="troopers-toggle"
                   aria-pressed={h.showTroopers()}
-                  onClick={() => mine(() => h.setShowTroopers(!h.showTroopers()))}
+                  onClick={() => h.setShowTroopers(!h.showTroopers())}
                 >
                   Lane troopers
                 </button>
@@ -532,7 +526,7 @@ export function MapControls(p: {
                   class={cx("btn ghost small", h.showHealth() && "on")}
                   data-testid="health-toggle"
                   aria-pressed={h.showHealth()}
-                  onClick={() => mine(() => h.setShowHealth(!h.showHealth()))}
+                  onClick={() => h.setShowHealth(!h.showHealth())}
                 >
                   Health bars & arcs
                 </button>
@@ -553,17 +547,17 @@ export function MapControls(p: {
                 class={cx("btn ghost small", h.showPings() && "on")}
                 data-testid="pings-toggle"
                 aria-pressed={h.showPings()}
-                onClick={() => mine(() => h.setShowPings(!h.showPings()))}
+                onClick={() => h.setShowPings(!h.showPings())}
               >
                 Event pings
               </button>
 
         </>}</Show>
-        <Show when={h.tl()?.players.some(player => player.cc?.length)}><button class="btn ghost small" data-testid="cc-toggle" aria-pressed={h.showCC()} onClick={() => mine(() => h.setShowCC(!h.showCC()))}>Crowd control</button></Show>
-        <Show when={h.tl()?.players.some(player => player.height?.length || player.zipline?.length)}><button class="btn ghost small" data-testid="movement-toggle" aria-pressed={h.showMovement()} onClick={() => mine(() => h.setShowMovement(!h.showMovement()))}>Elevation & ziplines</button></Show>
+        <Show when={h.tl()?.players.some(player => player.cc?.length)}><button class="btn ghost small" data-testid="cc-toggle" aria-pressed={h.showCC()} onClick={() => h.setShowCC(!h.showCC())}>Crowd control</button></Show>
+        <Show when={h.tl()?.players.some(player => player.height?.length || player.zipline?.length)}><button class="btn ghost small" data-testid="movement-toggle" aria-pressed={h.showMovement()} onClick={() => h.setShowMovement(!h.showMovement())}>Elevation & ziplines</button></Show>
         <h3>Map pickups</h3>
-        <button class="btn ghost small" data-testid="heals-toggle" aria-pressed={p.heals} onClick={() => mine(p.toggleHeals)}>Healing pickups</button>
-        <button class="btn ghost small" data-testid="crates-toggle" aria-pressed={p.crates} onClick={() => mine(p.toggleCrates)}>Heavy boxes</button>
+        <button class="btn ghost small" data-testid="heals-toggle" aria-pressed={p.heals} onClick={p.toggleHeals}>Healing pickups</button>
+        <button class="btn ghost small" data-testid="crates-toggle" aria-pressed={p.crates} onClick={p.toggleCrates}>Heavy boxes</button>
       </div>
     </details>
     <Show when={h.tl()}>{m => <>
@@ -576,7 +570,7 @@ export function MapControls(p: {
                     aria-keyshortcuts="1 2 3"
                     title="Vision [1 2 3]"
                     value={h.vision()}
-                    onChange={(e) => mine(() => h.setVision(e.currentTarget.value as Vision))}
+                    onChange={(e) => h.setVision(e.currentTarget.value as Vision)}
                   >
                     <For each={VISIONS}>{(v) => <option value={v} aria-keyshortcuts={visionKey(v)}>Vision: {v === "all" ? "All" : teamName(v)} [{visionKey(v)}]</option>}</For>
                   </select>
@@ -586,7 +580,7 @@ export function MapControls(p: {
                       class={cx("btn ghost small", h.showLastSeen() && "on")}
                       data-testid="last-seen-toggle"
                       aria-pressed={h.showLastSeen()}
-                      onClick={() => mine(() => h.setShowLastSeen(!h.showLastSeen()))}
+                      onClick={() => h.setShowLastSeen(!h.showLastSeen())}
                     >
                       Last seen
                     </button>
@@ -616,7 +610,7 @@ function VisionMark(p: { host: PlayerHost }) {
 
 /** Vision's keys (#10, #32): 1 Hidden King, 2 Archmother, 3 All, as the list orders them; off
  * while typing, in a dialog or a menu. Changing it is your own view, so following stops. */
-function useVisionKeys(h: PlayerHost, mine: (f: () => void) => void) {
+function useVisionKeys(h: PlayerHost) {
   onMount(() => {
     const key = (e: KeyboardEvent) => {
       if (e.altKey || e.ctrlKey || e.metaKey || e.repeat || e.defaultPrevented) return;
@@ -624,7 +618,7 @@ function useVisionKeys(h: PlayerHost, mine: (f: () => void) => void) {
       const tl = h.tl();
       if (!v || !tl || !hasVision(tl) || h.mode() !== "player" || !boardKeys(e.target as Element | null)) return;
       e.preventDefault();
-      if (v !== h.vision()) mine(() => h.setVision(v));
+      if (v !== h.vision()) h.setVision(v);
     };
     window.addEventListener("keydown", key);
     onCleanup(() => window.removeEventListener("keydown", key));
@@ -860,7 +854,7 @@ export function PlayerSide(p: Props) {
         <Show when={h.tl()}>
           {(m) => (
             <>
-              <EventsList art={p.art} tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} t={h.t} playing={() => h.playback().playing} onShown={h.setPingable} pinned={h.pinned} recapOpen={h.eventRecapOpen} onRecap={h.setEventRecapOpen} />
+              <EventsList art={p.art} tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} t={h.t} playing={() => h.playback().playing} onShown={h.setPingable} pinned={h.pinned} recapOpen={h.eventRecapOpen} onRecap={h.setEventRecapOpen} filters={h.eventFilters} setFilter={h.setEventFilter} query={h.eventSearch} setQuery={h.setEventSearch} />
               <span class="match-credit" data-testid="match-credit">
                 {tierOf(m()) === "replay" ? (h.job()?.source === "cdn" ? "Replay: Valve, via deadlock-api.com" : "Replay: uploaded") : "Match data: deadlock-api.com"}
               </span>
