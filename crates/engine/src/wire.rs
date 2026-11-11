@@ -498,6 +498,7 @@ mod tests {
         assert!(with(0).is_valid());
         assert!(with(MAX_SEAT).is_valid());
         assert!(!with(MAX_SEAT + 1).is_valid(), "a JavaScript number would read it as another");
+        assert_eq!(MAX_SEAT, 9_007_199_254_740_991, "Number.MAX_SAFE_INTEGER; web/src/core/seat.ts says the same");
         let back: Presence = serde_json::from_str(&serde_json::to_string(&with(MAX_SEAT)).expect("json")).expect("parse");
         assert_eq!(back.seat, Some(MAX_SEAT));
     }
