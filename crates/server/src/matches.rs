@@ -868,6 +868,7 @@ fn preview_held() -> bool {
 
 /// The match's summary timeline (JSON), from the cache or fetched (the per-client and global
 /// limits apply either way), or the error response.
+#[allow(clippy::result_large_err, reason = "the error is the response itself, made once per request")]
 async fn summary(app: &AppState, peer: SocketAddr, headers: &HeaderMap, id: &str, by: Use) -> Result<Vec<u8>, Response> {
     let (app, id) = (app.clone(), id.to_owned());
     let opened = |path: MatchPath| {

@@ -8,7 +8,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 publish = false
-description = "mapcro for Windows: the live site, plus a watch of Deadlock's replays folder"
+description = "mapcro for Windows: the live site, plus a replay picker for Deadlock's replays folder"
 
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
@@ -16,12 +16,12 @@ tauri-build = { version = "2.7", features = [] }
 [dependencies]
 mapcro-desktop-core = { path = "../core" }
 # Pinned at or above 2.12: an unsigned-manifest flaw is reported before it (research §1, unverified).
-tauri = { version = "2.12.5", features = ["tray-icon"] }
+tauri = { version = "2.12.5", features = [] }
 tauri-plugin-updater = "2.14"
-tauri-plugin-notification = "2.8"
+# The folder chooser behind Change folder, driven from Rust (no dialog command is granted to the page).
+tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2.5"
 tauri-plugin-opener = "2.7"
-notify = "8.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"

@@ -459,15 +459,15 @@ fn a_preview_is_small_cached_and_carries_no_names() {
     let (status, body) = s.preview("111");
     assert_eq!(status, 200, "{body}");
     let v: serde_json::Value = serde_json::from_str(&body).expect("json");
-    // Amber is slots 1–6 (heroes 11–16), Sapphire 7–12; kills are slot % 3 summed per team; souls
+    // Amber is slots 1–6 (heroes 11–16), Sapphire 7–12; kills are slot % 3 summed per team (6); souls
     // the last samples (2000 × slot) summed; slot 1's one death doesn't count when kills are known.
     assert_eq!(
         v,
         serde_json::json!({
             "match_id": 111, "start_time": 1_793_753_219u64, "duration_s": 120, "game_mode": 1, "winner": "sapphire",
             "teams": [
-                { "team": "amber", "heroes": [[0, 11], [1, 12], [2, 13], [3, 14], [4, 15], [5, 16]], "kills": 1 + 2 + 0 + 1 + 2 + 0, "souls": 2000 * 21 },
-                { "team": "sapphire", "heroes": [[0, 17], [1, 18], [2, 19], [3, 20], [4, 21], [5, 22]], "kills": 1 + 2 + 0 + 1 + 2 + 0, "souls": 2000 * 57 },
+                { "team": "amber", "heroes": [[0, 11], [1, 12], [2, 13], [3, 14], [4, 15], [5, 16]], "kills": 6, "souls": 2000 * 21 },
+                { "team": "sapphire", "heroes": [[0, 17], [1, 18], [2, 19], [3, 20], [4, 21], [5, 22]], "kills": 6, "souls": 2000 * 57 },
             ],
         })
     );

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-replays-choose-folder"
+description = "Enables the replays_choose_folder command without any pre-configured scope."
+commands.allow = ["replays_choose_folder"]
+
+[[permission]]
+identifier = "deny-replays-choose-folder"
+description = "Denies the replays_choose_folder command without any pre-configured scope."
+commands.deny = ["replays_choose_folder"]
