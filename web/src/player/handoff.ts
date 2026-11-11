@@ -4,7 +4,11 @@
 export interface Handoff {
   board: string;
   id: string;
-  file: File;
+  /** The `.dem`, picked or dropped in a browser. */
+  file?: File | undefined;
+  /** In the Windows app, the replay picked from its folder: parsed there, and only the timeline
+   * sent (the file is the fallback for a server without the timeline route). */
+  local?: { timeline: () => Promise<Blob>; file: () => Promise<File> } | undefined;
   /** The upload started and the match is attached: the landing's "Your boards" keeps it. */
   opened: () => void;
 }

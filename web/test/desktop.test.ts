@@ -41,6 +41,18 @@ function app(answers: Record<string, (args?: Record<string, unknown>) => unknown
 }
 
 describe("desktopSource", () => {
+  it("changes the folder through the app's chooser, and says only whether one was chosen", async () => {
+    let answer: unknown = "chosen";
+    const { invoke, calls } = app({ replays_choose_folder: () => answer });
+    const src = desktopSource(invoke);
+    expect(await src.chooseFolder()).toBe("chosen");
+    answer = "cancelled";
+    expect(await src.chooseFolder()).toBe("cancelled");
+    answer = "C:\\somewhere";
+    expect(await src.chooseFolder()).toBe("cancelled");
+    expect(calls).toEqual([["replays_choose_folder", undefined], ["replays_choose_folder", undefined], ["replays_choose_folder", undefined]]);
+  });
+
   it("lists the app's replays newest first, dropping anything that isn't one", async () => {
     const { invoke } = app({
       replays_list: () => [

@@ -75,14 +75,17 @@ much they matter.
   job is the first build. Then check by hand:
   - WebView2 renders Player as Chromium does;
   - the registry lookup works;
-  - the watch sees a download, and whether the game writes the `.dem` in place or renames it in
-    (the 5 s settle is a guess);
-  - the notification shows, and what clicking it does;
-  - close-to-tray and Quit work;
+  - the replay picker: the folder is found, a download in progress is left out until it settles
+    (whether the game writes the `.dem` in place or renames it in; the 5 s is a guess), and
+    Change folder's chooser opens over the window and is kept across runs;
   - the passive update path works end to end.
-- **Notification → the match.** A click can't route on desktop (Tauri has no click handler). An
-  "Open replay <id>" tray item could navigate the hidden window to the last board with that match.
-  That needs a URL form for "board + match", which doesn't exist yet.
+- **Picker follow-ups (2026-11-10, replay-picker).** Held out of the first cut:
+  - **Back to Steam's folder.** After Change folder there's no "use the default" action: the
+    chosen folder wins while it exists (choose Steam's folder again, or delete
+    `replays-folder.txt` in the app's config folder).
+  - **The browser's linked folder in the picker** (Chromium, second Steam libraries): the seam
+    is there (`ReplaySource`); the operator kept browsers unchanged for now.
+  - **A file still downloading** isn't listed; a "Downloading" card could show it instead.
 - **Memory cap for the parse child.** A Windows Job object (`JOB_OBJECT_LIMIT_PROCESS_MEMORY`)
   would be like the worker's 384M cgroup. Today the child has only a time limit and runs at low
   priority.

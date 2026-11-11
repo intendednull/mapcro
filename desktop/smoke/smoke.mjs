@@ -1,9 +1,10 @@
 // A smoke test of the real app (desktop/README.md, Smoke test): a debug build, driven over
 // WebDriver by tauri-driver (WebKitWebDriver on Linux, msedgedriver on Windows), pointed at a page
 // this script serves with the site's own CSP (`MAPCRO_URL`, which only a debug build takes).
-// It checks that the page loads, that the IPC bridge is there and answers our three commands,
-// that the page can't reach any plugin, and (with --fake-steam) that the app finds a fake Steam
-// install's replays folder and lists its replays.
+// It checks that the page loads, that the IPC bridge is there and answers our commands, that the
+// page can't reach any plugin, and (with --fake-steam) that the app finds a fake Steam install's
+// replays folder and lists its replays, as the replay picker asks for them (`replays_list`).
+// It never calls `replays_choose_folder`: that opens the native folder dialog.
 //
 //   node desktop/smoke/smoke.mjs <app binary> [--fake-steam]
 //
@@ -145,7 +146,7 @@ try {
   // No plugin, core or otherwise, is the page's to call.
   for (const [cmd, args] of [
     ["plugin:opener|open_url", { url: "https://example.com/" }],
-    ["plugin:notification|notify", { options: { title: "x" } }],
+    ["plugin:dialog|open", { options: { directory: true } }],
     ["plugin:updater|check", {}],
     ["plugin:window|close", {}],
     ["plugin:webview|print", {}],

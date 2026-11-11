@@ -170,6 +170,7 @@ async fn serve() {
         .route("/api/boards/{board}/clone", post(api::clone_board))
         .route("/api/packs", get(packs::list))
         .route("/api/matches/{id}", get(matches::get).layer(compression()))
+        .route("/api/matches/{id}/preview", get(matches::preview))
         .route("/packs/{pack}/{*file}", get(packs::file));
     if let Some(web) = &config.web_dir {
         // Vite's /assets/* names carry a content hash: cache them forever. Everything else

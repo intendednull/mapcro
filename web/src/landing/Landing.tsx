@@ -1,5 +1,6 @@
 // The front page (spec §6b): open a match (a board with it attached, landing in Player), make a
-// sandbox board (you get its owner link, kept on this device), or reopen one.
+// sandbox board (you get its owner link, kept on this device), or reopen one. In the Windows
+// app, a replay comes from its replay picker (`ReplayPicker.tsx`), not a file dialog.
 
 import { For, Show, createSignal } from "solid-js";
 import { Api, shareUrl } from "../core/api";
@@ -15,6 +16,7 @@ import { LIMITS } from "../gen/limits";
 import { feedbackEnabled } from "../core/feedback";
 import { FeedbackButton } from "../ui/Feedback";
 import { windowsAppLink } from "../player/desktop";
+import { type Picked, ReplayPicker, pickerSource } from "../player/ReplayPicker";
 
 export function Landing() {
   const [title, setTitle] = createSignal("");
@@ -46,18 +48,20 @@ export function Landing() {
   let pick!: HTMLInputElement;
   // A board made by an attempt that failed later (a lookup refused) is reused on retry.
   let made: { board: string; token: string; id: string } | undefined;
+  const app = pickerSource();
+  const [picking, setPicking] = createSignal(false);
   const fail = (text: string) => {
     setOpening("");
     setNotice(undefined);
     setMatchError(text);
   };
-  const openMatch = async (e?: Event) => {
+  const openMatch = async (e?: Event, picked?: Picked) => {
     e?.preventDefault();
     if (opening()) return;
-    const f = file();
+    const f = picked ? undefined : file();
     if (f && !isDem(f.name)) return fail(NOT_DEM);
-    const fromFile = f ? idFromName(f.name) : undefined;
-    const typed = matchId().trim().replace(/^0+/, "");
+    const fromFile = picked?.id ?? (f ? idFromName(f.name) : undefined);
+    const typed = picked ? "" : matchId().trim().replace(/^0+/, "");
     if (typed && fromFile && typed !== fromFile) return fail(`That file is match ${fromFile}, not ${typed}`);
     const id = typed || fromFile || "";
     if (!/^[1-9]\d{0,11}$/.test(id)) return fail("Invalid id");
@@ -71,7 +75,7 @@ export function Landing() {
       if (code && MODE_CODES.has(code)) return fail(noticeFor(code, "load")!.text);
       // Without its replay, a match needs deadlock-api's metadata to open: say why it can't. A
       // replay stands alone (spec §6a).
-      if (code && !f) {
+      if (code && !f && !picked) {
         setOpening("");
         return setNotice(noticeFor(code, "load"));
       }
@@ -83,10 +87,11 @@ export function Landing() {
       const m = made;
       // Only a match that opened goes in "Your boards" (QA, item 8).
       const remember = () => rememberBoard({ board: m.board, token: m.token, title: `Match ${id}` });
-      if (f) {
+      if (f || picked) {
         // The board uploads it, with progress, while you use the board (player/handoff.ts); it
-        // attaches the match once the upload is under way, so no fetch from Valve starts.
-        handOff({ board: m.board, id, file: f, opened: remember });
+        // attaches the match once the upload is under way, so no fetch from Valve starts. A pick
+        // in the app is parsed there and only its timeline sent.
+        handOff({ board: m.board, id, file: f, local: picked, opened: remember });
         return navigate(shareUrl(location.origin, m.board, m.token));
       }
       const r = await fetch(`/api/boards/${m.board}/matches/${id}`, { method: "PUT", headers: { authorization: `Bearer ${m.token}` } });
@@ -124,10 +129,19 @@ export function Landing() {
             onInput={(e) => setMatchId(e.currentTarget.value)}
             aria-label="Match id"
           />
-          <label class="btn ghost" title="A .dem from your replays folder">
-            {file() ? file()!.name : "Select replay file"}
-            <input type="file" accept=".dem" hidden data-testid="open-match-file" onChange={(e) => setFile(e.currentTarget.files?.[0])} />
-          </label>
+          <Show
+            when={app}
+            fallback={
+              <label class="btn ghost" title="A .dem from your replays folder">
+                {file() ? file()!.name : "Select replay file"}
+                <input type="file" accept=".dem" hidden data-testid="open-match-file" onChange={(e) => setFile(e.currentTarget.files?.[0])} />
+              </label>
+            }
+          >
+            <button class="btn" type="button" data-testid="open-match-pick" onClick={() => setPicking(true)}>
+              Select replay
+            </button>
+          </Show>
           <button class="btn primary" type="submit" data-testid="open-match-go" disabled={!!opening()}>
             {opening() || "Open match"}
           </button>
@@ -165,8 +179,8 @@ export function Landing() {
                   </button>
                 </Show>
                 <Show when={n().actions.includes("upload")}>
-                  <button class="btn primary" type="button" data-testid="open-match-upload" onClick={() => pick.click()}>
-                    Upload replay file
+                  <button class="btn primary" type="button" data-testid="open-match-upload" onClick={() => (app ? setPicking(true) : pick.click())}>
+                    {app ? "Upload replay" : "Upload replay file"}
                   </button>
                 </Show>
               </div>
@@ -175,6 +189,19 @@ export function Landing() {
         </Show>
         <ReplayHelp class="inline" id={/^[1-9]\d{0,11}$/.test(matchId().trim()) ? matchId().trim() : undefined} />
         <DropOverlay over={dragging()} id={matchId().trim() || undefined} />
+        <Show when={app && picking()}>
+          <ReplayPicker
+            source={app!}
+            current={/^[1-9]\d{0,11}$/.test(matchId().trim()) ? matchId().trim() : undefined}
+            onClose={() => setPicking(false)}
+            onPick={(r) => {
+              setPicking(false);
+              setFile(undefined);
+              setMatchId(r.id);
+              void openMatch(undefined, r);
+            }}
+          />
+        </Show>
         <p class="entry-or">or</p>
         <p class="entry-label">Start fresh</p>
         <form class="new-board" onSubmit={create} data-testid="new-board">

@@ -120,13 +120,11 @@
         # glib-networking: TLS for the webview (the site is https).
         buildInputs = desktopLibs ++ [ pkgs.glib-networking ];
         doCheck = false;
-        # The tray loads libayatana-appindicator at run time (dlopen). On NVIDIA's proprietary
-        # driver, WebKitGTK's DMA-BUF renderer can leave the window blank; turning it off is the
-        # fix Tauri documents (v2.tauri.app/develop/debug/linux-graphics, WebKit bug 261874).
-        # Only there, and only if the user hasn't set it themselves.
+        # On NVIDIA's proprietary driver, WebKitGTK's DMA-BUF renderer can leave the window blank;
+        # turning it off is the fix Tauri documents (v2.tauri.app/develop/debug/linux-graphics,
+        # WebKit bug 261874). Only there, and only if the user hasn't set it themselves.
         preFixup = ''
           gappsWrapperArgs+=(
-            --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath [ pkgs.libayatana-appindicator ]}
             --run 'if [ -e /proc/driver/nvidia/version ] && [ -z "''${WEBKIT_DISABLE_DMABUF_RENDERER+x}" ]; then export WEBKIT_DISABLE_DMABUF_RENDERER=1; fi'
           )
         '';
@@ -258,8 +256,6 @@
           buildInputs = desktopLibs ++ [ pkgs.glib-networking ];
           # TLS for the webview in a local run (the wrapper does this in the package).
           GIO_EXTRA_MODULES = "${pkgs.glib-networking}/lib/gio/modules";
-          # The tray loads it at run time (dlopen), for a local run of a debug build.
-          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libayatana-appindicator ];
         };
         default = pkgs.mkShell {
           packages = with pkgs; [

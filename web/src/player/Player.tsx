@@ -17,6 +17,7 @@ import { FETCH_WHY, busy, jobLabel, queueLabel, staleUpload } from "./api";
 import { PROMPT, sizeLabel } from "./notice";
 import { DropOverlay, ReplayHelp, createDemDrop } from "./ReplayHelp";
 import { FolderFound, FolderLink, FolderRecent, folderHas, useReplaysFolder } from "./ReplaysFolder";
+import { ReplayPicker, pickerSource } from "./ReplayPicker";
 import { SPEEDS } from "./clock";
 import { troopersAt } from "./troopers";
 import { easedNumber } from "../board/smooth";
@@ -145,6 +146,24 @@ export function Player(p: {
   // The linked replays folder (spec §6b): its file for this match, offered first when it's there.
   const folder = useReplaysFolder();
   const inFolder = () => !!folderHas(folder, h.matchId());
+  // In the Windows app, the upload is its replay picker (spec §6b, The Windows app).
+  const app = pickerSource();
+  const [picking, setPicking] = createSignal(false);
+  /** Upload replay: the app's picker, or the file dialog in a browser. */
+  const UploadButton = () => (
+    <Show
+      when={app}
+      fallback={
+        <button class={cx("btn small", !inFolder() && "primary")} type="button" data-testid="match-upload" onClick={() => file.click()}>
+          Upload replay file
+        </button>
+      }
+    >
+      <button class="btn small primary" type="button" data-testid="match-upload" onClick={() => setPicking(true)}>
+        Upload replay
+      </button>
+    </Show>
+  );
   // Dropped anywhere on the board while Player shows a match without its replay.
   const dragging = createDemDrop({ enabled: () => watching() && canUpload(), onFile: (f) => void take(f), onRefuse: (t) => h.setStatus(t) });
 
@@ -267,12 +286,15 @@ export function Player(p: {
           </span>
           <Show when={canEdit() && !h.matchId()}>
             <FolderRecent onOpen={(id) => { p.onUserPlayback(); void h.open(id, { attach: true }); }} />
+            <Show when={app}>
+              <button class="btn small primary" type="button" data-testid="match-pick" onClick={() => setPicking(true)}>
+                Select replay
+              </button>
+            </Show>
           </Show>
           <Show when={canUpload() && !h.notice()}>
-            <FolderFound id={h.matchId()} onFile={(f) => void take(f)} onLocal={(id, t, f) => void h.takeLocal(id, t, f)} />
-            <button class={cx("btn small", !inFolder() && "primary")} type="button" data-testid="match-upload" onClick={() => file.click()}>
-              Upload replay file
-            </button>
+            <FolderFound id={h.matchId()} onFile={(f) => void take(f)} />
+            <UploadButton />
             <button class="btn ghost small" type="button" data-testid="match-fetch" onClick={() => void h.fetchReplay()} title="Fetch the replay from Valve">
               Fetch replay
             </button>
@@ -340,10 +362,8 @@ export function Player(p: {
                 </button>
               </Show>
               <Show when={n().actions.includes("upload") && canUpload()}>
-                <FolderFound id={h.matchId()} onFile={(f) => void take(f)} onLocal={(id, t, f) => void h.takeLocal(id, t, f)} />
-                <button class={cx("btn small", !inFolder() && "primary")} type="button" data-testid="match-upload" onClick={() => file.click()}>
-                  Upload replay file
-                </button>
+                <FolderFound id={h.matchId()} onFile={(f) => void take(f)} />
+                <UploadButton />
                 <ReplayHelp id={h.matchId()} />
                 <FolderLink id={h.matchId()} />
               </Show>
@@ -351,6 +371,19 @@ export function Player(p: {
           )}
         </Show>
         <DropOverlay over={dragging()} id={h.matchId()} />
+        <Show when={app && picking()}>
+          <ReplayPicker
+            source={app!}
+            art={p.art}
+            current={h.matchId()}
+            onClose={() => setPicking(false)}
+            onPick={(r) => {
+              setPicking(false);
+              p.onUserPlayback();
+              void h.pick(r);
+            }}
+          />
+        </Show>
         <Show when={(watching() || sourceHere()) && h.tl()}>
           {(m) => (
             <div class="pl-transport">
