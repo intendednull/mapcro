@@ -46,6 +46,8 @@ pub fn install_table(client_version: u32, heroes: &Value, abilities: &Value, gen
 /// newest build the manifest lists.
 pub struct BoonTables {
     pub tables: BTreeMap<u32, StatTable>,
+    /// Each snapshot's tooltip values (`tooltips::values`), for the tooltips' per-patch overlays.
+    pub tooltip_values: BTreeMap<u32, BTreeMap<u32, crate::tooltips::Values>>,
     pub builds: BTreeMap<u32, u32>,
     pub latest: u32,
 }
@@ -67,6 +69,7 @@ pub fn boon_tables(dir: &Path) -> Result<BoonTables> {
     }
     let latest = builds.keys().next_back().copied().ok_or_else(|| stat_err("versions.json lists no versions"))?;
     let mut tables = BTreeMap::new();
+    let mut tooltip_values = BTreeMap::new();
     for snapshot in builds.values().copied().collect::<std::collections::BTreeSet<_>>() {
         let artifacts = &versions[&snapshot.to_string()]["artifacts"];
         let mut bytes = Vec::new();
@@ -84,20 +87,22 @@ pub fn boon_tables(dir: &Path) -> Result<BoonTables> {
             return Err(stat_err(format!("{snapshot}: heroes.json says client_version {}", table.client_version)));
         }
         tables.insert(snapshot, table);
+        let abilities: serde_json::Value = serde_json::from_slice(&bytes[1]).map_err(|e| stat_err(format!("{snapshot}/abilities.json: {e}")))?;
+        tooltip_values.insert(snapshot, crate::tooltips::values(crate::tooltips::boon_records(&abilities)));
     }
-    Ok(BoonTables { tables, builds, latest })
+    Ok(BoonTables { tables, tooltip_values, builds, latest })
 }
 
 /// Write the tables as JSON blobs and fill the manifest's `stats` section. The install's table
 /// serves its own build, over boon-data's for that build; a table no build reads isn't written.
-pub fn write(out_dir: &Path, pack: &mut Pack, files: &mut Vec<String>, install: Option<StatTable>, boon: Option<BoonTables>) -> Result<()> {
+pub fn write(out_dir: &Path, pack: &mut Pack, files: &mut Vec<String>, install: Option<StatTable>, boon: Option<&BoonTables>) -> Result<()> {
     let mut section = StatTables { format: TABLE_FORMAT, covered_through: 0, builds: BTreeMap::new(), tables: BTreeMap::new() };
     let mut tables: BTreeMap<String, StatTable> = BTreeMap::new();
     if let Some(boon) = boon {
         for (build, snapshot) in &boon.builds {
             section.builds.insert(*build, format!("boon-{snapshot}"));
         }
-        tables.extend(boon.tables.into_iter().map(|(snapshot, t)| (format!("boon-{snapshot}"), t)));
+        tables.extend(boon.tables.iter().map(|(snapshot, t)| (format!("boon-{snapshot}"), t.clone())));
         section.covered_through = boon.latest;
     }
     if let Some(table) = install {

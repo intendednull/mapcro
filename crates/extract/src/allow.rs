@@ -31,7 +31,7 @@ pub const TOPBAR_FIXED: [&str; 15] = [
 ];
 
 /// Exact VPK entries for the HUD source files.
-pub const HUD_SOURCES: [&str; 11] = [
+pub const HUD_SOURCES: [&str; 18] = [
     "panorama/styles/hud_minimap.vcss_c",
     "panorama/styles/hud.vcss_c",
     "panorama/layout/hud_minimap.vxml_c",
@@ -44,6 +44,56 @@ pub const HUD_SOURCES: [&str; 11] = [
     "panorama/styles/hero_badge.vcss_c",
     // The palette the others name (colorEnemy, offWhite, team1Color...).
     "panorama/styles/citadel_base_styles.vcss_c",
+    // The item and ability tooltips, the hero stat panels and the investment ladder
+    // (docs/plans/2026-11-10-game-tooltips.md): the layouts the client ports, and the property
+    // icons (`.prop_<class>`) the tooltips draw.
+    "panorama/styles/ability_property_icons.vcss_c",
+    "panorama/styles/tooltips/citadel_tooltip_mod_details.vcss_c",
+    "panorama/styles/tooltips/citadel_tooltip_ability_details.vcss_c",
+    "panorama/styles/citadel_ability_details_panel.vcss_c",
+    "panorama/styles/citadel_ability_property_panel.vcss_c",
+    "panorama/styles/citadel_hero_stats_panels_shared.vcss_c",
+    "panorama/styles/citadel_mod_bonus_display.vcss_c",
+];
+
+/// Exact VPK entries for the tooltip frames (`citadel_tooltip_mod_details.vcss`,
+/// `citadel_tooltip_ability_details.vcss`): the item tooltip's torn-paper backer per category with
+/// its opacity mask, the header textures, the ability tooltip's backer, the "Owned" check, the
+/// section cooldown clock and the souls glyph; and the hero stat panels' backgrounds
+/// (`citadel_hero_stats_panels_shared.vcss`) and the investment ladder's star
+/// (`citadel_mod_bonus_display.vcss` `#StarIcon`).
+pub const TOOLTIP_ART: [&str; 17] = [
+    "panorama/images/tooltips/items/tooltip_backer_weapon_psd.vtex_c",
+    "panorama/images/tooltips/items/tooltip_backer_weapon_mask_psd.vtex_c",
+    "panorama/images/tooltips/items/tooltip_backer_vitality_psd.vtex_c",
+    "panorama/images/tooltips/items/tooltip_backer_vitality_mask_psd.vtex_c",
+    "panorama/images/tooltips/items/tooltip_backer_spirit_psd.vtex_c",
+    "panorama/images/tooltips/items/tooltip_backer_spirit_mask_psd.vtex_c",
+    "panorama/images/shop/catalog/catalog_tooltip_header_weapon_psd.vtex_c",
+    "panorama/images/shop/catalog/catalog_tooltip_header_vitality_psd.vtex_c",
+    "panorama/images/shop/catalog/catalog_tooltip_header_spirit_psd.vtex_c",
+    "panorama/images/tooltips/ability/ability_tooltip_bg_png.vtex_c",
+    "panorama/images/shop/purchased_check_png.vtex_c",
+    "panorama/images/upgrades/property_cooldown_large_psd.vtex_c",
+    "panorama/images/hud/icons/icon_soul.vsvg_c",
+    "panorama/images/shop/catalog/catalog_tooltip_bg_modifies_weapon_psd.vtex_c",
+    "panorama/images/shop/catalog/catalog_tooltip_bg_modifies_vitality_psd.vtex_c",
+    "panorama/images/shop/catalog/catalog_tooltip_bg_modifies_spirit_psd.vtex_c",
+    "panorama/images/icons/icon_star.vsvg_c",
+];
+
+/// The folders the tooltip icons the allow-listed styles name may come from: the property icons
+/// (`ability_property_icons.vcss` `.prop_<class>`) and the inline attribute icons
+/// (`citadel_base_styles.vcss` `.InlineAttributeIcon.<Name>`). Only images those rules name are
+/// asked for; this bounds them.
+pub const TOOLTIP_ICON_DIRS: [&str; 7] = [
+    "panorama/images/icons/",
+    "panorama/images/upgrades/",
+    "panorama/images/hud/modifiers/",
+    "panorama/images/hud/core/",
+    "panorama/images/hud/icons/",
+    "panorama/images/shop/",
+    "panorama/images/",
 ];
 
 /// The folders under which item, ability and modifier icons may be read.
@@ -87,6 +137,30 @@ pub fn is_ability_icon_entry(relative: &str) -> bool {
         && parts
             .iter()
             .all(|part| !part.is_empty() && *part != "." && *part != ".." && !part.contains('\\'))
+}
+
+/// Whether a VPK entry may be read as tooltip art: a [`TOOLTIP_ART`] entry, or a texture or SVG
+/// at most two folders below one of [`TOOLTIP_ICON_DIRS`] (`icons/properties/heal.vsvg_c`), no
+/// traversal. `panorama/images/` itself admits only files directly in it (`damage_psd.vtex_c`).
+pub fn is_tooltip_entry(relative: &str) -> bool {
+    if TOOLTIP_ART.contains(&relative) {
+        return true;
+    }
+    let Some(rest) = relative.strip_prefix("panorama/images/") else {
+        return false;
+    };
+    let Some(stem) = rest.strip_suffix(".vtex_c").or_else(|| rest.strip_suffix(".vsvg_c")) else {
+        return false;
+    };
+    let parts: Vec<&str> = stem.split('/').collect();
+    if parts.iter().any(|part| part.is_empty() || *part == "." || *part == ".." || part.contains('\\')) {
+        return false;
+    }
+    // Directly in panorama/images/, or at most two folders below a listed folder.
+    parts.len() == 1
+        || TOOLTIP_ICON_DIRS[..TOOLTIP_ICON_DIRS.len() - 1]
+            .iter()
+            .any(|dir| relative.starts_with(dir) && relative[dir.len()..].matches('/').count() <= 2)
 }
 
 /// Whether a VPK entry may be read for the top-bar art.
@@ -271,6 +345,34 @@ mod tests {
             "cfg/citadel_heroes_english.txt",
         ] {
             assert!(!GameDir::is_allowed(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn tooltip_art_allow_list_is_narrow() {
+        for path in TOOLTIP_ART {
+            assert!(is_tooltip_entry(path), "{path}");
+        }
+        for path in [
+            "panorama/images/icons/properties/heal.vsvg_c",
+            "panorama/images/upgrades/property_cast_psd.vtex_c",
+            "panorama/images/hud/core/icon_damage_melee_psd.vtex_c",
+            "panorama/images/damage_psd.vtex_c",
+            "panorama/images/shop/keystat_courage_png.vtex_c",
+        ] {
+            assert!(is_tooltip_entry(path), "{path}");
+        }
+        for path in [
+            "panorama/images/heroes/inferno_card_psd.vtex_c",
+            "panorama/images/minimap/base/minimap_midtown_mid_psd.vtex_c",
+            "panorama/images/icons/a/b/c/d.vsvg_c",
+            "panorama/images/icons/../heroes/x_psd.vtex_c",
+            "panorama/images/icons//x.vsvg_c",
+            "panorama/images/icons/x.vcss_c",
+            "panorama/styles/x.vsvg_c",
+            "scripts/abilities.vdata_c",
+        ] {
+            assert!(!is_tooltip_entry(path), "{path}");
         }
     }
 
