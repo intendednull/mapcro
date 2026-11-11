@@ -104,5 +104,5 @@ export async function revealControls(page: Page, id: string) {
   const where = SOURCE.includes(id) ? ".pl-source" : LAYERS.includes(id) ? ".map-layers" : undefined;
   if (!where) throw new Error(`revealControls: no known place for ${id}`);
   const details = page.locator(where);
-  if (!(await details.evaluate(el => (el as HTMLDetailsElement).open))) await details.locator("summary").click();
+  if (!(await details.evaluate(el => (el as HTMLDetailsElement).open))) await details.locator(":scope > summary").click();
 }

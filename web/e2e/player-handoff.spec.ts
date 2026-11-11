@@ -66,7 +66,12 @@ async function boardWithScene(browser: import("@playwright/test").Browser) {
   await a.keyboard.press("q");
   await a.getByTestId("match-save").click();
   await expect(a.getByTestId("scene-card")).toHaveCount(2);
-  await expect(strokes(a)).toHaveCount(0); // moved into the scene
+  // Saving shows the new scene, the stroke moved into it; Back is the match without it.
+  await expect(bar(a)).toHaveAttribute("data-state", "scene");
+  await expect(strokes(a)).toHaveCount(1);
+  await a.getByTestId("mode-player").click();
+  await expect(bar(a)).toHaveAttribute("data-state", "match");
+  await expect(strokes(a)).toHaveCount(0);
   return { url, a };
 }
 
@@ -164,6 +169,7 @@ test("on a phone the bar shows in both states", async ({ browser }) => {
   await expect(phone.getByTestId("board")).toHaveAttribute("data-layout", "phone");
   await expect(bar(phone)).toHaveAttribute("data-state", "match");
   await phone.screenshot({ path: "shots/handoff-phone-match.png" });
+  await revealControls(phone, "mode-sandbox");
   await phone.getByTestId("mode-sandbox").tap();
   await expect(bar(phone)).toHaveAttribute("data-state", "scene");
   await expect(phone.getByTestId("mode-player")).toBeVisible();

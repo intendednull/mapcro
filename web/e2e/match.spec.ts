@@ -83,9 +83,17 @@ test("import, scrub, save two moments; a second browser sees them; undo reverts 
   // Save 2:00, then 15:00.
   await scrubTo(a, 120);
   await a.getByTestId("match-save").click();
+  // Saving shows the new scene; Back returns to the match.
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "scene");
+  await a.getByTestId("mode-player").click();
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "match");
   await scrubTo(a, 900);
   const at900 = await tokens(a);
   await a.getByTestId("match-save").click();
+  // Saving shows the new scene; Back returns to the match.
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "scene");
+  await a.getByTestId("mode-player").click();
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "match");
   const cards = b.getByTestId("scene-card");
   await expect(cards).toHaveCount(3);
   await expect(cards.nth(1)).toHaveAttribute("aria-label", "Scene 2: 2:00 Match moment");

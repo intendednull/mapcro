@@ -64,6 +64,10 @@ test("in Player, the palette colours ink, arrows and comments", async ({ browser
   // Two scenes saved from the match: their rows carry the "▶ m:ss" chip beside the clone and ×.
   await a.getByTestId("match-save").click();
   await expect(a.getByTestId("scene-chip")).toHaveCount(1);
+  // Saving shows the new scene; Back returns to the match.
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "scene");
+  await a.getByTestId("mode-player").click();
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "match");
   await a.getByTestId("match-save").click();
   await expect(a.getByTestId("scene-chip")).toHaveCount(2);
   const row = a.getByTestId("scene-card").filter({ has: a.getByTestId("scene-chip") }).first();
