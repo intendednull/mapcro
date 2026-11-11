@@ -3,6 +3,17 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## A macOS desktop app (2026-11-11, operator: only if users ask)
+
+Parked. Deadlock has no macOS client, so the app's job (the local replays folder, previews, local
+parse) has nothing to work on; Mac users get the full site in Safari/Chrome (the WebKit e2e pass
+covers Safari's engine). If users ask: GitHub's macOS runners can build a `.dmg` and run unit tests
+without a Mac, but `tauri-driver` doesn't support WKWebView (no smoke test), and unsigned apps are
+blocked by Gatekeeper ("damaged" on Apple silicon), so a usable build needs the Apple Developer
+Program ($99/yr) and notarization per release, plus a real Mac for the first check. Niche case:
+CrossOver/Whisky players have replays inside the Wine bottle; the app could look there.
+Research: docs/research/desktop-app.md.
+
 ## Follow a hero's token with the camera (2026-11-11, feedback #16; operator: after the tooltips)
 
 Keep the map centred on a chosen hero while zooming freely: start from a double-click on the
