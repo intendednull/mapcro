@@ -61,9 +61,9 @@ pub struct FeedbackConfig {
     /// GitHub's REST API (`FEEDBACK_GITHUB_API`, default `https://api.github.com`); tests point
     /// it at a local fake.
     pub api: String,
-    /// `FEEDBACK_PER_CLIENT_PER_HOUR` (3), per `api::client_key`.
+    /// `FEEDBACK_PER_CLIENT_PER_HOUR` (10), per `api::client_key`.
     pub per_client_per_hour: u32,
-    /// `FEEDBACK_GLOBAL_PER_DAY` (30), server-wide.
+    /// `FEEDBACK_GLOBAL_PER_DAY` (100), server-wide.
     pub global_per_day: u32,
 }
 
@@ -112,8 +112,8 @@ fn feedback(var: &impl Fn(&str) -> Option<String>) -> Result<Option<FeedbackConf
     if !(api.starts_with("https://") || api.starts_with("http://127.0.0.1:") || api.starts_with("http://localhost:")) {
         return Err("FEEDBACK_GITHUB_API must be https (or a localhost fake for tests)".into());
     }
-    let per_client_per_hour = num(var, "FEEDBACK_PER_CLIENT_PER_HOUR", 3)?;
-    let global_per_day = num(var, "FEEDBACK_GLOBAL_PER_DAY", 30)?;
+    let per_client_per_hour = num(var, "FEEDBACK_PER_CLIENT_PER_HOUR", 10)?;
+    let global_per_day = num(var, "FEEDBACK_GLOBAL_PER_DAY", 100)?;
     Ok(token_file(var, "FEEDBACK_GITHUB_TOKEN_FILE").map(|token| FeedbackConfig { token, repo, api, per_client_per_hour, global_per_day }))
 }
 
