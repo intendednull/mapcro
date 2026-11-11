@@ -40,14 +40,54 @@ cache contents were modified by this implementation.
 
 ## Remaining fields
 
-The numeric-field census found no direct bullet/spirit resistance or category progression
-fields in the observed controller/pawn data. It checked paths containing resistance, armor,
-bullet, spirit, tier, item-bar and progression terms. This is a bounded name audit, not proof
-that no packed or differently named field can encode them. Controller
-`m_vecStatViewerModifierValues` carries modifier contributions; those are not the live
-scoreboard totals. Do not sum them or use today's catalog to invent a result. Further work
-needs a matching-build game HUD implementation or equivalent authoritative source, with
-validation under timed buffs/debuffs, upgrades and item changes.
+### Bullet and spirit resistance: no recorded source (2026-11-10, proto-resist)
+
+Not implemented; the UI keeps "—". Replay 129738985 (build 6839) doesn't record a hero's
+bullet or spirit resist total anywhere we can read. The in-game HUD computes it client-side
+from the active modifier list plus that build's ability/item vdata. Probes (aggregate
+output only, keyed by hero id at most, never names or account ids) are in
+`crates/replay/examples/`:
+
+- **Every networked class's schema** (`schema_probe`, 929 classes, field paths matched
+  recursively against resist/armor/bulletres/techres/spiritres/damagereduc/absorb/protect/
+  mitig/reduc/shield/statview/modifiervalue). The only resist field is
+  `CCitadel_ArmorUpgrade_AblativeCoat.m_iCurrentResistValue`, one item's own counter. The
+  only stat vector is the controller's `m_vecStatViewerModifierValues`. Controller and pawn
+  have no other resistance, armor or damage-reduction field.
+- **`m_vecStatViewerModifierValues`, decoded** (`statviewer_probe`). Each entry is
+  `{m_SourceModifierID, m_SourceAbilityID, m_eValType: EModifierValue, m_flValue}`. In the
+  6860 boon-data enum, 33 is `MODIFIER_VALUE_TECH_RESIST` and 36 is
+  `MODIFIER_VALUE_BULLET_ARMOR_DAMAGE_RESIST`; reductions are 34/37. In 129738985 every
+  resist entry (1813 entry-samples) comes from one of two sources:
+  `modifier_permanent_pickup`, a breakable statue's permanent bonus (0.5–5 points per
+  entry), or `modifier_spirit_snatch`, Spirit Snatch's stolen spirit resist (up to 60).
+  None comes from a purchased item or from the hero's base. It's the stat viewer's
+  breakdown of permanent stacking bonuses, not a total. Evidence: one player buys Battle
+  Vest (bullet resist) at raw tick 20576 and their stat viewer gains no type-36 entry.
+  Another's Weapon Shielding (tick 22084) and Spirit Shielding (tick 28198) add no
+  type-36/33 entry; their one 0.5 type-36 entry is a statue pickup from tick 15382. At
+  match end, all 12 players own at least one item that the 6860 vdata gives a `BulletResist`
+  or `TechResist` property, such as Battle Vest, Weapon Shielding, Spirit Resilience or
+  Witchmail; that catalog was used only as a cross-check. Yet per-player sums of type-33/36
+  entries are 0.5–7.25 points (Spirit Snatch excepted).
+- **Modifier table** (`CModifierTableEntry`, already decoded for buffs). It carries
+  subclass, stacks, duration, caster and generic slots, not property values. A modifier's
+  resist value lives in vdata.
+- **User messages** (`citadel_usermessages.proto`). None carries a resist stat.
+  `CCitadelUserMessage_Damage` has `damage` and `pre_damage`, so `damage_ratio_probe` tested
+  their ratio on hero victims (87,371 messages). It mixes in attacker shred, falloff, crits
+  and absorbs: for one hero and damage type, per-minute medians swing between 0.30 and 1.01,
+  and single samples range 0–5. It describes one attacker's hit, not the HUD's resist, so it's rejected.
+
+The one route to a value is calculation: modifiers and items from the replay, values from
+vdata, and the game's stacking rule (boon 0.19 implements this in `hero_stats`, rules
+`bullet_resist.v1`/`spirit_resist.v1`: sources stack multiplicatively, reductions in a separate
+group). That is catalog-derived, and the only catalog on hand is build 6860 while this replay is
+6839, so it would be today's shop stats applied to an older match. It would need operator
+sign-off as a *calculated* (not recorded) value, a build-matched catalog, and validation against
+in-game screenshots before it could replace "—".
+
+### Category progression
 
 The existing item pack defines category, shop tier and catalog cost. Those do not establish
 the scoreboard's Weapon/Spirit/Vitality progression formula. The reference's active-item

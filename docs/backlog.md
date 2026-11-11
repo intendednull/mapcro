@@ -34,6 +34,15 @@ values were added. The bounded controller/pawn field census found no direct name
 or category progression values. A matching-build authoritative HUD/formula audit is still
 needed, including temporary effects; modifier contributions alone do not establish totals.
 
+**Update (2026-11-10, proto-resist):** No recorded source exists for bullet or spirit resistance.
+Across replay 129738985's 929 networked classes, the only resist field is an item counter. The
+controller's stat viewer holds just permanent statue pickups and Spirit Snatch stacks; item armor
+and hero base values never appear there. Neither the modifier table nor any user message
+carries a resist value. The HUD calculates resistance from modifiers and vdata. That calculation
+needs a build-matched catalog (6839 for this replay; we hold 6860) and operator sign-off, because
+it would be a calculated value, not a recorded one. The UI stays "—". Details in
+[scoreboard-values.md](research/scoreboard-values.md#bullet-and-spirit-resistance-no-recorded-source-2026-11-10-proto-resist).
+
 Audit the demo/controller properties and metadata payload before choosing sources. Keep times,
 units, missing-data behavior and replay/API-summary coverage explicit. Any persisted timeline
 addition needs the format/cache-upgrade policy, focused boundary tests, and verification on
