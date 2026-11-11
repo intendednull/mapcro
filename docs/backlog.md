@@ -24,6 +24,22 @@ dropdown, click a buy to seek; (2) open the death recap from the map skull; (4) 
 highlight on the souls tab (the HUD's mint `#90FFE3`); (5) Save scene keeps drawings visible and
 shows "Saved · Switch to scene" (check the Argon bug "Save scene makes live drawings vanish"
 first); (9) dialog focus trapping, Escape, focus return (Share, Join, Clone, hero picker).
+
+First batch done 2026-11-10 (branch `ux-batch-1`), except (4):
+- (1) Build order: a popover beside Effects in the single-hero dropdown (`player/BuildOrder.tsx`,
+  `match/builds.ts` `buildOrder`). It lists each buy, sale and upgrade with the pack's icon and
+  time, folds an upgrade's used-up components into its buy, and dims rows after t. A row seeks
+  there. Effects and Build order open one at a time.
+- (2) With the Move tool, a skull whose death has a recap opens it in a card on the map
+  (`player/SkullRecap.tsx`). Skulls follow the vision rules as before, and the card closes when
+  the Vision's team didn't see the death (`skulls.ts` `deathShown`).
+- (4) Dropped by the lead: the mint is the HUD's kill streak, not a leader. See "Kill-streak
+  mint souls tab".
+- (5) Saving still shows the new scene with the drawings in it, and a toast now says "Saved
+  scene N" with a "Back to replay" action. The Argon bug didn't reproduce on main (below).
+- (9) One modal contract for every dialog (`ui/modal.ts`, `ui/ModalScrim.tsx`).
+- Also fixed: an effect with an internal name takes its parent ability's or item's name in the
+  Effects list (`player/effects.ts`).
 Later: (3) "ACTIVE" badge on active items (with the tooltip extraction, plan
 `docs/plans/2026-11-10-game-tooltips.md`); (6) "Play with scene plan" (scene drawings over the
 live replay); (7) remaining-time sweep on the CC label; (8) a Remove-replay action on the
@@ -67,6 +83,13 @@ The whole streak look (the lead's check, 2026-11-10; backlog only, not built):
   `.IsFirstBlood`).
 - **The threshold** is set in code and still unknown. An operator screenshot of a streak would
   confirm it.
+
+## A death and its recap can be a second apart (2026-11-10, from ux-batch-1)
+
+`recapOf` (player/recap.ts) pairs a death with the recap whose `ceil(t / 10)` equals the death's
+second exactly. In 129738985, Amber 3's death at 521 s has a recap at 520 s, so neither the
+events list nor its skull offers that recap. Amber 1 also has a recap at 2545 s with no death in
+`deaths`. Pairing within a second, or the extractor writing both from one tick, would fix it.
 
 ## Sixteen e2e tests act on controls the prototype moved into disclosures (2026-11-10, from scene-parity): resolved
 
@@ -166,6 +189,9 @@ before fixing it.
 2. **Save scene in Player makes the live drawings vanish.** `onSaved` moves the live scene's
    records into the new scene, and `setScene` marks it active in the tree, but the stage stays in
    Player and shows the now-empty live scene (`Board.tsx` `onSaved`, `Player.tsx` `saveOne`).
+   *Not reproduced on main (2026-11-10, ux-batch-1).* `onSaved` is `pickScene`, which leaves
+   Player for the new scene, so the moved drawing shows there. player-handoff's
+   `boardWithScene` asserts it. A "Saved scene N · Back to replay" toast now says what happened.
 3. **At 1280×800 with both sidebars open, Save scene is clipped** (`.pl-tail` doesn't wrap and
    `.stage` hides the overflow), and Redo wraps onto a row of its own. The UX pass proposes moving
    the map toggles to a Layers control, which would fix this.
@@ -176,7 +202,7 @@ before fixing it.
 6. **The scene-row hover thumbnail covers the first two portraits** in the top bar
    (`SceneThumb`).
 7. **The dialogs don't hold focus.** This is the same as "The other dialogs don't hold the focus",
-   below.
+   below. *Resolved 2026-11-10 (ux-batch-1).*
 8. **Feedback offers no match while you're viewing a scene saved from a match.**
    `feedbackMatchOf` only reads Player; the scene's `source` has the match id and time.
 
@@ -440,7 +466,14 @@ nothing. `TeleporterLink` could take the remote hover too, as `HoverLabels` does
 Two agents running it at once (the box is shared) clobber each other's pack mid-run. A temp dir
 of its own, or one under `CARGO_TARGET_TMPDIR`, would keep runs apart.
 
-## The other dialogs don't hold the focus (2026-11-09, from the feedback form)
+## The other dialogs don't hold the focus (2026-11-09, from the feedback form): resolved
+
+Resolved 2026-11-10 (branch `ux-batch-1`). Share, Clone, the hero picker, the join card and
+Feedback mount through `ModalScrim` (ui/ModalScrim.tsx). Each is `aria-modal`, makes the board
+inert, wraps Tab and Shift+Tab, keeps its keys from the board (`dialogKeys`), closes on Escape
+(the join card excepted: joining is how you enter) and gives focus back to its opener. Modals
+stack: Clone opened from Share gives focus back to Share's opener. Spec: e2e/dialog-focus.
+
 
 Share, Clone and the hero picker render inside the page and don't contain the keyboard: Tab
 walks out of the dialog into the board behind it, which stays interactive (the known Share
