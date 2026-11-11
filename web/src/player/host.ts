@@ -308,9 +308,9 @@ export function createPlayerHost(board: string, token: string) {
       const was = job()?.state;
       setJob(j);
       if (j.state === "done" && was !== "done") await loadTimeline(id, true);
-      if (busy(j) && !gone) poll = setTimeout(() => void watch(id), 1500);
+      if (busy(j)) poll = setTimeout(() => void watch(id), 1500);
     } catch {
-      if (!gone) poll = setTimeout(() => void watch(id), 5000);
+      poll = setTimeout(() => void watch(id), 5000);
     }
   };
 

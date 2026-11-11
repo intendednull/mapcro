@@ -106,6 +106,12 @@ function watch() {
   };
   const intervals = new Map<number, Site>();
   let quiet: { timeouts: Site[]; rafs: Site[]; requests: string[] } | undefined;
+  /** Requests made since `__mark` (the board being left). */
+  let since: string[] | undefined;
+  const request = (what: string) => {
+    quiet?.requests.push(what);
+    since?.push(what);
+  };
   const w = window as unknown as Record<string, unknown>;
   const si = window.setInterval.bind(window);
   const ci = window.clearInterval.bind(window);
@@ -182,14 +188,14 @@ function watch() {
   const path = (u: unknown) => new URL(String(u instanceof Request ? u.url : u), location.href).pathname.replace(/[A-Za-z0-9_-]{22}/, "<board>").replace(/\d{6,}/, "<match>");
   const f = window.fetch.bind(window);
   w.fetch = (u: RequestInfo | URL, init?: RequestInit) => {
-    if (quiet && site()) quiet.requests.push(`${init?.method ?? "GET"} ${path(u)}`);
+    if ((quiet || since) && site()) request(`${init?.method ?? "GET"} ${path(u)}`);
     return f(u, init);
   };
   let xhrs = 0;
   const open = XMLHttpRequest.prototype.open;
   const send = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (this: XMLHttpRequest, m: string, u: string | URL, ...a: unknown[]) {
-    if (quiet) quiet.requests.push(`${m} ${path(u)}`);
+    request(`${m} ${path(u)}`);
     return (open as (...a: unknown[]) => void).call(this, m, u, ...a);
   };
   XMLHttpRequest.prototype.send = function (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) {
@@ -227,6 +233,8 @@ function watch() {
       sockets.push(this);
     }
   };
+  w.__mark = () => void (since = []);
+  w.__since = () => since?.sort();
   w.__running = async (ms: number) => {
     quiet = { timeouts: [], rafs: [], requests: [] };
     await new Promise((r) => st(r, ms));
@@ -261,9 +269,13 @@ async function open(p: Page, url: string) {
   await expect.poll(() => p.url()).toBe(url);
 }
 
-/** Leave the board by the browser's Back: to the landing, the page never reloaded. */
+/** Leave the board by the browser's Back: to the landing, the page never reloaded. Requests are
+ * counted from here. */
 async function back(p: Page) {
-  await p.evaluate(() => history.back());
+  await p.evaluate(() => {
+    (window as unknown as { __mark: () => void }).__mark();
+    history.back();
+  });
   await expect(p.getByTestId("open-match")).toBeVisible();
 }
 
@@ -281,13 +293,15 @@ async function joinBoard(p: Page) {
 const avatar = (p: Page, name: string) => p.locator(`[data-testid=avatars] [title="${name}"]`);
 const clockAt = async (p: Page) => ((await p.getByTestId("match-clock").textContent()) ?? "").split(" / ")[0]!.trim();
 
-/** A board left: the server dropped us (the other person sees it), and nothing of it runs. */
-async function leftClean(p: Page, other: Page, fresh: Running, what: string) {
+/** A board left: the server dropped us (the other person sees it), and nothing of it runs. Its
+ * only requests since are `asks` (an upload's place given back). Replay-job answers held back
+ * while it was up are given meanwhile: one coming after the board is gone sets nothing going. */
+async function leftClean(p: Page, other: Page, fresh: Running, what: string, asks: string[]) {
   await expect(avatar(other, "Tester")).toHaveCount(0, { timeout: 10_000 });
-  // Let one-shot timeouts of the board's run out (the longest, a toast, is 6 s).
   await p.waitForTimeout(500);
-  const now = await running(p);
+  const [now] = await Promise.all([running(p), p.waitForTimeout(300).then(() => releaseJobs(p))]);
   expect.soft(now, `${what}: what still runs`).toEqual(fresh);
+  expect.soft(await p.evaluate(() => (window as unknown as { __since: () => string[] }).__since()), `${what}: requests after it was left`).toEqual(asks);
   // Module state: no label or tooltip left showing anywhere.
   await expect(p.getByTestId("hover-label")).toHaveCount(0);
   await expect(p.getByTestId("game-tooltip-float")).toHaveCount(0);
@@ -335,7 +349,20 @@ const uploading = new Map<Page, Upload>();
 const asked = new Map<Page, number>();
 const sending = new Map<Page, number>();
 const bump = (m: Map<Page, number>, p: Page) => m.set(p, (m.get(p) ?? 0) + 1);
+/** Replay-job answers held back, by page, while `holding` says so. */
+const holding = new Set<Page>();
+const heldJobs = new Map<Page, Array<() => Promise<void>>>();
+/** Answer the held ones: still in progress. */
+async function releaseJobs(p: Page) {
+  const held = heldJobs.get(p) ?? [];
+  heldJobs.set(p, []);
+  await Promise.all(held.map((f) => f()));
+}
 async function stubQueue(p: Page) {
+  await p.route("**/api/boards/*/replays/*", (r) => {
+    if (r.request().method() !== "GET" || !holding.has(p)) return r.continue();
+    heldJobs.set(p, [...(heldJobs.get(p) ?? []), () => r.fulfill({ json: { state: "queued", source: "cdn", ahead: 0 } }).catch(() => {})]);
+  });
   await p.route("**/api/boards/*/replays/*/reserve", (r) => {
     if (r.request().method() !== "POST") return r.continue();
     bump(asked, p);
@@ -375,17 +402,21 @@ test("a board unmounts cleanly: A, then B, then A again in one page, by back and
   await expect(p.getByTestId("match-tier")).toHaveText("Full replay");
   await inUse(p, coachA, "CoachA", "waiting");
   await back(p);
-  await leftClean(p, coachA, fresh, "A");
+  await leftClean(p, coachA, fresh, "A", ["DELETE /api/boards/<board>/replays/<match>/reserve"]);
 
-  // B, fresh: nothing of A's shows or runs.
+  // B, fresh: nothing of A's shows or runs. Its replay job's state is held back, so the board
+  // is still waiting for the answer as it's left.
+  holding.add(p);
   await open(p, urlB);
   await joinBoard(p);
   await expect(p.getByTestId("board-title")).toHaveText("Board B");
   await expect(p.getByTestId("stop-following")).toHaveCount(0);
   await expect(p.getByTestId("match-tier")).toHaveText("Full replay");
   await inUse(p, coachB, "CoachB", "sending");
+  expect((heldJobs.get(p) ?? []).length).toBeGreaterThan(0);
   await back(p);
-  await leftClean(p, coachB, fresh, "B");
+  holding.delete(p);
+  await leftClean(p, coachB, fresh, "B", []);
 
   // A again: it opens on its match, as on a fresh page.
   await open(p, urlA);
@@ -394,7 +425,16 @@ test("a board unmounts cleanly: A, then B, then A again in one page, by back and
   await expect(p.getByTestId("match-tier")).toHaveText("Full replay");
   await inUse(p, coachA, "CoachA", "sending");
   await back(p);
-  await leftClean(p, coachA, fresh, "A");
+  await leftClean(p, coachA, fresh, "A", []);
+
+  // Board to board, with no landing between: A, then B straight from it.
+  await open(p, urlA);
+  await expect(p.getByTestId("board-title")).toHaveText("Board A");
+  await expect(avatar(coachA, "Tester")).toHaveCount(1);
+  await open(p, urlB);
+  await expect(p.getByTestId("board-title")).toHaveText("Board B");
+  await expect(avatar(coachA, "Tester")).toHaveCount(0, { timeout: 10_000 });
+  await expect(avatar(coachB, "Tester")).toHaveCount(1);
 
   // One page throughout: the first load only.
   expect(loads).toEqual([`${server.url}/`]);

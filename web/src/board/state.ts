@@ -220,18 +220,15 @@ export function createBoardState(board: string, token: string) {
 
   // Players by scene: one memo per scene, so a scene's list reruns only when its players change.
   const playerLists = new Map<RecordId, Accessor<Player[]>>();
-  /** Their roots, disposed when the board stops. */
-  const listRoots: Array<() => void> = [];
   const playersIn = (scene: RecordId | undefined): Player[] => {
     if (scene === undefined) return [];
     let m = playerLists.get(scene);
     if (!m) {
-      m = createRoot((dispose) => {
-        listRoots.push(dispose);
-        return createMemo(() => live<PlayerState>("PlayerState").filter((w) => w.r?.scene === scene).map((w) => playerRow(w.id)), undefined, {
+      m = createRoot(() =>
+        createMemo(() => live<PlayerState>("PlayerState").filter((w) => w.r?.scene === scene).map((w) => playerRow(w.id)), undefined, {
           equals: sameItems,
-        });
-      });
+        }),
+      );
       playerLists.set(scene, m);
     }
     return m();
@@ -301,12 +298,9 @@ export function createBoardState(board: string, token: string) {
       await loadWasm();
       await session.start();
     },
-    /** The board unmounted: its session ends for good, and its memos go. */
-    stop: () => {
-      session.end();
-      for (const dispose of listRoots.splice(0)) dispose();
-      playerLists.clear();
-    },
+    /** The board unmounted: its session ends for good. (The per-scene memos above read only
+     * this board's own signals, which nothing writes after: they go with it.) */
+    stop: () => session.end(),
   };
 }
 
