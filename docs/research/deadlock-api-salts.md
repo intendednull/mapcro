@@ -305,7 +305,9 @@ Interpretation:
 
 ## Results
 
-To fill in after the run (ends around 2026-11-10 14:00 UTC).
+Run: 2026-11-09 08:41 to 2026-11-10 22:41 UTC (38.0 h, 1,432 deadlock-api calls; data in
+`~/.local/share/mapcro/salt-study/`, summary from `summarise.py`). 40 fresh standard matches were
+admitted and all 40 ended. No 429s and no back-offs.
 
 **Early result (2026-11-09 00:23 UTC):** the no-row control 133736539 (404 `not_in_db` on a free
 read) got one Steam-capable read, which returned 200 with `cluster_id`, `metadata_salt` *and*
@@ -313,10 +315,47 @@ read) got one Steam-capable read, which returned 200 with `cluster_id`, `metadat
 GC path does create one with a working replay salt, for a match some days old (judging by its id). Its
 game mode isn't known yet (the `norow_mode` read comes 30 min later).
 
-- Replay-salt share by age:
-- First-appearance ages:
-- Steam-capable outcomes:
-- CDN HEAD outcomes:
-- Controls:
-- No-row control:
-- Conclusions:
+- **Replay-salt share by age** (free reads, fresh standard matches, 40 per age):
+
+  | age | salts 200 | has `replay_salt` | metadata 200 |
+  | --- | --- | --- | --- |
+  | 1 m | 23 | 2 (5% of 40) | 23 |
+  | 5 m | 23 | 2 | 23 |
+  | 15 m | 25 | 2 | 25 |
+  | 30 m | 26 | 4 | 26 |
+  | 1 h | 29 | 4 (10%) | 29 |
+  | 2 h | 40 | 17 (42%) | 40 |
+  | 4 h / 8 h / 16 h | 40 | 18 (45%) | 40 |
+  | 32 h | 40 | 19 (48%) | 40 |
+
+  Every non-200 was 404 `not_in_db` (74 reads, all in the first hour). By 2 h every match had a
+  row, with `metadata_salt`, but more than half never got a `replay_salt` within 32 h.
+- **First-appearance ages** (19 matches): 2 at 5–6 min, 2 at 30 min, 13 at exactly 120–121 min,
+  1 at 4 h, 1 at 32 h. The sharp 2 h cluster points to a scheduled deadlock-api/ingest pass
+  around two hours after the end, not to players' downloads arriving at random.
+- **Steam-capable outcomes** (18 reads, 10 min to 24 h after the end): every one returned the
+  stored row. 17 had `metadata_salt` but no `replay_salt`; the only one with a replay salt
+  (134235210 at 24 h) already had it from the free reads. The read on the no-row match failed
+  (404 `steam_failed`). So paying our 3/h Steam-capable budget on a fresh match never produced a
+  replay salt that the free read lacked, as Part 1 predicted.
+- **CDN HEAD outcomes:** 200 on every read with a replay salt (fresh, controls, no-row). No
+  uploaded salt was wrong.
+- **Controls:** the three `control_with` matches had a replay salt and HEAD 200 on all 10 reads;
+  the four `control_without` matches stayed 200 with no replay salt on all 10. Rows don't gain or
+  lose a replay salt after the first days.
+- **No-row control:** the first try found 134157415 (404 `not_in_db`). Its Steam-capable read
+  at 1 min failed with `steam_failed`. Free reads stayed 404 to 15 min; at 30 min a row appeared
+  with a working replay salt (CDN HEAD 200, 35.5 MB) and stayed. Its mode read gave `game_mode 4`
+  (Street Brawl), so it is evidence about the API only, not match data. With the early result
+  (133736539: a Steam read created a full row), the GC path can create a replay salt when there
+  is no row, but doesn't reliably do so.
+- **Conclusions:**
+  1. For a fresh standard match, a free read (`disable_steam=true`) is as good as a
+     Steam-capable one: spend none of the 3/h budget on fresh matches.
+  2. About 10% of matches are fetchable within an hour, about 42% at 2 h, and the share
+     plateaus near 45–48%. Retry the free read around +2 h (and once more later) rather than
+     polling; after a day, a match without a replay salt very likely never gets one.
+  3. For the other half, upload is the only path, which keeps the upload UX the main route for
+     fresh matches (deadlock-api declined us an API key on 2026-11-08).
+  4. Uploaded salts have been correct every time (no HEAD failures), so a present salt can be
+     trusted without a pre-check.
