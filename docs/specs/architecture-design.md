@@ -1046,10 +1046,26 @@ makes a board with that match attached and lands in Player; **New board** is tod
   (press and release within 6 px) on a hero's token with the Move tool opens a compact panel at
   the map's lower left: the hero, and the Tab column's parts for it at t (K/D/A, investment bars,
   stats, abilities with cooldowns and charges, items), with their tooltips and stat panels.
-  Escape or × closes it; another token swaps it; another match closes it. Vision: in a team's
+  Several can be open, one per hero, up to every hero's (#37, operator 2026-11-11): another
+  token opens its own a step down and right of the last (or brings its open one to the front),
+  × closes that one, Escape the front one, and another match closes them all. Vision: in a team's
   view, a hero it can't see has no token, so no panel opens for it; an enemy that leaves sight
   while its panel is open keeps only what the Tab scoreboard shows (no cooldowns, charges or
-  effects; `data-limited`). The panel is this browser's: it isn't shared with followers.
+  effects; `data-limited`). Followers get them (§8 "Panels").
+- **Moving panels** (#35, #37; `player/panelPlace.ts`): the death recap on the map and each hero
+  panel move by a drag of their top bar, with a mouse, pen or finger (pointer events; the bar
+  takes the touch, so it never scrolls the page). A press on a hero panel brings it to the front.
+  Where a panel sits is a place relative to the board pane: on each axis, the distance from the
+  pane's nearer edge to the panel's edge on that side, as a share of the pane's width or height.
+  Each screen draws it from that place and clamps it into its own pane, clear of the pane's own
+  controls (the Map layers and Vision row: a band at the pane's top or bottom, whichever the
+  control is nearer), its height capped to the room between them; so a screen of another size
+  keeps the layout and never shows a panel off-screen or over its controls. The next death's
+  recap opens where the last was left; another match puts it back.
+- **The match source** (the bar's "Match …" disclosure) closes once a match it loaded is in (Load,
+  or a recent replay from the linked folder), as a menu does after its choice; it opens upward
+  over the toolbar's left end, which it covered. A refused id or a failed load leaves it open,
+  its status saying why.
 - **The Soul Urn** (replay tier, 2026-11-08): the urn drawn as the game's minimap draws it
   (`hud_minimap.vcss`, in the pack; operator, 2026-11-08: "match how the real map looks").
   - On the ground, `.idol_spawn`: `soul_jar_marker` in a 32 px box, a rift's box
@@ -1440,6 +1456,15 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
     sense: a follower may open or close its own without stopping, and the presenter's next change
     wins: a change to any one of the panels applies all of them (one group), so a panel the
     follower closed opens again with it. Stopping leaves the panels as they are.
+    **Where they sit, and the hero panels** (#35, #37, operator 2026-11-11): `playback` also
+    carries the death recap's place once moved (`skull_place`) and the hero panels open from the
+    map, back to front, each with its place (`hero_panels`: team, slot, `at`), all left out when
+    there are none. A place is `{ x, y, right?, bottom? }`, x and y in ten-thousandths of the pane
+    from its left or right and top or bottom edge (§6b "Moving panels"), each at most 10,000; at
+    most 12 hero panels (every hero's in a 6v6 match), each slot once (`is_valid`). Every hero's
+    panel, moved, is under 1 KiB of a frame. A follower draws them at the presenter's places in
+    its own pane, clamped there; they are in the panels group, so a follower's own open, close or
+    move is its own until the presenter's next panel change, and doesn't stop following.
   - **The events list's filters and search** (operator 2026-11-11): presence's `playback`
     carries the filter chips that are on (`event_filters`, a bit per chip in the list's order,
     left out when none) and the search (`event_search`, at most 64 bytes, no control characters;
@@ -1448,8 +1473,8 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
     own without stopping, and the presenter's next change to either wins; stopping keeps them.
   - **Each browser's own:** Player names, the sidebar tab (Events or Notes) and whether the Map
     layers popover is open (operator 2026-11-11: layout), the tool, ink colour, Comments toggle
-    and jump lead. Not followed yet (docs/backlog.md): the events list's scroll, the hero panel
-    opened from a token on the map, and the teleporter pair's line.
+    and jump lead. Not followed yet (docs/backlog.md): the events list's scroll and the teleporter
+    pair's line.
   - **The view-state registry** (2026-11-11; plan: `docs/plans/2026-11-11-view-state-sync.md`):
     what following does with a piece of view state is declared, not wired per feature.
     `crates/engine/src/view_state.rs` has one row per key: whether a follower mirrors it, the
@@ -1460,7 +1485,8 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
     `web/src/gen/viewState.ts`, and the client's store (`web/src/player/viewstate.ts`) sends,
     mirrors and restores from them, and stops the follow itself on a follower's own change to a
     `stop` key. In it: the map layers, Vision and Last seen, the panels (both recaps, the
-    inspected build and its popover, All builds), the events filters and search, and Player
+    inspected build and its popover, All builds, the hero panels and where the recap and they
+    were moved), the events filters and search, and Player
     names (personal). Outside it by design: the board's scene, floor, viewport and hover
     (mirrored in Board.tsx, operator 2026-11-11), and the playback clock and the jump, which
     have apply logic of their own. Tests fail when a presence field, or a signal or `<details>`

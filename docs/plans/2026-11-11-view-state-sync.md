@@ -257,6 +257,17 @@ passed against the code before the change; after it, rows changed only where a d
 - `playback.jump` is `Outside::Core` now (its apply logic stays outside, §3); `Outside::Wired`
   is the board's scene, floor, viewport and hover, by decision 5.
 
+## After: moving panels (#35, #37; branch `panels`, 2026-11-11)
+
+Two kinds beyond §3, both in the `panels` group (`Keep` + `Local`, reset with the match):
+`Place` (`recap.skull.place`, `playback.skull_place`) and `HeroPanels { max: 12 }`
+(`heroes.panels`, `playback.hero_panels`: the hero panels open from the map, back to front, each
+with its place). A place is fractions of the board pane from its nearer edges, so each screen
+clamps it into its own pane (spec §6b "Moving panels"). Both read leniently: a shape this build
+can't read is none, as `build_popover` is. The hero panel's `heroCard` signal left Board.tsx and
+the ledger. The follow-matrix pinned the hero panel as personal first (all passing on 632c856),
+then gained `hero_panel` (now a panel), `skull_place` and `hero_place`.
+
 ## What the tracer proves
 
 - The registry can describe both shipped policies (layers: `Restore` + `Stop`; All builds:

@@ -25,6 +25,9 @@ After view-state (the registry) lands:
   width and height, anchored to the nearest edge), so a different screen size keeps the layout,
   clamped so a panel never sits off-screen or over the follower's own controls. Both are
   view-state registry rows.
+  **Built** on branch `panels` (2026-11-11): registry rows `recap.skull.place` and
+  `heroes.panels` (spec §6b "Moving panels", §8 "Panels"), with the match source closing after
+  Load. Open questions for the operator are in the branch's hand-back.
 
 ## Rift troopers: follow-ups (2026-11-11, lead QA of 03fda8c)
 
@@ -48,7 +51,7 @@ Shipped on branch `tooltips` (spec §6b "Tooltips", "Hero panel"; plan 2026-11-1
 - **Pin a tooltip open**: not now (operator, 2026-11-11).
 - **Live values in the tooltip**: the remaining cooldown and charges at t are on the icon only;
   the game's tooltip shows the static value.
-- **Hero panel for followers**: the panel is local; a presenter opening one isn't followed.
+- ~~**Hero panel for followers**~~: shared with #37 (branch `panels`).
 - **Spirit-scaled values on items**: only abilities' cards take the calculated spirit power with
   "≈"; items' scaled properties show the base value.
 
