@@ -309,7 +309,16 @@ pub struct Timeline {
     /// when every player has them. Absent in timelines cached before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_kills: Option<[u32; 2]>,
+    /// What this summary was derived with (`SUMMARY_FORMAT`). 0 (absent) in caches written
+    /// before the stamp; one of those with a winner was written with format 1's fields.
+    #[serde(default)]
+    pub summary_format: u32,
 }
+
+/// The summary's derivation, stamped on each cached summary. A cached one below it is derived
+/// again from a fresh metadata read, once a process (`Refreshed`), and served as it is meanwhile
+/// or if that read fails. 1: the winner and team kills (acf63c3; previews need the winner).
+pub const SUMMARY_FORMAT: u32 = 1;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct TimelinePlayer {
@@ -600,6 +609,7 @@ pub fn derive(raw: &[u8]) -> Result<Timeline, String> {
         objectives,
         mid_boss,
         reanchored,
+        summary_format: SUMMARY_FORMAT,
         game_mode: Some(m.game_mode.unwrap_or(mapcro_replay::STANDARD_GAME_MODE)),
         winner: m.winning_team.filter(|t| *t <= 1).map(|t| team_name(t).to_owned()),
         team_kills: (!m.players.is_empty() && m.players.iter().all(|p| p.kills.is_some())).then(|| {
@@ -787,6 +797,23 @@ fn fetch_metadata(id: &str) -> Fetched {
 struct CachedHead {
     events: Option<serde::de::IgnoredAny>,
     game_mode: Option<i64>,
+    winner: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    summary_format: u32,
+}
+
+impl CachedHead {
+    /// The format it was derived with: unstamped caches with a winner are format 1's.
+    fn format(&self) -> u32 {
+        if self.summary_format == 0 && self.winner.is_some() { 1 } else { self.summary_format }
+    }
+}
+
+/// Matches whose summary was below `SUMMARY_FORMAT` and was read again (or tried), so it isn't
+/// again this process (a restart allows one more try).
+fn refreshed() -> &'static Mutex<std::collections::HashSet<String>> {
+    static R: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    R.get_or_init(Mutex::default)
 }
 
 fn cache_path(app: &AppState, id: &str) -> PathBuf {
@@ -889,6 +916,8 @@ async fn summary(app: &AppState, peer: SocketAddr, headers: &HeaderMap, id: &str
     // A cache is served only if it has events and says its mode, and the mode is standard. One
     // written before either existed is fetched again, once: the fresh one has both, or the
     // match is refused (production kept Brawl matches cached before the refusal, QA 2026-11-08).
+    // One below `SUMMARY_FORMAT` is derived again once a process, and kept if that fails.
+    let mut old = None;
     if let Ok(bytes) = tokio::fs::read(&path).await
         && let Ok(head) = serde_json::from_slice::<CachedHead>(&bytes)
         && head.events.is_some()
@@ -898,30 +927,44 @@ async fn summary(app: &AppState, peer: SocketAddr, headers: &HeaderMap, id: &str
             remember_refusal(&app, &id, why).await;
             return Err(err(StatusCode::UNPROCESSABLE_ENTITY, why));
         }
-        opened(MatchPath::Cached);
-        return Ok(bytes);
+        if head.format() >= SUMMARY_FORMAT || refreshed().lock().unwrap_or_else(|p| p.into_inner()).contains(&id) {
+            opened(MatchPath::Cached);
+            return Ok(bytes);
+        }
+        old = Some(bytes);
     }
+    // The old summary, when there is one, instead of an error.
+    let or_old = |e: Response| match &old {
+        Some(bytes) => {
+            opened(MatchPath::Cached);
+            Ok(bytes.clone())
+        }
+        None => Err(e),
+    };
     if by == Use::Preview && preview_held() {
-        return Err(err(StatusCode::TOO_MANY_REQUESTS, "upstream_limited"));
+        return or_old(err(StatusCode::TOO_MANY_REQUESTS, "upstream_limited"));
     }
     match admit(client_key(client_ip(peer, headers))) {
         Ok(()) => {}
-        Err(code) => return Err(err(StatusCode::TOO_MANY_REQUESTS, code)),
+        Err(code) => return or_old(err(StatusCode::TOO_MANY_REQUESTS, code)),
+    }
+    if old.is_some() {
+        refreshed().lock().unwrap_or_else(|p| p.into_inner()).insert(id.clone());
     }
     let fetch_id = id.clone();
     let fetched = match tokio::task::spawn_blocking(move || fetch(&fetch_id)).await {
         Ok(f) => f,
-        Err(_) => return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "internal")),
+        Err(_) => return or_old(err(StatusCode::INTERNAL_SERVER_ERROR, "internal")),
     };
     let raw = match fetched {
         Fetched::Ok(b) => b,
-        Fetched::NotFound => return Err(err(StatusCode::NOT_FOUND, "not_found")),
+        Fetched::NotFound => return or_old(err(StatusCode::NOT_FOUND, "not_found")),
         Fetched::Limited => {
             *preview_hold().lock().unwrap_or_else(|p| p.into_inner()) = Some(Instant::now() + PREVIEW_HOLD);
-            return Err(err(StatusCode::TOO_MANY_REQUESTS, "upstream_limited"));
+            return or_old(err(StatusCode::TOO_MANY_REQUESTS, "upstream_limited"));
         }
-        Fetched::Down(_) => return Err(err(StatusCode::BAD_GATEWAY, "upstream_down")),
-        Fetched::TooLarge => return Err(err(StatusCode::BAD_GATEWAY, "too_large")),
+        Fetched::Down(_) => return or_old(err(StatusCode::BAD_GATEWAY, "upstream_down")),
+        Fetched::TooLarge => return or_old(err(StatusCode::BAD_GATEWAY, "too_large")),
     };
     if let Some(why) = mode_refusal(&raw) {
         upstream(Endpoint::Metadata, ApiResult::Ok);
@@ -945,18 +988,18 @@ async fn summary(app: &AppState, peer: SocketAddr, headers: &HeaderMap, id: &str
         Ok(Err(e)) => {
             tracing::warn!(error = e, "match not understood");
             upstream(Endpoint::Metadata, ApiResult::Shape);
-            return Err(err(StatusCode::BAD_GATEWAY, "upstream_shape"));
+            return or_old(err(StatusCode::BAD_GATEWAY, "upstream_shape"));
         }
-        Err(_) => return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "internal")),
+        Err(_) => return or_old(err(StatusCode::INTERNAL_SERVER_ERROR, "internal")),
     };
     if timeline.match_id.to_string() != id {
         upstream(Endpoint::Metadata, ApiResult::Shape);
-        return Err(err(StatusCode::BAD_GATEWAY, "upstream_shape"));
+        return or_old(err(StatusCode::BAD_GATEWAY, "upstream_shape"));
     }
     upstream(Endpoint::Metadata, ApiResult::Ok);
     let bytes = match serde_json::to_vec(&timeline) {
         Ok(b) => b,
-        Err(_) => return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "internal")),
+        Err(_) => return or_old(err(StatusCode::INTERNAL_SERVER_ERROR, "internal")),
     };
     let to_write = bytes.clone();
     let reanchored = timeline.reanchored;
@@ -1031,14 +1074,21 @@ fn preview_path(app: &AppState, id: &str) -> PathBuf {
 
 /// `GET /api/matches/{id}/preview`: the match's preview card, cached beside its summary. An
 /// uncached match goes the same way as opening it (the same limits, and the summary is cached
-/// for the open that follows); while deadlock-api is limiting us, previews don't ask it.
+/// for the open that follows); while deadlock-api is limiting us, previews don't ask it. A
+/// cached card without a winner is made again from the summary, which re-derives itself once if
+/// it predates the winner (`SUMMARY_FORMAT`).
 pub async fn preview(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Path(id): Path<String>) -> Response {
+    #[derive(Deserialize)]
+    struct Winner {
+        winner: Option<String>,
+    }
     if !valid_id(&id) {
         return err(StatusCode::BAD_REQUEST, "bad_id");
     }
     let path = preview_path(&app, &id);
     if refused(&app, &id).await.is_none()
         && let Ok(bytes) = tokio::fs::read(&path).await
+        && serde_json::from_slice::<Winner>(&bytes).is_ok_and(|w| w.winner.is_some())
     {
         return json(bytes);
     }

@@ -331,6 +331,12 @@ and shared boards therefore follow one code path and one set of tests.
   the per-client and global limits, and the summary it fetches is cached for the open that
   follows. After the metadata call says 429, previews don't ask deadlock-api for 60 s (opens
   still do). Errors are the summary's (`not_found`, `brawl`, `upstream_limited`, …).
+  - **Summary format (2026-11-11):** a cached summary carries `summary_format` (now 1: the
+    winner and team kills). One below it (unstamped and without `winner`, cached before the
+    winner was kept) is derived again on its next open or preview, from one metadata read on the
+    same limited path, once a process; if that read fails or is limited, the old one is served.
+    A cached card with `winner: null` isn't served as it is: it's made again from the summary,
+    so an old one picks up the winner (a match with none just makes the same card).
 - **Not in the metadata tier:** ults, zipline colours, camps, rifts, powerups and z. A match older than the
   pack is drawn on it with an "Older map" label.
 - The mid boss's respawn time isn't in the match data. The preview shows it down from a kill
