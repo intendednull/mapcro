@@ -23,7 +23,7 @@ export function BuildOrder(p: { player: TimelinePlayer; t: number; art: Art; onS
           <button type="button" class={cx("tb-order-row", e.kind, e.t > p.t && "later")} data-testid="build-order-row" data-t={e.t} data-kind={e.kind} data-item-id={e.id}
             aria-label={label(e)} title={name(e.id)} onClick={() => p.onSeek?.(e.t)}>
             <Show when={record(e.id)?.icon} fallback={<span class="tb-build-fallback">?</span>}>{src => <img src={src()} alt="" />}</Show>
-            <span>{e.kind === "bought" ? "" : <small>{VERB[e.kind]} </small>}{name(e.id)}</span>
+            <span>{e.kind === "bought" ? "" : <small>{VERB[e.kind]} </small>}<i class="tb-order-name">{name(e.id)}</i></span>
             <b>{clockLabel(e.t)}</b>
           </button>
         }</For>

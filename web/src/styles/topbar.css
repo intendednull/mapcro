@@ -322,6 +322,16 @@
 .tb-order-row.later { opacity: .45; }
 .tb-effects-body { position: absolute; top: 100%; left: 0; width: 250px; max-width: 65vw; max-height: 230px; overflow-y: auto; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 8px 20px #0006; color: var(--text); }
 .sapphire > .tb-build-column .tb-effects-body { left: auto; right: 0; }
+/* The build order stays inside the single-hero panel (feedback #15): in the column's flow, as
+   wide as it, so the panel grows to hold it; a row is the item's icon and its time (the name on
+   hover). */
+.tb-build-column .tb-order .tb-effects-body { position: static; width: auto; max-width: none; max-height: calc(260 * var(--u)); margin-top: 3px; padding: 3px; }
+.tb-build-column .tb-order .tb-order-row { gap: 4px; padding: 2px 1px; font-size: max(9px, calc(11 * var(--u))); }
+.tb-build-column .tb-order .tb-order-name { display: none; }
+.tb-build-column .tb-order .tb-order-row > span { flex: none; font-style: normal; }
+.tb-order-name { font-style: normal; }
+.tb-build-column .tb-order .tb-order-row img, .tb-build-column .tb-order .tb-order-row .tb-build-fallback { width: max(16px, calc(22 * var(--u))); height: max(16px, calc(22 * var(--u))); }
+.tb-build-column .tb-order .tb-order-row b { flex: 1; text-align: right; font-size: inherit; }
 .tb-effect { display: flex; gap: 7px; align-items: center; padding: 5px 0; font-size: 12px; }
 .tb-effect img { width: 28px; height: 28px; object-fit: contain; }
 .tb-effect span { flex: 1; }
