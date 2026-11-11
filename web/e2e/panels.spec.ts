@@ -8,9 +8,17 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import WebSocket from "ws";
 import { type Locator, type Page, expect, test } from "./fixtures";
 import { joinNew, revealControls } from "./helpers";
-import { Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
+import { ROOT, Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
+import { initSync } from "../src/wasm/mapcro_wasm.js";
+import { MemoryPersist } from "../src/core/persist";
+import { BoardSession, type SocketLike } from "../src/core/session";
+import type { Playback } from "../src/gen/Playback";
+
+initSync({ module: readFileSync(join(ROOT, "web/src/wasm/mapcro_wasm_bg.wasm")) });
 
 const ID = "129000201";
 const N = 60;
@@ -63,20 +71,21 @@ function timeline(id: string) {
 
 const answered = new Set<string>();
 /** Load the match as an editor does, the worker's answer written by hand (as follow-matrix). */
-async function load(p: Page) {
+async function load(p: Page, id = ID, o: { beforeAnswer?: () => Promise<void> } = {}) {
   const bar = p.getByTestId("player");
   if (!(await bar.count()) || (await bar.getAttribute("data-state")) !== "match") await p.getByTestId("mode-player").first().click();
   await revealControls(p, "match-id");
-  await p.getByTestId("match-id").fill(ID);
+  await p.getByTestId("match-id").fill(id);
   await p.getByTestId("match-load").click();
   const tier = p.getByTestId("match-tier");
   const straight = await expect.poll(async () => (await tier.textContent().catch(() => "")) === "Full replay", { timeout: 3000 }).toBe(true).then(() => true, () => false);
   if (!straight) {
-    await p.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
+    await p.getByTestId("match-file").setInputFiles({ name: `${id}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
     let job = "";
-    await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f.startsWith(`${ID}-`) && f.endsWith(".dem") && !answered.has(f)) ?? "")).not.toBe("");
+    await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f.startsWith(`${id}-`) && f.endsWith(".dem") && !answered.has(f)) ?? "")).not.toBe("");
     answered.add(job);
-    writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify(timeline(ID)));
+    await o.beforeAnswer?.();
+    writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify(timeline(id)));
   }
   await expect(tier).toHaveText("Full replay");
 }
@@ -136,7 +145,22 @@ const relative = (b: Box, p: Box, from?: { right: boolean; bottom: boolean }) =>
 };
 /** Every panel is inside the pane and clear of the pane's controls (Map layers, Vision…). */
 async function clear(p: Page) {
-  const out = await p.evaluate(() => {
+  expect(await faults(p)).toEqual([]);
+}
+/** The panel sits against the pane's controls, or its edge, at its top or bottom (clamped there). */
+const clamped = (p: Page, panel: Locator) =>
+  panel.evaluate((el) => {
+    const pane = document.querySelector("[data-testid=map]")!.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    const mid = pane.top + pane.height / 2;
+    const controls = [...document.querySelectorAll(".map-controls > *")].map((c) => c.getBoundingClientRect()).filter((c) => c.width > 0 && c.height > 0);
+    const low = Math.min(pane.bottom, ...controls.filter((c) => c.top + c.height / 2 > mid).map((c) => c.top - 4));
+    const high = Math.max(pane.top, ...controls.filter((c) => c.top + c.height / 2 <= mid).map((c) => c.bottom + 4));
+    return Math.abs(r.bottom - low) < 1 || Math.abs(r.top - high) < 1;
+  });
+/** The panels outside the pane or over one of its controls. */
+async function faults(p: Page) {
+  return p.evaluate(() => {
     const paneEl = document.querySelector("[data-testid=map]")!.getBoundingClientRect();
     const controls = [...document.querySelectorAll(".map-controls > *")].map((c) => c.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
     const bad: string[] = [];
@@ -148,7 +172,6 @@ async function clear(p: Page) {
     }
     return bad;
   });
-  expect(out).toEqual([]);
 }
 
 test("#35 the death recap moves by a drag of its top, with a mouse or a finger, and the next opens where it was left", async ({ browser }) => {
@@ -164,8 +187,14 @@ test("#35 the death recap moves by a drag of its top, with a mouse or a finger, 
   const after = await box(r);
   await touchDrag(a, r, -80, 60);
   await moved(r, after, -80, 60);
-  // The × is a button, not a handle: a press there closes, it doesn't move.
+  // The × is a button, not a handle: a press there that moves doesn't move the panel; a click closes.
   const there = await box(r);
+  const x = await box(r.getByTestId("skull-recap-close"));
+  await a.mouse.move(x.x + x.width / 2, x.y + x.height / 2);
+  await a.mouse.down();
+  await a.mouse.move(x.x - 120, x.y + 90, { steps: 8 });
+  await a.mouse.up();
+  expect(await box(r)).toEqual(there);
   await r.getByTestId("skull-recap-close").click();
   await expect(r).toHaveCount(0);
   await a.locator('[data-testid=death-skull][data-slot="sapphire-2"]').click();
@@ -220,6 +249,79 @@ test("#37 several hero panels open at once; each moves and closes by itself; a p
   await a.keyboard.press("Escape");
   await expect(hero(a, "amber-5")).toHaveCount(0);
   await expect(hero(a, "amber-4")).toHaveCount(1);
+  // Open A, open B, close A, open C: C opens on A's step, never exactly over B.
+  await a.keyboard.press("Escape");
+  await expect(a.getByTestId("hero-card")).toHaveCount(0);
+  for (const s of ["Amber-5", "Sapphire-4"]) await token(a, s).click();
+  const first = await box(hero(a, "amber-5"));
+  const second = await box(hero(a, "sapphire-4"));
+  await hero(a, "amber-5").getByTestId("hero-card-close").click();
+  await token(a, "Amber-4").click();
+  await expect.poll(async () => JSON.stringify(await box(hero(a, "amber-4")))).toBe(JSON.stringify(first));
+  expect(await box(hero(a, "sapphire-4"))).toEqual(second);
+});
+
+test("a drag ends when the browser cancels the pointer or takes its capture away", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Drag ends"), "Coach");
+  await load(a);
+  await scrubTo(a, 15);
+  await token(a, "Amber-5").click();
+  const panel = hero(a, "amber-5");
+  const head = panel.locator(".hero-panel-head");
+  await a.evaluate(() => document.addEventListener("pointerdown", (e) => ((window as unknown as { pid: number }).pid = e.pointerId), true));
+  for (const end of ["pointercancel", "lostpointercapture"] as const) {
+    const h = await box(head);
+    const [x, y] = [h.x + 60, h.y + h.height / 2];
+    await a.mouse.move(x, y);
+    await a.mouse.down();
+    await a.mouse.move(x + 30, y + 20, { steps: 4 });
+    await expect(panel).toHaveAttribute("data-moving", "true");
+    // The browser ends it (a touch turned into a scroll, a window switch): a real end, then
+    // the pointer still moving over the panel's top moves nothing.
+    // (A capture released is lost at the next pointer event, before it is dispatched.)
+    const stopped = await box(panel);
+    await head.evaluate((el, end) => {
+      const id = (window as unknown as { pid: number }).pid;
+      if (end === "lostpointercapture") el.releasePointerCapture(id);
+      else el.dispatchEvent(new PointerEvent("pointercancel", { pointerId: id, bubbles: true }));
+    }, end);
+    await a.mouse.move(x + 50, y + 30, { steps: 4 });
+    await expect(panel, end).not.toHaveAttribute("data-moving");
+    expect(await box(panel), end).toEqual(stopped);
+    await a.mouse.up();
+  }
+});
+
+test("one Escape with a build inspected and a death recap open closes the build only", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Escape build"), "Coach");
+  await load(a);
+  await scrubTo(a, 41);
+  await a.locator('[data-testid=death-skull][data-slot="sapphire-2"]').click();
+  await expect(recap(a)).toBeVisible();
+  await a.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').click();
+  const build = a.locator('.tb-player[data-slot="Amber-0"] [data-testid=hero-build]');
+  await expect(build).toHaveCount(1);
+  await a.keyboard.press("Escape");
+  await expect(build).toHaveCount(0);
+  await expect(recap(a)).toBeVisible();
+  await a.keyboard.press("Escape");
+  await expect(recap(a)).toHaveCount(0);
+});
+
+test("a panel moves off the map controls when their row changes size, the pane unchanged", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Controls grow"), "Coach");
+  await load(a);
+  await scrubTo(a, 15);
+  await token(a, "Amber-5").click();
+  const ap = await pane(a);
+  await dragTo(a, hero(a, "amber-5"), ap.x + 60, ap.y + ap.height + 100);
+  await clear(a);
+  const was = await box(hero(a, "amber-5"));
+  // The row grows upward (as when it wraps onto a second line), its controls with it.
+  await a.locator(".map-controls").evaluate((el) => ((el as HTMLElement).style.paddingBottom = "90px"));
+  expect(await pane(a)).toEqual(ap);
+  await expect.poll(() => faults(a)).toEqual([]);
+  expect((await box(hero(a, "amber-5"))).y).toBeLessThan(was.y - 60);
 });
 
 test("a follower on another screen size sees the same panels at the same places in its pane, each clamped clear of its controls", async ({ browser }) => {
@@ -248,17 +350,30 @@ test("a follower on another screen size sees the same panels at the same places 
   await expect(recap(b)).toBeVisible();
   const bp = await pane(b);
   expect(bp.width).toBeLessThan(ap.width - 50);
-  // Each panel is the same share of the pane from the same edges (within a pixel's worth or two;
-  // a panel too big for its place on the smaller pane is clamped, so only those that fit compare).
+  // Each panel is the same share of the pane from the same edges (within a pixel's worth or two),
+  // unless that would put it over the pane's controls or past its edge: then it is clamped to
+  // them, which is nearer the pane's centre (the controls are the same px on a smaller pane, so a
+  // bigger share of it; a panel too big for its place is also pushed in).
   const near = (x: number, y: number) => Math.abs(x - y) < 0.01;
   for (const l of [(p: Page) => hero(p, "amber-5"), (p: Page) => hero(p, "sapphire-4"), recap]) {
     const want = relative(await box(l(a)), ap);
     await expect.poll(async () => {
       const got = relative(await box(l(b)), bp, want);
-      return near(got.x, want.x) && (near(got.y, want.y) || got.y < want.y);
+      return near(got.x, want.x) && (near(got.y, want.y) || (got.y > want.y && (await clamped(b, l(b)))) || got.y < want.y);
     }).toBe(true);
   }
   await clear(b);
+
+  // The presenter brings the one behind to the front: so does the follower's.
+  await expect(hero(b, "amber-5")).toHaveAttribute("data-front", "true");
+  await hero(a, "sapphire-4").click({ position: { x: 16, y: 12 } });
+  await expect(hero(a, "sapphire-4")).toHaveAttribute("data-front", "true");
+  await expect(hero(b, "sapphire-4")).toHaveAttribute("data-front", "true");
+  await expect(hero(b, "amber-5")).toHaveAttribute("data-front", "false");
+  const zb = (s: string) => hero(b, s).evaluate((el) => Number(getComputedStyle(el).zIndex));
+  expect(await zb("sapphire-4")).toBeGreaterThan(await zb("amber-5"));
+  await hero(a, "amber-5").click({ position: { x: 16, y: 12 } });
+  await expect(hero(b, "amber-5")).toHaveAttribute("data-front", "true");
 
   // Live: the presenter moves one, the follower's follows; still following.
   const before = relative(await box(hero(b, "sapphire-4")), bp);
@@ -267,6 +382,9 @@ test("a follower on another screen size sees the same panels at the same places 
   await expect.poll(async () => relative(await box(hero(b, "sapphire-4")), bp).right).toBe(true);
   await clear(b);
   // The follower's own move is its own (following goes on) until the presenter's next change.
+  // (amber-5 to the front first: the presenter's drag brought sapphire-4 there, over its top.)
+  await hero(a, "amber-5").click({ position: { x: 16, y: 12 } });
+  await expect(hero(b, "amber-5")).toHaveAttribute("data-front", "true");
   const mine = await box(hero(b, "amber-5"));
   await drag(b, hero(b, "amber-5"), -30, 0);
   await moved(hero(b, "amber-5"), mine, -30, 0);
@@ -276,6 +394,26 @@ test("a follower on another screen size sees the same panels at the same places 
   expect(theirs.right).toBe(true);
   await expect.poll(async () => Math.abs(relative(await box(hero(b, "amber-5")), bp, theirs).x - theirs.x)).toBeLessThan(0.01);
   await clear(b);
+  // A presenter's drag moves that panel only (lead 2026-11-11): the follower's own panels,
+  // build and recap stay as it left them, through every move of the drag.
+  await hero(b, "sapphire-4").getByTestId("hero-card-close").click();
+  await token(b, "Amber-0").click();
+  await recap(b).getByTestId("skull-recap-close").click();
+  await b.locator('.tb-player[data-slot="Amber-1"] [data-testid=focus-hero]').click();
+  const bBuild = b.locator('.tb-player[data-slot="Amber-1"] [data-testid=hero-build]');
+  await expect(bBuild).toHaveCount(1);
+  await expect.poll(() => slots(b)).toBe("amber-0 amber-5");
+  const was5 = await box(hero(b, "amber-5"));
+  await drag(a, hero(a, "amber-5"), -150, 0);
+  await expect.poll(async () => (await box(hero(b, "amber-5"))).x).toBeLessThan(was5.x - 20);
+  expect(await slots(b)).toBe("amber-0 amber-5");
+  await expect(recap(b)).toHaveCount(0);
+  await expect(bBuild).toHaveCount(1);
+  await expect(b.getByTestId("stop-following")).toHaveCount(1);
+  // The presenter closing one is a panel change: its panels apply whole.
+  await hero(a, "sapphire-4").getByTestId("hero-card-close").click();
+  await expect.poll(() => slots(b)).toBe("amber-5");
+  await expect(recap(b)).toBeVisible();
   // A smaller screen still: everything stays in the pane, off the controls.
   await b.setViewportSize({ width: 1000, height: 640 });
   await expect.poll(async () => (await pane(b)).width).toBeLessThan(bp.width - 20);
@@ -304,4 +442,70 @@ test("the match source closes once the match is in, clear of the toolbar's left 
   await expect(a.getByTestId("match-status")).toHaveText("Invalid id");
   await expect(a.getByTestId("match-status")).toBeVisible();
   expect(await source.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(true);
+});
+
+test("the match source closes for this user's own Load only: not for a presenter's match, nor once another id is typed", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Source own load");
+  const a = await joinNew(browser, url, "Coach");
+  await load(a);
+  const source = (p: Page) => p.locator(".pl-source");
+  const open = (p: Page) => source(p).evaluate((el) => (el as HTMLDetailsElement).open);
+  await expect.poll(() => open(a)).toBe(false);
+  // A slow Load of one match while another id is being typed: its answer leaves the panel open.
+  await load(a, "129000202", {
+    beforeAnswer: async () => {
+      await a.getByTestId("match-id").fill("129000203");
+      expect(await open(a)).toBe(true);
+    },
+  });
+  await expect(a.getByTestId("match-id")).toHaveValue("129000203");
+  expect(await open(a)).toBe(true);
+  // A follower with its source open: the presenter's next match doesn't close it.
+  const b = await joinNew(browser, url, "Second");
+  await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
+  await b.getByTestId("follow-Coach").click();
+  await expect(b.getByTestId("stop-following")).toHaveCount(1);
+  await revealControls(b, "match-id");
+  await load(a, ID);
+  await expect(b.getByTestId("match-id")).toHaveValue(ID);
+  await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
+  expect(await open(b)).toBe(true);
+});
+
+test("a presenter from an older build leaves the follower's hero panels; a slot the match hasn't takes no Escape", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Panels older presenter");
+  const b = await joinNew(browser, url, "Second");
+  await load(b);
+  await scrubTo(b, 41);
+  await token(b, "Amber-5").click();
+  await expect(hero(b, "amber-5")).toBeVisible();
+  // A presenter that is a session of its own, sending exactly the presence it is given.
+  const [, board, key] = /\/b\/([^#]+)#(.+)$/.exec(url)!;
+  const bot = new BoardSession({
+    wsUrl: `ws://127.0.0.1:${new URL(server.url).port}/ws`,
+    board: board!,
+    token: key!,
+    persist: new MemoryPersist(),
+    openSocket: (u) => new WebSocket(u, { origin: server.url }) as unknown as SocketLike,
+  });
+  await bot.start();
+  try {
+    await expect.poll(() => bot.connection.kind).toBe("live");
+    const playback = (more: Partial<Playback> = {}): Playback => ({ player: true, match_id: Number(ID), t: 41, playing: false, speed: 1, ...more });
+    // An older build: no hero_panels at all.
+    bot.setPresence({ name: "Older", playback: playback({ inspect: { team: "Amber", slot: 1 } }) });
+    await b.getByTestId("follow-Older").click();
+    await expect(b.getByTestId("stop-following")).toHaveCount(1);
+    await expect(b.locator('.tb-player[data-slot="Amber-1"] [data-testid=hero-build]')).toHaveCount(1);
+    expect(await slots(b)).toBe("amber-5");
+    // A newer one with a panel for a slot this match hasn't: no panel, and it takes no Escape.
+    bot.setPresence({ playback: playback({ hero_panels: [{ team: "Amber", slot: 9 }] }) });
+    await expect(b.getByTestId("hero-card")).toHaveCount(0);
+    await b.locator('[data-testid=death-skull][data-slot="sapphire-2"]').click();
+    await expect(recap(b)).toBeVisible();
+    await b.keyboard.press("Escape");
+    await expect(recap(b)).toHaveCount(0);
+  } finally {
+    bot.stop();
+  }
 });

@@ -7,7 +7,7 @@
 // side, in `PLACE_SCALE`ths of the pane's width or height.
 
 import { createEffect, onCleanup, onMount, untrack } from "solid-js";
-import { PLACE_SCALE, type Place } from "./layers";
+import { PLACE_SCALE, type Place, placeToWire } from "./layers";
 
 export type { Place };
 /** A spot in the pane, in px from its top left. */
@@ -47,12 +47,24 @@ export function clampSpot(at: Spot, w: number, h: number, pane: Pane): Spot {
   };
 }
 
-/** The `n`th panel open from the map (0 the first) where it opens: from the pane's top left,
- * each a step down and right of the last, eight steps before it starts over. */
+/** Steps of `cascade` before it starts over. */
+export const CASCADE_STEPS = 8;
+/** The `n`th step where a panel opens from the map: from the pane's top left, each a step down
+ * and right of the last, `CASCADE_STEPS` steps before it starts over. */
 export function cascade(n: number, pane: Pane): Place {
-  const k = n % 8;
+  const k = n % CASCADE_STEPS;
   const unit = (d: number, of: number) => Math.min(PLACE_SCALE, Math.round((d / Math.max(1, of)) * PLACE_SCALE));
   return { x: unit(12 + 24 * k, pane.w), y: unit(Math.max(pane.top, 44) + 24 * k, pane.h), right: false, bottom: false };
+}
+
+/** Where a new panel opens beside the open ones (at their places): the first step of the
+ * cascade none still sits on (not moved since it opened), so it never opens exactly over
+ * another; with every step taken, the next after the open ones. */
+export function opening(open: (Place | undefined)[], pane: Pane): Place {
+  const key = (p: Place | undefined) => JSON.stringify(placeToWire(p) ?? null);
+  const taken = new Set(open.map(key));
+  for (let k = 0; k < CASCADE_STEPS; k++) if (!taken.has(key(cascade(k, pane)))) return cascade(k, pane);
+  return cascade(open.length, pane);
 }
 
 /** The px the pane's own controls take at its top and bottom: each visible control over the
@@ -111,8 +123,9 @@ export function movable(el: HTMLElement, o: Movable) {
       o.home();
       layout();
     });
-    // Its own size (its content changes with t) and the pane's (the window, the layout), on the
-    // next frame: placing it can change its size (the height cap), which mustn't loop here.
+    // Its own size (its content changes with t), the pane's (the window, the layout) and the
+    // controls row's (it wraps, and grows, as its controls change), on the next frame: placing
+    // it can change its size (the height cap), which mustn't loop here.
     let frame = 0;
     const seen = new ResizeObserver(() => {
       cancelAnimationFrame(frame);
@@ -121,6 +134,8 @@ export function movable(el: HTMLElement, o: Movable) {
     seen.observe(el);
     const p = pane();
     if (p) seen.observe(p);
+    const controls = p?.parentElement?.querySelector(".map-controls");
+    if (controls) seen.observe(controls, { box: "border-box" });
     onCleanup(() => {
       cancelAnimationFrame(frame);
       seen.disconnect();

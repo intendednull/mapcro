@@ -1068,11 +1068,13 @@ makes a board with that match attached and lands in Player; **New board** is tod
   control is nearer), its height capped to the room between them; so a screen of another size
   keeps the layout and never shows a panel off-screen or over its controls. The next death's
   recap opens where the last was left; another match puts it back.
-- **The match source** (the bar's "Match …" disclosure) closes once a match is in (loaded, or its
-  replay parsed) and it offers nothing more for it, as a menu does after its choice; it opens
-  upward over the toolbar's left end, which it covered. A match with only the API summary keeps
-  it open on its upload, the next step; a refused id or a failed load leaves it open, its status
-  saying why.
+- **The match source** (the bar's "Match …" disclosure) closes once the match this user's own
+  Load asked for is in (loaded, or its replay parsed) and it offers nothing more for it, as a
+  menu does after its choice; it opens upward over the toolbar's left end, which it covered.
+  Only for their own Load: a match a presenter opened, one open on page load, or a slow Load's
+  answer once another id is being typed leaves it as it is. A match with only the API summary,
+  or a stale parse (an upload is offered), keeps it open on its upload, the next step; a refused
+  id or a failed load leaves it open, its status saying why.
 - **The Soul Urn** (replay tier, 2026-11-08): the urn drawn as the game's minimap draws it
   (`hud_minimap.vcss`, in the pack; operator, 2026-11-08: "match how the real map looks").
   - On the ground, `.idol_spawn`: `soul_jar_marker` in a 32 px box, a rift's box
@@ -1470,14 +1472,25 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
     wins: a change to any one of the panels applies all of them (one group), so a panel the
     follower closed opens again with it. Stopping leaves the panels as they are.
     **Where they sit, and the hero panels** (#35, #37, operator 2026-11-11): `playback` also
-    carries the death recap's place once moved (`skull_place`) and the hero panels open from the
-    map, back to front, each with its place (`hero_panels`: team, slot, `at`), all left out when
-    there are none. A place is `{ x, y, right?, bottom? }`, x and y in ten-thousandths of the pane
-    from its left or right and top or bottom edge (§6b "Moving panels"), each at most 10,000; at
-    most 12 hero panels (every hero's in a 6v6 match), each slot once (`is_valid`). Every hero's
-    panel, moved, is under 1 KiB of a frame. A follower draws them at the presenter's places in
-    its own pane, clamped there; they are in the panels group, so a follower's own open, close or
-    move is its own until the presenter's next panel change, and doesn't stop following.
+    carries the death recap's place once moved (`skull_place`, left out where it opens) and the
+    hero panels open from the map, back to front, each with its place (`hero_panels`: team,
+    slot, `at`). `hero_panels` is sent whenever `playback` is, `[]` for none: a presenter on an
+    older build leaves it out, and its follower keeps its own hero panels. A place is
+    `{ x, y, right?, bottom? }`, x and y in ten-thousandths of the pane from its left or right and
+    top or bottom edge (§6b "Moving panels"), each at most 10,000; at most 12 hero panels (every
+    hero's in a 6v6 match), each slot once, slots under 16 (`is_valid`; the client sends within
+    them). A server reading a newer client's presence drops or clips what is past those bounds (a
+    13th panel, a slot past 15, a hero twice, a place past 10,000) and relays the rest, rather
+    than refusing the whole presence. Every hero's panel, moved, is under 1 KiB of a frame. A
+    follower draws them at the presenter's places in its own pane, clamped there; a slot the
+    match has no player in has no panel (and takes no Escape). They are in the panels group, so
+    a follower's own open, close or move is its own until the presenter's next panel change, and
+    doesn't stop following. What that next change does depends on what changed (lead
+    2026-11-11): the presenter opening or closing a panel (any of the group's, the recaps and
+    builds too) applies the whole group, as above; the presenter only moving a panel, or
+    bringing one to the front, moves that panel only, in the follower's own panels that are the
+    presenter's too. It opens and closes nothing, so a drag, sent at pointer rate, never undoes
+    the follower's own panels, inspect or recap.
   - **The events list's filters and search** (operator 2026-11-11): presence's `playback`
     carries the filter chips that are on (`event_filters`, a bit per chip in the list's order,
     left out when none) and the search (`event_search`, at most 64 bytes, no control characters;

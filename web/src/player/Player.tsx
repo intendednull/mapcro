@@ -59,11 +59,19 @@ export function Player(p: {
   const lanes = () => p.art.model.lanes.map((l) => l.key);
   let source: HTMLDetailsElement | undefined;
   onMount(() => dismissDisclosure(() => source ?? null));
-  // Once a match is in (loaded, or its replay parsed) and the panel has nothing more to offer
-  // for it, its work is done: it closes, as a menu does after its choice, so it no longer covers
-  // the tools under it (the bar's left end). Decided once the match's replay state is known too:
-  // a match with only the API summary keeps it open on its upload (the next step). A refused
-  // id or a failed load keeps it open, its status saying why.
+  // Once the match this user's own Load asked for is in (loaded, or its replay parsed) and the
+  // panel has nothing more to offer for it, its work is done: it closes, as a menu does after
+  // its choice, so it no longer covers the tools under it (the bar's left end). Only then: not
+  // on a match a presenter opened, nor one open on page load, nor a slow Load's answer once
+  // another id is being typed (review 2026-11-11). Decided once the match's replay state is
+  // known too: a match with only the API summary, or a stale parse, keeps it open on its upload
+  // (the next step). A refused id or a failed load keeps it open, its status saying why.
+  /** The id this user's own Load asked for, until the panel closes for it. */
+  let loading: string | undefined;
+  const ownLoad = (id: string) => {
+    loading = id;
+    void h.open(id, { attach: canEdit() });
+  };
   createEffect(
     on(
       () => {
@@ -71,7 +79,12 @@ export function Player(p: {
         return m && h.job() ? `${m.match_id}:${tierOf(m)}` : "";
       },
       (now, was) => {
-        if (now && now !== was && source?.open && !untrack(() => canUpload() && !h.notice())) source.open = false;
+        if (!now || now === was || !source?.open) return;
+        const id = String(untrack(h.tl)!.match_id);
+        if (loading !== id || (idInput && idInput.value.trim() !== id)) return;
+        if (untrack(() => canUpload() && !h.notice())) return;
+        source.open = false;
+        loading = undefined;
       },
       { defer: true },
     ),
@@ -290,7 +303,7 @@ export function Player(p: {
           onSubmit={(e) => {
             e.preventDefault();
             p.onUserPlayback();
-            void h.open(idInput.value.trim(), { attach: canEdit() });
+            ownLoad(idInput.value.trim());
           }}
         >
           <button class="btn ghost small" type="button" data-testid="mode-sandbox" onClick={() => user(() => { const s = p.scene; h.setMode("sandbox"); if (s) p.onView(s.id); })} title="Current scene">
@@ -310,7 +323,7 @@ export function Player(p: {
             {jobLabel(h.job(), h.progress())}
           </span>
           <Show when={canEdit() && !h.matchId()}>
-            <FolderRecent onOpen={(id) => { p.onUserPlayback(); void h.open(id, { attach: true }); }} />
+            <FolderRecent onOpen={(id) => { p.onUserPlayback(); ownLoad(id); }} />
             <Show when={app}>
               <button class="btn small primary" type="button" data-testid="match-pick" onClick={() => setPicking(true)}>
                 Select replay

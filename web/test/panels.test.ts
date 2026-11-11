@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { initSync, presenceFrameOk } from "../src/wasm/mapcro_wasm.js";
 import { VIEW_STATE } from "../src/gen/viewState";
 import { PLACE_SCALE, type HeroPanelOpen, heroPanelsFromWire, heroPanelsToWire, placeFromWire, placeToWire } from "../src/player/layers";
-import { type Pane, cascade, clampSpot, paneOf, placeOf, spotOf } from "../src/player/panelPlace";
+import { type Pane, cascade, clampSpot, opening, paneOf, placeOf, spotOf } from "../src/player/panelPlace";
 import { createViewState, type Values, VIEW_KEYS } from "../src/player/viewstate";
 
 initSync({ module: readFileSync(join(resolve(__dirname, "../.."), "web/src/wasm/mapcro_wasm_bg.wasm")) });
@@ -63,6 +63,21 @@ describe("a panel's place in the pane", () => {
   });
 });
 
+describe("where a hero panel opens", () => {
+  const p = pane(1000, 1000, 50, 0);
+  it("never exactly over an open one: the first step none still sits on", () => {
+    // Open A, open B, close A, open C: C takes A's step, not B's.
+    expect(opening([], p)).toEqual(cascade(0, p));
+    expect(opening([cascade(0, p)], p)).toEqual(cascade(1, p));
+    expect(opening([cascade(1, p)], p)).toEqual(cascade(0, p));
+    // A moved one frees its step.
+    expect(opening([{ x: 5000, y: 5000, right: false, bottom: false }, cascade(0, p)], p)).toEqual(cascade(1, p));
+    // Every step taken: the next after the open ones.
+    const all = [...Array(8).keys()].map((k) => cascade(k, p));
+    expect(opening([...all, undefined], p)).toEqual(cascade(9, p));
+  });
+});
+
 describe("the pane's own controls", () => {
   const rect = (left: number, top: number, width: number, height: number) => ({ getBoundingClientRect: () => ({ left, top, width, height, right: left + width, bottom: top + height }) }) as unknown as HTMLElement;
   it("take a band from the nearer edge past them, with a gap; ones off the pane or hidden take none", () => {
@@ -109,6 +124,8 @@ describe("panels as presence carries them", () => {
     expect(heroPanelsToWire([{ slot: "amber-1" }, { slot: "amber-1", at: { x: 1, y: 1, right: false, bottom: false } }, { slot: "nobody" }], MAX)).toEqual([{ team: "Amber", slot: 1 }]);
     expect(heroPanelsFromWire([{ team: "Amber", slot: 2, at: { x: 1, y: 2 } }, { team: "Purple", slot: 1 }, { team: "Amber", slot: 2 }, { team: "Sapphire", slot: 16 }, 7], MAX)).toEqual([{ slot: "amber-2", at: { x: 1, y: 2, right: false, bottom: false } }]);
     expect(heroPanelsFromWire({ team: "Amber" }, MAX)).toEqual([]);
+    // Slots as wire.rs bounds them (`slot < MAX_SLOT`): one past is never sent.
+    expect(heroPanelsToWire([{ slot: "amber-16" }, { slot: "amber-15" }, { slot: "sapphire-99" }], MAX)).toEqual([{ team: "Amber", slot: 15 }]);
   });
   it("every hero's panel moved, and the recap moved, is a presence the server takes", () => {
     const first = Object.fromEntries(VIEW_KEYS.map((k) => [k, undefined])) as unknown as Values;
@@ -126,10 +143,13 @@ describe("panels as presence carries them", () => {
     expect(playback.hero_panels).toHaveLength(MAX);
     const frame = (pb: object) => JSON.stringify({ t: "presence", state: { name: "n", color: 1, cursor: null, laser: [], laser_starts: [], drag: null, drag_group: [], picked: [], focus: null, following: null, ink: null, ping: null, laser_color: null, scene: null, floor: "surface", view: null, hover: null, layers: 127, playback: pb } });
     expect(presenceFrameOk(frame(playback))).toBe(true);
-    // One past the cap, the same hero twice, a place past the pane: refused.
+    // One past the cap, the same hero twice, a slot or a place past the bounds (a newer
+    // client's): the presence is still taken, those entries dropped or clipped (wire.rs
+    // `lenient_panels`, which its tests pin). What isn't a list is left out.
     const panels = playback.hero_panels;
-    expect(presenceFrameOk(frame({ ...playback, hero_panels: [...panels, { team: "Amber", slot: 6 }] }))).toBe(false);
-    expect(presenceFrameOk(frame({ ...playback, hero_panels: [panels[0], panels[0]] }))).toBe(false);
-    expect(presenceFrameOk(frame({ ...playback, skull_place: { x: 10_001, y: 0 } }))).toBe(false);
+    expect(presenceFrameOk(frame({ ...playback, hero_panels: [...panels, { team: "Amber", slot: 6 }] }))).toBe(true);
+    expect(presenceFrameOk(frame({ ...playback, hero_panels: [panels[0], panels[0], { team: "Amber", slot: 16 }] }))).toBe(true);
+    expect(presenceFrameOk(frame({ ...playback, skull_place: { x: 10_001, y: 0 }, hero_panels: [{ team: "Amber", slot: 1, at: { x: 0, y: 20_000 } }] }))).toBe(true);
+    expect(presenceFrameOk(frame({ ...playback, hero_panels: 3 }))).toBe(true);
   });
 });

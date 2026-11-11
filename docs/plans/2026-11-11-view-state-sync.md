@@ -268,6 +268,13 @@ can't read is none, as `build_popover` is. The hero panel's `heroCard` signal le
 the ledger. The follow-matrix pinned the hero panel as personal first (all passing on 632c856),
 then gained `hero_panel` (now a panel), `skull_place` and `hero_place`.
 
+After the adversarial review: `heroes.panels` is `Wire::Value` (sent whenever playback is, `[]`
+for none), so an older presenter's missing field leaves the follower's own; the server drops or
+clips entries past the bounds rather than refusing the presence (wire.rs `lenient_panels`). A
+group change that only moves panels or reorders them (`viewstate.ts` `arrange`) moves the
+follower's shared panels and opens or closes nothing; a change to what is open applies the
+group whole, as before.
+
 ## What the tracer proves
 
 - The registry can describe both shipped policies (layers: `Restore` + `Stop`; All builds:

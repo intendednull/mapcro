@@ -32,7 +32,7 @@ import { UrnMark } from "../player/Urn";
 import { DeathSkulls } from "../player/Skulls";
 import { SkullRecap } from "../player/SkullRecap";
 import { HeroCard, type HeroCardSlot } from "../player/HeroCard";
-import { cascade, paneOf } from "../player/panelPlace";
+import { opening, paneOf } from "../player/panelPlace";
 import { recapOf } from "../player/recap";
 import { RiftRings } from "../player/Rift";
 import { liveLayer } from "../player/layer";
@@ -323,12 +323,15 @@ export function Board(p: { board: string; token: string; art: Art }) {
   /** The hero panels opened from tokens on the map (HeroCard.tsx, #37): the host's, so followers
    * open and place them too; gone with the match. In the page by slot, so bringing one to the
    * front (its z-index) never moves it in the DOM mid-press; back to front in the host's list. */
-  const heroSlots = createMemo(() => player.heroPanels().map((h) => h.slot).sort(), undefined, { equals: (a, b) => a.join() === b.join() });
+  // Only those with a player in the match: a slot it hasn't (a presenter's from a newer client)
+  // has no panel, so it neither takes Escape nor keeps the recap from it.
+  const heroesShown = createMemo(() => player.heroPanels().filter((h) => player.tl()?.players.some((q) => slotKey(q.team, q.slot) === h.slot)));
+  const heroSlots = createMemo(() => heroesShown().map((h) => h.slot).sort(), undefined, { equals: (a, b) => a.join() === b.join() });
   const heroPanel = (slot: string) => player.heroPanels().find((h) => h.slot === slot);
-  const heroZ = (slot: string) => 8 + Math.max(0, player.heroPanels().findIndex((h) => h.slot === slot));
+  const heroZ = (slot: string) => 8 + Math.max(0, heroesShown().findIndex((h) => h.slot === slot));
   const openHero = (team: string, slot: number) => {
-    const pane = mapEl && paneOf(mapEl, mapEl.parentElement?.querySelectorAll(".map-controls > *") ?? []);
-    player.openHeroPanel(slotKey(team, slot), cascade(player.heroPanels().length, pane || { w: 1, h: 1, top: 0, bottom: 0 }));
+    const pane = (mapEl && paneOf(mapEl, mapEl.parentElement?.querySelectorAll(".map-controls > *") ?? [])) || { w: 1, h: 1, top: 0, bottom: 0 };
+    player.openHeroPanel(slotKey(team, slot), opening(player.heroPanels().map((h) => h.at), pane));
   };
   const hasRecap = (slot: string, t: number) => !!recapOf(player.tl()?.players.find((q) => slotKey(q.team, q.slot) === slot), t);
   /** In a scene, the open match's in-game name for a slot (spec §6b "Names"); a typed one wins. */
@@ -879,7 +882,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               <HoverLabels k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
             </MapView>
             <Show when={inPlayer() && player.tl() && skullRecap()}>
-              {(d) => <SkullRecap death={d()} timeline={player.tl()!} vision={player.vision()} art={p.art} name={player.playerName} onSeek={seekMatch} onClose={() => setSkullRecap(undefined)} place={player.skullPlace()} onPlace={player.setSkullPlace} escape={player.heroPanels().length === 0} />}
+              {(d) => <SkullRecap death={d()} timeline={player.tl()!} vision={player.vision()} art={p.art} name={player.playerName} onSeek={seekMatch} onClose={() => setSkullRecap(undefined)} place={player.skullPlace()} onPlace={player.setSkullPlace} escape={heroesShown().length === 0} />}
             </Show>
             <Show when={inPlayer() && player.tl()}>
               <For each={heroSlots()}>
@@ -898,7 +901,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
                     onPlace={(at) => player.placeHeroPanel(slot, at)}
                     onPress={() => player.raiseHeroPanel(slot)}
                     z={heroZ(slot)}
-                    front={player.heroPanels().at(-1)?.slot === slot}
+                    front={heroesShown().at(-1)?.slot === slot}
                   />
                 )}
               </For>
