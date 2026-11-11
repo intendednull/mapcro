@@ -188,12 +188,13 @@ export function Board(p: { board: string; token: string; art: Art }) {
     state.presence({ following: peer });
   };
   const nameOfPeer = (x: PeerPresence | undefined) => x?.state?.name || "them";
-  const follow = (peer: number, seat?: number) => {
+  /** `was`: their presence when last seen ("Follow again"), shown while they're looked for. */
+  const follow = (peer: number, seat?: number, was?: PeerPresence) => {
     const joins = state.joined().n;
     const begun = startFollow(peer, seat, state.peerList(), joins);
     target = begun.target;
     setFollowJoin(joins);
-    setFollowedNow(begun.seen);
+    setFollowedNow(begun.seen ?? was);
     setFollowing(peer);
     // Not `peer` if that id is someone else now: the effect below says whom, once found.
     tell(begun.seen ? peer : null);
@@ -208,7 +209,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
     setFollowing(undefined);
     player.forget(why ? "keep" : "restore");
     tell(null);
-    if (why && was) say(`Stopped following ${nameOfPeer(was)}`, { label: "Follow again", run: () => follow(was.peer, was.state?.seat) });
+    if (why && was) say(`Stopped following ${nameOfPeer(was)}`, { label: "Follow again", run: () => follow(was.peer, was.state?.seat, was) });
   };
   createEffect(() => {
     recheck();
