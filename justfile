@@ -42,6 +42,11 @@ test:
 clippy:
     cargo clippy -q --workspace --all-targets -- -D warnings
 
+# The vendored boon and pbdems2's own tests (outside the workspace: crates/vendor/VENDORED.md).
+vendor-test:
+    cd crates/vendor/pbdems2 && CARGO_TARGET_DIR=../../../target/vendor cargo test -q --lib
+    cd crates/vendor/boon-deadlock && CARGO_TARGET_DIR=../../../target/vendor cargo test -q --lib --config 'patch.crates-io.pbdems2.path="../pbdems2"'
+
 # Train a storage dictionary from 300 simulation seeds (deterministic: same seeds, same bytes).
 # Never overwrite one that has shipped: a new dictionary is a new codec (`zstd-v2`, codec.rs).
 zdict out="crates/server/dict/ops-v1.zdict":

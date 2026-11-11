@@ -14,6 +14,10 @@ A browser build needs one more change: a streamed reader, because boon only pars
 holding the whole file (`from_bytes`: +481 MB measured). With a streamed reader the projected
 wasm peak is **about 35–40 MB**.
 
+**Update (branch `stream-parse`, §5):** the streamed reader is built. The timeline is the same
+bytes, a job's VmHWM falls from ~540 to 37–40 MB, downloads stop writing the expanded demo, and a
+wasm32 build of the parse ran in node in **30.7 MiB** of wasm memory with the same output.
+
 Probe: `crates/replay/examples/memory_probe.rs <mode> <demo> [out.json]`, release build. It
 prints sizes, counts and timings only, never names or ids. Modes: `full` (the worker's job, by
 phase), `boon`, `bytes`, `state`, `state-filtered`, `census` and `spliced`. The workspace forbids
@@ -141,8 +145,8 @@ Saving is anonymous peak on 129738985; effort is S under an hour or so, M about 
 |---|---|---|---|---|
 | 1 | Keep only the modifier fields read (`parse_hero::Modifiers`: parent and stack count per serial, ~25 B, against boon's whole 584 B entries) | 8 MB live; 14 MB at the rehash peak | S | **done on the branch** |
 | 2 | boon's property filter for troopers, breakable props and zipline nodes, and collect only the 5 message types read (`run_to_end_with_properties`) | ~5.6 MB of entity state; fewer event payload copies | S | **done on the branch** |
-| 3 | A streamed reader in vendored pbdems2 + boon (§2) | wasm: 481 MB → ~1 MB of demo bytes; server and app: no mmap, so no SIGBUS case and no 485 MB of file pages to reclaim | M | proposed; needed for wasm |
-| 4 | Feed the CDN decoder (bz2/zstd) straight into the streamed parse: no 504 MB `work/` file, no dirty page cache, no disk write | the page cache and disk I/O of a fetched job; the decoder window stays | S after 3 | proposed |
+| 3 | A streamed reader in vendored pbdems2 + boon (§2) | wasm: 481 MB → ~1 MB of demo bytes; server and app: no mmap, so no SIGBUS case and no 485 MB of file pages to reclaim | M | **done on `stream-parse`** (§5): VmHWM 540 → 37 MB, anon −1 MB |
+| 4 | Feed the CDN decoder (bz2/zstd) straight into the streamed parse: no 504 MB `work/` file, no dirty page cache, no disk write | the page cache and disk I/O of a fetched job; the decoder window stays | S after 3 | **done on `stream-parse`** (§5): 506 → 1.9 MB written |
 | 5 | Slimmer per-second `Obs`: the hero name once, not every second; objectives as changes; narrower types (`i64` → `i16`/`u8` for team, lane, phase) | ~14 → ~6 MB | M (derive.rs) | proposed |
 | 6 | Trackers on changed entities only (`entity_changes`/`updated_indices`), not a walk of every entity every tick | CPU: up to ~40% of parse time (TD-8), phones' main cost | M | proposed; exact if done by change, not by cadence |
 | 7 | Field maps keep the baseline's capacity after projection: breakable props still hold 3.1 MB for 2 fields (`state-filtered`) | ~4 MB | S upstream (shrink after projection) | upstream |
@@ -178,6 +182,74 @@ Working from changed entities gives the same saving without that.
 - Not done: a `cdylib`, the JS glue, a run in a browser, code size, or a check that std's
   `RandomState` behaves on wasm32-unknown-unknown at runtime.
 
+## 5. Streamed (2026-11-11, branch `stream-parse`)
+
+**What was built.** boon 0.19.0 and pbdems2 0.4.1 are vendored (`crates/vendor/`, MIT, the diff
+in `VENDORED.md`). pbdems2's `StreamPlayback` plays the signon and then the forward run of a
+`PlaybackSession` over any `Read`: the same `handle_command` calls and tick callbacks, through a
+256 KiB `BufReader`, one encoded body and one decoded body. boon's `StreamParser` is
+`run_to_end_with_properties` over it. In mapcro, `parse::observe_stream(open, match_id)` reads
+the first command (`DEM_FileHeader`) itself, so the build and Brawl checks still come before the
+signon is parsed, then hands the stream on. `parse::observe(path)` streams from the file;
+`observe_mapped` keeps the old path for this A/B. The worker's `demo_reader` gives the file
+itself or its bz2/zstd decoder, capped at `max_dem_bytes`; a decoder error is `not_a_replay`,
+the cap `too_large`. Nothing is written to `work/` but the timeline and its record.
+
+**Same output.** The timeline JSON of 129738985 (match id 129738985, through `mapcro-replay job`)
+from main's binary (4a7634a, mapped) and the branch's (streamed) is byte for byte the same, from
+the `.dem`, from a `.zst` (zstd -3, 356 MB, 2 MiB window) and from a `.bz2` (bzip2 -9, 349 MB):
+six runs, one SHA-256. `memory_probe full` (streamed) and `full-mapped` give the same bytes too,
+and so does the wasm build below. Repeated runs are identical (TD-24).
+
+**Before and after** (`mapcro-replay job`, release, this box at load 8–13, `nice -n 10`; disk is
+the child's `wchar`, all of it file writes):
+
+| Input | | wall | `peak_anon_bytes` | VmHWM (`peak_rss_bytes`) | written |
+|---|---|---|---|---|---|
+| `.dem` 504 MB | main | 13.4 s, 12.5 s | 35.2 MB | 542 MB | 1.86 MB (the timeline) |
+| | branch | 13.5 s, 12.4 s | 32.7, 33.0 MB | 36.2, 36.8 MB | 1.86 MB |
+| `.zst` 356 MB | main | 14.7 s (1.5 s expanding) | 35.2 MB | 542 MB | **506 MB** (504 MB demo + timeline) |
+| | branch | 13.9 s | 35.9 MB | 39.4 MB | **1.86 MB** |
+| `.bz2` 349 MB | main | 36.6 s (23.8 s expanding) | 35.2 MB | 542 MB | **506 MB** |
+| | branch | 37.4 s | 37.0 MB | 40.4 MB | **1.86 MB** |
+
+The anonymous peak drops ~2 MB for a `.dem` (no `distinct_ticks` index, ~1 MB, and no header
+map). A decoder adds its own: zstd's 2 MiB window, bzip2's ~3.7 MB at block size 9. Wall time is
+the same within noise; for bz2 the decoder dominates either way (one core, serial). Under
+`systemd-run --scope -p MemoryMax=34M -p MemorySwapMax=0`, main's job is SIGKILLed and the
+branch's completes with the same bytes (36M too). `memory_probe`'s phase view: the streamed
+observe peaks at 31.8 MB anonymous and **3.6 MB of file pages** (the binary), where the mapped
+one has 32.7 MB and 484.7 MB.
+
+**A schema change after signon.** The mapped parser checks its index and decodes such a demo in
+full; a stream can't look ahead. So a streamed run with a property filter that meets
+`DEM_SendTables` or `DEM_ClassInfo` after signon fails with `SCHEMA_CHANGED`
+(`Error::is_schema_change`), and `observe_stream` opens the input again and plays it without the
+filter (same output: the filter only drops fields we don't read). A fetched download is decoded
+twice then. 129738985 has none (its streamed parse takes one parse's time, not two); boon's unit
+test covers the path.
+
+**wasm32.** A scratch `cdylib` (in /tmp, not committed) over `mapcro-replay` with
+`default-features = false, features = ["parse"]` builds for `wasm32-unknown-unknown`: no C code
+(`cargo tree` lists no `-sys` crate; zstd-sys is in `worker` now), 852 KB at `opt-level = "s"`
+with LTO, before wasm-opt. Its `run` export reads the demo through an imported `read_chunk(ptr,
+len)`, the shape a Web Worker's `FileReaderSync` over `file.slice` would have, and node's
+`fs.readSync` served it in 1,927 reads of 256 KiB. Result: the **same timeline bytes**, **30.7 MiB
+of wasm memory** at the end (`memory.buffer.byteLength`; wasm memory never shrinks, so that is
+the peak), 21.2 s against 12.5 s native (V8, this box). What still stands between this and a
+browser parse:
+
+- **The glue:** wasm-bindgen (or the raw imports above), a Web Worker, `FileReaderSync` reads,
+  and posting the JSON back. Not built, by the brief.
+- **`preview::read`** maps (its fallback is boon's `from_file`) and seeks a `File`; it is behind
+  the `mmap` feature now (TD-30). A browser picker card needs a `Read + Seek` version.
+- **`parse::observe(path)`, `parse::header`** use `std::fs` (and `header` maps): a browser calls
+  `observe_stream`, then `derive::derive` and `serde_json::to_vec`.
+- **boon's `tempfile`** is still an unconditional dependency (pure Rust; it compiles and is dead
+  code for us). reqwest is out (boon's `download` feature, off), memmap2 too unless `mmap`.
+- Not measured: a real browser, a phone's speed (desktop V8 took 1.7× native), the size after
+  wasm-opt, a cancel mid-parse.
+
 ## The tracer on this branch
 
 `parse_hero.rs`: `Modifiers` replaces boon's `ModifierState`. It reports the same applied and
@@ -208,3 +280,7 @@ lib, tests, bins and this probe.
   against this branch.
 - **The full packet follows its tick's packet:** a splice cut at a full packet's offset splits
   that tick in two.
+- **A probe's timeline isn't a job's:** `memory_probe` passes match id 0, the job its own, so
+  compare like with like.
+- **`decompress_s` is gone from new records:** decompression streams into the parse, so it's in
+  `parse_s` (stream-parse).

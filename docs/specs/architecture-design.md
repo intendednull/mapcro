@@ -655,7 +655,8 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
 Parsing untrusted files happens in a separate process on a shared production box, never in the
 board server (`MemoryMax=256M`; a 480 MB demo's pages alone exceed it).
 
-- **`mapcro-replay`** (`crates/replay`, boon 0.19.0 pinned, MIT) runs as its own systemd service
+- **`mapcro-replay`** (`crates/replay`, boon 0.19.0 pinned and vendored with a streamed reader,
+  MIT, `crates/vendor/VENDORED.md`) runs as its own systemd service
   in the same NixOS module, as its own user. It has no network (`PrivateNetwork`,
   `RestrictAddressFamilies=none`, `IPAddressDeny=any`), sees nothing of `/var/lib` but its
   queue, can't see other processes, and has a full systemd sandbox (no capabilities, a system
@@ -663,8 +664,8 @@ board server (`MemoryMax=256M`; a 480 MB demo's pages alone exceed it).
 - **Caps** (2026-11-08, journal 2026-11-08-replay-capacity): `REPLAY_WORKERS` jobs at once
   (2), each in its own child process under its own 300 s wall clock; `MemoryMax` 384M a job
   (768M) with no swap, `CPUQuota` a core a job (200%) at a low CPU weight and idle I/O. A child
-  killed at the memory cap fails its job as `too_large` (`OOMPolicy=continue`), one killed by
-  SIGBUS (the mapped demo changed under it) as `corrupt`, one past its clock as `timeout`; the
+  killed at the memory cap fails its job as `too_large` (`OOMPolicy=continue`), one past its
+  clock as `timeout`; the
   worker and the other jobs carry on. The next job is the first the server's order lists
   (`inbox/.order`, below), else the oldest.
 - **Measured** on this machine, release build, the real 504 MB demo of 129738985 (2026-11-08, format 6): 5.3 s, 26 MB
@@ -680,6 +681,16 @@ board server (`MemoryMax=256M`; a 480 MB demo's pages alone exceed it).
   which counts the mapped pages) and a zstd download's window (`zstd_window_bytes`, from the
   frame header). The 384M stays until a real CDN download's window has been read from those. On `web` (3 cores, ~2.9 GB available), 2 at once
   leaves a core and ~2 GB to the rest of the box.
+- **The parse is streamed** (2026-11-11, docs/research/parser-memory.md "Streamed"): the child
+  reads the demo front to back through a bounded buffer (boon's vendored `StreamParser`), with
+  no memory map, so a demo changed under it is a parse failure, not a SIGBUS. A fetched `.bz2`
+  or `.zst` decompresses straight into the parse under the 1 GiB cap: no expanded copy in
+  `work/`, so a job writes ~2 MB (its timeline) where it wrote ~506 MB. A decoder error fails
+  the job as `not_a_replay`, the cap as `too_large`. Measured on 129738985: the same timeline
+  bytes as the mapped parse, the same wall time, 33 MB anonymous from a `.dem` (36 MB from
+  zstd, 37 MB from bzip2), VmHWM 37–40 MB where it was ~540 MB, and a parse completes under a
+  34M cap (the mapped one is killed there). The decompression has no phase of its own now
+  (`decompress_s` is absent; it's in `parse_s`).
 - **The queue** is `/var/lib/mapcro-replay` (`REPLAY_DIR`), group `mapcro-replay`, which the
   board server's user joins. Neither side can write where the other writes (security review
   2026-11-08, M1/M2):
@@ -689,11 +700,10 @@ board server (`MemoryMax=256M`; a 480 MB demo's pages alone exceed it).
   - `outbox/` (2770, the worker's): `<job>.parsing` while it works, then `<job>.json` or
     `<job>.failed` (a reason code). The server reads results without following links and
     removes them.
-  - `work/` (0700, the worker's alone): a decompressed demo, a result being written.
+  - `work/` (0700, the worker's alone): a result being written and its record.
 
   A job is `<match id>-<scope>`, where the scope is `cdn` or 16 hex digits of the board id's
-  hash. The worker deletes its decompressed copy as soon as the parse ends; the server deletes
-  the original when it collects the result, within a second, either way. A worker restarted
+  hash. The server deletes the demo when it collects the result, within a second, either way. A worker restarted
   mid-job (a deploy, a crash) puts the job back in the queue once, marked in `work/`
   (`<job>.requeued`); a job it was on when it went down a second time fails (`parse_failed`),
   so a demo that brings the worker down isn't tried for ever. The board server never parses: its health check doesn't depend
@@ -1675,8 +1685,8 @@ proof-of-work or accounts if rotation is seen in practice.
   wait in line for a slot and the queue's room. deadlock-api paces fetches itself (a `429`
   backs off, §6a); a match whose fetch failed isn't fetched on open again for 6 h.
 - **Boundary 3, the queue → the worker.** Everything in the inbox is hostile. The worker
-  decompresses under a 1 GiB cap (bzip2 in Rust; zstd with a 128 MiB window limit) and parses in
-  a child process inside the sandbox above. Its only outputs are files in its own `outbox/`; it
+  decompresses under a 1 GiB cap (bzip2 in Rust; zstd with a 128 MiB window limit) into the
+  parse, streamed, in a child process inside the sandbox above. Its only outputs are files in its own `outbox/`; it
   can't write the inbox, so it can't plant a link the server would follow (M1).
 - **Boundary 4, the worker → the board server.** The worker's output is untrusted too: at most
   6 MiB, deserialised into the typed timeline, and checked (array lengths match the duration,
