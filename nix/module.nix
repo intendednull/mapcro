@@ -84,12 +84,12 @@ in
     };
     feedbackPerClientPerHour = lib.mkOption {
       type = lib.types.ints.unsigned;
-      default = 10;
+      default = 100;
       description = "Feedback issues one client (an IPv4 address or an IPv6 /64) may open per hour.";
     };
     feedbackGlobalPerDay = lib.mkOption {
       type = lib.types.ints.unsigned;
-      default = 100;
+      default = 500;
       description = "Feedback issues the server opens per day, from everyone together.";
     };
     replay = {
