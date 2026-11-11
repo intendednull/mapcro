@@ -32,6 +32,17 @@ fn working_set(current: u64, stat: &str) -> u64 {
     current.saturating_sub(field(stat, "inactive_file").unwrap_or(0))
 }
 
+/// The server process's peak resident memory since the last call: `VmHWM`, then reset to the
+/// resident memory now (`/proc/self/clear_refs` 5, Linux 4.0+), so each sample is its own
+/// interval's peak and the gauge's minute peak the minute's. Page cache isn't resident memory of
+/// the process (only what it maps), so this tells the server's own memory from the cgroup's
+/// cache (TD-4). `None` if the reset is refused: the value would be the peak since start.
+fn rss_peak(status: &str) -> Option<u64> {
+    let kb = field(status, "VmHWM")?;
+    std::fs::write("/proc/self/clear_refs", "5").ok()?;
+    Some(kb * 1024)
+}
+
 /// CPU seconds used, for a rate between samples.
 #[derive(Default)]
 pub struct Cpu {
@@ -62,6 +73,9 @@ fn sample_unit(unit: Unit, cpu: &mut Cpu) {
         Some(v) => {
             let stat = std::fs::read_to_string(dir.join("memory.stat")).unwrap_or_default();
             m.unit_memory_bytes.set(l, working_set(v, &stat) as f64);
+            if let Some(anon) = field(&stat, "anon") {
+                m.unit_memory_anon_bytes.set(l, anon as f64);
+            }
             if let Some(p) = read_u64(&dir.join("memory.peak")) {
                 m.unit_memory_peak_bytes.set(l, p as f64);
             }
@@ -81,6 +95,9 @@ fn sample_unit(unit: Unit, cpu: &mut Cpu) {
                 }
                 if let Some(kb) = field(&s, "VmHWM") {
                     m.unit_memory_peak_bytes.set(l, kb as f64 * 1024.0);
+                }
+                if let Some(kb) = field(&s, "RssAnon") {
+                    m.unit_memory_anon_bytes.set(l, kb as f64 * 1024.0);
                 }
             }
         }
@@ -129,6 +146,11 @@ pub async fn sample(app: &AppState, cpu: &mut Cpu) {
         for unit in [Unit::Server, Unit::Worker] {
             sample_unit(unit, &mut c);
         }
+        // After the units: in development the server's `unit_memory_peak_bytes` is its VmHWM,
+        // since start; this resets it.
+        if let Some(peak) = std::fs::read_to_string("/proc/self/status").ok().as_deref().and_then(rss_peak) {
+            m.server_rss_peak_bytes.set((), peak as f64);
+        }
         c
     })
     .await
@@ -146,6 +168,25 @@ mod tests {
         assert_eq!(field("low 0\noom 2\noom_kill 1\n", "oom_kill"), Some(1));
         assert_eq!(field("VmHWM:\t  2048 kB\n", "VmHWM"), Some(2048));
         assert_eq!(field("oom 2\n", "oom_kill"), None);
+    }
+
+    /// Each read is the peak since the last: memory touched and freed between two samples shows
+    /// in the first sample only.
+    #[test]
+    fn the_rss_peak_resets_each_sample() {
+        let status = || std::fs::read_to_string("/proc/self/status").expect("status");
+        rss_peak(&status()).expect("the reset is allowed");
+        let base = field(&status(), "VmRSS").expect("rss") * 1024;
+        let mut big = vec![0u8; 64 << 20];
+        for i in (0..big.len()).step_by(4096) {
+            big[i] = 1;
+        }
+        std::hint::black_box(&big);
+        drop(big);
+        let first = rss_peak(&status()).expect("peak");
+        assert!(first >= base + (60 << 20), "the 64 MiB shows: {first} vs {base}");
+        let second = rss_peak(&status()).expect("peak");
+        assert!(second + (32 << 20) < first, "and is gone from the next: {second} vs {first}");
     }
 
     #[test]

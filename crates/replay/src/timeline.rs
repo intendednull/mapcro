@@ -174,7 +174,7 @@ pub fn decode_troopers(sample: &str) -> Option<Vec<(u16, i16, i16)>> {
     if b.len() % 6 != 0 || b.len() / 6 > MAX_TROOPERS {
         return None;
     }
-    Some(b.chunks_exact(6).map(|c| (u16::from_le_bytes([c[0], c[1]]), i16::from_le_bytes([c[2], c[3]]), i16::from_le_bytes([c[4], c[5]]))).collect())
+    Some(b.as_chunks::<6>().0.iter().map(|c| (u16::from_le_bytes([c[0], c[1]]), i16::from_le_bytes([c[2], c[3]]), i16::from_le_bytes([c[4], c[5]]))).collect())
 }
 
 pub fn encode_troopers(list: &[(u16, i16, i16)]) -> String {

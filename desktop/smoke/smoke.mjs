@@ -5,6 +5,11 @@
 // page can't reach any plugin, and (with --fake-steam) that the app finds a fake Steam install's
 // replays folder and lists its replays, as the replay picker asks for them (`replays_list`).
 // It never calls `replays_choose_folder`: that opens the native folder dialog.
+// mapcro:// links (desktop/README.md, Deep links): a second launch with a board link hands it to
+// the running app (the single-instance plugin), whose window opens the board on the site, and a
+// link that isn't a board's changes nothing; then the app started by a link opens on its board.
+// On Linux the hand-off needs a D-Bus session (`just desktop-smoke` runs a private one); without
+// one those checks are skipped. The links are synthetic (no real board or token).
 //
 //   node desktop/smoke/smoke.mjs <app binary> [--fake-steam]
 //
@@ -32,10 +37,15 @@ const fakeSteam = flags.includes("--fake-steam");
 /** Synthetic match ids for the fake replays folder (newest first, as `replays_list` gives them). */
 const IDS = ["990000003", "990000002", "990000001"];
 const DRIVER_PORT = 4444;
+/** A synthetic board link, the shapes of the site's (spec §11), and the same board's other token. */
+const BOARD = "SmokeBoardAbcdefghij01";
+const TOKEN = "smoke-token-0123456789abcdefghijklmnopqrstu";
+const TOKEN2 = "smoke-token-ZYXWVUTSRQPONMLKJIHGFEDCBA98765";
+const handOff = process.platform !== "linux" || !!process.env.DBUS_SESSION_BUS_ADDRESS;
 
 // The CSP the live site sends, read from the server's source so the two can't drift apart.
 const main = readFileSync(join(ROOT, "crates/server/src/main.rs"), "utf8");
-const csp = /"content-security-policy",\s*"((?:[^"\\]|\\.)*)"/s.exec(main)?.[1].replace(/\\\n\s*/g, "");
+const csp = /"content-security-policy",\s*"((?:[^"\\]|\\.)*)"/s.exec(main)?.[1].replace(/\\\r?\n\s*/g, "");
 if (!csp?.includes("connect-src")) throw new Error("couldn't read the CSP from crates/server/src/main.rs");
 
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>mapcro smoke</title></head>
@@ -95,6 +105,17 @@ function check(name, ok, detail) {
   if (!ok) failures.push(name);
 }
 
+/** A second launch of the app with one argument, as the system starts it for a link. It hands the
+ * link to the running app and exits. */
+function launch(arg) {
+  return new Promise((done) => {
+    const p = spawn(resolve(app), [arg], { env, stdio: "ignore" });
+    const t = setTimeout(() => (p.kill(), done()), 15_000);
+    p.on("exit", () => (clearTimeout(t), done()));
+    p.on("error", () => (clearTimeout(t), done()));
+  });
+}
+
 const server = createServer((req, res) => {
   res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-security-policy": csp, "cache-control": "no-store" });
   res.end(PAGE);
@@ -142,6 +163,9 @@ try {
   const call = (cmd, args = {}) => exec(`return await window.__TAURI_INTERNALS__.invoke(${JSON.stringify(cmd)}, ${JSON.stringify(args)})`);
   const bad = await call("replay_read", { id: "../1" });
   check("replay_read refuses an id that isn't digits", bad.e === "bad_id", JSON.stringify(bad));
+  // The installed build updates itself: it tells the page of no update (only portable does).
+  const upd = await call("app_update");
+  check("app_update answers nothing in the installed build", "v" in upd && upd.v === null, JSON.stringify(upd));
 
   // No plugin, core or otherwise, is the page's to call.
   for (const [cmd, args] of [
@@ -151,6 +175,8 @@ try {
     ["plugin:window|close", {}],
     ["plugin:webview|print", {}],
     ["plugin:event|emit", { event: "x" }],
+    ["plugin:deep-link|get_current", {}],
+    ["plugin:deep-link|register", { protocol: "x" }],
   ]) {
     const r = await call(cmd, args);
     check(`${cmd} is refused`, "e" in r && /not allowed|not found|denied/i.test(r.e), JSON.stringify(r));
@@ -169,8 +195,46 @@ try {
     const r = await call("replays_list");
     check("replays_list answers", Array.isArray(r.v) || r.e === "not_found", JSON.stringify(r).slice(0, 200));
   }
+
+  // A mapcro:// link, handed from a second launch to this one.
+  if (handOff) {
+    const page = () => wd("GET", `/session/${session}/url`);
+    const board = `${site}b/${BOARD}`;
+    await launch(`mapcro://b/${BOARD}#${TOKEN}`);
+    const opened = await until("the board link opened", async () => ((await page()) === `${board}#${TOKEN}` ? true : null), 20_000).catch(() => false);
+    check("a second launch's mapcro:// link opens the board in the window", opened, opened ? undefined : await page());
+    await launch(`mapcro://b/${BOARD}#${TOKEN2}`);
+    const again = await until("the other token", async () => ((await page()) === `${board}#${TOKEN2}` ? true : null), 20_000).catch(() => false);
+    check("the same board with another token is followed", again, again ? undefined : await page());
+    for (const bad of [`mapcro://evil.example/b/${BOARD}#${TOKEN}`, `mapcro://b/${BOARD}#short`, `mapcro://b/${BOARD}?x#${TOKEN}`]) {
+      await launch(bad);
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+    const still = await page();
+    check("a link that isn't a board's changes nothing", still === `${board}#${TOKEN2}`, still);
+  } else {
+    console.log("skip mapcro:// hand-off: no D-Bus session (run under dbus-run-session)");
+  }
 } catch (e) {
   check("the run", false, e.message);
+} finally {
+  if (session) await wd("DELETE", `/session/${session}`).catch(() => {});
+}
+
+// The app started by a link opens on its board.
+session = undefined;
+try {
+  const link = `mapcro://b/${BOARD}#${TOKEN}`;
+  const s = await wd("POST", "/session", { capabilities: { alwaysMatch: { "tauri:options": { application: resolve(app), args: [link] } } } });
+  session = s.sessionId;
+  const want = `${site}b/${BOARD}#${TOKEN}`;
+  const url = await until("the first page", async () => {
+    const u = await wd("GET", `/session/${session}/url`);
+    return u.startsWith(site) ? u : null;
+  });
+  check("started by a mapcro:// link, the app opens on its board", url === want, url);
+} catch (e) {
+  check("the start by a link", false, e.message);
 } finally {
   if (session) await wd("DELETE", `/session/${session}`).catch(() => {});
   driver.kill();

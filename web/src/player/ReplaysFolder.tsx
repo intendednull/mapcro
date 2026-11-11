@@ -28,7 +28,7 @@ import {
   settleIn,
   supported,
 } from "./folder";
-import { bridge, windowsAppLink } from "./desktop";
+import { WINDOWS_APP_PORTABLE_URL, bridge, windowsAppLink } from "./desktop";
 
 /** Where the source stands: none here, none linked, linked but needing a click to read it, or
  * read (its replays). */
@@ -252,15 +252,21 @@ export function FolderRecent(p: { onOpen: (id: string) => void }) {
 }
 
 /** "Get the Windows app", quiet: on a Windows browser only, never in the app, once released
- * (`desktop.ts` `WINDOWS_APP_RELEASED`). It finds the replays folder on its own. */
+ * (`desktop.ts` `WINDOWS_APP_RELEASED`). It finds the replays folder on its own. The installer;
+ * "Portable", quieter, beside it. */
 export function WindowsApp(p: { class?: string }) {
   const href = windowsAppLink();
   return (
     <Show when={href}>
       {(h) => (
-        <a class={cx("btn ghost small", p.class)} data-testid="windows-app" href={h()} target="_blank" rel="noopener" title="Windows app">
-          Get the Windows app
-        </a>
+        <>
+          <a class={cx("btn ghost small", p.class)} data-testid="windows-app" href={h()} target="_blank" rel="noopener" title="Windows app">
+            Get the Windows app
+          </a>
+          <a class="btn ghost small muted" data-testid="windows-portable" href={WINDOWS_APP_PORTABLE_URL} target="_blank" rel="noopener">
+            Portable
+          </a>
+        </>
       )}
     </Show>
   );

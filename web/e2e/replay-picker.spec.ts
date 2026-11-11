@@ -58,7 +58,12 @@ test.afterAll(() => {
   upstream.close();
 });
 
-type Folder = { replays: Array<{ id: string; lastModified: number; size: number }> | "not_found"; other?: Array<{ id: string; lastModified: number; size: number }> };
+type Folder = {
+  replays: Array<{ id: string; lastModified: number; size: number }> | "not_found";
+  other?: Array<{ id: string; lastModified: number; size: number }>;
+  /** Previews the app reads from the demos, by match id (none: the app has no `replay_preview`). */
+  local?: Record<string, unknown>;
+};
 
 /** The app's IPC, as Tauri injects it: the folder from `window.__folder`, calls counted. */
 function APP() {
@@ -76,6 +81,11 @@ function APP() {
       if (cmd === "replays_choose_folder") {
         f.replays = f.other ?? [];
         return "chosen";
+      }
+      if (cmd === "replay_preview" && f.local) {
+        const v = f.local[args?.id ?? ""];
+        if (v === undefined) throw "corrupt";
+        return v;
       }
       if (cmd === "replay_timeline") return [31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0];
       throw "unknown_command";
@@ -141,10 +151,11 @@ test("the landing's Select replay opens the picker; a card shows the match; a pi
   const picker = p.getByTestId("replay-picker");
   await expect(picker).toBeVisible();
   const cards = picker.getByTestId("picker-card");
-  // Newest first.
+  // The latest match first, by match id, whatever the files' times.
   await expect(cards).toHaveCount(3);
-  await expect(cards.nth(0)).toHaveAttribute("data-match", String(FRESH));
-  await expect(cards.nth(1)).toHaveAttribute("data-match", String(OTHER));
+  await expect(cards.nth(0)).toHaveAttribute("data-match", String(BRAWL));
+  await expect(cards.nth(1)).toHaveAttribute("data-match", String(FRESH));
+  await expect(cards.nth(2)).toHaveAttribute("data-match", String(OTHER));
   // A preview: twelve heroes, the score, the winner.
   const other = picker.locator(`[data-testid=picker-card][data-match="${OTHER}"]`);
   await expect(other).toHaveAttribute("data-state", "preview");
@@ -154,12 +165,14 @@ test("the landing's Select replay opens the picker; a card shows the match; a pi
   await expect(other.getByTestId("picker-won")).toHaveText("Win");
   await expect(other.locator("[data-team=amber] [data-testid=picker-won]")).toHaveCount(1);
   await expect(other.getByTestId("picker-length")).toHaveText("34:12");
-  await expect(other.getByTestId("picker-when")).toHaveText("2 h ago");
+  // When the match was played (the preview's start), not when the file was written.
+  await expect(other.getByTestId("picker-when")).toHaveText("Played 3 h ago");
   // No metadata yet: id and time only.
   const fresh = picker.locator(`[data-testid=picker-card][data-match="${FRESH}"]`);
   await expect(fresh.getByTestId("picker-none")).toHaveText("Not recorded");
   await expect(fresh.getByTestId("picker-length")).toHaveText("—");
   await expect(fresh.getByTestId("picker-when")).toHaveText("30 min ago");
+  await expect(fresh.getByTestId("picker-when")).toHaveAttribute("title", "Downloaded");
   await expect(picker.locator(`[data-testid=picker-card][data-match="${BRAWL}"] [data-testid=picker-mode]`)).toHaveText("Street Brawl");
   if (process.env.MAPCRO_SHOT_PACKS) await expect(other.locator("[data-testid=picker-hero] img").first()).toBeVisible();
   await picker.screenshot({ path: `${shots}/landing-picker.png` });
@@ -244,6 +257,29 @@ test("cards past the first ten come with More; previews are asked for cards in v
   await picker.getByTestId("picker-card").last().scrollIntoViewIfNeeded();
   await expect(picker.getByTestId("picker-card").last()).toHaveAttribute("data-state", "preview");
   expect(new Set(asked).size).toBe(asked.length);
+});
+
+test("the app reads a card's preview from the demo; the server is asked only for one the app can't read", async ({ browser }) => {
+  const local = { ...preview(FRESH, "sapphire"), build: 6839, start_time: 0 };
+  const { ctx, asked } = await inApp(browser, { replays: [r(OTHER, 2), r(FRESH, 0.5)], local: { [String(FRESH)]: local } });
+  const p = await ctx.newPage();
+  await p.goto(server.url);
+  await p.getByTestId("open-match-pick").click();
+  const picker = p.getByTestId("replay-picker");
+  // A fresh match deadlock-api has no metadata for: the demo's preview.
+  const fresh = picker.locator(`[data-testid=picker-card][data-match="${FRESH}"]`);
+  await expect(fresh).toHaveAttribute("data-state", "preview");
+  await expect(fresh.getByTestId("picker-hero")).toHaveCount(12);
+  await expect(fresh.getByTestId("picker-kills")).toHaveText(["31", "27"]);
+  await expect(fresh.locator("[data-team=sapphire] [data-testid=picker-won]")).toHaveCount(1);
+  await expect(fresh.getByTestId("picker-length")).toHaveText("34:12");
+  // The demo has no wall-clock start: the file's time.
+  await expect(fresh.getByTestId("picker-when")).toHaveText("30 min ago");
+  // The app couldn't read the other one: the server's.
+  await expect(picker.locator(`[data-testid=picker-card][data-match="${OTHER}"]`)).toHaveAttribute("data-state", "preview");
+  expect(asked).toEqual([String(OTHER)]);
+  expect(await calls(p)).toEqual(expect.arrayContaining([`replay_preview:${FRESH}`, `replay_preview:${OTHER}`]));
+  await ctx.close();
 });
 
 test("in a browser nothing changes: the file input stays and no picker shows", async ({ browser }) => {

@@ -502,6 +502,8 @@ export function MapControls(p: {
   const h = p.host;
   let layers: HTMLDetailsElement | undefined;
   onMount(() => dismissDisclosure(() => layers ?? null));
+  // A change to what the map draws is your own: following stops, and you keep what you were
+  // seeing with that one change (spec §8). Player names are this browser's alone, never followed.
   const mine = (f: () => void) => { f(); p.onUserPlayback(); };
   useVisionKeys(h, mine);
   return <div class="map-controls" role="group" aria-label="Map view">
@@ -516,7 +518,7 @@ export function MapControls(p: {
                   class={cx("btn ghost small", h.showTroopers() && "on")}
                   data-testid="troopers-toggle"
                   aria-pressed={h.showTroopers()}
-                  onClick={() => h.setShowTroopers(!h.showTroopers())}
+                  onClick={() => mine(() => h.setShowTroopers(!h.showTroopers()))}
                 >
                   Lane troopers
                 </button>
@@ -527,7 +529,7 @@ export function MapControls(p: {
                   class={cx("btn ghost small", h.showHealth() && "on")}
                   data-testid="health-toggle"
                   aria-pressed={h.showHealth()}
-                  onClick={() => h.setShowHealth(!h.showHealth())}
+                  onClick={() => mine(() => h.setShowHealth(!h.showHealth()))}
                 >
                   Health bars & arcs
                 </button>
@@ -548,17 +550,17 @@ export function MapControls(p: {
                 class={cx("btn ghost small", h.showPings() && "on")}
                 data-testid="pings-toggle"
                 aria-pressed={h.showPings()}
-                onClick={() => h.setShowPings(!h.showPings())}
+                onClick={() => mine(() => h.setShowPings(!h.showPings()))}
               >
                 Event pings
               </button>
 
         </>}</Show>
-        <Show when={h.tl()?.players.some(player => player.cc?.length)}><button class="btn ghost small" data-testid="cc-toggle" aria-pressed={h.showCC()} onClick={() => h.setShowCC(!h.showCC())}>Crowd control</button></Show>
-        <Show when={h.tl()?.players.some(player => player.height?.length || player.zipline?.length)}><button class="btn ghost small" data-testid="movement-toggle" aria-pressed={h.showMovement()} onClick={() => h.setShowMovement(!h.showMovement())}>Elevation & ziplines</button></Show>
+        <Show when={h.tl()?.players.some(player => player.cc?.length)}><button class="btn ghost small" data-testid="cc-toggle" aria-pressed={h.showCC()} onClick={() => mine(() => h.setShowCC(!h.showCC()))}>Crowd control</button></Show>
+        <Show when={h.tl()?.players.some(player => player.height?.length || player.zipline?.length)}><button class="btn ghost small" data-testid="movement-toggle" aria-pressed={h.showMovement()} onClick={() => mine(() => h.setShowMovement(!h.showMovement()))}>Elevation & ziplines</button></Show>
         <h3>Map pickups</h3>
-        <button class="btn ghost small" data-testid="heals-toggle" aria-pressed={p.heals} onClick={p.toggleHeals}>Healing pickups</button>
-        <button class="btn ghost small" data-testid="crates-toggle" aria-pressed={p.crates} onClick={p.toggleCrates}>Heavy boxes</button>
+        <button class="btn ghost small" data-testid="heals-toggle" aria-pressed={p.heals} onClick={() => mine(p.toggleHeals)}>Healing pickups</button>
+        <button class="btn ghost small" data-testid="crates-toggle" aria-pressed={p.crates} onClick={() => mine(p.toggleCrates)}>Heavy boxes</button>
       </div>
     </details>
     <Show when={h.tl()}>{m => <>
@@ -849,7 +851,7 @@ export function PlayerSide(p: Props) {
         <Show when={h.tl()}>
           {(m) => (
             <>
-              <EventsList art={p.art} tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} t={h.t} playing={() => h.playback().playing} onShown={h.setPingable} pinned={h.pinned} />
+              <EventsList art={p.art} tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} t={h.t} playing={() => h.playback().playing} onShown={h.setPingable} pinned={h.pinned} recapOpen={h.eventRecapOpen} onRecap={h.setEventRecapOpen} />
               <span class="match-credit" data-testid="match-credit">
                 {tierOf(m()) === "replay" ? (h.job()?.source === "cdn" ? "Replay: Valve, via deadlock-api.com" : "Replay: uploaded") : "Match data: deadlock-api.com"}
               </span>

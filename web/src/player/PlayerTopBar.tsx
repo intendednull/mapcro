@@ -10,7 +10,7 @@ import { hasVision, seenAt } from "./vision";
 import { killsAt } from "../match/builds";
 import { BuildColumn } from "./BuildColumn";
 import { rosterTeamShort } from "../map/model";
-import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createMemo, createResource, onCleanup, onMount } from "solid-js";
 import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
 import { cx } from "../ui/cx";
 import { teamTotal } from "../core/souls";
@@ -106,9 +106,8 @@ export function PlayerTopBar(p: {
   onSeek?: (t: number) => void;
 }) {
   let el!: HTMLDivElement;
-  const [openBuild, setOpenBuild] = createSignal<string>();
-  const [allBuilds, setAllBuilds] = createSignal(false);
-  const [tabHeld, setTabHeld] = createSignal(false);
+  // The host's, so a follower opens the builds its presenter opens (spec §8).
+  const { openBuild, setOpenBuild, allBuilds, setAllBuilds, tabHeld, setTabHeld } = p.host;
   const expanded = (key: string) => tabHeld() || allBuilds() || openBuild() === key;
   const closeBuilds = () => { setOpenBuild(undefined); setAllBuilds(false); };
   const toggleAll = () => { setOpenBuild(undefined); setAllBuilds(v => !v); };
@@ -117,7 +116,6 @@ export function PlayerTopBar(p: {
     setAllBuilds(false);
     setOpenBuild(wasOpen ? undefined : key);
   };
-  createEffect(() => { p.host.matchId(); closeBuilds(); });
   // The replay build's stat table (calculated stats) and the investment ladder's (match/stats.ts).
   const build = () => p.host.tl()?.build;
   const [statTable] = createResource(() => tableKeyFor(p.art.stats, build()) ?? false, key => loadStatTable(p.art.stats, key || null));

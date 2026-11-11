@@ -343,20 +343,20 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
 
 /// The game rules' pause state on one tick.
 #[derive(Clone, Copy, Default)]
-struct Pause {
+pub(crate) struct Pause {
     /// `m_nTotalPausedTicks`: the ticks of the pauses that have ended (it only grows at an unpause).
-    total: i64,
+    pub(crate) total: i64,
     /// `m_bGamePaused`.
-    running: bool,
+    pub(crate) running: bool,
     /// `m_nPauseStartTick`: the server tick the running pause began.
-    since: i64,
+    pub(crate) since: i64,
 }
 
 /// The server's `GameTime_t` clock, in seconds, at `server_tick`: pauses don't count. The
 /// running pause isn't in the total yet (129738985: 0 throughout its 1,706-tick pause, then
 /// 1,706), so it's counted from its start: the clock holds through a pause instead of running on
 /// and jumping back at the unpause, which repeated the paused frame and lost as much match after.
-fn server_clock(server_tick: i64, pause: Pause, interval: f64) -> f64 {
+pub(crate) fn server_clock(server_tick: i64, pause: Pause, interval: f64) -> f64 {
     let running = if pause.running && pause.since > 0 { (server_tick - pause.since).max(0) } else { 0 };
     (server_tick - pause.total - running) as f64 * interval
 }

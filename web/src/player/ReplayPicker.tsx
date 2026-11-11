@@ -14,7 +14,7 @@ import { teamName } from "../map/model";
 import { formatSouls } from "../core/souls";
 import type { Replay } from "./folder";
 import { DesktopError, type LocalSource, bridge, desktopSource } from "./desktop";
-import { type CardData, PAGE, PICKER_POLL_MS, type Preview, type PreviewTeam, ago, lengthLabel, modeLabel, pickerList, previews } from "./picker";
+import { type CardData, PAGE, PICKER_POLL_MS, type Preview, type PreviewTeam, lengthLabel, modeLabel, pickerList, previews, whenLabel } from "./picker";
 
 /** A replay picked from the folder: its id, its parse (gzipped timeline) and its file. */
 export interface Picked {
@@ -158,6 +158,7 @@ function Card(p: { replay: Replay; art: Art | undefined; now: number; current: b
     const d = data();
     return d.kind === "preview" ? d.preview : undefined;
   };
+  const when = () => whenLabel(preview()?.start_time, p.replay.lastModified, p.now);
   return (
     <li>
       <button ref={el} type="button" class={cx("picker-card", p.current && "current")} data-testid="picker-card" data-match={id} data-state={data().kind} onClick={() => p.onPick()}>
@@ -176,8 +177,8 @@ function Card(p: { replay: Replay; art: Art | undefined; now: number; current: b
             )}
           </Show>
           <span class="spacer" />
-          <span class="picker-when" data-testid="picker-when">
-            {ago(p.replay.lastModified, p.now)}
+          <span class="picker-when" data-testid="picker-when" title={when().title}>
+            {when().text}
           </span>
           <span class="picker-len" data-testid="picker-length" title={preview() ? undefined : "Not recorded"}>
             {preview() ? lengthLabel(preview()!.duration_s) : "—"}

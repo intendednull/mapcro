@@ -5,6 +5,8 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack }
 import type { Art } from "../map/pack";
 import { DeathRecap } from "./DeathRecap";
 import { recapFor } from "./recap";
+import type { Death } from "./layers";
+import { slotKey } from "../match/save";
 import { cx } from "../ui/cx";
 import { type MatchEvent, type Timeline, clockLabel } from "../match/timeline";
 import { type EventGroup, GROUPS, type Named, eventKey, groupOf, labelParts, search, majorPurchases } from "./events";
@@ -27,6 +29,9 @@ export function EventsList(p: {
   pinned?: () => MatchEvent | undefined;
   /** The events shown under the filters and search, as they change (the map pings these). */
   onShown?: (events: MatchEvent[] | undefined) => void;
+  /** Whether a death's recap is open, and its toggle (the host's: followers mirror it). */
+  recapOpen?: (d: Death) => boolean;
+  onRecap?: (d: Death, open: boolean) => void;
 }) {
   const [query, setQuery] = createSignal("");
   const [on, setOn] = createSignal(new Set<EventGroup>());
@@ -120,7 +125,11 @@ export function EventsList(p: {
                     <For each={labelParts(e, p.names)}>{(x) => (x.muted ? <span class="pl-ev-name">{x.text}</span> : x.text)}</For>
                   </span>
                 </button>
-                <Show when={recapFor(p.tl, e)}>{recap => <DeathRecap recap={recap()} timeline={p.tl} art={p.art} onSeek={t => p.onJump(e, e.t - t)} />}</Show>
+                <Show when={recapFor(p.tl, e)}>{recap => {
+                  // Open or closed with the host, so a follower opens the one its presenter does.
+                  const death = { slot: slotKey(e.team ?? "", e.slot ?? 0), t: e.t };
+                  return <DeathRecap recap={recap()} timeline={p.tl} art={p.art} open={p.recapOpen?.(death)} onToggle={(o) => p.onRecap?.(death, o)} onSeek={t => p.onJump(e, e.t - t)} />;
+                }}</Show>
               </li>
             );
           }}

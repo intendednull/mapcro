@@ -1,9 +1,10 @@
-// The Windows app's bridge (desktop/README.md): the same site, in the app's window, with four
-// commands to the native side: list the replays folder, read one replay, parse one here, and
-// change the folder (the system's folder chooser). The page passes only match ids, never paths,
+// The Windows app's bridge (desktop/README.md): the same site, in the app's window, with five
+// commands to the native side: list the replays folder, read one replay, preview one (read from
+// its demo here), parse one here, and change the folder (the system's folder chooser). The page passes only match ids, never paths,
 // and the app grants the commands to this site's origin only. Feature-detected: in a browser none of this exists, and nothing changes.
 //
-// Also the download link for the app (`windowsAppLink`), shown on Windows browsers only.
+// Also the download links for the app (`windowsAppLink`, `windowsPortableLink`), shown on
+// Windows browsers only, and the portable app's update notice (`appUpdate`).
 
 import { type Replay, type ReplaySource, newestFirst } from "./folder";
 
@@ -23,6 +24,8 @@ export function bridge(w: unknown = globalThis): Invoke | undefined {
  * change which folder it lists (the app opens its folder chooser), kept for later runs. */
 export interface LocalSource extends ReplaySource {
   timeline(id: string): Promise<Blob>;
+  /** A picker card's preview, read from the demo (the server preview's shape; `picker.ts`). */
+  preview(id: string): Promise<unknown>;
   chooseFolder(): Promise<"chosen" | "cancelled">;
 }
 
@@ -68,14 +71,20 @@ export function desktopSource(invoke: Invoke): LocalSource {
     },
     read: async (id) => new File([bytes(await call("replay_read", { id }))], `${id}.dem`, { type: "application/octet-stream" }),
     timeline: async (id) => new Blob([bytes(await call("replay_timeline", { id }))], { type: "application/json" }),
+    preview: (id) => call("replay_preview", { id }),
     chooseFolder: async () => ((await call("replays_choose_folder")) === "chosen" ? "chosen" : "cancelled"),
   };
 }
 
 // ---- "Get the Windows app" ----
 
-/** The app's downloads. */
-export const WINDOWS_APP_URL = "https://github.com/intendednull/mapcro/releases/latest";
+/** The app's release page (the newest published release). */
+export const WINDOWS_APP_RELEASES = "https://github.com/intendednull/mapcro/releases/latest";
+/** The installer, by its stable name (the release job uploads it beside the versioned one;
+ * desktop/README.md, Installer or portable). "Get the Windows app" links here. */
+export const WINDOWS_APP_URL = `${WINDOWS_APP_RELEASES}/download/mapcro_x64-setup.exe`;
+/** The portable build's zip, by its stable name: the quieter "Portable" beside it. */
+export const WINDOWS_APP_PORTABLE_URL = `${WINDOWS_APP_RELEASES}/download/mapcro_x64-portable.zip`;
 
 /**
  * Off until the first release is published, so the site never links to an empty releases page.
@@ -93,4 +102,24 @@ export function windowsAppLink(o: { released?: boolean; nav?: Nav; w?: unknown }
   const platform = nav?.userAgentData?.platform;
   const windows = platform ? platform === "Windows" : /\bWindows\b/.test(nav?.userAgent ?? "");
   return windows ? WINDOWS_APP_URL : undefined;
+}
+
+/** "Portable", beside "Get the Windows app": shown exactly where it is. */
+export function windowsPortableLink(o: Parameters<typeof windowsAppLink>[0] = {}): string | undefined {
+  return windowsAppLink(o) ? WINDOWS_APP_PORTABLE_URL : undefined;
+}
+
+/**
+ * In the portable app: the newer version the update feed offers (the page shows "Update
+ * available", a link to the release page). Nothing in a browser, in the installed app (it
+ * updates itself), in an app without the command, or on any failure.
+ */
+export async function appUpdate(invoke: Invoke | undefined = bridge()): Promise<string | undefined> {
+  if (!invoke) return undefined;
+  try {
+    const v = await invoke("app_update");
+    return typeof v === "string" && /^[0-9A-Za-z.+-]{1,32}$/.test(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
 }

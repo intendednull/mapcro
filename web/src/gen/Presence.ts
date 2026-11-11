@@ -79,4 +79,10 @@ playback?: Playback,
  * (spec §8): `marker:<key>` or `token:<roster slot>[:part]`, never an id or a name. The
  * follower words it from its own state. Absent: nothing, or an older client.
  */
-hover?: string | null, };
+hover?: string | null, 
+/**
+ * The map layers this person draws (spec §8 "Follow mode"), so a follower draws the same:
+ * one bit per toggle, wire.rs `LAYER_*`. Players' names are never in it: they stay each
+ * browser's own. Absent: an older client, and a follower keeps its own.
+ */
+layers?: number, };

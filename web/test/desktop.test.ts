@@ -41,6 +41,14 @@ function app(answers: Record<string, (args?: Record<string, unknown>) => unknown
 }
 
 describe("desktopSource", () => {
+  it("asks the app for a card's preview by match id, and passes its reason on", async () => {
+    const { invoke, calls } = app({ replay_preview: (a) => (a?.id === "7" ? { match_id: 7 } : Promise.reject("corrupt")) });
+    const src = desktopSource(invoke);
+    expect(await src.preview("7")).toEqual({ match_id: 7 });
+    await expect(src.preview("8")).rejects.toEqual(new DesktopError("corrupt"));
+    expect(calls).toEqual([["replay_preview", { id: "7" }], ["replay_preview", { id: "8" }]]);
+  });
+
   it("changes the folder through the app's chooser, and says only whether one was chosen", async () => {
     let answer: unknown = "chosen";
     const { invoke, calls } = app({ replays_choose_folder: () => answer });
