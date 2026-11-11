@@ -408,6 +408,15 @@ fn summary(c: &Connection, now: i64, len: i64) -> Res<Report> {
         })
         .collect();
     let _ = writeln!(t, "  oom kills           {}", if oom_text.is_empty() { "no data".into() } else { oom_text.join(", ") });
+    // The server's memory peak, split: its own (resident, and the cgroup's anon) against the
+    // cgroup's, which counts page cache the kernel reclaims at the cap (TD-4).
+    let peak = |name: &str, labels: &str| -> Res<Option<f64>> { Ok(gauge(c, name, since, now)?.get(labels).map(|x| x.2)) };
+    let mem = [
+        ("rss", peak("server_rss_peak_bytes", "")?),
+        ("anon", peak("unit_memory_anon_bytes", "unit=mapcro")?),
+        ("cgroup, cache included", peak("unit_memory_peak_bytes", "unit=mapcro")?),
+    ];
+    let _ = writeln!(t, "  server memory peak  {}", mem.iter().map(|(k, v)| format!("{k} {}", v.map_or("-".into(), bytes))).collect::<Vec<_>>().join(", "));
 
     // Usage.
     let users = q(db::daily_users(c, since.div_euclid(86_400), now.div_euclid(86_400) + 1))?;
@@ -460,6 +469,7 @@ fn summary(c: &Connection, now: i64, len: i64) -> Res<Report> {
             "deadlock_api_calls": api, "deadlock_api_calls_prev": api_p,
             "deadlock_api_backoff_peak_s": backoff.map(|b| b.2),
             "unit_oom_kills": oom.iter().map(|(k, v)| (k.clone(), v.1)).collect::<BTreeMap<_, _>>(),
+            "server_memory_peak": mem.iter().map(|(k, v)| (k.to_string(), *v)).collect::<BTreeMap<_, _>>(),
         },
         "usage": {
             "daily_users": users.iter().map(|(d, n)| json!({ "day": date(*d), "users": n })).collect::<Vec<_>>(),
@@ -637,6 +647,12 @@ fn limits_data(c: &Connection, now: i64) -> Res<Vec<Limit>> {
     for (name, unit) in [("memory, server", "unit=mapcro"), ("memory, worker", "unit=mapcro-replay")] {
         add(name, "unit_memory_bytes", unit, cap("unit_memory_max_bytes", unit)?, true)?;
     }
+    // Memory that isn't page cache, which a cap can't reclaim (TD-4): the cgroup's anon, and the
+    // server process's own peak resident memory each minute.
+    for (name, unit) in [("memory anon, server", "unit=mapcro"), ("memory anon, worker", "unit=mapcro-replay")] {
+        add(name, "unit_memory_anon_bytes", unit, cap("unit_memory_max_bytes", unit)?, true)?;
+    }
+    add("memory rss peak, server", "server_rss_peak_bytes", "", cap("unit_memory_max_bytes", "unit=mapcro")?, true)?;
     for (name, unit) in [("cpu cores, server", "unit=mapcro"), ("cpu cores, worker", "unit=mapcro-replay")] {
         add(name, "unit_cpu_cores", unit, None, false)?;
     }

@@ -112,6 +112,8 @@ collector inside the server, a command-line way for the lead to query it, alerts
   `/sys/fs/cgroup/system.slice/<unit>/`: the working set, `memory.current` less `memory.stat`'s
   `inactive_file`, so a replay download's reclaimable page cache doesn't read as the unit at its
   cap (2026-11-09 false alarm); the peak is `memory.peak`, cache included)
+- `server_rss_peak_bytes` (the server process's peak resident memory each minute), and each
+  unit's `unit_memory_anon_bytes`: memory that isn't page cache
 - `deadlock_api_backoff_s`
 
 **Durations** (histograms with fixed buckets; each one also keeps its count, sum and p50/p90/p99
@@ -179,7 +181,7 @@ step reached (waiting for slot, uploading, queued or parsing).
   - `stats funnel [--path cached|fetched|uploaded]`: time to usable and time to full, as
     p50/p90/p99 per day, with abandons by step.
   - `stats limits`: each resource against its cap now, plus its peak and trend (the queue, disk,
-    database, memory, deadlock-api).
+    database, memory with its anon and resident peak apart, deadlock-api).
   - `stats usage [--by day|week]`: people, boards, matches by tier and path, and feature use.
   - `stats series <metric> [--since …]`: the raw series of one metric.
 - **A `just stats …` recipe** wraps the SSH call, so it is one command from the dev box.
@@ -271,9 +273,19 @@ can't be reached through Caddy.
     `parse_peak_rss_bytes`, `demo_bytes` and `timeline_bytes`.
   - Storage and host: `db_bytes`, `boards_stored` and their caps, `cache_bytes{cache}`,
     `disk_free_bytes`, `disk_total_bytes`, and per unit `unit_memory_bytes`,
-    `unit_memory_peak_bytes`, `unit_memory_max_bytes`, `unit_cpu_cores` and `unit_oom_kills`.
-    They come from `/sys/fs/cgroup/system.slice/<unit>.service`. In development the server's
-    own process stands in, and the worker reads as absent.
+    `unit_memory_peak_bytes`, `unit_memory_max_bytes`, `unit_memory_anon_bytes` (`memory.stat`
+    `anon`), `unit_cpu_cores` and `unit_oom_kills`. They come from
+    `/sys/fs/cgroup/system.slice/<unit>.service`. In development the server's own process
+    stands in (`RssAnon` for anon), and the worker reads as absent.
+  - The server's own memory (TD-4, 2026-11-11): `server_rss_peak_bytes`, the process's peak
+    resident memory since the previous sample. Each sample reads `VmHWM` from
+    `/proc/self/status` and resets it (`/proc/self/clear_refs` 5), and the gauge keeps its
+    minute's high, so the stored value is each minute's peak. Page cache isn't the process's
+    resident memory, so this and `unit_memory_anon_bytes` tell a peak of the server's own
+    memory from the cgroup's `memory.peak`, which counts reclaimable cache. `stats summary`
+    shows the three peaks under HEALTH ("server memory peak"); `stats limits` has "memory
+    anon" per unit and "memory rss peak, server" against the unit's cap, so the prod watcher's
+    90% memory check covers them.
   - Failures: 5xx answers, room storage failures, compaction failures, deadlock-api trouble
     (not 404s), and replay jobs that end without a timeline.
 - **The worker's record.** The child writes `work/<job>.stats` with its decompress and parse
