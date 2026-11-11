@@ -18,6 +18,7 @@ import { JoinCard } from "./JoinCard";
 import { SceneTree } from "./SceneTree";
 import { TopBar } from "./TopBar";
 import { createBoardState } from "./state";
+import { resetBoardModules } from "./reset";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type FollowTarget, type ViewRect, clampView, fromViewport, locate, presenters, sideOf, startFollow, toViewport, zoomAt } from "./follow";
@@ -410,6 +411,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
     void state.start();
   });
   onCleanup(() => state.stop());
+  // Unmounted (another board, or back to the landing): module state goes back to its defaults.
+  onCleanup(resetBoardModules);
 
   createEffect(() => {
     // In Player, presence is on the live layer, so cursors, lasers, pings and ink in progress

@@ -286,22 +286,31 @@ export function createPlayerHost(board: string, token: string) {
   };
 
   let poll: ReturnType<typeof setTimeout> | undefined;
-  onCleanup(() => clearTimeout(poll));
+  // The board unmounted (sessions.md §4.1): nothing of this host runs on. The upload in flight
+  // stops (waiting for its turn too: its place is given back), as a page left would stop it, and
+  // no poll is set again by an answer that comes after.
+  let gone = false;
+  onCleanup(() => {
+    gone = true;
+    clearTimeout(poll);
+    inflight?.ctl.abort();
+  });
   /** Follow the replay job until it settles; a finished one swaps the replay in. */
   const watch = async (id: string) => {
     clearTimeout(poll);
+    if (gone) return;
     try {
       // This tab's own upload (waiting for its turn, then sending) is the truth while it runs;
       // its end watches again.
       if (inflight?.id === id) return;
       const j = await api.job(id);
-      if (!j || matchId() !== id) return;
+      if (gone || !j || matchId() !== id) return;
       const was = job()?.state;
       setJob(j);
       if (j.state === "done" && was !== "done") await loadTimeline(id, true);
-      if (busy(j)) poll = setTimeout(() => void watch(id), 1500);
+      if (busy(j) && !gone) poll = setTimeout(() => void watch(id), 1500);
     } catch {
-      poll = setTimeout(() => void watch(id), 5000);
+      if (!gone) poll = setTimeout(() => void watch(id), 5000);
     }
   };
 

@@ -340,6 +340,42 @@ describe("board sessions against the real server", () => {
     fan.stop();
   });
 
+  it("ending a session (its board unmounted) closes the socket, takes no edit after, lets go of storage and frees the replica", async () => {
+    const { board, owner_token } = await api.createBoard("end");
+    const base = new MemoryPersist();
+    let closes = 0;
+    const persist: Persist = { load: (k) => base.load(k), save: (k, v) => base.save(k, v), close: () => void closes++ };
+    const a = session(server, board, owner_token, persist);
+    const observer = session(server, board, owner_token);
+    await a.start();
+    await observer.start();
+    await until(() => a.connection.kind === "live" && observer.connection.kind === "live", "both live");
+    a.setPresence({ name: "Leaving" });
+    await until(() => [...observer.peers.values()].some((p) => p.state?.name === "Leaving"), "observer sees it");
+    const [p0] = players(a);
+    expect(a.edit(move(p0!, 5))).toBe(true);
+    // A presence change and the lazy save still due as it ends: neither goes out after.
+    a.setPresence({ name: "Gone" });
+    a.end();
+    await until(() => ![...observer.peers.values()].some((p) => p.state !== null && (p.state.name === "Leaving" || p.state.name === "Gone")), "the server saw it leave");
+    expect(a.edit(move(p0!, 6))).toBe(false);
+    await until(() => closes === 1, "storage let go");
+    expect(a.current()).toBe(false);
+    // The replica is freed: nothing of it is reachable (an undo can't reach freed memory).
+    expect((a as unknown as { replica: unknown }).replica).toBeUndefined();
+    a.undo();
+    expect(closes).toBe(1);
+    // The edit made as it ended is kept, and sent when the board is opened again; the one after
+    // never is.
+    const again = session(server, board, owner_token, base);
+    await again.start();
+    await until(() => pos(observer, p0!) === 5 && again.status.kind === "saved", "the edit before end landed");
+    await new Promise((r) => setTimeout(r, 400));
+    expect(pos(observer, p0!)).toBe(5);
+    again.end();
+    observer.stop();
+  });
+
   it("a presence the server would refuse is held back, not resent in a reconnect loop", async () => {
     const { board, owner_token } = await api.createBoard("refused-presence");
     let opens = 0;

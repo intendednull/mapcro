@@ -20,6 +20,8 @@ export interface Persist {
   savePending?(board: string, txs: Tx[]): Promise<void>;
   /** Drop `client`'s journal entries below `cseq`: a saved state holds them. */
   dropPending?(board: string, client: string, below: number): Promise<void>;
+  /** Let go of the storage: the session using it ended (BoardSession `end`). */
+  close?(): void;
 }
 
 /** The parts of a stored replica state (the engine's `ReplicaState`) the journal touches. */
@@ -172,6 +174,10 @@ export class IdbPersist implements Persist {
 
   async dropPending(board: string, client: string, below: number) {
     await this.tx(["pending"], "readwrite", (t) => t.objectStore("pending").delete(IdbPersist.range(board, client, below)));
+  }
+
+  close() {
+    this.db.then((db) => db.close()).catch(() => {});
   }
 
   /** Remove these journal entries (the soak's crash model rolls back writes in flight). */

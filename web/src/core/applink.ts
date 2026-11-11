@@ -59,19 +59,9 @@ export function openInAppHref(b: BoardLink, o: Parameters<typeof windowsAppLink>
 }
 
 /**
- * Open a board in this window. A board page doesn't follow its link changing in place, so a
- * change of fragment only (the same board, another token) reloads (`followHashChanges`).
+ * Open a board in this window. A change of fragment only (the same board, another token) is
+ * followed in place: the board mounts again with the new token (core/nav.ts).
  */
 export function openBoard(b: BoardLink) {
   location.assign(boardHref(b));
-}
-
-/**
- * A board page whose fragment changes (another token for the same board: a link opened in the
- * app, an edited address) loads again with it. Nothing in the client sets the fragment.
- */
-export function followHashChanges() {
-  addEventListener("hashchange", () => {
-    if (location.pathname.startsWith("/b/")) location.reload();
-  });
 }
