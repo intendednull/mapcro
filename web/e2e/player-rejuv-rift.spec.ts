@@ -236,7 +236,7 @@ test("the Rejuvenator: its events, its badge on the holder's side of the top bar
   expect(b2.x + b2.width).toBeLessThan(mid);
 });
 
-test("an open rift draws each team's capture and says when it gives up", async ({ browser }) => {
+test("an open rift draws each team's capture and says when it fades", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Rift capture"), "Coach");
   await open(a);
   const rings = a.getByTestId("rift-rings");
@@ -247,7 +247,7 @@ test("an open rift draws each team's capture and says when it gives up", async (
   await expect(rings).toHaveAttribute("data-key", RIFT_W);
   await expect(rings).toHaveAttribute("data-amber", "25");
   await expect(rings).toHaveAttribute("data-sapphire", "10");
-  await says(a, RIFT_W, "Gives up in 0:55");
+  await says(a, RIFT_W, "Fades in 0:55");
   // Both rings drawn, each filled to its team's share.
   const filled = async (team: string) => {
     const c = rings.locator(`g[data-team="${team}"] .pl-rift-fill`);
@@ -266,7 +266,7 @@ test("an open rift draws each team's capture and says when it gives up", async (
   await expect(rings).toHaveAttribute("data-sapphire", "60");
   await expect.poll(() => filled("sapphire")).toBe(60);
   await expect.poll(() => filled("amber")).toBe(50);
-  await says(a, RIFT_W, "Gives up in 0:35");
+  await says(a, RIFT_W, "Fades in 0:35");
   await shot(a, "synthetic-rift-65-contested");
 
   // Captured: no deadline any more.

@@ -245,7 +245,10 @@
 .tb-all-builds kbd { margin-left: 3px; font: inherit; opacity: .45; }
 .tb-all-builds:hover, .tb-all-builds[aria-expanded="true"] { background: #31342baa; border-color: #FFEFD780; }
 .tb-build-team-kills { position: absolute; top: calc(148 * var(--u)); left: 25%; width: 50%; display: flex; justify-content: space-between; align-items: center; color: #e4dac2; font: 700 calc(12 * var(--u)) "VALVEOracle", var(--ui); }
-.tb-build-team-kills span { text-transform: uppercase; font-size: calc(10 * var(--u)); }
+.tb-build-team-kills span { text-transform: uppercase; font-size: calc(10 * var(--u)); text-shadow: 0 0 3px #000, 0 1px 2px #000; }
+/* Each count in a dark box, the label between them (the in-game Tab view, reference 22:30;
+   feedback #14): readable over the map. */
+.tb-build-team-kills b { min-width: calc(44 * var(--u)); padding: calc(3 * var(--u)) calc(8 * var(--u)); background: #10130Dd9; border-radius: 2px; text-align: center; font-variant-numeric: tabular-nums; }
 .tb-build-column { position: absolute; top: calc(112 * var(--u)); left: 2.5%; width: 95%; padding: calc(5 * var(--u)) calc(6 * var(--u)) calc(10 * var(--u)); color: #ded6c4; text-align: center; font-family: "VALVEOracle", var(--ui); }
 .tb-build-column::before { content: ""; position: absolute; top: calc(-112 * var(--u)); bottom: 0; left: 0; right: 0; z-index: 0; background: linear-gradient(180deg, #a382626b 0%, #443e3b99 50%, #242723b8 100%); pointer-events: none; }
 .sapphire > .tb-build-column::before { background: linear-gradient(180deg, #4566ab8a 0%, #363e5999 50%, #1b2330b8 100%); }
@@ -279,7 +282,11 @@
 .tb-build-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(6 * var(--u)); padding: 0 calc(4 * var(--u)); }
 .tb-build-item { position: relative; aspect-ratio: 1; display: grid; place-items: center; background: #10130d30; }
 .tb-build-item img { width: 100%; height: 100%; object-fit: contain; }
-.tb-build-tier { position: absolute; top: 0; right: 1px; font: 600 max(7px, calc(9 * var(--u))) "VALVEOracle", var(--ui); color: #FFF6D8; text-shadow: 0 1px 2px #000; }
+/* The tier badge as the game draws it (reference item-infuser, tab-scoreboard-2230; feedback
+   #19): a corner wedge in the item's category colour, the numeral dark on it. */
+.tb-build-tier { position: absolute; top: 0; right: 0; width: 46%; height: 46%; box-sizing: border-box; display: flex; justify-content: flex-end; align-items: flex-start; padding: 1px 2px 0 0; background: linear-gradient(45deg, transparent 50%, var(--item-color, #10130Dcc) 50%); font: 700 max(7px, calc(9 * var(--u))) / 1 "VALVEOracle", var(--ui); color: #10130D; pointer-events: none; }
+.tb-build-item:not(.weapon, .vitality, .spirit) .tb-build-tier { color: #FFF6D8; }
+.tb-build-tier:empty { display: none; }
 .tb-build-cooldown { position: absolute; inset: 0; display: grid; place-items: center; background: rgb(48 48 48 / 58%); color: #f0eee8; text-shadow: 0 1px 2px #000; font: 700 max(9px, calc(13 * var(--u))) "VALVEOracle", var(--ui); border-radius: inherit; }
 .tb-build-circle .tb-build-cooldown { font-size: max(7px, calc(9 * var(--u))); }
 .tb-build-charges { position: absolute; right: -1px; bottom: -1px; min-width: calc(10 * var(--u)); border-radius: 2px; color: #10130D; background: #FFEFD7; font: 700 max(7px, calc(8 * var(--u))) var(--ui); }
@@ -315,6 +322,16 @@
 .tb-order-row.later { opacity: .45; }
 .tb-effects-body { position: absolute; top: 100%; left: 0; width: 250px; max-width: 65vw; max-height: 230px; overflow-y: auto; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 8px 20px #0006; color: var(--text); }
 .sapphire > .tb-build-column .tb-effects-body { left: auto; right: 0; }
+/* The build order stays inside the single-hero panel (feedback #15): in the column's flow, as
+   wide as it, so the panel grows to hold it; a row is the item's icon and its time (the name on
+   hover). */
+.tb-build-column .tb-order .tb-effects-body { position: static; width: auto; max-width: none; max-height: calc(260 * var(--u)); margin-top: 3px; padding: 3px; }
+.tb-build-column .tb-order .tb-order-row { gap: 4px; padding: 2px 1px; font-size: max(9px, calc(11 * var(--u))); }
+.tb-build-column .tb-order .tb-order-name { display: none; }
+.tb-build-column .tb-order .tb-order-row > span { flex: none; font-style: normal; }
+.tb-order-name { font-style: normal; }
+.tb-build-column .tb-order .tb-order-row img, .tb-build-column .tb-order .tb-order-row .tb-build-fallback { width: max(16px, calc(22 * var(--u))); height: max(16px, calc(22 * var(--u))); }
+.tb-build-column .tb-order .tb-order-row b { flex: 1; text-align: right; font-size: inherit; }
 .tb-effect { display: flex; gap: 7px; align-items: center; padding: 5px 0; font-size: 12px; }
 .tb-effect img { width: 28px; height: 28px; object-fit: contain; }
 .tb-effect span { flex: 1; }

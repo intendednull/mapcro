@@ -105,18 +105,18 @@ of claims only the game (or its client) can settle. Add to it; strike items once
   replay file"; for a desktop user, re-parsing locally would be the better offer.
 - zstd bodies aren't accepted (gzip only); add one if the wasm parse prefers it.
 
-## Label sweep (2026-11-10, from stat-calc-prod; spec §4b)
+## Label sweep (2026-11-10, from stat-calc-prod; spec §4b): resolved
 
-Hovers and aria-labels outside the Tab column that read as sentences or carry caveats; fix to
-tags (1–3 words; an aria-label may add a value tag). Found in `web/src/player/PlayerTopBar.tsx`,
-not fixed (out of that branch's scope):
-
-- Rejuvenator: aria-label "`<team>` Rejuvenator: N revives left" (line ~63).
-- Portrait button: aria-label "Build for `<hero>`".
-- Vision mark: title and aria-label "Not seen by the selected team".
-- Focus button: title "Inspect `<hero>` build and show on map", aria-label "Inspect `<slot>`, `<hero>`, build and show on the map".
-- Respawn: aria-label "`<slot>` respawns in N s"; health: aria-label "`<slot>` health N%".
-- Not yet swept: the rest of `web/src/player/` and `web/src/board/` (`grep -n 'title=\|aria-label=' -r web/src`).
+Resolved 2026-11-11 (branch `web-polish`): the top bar's Rejuvenator ("Hidden King Rejuvenator";
+aria "…, 2 revives"), portrait ("Abrams build"), vision mark ("Not seen"), focus button ("Inspect
+Abrams"), respawn and health aria ("Amber 1 respawn, 12 s"), the transport's and Map layers'
+explanatory hovers (dropped where they repeated the label), the Vision and Last seen hovers, the
+build order rows, the replays-folder and landing hovers, "Play from here", the skull's recap and
+the board top bar's aria-labels. `web/test/labels.test.ts` fails on any literal `title` or
+`aria-label` in `web/src` over four words (a key hint in parentheses and a value after a comma
+don't count) or written as a sentence. Left on purpose: the map markers' timer hovers ("Respawns
+in 1:20 · …", spec §6b) and the tier chip's hint (it explains what the summary lacks; spec §6b
+"tap or hover the summary"), which the operator may want shortened.
 
 ## Calculated stats: follow-ups (2026-11-10, from stat-calc-prod)
 
@@ -312,7 +312,10 @@ The whole streak look (the lead's check, 2026-11-10; backlog only, not built):
 - **The threshold** is set in code and still unknown. An operator screenshot of a streak would
   confirm it.
 
-## The death recap shows internal ability names (2026-11-10, from ux-batch-1)
+## The death recap shows internal ability names (2026-11-10, from ux-batch-1): resolved
+
+Resolved 2026-11-11 (branch `web-polish`): `player/recap.ts` `recapAbility` uses the parent's name, else "Weapon" or "Ability"; never the engine name.
+
 
 The recap's hit rows (`player/DeathRecap.tsx`) print `record.label` as it is, so a record whose
 `label_from` is `"internal"` reads as the engine name. In 129738985, Infernus's death at 6:45
@@ -320,7 +323,10 @@ lists "deadpack_primary_weapon_charge" under Deadman Danny. The Effects list now
 the parent ability's or item's name (`player/effects.ts` `effectLabel`). The recap could share
 that fallback.
 
-## A death and its recap can be a second apart (2026-11-10, from ux-batch-1)
+## A death and its recap can be a second apart (2026-11-10, from ux-batch-1): resolved
+
+Resolved 2026-11-11 (branch `web-polish`): `recapOf` takes the latest lethal hit up to 1.5 s before the death's second. Amber 1's recap at 2545 s with no death stays unpaired (a revive in place, or past the parse's end).
+
 
 `recapOf` (player/recap.ts) pairs a death with the recap whose `ceil(t / 10)` equals the death's
 second exactly. In 129738985, Amber 3's death at 521 s has a recap at 520 s, so neither the

@@ -1,7 +1,7 @@
 // What a hovered map marker says (spec §6b), through the map's one hover label
 // (map/HoverLabel.tsx), in Player. A label is short, and only there when it says something a
 // player can't see (operator 2026-11-08): a timer ("Respawns in 1:20", "Buff respawns in 0:35",
-// "Rift opens in 0:46", "Gives up in 0:41", "Urn returns in 2:13", a held Rejuvenator on the mid
+// "Rift opens in 0:46", "Fades in 0:41", "Urn returns in 2:13", a held Rejuvenator on the mid
 // boss), an objective's health ("Walker 62%") or a name that is the news ("Casting buff", "Urn
 // delivery point"). A camp that's up says nothing, and nor does any marker in Sandbox. Hovering
 // one, or tapping it on the phone, shows it; the map never stops a pointer for it.
@@ -30,11 +30,12 @@ export function campTip(c: CampAt, t: number): string | undefined {
 }
 
 /** A rift site at t. The rift spawns when its cash-in opens (`live_s`, exploration round 7); open,
- * it gives up at `giveUp` unless a team captures it first. Nothing timed: nothing to say. */
+ * it fades at `giveUp` unless a team captures it first ("Rift Faded Away...", citadel_main
+ * `Citadel_HUD_KothTimeRanOut`; feedback #13). Nothing timed: nothing to say. */
 export function riftTip(r: RiftAt, key: string, t: number): string | undefined {
   if (r.state === "active") {
     if (r.capture?.captured) return `Captured by ${teamName(r.capture.captured)}`;
-    return r.giveUp != null && r.giveUp > t ? `Gives up ${inAt(r.giveUp, t)}` : undefined;
+    return r.giveUp != null && r.giveUp > t ? `Fades ${inAt(r.giveUp, t)}` : undefined;
   }
   if (r.state === "elsewhere" || !r.next) return undefined;
   return r.next.key === key ? `Rift opens ${inAt(r.next.t, t)}` : `Rift opens at the other site ${inAt(r.next.t, t)}`;

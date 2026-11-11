@@ -204,14 +204,14 @@ export function FolderLink(p: { id: string | undefined }) {
   return (
     <Switch>
       <Match when={f.state().kind === "unlinked"}>
-        <button class="btn ghost small" type="button" data-testid="folder-link" title={`For a Steam library outside the default folder: ${REPLAYS_PATH}`} onClick={() => void f.link()}>
+        <button class="btn ghost small" type="button" data-testid="folder-link" title={REPLAYS_PATH} onClick={() => void f.link()}>
           Link replays folder
         </button>
         {note()}
         <WindowsApp />
       </Match>
       <Match when={f.state().kind === "prompt"}>
-        <button class="btn ghost small" type="button" data-testid="folder-allow" title="Your browser asks before reading the folder again" onClick={() => void f.allow()}>
+        <button class="btn ghost small" type="button" data-testid="folder-allow" onClick={() => void f.allow()}>
           Reconnect replays folder
         </button>
       </Match>
@@ -260,7 +260,7 @@ export function WindowsApp(p: { class?: string }) {
     <Show when={href}>
       {(h) => (
         <>
-          <a class={cx("btn ghost small", p.class)} data-testid="windows-app" href={h()} target="_blank" rel="noopener" title="Finds your replays folder on its own">
+          <a class={cx("btn ghost small", p.class)} data-testid="windows-app" href={h()} target="_blank" rel="noopener" title="Windows app">
             Get the Windows app
           </a>
           <a class="btn ghost small muted" data-testid="windows-portable" href={WINDOWS_APP_PORTABLE_URL} target="_blank" rel="noopener">
