@@ -218,19 +218,21 @@ const inSandbox = async (a: Page, b: Page) => {
   await a.getByTestId("scene-add").click();
   await expect(scenes(b)).toHaveCount(2);
 };
-const popover = async (p: Page) => {
-  const b = inspected(p);
-  if ((await b.count()) === 0) return "none";
-  if (await b.getByTestId("active-effects").evaluate((el) => (el as HTMLDetailsElement).open)) return "effects";
-  if (await b.getByTestId("build-order").evaluate((el) => (el as HTMLDetailsElement).open)) return "order";
-  return "none";
-};
-const hoverOf = async (p: Page) => {
-  const l = p.getByTestId("hover-label");
-  if ((await l.count()) === 0) return "none";
-  const by = await l.getAttribute("data-by");
-  return `${await l.getAttribute("data-key")}${by ? `@${by}` : ""}`;
-};
+// A read is polled (`shows`, `put`), so it looks once and never waits: a count and then an
+// auto-waiting call on what it counted hangs when the presenter's next change removes it in
+// between, and expect.poll can't retry a predicate that never returns. Each reads the DOM in one go.
+const popover = (p: Page) =>
+  inspected(p).evaluateAll((els) => {
+    const open = (id: string) => (els[0]?.querySelector(`[data-testid=${id}]`) as HTMLDetailsElement | null)?.open;
+    return open("active-effects") ? "effects" : open("build-order") ? "order" : "none";
+  });
+const hoverOf = (p: Page) =>
+  p.getByTestId("hover-label").evaluateAll((els) => {
+    const l = els[0];
+    if (!l) return "none";
+    const by = l.getAttribute("data-by");
+    return `${l.getAttribute("data-key")}${by ? `@${by}` : ""}`;
+  });
 
 const MODE: Row = {
     key: "mode",
@@ -293,7 +295,7 @@ const ROWS: Row[] = [
   },
   {
     key: "jump",
-    read: async (p) => ((await p.locator("[data-testid=event-highlight]").count()) ? ((await p.locator("[data-testid=event][data-current=true]").getAttribute("data-t")) ?? "") : "none"),
+    read: (p) => p.locator("body").evaluate((b) => (b.querySelector("[data-testid=event-highlight]") ? (b.querySelector("[data-testid=event][data-current=true]")?.getAttribute("data-t") ?? "") : "none")),
     set: async (p, v) => {
       await p.locator(`[data-testid=event][data-t="${v}"] [data-testid=event-jump]`).click();
     },
@@ -377,7 +379,7 @@ const ROWS: Row[] = [
   layer("crates", false),
   {
     key: "skull_recap",
-    read: async (p) => ((await p.getByTestId("skull-recap").count()) ? ((await p.getByTestId("skull-recap").getAttribute("data-slot")) ?? "") : "none"),
+    read: (p) => p.getByTestId("skull-recap").evaluateAll((els) => (els[0] ? (els[0].getAttribute("data-slot") ?? "") : "none")),
     set: async (p, v) => {
       const open = (await p.getByTestId("skull-recap").count()) > 0;
       if (v === "none" && open) await p.getByTestId("skull-recap-close").click();
@@ -401,7 +403,7 @@ const ROWS: Row[] = [
   },
   {
     key: "inspect",
-    read: async (p) => ((await p.getByTestId("hero-build").count()) === 1 ? ((await p.locator(".tb-player:has([data-testid=hero-build])").getAttribute("data-slot")) ?? "") : "none"),
+    read: (p) => p.locator(".tb-player:has([data-testid=hero-build])").evaluateAll((els) => (els.length === 1 ? (els[0]!.getAttribute("data-slot") ?? "") : "none")),
     set: async (p, v) => {
       if (v !== "none") return openInspect(p);
       if ((await inspected(p).count()) > 0) await p.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').click();
