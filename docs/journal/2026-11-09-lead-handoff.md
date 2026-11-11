@@ -5,6 +5,12 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## Production
 
+- **2026-11-11 ~04:25 UTC (lead mapcro-2d):** `web` runs **26b3016** (infra afad58e): UX batch 1
+  (build order, skull recap, save-scene toast, dialog focus), the replays-folder link (Chromium,
+  second Steam libraries only), feedback limits 100/h per client and 500/day, darkened unseen
+  portraits, plus docs (research map, AGENTS.md, desktop-app research, tech-debt register). Same
+  pack. Open branches: `client-timeline` (done, next deploy), `desktop-app`, `stat-calc-prod`
+  (format 9: ship a desktop app update with any FORMAT bump once the app is out).
 - **2026-11-11 ~02:50 UTC (lead mapcro-2d):** `web` runs **df638a0**, the UI prototype (layout
   regroup, Tab scoreboard, effects, death recaps, elevation/zipline layer, vision portraits,
   scene timeline, shared top-bar parts) and timeline **format 8** (level, kills, assists, max HP).
