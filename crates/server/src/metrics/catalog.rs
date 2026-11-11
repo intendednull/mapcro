@@ -336,6 +336,9 @@ label! {
 pub static MS: [f64; 14] = [1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0];
 /// Seconds, 0.1 s to 10 min.
 pub static SECS: [f64; 15] = [0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0];
+/// A presence frame's bytes: ~300 in Sandbox, ~450–600 in Player, ~1,450 with a laser trail
+/// (docs/plans/2026-11-11-view-state-sync.md, "How it travels").
+pub static PRESENCE: [f64; 11] = [128.0, 256.0, 384.0, 512.0, 640.0, 768.0, 1024.0, 1536.0, 2048.0, 4096.0, 8192.0];
 /// Messages in a group commit.
 pub static BATCH: [f64; 8] = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0];
 const MIB: f64 = 1024.0 * 1024.0;
@@ -392,6 +395,7 @@ registry! {
     commit_batch_size: Histogram<()> = Histogram::new("commit_batch_size", "Engine messages per group commit.", &BATCH),
     commit_ms: Histogram<()> = Histogram::new("commit_ms", "Milliseconds per group commit (one transaction, one fsync).", &MS),
     op_ack_ms: Histogram<()> = Histogram::new("op_ack_ms", "Milliseconds from a room taking an edit to its ack (excludes the room's queue).", &MS),
+    presence_bytes: Histogram<()> = Histogram::new("presence_bytes", "Bytes in a presence frame a client sent (the whole frame, resent on every change).", &PRESENCE),
     // usage
     boards_created: Counter<(How,)> = Counter::new("boards_created", "Boards created, new or cloned."),
     feedback_sent: Counter<()> = Counter::new("feedback_sent", "Feedback submissions that became GitHub issues."),

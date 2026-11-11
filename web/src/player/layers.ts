@@ -1,33 +1,9 @@
-// The map layers a follower mirrors (spec §8 "Follow mode"): every "Map layers" toggle but
-// Player names, which stays each browser's own (it's for recording without them). Presence
-// carries them as one byte, `Presence.layers` (crates/engine/src/wire.rs `LAYER_*`). Pure.
+// The open panels a follower mirrors (spec §8 "Follow mode"), as presence carries them: roster
+// slots and deaths. The map layers are registry keys now (player/viewstate.ts). Pure.
 
 import type { SlotRef } from "../gen/SlotRef";
 import type { DeathRef } from "../gen/DeathRef";
 import { slotKey } from "../match/save";
-
-export interface MapLayers {
-  troopers: boolean;
-  health: boolean;
-  pings: boolean;
-  cc: boolean;
-  movement: boolean;
-  heals: boolean;
-  crates: boolean;
-}
-
-/** Bit order: wire.rs `LAYER_TROOPERS` (bit 0) to `LAYER_CRATES` (bit 6). Append only. */
-const BITS: readonly (keyof MapLayers)[] = ["troopers", "health", "pings", "cc", "movement", "heals", "crates"];
-
-export function layersToWire(l: MapLayers): number {
-  return BITS.reduce((n, k, i) => (l[k] ? n | (1 << i) : n), 0);
-}
-
-/** A presenter's layers; absent (an older presenter): `undefined`, and the follower keeps its own. */
-export function layersFromWire(n: number | null | undefined): MapLayers | undefined {
-  if (n == null) return undefined;
-  return Object.fromEntries(BITS.map((k, i) => [k, (n & (1 << i)) !== 0])) as unknown as MapLayers;
-}
 
 const wireTeam = (team: string) => (team === "amber" || team === "Amber" ? "Amber" : "Sapphire");
 

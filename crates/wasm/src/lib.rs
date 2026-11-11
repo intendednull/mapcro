@@ -192,6 +192,14 @@ pub fn build_id() -> String {
     mapcro_schema::BUILD_ID.to_owned()
 }
 
+/// Whether the server would take this presence frame (a `WireIn` as JSON): it parses as the
+/// server parses it and passes `Presence::is_valid`. The server closes the socket as abuse on
+/// one it can't take, and the reconnect would resend it, so the session checks first.
+#[wasm_bindgen(js_name = presenceFrameOk)]
+pub fn presence_frame_ok(frame_json: &str) -> bool {
+    matches!(serde_json::from_str::<WireIn>(frame_json), Ok(WireIn::Presence { state }) if state.is_valid())
+}
+
 #[wasm_bindgen(js_name = newRecordId)]
 pub fn new_record_id() -> Result<String, JsError> {
     new_client_id()

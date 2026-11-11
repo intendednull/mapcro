@@ -121,18 +121,26 @@ docs/research/demo-preview.md). Left over:
 
 ## Follow: what a follower still doesn't share (2026-11-11, from follow-sync)
 
-Following now carries the map layers and the open panels (death recaps, builds; spec §8). Held:
-- **Effects and Build order inside a hero's build:** the follower opens the same hero's build,
-  but which of the two popovers is open (or none) is its own. Small: two more bits in `playback`.
-- **The events list's filters, search and scroll.** A follower pings from its own filters, so
-  its pings can differ from the presenter's, and an events-row recap the presenter opens stays
-  closed on a follower whose filters hide that row. Sharing filters changes what the follower's
-  list shows; worth asking the operator whether that is wanted.
-- **The events list doesn't scroll to a recap the presenter opens.** It opens in place; the list
-  follows "Now" as before, so an older death's recap may open out of view.
+Following carries the map layers, Vision, the open panels (death recaps, builds and the popover
+open in the inspected one) and the events list's filters and search (spec §8; the view-state
+registry, branch `view-state`). Held:
+- **The events list's scroll** (following Now or not), and **it doesn't scroll to a recap the
+  presenter opens**: it opens in place, so an older death's recap may open out of view.
+- **The hero panel opened from a token on the map** (HeroCard, tooltips #9): this browser's;
+  ledger `unshared`. Small: a `Slot` key in the `panels` group, if the operator wants it.
 - **The teleporter pair's line** (below, "A follower doesn't see the presenter's teleporter pair").
 - **Sidebar tab (Events or Notes), the Layers popover being open, and the side panels on the
-  phone:** layout, left each person's own.
+  phone:** layout, each person's own (operator 2026-11-11).
+
+## A server restart ends every follow, and a follower may see "Conflict" after it (2026-11-11, view-state)
+
+Found pinning follow behaviour (`web/e2e/follow-matrix.spec.ts`, the restart scenario): after the
+server restarts, everyone reconnects with a new peer id, so a follower's `following` points at
+nobody and it is told the presenter left (its own layers and Vision come back). Following again
+is one click. Separately, the follower that joined just before the restart showed "Conflict ×"
+in its save status afterwards (a `rejected: "IdTaken"`), though it made no edit of its own; not
+investigated. Both are pinned as they are (`reconnect: "drops"`); a deploy restarts the server,
+so coaching sessions lose their follows at each deploy.
 
 ## Previews of matches cached before acf63c3 have no winner (2026-11-11, lead, prod check)
 

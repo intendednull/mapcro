@@ -181,6 +181,33 @@ describe("board sessions against the real server", () => {
     fan.stop();
   });
 
+  it("a presence the server would refuse is held back, not resent in a reconnect loop", async () => {
+    const { board, owner_token } = await api.createBoard("refused-presence");
+    let opens = 0;
+    const counting = (url: string) => (opens++, openSocket(url));
+    const coach = new BoardSession({ wsUrl: server.ws, board, token: owner_token, persist: new MemoryPersist(), openSocket: counting, minDelayMs: 50, maxDelayMs: 400 });
+    const fan = session(server, board, owner_token);
+    await coach.start();
+    await fan.start();
+    await until(() => coach.connection.kind === "live" && fan.connection.kind === "live", "both live");
+    const playback = { player: true, match_id: 1, t: 10, playing: false, speed: 1 };
+    coach.setPresence({ name: "Coach" });
+    await until(() => [...fan.peers.values()].some((p) => p.state?.name === "Coach"), "fan sees coach");
+    // Half a surrogate pair: not UTF-8, so the server can't parse the frame (review 2026-11-11).
+    coach.setPresence({ name: "Coach 2", playback: { ...playback, event_search: "x".repeat(61) + "\ud83d" } });
+    await new Promise((r) => setTimeout(r, 800));
+    expect(opens).toBe(1);
+    expect(coach.connection.kind).toBe("live");
+    expect(coach.problems.filter((p) => p.startsWith("presence not sent"))).toHaveLength(1);
+    expect([...fan.peers.values()].some((p) => p.state?.name === "Coach 2")).toBe(false);
+    // The next good one goes through.
+    coach.setPresence({ name: "Coach 3", playback: { ...playback, event_search: "x" } });
+    await until(() => [...fan.peers.values()].some((p) => p.state?.name === "Coach 3"), "fan sees the next one");
+    expect(opens).toBe(1);
+    coach.stop();
+    fan.stop();
+  });
+
   it("view links are read-only and revocation is final", async () => {
     const { board, owner_token } = await api.createBoard("roles");
     const { token: viewToken } = await api.mintLink(board, owner_token, "view", "audience");
