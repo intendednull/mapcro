@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FIT, RECONNECT_MS, REJOIN_MS, clampView, followable, fromViewport, locate, presenters, sideOf, toViewport, zoomAt } from "../src/board/follow";
+import { FIT, RECONNECT_MS, REJOIN_MS, clampView, followable, fromViewport, locate, presenters, sideOf, startFollow, toViewport, zoomAt } from "../src/board/follow";
 import { MAX_SEAT, newSeat, pageSeat } from "../src/core/seat";
 import type { PeerPresence } from "../src/gen/PeerPresence";
 import type { Presence } from "../src/gen/Presence";
@@ -46,6 +46,28 @@ describe("re-finding a presenter (spec §8: a seat survives a reconnect)", () =>
     expect(locate(t, [], 9, J, 2000 + RECONNECT_MS)).toEqual({ kind: "gone" });
     // An older presenter, without a seat, can't be found again: gone at once, as before.
     expect(locate({ peer: 3, joins: 1 }, [], 9, J, 2000)).toEqual({ kind: "gone" });
+  });
+  it("on the same join, a peer without a seat is still the one followed (an older client)", () => {
+    // The follow knows a seat (from a newer page of theirs, say); the id's presence has none.
+    expect(locate({ peer: 3, seat: 77, joins: 1 }, [seated(3, undefined), seated(5, 12)], 9, J, 1000)).toEqual({ kind: "here", peer: seated(3, undefined) });
+    // But not on another join: that id is anyone's now.
+    expect(locate({ peer: 3, seat: 77, joins: 1 }, [seated(3, undefined)], 9, later, 5000)).toEqual({ kind: "wait", until: 5000 + REJOIN_MS });
+  });
+  it("Follow again keeps its seat: the id it carries may be someone else's now", () => {
+    // Followed P (peer 3, seat 77); the server restarted; Q came back as peer 3.
+    const q = seated(3, 12);
+    const again = startFollow(3, 77, [q], 2);
+    expect(again.target).toEqual({ peer: 3, seat: 77, joins: 2 });
+    expect(again.seen).toBeUndefined(); // not Q
+    // So the follow looks for seat 77, and finds P on its new id, never Q.
+    expect(locate(again.target, [q, seated(6, 77)], 9, { n: 2, at: 0 }, 10)).toEqual({ kind: "here", peer: seated(6, 77) });
+    expect(locate(again.target, [q], 9, { n: 2, at: 0 }, 10)).toEqual({ kind: "wait", until: 10 + RECONNECT_MS });
+    // A click on someone in the list: their seat, and them.
+    expect(startFollow(3, undefined, [q], 2)).toEqual({ target: { peer: 3, seat: 12, joins: 2 }, seen: q });
+    // The same person still there, or one without a seat (an older client): them.
+    expect(startFollow(3, 77, [seated(3, 77)], 2).seen).toEqual(seated(3, 77));
+    expect(startFollow(3, 77, [seated(3, undefined)], 2).seen).toEqual(seated(3, undefined));
+    expect(startFollow(4, 77, [q], 2)).toEqual({ target: { peer: 4, seat: 77, joins: 2 }, seen: undefined });
   });
   it("a seat is random, a JavaScript integer, and one per page", () => {
     const seats = new Set(Array.from({ length: 1000 }, newSeat));

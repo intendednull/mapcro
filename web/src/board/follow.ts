@@ -65,6 +65,19 @@ export function locate(t: FollowTarget, peers: PeerPresence[], me: number | unde
   return now < until ? { kind: "wait", until } : { kind: "gone" };
 }
 
+/**
+ * A follow begun by a click: on `peer`, with `seat` if the click knows it ("Follow again" knows
+ * the seat it was on). That seat wins over whoever holds `peer` now: after a reconnect the id
+ * may be someone else's. `seen`: `peer`'s presence, when it is that person (`locate` re-finds
+ * them by seat otherwise).
+ */
+export function startFollow(peer: number, seat: number | undefined, peers: PeerPresence[], joins: number): { target: FollowTarget; seen: PeerPresence | undefined } {
+  const x = peers.find((p) => p.peer === peer && p.state);
+  const s = seat ?? x?.state?.seat;
+  const has = x?.state?.seat;
+  return { target: { peer, seat: s, joins }, seen: x && (s == null || has == null || has === s) ? x : undefined };
+}
+
 /** Presenters: followable people someone is following, with how many follow them. */
 export function presenters(peers: PeerPresence[], me: number | undefined, iFollow: number | undefined) {
   const count = new Map<number, number>();

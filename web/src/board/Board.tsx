@@ -20,7 +20,7 @@ import { TopBar } from "./TopBar";
 import { createBoardState } from "./state";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
-import { FIT, type FollowTarget, type ViewRect, clampView, fromViewport, locate, presenters, sideOf, toViewport, zoomAt } from "./follow";
+import { FIT, type FollowTarget, type ViewRect, clampView, fromViewport, locate, presenters, sideOf, startFollow, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
 import type { MatchPreview } from "../match/preview";
 import { EventPings, Highlight, MapControls, Player, PlayerSide, PlayerSwitch, TierChip, TrooperDots } from "../player/Player";
@@ -189,13 +189,14 @@ export function Board(p: { board: string; token: string; art: Art }) {
   };
   const nameOfPeer = (x: PeerPresence | undefined) => x?.state?.name || "them";
   const follow = (peer: number, seat?: number) => {
-    const x = state.peerList().find((p) => p.peer === peer);
     const joins = state.joined().n;
-    target = { peer, seat: x?.state?.seat ?? seat, joins };
+    const begun = startFollow(peer, seat, state.peerList(), joins);
+    target = begun.target;
     setFollowJoin(joins);
-    setFollowedNow(x);
+    setFollowedNow(begun.seen);
     setFollowing(peer);
-    tell(peer);
+    // Not `peer` if that id is someone else now: the effect below says whom, once found.
+    tell(begun.seen ? peer : null);
     setToast(undefined);
   };
   /** `why`: your own change stopped it, and you keep what you were seeing with it (operator
