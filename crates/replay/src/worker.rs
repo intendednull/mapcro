@@ -89,10 +89,21 @@ fn finished(root: &Path, job: &str) -> bool {
     out.join(format!("{job}.json")).exists() || out.join(format!("{job}.failed")).exists()
 }
 
+/// Open for reading, never through a link (the worker's queue runs on Linux only; elsewhere the
+/// crate is built for its parser, by the desktop app, which has no queue).
+#[cfg(unix)]
+fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(path)
+}
+#[cfg(not(unix))]
+fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::File::open(path)
+}
+
 /// The server's parse order (`inbox/.order`), if it wrote one: never through a link, capped.
 fn order(root: &Path) -> Vec<String> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let Ok(f) = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(root.join("inbox").join(crate::ORDER_FILE)) else { return Vec::new() };
+    let Ok(f) = open_no_follow(&root.join("inbox").join(crate::ORDER_FILE)) else { return Vec::new() };
     if !f.metadata().is_ok_and(|m| m.is_file()) {
         return Vec::new();
     }
