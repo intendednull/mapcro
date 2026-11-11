@@ -117,10 +117,11 @@ in
         defaultText = lib.literalExpression ''"''${toString (workers * 384)}M"'';
         description = ''
           The worker's memory cap, 384M a parse by default. Measured on the real 504 MB demo
-          (format 9, 2026-11-11): 32.5 MB anonymous, the rest the memory-mapped demo's clean
-          pages, which the cap reclaims rather than OOM-kills on (one still parses under 36M).
-          The headroom covers a zstd window (at most 128 MiB; the job record's
-          `zstd_window_bytes` says what downloads use) and keeps the page cache from thrashing.
+          (format 9, 2026-11-11, streamed parse): 33 MB anonymous from a .dem, 36 MB from zstd
+          (a 2 MiB window), 37 MB from bzip2, and VmHWM 37-40 MB: the demo is read, not mapped,
+          so there are no file pages to reclaim. One parses under a 34M cap. The headroom covers
+          a zstd window (at most 128 MiB; the job record's `zstd_window_bytes` says what
+          downloads use).
         '';
       };
       cpuQuota = lib.mkOption {
@@ -135,8 +136,8 @@ in
         defaultText = lib.literalExpression "8 GiB";
         description = ''
           Bytes the queue may hold: queued demos (fetched ones compressed, ~330 MB; uploads raw,
-          ~500 MB) and transfers under way at their size. Expanded demos being parsed count too,
-          up to 1 GiB each, so the disk peak is about this plus one per worker.
+          ~500 MB) and transfers under way at their size. A compressed demo decompresses into
+          the parse, so nothing expanded is written beside them (since 2026-11-11).
         '';
       };
       queuedJobs = lib.mkOption {
@@ -296,7 +297,8 @@ in
         IOSchedulingClass = "idle";
         TasksMax = 8 + 4 * cfg.replay.workers;
         LimitNOFILE = 64;
-        # No file it writes (the expanded demo, the timeline) can pass the demo cap.
+        # No file it writes can pass the demo cap. It writes only timelines and job records
+        # now (the parse is streamed), so this could be a few MiB.
         LimitFSIZE = 1100 * 1024 * 1024;
         # Nothing but the queue: /var/lib is empty but for it (the inbox read-only), and there
         # is no network at all.

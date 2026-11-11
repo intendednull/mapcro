@@ -6,26 +6,27 @@ what it is, and what it depends on.
 ## Stream the replay parse: browser, app, worker (2026-11-11, from parser-memory)
 
 The follow-up to [parser-memory](research/parser-memory.md), and the step that makes "Parse
-replays in the browser" possible on phones. Branch `parser-memory` already cut the anonymous peak
-from 48 to 32.5 MB with the same timeline, but boon still needs the whole demo mapped or in one
-buffer (`from_bytes`: +481 MB).
+replays in the browser" possible on phones. Steps 1–4 are done on branch `stream-parse`
+(parser-memory §5): the timeline of 129738985 is the same bytes from `.dem`, `.zst`, `.bz2` and
+a wasm32 build; a job's VmHWM fell from ~540 to 37–40 MB and a download writes 1.9 MB, not 506.
 
-1. Vendor pbdems2 0.4.1 and boon 0.19 (both MIT) with `[patch.crates-io]`. Add a reader-based
-   forward pass: an `initialize` through `DEM_SyncTick` and a `replay_cursor` over `impl Read`,
-   with `run_reader_with_properties` on boon's `Parser` (~200 lines). Gate boon's `reqwest`,
-   `tempfile` and `memmap2` behind a feature while there. Check it against the mmapped run:
-   the timeline must be the same bytes on 129738985 and on an old-map and a Brawl demo.
-2. Use it in the worker and the app instead of `from_file`. That removes the SIGBUS case, and
-   the ~485 MB of file pages the cap reclaims.
-3. Feed `worker::expand`'s decoder straight into the parse: no 504 MB `work/` file, no dirty page
-   cache.
-4. Split a `worker` feature (zstd, bzip2, libc, worker.rs) off `parse` (TD-25), then build the
-   wasm entry `observe_with` → `derive` → JSON over a `FileReaderSync`-backed `Read` in a Web
-   Worker. Projected 35–40 MB of wasm memory.
-5. Then decide the worker's `memoryMax`: 384M a job is far above the 32.5 MB anonymous peak.
-   The job record now carries the anonymous peak and a zstd download's window (TD-26): read
-   `stats series parse_peak_anon_bytes` and `zstd_window_bytes` after the first fetches
-   (`window_log_max(27)` allows up to 128 MiB).
+1. ~~Vendor pbdems2 0.4.1 and boon 0.19 with `[patch.crates-io]` and a reader-based forward
+   pass.~~ Done (`crates/vendor/VENDORED.md`, TD-27). Not checked on an old-map or a Brawl demo
+   (only 129738985 may be opened here): their refusals come from the header and `derive`, which
+   the stream doesn't change, but run `local_replay` with `MAPCRO_OLD_REPLAY` and
+   `MAPCRO_BRAWL_REPLAY` once where those demos are allowed.
+2. ~~Use it in the worker and the app instead of `from_file`.~~ Done: `parse::observe` streams,
+   so the desktop app's parse (`worker::job`) does too. The preview still maps (TD-28).
+3. ~~Feed `worker::expand`'s decoder straight into the parse.~~ Done (`demo_reader`).
+4. ~~Split a `worker` feature off `parse` (TD-25).~~ Done; a cdylib over `parse` builds for
+   wasm32 with no C and ran in node in 30.7 MiB. Open: the browser entry itself,
+   `observe_stream` → `derive` → JSON over a `FileReaderSync`-backed `Read` in a Web Worker
+   (parser-memory §5 lists what's left).
+5. Then decide the worker's `memoryMax`: 384M a job is far above the ~33–37 MB peak, and with no
+   mapped file there are no file pages left for the cap to reclaim, so the cap is now about
+   anonymous memory alone. Read `stats series parse_peak_anon_bytes` and `zstd_window_bytes`
+   after the first fetches (`window_log_max(27)` allows up to 128 MiB). `LimitFSIZE` (1100 MiB,
+   for the expanded demo) could drop to a few MiB: the worker only writes timelines now.
 
 Cheaper wins that don't need the reader, in order: slimmer per-second `Obs` (~14 → ~6 MB: the
 name once, objectives as changes, narrower types), and trackers that walk only changed entities
@@ -889,6 +890,12 @@ a streamed parse at a projected 35–40 MB of wasm memory. `cargo check` for was
 zstd-sys builds host objects (TD-25). Plan:
 [Stream the replay parse](#stream-the-replay-parse-browser-app-worker-2026-11-11-from-parser-memory);
 evidence: [parser-memory](research/parser-memory.md).
+
+**2026-11-11 (stream-parse):** the streamed parse is built and the wasm question is answered: a
+`cdylib` over `mapcro-replay`'s `parse` feature builds for wasm32 with no C code, and read
+129738985 through an imported chunk reader in node in 30.7 MiB of wasm memory, 21 s, with the
+server's exact timeline bytes. Left: the Web Worker entry and its glue, and a phone's speed
+(parser-memory §5).
 
 ## A settings page (2026-11-08)
 

@@ -77,10 +77,18 @@ props 6.2, troopers 3.4, zipline nodes 1.5) and our per-second `Obs` ~14 MB. Bra
 `parser-memory` keeps only the modifier fields read, filters those three classes' properties and
 collects only the 5 message types read. That gives 32.5 MB, the same timeline, and a parse that
 survives a 36M cap (main is killed at 40M). `from_bytes` adds 481 MB. boon has no reader API, but
-the forward pass needs none: a streamed reader means a small vendored pbdems2+boon patch
-(projected wasm peak 35–40 MB). The no-patch spliced read (minute stretches through `from_bytes`)
-gets every field right except the tough crates (70 of 78). `cargo check` for wasm32 passes, but
-zstd-sys builds host (x86-64) objects there.
+the forward pass needs none. The no-patch spliced read (minute stretches through `from_bytes`)
+gets every field right except the tough crates (70 of 78).
+
+**Streamed parse** (branch `stream-parse`, [parser-memory](parser-memory.md) "Streamed";
+`crates/vendor/VENDORED.md`): boon and pbdems2 are vendored with `StreamParser`, a forward run
+over any `Read` through a 256 KiB buffer. 129738985's timeline is **byte-identical** to the
+mapped parse from the `.dem`, a `.zst` and a `.bz2`, and from a wasm32 build run in node (30.7 MiB
+of wasm memory, 21 s). A job's VmHWM drops from ~540 MB to 37–40 MB, the anonymous peak from 35 to
+33 MB, a download writes 1.9 MB instead of 506 MB, and wall time is unchanged. It parses under a
+34M cap; the mapped one is killed there. A stream can't see a later schema command ahead, so a run
+with a property filter that meets one fails (`Error::is_schema_change`) and `observe_stream` plays
+the demo again in full. A cdylib over the `parse` feature builds for wasm32 with no C code.
 
 **Client-parsed timelines** (`replays.rs` `client_timeline`; spec §6a "Timelines parsed on the
 user's machine"): a timeline sent by the desktop app is refused unless its `format` equals
@@ -278,8 +286,10 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   `~/.local/share` on Linux are `kBlockAllChildren`. A browser folder picker can't open the
   default replays folder, only a secondary library's. Drop and `<input type=file>` still work.
   This is from the source and hasn't been tried in a real browser yet ([desktop-app](desktop-app.md) §2).
-- **Main's timelines aren't byte-stable:** same-instant `charges` reads came out in `HashMap` order
-  (fixed on branch `parser-memory`, TD-24). Compare with each player's `charges` sorted.
+- **Timelines before 4a7634a aren't byte-stable:** same-instant `charges` reads came out in
+  `HashMap` order (fixed, TD-24). Compare an older one with each player's `charges` sorted.
+- **A probe's timeline differs from a job's** in its match id (the probe passes 0): compare a
+  probe's output with another probe's, a job's with a job's.
 - **A full packet at tick T follows tick T's packet** (`7@3841 13@3841`): a splice cut at a full
   packet's offset splits that tick (parser-memory §2).
 - **Heavy probes** (`timer_audit` took 754 s) run alone under the load gate: the box is shared.
