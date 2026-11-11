@@ -908,6 +908,7 @@ version = "0.0.0"
 dependencies = [
  "crc32fast",
  "lz4_flex",
+ "mapcro-stats",
  "png",
  "ruzstd",
  "serde",
@@ -984,6 +985,14 @@ dependencies = [
  "rand_chacha",
  "serde_json",
  "zstd",
+]
+
+[[package]]
+name = "mapcro-stats"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

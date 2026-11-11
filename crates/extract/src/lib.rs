@@ -21,6 +21,7 @@ mod pack;
 mod panorama;
 mod png_out;
 mod resource;
+mod stats;
 mod steam;
 mod topbar;
 mod vpk;
@@ -36,8 +37,9 @@ pub use error::{Error, Result};
 pub use kv3::Value;
 pub use pack::{
     AbilityTable, Blob, Entity, EntitySource, Extractor, Game, Hero, HudSource, Icon, Pack, SCHEMA,
-    SkippedIcon, Source,
+    SkippedIcon, Source, StatTableRef, StatTables,
 };
+pub use stats::{BoonTables, boon_tables, install_table, to_json};
 pub use png_out::{encode_png, write_png};
 pub use steam::SteamInfo;
 pub use vpk::{Entry, Vpk};
@@ -88,9 +90,23 @@ pub struct ExtractReport {
     pub blobs: usize,
 }
 
+/// What to extract beyond the install itself.
+#[derive(Debug, Default)]
+pub struct Options {
+    /// A directory of boon-data snapshots (`just stat-data`) for older patches' stat tables.
+    pub stat_data: Option<PathBuf>,
+}
+
 /// Extract the minimap layers, heroes, map entities, HUD icons and HUD sources into `out_dir`.
 pub fn extract(game_dir: &Path, out_dir: &Path) -> Result<ExtractReport> {
+    extract_with(game_dir, out_dir, &Options::default())
+}
+
+/// [`extract`], plus what `options` asks for.
+pub fn extract_with(game_dir: &Path, out_dir: &Path, options: &Options) -> Result<ExtractReport> {
     guard_output(game_dir, out_dir)?;
+    // Checked before anything is written: a bad snapshot directory fails fast.
+    let boon = options.stat_data.as_deref().map(stats::boon_tables).transpose()?;
 
     let game = GameDir::new(game_dir)?;
     let steam = SteamInfo::read(&game)?;
@@ -147,6 +163,12 @@ pub fn extract(game_dir: &Path, out_dir: &Path) -> Result<ExtractReport> {
         })
         .collect();
     pack.geometry_hash = entities.geometry_hash;
+
+    let install = match (read_vdata(&vpk, HEROES_PATH, &mut pack)?, read_vdata(&vpk, ABILITIES_PATH, &mut pack)?, read_vdata(&vpk, GENERIC_PATH, &mut pack)?) {
+        (Some(heroes), Some(abilities), Some(generic)) => u32::try_from(steam.client_version).ok().map(|v| stats::install_table(v, &heroes, &abilities, &generic)),
+        _ => None,
+    };
+    stats::write(out_dir, &mut pack, &mut files, install, boon)?;
 
     icons::extract(&vpk, out_dir, &mut pack, &mut files)?;
     topbar::extract(&vpk, out_dir, &mut pack, &mut files)?;

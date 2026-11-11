@@ -1,0 +1,14 @@
+[package]
+name = "mapcro-stats"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Calculated hero stats: per-patch stat tables (from boon-data or the game's vdata) and the rules that turn a build into Tab-panel values"
+
+[dependencies]
+serde.workspace = true
+serde_json = "1"
+
+[lints]
+workspace = true

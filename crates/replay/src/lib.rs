@@ -6,7 +6,6 @@
 //! - [`map`]: the current map's objective sites and lane curves, and the lane projection the web
 //!   client uses for `Wave.t`.
 //! - [`derive`]: per-second observations to a timeline. Pure; unit-tested without a replay.
-//! - [`stat_calc`]: calculated hero stats from a build and a patch's game data (spike).
 //! - `parse` (feature `parse`): boon reads a demo into observations.
 //! - `worker` (feature `parse`): the on-disk queue, run as its own sandboxed service.
 
@@ -15,7 +14,6 @@ pub mod hero_data;
 pub mod map;
 mod map_data;
 pub mod modifiers;
-pub mod stat_calc;
 pub mod timeline;
 
 #[cfg(feature = "parse")]

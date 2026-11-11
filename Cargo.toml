@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/schema", "crates/engine", "crates/sim", "crates/server", "crates/wasm", "crates/extract", "crates/replay"]
+members = ["crates/schema", "crates/engine", "crates/sim", "crates/server", "crates/wasm", "crates/extract", "crates/replay", "crates/stats"]
 
 [workspace.package]
 edition = "2024"
@@ -10,6 +10,7 @@ publish = false
 [workspace.dependencies]
 mapcro-schema = { path = "crates/schema" }
 mapcro-engine = { path = "crates/engine" }
+mapcro-stats = { path = "crates/stats" }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 rand = "0.9"

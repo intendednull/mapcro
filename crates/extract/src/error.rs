@@ -195,6 +195,11 @@ pub enum Error {
 
     #[error("text is not valid UTF-8")]
     InvalidUtf8,
+
+    /// The `--stat-data` directory (boon-data snapshots) is missing a file, fails its hash, or
+    /// doesn't parse.
+    #[error("stat data: {0}")]
+    StatData(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

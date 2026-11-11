@@ -122,8 +122,20 @@ check: test web-test e2e
     nix build .#checks.x86_64-linux.service
 
 # Extract an asset pack from a local Deadlock install (read-only; output must be outside the repo).
-extract game out:
-    cargo run -q --release -p mapcro-extract -- --game {{game}} --out {{out}}
+# `just extract <citadel> <out> --stat-data <dir>` adds older patches' stat tables (`just stat-data`).
+extract game out *args:
+    cargo run -q --release -p mapcro-extract -- --game {{game}} --out {{out}} {{args}}
+
+# Fetch boon-data snapshots (hash-checked) into a directory outside the repo, for the pack's
+# per-patch stat tables (docs/research/stat-calc-spike.md "Production plan"). Re-runs fetch only
+# new snapshots.
+stat-data dir:
+    python3 -I tools/stat-data/fetch.py {{dir}}
+
+# Check calculated stats against a match's metadata (and its timeline): rates per stat, exit 1
+# below the spike's floors. <data> is a boon-data snapshot dir or a pack's data/stats/<key>.json.
+stat-check data metadata *timeline:
+    cargo run -q --release -p mapcro-stats --example stat_calc_check -- {{data}} {{metadata}} {{timeline}} --floors
 
 # Watch production every 15 min and alert the lead through Paseo (docs/deploy.md "Watching
 # production"). A transient user timer on the dev box: re-run this after a reboot.
