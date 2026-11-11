@@ -3,6 +3,30 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Sixteen e2e tests act on controls the prototype moved into disclosures (2026-11-10, from scene-parity)
+
+On `prototype-layout` (base of scene-parity, checked on its own build too) these time out on a
+hidden control: `match-id` inside the closed `.pl-source` (player-ease ×2, player-rejuv-rift ×4,
+player-urn-respawn ×4, player-visible ×3, hero-focus "in Player"), `crates-toggle` inside Map
+layers (pack "terrain, markers and portraits"), and `scene-note-edit` behind the Notes tab (phone
+"a phone viewer follows"). They need `revealControls` (e2e/helpers.ts) or the Notes tab clicked.
+
+## Scenes' stage head repeats what the bar and the list show (2026-11-10, from scene-parity)
+
+In Scenes the stage head ("Scene 2 of 2 · 5:00 Match moment", Board.tsx `.stage-head`) sits above
+the top bar, so the bar and map sit ~28 px lower than in replay, the one layout difference left
+between the modes. Its clock editor repeats the bar's (`tb-clock`), its name editor the scene
+list's, and the player bar's scene row says "Scene “…” · 5:00" again. Dropping it (or folding the
+name editor into the scene row) would finish the parity, but `scene-name` / `scene-clock` are
+used by six e2e specs (scenes, scene-names, scene-tree, topbar, phone, player-review) and the
+phone layout. Needs the operator's call on where a scene's name is edited.
+
+## The scene's Rename… editor opens empty for a match's name (2026-11-10, from scene-parity)
+
+With no typed name, the slot's name editor opens empty: `InlineEdit` gives its input no
+placeholder, so the match's name ("Coach") is not shown while typing. A `placeholder` on the input
+would help here, but it changes every inline editor (scene names would show "Scene 2").
+
 ## Fill the in-game scoreboard's missing values (2026-11-10, operator)
 
 The topbar UX worktree now follows the operator's in-game scoreboard reference. Keep the
@@ -225,6 +249,10 @@ slot().name`, and PlayerTopBar's `tb-name` shows only the match's name while the
 shows the typed one. So a renamed slot reads "Captain" in Scenes, "Coach" under Player's portrait
 and on its token, and "Captain" in Player's portrait title. Needs a call on which wins in Player;
 then one helper (`slotName` in board/roster.ts) for both.
+
+**Update (2026-11-10, scene-parity):** Player's portrait title now follows its token and Tab
+column (the match's name, then a typed one), and no bar shows names under it any more. The
+Scenes/Player order difference itself is unchanged and still needs the call.
 
 ## A scene saved from another match shows no names (2026-11-09, from scene-names)
 
