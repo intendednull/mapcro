@@ -212,6 +212,11 @@ const openInspect = async (p: Page) => {
   if ((await inspected(p).count()) === 0) await p.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').click();
   await expect(inspected(p)).toHaveCount(1);
 };
+/** A hero's token on the map, by its panel's slot key ("amber-0"). */
+const token = (p: Page, slot: string) => p.locator(`.mapbox .tok[data-slot="${slot.replace(/^./, (c) => c.toUpperCase())}"]`);
+const heroPanel = (p: Page, slot: string) => p.locator(`[data-testid=hero-card][data-slot="${slot}"]`);
+/** The hero panels open, back to front, or "none". */
+const heroPanels = async (p: Page) => (await p.getByTestId("hero-card").evaluateAll((els) => els.map((e) => e.getAttribute("data-slot")).join(" "))) || "none";
 const scenes = (p: Page) => p.getByTestId("scene-card");
 const inSandbox = async (a: Page, b: Page) => {
   for (const p of [a, b]) await MODE.set(p, "scene");
@@ -387,6 +392,18 @@ const ROWS: Row[] = [
     theirs: "none",
     prep: at41,
     policy: panel,
+  },
+  {
+    // The hero panel opened from a token on the map (HeroCard.tsx).
+    key: "hero_panel",
+    read: heroPanels,
+    set: async (p, v) => {
+      for (const slot of (await heroPanels(p)).split(" ")) if (slot !== "none" && !v.split(" ").includes(slot)) await heroPanel(p, slot).getByTestId("hero-card-close").click();
+      for (const slot of v.split(" ")) if (slot !== "none" && (await heroPanel(p, slot).count()) === 0) await token(p, slot).click();
+    },
+    own: "sapphire-1",
+    theirs: "amber-0",
+    policy: personal,
   },
   {
     key: "event_recap",
