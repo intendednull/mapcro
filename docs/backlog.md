@@ -3,6 +3,15 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Rift troopers: follow-ups (2026-11-11, lead QA of 03fda8c)
+
+- **The "Rift trooper" hover rarely wins on real data.** On 129738985 at the 13:00 capture, the
+  seven troopers spawn on the rift marker (its "Rift opens in" hover wins) and then walk under the
+  capturing heroes (the hero hover wins). Decide the hit-test order: troopers before the rift
+  marker at least. Drawing (1.6x, darker) is right.
+- **Timelines parsed before 03fda8c lack the bit**, so their rift troopers draw as ordinary ones
+  until the match is re-parsed. No action unless someone asks.
+
 ## Tooltips: follow-ups (2026-11-11, from tooltips)
 
 Shipped on branch `tooltips` (spec §6b "Tooltips", "Hero panel"; plan 2026-11-10-game-tooltips).
