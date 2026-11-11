@@ -68,6 +68,20 @@ tick), played to the win. Souls grow after the win (+1,020/+812 on 129738985). b
 offsets). 129738985: 0.15–0.18 s, 11 MB of 504 MB, equal to the server preview and the full
 parse; 0.05–0.56 s and 5–23 MB on builds 6683–6839 and the Brawl demo. The demo has **no wall-clock start** (header, file info, entities checked), so a card's match time comes from the server's preview only.
 
+**Parser memory** ([parser-memory](parser-memory.md); probe `examples/memory_probe.rs`): a full
+parse of 129738985 at format 9 peaked at 48 MB anonymous on main, plus the mmapped demo's ~485 MB
+of clean file pages. The worker's `peak_rss_bytes` (VmHWM) counts both, so it reads ~530 MB. On
+main's peak, boon's `ModifierState` was 8 MB live and 14 MB mid-rehash (it never drops an entry
+without an explicit removal: 9,147 live × 584 B). The entity field maps were 13.4 MB (breakable
+props 6.2, troopers 3.4, zipline nodes 1.5) and our per-second `Obs` ~14 MB. Branch
+`parser-memory` keeps only the modifier fields read, filters those three classes' properties and
+collects only the 5 message types read. That gives 32.5 MB, the same timeline, and a parse that
+survives a 36M cap (main is killed at 40M). `from_bytes` adds 481 MB. boon has no reader API, but
+the forward pass needs none: a streamed reader means a small vendored pbdems2+boon patch
+(projected wasm peak 35–40 MB). The no-patch spliced read (minute stretches through `from_bytes`)
+gets every field right except the tough crates (70 of 78). `cargo check` for wasm32 passes, but
+zstd-sys builds host (x86-64) objects there.
+
 **Client-parsed timelines** (`replays.rs` `client_timeline`; spec §6a "Timelines parsed on the
 user's machine"): a timeline sent by the desktop app is refused unless its `format` equals
 `FORMAT` (`outdated_parser` / `newer_parser`), checked before the shape, so a parser change that
@@ -264,6 +278,10 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   `~/.local/share` on Linux are `kBlockAllChildren`. A browser folder picker can't open the
   default replays folder, only a secondary library's. Drop and `<input type=file>` still work.
   This is from the source and hasn't been tried in a real browser yet ([desktop-app](desktop-app.md) §2).
+- **Main's timelines aren't byte-stable:** same-instant `charges` reads came out in `HashMap` order
+  (fixed on branch `parser-memory`, TD-24). Compare with each player's `charges` sorted.
+- **A full packet at tick T follows tick T's packet** (`7@3841 13@3841`): a splice cut at a full
+  packet's offset splits that tick (parser-memory §2).
 - **Heavy probes** (`timer_audit` took 754 s) run alone under the load gate: the box is shared.
 
 ## Keeping this current

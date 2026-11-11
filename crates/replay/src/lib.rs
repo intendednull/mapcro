@@ -84,8 +84,17 @@ pub struct JobStats {
     pub parse_s: Option<f64>,
     /// Copying the timeline into the outbox.
     pub publish_s: Option<f64>,
-    /// The parse's peak resident memory (its child's `VmHWM`).
+    /// The parse's peak resident memory (its child's `VmHWM`). The memory-mapped demo's clean
+    /// pages count here (~485 MB for a 504 MB demo), so this is about the file's size.
     pub peak_rss_bytes: Option<u64>,
+    /// The child's largest anonymous resident memory (`RssAnon`, sampled every 20 ms through
+    /// decompression and the parse): what a memory cap has to hold (docs/research/parser-memory.md).
+    #[serde(default)]
+    pub peak_anon_bytes: Option<u64>,
+    /// A zstd download's window size, from its first frame header: the most the decoder holds
+    /// (the worker refuses past 128 MiB, `window_log_max(27)`).
+    #[serde(default)]
+    pub zstd_window_bytes: Option<u64>,
     /// The demo as queued (compressed or not).
     pub demo_bytes: Option<u64>,
     pub timeline_bytes: Option<u64>,

@@ -341,6 +341,8 @@ pub static BATCH: [f64; 8] = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0];
 const MIB: f64 = 1024.0 * 1024.0;
 /// A parse's peak resident memory.
 pub static RSS: [f64; 10] = [32.0 * MIB, 64.0 * MIB, 128.0 * MIB, 192.0 * MIB, 256.0 * MIB, 384.0 * MIB, 512.0 * MIB, 640.0 * MIB, 768.0 * MIB, 1024.0 * MIB];
+/// A parse's peak anonymous memory: ~32 MB for a 44-minute match (docs/research/parser-memory.md).
+pub static ANON: [f64; 11] = [8.0 * MIB, 16.0 * MIB, 24.0 * MIB, 32.0 * MIB, 48.0 * MIB, 64.0 * MIB, 96.0 * MIB, 128.0 * MIB, 192.0 * MIB, 256.0 * MIB, 384.0 * MIB];
 /// File sizes: a demo (~300-500 MB) or a timeline (~1-10 MB).
 pub static FILE: [f64; 12] = [
     0.25 * MIB,
@@ -413,7 +415,9 @@ registry! {
     decompress_s: Histogram<()> = Histogram::new("decompress_s", "Seconds to decompress a demo.", &SECS),
     parse_s: Histogram<()> = Histogram::new("parse_s", "Seconds to parse a demo and derive its timeline.", &SECS),
     publish_s: Histogram<()> = Histogram::new("publish_s", "Seconds to publish a timeline to the outbox.", &SECS),
-    parse_peak_rss_bytes: Histogram<()> = Histogram::new("parse_peak_rss_bytes", "A parse's peak resident memory.", &RSS),
+    parse_peak_rss_bytes: Histogram<()> = Histogram::new("parse_peak_rss_bytes", "A parse's peak resident memory, with the mapped demo's file pages.", &RSS),
+    parse_peak_anon_bytes: Histogram<()> = Histogram::new("parse_peak_anon_bytes", "A parse's peak anonymous memory (what a memory cap has to hold).", &ANON),
+    zstd_window_bytes: Histogram<()> = Histogram::new("zstd_window_bytes", "A zstd download's window size (the decoder's memory).", &FILE),
     demo_bytes: Histogram<()> = Histogram::new("demo_bytes", "A parsed demo's size as queued.", &FILE),
     timeline_bytes: Histogram<()> = Histogram::new("timeline_bytes", "A parsed timeline's size.", &FILE),
     // storage and the host
