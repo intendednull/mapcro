@@ -114,6 +114,10 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   (replays.rs `salts`), and metadata sends it. For a fresh match with a row, a free read is as
   good as a Steam one. About 10% have a `replay_salt` within 1 h, 42% at 2 h, then it levels
   off near 45–48%. For the rest, upload is the only path. Uploaded salts have always been correct.
+  Metadata `match_info.winning_team` (lobby team, 0 Amber) and `players[].kills`, `deaths`,
+  `net_worth` exist (129738985, read 2026-11-10, key names only): team kills 39/35 equal the other
+  team's deaths, and each player's last `stats[]` `net_worth` equals the final one. The preview
+  card reads them (spec §6a "Previews"; `matches.rs` `preview_of`).
 - **Valve CDN:** `http://replay{cluster}.valve.net/1422450/{match_id}_{replay_salt}.dem.bz2`
   (and `.meta.bz2`). Since 2026-07-20 the `.bz2` files are zstd: sniff the magic bytes
   (`lib.rs` `ZSTD_MAGIC`; match-replay §1.1). Valid about three weeks after the match (§3.4).
