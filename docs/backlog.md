@@ -731,6 +731,17 @@ deadlock-api's `/v1/matches/demo/query` (they parse; 200 req/h per IP), though t
 Notes: `docs/research/browser-side-replays.md`. Deferred by the operator in favour of moving the
 deadlock-api calls to the browser first.
 
+**2026-11-10 update (operator):** now more useful, as a fallback when the server's replay queue is
+full or busy (`queue_full`, `busy`): Player offers "Parse in this browser" and the result goes up
+through the client-timeline route that the Windows app uses (`POST
+/api/boards/{board}/replays/{id}/timeline`, spec §6a), which already validates and board-scopes it.
+Same code as the server and the app (`crates/replay` `worker::job`) built for wasm32. Run it in a
+Web Worker so the page stays responsive, and read the `.dem` from the `File` in slices rather than
+whole (the app's parse of 129738985 took 14.5 s and about 26 MB on the server's numbers; a 500 MB
+file must not be loaded into memory at once). Blockers to check first: boon on wasm32 (mmap,
+threads), the zstd/bzip2 crates on wasm, and phone memory. The format-9 lockstep applies: the
+browser build ships with the server, so it never lags `FORMAT`.
+
 ## A settings page (2026-11-08)
 
 As display preferences pile up, give them one home. Today they sit on Player's transport bar:
