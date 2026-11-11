@@ -197,3 +197,24 @@ fn stats_refuses_without_a_database_and_explains_its_flags() {
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stderr).contains("usage: mapcro-server stats"));
 }
+
+#[test]
+fn a_refused_client_timeline_counts_as_a_client_job_with_a_clean_message() {
+    let s = Server::start();
+    let (board, owner) = s.board();
+    let id = "987654322";
+    let r = agent()
+        .post(&s.url(&format!("/api/boards/{board}/replays/{id}/timeline")))
+        .header("authorization", &format!("Bearer {owner}"))
+        .header("content-type", "application/json")
+        .send(&br#"{"format": 7, "match_id": 987654322}"#[..])
+        .expect("send");
+    assert_eq!(r.status().as_u16(), 422);
+    s.until_stats(&["summary"], |v| v["health"]["replay_jobs"]["source=client,outcome=outdated_parser"].as_f64() == Some(1.0));
+    let failures = s.stats_json(&["failures", "--kind", "replay_job"]);
+    let f = failures.as_array().and_then(|f| f.first()).cloned().unwrap_or_default();
+    assert_eq!(f["code"], "outdated_parser", "{failures:#}");
+    let msg = f["message"].as_str().unwrap_or_default();
+    assert!(msg.starts_with("replay client outdated_parser after "), "{msg}");
+    assert!(!msg.contains(id) && !msg.contains(&board), "{msg}");
+}
