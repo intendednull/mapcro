@@ -3,7 +3,9 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
-## Previews of matches cached before acf63c3 have no winner (2026-11-11, lead, prod check)
+## Previews of matches cached before acf63c3 have no winner (2026-11-11, lead, prod check): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 6064363): the summary cache is stamped `summary_format`; an unstamped one without a winner is derived again from one metadata read, once a process, and a card with `winner: null` is made again from the summary (spec §6a, Previews).
 
 `GET /api/matches/129738985/preview` on prod answers `"winner": null`: the summary was cached
 before the summary kept the winner, and the preview is derived from that cache. Kills and souls
@@ -116,7 +118,9 @@ much they matter.
     (AppImage) would need a label and a release flag like `WINDOWS_APP_RELEASED`.
   - **WebKit in CI.** `just e2e-webkit` is opt-in and local; the main CI runs no e2e at all.
 
-## The salts backoff holds back free reads (2026-11-10, from salts-docs)
+## The salts backoff holds back free reads (2026-11-10, from salts-docs): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, aaf90b1; TD-9): the free read goes first and a 429 holds back only the Steam-capable read of a no-row match; the 400 is `no_replay`; a match before the ~2 h salts pass is held until it (spec §6a, Remembered failures and Pacing).
 
 deadlock-api answers a stored salts row before its rate limiter, so only a lookup of a match with
 no row spends its 3/h Steam budget (docs/research/deadlock-api-salts.md "When the backend asks the
@@ -394,7 +398,9 @@ A record with no localised name gets its internal name with the prefix stripped
 821 of the 2,061 modifiers end up there. Whether the UI shows those at all, or turns `_` into
 spaces, waits on the build-card UX.
 
-## Clippy fails on engine and server under rust 1.99 (2026-11-10, from pack-abilities)
+## Clippy fails on engine and server under rust 1.99 (2026-11-10, from pack-abilities): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy --workspace --all-targets -- -D warnings` (nix dev shell, rust 1.99.1) stops before
 it reaches most crates:
@@ -476,7 +482,9 @@ negative or fractional `t_s`, a missing `tier`) at deserialisation, so the answe
 well-typed but invalid values get. Only a client other than ours can send those shapes; parsing
 `match` as a raw value and checking it by hand would give one message for both.
 
-## clippy: `unwrap()` in packs.rs (2026-11-09, from feedback-match)
+## clippy: `unwrap()` in packs.rs (2026-11-09, from feedback-match): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy -p mapcro-server --all-targets` warns `clippy::unwrap_used` at
 crates/server/src/packs.rs:188 (`p.0.parse().unwrap()` in `newest_first`). Already on main; an
@@ -501,7 +509,9 @@ toggle of their own at least. Not asked for; the audit's candidates list has the
 `CCitadel_BreakableProp` (709 entities) it runs at about real time (30 min for 129738985).
 Comparing raw field values and formatting only the changes would make it a seconds-long probe.
 
-## Clippy: collapsible_if in derive.rs's buffs (2026-11-09, from heavy-crates)
+## Clippy: collapsible_if in derive.rs's buffs (2026-11-09, from heavy-crates): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy -p mapcro-replay --all-targets` warns `collapsible_if` at
 crates/replay/src/derive.rs:751 (`} else if !b.active && up { if let Some(l) = out.last_mut()`),
@@ -589,7 +599,9 @@ times out polling the replay inbox, with nothing on the page or in the error say
 was hit. player-vision.spec.ts now raises the limit for its server; a shared default in
 e2e/server.ts, or the helper reporting the refusal, would spare the next spec the hunt.
 
-## Clippy fails on crates/replay/src/parse.rs (2026-11-09, from shop-state)
+## Clippy fails on crates/replay/src/parse.rs (2026-11-09, from shop-state): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy -p mapcro-replay --tests -- -D warnings` (rust 1.99) stops on
 `clippy::chunks_exact_to_as_chunks` at parse.rs:658 (`key.chunks_exact(4)`), and on two more
