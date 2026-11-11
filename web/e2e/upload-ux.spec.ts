@@ -18,7 +18,7 @@ const KNOWN = 130816395;
 const NEW = 130816397;
 /** Past Valve's three weeks. */
 const OLD = 130816398;
-/** Its salts are rate-limited (asked last: the backoff holds every fetch). */
+/** Its Steam salts read is rate-limited (asked last: the backoff holds every no-row lookup). */
 const LIMITED = 130816399;
 /** Its replay parses badly. */
 const BAD = 130816400;
@@ -37,14 +37,16 @@ function meta(id: number, ageDays: number) {
 
 test.beforeAll(async () => {
   upstream = createServer((req, res) => {
+    // Kept with its query: the free salts read (`?disable_steam=true`) and the Steam one apart.
+    hits.push(req.url ?? "");
     const url = (req.url ?? "").split("?")[0]!;
-    hits.push(url);
     const m = /^\/v1\/matches\/(\d+)\/metadata$/.exec(url);
     if (m && Number(m[1]) !== NEW) {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(meta(Number(m[1]), Number(m[1]) === OLD ? 30 : 1));
     }
-    if (url === `/v1/matches/${LIMITED}/salts`) {
+    // deadlock-api's 429 is its Steam budget: the free read of a match with no row is a 404.
+    if (req.url === `/v1/matches/${LIMITED}/salts`) {
       res.writeHead(429, { "retry-after": "600" });
       return res.end("{}");
     }
@@ -160,7 +162,7 @@ test("a match deadlock-api doesn't know yet: the landing says so, keeps the id, 
   await expect(p).toHaveURL(`${server.url}/`);
   await shot(p, "landing-not-found");
   // Try again asks again.
-  const asked = () => hits.filter((h) => h === `/v1/matches/${NEW}/metadata`).length;
+  const asked = () => hits.filter((h) => h.split("?")[0] === `/v1/matches/${NEW}/metadata`).length;
   const before = asked();
   await p.getByTestId("open-match-retry").click();
   await expect.poll(asked).toBe(before + 1);
@@ -220,7 +222,8 @@ test("Player: a replay Valve hasn't got says so, Try again asks again, and a dro
   await expect(a.getByTestId("replay-prompt-why")).toHaveText("Valve doesn't have the replay yet.");
   await expect(a.getByTestId("match-notice")).toHaveCount(0);
   await shot(a, "player-no-replay");
-  const salts = () => hits.filter((h) => h === `/v1/matches/${KNOWN}/salts`).length;
+  // Lookups: each starts with the free read (then, with no row, one Steam read).
+  const salts = () => hits.filter((h) => h === `/v1/matches/${KNOWN}/salts?disable_steam=true`).length;
   const before = salts();
   await a.getByTestId("replay-prompt-retry").click();
   await expect.poll(salts, { message: "Try again goes past the server's memory of the failure" }).toBe(before + 1);
@@ -359,7 +362,7 @@ test("an expired replay says to upload it", async ({ browser }) => {
   await expect(p.getByTestId("replay-prompt-upload")).toBeVisible();
   await expect(p.getByTestId("replay-prompt-retry")).toHaveCount(0);
   await shot(p, "player-expired");
-  expect(hits).not.toContain(`/v1/matches/${OLD}/salts`);
+  expect(hits.filter((h) => h.startsWith(`/v1/matches/${OLD}/salts`))).toEqual([]);
 });
 
 // Last: deadlock-api's 429 backs every fetch off for its Retry-After.
