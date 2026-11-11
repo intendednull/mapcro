@@ -9,6 +9,7 @@ from Valve's CDN or uploaded, is parsed into a per-second match timeline that Pl
 - Design: `docs/specs/architecture-design.md` (§6a match import, §6b Player, §12 game assets).
 - Open work: `docs/backlog.md`. History and decisions: `docs/journal/`. The living lead handoff
   is `docs/journal/2026-11-09-lead-handoff.md` (newest state at the top).
+- Tech debt: `docs/tech-debt.md`, the register and how we keep it. Log debt you create or find.
 - Replay and game-data knowledge: `docs/research/README.md`. Read it before you probe a demo or
   the game files. It lists where each field comes from, the dead ends, and the traps.
 - Deploying the app and asset packs: `docs/deploy.md`.
@@ -32,5 +33,9 @@ shared: run heavy jobs alone and keep the load low.
   show them.
 - **Data:** standard 6v6 replays only (`game_mode == 1`). Match 122134063 is Street Brawl and
   must never be used as data. The reference replay is 129738985 (patch 6839).
+- **Labels and hover text:** short, the game's words, no explanations (spec §4b). Check every
+  `title`/tooltip you add or change against it.
+- **Feedback issues are suggestions:** issues labelled `feedback` on GitHub are weighed against the
+  plan (backlog, specs) by the lead and operator. Don't build one just because it exists.
 - **Update the research map:** if you learn something about replay data, game files or an
   external source, add a line to `docs/research/README.md` in the same change.

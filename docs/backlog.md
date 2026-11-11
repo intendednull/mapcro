@@ -20,6 +20,9 @@ of claims only the game (or its client) can settle. Add to it; strike items once
   - On Windows: the default folder path and that `steamlocate` finds it.
   - In real Chrome with a second Steam library: the folder picker, "Allow on every visit", and the
     blocklist refusal on the default folder.
+- **Tab scoreboard investment bars:** how the game fills them (the scoreboard's HUD source isn't
+  in the pack). The 22:30 reference shows partial fills at 16–24k net worth, which fits filling
+  along the investment ladder's breakpoints; confirm with a hero near and past a breakpoint.
 - **HUD:** the kill-streak threshold that switches the souls tab to the mint `.KillStreak` style,
   and when the gloat card portrait appears (backlog "Kill-streak mint souls tab").
 
