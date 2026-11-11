@@ -2,7 +2,7 @@
 // playback time t (the board renders the preview this produces); this draws the transport, the
 // roster with ult rings, the match source controls and the events list. Labels only.
 
-import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
 import type { Art } from "../map/pack";
 import { Dynamic } from "solid-js/web";
 import { cx } from "../ui/cx";
@@ -57,7 +57,23 @@ export function Player(p: {
   const canEdit = () => p.state.canEdit();
   const markers = () => p.art.model.markers;
   const lanes = () => p.art.model.lanes.map((l) => l.key);
-  onMount(() => dismissDisclosure(() => document.querySelector<HTMLDetailsElement>(".pl-source")));
+  let source: HTMLDetailsElement | undefined;
+  onMount(() => dismissDisclosure(() => source ?? null));
+  // Once a match is in (loaded, or its replay parsed), the source panel's work is done: it
+  // closes, as a menu does after its choice, so it no longer covers the tools under it (the
+  // bar's left end). A refused id or a failed load keeps it open, its status saying why.
+  createEffect(
+    on(
+      () => {
+        const m = h.tl();
+        return m ? `${m.match_id}:${tierOf(m)}` : "";
+      },
+      (now, was) => {
+        if (now && now !== was && source?.open) source.open = false;
+      },
+      { defer: true },
+    ),
+  );
 
   const user = (f: () => void) => {
     p.onUserPlayback();
@@ -264,7 +280,7 @@ export function Player(p: {
             </Show>
           </div>
         </Show>
-        <details class="pl-source" classList={{ "pl-hidden": !watching() }}>
+        <details ref={source} class="pl-source" classList={{ "pl-hidden": !watching() }}>
           <summary class="btn ghost small">Match {h.matchId() || "source"} <span aria-hidden="true">▴</span></summary>
         <form
           class="pl-head"
