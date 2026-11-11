@@ -56,6 +56,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: debug
+          # Kept when a later step fails: the CLIs and the debug build are most of the job's time.
+          cache-on-failure: true
           workspaces: |
             . -> target
             desktop/app -> target
@@ -81,9 +83,7 @@ jobs:
           Start-Sleep -Seconds 15
           if ($p.HasExited) { throw "the installed app exited ($($p.ExitCode))" }
           Stop-Process -Id $p.Id -Force
-          # Its WebView2 children outlive it and keep the profile locked; the smoke test's
-          # WebView2 (with remote debugging) would then hand off to them and never open the
-          # DevTools port msedgedriver waits for ("DevToolsActivePort file doesn't exist").
+          # Its WebView2 children can outlive it; none should be left for the smoke test.
           Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep -Seconds 3
       - name: The installer registered mapcro:// (per-user)
@@ -107,9 +107,38 @@ jobs:
           $zip = Join-Path $env:RUNNER_TEMP 'edgedriver.zip'
           Invoke-WebRequest "https://msedgedriver.microsoft.com/$v/edgedriver_win64.zip" -OutFile $zip
           Expand-Archive $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'edgedriver')
-          "NATIVE_DRIVER=$(Join-Path $env:RUNNER_TEMP 'edgedriver\msedgedriver.exe')" >> $env:GITHUB_ENV
+          $drv = Join-Path $env:RUNNER_TEMP 'edgedriver\msedgedriver.exe'
+          & $drv --version
+          # A wrapper, so msedgedriver logs verbosely (tauri-driver passes it only the port).
+          $log = Join-Path $env:RUNNER_TEMP 'diag\msedgedriver.log'
+          New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
+          $cmd = Join-Path $env:RUNNER_TEMP 'edgedriver\msedgedriver-verbose.cmd'
+          "@`"$drv`" --verbose `"--log-path=$log`" %*" | Set-Content -Encoding ascii $cmd
+          Get-Content $cmd
+          "NATIVE_DRIVER=$cmd" >> $env:GITHUB_ENV
       - name: Smoke test of the installed app (tauri-driver + msedgedriver)
-        run: node desktop/smoke/smoke.mjs "${{ steps.install.outputs.exe }}" --fake-steam
+        run: |
+          # For a failure: the app's and WebView2's processes (command lines), every 3 s.
+          $out = Join-Path $env:RUNNER_TEMP 'diag\processes.txt'
+          $sampler = Start-Job -ArgumentList $out -ScriptBlock {
+            param($out)
+            while ($true) {
+              "=== $(Get-Date -Format o)" | Add-Content $out
+              Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'mapcro|msedge|tauri' } |
+                ForEach-Object { "$($_.ProcessId) <- $($_.ParentProcessId) $($_.Name): $($_.CommandLine)" } | Add-Content $out
+              Start-Sleep -Seconds 3
+            }
+          }
+          try { node desktop/smoke/smoke.mjs "${{ steps.install.outputs.exe }}" --fake-steam }
+          finally { Stop-Job $sampler; Remove-Job $sampler -Force }
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: On failure, msedgedriver's verbose log and the process samples
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-smoke-diag
+          path: ${{ runner.temp }}/diag
+          if-no-files-found: warn
       - name: The portable build registers mapcro:// itself (desktop/README.md, Installer or portable)
         working-directory: desktop/app
         run: |
