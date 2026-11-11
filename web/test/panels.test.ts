@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { initSync, presenceFrameOk } from "../src/wasm/mapcro_wasm.js";
 import { VIEW_STATE } from "../src/gen/viewState";
 import { PLACE_SCALE, type HeroPanelOpen, heroPanelsFromWire, heroPanelsToWire, placeFromWire, placeToWire } from "../src/player/layers";
-import { type Pane, cascade, clampSpot, placeOf, spotOf } from "../src/player/panelPlace";
+import { type Pane, cascade, clampSpot, paneOf, placeOf, spotOf } from "../src/player/panelPlace";
 import { createViewState, type Values, VIEW_KEYS } from "../src/player/viewstate";
 
 initSync({ module: readFileSync(join(resolve(__dirname, "../.."), "web/src/wasm/mapcro_wasm_bg.wasm")) });
@@ -21,6 +21,9 @@ describe("a panel's place in the pane", () => {
     expect(placeOf({ left: 40, top: 60 }, 200, 100, p)).toEqual({ x: 500, y: 1000, right: false, bottom: false });
     // Right of centre and below it: from the right and bottom edges, to the panel's own.
     expect(placeOf({ left: 560, top: 440 }, 200, 100, p)).toEqual({ x: 500, y: 1000, right: true, bottom: true });
+    // By the panel's centre, not its corner: left of centre at its corner, right of it at its centre.
+    expect(placeOf({ left: 350, top: 260 }, 200, 100, p)).toMatchObject({ right: true, bottom: true });
+    expect(placeOf({ left: 250, top: 240 }, 200, 100, p)).toMatchObject({ right: false, bottom: false });
     for (const at of [{ left: 40, top: 60 }, { left: 560, top: 440 }, { left: 299, top: 251 }, { left: 301, top: 249 }]) {
       // To a tenth of a pixel on this pane (a place is in ten-thousandths of it).
       const back = spotOf(placeOf(at, 200, 100, p), 200, 100, p);
@@ -57,6 +60,31 @@ describe("a panel's place in the pane", () => {
     const p = pane(1000, 1000, 50, 0);
     const spots = [0, 1, 7, 8].map((n) => spotOf(cascade(n, p), 0, 0, p));
     expect(spots).toEqual([{ left: 12, top: 50 }, { left: 36, top: 74 }, { left: 180, top: 218 }, { left: 12, top: 50 }]);
+  });
+});
+
+describe("the pane's own controls", () => {
+  const rect = (left: number, top: number, width: number, height: number) => ({ getBoundingClientRect: () => ({ left, top, width, height, right: left + width, bottom: top + height }) }) as unknown as HTMLElement;
+  it("take a band from the nearer edge past them, with a gap; ones off the pane or hidden take none", () => {
+    const paneEl = rect(100, 50, 500, 400);
+    // A row at the top (Map layers), one at the bottom (#33 moves them there), one hidden, one beside the pane.
+    const got = paneOf(paneEl, [rect(104, 54, 120, 28), rect(110, 410, 200, 30), rect(300, 200, 0, 0), rect(620, 60, 40, 40)]);
+    expect(got).toEqual({ w: 500, h: 400, top: 82 - 50 + 4, bottom: 450 - 410 + 4 });
+    expect(paneOf(paneEl, [])).toEqual({ w: 500, h: 400, top: 0, bottom: 0 });
+  });
+});
+
+describe("the store's hero panels", () => {
+  it("an equal list is no change: nothing remembered, nothing re-sent", () => {
+    const first = Object.fromEntries(VIEW_KEYS.map((k) => [k, undefined])) as unknown as Values;
+    const own: unknown[] = [];
+    const s = createViewState({ ...first, "recap.event": [], "events.search": "", "heroes.panels": [] } as Values, { onOwn: (k, v) => k === "heroes.panels" || k === "recap.skull.place" ? own.push(v) : undefined });
+    const list = () => [{ slot: "amber-0", at: { x: 1, y: 2, right: false, bottom: false } }];
+    s.set("heroes.panels", list());
+    s.set("heroes.panels", list());
+    s.set("recap.skull.place", { x: 3, y: 4, right: true, bottom: false });
+    s.set("recap.skull.place", { x: 3, y: 4, right: true, bottom: false });
+    expect(own).toHaveLength(2);
   });
 });
 
