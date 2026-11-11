@@ -22,7 +22,9 @@ import { crowdControlAt } from "./cc";
 import type { PlayerVision } from "../gen/PlayerVision";
 import type { DeathRef } from "../gen/DeathRef";
 import type { SlotRef } from "../gen/SlotRef";
-import { type Death, type MapLayers, deathFromWire, deathKey, deathToWire, layersFromWire, layersToWire, slotFromWire, slotToWire } from "./layers";
+import { type Death, deathFromWire, deathKey, deathToWire, slotFromWire, slotToWire } from "./layers";
+import { createViewState } from "./viewstate";
+import type { ViewKey } from "../gen/viewState";
 
 export type Mode = "player" | "sandbox";
 
@@ -69,40 +71,52 @@ export function createPlayerHost(board: string, token: string) {
     setModeRaw(m);
   };
   /**
-   * The map layers (the "Map layers" toggles but Player names; player/layers.ts). Your own are
-   * this tab's (Heals and Heavy boxes remembered in this browser); while you follow, a presenter
-   * who sends theirs is drawn instead (spec §8), and yours come back when you stop. Troopers,
-   * health and pings are on by default (operator, 2026-11-08), CC and movement off.
+   * The view state the registry holds (player/viewstate.ts; crates/engine/src/view_state.rs has
+   * each key's follow policy). The map layers (the "Map layers" toggles): your own are this
+   * tab's (Heals and Heavy boxes remembered in this browser); while you follow, a presenter who
+   * sends theirs is drawn instead (spec §8), and yours come back when you stop. Troopers, health
+   * and pings are on by default (operator, 2026-11-08), CC and movement off. Players' names
+   * (spec §6b "Names"), on by default; off, nothing on screen names a player (for recording
+   * without them): this browser's alone, remembered here, never in presence.
    */
-  const [ownLayers, setOwnLayers] = createSignal<MapLayers>({ troopers: true, health: true, pings: true, cc: false, movement: false, heals: mapHealsShown(), crates: mapCratesShown() });
-  const [theirLayers, setTheirLayers] = createSignal<MapLayers | undefined>(undefined, { equals: (a, b) => (a ? layersToWire(a) : -1) === (b ? layersToWire(b) : -1) });
-  const layers = () => theirLayers() ?? ownLayers();
-  /** Your own choice keeps what the map shows now (a presenter's, while following) with the one
-   * change, as Vision's does; the caller stops the follow. */
-  const setLayer = (k: keyof MapLayers, on: boolean) => {
-    const next = { ...layers(), [k]: on };
-    setOwnLayers(next);
-    setMapHealsShown(next.heals);
-    setMapCratesShown(next.crates);
-  };
-  const showTroopers = () => layers().troopers;
-  const setShowTroopers = (on: boolean) => setLayer("troopers", on);
-  const showHealth = () => layers().health;
-  const setShowHealth = (on: boolean) => setLayer("health", on);
-  const showCC = () => layers().cc;
-  const setShowCC = (on: boolean) => setLayer("cc", on);
-  const showMovement = () => layers().movement;
-  const setShowMovement = (on: boolean) => setLayer("movement", on);
-  const showPings = () => layers().pings;
-  const setShowPings = (on: boolean) => setLayer("pings", on);
-  const showHeals = () => layers().heals;
-  const setShowHeals = (on: boolean) => setLayer("heals", on);
-  const showCrates = () => layers().crates;
-  const setShowCrates = (on: boolean) => setLayer("crates", on);
+  const REMEMBER: Partial<Record<ViewKey, (on: boolean) => void>> = { "layer.heals": setMapHealsShown, "layer.crates": setMapCratesShown, names: setPlayerNamesShown };
+  const viewState = createViewState(
+    {
+      "layer.troopers": true,
+      "layer.health": true,
+      "layer.pings": true,
+      "layer.cc": false,
+      "layer.movement": false,
+      "layer.heals": mapHealsShown(),
+      "layer.crates": mapCratesShown(),
+      "builds.all": false,
+      names: playerNamesShown(),
+    },
+    (k, on) => REMEMBER[k]?.(on),
+  );
+  /** A key's value, and your own choice of it (a `stop` key: the caller stops the follow). */
+  const showing = (k: ViewKey) => () => viewState.get(k);
+  const choosing = (k: ViewKey) => (on: boolean) => viewState.set(k, on);
+  const showTroopers = showing("layer.troopers");
+  const setShowTroopers = choosing("layer.troopers");
+  const showHealth = showing("layer.health");
+  const setShowHealth = choosing("layer.health");
+  const showCC = showing("layer.cc");
+  const setShowCC = choosing("layer.cc");
+  const showMovement = showing("layer.movement");
+  const setShowMovement = choosing("layer.movement");
+  const showPings = showing("layer.pings");
+  const setShowPings = choosing("layer.pings");
+  const showHeals = showing("layer.heals");
+  const setShowHeals = choosing("layer.heals");
+  const showCrates = showing("layer.crates");
+  const setShowCrates = choosing("layer.crates");
+  const showNames = showing("names");
+  const setShowNames = choosing("names");
   /** What presence's `layers` says. */
-  const layersWire = () => layersToWire(layers());
+  const layersWire = () => viewState.bits("layers");
   /** A followed presenter's layers (absent: an older client, and yours stay). */
-  const mirrorLayers = (n: number | null | undefined) => setTheirLayers(layersFromWire(n));
+  const mirrorLayers = (n: number | null | undefined) => viewState.mirrorBits("layers", n);
   /**
    * The panels a follower opens with its presenter (spec §8): the skull's recap card on the map,
    * the events list's open recaps (presence carries the last opened), and the top bar's builds
@@ -119,17 +133,9 @@ export function createPlayerHost(board: string, token: string) {
     setEventRecaps(open ? [...rest, d] : rest);
   };
   const [openBuild, setOpenBuild] = createSignal<string>();
-  const [allBuilds, setAllBuilds] = createSignal(false);
+  const allBuilds = showing("builds.all");
+  const setAllBuilds = (on: boolean | ((was: boolean) => boolean)) => viewState.set("builds.all", typeof on === "function" ? on(untrack(allBuilds)) : on);
   const [tabHeld, setTabHeld] = createSignal(false);
-  /**
-   * Players' names (spec §6b "Names"), on by default; off, nothing on screen names a player (for
-   * recording without them). This browser's alone: remembered here, never in presence.
-   */
-  const [showNames, setShowNamesRaw] = createSignal(playerNamesShown());
-  const setShowNames = (on: boolean) => {
-    setPlayerNamesShown(on);
-    setShowNamesRaw(on);
-  };
   /**
    * Whose vision the map draws (spec §6b "Vision"): every hero, or one team's view, where an enemy
    * out of its sight isn't drawn (with `showLastSeen`, a ghost where it was last seen). Your own
@@ -678,7 +684,7 @@ export function createPlayerHost(board: string, token: string) {
       if (was && deathKey(was) !== deathKey(event)) setEventRecapOpen(was, false);
       if (event) setEventRecapOpen(event, true);
       setOpenBuild(slotFromWire(theirs.inspect));
-      setAllBuilds(theirs.all_builds === true);
+      viewState.mirrorFlag("builds.all", theirs.all_builds === true);
     });
     heardPanels = { v, event };
   };
@@ -735,7 +741,7 @@ export function createPlayerHost(board: string, token: string) {
     heard = undefined;
     heardPanels = undefined;
     setTheirVision(undefined);
-    setTheirLayers(undefined);
+    viewState.forget();
   };
   // Another match: its panels are gone (they name its deaths and slots).
   createEffect(on(matchId, () => {

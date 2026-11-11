@@ -1285,7 +1285,8 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
     presenters at once. View-only people can follow but can't be followed. Presence carries each
     person's role, and the server stamps it from their link, so it can't be forged.
   - **Map layers** (operator bug, 2026-11-11: "the follower doesn't see the same map layers"):
-    presence's `layers` is one byte, a bit per "Map layers" toggle (wire.rs `LAYER_*`: lane
+    presence's `layers` is one byte, a bit per "Map layers" toggle (wire.rs `LAYER_*`, each a
+    registry row: lane
     troopers, health bars & arcs, event pings, crowd control, elevation & ziplines, healing
     pickups, heavy boxes). A follower draws the presenter's, its toggles showing them; stopping,
     or the presenter leaving, brings its own back untouched. A follower's own toggle while
@@ -1305,6 +1306,16 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
     wins. Stopping leaves the panels as they are. Not followed yet (docs/backlog.md): which of
     Effects and Build order is open in a hero's build, the events list's filters, search and
     scroll, and the teleporter pair's line.
+  - **The view-state registry** (2026-11-11; plan: `docs/plans/2026-11-11-view-state-sync.md`):
+    what following does with a piece of view state is declared, not wired per feature.
+    `crates/engine/src/view_state.rs` has one row per key: whether a follower mirrors it, the
+    presence field and bit that carry it, whether the follower's own value comes back on
+    stopping, and whether its own change stops the follow. `just ts` generates the rows into
+    `web/src/gen/viewState.ts`, and the client's store (`web/src/player/viewstate.ts`) sends,
+    mirrors and restores from them. In it so far: the seven map layers, All builds and Player
+    names; Vision and the other panels are still wired by hand in `host.ts`. Tests fail when a
+    presence field, or a signal or `<details>` in Player, has no declared policy
+    (`web/test/view-state-ledger.ts` lists the ones that aren't registry keys, with why).
 - Presence timeout: 30 s without a heartbeat removes the entry.
 - **A peer that falls behind isn't sent presence it can't keep up with, but it isn't left stale
   either.** A batch is skipped for a peer more than 64 KiB behind. The room remembers whose
