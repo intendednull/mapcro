@@ -41,6 +41,21 @@ docs/research/demo-preview.md). Left over:
 - **Previews ahead of view:** cards read one at a time as they scroll in; the next page's could be
   read while the picker is idle.
 
+## Follow: what a follower still doesn't share (2026-11-11, from follow-sync)
+
+Following now carries the map layers and the open panels (death recaps, builds; spec §8). Held:
+- **Effects and Build order inside a hero's build:** the follower opens the same hero's build,
+  but which of the two popovers is open (or none) is its own. Small: two more bits in `playback`.
+- **The events list's filters, search and scroll.** A follower pings from its own filters, so
+  its pings can differ from the presenter's, and an events-row recap the presenter opens stays
+  closed on a follower whose filters hide that row. Sharing filters changes what the follower's
+  list shows; worth asking the operator whether that is wanted.
+- **The events list doesn't scroll to a recap the presenter opens.** It opens in place; the list
+  follows "Now" as before, so an older death's recap may open out of view.
+- **The teleporter pair's line** (below, "A follower doesn't see the presenter's teleporter pair").
+- **Sidebar tab (Events or Notes), the Layers popover being open, and the side panels on the
+  phone:** layout, left each person's own.
+
 ## Previews of matches cached before acf63c3 have no winner (2026-11-11, lead, prod check)
 
 `GET /api/matches/129738985/preview` on prod answers `"winner": null`: the summary was cached
@@ -565,11 +580,10 @@ of drift. `reanchored` in matches.rs re-anchors paths to deaths, which hides it 
 Checking where the drift starts against `match_pauses` on a few paused matches would tell; if it
 fits, cutting each pause's samples from the paths would fix the summary tier's clock.
 
-## "Presenter left" has no test that the follower's own Vision comes back (2026-11-09, from follow-vision)
+## "Presenter left" has no test that the follower's own Vision comes back (2026-11-09, from follow-vision): resolved
 
-When a followed presenter leaves, Board.tsx now calls `player.forget()` (as stopping does), so
-the follower's own Vision returns. The player-vision e2e covers stopping by hand, not the
-presenter closing their tab; a step that closes the presenter's page mid-follow would pin it.
+Resolved 2026-11-11 (follow-sync): `player-follow-view.spec.ts` closes the presenter's context
+mid-follow and checks the follower's own Vision and map layers come back.
 
 ## Player puts the match's name before a typed slot name (2026-11-09, from scene-names)
 

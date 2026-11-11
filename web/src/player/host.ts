@@ -2,7 +2,7 @@
 // replay job, the playback clock, the mode (Player or Sandbox) and the jump highlight. The
 // board creates one; Player renders it; following reads and writes its playback.
 
-import { createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js";
 import { type CampAt, type MatchEvent, type PowerupAt, type RiftAt, type Timeline, tierOf, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, riftAt, shopsClosed, sitesAt, urnAt } from "../match/timeline";
 import { movementAt } from "./movement";
 import type { MatchPreview } from "../match/preview";
@@ -15,11 +15,14 @@ import { type Handoff, takeHandoff } from "./handoff";
 import { type Playback, clampT, follow, rebase, tAt } from "./clock";
 import { type Pt, worldToMap } from "../map/transform";
 import { eventKey } from "./events";
-import { chooseSummary, markOpened, openedHere, playerLastSeenShown, playerNamesShown, playerVision, setPlayerLastSeenShown, setPlayerNamesShown, setPlayerVision, summaryChosen } from "../core/device";
+import { mapCratesShown, mapHealsShown, setMapCratesShown, setMapHealsShown, chooseSummary, markOpened, openedHere, playerLastSeenShown, playerNamesShown, playerVision, setPlayerLastSeenShown, setPlayerNamesShown, setPlayerVision, summaryChosen } from "../core/device";
 import { type Vision, hasVision, seenAt, visionFromWire, visionToWire } from "./vision";
 import { skullsAt } from "./skulls";
 import { crowdControlAt } from "./cc";
 import type { PlayerVision } from "../gen/PlayerVision";
+import type { DeathRef } from "../gen/DeathRef";
+import type { SlotRef } from "../gen/SlotRef";
+import { type Death, type MapLayers, deathFromWire, deathKey, deathToWire, layersFromWire, layersToWire, slotFromWire, slotToWire } from "./layers";
 
 export type Mode = "player" | "sandbox";
 
@@ -34,6 +37,11 @@ export interface PlaybackPresence {
   jump?: { key: string; at: number } | null;
   /** Whose vision the map draws (`null` team: All) and Show last seen location. */
   vision?: PlayerVision | null;
+  /** The open panels (wire.rs `Playback`): left out when closed. */
+  skull_recap?: DeathRef;
+  event_recap?: DeathRef;
+  inspect?: SlotRef;
+  all_builds?: boolean;
 }
 
 export function createPlayerHost(board: string, token: string) {
@@ -60,15 +68,59 @@ export function createPlayerHost(board: string, token: string) {
     }
     setModeRaw(m);
   };
-  /** The trooper dots (replay tier), on by default. */
-  const [showTroopers, setShowTroopers] = createSignal(true);
-  // Health bars and rings (replay tier), on by default (operator, 2026-11-08).
-  const [showHealth, setShowHealth] = createSignal(true);
-  /** Optional compact hard-CC labels, off by default. */
-  const [showCC, setShowCC] = createSignal(false);
-  const [showMovement, setShowMovement] = createSignal(false);
-  /** Event pings while playing (spec §6b), on by default. */
-  const [showPings, setShowPings] = createSignal(true);
+  /**
+   * The map layers (the "Map layers" toggles but Player names; player/layers.ts). Your own are
+   * this tab's (Heals and Heavy boxes remembered in this browser); while you follow, a presenter
+   * who sends theirs is drawn instead (spec §8), and yours come back when you stop. Troopers,
+   * health and pings are on by default (operator, 2026-11-08), CC and movement off.
+   */
+  const [ownLayers, setOwnLayers] = createSignal<MapLayers>({ troopers: true, health: true, pings: true, cc: false, movement: false, heals: mapHealsShown(), crates: mapCratesShown() });
+  const [theirLayers, setTheirLayers] = createSignal<MapLayers | undefined>(undefined, { equals: (a, b) => (a ? layersToWire(a) : -1) === (b ? layersToWire(b) : -1) });
+  const layers = () => theirLayers() ?? ownLayers();
+  /** Your own choice keeps what the map shows now (a presenter's, while following) with the one
+   * change, as Vision's does; the caller stops the follow. */
+  const setLayer = (k: keyof MapLayers, on: boolean) => {
+    const next = { ...layers(), [k]: on };
+    setOwnLayers(next);
+    setMapHealsShown(next.heals);
+    setMapCratesShown(next.crates);
+  };
+  const showTroopers = () => layers().troopers;
+  const setShowTroopers = (on: boolean) => setLayer("troopers", on);
+  const showHealth = () => layers().health;
+  const setShowHealth = (on: boolean) => setLayer("health", on);
+  const showCC = () => layers().cc;
+  const setShowCC = (on: boolean) => setLayer("cc", on);
+  const showMovement = () => layers().movement;
+  const setShowMovement = (on: boolean) => setLayer("movement", on);
+  const showPings = () => layers().pings;
+  const setShowPings = (on: boolean) => setLayer("pings", on);
+  const showHeals = () => layers().heals;
+  const setShowHeals = (on: boolean) => setLayer("heals", on);
+  const showCrates = () => layers().crates;
+  const setShowCrates = (on: boolean) => setLayer("crates", on);
+  /** What presence's `layers` says. */
+  const layersWire = () => layersToWire(layers());
+  /** A followed presenter's layers (absent: an older client, and yours stay). */
+  const mirrorLayers = (n: number | null | undefined) => setTheirLayers(layersFromWire(n));
+  /**
+   * The panels a follower opens with its presenter (spec §8): the skull's recap card on the map,
+   * the events list's open recaps (presence carries the last opened), and the top bar's builds
+   * (one hero's, or all: the button or Tab held). A follower may open and close its own while
+   * following; the presenter's next change wins.
+   */
+  const [skullRecap, setSkullRecap] = createSignal<Death | undefined>(undefined, { equals: (a, b) => deathKey(a) === deathKey(b) });
+  const [eventRecaps, setEventRecaps] = createSignal<Death[]>([]);
+  const eventRecapOpen = (d: Death) => eventRecaps().some((x) => deathKey(x) === deathKey(d));
+  const setEventRecapOpen = (d: Death, open: boolean) => {
+    // The details' toggle event fires for a change made here too: a repeat changes nothing.
+    if (open === untrack(() => eventRecapOpen(d))) return;
+    const rest = untrack(eventRecaps).filter((x) => deathKey(x) !== deathKey(d));
+    setEventRecaps(open ? [...rest, d] : rest);
+  };
+  const [openBuild, setOpenBuild] = createSignal<string>();
+  const [allBuilds, setAllBuilds] = createSignal(false);
+  const [tabHeld, setTabHeld] = createSignal(false);
   /**
    * Players' names (spec §6b "Names"), on by default; off, nothing on screen names a player (for
    * recording without them). This browser's alone: remembered here, never in presence.
@@ -598,7 +650,37 @@ export function createPlayerHost(board: string, token: string) {
       speed: pb.speed,
       jump: jumpedTo ? { key: eventKey(jumpedTo.event), at: jumpedTo.at } : null,
       vision: visionToWire(vision(), showLastSeen()),
+      // Open panels only: presence is resent whole on every change, so closed ones cost nothing.
+      ...panelsWire(),
     };
+  };
+  const panelsWire = (): Pick<PlaybackPresence, "skull_recap" | "event_recap" | "inspect" | "all_builds"> => {
+    const out: Pick<PlaybackPresence, "skull_recap" | "event_recap" | "inspect" | "all_builds"> = {};
+    const skull = deathToWire(skullRecap());
+    const ev = deathToWire(eventRecaps().at(-1));
+    const hero = !allBuilds() && !tabHeld() ? slotToWire(openBuild() ?? "") : undefined;
+    if (skull) out.skull_recap = skull;
+    if (ev) out.event_recap = ev;
+    if (hero) out.inspect = hero;
+    if (allBuilds() || tabHeld()) out.all_builds = true;
+    return out;
+  };
+  /** The panels heard last from the presenter (with the match), so only a change applies. */
+  let heardPanels: { v: string; event: Death | undefined } | undefined;
+  const mirrorPanels = (theirs: PlaybackPresence) => {
+    const v = JSON.stringify([theirs.match_id, theirs.skull_recap, theirs.event_recap, theirs.inspect, theirs.all_builds]);
+    if (heardPanels?.v === v) return;
+    const event = deathFromWire(theirs.event_recap);
+    untrack(() => {
+      setSkullRecap(deathFromWire(theirs.skull_recap));
+      // The presenter's last one closes as theirs does (or another opens); your own stay.
+      const was = heardPanels?.event;
+      if (was && deathKey(was) !== deathKey(event)) setEventRecapOpen(was, false);
+      if (event) setEventRecapOpen(event, true);
+      setOpenBuild(slotFromWire(theirs.inspect));
+      setAllBuilds(theirs.all_builds === true);
+    });
+    heardPanels = { v, event };
   };
 
   /**
@@ -645,12 +727,23 @@ export function createPlayerHost(board: string, token: string) {
     if (!tl()) return;
     const next = follow(playback(), { ...theirs, at: heard.at }, performance.now(), duration());
     if (next !== playback()) setPlayback(next);
+    mirrorPanels(theirs);
   };
-  /** Following stopped: the next presenter's values are new. */
+  /** Following stopped: the next presenter's values are new. Your own layers and Vision come
+   * back; the panels stay as they are, as what you were looking at. */
   const forget = () => {
     heard = undefined;
+    heardPanels = undefined;
     setTheirVision(undefined);
+    setTheirLayers(undefined);
   };
+  // Another match: its panels are gone (they name its deaths and slots).
+  createEffect(on(matchId, () => {
+    setSkullRecap(undefined);
+    setEventRecaps([]);
+    setOpenBuild(undefined);
+    setAllBuilds(false);
+  }, { defer: true }));
 
   /**
    * Event pings (spec §6b): each event the playback passes while it runs, under the list's
@@ -782,6 +875,22 @@ export function createPlayerHost(board: string, token: string) {
     presence,
     mirror,
     forget,
+    showHeals,
+    setShowHeals,
+    showCrates,
+    setShowCrates,
+    layersWire,
+    mirrorLayers,
+    skullRecap,
+    setSkullRecap,
+    eventRecapOpen,
+    setEventRecapOpen,
+    openBuild,
+    setOpenBuild,
+    allBuilds,
+    setAllBuilds,
+    tabHeld,
+    setTabHeld,
     /** The match at playback time t as the board draws it; empty with no timeline (finding 7). */
     preview: (markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane" | "at">>): MatchPreview => {
       const m = tl();
@@ -866,6 +975,10 @@ export function playbackPresence(h: PlayerHost, send: (p: PlaybackPresence | und
     h.pinned();
     h.vision();
     h.showLastSeen();
+    h.skullRecap();
+    h.openBuild();
+    h.allBuilds();
+    h.tabHeld();
     send(h.presence());
   });
   const beat = setInterval(() => {
