@@ -1494,6 +1494,9 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   the follower's presence says it follows nobody. A presenter with no seat (an older tab) is
   found by peer only, on the same join. A seat is not authority: copying one is as easy as
   copying a name. A reload is a new page, so a new seat: its followers are told it left.
+  "Follow again" follows the seat it was on, not whoever holds that peer id now. The seat is
+  the same on every board a page opens (by design, sessions.md §6.1), so someone in two of
+  those boards can tell it is the same person in both, for that page load.
 - Presence timeout: 30 s without a heartbeat removes the entry.
 - **A peer that falls behind isn't sent presence it can't keep up with, but it isn't left stale
   either.** A batch is skipped for a peer more than 64 KiB behind. The room remembers whose
