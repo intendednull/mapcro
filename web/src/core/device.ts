@@ -150,8 +150,8 @@ export function setPlayerLastSeenShown(on: boolean) {
 const HEALS = "mapcro.mapHeals";
 
 /** Whether this browser draws the map's healing pickups (the Heals toggle, spec §6b), on the
- * board and in Player alike: 36 icons would crowd the map, so off unless turned on here. Never
- * shared with other viewers. */
+ * board and in Player alike: 36 icons would crowd the map, so off unless turned on here. Your
+ * own choice: a follower draws its presenter's while following (player/layers.ts). */
 export function mapHealsShown(): boolean {
   return read<boolean>(HEALS, false) === true;
 }
@@ -163,7 +163,8 @@ export function setMapHealsShown(on: boolean) {
 const CRATES = "mapcro.mapCrates";
 
 /** Whether this browser draws the map's tough crates (the Heavy boxes toggle, spec §6b), on the
- * board and in Player alike: 78 of them, so off unless turned on here. Never shared. */
+ * board and in Player alike: 78 of them, so off unless turned on here. Your own choice, as the
+ * Heals toggle's. */
 export function mapCratesShown(): boolean {
   return read<boolean>(CRATES, false) === true;
 }

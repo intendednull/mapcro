@@ -815,13 +815,13 @@ makes a board with that match attached and lands in Player; **New board** is tod
     guardians are down"); the audit's "Shops" has the replay evidence. A board keeps all 8. Hovering a teleporter draws a faint dashed line to its pair's other end, and
     a ring on it.
   - **Heals:** the 36 healing pickups, behind a toolbar toggle beside Comments (under the map in
-    Sandbox and Player), off by default. Like Names it's this browser's alone (localStorage, every
-    board), never in presence. On the replay tier from format 5, a pickup is timed like a camp:
+    Sandbox and Player), off by default. Your own is remembered in this browser (localStorage,
+    every board); a follower draws its presenter's while following (§8, map layers). On the replay tier from format 5, a pickup is timed like a camp:
     down before it first comes up and while taken, "Respawns in m:ss" on hover, nothing while up.
   - **Heavy boxes** (2026-11-09, operator: "can we do heavy boxes like we did the bats? as a
     separate toggle too"): the 78 tough crates (`citadel_breakable_prop_tough_crate`; not the
     wooden crates, item containers or bells), behind their own toggle beside Heals, off by
-    default, this browser's alone like Heals. The game's minimap doesn't draw crates and the pack
+    default, remembered and followed like Heals. The game's minimap doesn't draw crates and the pack
     has no icon for them, so they're our own small braced box. On the replay tier from format 7,
     a crate is timed like a heal: down before its spawn group comes up (3:00, 5:00 or 10:00) and
     while broken, "Spawns in" / "Respawns in m:ss" on hover, nothing while up.
@@ -973,7 +973,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
 - **Names** (2026-11-08, operator: content creators hide usernames in videos): a transport toggle,
   shown when the timeline has players' names, on by default. Off, no player name is on screen
   (top bar, events and their search, tokens' hover titles; the hero or slot label stands in).
-  It is this browser's alone: kept in localStorage for every board, never in presence.
+  It is this browser's alone: kept in localStorage for every board, never in presence, and a
+  follower keeps its own (the one "Map layers" toggle that isn't followed, §8).
   - **In Scenes** (operator, 2026-11-09: "in the scene the player names are not showing"): a
     slot with no name of its own shows the open match's in-game name, as Player does: under its
     top-bar portrait, in the portrait's title and menu, and in its token's hover label. A scene
@@ -1061,7 +1062,7 @@ makes a board with that match attached and lands in Player; **New board** is tod
   event or you seek elsewhere (operator bug, 2026-11-08). **Save scenes** makes one
   scene per ticked event at its jump time, "<event> @ mm:ss", in one transaction (one undo).
 - **Following** carries Player: presence's `playback` holds the mode, the match, t, playing and
-  speed, and the Vision pair (optional; above), sent on every change and every 2 s while playing. It also holds the **jump** while it's
+  speed, the Vision pair (optional; above) and the open panels (death recaps, builds; §8), sent on every change and every 2 s while playing. It also holds the **jump** while it's
   pinned: the event's key in the list and the match time the jump landed at (the key at most 96
   bytes and the time a clock value, in the server's `is_valid`). A follower rings the same event
   at the same place and marks the same row; a new jump, or the presenter's seek back to the same
@@ -1260,7 +1261,8 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   own state: its playback time (mirrored) and its own Names toggle. The follower's own hover wins
   while it hovers something.
 - **Follow mode:** anyone can follow a presenter's scene, floor and viewport (and in Player, their
-  playback and Vision, §6b). This is the coaching
+  playback and Vision, §6b), their map layers and, in Player, their open panels (below). This is
+  the coaching
   workflow (operator, 2026-11-06):
   - **Following is one click,** and the presenter's name is always visible to click.
   - **A follower who changes what they see stops following:** flipping a scene, panning, zooming or
@@ -1269,6 +1271,27 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   - **Anyone can follow anyone who holds edit rights** (owner or edit link), so there can be several
     presenters at once. View-only people can follow but can't be followed. Presence carries each
     person's role, and the server stamps it from their link, so it can't be forged.
+  - **Map layers** (operator bug, 2026-11-11: "the follower doesn't see the same map layers"):
+    presence's `layers` is one byte, a bit per "Map layers" toggle (wire.rs `LAYER_*`: lane
+    troopers, health bars & arcs, event pings, crowd control, elevation & ziplines, healing
+    pickups, heavy boxes). A follower draws the presenter's, its toggles showing them; stopping,
+    or the presenter leaving, brings its own back untouched. A follower's own toggle while
+    following is a change to what it sees, so it stops following and keeps the presenter's
+    layers with that one change, as Vision does (§6b). A presenter that sends no `layers` (an
+    older client) leaves a follower on its own. **Player names is the exception:** it stays each
+    browser's own and is never in presence, as it is for recording without names (§6b "Names").
+  - **Panels** (same bug: "doesn't see the death recap the presenter has open"): presence's
+    `playback` carries the death recap open on the map (`skull_recap`: team, slot, the death's
+    second), the events list's last opened recap still open (`event_recap`), the hero whose build
+    the top bar has open (`inspect`) and whether every build is (`all_builds`: All builds or Tab
+    held). Each is left out when closed, so a closed panel costs nothing in a frame resent on every
+    cursor move. A follower opens and closes them as the presenter does; the map card goes by the
+    follower's Vision (the presenter's while following) as it does for the presenter, so it never
+    shows a death that team didn't see. Unlike the map, a panel is not "what you see" in §8's
+    sense: a follower may open or close its own without stopping, and the presenter's next change
+    wins. Stopping leaves the panels as they are. Not followed yet (docs/backlog.md): which of
+    Effects and Build order is open in a hero's build, the events list's filters, search and
+    scroll, and the teleporter pair's line.
 - Presence timeout: 30 s without a heartbeat removes the entry.
 - **A peer that falls behind isn't sent presence it can't keep up with, but it isn't left stale
   either.** A batch is skipped for a peer more than 64 KiB behind. The room remembers whose

@@ -5,7 +5,7 @@ import { rosterTeamName, teamName } from "../map/model";
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
-import { type Me, colorOf, commentsOpen, mapCratesShown, mapHealsShown, setCommentsOpen, setMapCratesShown, setMapHealsShown, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe } from "../core/device";
+import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe } from "../core/device";
 import type { RecordId } from "../gen/RecordId";
 import { MapView } from "../map/MapView";
 import type { Art } from "../map/pack";
@@ -30,7 +30,7 @@ import { MarkerTips, TeleporterLink } from "../player/Camps";
 import { HoverLabels, hoverFromWire, hoverWire, localHover, setRemoteHover } from "../map/HoverLabel";
 import { UrnMark } from "../player/Urn";
 import { DeathSkulls } from "../player/Skulls";
-import { SkullRecap, type SkullDeath } from "../player/SkullRecap";
+import { SkullRecap } from "../player/SkullRecap";
 import { recapOf } from "../player/recap";
 import { RiftRings } from "../player/Rift";
 import { liveLayer } from "../player/layer";
@@ -200,10 +200,12 @@ export function Board(p: { board: string; token: string; art: Art }) {
     const side = sideOf(s.view);
     if (side && side !== viewpoint()) setViewpoint(side);
     setView(fromViewport(s.view, side ?? viewpoint()));
-    // Player too: the presenter's mode, match and playback (spec §6b).
+    // Player too: the presenter's mode, match and playback (spec §6b), and their map layers.
+    player.mirrorLayers(s.layers);
     player.mirror(s.playback);
   });
   createEffect(() => state.presence({ view: toViewport(view(), viewpoint()) }));
+  createEffect(() => state.presence({ layers: player.layersWire() }));
   playbackPresence(player, (playback) => state.presence(playback ? { playback } : ({ playback: undefined } as never)));
   // The map's hover label (spec §8): yours goes out as a key alone; a presenter's shows here,
   // in their colour, worded from this board's own state (yours wins while you hover).
@@ -298,9 +300,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
     stopFollowing("changed the playback");
     player.control.seek(t);
   };
-  /** The death recap opened from a skull on the map (SkullRecap.tsx); gone with the match. */
-  const [skullRecap, setSkullRecap] = createSignal<SkullDeath>();
-  createEffect(on(() => player.matchId(), () => setSkullRecap(undefined), { defer: true }));
+  /** The death recap opened from a skull on the map (SkullRecap.tsx): the host's, so followers
+   * open it too; gone with the match. */
+  const skullRecap = player.skullRecap;
+  const setSkullRecap = player.setSkullRecap;
   const hasRecap = (slot: string, t: number) => !!recapOf(player.tl()?.players.find((q) => slotKey(q.team, q.slot) === slot), t);
   /** In a scene, the open match's in-game name for a slot (spec §6b "Names"); a typed one wins. */
   const matchName = (team: string, n: number) => sceneMatchName(player.tl(), scene()?.scene.source, player.playerName, team, n);
@@ -375,10 +378,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
   // open too), or all of them with the Comments toggle (per board, on this device) ----
   const [openComment, setOpenComment] = createSignal<RecordId>();
   const [allOpen, setAllOpen] = createSignal(commentsOpen(p.board));
-  // The healing pickups, drawn on this browser only (the Heals toggle).
-  const [heals, setHeals] = createSignal(mapHealsShown());
+  // The healing pickups (the Heals toggle): this browser's, or a followed presenter's.
+  const heals = player.showHeals;
   // The tough crates, likewise (the Heavy boxes toggle).
-  const [crates, setCrates] = createSignal(mapCratesShown());
+  const crates = player.showCrates;
   createEffect(() => state.presence({ focus: openComment() ?? null }));
   const followFocus = () => followed()?.state?.focus ?? undefined;
   const isOpen = (id: RecordId) => allOpen() || openComment() === id || followFocus() === id;
@@ -757,8 +760,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
     return pv.health?.get(k)?.stage === 2 ? "Stage2" : "Active";
   };
   const mapControls = () => (<MapControls host={player} heals={heals()} crates={crates()}
-              toggleHeals={() => { setHeals(!heals()); setMapHealsShown(heals()); }}
-              toggleCrates={() => { setCrates(!crates()); setMapCratesShown(crates()); }}
+              toggleHeals={() => player.setShowHeals(!heals())}
+              toggleCrates={() => player.setShowCrates(!crates())}
               flip={flipSide} onUserPlayback={() => stopFollowing("changed map view")} />);
   const mapBox = (phone: boolean) => (
           <div
