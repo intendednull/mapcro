@@ -73,6 +73,12 @@ charges); the rest is the item's own static values.
   plus calculation; the gun picture is a render that may not exist as a flat image, so we drop it
   if it isn't in the files.
 
+**Update 2026-11-10 (branch `stat-calc-prod`):** the calculator and build-matched tables exist
+(spec §6b "Calculated stats"; stat-calc-spike.md "Production plan"). The tables are an optional
+`stats` manifest section, so they took no schema bump: schema 5 is still this plan's. Each
+table's hero ladder (`cost_bonuses`: souls, bonus, bar share) is what part 2's investment ladders
+need, per patch.
+
 ### 3. Order
 
 1. Extraction: descriptions, properties, tooltip sections, cooldowns, active flag, upgrade tiers;

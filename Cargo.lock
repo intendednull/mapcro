@@ -1002,6 +1002,7 @@ dependencies = [
  "getrandom 0.3.4",
  "mapcro-engine",
  "mapcro-schema",
+ "mapcro-stats",
  "serde",
  "serde_json",
  "wasm-bindgen",

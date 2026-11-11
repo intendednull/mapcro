@@ -196,3 +196,38 @@ pub fn build_id() -> String {
 pub fn new_record_id() -> Result<String, JsError> {
     new_client_id()
 }
+
+/// One patch's stat table (`mapcro_stats::StatTable`, a pack's `data/stats/<key>.json`), for the
+/// Tab scoreboard's calculated stats. Parsed once; each call is one build in, its values out.
+#[wasm_bindgen]
+pub struct StatCalc {
+    table: mapcro_stats::StatTable,
+}
+
+#[derive(Serialize)]
+struct StatValues {
+    /// The values the HUD shows (health truncated, the rest rounded).
+    shown: mapcro_stats::Shown,
+    calculated: mapcro_stats::Calculated,
+}
+
+#[wasm_bindgen]
+impl StatCalc {
+    /// Refuses a table in a format this build doesn't know.
+    #[wasm_bindgen(constructor)]
+    pub fn new(table_json: &str) -> Result<StatCalc, JsError> {
+        let table: mapcro_stats::StatTable = serde_json::from_str(table_json).map_err(js_err)?;
+        if table.format != mapcro_stats::TABLE_FORMAT {
+            return Err(js_err(format!("stat table format {} (this build reads {})", table.format, mapcro_stats::TABLE_FORMAT)));
+        }
+        Ok(StatCalc { table })
+    }
+
+    /// A `mapcro_stats::Build` as JSON → `{ shown, calculated }`, or `null` for a hero the patch
+    /// doesn't know.
+    pub fn calculate(&self, build_json: &str) -> Result<String, JsError> {
+        let build: mapcro_stats::Build = serde_json::from_str(build_json).map_err(js_err)?;
+        let out = self.table.calculate(&build).map(|c| StatValues { shown: c.shown(), calculated: c });
+        serde_json::to_string(&out).map_err(js_err)
+    }
+}

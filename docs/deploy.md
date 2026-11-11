@@ -228,6 +228,13 @@ mapcro: boards are durable in SQLite, and open clients reconnect. A pack that fa
 skipped with an error in the journal, so a bad copy never half-serves. Keep old packs: boards
 record the pack they were made on (spec §12).
 
+**Stat tables** (calculated hero stats, spec §6b): a pack carries the install's own patch's table
+always, and older patches' only when extracted with boon-data: `just stat-data <dir outside the
+repo>` (about 460 MB, hash-checked; re-runs fetch only new snapshots), then
+`just extract <citadel dir> <out dir> --stat-data <dir>`. They're JSON blobs (about 2.3 MB for
+28 patches), so like schema 4 they need a server that serves `application/json`. A replay whose
+build the newest pack has no table for shows "—".
+
 **Schema 4 packs need the server first.** A pack from schema 4 on carries the items, abilities and
 modifiers names table as an `application/json` blob (spec §12). A server from before that change
 serves only image types, so it skips the whole pack as invalid ("type \"application/json\" not

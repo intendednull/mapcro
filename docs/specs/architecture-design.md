@@ -564,7 +564,7 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     server share): each worker timeline carries `format` (1 from respawns and the urn; 2 buff
     types and rift openings; 3 the Rejuvenator and rift capture; 4 vision; 5 healing pickups; 6
     the clock holding through a pause; 7 builds, casts, status effects, height and the tough
-    crates; 8 each hero's level, max HP, kills and assists; 0 before). Format 3 adds 4.2 KB to 129738985's 1.50 MB; format 4, 26.6 KB (1,501,758
+    crates; 8 each hero's level, max HP, kills and assists; 9 statue pickups; 0 before). Format 3 adds 4.2 KB to 129738985's 1.50 MB; format 4, 26.6 KB (1,501,758
     to 1,528,328 bytes); format 7, 304 KB for the hero data (1,530,253 to 1,834,572 bytes; 577 to
     657 KB gzipped), effects 160 KB and casts 53 KB of it, plus 7.7 KB for the crates. The
     timeline routes answer gzip or zstd to a client that accepts it. New fields are optional, so
@@ -854,6 +854,27 @@ makes a board with that match attached and lands in Player; **New board** is tod
   - A pack without hero cards (any pack before 2026-11-08) keeps the vertical bust
     (`m_strTopBarVertical`, 70.4 × 117.3 with its bottom on a grey disc at y 15 to 85.4), and the
     critical card in its own frame there.
+- **Calculated stats** (replay tier, operator 2026-11-10: "yes to all" on the stat-calc spike;
+  `match/stats.ts`, `player/BuildColumn.tsx`; docs/research/stat-calc-spike.md "Production
+  plan"). The Tab column shows max health, bullet and spirit resist, weapon damage % and spirit
+  power, calculated from the hero's build at t (owned items, level, ability tiers, statue
+  pickups) with the stat table of the replay's own patch from the pack (`crates/stats`, through
+  WASM). They are passive-build values: active items, stacks and enemies' debuffs are left out;
+  life-threshold items (Battle Vest, Hollow Point) count while the hero's health is at or above
+  the threshold, and a dead hero counts as full. Health is truncated, the rest rounded, as the
+  HUD does. The calculated max health replaces the recorded one, which refreshes only at a
+  spawn; the recorded one is the fallback. A build with no table (older than 6711 or newer than
+  the pack's sources) shows "—" ("Not recorded"); no other patch's numbers stand in. Hovers are
+  the stats' names (§4b), with no "calculated" mark (a quiet "≈" would need the operator's
+  approval).
+  - **Investment bars**: the souls in owned items per category, each at its tier price in the
+    replay's patch (sold items and components used up by an upgrade don't count), fill along the
+    patch's ladder (`m_MapModCostBonuses`, 800 to 28,800 souls): each row takes its
+    `flPercentOnGraph` share of the bar (the shares sum to 100) and fills linearly from the row
+    below's threshold, so the bar is full only at the top tier. Without the build's table, the
+    pack's own patch's ladder. This rule is ours, read from the vdata; that the game's Tab bars
+    fill the same way is on the backlog's in-game checks. Hovers: "Weapon invest", "Spirit
+    invest", "Vitality invest".
 - **The Soul Urn** (replay tier, 2026-11-08): the urn drawn as the game's minimap draws it
   (`hud_minimap.vcss`, in the pack; operator, 2026-11-08: "match how the real map looks").
   - On the ground, `.idol_spawn`: `soul_jar_marker` in a 32 px box, a rift's box

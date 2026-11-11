@@ -19,6 +19,9 @@ export interface TimelinePlayer {
   level?: Array<[number, number | null]>;
   /** Format 8, replay tier: `[second, maximum HP]` changes; null marks unavailable data. */
   max_health?: Array<[number, number | null]>;
+  /** Format 9, replay tier: `[second, [max health, spirit power, weapon %, bullet resist %,
+   * spirit resist %]]` statue-pickup totals where they change (zero before the first). */
+  pickups?: Array<[number, [number, number, number, number, number]]>;
   /** Format 8, replay tier: authoritative player kills; zero known, null unavailable. */
   kills?: Array<[number, number | null]>;
   /** Format 8, replay tier: authoritative assists, never inferred from damage. */

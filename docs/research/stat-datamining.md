@@ -60,7 +60,7 @@ stat values, so mapcro can compute each hero's Tab-panel stats at any replay tic
 | Ability CDR | multiplicative (`stack`), observed in game (Emblem 20s→11.4s) | deadlock-plus; boon has `cooldown_reduction.v1` |
 | Item CDR | additive | deadlock-plus |
 | Move speed | `(base+Σflat)*(1+%)` | boon |
-| Investment bonuses | `m_MapModCostBonuses` (in API: `cost_bonuses`): tiers by souls spent per slot. Weapon gives weapon %, vitality gives health %, spirit gives flat spirit. Same for all heroes (deadbot asserts this) | deadbot `item_investment.py`; damage-lab; deadlock-plus |
+| Investment bonuses | `m_MapModCostBonuses` (in API: `cost_bonuses`), per hero in `heroes.vdata`: tiers by souls spent per slot, 800 to 28,800 in 11 rows. Weapon gives weapon %, vitality gives health %, spirit gives flat spirit. Same for all heroes (deadbot asserts this). Each row's `flPercentOnGraph` (7–11, summing to 100) is its share of the HUD bar; the scoreboard fills along it (stat-calc-spike "Production plan"; how the game fills it is unverified, no source describes it) | deadbot `item_investment.py` (reads it from the hero data); damage-lab; deadlock-plus; the wiki's Souls page has no ladder |
 | Level scaling | `m_mapLevelInfo` + `m_mapStandardLevelUpUpgrades` per boon (e.g. Mirage 6860: +45 HP, +0.3 bullet dmg, +1.1 spirit, 0 resist per boon); `m_mapScalingStats` for spirit-scaled stats | deadlock-api heroes; wiki; damage-lab: boons = level-1, level from (net worth - 600) |
 | Conditional / active items | no source models these as stats; all three exclude them (damage-lab handles some in its fight sim; boon resolves recorded modifiers) | - |
 

@@ -236,6 +236,60 @@ At respawn, where no live state applies, health is 96.4% exact.
 - **Re-validation per patch**: run `stat_calc_check` on one fresh match's metadata after each
   patch. That's one cheap deadlock-api call.
 
+## Production plan (2026-11-10, branch `stat-calc-prod`)
+
+Operator decisions ("yes to all"): show all five stats as calculated values of the passive build,
+with life thresholds for weapon %; the HUD's rounding for spirit; Bullet/Spirit Resilience count,
+as boon does. Hovers follow spec §4b (tags only), so the method and caveats ("excludes active and
+stacking effects") live here and in spec §6b "Calculated stats", not on hover.
+
+- **Code**: the spike's `stat_calc.rs` is now its own crate, `crates/stats` (`mapcro-stats`,
+  serde only). The extractor uses it to write tables; `crates/wasm` exposes it as `StatCalc`, so
+  the web runs the same code the ground-truth checks run (no TS port to drift).
+  `crates/stats/examples/stat_calc_check.rs` (`just stat-check`) takes a boon-data snapshot or a
+  pack table and exits 1 below the spike's rates (`--floors`).
+- **Table**: `StatTable` (`TABLE_FORMAT` 1): heroes (base health, per-boon growth, boon levels,
+  the investment ladder `(souls, bonus, flPercentOnGraph)` per slot, resists and their spirit
+  scaling) and items/abilities (slot, tier price, passive and conditional stats, life threshold,
+  upgrade bonuses). About 79 KB of JSON per patch.
+- **Sources**: the install's own vdata (`heroes`, `abilities`, `generic_data`) for its build, and
+  boon-data snapshots for older builds (`just stat-data <dir>`, then
+  `just extract <citadel> <out> --stat-data <dir>`). On 6860 the two give **identical tables**
+  (`crates/extract/examples/stat_table_check.rs`: 0 differing items or heroes), once passive.v2
+  is applied (below). In vdata a modifier lists the properties it registers
+  (`m_vecAutoRegisterModifierValueFromAbilityPropertyName`), the source of boon-data's
+  `modifier_keys`; `m_eProvidedPropertyType`, `m_eStatsUsageFlags` and `m_eApplyFilter` are its
+  `stat`, `usage_flags` and `apply_filter`.
+- **passive.v2**: a hero ability's property that's bound nowhere no longer counts with only the
+  `IntrinsicallyProvidedInAbility` flag (shop items still do). The one case in 6860 is Kelvin's
+  Ice Path T3 +20 spirit, which boon-data binds to the ice path's modifier and the vdata binds to
+  nothing: it isn't passive. 6839 rates are unchanged.
+- **Pack**: no schema bump. The manifest gains an optional `stats` section (`format`,
+  `covered_through`, `builds`: build → table key, `tables`: key → JSON blob); older readers ignore
+  it. The tooltips plan's schema 5 is still free for its own changes.
+- **Matching** (`web/src/match/stats.ts` `tableKeyFor`): a build the sources list reads its own
+  table (boon-data's `versions.json` maps 44 builds to 28 snapshots, for example 6839 → 6837); an
+  unlisted build reads the nearest listed build below it, because boon-data and GameTracking
+  publish only builds whose data changed; a build above `covered_through` (newer than the sources
+  have seen) or below 6711 has no table and shows "—". Risk: boon-data polls hourly, so a build
+  superseded within the hour could be missed and would read the build before it.
+- **Coverage** (the pack extracted 2026-11-10): builds 6711–6860, every one boon-data lists (44),
+  in 27 boon-data tables plus the install's 6860 table. The replay worker refuses pre-6712 demos,
+  so every accepted replay up to 6860 has a table.
+- **Timeline format 9**: `Player::pickups`, statue-pickup totals per stat from the controller's
+  stat viewer (`*_permanent_pickup[_lv2|_lv3]/modifier_permanent_pickup` entries; each entry is
+  that source's running total). Checked: with the timeline's own pickups instead of the
+  metadata's, max health at respawn is still 96.4% exact (80 of 83).
+- **UI**: the Tab column shows max health (the calculated value replaces the recorded one, which
+  refreshes only at spawn; the recorded one stays as the fallback when there's no table), bullet
+  and spirit resist, weapon damage % and spirit power. Weapon % takes the life-threshold rule from
+  the timeline's health; a dead hero counts as full health.
+- **Investment bars**: souls per category as the investment rule counts them (each owned item's
+  tier price at the replay's patch; sold and used-up items don't count). A bar fills along the
+  ladder: each row takes its `flPercentOnGraph` share (they sum to 100) and fills linearly from
+  the row below's threshold; full only at the top tier (28.8K). Without the build's table, the
+  pack's own ladder. That the Tab bar fills this way is on the backlog's in-game checks.
+
 ## Open questions for the operator
 
 1. Spirit rounding: one sandbox value (175.95 shown as 176) says the HUD rounds. A second
