@@ -945,8 +945,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
   spawn; the recorded one is the fallback. A build with no table (older than 6711 or newer than
   the pack's sources) shows "—" ("Not recorded"); no other patch's numbers stand in. So does a
   timeline from before format 9: without statue pickups the values would run short. Hovers are
-  the stats' names (§4b), with no "calculated" mark (a quiet "≈" would need the operator's
-  approval).
+  the stats' names (§4b); each calculated value carries a quiet "≈" before the number (operator,
+  2026-11-10; §4b rule 5), drawn by CSS so the text stays the number.
   - **Investment bars**: the souls in owned items per category, each at its tier price in the
     replay's patch (sold items and components used up by an upgrade don't count), fill along the
     patch's ladder (`m_MapModCostBonuses`, 800 to 28,800 souls): each row takes its
