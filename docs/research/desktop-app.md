@@ -1,5 +1,9 @@
 # A desktop build for getting replays in (research, 2026-11-10)
 
+> **Status (2026-11-10):** Phase 2 is built on branch `desktop-app` (`desktop/`, see
+> `desktop/README.md`). Operator decisions: Tauri 2, Windows first, unsigned beta builds, no
+> salts, Linux only after a WebKit test pass, and the update feed on GitHub Releases.
+
 Question (operator): should mapcro ship a desktop build of the same web app to make getting
 replays easier? The web app stays the main way in, since boards are shared by link. The desktop
 build would add four things: a background watch of the local replays folder, one-click upload,
@@ -95,9 +99,12 @@ is the only way to get "it just appears" for most players.
     `steamapps/` `is_dir`, not listed.
   - Then it reads `steamapps/libraryfolders.vdf`, whose `apps` map names the library that holds
     the app, and one `appmanifest_1422450.acf` for `installdir`.
-  - It does no `read_dir` on that path (`library.rs` lists `steamapps` only in its "all apps"
-    iterator). After that, the watcher opens only the replays folder.
-  - We could also parse those two files ourselves in about 60 lines.
+  - **Correction (2026-11-10, while building it):** `find_app` *does* list folders. It goes
+    through `libraries()`, which builds each `Library` with `Library::from_dir`, and that calls
+    `read_dir` on the library's `steamapps` (every installed game's manifest). So the app uses
+    only steamlocate's root lookup (`locate_all`) and parses the two files itself
+    (`desktop/core/src/steam.rs`, about 100 lines with a small KeyValues reader). After that,
+    the watcher opens only the replays folder.
 - **Why the browser watch mostly can't reach it** (Chromium `main`,
   `chrome/browser/file_system_access/chrome_file_system_access_permission_context.cc`,
   `kBlockPaths`):

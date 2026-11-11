@@ -5,6 +5,8 @@
 // and the drop are the way, as before. One store for the tab, shared by Player's bar, its notice
 // and the prompt; it reads the source while any of them is shown: on focus, when the tab is shown
 // again, and every POLL_MS while it's visible. The UI reads replays only through `ReplaySource`.
+// In the Windows app (`desktop.ts`) the source is the app's own watch of the folder: nothing to
+// link, and the open match's replay is parsed there and only its timeline uploaded.
 
 import { For, Match, Show, Switch, createRoot, createSignal, onCleanup } from "solid-js";
 import { cx } from "../ui/cx";
@@ -26,6 +28,10 @@ import {
   settleIn,
   supported,
 } from "./folder";
+import { DesktopError, type LocalSource, bridge, desktopSource, isLocal, windowsAppLink } from "./desktop";
+
+/** The app found no replays folder (no Steam, or no Deadlock in it). */
+export const APP_NOT_FOUND = "Deadlock's replays folder wasn't found. Upload the file instead.";
 
 /** Where the source stands: none here, none linked, linked but needing a click to read it, or
  * read (its replays). */
@@ -34,12 +40,13 @@ export type FolderState = { kind: "unsupported" } | { kind: "unlinked" } | { kin
 type PickerWindow = { showDirectoryPicker(o: { id?: string; mode?: "read" }): Promise<DirHandleLike> };
 
 function createStore() {
-  const [state, setState] = createSignal<FolderState>({ kind: supported() ? "unlinked" : "unsupported" });
+  const app = bridge();
+  const [state, setState] = createSignal<FolderState>(app ? { kind: "linked", replays: [] } : { kind: supported() ? "unlinked" : "unsupported" });
   const [now, setNow] = createSignal(Date.now());
   /** A short line: the picker gave no folder, it held no replays, or it's gone. */
   const [note, setNote] = createSignal("");
   let dir: DirHandleLike | undefined;
-  let source: ReplaySource | undefined;
+  let source: ReplaySource | undefined = app ? desktopSource(app) : undefined;
   let looking: Promise<void> | undefined;
   let settleTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -59,6 +66,12 @@ function createStore() {
         if (wait !== undefined) settleTimer = setTimeout(() => void look(), wait);
       } catch (e) {
         if (source !== s) return;
+        if (app) {
+          // The app's watch: nothing to link again, only a line when it found no folder.
+          setState({ kind: "linked", replays: [] });
+          setNote(e instanceof DesktopError && e.code === "not_found" ? APP_NOT_FOUND : "");
+          return;
+        }
         if (lookFailed(e) === "prompt") {
           setState({ kind: "prompt" });
           return;
@@ -90,7 +103,7 @@ function createStore() {
   };
 
   // The folder linked on an earlier visit.
-  if (supported())
+  if (!app && supported())
     void loadFolder().then((d) => {
       if (d && !dir) void use(d, false);
     });
@@ -115,6 +128,8 @@ function createStore() {
   const allow = () => (dir ? use(dir, true) : Promise.resolve());
   /** The open match's file, from the source. */
   const read = (id: string) => (source ? source.read(id) : Promise.reject(new Error("no source")));
+  /** The source that parses here (the app's), if this is one. */
+  const local = (): LocalSource | undefined => (isLocal(source) ? source : undefined);
 
   // Looking while shown.
   let shown = 0;
@@ -143,7 +158,7 @@ function createStore() {
     });
   };
 
-  return { state, now, note, link, allow, read, watch };
+  return { state, now, note, link, allow, read, local, inApp: !!app, watch };
 }
 
 let store: ReturnType<typeof createStore> | undefined;
@@ -161,10 +176,21 @@ export const folderHas = (f: Store, id: string | undefined) => {
   return s.kind === "linked" ? found(s.replays, id, f.now()) : undefined;
 };
 
-/** "Upload <match> from your replays folder", when the open match's file is there. */
-export function FolderFound(p: { id: string | undefined; onFile: (f: File) => void; large?: boolean }) {
+/**
+ * "Upload <match> from your replays folder", when the open match's file is there. In the app,
+ * `onLocal` gets the parse (the timeline, gzipped) and the file, for when the server takes no
+ * timelines yet.
+ */
+export function FolderFound(p: {
+  id: string | undefined;
+  onFile: (f: File) => void;
+  onLocal?: (id: string, timeline: () => Promise<Blob>, file: () => Promise<File>) => void;
+  large?: boolean;
+}) {
   const f = useReplaysFolder();
   const take = async (id: string) => {
+    const local = f.local();
+    if (local && p.onLocal) return p.onLocal(id, () => local.timeline(id), () => local.read(id));
     try {
       p.onFile(await f.read(id));
     } catch {
@@ -203,6 +229,7 @@ export function FolderLink(p: { id: string | undefined }) {
           Link replays folder
         </button>
         {note()}
+        <WindowsApp />
       </Match>
       <Match when={f.state().kind === "prompt"}>
         <button class="btn ghost small" type="button" data-testid="folder-allow" title="Your browser asks before reading the folder again" onClick={() => void f.allow()}>
@@ -216,9 +243,11 @@ export function FolderLink(p: { id: string | undefined }) {
           </span>
         </Show>
         {note()}
-        <button class="btn ghost small" type="button" data-testid="folder-change" title={REPLAYS_PATH} onClick={() => void f.link()}>
-          Change folder
-        </button>
+        <Show when={!f.inApp}>
+          <button class="btn ghost small" type="button" data-testid="folder-change" title={REPLAYS_PATH} onClick={() => void f.link()}>
+            Change folder
+          </button>
+        </Show>
       </Match>
     </Switch>
   );
@@ -241,6 +270,21 @@ export function FolderRecent(p: { onOpen: (id: string) => void }) {
           </button>
         )}
       </For>
+    </Show>
+  );
+}
+
+/** "Get the Windows app", quiet: on a Windows browser only, never in the app, once released
+ * (`desktop.ts` `WINDOWS_APP_RELEASED`). It finds the replays folder on its own. */
+export function WindowsApp(p: { class?: string }) {
+  const href = windowsAppLink();
+  return (
+    <Show when={href}>
+      {(h) => (
+        <a class={cx("btn ghost small", p.class)} data-testid="windows-app" href={h()} target="_blank" rel="noopener" title="Finds your replays folder on its own">
+          Get the Windows app
+        </a>
+      )}
     </Show>
   );
 }

@@ -400,6 +400,49 @@ export function createPlayerHost(board: string, token: string) {
     if (!(await looksLikeDemo(f))) return refuse("not_a_replay");
     void upload(f);
   };
+  /**
+   * The open match's replay from the Windows app (`desktop.ts`): parsed on this machine, and
+   * only its timeline sent (spec §6a, Timelines parsed on the user's machine). A server without
+   * the route gets the `.dem` instead, through `take`. The chip says Parsing meanwhile.
+   */
+  const takeLocal = async (id: string, timeline: () => Promise<Blob>, file: () => Promise<File>) => {
+    if (matchId() !== id || inflight) return;
+    const ctl = new AbortController();
+    inflight = { id, ctl };
+    setStatus("");
+    setProblem(undefined);
+    setJob({ state: "parsing", source: "upload" });
+    const end = (code?: string) => {
+      inflight = undefined;
+      if (matchId() !== id) return;
+      setJob(undefined);
+      if (code) setProblem({ code, step: "upload" });
+    };
+    let gz: Blob;
+    try {
+      gz = await timeline();
+    } catch (e) {
+      // The app's `not_found`: the file left the folder (not the match's metadata).
+      const code = (e as { code?: string }).code ?? "parse_failed";
+      return end(code === "not_found" ? "file_gone" : code);
+    }
+    if (ctl.signal.aborted) return end("aborted");
+    const e = await api.uploadTimeline(id, gz);
+    if (e === "missing") {
+      end();
+      let f: File;
+      try {
+        f = await file();
+      } catch {
+        return setProblem({ code: "file_gone", step: "upload" });
+      }
+      return void (await take(f));
+    }
+    end(e);
+    if (matchId() !== id) return;
+    if (!e && problem()?.step === "load") setProblem(undefined);
+    await watch(id);
+  };
   const cancelUpload = () => inflight?.ctl.abort();
   /** An upload refused before it started (the file isn't a replay). */
   const refuse = (code: string) => setProblem({ code, step: "upload" });
@@ -707,6 +750,7 @@ export function createPlayerHost(board: string, token: string) {
     open,
     upload,
     take,
+    takeLocal,
     fetchReplay,
     init,
     highlight,

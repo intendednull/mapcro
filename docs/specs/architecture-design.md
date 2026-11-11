@@ -1091,6 +1091,26 @@ makes a board with that match attached and lands in Player; **New board** is tod
       Steam's default folder. Upload the file instead."; the plain file picker and the drop
       still open the default folder. Without the API nothing shows; the help's extra line
       (Chromium only) gives `…/steamapps/common/Deadlock/game/citadel/replays`.
+  - **The Windows app (2026-11-10; `desktop/`, `player/desktop.ts`; desktop/README.md):** a
+    Tauri 2 shell that loads the live site, one UI, plus a tray icon. It finds the replays folder
+    itself, watches it, and parses each new replay on the user's machine once its size has been
+    still for 5 s. Then a notification says "Replay <id> ready: open board". In the app, the
+    page's `ReplaySource` is the app's (`desktopSource`, feature-detected by
+    `__TAURI_INTERNALS__.invoke`), so there's nothing to link and no Change folder.
+    - **Upload:** **Upload <match> from your replays folder** sends only the parsed timeline
+      (gzip) to `POST …/replays/{id}/timeline` (§6a, Timelines parsed on the user's machine).
+      Against a server without that route (a 404 with no `{error}`), it sends the `.dem` as
+      before.
+    - **IPC:** three commands (list, read one, parse one), by match id, granted to the site's
+      origin only.
+    - **Download link:** "Get the Windows app" (GitHub Releases) shows on Windows browsers only,
+      never in the app. It sits beside Link replays folder, in "Where's my replay?" and in the
+      landing's footer. It stays off until the first release (`WINDOWS_APP_RELEASED`).
+    - **Privacy:** the app reads only the Steam root (the registry key on Windows, fixed
+      candidate paths on Linux), `libraryfolders.vdf`, Deadlock's one app manifest and the
+      replays folder, and nothing else. It never lists Steam's folders. It sends and logs nothing
+      but match ids and reason codes: no paths, player names or account ids. It gets no replay
+      salts in any form.
   - **Progress:** while the queue has no room, "Waiting for a slot · N ahead" (the file isn't
     sent until its turn, §6a The queue); then a bar with the percent and the size ("212 / 504
     MB", decimal MB), then the chip's "Queued · N ahead" and "Parsing replay…", then "Full

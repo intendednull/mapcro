@@ -67,6 +67,33 @@ not fixed (out of that branch's scope):
 - **Pickups in the metadata timeline**: the API tier has `power_up_buffs`; `matches.rs` doesn't
   pass them on, so API-tier timelines have no `level`/`pickups` and show "—".
 
+## Windows app: follow-ups (2026-11-10, desktop-app)
+
+These were left out of the first cut of `desktop/` (desktop/README.md), and are ordered by how
+much they matter.
+- **First Windows run.** Nothing has been built or run on Windows yet. The `desktop.yml` CI
+  job is the first build. Then check by hand:
+  - WebView2 renders Player as Chromium does;
+  - the registry lookup works;
+  - the watch sees a download, and whether the game writes the `.dem` in place or renames it in
+    (the 5 s settle is a guess);
+  - the notification shows, and what clicking it does;
+  - close-to-tray and Quit work;
+  - the passive update path works end to end.
+- **Notification → the match.** A click can't route on desktop (Tauri has no click handler). An
+  "Open replay <id>" tray item could navigate the hidden window to the last board with that match.
+  That needs a URL form for "board + match", which doesn't exist yet.
+- **Memory cap for the parse child.** A Windows Job object (`JOB_OBJECT_LIMIT_PROCESS_MEMORY`)
+  would be like the worker's 384M cgroup. Today the child has only a time limit and runs at low
+  priority.
+- **Big fallback reads.** `replay_read` hands the page the whole `.dem` over IPC (up to 1 GiB
+  in memory). It matters only while the server lacks the timeline route; drop it once that's
+  deployed everywhere.
+- **Authenticode signing**, when SmartScreen warnings cost users (research §1: Azure Artifact
+  Signing ~$10/month, US/Canada individuals).
+- **Linux build:** only after Playwright `webkit` passes Player's specs (research Phase 3).
+  `nix develop .#desktop` already builds and runs it, under Xvfb here.
+
 ## The salts backoff holds back free reads (2026-11-10, from salts-docs)
 
 deadlock-api answers a stored salts row before its rate limiter, so only a lookup of a match with

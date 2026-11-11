@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["crates/schema", "crates/engine", "crates/sim", "crates/server", "crates/wasm", "crates/extract", "crates/replay", "crates/stats"]
+members = ["crates/schema", "crates/engine", "crates/sim", "crates/server", "crates/wasm", "crates/extract", "crates/replay", "crates/stats", "desktop/core"]
+# The Tauri shell is its own workspace: it needs WebKitGTK to build on Linux (desktop/README.md).
+exclude = ["desktop/app"]
 
 [workspace.package]
 edition = "2024"

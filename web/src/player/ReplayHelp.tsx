@@ -9,6 +9,7 @@ import { Show, createSignal, onCleanup } from "solid-js";
 import { cx } from "../ui/cx";
 import { isDem } from "./notice";
 import { REPLAYS_PATH, supported } from "./folder";
+import { bridge, windowsAppLink } from "./desktop";
 
 export function ReplayHelp(p: { id?: string | undefined; class?: string }) {
   let el!: HTMLDetailsElement;
@@ -37,11 +38,21 @@ export function ReplayHelp(p: { id?: string | undefined; class?: string }) {
           </span>
         </li>
         <li class="replay-help-drop">Or drag it onto this page.</li>
-        <Show when={supported()}>
+        <Show when={supported() && !bridge()}>
           <li class="replay-help-link" data-testid="replay-help-link">
             Or, for a Steam library outside the default folder, link its replays folder once and Player
             finds new replays: <code>{REPLAYS_PATH}</code>
           </li>
+        </Show>
+        <Show when={windowsAppLink()}>
+          {(href) => (
+            <li class="replay-help-app" data-testid="replay-help-app">
+              Or get the Windows app: it finds the replays folder on its own.{" "}
+              <a href={href()} target="_blank" rel="noopener" data-testid="windows-app-help">
+                Get the Windows app
+              </a>
+            </li>
+          )}
         </Show>
       </ol>
     </details>

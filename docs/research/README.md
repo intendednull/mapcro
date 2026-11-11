@@ -132,8 +132,16 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
 - **Desktop build** ([desktop-app](desktop-app.md)): Deadlock has no macOS client, so it runs in
   CrossOver or Whisky only. The replays folder is `<library>/steamapps/common/Deadlock/game/citadel/replays/<id>.dem`,
   about 11 MB per match minute. It can be missing, which breaks the in-game download until it is
-  made. `steamlocate` 2.1.1 `find_app(1422450)` reads only the registry key or fixed Linux
-  roots, `libraryfolders.vdf` and one app manifest, with no directory listing. Getting replay
+  made. **Correction (desktop-app build, 2026-11-10):** `steamlocate` 2.1.1 `find_app` does
+  list folders. It builds each `Library` with `read_dir` of that library's `steamapps`
+  (`Library::from_dir`), which lists every installed game's manifest. Only its root lookup,
+  `locate_all` (the registry key or fixed Linux roots, tested with `is_dir`), is safe. The app
+  reads `libraryfolders.vdf` and Deadlock's manifest itself (`desktop/core/src/steam.rs`).
+  Parsed locally (`mapcro-desktop-core` child, release), 129738985 took 14.5 s on a loaded box
+  and came to 649 KB gzip (1.8 MB raw, format 8). The app is at `desktop/`; its privacy list
+  and IPC allow-list are in `desktop/README.md`. Under our CSP (`connect-src 'self'`), Tauri's
+  IPC falls back to `postMessage`, and raw answers come back as number arrays, not
+  `ArrayBuffer`s (checked under Xvfb). Getting replay
   salts from a desktop app (Steamworks, the user's Steam session, game memory, Steam's HTTP
   cache) is a no-go under SSA §1.C, §4.B and §4.C (updated 2026-09-10).
 - **Licensing:** Valve's SSA §2.G bars redistribution, so art is extracted by the operator and

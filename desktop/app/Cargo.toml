@@ -1,0 +1,47 @@
+# The Tauri shell (desktop/README.md). Its own workspace, out of the root one: building it on
+# Linux needs WebKitGTK (`nix develop .#desktop`), and the release build is Windows, in CI.
+[workspace]
+
+[package]
+name = "mapcro-desktop"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "mapcro for Windows: the live site, plus a watch of Deadlock's replays folder"
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+mapcro-desktop-core = { path = "../core" }
+# Pinned at or above 2.12: an unsigned-manifest flaw is reported before it (research §1, unverified).
+tauri = { version = "2.12.5", features = ["tray-icon"] }
+tauri-plugin-updater = "2.14"
+tauri-plugin-notification = "2.8"
+tauri-plugin-single-instance = "2.5"
+tauri-plugin-opener = "2.7"
+notify = "8.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "warn"
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
+
+# A debug build's parse child is the debug binary: dependencies optimized (the parser among
+# them), or a 500 MB demo takes minutes (3m42s unoptimized). The shell's own code stays debug.
+[profile.dev.package."*"]
+opt-level = 3
+[profile.dev.package.mapcro-replay]
+opt-level = 3
+[profile.dev.package.mapcro-desktop-core]
+opt-level = 3
