@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { buildAt, killsAt } from "../src/match/builds";
+import { buildAt, buildOrder, killsAt } from "../src/match/builds";
 import { artFromManifest, buildCatalogFromData, loadArt, type PackManifest } from "../src/map/pack";
 
 it("distinguishes unavailable builds from tracked empty builds", () => {
@@ -65,4 +65,19 @@ it("prefers recorded kills without leaking future totals or bridging unknown sam
   expect(killsAt(timeline, 5, "amber", 0)).toBe(2);
   expect(killsAt(timeline, 9, "amber")).toBeNull();
   expect(killsAt(timeline, 10, "amber")).toBe(3);
+});
+it("lists the build order earliest first, an upgrade's used-up components with its buy", () => {
+  const player = { items: [[40, 12, 0], [15, 10, 0], [20, 10, 2], [20, 11, 0], [35, 11, 1], [45, 12, 3], [60, 13, 2]] as [number, number, number][] };
+  expect(buildOrder({})).toBeNull();
+  expect(buildOrder({ items: [] })).toEqual([]);
+  expect(buildOrder(player, id => (id === 11 ? [10] : []))).toEqual([
+    { t: 1.5, id: 10, kind: "bought", from: [] },
+    { t: 2, id: 11, kind: "bought", from: [10] },
+    { t: 3.5, id: 11, kind: "sold", from: [] },
+    { t: 4, id: 12, kind: "bought", from: [] },
+    { t: 4.5, id: 12, kind: "removed", from: [] },
+    { t: 6, id: 13, kind: "merged", from: [] },
+  ]);
+  // Not a component of the buy at that moment (by the catalog): its own row.
+  expect(buildOrder({ items: [[20, 10, 2], [20, 11, 0]] }, () => [])?.map(e => e.kind)).toEqual(["merged", "bought"]);
 });

@@ -41,6 +41,43 @@ export function buildAt(player: Pick<TimelinePlayer, "items" | "abilities" | "ca
   };
 }
 
+/** One row of a hero's build order: a buy (with the components it used up), a sale, a component
+ * used up by an upgrade bought at another moment, or an item gone otherwise. */
+export interface BuildOrderEntry {
+  /** Seconds. */
+  t: number;
+  id: number;
+  kind: "bought" | "sold" | "merged" | "removed";
+  /** A buy's components that the upgrade used up (the `merged` rows at the same moment). */
+  from: number[];
+}
+
+const ORDER_KINDS = ["bought", "sold", "merged", "removed"] as const;
+
+/** The `items` series (kind 0 bought, 1 sold, 2 used up by an upgrade, 3 gone otherwise) as a
+ * build order, earliest first. A component used up at the moment of a buy goes with that buy
+ * (the one whose `components` list it, if known); null means the series is unavailable. */
+export function buildOrder(player: Pick<TimelinePlayer, "items">, components?: (id: number) => number[] | undefined): BuildOrderEntry[] | null {
+  if (player.items == null) return null;
+  const rows = [...player.items].sort((a, b) => a[0] - b[0]);
+  const out: BuildOrderEntry[] = [];
+  const merged: BuildOrderEntry[] = [];
+  for (const [ds, id, kind] of rows) {
+    const entry: BuildOrderEntry = { t: ds / 10, id, kind: ORDER_KINDS[kind] ?? "removed", from: [] };
+    out.push(entry);
+    if (entry.kind === "merged") merged.push(entry);
+  }
+  const folded = new Set<BuildOrderEntry>();
+  for (const m of merged) {
+    const buys = out.filter(e => e.kind === "bought" && e.t === m.t);
+    const buy = buys.find(b => components?.(b.id)?.includes(m.id)) ?? (components ? undefined : buys[0]);
+    if (!buy) continue;
+    buy.from.push(m.id);
+    folded.add(m);
+  }
+  return out.filter(e => !folded.has(e));
+}
+
 /** A kill total is unknown if any death so far lacks attribution. Never turn missing killers
  * into zero kills. An omitted slot asks for the team's total. */
 export function killsAt(timeline: (Pick<Timeline, "events"> & Partial<Pick<Timeline, "players">>) | undefined, t: number, team: string, slot?: number): number | null {

@@ -30,6 +30,8 @@ import { MarkerTips, TeleporterLink } from "../player/Camps";
 import { HoverLabels, hoverFromWire, hoverWire, localHover, setRemoteHover } from "../map/HoverLabel";
 import { UrnMark } from "../player/Urn";
 import { DeathSkulls } from "../player/Skulls";
+import { SkullRecap, type SkullDeath } from "../player/SkullRecap";
+import { recapOf } from "../player/recap";
 import { RiftRings } from "../player/Rift";
 import { liveLayer } from "../player/layer";
 import { PlayerTopBar } from "../player/PlayerTopBar";
@@ -223,6 +225,18 @@ export function Board(p: { board: string; token: string; art: Art }) {
     if (inPlayer()) player.setMode("sandbox");
     userFlip(id);
   };
+  /** A scene saved from the replay: shown (its drawings moved into it), with a toast to go back. */
+  const savedScene = (id: RecordId) => {
+    pickScene(id);
+    const n = state.scenes().findIndex((s) => s.id === id) + 1;
+    say(n ? `Saved scene ${n}` : "Scene saved", {
+      label: "Back to replay",
+      run: () => {
+        stopFollowing("changed the playback");
+        player.setMode("player");
+      },
+    });
+  };
   const userFlip = (id: RecordId) => {
     if (id !== scene()?.id) stopFollowing("flipped the scene");
     setSceneId(id);
@@ -279,6 +293,15 @@ export function Board(p: { board: string; token: string; art: Art }) {
     unflash = setTimeout(() => setFocused(undefined), 1200);
   };
   onCleanup(() => clearTimeout(unflash));
+  /** A build-order row: the replay to that moment, as a scrub does (following stops). */
+  const seekMatch = (t: number) => {
+    stopFollowing("changed the playback");
+    player.control.seek(t);
+  };
+  /** The death recap opened from a skull on the map (SkullRecap.tsx); gone with the match. */
+  const [skullRecap, setSkullRecap] = createSignal<SkullDeath>();
+  createEffect(on(() => player.matchId(), () => setSkullRecap(undefined), { defer: true }));
+  const hasRecap = (slot: string, t: number) => !!recapOf(player.tl()?.players.find((q) => slotKey(q.team, q.slot) === slot), t);
   /** In a scene, the open match's in-game name for a slot (spec §6b "Names"); a typed one wins. */
   const matchName = (team: string, n: number) => sceneMatchName(player.tl(), scene()?.scene.source, player.playerName, team, n);
   const presenterList = createMemo(() => presenters(state.peerList(), state.myPeer(), following()));
@@ -602,7 +625,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           {sceneName(scene()?.scene.name ?? "", sceneIndex())}
         </h1>
       </div>
-      <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} compact onFocus={focusHero} />}>
+      <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} compact onFocus={focusHero} onSeek={seekMatch} />}>
         <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
       </Show>
       <div class="p-map-wrap">
@@ -693,7 +716,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
         board={p.board}
         scene={scene()}
         mint={newRecordId}
-        onSaved={pickScene}
+        onSaved={savedScene}
         onView={(id) => {
           stopFollowing("viewed a scene");
           pickScene(id);
@@ -812,7 +835,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               <Show when={inPlayer()}>
                 <RiftRings art={p.art} vp={viewpoint()} preview={matchPreview} mk={Math.min(1, view().w / 1000)} />
                 <UrnMark art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} mk={Math.min(1, view().w / 1000)} />
-                <DeathSkulls art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
+                <DeathSkulls art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} hasRecap={hasRecap} onOpenRecap={(slot, t) => setSkullRecap({ slot, t })} />
               </Show>
               <TeleporterLink art={p.art} vp={viewpoint()} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               <MarkerTips art={p.art} vp={viewpoint()} hidden={(k) => markerStatus(k) === "Hidden"} shown={() => ({ heals: heals(), crates: crates() })} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
@@ -822,7 +845,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
               </Show>
               <HoverLabels k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
             </MapView>
-
+            <Show when={inPlayer() && player.tl() && skullRecap()}>
+              {(d) => <SkullRecap death={d()} timeline={player.tl()!} vision={player.vision()} art={p.art} name={player.playerName} onSeek={seekMatch} onClose={() => setSkullRecap(undefined)} />}
+            </Show>
           </div>
   );
   const toastView = () => (
@@ -949,7 +974,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               </h1>
             </div>
           </div>
-          <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} onFocus={focusHero} />}>
+          <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} onFocus={focusHero} onSeek={seekMatch} />}>
             <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
           </Show>
           {/* The map takes all the room left, as the largest square that fits. */}
@@ -1013,7 +1038,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </div>
           <div id="events-panel" role="tabpanel" aria-labelledby="events-tab" hidden={sideTab() !== "events"}>
           <Show when={player.tl()} fallback={<section class="side-empty">Load a match to browse its events.</section>}>
-            <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={pickScene} onUserPlayback={() => stopFollowing("changed the playback")} />
+            <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={savedScene} onUserPlayback={() => stopFollowing("changed the playback")} />
           </Show>
           </div>
           <section class="people-section">

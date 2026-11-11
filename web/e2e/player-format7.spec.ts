@@ -1,7 +1,7 @@
 // Timeline format 7 (builds, abilities, casts, CC, effects, recaps, height, zipline rides) was
 // stored, not shown (operator, 2026-11-09): a format-7 timeline loads in Player and draws exactly
 // what the same timeline without those fields draws, on two boards, at the same moments. Shown
-// on purpose since: the death's recap in the events list (d13abf4). CC and elevation stay behind
+// on purpose since: the death's recap in the events list (d13abf4) and on its skull (ux-batch-1). CC and elevation stay behind
 // their default-off layers.
 
 import { createServer } from "node:http";
@@ -104,18 +104,25 @@ async function drawn(p: Page, t: number) {
   await scrubTo(p, t);
   await p.mouse.move(2, 2);
   // Each board has its own record ids, which also order the tokens: those aside, the markup.
-  const map = await p.getByTestId("map").evaluate((el) => {
+  const { map, recaps } = await p.getByTestId("map").evaluate((el) => {
     const c = el.cloneNode(true) as Element;
+    // The recap's other place (ux-batch-1): a skull whose death has one opens it. Otherwise the
+    // skull is the plain one.
+    const opens = [...c.querySelectorAll(".pl-skull[data-recap]")];
+    for (const s of opens) {
+      for (const k of ["data-recap", "role", "aria-label"]) s.removeAttribute(k);
+      s.setAttribute("aria-hidden", "true");
+    }
     const toks = [...c.querySelectorAll(".tok")].map((t) => {
       t.remove();
       t.removeAttribute("data-player");
       return t.outerHTML.replace(/ data-player="[^"]*"/g, "");
     });
-    return [c.innerHTML.replace(/ data-player="[^"]*"/g, ""), ...toks.sort()].join("\n");
+    return { map: [c.innerHTML.replace(/ data-player="[^"]*"/g, ""), ...toks.sort()].join("\n"), recaps: opens.length };
   });
   // All the page says, top bar and side panel included, as lines: rosters are in record order.
   const text = (await p.locator("body").innerText()).split("\n").sort().join("\n");
-  return { map, side: text };
+  return { map, side: text, recaps };
 }
 
 test("a format-7 timeline draws exactly what one without its new fields does", async ({ browser }) => {
@@ -127,6 +134,8 @@ test("a format-7 timeline draws exactly what one without its new fields does", a
   // out-of-shape timeline and the job fails).
   for (const t of [5, 12, 19, 21, 42, 55]) {
     const [a, b] = [await drawn(seven, t), await drawn(six, t)];
+    // Amber 1's skull (20–22.5 s) offers its recap on the format-7 board only.
+    expect([a.recaps, b.recaps], `skulls offering a recap at ${t} s`).toEqual([t === 21 ? 1 : 0, 0]);
     // The page says what the plain one says, and the recap besides.
     const lines = a.side.split("\n");
     expect(lines, `the recap at ${t} s`).toContain(RECAP);

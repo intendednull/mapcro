@@ -5,6 +5,8 @@ import { For, Show, createSignal, onMount } from "solid-js";
 import { type Me, PALETTE } from "../core/device";
 import { Wordmark } from "../ui/Wordmark";
 import { LIMITS } from "../gen/limits";
+import { ModalScrim } from "../ui/ModalScrim";
+import { dialogKeys } from "../ui/modal";
 
 export const MAX_NAME = LIMITS.max_name;
 
@@ -14,10 +16,14 @@ export function JoinCard(p: { title: string; others: string[]; initial: Me | und
   let input!: HTMLInputElement;
   onMount(() => input.focus());
   return (
-    <div class="scrim join-scrim" data-testid="join-card">
+    <ModalScrim class="join-scrim" testid="join-card">
       <form
         class="join"
+        role="dialog"
+        aria-modal="true"
         aria-labelledby="join-h"
+        // Joining is how you enter the board: no Escape out of it, but no key reaches the board.
+        onKeyDown={dialogKeys(undefined)}
         onSubmit={(e) => {
           e.preventDefault();
           const n = name().trim();
@@ -62,6 +68,6 @@ export function JoinCard(p: { title: string; others: string[]; initial: Me | und
           Join <kbd>Enter</kbd>
         </button>
       </form>
-    </div>
+    </ModalScrim>
   );
 }

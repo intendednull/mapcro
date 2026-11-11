@@ -75,6 +75,29 @@ async function boardWithScene(browser: import("@playwright/test").Browser) {
   return { url, a };
 }
 
+test("saving a scene from the replay says so, its drawing in it, and the toast goes back to the replay", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Saved toast");
+  const a = await joinNew(browser, url, "Coach");
+  await openMatch(a);
+  await scrubTo(a, 300);
+  await a.keyboard.press("e");
+  await gesture(a, [[0.3, 0.3], [0.45, 0.35]]);
+  await expect(strokes(a)).toHaveCount(1);
+  await a.keyboard.press("q");
+  await a.getByTestId("match-save").click();
+  await expect(bar(a)).toHaveAttribute("data-state", "scene");
+  await expect(strokes(a)).toHaveCount(1);
+  await expect(a.getByTestId("toast")).toContainText("Saved scene 2");
+  await a.getByTestId("toast-action").filter({ hasText: "Back to replay" }).click();
+  await expect(bar(a)).toHaveAttribute("data-state", "match");
+  await expect(a.getByTestId("match-clock")).toContainText("5:00 /");
+  await expect(a.getByTestId("toast")).toHaveCount(0);
+  // The drawing went with the scene: the replay's live layer is clear, the scene still has it.
+  await expect(strokes(a)).toHaveCount(0);
+  await a.getByTestId("scene-card").nth(1).click();
+  await expect(strokes(a)).toHaveCount(1);
+});
+
 test("viewing a scene keeps the bar; Back returns to the match where it was", async ({ browser }) => {
   const { a } = await boardWithScene(browser);
   await scrubTo(a, 640);
