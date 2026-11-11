@@ -126,8 +126,6 @@ export interface ViewState {
    * (`onStop`). A `local` key is yours until the presenter's next change to its group.
    */
   set<K extends ViewKey>(k: K, v: ValueOf<K>): void;
-  /** Whether your own change to `k` stops a follow (spec §8: "a change to what you see"). */
-  stops(k: ViewKey): boolean;
   /** What presence carries for the shared keys, at their fields' paths: the shown values.
    * `under`: only the keys in that top-level field (`layers`, `playback`). */
   wire(under?: string): Wire;
@@ -211,7 +209,6 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
         setOwn(k, v);
         if (stop) o.onStop?.();
       }),
-    stops: (k) => row(k).override === "stop",
     wire: (under) => {
       const out: Wire = {};
       for (const k of VIEW_KEYS) {

@@ -197,6 +197,26 @@ describe("every registry key follows its row", () => {
     hear(f, p);
     expect(f.s.get("recap.event")).toEqual([mine]);
   });
+  it("the events list's recaps: presence carries the last opened", () => {
+    const p = presenter();
+    p.set("recap.event", [{ slot: "amber-1", t: 20 }, { slot: "sapphire-2", t: 40 }]);
+    expect((p.wire().playback as { event_recap: unknown }).event_recap).toEqual({ team: "Sapphire", slot: 2, t: 40 });
+  });
+  it("following again applies the presenter's panels afresh, even unchanged", () => {
+    const f = follower();
+    const p = presenter({ "recap.skull": { slot: "amber-1", t: 20 } });
+    hear(f, p);
+    f.s.set("recap.skull", undefined);
+    f.s.forget("restore");
+    hear(f, p);
+    expect(f.s.get("recap.skull")).toEqual({ slot: "amber-1", t: 20 });
+  });
+  it("your own value is remembered when it changes, not on a repeat", () => {
+    const f = follower();
+    f.s.set("layer.heals", true);
+    f.s.set("layer.heals", true);
+    expect(f.remembered).toEqual([["layer.heals", true]]);
+  });
   it("a group applies whole: a presenter's change to one panel brings back the panels you closed", () => {
     const f = follower();
     const p = presenter({ "recap.skull": { slot: "amber-1", t: 20 } });
