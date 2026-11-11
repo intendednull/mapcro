@@ -1,12 +1,13 @@
 // Match events for Player's list (spec §6b): labels, search, filters, where each happened, and
 // the jump time. Pure.
 
+import type { BuildCatalog } from "../map/pack";
 import { buffInfo, buffLabel } from "../match/buffs";
 import { type Marker, teamName } from "../map/model";
 import { type Pt, worldToMap } from "../map/transform";
 import { type MatchEvent, type Timeline, clockLabel, markerKey, tierOf } from "../match/timeline";
 
-export type EventGroup = "death" | "ult" | "objective" | "mid_boss" | "rift" | "powerup" | "urn" | "souls";
+export type EventGroup = "purchase" | "death" | "ult" | "objective" | "mid_boss" | "rift" | "powerup" | "urn" | "souls";
 
 export const GROUPS: Array<{ id: EventGroup; label: string }> = [
   { id: "death", label: "Deaths" },
@@ -17,9 +18,11 @@ export const GROUPS: Array<{ id: EventGroup; label: string }> = [
   { id: "powerup", label: "Powerups" },
   { id: "urn", label: "Urn" },
   { id: "souls", label: "Souls" },
+  { id: "purchase", label: "Major buys (T4+)" },
 ];
 
 export function groupOf(e: Pick<MatchEvent, "kind">): EventGroup {
+  if (e.kind === "item_buy") return "purchase";
   if (e.kind === "rift_up" || e.kind === "rift_capture") return "rift";
   if (e.kind === "powerup_spawn" || e.kind === "powerup_taken") return "powerup";
   if (e.kind === "souls_swing") return "souls";
@@ -63,6 +66,7 @@ export function namesFor(tl: Timeline, heroName: (id: number) => string, player?
 /** The list's label: "Haze killed by Vindicta", "Amber walker down (west)". */
 export function label(e: MatchEvent, n: Named): string {
   switch (e.kind) {
+    case "item_buy": return `${n.hero(e.hero_id) || "Hero"} bought ${e.ability || "an item"}`;
     case "death": {
       const who = n.hero(e.hero_id) || "A hero";
       return e.by ? `${who} killed by ${n.hero(e.by.hero_id) || "a hero"}` : `${who} died`;
@@ -207,3 +211,14 @@ export function placeOf(e: MatchEvent, markers: Array<Pick<Marker, "key" | "at" 
 }
 
 export const tierLabel = (tl: Timeline) => (tierOf(tl) === "replay" ? "Replay" : "Metadata");
+
+/** Opt-in event rows; never infer a purchase from a currently equipped item. Tier is from the selected pack. */
+export function majorPurchases(timeline: Timeline, catalog: BuildCatalog | undefined): MatchEvent[] {
+  if (!catalog) return [];
+  return timeline.players.flatMap(p => (p.items ?? []).flatMap(([ds, id, kind]) => {
+    const item = catalog.records.get(id);
+    return kind === 0 && item?.kind === "item" && (item.tier ?? 0) >= 4
+      ? [{ t: ds / 10, kind: "item_buy" as const, team: p.team, slot: p.slot, hero_id: p.hero_id, key: String(id), ability: item.label }]
+      : [];
+  })).sort((a, b) => a.t - b.t);
+}

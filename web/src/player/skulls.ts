@@ -42,13 +42,20 @@ export function deathSeen(p: Pick<TimelinePlayer, "seen">, death: number): boole
  * the map draws (`null` or "all": every death). A team always sees its own heroes die; an enemy's
  * death only if it saw it (`deathSeen`).
  */
-export function skullsAt(players: ReadonlyArray<Pick<TimelinePlayer, "team" | "slot" | "x" | "y" | "deaths" | "seen">>, t: number, view: Vision | null): Skull[] {
+export function skullsAt(players: ReadonlyArray<Pick<TimelinePlayer, "team" | "slot" | "x" | "y" | "deaths" | "seen" | "respawn">>, t: number, view: Vision | null): Skull[] {
   const team = view === "all" ? null : view;
   const out: Skull[] = [];
   for (const p of players)
     for (const d of p.deaths) {
       const age = t - d;
       if (age < 0 || age >= SKULL_S) continue;
+      // A quick revive must never leave the fallen portrait beside its living hero. Explicit
+      // respawn times cover sub-second revives; position samples cover older timelines too.
+      if ((p.respawn ?? []).some(([died, back]) => died === d && back <= t)) continue;
+      let revived = false;
+      for (let s = Math.floor(d) + 1; s <= Math.min(Math.floor(t), p.x.length - 1); s++)
+        if (p.x[s] != null && p.y[s] != null) { revived = true; break; }
+      if (revived || p.deaths.some((next) => next > d && next <= t)) continue;
       if (team && p.team !== team && !deathSeen(p, d)) continue;
       const at = lastSeen(p, d);
       if (!at) continue;

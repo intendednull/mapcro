@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew, useSummary } from "./helpers";
+import { joinNew, revealControls, useSummary } from "./helpers";
 import { ROOT, Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 const ID = "130816395";
@@ -68,6 +68,7 @@ test("the chip names the tier; an upload upgrades it in place, keeping the time,
   const url = await newBoardUrl(server, "Tier");
   const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   const chip = (p: Page) => p.getByTestId("match-tier");
@@ -87,10 +88,12 @@ test("the chip names the tier; an upload upgrades it in place, keeping the time,
   await expect(b.getByTestId("match-clock")).toHaveText("5:00 / 21:40");
 
   // Another match's file is refused by its name.
+  await revealControls(a, "match-file");
   await a.getByTestId("match-file").setInputFiles({ name: "999.dem", mimeType: "application/octet-stream", buffer: Buffer.from("PBDEMS2\0x", "binary") });
   await expect(a.getByTestId("match-status")).toHaveText(`That file is match 999, not ${ID}`);
 
   const demo = Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(64 * 1024, 7)]);
+  await revealControls(a, "match-file");
   await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: demo });
   await expect(chip(a)).toHaveText("Queued");
   await a.screenshot({ path: "shots/tier-parsing.png" });

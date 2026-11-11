@@ -8,7 +8,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 /** A synthetic match: no real replay's data. */
@@ -50,6 +50,7 @@ function timeline() {
 
 async function open(p: Page) {
   await p.getByTestId("mode-player").click();
+  await revealControls(p, "match-id");
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
   await p.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
@@ -80,8 +81,9 @@ test("shops and teleporters are on the map; heals only with the toggle, which a 
   await expect(marks(a, "teleporter")).toHaveCount(4);
   await expect(marks(a, "heal")).toHaveCount(0);
   const toggle = a.getByTestId("heals-toggle");
+  await revealControls(a, "heals-toggle");
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
-  await expect(toggle).toHaveAccessibleName("Heals");
+  await expect(toggle).toHaveAccessibleName("Healing pickups");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
   await expect(marks(a, "heal")).toHaveCount(36);
@@ -100,7 +102,9 @@ test("shops and teleporters are on the map; heals only with the toggle, which a 
   await a.screenshot({ path: "shots/furniture-board-heals.png" });
   // The toggle is under the map in Player too, and off is kept as well.
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "heals-toggle");
   await expect(a.getByTestId("heals-toggle")).toBeVisible();
+  await revealControls(a, "heals-toggle");
   await a.getByTestId("heals-toggle").click();
   await expect(marks(a, "heal")).toHaveCount(0);
   await a.reload();
@@ -125,6 +129,7 @@ test("a teleporter's pair shows on hover only", async ({ browser }) => {
 
 test("Player: a healing pickup is down while taken and says when it's back", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Heals"), "Coach");
+  await revealControls(a, "heals-toggle");
   await a.getByTestId("heals-toggle").click();
   await open(a);
   const heal = marker(a, HEAL);

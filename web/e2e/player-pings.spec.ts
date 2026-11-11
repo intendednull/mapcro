@@ -1,3 +1,4 @@
+import { revealControls } from "./helpers";
 // Event pings during playback (spec §6b): each event the playback passes while it plays gets a
 // short ring at its place, for the presenter and a follower alike; events a seek skips, events
 // the list's filters hide, and everything with Pings off get none. A synthetic replay timeline
@@ -114,7 +115,9 @@ test("events ping at their place as playback passes them, for a follower too; ne
   const url = await newBoardUrl(server, "Pings");
   const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
+  await revealControls(a, "match-load");
   await a.getByTestId("match-load").click();
   await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
   let job = "";
@@ -175,6 +178,7 @@ test("events ping at their place as playback passes them, for a follower too; ne
   await a.getByTestId("chip-objective").click();
 
   // Pings off: nothing.
+  await revealControls(a, "pings-toggle");
   await a.getByTestId("pings-toggle").click();
   await expect(a.getByTestId("pings-toggle")).toHaveAttribute("aria-pressed", "false");
   await recordPings(a);

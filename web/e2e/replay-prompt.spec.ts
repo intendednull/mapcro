@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Browser, type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { ROOT, Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 /** Valve hasn't got it yet (salts 404); its first salts answer is held until the test says. */
@@ -188,6 +188,7 @@ test("Use API summary closes it for good in this browser; the chip brings it bac
   // Player's Load opens it too (an editor attaching the match).
   const a = await joinNew(browser, await newBoardUrl(server, "Summary"), "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(String(LOADED));
   await a.getByTestId("match-load").click();
   await expectPrompt(a, "Valve doesn't have the replay yet.", true);

@@ -8,7 +8,7 @@ import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
 const src = process.env.MAPCRO_SHOT_REPLAY;
@@ -69,6 +69,7 @@ test("8× on a real replay: frame time for the presenter and a follower", async 
   const url = await newBoardUrl(server, "Perf");
   const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("Full replay");
@@ -106,7 +107,9 @@ test("8× on a real replay: frame time for the presenter and a follower", async 
   }
   // The same stretch with troopers off, on both: what they cost.
   await a.getByTestId("match-play").click();
+  await revealControls(a, "troopers-toggle");
   await a.getByTestId("troopers-toggle").click();
+  await revealControls(b, "troopers-toggle");
   await b.getByTestId("troopers-toggle").click();
   await a.getByTestId("match-time").evaluate((el, t) => {
     (el as HTMLInputElement).value = String(t);

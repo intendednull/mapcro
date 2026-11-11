@@ -3,6 +3,122 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Several replays on one board, as game tabs (2026-11-10, operator)
+
+A multi-game review (series, scrim block) on one board and one URL: a strip of game tabs under the
+header selects the replay; its timeline, events and scenes follow. Design sketch (clickable):
+`/home/intendednull/concierge/artifacts/mapcro-multi-replay/index.html`.
+- Exists: the board's attached-match list (`web/src/player/host.ts` `matches`) and each scene's
+  `source.match_id`, so scenes per game is a filter, not a migration.
+- New: tab order and display names; `?game=<match>` deep link; per-game remembered UI state
+  (time, paused, vision, layers); an LRU of loaded timelines (a long one is ~6 MiB); a
+  Whiteboard tab for scenes with no match; follow/presence carries the presenter's game;
+  per-tab replay-job status (fresh games queue behind the 3/hour lookup limit).
+- Open: removing a game that has scenes (delete them, keep as frozen snapshots, or refuse);
+  per-game notes; a cap (10?). Later: cross-game build comparison, series scoreline.
+
+## UX follow-ups from the Argon and Sol passes (2026-11-10, operator approved the first batch)
+
+First batch, one agent after the prototype deploys: (1) per-hero build-order list in the single-hero
+dropdown, click a buy to seek; (2) open the death recap from the map skull; (4) souls-leader
+highlight on the souls tab (the HUD's mint `#90FFE3`); (5) Save scene keeps drawings visible and
+shows "Saved · Switch to scene" (check the Argon bug "Save scene makes live drawings vanish"
+first); (9) dialog focus trapping, Escape, focus return (Share, Join, Clone, hero picker).
+Later: (3) "ACTIVE" badge on active items (with the tooltip extraction, plan
+`docs/plans/2026-11-10-game-tooltips.md`); (6) "Play with scene plan" (scene drawings over the
+live replay); (7) remaining-time sweep on the CC label; (8) a Remove-replay action on the
+open-match form; (10) tablet layout: sidebars as drawers below ~1024 px. Reproduce on the
+prototype before fixing: the two-tab disconnect loop, Save scene clipped at 1280 px, scene save
+ignoring team vision, scene hover preview over portraits, Feedback missing match info from a scene.
+The passes' branches (`argon-ux`, `ux-pass-2`) are kept, not merged.
+
+## Sixteen e2e tests act on controls the prototype moved into disclosures (2026-11-10, from scene-parity): resolved
+
+Resolved 2026-11-10 (branch `proto-e2e-fix`). The sixteen were a sample: 46 specs acted on the
+match source's controls (`match-id`, `match-load`, `match-upload`, `mode-sandbox`…), the Map
+layers toggles or the scene note while the prototype keeps them closed. `revealControls`
+(e2e/helpers.ts) now knows each control's place (source disclosure, Map layers, Scene Notes tab),
+throws for one it doesn't, and every spec reveals before it acts; each disclosure closes on a
+press outside it, so a reveal goes before each use. player-visible's top-bar test and pack's
+"terrain, markers and portraits" failed on the base for the same cause (`match-id`,
+`crates-toggle` hidden), not another; both pass 4 of 4 repeated.
+
+The specs also follow the prototype's deliberate changes (journal 2026-11-10-prototype-controls):
+saving a replay scene shows it (a second save goes Back first), no scene is current in the tree
+while watching, the heals toggle is "Healing pickups", the play title is static, and a format-7
+timeline's death recap shows in the events list (player-format7 allows exactly that line).
+
+App fixes the run turned up: the phone had lost the tier chip (moved to the desktop header only;
+now in the phone header too, its role chip ellipsised so the page doesn't overflow); the source
+popover opened under the replay prompt's map scrim, so Scenes, Load and Upload couldn't be
+pressed while the prompt was up (now above it); the layer toggles' ○/✓ marks were read into
+their accessible names (CSS alt text drops them).
+
+Left for the operator: the phone's source summary clips "Match <id>" at its left edge; with no
+match loaded an editor's Player shows a closed "Match source" rather than the id field, and the
+Scenes button lives inside that disclosure.
+
+## Scenes' stage head repeats what the bar and the list show (2026-11-10, from scene-parity)
+
+In Scenes the stage head ("Scene 2 of 2 · 5:00 Match moment", Board.tsx `.stage-head`) sits above
+the top bar, so the bar and map sit ~28 px lower than in replay, the one layout difference left
+between the modes. Its clock editor repeats the bar's (`tb-clock`), its name editor the scene
+list's, and the player bar's scene row says "Scene “…” · 5:00" again. Dropping it (or folding the
+name editor into the scene row) would finish the parity, but `scene-name` / `scene-clock` are
+used by six e2e specs (scenes, scene-names, scene-tree, topbar, phone, player-review) and the
+phone layout. Needs the operator's call on where a scene's name is edited.
+
+## The scene's Rename… editor opens empty for a match's name (2026-11-10, from scene-parity)
+
+With no typed name, the slot's name editor opens empty: `InlineEdit` gives its input no
+placeholder, so the match's name ("Coach") is not shown while typing. A `placeholder` on the input
+would help here, but it changes every inline editor (scene names would show "Scene 2").
+
+## Fill the in-game scoreboard's missing values (2026-11-10, operator)
+
+The topbar UX worktree now follows the operator's in-game scoreboard reference. Keep the
+remaining data work separate from visual refinement; unavailable values display as “—”.
+
+- **Hero level over time.** The timeline's ability levels are unlock/upgrade tiers, not hero
+  level. Capture the real level changes for the portrait's circular level badge.
+- **Kills and assists over time.** Deaths are already recorded. Death-event killer attribution
+  is optional and the current sample lacks it, so it cannot produce exact kill totals or the
+  center team-kill counters. Capture authoritative killer and assist credit; damage recaps are
+  not assist credit. Preserve a distinction between a true zero and unavailable data.
+- **Maximum HP and bullet/spirit resistance over time.** Current health is only a percentage.
+  Capture the actual scoreboard values, including changes due to items, upgrades and effects;
+  do not reverse-engineer them from health percentage or today's shop stats.
+- **Weapon / Spirit / Vitality bar progression.** Verify and capture the game's category
+  progression/tier values. The current UI labels its bars as equipped-item value at current
+  catalog prices; that is not verified as the game's progression formula.
+- **Active-item designation.** The reference marks active items. Add authoritative item metadata
+  to the pack; absence of a recorded cast does not establish that an item is passive.
+
+**Update (2026-11-10, prototype-data; implementation authorized separately by operator):**
+Format 8 now records actual controller hero level, player kills, assists, and pawn maximum HP
+at 1 Hz as optional sparse changes with explicit unknown gaps. Standard replay 129738985
+verified all 12 players: levels 1–45, maximum HP 690–4560, final totals 74 kills / 134 assists;
+74 kills match 74 deaths. The API-summary tier remains unavailable. See
+[scoreboard-values.md](research/scoreboard-values.md) for exact sources and cache policy.
+Resistance totals, category progression and active-item designation remain open; no inferred
+values were added. The bounded controller/pawn field census found no direct named resistance
+or category progression values. A matching-build authoritative HUD/formula audit is still
+needed, including temporary effects; modifier contributions alone do not establish totals.
+
+**Update (2026-11-10, proto-resist):** No recorded source exists for bullet or spirit resistance.
+Across replay 129738985's 929 networked classes, the only resist field is an item counter. The
+controller's stat viewer holds just permanent statue pickups and Spirit Snatch stacks; item armor
+and hero base values never appear there. Neither the modifier table nor any user message
+carries a resist value. The HUD calculates resistance from modifiers and vdata. That calculation
+needs a build-matched catalog (6839 for this replay; we hold 6860) and operator sign-off, because
+it would be a calculated value, not a recorded one. The UI stays "—". Details in
+[scoreboard-values.md](research/scoreboard-values.md#bullet-and-spirit-resistance-no-recorded-source-2026-11-10-proto-resist).
+
+Audit the demo/controller properties and metadata payload before choosing sources. Keep times,
+units, missing-data behavior and replay/API-summary coverage explicit. Any persisted timeline
+addition needs the format/cache-upgrade policy, focused boundary tests, and verification on
+standard 6v6 replay 129738985. No extraction implementation is authorized by this backlog entry.
+
 ## Bugs the Argon UX pass reported, unverified (2026-11-10, from argon-ux)
 
 Gemini 4 Argon reported these while exploring prod for its design pass
@@ -205,6 +321,10 @@ slot().name`, and PlayerTopBar's `tb-name` shows only the match's name while the
 shows the typed one. So a renamed slot reads "Captain" in Scenes, "Coach" under Player's portrait
 and on its token, and "Captain" in Player's portrait title. Needs a call on which wins in Player;
 then one helper (`slotName` in board/roster.ts) for both.
+
+**Update (2026-11-10, scene-parity):** Player's portrait title now follows its token and Tab
+column (the match's name, then a typed one), and no bar shows names under it any more. The
+Scenes/Player order difference itself is unchanged and still needs the call.
 
 ## A scene saved from another match shows no names (2026-11-09, from scene-names)
 

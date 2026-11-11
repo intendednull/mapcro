@@ -3,6 +3,7 @@
 import { Show } from "solid-js";
 import { cx } from "../ui/cx";
 import type { CampAt, PowerupAt, RejuvNow, RiftAt, UrnNow } from "./timeline";
+import type { CrowdControl } from "../player/cc";
 import type { Skull } from "../player/skulls";
 
 export interface MatchPreview {
@@ -10,7 +11,7 @@ export interface MatchPreview {
    * (`null`: dead, hidden). `ghost`: in one team's Vision, an enemy out of its sight, drawn dim at
    * `pos`, where it was last seen, this many seconds ago. `unseen`: in one team's Vision, not
    * drawn because it's out of that team's sight (not dead, say): its going and coming fade. */
-  players: Map<string, { hero: number; name?: string | null; pos: { x: number; y: number } | null; health?: number | null; respawn?: number | null; ghost?: number | null; unseen?: boolean }>;
+  players: Map<string, { hero: number; name?: string | null; pos: { x: number; y: number } | null; health?: number | null; respawn?: number | null; ghost?: number | null; unseen?: boolean; cc?: CrowdControl | undefined; height?: number | undefined; zipline?: boolean }>;
   /** Whether this moment continues the last in playback: no seek, scrub, jump, stall, new match
    * or change of view between them. Vision's fades run only then (board/fade.ts). */
   fade?: boolean;

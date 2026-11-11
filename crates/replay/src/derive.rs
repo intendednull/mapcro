@@ -54,6 +54,13 @@ pub struct CampSlot {
     pub changes: Vec<(f32, f32)>,
 }
 
+/// Append observed changes, preserving gaps instead of holding an unavailable value.
+fn scalar_change(out: &mut Vec<(u32, Option<u32>)>, second: u32, value: Option<u32>) {
+    if out.last().map_or(value.is_some(), |(_, prev)| *prev != value) {
+        out.push((second, value));
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct AbilityObs {
     pub hero_id: u32,
@@ -75,6 +82,9 @@ pub struct HeroObs {
     pub pos: Option<[f32; 2]>,
     pub health: i64,
     pub max_health: i64,
+    pub level: Option<u32>,
+    pub kills: Option<u32>,
+    pub assists: Option<u32>,
     pub net_worth: u32,
     pub ult_trained: bool,
     pub ult_start: f32,
@@ -424,6 +434,10 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
                 p.x.push(pos.map(|q| q[0].round() as i32));
                 p.y.push(pos.map(|q| q[1].round() as i32));
                 // Dead (or out of the recording): empty. A dead pawn can keep a stale health.
+                scalar_change(&mut p.kills, sec as u32, h.and_then(|h| h.kills));
+                scalar_change(&mut p.assists, sec as u32, h.and_then(|h| h.assists));
+                scalar_change(&mut p.level, sec as u32, h.and_then(|h| h.level));
+                scalar_change(&mut p.max_health, sec as u32, h.and_then(|h| u32::try_from(h.max_health).ok()).filter(|v| *v > 0));
                 p.health.push(h.filter(|h| h.alive).map_or(0, |h| if h.max_health > 0 { (h.health.max(0) * 100 / h.max_health).clamp(0, 100) as u8 } else { 0 }));
                 if let Some(h) = h
                     && (h.ult_start != 0.0 || h.ult_end != 0.0)
@@ -1198,6 +1212,19 @@ fn events(obs: &Obs, m: &Map, players: &[Player], objectives: &[Objective], mid_
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scoreboard_changes_preserve_missing_values_and_recovery() {
+        let mut out = Vec::new();
+        for (sec, value) in [None, Some(5), Some(5), None, None, Some(6)].into_iter().enumerate() {
+            super::scalar_change(&mut out, sec as u32, value);
+        }
+        assert_eq!(out, vec![(1, Some(5)), (3, None), (5, Some(6))]);
+        let mut kills = Vec::new();
+        super::scalar_change(&mut kills, 0, Some(0));
+        super::scalar_change(&mut kills, 60, Some(1));
+        assert_eq!(kills, vec![(0, Some(0)), (60, Some(1))]);
+    }
+
     use super::*;
 
     fn hero(id: i32, team: i64, alive: bool, pos: [f32; 2]) -> HeroObs {

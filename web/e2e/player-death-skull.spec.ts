@@ -8,7 +8,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { ROOT, Server, TIMELINE_FORMAT, newBoardUrl, translate } from "./server";
 
 const ID = "129000077";
@@ -24,7 +24,7 @@ test.beforeAll(async () => {
   });
   await new Promise<void>((ok) => upstream.listen(0, "127.0.0.1", ok));
   const port = (upstream.address() as { port: number }).port;
-  server = new Server(undefined, { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "20" });
+  server = new Server(process.env.MAPCRO_SHOT_PACKS, { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "20" });
   await server.start();
 });
 test.afterAll(() => {
@@ -58,6 +58,7 @@ function timeline() {
           deaths: a1 ? [20] : s2 ? [40] : [],
           respawn: a1 ? [[20, 30]] : s2 ? [[40, 50]] : [],
           souls: [[0, 500]], ult: range(() => 0),
+          cc: a1 ? [[180, 230, 20, 255, 0]] : s0 ? [[290, 320, 17, 255, 0]] : [],
           seen: a1 ? [[100, 198]] : s0 ? [[100, 300]] : [],
         };
       }),
@@ -68,6 +69,7 @@ function timeline() {
 
 async function open(p: Page) {
   await p.getByTestId("mode-player").click();
+  await revealControls(p, "match-id");
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
   await p.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
@@ -110,15 +112,17 @@ test("a death leaves a skull where it fell that fades in a couple of seconds; vi
   const op = Number(await sk.getAttribute("opacity"));
   expect(op).toBeGreaterThan(0.5);
   expect(op).toBeLessThan(1);
-  // The team's colour (`--amber`, resolved), and never in the pointer's way.
-  const amber = await a.evaluate(() => {
-    const d = document.body.appendChild(document.createElement("div"));
-    d.style.color = "var(--amber)";
-    const c = getComputedStyle(d).color;
-    d.remove();
-    return c;
-  });
-  expect(await sk.evaluate((el) => [getComputedStyle(el).pointerEvents, getComputedStyle(el.querySelector("path")!).fill])).toEqual(["none", amber]);
+  // Portrait and skull share one replay-time opacity; never in the pointer's way.
+  expect(await sk.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe("none");
+  await expect(sk.locator(".pl-fallen-body")).toHaveAttribute("r", "23");
+  await expect(sk.locator(".pl-fallen-badge")).toHaveCount(1);
+  if (process.env.MAPCRO_SHOT_PACKS) {
+    await expect(sk.locator(".pl-fallen-portrait")).toHaveCount(1);
+    await expect(sk.locator(".pl-fallen-skull")).toHaveCount(1);
+  }
+  await expect(sk.locator(".pl-fallen-badge")).not.toHaveAttribute("opacity");
+  await a.waitForTimeout(150);
+  await expect(sk).toHaveAttribute("opacity", op.toFixed(3)); // paused: no wall-clock fade
   await a.mouse.move(5, 5);
   await a.screenshot({ path: join(ROOT, "web/shots/death-skull.png") });
   const box = (await sk.boundingBox())!;
@@ -131,6 +135,11 @@ test("a death leaves a skull where it fell that fades in a couple of seconds; vi
   await scrubTo(a, 20);
   expect(await drawn(a)).toEqual(["amber-1"]);
   await expect(skulls(a).first()).toHaveAttribute("opacity", "1.000");
+
+  // A respawn restores exactly one living token, with no fallen copy left behind.
+  await scrubTo(a, 30);
+  await expect(tok(a, "Amber-1")).toHaveCount(1);
+  await expect(skulls(a)).toHaveCount(0);
 
   // Playing through a death: it comes and goes with no scrub.
   await scrubTo(a, 38);
@@ -186,4 +195,34 @@ test("a follower draws the presenter's skulls, at the presenter's time and visio
   await expect(b.getByTestId("vision-select")).toHaveValue("amber");
   await expect(skulls(b)).toHaveCount(0);
   await expect(b.getByTestId("follow-chip")).toContainText("Following Coach");
+});
+
+
+test("optional CC labels follow replay time and never update dead or last-seen tokens", async ({ browser }) => {
+  const p = await joinNew(browser, await newBoardUrl(server, "Crowd control"), "Coach");
+  await open(p);
+  await scrubTo(p, 18);
+  await expect(p.getByTestId("tok-cc")).toHaveCount(0);
+  await revealControls(p, "cc-toggle");
+  await p.getByTestId("cc-toggle").click();
+  await expect(p.getByTestId("tok-cc")).toHaveText("Stunned");
+  await p.waitForTimeout(150);
+  await expect(p.getByTestId("tok-cc")).toHaveText("Stunned");
+  await scrubTo(p, 17);
+  await expect(p.getByTestId("tok-cc")).toHaveCount(0);
+  await scrubTo(p, 18);
+  await expect(p.getByTestId("tok-cc")).toHaveText("Stunned");
+  await scrubTo(p, 21);
+  await expect(p.getByTestId("tok-cc")).toHaveCount(0); // still CC data, but dead
+  await p.getByTestId("vision-select").selectOption("amber");
+  await scrubTo(p, 29);
+  await expect(p.getByTestId("tok-cc")).toHaveText("Silenced");
+  await p.getByTestId("last-seen-toggle").click();
+  await scrubTo(p, 31);
+  await expect(tok(p, "Sapphire-0")).toHaveAttribute("data-seen", "false");
+  await expect(p.getByTestId("tok-cc")).toHaveCount(0);
+  await p.getByTestId("vision-select").selectOption("all");
+  await expect(p.getByTestId("tok-cc")).toHaveText("Silenced");
+  await scrubTo(p, 32);
+  await expect(p.getByTestId("tok-cc")).toHaveCount(0);
 });

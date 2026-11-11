@@ -9,7 +9,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 const ID = "129000021";
@@ -66,6 +66,7 @@ const dem = (size: number) => Buffer.concat([Buffer.from("PBDEMS2\0", "binary"),
 
 async function open(p: Page) {
   await p.getByTestId("mode-player").click();
+  await revealControls(p, "match-id");
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
   await p.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: dem(4096) });
@@ -186,12 +187,14 @@ test("the upload's bar and percent ease to each progress event, and jump with re
     const a = await joinNew(browser, await newBoardUrl(server, `Upload ease ${reduced}`), "Coach");
     await a.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
     await a.getByTestId("mode-player").click();
+    await revealControls(a, "match-id");
     await a.getByTestId("match-id").fill(UPLOAD_ID);
     await a.getByTestId("match-load").click();
     // A slow link, so the upload takes a while and reports progress in steps.
     const cdp = await a.context().newCDPSession(a);
     await cdp.send("Network.enable");
     await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: 1024 * 1024 });
+    await revealControls(a, "match-file");
     await a.getByTestId("match-file").setInputFiles({ name: `${UPLOAD_ID}.dem`, mimeType: "application/octet-stream", buffer: dem(8 * 1024 * 1024) });
     await expect(a.getByTestId("upload-bar")).toBeVisible();
     // Each frame for a second: the bar drawn, and the bytes the last progress event reported.

@@ -8,7 +8,7 @@ import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
 const src = process.env.MAPCRO_SHOT_REPLAY;
@@ -39,6 +39,7 @@ test("every Sinner's Sacrifice camp, and the unnamed ones' timers", async ({ bro
   await a.screenshot({ path: "shots/objectives-board.png" });
   await expect(a.locator('[data-testid=map] .mk.camp[aria-label="Sinner\'s Sacrifice"]')).toHaveCount(11);
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("Full replay");

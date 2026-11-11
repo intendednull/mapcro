@@ -1,3 +1,4 @@
+import { revealControls } from "./helpers";
 // Health on the replay tier (operator, 2026-11-08): the HUD's slanted bar beside each top-bar portrait, an
 // arc on each hero token, each objective's icon filled from the bottom up to its health (the
 // patron's shield in stage 1, its core in stage 2), all following the timeline; a Health
@@ -97,7 +98,9 @@ async function scrubTo(p: Page, t: number) {
  * timeline, as the server expects. */
 async function openReplay(a: Page) {
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
+  await revealControls(a, "match-load");
   await a.getByTestId("match-load").click();
   await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
   // The same file again is already parsed (the server says so): then there's no job to answer.
@@ -229,11 +232,13 @@ test("health bars, token arcs and objective fills follow the replay; Health turn
   await expect(art()).toHaveAttribute("data-art", "critical");
   await a.emulateMedia({ reducedMotion: "no-preference" });
   // Health off: the usual portrait.
+  await revealControls(a, "health-toggle");
   await a.getByTestId("health-toggle").click();
   await expect(amber0).not.toHaveClass(/\bhealth-low\b/);
   await expect(art()).toHaveAttribute("data-art", "card");
   await expect(art3()).toHaveAttribute("data-art", "topbar");
   await expect(amber0.getByTestId("tb-critical")).toHaveCount(0);
+  await revealControls(a, "health-toggle");
   await a.getByTestId("health-toggle").click();
   await expect(art()).toHaveAttribute("data-art", "critical");
 
@@ -252,6 +257,7 @@ test("health bars, token arcs and objective fills follow the replay; Health turn
   await expect(a.locator('.tb-player[data-slot="Amber-1"] [data-testid=tb-health]')).toHaveAttribute("data-health", "100");
 
   await scrubTo(a, 45);
+  await revealControls(a, "health-toggle");
   await a.getByTestId("health-toggle").click();
   await expect(bar(a)).toHaveCount(0);
   await expect(a.locator("[data-testid=tok-health]")).toHaveCount(0);

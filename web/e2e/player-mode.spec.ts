@@ -7,7 +7,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
 const BRAWL = "122134063";
@@ -45,6 +45,7 @@ test("a Brawl or unknown-mode match is refused in Player and never attached", as
   const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
   for (const [id, label] of [[BRAWL, "Brawl not supported. Open a standard match."], [ODD, "Mode not supported. Open a standard match."]] as const) {
+    await revealControls(a, "match-id");
     await a.getByTestId("match-id").fill(id);
     await a.getByTestId("match-load").click();
     await expect(a.getByTestId("match-notice-text")).toHaveText(label);
@@ -59,6 +60,7 @@ test("a Brawl or unknown-mode match is refused in Player and never attached", as
 test("a replay whose game rules say Brawl fails with its label", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Brawl replay"), "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(NO_META);
   await a.getByTestId("match-load").click();
   await a.getByTestId("match-file").setInputFiles({ name: `${NO_META}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });

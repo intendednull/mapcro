@@ -81,8 +81,8 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .ie-input.bad { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 25%, transparent); }
 .scene-title h1 .ie-input.clock { width: 4.2em; color: var(--brass); }
 
-/* The in-game top bar above the map: up to 1008 px wide, its height follows (172/1260). */
-.board-app .stage > .tb-host { width: var(--bar-w); margin: 14px 0 2px; }
+/* The HUD fills the center column, with 8 px clearance from each sidebar. */
+.board-app .stage > .tb-host { width: calc(100% + 20px); margin: 26px -10px 10px; z-index: 25; }
 .board-app .stage:has(.tb-host) .stage-head { width: var(--bar-w); }
 .tb-host .ie { border: 0; }
 .tb-host .ie-input.tb-souls-value { width: calc(60 * var(--u)); padding: 0 2px; color: #10130D; background: #FFEFD7; border-radius: 2px; text-align: center; box-shadow: none; border: 0; }
@@ -137,6 +137,9 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .p-top .spacer { flex: 1; }
 .p-top .save { font-size: 11px; }
 .viewonly { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 3px 7px; white-space: nowrap; }
+/* With the tier chip beside it the header is full on a phone: the role chip gives way first. */
+.p-top .viewonly { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.p-top > :not(.viewonly):not(.spacer) { flex: none; }
 .p-follow { margin: 10px 12px 0; min-height: 40px; display: flex; align-items: center; gap: 9px; padding: 0 6px 0 10px; border-radius: 20px;
   border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 8%, var(--bg-deep)); }
 .p-follow.off { border-color: var(--line); background: var(--panel); }
@@ -247,7 +250,6 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .tb-vis svg { width: 75%; height: 75%; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
 .tb-vis svg circle { fill: currentColor; stroke: none; }
 .tb-player.unseen .tb-img, .tb-player.unseen .tb-disc { opacity: 0.4; }
-.tb-host.editable .tb-souls { cursor: text; }
 /* Hero picker */
 .hero-picker { width: min(720px, calc(100% - 24px)) !important; }
 .hero-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 12px; max-height: min(56vh, 520px); overflow: auto; padding: 2px; }
@@ -382,13 +384,6 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-tier.summary:hover + .pl-tier-why, .pl-tier-wrap:hover .pl-tier-why { display: block; }
 .pl-tier-reason { display: block; color: var(--text); font-weight: 600; }
 .pl-ev-name { color: var(--faint); font-size: 0.92em; margin-left: 2px; }
-/* The names hang under the bar: with names, the bar is that much taller, so the map is laid out
-   below them rather than drawn over them (QA 2026-11-08). */
-.tb-host.named { height: calc(212 * var(--u)); }
-.tb-host.named.compact { height: calc(212 * var(--u) + 10px); }
-.pl-tb-name { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: calc(18 * var(--u)); max-width: calc(110 * var(--u)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 calc(12 * var(--u)) var(--ui); color: var(--faint); pointer-events: none; }
-/* A scene's name editor ("Rename…" in the portrait menu). */
-.pl-tb-name.ie-input { pointer-events: auto; overflow: visible; max-width: none; width: calc(140 * var(--u)); text-align: center; color: var(--text); }
 .pl-switch { align-self: center; }
 .pl-trooper { stroke: #0b1714; stroke-width: 1.5; vector-effect: non-scaling-stroke; fill-opacity: 0.85; pointer-events: none; }
 .pl-trooper.amber { fill: var(--amber); }
@@ -403,15 +398,14 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-ping circle.halo { stroke: #000000b0; stroke-width: 5.5; }
 .pl-ping.amber circle:not(.halo) { stroke: var(--amber); }
 .pl-ping.sapphire circle:not(.halo) { stroke: var(--sapphire); }
-/* Death skulls (player/Skulls.tsx): the dead badge's dark disc and skull, in the dead hero's team
-   colour; the opacity is playback time's, never animated. */
+/* The fallen minimap portrait and game skull share the parent's replay-time opacity. The
+   restrained red wash distinguishes dying from the grey last-seen treatment. */
 .pl-skull { pointer-events: none; }
-.pl-skull circle { fill: #0b1714; stroke-width: 1.4; }
-.pl-skull path { fill-rule: evenodd; }
-.pl-skull.amber circle { stroke: var(--amber); }
-.pl-skull.amber path { fill: var(--amber); }
-.pl-skull.sapphire circle { stroke: var(--sapphire); }
-.pl-skull.sapphire path { fill: var(--sapphire); }
+.pl-fallen-body { fill: #0b1714; stroke: #c85b54; stroke-width: 3; }
+.pl-fallen-portrait { clip-path: circle(50%) fill-box; filter: grayscale(1) sepia(1) saturate(3) hue-rotate(310deg) brightness(0.8); }
+.pl-fallen-tint { fill: #c84940; opacity: 0.22; }
+.pl-fallen-badge circle { fill: #231613; stroke: #c85b54; stroke-width: 1.4; }
+.pl-fallen-badge path { fill: #f0ded7; fill-rule: evenodd; }
 @keyframes pl-ping { 0% { opacity: 1; transform: scale(0.5); } 60% { opacity: 0.85; } 100% { opacity: 0; transform: scale(1.45); } }
 @keyframes pl-pulse { from { opacity: 1; transform: scale(0.4); } to { opacity: 0; transform: scale(1.4); } }
 .match-panel { position: fixed; left: 50%; bottom: 116px; transform: translateX(-50%); z-index: 45; width: min(720px, calc(100% - 24px)); padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 16px 40px #000a; display: flex; flex-direction: column; gap: 8px; }
@@ -593,3 +587,80 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .feedback-done a { color: var(--accent); }
 .linkish { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .linkish:hover { color: var(--text); }
+
+/* Replay workspace: existing board surfaces, with display, drawing and playback separated. */
+.map-controls { position: absolute; top: 4px; left: 4px; right: 4px; z-index: 20; display: flex; align-items: center; gap: 6px; pointer-events: none; }
+.map-controls > * { pointer-events: auto; }
+.map-controls > :last-child { margin-left: auto; }
+.map-controls .btn, .map-controls .input { background: var(--panel); }
+.map-controls summary, .pl-source summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.map-controls summary::-webkit-details-marker, .pl-source summary::-webkit-details-marker { display: none; }
+.map-layers { position: relative; }
+.map-layers-pop { position: absolute; top: calc(100% + 6px); left: 0; width: 216px; padding: 10px; display: flex; flex-direction: column; align-items: stretch; gap: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 8px 24px #0005; }
+.map-layers-pop h3 { margin: 6px 4px; color: var(--faint); font: 600 11px var(--ui); }
+.map-layers-pop button { text-align: left; justify-content: space-between; }
+/* The mark is decoration: aria-pressed says the state, so it stays out of the button's name. */
+.map-layers-pop button::after { content: '○' / ''; color: var(--faint); }
+.map-layers-pop button[aria-pressed="true"] { color: var(--brass); background: var(--raised); }
+.map-layers-pop button[aria-pressed="true"]::after { content: '✓' / ''; color: var(--brass); }
+.board-app .stage > .dock > .toolbar { flex-wrap: nowrap; gap: 3px; }
+.board-app .dock .toolbar .tb { padding-left: 7px; padding-right: 11px; gap: 4px; }
+.board-app .dock .toolbar .tb.icon { padding: 0 7px; }
+.board-app .dock .toolbar .tb-sep { margin: 0 2px; }
+.pl-bar { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 8px 12px; }
+.pl-source { position: relative; }
+.pl-source > summary { white-space: nowrap; padding: 4px 6px; }
+/* Over the replay prompt's map scrim (40): the source opens upward over the map, and the bar stays in use. */
+.pl-source .pl-head { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 41; width: 300px; flex-wrap: wrap; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 -8px 24px #0005; }
+.pl-source .pl-head > .spacer { display: none; }
+.pl-transport { flex-wrap: nowrap; gap: 6px; min-width: 0; }
+.pl-transport .pl-scrub { flex: 1 1 100px; min-width: 40px; padding-top: 10px; }
+.pl-ticks { top: 6px; }
+.pl-tail { flex: none; gap: 6px; white-space: nowrap; }
+.pl-scene-row { grid-column: 1 / -1; }
+.side-tabs { display: flex; padding: 8px 12px 0; border-bottom: 1px solid var(--line); gap: 12px; }
+.side-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 0; color: var(--muted); font: 600 12px var(--ui); cursor: pointer; }
+.side-tabs button[aria-selected="true"] { color: var(--brass); border-bottom-color: var(--brass); }
+.side { display: flex; flex-direction: column; }
+.side > [role="tabpanel"] { flex: 1; min-height: 0; }
+.side > [role="tabpanel"][hidden] { display: none; }
+.side .pl-side { height: 100%; box-sizing: border-box; }
+.side .people-section { order: 3; }
+.side-empty { color: var(--faint); font: 12px/1.5 var(--ui); }
+.scene-replay { display: flex; flex-direction: column; gap: 5px; width: calc(100% - 20px); margin: 8px 10px; padding: 10px; background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 6px; text-align: left; cursor: pointer; }
+.scene-replay small { color: var(--faint); font: 11px var(--ui); }
+.scene-replay.on { border-color: var(--brass-dim); color: var(--brass); background: var(--raised); }
+@media (max-width: 1400px) {
+  .board-app .dock .toolbar .tb { padding-left: 6px; padding-right: 10px; }
+  .board-app .dock .toolbar .tb .k { display: none; }
+  .pl-source > summary { max-width: 112px; overflow: hidden; }
+  .pl-tail .match-clock { font-size: 11px; }
+}
+.p-map-wrap > .map-controls { position: relative; top: auto; left: auto; right: auto; flex-wrap: wrap; margin: 0 0 8px; }
+@media (max-width: 800px) {
+  .pl-bar { grid-template-columns: minmax(0, 1fr); }
+  .pl-transport { flex-wrap: wrap; }
+  .pl-transport .pl-scrub { flex: 1 0 100%; order: 10; }
+  .pl-tail { margin-left: auto; }
+  .pl-source .pl-head { max-width: calc(100vw - 44px); }
+}
+
+.pl-bar.scene .pl-transport { grid-column: 1 / -1; }
+.pl-mark.current { background: var(--text); box-shadow: 0 0 0 2px var(--brass); }
+.pl-bar.scene .pl-scrub { opacity: .8; }
+
+.pl-ev { flex-wrap: wrap; }
+.death-recap { flex: 1 0 100%; min-width: 0; font-size: 11px; }
+.death-recap summary { cursor: pointer; color: var(--muted); padding: 3px 4px 5px 24px; }
+.death-recap[open] { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
+.death-recap-body { padding: 8px; }
+.recap-window { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.recap-damage { max-height: 220px; overflow-y: auto; margin-top: 8px; }
+.recap-hit { position: relative; display: flex; align-items: center; gap: 6px; padding: 5px 0 7px; }
+.recap-hit img { width: 24px; height: 24px; object-fit: contain; }
+.recap-hit span { flex: 1; min-width: 0; }
+.recap-hit small { display: block; color: var(--muted); }
+.recap-hit i { position: absolute; left: 0; bottom: 1px; height: 2px; background: var(--brass); }
+.recap-cc { margin: 6px 0; }
+.recap-cc > div { position: relative; height: 5px; background: var(--line); margin-top: 3px; }
+.recap-cc i { position: absolute; height: 100%; background: var(--danger); }

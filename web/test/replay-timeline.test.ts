@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { FALLBACK } from "../src/map/fallback-data";
 import { modelFromFallback } from "../src/map/model";
-import { type Timeline, campsAt, downAt, lanesAt, markerKey, playersAt, sitesAt, tierOf, urnAt } from "../src/match/timeline";
+import { type Timeline, scoreboardValueAt, campsAt, downAt, lanesAt, markerKey, playersAt, sitesAt, tierOf, urnAt } from "../src/match/timeline";
 import { urnTip } from "../src/player/Urn";
 import { label, groupOf, namesFor } from "../src/player/events";
 import { splitEdges } from "../src/map/lanes";
@@ -188,5 +188,20 @@ describe("replay timeline", () => {
     expect(label(e("urn_drop"), n)).toBe("Urn dropped by Haze");
     expect(label(e("urn_delivered"), n)).toBe("Urn delivered by Haze");
     expect(groupOf(e("urn_drop"))).toBe("urn");
+  });
+});
+
+
+describe("recorded scoreboard changes", () => {
+  it("keeps old timelines, missing initial values, and gaps unknown", () => {
+    expect(scoreboardValueAt(undefined, 100)).toBeNull();
+    expect(scoreboardValueAt([], 100)).toBeNull();
+    expect(scoreboardValueAt([[0, 0]], 0)).toBe(0);
+    const values: Array<[number, number | null]> = [[1, 1000], [3, null], [4, 1200]];
+    expect(scoreboardValueAt(values, 0)).toBeNull();
+    expect(scoreboardValueAt(values, 1)).toBe(1000);
+    expect(scoreboardValueAt(values, 2.99)).toBe(1000);
+    expect(scoreboardValueAt(values, 3)).toBeNull();
+    expect(scoreboardValueAt(values, 4)).toBe(1200);
   });
 });

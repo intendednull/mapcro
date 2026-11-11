@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "./fixtures";
 import { ROOT, Server, TIMELINE_FORMAT } from "./server";
+import { revealControls } from "./helpers";
 
 const CDN = 130816397;
 const UP = 130816398;
@@ -113,6 +114,7 @@ test("a stale upload stays, and offers Upload replay file as the way up", async 
   const scope = createHash("sha256").update(board).digest("hex").slice(0, 16);
   cache(`${UP}-${scope}`, timeline(UP, false));
   // Load it again in Player: the board's upload is served.
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(String(UP));
   await a.getByTestId("match-load").click();
   const chip = a.getByTestId("match-tier");

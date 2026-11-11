@@ -2,7 +2,7 @@
 // following a presenter on a desktop, against the real server.
 
 import { devices, expect, test } from "./fixtures";
-import { gesture, joinNew, mapPoint, viewLink } from "./helpers";
+import { gesture, joinNew, mapPoint, revealControls, viewLink } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
 let server: Server;
@@ -24,6 +24,7 @@ test("a phone viewer follows, reads the callouts and note, flips on its own, and
     await a.getByTestId("comment-input").fill(text);
     await a.keyboard.press("Enter");
   }
+  await revealControls(a, "scene-note-edit");
   await a.getByTestId("scene-note-edit").fill("Boss at 8:00. Haze and Vindicta hold the west stairs.");
   await a.getByTestId("scene-name").click(); // blur the note: it saves
   await a.keyboard.press("Escape");

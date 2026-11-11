@@ -8,7 +8,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 /** A synthetic match: no real replay's data. */
@@ -50,6 +50,7 @@ function timeline() {
 
 async function open(p: Page) {
   await p.getByTestId("mode-player").click();
+  await revealControls(p, "match-id");
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
   await p.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
@@ -79,6 +80,7 @@ test("heavy boxes only with their own toggle, which a reload keeps, on the board
   await expect(marks(a, "shop")).toHaveCount(8);
   await expect(marks(a, "crate")).toHaveCount(0);
   const toggle = a.getByTestId("crates-toggle");
+  await revealControls(a, "crates-toggle");
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(toggle).toHaveAccessibleName("Heavy boxes");
   await toggle.click();
@@ -101,7 +103,9 @@ test("heavy boxes only with their own toggle, which a reload keeps, on the board
   await a.screenshot({ path: "shots/heavy-boxes-board.png" });
   // The toggle is under the map in Player too, and off is kept as well.
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "crates-toggle");
   await expect(a.getByTestId("crates-toggle")).toBeVisible();
+  await revealControls(a, "crates-toggle");
   await a.getByTestId("crates-toggle").click();
   await expect(marks(a, "crate")).toHaveCount(0);
   await a.reload();
@@ -111,6 +115,7 @@ test("heavy boxes only with their own toggle, which a reload keeps, on the board
 
 test("Player: a heavy box is down until it spawns and while broken, and says when it's back", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Crates"), "Coach");
+  await revealControls(a, "crates-toggle");
   await a.getByTestId("crates-toggle").click();
   await open(a);
   const crate = marker(a, CRATE);

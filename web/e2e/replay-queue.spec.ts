@@ -9,7 +9,7 @@ import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Browser, type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { ROOT, Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 /** deadlock-api has its metadata, Valve no replay: Player offers the upload. */
@@ -108,9 +108,11 @@ const parsed = async (id: number) => {
 async function player(browser: Browser, title: string) {
   const a = await joinNew(browser, await newBoardUrl(server, title), "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(String(KNOWN));
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
+  await revealControls(a, "match-upload");
   await expect(a.getByTestId("match-upload")).toBeVisible();
   return a;
 }

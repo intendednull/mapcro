@@ -462,3 +462,40 @@ fn match_129738985_has_its_builds_casts_status_effects_and_heights() {
     eprintln!("{} KB", bytes.len() / 1024);
     assert!(bytes.len() < 2 << 20, "under 2 MiB");
 }
+
+/// No identity reaches disk: parse in memory, drop names, then serialize the sanitized result.
+#[test]
+#[ignore = "needs 129738985: MAPCRO_REPLAY_129738985"]
+fn match_129738985_has_recorded_scoreboard_values() {
+    let dem = env_path("MAPCRO_REPLAY_129738985").expect("set MAPCRO_REPLAY_129738985");
+    let obs = mapcro_replay::parse::observe(&dem, 129_738_985).expect("observes");
+    let mut t = mapcro_replay::derive::derive(&obs, mapcro_replay::map::current()).expect("derives");
+    for p in &mut t.players { p.name = None; }
+    assert_eq!(t.players.len(), 12);
+    assert!(t.players.iter().all(|p| !p.level.is_empty() && !p.max_health.is_empty()));
+    assert!(t.players.iter().all(|p| !p.kills.is_empty() && !p.assists.is_empty()));
+    let levels: Vec<u32> = t.players.iter().flat_map(|p| p.level.iter().filter_map(|(_, v)| *v)).collect();
+    let hp: Vec<u32> = t.players.iter().flat_map(|p| p.max_health.iter().filter_map(|(_, v)| *v)).collect();
+    assert!(levels.iter().all(|v| (1..=45).contains(v)));
+    assert!(hp.iter().all(|v| (500..=20_000).contains(v)));
+    assert!(levels.iter().any(|v| *v >= 20));
+    assert!(hp.iter().any(|v| *v >= 3000));
+    // The first scoreboard samples precede combat; final totals must not leak backwards.
+    for p in &t.players {
+        assert_eq!(p.kills.first(), Some(&(0, Some(0))));
+        assert_eq!(p.assists.first(), Some(&(0, Some(0))));
+    }
+    assert!(t.players.iter().any(|p| p.kills.iter().any(|(s, v)| *s > 0 && v.is_some_and(|v| v > 0))));
+    let kills: u32 = t.players.iter().map(|p| p.kills.iter().rev().find_map(|(_, v)| *v).expect("kills")).sum();
+    let assists: u32 = t.players.iter().map(|p| p.assists.iter().rev().find_map(|(_, v)| *v).expect("assists")).sum();
+    assert_eq!(kills, 74);
+    assert_eq!(assists, 134);
+    assert_eq!(kills as usize, t.players.iter().map(|p| p.deaths.len()).sum::<usize>());
+    eprintln!("recorded totals: {kills} kills, {assists} assists; {} deaths", t.players.iter().map(|p| p.deaths.len()).sum::<usize>());
+    let bytes = serde_json::to_vec(&t).expect("serialize");
+    assert!(timeline::validate(&bytes).is_ok());
+    if let Some(path) = std::env::var_os("MAPCRO_SANITIZED_TIMELINE") {
+        std::fs::write(path, &bytes).expect("sanitized output");
+    }
+    eprintln!("scoreboard: {} level changes, {} max HP changes; ranges {}..{} / {}..{}; {} bytes", levels.len(), hp.len(), levels.iter().min().expect("levels"), levels.iter().max().expect("levels"), hp.iter().min().expect("hp"), hp.iter().max().expect("hp"), bytes.len());
+}

@@ -86,3 +86,23 @@ export async function pickHero(page: Page, slot: string, hero: string) {
   await page.locator(`.hero-cell[data-hero="${hero}"]`).click();
   await expect(page.getByTestId("hero-picker")).toHaveCount(0);
 }
+
+/** Controls the layout keeps out of sight until asked for, by where they live: the Player bar's
+ * match source disclosure, the Map layers disclosure, or the sidebar's Scene Notes tab. */
+const SOURCE = ["match-id", "match-load", "match-upload", "match-fetch", "match-file", "match-status", "match-job", "mode-sandbox"];
+const LAYERS = ["troopers-toggle", "health-toggle", "names-toggle", "pings-toggle", "cc-toggle", "movement-toggle", "heals-toggle", "crates-toggle"];
+const NOTES = ["scene-note-edit"];
+
+/** Reveal the control `id` as a user would: open its disclosure (each closes on a press outside
+ * it) or its sidebar tab. Safe to call when it is already showing. */
+export async function revealControls(page: Page, id: string) {
+  if (NOTES.includes(id)) {
+    await page.locator("#notes-tab").click();
+    await expect(page.locator("#notes-panel")).toBeVisible();
+    return;
+  }
+  const where = SOURCE.includes(id) ? ".pl-source" : LAYERS.includes(id) ? ".map-layers" : undefined;
+  if (!where) throw new Error(`revealControls: no known place for ${id}`);
+  const details = page.locator(where);
+  if (!(await details.evaluate(el => (el as HTMLDetailsElement).open))) await details.locator(":scope > summary").click();
+}

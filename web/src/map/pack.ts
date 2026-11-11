@@ -24,6 +24,8 @@ export interface PackHero {
   card_blob?: string | null;
   /** The 280×380 low-health hero card (`m_strIconHeroCardCritical`), when the pack has it. */
   critical_blob?: string | null;
+  /** The game HUD’s ordered signature abilities. */
+  abilities?: number[] | undefined;
 }
 
 export interface PackManifest {
@@ -32,6 +34,41 @@ export interface PackManifest {
   blobs: Record<string, PackBlob>;
   heroes?: PackHero[];
   entities?: PackEntity[];
+  abilities?: { blob: string };
+}
+
+export interface BuildRecord {
+  id: number;
+  kind: "item" | "ability" | "modifier";
+  name: string;
+  label: string;
+  icon?: string | undefined;
+  ability_type?: string;
+  /** Parent ability token for modifier icon fallback. */
+  ability?: number;
+  /** How the label was found; `internal` means no localised name exists. */
+  label_from?: "localisation" | "ability" | "internal";
+  cost?: number;
+  slot?: "weapon" | "vitality" | "spirit";
+  tier?: number;
+  components?: number[];
+  disabled?: boolean;
+}
+
+export interface BuildCatalog {
+  records: Map<number, BuildRecord>;
+}
+
+/** Resolve catalog icons exclusively against the selected pack. */
+export function buildCatalogFromData(base: string, packId: string, m: PackManifest, data: { records: Record<string, Omit<BuildRecord, "id">> }): BuildCatalog {
+  const records = new Map<number, BuildRecord>();
+  for (const [token, record] of Object.entries(data.records)) {
+    const id = Number(token);
+    if (!Number.isSafeInteger(id) || id < 0) continue;
+    const blob = record.icon ? m.blobs[record.icon] : undefined;
+    records.set(id, { ...record, id, icon: blob ? `${base}/packs/${packId}/${blob.file}` : undefined });
+  }
+  return { records };
 }
 
 export interface Hero {
@@ -48,9 +85,11 @@ export interface Hero {
   critical?: string | undefined;
   /** In the game's pick list: schema-3 packs give playable heroes a top-bar portrait. */
   playable: boolean;
+  abilities?: number[] | undefined;
 }
 
 export interface Art {
+  buildCatalog?: BuildCatalog;
   packId: string | undefined;
   version: string | undefined;
   /** The game build's date, as the pack records it ("Nov 05 2026"). */
@@ -105,6 +144,7 @@ export const IMAGE_BLOBS: Record<string, string> = {
   teleporter: "icons/minimap_teleporter_go_right",
   "teleporter-lit": "icons/minimap_teleporter_highlight",
   heal: "icons/health_pad_psd",
+  "death-skull": "topbar/skull",
   "tb-mask": "topbar/hero_image_mask_psd",
   "tb-ult": "topbar/icon_ultimate",
   "tb-ult-off": "topbar/icon_ultimate_off",
@@ -135,7 +175,7 @@ export function artFromManifest(base: string, packId: string, m: PackManifest): 
   const schema3 = (m.heroes ?? []).some((h) => "topbar_blob" in h);
   for (const h of m.heroes ?? []) {
     if (h.disabled) continue;
-    heroes.set(h.hero_id, { id: h.hero_id, name: h.name ?? h.class_name ?? `Hero ${h.hero_id}`, portrait: url(h.minimap_blob), topbar: url(h.topbar_blob), card: url(h.card_blob), critical: url(h.critical_blob), playable: schema3 ? !!h.topbar_blob : true });
+    heroes.set(h.hero_id, { id: h.hero_id, name: h.name ?? h.class_name ?? `Hero ${h.hero_id}`, portrait: url(h.minimap_blob), topbar: url(h.topbar_blob), card: url(h.card_blob), critical: url(h.critical_blob), abilities: h.abilities, playable: schema3 ? !!h.topbar_blob : true });
   }
   const entities = m.entities ?? [];
   // A pack without map entities still has portraits; its map falls back to the schematic.
@@ -151,7 +191,17 @@ export async function loadArt(base = ""): Promise<Art> {
     if (!id) return fallbackArt();
     const r = await fetch(`${base}/packs/${id}/pack.json`);
     if (!r.ok) return fallbackArt();
-    return artFromManifest(base, id, (await r.json()) as PackManifest);
+    const manifest = (await r.json()) as PackManifest;
+    const art = artFromManifest(base, id, manifest);
+    const blob = manifest.abilities && manifest.blobs[manifest.abilities.blob];
+    if (blob) {
+      // Catalog failure should not discard an otherwise usable map/portrait pack.
+      try {
+        const response = await fetch(`${base}/packs/${id}/${blob.file}`);
+        if (response.ok) art.buildCatalog = buildCatalogFromData(base, id, manifest, await response.json());
+      } catch { /* Old packs and unavailable catalogs still render the existing HUD. */ }
+    }
+    return art;
   } catch {
     return fallbackArt();
   }

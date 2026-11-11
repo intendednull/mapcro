@@ -7,7 +7,7 @@ import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
 const src = process.env.MAPCRO_SHOT_REPLAY;
@@ -49,6 +49,7 @@ async function hover(p: Page, sel: string) {
 test("the Rejuvenator, rift capture and urn walk-back on a real replay", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Real replay"), "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("Full replay");

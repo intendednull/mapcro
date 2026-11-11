@@ -113,9 +113,6 @@
 .tb-host.editable .tb-ult { cursor: grab; }
 .tb-host.editable .tb-ult.untracked { display: block; border: calc(1.5 * var(--u)) dashed #FFEFD766; background: none; }   /* untracked: a faint empty ring to click */
 .tb-host.editable .tb-ult.untracked > i { display: none; }
-.tb-souls.editing, .tb-clock.editing { outline: calc(2 * var(--u)) solid #8ee0c4; outline-offset: calc(2 * var(--u)); }
-.tb-caret { display: inline-block; width: calc(1.5 * var(--u)); height: calc(15 * var(--u)); background: currentColor; margin-left: calc(1 * var(--u)); vertical-align: middle; font-style: normal; }
-.tb-clock.editing .tb-caret { color: #FFEFD7; position: absolute; right: calc(14 * var(--u)); top: calc(8 * var(--u)); }
 .tb-ult.adjusting { outline: calc(2 * var(--u)) solid #8ee0c4; outline-offset: calc(3 * var(--u)); }
 .tb-ult-handle { inset: auto !important; left: 50%; top: 50%; width: calc(7 * var(--u)); height: calc(7 * var(--u));
   background: #8ee0c4; border-radius: 50%; box-shadow: 0 0 0 calc(1.5 * var(--u)) #0b1d18; }
@@ -238,3 +235,87 @@
 .tb-host.compact .pl-rejuv { top: calc(62 * var(--u) + 19px); width: max(calc(70 * var(--u)), 35px); height: max(calc(40 * var(--u)), 20px); }
 .tb-host.compact .pl-rejuv.friend { left: auto; right: calc(50% + 40 * var(--u)); }
 .tb-host.compact .pl-rejuv-timer { top: calc(62 * var(--u) + 21px); width: max(calc(30 * var(--u)), 15px); height: max(calc(30 * var(--u)), 15px); }
+
+/* Scoreboard columns follow citadel_hud_top_bar_player.vxml and the in-game reference.
+   The backer continues behind the portrait; content starts below its souls tab. */
+.pl-topbar:has(.build-open) { z-index: 25; }
+.pl-topbar .tb-build-trigger { border: 0; cursor: pointer; font: inherit; }
+.pl-topbar .tb-build-trigger:hover, .pl-topbar .tb-build-trigger:focus-visible { filter: brightness(1.15); outline: 1px solid #FFEFD7; }
+.tb-all-builds { position: absolute; top: calc(100 * var(--u)); left: 50%; transform: translateX(-50%); z-index: 5; padding: 3px 6px; border: 1px solid #FFEFD730; border-radius: 2px; background: #10130D90; color: #FFEFD7; white-space: nowrap; cursor: pointer; font: 600 max(9px, calc(12 * var(--u))) "VALVEOracle", var(--ui); }
+.tb-all-builds kbd { margin-left: 3px; font: inherit; opacity: .45; }
+.tb-all-builds:hover, .tb-all-builds[aria-expanded="true"] { background: #31342baa; border-color: #FFEFD780; }
+.tb-build-team-kills { position: absolute; top: calc(148 * var(--u)); left: 25%; width: 50%; display: flex; justify-content: space-between; align-items: center; color: #e4dac2; font: 700 calc(12 * var(--u)) "VALVEOracle", var(--ui); }
+.tb-build-team-kills span { text-transform: uppercase; font-size: calc(10 * var(--u)); }
+.tb-build-column { position: absolute; top: calc(112 * var(--u)); left: 2.5%; width: 95%; padding: calc(5 * var(--u)) calc(6 * var(--u)) calc(10 * var(--u)); color: #ded6c4; text-align: center; font-family: "VALVEOracle", var(--ui); }
+.tb-build-column::before { content: ""; position: absolute; top: calc(-112 * var(--u)); bottom: 0; left: 0; right: 0; z-index: 0; background: linear-gradient(180deg, #a382626b 0%, #443e3b99 50%, #242723b8 100%); pointer-events: none; }
+.sapphire > .tb-build-column::before { background: linear-gradient(180deg, #4566ab8a 0%, #363e5999 50%, #1b2330b8 100%); }
+.tb-build-column > * { position: relative; z-index: 1; }
+.build-open > .tb-ult { visibility: hidden; }
+.tb-build-name { height: calc(18 * var(--u)); color: #ded6c4; font-size: max(9px, calc(14 * var(--u))); line-height: 1.2; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-build-hero { min-height: calc(14 * var(--u)); font: 600 max(7px, calc(10 * var(--u))) "VALVEPulp", var(--ui); text-transform: uppercase; color: #d7cdb78c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-build-kda { display: grid; grid-template-columns: repeat(3, 1fr); margin: calc(5 * var(--u)) 0 calc(9 * var(--u)); }
+.tb-build-kda small { display: block; color: #d7cdb780; font-size: max(6px, calc(8 * var(--u))); }
+.tb-build-kda b { display: block; font-size: max(9px, calc(14 * var(--u))); font-weight: 600; }
+.tb-build-investment { display: flex; justify-content: center; gap: calc(5 * var(--u)); height: calc(25 * var(--u)); margin-bottom: calc(16 * var(--u)); }
+.tb-build-investment > span { display: flex; align-items: end; width: calc(7 * var(--u)); background: #10130dc9; border-radius: calc(2 * var(--u)); overflow: hidden; }
+.tb-build-investment i { width: 100%; background: linear-gradient(#fff7, transparent), var(--item-color); border-radius: inherit; }
+.weapon { --item-color: #e0ac51; }
+.vitality { --item-color: #91c761; }
+.spirit { --item-color: #b68fdb; }
+.tb-build-vitals { margin-bottom: calc(8 * var(--u)); font-size: max(9px, calc(13 * var(--u))); font-weight: 600; }
+.tb-build-vitals span { color: #bec4bfaa; }
+.tb-build-resists { margin-top: calc(3 * var(--u)); color: #ded6c499; font-size: max(7px, calc(10 * var(--u))); }
+.tb-build-abilities { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: calc(4 * var(--u)); margin: 0 calc(-1 * var(--u)); padding-bottom: calc(14 * var(--u)); }
+.tb-build-levels { display: flex; flex-direction: column-reverse; align-items: center; gap: calc(2 * var(--u)); height: calc(13 * var(--u)); margin-bottom: calc(4 * var(--u)); }
+.tb-build-levels i { width: 90%; height: calc(3 * var(--u)); background: #10130d55; }
+.tb-build-levels i.on { background: #70ba9f; }
+.tb-build-circle { position: relative; aspect-ratio: 1; border-radius: 50%; background: #b8c4ba; display: grid; place-items: center; }
+.tb-build-circle img { width: 88%; height: 88%; object-fit: contain; filter: brightness(.12); }
+.tb-build-ability.locked { opacity: .4; }
+.tb-build-locked { position: absolute; inset: 0; display: grid; place-items: center; color: #10130d; font-size: calc(12 * var(--u)); }
+.tb-build-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(6 * var(--u)); padding: 0 calc(4 * var(--u)); }
+.tb-build-item { position: relative; aspect-ratio: 1; display: grid; place-items: center; background: #10130d30; }
+.tb-build-item img { width: 100%; height: 100%; object-fit: contain; }
+.tb-build-tier { position: absolute; top: 0; right: 1px; font: 600 max(7px, calc(9 * var(--u))) "VALVEOracle", var(--ui); color: #FFF6D8; text-shadow: 0 1px 2px #000; }
+.tb-build-cooldown { position: absolute; inset: 0; display: grid; place-items: center; background: rgb(48 48 48 / 58%); color: #f0eee8; text-shadow: 0 1px 2px #000; font: 700 max(9px, calc(13 * var(--u))) "VALVEOracle", var(--ui); border-radius: inherit; }
+.tb-build-circle .tb-build-cooldown { font-size: max(7px, calc(9 * var(--u))); }
+.tb-build-charges { position: absolute; right: -1px; bottom: -1px; min-width: calc(10 * var(--u)); border-radius: 2px; color: #10130D; background: #FFEFD7; font: 700 max(7px, calc(8 * var(--u))) var(--ui); }
+.tb-build-circle .tb-build-charges {
+  left: 50%; right: auto; bottom: 0; transform: translate(-50%, 55%);
+  width: max(11px, calc(12 * var(--u))); height: max(11px, calc(12 * var(--u)));
+  min-width: 0; display: grid; place-items: center; border-radius: 50%;
+  border: 1px solid #b8c4ba; background: #30332e; color: #fff0d6;
+  line-height: 1; box-shadow: 0 1px 2px #0006;
+}
+.tb-build-fallback { font-size: calc(12 * var(--u)); color: #888; }
+.tb-build-empty { font: max(8px, calc(10 * var(--u))) var(--ui); color: #FFEFD780; margin: 3px 0; }
+.tb-host.compact .tb-all-builds { top: calc(62 * var(--u) + 43px); }
+.tb-host.compact .tb-build-column { top: calc(96 * var(--u) + 12px); }
+
+/* Keep map controls from showing through the translucent scoreboard. */
+.stage:has(.build-open) .map-controls { visibility: hidden; }
+
+.tb-effects { margin: 0 0 calc(8 * var(--u)); font: max(9px, calc(11 * var(--u))) var(--ui); text-align: left; }
+.tb-effects summary { color: var(--muted); cursor: pointer; white-space: nowrap; }
+.tb-build-column > .tb-effects[open] { z-index: 6; }
+.tb-effects-body { position: absolute; top: 100%; left: 0; width: 250px; max-width: 65vw; max-height: 230px; overflow-y: auto; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 8px 20px #0006; color: var(--text); }
+.sapphire > .tb-build-column .tb-effects-body { left: auto; right: 0; }
+.tb-effect { display: flex; gap: 7px; align-items: center; padding: 5px 0; font-size: 12px; }
+.tb-effect img { width: 28px; height: 28px; object-fit: contain; }
+.tb-effect span { flex: 1; }
+.tb-effect b { font-size: 11px; font-variant-numeric: tabular-nums; }
+.tb-effect small { color: var(--brass); }
+/* As in game, in both bars (board/TopBarParts.tsx): no names under the bar. A slot's name leads
+   its portrait's hover label, and in Player its expanded (Tab) column; the element stays for
+   them to read. A scene's name editor ("Rename…" in the portrait menu) shows in place, under the
+   portrait, while it is open. */
+.pl-tb-name { display: none; }
+.pl-tb-name.ie-input { display: block; position: absolute; left: 50%; top: calc(122 * var(--u)); transform: translateX(-50%); z-index: 6;
+  width: calc(100 * var(--u)); min-width: 90px; height: max(22px, calc(26 * var(--u))); text-align: center; font: 600 max(11px, calc(12 * var(--u))) var(--ui); color: var(--text); }
+/* The outermost slots' editors stay inside the bar. */
+.tb-team.friend > .tb-player:first-child > .pl-tb-name.ie-input { left: 0; transform: none; }
+.tb-team.enemy > .tb-player:last-child > .pl-tb-name.ie-input { left: auto; right: 0; transform: none; }
+.tb-level { position: absolute; left: 50%; top: calc(68 * var(--u)); transform: translateX(-50%); z-index: 2;
+  width: calc(20 * var(--u)); height: calc(20 * var(--u)); border-radius: 50%; display: grid; place-items: center;
+  background: #2b2d2a; border: calc(1.5 * var(--u)) solid #8d8f88; color: #e9e4d8;
+  font: 700 max(8px, calc(10 * var(--u))) / 1 "Gulim", "VALVEOracle", "Noto Sans", sans-serif; pointer-events: none; }
