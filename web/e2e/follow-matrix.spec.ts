@@ -520,12 +520,22 @@ async function put(r: Row, p: Page, v: V) {
 const flip = (r: Row, v: V) => (v === r.own ? r.theirs : r.own);
 const shows = (r: Row, p: Page, v: V) => expect.poll(() => r.read(p), { message: r.key }).toBe(v);
 
+/** Refusals each page's socket received (`Rejected` frames), whether shown or not. */
+const refusals = new WeakMap<Page, string[]>();
+const watchRefusals = (p: Page) => {
+  const got: string[] = [];
+  refusals.set(p, got);
+  p.on("websocket", (ws) => ws.on("framereceived", (f) => {
+    if (typeof f.payload === "string" && f.payload.includes('"Rejected"')) got.push(f.payload);
+  }));
+};
+
 async function board(browser: Browser, r: Row) {
   const url = await newBoardUrl(server, `Follow ${r.key}`);
-  const a = await joinNew(browser, url, "Coach");
+  const a = await joinNew(browser, url, "Coach", watchRefusals);
   await load(a, ID);
   await scrubTo(a, 15);
-  const b = await joinNew(browser, url, "Second");
+  const b = await joinNew(browser, url, "Second", watchRefusals);
   await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
   await r.prep?.(a, b);
   return { url, a, b };
@@ -620,6 +630,9 @@ for (const r of ROWS) {
       // Neither made an edit: no save status says Conflict (backlog: the follower that joined
       // just before the restart showed a refused `IdTaken`, its own copy of the live layer).
       for (const p of [a, b]) await expect(p.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+      // Nor did the server refuse anything: the joiner waited for its copy to be current before
+      // making the live layer (spec §5), so it never sent one the server already had.
+      for (const p of [a, b]) expect(refusals.get(p)).toEqual([]);
       if (P.reconnect === "follows") {
         // Found again by seat on its new connection: still following, and live.
         await expect(following(b)).toHaveCount(1);
