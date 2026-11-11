@@ -5,6 +5,7 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import type { Art } from "../map/pack";
 import { cx } from "../ui/cx";
+import { spacePlays } from "../core/keys";
 import type { BoardState } from "../board/state";
 import type { SceneRow } from "../board/scenes";
 import type { RecordId } from "../gen/RecordId";
@@ -172,19 +173,24 @@ export function Player(p: {
   const events = createMemo(() => [...(h.tl()?.events ?? [])].sort((a, b) => a.t - b.t));
   onMount(() => {
     const typing = (el: HTMLElement | null) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
-    const live = (e: KeyboardEvent) => watching() && !!h.tl() && !typing(e.target as HTMLElement | null) && !e.altKey && !e.ctrlKey && !e.metaKey;
+    const plain = (e: KeyboardEvent) => watching() && !!h.tl() && !e.altKey && !e.ctrlKey && !e.metaKey;
+    const live = (e: KeyboardEvent) => plain(e) && !typing(e.target as HTMLElement | null);
     /** A Space tap so far: down, then nothing but up (no autorepeat, no pointer press: a
      * Space-drag pans the map, Board.tsx `spaceHeld`, and doesn't play). */
     let tap = false;
+    /** Space plays or pauses wherever the focus is, but in a text field, a dialog or a menu
+     * (#11, #3): a focused button, the scrubber, the speed or Vision list or a checkbox doesn't
+     * take it. Enter still presses a focused button, for keyboard-only use (spec §6b). Captured,
+     * so no control's own handler sees it first. */
+    const space = (e: KeyboardEvent) => e.code === "Space" && plain(e) && spacePlays(e.target as Element | null);
+    const spaceDown = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      tap = space(e) && !e.repeat;
+      if (space(e)) e.preventDefault();
+    };
     const key = (e: KeyboardEvent) => {
-      if (e.code === "Space") {
-        // While typing it's a space. (Board's own Space handler prevents its default, so that
-        // can't be the test here.)
-        tap = !e.repeat && live(e);
-        return;
-      }
       // Arrows another handler took (the hero picker's grid) aren't ours.
-      if (e.defaultPrevented || !live(e)) return;
+      if (e.code === "Space" || e.defaultPrevented || !live(e)) return;
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
         const step = (e.shiftKey ? SEEK_KEY_SHIFT : SEEK_KEY) * (e.key === "ArrowLeft" ? -1 : 1);
@@ -198,21 +204,23 @@ export function Player(p: {
       }
     };
     const up = (e: KeyboardEvent) => {
-      if (e.code !== "Space" || !tap) return;
-      tap = false;
-      // A focused button (Play, just clicked) would take Space as its click too: on keyup, so
-      // this keeps it to one toggle. (Board's keydown already stops it in Chromium.)
+      if (e.code !== "Space" || !space(e)) return;
+      // A focused button or summary takes Space as its click on keyup: never here.
       e.preventDefault();
-      if (watching() && h.tl()) user(() => h.control.play(!h.playback().playing));
+      if (!tap) return;
+      tap = false;
+      user(() => h.control.play(!h.playback().playing));
     };
     const cancel = () => (tap = false);
+    window.addEventListener("keydown", spaceDown, true);
     window.addEventListener("keydown", key);
-    window.addEventListener("keyup", up);
+    window.addEventListener("keyup", up, true);
     window.addEventListener("pointerdown", cancel, true);
     window.addEventListener("blur", cancel);
     onCleanup(() => {
+      window.removeEventListener("keydown", spaceDown, true);
       window.removeEventListener("keydown", key);
-      window.removeEventListener("keyup", up);
+      window.removeEventListener("keyup", up, true);
       window.removeEventListener("pointerdown", cancel, true);
       window.removeEventListener("blur", cancel);
     });
