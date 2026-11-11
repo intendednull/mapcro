@@ -618,8 +618,18 @@ svg[data-tool="move"] .pl-skull[data-recap] { pointer-events: auto; cursor: poin
 /* Replay workspace: existing board surfaces, with display, drawing and playback separated. */
 .map-controls { position: absolute; top: 4px; left: 4px; right: 4px; z-index: 20; display: flex; align-items: center; gap: 6px; pointer-events: none; }
 .map-controls > * { pointer-events: auto; }
-.map-controls > :last-child { margin-left: auto; }
+.map-controls > .vision-mark { margin-left: auto; }
 .map-controls .btn, .map-controls .input { background: var(--panel); }
+.map-flip { display: inline-flex; align-items: center; gap: 5px; }
+.map-flip svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+/* The Vision in force (Player.tsx VisionMark): a dot in the team's colour, its name, and
+   "Last seen" when the ghosts show. */
+.vision-mark { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 3px; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--team-c); font-size: 12px; white-space: nowrap; pointer-events: none !important; }
+.vision-mark.amber { --team-c: #D4860B; }
+.vision-mark.sapphire { --team-c: #4D75C3; }
+.vision-mark > i { width: 8px; height: 8px; border-radius: 50%; background: var(--team-c); }
+.vision-mark small { color: var(--muted); font-size: 11px; }
+.vision-mark small::before { content: "· "; }
 .map-controls summary, .pl-source summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .map-controls summary::-webkit-details-marker, .pl-source summary::-webkit-details-marker { display: none; }
 .map-layers { position: relative; }

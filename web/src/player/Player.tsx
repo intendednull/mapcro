@@ -5,7 +5,7 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import type { Art } from "../map/pack";
 import { cx } from "../ui/cx";
-import { spacePlays } from "../core/keys";
+import { boardKeys } from "../core/keys";
 import type { BoardState } from "../board/state";
 import type { SceneRow } from "../board/scenes";
 import type { RecordId } from "../gen/RecordId";
@@ -184,7 +184,7 @@ export function Player(p: {
      * (#11, #3): a focused button, the scrubber, the speed or Vision list or a checkbox doesn't
      * take it. Enter still presses a focused button, for keyboard-only use (spec §6b). Captured,
      * so no control's own handler sees it first. */
-    const space = (e: KeyboardEvent) => e.code === "Space" && plain(e) && spacePlays(e.target as Element | null);
+    const space = (e: KeyboardEvent) => e.code === "Space" && plain(e) && boardKeys(e.target as Element | null);
     const spaceDown = (e: KeyboardEvent) => {
       if (e.code !== "Space") return;
       tap = space(e) && !e.repeat;
@@ -503,6 +503,7 @@ export function MapControls(p: {
   let layers: HTMLDetailsElement | undefined;
   onMount(() => dismissDisclosure(() => layers ?? null));
   const mine = (f: () => void) => { f(); p.onUserPlayback(); };
+  useVisionKeys(h, mine);
   return <div class="map-controls" role="group" aria-label="Map view">
     <details class="map-layers" ref={layers}>
       <summary class="btn small" data-testid="map-layers-toggle">Map layers ▾</summary>
@@ -571,7 +572,8 @@ export function MapControls(p: {
                     class="input pl-vision"
                     data-testid="vision-select"
                     aria-label="Vision"
-                    title="What one team could see: its enemies out of sight aren't drawn. Your followers see it too"
+                    aria-keyshortcuts="1 2 3"
+                    title="Vision (1, 2, 3)"
                     value={h.vision()}
                     onChange={(e) => mine(() => h.setVision(e.currentTarget.value as Vision))}
                   >
@@ -583,7 +585,6 @@ export function MapControls(p: {
                       class={cx("btn ghost small", h.showLastSeen() && "on")}
                       data-testid="last-seen-toggle"
                       aria-pressed={h.showLastSeen()}
-                      title="Enemies out of sight as ghosts where this team last saw them. Your followers see it too"
                       onClick={() => mine(() => h.setShowLastSeen(!h.showLastSeen()))}
                     >
                       Last seen
@@ -591,10 +592,43 @@ export function MapControls(p: {
                   </Show>
                 </>
               </Show>
-
     </>}</Show>
-    <button class="btn small" data-testid="viewpoint-flip" title="Flip view" aria-label="Flip view" onClick={p.flip}>Flip ↻</button>
+    <button class="btn small map-flip" data-testid="viewpoint-flip" title="Flip map" aria-label="Flip map" onClick={p.flip}>
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 2v11M2 10l3 3 3-3M11 14V3M8 6l3-3 3 3" /></svg>
+      Flip map
+    </button>
+    <VisionMark host={h} />
   </div>;
+}
+
+/** The Vision in force, in its team's colour, and whether ghosts show (#12): a follower sees
+ * the presenter's at a glance. Nothing under "All". */
+function VisionMark(p: { host: PlayerHost }) {
+  const h = p.host;
+  return <Show when={h.tl() && hasVision(h.tl()!) && h.vision() !== "all" ? (h.vision() as "amber" | "sapphire") : undefined}>{team =>
+    <span class={cx("vision-mark", team())} data-testid="vision-mark" data-team={team()} data-ghosts={h.showLastSeen() ? "on" : "off"} role="status" aria-label={`${teamName(team())} vision${h.showLastSeen() ? ", Last seen" : ""}`}>
+      <i aria-hidden="true" />{teamName(team())}
+      <Show when={h.showLastSeen()}><small>Last seen</small></Show>
+    </span>
+  }</Show>;
+}
+
+/** Vision's keys (#10): 1 All, 2 Hidden King, 3 Archmother, as the list orders them; off while
+ * typing, in a dialog or a menu. Changing it is your own view, so following stops. */
+function useVisionKeys(h: PlayerHost, mine: (f: () => void) => void) {
+  onMount(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey || e.repeat || e.defaultPrevented) return;
+      const i = ["Digit1", "Digit2", "Digit3", "Numpad1", "Numpad2", "Numpad3"].indexOf(e.code) % 3;
+      const tl = h.tl();
+      if (i < 0 || !tl || !hasVision(tl) || h.mode() !== "player" || !boardKeys(e.target as Element | null)) return;
+      e.preventDefault();
+      const v = VISIONS[i]!;
+      if (v !== h.vision()) mine(() => h.setVision(v));
+    };
+    window.addEventListener("keydown", key);
+    onCleanup(() => window.removeEventListener("keydown", key));
+  });
 }
 
 /**

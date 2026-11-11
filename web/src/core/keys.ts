@@ -9,9 +9,9 @@ export function isTextField(el: Element | null): boolean {
   return el instanceof HTMLInputElement && TEXT_TYPES.has(el.type);
 }
 
-/** Space plays or pauses from anywhere on the board but a text field, an open dialog or a menu
- * (they keep their own keys). */
-export function spacePlays(el: Element | null): boolean {
+/** Where the board's own keys (Space, Vision's 1 2 3) apply: anywhere but a text field, an open
+ * dialog or a menu, which keep their own keys. */
+export function boardKeys(el: Element | null): boolean {
   if (isTextField(el)) return false;
   return !(el instanceof Element && el.closest('[role="dialog"], [role="menu"], [aria-modal="true"]'));
 }

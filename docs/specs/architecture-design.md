@@ -987,7 +987,12 @@ makes a board with that match attached and lands in Player; **New board** is tod
     scene sets them to the match's; a blank scene doesn't).
 - **Vision** (2026-11-09, operator: "in a replay usually we can set it to only see the heroes …
   the current team could see"): a transport select, "Vision: All / Hidden King / Archmother",
-  shown when the timeline has `seen` (format 4). In a team's view its own heroes always show;
+  shown when the timeline has `seen` (format 4). Keys 1, 2, 3 pick All, Hidden King and
+  Archmother (2026-11-11, feedback #10; the select's hover says "Vision (1, 2, 3)"); like the
+  select they stop following, and they're off while typing or in a dialog or menu. In a team's
+  view a mark at the map controls' right end (feedback #12) shows that team's name on a dot of
+  its colour, with "Last seen" while the ghosts show; under All there is none. Flip sits in the
+  same group, "Flip map" with a swap icon (feedback #17). In a team's view its own heroes always show;
   an enemy out of its sight isn't drawn, labelled or hoverable (2026-11-09, operator: a faded
   token "jumps around a lot"). Beside the select, in a team's view only, a "Show last seen
   location" toggle, off by default: on, an enemy out of sight is a ghost (the scene ghost's
