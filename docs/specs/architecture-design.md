@@ -1451,8 +1451,8 @@ issue in the Github repo." Code: `crates/server/src/feedback.rs`, `web/src/ui/Fe
   board, link, name, account id or user agent goes into the issue, the log or the metrics, and
   the text is never logged. The token is read once from the file `FEEDBACK_GITHUB_TOKEN_FILE`
   names (a systemd credential, like `DEADLOCK_API_KEY_FILE`), and its `Debug` is redacted.
-- **Abuse.** 3 issues an hour per client key (`api::client_key`: an IPv4 address or an IPv6
-  /64) and 30 a day server-wide, as sliding windows (`FEEDBACK_PER_CLIENT_PER_HOUR`,
+- **Abuse.** 100 issues an hour per client key (`api::client_key`: an IPv4 address or an IPv6
+  /64) and 500 a day server-wide (raised from 3 and 30 on 2026-11-10, operator: testers hit the hourly cap), as sliding windows (`FEEDBACK_PER_CLIENT_PER_HOUR`,
   `FEEDBACK_GLOBAL_PER_DAY`). Past either, 429 with `Retry-After`. Only a submission that passes
   validation counts, and a GitHub failure still spends its slot, so a failing GitHub can't be
   hammered. The windows are in memory, so a restart empties them.

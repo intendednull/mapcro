@@ -128,7 +128,7 @@ test("link the folder, a new replay is found on focus, and one click uploads it"
   const prompt = a.getByTestId("replay-prompt");
   await expect(prompt.getByTestId("replay-help-open")).toBeVisible();
   await prompt.getByTestId("replay-help-open").click();
-  await expect(prompt.getByTestId("replay-help-link")).toContainText("…/steamapps/common/Deadlock/game/citadel/replays");
+  await expect(prompt.getByTestId("replay-help-link")).toContainText("steamapps › common › Deadlock › game › citadel › replays");
   await prompt.getByTestId("replay-help-open").click();
   // Linked: another match's replay is there, not this one's.
   await prompt.getByTestId("folder-link").click();
