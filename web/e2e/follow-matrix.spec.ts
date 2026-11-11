@@ -617,6 +617,9 @@ for (const r of ROWS) {
       await server.start();
       await a.waitForTimeout(1000);
       for (const p of [a, b]) await expect(p.getByTestId("save-status")).toHaveAttribute("data-connection", "live", { timeout: 20_000 });
+      // Neither made an edit: no save status says Conflict (backlog: the follower that joined
+      // just before the restart showed a refused `IdTaken`, its own copy of the live layer).
+      for (const p of [a, b]) await expect(p.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
       if (P.reconnect === "follows") {
         await expect(following(b)).toHaveCount(1);
         await put(r, a, r.own);

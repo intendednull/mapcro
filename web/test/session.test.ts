@@ -14,6 +14,8 @@ import { Api } from "../src/core/api";
 import { IdbPersist, MemoryPersist, type Persist } from "../src/core/persist";
 import { BoardSession, type SocketLike } from "../src/core/session";
 import type { Op } from "../src/gen/Op";
+import type { RosterSlot } from "../src/gen/RosterSlot";
+import { ensureLiveOps } from "../src/player/live";
 import type { RecordId } from "../src/gen/RecordId";
 
 const ROOT = resolve(__dirname, "../..");
@@ -160,6 +162,51 @@ describe("board sessions against the real server", () => {
     await until(() => fresh.status.kind === "saved" && view(fresh) === view(a), "fresh replica equals survivor");
     a.stop();
     fresh.stop();
+  });
+
+  // The "Conflict" a follower saw after a restart (docs/backlog.md, 2026-11-11). A fresh joiner
+  // starts from the room's last snapshot, which may be behind the log (spec §5: one snapshot
+  // serves a burst of joiners); until its catch-up lands, its view lacks what was made since.
+  // Player's live layer has ids derived from the board and the match (player/live.ts), so a
+  // joiner that makes it in that moment makes records the log already holds.
+  const roster = (s: BoardSession) =>
+    [...s.records].flatMap(([id, e]) => (!e.deleted && "RosterSlot" in e.record ? [{ id: id as RecordId, slot: e.record.RosterSlot as RosterSlot }] : []));
+  const entries = (s: BoardSession) => Object.fromEntries(s.records) as never;
+  /** A second editor that runs `act` the moment it is first live, before its catch-up. */
+  async function joinAndAct(board: string, token: string, act: (s: BoardSession) => void) {
+    let acted = false;
+    const b: BoardSession = new BoardSession({
+      wsUrl: server.ws, board, token, persist: new MemoryPersist(), openSocket, minDelayMs: 50, maxDelayMs: 400,
+      onChange: (s) => {
+        if (acted || s.connection.kind !== "live") return;
+        acted = true;
+        queueMicrotask(() => act(b)); // before the next socket message: the catch-up
+      },
+    });
+    await b.start();
+    await until(() => acted && b.connection.kind === "live" && b.status.kind === "saved" && b.records.size > 0, "b acted and saved");
+    return b;
+  }
+
+  it("a fresh joiner that makes the live layer before its catch-up is refused IdTaken", async () => {
+    const { board, owner_token } = await api.createBoard("live-layer-race");
+    const a = session(server, board, owner_token);
+    await a.start();
+    await until(() => a.connection.kind === "live", "a live");
+    a.editSilent(ensureLiveOps(entries(a), board, 129000101, roster(a)));
+    await until(() => a.status.kind === "saved", "a made the layer");
+    let made = 0;
+    const b = await joinAndAct(board, owner_token, (b) => {
+      const ops = ensureLiveOps(entries(b), board, 129000101, roster(b));
+      made = ops.length;
+      b.editSilent(ops);
+    });
+    expect(made).toBeGreaterThan(0); // b's view didn't have it yet
+    await until(() => b.problems.length > 0, "b's rejection");
+    expect(b.problems).toEqual(['rejected: "IdTaken"']);
+    expect(view(b)).toBe(view(a)); // the layer is a's, the same records
+    a.stop();
+    b.stop();
   });
 
   it("presence flows both ways and only editors are followable", async () => {
