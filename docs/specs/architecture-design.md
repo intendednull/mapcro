@@ -560,6 +560,15 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     - `recaps` `{t, damage: [src, ability_id, damage], cc}`: per lethal hit (message 300,
       `victim_health_new` 0; another within 3 s is the same death), the damage taken in the 10 s
       before by source and ability, most first, and the `cc` rows overlapping that window. 78.
+      A source that isn't a hero is `256 + kind` when msg 300's attacker class is known
+      (trooper, medic or melee trooper, guardian, walker, base guardian, patron, mid boss,
+      neutral camp, Sinner's Sacrifice, sentry turret; timeline.rs `NPC_KINDS`), else 255. Added
+      without a FORMAT bump (2026-11-11, feedback #20): an older format-9 timeline or app writes
+      255 there and still reads as "World / other"; the server must be deployed before an app
+      that writes kinds. Player names each as the game does ("Trooper", "Walker", "Sinner's
+      Sacrifice", citadel_main), and an ability with only an engine name shows its parent's name,
+      else "Weapon" or "Ability". A death pairs with the latest lethal hit up to 1.5 s before its
+      sampled second (deaths are read once a second).
     - `height` `[second, level]` (0 level, 1 above, 2 below): the hero's own team's
       `m_vecFOWEntities` `m_eHeight`, held 2 s; level before the first entry. `zipline`
       `[from_s, to_s)`: the pawn's `m_eZipLineLaneColor` non-zero, held 2 s. Alive seconds:

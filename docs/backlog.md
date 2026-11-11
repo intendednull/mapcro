@@ -234,7 +234,10 @@ The whole streak look (the lead's check, 2026-11-10; backlog only, not built):
 - **The threshold** is set in code and still unknown. An operator screenshot of a streak would
   confirm it.
 
-## The death recap shows internal ability names (2026-11-10, from ux-batch-1)
+## The death recap shows internal ability names (2026-11-10, from ux-batch-1): resolved
+
+Resolved 2026-11-11 (branch `web-polish`): `player/recap.ts` `recapAbility` uses the parent's name, else "Weapon" or "Ability"; never the engine name.
+
 
 The recap's hit rows (`player/DeathRecap.tsx`) print `record.label` as it is, so a record whose
 `label_from` is `"internal"` reads as the engine name. In 129738985, Infernus's death at 6:45
@@ -242,7 +245,10 @@ lists "deadpack_primary_weapon_charge" under Deadman Danny. The Effects list now
 the parent ability's or item's name (`player/effects.ts` `effectLabel`). The recap could share
 that fallback.
 
-## A death and its recap can be a second apart (2026-11-10, from ux-batch-1)
+## A death and its recap can be a second apart (2026-11-10, from ux-batch-1): resolved
+
+Resolved 2026-11-11 (branch `web-polish`): `recapOf` takes the latest lethal hit up to 1.5 s before the death's second. Amber 1's recap at 2545 s with no death stays unpaired (a revive in place, or past the parse's end).
+
 
 `recapOf` (player/recap.ts) pairs a death with the recap whose `ceil(t / 10)` equals the death's
 second exactly. In 129738985, Amber 3's death at 521 s has a recap at 520 s, so neither the
