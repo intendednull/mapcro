@@ -237,13 +237,13 @@ passed against the code before the change; after it, rows changed only where a d
   `events.search` (`Text { max: 64 }`, `playback.event_search`, checked in `is_valid`; the client
   clips). The sidebar tab and the Map layers popover are `personal` in the ledger.
 - **Decision 4:** `presence_bytes` histogram (ws.rs, every valid frame) in `stats summary`.
-- **Mutation run** (store, registry, wiring): 51 mutants. The store's 31 and the Rust
+- **Mutation run** (store, registry, wiring): 51 mutants. The store's 30 (a 31st, on `stops()`, survived: it had no caller, so it went) and the Rust
   registry's and wire's 10 are all killed by assertions in `view-state.test.ts` and the engine
   tests; of 10 in the wiring (Board, host, PlayerTopBar, a policy flipped in the generated
   registry), 9 are killed by the follow matrix or the unit tests. Five survived the first pass
   and each gained a test (forget not clearing the group dedupe, a repeat remembered, the events
-  recap sending its first, the popover's group, a build reopening with its popover); `stops()`
-  had no caller and went. One named equivalent: the host clipping the search, which the store
+  recap sending its first, the popover's group, a build reopening with its popover).
+  One named equivalent: the host clipping the search, which the store
   clips again on the wire.
 - `playback.jump` is `Outside::Core` now (its apply logic stays outside, §3); `Outside::Wired`
   is the board's scene, floor, viewport and hover, by decision 5.
