@@ -9,7 +9,7 @@ import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Browser, type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { ROOT, Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 /** deadlock-api has its metadata, but Valve no replay. */
@@ -136,6 +136,7 @@ test("Where's my replay? walks through the game and Steam, on the landing and in
   // In Player, beside the upload, as a menu.
   const a = await joinNew(browser, await newBoardUrl(server, "Help"), "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(String(NEW));
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-notice-text")).toHaveText("Match not found yet.");
@@ -208,6 +209,7 @@ test("a .dem dropped anywhere on the landing opens its match; anything else is r
 test("Player: a replay Valve hasn't got says so, Try again asks again, and a dropped file uploads", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "No replay"), "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(String(KNOWN));
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
@@ -224,6 +226,8 @@ test("Player: a replay Valve hasn't got says so, Try again asks again, and a dro
   await a.getByTestId("replay-prompt-summary").click();
   await expect(a.getByTestId("match-upload")).toHaveText("Upload replay file");
   await a.setViewportSize({ width: 1280, height: 768 });
+  // The help sits beside Upload, in the match source (Use API summary closed it).
+  await revealControls(a, "match-upload");
   await a.getByTestId("replay-help-open").click();
   const steps = (await a.getByTestId("replay-help-steps").boundingBox())!;
   expect(steps.x + steps.width).toBeLessThanOrEqual(1280);
@@ -251,6 +255,7 @@ test("Player: a replay Valve hasn't got says so, Try again asks again, and a dro
 test("upload progress shows the percent and the size, the board stays in use, and Cancel stops it", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Progress"), "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(String(KNOWN));
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
@@ -279,6 +284,7 @@ test("upload progress shows the percent and the size, the board stays in use, an
   await a.getByTestId("upload-cancel").click();
   await expect(a.getByTestId("upload-progress")).toHaveCount(0);
   await expect(a.getByTestId("match-notice-text")).toHaveText("Upload cancelled.");
+  await revealControls(a, "match-upload");
   await expect(a.getByTestId("match-upload")).toBeVisible();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
   await shot(a, "player-cancelled");
@@ -287,6 +293,7 @@ test("upload progress shows the percent and the size, the board stays in use, an
   // The server let go of it: nothing queued, and a new upload is taken.
   expect(readdirSync(join(queue, "inbox")).filter((f) => f.startsWith(`${KNOWN}-`) && !f.startsWith("."))).toEqual([]);
   await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await revealControls(a, "match-file");
   await a.getByTestId("match-file").setInputFiles({ name: `${KNOWN}.dem`, mimeType: "application/octet-stream", buffer: demo() });
   const job = await queued(KNOWN);
   writeFileSync(join(queue, "outbox", `${job}.json`), JSON.stringify(timeline(KNOWN)));
@@ -298,6 +305,7 @@ test("the phone: Player's notice, its upload and the steps fit", async ({ browse
   await p.goto(await newBoardUrl(server, "Phone"));
   await enter(p);
   await p.getByTestId("mode-player").click();
+  await revealControls(p, "match-id");
   await p.getByTestId("match-id").fill(String(NEW));
   await p.getByTestId("match-load").click();
   await expect(p.getByTestId("match-notice-text")).toHaveText("Match not found yet.");
@@ -320,16 +328,20 @@ test("the phone: Player's notice, its upload and the steps fit", async ({ browse
 test("a parse failure reads as what happened and what to do", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Bad"), "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(String(BAD));
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");
+  await revealControls(a, "match-file");
   await a.getByTestId("match-file").setInputFiles({ name: `${BAD}.dem`, mimeType: "application/octet-stream", buffer: demo() });
   const job = await queued(BAD);
   writeFileSync(join(queue, "outbox", `${job}.failed`), "corrupt");
   await expect(a.getByTestId("match-notice-text")).toHaveText("Corrupt. Download the replay again in Deadlock, then upload it.", { timeout: 15_000 });
+  await revealControls(a, "match-upload");
   await expect(a.getByTestId("match-upload")).toBeVisible();
   await expect(a.getByTestId("match-retry")).toHaveCount(0);
   // Not a replay at all: refused as it arrives.
+  await revealControls(a, "match-file");
   await a.getByTestId("match-file").setInputFiles({ name: `${BAD}.dem`, mimeType: "application/octet-stream", buffer: Buffer.from("MZ not a demo") });
   await expect(a.getByTestId("match-notice-text")).toHaveText("Not a replay. Pick the match's .dem file.");
 });
@@ -408,6 +420,7 @@ test.describe("a real replay", () => {
     await expect(p.getByTestId("match-notice")).toHaveCount(0);
     // The heroes at 10:00 (the dead hidden).
     await expect.poll(() => p.locator(".mapbox .tok").count()).toBeGreaterThan(8);
+    await revealControls(p, "health-toggle");
     await expect(p.getByTestId("health-toggle")).toBeVisible();
     await p.screenshot({ path: `${shots}/real-full.png` });
   });

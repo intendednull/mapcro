@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Page, devices, expect, test } from "./fixtures";
-import { gesture, joinNew, mapPoint } from "./helpers";
+import { gesture, joinNew, mapPoint, revealControls } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -35,6 +35,7 @@ test.afterAll(() => {
 
 async function openMatch(p: Page, id = ID) {
   await p.getByTestId("mode-player").click();
+  await revealControls(p, "match-id");
   await p.getByTestId("match-id").fill(id);
   await p.getByTestId("match-load").click();
 }
@@ -58,6 +59,7 @@ test("Player with no timeline shows an empty map, never the scene, and nothing m
   await expect(a.locator(".mapbox .tok")).toHaveCount(0);
   await expect(a.locator(".stage-head")).toBeHidden();
   await expect(a.getByTestId("scene-note-edit")).toBeHidden();
+  await revealControls(a, "mode-sandbox");
   await a.getByTestId("mode-sandbox").click();
   await expect(a.locator(".mapbox .tok")).toHaveCount(12);
 });
@@ -77,6 +79,7 @@ test("Clear in Player clears the live layer, not the scene; entering the live la
   await a.getByTestId("clear-menu").click();
   await a.getByTestId("clear-ink").click();
   await expect(strokes(a)).toHaveCount(0);
+  await revealControls(a, "mode-sandbox");
   await a.getByTestId("mode-sandbox").click();
   await expect(strokes(a)).toHaveCount(1);
 });
@@ -140,6 +143,7 @@ test("a phone follows a presenter in Player, with the transport (1)", async ({ b
   expect(spots).toBeGreaterThan(1);
   await scrubTo(a, 600);
   await expect(phone.getByTestId("match-clock")).toHaveText("10:00 / 21:40");
+  await revealControls(a, "mode-sandbox");
   await a.getByTestId("mode-sandbox").click();
   await expect(phone.getByTestId("player")).toHaveAttribute("data-state", "scene");
 });
@@ -158,6 +162,7 @@ test("stale ink is cleared when someone enters Player alone, kept while someone 
   await b.waitForTimeout(2000);
   await expect(strokes(b)).toHaveCount(1);
   // Back from a scene keeps it (spec §6b: Back returns to the match as it was).
+  await revealControls(b, "mode-sandbox");
   await b.getByTestId("mode-sandbox").click();
   await b.getByTestId("mode-player").click();
   await expect(strokes(b)).toHaveCount(1);

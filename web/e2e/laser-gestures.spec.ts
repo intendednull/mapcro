@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { gesture, joinNew, mapPoint, viewLink } from "./helpers";
+import { gesture, joinNew, mapPoint, revealControls, viewLink } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -95,6 +95,7 @@ test("in Player, a follower sees two laser gestures as two trails", async ({ bro
   const url = await newBoardUrl(server, "Laser Player");
   const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");

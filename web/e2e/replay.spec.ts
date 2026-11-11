@@ -9,7 +9,7 @@ import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 const ID = "122134063";
@@ -96,16 +96,20 @@ test("upload a replay, scrub ults, rifts, powerups and zipline colours, save the
   const b = await joinNew(browser, url, "Marrow");
 
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-notice-text")).toHaveText("Match not found yet.");
+  await revealControls(a, "match-upload");
   await expect(a.getByTestId("match-upload")).toBeVisible();
 
   // Not a demo: refused before it's queued.
+  await revealControls(a, "match-file");
   await a.getByTestId("match-file").setInputFiles({ name: "x.dem", mimeType: "application/octet-stream", buffer: Buffer.from("MZ not a demo at all") });
   await expect(a.getByTestId("match-notice-text")).toHaveText("Not a replay. Pick the match's .dem file.");
 
   const demo = Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(256 * 1024, 7)]);
+  await revealControls(a, "match-file");
   await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: demo });
   await expect(a.getByTestId("match-job")).toHaveText("Queued");
   const job = await work();
@@ -136,7 +140,8 @@ test("upload a replay, scrub ults, rifts, powerups and zipline colours, save the
   await expect(split(a, "lane4")).toHaveAttribute("data-sapphire", "580");
   await a.screenshot({ path: "shots/match-replay.png" });
   await a.getByTestId("match-save").click();
-  await a.getByTestId("mode-sandbox").click();
+  // Saving shows the new scene.
+  await expect(a.getByTestId("player")).toHaveAttribute("data-state", "scene");
 
   // The saved scene carries them, for everyone.
   const cards = b.getByTestId("scene-card");

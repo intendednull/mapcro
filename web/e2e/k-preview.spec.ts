@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -40,6 +40,7 @@ test("K under a match preview changes nothing on the board", async ({ browser })
   const a = await joinNew(browser, url, "Coach");
   const b = await joinNew(browser, url, "Marrow");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("API summary");

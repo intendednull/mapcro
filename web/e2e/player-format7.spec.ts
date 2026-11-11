@@ -1,13 +1,15 @@
-// Timeline format 7 (builds, abilities, casts, CC, effects, recaps, height, zipline rides) is
+// Timeline format 7 (builds, abilities, casts, CC, effects, recaps, height, zipline rides) was
 // stored, not shown (operator, 2026-11-09): a format-7 timeline loads in Player and draws exactly
-// what the same timeline without those fields draws, on two boards, at the same moments.
+// what the same timeline without those fields draws, on two boards, at the same moments. Shown
+// on purpose since: the death's recap in the events list (d13abf4). CC and elevation stay behind
+// their default-off layers.
 
 import { createServer } from "node:http";
 import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 
 const ID = "129000079";
@@ -73,8 +75,12 @@ function timeline(extras: boolean) {
 /** The jobs already answered: the other board's demo can still be in the inbox. */
 const answered = new Set<string>();
 
+/** The death's recap row (640 + 120 damage), in the events list at every moment. */
+const RECAP = "Death recap · 760 damage";
+
 async function open(p: Page, extras: boolean) {
   await p.getByTestId("mode-player").click();
+  await revealControls(p, "match-id");
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
   await p.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
@@ -121,7 +127,11 @@ test("a format-7 timeline draws exactly what one without its new fields does", a
   // out-of-shape timeline and the job fails).
   for (const t of [5, 12, 19, 21, 42, 55]) {
     const [a, b] = [await drawn(seven, t), await drawn(six, t)];
-    expect(a.side, `the page's text at ${t} s`).toBe(b.side);
+    // The page says what the plain one says, and the recap besides.
+    const lines = a.side.split("\n");
+    expect(lines, `the recap at ${t} s`).toContain(RECAP);
+    lines.splice(lines.indexOf(RECAP), 1);
+    expect(lines.join("\n"), `the page's text at ${t} s`).toBe(b.side);
     const at = [...a.map].findIndex((c, i) => c !== b.map[i]);
     expect(at < 0 && a.map.length === b.map.length, `the map at ${t} s: ${a.map.slice(at - 120, at + 120)} | ${b.map.slice(at - 120, at + 120)}`).toBe(true);
   }

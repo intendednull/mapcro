@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Page, devices, expect, test } from "./fixtures";
-import { gesture, joinNew } from "./helpers";
+import { gesture, joinNew, revealControls } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -36,6 +36,7 @@ test.afterAll(() => {
 
 async function openMatch(p: Page) {
   await p.getByTestId("mode-player").click();
+  await revealControls(p, "match-id");
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
   await expect(p.getByTestId("match-tier")).toHaveText("API summary");
@@ -65,7 +66,12 @@ async function boardWithScene(browser: import("@playwright/test").Browser) {
   await a.keyboard.press("q");
   await a.getByTestId("match-save").click();
   await expect(a.getByTestId("scene-card")).toHaveCount(2);
-  await expect(strokes(a)).toHaveCount(0); // moved into the scene
+  // Saving shows the new scene, the stroke moved into it; Back is the match without it.
+  await expect(bar(a)).toHaveAttribute("data-state", "scene");
+  await expect(strokes(a)).toHaveCount(1);
+  await a.getByTestId("mode-player").click();
+  await expect(bar(a)).toHaveAttribute("data-state", "match");
+  await expect(strokes(a)).toHaveCount(0);
   return { url, a };
 }
 
@@ -133,7 +139,8 @@ test("the tree chip and the scrubber marker each do their job; the arrows follow
   await expect.poll(() => clock(a)).toBeGreaterThan(t0);
   const t1 = await clock(a);
   await expect(a.getByTestId("event-highlight")).toBeVisible();
-  await expect(a.locator('[data-testid="scene-card"][aria-current="true"]')).toHaveAttribute("aria-label", /^Scene 1:/);
+  // Watching the match, no saved scene is the current one in the tree (prototype journal).
+  await expect(a.locator('[data-testid="scene-card"][aria-current="true"]')).toHaveCount(0);
   await a.keyboard.press("ArrowUp");
   await expect.poll(() => clock(a)).toBeLessThan(t1);
 });
@@ -163,6 +170,7 @@ test("on a phone the bar shows in both states", async ({ browser }) => {
   await expect(phone.getByTestId("board")).toHaveAttribute("data-layout", "phone");
   await expect(bar(phone)).toHaveAttribute("data-state", "match");
   await phone.screenshot({ path: "shots/handoff-phone-match.png" });
+  await revealControls(phone, "mode-sandbox");
   await phone.getByTestId("mode-sandbox").tap();
   await expect(bar(phone)).toHaveAttribute("data-state", "scene");
   await expect(phone.getByTestId("mode-player")).toBeVisible();

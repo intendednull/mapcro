@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Locator, type Page, devices, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -42,6 +42,7 @@ const inside = (a: Box, w: number, h: number) => a.x >= 0 && a.y >= 0 && a.x + a
 
 async function openMatch(p: Page) {
   await p.getByTestId("mode-player").click();
+  await revealControls(p, "match-id");
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
   await expect(p.getByTestId("match-tier")).toHaveText("API summary");
@@ -63,7 +64,10 @@ for (const [w, h] of [[1280, 768], [1440, 900], [1920, 1080], [1100, 900]] as co
     await a.screenshot({ path: `shots/dock-sandbox-${w}x${h}.png` });
     await openMatch(a);
     for (const state of ["match", "scene"] as const) {
-      if (state === "scene") await a.getByTestId("mode-sandbox").click();
+      if (state === "scene") {
+        await revealControls(a, "mode-sandbox");
+        await a.getByTestId("mode-sandbox").click();
+      }
       const bar = a.getByTestId("player");
       await expect(bar).toHaveAttribute("data-state", state);
       const [t, b, m] = [await box(tools), await box(bar), await box(map)];
@@ -101,6 +105,7 @@ test("on a phone every control is reachable and the scrubber has a row of its ow
   // The Look/Laser toolbar sits under the map, not over it (QA 2026-11-08: it hid Amber's base).
   expect(overlap(await box(phone.locator(".p-tools")), await box(phone.locator(".p-map").first()))).toBe(false);
   await phone.screenshot({ path: "shots/dock-phone-match.png", fullPage: true });
+  await revealControls(phone, "mode-sandbox");
   await phone.getByTestId("mode-sandbox").tap();
   await expect(phone.getByTestId("player")).toHaveAttribute("data-state", "scene");
   await phone.screenshot({ path: "shots/dock-phone-scene.png", fullPage: true });

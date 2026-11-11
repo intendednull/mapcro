@@ -8,7 +8,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 const ID = "129000007";
@@ -82,6 +82,7 @@ test("a follower sees the presenter's jump: the same ring, the same row marked",
   const url = await newBoardUrl(server, "Follow a jump");
   const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });

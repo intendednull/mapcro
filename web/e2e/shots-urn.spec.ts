@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, devices } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
 const src = process.env.MAPCRO_SHOT_REPLAY;
@@ -45,6 +45,7 @@ test("the urn on a real replay, desktop and phone", async ({ browser }) => {
   const url = await newBoardUrl(server, "Real replay");
   const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(a.getByTestId("match-tier")).toHaveText("Full replay");

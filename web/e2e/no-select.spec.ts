@@ -1,7 +1,7 @@
 // Dragging on the board never selects page text; fields still select (QA 2026-11-07).
 
 import { expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 import { heroPack } from "./synthetic";
 
@@ -23,7 +23,8 @@ test("dragging on the empty stage beside the map selects no page text", async ({
   await a.mouse.up();
   expect(await a.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
   // Text fields still select.
-  await a.getByLabel("Scene note").fill("keep this selectable");
-  await a.getByLabel("Scene note").selectText();
+  await revealControls(a, "scene-note-edit");
+  await a.getByLabel("Scene note", { exact: true }).fill("keep this selectable");
+  await a.getByLabel("Scene note", { exact: true }).selectText();
   expect(await a.evaluate(() => (document.activeElement as HTMLTextAreaElement).selectionEnd)).toBeGreaterThan(5);
 });

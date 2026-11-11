@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { ROOT, Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 const ID = "130816395";
@@ -74,10 +74,12 @@ test("a clone opens in Player on the source's uploaded replay, at full tier, wit
   const url = await newBoardUrl(server, "Uploaded");
   const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(chip(a)).toHaveText("API summary");
   const demo = Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(64 * 1024, 7)]);
+  await revealControls(a, "match-file");
   await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: demo });
   let job = "";
   await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f.startsWith(`${ID}-`) && f.endsWith(".dem")) ?? "")).not.toBe("");
@@ -99,6 +101,7 @@ test("a clone opens in Player on the source's fetched replay", async ({ browser 
   const url = await newBoardUrl(server, "Fetched");
   const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await expect(chip(a)).toHaveText("Full replay");

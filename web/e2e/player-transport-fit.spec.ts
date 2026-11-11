@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
 import { Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
+import { revealControls } from "./helpers";
 
 const ID = "129000011";
 const N = 2640;
@@ -51,7 +52,7 @@ const misfits = (p: Page) =>
   p.getByTestId("player").evaluate((bar) => {
     const b = bar.getBoundingClientRect();
     const out: string[] = [];
-    const controls = [...bar.querySelectorAll<HTMLElement>("button:not(.pl-mark), select, input:not([type=file]), .match-clock, .match-tier, .pl-scene-label")].filter((el) => el.offsetParent !== null && el.getClientRects().length);
+    const controls = [...bar.querySelectorAll<HTMLElement>("button:not(.pl-mark), select, input:not([type=file]), .match-clock, .match-tier, .pl-scene-label")].filter((el) => el.checkVisibility());
     for (const el of controls) {
       const r = el.getBoundingClientRect();
       const name = el.dataset.testid ?? el.className;
@@ -82,6 +83,7 @@ for (const [w, h] of [[390, 844], [1280, 768], [1440, 900], [1920, 1080]] as con
     await a.keyboard.press("Enter");
     await expect(a.getByTestId("join-card")).toBeHidden();
     await a.getByTestId("mode-player").click();
+    await revealControls(a, "match-id");
     await a.getByTestId("match-id").fill(ID);
     await a.getByTestId("match-load").click();
     await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
@@ -89,13 +91,18 @@ for (const [w, h] of [[390, 844], [1280, 768], [1440, 900], [1920, 1080]] as con
     await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f.startsWith(`${ID}-`) && f.endsWith(".dem")) ?? "")).not.toBe("");
     writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify(timeline()));
     await expect(a.getByTestId("match-tier")).toHaveText("Full replay");
+    await revealControls(a, "troopers-toggle");
     await expect(a.getByTestId("troopers-toggle")).toBeVisible();
+    await revealControls(a, "names-toggle");
     await expect(a.getByTestId("names-toggle")).toBeVisible();
     await expect(a.getByTestId("match-clock")).toHaveText("10:00 / 44:00");
 
     const check = async (state: string) => {
       const { out, n } = await misfits(a);
-      expect(n, state).toBeGreaterThan(state === "scene" ? 2 : 12);
+      // Watching: −10, play, +10, speed, the scrubber, the clock and Save scene. The match
+      // source's controls wait in their closed disclosure (laid out, not shown: hence
+      // checkVisibility), the tier in the header.
+      expect(n, state).toBeGreaterThan(state === "scene" ? 2 : 6);
       expect(out, `${w}×${h} ${state}`).toEqual([]);
       await a.screenshot({ path: `shots/transport-${state}-${w}x${h}.png` });
     };
