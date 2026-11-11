@@ -3,7 +3,7 @@
 // board creates one; Player renders it; following reads and writes its playback.
 
 import { createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js";
-import { type CampAt, type MatchEvent, type PowerupAt, type RiftAt, type Timeline, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, riftAt, shopsClosed, sitesAt, urnAt } from "../match/timeline";
+import { type CampAt, type MatchEvent, type PowerupAt, type RiftAt, type Timeline, tierOf, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, riftAt, shopsClosed, sitesAt, urnAt } from "../match/timeline";
 import { movementAt } from "./movement";
 import type { MatchPreview } from "../match/preview";
 import { slotKey } from "../match/save";
@@ -405,7 +405,7 @@ export function createPlayerHost(board: string, token: string) {
    * only its timeline sent (spec §6a, Timelines parsed on the user's machine). A server without
    * the route gets the `.dem` instead, through `take`. The chip says Parsing meanwhile.
    */
-  const takeLocal = async (id: string, timeline: () => Promise<Blob>, file: () => Promise<File>) => {
+  const takeLocal = async (id: string, timeline: () => Promise<Blob>, file: () => Promise<File>, opts: { attach?: boolean; opened?: () => void } = {}) => {
     if (matchId() !== id || inflight) return;
     const ctl = new AbortController();
     inflight = { id, ctl };
@@ -436,12 +436,31 @@ export function createPlayerHost(board: string, token: string) {
       } catch {
         return setProblem({ code: "file_gone", step: "upload" });
       }
-      return void (await take(f));
+      return void (opts.attach ? await upload(f, opts) : await take(f));
     }
     end(e);
+    if (!e && opts.attach && (await api.attach(id).catch(() => false))) {
+      setMatches([Number(id), ...matches().filter((m) => m !== Number(id))]);
+      opts.opened?.();
+    }
     if (matchId() !== id) return;
     if (!e && problem()?.step === "load") setProblem(undefined);
     await watch(id);
+  };
+  /**
+   * A replay picked in the Windows app's picker (`ReplayPicker.tsx`): the open match's is parsed
+   * and sent; another match's is opened (and attached) first, then sent if that match has no
+   * full replay yet.
+   */
+  const pick = async (r: { id: string; timeline: () => Promise<Blob>; file: () => Promise<File> }) => {
+    if (r.id !== matchId()) {
+      await open(r.id, { attach: true });
+      if (matchId() !== r.id || MODE_CODES.has(problem()?.code ?? "")) return;
+      const now = tl();
+      // It has its replay, or Valve's is on its way.
+      if ((now && tierOf(now) === "replay") || busy(job())) return;
+    }
+    await takeLocal(r.id, r.timeline, r.file);
   };
   const cancelUpload = () => inflight?.ctl.abort();
   /** An upload refused before it started (the file isn't a replay). */
@@ -545,7 +564,8 @@ export function createPlayerHost(board: string, token: string) {
     setProblem(undefined);
     setStatus("");
     setMode("player");
-    const up = upload(h.file, { attach: true, opened: h.opened });
+    const opts = { attach: true, opened: h.opened };
+    const up = h.local ? takeLocal(h.id, h.local.timeline, h.local.file, opts) : h.file ? upload(h.file, opts) : Promise.resolve();
     // The summary, if deadlock-api has one, to watch meanwhile.
     await loadTimeline(h.id, false).catch(() => undefined);
     await up;
@@ -751,6 +771,7 @@ export function createPlayerHost(board: string, token: string) {
     upload,
     take,
     takeLocal,
+    pick,
     fetchReplay,
     init,
     highlight,

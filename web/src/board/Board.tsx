@@ -633,7 +633,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
         {mapBox(true)}
         {/* Not over the join card (it would take the focus from your name). */}
         <Show when={joined()}>
-          <ReplayPrompt host={player} />
+          <ReplayPrompt host={player} art={p.art} />
         </Show>
         <div class="p-tools" role="toolbar" aria-label="Tools">
           <button class={cx("tb", tool() === "move" && "on")} data-testid="tool-move" onClick={() => setTool("move")}>
@@ -982,7 +982,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
             {mapBox(false)}
             {mapControls()}
             <Show when={joined()}>
-              <ReplayPrompt host={player} />
+              <ReplayPrompt host={player} art={p.art} />
             </Show>
           </div>
           {/* One dock under the map, in the page's flow: the tools, then Player's bar. They can't
