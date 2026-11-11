@@ -54,18 +54,23 @@ const same = (a: HoverRef | undefined, b: HoverRef | undefined) => a?.kind === b
 // A token is drawn over the markers, so its hover wins.
 const [token, setToken] = createSignal<HoverRef | undefined>(undefined, { equals: same });
 const [marker, setMarker] = createSignal<HoverRef | undefined>(undefined, { equals: same });
+// A unit moving on the map (a rift trooper): its own channel, so the markers' hit test, which
+// clears theirs off a marker, never clears it.
+const [unit, setUnit] = createSignal<HoverRef | undefined>(undefined, { equals: same });
 // Last: a handle drawn over the map, the wave's, which sits on the lane where a rift can be.
 const [handle, setHandle] = createSignal<HoverRef | undefined>(undefined, { equals: same });
 export const hoverToken = (r: HoverRef | undefined) => setToken(r);
 export const hoverMarker = (r: HoverRef | undefined) => setMarker(r);
 export const hoverHandle = (r: HoverRef | undefined) => setHandle(r);
+/** A unit's hover, sent as a marker (`marker:<key>`), so a follower resolves it by its key. */
+export const hoverUnit = (r: HoverRef | undefined) => setUnit(r);
 /** The token hovered, resolved or not (a token clears its own). */
 export const hoveredToken = token;
 /** The handle hovered, resolved or not (a handle clears its own). */
 export const hoveredHandle = handle;
 /** What this browser hovers now, if anything: the first hovered thing that's on the map, so one
  * that's gone (a dead hero's token) never hides the marker under the pointer. */
-export const localHover = () => [token(), marker(), handle()].find((r) => r && resolve(r));
+export const localHover = () => [token(), marker(), unit(), handle()].find((r) => r && resolve(r));
 
 /** The presenter's hover a follower mirrors, tagged with who it is. */
 export interface RemoteHover {

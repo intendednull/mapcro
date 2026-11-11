@@ -155,14 +155,22 @@ pub struct ObjectiveHealth {
 
 /// Every lane trooper alive in the recording, sampled every `every_s` seconds from 0. Sample
 /// `k` per team is base64 of little-endian `[id: u16, x: i16, y: i16]` triples (world units,
-/// the entity index's low 16 bits for following one trooper between samples). Gaps in the
-/// recording are empty samples: nothing is invented.
+/// the entity index for following one trooper between samples). An entity index is at most
+/// 16,383, so bit 15 of `id` is free: it's [`RIFT_TROOPER`], set on a trooper a captured rift
+/// spawned (a stable id still, so a client that ignores it draws the unit as any other; within
+/// format 9: an older worker just never sets it). Gaps in the recording are empty samples:
+/// nothing is invented.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Troopers {
     pub every_s: u32,
     pub amber: Vec<String>,
     pub sapphire: Vec<String>,
 }
+
+/// Bit 15 of a [`Troopers`] id: the trooper was spawned by a captured rift. The game marks them
+/// with the modifier `citadel_koth_cashin/kothtrooper` and draws them bigger (model scale 1.57
+/// to 1.66; docs/research/replay-parsing-exploration.md round 8).
+pub const RIFT_TROOPER: u16 = 0x8000;
 
 /// The most troopers one sample may carry per team.
 pub const MAX_TROOPERS: usize = 256;

@@ -20,7 +20,9 @@ import { DropOverlay, ReplayHelp, createDemDrop } from "./ReplayHelp";
 import { FolderFound, FolderLink, FolderRecent, folderHas, useReplaysFolder } from "./ReplaysFolder";
 import { ReplayPicker, pickerSource } from "./ReplayPicker";
 import { SPEEDS } from "./clock";
-import { troopersAt } from "./troopers";
+import { type Dot, troopersAt } from "./troopers";
+import { hoverUnit, registerHover } from "../map/HoverLabel";
+import { svgPoint } from "../board/Tokens";
 import { easedNumber } from "../board/smooth";
 import { mapToView, worldToMap, worldToView } from "../map/transform";
 import { EventsList } from "./Events";
@@ -866,8 +868,10 @@ export function PlayerSide(p: Props) {
 /**
  * The replay's lane troopers, as the in-game minimap draws them: small dots in the team's colour
  * with a dark rim, under the heroes, sliding between samples and gone when they die (spec §6b).
- * Like the map's icons they keep their size on screen as you zoom (`k`). Drawn with `Index`, so
- * a frame moves the same circles rather than making new ones (100+ at 8×).
+ * A captured rift's troopers are bigger and darker, as in game (feedback #5), and say so on hover
+ * (a follower resolves the presenter's hover from its key). Like the map's icons they keep their
+ * size on screen as you zoom (`k`). Drawn with `Index`, so a frame moves the same circles rather
+ * than making new ones (100+ at 8×).
  */
 export function TrooperDots(p: { host: PlayerHost; vp: "amber" | "sapphire" | "neutral"; k?: number }) {
   const dots = createMemo(() => {
@@ -875,12 +879,56 @@ export function TrooperDots(p: { host: PlayerHost; vp: "amber" | "sapphire" | "n
     return m && p.host.showTroopers() ? troopersAt(m, p.host.t()) : [];
   });
   const r = () => TROOPER_R * (p.k ?? 1);
+  const rifts = createMemo(() => dots().filter((d) => d.rift));
+  const key = (d: Dot) => `${RIFT_HOVER}${d.team}:${d.id}`;
+  const spot = (d: Dot) => worldToView(d, p.vp);
+  // The rift troopers drawn now can say what they are, from this browser's own playback.
+  const keys = createMemo(() => rifts().map(key).join(" "), "", { equals: (a, b) => a === b });
+  createMemo(() => {
+    const offs = keys()
+      .split(" ")
+      .filter(Boolean)
+      .map((k) =>
+        registerHover("marker", k, () => {
+          const d = rifts().find((x) => key(x) === k);
+          return d ? { x: spot(d).x, y: spot(d).y, gap: r() * RIFT_SCALE + 8 * (p.k ?? 1), text: "Rift trooper" } : undefined;
+        }),
+      );
+    onCleanup(() => offs.forEach((f) => f()));
+  });
+  let g!: SVGGElement;
+  onMount(() => {
+    // Hit-tested on the overlay, never intercepting: drawing and the tools work over a dot.
+    const svg = g.ownerSVGElement;
+    if (!svg) return;
+    const near = (at: { x: number; y: number }) => {
+      let best: { k: string; d: number } | undefined;
+      for (const d of rifts()) {
+        const v = spot(d);
+        const dist = Math.hypot(v.x - at.x, v.y - at.y);
+        if (dist <= r() * RIFT_SCALE + 3 * (p.k ?? 1) && (!best || dist < best.d)) best = { k: key(d), d: dist };
+      }
+      return best?.k;
+    };
+    const set = (k: string | undefined) => hoverUnit(k ? { kind: "marker", id: k } : undefined);
+    const move = (e: PointerEvent) => {
+      if (e.pointerType === "mouse" || e.pointerType === "pen") set(near(svgPoint(svg, e)));
+    };
+    const leave = () => set(undefined);
+    svg.addEventListener("pointermove", move, { passive: true });
+    svg.addEventListener("pointerleave", leave, { passive: true });
+    onCleanup(() => {
+      svg.removeEventListener("pointermove", move);
+      svg.removeEventListener("pointerleave", leave);
+      set(undefined);
+    });
+  });
   return (
-    <g class="pl-troopers" data-testid="troopers">
+    <g ref={g} class="pl-troopers" data-testid="troopers">
       <Index each={dots()}>
         {(d) => {
           const at = () => worldToView(d(), p.vp);
-          return <circle class={`pl-trooper ${d().team}`} data-testid="trooper" cx={at().x} cy={at().y} r={r()} />;
+          return <circle class={cx("pl-trooper", d().team, d().rift && "rift")} data-testid="trooper" data-rift={d().rift ? "" : undefined} cx={at().x} cy={at().y} r={d().rift ? r() * RIFT_SCALE : r()} />;
         }}
       </Index>
     </g>
@@ -888,3 +936,8 @@ export function TrooperDots(p: { host: PlayerHost; vp: "amber" | "sapphire" | "n
 }
 /** A trooper's radius in map units at the default view: about a third of a hero token's. */
 const TROOPER_R = 5;
+/** A rift trooper's dot against a lane trooper's: the game draws the unit at 1.57 to 1.66 times
+ * the scale (docs/research/replay-parsing-exploration.md round 8). */
+const RIFT_SCALE = 1.6;
+/** A rift trooper's hover key: `rift-trooper:<team>:<id>`. */
+const RIFT_HOVER = "rift-trooper:";

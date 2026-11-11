@@ -41,10 +41,21 @@ const pack = (list: Array<[number, number, number]>) => {
 };
 const range = <T,>(f: (s: number) => T) => Array.from({ length: N + 1 }, (_, s) => f(s));
 
-/** Four troopers a side marching up and down the mid lane; nothing recorded from 60 to 70 s. */
+/** Bit 15 of a trooper's id: a captured rift spawned it (timeline.rs `RIFT_TROOPER`). */
+const RIFT = 0x8000;
+
+/** Four troopers a side marching up and down the mid lane, and one rift trooper standing on the
+ * Archmother's side; nothing recorded from 60 to 70 s. */
 function timeline() {
   const side = (team: "amber" | "sapphire") =>
-    range((s) => (s >= 60 && s < 70 ? "" : pack([0, 1, 2, 3].map((i) => [i + (team === "amber" ? 0 : 10), (i - 1.5) * 150, team === "amber" ? -6000 + s * 40 : 6000 - s * 40] as [number, number, number]))));
+    range((s) =>
+      s >= 60 && s < 70
+        ? ""
+        : pack([
+            ...[0, 1, 2, 3].map((i) => [i + (team === "amber" ? 0 : 10), (i - 1.5) * 150, team === "amber" ? -6000 + s * 40 : 6000 - s * 40] as [number, number, number]),
+            ...(team === "sapphire" ? [[RIFT | 20, -3000, 0] as [number, number, number]] : []),
+          ]),
+    );
   return {
     match_id: Number(ID), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6813, reanchored: 0, format: TIMELINE_FORMAT,
     players: (["amber", "sapphire"] as const).flatMap((team) =>
@@ -64,8 +75,10 @@ async function scrubTo(p: Page, t: number) {
 }
 const spots = (p: Page) => p.locator("[data-testid=trooper]").evaluateAll((els) => els.map((e) => `${e.getAttribute("cx")},${e.getAttribute("cy")}`).sort());
 
-test("trooper dots render, move between times, keep gaps empty, and toggle off", async ({ browser }) => {
-  const a = await joinNew(browser, await newBoardUrl(server, "Troopers"), "Coach");
+/** A new board in Player with the synthetic replay loaded, by the presenter "Coach". */
+async function loaded(browser: Parameters<typeof joinNew>[0], name: string) {
+  const url = await newBoardUrl(server, name);
+  const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
   await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
@@ -75,11 +88,16 @@ test("trooper dots render, move between times, keep gaps empty, and toggle off",
   await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f.startsWith(`${ID}-`) && f.endsWith(".dem")) ?? "")).not.toBe("");
   writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify(timeline()));
   await expect(a.getByTestId("match-tier")).toHaveText("Full replay");
+  return { a, url };
+}
+
+test("trooper dots render, move between times, keep gaps empty, and toggle off", async ({ browser }) => {
+  const { a } = await loaded(browser, "Troopers");
   await scrubTo(a, 20);
-  await expect(a.locator("[data-testid=trooper]")).toHaveCount(8);
+  await expect(a.locator("[data-testid=trooper]")).toHaveCount(9);
   const at20 = await spots(a);
   await scrubTo(a, 40);
-  await expect(a.locator("[data-testid=trooper]")).toHaveCount(8);
+  await expect(a.locator("[data-testid=trooper]")).toHaveCount(9);
   expect(await spots(a)).not.toEqual(at20);
   await a.screenshot({ path: "shots/troopers-synthetic.png" });
   // Nothing recorded: nothing drawn.
@@ -89,4 +107,36 @@ test("trooper dots render, move between times, keep gaps empty, and toggle off",
   await revealControls(a, "troopers-toggle");
   await a.getByTestId("troopers-toggle").click();
   await expect(a.locator("[data-testid=trooper]")).toHaveCount(0);
+});
+
+test("a rift's trooper is bigger and darker, says so on hover, and a follower sees it the same", async ({ browser }) => {
+  const { a, url } = await loaded(browser, "Rift troopers");
+  await scrubTo(a, 20);
+  const rift = a.locator("[data-testid=trooper][data-rift]");
+  await expect(rift).toHaveCount(1);
+  const lane = a.locator("[data-testid=trooper]:not([data-rift])").first();
+  const r = async (l: typeof rift) => Number(await l.getAttribute("r"));
+  expect((await r(rift)) / (await r(lane))).toBeCloseTo(1.6, 5);
+  const fill = (l: typeof rift) => l.evaluate((e) => getComputedStyle(e).fill);
+  const lum = (c: string) => (c.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number).reduce((x, y) => x + y, 0);
+  const sapphire = a.locator("[data-testid=trooper].sapphire:not([data-rift])").first();
+  expect(lum(await fill(rift))).toBeLessThan(lum(await fill(sapphire)) * 0.7);
+  // Hovered, it's tagged; the dot never takes the pointer from the map.
+  expect(await rift.evaluate((e) => getComputedStyle(e).pointerEvents)).toBe("none");
+  const box = (await rift.boundingBox())!;
+  await a.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(a.getByTestId("hover-label")).toHaveText("Rift trooper");
+  // A follower draws it the same, and shows the presenter's hover on it.
+  const b = await joinNew(browser, url, "Second");
+  await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
+  await b.getByTestId("follow-Coach").click();
+  await expect(b.getByTestId("follow-chip")).toContainText("Following Coach");
+  const theirs = b.locator("[data-testid=trooper][data-rift]");
+  await expect(theirs).toHaveCount(1);
+  expect(await r(theirs)).toBeGreaterThan(await r(b.locator("[data-testid=trooper]:not([data-rift])").first()));
+  await a.mouse.move(box.x + box.width / 2 + 1, box.y + box.height / 2);
+  await expect(b.getByTestId("hover-label")).toHaveText("Rift trooper");
+  await a.mouse.move(5, 5);
+  await expect(a.getByTestId("hover-label")).toHaveCount(0);
+  await expect(b.getByTestId("hover-label")).toHaveCount(0);
 });

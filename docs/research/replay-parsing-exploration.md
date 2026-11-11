@@ -638,7 +638,13 @@ overlap. Output went to /tmp only.
 
 ### Verdict: marked, two ways that agree
 
-| | rift troopers (23) | all other troopers (951 real units) |
+**Correction (same day, from the built timeline):** the probe's 23 undercounts. A dormant rift
+entity can be reused at the next capture with no death showing in its state, so the probe merged
+those lives. The timeline counts **33 units, 7, 8, 5, 5 and 8 per capture, on a pool of 8
+entities** (`local_replay.rs` `match_129738985_marks_its_rift_troopers_and_draws_no_base_units`).
+The table below is the probe's 23 lives that it saw begin.
+
+| | rift troopers (23 lives seen) | all other troopers (951 real units) |
 |---|---|---|
 | modifier `citadel_koth_cashin/kothtrooper` (token 3298957459) | 23 | 0 |
 | `CBodyComponent.m_skeletonInstance.m_flScale` | 1.57, 1.60, 1.63, 1.66 (rifts 1–5: rifts 4 and 5 both 1.66) | 1.0; 1.2 from minute 36, 1.1 from minute 42 |
@@ -647,9 +653,10 @@ overlap. Output went to /tmp only.
 | lane, team | 1 (west rift) or 6 (east rift); the capturing team | |
 | subclass, model | the normal `trooper_normal` / `trooper_medic` tokens and the team's normal `m_hModel` | |
 
-Units per capture (lives that reached 2 s): 7, 4, 5, 2, 5. The token and the scale pick out the same 23 lives.
-No other field separates the groups. The only disjoint ones are per-entity: `m_flCreateTime`,
-collision ids and the weak-point handle, because the rift troopers are new entities.
+The token and the scale pick out the same 23 lives, and in the timeline the same 8 entities. No
+other field separates the groups. The only disjoint ones are per-entity: `m_flCreateTime`,
+collision ids and the weak-point handle, because the rift troopers are their own 8 entities,
+created at the first capture.
 
 **Ruled out (the same values in both groups):** `m_clrRender` (0xFFFFFFFF), `m_nRenderMode` and
 `m_nRenderFX` (0), `m_fEffects`, `m_Glow.*`, `m_MeshGroupMask`, `m_spawnflags`, `m_bMinion`,
@@ -663,22 +670,18 @@ networked colour: the game's own code must draw it from the modifier or the scal
 respawns. A new life shows only as `m_lifeState` 0 with `m_iHealth` > 0 again. Count "new
 troopers" by entity and you see about 200, which is how the first pass's census got its numbers.
 
-**Side observation, not investigated:** 56 entities with the unnamed subclass 3237674373 sit at
-the bases (y ≈ ±9,300…9,600) on all lanes with `m_iMaxHealth` 1 and `m_iHealth` 1, alive and
-active. `troopers_at`'s filter (max health 0, dead, health ≤ 0) doesn't drop them, so they may be
-drawn as trooper dots inside the bases. Worth a check against the Player view.
+**Base units:** entities with the unnamed subclass 3237674373 (96 have max health 1 at some point; 56 in the probe's dumps) sit at the bases
+(y ≈ ±9,300…9,600) on all lanes, with `m_iMaxHealth` 1 and `m_iHealth` 1, alive and active. The
+old filter (max health 0, dead, health ≤ 0) let them through: 5,467 dots inside the bases on
+129738985. parse.rs now leaves out max health ≤ 1, and the bases have 2 dots.
 
-### Timeline sketch
+### In the timeline (built, within format 9)
 
-A per-trooper flag in `Troopers`: set bit 15 of the `u16` id for a rift trooper. The id is the
-entity index's low 16 bits, and an index is at most 16,383, so bits 14–15 are free. In
-parse.rs, read `m_flScale` next to the other trooper keys and flag a unit when it's ≥ 1.5. That
-needs no modifier tracking, and on this build no other trooper goes above 1.2. The stricter test
-is `citadel_koth_cashin/kothtrooper` on the unit, from `ActiveModifiers` (parse_hero.rs already
-reads the table). The client styles a dot with the bit set big and dark.
-
-Old timelines and old clients stay valid. The id is only matched between samples, and it stays
-stable for a unit. An older desktop worker just writes no flag, so it can be derived **without
-a FORMAT bump**. Bump `FORMAT` (to 10) only to tell cached timelines without the flag apart, so
-they get re-parsed. That's the usual rule for a new layer, and it also needs the desktop app's
-worker updated.
+Bit 15 of a `troopers` id (`timeline::RIFT_TROOPER`) is set on a rift's trooper. An entity
+index is at most 16,383, so the bit is free. parse_hero.rs keeps the handles of the units
+carrying `kothtrooper`: added when the modifier is applied, dropped when it's removed. parse.rs
+`sample` sets the flag on a trooper whose handle is one of them. The model scale is the
+cross-check in the local-replay test, not a read. The client draws a flagged dot 1.6 times the
+size (the game's scale) in a darker shade of the team colour, with the hover tag "Rift trooper",
+for the presenter and for its followers. There's no FORMAT bump: older timelines just lack the
+bit, and an older client draws the unit as any other.

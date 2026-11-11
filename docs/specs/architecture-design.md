@@ -1134,7 +1134,10 @@ makes a board with that match attached and lands in Player; **New board** is tod
   dies; like the map's icons it keeps its size on screen as you zoom. The game's files don't
   settle the minimap's trooper look (`hud_minimap.vcss` gives `.npc` only a position
   transition; the `npc_marker_*` icons are flat placeholder squares), so it's matched by eye.
-  At 8× with a follower the dots cost nothing measurable (perf-replay.spec.ts, 2026-11-08).
+  A captured rift's troopers (the timeline's `RIFT_TROOPER` bit) are drawn as the game draws
+  them, bigger and darker (feedback #5): 1.6 times the dot, the game's model scale, in a darker
+  shade of the team colour, tagged "Rift trooper" on hover; a follower sees the presenter's
+  hover on one. At 8× with a follower the dots cost nothing measurable (perf-replay.spec.ts, 2026-11-08).
 - **Event pings** (2026-11-08): while playback runs, each event it passes that the list shows
   under its filters and search gets a ring where it happened: a death on the victim's place,
   an objective on its icon, an ult on its hero. One ring per event, once, in the team's colour,

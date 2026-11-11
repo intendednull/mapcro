@@ -127,7 +127,15 @@ struct ModChange {
 struct Modifiers {
     /// Serial → (parent, stack count), merged.
     live: HashMap<u32, (Option<u32>, Option<i32>)>,
+    /// The `kothtrooper` modifiers on now: serial → parent handle.
+    koth: HashMap<u32, u32>,
+    /// The handles of the units carrying one: the troopers a captured rift spawned.
+    rift_troopers: HashSet<u32>,
 }
+
+/// The modifier a captured rift puts on the troopers it spawns: `citadel_koth_cashin/kothtrooper`
+/// (docs/research/replay-parsing-exploration.md round 8).
+pub const KOTH_TROOPER: u32 = 3_298_957_459;
 
 impl Modifiers {
     fn update(&mut self, ctx: &boon::Context, out: &mut Vec<ModChange>) {
@@ -139,27 +147,39 @@ impl Modifiers {
             }
             let Some(data) = change.entry.user_data.as_deref().filter(|d| !d.is_empty()) else { continue };
             let Ok(d) = boon_proto::proto::CModifierTableEntry::decode(data) else { continue };
-            let Some(serial) = d.serial_number else { continue };
-            if d.entry_type.unwrap_or(1) == 2 {
-                if let Some((parent, stack_count)) = self.live.remove(&serial) {
-                    out.push(ModChange { kind: ModifierChangeKind::Removed, serial, entry: Entry { parent, stack_count, ..Entry::default() } });
-                }
-                continue;
+            self.merge(&d, out);
+        }
+    }
+
+    /// One decoded table entry: applied, changed or removed.
+    fn merge(&mut self, d: &boon_proto::proto::CModifierTableEntry, out: &mut Vec<ModChange>) {
+        let Some(serial) = d.serial_number else { return };
+        if d.entry_type.unwrap_or(1) == 2 {
+            if let Some(parent) = self.koth.remove(&serial) {
+                self.rift_troopers.remove(&parent);
             }
-            match self.live.entry(serial) {
-                std::collections::hash_map::Entry::Vacant(slot) => {
-                    slot.insert((d.parent, d.stack_count));
-                    let entry = Entry { parent: d.parent, caster: d.caster, modifier_subclass: d.modifier_subclass, ability_subclass: d.ability_subclass, stack_count: d.stack_count };
-                    out.push(ModChange { kind: ModifierChangeKind::Applied, serial, entry });
+            if let Some((parent, stack_count)) = self.live.remove(&serial) {
+                out.push(ModChange { kind: ModifierChangeKind::Removed, serial, entry: Entry { parent, stack_count, ..Entry::default() } });
+            }
+            return;
+        }
+        match self.live.entry(serial) {
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                slot.insert((d.parent, d.stack_count));
+                if let (Some(KOTH_TROOPER), Some(parent)) = (d.modifier_subclass, d.parent) {
+                    self.koth.insert(serial, parent);
+                    self.rift_troopers.insert(parent);
                 }
-                std::collections::hash_map::Entry::Occupied(mut slot) => {
-                    let (parent, stacks) = slot.get_mut();
-                    let changed = d.parent.is_some_and(|p| *parent != Some(p)) || d.stack_count.is_some_and(|c| *stacks != Some(c));
-                    *parent = d.parent.or(*parent);
-                    *stacks = d.stack_count.or(*stacks);
-                    if changed {
-                        out.push(ModChange { kind: ModifierChangeKind::Changed, serial, entry: Entry { parent: *parent, stack_count: *stacks, ..Entry::default() } });
-                    }
+                let entry = Entry { parent: d.parent, caster: d.caster, modifier_subclass: d.modifier_subclass, ability_subclass: d.ability_subclass, stack_count: d.stack_count };
+                out.push(ModChange { kind: ModifierChangeKind::Applied, serial, entry });
+            }
+            std::collections::hash_map::Entry::Occupied(mut slot) => {
+                let (parent, stacks) = slot.get_mut();
+                let changed = d.parent.is_some_and(|p| *parent != Some(p)) || d.stack_count.is_some_and(|c| *stacks != Some(c));
+                *parent = d.parent.or(*parent);
+                *stacks = d.stack_count.or(*stacks);
+                if changed {
+                    out.push(ModChange { kind: ModifierChangeKind::Changed, serial, entry: Entry { parent: *parent, stack_count: *stacks, ..Entry::default() } });
                 }
             }
         }
@@ -214,6 +234,12 @@ impl HeroTracker {
     /// before the match starts open there, at 0).
     pub fn modifiers(&mut self, ctx: &boon::Context) {
         self.mods.update(ctx, &mut self.changes);
+    }
+
+    /// The handles of the units the game marks as a captured rift's troopers, as of the last
+    /// [`HeroTracker::modifiers`].
+    pub fn rift_troopers(&self) -> &HashSet<u32> {
+        &self.mods.rift_troopers
     }
 
     /// The reads, with the effects still on a hero ending where the recording does.
@@ -411,3 +437,30 @@ pub fn height(data: &mut HeroData, last: &mut HashMap<i32, u8>, game: f32, playe
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use boon_proto::proto::CModifierTableEntry;
+
+    #[test]
+    fn the_kothtrooper_token_is_the_modifier_s_name() {
+        assert_eq!(KOTH_TROOPER, crate::timeline::token("citadel_koth_cashin/kothtrooper"));
+    }
+
+    #[test]
+    fn a_unit_is_a_rift_trooper_while_it_carries_kothtrooper() {
+        let mut m = Modifiers::default();
+        let mut out = Vec::new();
+        let applied = |serial, sub, parent| CModifierTableEntry { serial_number: Some(serial), modifier_subclass: Some(sub), parent: Some(parent), ..Default::default() };
+        m.merge(&applied(1, KOTH_TROOPER, 0x4001), &mut out);
+        m.merge(&applied(2, 12345, 0x4002), &mut out);
+        assert_eq!(m.rift_troopers, HashSet::from([0x4001]), "only the kothtrooper modifier marks a unit");
+        // A later change carries no subclass: the unit stays marked.
+        m.merge(&CModifierTableEntry { serial_number: Some(1), stack_count: Some(2), ..Default::default() }, &mut out);
+        assert_eq!(m.rift_troopers, HashSet::from([0x4001]));
+        m.merge(&CModifierTableEntry { serial_number: Some(1), entry_type: Some(2), ..Default::default() }, &mut out);
+        assert!(m.rift_troopers.is_empty(), "removed with its modifier");
+        assert_eq!(out.len(), 4, "the hero reads still see every change");
+    }
+}

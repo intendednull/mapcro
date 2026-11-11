@@ -41,13 +41,16 @@ Ids are `CUtlStringToken`s: MurmurHash2 of the lower-cased name, seed `0x3141592
 | `rejuv` | msg `k_EUserMsg_RejuvStatus` (4 taken, 5 used, 6 expired); rules `m_iAmber/SapphireRejuvCount` | derive.rs `rejuvs` | timers audit gap 1 |
 | `heals`, `crates` | `CCitadel_Pickup_Health`; `CCitadel_BreakableProp` with the tough-crate token | derive.rs `up_down_sites` | [map-objectives-audit](map-objectives-audit.md) |
 | `zips` | `CCitadelZipLineNode.m_iTeamNum` | derive.rs `zips` | exploration round 4 |
-| `troopers` | `CNPC_Trooper`. Rift troopers aren't marked yet: see "Rift-spawned troopers" below | derive.rs `troopers_at` | exploration §5, round 8 |
+| `troopers` | `CNPC_Trooper`, alive, max health above 1 (the one-health units waiting at the bases are left out). Bit 15 of the id (`RIFT_TROOPER`, within format 9) marks a rift's trooper: the unit carries `citadel_koth_cashin/kothtrooper` in `ActiveModifiers` | parse.rs `sample`, parse_hero.rs `rift_troopers`, derive.rs `troopers_at` | exploration §5, round 8 |
 | clock, mode, build | rules `m_flGameStartTime`, `m_bGamePaused`, `m_nTotalPausedTicks`, `m_iWinningTeam`, `m_eGameMode`; build from `game_directory` | parse.rs, lib.rs | exploration "Clock correction"; timers audit "Clocks" |
 
 **Format history** (`timeline::FORMAT`, now 9): 0 unstamped; 1 respawns, urn; 2 buff types,
 rift opening; 3 Rejuvenator, rift capture; 4 vision; 5 healing pickups; 6 clock holds through a
 pause; 7 builds, abilities, casts, charges, CC, effects, recaps, height, zipline, tough crates;
 8 level, max HP, kills, assists; 9 statue pickups (`pickups`). Format 7 runs about 41 KB per match minute.
+Within 9, without a bump: `troopers` ids carry bit 15 for a rift's trooper, and the base units
+are left out. Older format-9 timelines just lack both; a client that ignores the bit draws the
+unit as any other (the id stays stable for following it), so no app update is needed.
 
 **Cache re-fetch** (`crates/server/src/replays.rs` `stale`; spec §6a "Format stamp"; backlog
 "Replay timeline format versions"): a cached fetched timeline whose `format` is below `FORMAT`,
@@ -238,18 +241,27 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   probes in `crates/replay/examples/{schema,statviewer,damage_ratio}_probe.rs`.
 - **Rift-spawned troopers are marked** (feedback #5; this corrects the first pass, which
   found nothing). Checked 2026-11-11 on 129738985, 5 captures; `examples/rift_trooper_probe.rs`,
-  exploration round 8. Each one carries the modifier `citadel_koth_cashin/kothtrooper` (token
-  3298957459, in the pack's `abilities.json`), and nothing else does. They also have
-  `CBodyComponent.m_skeletonInstance.m_flScale` 1.57 to 1.66: other troopers are 1.0, or 1.1/1.2
-  late in the match. Those two match one for one: 23 units, 23 tokens. They spawn at the rift
-  in the second the rules' `m_nKothScoringTeam` rises (the `rift_capture` event), with lane 1 or
-  6, 2 to 2.6 times the normal health, the normal subclass and the team's normal model. The first pass
-  missed them because it compared only subclass, lane and owner. Render colour/mode/FX, glow, model
-  and mesh group, flags and `m_hOwnerEntity` hold the same values in both groups. Troopers
-  have no `m_vecFOWEntities` entry, and `hud_minimap.vcss` has no trooper class, so the "darker"
-  look comes from the game's own code, from the modifier or the scale. **Trap:** trooper entities
-  are pooled (216 on 129738985). A unit's life is a rise of `m_lifeState` 0 with health above 0;
-  `m_flCreateTime` and the serial don't change. Rift troopers are new entities.
+  exploration round 8; built as the `troopers` bit above, and tested against the replay by
+  `local_replay.rs` `match_129738985_marks_its_rift_troopers_and_draws_no_base_units`. Each one
+  carries the modifier `citadel_koth_cashin/kothtrooper` (token 3298957459 = `token` of that
+  path), and nothing else does. They also have `CBodyComponent.m_skeletonInstance.m_flScale`
+  1.57 to 1.66: other troopers are 1.0, or 1.1/1.2 late in the match. The two pick out the same
+  8 entities, and those are never drawn without the flag. The captures spawn 7, 8, 5, 5 and 8
+  units (33) at the rift, in the 0–3 s after the rules' `m_nKothScoringTeam` rises (the
+  `rift_capture` event). They get lane 1 or 6, 2 to 2.6 times the normal health, the normal
+  subclass and the team's normal model. The first pass missed them because it compared only
+  subclass, lane and owner. Render colour/mode/FX, glow, model and mesh group, flags and
+  `m_hOwnerEntity` hold the same values in both groups. Troopers have no `m_vecFOWEntities`
+  entry, and `hud_minimap.vcss` has no trooper class, so the "darker" look comes from the game's
+  own code, from the modifier or the scale. **Trap:** trooper entities are pooled (216 on
+  129738985, the rift's own pool of 8). A unit's life is a rise of `m_lifeState` 0 with health
+  above 0, and `m_flCreateTime` and the serial don't change. A dormant (out-of-PVS) entity can
+  also be reused with no death showing, so count units from the timeline's samples, not from
+  entity state.
+- **One-health units at the bases were drawn as troopers** (fixed 2026-11-11). Up to 96 `CNPC_Trooper`s with
+  `m_iMaxHealth` 1 (subclass token 3237674373, unnamed) sit alive and active at the bases
+  (|y| 9,300–9,600). Before they were left out, 129738985's timeline had 5,467 dots there;
+  now it has 2.
 - **Recorded `max_health` refreshes only at (re)spawn.** It matched the live metadata value at
   10 of 132 snapshots, so it's stale between spawns. stat-calc-spike.md "Recorded max health" (branch
   `stat-calc`); lead handoff 2026-11-09; timeline.rs and scoreboard-values.md note it.

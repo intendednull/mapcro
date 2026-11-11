@@ -499,3 +499,67 @@ fn match_129738985_has_recorded_scoreboard_values() {
     }
     eprintln!("scoreboard: {} level changes, {} max HP changes; ranges {}..{} / {}..{}; {} bytes", levels.len(), hp.len(), levels.iter().min().expect("levels"), levels.iter().max().expect("levels"), hp.iter().min().expect("hp"), hp.iter().max().expect("hp"), bytes.len());
 }
+
+/// 129738985's rift troopers (feedback #5; exploration round 8): the 33 units its 5 captures
+/// spawn (on a pool of 8 entities) carry bit 15 of their trooper id, read from the game's
+/// `kothtrooper` modifier, and they are exactly the entities the game draws bigger (model scale 1.57 to 1.66; every other trooper is
+/// 1.2 at most). The one-health units waiting at the bases are never drawn.
+#[test]
+#[ignore = "needs 129738985: MAPCRO_REPLAY_129738985"]
+fn match_129738985_marks_its_rift_troopers_and_draws_no_base_units() {
+    use boon::Parser;
+    use std::collections::{BTreeSet, HashSet};
+    let Some(dem) = env_path("MAPCRO_REPLAY_129738985") else { panic!("set MAPCRO_REPLAY_129738985 to 129738985.dem") };
+    let dir = tempfile::tempdir().expect("dir");
+    let out = dir.path().join("t.json");
+    worker::job(&dem, &out, 129_738_985, 2 << 30).expect("parses");
+    let t = timeline::validate(&std::fs::read(&out).expect("output")).expect("the server's checks pass");
+    let tr = t.troopers.expect("troopers");
+    let captures: Vec<u32> = t.events.iter().filter(|e| e.kind == "rift_capture").map(|e| e.t).collect();
+    assert_eq!(captures.len(), 5);
+    // A rift trooper's id, first drawn or back after 30 s without it, is a new unit (the
+    // entities are pooled, and a unit out of the recording for a moment is the same one).
+    let (mut flagged, mut plain, mut births, mut deep) = (BTreeSet::new(), HashSet::new(), Vec::new(), 0);
+    for team in [&tr.amber, &tr.sapphire] {
+        let mut last: std::collections::HashMap<u16, usize> = std::collections::HashMap::new();
+        for (sec, sample) in team.iter().enumerate() {
+            for (id, _, y) in timeline::decode_troopers(sample).expect("sample") {
+                deep += usize::from(y.abs() > 9200);
+                if id & timeline::RIFT_TROOPER == 0 {
+                    plain.insert(id);
+                } else {
+                    flagged.insert(id & !timeline::RIFT_TROOPER);
+                    if last.get(&id).is_none_or(|l| sec - l > 30) {
+                        births.push(sec as u32);
+                    }
+                    last.insert(id, sec);
+                }
+            }
+        }
+    }
+    births.sort_unstable();
+    let per_capture: Vec<usize> = captures.iter().map(|c| births.iter().filter(|b| (*c..=c + 5).contains(*b)).count()).collect();
+    assert_eq!(per_capture, [7, 8, 5, 5, 8], "births {births:?}, captures {captures:?}");
+    assert_eq!(births.len(), 33, "each one spawned by a capture");
+    // The units waiting at the bases (max health 1) sat at |y| 9,300 to 9,600: 5,467 dots there
+    // before they were left out; the lane troopers hardly go that deep.
+    assert!(deep <= 5, "{deep} dots inside the bases");
+
+    // The same units by the game's own drawing: their model scale.
+    const TROOPER: &str = "CNPC_Trooper";
+    let mut big = BTreeSet::new();
+    Parser::from_file(&dem)
+        .expect("opens")
+        .run_to_end_filtered(&HashSet::from([TROOPER]), |ctx| {
+            let Some(s) = ctx.serializers().get(TROOPER) else { return };
+            let scale = s.resolve_field_key("CBodyComponent.m_skeletonInstance.m_flScale");
+            for (_, e) in ctx.entities().iter().filter(|(_, e)| e.class_name.as_ref() == TROOPER) {
+                if e.get_f32(scale) >= 1.5 {
+                    big.insert(e.index as u16);
+                }
+            }
+        })
+        .expect("parses");
+    assert_eq!(flagged, big, "flagged by the modifier = drawn bigger by the game");
+    assert!(big.iter().all(|i| !plain.contains(i)), "and never drawn unflagged");
+}
