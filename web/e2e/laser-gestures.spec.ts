@@ -71,6 +71,7 @@ test("two laser gestures are two trails, locally and for a peer and from a view 
   const a = await joinNew(browser, url, "Coach");
   const b = await joinNew(browser, url, "Marrow");
   await a.keyboard.press("w");
+  await expect(a.getByTestId("tool-laser")).toHaveAttribute("aria-pressed", "true");
   await twoGestures(a);
   await expectTwoSeparate(a, "mine");
   await expectTwoSeparate(b, "Coach");
@@ -81,6 +82,7 @@ test("two laser gestures are two trails, locally and for a peer and from a view 
   // A view link's laser, the same.
   const v = await joinNew(browser, await viewLink(server.url, url), "Guest");
   await v.keyboard.press("w");
+  await expect(v.getByTestId("tool-laser")).toHaveAttribute("aria-pressed", "true");
   await twoGestures(v);
   await expectTwoSeparate(v, "mine");
   await expectTwoSeparate(a, "Guest");
