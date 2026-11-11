@@ -78,7 +78,7 @@ it("assembles the calculator's build from the timeline at a moment", () => {
   // Sold by 1.5 s; dead counts as full health for life thresholds.
   expect(at(2)).toMatchObject({ items: [8], health_pct: 100 });
   // No level, or no item series: nothing to calculate.
-  expect(statBuild(player({ level: undefined }), 1, buildAt(p, 1))).toBeNull();
+  expect(statBuild({ ...p, level: [] }, 1, buildAt(p, 1))).toBeNull();
   expect(statBuild(p, 1, { items: null, abilities: null })).toBeNull();
 });
 

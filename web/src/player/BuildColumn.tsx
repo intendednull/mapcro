@@ -4,7 +4,7 @@ import { BuildOrder } from "./BuildOrder";
 import { For, Index, Show, createMemo } from "solid-js";
 import type { Art, Hero } from "../map/pack";
 import { buildAt, killsAt, type BuildEntry } from "../match/builds";
-import { SLOT, investFill, statBuild, statsAt, type LoadedTable } from "../match/stats";
+import { PICKUPS_FORMAT, SLOT, investFill, statBuild, statsAt, type LoadedTable } from "../match/stats";
 import { scoreboardValueAt, type Timeline, type TimelinePlayer } from "../match/timeline";
 import { cx } from "../ui/cx";
 import { LABELS } from "./labels";
@@ -27,7 +27,7 @@ export function BuildColumn(p: { inspect?: boolean; onSeek?: ((t: number) => voi
   const kills = createMemo(() => p.player.kills != null ? scoreboardValueAt(p.player.kills, p.t) : killsAt(p.timeline, p.t, p.player.team, p.player.slot));
   const assists = () => scoreboardValueAt(p.player.assists, p.t);
   // Calculated from the build and the replay patch's data (crates/stats); "—" without a table.
-  const calc = createMemo(() => statsAt(p.stats, statBuild(p.player, p.t, build())));
+  const calc = createMemo(() => (p.timeline?.format ?? 0) >= PICKUPS_FORMAT ? statsAt(p.stats, statBuild(p.player, p.t, build())) : null);
   // The recorded max health refreshes only at (re)spawn, so the calculated one replaces it.
   const maxHealth = () => calc()?.shown.max_health ?? scoreboardValueAt(p.player.max_health, p.t);
   const deaths = createMemo(() => p.player.deaths.filter(t => t <= p.t).length);

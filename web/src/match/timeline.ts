@@ -95,6 +95,8 @@ export interface Timeline {
   /** `"replay"` for the replay tier; absent for the metadata tier. */
   tier?: "replay";
   build?: number;
+  /** Replay tier: the worker's output format (`timeline::FORMAT`). */
+  format?: number;
   /** Replay tier: announced at `start_s`, its cash-in open from `live_s` (format 2) to `end_s`;
    * from format 3 when it gives up uncaptured and each team's capture progress. */
   rifts?: TimelineRift[];

@@ -864,7 +864,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
   the threshold, and a dead hero counts as full. Health is truncated, the rest rounded, as the
   HUD does. The calculated max health replaces the recorded one, which refreshes only at a
   spawn; the recorded one is the fallback. A build with no table (older than 6711 or newer than
-  the pack's sources) shows "—" ("Not recorded"); no other patch's numbers stand in. Hovers are
+  the pack's sources) shows "—" ("Not recorded"); no other patch's numbers stand in. So does a
+  timeline from before format 9: without statue pickups the values would run short. Hovers are
   the stats' names (§4b), with no "calculated" mark (a quiet "≈" would need the operator's
   approval).
   - **Investment bars**: the souls in owned items per category, each at its tier price in the

@@ -33,6 +33,10 @@ export function ladderKeyFor(index: StatIndex | undefined, build: number | undef
   return tableKeyFor(index, build) ?? (index?.format === TABLE_FORMAT ? index.installKey ?? null : null);
 }
 
+/** The first timeline format with statue pickups: without them health and weapon % would be
+ * short (the spike: 72% exact falls to 25%), so an older timeline gets no calculated values. */
+export const PICKUPS_FORMAT = 9;
+
 /** `(souls threshold, bonus, percent of the bar)` rows (`m_MapModCostBonuses`), ascending. */
 export type Ladder = Array<[number, number, number]>;
 
