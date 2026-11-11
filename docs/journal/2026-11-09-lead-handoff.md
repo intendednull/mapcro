@@ -5,7 +5,16 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## Production
 
-- `web` runs **5ea3e66**, deployed 2026-11-10 ~08:50 UTC. Packs now carry item, ability and
+- **2026-11-11 ~02:50 UTC (lead mapcro-2d):** `web` runs **df638a0**, the UI prototype (layout
+  regroup, Tab scoreboard, effects, death recaps, elevation/zipline layer, vision portraits,
+  scene timeline, shared top-bar parts) and timeline **format 8** (level, kills, assists, max HP).
+  Infra main 0a593e2. Pack **6860-items** (9290ecf6…, 649 files: shop item artwork from
+  3978b87) placed and newest; its source is
+  `~/.local/share/mapcro-lead/packs/6860-items`. Gate, VM test, unit diff
+  (mapcro, mapcro-replay only), healthz and fleet probes green; used on prod. Open: an effect with
+  only an internal name shows it (fall back to its item's label); the max HP the replay records
+  updates only at respawn (calculated max HP from branch `stat-calc` should replace it).
+- Earlier: `web` ran **5ea3e66**, deployed 2026-11-10 ~08:50 UTC. Packs now carry item, ability and
   modifier names and icons: `data/abilities.json` holds 2,876 records keyed by timeline token,
   plus 318 icons, at manifest schema 4. The server now serves `application/json` blobs. The pack
   **6860-abilities** (79435f56…) is placed and is now the newest. Its source is
