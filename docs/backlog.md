@@ -132,7 +132,17 @@ registry, branch `view-state`). Held:
 - **Sidebar tab (Events or Notes), the Layers popover being open, and the side panels on the
   phone:** layout, each person's own (operator 2026-11-11).
 
-## A server restart ends every follow, and a follower may see "Conflict" after it (2026-11-11, view-state)
+## A server restart ends every follow, and a follower may see "Conflict" after it (2026-11-11, view-state): resolved
+
+Resolved 2026-11-11 (branch `restart-follow`). The follow: presence carries a random per-page
+`seat`, and a follower finds its presenter by it after a reconnect, its own or theirs (spec §8
+"A follow survives a reconnect"); the follow matrix's restart rows now say `follows`. The
+Conflict was not the restart: a second editor joining a board in Player started from the
+room's reused snapshot (behind the log), made Player's live layer again before its catch-up,
+and was refused `IdTaken` (the layer's ids are derived). Every such joiner saw it. Ready now
+carries `head`, the live layer waits for a current copy, and an `ensure` that loses the race
+isn't reported (spec §5).
+
 
 Found pinning follow behaviour (`web/e2e/follow-matrix.spec.ts`, the restart scenario): after the
 server restarts, everyone reconnects with a new peer id, so a follower's `following` points at

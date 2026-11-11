@@ -16,6 +16,7 @@ import { BoardSession, type SocketLike } from "../src/core/session";
 import type { Op } from "../src/gen/Op";
 import type { RosterSlot } from "../src/gen/RosterSlot";
 import { ensureLiveOps } from "../src/player/live";
+import { pageSeat } from "../src/core/seat";
 import type { RecordId } from "../src/gen/RecordId";
 
 const ROOT = resolve(__dirname, "../..");
@@ -246,6 +247,9 @@ describe("board sessions against the real server", () => {
     await until(() => [...fan.peers.values()].some((p) => p.state?.name === "Coach"), "fan sees coach");
     await until(() => [...coach.peers.values()].some((p) => p.state?.name === "Fan"), "coach sees fan");
     expect(fan.followable().map((p) => p.state?.name)).toEqual(["Coach"]);
+    // Each carries its page's seat, the same across the server (spec §8).
+    expect(fan.followable()[0]!.state?.seat).toBe(pageSeat());
+    expect(Number.isSafeInteger(pageSeat())).toBe(true);
     expect(coach.followable()).toEqual([]); // the fan is view-only
     coach.stop();
     await until(() => fan.followable().length === 0, "coach left");
