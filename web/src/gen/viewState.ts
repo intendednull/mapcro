@@ -20,6 +20,8 @@ export const VIEW_STATE = {
   "recap.event": { sync: "shared", kind: "deaths", field: "playback.event_recap", mask: null, omit: true, unfollow: "keep", override: "local", group: "panels", reset: true },
   "builds.inspect": { sync: "shared", kind: "slot", field: "playback.inspect", mask: null, omit: true, unfollow: "keep", override: "local", group: "panels", reset: true },
   "builds.popover": { sync: "shared", kind: "choice", options: ["none", "effects", "order"], wires: [null, "effects", "order"], field: "playback.build_popover", mask: null, omit: true, unfollow: "keep", override: "local", group: "panels", reset: true },
+  "recap.skull.place": { sync: "shared", kind: "place", scale: 10000, field: "playback.skull_place", mask: null, omit: true, unfollow: "keep", override: "local", group: "panels", reset: true },
+  "heroes.panels": { sync: "shared", kind: "heroes", max: 12, scale: 10000, field: "playback.hero_panels", mask: null, omit: false, unfollow: "keep", override: "local", group: "panels", reset: true },
   "events.filter.death": { sync: "shared", kind: "bool", field: "playback.event_filters", mask: 1, omit: true, unfollow: "keep", override: "local", group: "events", reset: false },
   "events.filter.ult": { sync: "shared", kind: "bool", field: "playback.event_filters", mask: 2, omit: true, unfollow: "keep", override: "local", group: "events", reset: false },
   "events.filter.objective": { sync: "shared", kind: "bool", field: "playback.event_filters", mask: 4, omit: true, unfollow: "keep", override: "local", group: "events", reset: false },

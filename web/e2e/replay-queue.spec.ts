@@ -261,3 +261,21 @@ test("a reserve request that gets no answer is tried again: the wait goes on, it
   await clear(1);
   await failed(KNOWN);
 });
+
+test("a fetch from Valve under way when the match loads doesn't close the match source: its upload shows once the fetch fails", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Fetch then upload"), "Coach");
+  await a.getByTestId("mode-player").click();
+  // The job is first seen fetching (the server starts a fetch on attach); the next answers are the server's.
+  let seen = 0;
+  await a.route(new RegExp(`/api/boards/[^/]+/replays/${KNOWN}$`), async (route) => {
+    if (route.request().method() !== "GET" || seen++ > 0) return route.fallback();
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ state: "fetching", source: "fetch" }) });
+  });
+  await revealControls(a, "match-id");
+  await a.getByTestId("match-id").fill(String(KNOWN));
+  await a.getByTestId("match-load").click();
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
+  await expect.poll(() => seen).toBeGreaterThan(1);
+  await expect(a.getByTestId("match-upload")).toBeVisible();
+  expect(await a.locator(".pl-source").evaluate((el) => (el as HTMLDetailsElement).open)).toBe(true);
+});

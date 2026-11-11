@@ -6,7 +6,7 @@
 //! value in the store: the wire bits, the follower's apply and restore, and the tests come from
 //! the row. Plan: docs/plans/2026-11-11-view-state-sync.md.
 
-use crate::wire::{LAYER_CC, LAYER_CRATES, LAYER_HEALS, LAYER_HEALTH, LAYER_MOVEMENT, LAYER_PINGS, LAYER_TROOPERS, MAX_EVENT_SEARCH};
+use crate::wire::{LAYER_CC, LAYER_CRATES, LAYER_HEALS, LAYER_HEALTH, LAYER_MOVEMENT, LAYER_PINGS, LAYER_TROOPERS, MAX_EVENT_SEARCH, MAX_HERO_PANELS, PLACE_SCALE};
 
 /// Who sees a key's value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +36,12 @@ pub enum Kind {
     Deaths,
     /// Text a person typed: at most `max` bytes, no control characters (`wire::text_ok`).
     Text { max: usize },
+    /// Where a panel sits in the board pane (`PanelPlace`: fractions of the pane from its
+    /// nearer edges, each `<= PLACE_SCALE`), or none: where it opens.
+    Place,
+    /// The hero panels open, back to front, each with its place (`HeroPanel`; at most
+    /// `MAX_HERO_PANELS`, each slot once).
+    HeroPanels { max: usize },
 }
 
 /// Where presence carries a key.
@@ -184,6 +190,13 @@ pub const VIEW_STATE: &[ViewKey] = &[
     panel("recap.event", Kind::Deaths, "playback.event_recap", "The events list's open recaps (the last opened on the wire)"),
     panel("builds.inspect", Kind::Slot, "playback.inspect", "The hero whose build the top bar has open"),
     panel("builds.popover", Kind::Choice(POPOVERS), "playback.build_popover", "Effects or Build order open in that build (operator 2026-11-11: shared)"),
+    panel("recap.skull.place", Kind::Place, "playback.skull_place", "Where the death recap on the map was moved to (#35)"),
+    // Sent whenever playback is (`[]` for none): an older presenter leaves it out, and its
+    // follower keeps its own hero panels.
+    ViewKey {
+        wire: Wire::Value { field: "playback.hero_panels" },
+        ..panel("heroes.panels", Kind::HeroPanels { max: MAX_HERO_PANELS }, "playback.hero_panels", "The hero panels open from the map's tokens, and where (#37)")
+    },
     filter("events.filter.death", 0),
     filter("events.filter.ult", 1),
     filter("events.filter.objective", 2),
@@ -280,6 +293,8 @@ pub fn to_ts() -> String {
             Kind::Death => "kind: \"death\"".to_owned(),
             Kind::Deaths => "kind: \"deaths\"".to_owned(),
             Kind::Text { max } => format!("kind: \"text\", max: {max}"),
+            Kind::Place => format!("kind: \"place\", scale: {PLACE_SCALE}"),
+            Kind::HeroPanels { max } => format!("kind: \"heroes\", max: {max}, scale: {PLACE_SCALE}"),
         };
         let sync = match k.sync {
             Sync::Shared => "shared",
@@ -306,7 +321,7 @@ pub fn to_ts() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wire::{BuildPopover, DeathRef, DragPreview, Floor, Jump, LiveInk, Ping, Playback, PlayerVision, Presence, SlotRef, Viewport};
+    use crate::wire::{BuildPopover, DeathRef, DragPreview, Floor, HeroPanel, Jump, LiveInk, PanelPlace, Ping, Playback, PlayerVision, Presence, SlotRef, Viewport};
     use mapcro_schema::{Team, WorldPos};
     use std::collections::BTreeSet;
 
@@ -364,6 +379,8 @@ mod tests {
                 build_popover: Some(BuildPopover::Order),
                 event_filters: 1,
                 event_search: Some("q".into()),
+                skull_place: Some(PanelPlace { x: 1, y: 2, right: true, bottom: false }),
+                hero_panels: Some(vec![HeroPanel { team: Team::Sapphire, slot: 2, at: None }]),
             }),
             hover: Some("marker:k".into()),
             layers: Some(0x7f),
@@ -490,5 +507,7 @@ mod tests {
         // The text bound is the one `is_valid` checks.
         let search = VIEW_STATE.iter().find(|k| k.key == "events.search").expect("events.search");
         assert_eq!(search.kind, Kind::Text { max: crate::wire::MAX_EVENT_SEARCH });
+        let heroes = VIEW_STATE.iter().find(|k| k.key == "heroes.panels").expect("heroes.panels");
+        assert_eq!(heroes.kind, Kind::HeroPanels { max: MAX_HERO_PANELS });
     }
 }

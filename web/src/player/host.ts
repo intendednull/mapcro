@@ -23,7 +23,9 @@ import type { PlayerVision } from "../gen/PlayerVision";
 import type { DeathRef } from "../gen/DeathRef";
 import type { SlotRef } from "../gen/SlotRef";
 import type { BuildPopover } from "../gen/BuildPopover";
-import { type Death, deathKey } from "./layers";
+import type { HeroPanel } from "../gen/HeroPanel";
+import type { PanelPlace } from "../gen/PanelPlace";
+import { type Death, type HeroPanelOpen, type Place, deathKey } from "./layers";
 import { type ValueOf, clipText, createViewState } from "./viewstate";
 import { VIEW_STATE, type ViewKey } from "../gen/viewState";
 
@@ -48,6 +50,9 @@ export interface PlaybackPresence {
   build_popover?: BuildPopover;
   event_filters?: number;
   event_search?: string;
+  /** Where the map's death recap and the hero panels were moved to (#35, #37). */
+  skull_place?: PanelPlace;
+  hero_panels?: HeroPanel[];
 }
 
 export function createPlayerHost(board: string, token: string) {
@@ -114,6 +119,8 @@ export function createPlayerHost(board: string, token: string) {
       "recap.event": [],
       "builds.inspect": undefined,
       "builds.popover": "none",
+      "recap.skull.place": undefined,
+      "heroes.panels": [],
       "events.filter.death": false,
       "events.filter.ult": false,
       "events.filter.objective": false,
@@ -161,6 +168,23 @@ export function createPlayerHost(board: string, token: string) {
     const rest = untrack(() => viewState.get("recap.event")).filter((x) => deathKey(x) !== deathKey(d));
     viewState.set("recap.event", open ? [...rest, d] : rest);
   };
+  /** Where the map's death recap was moved to (#35): none, where it opens. */
+  const skullPlace = showing("recap.skull.place");
+  const setSkullPlace = choosing("recap.skull.place");
+  /** The hero panels open from the map's tokens (#37), back to front, each where it was put. */
+  const heroPanels = showing("heroes.panels");
+  const setHeroPanels = (f: (list: HeroPanelOpen[]) => HeroPanelOpen[]) => viewState.set("heroes.panels", f(untrack(heroPanels)));
+  /** A hero's panel: opened at `at`, or brought to the front when it is open. Past every
+   * hero's, the one at the back closes. */
+  const openHeroPanel = (slot: string, at: Place) =>
+    setHeroPanels((list) => {
+      const was = list.find((h) => h.slot === slot);
+      return [...list.filter((h) => h.slot !== slot), was ?? { slot, at }].slice(-VIEW_STATE["heroes.panels"].max);
+    });
+  const closeHeroPanel = (slot: string) => setHeroPanels((list) => list.filter((h) => h.slot !== slot));
+  const placeHeroPanel = (slot: string, at: Place) => setHeroPanels((list) => list.map((h) => (h.slot === slot ? { ...h, at } : h)));
+  /** A press on a hero panel brings it to the front. */
+  const raiseHeroPanel = (slot: string) => setHeroPanels((list) => (list.at(-1)?.slot === slot || !list.some((h) => h.slot === slot) ? list : [...list.filter((h) => h.slot !== slot), list.find((h) => h.slot === slot)!]));
   const openBuild = showing("builds.inspect");
   const setOpenBuild = choosing("builds.inspect");
   const allBuilds = showing("builds.all");
@@ -886,6 +910,13 @@ export function createPlayerHost(board: string, token: string) {
     layersWire,
     skullRecap,
     setSkullRecap,
+    skullPlace,
+    setSkullPlace,
+    heroPanels,
+    openHeroPanel,
+    closeHeroPanel,
+    placeHeroPanel,
+    raiseHeroPanel,
     eventRecapOpen,
     setEventRecapOpen,
     openBuild,

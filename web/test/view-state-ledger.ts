@@ -112,7 +112,6 @@ export const SIGNALS: Record<string, Entries> = {
     noteDraft: ["local", "text being typed"],
     sceneDrawer: ["local", "the phone's drawer"],
     mapPx: ["local", "the layout"],
-    heroCard: ["unshared", "the hero panel opened from a token on the map (minimap hero panel, tooltips #9): this browser's"],
   },
 };
 

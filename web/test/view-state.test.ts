@@ -28,6 +28,10 @@ function samples(k: ViewKey): [unknown, unknown, unknown] {
       return [[], [{ slot: "sapphire-2", t: 40 }], [{ slot: "amber-1", t: 20 }]];
     case "text":
       return ["", "urn", "haze"];
+    case "place":
+      return [undefined, { x: 120, y: 400, right: false, bottom: true }, { x: 9000, y: 0, right: true, bottom: false }];
+    case "heroes":
+      return [[], [{ slot: "amber-0", at: { x: 120, y: 440, right: false, bottom: false } }, { slot: "sapphire-1" }], [{ slot: "sapphire-5", at: { x: 0, y: 10_000, right: true, bottom: true } }]];
   }
   throw new Error(`${k}: kind ${r.kind}`);
 }
@@ -61,7 +65,9 @@ describe("the wire", () => {
   });
   it("leaves out what is closed, and carries Vision whole", () => {
     const w = presenter().wire();
-    expect(w.playback).toEqual({ vision: { team: null, last_seen: false } });
+    // The hero panels are sent as none too: left out is an older presenter's (it leaves the
+    // follower's own open).
+    expect(w.playback).toEqual({ vision: { team: null, last_seen: false }, hero_panels: [] });
     const open = presenter({ "builds.all": true, "recap.skull": { slot: "amber-1", t: 20 }, "builds.popover": "order", "events.filter.urn": true, "events.search": "x", "vision.team": "sapphire" }).wire().playback as Record<string, unknown>;
     expect(open).toMatchObject({ all_builds: true, skull_recap: { team: "Amber", slot: 1, t: 20 }, build_popover: "order", event_filters: 64, event_search: "x", vision: { team: "Sapphire", last_seen: false } });
   });
@@ -238,6 +244,52 @@ describe("every registry key follows its row", () => {
     hear(f, p);
     expect(f.s.get("recap.skull")).toBeUndefined();
     expect(f.s.get("events.search")).toBe("urn");
+  });
+  it("a presenter moving a panel moves that panel only: the follower's own panels, inspect and recap stay", () => {
+    const at = (x: number) => ({ x, y: 400, right: false, bottom: false });
+    const f = follower();
+    const p = presenter({ "heroes.panels": [{ slot: "amber-5", at: at(1) }, { slot: "sapphire-4", at: at(2) }], "recap.skull": { slot: "sapphire-2", t: 40 }, "builds.inspect": "amber-0" });
+    hear(f, p);
+    expect(f.s.get("heroes.panels").map((h) => h.slot)).toEqual(["amber-5", "sapphire-4"]);
+    // The follower's own: one of the presenter's closed, one of its own open, no recap, another build.
+    f.s.set("heroes.panels", [{ slot: "amber-5", at: at(1) }, { slot: "amber-0", at: at(9) }]);
+    f.s.set("recap.skull", undefined);
+    f.s.set("builds.inspect", "sapphire-1");
+    // The presenter drags amber-5 (each pointer move is a frame), then the recap's place.
+    for (const x of [10, 20, 30]) {
+      p.set("heroes.panels", [{ slot: "amber-5", at: at(x) }, { slot: "sapphire-4", at: at(2) }]);
+      hear(f, p);
+    }
+    p.set("recap.skull.place", at(77));
+    hear(f, p);
+    expect(f.s.get("heroes.panels")).toEqual([{ slot: "amber-5", at: at(30) }, { slot: "amber-0", at: at(9) }]);
+    expect(f.s.get("recap.skull")).toBeUndefined();
+    expect(f.s.get("recap.skull.place")).toEqual(at(77));
+    expect(f.s.get("builds.inspect")).toBe("sapphire-1");
+    expect(f.stopped()).toBe(0);
+    // A press bringing one to the front is an order, not an open: those both have follow it.
+    f.s.set("heroes.panels", [{ slot: "sapphire-4", at: at(2) }, { slot: "amber-0", at: at(9) }, { slot: "amber-5", at: at(30) }]);
+    p.set("heroes.panels", [{ slot: "amber-5", at: at(30) }, { slot: "sapphire-4", at: at(3) }]);
+    hear(f, p);
+    expect(f.s.get("heroes.panels")).toEqual([{ slot: "amber-5", at: at(30) }, { slot: "amber-0", at: at(9) }, { slot: "sapphire-4", at: at(3) }]);
+    // Opening one is a panel change: the presenter's panels apply whole (spec §8).
+    p.set("heroes.panels", [{ slot: "amber-5", at: at(30) }, { slot: "sapphire-4", at: at(3) }, { slot: "sapphire-1", at: at(4) }]);
+    hear(f, p);
+    expect(f.s.get("heroes.panels").map((h) => h.slot)).toEqual(["amber-5", "sapphire-4", "sapphire-1"]);
+    expect(f.s.get("recap.skull")).toEqual({ slot: "sapphire-2", t: 40 });
+    expect(f.s.get("builds.inspect")).toBe("amber-0");
+  });
+  it("an older presenter, which sends no hero panels, leaves the follower's own open; none sent closes them", () => {
+    const f = follower();
+    f.s.set("heroes.panels", [{ slot: "amber-0" }]);
+    f.s.mirror({ playback: { player: true, skull_recap: { team: "Amber", slot: 1, t: 20 } } }, "panels");
+    expect(f.s.get("recap.skull")).toEqual({ slot: "amber-1", t: 20 });
+    expect(f.s.get("heroes.panels")).toEqual([{ slot: "amber-0" }]);
+    // A newer one's shape this build can't read is the same as none heard.
+    f.s.mirror({ playback: { player: true, hero_panels: { panels: [] } } }, "panels");
+    expect(f.s.get("heroes.panels")).toEqual([{ slot: "amber-0" }]);
+    f.s.mirror({ playback: { player: true, hero_panels: [] } }, "panels");
+    expect(f.s.get("heroes.panels")).toEqual([]);
   });
   it("a local key's change doesn't stop a follow; nothing stops one but a stop key", () => {
     for (const k of VIEW_KEYS) {

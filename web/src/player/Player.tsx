@@ -2,7 +2,7 @@
 // playback time t (the board renders the preview this produces); this draws the transport, the
 // roster with ult rings, the match source controls and the events list. Labels only.
 
-import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
 import type { Art } from "../map/pack";
 import { Dynamic } from "solid-js/web";
 import { cx } from "../ui/cx";
@@ -57,7 +57,42 @@ export function Player(p: {
   const canEdit = () => p.state.canEdit();
   const markers = () => p.art.model.markers;
   const lanes = () => p.art.model.lanes.map((l) => l.key);
-  onMount(() => dismissDisclosure(() => document.querySelector<HTMLDetailsElement>(".pl-source")));
+  let source: HTMLDetailsElement | undefined;
+  onMount(() => dismissDisclosure(() => source ?? null));
+  // Once the match this user's own Load asked for is in (loaded, or its replay parsed) and the
+  // panel has nothing more to offer for it, its work is done: it closes, as a menu does after
+  // its choice, so it no longer covers the tools under it (the bar's left end). Only then: not
+  // on a match a presenter opened, nor one open on page load, nor a slow Load's answer once
+  // another id is being typed (review 2026-11-11). Decided once the match's replay state is
+  // known (the job settled, not fetching or parsing) too: a match with only the API summary, or a
+  // stale parse, keeps it open on its upload
+  // (the next step). A refused id or a failed load keeps it open, its status saying why.
+  /** The id this user's own Load asked for, until the panel closes for it. */
+  let loading: string | undefined;
+  const ownLoad = (id: string) => {
+    loading = id;
+    void h.open(id, { attach: canEdit() });
+  };
+  createEffect(
+    on(
+      () => {
+        const m = h.tl();
+        // Decided once the job has settled: a fetch from Valve under way (the server starts one
+        // on attach) offers no upload yet, but may end in one (review 2026-11-11: the panel
+        // closed on "fetching" and its upload was hidden when the fetch failed).
+        return m && h.job() && !busy(h.job()) ? `${m.match_id}:${tierOf(m)}` : "";
+      },
+      (now, was) => {
+        if (!now || now === was || !source?.open) return;
+        const id = String(untrack(h.tl)!.match_id);
+        if (loading !== id || (idInput && idInput.value.trim() !== id)) return;
+        if (untrack(() => canUpload() && !h.notice())) return;
+        source.open = false;
+        loading = undefined;
+      },
+      { defer: true },
+    ),
+  );
 
   const user = (f: () => void) => {
     p.onUserPlayback();
@@ -264,7 +299,7 @@ export function Player(p: {
             </Show>
           </div>
         </Show>
-        <details class="pl-source" classList={{ "pl-hidden": !watching() }}>
+        <details ref={source} class="pl-source" classList={{ "pl-hidden": !watching() }}>
           <summary class="btn ghost small">Match {h.matchId() || "source"} <span aria-hidden="true">▴</span></summary>
         <form
           class="pl-head"
@@ -272,7 +307,7 @@ export function Player(p: {
           onSubmit={(e) => {
             e.preventDefault();
             p.onUserPlayback();
-            void h.open(idInput.value.trim(), { attach: canEdit() });
+            ownLoad(idInput.value.trim());
           }}
         >
           <button class="btn ghost small" type="button" data-testid="mode-sandbox" onClick={() => user(() => { const s = p.scene; h.setMode("sandbox"); if (s) p.onView(s.id); })} title="Current scene">
@@ -292,7 +327,7 @@ export function Player(p: {
             {jobLabel(h.job(), h.progress())}
           </span>
           <Show when={canEdit() && !h.matchId()}>
-            <FolderRecent onOpen={(id) => { p.onUserPlayback(); void h.open(id, { attach: true }); }} />
+            <FolderRecent onOpen={(id) => { p.onUserPlayback(); ownLoad(id); }} />
             <Show when={app}>
               <button class="btn small primary" type="button" data-testid="match-pick" onClick={() => setPicking(true)}>
                 Select replay
