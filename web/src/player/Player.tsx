@@ -269,7 +269,7 @@ export function Player(p: {
             <FolderRecent onOpen={(id) => { p.onUserPlayback(); void h.open(id, { attach: true }); }} />
           </Show>
           <Show when={canUpload() && !h.notice()}>
-            <FolderFound id={h.matchId()} onFile={(f) => void take(f)} />
+            <FolderFound id={h.matchId()} onFile={(f) => void take(f)} onLocal={(id, t, f) => void h.takeLocal(id, t, f)} />
             <button class={cx("btn small", !inFolder() && "primary")} type="button" data-testid="match-upload" onClick={() => file.click()}>
               Upload replay file
             </button>
@@ -340,7 +340,7 @@ export function Player(p: {
                 </button>
               </Show>
               <Show when={n().actions.includes("upload") && canUpload()}>
-                <FolderFound id={h.matchId()} onFile={(f) => void take(f)} />
+                <FolderFound id={h.matchId()} onFile={(f) => void take(f)} onLocal={(id, t, f) => void h.takeLocal(id, t, f)} />
                 <button class={cx("btn small", !inFolder() && "primary")} type="button" data-testid="match-upload" onClick={() => file.click()}>
                   Upload replay file
                 </button>

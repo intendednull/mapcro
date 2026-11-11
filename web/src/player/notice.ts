@@ -54,6 +54,15 @@ export function noticeFor(code: string, step: Step): Notice | undefined {
       return { text: "Brawl not supported. Open a standard match.", actions: [] };
     case "unsupported_mode":
       return { text: "Mode not supported. Open a standard match.", actions: [] };
+    // A timeline parsed by the Windows app, refused.
+    case "outdated_parser":
+      return { text: "Update the mapcro app, then upload again.", actions: [] };
+    case "newer_parser":
+      return { text: "The app is newer than the server. Try again later.", actions: ["upload"] };
+    case "wrong_match":
+      return { text: "That replay is another match.", actions: [] };
+    case "not_a_timeline":
+      return { text: "Parse failed. Upload the replay again, or try another match.", actions: ["upload"] };
     case "in_progress":
       return { text: "Already uploading.", actions: [] };
     case "view_only":

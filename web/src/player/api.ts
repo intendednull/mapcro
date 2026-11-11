@@ -158,6 +158,25 @@ export class Api {
   }
 
   /**
+   * Upload a timeline parsed on this machine (the Windows app), gzipped JSON: `POST
+   * …/replays/{id}/timeline` (spec §6a, Timelines parsed on the user's machine). Nothing on
+   * success; `missing` when the server has no such route (an older server: a 404 without an error
+   * body), so the caller sends the `.dem` instead; else the error code.
+   */
+  async uploadTimeline(id: string, gz: Blob): Promise<string | undefined> {
+    const r = await fetch(`/api/boards/${this.board}/replays/${id}/timeline`, {
+      method: "POST",
+      headers: { ...this.auth, "content-type": "application/json", "content-encoding": "gzip" },
+      body: gz,
+    }).catch(() => undefined);
+    if (!r) return "offline";
+    if (r.ok) return undefined;
+    const body = (await r.json().catch(() => ({}))) as { error?: string };
+    if (r.status === 404 && !body.error) return "missing";
+    return body.error ?? "failed";
+  }
+
+  /**
    * Upload a `.dem` (XHR: fetch has no upload progress). `progress` gets the bytes sent and the
    * total; `signal` cancels it. Resolves to an error code (`aborted` when cancelled, `offline`
    * when the connection failed), or nothing.

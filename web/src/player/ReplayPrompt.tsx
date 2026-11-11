@@ -59,7 +59,7 @@ function Dialog(p: { host: PlayerHost; why: NonNullable<ReturnType<PlayerHost["u
                 Try again
               </button>
             </Show>
-            <FolderFound id={h.matchId()} onFile={(f) => void h.take(f)} large />
+            <FolderFound id={h.matchId()} onFile={(f) => void h.take(f)} onLocal={(id, t, f) => void h.takeLocal(id, t, f)} large />
             <button class={cx("btn", !inFolder() && "primary")} type="button" data-testid="replay-prompt-upload" onClick={() => file.click()}>
               Upload replay file
             </button>
