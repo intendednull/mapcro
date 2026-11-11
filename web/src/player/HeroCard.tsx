@@ -37,8 +37,8 @@ export function HeroCard(p: { open: HeroCardSlot; timeline: Timeline; t: number;
   return (
     <Show when={player()}>
       {(pl) => (
-        <section class="hero-card" data-testid="hero-card" data-slot={slotKey(pl().team, pl().slot)} data-limited={String(limited())} aria-label={hero()?.name ?? "Hero"}>
-          <div class="hero-card-head">
+        <section class="hero-panel" data-testid="hero-card" data-slot={slotKey(pl().team, pl().slot)} data-limited={String(limited())} aria-label={hero()?.name ?? "Hero"}>
+          <div class="hero-panel-head">
             <Show when={hero()?.portrait}>{(src) => <img src={src()} alt="" />}</Show>
             {/* The column below names the player and the hero. */}
             <span />
