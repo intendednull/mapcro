@@ -340,6 +340,13 @@ and shared boards therefore follow one code path and one set of tests.
     the clock to the win, the mode. Any build and mode reads (a Brawl demo is a card that says
     "Street Brawl"). The server's preview is asked only when the app has none (a broken file, an
     app without the command). docs/research/demo-preview.md.
+
+  - **Summary format (2026-11-11):** a cached summary carries `summary_format` (now 1: the
+    winner and team kills). One below it (unstamped and without `winner`, cached before the
+    winner was kept) is derived again on its next open or preview, from one metadata read on the
+    same limited path, once a process; if that read fails or is limited, the old one is served.
+    A cached card with `winner: null` isn't served as it is: it's made again from the summary,
+    so an old one picks up the winner (a match with none just makes the same card).
 - **Not in the metadata tier:** ults, zipline colours, camps, rifts, powerups and z. A match older than the
   pack is drawn on it with an "Older map" label.
 - The mid boss's respawn time isn't in the match data. The preview shows it down from a kill
@@ -362,22 +369,31 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
   - **Fetch:** `POST /api/boards/{board}/replays/{id}/fetch` asks deadlock-api's salts endpoint
     for the match's cluster and replay salt, then downloads
     `http://replay{cluster}.valve.net/1422450/{id}_{salt}.dem.bz2` (zstd since 2026-07-20; the
-    magic decides). The call doesn't send `disable_steam`: a stored row comes back before
-    deadlock-api's rate limiter, so it's free; only a match with no row spends one of the 3
-    Steam lookups an hour per address, and that GC lookup is the one path that can create a
-    replay salt (docs/research/deadlock-api-salts.md).
+    magic decides). A stored row comes back before deadlock-api's rate limiter, so it's free;
+    only a match with no row spends one of the 3 Steam lookups an hour per address, and that GC
+    lookup is the one path that can create a replay salt (docs/research/deadlock-api-salts.md).
+    So the free read (`disable_steam=true`) goes first. Only a match it has no row for gets the
+    read that may ask Steam, and only once the match is past deadlock-api's salts pass (2 h 10
+    min after its end, by the cached metadata; a match without it counts as past). Before then,
+    a Steam lookup never found a replay salt the free read lacked (salts "Results").
   - **Fetched on open (operator, 2026-11-08):** attaching a match to a board (the landing's Open
     match by id, Player's Load) starts that fetch on its own, unless the `cdn` timeline is
     cached or its job is under way (one job for every board: a second board joins it), the
     board's own upload is under way or done, the match is past Valve's three weeks from its
-    start (`expired`, from the cached metadata; a match without it isn't tried), its fetch
-    failed lately, or deadlock-api is backing us off. The mode refusal comes first.
+    start (`expired`, from the cached metadata; a match without it isn't tried), or its fetch
+    failed lately (including a lookup that met deadlock-api's backoff). The mode refusal comes
+    first.
     - **Remembered failures:** no salts or no demo (`no_replay`) and a failed download are kept
-      per match for 6 h, so opening it again doesn't ask deadlock-api (a no-row lookup spends
-      one of its 3 Steam lookups an hour per address). **Fetch replay** stays, and goes past this.
+      per match, so opening it again doesn't ask deadlock-api. A failed download and a match
+      past the salts pass are kept 6 h. A match before the pass with no replay salt yet (or no
+      row) is kept only until the pass, when most salts that come have come (about 10% at 1 h,
+      42% at 2 h, 45–48% after). The 400 "won't be fetched, as it has metadata already" (no row,
+      and Steam won't be asked) is `no_replay` too. **Fetch replay** stays, and goes past this.
     - **Pacing:** no fetch cap of ours. deadlock-api's own answers pace them: a `429` from the
-      salts endpoint backs every fetch off for its `Retry-After`, else 60 s doubling to an hour,
-      and a press of Fetch replay meanwhile is refused (`429 upstream_limited`). Fetches wait in
+      salts endpoint backs off the reads that may ask Steam for its `Retry-After`, else 60 s
+      doubling to an hour. Free reads of the rows it holds go on meanwhile, so a match it has a
+      salt for is fetched. A match with no row waits for the backoff (`upstream_limited`), on
+      open and on a press of Fetch replay (`429 upstream_limited`). Fetches wait in
       the queue's line (below) for a download slot (2 at once) and its room rather than being
       refused.
     - **API key:** optional, from the file `DEADLOCK_API_KEY_FILE` names (never a value in the
@@ -389,7 +405,8 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
       "API summary", and the tab that opened the match is asked what to do in the full-replay
       prompt (§6b, Getting a replay in).
     - **Why no fetch is coming, in the job state (2026-11-08):** with no job, the status says
-      `failed` with the remembered reason, `upstream_limited` while backing off, `busy` for
+      `failed` with the remembered reason (`upstream_limited` for a match whose lookup met the
+      backoff, until it ends), `busy` for
       10 min to the board whose open our caps skipped (that board only), and `expired` for a
       match past the three weeks by its cached metadata, whether or not anything opened it.
 - **Job state:** `GET /api/boards/{board}/replays/{id}` answers `none`, `waiting` (an upload's

@@ -12,6 +12,8 @@ jobs:
         with:
           extra_nix_config: |
             system-features = nixos-test benchmark big-parallel kvm
+      - name: Clippy, warnings as errors
+        run: nix develop -c just clippy
       - name: Rust tests and 1,000 simulation seeds
         run: nix develop -c just test
       - name: Web client against the real server

@@ -122,8 +122,11 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   `/salts`. A stored row is returned before the rate limiter, so reading a match it has is free
   with or without `disable_steam`. Only a match with no row reaches the Steam lookup, limited to
   3 per hour per IP (the 300/h key was declined 2026-11-08); that lookup is the one path that can
-  create a replay salt for it. So the server's salts call omits `disable_steam` on purpose
-  (replays.rs `salts`), and metadata sends it. For a fresh match with a row, a free read is as
+  create a replay salt for it. So the server reads salts free (`disable_steam=true`) first, and
+  only a match with no row, past the ~2 h salts pass, gets the read that may ask Steam
+  (replays.rs `salts`, counted as `salts_steam`); a 429 holds back only that read. A 400 "has
+  metadata already" means no row and Steam won't be asked: `no_replay`. Metadata sends
+  `disable_steam`. For a fresh match with a row, a free read is as
   good as a Steam one. About 10% have a `replay_salt` within 1 h, 42% at 2 h, then it levels
   off near 45–48%. For the rest, upload is the only path. Uploaded salts have always been correct.
   Metadata `match_info.winning_team` (lobby team, 0 Amber) and `players[].kills`, `deaths`,

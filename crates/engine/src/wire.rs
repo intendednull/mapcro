@@ -43,8 +43,9 @@ pub enum WireIn {
         build: Option<String>,
     },
     Msg { msg: ClientMsg },
-    /// This client's presence, replacing its previous one. Ephemeral: never stored.
-    Presence { state: Presence },
+    /// This client's presence, replacing its previous one. Ephemeral: never stored. Boxed: it's
+    /// several times the size of the other variants (clippy `large_enum_variant`).
+    Presence { state: Box<Presence> },
 }
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -453,14 +454,14 @@ mod tests {
     fn vision_in_playback_is_optional_both_ways() {
         // An older client's playback has no vision: it still parses, as none.
         let old = r#"{"player":true,"match_id":1,"t":10.0,"playing":false,"speed":1.0}"#;
-        let pb: Playback = serde_json::from_str(old).unwrap();
+        let pb: Playback = serde_json::from_str(old).expect("old playback");
         assert_eq!(pb.vision, None);
         // A new one round-trips it, All as a null team.
         let new = r#"{"player":true,"match_id":1,"t":10.0,"playing":false,"speed":1.0,"vision":{"team":"Sapphire","last_seen":true}}"#;
-        let pb: Playback = serde_json::from_str(new).unwrap();
+        let pb: Playback = serde_json::from_str(new).expect("new playback");
         assert_eq!(pb.vision, Some(PlayerVision { team: Some(mapcro_schema::Team::Sapphire), last_seen: true }));
-        let all: Playback = serde_json::from_str(&new.replace(r#""Sapphire""#, "null")).unwrap();
+        let all: Playback = serde_json::from_str(&new.replace(r#""Sapphire""#, "null")).expect("all teams");
         assert_eq!(all.vision, Some(PlayerVision { team: None, last_seen: true }));
-        assert_eq!(serde_json::from_str::<Playback>(&serde_json::to_string(&pb).unwrap()).unwrap(), pb);
+        assert_eq!(serde_json::from_str::<Playback>(&serde_json::to_string(&pb).expect("json")).expect("round trip"), pb);
     }
 }
