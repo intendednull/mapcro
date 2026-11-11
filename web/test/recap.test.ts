@@ -32,7 +32,7 @@ it("names a recap row's source: a hero, an NPC by the game's class name, else Wo
 });
 
 it("never shows an engine name for a recap's ability: the parent's, else Weapon or Ability", () => {
-  const rec = (id: number, name: string, label_from: BuildRecord["label_from"], ability?: number): BuildRecord => ({ id, kind: "ability", name, label: label_from === "internal" ? name : `Label ${id}`, label_from, ...(ability ? { ability } : {}) });
+  const rec = (id: number, name: string, label_from: NonNullable<BuildRecord["label_from"]>, ability?: number): BuildRecord => ({ id, kind: "ability", name, label: label_from === "internal" ? name : `Label ${id}`, label_from, ...(ability ? { ability } : {}) });
   const records = new Map([
     [1, rec(1, "citadel_weapon_bull_set", "internal")],
     [2, rec(2, "deadpack_primary_weapon_charge", "internal")],
