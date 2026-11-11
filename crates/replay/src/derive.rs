@@ -83,6 +83,9 @@ pub struct HeroObs {
     pub health: i64,
     pub max_health: i64,
     pub level: Option<u32>,
+    /// Statue-pickup totals, in [`crate::timeline::Player::pickups`] column order; `None` when
+    /// the controller's stat viewer wasn't read.
+    pub pickups: Option<[f32; 5]>,
     pub kills: Option<u32>,
     pub assists: Option<u32>,
     pub net_worth: u32,
@@ -438,6 +441,11 @@ pub fn derive(obs: &Obs, m: &Map) -> Result<Timeline, Refused> {
                 scalar_change(&mut p.assists, sec as u32, h.and_then(|h| h.assists));
                 scalar_change(&mut p.level, sec as u32, h.and_then(|h| h.level));
                 scalar_change(&mut p.max_health, sec as u32, h.and_then(|h| u32::try_from(h.max_health).ok()).filter(|v| *v > 0));
+                if let Some(now) = h.and_then(|h| h.pickups)
+                    && p.pickups.last().map_or([0.0; 5], |(_, v)| *v) != now
+                {
+                    p.pickups.push((sec as u32, now));
+                }
                 p.health.push(h.filter(|h| h.alive).map_or(0, |h| if h.max_health > 0 { (h.health.max(0) * 100 / h.max_health).clamp(0, 100) as u8 } else { 0 }));
                 if let Some(h) = h
                     && (h.ult_start != 0.0 || h.ult_end != 0.0)
@@ -1251,6 +1259,29 @@ mod tests {
         }
         assert_eq!(Refused::UnsupportedMode(4).reason(), "brawl");
         assert_eq!(Refused::UnsupportedMode(99).reason(), "unsupported_mode");
+    }
+
+    #[test]
+    fn statue_pickups_are_a_series_of_totals_where_they_change() {
+        let mut s = seconds(6);
+        let hp = |v: f32| Some([v, 0.0, 0.0, 0.0, 0.75]);
+        // Not read, nothing yet, a first pickup, held, the hero missing for a second, a second pickup.
+        for (sec, pickups) in [None, Some([0.0; 5]), hp(20.0), hp(20.0), None, hp(40.0)].into_iter().enumerate() {
+            s[sec].heroes = vec![HeroObs { pickups, ..hero(1, 2, true, [0.0, 0.0]) }];
+        }
+        s[4].heroes.clear();
+        let t = derive(&obs(s), map::current()).expect("derives");
+        assert_eq!(t.players[0].pickups, vec![(2, [20.0, 0.0, 0.0, 0.0, 0.75]), (5, [40.0, 0.0, 0.0, 0.0, 0.75])]);
+    }
+
+    #[test]
+    fn pickup_sources_are_the_stat_viewers_tokens() {
+        // The tokens 129738985's stat viewer carries (docs/research/scoreboard-values.md).
+        let sources = crate::timeline::pickup_sources();
+        for (token, kind, column) in [(305_643_471, 46, 0), (1_781_761_146, 46, 0), (2_201_601_853, 169, 1), (1_058_891_786, 20, 2), (3_448_082_679, 20, 2), (963_723_944, 36, 3), (1_657_689_550, 33, 4)] {
+            assert!(sources.contains(&(token, kind, column)), "{token}");
+        }
+        assert_eq!(sources.len(), 15);
     }
 
     #[test]

@@ -908,6 +908,7 @@ version = "0.0.0"
 dependencies = [
  "crc32fast",
  "lz4_flex",
+ "mapcro-stats",
  "png",
  "ruzstd",
  "serde",
@@ -988,12 +989,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "mapcro-stats"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "mapcro-wasm"
 version = "0.0.0"
 dependencies = [
  "getrandom 0.3.4",
  "mapcro-engine",
  "mapcro-schema",
+ "mapcro-stats",
  "serde",
  "serde_json",
  "wasm-bindgen",

@@ -27,6 +27,34 @@ pub struct Pack {
     /// `abilities.vdata`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub abilities: Option<AbilityTable>,
+    /// Per-patch stat tables for calculated hero stats, absent when the install has no vdata.
+    /// Optional, so a reader that doesn't know it is unaffected (no schema bump).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stats: Option<StatTables>,
+}
+
+/// Which stat table a replay build reads (`crates/extract/src/stats.rs`). A build the sources
+/// list reads its table; an unlisted one reads the nearest listed build below it, up to
+/// `covered_through`; past that, or below every build, none.
+#[derive(Debug, Serialize)]
+pub struct StatTables {
+    /// `mapcro_stats::TABLE_FORMAT` of every table.
+    pub format: u32,
+    /// The newest build the sources have seen.
+    pub covered_through: u32,
+    /// Build → table key.
+    pub builds: BTreeMap<u32, String>,
+    pub tables: BTreeMap<String, StatTableRef>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StatTableRef {
+    /// The JSON blob holding the table.
+    pub blob: String,
+    /// The build the data is from.
+    pub client_version: u32,
+    /// `boon-data` or `vdata` (this install).
+    pub source: String,
 }
 
 /// Where the names table is and what it holds. The table itself is the JSON blob `blob`
@@ -169,6 +197,7 @@ impl Pack {
             icons_skipped: Vec::new(),
             hud_sources: Vec::new(),
             abilities: None,
+            stats: None,
         }
     }
 

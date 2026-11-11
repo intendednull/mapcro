@@ -11,6 +11,7 @@ name = "mapcro-extract"
 path = "src/main.rs"
 
 [dependencies]
+mapcro-stats.workspace = true
 crc32fast = "1"
 lz4_flex = "0.14"
 png = "0.18"

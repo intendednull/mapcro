@@ -22,6 +22,7 @@ Ids are `CUtlStringToken`s: MurmurHash2 of the lower-cased name, seed `0x3141592
 | `ult` | controller `m_bUltimateTrained`, `m_flUltimateCooldownStart/End` | derive.rs `ult_percent` | exploration round 2 §7 |
 | `level`, `kills`, `assists` (format 8) | controller `m_PlayerDataGlobal.m_iLevel`, `m_iPlayerKills`, `m_iPlayerAssists` | derive.rs `scalar_change` | [scoreboard-values](scoreboard-values.md) |
 | `max_health` (format 8) | active pawn `m_iMaxHealth`. **Refreshes only at (re)spawn** (see dead ends) | derive.rs | scoreboard-values; stat-calc-spike |
+| `pickups` (format 9) | controller `m_PlayerDataGlobal.m_vecStatViewerModifierValues`: entries whose `m_SourceModifierID` is `<hp\|spirit\|wp\|bulletresist\|spiritresist>_permanent_pickup[_lv2\|_lv3]/modifier_permanent_pickup` and whose `m_eValType` is that stat (46, 169, 20, 36, 33); each entry is its source's running total | parse.rs `pickups`, derive.rs | [stat-calc-spike](stat-calc-spike.md) "Production plan"; scoreboard-values |
 | `seen` | `CCitadelTeam.m_vecFOWEntities[].m_bVisibleOnMap` (the enemy team's feed) | parse.rs `vision_tick`, derive.rs `seen_intervals` | [replay-vision](replay-vision.md) |
 | `height` | the hero's own team's FOW entry `m_eHeight` (0 level, 1 above, 2 below), held 2 s | hero_data.rs | [elevation](elevation.md) |
 | `zipline` | pawn `m_eZipLineLaneColor` | parse_hero.rs, hero_data.rs | elevation |
@@ -43,10 +44,10 @@ Ids are `CUtlStringToken`s: MurmurHash2 of the lower-cased name, seed `0x3141592
 | `troopers` | `CNPC_Trooper` | derive.rs `troopers_at` | exploration §5 |
 | clock, mode, build | rules `m_flGameStartTime`, `m_bGamePaused`, `m_nTotalPausedTicks`, `m_iWinningTeam`, `m_eGameMode`; build from `game_directory` | parse.rs, lib.rs | exploration "Clock correction"; timers audit "Clocks" |
 
-**Format history** (`timeline::FORMAT`, now 8): 0 unstamped; 1 respawns, urn; 2 buff types,
+**Format history** (`timeline::FORMAT`, now 9): 0 unstamped; 1 respawns, urn; 2 buff types,
 rift opening; 3 Rejuvenator, rift capture; 4 vision; 5 healing pickups; 6 clock holds through a
 pause; 7 builds, abilities, casts, charges, CC, effects, recaps, height, zipline, tough crates;
-8 level, max HP, kills, assists. Format 7 runs about 41 KB per match minute.
+8 level, max HP, kills, assists; 9 statue pickups (`pickups`). Format 7 runs about 41 KB per match minute.
 
 **Cache re-fetch** (`crates/server/src/replays.rs` `stale`; spec §6a "Format stamp"; backlog
 "Replay timeline format versions"): a cached fetched timeline whose `format` is below `FORMAT`,
@@ -86,6 +87,16 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
 - **HUD** (`hud.rs`, `topbar.rs`, `panorama.rs`): panorama styles/layouts → `hud_sources[]`.
 - **Formats** ported from ValveResourceFormat (MIT, credited): `vpk.rs`, `kv3.rs` (binary KV3 v5),
   `resource.rs`, `vtex.rs`, `panorama.rs`. [deadlock-assets-and-extraction](deadlock-assets-and-extraction.md) §3.
+- **Stat tables** (`stats.rs`, crate `crates/stats`): the manifest's optional `stats` section
+  (no schema bump) maps builds to per-patch `data/stats/<key>.json` tables, derived numbers only.
+  The install's from its vdata (`heroes`, `abilities`, `generic_data`), older patches from
+  boon-data (`just stat-data`, `--stat-data`). On 6860 both give identical tables
+  (`examples/stat_table_check.rs`). vdata's `m_vecAutoRegisterModifierValueFromAbilityPropertyName`
+  on a modifier is what boon-data's `modifier_keys` reads. The investment ladder
+  `m_MapModCostBonuses` is per hero in **`heroes.vdata`** (not `generic_data`; deadbot
+  `item_investment.py` reads it there and asserts every hero's is the same); each row has
+  `nGoldThreshold`, `flBonus` and `flPercentOnGraph` (its share of the bar, summing to 100).
+  [stat-calc-spike](stat-calc-spike.md) "Production plan".
 - **Schema history:** 2 entities (web `map/model.ts`); 3 top-bar art (journal 2026-11-07-web-app);
   4 names table, `application/json` blob. Schema 5 (tooltips) is planned in
   `docs/plans/2026-11-10-game-tooltips.md`.
@@ -111,7 +122,9 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   out 16384 low (exploration §10). **boon-data**: 44 releases, 6711–6860, as hashed JSON
   built from GameTracking. Its scripts are MIT; the data is Valve's. It is only published when
   content changes (6839 resolves to 6837). Don't use it at runtime (status-effects §3).
-  `tools/modifier-tokens/gen.py` generates `modifiers.rs` from it.
+  `tools/modifier-tokens/gen.py` generates `modifiers.rs` from it. Its `versions.json` is on the
+  `data-index` branch (not `main`): 44 builds mapped to 28 snapshots, with SHA-256 per artifact;
+  `tools/stat-data/fetch.py` fetches the stat tables' inputs from it.
 - **deadlock-api `/v1/assets/*?client_version=N`**: 875 versions, 5044–6860, structured heroes
   and items with tooltips resolved; `assets.deadlock-api.com` no longer resolves.
   **SteamTracking/GameTracking-Deadlock**: raw vdata, localisation, protobufs and schema dumps,
@@ -151,7 +164,11 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
 - **Stat formulas aren't Valve's.** Every rule set is community-derived (boon, deadlock-plus,
   damage-lab, wiki). The spike's calculated values: max HP 96.4% exact at respawn, spirit 81.1%,
   weapon 72.7%; resists match one sandbox screenshot only. The patch data must match the replay
-  build. stat-datamining.md, stat-calc-spike.md (branch `stat-calc`, pending merge).
+  build: with 6821's data spirit falls to 73.5%, with 6711's health to 57.6% (`just stat-check`
+  reproduces both). stat-datamining.md, stat-calc-spike.md.
+- **How the Tab scoreboard's investment bars fill isn't documented anywhere we found** (wiki
+  Souls page, deadbot, deadlock-api: data only). We fill along `flPercentOnGraph`; the backlog's
+  in-game checks list it.
 - **The mint `#90FFE3` souls tab is `.KillStreak`**, not a net-worth leader (the Argon note was
   wrong; `citadel_hud_top_bar.vcss`). The **kill-streak threshold** is set in native code and
   unknown: don't guess it. The **gloat card** `m_strIconHeroCardGloat` exists for 45 of 64 heroes,

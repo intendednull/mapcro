@@ -8,7 +8,7 @@ what it is, and what it depends on.
 The operator may later let an agent look at the running game. Until then, one list, in one place,
 of claims only the game (or its client) can settle. Add to it; strike items once checked.
 
-- **Stat calculator** (branch `stat-calc`, docs/research/stat-calc-spike.md "Open questions"):
+- **Stat calculator** (shipped on branch `stat-calc-prod`, docs/research/stat-calc-spike.md "Open questions"):
   - The Spirit panel rounds rather than ceils: a sandbox value with a fractional part near .3–.5.
   - Bullet and Spirit Resilience count toward resist (their property has no modifier binding).
   - Battle Vest's resist under and over 65% health.
@@ -23,6 +23,10 @@ of claims only the game (or its client) can settle. Add to it; strike items once
 - **Tab scoreboard investment bars:** how the game fills them (the scoreboard's HUD source isn't
   in the pack). The 22:30 reference shows partial fills at 16–24k net worth, which fits filling
   along the investment ladder's breakpoints; confirm with a hero near and past a breakpoint.
+  Implemented rule (spec §6b "Calculated stats"): each ladder row takes its `flPercentOnGraph`
+  share and fills linearly from the row below; full only at 28.8K. Also check what counts as
+  spent: we count each owned item's tier price (not sold items, not components used up by an
+  upgrade, not what was paid after an upgrade discount).
 - **HUD:** the kill-streak threshold that switches the souls tab to the mint `.KillStreak` style,
   and when the gloat card portrait appears (backlog "Kill-streak mint souls tab").
 
@@ -36,6 +40,32 @@ of claims only the game (or its client) can settle. Add to it; strike items once
 - A board's stale client timeline is marked `stale` like an upload's, so Player offers "Upload
   replay file"; for a desktop user, re-parsing locally would be the better offer.
 - zstd bodies aren't accepted (gzip only); add one if the wasm parse prefers it.
+
+## Label sweep (2026-11-10, from stat-calc-prod; spec §4b)
+
+Hovers and aria-labels outside the Tab column that read as sentences or carry caveats; fix to
+tags (1–3 words; an aria-label may add a value tag). Found in `web/src/player/PlayerTopBar.tsx`,
+not fixed (out of that branch's scope):
+
+- Rejuvenator: aria-label "`<team>` Rejuvenator: N revives left" (line ~63).
+- Portrait button: aria-label "Build for `<hero>`".
+- Vision mark: title and aria-label "Not seen by the selected team".
+- Focus button: title "Inspect `<hero>` build and show on map", aria-label "Inspect `<slot>`, `<hero>`, build and show on the map".
+- Respawn: aria-label "`<slot>` respawns in N s"; health: aria-label "`<slot>` health N%".
+- Not yet swept: the rest of `web/src/player/` and `web/src/board/` (`grep -n 'title=\|aria-label=' -r web/src`).
+
+## Calculated stats: follow-ups (2026-11-10, from stat-calc-prod)
+
+- **A quiet "≈" on calculated values** (spec §4b rule 5): only with the operator's approval.
+- **Stat panels** (the tooltips plan's part 2): the ladder's bonus per row and the other panel
+  stats (fire rate, clip, CDR, lifesteal) need more rules; the tables already carry the ladder.
+- **Stacking items** (Berserker, Cultist Sacrifice, Escalating Resilience …) from `effects`
+  stack counts, and Spirit Snatch's stolen values from the stat viewer: later rules, the spike's
+  largest remaining misses.
+- **Refresh the pack's tables after each patch**: `just stat-data <dir>`, re-extract with
+  `--stat-data`, then `just stat-check` on one fresh match's metadata (one free deadlock-api read).
+- **Pickups in the metadata timeline**: the API tier has `power_up_buffs`; `matches.rs` doesn't
+  pass them on, so API-tier timelines have no `level`/`pickups` and show "—".
 
 ## The salts backoff holds back free reads (2026-11-10, from salts-docs)
 

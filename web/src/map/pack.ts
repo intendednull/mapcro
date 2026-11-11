@@ -35,6 +35,28 @@ export interface PackManifest {
   heroes?: PackHero[];
   entities?: PackEntity[];
   abilities?: { blob: string };
+  /** Per-patch stat tables (crates/extract/src/stats.rs); optional, no schema bump. */
+  stats?: PackStats;
+}
+
+export interface PackStats {
+  format: number;
+  /** The newest build the sources have seen. */
+  covered_through: number;
+  /** Build → table key. */
+  builds: Record<string, string>;
+  tables: Record<string, { blob: string; client_version: number; source: string }>;
+}
+
+/** A pack's stat tables, with URLs: see match/stats.ts. */
+export interface StatIndex {
+  format: number;
+  coveredThrough: number;
+  /** Listed builds, ascending, with their table key. */
+  builds: Array<[number, string]>;
+  tables: Map<string, { url: string; clientVersion: number; source: string }>;
+  /** The table of the pack's own build (its install), for the investment ladder's fallback. */
+  installKey: string | undefined;
 }
 
 export interface BuildRecord {
@@ -90,6 +112,7 @@ export interface Hero {
 
 export interface Art {
   buildCatalog?: BuildCatalog;
+  stats?: StatIndex | undefined;
   packId: string | undefined;
   version: string | undefined;
   /** The game build's date, as the pack records it ("Nov 05 2026"). */
@@ -180,7 +203,22 @@ export function artFromManifest(base: string, packId: string, m: PackManifest): 
   const entities = m.entities ?? [];
   // A pack without map entities still has portraits; its map falls back to the schematic.
   const model = entities.length ? modelFromEntities(withBuiltInFurniture(entities)) : modelFromFallback(FALLBACK);
-  return { packId, version: String(m.game.client_version), date: m.game.date ? String(m.game.date) : undefined, model, heroes, images };
+  return { packId, version: String(m.game.client_version), date: m.game.date ? String(m.game.date) : undefined, model, heroes, images, stats: statIndex(m, url) };
+}
+
+/** The manifest's `stats` section with blob URLs; undefined when the pack has none. */
+export function statIndex(m: PackManifest, url: (key: string) => string | undefined): StatIndex | undefined {
+  const s = m.stats;
+  if (!s) return undefined;
+  const tables = new Map<string, { url: string; clientVersion: number; source: string }>();
+  for (const [key, t] of Object.entries(s.tables)) {
+    const u = url(t.blob);
+    if (u) tables.set(key, { url: u, clientVersion: t.client_version, source: t.source });
+  }
+  const builds = Object.entries(s.builds).map(([b, k]) => [Number(b), k] as [number, string]).filter(([b, k]) => Number.isSafeInteger(b) && tables.has(k)).sort((a, b) => a[0] - b[0]);
+  const own = Number(m.game.client_version);
+  const installKey = builds.find(([b]) => b === own)?.[1] ?? builds.at(-1)?.[1];
+  return { format: s.format, coveredThrough: s.covered_through, builds, tables, installKey };
 }
 
 /** The newest pack the server has, or the fallback if it has none (or can't be reached). */

@@ -264,7 +264,10 @@
 .spirit { --item-color: #b68fdb; }
 .tb-build-vitals { margin-bottom: calc(8 * var(--u)); font-size: max(9px, calc(13 * var(--u))); font-weight: 600; }
 .tb-build-vitals span { color: #bec4bfaa; }
-.tb-build-resists { margin-top: calc(3 * var(--u)); color: #ded6c499; font-size: max(7px, calc(10 * var(--u))); }
+.tb-build-resists, .tb-build-power { display: flex; justify-content: center; gap: calc(5 * var(--u)); margin-top: calc(3 * var(--u)); color: #ded6c499; font-size: max(7px, calc(10 * var(--u))); }
+.tb-build-resists b, .tb-build-power b { font-weight: 600; }
+.tb-build-power .weapon { color: #e8a35e; }
+.tb-build-power .spirit, .tb-build-resists .spirit { color: #c79ae8; }
 .tb-build-abilities { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: calc(4 * var(--u)); margin: 0 calc(-1 * var(--u)); padding-bottom: calc(14 * var(--u)); }
 .tb-build-levels { display: flex; flex-direction: column-reverse; align-items: center; gap: calc(2 * var(--u)); height: calc(13 * var(--u)); margin-bottom: calc(4 * var(--u)); }
 .tb-build-levels i { width: 90%; height: calc(3 * var(--u)); background: #10130d55; }

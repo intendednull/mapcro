@@ -115,6 +115,12 @@ struct Keys {
     ctrl_level: K,
     ctrl_kills: K,
     ctrl_assists: K,
+    /// `m_PlayerDataGlobal.m_vecStatViewerModifierValues`: its length, then per entry the source
+    /// modifier, the value type and the value.
+    stat_viewer: K,
+    stat_viewer_entries: Vec<[K; 3]>,
+    /// [`crate::timeline::pickup_sources`].
+    pickup_sources: Vec<(u32, u32, usize)>,
     ult_trained: K,
     ult_start: K,
     ult_end: K,
@@ -171,6 +177,11 @@ impl Keys {
             ctrl_level: field(CONTROLLER, "m_PlayerDataGlobal.m_iLevel"),
             ctrl_kills: field(CONTROLLER, "m_PlayerDataGlobal.m_iPlayerKills"),
             ctrl_assists: field(CONTROLLER, "m_PlayerDataGlobal.m_iPlayerAssists"),
+            stat_viewer: field(CONTROLLER, STAT_VIEWER),
+            stat_viewer_entries: (0..STAT_VIEWER_MAX)
+                .map(|i| ["m_SourceModifierID", "m_eValType", "m_flValue"].map(|f| field(CONTROLLER, &format!("{STAT_VIEWER}.{i}.{f}"))))
+                .collect(),
+            pickup_sources: crate::timeline::pickup_sources(),
             ult_trained: field(CONTROLLER, "m_PlayerDataGlobal.m_bUltimateTrained"),
             ult_start: field(CONTROLLER, "m_PlayerDataGlobal.m_flUltimateCooldownStart"),
             ult_end: field(CONTROLLER, "m_PlayerDataGlobal.m_flUltimateCooldownEnd"),
@@ -557,6 +568,26 @@ fn koth_tick(k: &Keys, rules: &boon::entity::Entity, start: f64, game: f64, out:
     out.push(KothObs { game: (slot * every) as f32, amber, sapphire, give_up });
 }
 
+const STAT_VIEWER: &str = "m_PlayerDataGlobal.m_vecStatViewerModifierValues";
+/// Stat-viewer entries read per controller: one per pickup kind and level plus Spirit Snatch and
+/// the like (129738985: at most 14).
+const STAT_VIEWER_MAX: usize = 64;
+
+/// A controller's statue-pickup totals ([`crate::timeline::Player::pickups`] columns), from its
+/// stat viewer; `None` when the vector isn't networked.
+fn pickups(k: &Keys, e: &boon::entity::Entity) -> Option<[f32; 5]> {
+    let n = usize::try_from(int(k.stat_viewer.and_then(|key| e.fields.get(&key)))?).ok()?;
+    let mut out = [0.0f32; 5];
+    for [src, kind, value] in k.stat_viewer_entries.iter().take(n) {
+        let field = |f: &K| int(f.and_then(|key| e.fields.get(&key)));
+        let (Some(src), Some(kind)) = (field(src), field(kind)) else { continue };
+        if let Some((_, _, column)) = k.pickup_sources.iter().find(|(s, t, _)| i64::from(*s) == src && i64::from(*t) == kind) {
+            out[*column] += e.get_f32(*value);
+        }
+    }
+    Some(out)
+}
+
 /// A networked integer of any width (the FOW entry's fields are a mix of widths and a bool).
 fn int(v: Option<&boon::FieldValue>) -> Option<i64> {
     use boon::FieldValue as F;
@@ -680,6 +711,7 @@ fn sample(ctx: &boon::Context, k: &Keys, rules: &boon::entity::Entity, now: f32)
                 kills: int(k.ctrl_kills.and_then(|key| e.fields.get(&key))).and_then(|v| u32::try_from(v).ok()),
                 assists: int(k.ctrl_assists.and_then(|key| e.fields.get(&key))).and_then(|v| u32::try_from(v).ok()),
                 level: int(k.ctrl_level.and_then(|key| e.fields.get(&key))).and_then(|v| u32::try_from(v).ok()).filter(|v| *v > 0),
+                pickups: pickups(k, e),
                 net_worth: e.get_i64(k.ctrl_net_worth).max(0) as u32,
                 ult_trained: e.get_bool(k.ult_trained),
                 ult_start: e.get_f32(k.ult_start),

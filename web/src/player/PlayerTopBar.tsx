@@ -10,7 +10,8 @@ import { hasVision, seenAt } from "./vision";
 import { killsAt } from "../match/builds";
 import { BuildColumn } from "./BuildColumn";
 import { rosterTeamShort } from "../map/model";
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js";
+import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
 import { cx } from "../ui/cx";
 import { teamTotal } from "../core/souls";
 import { clockLabel, playersAt, scoreboardValueAt, rejuvAt, type PlayerAt, type RejuvNow } from "../match/timeline";
@@ -117,6 +118,12 @@ export function PlayerTopBar(p: {
     setOpenBuild(wasOpen ? undefined : key);
   };
   createEffect(() => { p.host.matchId(); closeBuilds(); });
+  // The replay build's stat table (calculated stats) and the investment ladder's (match/stats.ts).
+  const build = () => p.host.tl()?.build;
+  const [statTable] = createResource(() => tableKeyFor(p.art.stats, build()) ?? false, key => loadStatTable(p.art.stats, key || null));
+  // A resource keeps its last value while the next key loads: never show another patch's numbers.
+  const current = (t: LoadedTable | undefined, key: string | null) => t && key && p.art.stats?.tables.get(key)?.clientVersion === t.data.client_version ? t : undefined;
+  const [ladderTable] = createResource(() => ladderKeyFor(p.art.stats, build()) ?? false, key => loadStatTable(p.art.stats, key || null));
   onMount(() => {
     const outside = (event: PointerEvent) => {
       if (!el.contains(event.target as Node) && !(event.target as Element).closest(".pl-bar")) closeBuilds();
@@ -256,7 +263,7 @@ export function PlayerTopBar(p: {
               </Show>
               <UltDial left={x()?.ult ?? null} label={label()} />
               <Show when={expanded(key) && player()}>
-                {pl => <BuildColumn inspect={!allBuilds() && !tabHeld()} onSeek={p.onSeek} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} />}
+                {pl => <BuildColumn inspect={!allBuilds() && !tabHeld()} onSeek={p.onSeek} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} stats={current(statTable(), tableKeyFor(p.art.stats, build()))} ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />}
               </Show>
               {/* Never under the bar (styles/topbar.css): the name is the portrait's hover label's,
                   and the expanded column's. */}
@@ -301,7 +308,7 @@ export function PlayerTopBar(p: {
           {clockLabel(p.host.t())}
         </span>
       </BarClock>
-      <button type="button" class="tb-all-builds" aria-expanded={allBuilds() || tabHeld()} onClick={toggleAll} title="Show all hero builds (or hold Tab)">
+      <button type="button" class="tb-all-builds" aria-expanded={allBuilds() || tabHeld()} onClick={toggleAll} title="All builds">
         {allBuilds() || tabHeld() ? "▴" : "▾"} All builds <kbd>Hold Tab</kbd>
       </button>
       <Show when={allBuilds() || tabHeld()}>
