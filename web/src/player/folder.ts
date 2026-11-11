@@ -8,8 +8,8 @@
 // uploaded); nothing else in the folder is read, and nothing about it is sent or logged. A name
 // leaves this module only as its match id.
 
-/** The game's replays folder, from the Steam library (journal 2026-11-08-player-handoff). */
-export const REPLAYS_PATH = "…/steamapps/common/Deadlock/game/citadel/replays";
+/** The game's replays folder inside a Steam library, written without OS separators (operator, 2026-11-10; journal 2026-11-08-player-handoff). */
+export const REPLAYS_PATH = "Steam library › steamapps › common › Deadlock › game › citadel › replays";
 
 /** How often Player looks again while it's open and the tab is shown (also on focus). */
 export const POLL_MS = 15_000;

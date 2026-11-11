@@ -3,6 +3,26 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## To verify in the running game (2026-11-10, operator: "keep track of what needs to be verified")
+
+The operator may later let an agent look at the running game. Until then, one list, in one place,
+of claims only the game (or its client) can settle. Add to it; strike items once checked.
+
+- **Stat calculator** (branch `stat-calc`, docs/research/stat-calc-spike.md "Open questions"):
+  - The Spirit panel rounds rather than ceils: a sandbox value with a fractional part near .3–.5.
+  - Bullet and Spirit Resilience count toward resist (their property has no modifier binding).
+  - Battle Vest's resist under and over 65% health.
+  - The 22:30 Tab-scoreboard reference: if its match id or replay is known, it is resist ground
+    truth for 12 builds.
+- **Replays folder** (spec §6b; docs/research/desktop-app.md):
+  - Whether watching a match in the client writes `<match id>.dem` without a separate download,
+    and whether it is written in place (a partial file while downloading; the 5 s wait is a guess).
+  - On Windows: the default folder path and that `steamlocate` finds it.
+  - In real Chrome with a second Steam library: the folder picker, "Allow on every visit", and the
+    blocklist refusal on the default folder.
+- **HUD:** the kill-streak threshold that switches the souls tab to the mint `.KillStreak` style,
+  and when the gloat card portrait appears (backlog "Kill-streak mint souls tab").
+
 ## The salts backoff holds back free reads (2026-11-10, from salts-docs)
 
 deadlock-api answers a stored salts row before its rate limiter, so only a lookup of a match with
