@@ -96,6 +96,9 @@ export function Tokens(p: {
   focused?: (() => { slot: string; n: number } | undefined) | undefined;
   /** In a scene, the open match's in-game name for a slot (Board's `sceneMatchName`). */
   matchName?: ((team: string, slot: number) => string | undefined) | undefined;
+  /** Under a match preview, a single click (no drag) with the Move tool on a hero ("amber", 0):
+   * Player's hero panel (player/HeroCard.tsx). */
+  onOpen?: ((team: string, slot: number) => void) | undefined;
 }) {
   const [drag, setDrag] = createSignal<Drag | undefined>();
   const slots = createMemo(() => new Map(p.state.roster().map((s) => [s.id, s.slot])));
@@ -131,7 +134,23 @@ export function Tokens(p: {
 
   const editable = () => p.tool === "move" && p.state.canEdit() && !p.preview?.();
 
+  /** A click under a match preview: press and release within a few px, the map's own pan aside. */
+  const click = (pl: Player, e: PointerEvent) => {
+    const slot = slots().get(pl.state.slot);
+    if (!slot || !p.onOpen) return;
+    const from = { x: e.clientX, y: e.clientY };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+      if (ev.type === "pointerup" && Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < 6) p.onOpen!(slot.team.toLowerCase(), slot.slot);
+    };
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+  };
+
   const down = (pl: Player, e: PointerEvent) => {
+    if (p.preview?.() && p.tool === "move" && e.button === 0) click(pl, e);
     if (!editable() || e.button !== 0) return;
     const svg = p.svg();
     if (!svg) return;

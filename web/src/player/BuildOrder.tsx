@@ -6,11 +6,15 @@ import type { Art } from "../map/pack";
 import { buildOrder, type BuildOrderEntry } from "../match/builds";
 import { clockLabel, type TimelinePlayer } from "../match/timeline";
 import { cx } from "../ui/cx";
+import { GameTip, Hover, useTooltips } from "./GameTooltip";
 
 const VERB: Record<BuildOrderEntry["kind"], string> = { bought: "Bought", sold: "Sold", merged: "Upgraded", removed: "Lost" };
 
-export function BuildOrder(p: { player: TimelinePlayer; t: number; art: Art; onSeek?: ((t: number) => void) | undefined }) {
+export function BuildOrder(p: { player: TimelinePlayer; t: number; art: Art; build?: number | undefined; onSeek?: ((t: number) => void) | undefined }) {
   const record = (id: number) => p.art.buildCatalog?.records.get(id);
+  // Each row's item shows its tooltip on hover (GameTooltip.tsx), the replay patch's values.
+  const tips = useTooltips(() => p.art, () => p.build);
+  const has = (id: number) => !!tips()?.tip(id);
   const order = createMemo(() => buildOrder(p.player, p.art.buildCatalog ? (id) => record(id)?.components ?? [] : undefined));
   const name = (id: number) => record(id)?.label ?? "Unknown item";
   const label = (e: BuildOrderEntry) => `${VERB[e.kind]} ${name(e.id)}${e.from.length ? ` (from ${e.from.map(name).join(", ")})` : ""} at ${clockLabel(e.t)}`;
@@ -19,12 +23,14 @@ export function BuildOrder(p: { player: TimelinePlayer; t: number; art: Art; onS
     <div class="tb-effects-body">
       <Show when={order() !== null} fallback={<p>Build order unavailable in this replay.</p>}>
         <For each={order() ?? []} fallback={<p>No items bought.</p>}>{e =>
+          <Hover tip={() => has(e.id) && <GameTip id={e.id} art={p.art} tips={tips()!} />}>
           <button type="button" class={cx("tb-order-row", e.kind, e.t > p.t && "later")} data-testid="build-order-row" data-t={e.t} data-kind={e.kind} data-item-id={e.id}
-            aria-label={`${label(e)}: go to this moment`} title={`${label(e)}: go to this moment`} onClick={() => p.onSeek?.(e.t)}>
+            aria-label={`${label(e)}: go to this moment`} title={has(e.id) ? undefined : `${label(e)}: go to this moment`} onClick={() => p.onSeek?.(e.t)}>
             <Show when={record(e.id)?.icon} fallback={<span class="tb-build-fallback">?</span>}>{src => <img src={src()} alt="" />}</Show>
             <span>{e.kind === "bought" ? "" : <small>{VERB[e.kind]} </small>}{name(e.id)}</span>
             <b>{clockLabel(e.t)}</b>
           </button>
+          </Hover>
         }</For>
       </Show>
     </div>

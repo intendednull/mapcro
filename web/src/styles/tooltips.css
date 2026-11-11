@@ -1,0 +1,191 @@
+/* The game's item and ability tooltips and the hero stat panels (player/GameTooltip.tsx,
+   player/StatPanel.tsx), ported from the pack's HUD sources: citadel_tooltip_mod_details.vcss
+   (items), citadel_ability_details_panel.vcss and citadel_ability_property_panel.vcss
+   (abilities), citadel_hero_stats_panels_shared.vcss and citadel_tooltip_mod_bonus_display.vcss
+   (stat panels and the investment ladder). Sizes are the game's at --gt (its 1080p px → ours);
+   colours are citadel_base_styles.vcss's palette, named in the comments. The art is the pack's. */
+
+/* No box of its own, whatever a parent's `> span` rule says. */
+.gt-anchor { display: contents !important; }
+/* topbar.css's `.tb-build-investment > span`, through the anchor. */
+.tb-build-investment > .gt-anchor > span { display: flex; align-items: end; width: calc(7 * var(--u)); background: #10130dc9; border-radius: calc(2 * var(--u)); overflow: hidden; }
+.gt-float {
+  --gt: 0.78;
+  position: fixed; z-index: 1000; pointer-events: none;
+  font-family: var(--ui); color: #FFEFD7; /* offWhite */
+  filter: drop-shadow(0 0 calc(10px * var(--gt)) #000);
+}
+
+/* ---- items: #ModTooltipContainer ---- */
+.gt { width: calc(450px * var(--gt)); box-sizing: border-box; line-height: 1.25; }
+.gt-item {
+  background-color: #10130D; /* offBlack */
+  background-size: 100% 100%;
+  -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
+  padding-bottom: calc(30px * var(--gt));
+}
+.gt-item .gt-head {
+  min-height: calc(96px * var(--gt)); padding: calc(20px * var(--gt)) calc(25px * var(--gt));
+  box-sizing: border-box; background-size: cover;
+}
+/* .ModName: oracle, bold 36px. */
+.gt-name { font: 700 calc(36px * var(--gt)) / 1.05 "VALVEOracle", var(--ui); text-shadow: 2px 2px 0 #00000030; }
+/* .ModPurchasedLabel shardColor&90 bold 20px; .ModPurchasedCheck 23px. */
+.gt-owned { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-weight: 700; font-size: calc(20px * var(--gt)); color: #99FFD6E6; }
+.gt-owned img { width: calc(23px * var(--gt)); height: calc(23px * var(--gt)); }
+/* .ModCost: shardColor bold 20px. */
+.gt-cost { display: flex; align-items: center; gap: 4px; margin-top: 4px; font-weight: 700; font-size: calc(20px * var(--gt)); color: #99FFD6; }
+.gt-cost .gt-icon { width: calc(11px * var(--gt)); height: calc(20px * var(--gt)); }
+
+.gt-section { padding: 0 calc(20px * var(--gt)); margin-top: calc(10px * var(--gt)); }
+.gt-section.innate { padding-top: calc(4px * var(--gt)); }
+/* .AttributeLineItem: .StatValue bold 19px, .AttributeBonusName 18px #CDCDCD. */
+.gt-row { margin: 2px 0; font-size: calc(18px * var(--gt)); color: #CDCDCD; }
+.gt-row b { font-size: calc(19px * var(--gt)); color: #FFEFD7; margin-right: 2px; }
+.gt-row b small, .gt-card-value small, .gt-pill small, .gt-cooldown small { font-size: 0.75em; color: #a4a4a4; }
+.gt-row.negative b { color: rgb(255, 106, 106); }
+/* .CooldownHeader: 32px, offBlack&aa (Active) / &90 (Passive); .ActivePassiveLabel bold, Passive italic at 0.5. */
+.gt-section-head { display: flex; align-items: stretch; height: calc(32px * var(--gt)); background: #10130DAA; margin: 0 calc(-0px * var(--gt)) calc(6px * var(--gt)); }
+.gt-section.passive .gt-section-head { background: #10130D90; }
+.gt-section-label { flex: 1; display: flex; align-items: center; padding-left: 10px; font-weight: 700; font-size: calc(20px * var(--gt)); }
+.gt-section.passive .gt-section-label { font-style: italic; font-weight: 600; opacity: 0.5; }
+/* .CooldownContainer: offBlack, 0 20px; .CooldownImage 22px. */
+.gt-cooldown { display: flex; align-items: center; gap: 5px; padding: 0 calc(20px * var(--gt)); background: #10130D; font-weight: 700; font-size: calc(20px * var(--gt)); }
+.gt-cooldown img { width: calc(22px * var(--gt)); height: calc(22px * var(--gt)); }
+/* .ModInfoLabel 18px, line-height 135%, #CDCDCD; .highlight semi-bold #F8F8F8; .diminish italic. */
+.gt-desc { margin: 0 0 calc(8px * var(--gt)); font-size: calc(18px * var(--gt)); line-height: 1.35; color: #CDCDCD; }
+.gt-m-highlight { font-weight: 600; color: #F8F8F8; }
+.gt-m-diminish { font-style: italic; color: #bfbbb090; font-weight: 600; font-size: 0.85em; }
+.gt-m-highlight_weapon, .gt-m-highlight_courage { color: #EC9719; font-weight: 700; } /* courageBrightColor */
+.gt-m-highlight_tech, .gt-m-highlight_spirit { color: #CE90FF; font-weight: 700; } /* spiritBrightColor */
+.gt-m-highlight_armor, .gt-m-highlight_fortitude { color: #7BBA1D; font-weight: 700; } /* fortitudeBrightColor */
+.gt-m-highlight_special { color: #e9a34e; font-weight: 700; }
+.gt-m-isNegative { color: rgb(255, 106, 106); font-weight: 700; }
+.gt-attr-inline { font-weight: 600; white-space: nowrap; }
+/* .InlineAttributeIcon 16px; .InlineGlyph 20px. */
+.gt-inline-icon { display: inline-block; width: calc(16px * var(--gt)); height: calc(16px * var(--gt)); margin: 0 2px 2px; vertical-align: middle; object-fit: contain; }
+.gt-key { font: 600 0.8em var(--ui); padding: 0 4px; border: 1px solid #ffffff40; border-radius: 3px; }
+
+.gt-icon { display: inline-block; width: calc(20px * var(--gt)); height: calc(20px * var(--gt)); object-fit: contain; vertical-align: middle; }
+.gt-wash { -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center; }
+
+/* .StatsAppliedBackground: the important cards beside #StatsAppliedContainer (#00000066). */
+.gt-props { display: flex; flex-direction: column; gap: 2px; margin-bottom: calc(8px * var(--gt)); }
+.gt-cards { display: flex; gap: 4px; }
+/* One important property: the card (130px) beside the rows, as .StatsAppliedBackground flows right. */
+.gt-props.single { flex-direction: row; align-items: stretch; }
+.gt-props.single .gt-cards { flex: 0 0 calc(130px * var(--gt)); }
+.gt-props.single .gt-rows { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+/* .ImportantStatBox #00000060; .ImportantStatType 16px; value white. */
+.gt-card { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(80px * var(--gt)); padding: 6px 4px; background: #00000060; text-align: center; }
+.gt-card-value { display: flex; align-items: center; gap: 3px; font: 700 calc(26px * var(--gt)) "VALVEOracle", var(--ui); color: #fff; }
+.gt-card-label { font-size: calc(16px * var(--gt)); font-weight: 500; line-height: 1.1; }
+.gt-card.prop_tech_damage .gt-card-label { color: #CE90FF; font-weight: 600; } /* spiritBrightColor */
+.gt-card.prop_bullet_damage .gt-card-label { color: #EC9719; font-weight: 600; } /* courageBrightColor */
+.gt-card.prop_healing .gt-card-label, .gt-card.prop_health .gt-card-label { color: #00FF99; font-weight: 600; } /* armorColor */
+/* .HasScalingStat: spiritColor&40 border, radial to spiritDarkColor&50; CitadelStatScalingLabel top right. */
+.gt-card.scaling { border: 2px solid #8A55B340; background: radial-gradient(#00000080, #61348450); }
+.gt-scale { position: absolute; top: 2px; right: 4px; font: 700 calc(14px * var(--gt)) var(--ui); color: #E7C8FF; }
+.gt-rows { padding: calc(10px * var(--gt)) calc(15px * var(--gt)); background: #00000066; }
+.gt-rows.grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 10px; background: #FFEFD714; } /* offWhite&08 */
+.gt-rows .gt-row { font-size: calc(17px * var(--gt)); }
+.gt-value.calc::before, .sp b.calc::before { content: "≈"; margin-right: 1px; font-weight: 400; opacity: 0.8; }
+
+/* .componentsSection: label uppercase #ffffff50 14px bold on offBlack&ea; .componentModIconContainer #009CB3. */
+.gt-components { margin: calc(10px * var(--gt)) calc(20px * var(--gt)) 0; }
+.gt-components-label { padding: 4px 10px 2px; background: #10130DEA; color: #ffffff80; font-weight: 700; font-size: calc(14px * var(--gt)); text-transform: uppercase; }
+.gt-components-list { display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 4px 5px 5px 10px; background: #10130D70; border-radius: 0 0 5px 5px; }
+.gt-component { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: calc(14px * var(--gt)); color: #FFEFD7E6; font-style: italic; }
+.gt-component-icon { display: grid; place-items: center; width: calc(30px * var(--gt)); height: calc(30px * var(--gt)); background: #009CB3; }
+.gt-component-icon img { width: 100%; height: 100%; object-fit: contain; }
+
+/* ---- abilities: CitadelTooltipAbilityDetails 560px; .TexturePanel ability_tooltip_bg ---- */
+.gt-ability { width: calc(560px * var(--gt)); }
+.gt-ability-body { background: #1a1a1a; background-size: 100% 100%; padding-bottom: calc(14px * var(--gt)); }
+/* .HeaderContainer 20px 20px 20px 30px; .AbilityName oracle bold 36px. */
+.gt-ability .gt-head { display: flex; align-items: flex-start; gap: 8px; padding: calc(20px * var(--gt)) calc(20px * var(--gt)) calc(10px * var(--gt)) calc(30px * var(--gt)); }
+.gt-ability .gt-name { flex: 1; }
+.gt-head-props { display: flex; gap: 4px; }
+/* .HeaderRight AbilityPropertyPanel: #ffffff05, 34px; .CurrentValue 17px. */
+.gt-pill { display: flex; align-items: center; gap: 4px; height: calc(34px * var(--gt)); padding: 2px 7px; box-sizing: border-box; background: #ffffff14; border-radius: 4px; font-weight: 700; font-size: calc(17px * var(--gt)); }
+/* #SectionsContainer 0 30px 20px 40px; .PropertiesBlockHeaderLabel 18px silvered, 130%. */
+.gt-ability .gt-section { padding: 0 calc(30px * var(--gt)) 0 calc(40px * var(--gt)); }
+.gt-ability .gt-desc { color: #C6C6C6; line-height: 1.3; }
+.gt-ability .gt-m-highlight { color: #FFEFD7; }
+.gt-ability .gt-m-diminish { color: #bfbbb080; }
+/* AbilityPropertyPanel 85px; .AbilityPropertyContainer offWhite&08; .CurrentValue bold 26px oracle. */
+.gt-ability .gt-card { background: #FFEFD714; min-height: calc(85px * var(--gt)); }
+.gt-ability .gt-cards { margin-bottom: 3px; }
+/* The tier cards below (citadel_tooltip_ability_upgrade_button.vcss's place). */
+.gt-tiers { display: flex; gap: calc(8px * var(--gt)); margin-top: calc(8px * var(--gt)); }
+.gt-tier { flex: 1; display: flex; flex-direction: column; background: linear-gradient(#2a1414, #4a1c1c); box-shadow: 0 0 calc(10px * var(--gt)) #000; }
+.gt-tier-head { height: calc(28px * var(--gt)); background: #10130D; }
+.gt-tier-text { flex: 1; display: grid; place-items: center; padding: calc(14px * var(--gt)) calc(10px * var(--gt)); text-align: center; font-weight: 600; font-size: calc(17px * var(--gt)); color: #C6C6C6; }
+.gt-tier .gt-m-highlight { color: #FFEFD7; font-weight: 700; }
+.gt-tier.bought { background: linear-gradient(#20301c, #2f4a1c); }
+.gt-tier.bought .gt-tier-head { background: #649717; } /* fortitudeColor */
+
+/* ---- stat panels: .heroStatsDisplay 520px + CitadelTooltipModBonusDisplay 200px ---- */
+.sp { --gt: 0.78; display: flex; align-items: flex-start; gap: calc(8px * var(--gt)); }
+.sp-stats { width: calc(520px * var(--gt)); border-radius: 10px; background-size: cover; overflow: hidden; }
+.sp.weapon .sp-stats { background-color: #3a2810; } /* gradient #493516 → #271904 */
+.sp.vitality .sp-stats { background-color: #1f452a; } /* gradient #375B3B → #072F0B */
+.sp.spirit .sp-stats { background-color: #582f61; } /* gradient #653A6D → #452456 */
+/* .statTitle 18px uppercase bold 0.6; .displayStatsContainer 15px. */
+.sp-title { padding: calc(15px * var(--gt)) calc(15px * var(--gt)) 0; font: 700 calc(18px * var(--gt)) "VALVEOracle", var(--ui); text-transform: uppercase; opacity: 0.6; }
+.sp-grid { display: flex; flex-wrap: wrap; gap: 4px; padding: calc(10px * var(--gt)) calc(15px * var(--gt)) calc(15px * var(--gt)); }
+/* .statAttributeContainer 48%, 40px, #00000070, radius 3px; .isZeroValue 0.5. */
+.sp-stat { display: flex; align-items: center; gap: 8px; width: 48%; height: calc(40px * var(--gt)); padding-left: 10px; box-sizing: border-box; background: #00000070; border-radius: 3px; font-size: calc(18px * var(--gt)); }
+.sp-stat.zero { opacity: 0.5; }
+.sp-stat b { font-size: calc(19px * var(--gt)); }
+.sp-stat b small { font-size: 0.75em; color: #a4a4a4; }
+/* #SpiritImpactContainer #00000060. */
+.sp-impact { padding: calc(15px * var(--gt)); background: #00000060; }
+.sp-impact-title { font-weight: 700; font-size: calc(16px * var(--gt)); text-transform: uppercase; margin-bottom: 6px; }
+.sp-impact .sp-stat { width: 60%; }
+.sp-impact-desc { margin: 8px 0 0; font-size: calc(16px * var(--gt)); max-width: 60%; }
+/* CitadelModBonusDisplay: Black, 200px, #ffffff08 border, radius 10px; #HeaderContents offBlack 10px. */
+.sp-ladder { width: calc(200px * var(--gt)); background: #000; border: 2px solid #ffffff08; border-radius: 10px; overflow: hidden; }
+.sp-ladder-head { padding: 10px; background: #10130D; }
+/* .investmentType bold 17px in the category's bright colour; .investmentDesc offWhite&60 14px. */
+.sp-invest { font-weight: 700; font-size: calc(17px * var(--gt)); }
+.sp.weapon .sp-invest { color: #EC9719; }
+.sp.vitality .sp-invest { color: #7BBA1D; }
+.sp.spirit .sp-invest { color: #CE90FF; }
+.sp-invest-desc { font-weight: 600; font-size: calc(14px * var(--gt)); color: #FFEFD799; }
+.sp-ladder-body { display: flex; gap: 6px; padding: 10px 6px 14px 10px; }
+/* .modsProgressBar 30px; .ProgressBarLeft the category gradient. */
+.sp-bar { position: relative; width: calc(30px * var(--gt)); border: 1px solid #ffffff10; border-radius: 2px; background: #FFFFFF07; }
+.sp-bar i { position: absolute; left: 0; right: 0; bottom: 0; }
+.sp.weapon .sp-bar i { background: linear-gradient(90deg, #EC9719, #FFD18D); }
+.sp.vitality .sp-bar i { background: linear-gradient(90deg, #7BBA1D, #D3FC96); }
+.sp.spirit .sp-bar i { background: linear-gradient(90deg, #CE90FF, #E7C8FF); }
+.sp-rows { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+/* .bonusValueTier; .bonusLabel 14px bold; .bonusCost shardColor&30 (reached: shardColor). */
+.sp-row { position: relative; display: flex; gap: 6px; padding: 1px 3px; font-size: calc(14px * var(--gt)); }
+.sp-row b { min-width: calc(46px * var(--gt)); }
+.sp-row span { color: #99FFD64D; font-weight: 600; }
+.sp-row.reached { background: #FFFFFF05; }
+.sp-row.reached span { color: #99FFD680; }
+.sp-row.not-reached { background: #FFFFFF05; opacity: 0.4; color: #b67070; }
+.sp-row.starred { border: 1px solid #FFEFD733; }
+/* .currentTier: the category colour, scaled 1.3. */
+.sp-row.current { transform: scale(1.12); transform-origin: left center; margin-left: 4px; border-radius: 2px; box-shadow: 0 0 30px #00000090; z-index: 1; }
+.sp-row.current span { color: #99FFD6; }
+.sp.weapon .sp-row.current { background: #9D620B; }
+.sp.vitality .sp-row.current { background: #649717; }
+.sp.spirit .sp-row.current { background: #8A55B3; }
+.sp-star { position: absolute; right: 6px; top: 50%; width: 12px; height: 12px; transform: translateY(-50%); background: #FFED79; opacity: 0.6; -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; }
+
+/* ---- the minimap's hero panel (HeroCard.tsx) ---- */
+.hero-card {
+  position: absolute; z-index: 19; left: 12px; top: 44px; width: min(240px, calc(100% - 24px)); max-height: calc(100% - 56px); overflow: auto;
+  background: #10130Dee; border: 1px solid #ffffff18; border-radius: 6px; box-shadow: 0 10px 30px #0008; color: #FFEFD7;
+}
+.hero-card-head { display: flex; align-items: center; gap: 8px; padding: 6px 6px 0 8px; font-size: 13px; }
+.hero-card-head img { width: 24px; height: 24px; }
+.hero-card-head span { flex: 1; }
+/* The Tab column's parts at a compact scale, in flow. */
+.hero-card .tb-build-column { position: static; width: auto; --u: 1px; padding: 0 8px 8px; }
+.hero-card .tb-build-column::before { display: none; }
+.hero-card .tb-build-items { grid-template-columns: repeat(4, minmax(0, 1fr)); }

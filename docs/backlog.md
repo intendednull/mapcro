@@ -3,6 +3,25 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Tooltips: follow-ups (2026-11-11, from tooltips)
+
+Shipped on branch `tooltips` (spec §6b "Tooltips", "Hero panel"; plan 2026-11-10-game-tooltips).
+- **Stat panels' other stats**: the weapon card (gun name, "Medium Range / Heavy Hitter", DPS,
+  falloff) and the panels' fire rate, ammo, reload, bullet velocity, regen, move speed, stamina,
+  CDR, lifesteal and the Spirit Power Impact rows need calculator rules (and hero weapon data
+  from `heroes.vdata` `m_mapStartingStats` / weapon info). The panels show only the five stats
+  mapcro calculates.
+- **Tier cards' ability-point cost** ("1 / 2 / 5"): not in any file the extractor reads; find
+  where the game keeps it (code, or `heroes.vdata` per level) before showing a number.
+- **Pin a tooltip open** while reviewing (plan's third decision): needs the operator.
+- **Live values in the tooltip**: the remaining cooldown and charges at t are on the icon only;
+  the game's tooltip shows the static value.
+- **Hero panel for followers**: the panel is local; a presenter opening one isn't followed.
+- **Item tooltips on the events list and the death recap** (their item and ability icons): not
+  wired yet; `Hover` + `GameTip` drop in where an id and the art are at hand.
+- **Spirit-scaled values on items**: only abilities' cards take the calculated spirit power with
+  "≈"; items' scaled properties show the base value.
+
 ## Previews of matches cached before acf63c3 have no winner (2026-11-11, lead, prod check)
 
 `GET /api/matches/129738985/preview` on prod answers `"winner": null`: the summary was cached
@@ -63,9 +82,9 @@ not fixed (out of that branch's scope):
 
 ## Calculated stats: follow-ups (2026-11-10, from stat-calc-prod)
 
-- **A quiet "≈" on calculated values** (spec §4b rule 5): only with the operator's approval.
-- **Stat panels** (the tooltips plan's part 2): the ladder's bonus per row and the other panel
-  stats (fire rate, clip, CDR, lifesteal) need more rules; the tables already carry the ladder.
+- **A quiet "≈" on calculated values** (spec §4b rule 5): approved and shipped (topbar.css).
+- **Stat panels** (the tooltips plan's part 2): shipped with the ladder and the five calculated
+  stats (branch `tooltips`); the other panel stats are in "Tooltips: follow-ups".
 - **Stacking items** (Berserker, Cultist Sacrifice, Escalating Resilience …) from `effects`
   stack counts, and Spirit Snatch's stolen values from the stat viewer: later rules, the spike's
   largest remaining misses.
