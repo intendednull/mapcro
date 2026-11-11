@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-replay-timeline"
+description = "Enables the replay_timeline command without any pre-configured scope."
+commands.allow = ["replay_timeline"]
+
+[[permission]]
+identifier = "deny-replay-timeline"
+description = "Denies the replay_timeline command without any pre-configured scope."
+commands.deny = ["replay_timeline"]

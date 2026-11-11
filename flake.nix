@@ -203,22 +203,30 @@
         '';
       };
 
-      devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [
-          rust
-          rust-analyzer
-          cargo-nextest
-          wasm-bindgen-cli  # must match the wasm-bindgen crate pin in crates/wasm
-          binaryen          # wasm-opt
-          just
-          nodejs_24         # Quint CLI (npm) and the web client
-          jdk21_headless    # Apalache, the symbolic model checker Quint downloads on first `quint verify`
-          tlaplus           # TLC, for exhaustive checks of `quint compile --target tlaplus` output
-        ];
-        # Browser tests (web/e2e): Playwright's browsers come from nix; the npm
-        # @playwright/test version must match playwright-driver's.
-        PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
-        PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
+      # The Tauri shell's Linux build deps (desktop/README.md): only for `cargo check` of
+      # desktop/app on Linux (`nix develop .#desktop`); the release build is Windows, in CI.
+      devShells.${system} = {
+        desktop = pkgs.mkShell {
+          packages = with pkgs; [ rust just pkg-config cargo-tauri ];
+          buildInputs = with pkgs; [ webkitgtk_4_1 gtk3 libsoup_3 glib cairo pango gdk-pixbuf atk openssl librsvg ];
+        };
+        default = pkgs.mkShell {
+          packages = with pkgs; [
+            rust
+            rust-analyzer
+            cargo-nextest
+            wasm-bindgen-cli  # must match the wasm-bindgen crate pin in crates/wasm
+            binaryen          # wasm-opt
+            just
+            nodejs_24         # Quint CLI (npm) and the web client
+            jdk21_headless    # Apalache, the symbolic model checker Quint downloads on first `quint verify`
+            tlaplus           # TLC, for exhaustive checks of `quint compile --target tlaplus` output
+          ];
+          # Browser tests (web/e2e): Playwright's browsers come from nix; the npm
+          # @playwright/test version must match playwright-driver's.
+          PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+          PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
+        };
       };
     };
 }
