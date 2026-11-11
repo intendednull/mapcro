@@ -2,9 +2,9 @@
 // sandbox board (you get its owner link, kept on this device), or reopen one. In the Windows
 // app, a replay comes from its replay picker (`ReplayPicker.tsx`), not a file dialog.
 
-import { For, Show, createSignal } from "solid-js";
+import { For, Show, createSignal, onCleanup } from "solid-js";
 import { Api, shareUrl } from "../core/api";
-import { knownBoards, markOpened, rememberBoard } from "../core/device";
+import { type KnownBoard, askRename, forgetBoard, knownBoards, markOpened, rememberBoard, restoreBoard } from "../core/device";
 import { Wordmark } from "../ui/Wordmark";
 import { FRESH_BOARD } from "../board/roster";
 import { MODE_CODES, lookup } from "../player/api";
@@ -23,7 +23,29 @@ export function Landing() {
   const [title, setTitle] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal("");
-  const boards = knownBoards();
+  const [boards, setBoards] = createSignal(knownBoards());
+  // The bin takes a board off this device's list only; the toast's Undo puts it back.
+  const [toast, setToast] = createSignal<{ text: string; undo: KnownBoard }>();
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(toastTimer));
+  const remove = (b: KnownBoard) => {
+    const gone = forgetBoard(b.board);
+    setBoards(knownBoards());
+    if (!gone) return;
+    setToast({ text: `Removed ${gone.title}`, undo: gone });
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => setToast(undefined), 6000);
+  };
+  const undoRemove = (k: KnownBoard) => {
+    restoreBoard(k);
+    setBoards(knownBoards());
+    setToast(undefined);
+  };
+  // Rename from the list: the board opens with its title's editor open (Board.tsx).
+  const rename = (b: KnownBoard) => {
+    askRename(b.board);
+    location.assign(shareUrl(location.origin, b.board, b.token));
+  };
   const create = async (e: Event) => {
     e.preventDefault();
     setBusy(true);
@@ -31,7 +53,7 @@ export function Landing() {
     try {
       const t = title().trim() || "Untitled board";
       const { board, owner_token } = await new Api("").createBoard(t);
-      rememberBoard({ board, token: owner_token, title: t });
+      rememberBoard({ board, token: owner_token, title: t, edit: true });
       sessionStorage.setItem(FRESH_BOARD, board); // its first load rolls twelve random heroes
       location.assign(shareUrl(location.origin, board, owner_token));
     } catch (err) {
@@ -87,7 +109,7 @@ export function Landing() {
       }
       const m = made;
       // Only a match that opened goes in "Your boards" (QA, item 8).
-      const remember = () => rememberBoard({ board: m.board, token: m.token, title: `Match ${id}` });
+      const remember = () => rememberBoard({ board: m.board, token: m.token, title: `Match ${id}`, match: id, edit: true });
       if (f || picked) {
         // The board uploads it, with progress, while you use the board (player/handoff.ts); it
         // attaches the match once the upload is under way, so no fetch from Valve starts. A pick
@@ -227,18 +249,47 @@ export function Landing() {
           <p class="entry-label">Open link</p>
           <OpenLinkForm />
         </Show>
-        <Show when={boards.length > 0}>
+        <Show when={boards().length > 0}>
           <h2>Your boards</h2>
-          <ul class="known">
-            <For each={boards}>
+          <ul class="known" data-testid="known-boards">
+            <For each={boards()}>
               {(b) => (
-                <li>
-                  <a href={shareUrl(location.origin, b.board, b.token)}>{b.title}</a>
-                  <span class="muted">{new Date(b.seen).toLocaleDateString()}</span>
+                <li data-testid="known-board" data-board={b.board}>
+                  <a href={shareUrl(location.origin, b.board, b.token)} data-testid="known-title">
+                    {b.title}
+                  </a>
+                  <Show when={b.match && b.title !== `Match ${b.match}`}>
+                    <span class="muted known-match" data-testid="known-match">
+                      {b.match}
+                    </span>
+                  </Show>
+                  <span class="muted known-seen">{new Date(b.seen).toLocaleDateString()}</span>
+                  <Show when={b.edit}>
+                    <button class="known-act" type="button" data-testid="known-rename" title="Rename" aria-label="Rename" onClick={() => rename(b)}>
+                      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />
+                      </svg>
+                    </button>
+                  </Show>
+                  <button class="known-act" type="button" data-testid="known-remove" title="Remove" aria-label="Remove" onClick={() => remove(b)}>
+                    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" />
+                    </svg>
+                  </button>
                 </li>
               )}
             </For>
           </ul>
+        </Show>
+        <Show when={toast()}>
+          {(t) => (
+            <div class="toast" role="status" data-testid="toast">
+              {t().text}
+              <button class="link" type="button" data-testid="toast-action" onClick={() => undoRemove(t().undo)}>
+                Undo
+              </button>
+            </div>
+          )}
         </Show>
         <footer class="legal muted">
           MIT · Not affiliated with Valve

@@ -3,6 +3,12 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Owner delete of a board (2026-11-11, operator, from boards-list)
+
+- "Your boards" Remove takes a board off one device's list only (spec §11). Real deletion, by the
+  owner link, server side (its records, log, links and sessions' grants), is not built. Needs a
+  decision on what happens to open sessions and to sessions that hold it as a tab.
+
 ## Follow across restarts: small leftovers (2026-11-11, restart-follow)
 
 - **"Follow again" right after a restart waits only 5 s** (`RECONNECT_MS`) for the seat, not 20 s

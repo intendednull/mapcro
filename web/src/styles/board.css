@@ -109,7 +109,7 @@ kbd {
   min-width: 0;
 }
 .board-title b { font-weight: 600; font-size: 14px; white-space: nowrap; }
-.board-title span { color: var(--faint); font-size: 12px; white-space: nowrap; }
+.board-title > span { color: var(--faint); font-size: 12px; white-space: nowrap; }
 .top .spacer { flex: 1; }
 
 .present-pill {
@@ -823,7 +823,7 @@ kbd {
 .top-crop .top, .landed .top { padding: 0 12px; gap: 8px; overflow: hidden; }
 .landed .wordmark { display: none; }
 .landed .board-title { border-left: 0; padding-left: 0; }
-.landed .board-title span { display: none; }
+.landed .board-title > span { display: none; }
 .landed .save { display: none; }
 .btn.primary kbd { color: #1b1408; border-color: #1b140866; }
 .owner-note .btn { display: none; }
