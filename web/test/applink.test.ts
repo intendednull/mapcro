@@ -2,6 +2,7 @@
 // desktop/core/src/link.rs), the mapcro:// form, and "Open in app"'s gating.
 import { describe, expect, it } from "vitest";
 import { SITE, appLink, boardHref, openInAppHref, parseBoardLink } from "../src/core/applink";
+import { WINDOWS_APP_URL, windowsAppLink } from "../src/player/desktop";
 
 const ID = "AbCdEfGhIjKlMnOpQrSt-_";
 const TOKEN = "0123456789abcdefghijklmnopqrstuvwxyzABCD-_Z";
@@ -76,6 +77,8 @@ describe("openInAppHref", () => {
   const linux = { userAgent: "Mozilla/5.0 (X11; Linux x86_64) Chrome/142" };
   it("is the board's mapcro:// link on a Windows browser, once the app is released", () => {
     expect(openInAppHref(want, { released: true, nav: win, w: {} })).toBe(`mapcro://b/${ID}#${TOKEN}`);
+    // Its "Get the app" fallback is the installer, under the same gate.
+    expect(windowsAppLink({ released: true, nav: win, w: {} })).toBe(WINDOWS_APP_URL);
   });
   it("is nothing before the first release, elsewhere, or inside the app", () => {
     expect(openInAppHref(want, { nav: win, w: {} })).toBeUndefined();

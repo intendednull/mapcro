@@ -776,10 +776,11 @@ fn powerup_spawns(obs: &Obs, m: &Map, key: &str, duration_s: u32) -> Vec<Powerup
                 out.pop();
             }
             out.push(PowerupSpawn { t, buff: b.buff.to_owned(), taken_s: None });
-        } else if !b.active && up {
-            if let Some(l) = out.last_mut() {
-                l.taken_s = Some(t);
-            }
+        } else if !b.active
+            && up
+            && let Some(l) = out.last_mut()
+        {
+            l.taken_s = Some(t);
         }
         up = b.active;
     }

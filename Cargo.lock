@@ -987,6 +987,7 @@ dependencies = [
  "prost",
  "serde",
  "serde_json",
+ "snap",
  "tempfile",
  "zstd",
 ]

@@ -3,6 +3,17 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## A macOS desktop app (2026-11-11, operator: only if users ask)
+
+Parked. Deadlock has no macOS client, so the app's job (the local replays folder, previews, local
+parse) has nothing to work on; Mac users get the full site in Safari/Chrome (the WebKit e2e pass
+covers Safari's engine). If users ask: GitHub's macOS runners can build a `.dmg` and run unit tests
+without a Mac, but `tauri-driver` doesn't support WKWebView (no smoke test), and unsigned apps are
+blocked by Gatekeeper ("damaged" on Apple silicon), so a usable build needs the Apple Developer
+Program ($99/yr) and notarization per release, plus a real Mac for the first check. Niche case:
+CrossOver/Whisky players have replays inside the Wine bottle; the app could look there.
+Research: docs/research/desktop-app.md.
+
 ## Follow a hero's token with the camera (2026-11-11, feedback #16; operator: after the tooltips)
 
 Keep the map centred on a chosen hero while zooming freely: start from a double-click on the
@@ -10,7 +21,46 @@ hero's top-bar portrait or minimap token, or a hotkey over a hovered token/portr
 or Escape. Needs a camera model (the map doesn't pan to follow today) and a decision on how it
 interacts with presenter follow (followers' cameras already mirror the presenter's).
 
+## Demo previews: the rest (2026-11-11, from demo-preview)
+
+The app reads each card's preview from the demo (spec §6a "Read from the demo first";
+docs/research/demo-preview.md). Left over:
+
+- **Drop the server preview?** The app falls back to `GET /api/matches/{id}/preview` only when its
+  own read fails (a broken file, an older app). Once every app in the field has `replay_preview`,
+  the route serves no one: retire it with its cache (TD-17), or keep it for a browser picker.
+- **Old maps on cards:** a pre-6712 demo previews fine (6683 and 6701 read), but picking it fails
+  as `old_map`. The card could say "Older map" from `build` before the pick.
+- **The match's time on a card** (operator, 2026-11-11: "Played 2 d ago", not the file's time):
+  the demo has no wall-clock start (research demo-preview, `start_time`), so a card read locally
+  shows the file's time ("Downloaded" on hover). Options: ask the server for the time only where
+  it's free (a cached summary), or estimate it from the match id (ids rise over time, a fit
+  from known pairs). Needs the operator's call.
+- **A Windows cold-cache timing**: measured on Linux only (0.05–0.56 s, page cache warm or not on a
+  shared box). A first listing of ten 500 MB demos on a spinning disk is ~100–200 MB of reads.
+- **Previews ahead of view:** cards read one at a time as they scroll in; the next page's could be
+  read while the picker is idle.
+
+## Follow: what a follower still doesn't share (2026-11-11, from follow-sync)
+
+Following now carries the map layers and the open panels (death recaps, builds; spec §8). Held:
+- **Effects and Build order inside a hero's build:** the follower opens the same hero's build,
+  but which of the two popovers is open (or none) is its own. Small: two more bits in `playback`.
+- **The events list's filters, search and scroll.** A follower pings from its own filters, so
+  its pings can differ from the presenter's, and an events-row recap the presenter opens stays
+  closed on a follower whose filters hide that row. Sharing filters changes what the follower's
+  list shows; worth asking the operator whether that is wanted.
+- **The events list doesn't scroll to a recap the presenter opens.** It opens in place; the list
+  follows "Now" as before, so an older death's recap may open out of view.
+- **The teleporter pair's line** (below, "A follower doesn't see the presenter's teleporter pair").
+- **Sidebar tab (Events or Notes), the Layers popover being open, and the side panels on the
+  phone:** layout, left each person's own.
+
 ## Previews of matches cached before acf63c3 have no winner (2026-11-11, lead, prod check)
+
+## Previews of matches cached before acf63c3 have no winner (2026-11-11, lead, prod check): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 6064363): the summary cache is stamped `summary_format`; an unstamped one without a winner is derived again from one metadata read, once a process, and a card with `winner: null` is made again from the summary (spec §6a, Previews).
 
 `GET /api/matches/129738985/preview` on prod answers `"winner": null`: the summary was cached
 before the summary kept the winner, and the preview is derived from that cache. Kills and souls
@@ -139,9 +189,12 @@ much they matter.
     `~/.local/share/applications` on every start).
   - **Open in app on Linux browsers,** with the Linux download link (above): the same gate.
   - **Open in app when the app isn't installed** does nothing visible (the browser drops an
-    unknown scheme). A "Get the Windows app" fallback beside it is one option.
+    unknown scheme); a quiet "Get the app" sits beside it (operator, 2026-11-11). Detecting
+    the missing handler (blur/visibility timing) isn't done.
 
-## The salts backoff holds back free reads (2026-11-10, from salts-docs)
+## The salts backoff holds back free reads (2026-11-10, from salts-docs): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, aaf90b1; TD-9): the free read goes first and a 429 holds back only the Steam-capable read of a no-row match; the 400 is `no_replay`; a match before the ~2 h salts pass is held until it (spec §6a, Remembered failures and Pacing).
 
 deadlock-api answers a stored salts row before its rate limiter, so only a lookup of a match with
 no row spends its 3/h Steam budget (docs/research/deadlock-api-salts.md "When the backend asks the
@@ -419,7 +472,9 @@ A record with no localised name gets its internal name with the prefix stripped
 821 of the 2,061 modifiers end up there. Whether the UI shows those at all, or turns `_` into
 spaces, waits on the build-card UX.
 
-## Clippy fails on engine and server under rust 1.99 (2026-11-10, from pack-abilities)
+## Clippy fails on engine and server under rust 1.99 (2026-11-10, from pack-abilities): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy --workspace --all-targets -- -D warnings` (nix dev shell, rust 1.99.1) stops before
 it reaches most crates:
@@ -501,7 +556,9 @@ negative or fractional `t_s`, a missing `tier`) at deserialisation, so the answe
 well-typed but invalid values get. Only a client other than ours can send those shapes; parsing
 `match` as a raw value and checking it by hand would give one message for both.
 
-## clippy: `unwrap()` in packs.rs (2026-11-09, from feedback-match)
+## clippy: `unwrap()` in packs.rs (2026-11-09, from feedback-match): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy -p mapcro-server --all-targets` warns `clippy::unwrap_used` at
 crates/server/src/packs.rs:188 (`p.0.parse().unwrap()` in `newest_first`). Already on main; an
@@ -526,7 +583,9 @@ toggle of their own at least. Not asked for; the audit's candidates list has the
 `CCitadel_BreakableProp` (709 entities) it runs at about real time (30 min for 129738985).
 Comparing raw field values and formatting only the changes would make it a seconds-long probe.
 
-## Clippy: collapsible_if in derive.rs's buffs (2026-11-09, from heavy-crates)
+## Clippy: collapsible_if in derive.rs's buffs (2026-11-09, from heavy-crates): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy -p mapcro-replay --all-targets` warns `collapsible_if` at
 crates/replay/src/derive.rs:751 (`} else if !b.active && up { if let Some(l) = out.last_mut()`),
@@ -552,11 +611,10 @@ of drift. `reanchored` in matches.rs re-anchors paths to deaths, which hides it 
 Checking where the drift starts against `match_pauses` on a few paused matches would tell; if it
 fits, cutting each pause's samples from the paths would fix the summary tier's clock.
 
-## "Presenter left" has no test that the follower's own Vision comes back (2026-11-09, from follow-vision)
+## "Presenter left" has no test that the follower's own Vision comes back (2026-11-09, from follow-vision): resolved
 
-When a followed presenter leaves, Board.tsx now calls `player.forget()` (as stopping does), so
-the follower's own Vision returns. The player-vision e2e covers stopping by hand, not the
-presenter closing their tab; a step that closes the presenter's page mid-follow would pin it.
+Resolved 2026-11-11 (follow-sync): `player-follow-view.spec.ts` closes the presenter's context
+mid-follow and checks the follower's own Vision and map layers come back.
 
 ## Player puts the match's name before a typed slot name (2026-11-09, from scene-names)
 
@@ -614,7 +672,9 @@ times out polling the replay inbox, with nothing on the page or in the error say
 was hit. player-vision.spec.ts now raises the limit for its server; a shared default in
 e2e/server.ts, or the helper reporting the refusal, would spare the next spec the hunt.
 
-## Clippy fails on crates/replay/src/parse.rs (2026-11-09, from shop-state)
+## Clippy fails on crates/replay/src/parse.rs (2026-11-09, from shop-state): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy -p mapcro-replay --tests -- -D warnings` (rust 1.99) stops on
 `clippy::chunks_exact_to_as_chunks` at parse.rs:658 (`key.chunks_exact(4)`), and on two more

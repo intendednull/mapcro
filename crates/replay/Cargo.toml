@@ -10,7 +10,7 @@ description = "mapcro replay worker: parses a Deadlock .dem in a sandbox into a 
 # the worker binary needs `parse`.
 [features]
 default = ["parse"]
-parse = ["dep:boon-deadlock", "dep:boon-proto", "dep:prost", "dep:bzip2", "dep:zstd", "dep:libc"]
+parse = ["dep:boon-deadlock", "dep:boon-proto", "dep:prost", "dep:bzip2", "dep:zstd", "dep:libc", "dep:snap"]
 
 [[bin]]
 name = "mapcro-replay"
@@ -29,6 +29,8 @@ boon-proto = { version = "0.4", optional = true }
 prost = { version = "0.14", optional = true }
 bzip2 = { version = "0.6", optional = true }
 zstd = { version = "=0.13.3", default-features = false, optional = true }
+# The preview reads demo commands itself (preview.rs); boon uses the same.
+snap = { version = "1", optional = true }
 # O_NOFOLLOW for the server's order file.
 libc = { version = "0.2", optional = true }
 

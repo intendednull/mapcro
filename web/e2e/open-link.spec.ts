@@ -115,6 +115,7 @@ test("in a browser: no Open link, Ctrl+L is the browser's, and Open in app is of
   await p.keyboard.press("Control+l");
   await expect(p.getByTestId("open-link-dialog")).toHaveCount(0);
   await expect(p.getByTestId("open-in-app")).toHaveCount(0);
+  await expect(p.getByTestId("open-in-app-get")).toHaveCount(0);
   await ctx.close();
 
   // Never inside the app, either.

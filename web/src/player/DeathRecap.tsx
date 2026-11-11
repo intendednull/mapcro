@@ -4,7 +4,7 @@ import { clockLabel, type Timeline, type TimelinePlayer } from "../match/timelin
 import { CC_LABELS } from "./recap";
 
 type Recap = NonNullable<TimelinePlayer["recaps"]>[number];
-export function DeathRecap(p: { recap: Recap; timeline: Timeline; art: Art; onSeek: (t: number) => void; open?: boolean }) {
+export function DeathRecap(p: { recap: Recap; timeline: Timeline; art: Art; onSeek: (t: number) => void; open?: boolean | undefined; onToggle?: ((open: boolean) => void) | undefined }) {
   const total = () => p.recap.damage.reduce((sum, d) => sum + d[2], 0);
   const start = () => Math.max(0, p.recap.t - 100);
   const span = () => Math.max(1, p.recap.t - start());
@@ -13,7 +13,7 @@ export function DeathRecap(p: { recap: Recap; timeline: Timeline; art: Art; onSe
     return player ? p.art.heroes.get(player.hero_id)?.name ?? "Hero" : "World / other";
   };
   const record = (id: number) => p.art.buildCatalog?.records.get(id);
-  return <details class="death-recap" data-testid="death-recap" open={p.open}>
+  return <details class="death-recap" data-testid="death-recap" open={p.open} on:toggle={(e) => p.onToggle?.(e.currentTarget.open)}>
     <summary>Death recap · {total().toLocaleString()} damage</summary>
     <div class="death-recap-body">
       <div class="recap-window"><span>Last {span() / 10}s · {clockLabel(p.recap.t / 10)}</span>

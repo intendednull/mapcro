@@ -81,6 +81,11 @@ jobs:
           Start-Sleep -Seconds 15
           if ($p.HasExited) { throw "the installed app exited ($($p.ExitCode))" }
           Stop-Process -Id $p.Id -Force
+          # Its WebView2 children outlive it and keep the profile locked; the smoke test's
+          # WebView2 (with remote debugging) would then hand off to them and never open the
+          # DevTools port msedgedriver waits for ("DevToolsActivePort file doesn't exist").
+          Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 3
       - name: The installer registered mapcro:// (per-user)
         run: |
           $cmd = (Get-ItemProperty 'HKCU:\Software\Classes\mapcro\shell\open\command').'(default)'

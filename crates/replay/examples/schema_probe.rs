@@ -7,7 +7,7 @@ fn walk(prefix: &str, fields: &[std::sync::Arc<boon::SerializerField>], pats: &[
         let p = if prefix.is_empty() { f.var_name.to_string() } else { format!("{prefix}.{}", f.var_name) };
         let l = p.to_ascii_lowercase();
         if pats.iter().any(|x| l.contains(x.as_str())) { println!("{class}\t{p}\t{}", f.var_type); }
-        if depth < 6 { if let Some(s) = f.field_serializer.as_ref() { walk(&p, &s.fields, pats, class, depth + 1); } }
+        if depth < 6 && let Some(s) = f.field_serializer.as_ref() { walk(&p, &s.fields, pats, class, depth + 1); }
     }
 }
 fn main() {

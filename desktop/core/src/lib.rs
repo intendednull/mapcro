@@ -7,6 +7,8 @@
 //! - [`folder`]: which folder the picker lists: the one the user chose, else Deadlock's own.
 //! - [`replays`]: the folder's `<match id>.dem` files, and nothing else in it.
 //! - [`parse`]: a demo to a gzip timeline, in a child process.
+//! - [`preview`]: a picker card's preview from the demo's signon and last minute, in a child,
+//!   cached by file size and time.
 //! - [`mode`]: installed or portable, and what that changes (the scheme's registration, updates).
 //! - [`link`]: a `mapcro://` board link, checked and mapped to the board's page on the site.
 //!
@@ -18,6 +20,7 @@ pub mod folder;
 pub mod link;
 pub mod mode;
 pub mod parse;
+pub mod preview;
 pub mod replays;
 pub mod steam;
 mod vdf;

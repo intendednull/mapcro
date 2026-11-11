@@ -29,7 +29,8 @@ The app reads these and nothing else on the machine:
    manifest's name is tried in each listed library (a name test, not a listing).
 4. `…/steamapps/common/<installdir>/game/citadel/replays/`, when the picker asks (not watched;
    that folder only, not recursively). Only `<digits>.dem` names are looked at: their size and
-   time, then the 8-byte header, then the file itself when it's picked.
+   time, then the 8-byte header, then, for a card's preview, the demo's signon and last minute
+   (a few MB), then the file itself when it's picked.
 5. Instead of 4, the folder you chose with **Change folder** (the system's folder chooser), read
    the same way, while it's there. Its path is kept in the app's config folder
    (`replays-folder.txt`) and never sent to the page, logged or uploaded.
@@ -43,8 +44,9 @@ AppImage writes one file to register the scheme (`~/.local/share/applications/
 mapcro-desktop-handler.desktop`, Deep links); the installers and packages write nothing at run
 time.
 
-The page asks the server for each listed match's preview (heroes, kills, souls, the winner: no
-names or ids). Nothing is sent or logged except match ids and reason codes. That means no paths, no player
+Each listed match's preview (heroes, kills, souls, the winner: no names or ids) is read from its
+demo by the app and kept in the app's cache folder (`previews.json`, by match id, the file's size
+and time); the page asks the server for one only when the app has none. Nothing is sent or logged except match ids and reason codes. That means no paths, no player
 names and no account ids. A timeline does carry the match's hero and player data, the same data
 the server's own parse of the demo produces, and the app sends it only when you press Upload.
 The app gets no replay salts in any form (research §3). The parse writes a scratch file in the
@@ -52,7 +54,7 @@ app's cache folder and deletes it afterwards.
 
 ## IPC allow-list
 
-The page reaches the native side only through these five commands. `capabilities/site.json`
+The page reaches the native side only through these six commands. `capabilities/site.json`
 grants them to `https://mapcro.dmgdeadlock.com/*` only, in the `main` window. No plugin command
 is granted to the page; the folder chooser (`tauri-plugin-dialog`) and the updater are driven
 from Rust.
@@ -61,6 +63,7 @@ from Rust.
 |---|---|---|
 | `replays_list` | nothing | `[{id, lastModified, size}]`, newest first |
 | `replay_read` | `id` (match id, digits) | the `.dem` bytes (fallback upload, ≤ 1 GiB) |
+| `replay_preview` | `id` | the card's preview read from the demo (`{match_id, start_time, duration_s, game_mode, winner, teams, build}`), or a reason code (`corrupt`, `parse_failed`, …) |
 | `replay_timeline` | `id` | the timeline JSON, gzipped, or a reason code (`old_map`, `brawl`, …) |
 | `replays_choose_folder` | nothing | `chosen` or `cancelled` (the system's folder chooser; the path stays in the app) |
 | `app_update` | nothing | the newer version the update feed offers, or `null`. Portable only (it asks the feed once per run); the installed app answers `null` and installs updates itself |
@@ -86,7 +89,7 @@ No `deep-link` plugin command is granted either (`get_current`, `register`, …)
 the link in Rust (`app/src/links.rs`).
 
 **A debug build only** takes `MAPCRO_URL` (for example `http://127.0.0.1:5173/`, `just dev`) and
-grants the same five commands to that origin at run time (`dev_capability`). A release build
+grants the same six commands to that origin at run time (`dev_capability`). A release build
 ignores the variable.
 
 ## Installer or portable
@@ -147,7 +150,8 @@ the site's share link (`https://mapcro.dmgdeadlock.com/b/<board>#<token>`, spec 
   own site (`<site>/b/<board>#<token>`; a debug build's `MAPCRO_URL` origin), so a link can't
   point the window anywhere else. `Board`'s `Debug` prints no token; nothing logs the link.
 - **In the page** (spec §6b): on a board page in a browser, **Open in app** is the board's
-  `mapcro://` link. It shows where "Get the Windows app" does: a Windows browser, never in the
+  `mapcro://` link, with a quiet **Get the app** (the installer) beside it for a browser without
+  the app (an unknown scheme does nothing visible). It shows where "Get the Windows app" does: a Windows browser, never in the
   app, once `WINDOWS_APP_RELEASED` is on (Linux when its download link ships, backlog). In the
   app, the landing's **Open link** field and **Ctrl+L** anywhere take a pasted link in either
   form (or on the page's own origin, for a dev server), checked by the same rules
@@ -173,6 +177,16 @@ The parent checks the output with `timeline::validate` and the match id, as the 
 gzips it. It keeps the last 8 parses keyed by the file's size and time. The reference replay
 (129738985, 504 MB) parsed in 14.5 s here (Linux, release, on a loaded box) to 649 KB gzip.
 Brawl and pre-6712 maps are refused by the parser itself (`brawl`, `old_map`).
+
+## The preview: a child process too
+
+`replay_preview` runs the app's executable with `--mapcro-preview-replay <demo> <id>`; the child
+calls `mapcro_replay::preview::read` and prints the preview's JSON (or a reason code). It reads
+the signon and the last minute of the match, not the whole file (docs/research/demo-preview.md):
+129738985 took 0.19 s here, 11 MB of 504 MB. The parent kills it at 30 s, checks the shape and
+the match id, and keeps the answer by the file's size and time in `previews.json` (2,000
+entries; a timeout isn't kept), so a listing reads no demo twice, across runs too. One preview
+at a time.
 
 ## The replays folder
 

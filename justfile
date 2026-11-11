@@ -38,6 +38,10 @@ test:
     cargo test -q -p mapcro-server --features failpoints --test system -- a_crash_between transactions_arriving
     cargo run -q --release -p mapcro-sim -- --seeds 1000
 
+# Lints, warnings as errors (gated: just check, CI; docs/tech-debt.md rule 4).
+clippy:
+    cargo clippy -q --workspace --all-targets -- -D warnings
+
 # Train a storage dictionary from 300 simulation seeds (deterministic: same seeds, same bytes).
 # Never overwrite one that has shipped: a new dictionary is a new codec (`zstd-v2`, codec.rs).
 zdict out="crates/server/dict/ops-v1.zdict":
@@ -123,7 +127,7 @@ dev port="8094": wasm
     cd web && MAPCRO_PORT={{port}} npx vite
 
 # Everything CI runs, locally.
-check: test web-test e2e
+check: clippy test web-test e2e
     just model-sim 5000
     nix build .#checks.x86_64-linux.service
 

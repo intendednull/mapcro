@@ -3,22 +3,29 @@
 // portable app's "Update available" (desktop/README.md, Installer or portable).
 
 import { Show, createResource, createSignal, onCleanup, onMount } from "solid-js";
-import { WINDOWS_APP_RELEASES, appUpdate, bridge } from "../player/desktop";
+import { WINDOWS_APP_RELEASES, appUpdate, bridge, windowsAppLink } from "../player/desktop";
 import { type BoardLink, openBoard, openInAppHref, parseBoardLink } from "../core/applink";
 import { ModalScrim } from "./ModalScrim";
 import { dialogKeys } from "./modal";
 
 export const NOT_A_BOARD_LINK = "Not a board link";
 
-/** A board page's "Open in app" (a Windows browser, once the app is released; never in the app). */
+/** A board page's "Open in app" (a Windows browser, once the app is released; never in the app),
+ * and a quiet "Get the app" beside it for when it isn't installed (the browser drops an unknown
+ * scheme silently). */
 export function OpenInApp(p: BoardLink) {
   const href = () => openInAppHref({ board: p.board, token: p.token });
   return (
     <Show when={href()}>
       {(h) => (
-        <a class="btn ghost" href={h()} data-testid="open-in-app">
-          Open in app
-        </a>
+        <>
+          <a class="btn ghost" href={h()} data-testid="open-in-app">
+            Open in app
+          </a>
+          <a class="btn ghost small muted" href={windowsAppLink()} target="_blank" rel="noopener" data-testid="open-in-app-get">
+            Get the app
+          </a>
+        </>
       )}
     </Show>
   );

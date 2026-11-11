@@ -1,6 +1,7 @@
 //! mapcro for Windows (desktop/README.md): one window on the live site, and the replay picker's
-//! native side: the replays folder, looked up when the picker asks (no watch), and the parse of the
-//! one replay the user picks. The site reaches it through five commands only
+//! native side: the replays folder, looked up when the picker asks (no watch), each card's preview
+//! read from its demo, and the parse of the one replay the user picks. The site reaches it through
+//! six commands only
 //! (capabilities/site.json); it never passes a path, only a match id.
 //!
 //! Logs carry reason codes and match ids, never a path, a player name or an account id.
@@ -8,7 +9,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use mapcro_desktop_core::mode::{self, Mode, OnUpdate};
-use mapcro_desktop_core::{folder, parse, replays, steam};
+use mapcro_desktop_core::{folder, parse, preview, replays, steam};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
@@ -24,7 +25,7 @@ mod links;
 const SITE: &str = "https://mapcro.dmgdeadlock.com";
 const WINDOW: &str = "main";
 /// The app's own commands: the only IPC the site gets.
-const COMMANDS: [&str; 5] = ["allow-replays-list", "allow-replay-read", "allow-replay-timeline", "allow-replays-choose-folder", "allow-app-update"];
+const COMMANDS: [&str; 6] = ["allow-replays-list", "allow-replay-read", "allow-replay-timeline", "allow-replay-preview", "allow-replays-choose-folder", "allow-app-update"];
 /// Installed or portable (the `portable` feature; desktop/README.md, Installer or portable).
 const MODE: Mode = Mode::of_build(cfg!(feature = "portable"));
 /// Timelines kept parsed (each ~0.6 MB gzip for a 44 min match).
@@ -32,7 +33,7 @@ const CACHED: usize = 8;
 
 fn main() {
     let args: Vec<_> = std::env::args_os().collect();
-    if let Some(code) = parse::child_main(&args) {
+    if let Some(code) = parse::child_main(&args).or_else(|| preview::child_main(&args)) {
         std::process::exit(code);
     }
     run();
@@ -62,6 +63,11 @@ struct Shared {
     parsed: Mutex<Vec<(String, Parsed)>>,
     /// One parse at a time.
     parsing: Mutex<()>,
+    /// The previews read so far, by file size and time (`None` until first asked: loaded from the
+    /// app's cache folder then).
+    previews: Mutex<Option<preview::Cache>>,
+    /// One preview read at a time (the cards ask as they come into view).
+    previewing: Mutex<()>,
     /// Portable: the feed's answer, once asked (`Some(None)`: up to date).
     update: Mutex<Option<Option<String>>>,
 }
@@ -109,6 +115,46 @@ impl Shared {
         }
         result
     }
+}
+
+impl Shared {
+    /// Match `id`'s preview: from the cache while the file is unchanged, else read from the demo
+    /// now, in a child, and kept.
+    fn preview(&self, app: &AppHandle, id: &str) -> Result<preview::Preview, String> {
+        let dir = self.dir().map_err(|_| "not_found".to_string())?;
+        let demo = replays::demo_path(&dir, id).ok_or("bad_id")?;
+        let cache_dir = app.path().app_cache_dir().map_err(|_| "failed".to_string())?;
+        let _one = self.previewing.lock().map_err(|_| "busy".to_string())?;
+        let meta = std::fs::metadata(&demo).map_err(|_| "not_found".to_string())?;
+        let modified = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as u64);
+        {
+            let mut cache = self.previews.lock().map_err(|_| "busy".to_string())?;
+            if let Some(hit) = cache.get_or_insert_with(|| preview::Cache::load(&cache_dir)).get(id, meta.len(), modified) {
+                return hit.clone();
+            }
+        }
+        let exe = std::env::current_exe().map_err(|_| "failed".to_string())?;
+        let n: u64 = id.parse().map_err(|_| "bad_id".to_string())?;
+        let result = preview::read(&exe, &demo, n, preview::TIMEOUT);
+        if let Err(why) = &result {
+            eprintln!("mapcro: replay {id} has no preview: {why}");
+        }
+        let mut cache = self.previews.lock().map_err(|_| "busy".to_string())?;
+        let cache = cache.get_or_insert_with(preview::Cache::default);
+        cache.put(id, meta.len(), modified, result.clone());
+        if cache.save(&cache_dir).is_err() {
+            eprintln!("mapcro: previews not kept");
+        }
+        result.map_err(str::to_owned)
+    }
+}
+
+/// One replay's preview card, read from its demo (spec §6b): `{match_id, duration_s, game_mode,
+/// winner, teams, build}`, the server's preview's shape, or a reason code. No names, no ids.
+#[tauri::command]
+async fn replay_preview(app: AppHandle, state: tauri::State<'_, Arc<Shared>>, id: String) -> Result<preview::Preview, String> {
+    let shared = Arc::clone(&state);
+    tauri::async_runtime::spawn_blocking(move || shared.preview(&app, &id)).await.map_err(|_| "failed".to_string())?
 }
 
 /// The folder's replays, newest first: `[{id, lastModified, size}]`. The folder is looked up on
@@ -212,7 +258,7 @@ fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::clone(&shared))
-        .invoke_handler(tauri::generate_handler![replays_list, replay_read, replay_timeline, replays_choose_folder, app_update])
+        .invoke_handler(tauri::generate_handler![replays_list, replay_read, replay_timeline, replay_preview, replays_choose_folder, app_update])
         .setup(move |app| {
             let handle = app.handle().clone();
             if site.as_str().trim_end_matches('/') != SITE {
@@ -233,7 +279,7 @@ fn run() {
         .expect("mapcro failed to start");
 }
 
-/// A debug build pointed at a dev server: the same five commands for its origin.
+/// A debug build pointed at a dev server: the same six commands for its origin.
 fn dev_capability(app: &AppHandle, site: &Url) -> tauri::Result<()> {
     let mut origin = site.clone();
     origin.set_path("/*");

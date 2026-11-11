@@ -43,8 +43,9 @@ pub enum WireIn {
         build: Option<String>,
     },
     Msg { msg: ClientMsg },
-    /// This client's presence, replacing its previous one. Ephemeral: never stored.
-    Presence { state: Presence },
+    /// This client's presence, replacing its previous one. Ephemeral: never stored. Boxed: it's
+    /// several times the size of the other variants (clippy `large_enum_variant`).
+    Presence { state: Box<Presence> },
 }
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -157,7 +158,22 @@ pub struct Presence {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub hover: Option<String>,
+    /// The map layers this person draws (spec §8 "Follow mode"), so a follower draws the same:
+    /// one bit per toggle, wire.rs `LAYER_*`. Players' names are never in it: they stay each
+    /// browser's own. Absent: an older client, and a follower keeps its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub layers: Option<u8>,
 }
+
+/// `Presence::layers` bits. Unknown bits are ignored, so a later toggle can take the next one.
+pub const LAYER_TROOPERS: u8 = 1;
+pub const LAYER_HEALTH: u8 = 1 << 1;
+pub const LAYER_PINGS: u8 = 1 << 2;
+pub const LAYER_CC: u8 = 1 << 3;
+pub const LAYER_MOVEMENT: u8 = 1 << 4;
+pub const LAYER_HEALS: u8 = 1 << 5;
+pub const LAYER_CRATES: u8 = 1 << 6;
 
 /// A hover reference is at most this long: a marker key is under 64.
 pub const MAX_HOVER: usize = 96;
@@ -185,7 +201,44 @@ pub struct Playback {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub vision: Option<PlayerVision>,
+    /// The death recap open on the map (a skull's card), so a follower opens the same one.
+    /// Left out when none, as are the three below: presence is resent whole on every change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub skull_recap: Option<DeathRef>,
+    /// The death recap last opened in the events list and still open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub event_recap: Option<DeathRef>,
+    /// The hero whose build the top bar has open (the single-hero dropdown).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub inspect: Option<SlotRef>,
+    /// Every build open: All builds, or Tab held.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+    pub all_builds: bool,
 }
+
+/// A roster slot in the open match, as presence carries it.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlotRef {
+    pub team: mapcro_schema::Team,
+    pub slot: u8,
+}
+
+/// One hero's death in the open match: its slot and the match second it died (a `deaths` entry).
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeathRef {
+    pub team: mapcro_schema::Team,
+    pub slot: u8,
+    pub t: u32,
+}
+
+/// Slots in presence are under this (six a team; room to spare, as a bad one closes the socket).
+pub const MAX_SLOT: u8 = 16;
 
 /// Player's Vision control (spec §6b "Vision"), as presence carries it.
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -314,6 +367,8 @@ impl Presence {
                     && (0.0..=16.0).contains(&b.speed)
                     && b.match_id < 1_000_000_000_000
                     && b.jump.as_ref().is_none_or(|j| clock(j.at) && j.key.len() <= MAX_JUMP_KEY && !j.key.chars().any(char::is_control))
+                    && [b.skull_recap, b.event_recap].iter().flatten().all(|d| d.slot < MAX_SLOT && d.t <= 86_400)
+                    && b.inspect.is_none_or(|s| s.slot < MAX_SLOT)
             })
             && self.cursor.as_ref().is_none_or(ok_pos)
             && self.drag.as_ref().is_none_or(|d| ok_pos(&d.pos))
@@ -358,7 +413,7 @@ mod tests {
     #[test]
     fn a_jump_in_playback_is_bounded() {
         let with = |key: &str, at: f32| Presence {
-            playback: Some(Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: Some(Jump { key: key.to_owned(), at }), vision: None }),
+            playback: Some(Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: Some(Jump { key: key.to_owned(), at }), ..playback() }),
             ..Default::default()
         };
         assert!(with("35:death:amber:2:::7", 30.0).is_valid());
@@ -370,18 +425,43 @@ mod tests {
         assert!(!with("k", 86_401.0).is_valid());
     }
 
+    fn playback() -> Playback {
+        Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: None, vision: None, skull_recap: None, event_recap: None, inspect: None, all_builds: false }
+    }
+
+    #[test]
+    fn panels_in_playback_are_bounded_and_left_out_when_closed() {
+        use mapcro_schema::Team::{Amber, Sapphire};
+        let with = |pb: Playback| Presence { playback: Some(pb), ..Default::default() };
+        let death = |slot: u8, t: u32| Some(DeathRef { team: Sapphire, slot, t });
+        assert!(with(Playback { skull_recap: death(5, 40), event_recap: death(0, 0), inspect: Some(SlotRef { team: Amber, slot: 2 }), all_builds: true, ..playback() }).is_valid());
+        assert!(!with(Playback { skull_recap: death(MAX_SLOT, 40), ..playback() }).is_valid());
+        assert!(!with(Playback { event_recap: death(1, 86_401), ..playback() }).is_valid());
+        assert!(!with(Playback { inspect: Some(SlotRef { team: Amber, slot: 200 }), ..playback() }).is_valid());
+        // Closed panels and absent layers cost nothing on the wire; an older client parses.
+        let json = serde_json::to_string(&with(playback())).expect("serialises");
+        for k in ["skull_recap", "event_recap", "inspect", "all_builds", "layers"] {
+            assert!(!json.contains(k), "{k} in {json}");
+        }
+        let open = Playback { skull_recap: death(3, 12), all_builds: true, ..playback() };
+        let back: Playback = serde_json::from_str(&serde_json::to_string(&open).expect("serialises")).expect("parses");
+        assert_eq!(back, open);
+        let p = Presence { layers: Some(LAYER_TROOPERS | LAYER_CRATES), ..Default::default() };
+        assert_eq!(serde_json::from_str::<Presence>(&serde_json::to_string(&p).expect("serialises")).expect("parses").layers, Some(0b100_0001));
+    }
+
     #[test]
     fn vision_in_playback_is_optional_both_ways() {
         // An older client's playback has no vision: it still parses, as none.
         let old = r#"{"player":true,"match_id":1,"t":10.0,"playing":false,"speed":1.0}"#;
-        let pb: Playback = serde_json::from_str(old).unwrap();
+        let pb: Playback = serde_json::from_str(old).expect("old playback");
         assert_eq!(pb.vision, None);
         // A new one round-trips it, All as a null team.
         let new = r#"{"player":true,"match_id":1,"t":10.0,"playing":false,"speed":1.0,"vision":{"team":"Sapphire","last_seen":true}}"#;
-        let pb: Playback = serde_json::from_str(new).unwrap();
+        let pb: Playback = serde_json::from_str(new).expect("new playback");
         assert_eq!(pb.vision, Some(PlayerVision { team: Some(mapcro_schema::Team::Sapphire), last_seen: true }));
-        let all: Playback = serde_json::from_str(&new.replace(r#""Sapphire""#, "null")).unwrap();
+        let all: Playback = serde_json::from_str(&new.replace(r#""Sapphire""#, "null")).expect("all teams");
         assert_eq!(all.vision, Some(PlayerVision { team: None, last_seen: true }));
-        assert_eq!(serde_json::from_str::<Playback>(&serde_json::to_string(&pb).unwrap()).unwrap(), pb);
+        assert_eq!(serde_json::from_str::<Playback>(&serde_json::to_string(&pb).expect("json")).expect("round trip"), pb);
     }
 }

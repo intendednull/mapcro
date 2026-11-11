@@ -615,7 +615,7 @@ async fn idle_rooms_unload_and_reload_intact() {
 
 async fn send_presence(c: &mut Client, state: mapcro_engine::wire::Presence) {
     let ws = c.ws.as_mut().expect("ws");
-    send(ws, &WireIn::Presence { state }).await;
+    send(ws, &WireIn::Presence { state: Box::new(state) }).await;
 }
 
 async fn until_peer(c: &mut Client, pred: impl Fn(&mapcro_engine::wire::PeerPresence) -> bool) -> mapcro_engine::wire::PeerPresence {

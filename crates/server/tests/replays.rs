@@ -801,28 +801,48 @@ fn the_status_says_when_a_fetch_cant_come_expired_or_skipped_for_caps() {
     assert_eq!(server.status(&a, &a_owner, "43")["state"], "queued");
 }
 
+/// The free read of a match's salts (`disable_steam=true`): a stored row, at no cost.
+fn free(id: u64) -> String {
+    format!("/v1/matches/{id}/salts?disable_steam=true")
+}
+
+/// The read that may ask Steam: the one with the 3/h budget, for a match with no row.
+fn steam(id: u64) -> String {
+    format!("/v1/matches/{id}/salts")
+}
+
+/// A 429 (its Steam budget) holds back only the lookups that could spend it: a match it holds a
+/// row for is still read and fetched, and a press for the match that met it is refused.
 #[test]
-fn a_429_backs_every_fetch_off_and_says_why() {
-    let routes = HashMap::from([("/v1/matches/25/salts".to_owned(), (429, b"{}".to_vec())), ("/v1/matches/26/salts".to_owned(), (200, salts_for(26, 5)))]);
+fn a_429_backs_off_steam_lookups_only_and_says_why() {
+    let demo = bz2(&fake_demo(20_000));
+    let routes = HashMap::from([(steam(25), (429, b"{}".to_vec())), (free(26), (200, salts_for(26, 5))), ("/cdn/404/1422450/26_5.dem.bz2".to_owned(), (200, demo))]);
     let up = upstream(routes);
     let server = Server::start(up.port, &[]);
     let (a, owner, _) = server.board();
-    server.meta(25, DAY);
-    server.meta(26, DAY);
+    for id in [25, 26, 28] {
+        server.meta(id, DAY);
+    }
     server.open(&a, &owner, 25);
     assert_eq!(server.until_state(&a, &owner, "25", "failed")["reason"], "upstream_limited");
-    // Backing off (60 s, no Retry-After): another match isn't asked for, on open or on a press.
+    assert_eq!((up.hits(&free(25)), up.hits(&steam(25))), (1, 1), "the free read first, then Steam for a match with no row");
+    // Backing off (60 s, no Retry-After): a stored row is still read, for free, and fetched.
     server.open(&a, &owner, 26);
-    assert_eq!(server.status(&a, &owner, "26")["reason"], "upstream_limited");
-    assert_eq!(server.call("POST", &format!("/api/boards/{a}/replays/26/fetch"), &owner), (429, serde_json::json!({ "error": "upstream_limited" })));
+    assert_eq!(server.until_state(&a, &owner, "26", "queued")["source"], "cdn");
+    assert_eq!((up.hits(&free(26)), up.hits(&steam(26))), (1, 0));
+    // A match with no row: its free read goes, its Steam lookup waits for the backoff.
+    server.open(&a, &owner, 28);
+    assert_eq!(server.until_state(&a, &owner, "28", "failed")["reason"], "upstream_limited");
+    assert_eq!((up.hits(&free(28)), up.hits(&steam(28))), (1, 0));
+    // Such a match isn't asked about again on open, and a press waits for the backoff too.
+    server.open(&a, &owner, 28);
+    assert_eq!(server.call("POST", &format!("/api/boards/{a}/replays/25/fetch"), &owner), (429, serde_json::json!({ "error": "upstream_limited" })));
+    assert_eq!(server.call("POST", &format!("/api/boards/{a}/replays/28/fetch"), &owner), (429, serde_json::json!({ "error": "upstream_limited" })));
     std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(up.hits("/v1/matches/26/salts"), 0);
+    assert_eq!((up.hits(&free(28)), up.hits(&steam(25))), (1, 1));
 
     // With Retry-After it waits just that.
-    let up = upstream_with(
-        HashMap::from([("/v1/matches/27/salts".to_owned(), (429, b"{}".to_vec()))]),
-        HashMap::from([("/v1/matches/27/salts".to_owned(), "retry-after: 1".to_owned())]),
-    );
+    let up = upstream_with(HashMap::from([(steam(27), (429, b"{}".to_vec()))]), HashMap::from([(steam(27), "retry-after: 1".to_owned())]));
     let server = Server::start(up.port, &[]);
     let (a, owner, _) = server.board();
     assert_eq!(server.call("POST", &format!("/api/boards/{a}/replays/27/fetch"), &owner).0, 202);
@@ -830,7 +850,60 @@ fn a_429_backs_every_fetch_off_and_says_why() {
     assert_eq!(server.call("POST", &format!("/api/boards/{a}/replays/27/fetch"), &owner).0, 429);
     std::thread::sleep(Duration::from_millis(1200));
     assert_eq!(server.call("POST", &format!("/api/boards/{a}/replays/27/fetch"), &owner).0, 202, "cleared");
-    until_hits(&up, "/v1/matches/27/salts", 2);
+    until_hits(&up, &steam(27), 2);
+}
+
+/// The 400 "has metadata already" is deadlock-api saying Steam won't be asked for this match:
+/// no replay, held like one, not an outage. Another 400 is still trouble.
+#[test]
+fn the_free_400_for_a_match_with_metadata_is_no_replay() {
+    let said = |id: u64| format!("{{\"error\":\"Match salts for match {id} won't be fetched, as it has metadata already\"}}").into_bytes();
+    let up = upstream(HashMap::from([(steam(33), (400, said(33))), (steam(34), (400, b"{\"error\":\"bad request\"}".to_vec()))]));
+    let server = Server::start(up.port, &[]);
+    let (a, owner, _) = server.board();
+    server.meta(33, DAY);
+    server.meta(34, DAY);
+    server.open(&a, &owner, 33);
+    assert_eq!(server.until_state(&a, &owner, "33", "failed")["reason"], "no_replay");
+    server.open(&a, &owner, 34);
+    assert_eq!(server.until_state(&a, &owner, "34", "failed")["reason"], "upstream_down");
+}
+
+/// Before deadlock-api's salts pass (about 2 h after the end; 2 s here) a fresh match's salts are
+/// only read for free: a Steam lookup then never found a replay salt the free read lacked. A
+/// match without one is tried again at the pass, not 6 h later; past it, a no-row match may
+/// spend a Steam lookup, and one still without a salt waits the 6 h.
+#[test]
+fn a_fresh_match_is_read_for_free_and_tried_again_at_the_salts_pass() {
+    let row = |id: u64| serde_json::to_vec(&serde_json::json!({ "match_id": id, "cluster_id": 404, "metadata_salt": 9 })).expect("json");
+    let up = upstream(HashMap::from([(free(35), (200, row(35)))]));
+    let server = Server::start(up.port, &[("REPLAY_SALT_PASS_S", "2")]);
+    let (a, owner, _) = server.board();
+    // Ended just now (meta's matches run 60 s).
+    server.meta(35, 60);
+    server.meta(36, 60);
+    // A row without a replay salt, and no row at all.
+    server.open(&a, &owner, 35);
+    server.open(&a, &owner, 36);
+    assert_eq!(server.until_state(&a, &owner, "35", "failed")["reason"], "no_replay");
+    assert_eq!(server.until_state(&a, &owner, "36", "failed")["reason"], "no_replay");
+    server.open(&a, &owner, 35);
+    server.open(&a, &owner, 36);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!([up.hits(&free(35)), up.hits(&free(36)), up.hits(&steam(35)), up.hits(&steam(36))], [1, 1, 0, 0], "held, and no Steam lookup");
+    // At the pass: asked again on open. A row is read for free; no row now spends one lookup.
+    std::thread::sleep(Duration::from_millis(2000));
+    server.open(&a, &owner, 35);
+    server.open(&a, &owner, 36);
+    until_hits(&up, &free(35), 2);
+    until_hits(&up, &steam(36), 1);
+    assert_eq!(server.until_state(&a, &owner, "35", "failed")["reason"], "no_replay");
+    assert_eq!(server.until_state(&a, &owner, "36", "failed")["reason"], "no_replay");
+    // Past the pass, still no salt: held for hours.
+    server.open(&a, &owner, 35);
+    server.open(&a, &owner, 36);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!([up.hits(&free(35)), up.hits(&free(36)), up.hits(&steam(35)), up.hits(&steam(36))], [2, 2, 0, 1]);
 }
 
 #[test]
