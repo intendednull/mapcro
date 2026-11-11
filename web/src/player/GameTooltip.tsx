@@ -9,7 +9,7 @@
 import { For, type JSX, Show, createEffect, createResource, createSignal, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { Art, BuildRecord } from "../map/pack";
-import { type MarkupNode, type TipIcon, type TipProp, type TipValues, type Tooltips, blockShown, loadTooltips, parseMarkup, shown, substitute, upgraded, upgradesTo } from "../match/tooltips";
+import { TIER_COSTS, type MarkupNode, type TipIcon, type TipProp, type TipValues, type Tooltips, blockShown, loadTooltips, parseMarkup, shown, substitute, upgraded, upgradesTo } from "../match/tooltips";
 import { cx } from "../ui/cx";
 
 /** The pack's tooltips for a replay build (its patch's values); undefined until loaded or
@@ -264,9 +264,8 @@ function AbilityTip(p: { record: BuildRecord; art: Art; tips: Tooltips; ctx?: Ti
           <For each={e().tip.upgrades}>
             {(u, i) => (
               <div class={cx("gt-tier", p.ctx?.tiers != null && i() < p.ctx.tiers && "bought")} data-testid="game-tooltip-tier" data-tier={i() + 1}>
-                {/* The game's header is the tier's ability-point cost, which no file we read holds;
-                    the band stays, with no number. */}
-                <div class="gt-tier-head" />
+                {/* The header is the tier's ability-point cost (TIER_COSTS). */}
+                <div class="gt-tier-head" data-testid="game-tooltip-tier-cost">{TIER_COSTS[i()] ?? ""}</div>
                 <div class="gt-tier-text">
                   <Show when={u.text}>{(t) => <span><Markup text={t()} values={e().values.upgrades?.[i()] ?? {}} aliases={e().tip.aliases} tips={p.tips} /></span>}</Show>
                 </div>

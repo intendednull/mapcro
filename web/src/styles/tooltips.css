@@ -119,11 +119,11 @@
 /* The tier cards below (citadel_tooltip_ability_upgrade_button.vcss's place). */
 .gt-tiers { display: flex; gap: calc(8px * var(--gt)); margin-top: calc(8px * var(--gt)); }
 .gt-tier { flex: 1; display: flex; flex-direction: column; background: linear-gradient(#2a1414, #4a1c1c); box-shadow: 0 0 calc(10px * var(--gt)) #000; }
-.gt-tier-head { height: calc(28px * var(--gt)); background: #10130D; }
+.gt-tier-head { height: calc(28px * var(--gt)); display: grid; place-items: center; background: #10130D; color: #FF5A2A; font: 700 calc(22px * var(--gt)) "VALVEOracle", var(--ui); }
 .gt-tier-text { flex: 1; display: grid; place-items: center; padding: calc(14px * var(--gt)) calc(10px * var(--gt)); text-align: center; font-weight: 600; font-size: calc(17px * var(--gt)); color: #C6C6C6; }
 .gt-tier .gt-m-highlight { color: #FFEFD7; font-weight: 700; }
 .gt-tier.bought { background: linear-gradient(#20301c, #2f4a1c); }
-.gt-tier.bought .gt-tier-head { background: #649717; } /* fortitudeColor */
+.gt-tier.bought .gt-tier-head { background: #649717; color: #FFEFD7; } /* fortitudeColor */
 
 /* ---- stat panels: .heroStatsDisplay 520px + CitadelTooltipModBonusDisplay 200px ---- */
 .sp { --gt: 0.78; display: flex; align-items: flex-start; gap: calc(8px * var(--gt)); }

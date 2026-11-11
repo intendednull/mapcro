@@ -125,6 +125,14 @@ export function withOverlay(data: TooltipData, overlay: { client_version: number
   };
 }
 
+/**
+ * The ability points each upgrade tier costs, as the game's tier cards show them ("1 / 2 / 5" in
+ * the operator's reference `item-djinns-mark.png`). Hard-coded: no file the extractor reads holds
+ * it (`m_nAbilityPointsCost` is 0 on every ability). docs/backlog.md "To verify in the running game"
+ * tracks it across patches.
+ */
+export const TIER_COSTS = [1, 2, 5] as const;
+
 /** A property value as a number, if it is one. */
 export function num(raw: string | undefined): number | undefined {
   if (raw == null || raw.trim() === "") return undefined;

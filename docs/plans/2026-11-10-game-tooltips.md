@@ -20,10 +20,11 @@ Built: parts 1 and 2 as far as the data goes, plus feedback #8 and #9. Spec §6b
   panel, Vision-limited.
 - **Not built, and why**: the weapon card (gun name, range tags, DPS, falloff, the gun render) and
   the panels' other stats (fire rate, ammo, reload, regen, move speed, stamina, CDR, the Spirit
-  Power Impact rows) need rules the calculator doesn't have; the tier cards' ability-point costs
-  ("1 / 2 / 5") aren't in any file read (`m_nAbilityPointsCost` is 0); "Purchased late game in N%"
-  is Valve's stats; "See Details / ALT" has nothing behind it here. Pinning a tooltip open is
-  still an operator decision.
+  Power Impact rows) need rules the calculator doesn't have; "Purchased late game in N%" is
+  Valve's stats; "See Details / ALT" has nothing behind it here.
+- **Operator, 2026-11-11**: the tier cards' ability-point costs (in no file read;
+  `m_nAbilityPointsCost` is 0) are hard-coded 1 / 2 / 5 from the reference screenshot, and on the
+  backlog's in-game checks; no pinning for now (hover, or tap on touch).
 - The game's fonts (oracle, block) aren't extracted: the port uses the app's stack.
 
 ## Reference
@@ -113,7 +114,7 @@ need, per patch.
 ## Decisions for the operator
 
 (2026-11-11: the first two were answered "yes to all" with the stat-calc spike; build-matched
-values ship as overlays of the stat tables' boon-data snapshots. The third is open.)
+values ship as overlays of the stat tables' boon-data snapshots. The third: not now, operator 2026-11-11.)
 
 - Show calculated stats (resists, stat panels), marked as calculated? Without this, part 2 is the
   ladders only.

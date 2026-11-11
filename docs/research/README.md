@@ -115,7 +115,7 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   Mark 11 + 0.35 × 176 = 73, the operator's screenshot). Upgrade bonuses carry `m_eUpgradeType`
   (`EAddToScale` 82, `EMultiplyBase/Scale` 15, else added). **Not in the files:** the ability-point
   cost of each upgrade tier (the "1 / 2 / 5" on the tier cards; `m_nAbilityPointsCost` is 0 on
-  every ability), and "Purchased late game in N% of matches" (Valve's stats). boon-data's
+  every ability; the client hard-codes it, `TIER_COSTS`), and "Purchased late game in N% of matches" (Valve's stats). boon-data's
   `abilities.json` `records[].definition` is the full vdata, so older patches' tooltip values
   come from the same snapshots as the stat tables.
 - **Schema history:** 2 entities (web `map/model.ts`); 3 top-bar art (journal 2026-11-07-web-app);

@@ -207,6 +207,8 @@ test("hovering items, abilities and investment shows the game's tooltips with th
   await expect(tiers.nth(0)).toHaveClass(/\bbought\b/);
   await expect(tiers.nth(1)).not.toHaveClass(/\bbought\b/);
   await expect(tiers.nth(0)).toContainText("+20 Base Damage");
+  // The tiers' ability-point costs, as the game's cards show them.
+  await expect(at.getByTestId("game-tooltip-tier-cost")).toHaveText(["1", "2", "5"]);
   await expect(tiers.nth(1)).toContainText("-2s Cooldown");
   await a.keyboard.press("Escape");
   await expect(float(a)).toHaveCount(0);

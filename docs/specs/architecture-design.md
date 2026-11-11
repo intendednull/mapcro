@@ -963,8 +963,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
     shown with the bought tiers applied (`m_eUpgradeType`: added to the base unless it says to
     the scale or to multiply). A property that scales with spirit power (Djinn's Mark's ×0.35)
     shows the "×" factor, and its value at the hero's calculated spirit power with "≈"; without a
-    calculated spirit power, the base value. A tier card's header is empty: the game writes the
-    tier's ability-point cost there, which no file we read holds.
+    calculated spirit power, the base value. A tier card's header is the tier's ability-point
+    cost, 1 / 2 / 5, hard-coded (`TIER_COSTS`, operator 2026-11-11) from the reference
+    screenshot: no file we read holds it.
   - **Values** are the replay's patch's where the pack has them: the overlay of the stat table
     the build reads (`tableKeyFor`; boon-data snapshots, 6711 onward), else the pack's own. The
     words are always the pack's localisation. Values recorded at t are the column's (cooldown
@@ -977,6 +978,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
     with the row the hero's souls reach lit, the rows below dimmed as reached and above as not, and
     the bar filled as the column's. The game's other panel stats (fire rate, ammo, regen, move
     speed…) need rules mapcro doesn't have, so they aren't shown (backlog "Calculated stats").
+  - Hover only (operator, 2026-11-11: no pinning for now); on touch a tap opens one and a tap
+    elsewhere closes it.
   - Without a pack's tooltips, the plain titles stay (§4b tags).
 - **Hero panel** (replay tier, 2026-11-11, feedback #8; `player/HeroCard.tsx`). A single click
   (press and release within 6 px) on a hero's token with the Move tool opens a compact panel at
