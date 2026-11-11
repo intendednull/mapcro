@@ -3,6 +3,13 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Previews of matches cached before acf63c3 have no winner (2026-11-11, lead, prod check)
+
+`GET /api/matches/129738985/preview` on prod answers `"winner": null`: the summary was cached
+before the summary kept the winner, and the preview is derived from that cache. Kills and souls
+are there. Either re-derive the summary when a cached one lacks `winner` (one metadata read, the
+same rate-limited path), or stamp the summary cache with a version like the timeline's `format`.
+
 ## To verify in the running game (2026-11-10, operator: "keep track of what needs to be verified")
 
 The operator may later let an agent look at the running game. Until then, one list, in one place,
