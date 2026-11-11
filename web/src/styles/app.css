@@ -251,9 +251,9 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .tb-vis[hidden] { display: none; }
 .tb-vis svg { width: 75%; height: 75%; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
 .tb-vis svg circle { fill: currentColor; stroke: none; }
-/* Unseen heroes are darkened, not faded: a faded portrait let the team score bar behind it show
-   through (operator, 2026-11-10). */
-.tb-player.unseen .tb-img, .tb-player.unseen .tb-disc { filter: brightness(0.4) saturate(0.4); }
+/* Unseen heroes: only the hero art darkens; the team-colour disc stays solid. A faded portrait let
+   the team score bar behind it show through (operator, 2026-11-10). */
+.tb-player.unseen .tb-img { filter: brightness(0.4) saturate(0.4); }
 /* Hero picker */
 .hero-picker { width: min(720px, calc(100% - 24px)) !important; }
 .hero-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 12px; max-height: min(56vh, 520px); overflow: auto; padding: 2px; }
