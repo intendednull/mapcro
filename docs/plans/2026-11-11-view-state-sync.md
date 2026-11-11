@@ -245,6 +245,15 @@ passed against the code before the change; after it, rows changed only where a d
   recap sending its first, the popover's group, a build reopening with its popover).
   One named equivalent: the host clipping the search, which the store
   clips again on the wire.
+- **Review fixes:** `clipText` cuts by code point (a lone surrogate went out as `\ud83d`,
+  serde couldn't parse the frame and the server closed the socket as abuse, every reconnect
+  resending it); the session asks the WASM `presenceFrameOk` (the server's parse and
+  `is_valid`) before sending presence and holds back one it would refuse, logged once. The
+  search box shows what the store kept, so typing stops at 64 bytes (the host's clip is now
+  load-bearing: the follow matrix's search test fails without it). `event_filters` keeps the
+  low 16 bits of any whole number and `build_popover` reads an unknown variant as none, so a
+  newer client parses on an older server. `reset()` hears afresh only groups with a
+  `reset_on_match` key (`panels`), so a match change leaves a follower's own filters and search.
 - `playback.jump` is `Outside::Core` now (its apply logic stays outside, §3); `Outside::Wired`
   is the board's scene, floor, viewport and hover, by decision 5.
 
