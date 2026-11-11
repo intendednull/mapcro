@@ -70,15 +70,15 @@ export function BuildColumn(p: { inspect?: boolean; onSeek?: ((t: number) => voi
         }</For>
       </div>
       <div class="tb-build-vitals" data-testid="build-stats">
-        <div data-testid="stat-max-health" title={tag(LABELS.maxHealth, maxHealth())}><span aria-hidden="true">♥</span> {value(maxHealth())}</div>
+        <div data-testid="stat-max-health" classList={{ calc: calc()?.shown.max_health != null }} title={tag(LABELS.maxHealth, maxHealth())}><span aria-hidden="true">♥</span> <span class="tb-stat-v">{value(maxHealth())}</span></div>
         <div class="tb-build-resists">
           <span aria-hidden="true">⛨</span>
-          <b data-testid="stat-bullet-resist" title={tag(LABELS.bulletResist, calc()?.shown.bullet_resist)}>{value(calc()?.shown.bullet_resist, "%")}</b>
-          <b data-testid="stat-spirit-resist" class="spirit" title={tag(LABELS.spiritResist, calc()?.shown.spirit_resist)}>{value(calc()?.shown.spirit_resist, "%")}</b>
+          <b data-testid="stat-bullet-resist" classList={{ calc: calc()?.shown.bullet_resist != null }} title={tag(LABELS.bulletResist, calc()?.shown.bullet_resist)}>{value(calc()?.shown.bullet_resist, "%")}</b>
+          <b data-testid="stat-spirit-resist" classList={{ calc: calc()?.shown.spirit_resist != null }} class="spirit" title={tag(LABELS.spiritResist, calc()?.shown.spirit_resist)}>{value(calc()?.shown.spirit_resist, "%")}</b>
         </div>
         <div class="tb-build-power">
-          <b data-testid="stat-weapon-damage" class="weapon" title={tag(LABELS.weaponDamage, calc()?.shown.weapon_damage)}>{value(calc()?.shown.weapon_damage, "%")}</b>
-          <b data-testid="stat-spirit-power" class="spirit" title={tag(LABELS.spiritPower, calc()?.shown.spirit_power)}>{value(calc()?.shown.spirit_power)}</b>
+          <b data-testid="stat-weapon-damage" classList={{ calc: calc()?.shown.weapon_damage != null }} class="weapon" title={tag(LABELS.weaponDamage, calc()?.shown.weapon_damage)}>{value(calc()?.shown.weapon_damage, "%")}</b>
+          <b data-testid="stat-spirit-power" classList={{ calc: calc()?.shown.spirit_power != null }} class="spirit" title={tag(LABELS.spiritPower, calc()?.shown.spirit_power)}>{value(calc()?.shown.spirit_power)}</b>
         </div>
       </div>
       <div class="tb-build-abilities" aria-label="Abilities">

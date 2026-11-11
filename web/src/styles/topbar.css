@@ -334,3 +334,7 @@
   width: calc(20 * var(--u)); height: calc(20 * var(--u)); border-radius: 50%; display: grid; place-items: center;
   background: #2b2d2a; border: calc(1.5 * var(--u)) solid #8d8f88; color: #e9e4d8;
   font: 700 max(8px, calc(10 * var(--u))) / 1 "Gulim", "VALVEOracle", "Noto Sans", sans-serif; pointer-events: none; }
+
+/* A calculated value (spec §6b, §4b rule 5; operator 2026-11-10): a quiet "≈" before it, in the
+   style, so the value's text stays the number. */
+.tb-build-column b.calc::before, .tb-build-column .calc > .tb-stat-v::before { content: "≈"; margin-right: 0.08em; opacity: 0.5; font-weight: 400; }

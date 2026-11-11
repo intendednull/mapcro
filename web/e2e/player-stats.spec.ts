@@ -131,6 +131,9 @@ test("the scoreboard shows the build's calculated stats from its own patch's tab
   await expect(c.getByTestId("stat-bullet-resist")).toHaveAttribute("title", "Bullet resist");
   await expect(c.getByTestId("stat-spirit-resist")).toHaveText("0%");
   await expect(c.getByTestId("stat-spirit-resist")).toHaveAttribute("title", "Spirit resist");
+  // Calculated values carry the quiet "≈" (spec §4b rule 5), drawn by CSS so the text stays the number.
+  for (const k of ["max-health", "weapon-damage", "spirit-power", "bullet-resist", "spirit-resist"]) await expect(c.getByTestId(`stat-${k}`)).toHaveClass(/\bcalc\b/);
+  expect(await c.getByTestId("stat-weapon-damage").evaluate((el) => getComputedStyle(el, "::before").content)).toBe('"≈"');
   // The bars fill along the ladder: 1,600 weapon souls is two small steps (14%), 800 vitality one
   // (7%); nothing in spirit. Not relative to the hero's own largest category.
   const bar = (k: string) => c.getByTestId(`invest-${k}`);
@@ -156,6 +159,8 @@ test("a build no table covers shows — and the recorded max health", async ({ b
   await a.locator(".tb-all-builds").click();
   const c = column(a);
   await expect(c.getByTestId("stat-max-health")).toContainText("777");
+  // The recorded fallback is not calculated: no "≈".
+  await expect(c.getByTestId("stat-max-health")).not.toHaveClass(/\bcalc\b/);
   for (const k of ["weapon-damage", "spirit-power", "bullet-resist", "spirit-resist"]) {
     await expect(c.getByTestId(`stat-${k}`)).toHaveText("—");
     await expect(c.getByTestId(`stat-${k}`)).toHaveAttribute("title", "Not recorded");

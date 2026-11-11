@@ -192,8 +192,8 @@ equipped items (current shop prices)": hover text had grown into explanations. T
    HUD sources or reference screenshots), never relative to something we picked, such as the
    hero's own largest category.
 5. **Explanations live in docs and dialogs, not hovers**: method and caveats go in the spec, the
-   research map or a help dialog. A calculated value may carry one quiet mark (for example "≈")
-   if the operator approves it.
+   research map or a help dialog. A calculated value carries one quiet mark, "≈" before the
+   number (operator, 2026-11-10); a recorded value carries none.
 
 Reviewers check new or changed `title`, `aria-label` and tooltip text against these rules.
 `aria-label` follows the same rule; it may add a tag a screen reader needs ("Weapon invest, 4,800"), still not a sentence.
