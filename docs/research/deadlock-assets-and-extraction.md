@@ -95,7 +95,8 @@ pack.json                  # canonical JSON; pack_id = sha256(pack.json)
 blobs/<sha256>.{png,webp,svg}
 ```
 
-`pack.json` has these fields:
+`pack.json` has these fields (the original proposal; the pack as built is
+`crates/extract/src/pack.rs`, summarised in the [research map](README.md) "Game files → pack"):
 
 - `schema` and `extractor{name,version}`.
 - `game{client_version, source_revision, version_datetime, buildid?, depot_manifests?}`.

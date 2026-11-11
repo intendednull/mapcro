@@ -90,8 +90,11 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
 
 - **deadlock-api** ([match-replay](match-replay.md) §2.2, [browser-side-replays](browser-side-replays.md),
   [deadlock-api-salts](deadlock-api-salts.md) "Results"): `/v1/matches/{id}/metadata` and
-  `/salts`. Reads from its store are free (`disable_steam=true`); Steam lookups are limited to
-  3 per hour per IP (the 300/h key was declined 2026-11-08). For a fresh match, a free read is as
+  `/salts`. A stored row is returned before the rate limiter, so reading a match it has is free
+  with or without `disable_steam`. Only a match with no row reaches the Steam lookup, limited to
+  3 per hour per IP (the 300/h key was declined 2026-11-08); that lookup is the one path that can
+  create a replay salt for it. So the server's salts call omits `disable_steam` on purpose
+  (replays.rs `salts`), and metadata sends it. For a fresh match with a row, a free read is as
   good as a Steam one. About 10% have a `replay_salt` within 1 h, 42% at 2 h, then it levels
   off near 45–48%. For the rest, upload is the only path. Uploaded salts have always been correct.
 - **Valve CDN:** `http://replay{cluster}.valve.net/1422450/{match_id}_{replay_salt}.dem.bz2`
@@ -122,7 +125,7 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   probes in `crates/replay/examples/{schema,statviewer,damage_ratio}_probe.rs`.
 - **Recorded `max_health` refreshes only at (re)spawn.** It matched the live metadata value at
   10 of 132 snapshots, so it's stale between spawns. stat-calc-spike.md "Recorded max health" (branch
-  `stat-calc`); lead handoff 2026-11-09. timeline.rs and scoreboard-values.md don't say so.
+  `stat-calc`); lead handoff 2026-11-09; timeline.rs and scoreboard-values.md note it.
 - **Stat formulas aren't Valve's.** Every rule set is community-derived (boon, deadlock-plus,
   damage-lab, wiki). The spike's calculated values: max HP 96.4% exact at respawn, spirit 81.1%,
   weapon 72.7%; resists match one sandbox screenshot only. The patch data must match the replay
@@ -139,12 +142,12 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
 - **Unreliable fields:** controller `m_bAlive` is always 0 (use the pawn's `m_lifeState`).
   Controller `m_flRespawnTime` is always 0. A modifier's `duration` isn't when it ends (use the
   removed delta). `m_nSpentCurrencies[0]` read 0 (on 122134063, a Brawl demo: unverified on
-  6v6). `build_num` isn't the map build.
+  6v6; exploration round 2 carries the warning). `build_num` isn't the map build.
 - **Corrected:** "camp timers aren't exposed" (exploration round 2 §5) was wrong. The data came
-  from Street Brawl 122134063; round 3 found the rules' timers. 6v6 recordings are full-world
+  from Street Brawl 122134063 (round 2 warns inline); round 3 found the rules' timers. 6v6 recordings are full-world
   (HLTV), not PVS-limited for camps and heroes (round 3 §3). The timers audit's "no break shows"
-  for breakables is superseded for tough crates (format 7); the statue lifecycle hasn't been
-  probed.
+  for breakables is superseded for tough crates (format 7; gap 6 says so); the statue lifecycle
+  hasn't been probed.
 - **deadlock-api:** a Steam lookup never produced a `replay_salt` that a free read lacked, so
   browser-side priming was dropped (browser-side-replays "Step 0"; salts "Results"). Its
   `MAP_RADIUS` 10752 has no in-game source (the pack fits the transform), and its

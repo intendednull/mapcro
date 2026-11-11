@@ -86,7 +86,7 @@ format 2 at the audit): **yes**, **partial** or **no**. Values are illustrative,
 | `m_pGameRules.m_flGameStateStartTime/EndTime`, `m_flMatchClockAtLastUpdate`, `m_nMatchClockUpdateTick` | Game state and clock bookkeeping | end 2719.19 GT (post-game) | n/a | None. |
 | `CNPC_TrooperBoss` / `CNPC_Boss_Tier2` / `CNPC_BarrackBoss.m_flFadeOutStart/End` (GT) | The death fade, 2 s after the kill | — | n/a | None (kills are already shown). |
 | `CItemXP.m_timeLaunch`, `m_flAttackableTime`, `m_flEndAttackableTime` | Soul orbs' deny window (0.7 s) | — | no | None for a minimap. |
-| `CCitadel_BreakableProp` (709), `CCitadelItemPunchableNeutralGold` (29) | Crates, statues and vault gold drops. **No timer field.** All 709 props are created before the horn and never deleted or change health; going dormant is only visibility (about 40 s out of view). No break is visible. | gold drops 408–2489 | no | Gap 6: not placeable from the replay (checked 2026-11-09). The map has no statue sites either. |
+| `CCitadel_BreakableProp` (709), `CCitadelItemPunchableNeutralGold` (29) | Crates, statues and vault gold drops. **No timer field.** All 709 props are created before the horn and never deleted or change health; going dormant is only visibility (about 40 s out of view). No break is visible (superseded for tough crates: gap 6). | gold drops 408–2489 | no | Gap 6: not placeable from the replay (checked 2026-11-09). The map has no statue sites either. |
 | `CCitadelZipLineNode`, `CCitadelTeam` | No timer fields (`m_iScore`, `m_nBossesAlive`… are counts) | — | — | — |
 | `CNPC_Trooper` | **No wave timer field.** Entity slots are reused, so create times don't give the cadence either. | — | — | Out of scope. |
 
@@ -151,7 +151,8 @@ replay; 8 is skipped.
 5. **Rift warning (−20 s).** Already covered by counting to `live_s`. Nothing to do unless the
    board wants the game's own warning moment.
 6. **Statues and breakables.** *Not from the replay: no break shows (above).* There is no field; the vdata gives 180 / 180. A statue's
-   lifecycle (break → respawn) isn't probed yet. Medium-low value: the statues drop permanent
+   lifecycle (break → respawn) isn't probed yet. **Superseded for tough crates:** format 7 reads
+   their breaks and respawns (`crates`, map-objectives-audit.md); statues are still unprobed. Medium-low value: the statues drop permanent
    stat pickups.
 7. **Urn walk-back.** *Done (client side, from the urn's states).* Show a tooltip "Urn returning" after 180 s idle. This explains round 6's
    drift.

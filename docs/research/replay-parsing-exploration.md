@@ -131,6 +131,10 @@ Probe crate: `/tmp/mapcro-demo-explore/probe`; raw outputs: `/tmp/mapcro-demo-ex
 
 ## Follow-up (2026-11-08, second pass, partly static: the box was busy, so no new parse ran)
 
+> **Warning (2026-11-10):** this round rests on 122134063, a **Street Brawl** demo, which must
+> never be used as data. Round 3 below corrects §5: the camp timers are in the rules
+> (`m_vecNeutralCampNextSpawnTimes`), and 6v6 recordings aren't PVS-limited for camps. §4's
+> `m_nSpentCurrencies[0]` reading 0 is unverified on a 6v6 demo.
 
 **Date:** 2026-11-07 · **Scope:** 122134063 + 108440637, read-only · **Output:** `/tmp/mapcro-demo-explore/out2/`.
 

@@ -49,8 +49,9 @@ from `/v1/matches/active`. Only 2 Steam-capable calls were used. Logs: /tmp/api-
 - **Decision:** the browser-side lookup is dropped (2026-11-09). The way to get more automatic
   fetches is getting the replay salt into deadlock-api, e.g. a companion tool that submits it
   from the player's Steam client after they download the replay in game (on hold).
-- **Still not measured:** whether `replay_salt` arrives after several hours, and what a match with
-  no salts row at all does.
+- **Measured since:** both are in [deadlock-api-salts](deadlock-api-salts.md) "Results": the
+  share with a `replay_salt` levels off near 45–48% after about 2 h, and a match with no row got
+  one from the free reads at 30 min (the Steam-capable read failed).
 
 The priming build is dropped (see the decision above). Today's server path is unchanged.
 
