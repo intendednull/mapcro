@@ -82,6 +82,9 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
 - **Localisation** (`allow.rs` `ABILITY_NAMES`, loose KV1, `kv1.rs`): `citadel_gc_hero_names`,
   then for the names table, in order: `citadel_gc_mod_names`, `citadel_heroes`,
   `citadel_attributes`, `citadel_mods`, `citadel_main`. The VPK has only a stub `items_english.txt`.
+  The rift's states are in `citadel_main` (`Citadel_HUD_Koth*`): "Rift Secured!", "Rift Lost",
+  "Rift Faded Away..." (`KothTimeRanOut`, the give-up), "Rift Has Faded..." (`KothExpired`); no
+  "stalemate" anywhere in the five files (checked 2026-11-11, feedback #13).
 - **Map** (`entities.rs`): `maps/dl_midtown/entities/default_ents.vents_c` → `entities[]` with
   semantic keys, camp `tier`, teleporter `exit`; minimap layers `minimap_midtown_*_psd`.
 - **HUD** (`hud.rs`, `topbar.rs`, `panorama.rs`): panorama styles/layouts → `hud_sources[]`.

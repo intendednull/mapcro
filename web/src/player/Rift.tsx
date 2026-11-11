@@ -1,7 +1,7 @@
 // The open rift's capture in Player (replay tier, format 3; spec §6b): a ring per team around the
 // rift, filled to its capture progress at playback time t, as the game's cash-in meter fills. The
 // timeline samples it twice a second; between samples it's their straight line, and a jump eases
-// to the new value (spec §4a). Hovering the rift says when it gives up (player/Camps.tsx).
+// to the new value (spec §4a). Hovering the rift says when it fades (player/Camps.tsx).
 
 import { For, Show } from "solid-js";
 import type { Art } from "../map/pack";

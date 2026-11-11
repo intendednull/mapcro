@@ -851,8 +851,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
       a held Rejuvenator, "Archmother Rejuvenator: 2 revives, ends in 1:40", joined by " · ";
     - **rifts**: "Rift opens in …" until its cash-in opens (`live_s`,
       `m_timeKothCashInStarted`; the spawner's announcement comes 80 s earlier and the label
-      already counts to the opening), "Rift opens at the other site in …"; open, "Gives up in
-      0:41" (format 3), then "Captured by …". The game has no fixed rift schedule, and no
+      already counts to the opening), "Rift opens at the other site in …"; open, "Fades in
+      0:41" (format 3; the game's word, citadel_main `Citadel_HUD_KothTimeRanOut` "Rift Faded
+      Away...", feedback #13), then "Captured by …". The game has no fixed rift schedule, and no
       next-rift field; the replay's own next opening is used;
     - **bridge buffs**: up, the buff's name ("Casting buff"); else "Buff respawns in …"
       ("spawns" before the site's first). Spawns every 300 s from 5:00 (misc.vdata
