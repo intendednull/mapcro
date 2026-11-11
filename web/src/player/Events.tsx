@@ -4,7 +4,10 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js";
 import type { Art } from "../map/pack";
 import { DeathRecap } from "./DeathRecap";
+import { GameTip, Hover, useTooltips } from "./GameTooltip";
 import { recapFor } from "./recap";
+import type { Death } from "./layers";
+import { slotKey } from "../match/save";
 import { cx } from "../ui/cx";
 import { type MatchEvent, type Timeline, clockLabel } from "../match/timeline";
 import { type EventGroup, GROUPS, type Named, eventKey, groupOf, labelParts, search, majorPurchases } from "./events";
@@ -27,7 +30,16 @@ export function EventsList(p: {
   pinned?: () => MatchEvent | undefined;
   /** The events shown under the filters and search, as they change (the map pings these). */
   onShown?: (events: MatchEvent[] | undefined) => void;
+  /** Whether a death's recap is open, and its toggle (the host's: followers mirror it). */
+  recapOpen?: (d: Death) => boolean;
+  onRecap?: (d: Death, open: boolean) => void;
 }) {
+  // A purchase's item, or an ult's ability, shows its tooltip on hover (GameTooltip.tsx).
+  const tips = useTooltips(() => p.art, () => p.tl.build);
+  const tipId = (e: MatchEvent): number | undefined => {
+    const id = e.kind === "item_buy" ? Number(e.key) : e.kind === "ult" && e.hero_id != null ? p.art.heroes.get(e.hero_id)?.abilities?.[3] : undefined;
+    return id && Number.isFinite(id) && tips()?.tip(id) ? id : undefined;
+  };
   const [query, setQuery] = createSignal("");
   const [on, setOn] = createSignal(new Set<EventGroup>());
   const lead = () => p.lead();
@@ -85,7 +97,7 @@ export function EventsList(p: {
     <div class="pl-events" data-testid="events">
       <div class="pl-events-head">
         <input class="input" data-testid="events-search" placeholder="Search" aria-label="Search events" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} />
-        <label class="pl-lead" title="Jump this many seconds before the event">
+        <label class="pl-lead" title="Lead">
           −
           <input type="number" min="0" max="60" data-testid="events-lead" aria-label="Lead seconds" value={lead()} onInput={(e) => setLead(Math.max(0, Math.min(60, Number(e.currentTarget.value) || 0)))} />s
         </label>
@@ -114,13 +126,19 @@ export function EventsList(p: {
                 <Show when={p.canSave}>
                   <input type="checkbox" aria-label="Select" data-testid="event-pick" checked={picked().has(i)} onChange={() => setPicked(toggle(picked(), i))} />
                 </Show>
+                <Hover tip={() => tipId(e) != null && <GameTip id={tipId(e)!} art={p.art} tips={tips()!} />}>
                 <button type="button" class="pl-ev-go" data-testid="event-jump" onClick={() => p.onJump(e, lead())}>
                   <span class="pl-ev-t">{clockLabel(e.t)}</span>
                   <span class="pl-ev-label">
                     <For each={labelParts(e, p.names)}>{(x) => (x.muted ? <span class="pl-ev-name">{x.text}</span> : x.text)}</For>
                   </span>
                 </button>
-                <Show when={recapFor(p.tl, e)}>{recap => <DeathRecap recap={recap()} timeline={p.tl} art={p.art} onSeek={t => p.onJump(e, e.t - t)} />}</Show>
+                </Hover>
+                <Show when={recapFor(p.tl, e)}>{recap => {
+                  // Open or closed with the host, so a follower opens the one its presenter does.
+                  const death = { slot: slotKey(e.team ?? "", e.slot ?? 0), t: e.t };
+                  return <DeathRecap recap={recap()} timeline={p.tl} art={p.art} open={p.recapOpen?.(death)} onToggle={(o) => p.onRecap?.(death, o)} onSeek={t => p.onJump(e, e.t - t)} />;
+                }}</Show>
               </li>
             );
           }}

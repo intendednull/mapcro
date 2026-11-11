@@ -32,7 +32,7 @@ Ids are `CUtlStringToken`s: MurmurHash2 of the lower-cased name, seed `0x3141592
 | `charges` | ability entity `m_iRemainingCharges` | parse_hero.rs | abilities-and-items §2 |
 | `cc` | pawn `m_pModifierProp.m_bvEnabledStateMask`; cause from a same-tick enemy modifier | hero_data.rs `cc` | [status-effects](status-effects.md) §1–2 |
 | `effects` | `ActiveModifiers` string table, filtered to icon-shown tokens (`modifiers.rs`, generated) | parse_hero.rs | status-effects §1, §3 |
-| `recaps` | msg 300 `CCitadelUserMessageDamage` over `RECAP_S` (10 s) before death, plus `cc` | hero_data.rs `recaps` | status-effects §4 |
+| `recaps` | msg 300 `CCitadelUserMessageDamage` over `RECAP_S` (10 s) before death, plus `cc`. A non-hero attacker's kind (`NPC_SRC` + `NPC_KINDS`, within format 9) from the message's `attacker_class` (4 trooper, 5 guardian, 6 neutral, 8 mid boss, 22 sentry, 29 walker, 30 base guardian, 31 patron; 1 a hero) and `attacker_subclass`, the token of the unit's vdata name (`trooper_medic`, `neutral_sinners_sacrifice`…); no entity tracking needed | hero_data.rs `recaps`, timeline.rs `npc_kind` | status-effects §4; `examples/recap_source_probe.rs` |
 | `objectives`, `objective_health` | `CNPC_TrooperBoss`, `CNPC_Boss_Tier2/3`, `CNPC_BarrackBoss`, `CNPC_MidBoss`, `CCitadel_Destroyable_Building` health; patron `m_ePhase` | derive.rs | exploration §4 |
 | `camps`, `mid_boss` respawn | rules `m_vecNeutralCampNextSpawnTimes/TimerOrigins/TimerIsMidBoss` | derive.rs `camps` | exploration round 3 |
 | `rifts` | `CCitadelItemKothSpawner`; rules `m_timeKothCashInStarted`, `m_timeKothGiveUp`, `m_vecTeamKothStates[]` | derive.rs `rift_capture` | exploration §6, round 7; [timers audit](replay-timers-audit.md) |
@@ -55,6 +55,18 @@ for a match inside Valve's three weeks, is fetched and parsed again once when an
 it. The old one is served meanwhile. "Once" is kept in memory, so a restart allows one more try.
 Past three weeks, it stays. A stale upload stays (its demo is gone) and is marked `stale`;
 Player offers "Upload replay file".
+
+**A card's preview from the demo** ([demo-preview](demo-preview.md); `preview.rs` `read`):
+`CDemoFileInfo` (the header's file-info offset, 20 bytes from the end) holds only playback
+time, ticks and frames; `game_info` is empty, so no heroes, score or winner. The preview is a
+spliced light parse instead: the signon (to `DEM_SyncTick`, ~0.27 MB), the last
+`DEM_FullPacket` (every 3,840 ticks; found scanning back from the end, a candidate kept only if its
+header walk lands on the file info and its body decodes), and if the win came before it, the full
+packet before the rules' `m_nMatchClockUpdateTick` (minus `server_start_tick` = the winning demo
+tick), played to the win. Souls grow after the win (+1,020/+812 on 129738985). boon's
+`from_file` indexes the whole file first; `from_bytes` on the splice doesn't (zero the header's
+offsets). 129738985: 0.15–0.18 s, 11 MB of 504 MB, equal to the server preview and the full
+parse; 0.05–0.56 s and 5–23 MB on builds 6683–6839 and the Brawl demo. The demo has **no wall-clock start** (header, file info, entities checked), so a card's match time comes from the server's preview only.
 
 **Client-parsed timelines** (`replays.rs` `client_timeline`; spec §6a "Timelines parsed on the
 user's machine"): a timeline sent by the desktop app is refused unless its `format` equals
@@ -84,6 +96,9 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
 - **Localisation** (`allow.rs` `ABILITY_NAMES`, loose KV1, `kv1.rs`): `citadel_gc_hero_names`,
   then for the names table, in order: `citadel_gc_mod_names`, `citadel_heroes`,
   `citadel_attributes`, `citadel_mods`, `citadel_main`. The VPK has only a stub `items_english.txt`.
+  The rift's states are in `citadel_main` (`Citadel_HUD_Koth*`): "Rift Secured!", "Rift Lost",
+  "Rift Faded Away..." (`KothTimeRanOut`, the give-up), "Rift Has Faded..." (`KothExpired`); no
+  "stalemate" anywhere in the five files (checked 2026-11-11, feedback #13).
 - **Map** (`entities.rs`): `maps/dl_midtown/entities/default_ents.vents_c` → `entities[]` with
   semantic keys, camp `tier`, teleporter `exit`; minimap layers `minimap_midtown_*_psd`.
 - **HUD** (`hud.rs`, `topbar.rs`, `panorama.rs`): panorama styles/layouts → `hud_sources[]`.
@@ -131,8 +146,11 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   `/salts`. A stored row is returned before the rate limiter, so reading a match it has is free
   with or without `disable_steam`. Only a match with no row reaches the Steam lookup, limited to
   3 per hour per IP (the 300/h key was declined 2026-11-08); that lookup is the one path that can
-  create a replay salt for it. So the server's salts call omits `disable_steam` on purpose
-  (replays.rs `salts`), and metadata sends it. For a fresh match with a row, a free read is as
+  create a replay salt for it. So the server reads salts free (`disable_steam=true`) first, and
+  only a match with no row, past the ~2 h salts pass, gets the read that may ask Steam
+  (replays.rs `salts`, counted as `salts_steam`); a 429 holds back only that read. A 400 "has
+  metadata already" means no row and Steam won't be asked: `no_replay`. Metadata sends
+  `disable_steam`. For a fresh match with a row, a free read is as
   good as a Steam one. About 10% have a `replay_salt` within 1 h, 42% at 2 h, then it levels
   off near 45–48%. For the rest, upload is the only path. Uploaded salts have always been correct.
   Metadata `match_info.winning_team` (lobby team, 0 Amber) and `players[].kills`, `deaths`,
@@ -204,6 +222,13 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   modifier table (no values), the user messages, and the `damage`/`pre_damage` ratio (rejected).
   The UI keeps "—". [scoreboard-values](scoreboard-values.md) "Bullet and spirit resistance";
   probes in `crates/replay/examples/{schema,statviewer,damage_ratio}_probe.rs`.
+- **No rift-spawned troopers to tell apart** (feedback #5, checked 2026-11-11 on 129738985, 5
+  rifts; `examples/trooper_probe.rs`). `CNPC_Trooper` carries `m_nSubclassID` (the token of
+  `trooper_normal`, `trooper_medic`, `trooper_melee`, plus one unnamed token on 96 units at
+  minute 0 only), `m_iLane` (1, 4, 6 only) and an empty `m_hOwnerEntity`; no other unit kind or
+  lane appears around the rifts, and `hud_minimap.vcss` styles every `.npc` alike. Nothing in the
+  recording or the HUD marks a trooper the rift spawned, so the minimap can't colour them. An
+  operator screenshot of one in game, or a replay where they appear, would reopen it.
 - **Recorded `max_health` refreshes only at (re)spawn.** It matched the live metadata value at
   10 of 132 snapshots, so it's stale between spawns. stat-calc-spike.md "Recorded max health" (branch
   `stat-calc`); lead handoff 2026-11-09; timeline.rs and scoreboard-values.md note it.

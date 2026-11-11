@@ -17,12 +17,67 @@ Shipped on branch `tooltips` (spec §6b "Tooltips", "Hero panel"; plan 2026-11-1
 - **Live values in the tooltip**: the remaining cooldown and charges at t are on the icon only;
   the game's tooltip shows the static value.
 - **Hero panel for followers**: the panel is local; a presenter opening one isn't followed.
-- **Item tooltips on the events list and the death recap** (their item and ability icons): not
-  wired yet; `Hover` + `GameTip` drop in where an id and the art are at hand.
 - **Spirit-scaled values on items**: only abilities' cards take the calculated spirit power with
   "≈"; items' scaled properties show the base value.
 
+## A macOS desktop app (2026-11-11, operator: only if users ask)
+
+Parked. Deadlock has no macOS client, so the app's job (the local replays folder, previews, local
+parse) has nothing to work on; Mac users get the full site in Safari/Chrome (the WebKit e2e pass
+covers Safari's engine). If users ask: GitHub's macOS runners can build a `.dmg` and run unit tests
+without a Mac, but `tauri-driver` doesn't support WKWebView (no smoke test), and unsigned apps are
+blocked by Gatekeeper ("damaged" on Apple silicon), so a usable build needs the Apple Developer
+Program ($99/yr) and notarization per release, plus a real Mac for the first check. Niche case:
+CrossOver/Whisky players have replays inside the Wine bottle; the app could look there.
+Research: docs/research/desktop-app.md.
+
+## Follow a hero's token with the camera (2026-11-11, feedback #16; operator: after the tooltips)
+
+Keep the map centred on a chosen hero while zooming freely: start from a double-click on the
+hero's top-bar portrait or minimap token, or a hotkey over a hovered token/portrait; stop on pan
+or Escape. Needs a camera model (the map doesn't pan to follow today) and a decision on how it
+interacts with presenter follow (followers' cameras already mirror the presenter's).
+
+## Demo previews: the rest (2026-11-11, from demo-preview)
+
+The app reads each card's preview from the demo (spec §6a "Read from the demo first";
+docs/research/demo-preview.md). Left over:
+
+- **Drop the server preview?** The app falls back to `GET /api/matches/{id}/preview` only when its
+  own read fails (a broken file, an older app). Once every app in the field has `replay_preview`,
+  the route serves no one: retire it with its cache (TD-17), or keep it for a browser picker.
+- **Old maps on cards:** a pre-6712 demo previews fine (6683 and 6701 read), but picking it fails
+  as `old_map`. The card could say "Older map" from `build` before the pick.
+- **The match's time on a card** (operator, 2026-11-11: "Played 2 d ago", not the file's time):
+  the demo has no wall-clock start (research demo-preview, `start_time`), so a card read locally
+  shows the file's time ("Downloaded" on hover). Options: ask the server for the time only where
+  it's free (a cached summary), or estimate it from the match id (ids rise over time, a fit
+  from known pairs). Needs the operator's call.
+- **A Windows cold-cache timing**: measured on Linux only (0.05–0.56 s, page cache warm or not on a
+  shared box). A first listing of ten 500 MB demos on a spinning disk is ~100–200 MB of reads.
+- **Previews ahead of view:** cards read one at a time as they scroll in; the next page's could be
+  read while the picker is idle.
+
+## Follow: what a follower still doesn't share (2026-11-11, from follow-sync)
+
+Following now carries the map layers and the open panels (death recaps, builds; spec §8). Held:
+- **Effects and Build order inside a hero's build:** the follower opens the same hero's build,
+  but which of the two popovers is open (or none) is its own. Small: two more bits in `playback`.
+- **The events list's filters, search and scroll.** A follower pings from its own filters, so
+  its pings can differ from the presenter's, and an events-row recap the presenter opens stays
+  closed on a follower whose filters hide that row. Sharing filters changes what the follower's
+  list shows; worth asking the operator whether that is wanted.
+- **The events list doesn't scroll to a recap the presenter opens.** It opens in place; the list
+  follows "Now" as before, so an older death's recap may open out of view.
+- **The teleporter pair's line** (below, "A follower doesn't see the presenter's teleporter pair").
+- **Sidebar tab (Events or Notes), the Layers popover being open, and the side panels on the
+  phone:** layout, left each person's own.
+
 ## Previews of matches cached before acf63c3 have no winner (2026-11-11, lead, prod check)
+
+## Previews of matches cached before acf63c3 have no winner (2026-11-11, lead, prod check): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 6064363): the summary cache is stamped `summary_format`; an unstamped one without a winner is derived again from one metadata read, once a process, and a card with `winner: null` is made again from the summary (spec §6a, Previews).
 
 `GET /api/matches/129738985/preview` on prod answers `"winner": null`: the summary was cached
 before the summary kept the winner, and the preview is derived from that cache. Kills and souls
@@ -70,18 +125,18 @@ of claims only the game (or its client) can settle. Add to it; strike items once
   replay file"; for a desktop user, re-parsing locally would be the better offer.
 - zstd bodies aren't accepted (gzip only); add one if the wasm parse prefers it.
 
-## Label sweep (2026-11-10, from stat-calc-prod; spec §4b)
+## Label sweep (2026-11-10, from stat-calc-prod; spec §4b): resolved
 
-Hovers and aria-labels outside the Tab column that read as sentences or carry caveats; fix to
-tags (1–3 words; an aria-label may add a value tag). Found in `web/src/player/PlayerTopBar.tsx`,
-not fixed (out of that branch's scope):
-
-- Rejuvenator: aria-label "`<team>` Rejuvenator: N revives left" (line ~63).
-- Portrait button: aria-label "Build for `<hero>`".
-- Vision mark: title and aria-label "Not seen by the selected team".
-- Focus button: title "Inspect `<hero>` build and show on map", aria-label "Inspect `<slot>`, `<hero>`, build and show on the map".
-- Respawn: aria-label "`<slot>` respawns in N s"; health: aria-label "`<slot>` health N%".
-- Not yet swept: the rest of `web/src/player/` and `web/src/board/` (`grep -n 'title=\|aria-label=' -r web/src`).
+Resolved 2026-11-11 (branch `web-polish`): the top bar's Rejuvenator ("Hidden King Rejuvenator";
+aria "…, 2 revives"), portrait ("Abrams build"), vision mark ("Not seen"), focus button ("Inspect
+Abrams"), respawn and health aria ("Amber 1 respawn, 12 s"), the transport's and Map layers'
+explanatory hovers (dropped where they repeated the label), the Vision and Last seen hovers, the
+build order rows, the replays-folder and landing hovers, "Play from here", the skull's recap and
+the board top bar's aria-labels. `web/test/labels.test.ts` fails on any literal `title` or
+`aria-label` in `web/src` over four words (a key hint in parentheses and a value after a comma
+don't count) or written as a sentence. Left on purpose: the map markers' timer hovers ("Respawns
+in 1:20 · …", spec §6b) and the tier chip's hint (it explains what the summary lacks; spec §6b
+"tap or hover the summary"), which the operator may want shortened.
 
 ## Calculated stats: follow-ups (2026-11-10, from stat-calc-prod)
 
@@ -137,8 +192,29 @@ much they matter.
   - **Download link for Linux.** "Get the Windows app" shows on Windows only; a Linux link
     (AppImage) would need a label and a release flag like `WINDOWS_APP_RELEASED`.
   - **WebKit in CI.** `just e2e-webkit` is opt-in and local; the main CI runs no e2e at all.
+- **Portable build (2026-11-11, deep-links; desktop/README.md, Installer or portable).** Left:
+  - **First tagged release:** the release job's portable step (`cargo tauri build --no-bundle
+    --features portable`, `gh release upload` into the draft) has not run yet; check the draft
+    has `mapcro_<v>_x64-portable.zip`, `mapcro_x64-portable.zip` and `mapcro_x64-setup.exe`.
+  - **By hand on Windows:** unzip and run; a board's Open in app reaches it; Update available
+    shows against an older copy and opens the release page in the browser.
+  - **A moved or deleted portable copy** leaves `HKCU\Software\Classes\mapcro` pointing at it
+    until another copy or the installer runs.
+- **Board links (2026-11-11, deep-links; desktop/README.md, Deep links).** Built: `mapcro://`
+  registration, the hand-off to the running app, Open in app, Open link and Ctrl+L. Left:
+  - **Check on Windows by hand:** a browser's "Open in app" asks to open mapcro and the app
+    opens the board, cold and running; the NSIS uninstaller removes `HKCU\Software\Classes\mapcro`.
+  - **Check on a real Linux desktop:** clicking a `mapcro://` link in Firefox and Chrome with
+    the .deb installed, and with an AppImage (its self-registration writes a desktop file in
+    `~/.local/share/applications` on every start).
+  - **Open in app on Linux browsers,** with the Linux download link (above): the same gate.
+  - **Open in app when the app isn't installed** does nothing visible (the browser drops an
+    unknown scheme); a quiet "Get the app" sits beside it (operator, 2026-11-11). Detecting
+    the missing handler (blur/visibility timing) isn't done.
 
-## The salts backoff holds back free reads (2026-11-10, from salts-docs)
+## The salts backoff holds back free reads (2026-11-10, from salts-docs): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, aaf90b1; TD-9): the free read goes first and a 429 holds back only the Steam-capable read of a no-row match; the 400 is `no_replay`; a match before the ~2 h salts pass is held until it (spec §6a, Remembered failures and Pacing).
 
 deadlock-api answers a stored salts row before its rate limiter, so only a lookup of a match with
 no row spends its 3/h Steam budget (docs/research/deadlock-api-salts.md "When the backend asks the
@@ -256,7 +332,10 @@ The whole streak look (the lead's check, 2026-11-10; backlog only, not built):
 - **The threshold** is set in code and still unknown. An operator screenshot of a streak would
   confirm it.
 
-## The death recap shows internal ability names (2026-11-10, from ux-batch-1)
+## The death recap shows internal ability names (2026-11-10, from ux-batch-1): resolved
+
+Resolved 2026-11-11 (branch `web-polish`): `player/recap.ts` `recapAbility` uses the parent's name, else "Weapon" or "Ability"; never the engine name.
+
 
 The recap's hit rows (`player/DeathRecap.tsx`) print `record.label` as it is, so a record whose
 `label_from` is `"internal"` reads as the engine name. In 129738985, Infernus's death at 6:45
@@ -264,7 +343,10 @@ lists "deadpack_primary_weapon_charge" under Deadman Danny. The Effects list now
 the parent ability's or item's name (`player/effects.ts` `effectLabel`). The recap could share
 that fallback.
 
-## A death and its recap can be a second apart (2026-11-10, from ux-batch-1)
+## A death and its recap can be a second apart (2026-11-10, from ux-batch-1): resolved
+
+Resolved 2026-11-11 (branch `web-polish`): `recapOf` takes the latest lethal hit up to 1.5 s before the death's second. Amber 1's recap at 2545 s with no death stays unpaired (a revive in place, or past the parse's end).
+
 
 `recapOf` (player/recap.ts) pairs a death with the recap whose `ceil(t / 10)` equals the death's
 second exactly. In 129738985, Amber 3's death at 521 s has a recap at 520 s, so neither the
@@ -416,7 +498,9 @@ A record with no localised name gets its internal name with the prefix stripped
 821 of the 2,061 modifiers end up there. Whether the UI shows those at all, or turns `_` into
 spaces, waits on the build-card UX.
 
-## Clippy fails on engine and server under rust 1.99 (2026-11-10, from pack-abilities)
+## Clippy fails on engine and server under rust 1.99 (2026-11-10, from pack-abilities): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy --workspace --all-targets -- -D warnings` (nix dev shell, rust 1.99.1) stops before
 it reaches most crates:
@@ -498,7 +582,9 @@ negative or fractional `t_s`, a missing `tier`) at deserialisation, so the answe
 well-typed but invalid values get. Only a client other than ours can send those shapes; parsing
 `match` as a raw value and checking it by hand would give one message for both.
 
-## clippy: `unwrap()` in packs.rs (2026-11-09, from feedback-match)
+## clippy: `unwrap()` in packs.rs (2026-11-09, from feedback-match): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy -p mapcro-server --all-targets` warns `clippy::unwrap_used` at
 crates/server/src/packs.rs:188 (`p.0.parse().unwrap()` in `newest_first`). Already on main; an
@@ -523,7 +609,9 @@ toggle of their own at least. Not asked for; the audit's candidates list has the
 `CCitadel_BreakableProp` (709 entities) it runs at about real time (30 min for 129738985).
 Comparing raw field values and formatting only the changes would make it a seconds-long probe.
 
-## Clippy: collapsible_if in derive.rs's buffs (2026-11-09, from heavy-crates)
+## Clippy: collapsible_if in derive.rs's buffs (2026-11-09, from heavy-crates): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy -p mapcro-replay --all-targets` warns `collapsible_if` at
 crates/replay/src/derive.rs:751 (`} else if !b.active && up { if let Some(l) = out.last_mut()`),
@@ -549,11 +637,10 @@ of drift. `reanchored` in matches.rs re-anchors paths to deaths, which hides it 
 Checking where the drift starts against `match_pauses` on a few paused matches would tell; if it
 fits, cutting each pause's samples from the paths would fix the summary tier's clock.
 
-## "Presenter left" has no test that the follower's own Vision comes back (2026-11-09, from follow-vision)
+## "Presenter left" has no test that the follower's own Vision comes back (2026-11-09, from follow-vision): resolved
 
-When a followed presenter leaves, Board.tsx now calls `player.forget()` (as stopping does), so
-the follower's own Vision returns. The player-vision e2e covers stopping by hand, not the
-presenter closing their tab; a step that closes the presenter's page mid-follow would pin it.
+Resolved 2026-11-11 (follow-sync): `player-follow-view.spec.ts` closes the presenter's context
+mid-follow and checks the follower's own Vision and map layers come back.
 
 ## Player puts the match's name before a typed slot name (2026-11-09, from scene-names)
 
@@ -611,7 +698,9 @@ times out polling the replay inbox, with nothing on the page or in the error say
 was hit. player-vision.spec.ts now raises the limit for its server; a shared default in
 e2e/server.ts, or the helper reporting the refusal, would spare the next spec the hunt.
 
-## Clippy fails on crates/replay/src/parse.rs (2026-11-09, from shop-state)
+## Clippy fails on crates/replay/src/parse.rs (2026-11-09, from shop-state): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy -p mapcro-replay --tests -- -D warnings` (rust 1.99) stops on
 `clippy::chunks_exact_to_as_chunks` at parse.rs:658 (`key.chunks_exact(4)`), and on two more

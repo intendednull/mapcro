@@ -1,28 +1,30 @@
 import { For, Show } from "solid-js";
 import type { Art } from "../map/pack";
 import { clockLabel, type Timeline, type TimelinePlayer } from "../match/timeline";
-import { CC_LABELS } from "./recap";
+import { CC_LABELS, NPC_SRC, recapAbility, recapSource } from "./recap";
+import { GameTip, Hover, useTooltips } from "./GameTooltip";
 
 type Recap = NonNullable<TimelinePlayer["recaps"]>[number];
-export function DeathRecap(p: { recap: Recap; timeline: Timeline; art: Art; onSeek: (t: number) => void; open?: boolean }) {
+export function DeathRecap(p: { recap: Recap; timeline: Timeline; art: Art; onSeek: (t: number) => void; open?: boolean | undefined; onToggle?: ((open: boolean) => void) | undefined }) {
   const total = () => p.recap.damage.reduce((sum, d) => sum + d[2], 0);
   const start = () => Math.max(0, p.recap.t - 100);
   const span = () => Math.max(1, p.recap.t - start());
-  const source = (index: number) => {
-    const player = p.timeline.players[index];
-    return player ? p.art.heroes.get(player.hero_id)?.name ?? "Hero" : "World / other";
-  };
+  const source = (src: number) => recapSource(src, p.timeline, (id) => p.art.heroes.get(id)?.name);
   const record = (id: number) => p.art.buildCatalog?.records.get(id);
-  return <details class="death-recap" data-testid="death-recap" open={p.open}>
+  const ability = (src: number, id: number) => recapAbility(id, record, src >= NPC_SRC);
+  // A hit's item or ability icon shows its tooltip on hover (GameTooltip.tsx).
+  const tips = useTooltips(() => p.art, () => p.timeline.build);
+  const has = (id: number) => !!id && !!tips()?.tip(id);
+  return <details class="death-recap" data-testid="death-recap" open={p.open} on:toggle={(e) => p.onToggle?.(e.currentTarget.open)}>
     <summary>Death recap · {total().toLocaleString()} damage</summary>
     <div class="death-recap-body">
       <div class="recap-window"><span>Last {span() / 10}s · {clockLabel(p.recap.t / 10)}</span>
         <button class="btn small" onClick={() => p.onSeek(start() / 10)}>Watch lead-up</button></div>
       <Show when={p.recap.damage.length} fallback={<p>No damage recorded.</p>}>
         <div class="recap-damage"><For each={p.recap.damage}>{([src, id, damage]) =>
-          <div class="recap-hit" title={`${source(src)} · ${record(id)?.label ?? (id ? "Unknown ability" : "Other damage")}`}>
-            <Show when={record(id)?.icon}>{icon => <img src={icon()} alt="" />}</Show>
-            <span>{source(src)}<small>{record(id)?.label ?? (id ? "Unknown ability" : "Other damage")}</small></span>
+          <div class="recap-hit" data-testid="recap-hit" data-src={src} title={has(id) ? undefined : [source(src), ability(src, id)].filter(Boolean).join(" · ")}>
+            <Show when={record(id)?.icon}>{icon => <Hover tip={() => has(id) && <GameTip id={id} art={p.art} tips={tips()!} />}><img src={icon()} alt="" data-testid="recap-icon" /></Hover>}</Show>
+            <span>{source(src)}<Show when={ability(src, id)}>{a => <small>{a()}</small>}</Show></span>
             <b>{damage.toLocaleString()}</b>
             <i style={{ width: `${total() ? damage / total() * 100 : 0}%` }} />
           </div>

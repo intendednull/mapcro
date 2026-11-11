@@ -275,7 +275,7 @@ export function SceneTree(p: {
                       <button
                         class="scene-chip"
                         data-testid="scene-chip"
-                        title="Play the match from here"
+                        title="Play from here"
                         onClick={(e) => {
                           e.stopPropagation();
                           c().go();

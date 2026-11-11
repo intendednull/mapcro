@@ -331,6 +331,22 @@ and shared boards therefore follow one code path and one set of tests.
   the per-client and global limits, and the summary it fetches is cached for the open that
   follows. After the metadata call says 429, previews don't ask deadlock-api for 60 s (opens
   still do). Errors are the summary's (`not_found`, `brawl`, `upstream_limited`, …).
+  - **Read from the demo first (2026-11-11, operator: every replay in the folder gets a card):** in
+    the app, a card's preview comes from the `.dem` itself (`crates/replay` `preview::read`, the
+    same shape plus `build`; `start_time` is 0, the demo doesn't record it), so fresh matches,
+    matches deadlock-api doesn't have and uploads get one with no server call. It reads the
+    signon and the match's last minute (a few MB; 129738985: 0.2 s, 11 MB of 504 MB) and takes
+    the end as the full parse does: heroes by slot, kills, souls at the winning tick, the winner,
+    the clock to the win, the mode. Any build and mode reads (a Brawl demo is a card that says
+    "Street Brawl"). The server's preview is asked only when the app has none (a broken file, an
+    app without the command). docs/research/demo-preview.md.
+
+  - **Summary format (2026-11-11):** a cached summary carries `summary_format` (now 1: the
+    winner and team kills). One below it (unstamped and without `winner`, cached before the
+    winner was kept) is derived again on its next open or preview, from one metadata read on the
+    same limited path, once a process; if that read fails or is limited, the old one is served.
+    A cached card with `winner: null` isn't served as it is: it's made again from the summary,
+    so an old one picks up the winner (a match with none just makes the same card).
 - **Not in the metadata tier:** ults, zipline colours, camps, rifts, powerups and z. A match older than the
   pack is drawn on it with an "Older map" label.
 - The mid boss's respawn time isn't in the match data. The preview shows it down from a kill
@@ -353,22 +369,31 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
   - **Fetch:** `POST /api/boards/{board}/replays/{id}/fetch` asks deadlock-api's salts endpoint
     for the match's cluster and replay salt, then downloads
     `http://replay{cluster}.valve.net/1422450/{id}_{salt}.dem.bz2` (zstd since 2026-07-20; the
-    magic decides). The call doesn't send `disable_steam`: a stored row comes back before
-    deadlock-api's rate limiter, so it's free; only a match with no row spends one of the 3
-    Steam lookups an hour per address, and that GC lookup is the one path that can create a
-    replay salt (docs/research/deadlock-api-salts.md).
+    magic decides). A stored row comes back before deadlock-api's rate limiter, so it's free;
+    only a match with no row spends one of the 3 Steam lookups an hour per address, and that GC
+    lookup is the one path that can create a replay salt (docs/research/deadlock-api-salts.md).
+    So the free read (`disable_steam=true`) goes first. Only a match it has no row for gets the
+    read that may ask Steam, and only once the match is past deadlock-api's salts pass (2 h 10
+    min after its end, by the cached metadata; a match without it counts as past). Before then,
+    a Steam lookup never found a replay salt the free read lacked (salts "Results").
   - **Fetched on open (operator, 2026-11-08):** attaching a match to a board (the landing's Open
     match by id, Player's Load) starts that fetch on its own, unless the `cdn` timeline is
     cached or its job is under way (one job for every board: a second board joins it), the
     board's own upload is under way or done, the match is past Valve's three weeks from its
-    start (`expired`, from the cached metadata; a match without it isn't tried), its fetch
-    failed lately, or deadlock-api is backing us off. The mode refusal comes first.
+    start (`expired`, from the cached metadata; a match without it isn't tried), or its fetch
+    failed lately (including a lookup that met deadlock-api's backoff). The mode refusal comes
+    first.
     - **Remembered failures:** no salts or no demo (`no_replay`) and a failed download are kept
-      per match for 6 h, so opening it again doesn't ask deadlock-api (a no-row lookup spends
-      one of its 3 Steam lookups an hour per address). **Fetch replay** stays, and goes past this.
+      per match, so opening it again doesn't ask deadlock-api. A failed download and a match
+      past the salts pass are kept 6 h. A match before the pass with no replay salt yet (or no
+      row) is kept only until the pass, when most salts that come have come (about 10% at 1 h,
+      42% at 2 h, 45–48% after). The 400 "won't be fetched, as it has metadata already" (no row,
+      and Steam won't be asked) is `no_replay` too. **Fetch replay** stays, and goes past this.
     - **Pacing:** no fetch cap of ours. deadlock-api's own answers pace them: a `429` from the
-      salts endpoint backs every fetch off for its `Retry-After`, else 60 s doubling to an hour,
-      and a press of Fetch replay meanwhile is refused (`429 upstream_limited`). Fetches wait in
+      salts endpoint backs off the reads that may ask Steam for its `Retry-After`, else 60 s
+      doubling to an hour. Free reads of the rows it holds go on meanwhile, so a match it has a
+      salt for is fetched. A match with no row waits for the backoff (`upstream_limited`), on
+      open and on a press of Fetch replay (`429 upstream_limited`). Fetches wait in
       the queue's line (below) for a download slot (2 at once) and its room rather than being
       refused.
     - **API key:** optional, from the file `DEADLOCK_API_KEY_FILE` names (never a value in the
@@ -380,7 +405,8 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
       "API summary", and the tab that opened the match is asked what to do in the full-replay
       prompt (§6b, Getting a replay in).
     - **Why no fetch is coming, in the job state (2026-11-08):** with no job, the status says
-      `failed` with the remembered reason, `upstream_limited` while backing off, `busy` for
+      `failed` with the remembered reason (`upstream_limited` for a match whose lookup met the
+      backoff, until it ends), `busy` for
       10 min to the board whose open our caps skipped (that board only), and `expired` for a
       match past the three weeks by its cached metadata, whether or not anything opened it.
 - **Job state:** `GET /api/boards/{board}/replays/{id}` answers `none`, `waiting` (an upload's
@@ -560,6 +586,15 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     - `recaps` `{t, damage: [src, ability_id, damage], cc}`: per lethal hit (message 300,
       `victim_health_new` 0; another within 3 s is the same death), the damage taken in the 10 s
       before by source and ability, most first, and the `cc` rows overlapping that window. 78.
+      A source that isn't a hero is `256 + kind` when msg 300's attacker class is known
+      (trooper, medic or melee trooper, guardian, walker, base guardian, patron, mid boss,
+      neutral camp, Sinner's Sacrifice, sentry turret; timeline.rs `NPC_KINDS`), else 255. Added
+      without a FORMAT bump (2026-11-11, feedback #20): an older format-9 timeline or app writes
+      255 there and still reads as "World / other"; the server must be deployed before an app
+      that writes kinds. Player names each as the game does ("Trooper", "Walker", "Sinner's
+      Sacrifice", citadel_main), and an ability with only an engine name shows its parent's name,
+      else "Weapon" or "Ability". A death pairs with the latest lethal hit up to 1.5 s before its
+      sampled second (deaths are read once a second).
     - `height` `[second, level]` (0 level, 1 above, 2 below): the hero's own team's
       `m_vecFOWEntities` `m_eHeight`, held 2 s; level before the first entry. `zipline`
       `[from_s, to_s)`: the pawn's `m_eZipLineLaneColor` non-zero, held 2 s. Alive seconds:
@@ -815,13 +850,13 @@ makes a board with that match attached and lands in Player; **New board** is tod
     guardians are down"); the audit's "Shops" has the replay evidence. A board keeps all 8. Hovering a teleporter draws a faint dashed line to its pair's other end, and
     a ring on it.
   - **Heals:** the 36 healing pickups, behind a toolbar toggle beside Comments (under the map in
-    Sandbox and Player), off by default. Like Names it's this browser's alone (localStorage, every
-    board), never in presence. On the replay tier from format 5, a pickup is timed like a camp:
+    Sandbox and Player), off by default. Your own is remembered in this browser (localStorage,
+    every board); a follower draws its presenter's while following (§8, map layers). On the replay tier from format 5, a pickup is timed like a camp:
     down before it first comes up and while taken, "Respawns in m:ss" on hover, nothing while up.
   - **Heavy boxes** (2026-11-09, operator: "can we do heavy boxes like we did the bats? as a
     separate toggle too"): the 78 tough crates (`citadel_breakable_prop_tough_crate`; not the
     wooden crates, item containers or bells), behind their own toggle beside Heals, off by
-    default, this browser's alone like Heals. The game's minimap doesn't draw crates and the pack
+    default, remembered and followed like Heals. The game's minimap doesn't draw crates and the pack
     has no icon for them, so they're our own small braced box. On the replay tier from format 7,
     a crate is timed like a heal: down before its spawn group comes up (3:00, 5:00 or 10:00) and
     while broken, "Spawns in" / "Respawns in m:ss" on hover, nothing while up.
@@ -851,8 +886,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
       a held Rejuvenator, "Archmother Rejuvenator: 2 revives, ends in 1:40", joined by " · ";
     - **rifts**: "Rift opens in …" until its cash-in opens (`live_s`,
       `m_timeKothCashInStarted`; the spawner's announcement comes 80 s earlier and the label
-      already counts to the opening), "Rift opens at the other site in …"; open, "Gives up in
-      0:41" (format 3), then "Captured by …". The game has no fixed rift schedule, and no
+      already counts to the opening), "Rift opens at the other site in …"; open, "Fades in
+      0:41" (format 3; the game's word, citadel_main `Citadel_HUD_KothTimeRanOut` "Rift Faded
+      Away...", feedback #13), then "Captured by …". The game has no fixed rift schedule, and no
       next-rift field; the replay's own next opening is used;
     - **bridge buffs**: up, the buff's name ("Casting buff"); else "Buff respawns in …"
       ("spawns" before the site's first). Spawns every 300 s from 5:00 (misc.vdata
@@ -936,7 +972,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
   spawn; the recorded one is the fallback. A build with no table (older than 6711 or newer than
   the pack's sources) shows "—" ("Not recorded"); no other patch's numbers stand in. So does a
   timeline from before format 9: without statue pickups the values would run short. Hovers are
-  the stats' names (§4b); a calculated value carries the quiet "≈" (§4b rule 5), drawn by CSS.
+  the stats' names (§4b); each calculated value carries a quiet "≈" before the number (operator,
+  2026-11-10; §4b rule 5), drawn by CSS so the text stays the number.
   With a pack that has tooltips, hovering a stat or an investment bar shows the stat panel
   instead (below, "Tooltips"), and the plain title gives way to it.
   - **Investment bars**: the souls in owned items per category, each at its tier price in the
@@ -951,6 +988,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
   `player/GameTooltip.tsx`, `player/StatPanel.tsx`, `match/tooltips.ts`). With a pack that has
   them (§12 "Tooltips"), hovering (a tap on touch, focus on the keyboard) shows the game's own
   tooltip beside the thing, one at a time; Escape, a press elsewhere or a scroll closes it.
+  - Also on the events list (a major purchase's item, an ult's ability) and on the death
+    recap's hit icons.
   - **Items** (the Tab column, the build order, the hero panel): the game's item tooltip
     (`citadel_tooltip_mod_details.vcss`): the category's torn-paper backer and header art, the
     name, "Owned" for an item the hero owns at t (else its cost), the innate stat lines, then each
@@ -1013,10 +1052,14 @@ makes a board with that match attached and lands in Player; **New board** is tod
     default, one open at a time. The metadata tier has no urn.
 - **The transport:** play and pause, speed (0.5×, 1×, 2×, 4×, 8×), a scrubber with a tick per
   event, ±10 s, the match clock, and the replay tier's toggles (Troopers, Health), with Pings.
+  A tick hovered grows and shows its event's tag above it (the events list's short label, "Walker
+  down", "Haze died"); a press jumps there as a row does (less the lead, with the ring). Ticks
+  aren't in the tab order: ↑ ↓ step events from the keyboard (2026-11-11, feedback #6).
 - **Names** (2026-11-08, operator: content creators hide usernames in videos): a transport toggle,
   shown when the timeline has players' names, on by default. Off, no player name is on screen
   (top bar, events and their search, tokens' hover titles; the hero or slot label stands in).
-  It is this browser's alone: kept in localStorage for every board, never in presence.
+  It is this browser's alone: kept in localStorage for every board, never in presence, and a
+  follower keeps its own (the one "Map layers" toggle that isn't followed, §8).
   - **In Scenes** (operator, 2026-11-09: "in the scene the player names are not showing"): a
     slot with no name of its own shows the open match's in-game name, as Player does: under its
     top-bar portrait, in the portrait's title and menu, and in its token's hover label. A scene
@@ -1026,7 +1069,12 @@ makes a board with that match attached and lands in Player; **New board** is tod
     scene sets them to the match's; a blank scene doesn't).
 - **Vision** (2026-11-09, operator: "in a replay usually we can set it to only see the heroes …
   the current team could see"): a transport select, "Vision: All / Hidden King / Archmother",
-  shown when the timeline has `seen` (format 4). In a team's view its own heroes always show;
+  shown when the timeline has `seen` (format 4). Keys 1, 2, 3 pick All, Hidden King and
+  Archmother (2026-11-11, feedback #10; the select's hover says "Vision (1, 2, 3)"); like the
+  select they stop following, and they're off while typing or in a dialog or menu. In a team's
+  view a mark at the map controls' right end (feedback #12) shows that team's name on a dot of
+  its colour, with "Last seen" while the ghosts show; under All there is none. Flip sits in the
+  same group, "Flip map" with a swap icon (feedback #17). In a team's view its own heroes always show;
   an enemy out of its sight isn't drawn, labelled or hoverable (2026-11-09, operator: a faded
   token "jumps around a lot"). Beside the select, in a team's view only, a "Show last seen
   location" toggle, off by default: on, an enemy out of sight is a ghost (the scene ghost's
@@ -1072,7 +1120,10 @@ makes a board with that match attached and lands in Player; **New board** is tod
 - **Keys while watching** (2026-11-08, operator): ↑ ↓ step to the previous and next event (its
   jump and ring), ← → seek 5 s (Shift: 30 s) and keep playing or paused, and a Space tap plays
   or pauses. A Space-drag still only pans, and nothing fires while typing. Viewing a scene, ← →
-  step scenes instead.
+  step scenes instead. Space plays or pauses wherever the focus is (2026-11-11, feedback #11,
+  #3: a clicked button, the scrubber, the speed or Vision list, a checkbox or a disclosure no
+  longer takes it), except in a text field, a dialog or a menu (`core/keys.ts` `spacePlays`).
+  Keyboard-only users press a focused button with Enter; Space on it plays or pauses.
 - **Troopers** (replay tier, on by default): each lane trooper as a small dot in its team's
   colour with a dark rim, under the heroes, sliding between the 1 Hz samples and gone when it
   dies; like the map's icons it keeps its size on screen as you zoom. The game's files don't
@@ -1104,7 +1155,7 @@ makes a board with that match attached and lands in Player; **New board** is tod
   event or you seek elsewhere (operator bug, 2026-11-08). **Save scenes** makes one
   scene per ticked event at its jump time, "<event> @ mm:ss", in one transaction (one undo).
 - **Following** carries Player: presence's `playback` holds the mode, the match, t, playing and
-  speed, and the Vision pair (optional; above), sent on every change and every 2 s while playing. It also holds the **jump** while it's
+  speed, the Vision pair (optional; above) and the open panels (death recaps, builds; §8), sent on every change and every 2 s while playing. It also holds the **jump** while it's
   pinned: the event's key in the list and the match time the jump landed at (the key at most 96
   bytes and the time a clock value, in the server's `is_valid`). A follower rings the same event
   at the same place and marks the same row; a new jump, or the presenter's seek back to the same
@@ -1155,12 +1206,16 @@ makes a board with that match attached and lands in Player; **New board** is tod
       landing's **Select replay** (beside the match id), Player's **Upload replay** (match
       source and notice; **Select replay** with no match open) and the prompt's **Upload replay**
       open a dialog, "Replays", listing the folder's replays as cards: the open match's first
-      ("This match"), then newest first, ten at a time (**More**). A file younger than 5 s
+      ("This match"), then the latest match first by match id (ids rise over time; not by the file's
+      time, which is when it was downloaded: operator, 2026-11-11), ten at a time (**More**). A file younger than 5 s
       isn't listed (it may be downloading). The folder is looked up and listed when the picker
       opens, on focus and every 5 s while it's open and shown; never while it's closed. Each
-      card: the match id, the file's time ("2 h ago"), the length ("34:12"), and, from the
-      preview (§6a, fetched once a card is in view, once per match for the tab; a miss is asked
-      again after a minute, ten for `not_found`), each team's name, its six heroes (the newest
+      card: the match id, when it was played ("Played 2 d ago", a date past a week) from the
+      preview's `start_time`, else the file's time ("2 h ago", "Downloaded" on hover: the demo
+      doesn't record a wall-clock start), the length ("34:12"), and, from the
+      preview (§6a, asked once a card is in view, once per match for the tab: read from the demo
+      by the app, which keeps it by the file's size and time across runs, else the server's; a
+      server miss is asked again after a minute, ten for `not_found`), each team's name, its six heroes (the newest
       pack's minimap icons, the hero's name on hover), its kills ("Kills" on hover), its souls
       ("Souls") and **Win** on the winner's row. A mode the board doesn't take shows its name
       ("Street Brawl"). With no metadata: "Not recorded" and "—". A pick is the upload: parsed
@@ -1174,12 +1229,29 @@ makes a board with that match attached and lands in Player; **New board** is tod
     - **Upload:** the pick sends only the parsed timeline (gzip) to `POST …/replays/{id}/timeline`
       (§6a, Timelines parsed on the user's machine). Against a server without that route (a 404
       with no `{error}`), it sends the `.dem` as before.
-    - **IPC:** four commands (list, read one, parse one, change the folder), by match id, granted
-      to the site's origin only.
-    - **Download link:** "Get the Windows app" (GitHub Releases) shows on Windows browsers only,
+    - **IPC:** six commands (list, read one, preview one, parse one, change the folder; and,
+      portable only, whether an update is out), by match id, granted to the site's origin only.
+    - **Installer or portable (operator, 2026-11-11; desktop/README.md):** the release carries the
+      per-user installer and a portable zip (`--features portable`, fixed at build time). Portable
+      registers `mapcro://` for the current user itself, and doesn't install updates: when the
+      feed has a newer version the page shows **Update available**, a link to the release page.
+    - **Download link:** "Get the Windows app" (the installer, by a stable name on GitHub
+      Releases; "Portable", quieter, beside it) shows on Windows browsers only,
       never in the app. It sits beside Link replays folder, in "Where's my replay?" and in the
       landing's footer. It stays off until the first release (`WINDOWS_APP_RELEASED`). There is
       no Linux link yet (backlog).
+    - **Board links (operator, 2026-11-11; desktop/README.md, Deep links):** a shared board
+      opens in the app. `mapcro://b/<board>#<token>` is the canonical form: the share link (§11)
+      with the scheme and host swapped, the token still in the fragment. The installer (per-user)
+      and the Linux packages register the scheme; a link starts the app on that board, or the
+      running app's window goes to it. Only a board id and token of the site's shapes are
+      followed, and only to the board's page on the site; anything else is ignored. The link is
+      never logged. On a board page in a browser, **Open in app** is that link (a quiet **Get the
+      app** beside it, the installer, for a browser without the app), gated like the
+      download link (a Windows browser, never in the app, `WINDOWS_APP_RELEASED`). In the app
+      (no address bar), the landing's **Open link** field and **Ctrl+L** anywhere take a pasted
+      share link, the site's or the `mapcro://` form; anything else reads "Not a board link". A
+      board page whose fragment changes (the same board, another token) loads again.
     - **Linux (2026-11-10, branch `linux-desktop`):** the same app on WebKitGTK, built as an
       AppImage, a .deb and `nix build .#mapcro-desktop`; it behaves as on Windows. Gated on the
       e2e suite passing in WebKit (`just e2e-webkit`, operator). The NVIDIA blank-window
@@ -1303,7 +1375,8 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   own state: its playback time (mirrored) and its own Names toggle. The follower's own hover wins
   while it hovers something.
 - **Follow mode:** anyone can follow a presenter's scene, floor and viewport (and in Player, their
-  playback and Vision, §6b). This is the coaching
+  playback and Vision, §6b), their map layers and, in Player, their open panels (below). This is
+  the coaching
   workflow (operator, 2026-11-06):
   - **Following is one click,** and the presenter's name is always visible to click.
   - **A follower who changes what they see stops following:** flipping a scene, panning, zooming or
@@ -1312,6 +1385,27 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   - **Anyone can follow anyone who holds edit rights** (owner or edit link), so there can be several
     presenters at once. View-only people can follow but can't be followed. Presence carries each
     person's role, and the server stamps it from their link, so it can't be forged.
+  - **Map layers** (operator bug, 2026-11-11: "the follower doesn't see the same map layers"):
+    presence's `layers` is one byte, a bit per "Map layers" toggle (wire.rs `LAYER_*`: lane
+    troopers, health bars & arcs, event pings, crowd control, elevation & ziplines, healing
+    pickups, heavy boxes). A follower draws the presenter's, its toggles showing them; stopping,
+    or the presenter leaving, brings its own back untouched. A follower's own toggle while
+    following is a change to what it sees, so it stops following and keeps the presenter's
+    layers with that one change, as Vision does (§6b). A presenter that sends no `layers` (an
+    older client) leaves a follower on its own. **Player names is the exception:** it stays each
+    browser's own and is never in presence, as it is for recording without names (§6b "Names").
+  - **Panels** (same bug: "doesn't see the death recap the presenter has open"): presence's
+    `playback` carries the death recap open on the map (`skull_recap`: team, slot, the death's
+    second), the events list's last opened recap still open (`event_recap`), the hero whose build
+    the top bar has open (`inspect`) and whether every build is (`all_builds`: All builds or Tab
+    held). Each is left out when closed, so a closed panel costs nothing in a frame resent on every
+    cursor move. A follower opens and closes them as the presenter does; the map card goes by the
+    follower's Vision (the presenter's while following) as it does for the presenter, so it never
+    shows a death that team didn't see. Unlike the map, a panel is not "what you see" in §8's
+    sense: a follower may open or close its own without stopping, and the presenter's next change
+    wins. Stopping leaves the panels as they are. Not followed yet (docs/backlog.md): which of
+    Effects and Build order is open in a hero's build, the events list's filters, search and
+    scroll, and the teleporter pair's line.
 - Presence timeout: 30 s without a heartbeat removes the entry.
 - **A peer that falls behind isn't sent presence it can't keep up with, but it isn't left stale
   either.** A batch is skipped for a peer more than 64 KiB behind. The room remembers whose

@@ -114,6 +114,36 @@ test("← → seek, ↑ ↓ step events, a Space tap plays and pauses, a Space-d
   await expect(a.getByTestId("pings-toggle")).toHaveAttribute("aria-pressed", "true");
   await a.keyboard.press("Space");
   await expect(play).toHaveText("Play");
+  // #11, #3: the scrubber, the speed list and the Map layers disclosure, focused or clicked,
+  // don't take Space either: it plays and pauses, and the control is as it was.
+  await a.getByTestId("match-time").focus();
+  await a.keyboard.press("Space");
+  await expect(play).toHaveText("Pause");
+  await a.keyboard.press("Space");
+  await expect(play).toHaveText("Play");
+  const speed = a.getByTestId("match-speed");
+  const speedWas = await speed.inputValue();
+  await speed.focus();
+  await a.keyboard.press("Space");
+  await expect(play).toHaveText("Pause");
+  await a.keyboard.press("Space");
+  await expect(play).toHaveText("Play");
+  await expect(speed).toHaveValue(speedWas);
+  const layers = a.getByTestId("map-layers-toggle");
+  const open = () => a.locator("details.map-layers").evaluate((d) => (d as HTMLDetailsElement).open);
+  await layers.focus();
+  const wasOpen = await open();
+  await a.keyboard.press("Space");
+  await expect(play).toHaveText("Pause");
+  expect(await open()).toBe(wasOpen);
+  await a.keyboard.press("Space");
+  await expect(play).toHaveText("Play");
+  // Enter still presses a focused button (keyboard-only use).
+  await play.focus();
+  await a.keyboard.press("Enter");
+  await expect(play).toHaveText("Pause");
+  await a.keyboard.press("Enter");
+  await expect(play).toHaveText("Play");
 
   // A Space-drag pans the map and leaves playback alone.
   const mid = await mapPoint(a, 0.5, 0.5);

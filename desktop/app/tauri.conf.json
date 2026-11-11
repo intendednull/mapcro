@@ -23,9 +23,15 @@
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper" },
       "nsis": { "installMode": "currentUser" }
+    },
+    "linux": {
+      "deb": { "desktopTemplate": "linux/mapcro.desktop" }
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": { "schemes": ["mapcro"] }
+    },
     "updater": {
       "endpoints": ["https://github.com/intendednull/mapcro/releases/latest/download/latest.json"],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI0QzE5MzA4Q0MyMUIzMUIKUldRYnN5SE1DSlBCdE5abG1nRzdGN1gxUFpDNEJIRGJEa0hjTUpJTm9OdWJBbEdvRmYzYmU2d3IK",

@@ -208,7 +208,7 @@ mod tests {
     fn the_highest_build_wins_then_the_latest_extract_of_it() {
         let at = |s| UNIX_EPOCH + Duration::from_secs(s);
         let mut list = vec![(("6860", "badges"), at(100)), (("6799", "old"), at(900)), (("6860", "rejuv"), at(200)), (("6860", "first"), at(50))];
-        newest_first(&mut list, |p| p.0.parse().unwrap());
+        newest_first(&mut list, |p| p.0.parse().expect("a build"));
         let order: Vec<_> = list.iter().map(|(p, _)| p.1).collect();
         assert_eq!(order, ["rejuv", "badges", "first", "old"]);
     }

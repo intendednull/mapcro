@@ -195,7 +195,7 @@ export function TopBar(p: {
               {/* With a hero: the portrait focuses it, and an editor changes it from the corner's
                   swap button. Without one, the portrait is the picker. */}
               <Show when={!editable() || slot.slot.hero != null}>
-                <button class="tb-focus" data-testid="focus-hero" title={`Show ${hero()?.name ?? label()}`} aria-label={`Show ${label()}${hero() ? `, ${hero()!.name},` : ""} on the map`} onClick={() => p.onFocus?.(t, slot.slot.slot)} />
+                <button class="tb-focus" data-testid="focus-hero" title={`Show ${hero()?.name ?? label()}`} aria-label={`Show ${label()}${hero() ? `, ${hero()!.name}` : ""}`} onClick={() => p.onFocus?.(t, slot.slot.slot)} />
               </Show>
               <Show when={editable()}>
                 <button
@@ -218,7 +218,7 @@ export function TopBar(p: {
                 disabled={!editable()}
                 hidden={!editable() && player.state.visible}
                 title={player.state.visible ? "In vision" : "Not seen"}
-                aria-label={player.state.visible ? `${label()}: in vision` : `${label()}: not seen`}
+                aria-label={player.state.visible ? `${label()}, In vision` : `${label()}, Not seen`}
                 aria-pressed={!player.state.visible}
                 onClick={() => p.state.edit([{ Set: { id: player.id, value: { PlayerVisible: !player.state.visible } } }])}
               >

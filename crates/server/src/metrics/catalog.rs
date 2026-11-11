@@ -208,8 +208,9 @@ label! {
 }
 
 label! {
-    /// deadlock-api's endpoints we call.
-    pub enum Endpoint: "endpoint" { Metadata => "metadata", SteamProfiles => "steam_profiles", Salts => "salts" }
+    /// deadlock-api's endpoints we call. `salts` is the free read (`disable_steam=true`),
+    /// `salts_steam` the read that may ask Steam: only that one spends the 3/h budget.
+    pub enum Endpoint: "endpoint" { Metadata => "metadata", SteamProfiles => "steam_profiles", Salts => "salts", SaltsSteam => "salts_steam" }
 }
 
 label! {
@@ -426,6 +427,8 @@ registry! {
     unit_memory_bytes: Gauge<(Unit,)> = Gauge::new("unit_memory_bytes", "A unit's cgroup memory.current."),
     unit_memory_peak_bytes: Gauge<(Unit,)> = Gauge::new("unit_memory_peak_bytes", "A unit's cgroup memory.peak (since its start)."),
     unit_memory_max_bytes: Gauge<(Unit,)> = Gauge::new("unit_memory_max_bytes", "A unit's cgroup memory.max (absent: no cap)."),
+    unit_memory_anon_bytes: Gauge<(Unit,)> = Gauge::new("unit_memory_anon_bytes", "A unit's cgroup memory.stat anon: memory that isn't page cache (development: the server's RssAnon)."),
+    server_rss_peak_bytes: Gauge<()> = Gauge::new("server_rss_peak_bytes", "The server process's peak resident memory since the previous sample (VmHWM, reset each sample)."),
     unit_cpu_cores: Gauge<(Unit,)> = Gauge::new("unit_cpu_cores", "A unit's CPU use over the last minute, in cores."),
     unit_oom_kills: Gauge<(Unit,)> = Gauge::new("unit_oom_kills", "OOM kills in a unit's cgroup since its start."),
     // the collector itself

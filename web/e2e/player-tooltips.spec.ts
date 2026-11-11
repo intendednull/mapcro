@@ -125,18 +125,22 @@ function timeline(id: string) {
     players: (["amber", "sapphire"] as const).flatMap((team) =>
       [0, 1, 2, 3, 4, 5].map((slot) => ({
         team, slot, hero_id: 1 + slot, name: null,
-        x: range(() => slot * 1500 - 4000), y: range(() => (team === "amber" ? -3000 : 3000)),
-        health: range(() => 100), deaths: [], respawn: [], souls: [[0, 500]], ult: range(() => 0),
+        x: range((s) => (dies(team, slot) && s >= 30 && s < 35 ? null : slot * 1500 - 4000)), y: range((s) => (dies(team, slot) && s >= 30 && s < 35 ? null : team === "amber" ? -3000 : 3000)),
+        health: range(() => 100), deaths: dies(team, slot) ? [30] : [], respawn: dies(team, slot) ? [[30, 35]] : [], souls: [[0, 500]], ult: range(() => 0),
         seen: team === "amber" && slot === 0 ? [[0, 200]] : [[0, N * 10]],
         level: [[0, 3]], max_health: [[0, 777]], kills: [[0, 0]], assists: [[0, 0]], pickups: [],
         items: [[50, LIFESTEAL, 0], [120, LIFESTEAL, 2], [120, INFUSER, 0]],
         abilities: [[0, ABILITY, 1], [0, ULT, 1], [15, ABILITY, 2]],
-        casts: [[130, INFUSER, 400]], charges: [], cc: [], effects: [], recaps: [],
+        casts: [[130, INFUSER, 400]], charges: [], cc: [], effects: [],
+        // Sapphire 0 (players[6]) kills Amber 1 with the first ability.
+        recaps: dies(team, slot) ? [{ t: 300, damage: [[6, ABILITY, 500]], cc: [] }] : [],
       })),
     ),
-    objectives: [], mid_boss: [], rifts: [], powerups: [], events: [],
+    objectives: [], mid_boss: [], rifts: [], powerups: [],
+    events: [{ t: 30, kind: "death", team: "amber", slot: 1, hero_id: 2, x: -2500, y: -3000 }],
   };
 }
+const dies = (team: string, slot: number) => team === "amber" && slot === 1;
 
 const answered = new Set<string>();
 async function open(p: Page, id: string) {
@@ -228,6 +232,24 @@ test("hovering items, abilities and investment shows the game's tooltips with th
   // Calculated values carry the "≈" (spec §4b rule 5).
   await expect(panel.locator("[data-testid=sp-max_health] b")).toHaveClass(/\bcalc\b/);
   await expect(panel.locator("[data-testid=sp-spirit_resist] b")).toHaveText("10%");
+});
+
+test("the events list's purchases and the death recap's icons show their tooltips", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Event tooltips"), "Coach");
+  await open(a, "129000104");
+  await scrubTo(a, 31);
+  await a.getByTestId("chip-purchase").click();
+  const buy = a.locator('[data-testid=event][data-kind=item_buy]').first();
+  await buy.getByTestId("event-jump").hover();
+  await expect(float(a).getByTestId("game-tooltip-name")).toHaveText("Test Infuser");
+  await a.mouse.move(5, 500);
+  await expect(float(a)).toHaveCount(0);
+  // The chip filters the list to purchases; off again for the death.
+  await a.getByTestId("chip-purchase").click();
+  const death = a.locator('[data-testid=event][data-kind=death]');
+  await death.getByTestId("death-recap").locator("summary").click();
+  await death.getByTestId("recap-icon").hover();
+  await expect(float(a).getByTestId("game-tooltip-name")).toHaveText("Test Mark");
 });
 
 test("hovering a hero's ult indicator shows its ultimate's tooltip", async ({ browser }) => {

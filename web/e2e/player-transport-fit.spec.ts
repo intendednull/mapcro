@@ -47,12 +47,13 @@ function timeline() {
   };
 }
 
-/** Each control in the bar that isn't inside its box, or whose centre something else covers. */
+/** Each control in the bar that isn't inside its box, or whose centre something else covers. The
+ * scrubber's scene marks and event ticks are marks on it, not controls. */
 const misfits = (p: Page) =>
   p.getByTestId("player").evaluate((bar) => {
     const b = bar.getBoundingClientRect();
     const out: string[] = [];
-    const controls = [...bar.querySelectorAll<HTMLElement>("button:not(.pl-mark), select, input:not([type=file]), .match-clock, .match-tier, .pl-scene-label")].filter((el) => el.checkVisibility());
+    const controls = [...bar.querySelectorAll<HTMLElement>("button:not(.pl-mark, .pl-tick), select, input:not([type=file]), .match-clock, .match-tier, .pl-scene-label")].filter((el) => el.checkVisibility());
     for (const el of controls) {
       const r = el.getBoundingClientRect();
       const name = el.dataset.testid ?? el.className;

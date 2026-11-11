@@ -174,7 +174,7 @@ pub fn decode_troopers(sample: &str) -> Option<Vec<(u16, i16, i16)>> {
     if b.len() % 6 != 0 || b.len() / 6 > MAX_TROOPERS {
         return None;
     }
-    Some(b.chunks_exact(6).map(|c| (u16::from_le_bytes([c[0], c[1]]), i16::from_le_bytes([c[2], c[3]]), i16::from_le_bytes([c[4], c[5]]))).collect())
+    Some(b.as_chunks::<6>().0.iter().map(|c| (u16::from_le_bytes([c[0], c[1]]), i16::from_le_bytes([c[2], c[3]]), i16::from_le_bytes([c[4], c[5]]))).collect())
 }
 
 pub fn encode_troopers(list: &[(u16, i16, i16)]) -> String {
@@ -293,7 +293,9 @@ pub struct Recap {
     /// The lethal hit, in tenths of a second.
     pub t: u32,
     /// `[src, ability_id, damage]` summed over the window, most damage first (ability 0: no
-    /// ability, such as a trooper's shot).
+    /// ability, such as a trooper's shot). Here `src` may also be [`NPC_SRC`] + a
+    /// [`NPC_KINDS`] index: not a hero, the attacker's class (added within format 9: older
+    /// timelines have [`NO_HERO`] there).
     pub damage: Vec<[u32; 3]>,
     /// The hero's `cc` rows that overlap the window.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -324,6 +326,36 @@ pub const ITEM_MERGED: u32 = 2;
 pub const ITEM_REMOVED: u32 = 3;
 /// `src` when the cause wasn't a hero (a trooper, a neutral, the world) or isn't known.
 pub const NO_HERO: u32 = 255;
+/// A recap row's `src` for a non-hero attacker: `NPC_SRC + k`, `k` an index in [`NPC_KINDS`].
+pub const NPC_SRC: u32 = 256;
+/// The non-hero attackers a recap names, in index order (append only: an index is stored). From
+/// msg 300's `attacker_class` and `attacker_subclass` (the token of the unit's vdata name), read
+/// on 129738985 (examples/recap_source_probe.rs): class 4 a lane trooper (`trooper_normal`,
+/// `trooper_medic`, `trooper_melee`), 5 a guardian, 6 a neutral camp or Sinner's Sacrifice
+/// (`neutral_sinners_sacrifice`), 8 the mid boss (`npc_super_neutral`), 22 the base's sentry
+/// turret, 29 a walker, 30 a base guardian, 31 a patron; 1 is a hero pawn. The web's names (the
+/// game's, citadel_main) are in `player/recap.ts` `NPC_KINDS`, same order.
+pub const NPC_KINDS: [&str; 11] = ["trooper", "medic_trooper", "melee_trooper", "guardian", "walker", "base_guardian", "patron", "mid_boss", "neutral", "sinners_sacrifice", "sentry"];
+
+/// A non-hero attacker's [`NPC_KINDS`] index from msg 300's `attacker_class` and
+/// `attacker_subclass`; `None` for a hero or a class not seen.
+pub fn npc_kind(class: Option<u32>, subclass: Option<u32>) -> Option<u32> {
+    let sub = subclass.unwrap_or(0);
+    Some(match class? {
+        4 if sub == token("trooper_medic") => 1,
+        4 if sub == token("trooper_melee") => 2,
+        4 => 0,
+        5 => 3,
+        29 => 4,
+        30 => 5,
+        31 => 6,
+        8 => 7,
+        6 if sub == token("neutral_sinners_sacrifice") => 9,
+        6 => 8,
+        22 => 10,
+        _ => return None,
+    })
+}
 /// The hard-CC states kept, as `MODIFIER_STATE_*` indices (the pawn mask's bit numbers; names
 /// from boon-data's catalog, docs/research/status-effects.md §1): immobilized, disarmed, muted,
 /// silenced, stunned, dash disabled, shooting disabled, asleep, Viscous's cube.
@@ -421,7 +453,7 @@ pub fn extras_ok(p: &Player, duration_s: u32, players: usize) -> bool {
         && p.recaps.iter().all(|r| {
             r.t <= end
                 && r.damage.len() <= MAX_RECAP_ROWS
-                && r.damage.iter().all(|[src, _, d]| src_ok(*src) && *d > 0 && *d <= MAX_RECAP_DAMAGE)
+                && r.damage.iter().all(|[src, _, d]| (src_ok(*src) || (NPC_SRC..NPC_SRC + NPC_KINDS.len() as u32).contains(src)) && *d > 0 && *d <= MAX_RECAP_DAMAGE)
                 && r.cc.len() <= MAX_RECAP_ROWS
                 && r.cc.iter().all(|c| cc_ok(c) && c[0] <= r.t && c[1] + RECAP_S * 10 >= r.t)
         })
@@ -1091,6 +1123,8 @@ mod tests {
             Box::new(|t| t.players[0].effects = vec![[0, 0, 1, NO_HERO, 0, 0]; MAX_EFFECTS + 1]),
             Box::new(|t| t.players[0].recaps[0].t = 21),
             Box::new(|t| t.players[0].recaps[0].damage[0][0] = 1),
+            Box::new(|t| t.players[0].recaps[0].damage[0][0] = NPC_SRC + NPC_KINDS.len() as u32),
+            Box::new(|t| t.players[0].cc[0][3] = NPC_SRC),
             Box::new(|t| t.players[0].recaps[0].damage[0][2] = 0),
             Box::new(|t| t.players[0].recaps[0].damage[0][2] = MAX_RECAP_DAMAGE + 1),
             Box::new(|t| t.players[0].recaps[0].damage = vec![[NO_HERO, 0, 1]; MAX_RECAP_ROWS + 1]),
@@ -1160,6 +1194,31 @@ mod tests {
         assert_eq!(clean_name(" Co\u{202E}a<b>ch&\"\u{7} "), Some("Coabch".into()));
         assert_eq!(clean_name("\u{2066}\u{2069}"), None);
         assert_eq!(clean_name(&"é".repeat(40)).map(|s| s.chars().count()), Some(32));
+    }
+
+    #[test]
+    fn a_recap_may_name_a_non_hero_attacker_by_kind() {
+        let p = |src: u32| Player { recaps: vec![Recap { t: 200, damage: vec![[src, 0, 1]], cc: vec![] }], ..Player::default() };
+        assert!(extras_ok(&p(NPC_SRC), 30, 1));
+        assert!(extras_ok(&p(NPC_SRC + NPC_KINDS.len() as u32 - 1), 30, 1));
+        assert!(!extras_ok(&p(NPC_SRC + NPC_KINDS.len() as u32), 30, 1));
+        assert!(!extras_ok(&p(254), 30, 1));
+    }
+
+    #[test]
+    fn npc_kinds_follow_the_attacker_class_and_unit() {
+        // Subclasses as 129738985 records them.
+        assert_eq!(npc_kind(Some(4), Some(1_773_848_083)), Some(0));
+        assert_eq!(npc_kind(Some(4), Some(1_003_135_509)), Some(1));
+        assert_eq!(npc_kind(Some(4), Some(2_943_225_653)), Some(2));
+        assert_eq!(npc_kind(Some(6), Some(855_199_377)), Some(9));
+        assert_eq!(npc_kind(Some(6), Some(2_433_738_403)), Some(8));
+        assert_eq!(npc_kind(Some(8), Some(1_166_266_048)), Some(7));
+        assert_eq!(npc_kind(Some(29), None), Some(4));
+        assert_eq!(npc_kind(Some(31), None), Some(6));
+        assert_eq!(npc_kind(Some(1), None), None);
+        assert_eq!(npc_kind(None, None), None);
+        assert_eq!(NPC_KINDS[npc_kind(Some(22), None).unwrap_or(0) as usize], "sentry");
     }
 
     #[test]

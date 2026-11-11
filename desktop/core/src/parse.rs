@@ -64,14 +64,7 @@ pub fn parse(exe: &Path, demo: &Path, id: u64, scratch: &Path, timeout: Duration
 fn run_child(exe: &Path, demo: &Path, out: &Path, id: u64, timeout: Duration) -> Result<(), &'static str> {
     let mut cmd = Command::new(exe);
     cmd.arg(CHILD_ARG).arg(demo).arg(out).arg(id.to_string()).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // No console window; below-normal priority, so a game in progress isn't slowed.
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
-        cmd.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
-    }
+    quiet(&mut cmd);
     let mut child = cmd.spawn().map_err(|_| reason::PARSE_FAILED)?;
     let started = Instant::now();
     let status = loop {
@@ -94,6 +87,20 @@ fn run_child(exe: &Path, demo: &Path, out: &Path, id: u64, timeout: Duration) ->
         return Ok(());
     }
     Err(reason::ALL.iter().copied().find(|r| *r == said.trim()).unwrap_or(reason::PARSE_FAILED))
+}
+
+/// A child of the app's: no console window, and (Windows) below-normal priority, so a game in
+/// progress isn't slowed.
+pub(crate) fn quiet(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
+        cmd.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
+    }
+    #[cfg(not(windows))]
+    let _ = cmd;
 }
 
 fn read_timeline(out: &Path, id: u64) -> Result<Vec<u8>, &'static str> {

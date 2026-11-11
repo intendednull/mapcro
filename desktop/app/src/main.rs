@@ -1,13 +1,15 @@
 //! mapcro for Windows (desktop/README.md): one window on the live site, and the replay picker's
-//! native side: the replays folder, looked up when the picker asks (no watch), and the parse of the
-//! one replay the user picks. The site reaches it through four commands only
+//! native side: the replays folder, looked up when the picker asks (no watch), each card's preview
+//! read from its demo, and the parse of the one replay the user picks. The site reaches it through
+//! six commands only
 //! (capabilities/site.json); it never passes a path, only a match id.
 //!
 //! Logs carry reason codes and match ids, never a path, a player name or an account id.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use mapcro_desktop_core::{folder, parse, replays, steam};
+use mapcro_desktop_core::mode::{self, Mode, OnUpdate};
+use mapcro_desktop_core::{folder, parse, preview, replays, steam};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
@@ -17,17 +19,21 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
+mod links;
+
 /// The site the window loads. A debug build takes `MAPCRO_URL` instead (a local dev server).
 const SITE: &str = "https://mapcro.dmgdeadlock.com";
 const WINDOW: &str = "main";
 /// The app's own commands: the only IPC the site gets.
-const COMMANDS: [&str; 4] = ["allow-replays-list", "allow-replay-read", "allow-replay-timeline", "allow-replays-choose-folder"];
+const COMMANDS: [&str; 6] = ["allow-replays-list", "allow-replay-read", "allow-replay-timeline", "allow-replay-preview", "allow-replays-choose-folder", "allow-app-update"];
+/// Installed or portable (the `portable` feature; desktop/README.md, Installer or portable).
+const MODE: Mode = Mode::of_build(cfg!(feature = "portable"));
 /// Timelines kept parsed (each ~0.6 MB gzip for a 44 min match).
 const CACHED: usize = 8;
 
 fn main() {
     let args: Vec<_> = std::env::args_os().collect();
-    if let Some(code) = parse::child_main(&args) {
+    if let Some(code) = parse::child_main(&args).or_else(|| preview::child_main(&args)) {
         std::process::exit(code);
     }
     run();
@@ -57,6 +63,13 @@ struct Shared {
     parsed: Mutex<Vec<(String, Parsed)>>,
     /// One parse at a time.
     parsing: Mutex<()>,
+    /// The previews read so far, by file size and time (`None` until first asked: loaded from the
+    /// app's cache folder then).
+    previews: Mutex<Option<preview::Cache>>,
+    /// One preview read at a time (the cards ask as they come into view).
+    previewing: Mutex<()>,
+    /// Portable: the feed's answer, once asked (`Some(None)`: up to date).
+    update: Mutex<Option<Option<String>>>,
 }
 
 impl Shared {
@@ -102,6 +115,46 @@ impl Shared {
         }
         result
     }
+}
+
+impl Shared {
+    /// Match `id`'s preview: from the cache while the file is unchanged, else read from the demo
+    /// now, in a child, and kept.
+    fn preview(&self, app: &AppHandle, id: &str) -> Result<preview::Preview, String> {
+        let dir = self.dir().map_err(|_| "not_found".to_string())?;
+        let demo = replays::demo_path(&dir, id).ok_or("bad_id")?;
+        let cache_dir = app.path().app_cache_dir().map_err(|_| "failed".to_string())?;
+        let _one = self.previewing.lock().map_err(|_| "busy".to_string())?;
+        let meta = std::fs::metadata(&demo).map_err(|_| "not_found".to_string())?;
+        let modified = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as u64);
+        {
+            let mut cache = self.previews.lock().map_err(|_| "busy".to_string())?;
+            if let Some(hit) = cache.get_or_insert_with(|| preview::Cache::load(&cache_dir)).get(id, meta.len(), modified) {
+                return hit.clone();
+            }
+        }
+        let exe = std::env::current_exe().map_err(|_| "failed".to_string())?;
+        let n: u64 = id.parse().map_err(|_| "bad_id".to_string())?;
+        let result = preview::read(&exe, &demo, n, preview::TIMEOUT);
+        if let Err(why) = &result {
+            eprintln!("mapcro: replay {id} has no preview: {why}");
+        }
+        let mut cache = self.previews.lock().map_err(|_| "busy".to_string())?;
+        let cache = cache.get_or_insert_with(preview::Cache::default);
+        cache.put(id, meta.len(), modified, result.clone());
+        if cache.save(&cache_dir).is_err() {
+            eprintln!("mapcro: previews not kept");
+        }
+        result.map_err(str::to_owned)
+    }
+}
+
+/// One replay's preview card, read from its demo (spec §6b): `{match_id, duration_s, game_mode,
+/// winner, teams, build}`, the server's preview's shape, or a reason code. No names, no ids.
+#[tauri::command]
+async fn replay_preview(app: AppHandle, state: tauri::State<'_, Arc<Shared>>, id: String) -> Result<preview::Preview, String> {
+    let shared = Arc::clone(&state);
+    tauri::async_runtime::spawn_blocking(move || shared.preview(&app, &id)).await.map_err(|_| "failed".to_string())?
 }
 
 /// The folder's replays, newest first: `[{id, lastModified, size}]`. The folder is looked up on
@@ -162,6 +215,29 @@ async fn replays_choose_folder(app: AppHandle, state: tauri::State<'_, Arc<Share
     .map_err(|_| "failed".to_string())?
 }
 
+/// Portable only: the newer version the update feed offers, if any (the page shows "Update
+/// available", a link to the release page). Asked once per run, when the page first asks. The
+/// installed app installs updates itself (`check_for_update`), so it answers nothing here.
+#[tauri::command]
+async fn app_update(app: AppHandle, state: tauri::State<'_, Arc<Shared>>) -> Result<Option<String>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    if MODE.on_update() != OnUpdate::Notify || !mode::updates_on(&pubkey(&app)) {
+        return Ok(None);
+    }
+    if let Some(known) = state.update.lock().map_err(|_| "busy".to_string())?.clone() {
+        return Ok(known);
+    }
+    let found = match app.updater().map_err(|_| "failed".to_string())?.check().await {
+        Ok(u) => u.map(|u| u.version),
+        Err(e) => {
+            eprintln!("mapcro: update check failed: {e}");
+            return Err("failed".into());
+        }
+    };
+    *state.update.lock().map_err(|_| "busy".to_string())? = Some(found.clone());
+    Ok(found)
+}
+
 fn show(app: &AppHandle) {
     if let Some(w) = app.get_webview_window(WINDOW) {
         let _ = w.unminimize();
@@ -174,13 +250,15 @@ fn run() {
     let shared = Arc::new(Shared::default());
     let site = site();
     tauri::Builder::default()
-        // First: a second launch shows this one's window instead.
+        // First: a second launch shows this one's window instead, and (its `deep-link` feature)
+        // hands its mapcro:// link to the deep-link plugin first (links.rs).
         .plugin(tauri_plugin_single_instance::init(|app, _, _| show(app)))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::clone(&shared))
-        .invoke_handler(tauri::generate_handler![replays_list, replay_read, replay_timeline, replays_choose_folder])
+        .invoke_handler(tauri::generate_handler![replays_list, replay_read, replay_timeline, replay_preview, replays_choose_folder, app_update])
         .setup(move |app| {
             let handle = app.handle().clone();
             if site.as_str().trim_end_matches('/') != SITE {
@@ -191,7 +269,9 @@ fn run() {
             {
                 *c = folder::load(&config);
             }
-            window(&handle, &site)?;
+            window(&handle, &links::first_page(&handle, &site))?;
+            links::listen(&handle, &site, WINDOW);
+            links::register(&handle, MODE);
             check_for_update(&handle);
             Ok(())
         })
@@ -199,7 +279,7 @@ fn run() {
         .expect("mapcro failed to start");
 }
 
-/// A debug build pointed at a dev server: the same four commands for its origin.
+/// A debug build pointed at a dev server: the same six commands for its origin.
 fn dev_capability(app: &AppHandle, site: &Url) -> tauri::Result<()> {
     let mut origin = site.clone();
     origin.set_path("/*");
@@ -235,12 +315,15 @@ fn window(app: &AppHandle, site: &Url) -> tauri::Result<()> {
 }
 
 /// Check the update feed once at start, and install what it offers (Windows: the installer runs
-/// passively and restarts the app). Off while the public key is the placeholder.
+/// passively and restarts the app). Off while the public key is the placeholder. Portable doesn't
+/// install: the page asks `app_update` instead.
 fn check_for_update(app: &AppHandle) {
     use tauri_plugin_updater::UpdaterExt;
-    let key = app.config().plugins.0.get("updater").and_then(|u| u.get("pubkey")).and_then(|k| k.as_str()).unwrap_or("");
-    if key.is_empty() || key.starts_with("REPLACE_") {
+    if !mode::updates_on(&pubkey(app)) {
         eprintln!("mapcro: updates off (no public key configured)");
+        return;
+    }
+    if MODE.on_update() != OnUpdate::Install {
         return;
     }
     let app = app.clone();
@@ -256,4 +339,9 @@ fn check_for_update(app: &AppHandle) {
             Err(e) => eprintln!("mapcro: update check failed: {e}"),
         }
     });
+}
+
+/// The updater's public key (`tauri.conf.json` `plugins.updater.pubkey`).
+fn pubkey(app: &AppHandle) -> String {
+    app.config().plugins.0.get("updater").and_then(|u| u.get("pubkey")).and_then(|k| k.as_str()).unwrap_or("").to_owned()
 }

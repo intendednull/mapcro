@@ -5,6 +5,7 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import type { Art } from "../map/pack";
 import { cx } from "../ui/cx";
+import { boardKeys } from "../core/keys";
 import type { BoardState } from "../board/state";
 import type { SceneRow } from "../board/scenes";
 import type { RecordId } from "../gen/RecordId";
@@ -170,21 +171,28 @@ export function Player(p: {
   // Keys while watching (spec §6b; the scene tree has ← → while viewing a scene): ↑ ↓ step
   // through events, ← → seek SEEK_KEY s (Shift: SEEK_KEY_SHIFT s), a Space tap plays or pauses.
   const events = createMemo(() => [...(h.tl()?.events ?? [])].sort((a, b) => a.t - b.t));
+  /** The scrubber ticks' tags (shortLabel), with names as the events list has them. */
+  const tickNames = createMemo(() => (h.tl() ? (h.showNames(), namesFor(h.tl()!, (id) => p.art.heroes.get(id)?.name ?? `Hero ${id}`, h.playerName)) : undefined));
   onMount(() => {
     const typing = (el: HTMLElement | null) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
-    const live = (e: KeyboardEvent) => watching() && !!h.tl() && !typing(e.target as HTMLElement | null) && !e.altKey && !e.ctrlKey && !e.metaKey;
+    const plain = (e: KeyboardEvent) => watching() && !!h.tl() && !e.altKey && !e.ctrlKey && !e.metaKey;
+    const live = (e: KeyboardEvent) => plain(e) && !typing(e.target as HTMLElement | null);
     /** A Space tap so far: down, then nothing but up (no autorepeat, no pointer press: a
      * Space-drag pans the map, Board.tsx `spaceHeld`, and doesn't play). */
     let tap = false;
+    /** Space plays or pauses wherever the focus is, but in a text field, a dialog or a menu
+     * (#11, #3): a focused button, the scrubber, the speed or Vision list or a checkbox doesn't
+     * take it. Enter still presses a focused button, for keyboard-only use (spec §6b). Captured,
+     * so no control's own handler sees it first. */
+    const space = (e: KeyboardEvent) => e.code === "Space" && plain(e) && boardKeys(e.target as Element | null);
+    const spaceDown = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      tap = space(e) && !e.repeat;
+      if (space(e)) e.preventDefault();
+    };
     const key = (e: KeyboardEvent) => {
-      if (e.code === "Space") {
-        // While typing it's a space. (Board's own Space handler prevents its default, so that
-        // can't be the test here.)
-        tap = !e.repeat && live(e);
-        return;
-      }
       // Arrows another handler took (the hero picker's grid) aren't ours.
-      if (e.defaultPrevented || !live(e)) return;
+      if (e.code === "Space" || e.defaultPrevented || !live(e)) return;
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
         const step = (e.shiftKey ? SEEK_KEY_SHIFT : SEEK_KEY) * (e.key === "ArrowLeft" ? -1 : 1);
@@ -198,21 +206,23 @@ export function Player(p: {
       }
     };
     const up = (e: KeyboardEvent) => {
-      if (e.code !== "Space" || !tap) return;
-      tap = false;
-      // A focused button (Play, just clicked) would take Space as its click too: on keyup, so
-      // this keeps it to one toggle. (Board's keydown already stops it in Chromium.)
+      if (e.code !== "Space" || !space(e)) return;
+      // A focused button or summary takes Space as its click on keyup: never here.
       e.preventDefault();
-      if (watching() && h.tl()) user(() => h.control.play(!h.playback().playing));
+      if (!tap) return;
+      tap = false;
+      user(() => h.control.play(!h.playback().playing));
     };
     const cancel = () => (tap = false);
+    window.addEventListener("keydown", spaceDown, true);
     window.addEventListener("keydown", key);
-    window.addEventListener("keyup", up);
+    window.addEventListener("keyup", up, true);
     window.addEventListener("pointerdown", cancel, true);
     window.addEventListener("blur", cancel);
     onCleanup(() => {
+      window.removeEventListener("keydown", spaceDown, true);
       window.removeEventListener("keydown", key);
-      window.removeEventListener("keyup", up);
+      window.removeEventListener("keyup", up, true);
       window.removeEventListener("pointerdown", cancel, true);
       window.removeEventListener("blur", cancel);
     });
@@ -268,7 +278,7 @@ export function Player(p: {
             void h.open(idInput.value.trim(), { attach: canEdit() });
           }}
         >
-          <button class="btn ghost small" type="button" data-testid="mode-sandbox" onClick={() => user(() => { const s = p.scene; h.setMode("sandbox"); if (s) p.onView(s.id); })} title="View the current scene">
+          <button class="btn ghost small" type="button" data-testid="mode-sandbox" onClick={() => user(() => { const s = p.scene; h.setMode("sandbox"); if (s) p.onView(s.id); })} title="Current scene">
             Scenes
           </button>
           <Show when={canEdit()} fallback={<span class="pl-match">{h.matchId() ? `Match ${h.matchId()}` : ""}</span>}>
@@ -295,7 +305,7 @@ export function Player(p: {
           <Show when={canUpload() && !h.notice()}>
             <FolderFound id={h.matchId()} onFile={(f) => void take(f)} />
             <UploadButton />
-            <button class="btn ghost small" type="button" data-testid="match-fetch" onClick={() => void h.fetchReplay()} title="Fetch the replay from Valve">
+            <button class="btn ghost small" type="button" data-testid="match-fetch" onClick={() => void h.fetchReplay()} title="Fetch replay">
               Fetch replay
             </button>
             <ReplayHelp id={h.matchId()} />
@@ -390,7 +400,7 @@ export function Player(p: {
               <button class="btn small" type="button" data-testid="match-back" aria-label="Back 10 s" title="−10 s (← 5 s, Shift+← 30 s)" onClick={() => seekReplay(transportTime() - 10)}>
                 −10
               </button>
-              <button class="btn small pl-play" type="button" data-testid="match-play" aria-label={!watching() ? "Resume replay" : h.playback().playing ? "Pause" : "Play"} title={!watching() ? "Resume replay from this scene" : "Play / Pause (Space)"} onClick={toggleReplay}>
+              <button class="btn small pl-play" type="button" data-testid="match-play" aria-label={!watching() ? "Resume replay" : h.playback().playing ? "Pause" : "Play"} title={!watching() ? "Resume replay" : "Play / Pause (Space)"} onClick={toggleReplay}>
                 {!watching() ? "Resume" : h.playback().playing ? "Pause" : "Play"}
               </button>
               <button class="btn small" type="button" data-testid="match-forward" aria-label="Forward 10 s" title="+10 s (→ 5 s, Shift+→ 30 s)" onClick={() => seekReplay(transportTime() + 10)}>
@@ -404,8 +414,17 @@ export function Player(p: {
                 <For each={SPEEDS}>{(s) => <option value={String(s)}>{s}×</option>}</For>
               </select>
               <div class="pl-scrub">
-                <div class="pl-ticks" aria-hidden="true">
-                  <For each={m().events ?? []}>{(e) => <i class={cx("pl-tick", e.kind)} style={{ left: `${(e.t / Math.max(1, m().duration_s)) * 100}%` }} />}</For>
+                {/* Events (#6): a hover grows the tick and shows its tag; a press jumps there, as
+                    ↑ ↓ do (which is the keyboard's way: the ticks aren't in the tab order). */}
+                <div class="pl-ticks">
+                  <For each={m().events ?? []}>{(e) => (
+                    <button type="button" tabindex="-1" class={cx("pl-tick", e.kind)} data-testid="scrub-tick" data-t={e.t} data-kind={e.kind}
+                      style={{ left: `${(e.t / Math.max(1, m().duration_s)) * 100}%` }}
+                      aria-label={`${tickNames() ? shortLabel(e, tickNames()!) : e.kind}, ${clockLabel(e.t)}`}
+                      onClick={() => jumpTo(e, h.lead())}>
+                      <span class="pl-tick-tag" aria-hidden="true">{tickNames() ? shortLabel(e, tickNames()!) : ""}</span>
+                    </button>
+                  )}</For>
                 </div>
                 <div class="pl-marks">
                   <For each={marks()}>
@@ -483,7 +502,10 @@ export function MapControls(p: {
   const h = p.host;
   let layers: HTMLDetailsElement | undefined;
   onMount(() => dismissDisclosure(() => layers ?? null));
+  // A change to what the map draws is your own: following stops, and you keep what you were
+  // seeing with that one change (spec §8). Player names are this browser's alone, never followed.
   const mine = (f: () => void) => { f(); p.onUserPlayback(); };
+  useVisionKeys(h, mine);
   return <div class="map-controls" role="group" aria-label="Map view">
     <details class="map-layers" ref={layers}>
       <summary class="btn small" data-testid="map-layers-toggle">Map layers ▾</summary>
@@ -496,8 +518,7 @@ export function MapControls(p: {
                   class={cx("btn ghost small", h.showTroopers() && "on")}
                   data-testid="troopers-toggle"
                   aria-pressed={h.showTroopers()}
-                  title="The replay's lane troopers, to check the wave splits"
-                  onClick={() => h.setShowTroopers(!h.showTroopers())}
+                  onClick={() => mine(() => h.setShowTroopers(!h.showTroopers()))}
                 >
                   Lane troopers
                 </button>
@@ -508,8 +529,7 @@ export function MapControls(p: {
                   class={cx("btn ghost small", h.showHealth() && "on")}
                   data-testid="health-toggle"
                   aria-pressed={h.showHealth()}
-                  title="Heroes' and objectives' health"
-                  onClick={() => h.setShowHealth(!h.showHealth())}
+                  onClick={() => mine(() => h.setShowHealth(!h.showHealth()))}
                 >
                   Health bars & arcs
                 </button>
@@ -520,7 +540,6 @@ export function MapControls(p: {
                   class={cx("btn ghost small", h.showNames() && "on")}
                   data-testid="names-toggle"
                   aria-pressed={h.showNames()}
-                  title="Players' names, here only (off for recording without them)"
                   onClick={() => h.setShowNames(!h.showNames())}
                 >
                   Player names
@@ -531,18 +550,17 @@ export function MapControls(p: {
                 class={cx("btn ghost small", h.showPings() && "on")}
                 data-testid="pings-toggle"
                 aria-pressed={h.showPings()}
-                title="Ping each event on the map as playback passes it"
-                onClick={() => h.setShowPings(!h.showPings())}
+                onClick={() => mine(() => h.setShowPings(!h.showPings()))}
               >
                 Event pings
               </button>
 
         </>}</Show>
-        <Show when={h.tl()?.players.some(player => player.cc?.length)}><button class="btn ghost small" data-testid="cc-toggle" aria-pressed={h.showCC()} onClick={() => h.setShowCC(!h.showCC())}>Crowd control</button></Show>
-        <Show when={h.tl()?.players.some(player => player.height?.length || player.zipline?.length)}><button class="btn ghost small" data-testid="movement-toggle" aria-pressed={h.showMovement()} onClick={() => h.setShowMovement(!h.showMovement())}>Elevation & ziplines</button></Show>
+        <Show when={h.tl()?.players.some(player => player.cc?.length)}><button class="btn ghost small" data-testid="cc-toggle" aria-pressed={h.showCC()} onClick={() => mine(() => h.setShowCC(!h.showCC()))}>Crowd control</button></Show>
+        <Show when={h.tl()?.players.some(player => player.height?.length || player.zipline?.length)}><button class="btn ghost small" data-testid="movement-toggle" aria-pressed={h.showMovement()} onClick={() => mine(() => h.setShowMovement(!h.showMovement()))}>Elevation & ziplines</button></Show>
         <h3>Map pickups</h3>
-        <button class="btn ghost small" data-testid="heals-toggle" aria-pressed={p.heals} onClick={p.toggleHeals}>Healing pickups</button>
-        <button class="btn ghost small" data-testid="crates-toggle" aria-pressed={p.crates} onClick={p.toggleCrates}>Heavy boxes</button>
+        <button class="btn ghost small" data-testid="heals-toggle" aria-pressed={p.heals} onClick={() => mine(p.toggleHeals)}>Healing pickups</button>
+        <button class="btn ghost small" data-testid="crates-toggle" aria-pressed={p.crates} onClick={() => mine(p.toggleCrates)}>Heavy boxes</button>
       </div>
     </details>
     <Show when={h.tl()}>{m => <>
@@ -552,7 +570,8 @@ export function MapControls(p: {
                     class="input pl-vision"
                     data-testid="vision-select"
                     aria-label="Vision"
-                    title="What one team could see: its enemies out of sight aren't drawn. Your followers see it too"
+                    aria-keyshortcuts="1 2 3"
+                    title="Vision (1, 2, 3)"
                     value={h.vision()}
                     onChange={(e) => mine(() => h.setVision(e.currentTarget.value as Vision))}
                   >
@@ -564,7 +583,6 @@ export function MapControls(p: {
                       class={cx("btn ghost small", h.showLastSeen() && "on")}
                       data-testid="last-seen-toggle"
                       aria-pressed={h.showLastSeen()}
-                      title="Enemies out of sight as ghosts where this team last saw them. Your followers see it too"
                       onClick={() => mine(() => h.setShowLastSeen(!h.showLastSeen()))}
                     >
                       Last seen
@@ -572,10 +590,43 @@ export function MapControls(p: {
                   </Show>
                 </>
               </Show>
-
     </>}</Show>
-    <button class="btn small" data-testid="viewpoint-flip" title="Flip view" aria-label="Flip view" onClick={p.flip}>Flip ↻</button>
+    <button class="btn small map-flip" data-testid="viewpoint-flip" title="Flip map" aria-label="Flip map" onClick={p.flip}>
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 2v11M2 10l3 3 3-3M11 14V3M8 6l3-3 3 3" /></svg>
+      Flip map
+    </button>
+    <VisionMark host={h} />
   </div>;
+}
+
+/** The Vision in force, in its team's colour, and whether ghosts show (#12): a follower sees
+ * the presenter's at a glance. Nothing under "All". */
+function VisionMark(p: { host: PlayerHost }) {
+  const h = p.host;
+  return <Show when={h.tl() && hasVision(h.tl()!) && h.vision() !== "all" ? (h.vision() as "amber" | "sapphire") : undefined}>{team =>
+    <span class={cx("vision-mark", team())} data-testid="vision-mark" data-team={team()} data-ghosts={h.showLastSeen() ? "on" : "off"} role="status" aria-label={`${teamName(team())} vision${h.showLastSeen() ? ", Last seen" : ""}`}>
+      <i aria-hidden="true" />{teamName(team())}
+      <Show when={h.showLastSeen()}><small>Last seen</small></Show>
+    </span>
+  }</Show>;
+}
+
+/** Vision's keys (#10): 1 All, 2 Hidden King, 3 Archmother, as the list orders them; off while
+ * typing, in a dialog or a menu. Changing it is your own view, so following stops. */
+function useVisionKeys(h: PlayerHost, mine: (f: () => void) => void) {
+  onMount(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey || e.repeat || e.defaultPrevented) return;
+      const i = ["Digit1", "Digit2", "Digit3", "Numpad1", "Numpad2", "Numpad3"].indexOf(e.code) % 3;
+      const tl = h.tl();
+      if (i < 0 || !tl || !hasVision(tl) || h.mode() !== "player" || !boardKeys(e.target as Element | null)) return;
+      e.preventDefault();
+      const v = VISIONS[i]!;
+      if (v !== h.vision()) mine(() => h.setVision(v));
+    };
+    window.addEventListener("keydown", key);
+    onCleanup(() => window.removeEventListener("keydown", key));
+  });
 }
 
 /**
@@ -800,7 +851,7 @@ export function PlayerSide(p: Props) {
         <Show when={h.tl()}>
           {(m) => (
             <>
-              <EventsList art={p.art} tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} t={h.t} playing={() => h.playback().playing} onShown={h.setPingable} pinned={h.pinned} />
+              <EventsList art={p.art} tl={m()} names={names()!} tier={tierLabel(m())} canSave={canEdit()} onJump={jump} onSave={saveMany} lead={h.lead} setLead={h.setLead} t={h.t} playing={() => h.playback().playing} onShown={h.setPingable} pinned={h.pinned} recapOpen={h.eventRecapOpen} onRecap={h.setEventRecapOpen} />
               <span class="match-credit" data-testid="match-credit">
                 {tierOf(m()) === "replay" ? (h.job()?.source === "cdn" ? "Replay: Valve, via deadlock-api.com" : "Replay: uploaded") : "Match data: deadlock-api.com"}
               </span>

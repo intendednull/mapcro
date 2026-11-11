@@ -41,8 +41,8 @@ describe("rift capture", () => {
 
   it("an open rift says when it gives up, until it's captured", () => {
     const tip = (t: number) => riftTip(riftAt(tl, WEST, t, markers)!, WEST, t);
-    expect(tip(754)).toBe("Gives up in 0:41");
-    expect(tip(754.2)).toBe("Gives up in 0:41");
+    expect(tip(754)).toBe("Fades in 0:41");
+    expect(tip(754.2)).toBe("Fades in 0:41");
     expect(tip(770)).toBe("Captured by Archmother");
     // Without a deadline (before format 3), as before.
     const old: Timeline = { ...tl, rifts: [{ key: WEST, start_s: 655, end_s: 783, live_s: 736 }] };
