@@ -3,6 +3,13 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Follow a hero's token with the camera (2026-11-11, feedback #16; operator: after the tooltips)
+
+Keep the map centred on a chosen hero while zooming freely: start from a double-click on the
+hero's top-bar portrait or minimap token, or a hotkey over a hovered token/portrait; stop on pan
+or Escape. Needs a camera model (the map doesn't pan to follow today) and a decision on how it
+interacts with presenter follow (followers' cameras already mirror the presenter's).
+
 ## Previews of matches cached before acf63c3 have no winner (2026-11-11, lead, prod check)
 
 `GET /api/matches/129738985/preview` on prod answers `"winner": null`: the summary was cached
