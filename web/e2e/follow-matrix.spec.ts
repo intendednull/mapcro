@@ -734,6 +734,66 @@ test("after a restart, a presenter back 9 s after its follower is still followed
   await ctx.close();
 });
 
+/** A follow through a restart whose presenter isn't back yet: the follower is live again and
+ * waiting for it (spec §8). `back()` lets the presenter reconnect. */
+async function presenterAway(browser: Browser, title: string) {
+  const r = ROWS.find((x) => x.key === "vision.team")!;
+  const url = await newBoardUrl(server, title);
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  let blocked = false;
+  await ctx.routeWebSocket(/\/ws$/, (ws) => {
+    if (blocked) void ws.close();
+    else ws.connectToServer();
+  });
+  const a = await ctx.newPage();
+  await a.goto(url);
+  await a.locator("#join-name").fill("Coach");
+  await a.keyboard.press("Enter");
+  await expect(a.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  await load(a, ID);
+  const b = await joinNew(browser, url, "Second");
+  await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
+  await put(r, b, r.own);
+  await put(r, a, r.theirs);
+  await follow(b);
+  await shows(r, b, r.theirs);
+  blocked = true;
+  await server.kill();
+  await server.start();
+  await expect(b.getByTestId("save-status")).toHaveAttribute("data-connection", "live", { timeout: 20_000 });
+  await expect(following(b)).toHaveCount(1); // waiting for it
+  const back = async () => {
+    blocked = false;
+    await expect(a.getByTestId("save-status")).toHaveAttribute("data-connection", "live", { timeout: 20_000 });
+  };
+  return { r, a, b, ctx, back };
+}
+
+test("stopped while waiting for a presenter after a restart, the follow stays stopped when it's back", async ({ browser }) => {
+  const { r, a, b, ctx, back } = await presenterAway(browser, "Stop while waiting");
+  await following(b).click();
+  await expect(following(b)).toHaveCount(0);
+  await shows(r, b, r.own); // Stop: its own back
+  await back();
+  // The wait's recheck finds the presenter, but nobody follows it now.
+  await b.waitForTimeout(1500);
+  await expect(following(b)).toHaveCount(0);
+  await put(r, a, r.own);
+  await put(r, a, r.theirs);
+  await b.waitForTimeout(500);
+  await shows(r, b, r.own);
+  await expect(a.getByTestId("presenting")).toHaveCount(0);
+  await ctx.close();
+});
+
+test("a presenter not back within the wait after a restart: Presenter left", async ({ browser }) => {
+  const { r, b, ctx } = await presenterAway(browser, "Presenter never back");
+  await expect(b.getByTestId("toast")).toContainText("Presenter left", { timeout: 30_000 });
+  await expect(following(b)).toHaveCount(0);
+  await shows(r, b, r.own); // the presenter left: its own back (policy "leave: own")
+  await ctx.close();
+});
+
 // Not a follow scenario, but the popover's state moved from the DOM into the store: a build you
 // open yourself opens with neither popover open, as a fresh <details> did.
 test("a build opened again opens with Effects and Build order closed", async ({ browser }) => {
