@@ -53,7 +53,18 @@ pub enum WireIn {
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum WireOut {
     /// `peer` is this connection's id in presence batches (so the UI can tell "following you").
-    Ready { role: LinkRole, base: Option<Base>, peer: u64 },
+    /// `head` is the board's log length when the room took the join: once the client's copy is
+    /// at it, the client has everything that was logged before it arrived (spec §5). A fresh
+    /// client's base may be older (one snapshot serves a burst of joiners), so until then its
+    /// view can lack records others made. Absent from older servers.
+    Ready {
+        role: LinkRole,
+        base: Option<Base>,
+        peer: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        head: Option<u64>,
+    },
     Msg { msg: ServerMsg },
     /// Presence changes since the last batch; `state: null` means the peer left.
     Presence { peers: Vec<PeerPresence> },

@@ -126,6 +126,11 @@ export class BoardSession {
   /** The next cseq after every transaction journaled so far, and whose they are. */
   private journaled = 0;
   private client: string | undefined;
+  /** Ready's `head`: the log length when the room took this connection. */
+  private head: number | undefined;
+  /** The cseqs of `ensure` transactions, until one is refused (cseqs never repeat, so one
+   * that landed stays harmlessly: a number per live layer made). */
+  private readonly ensures = new Set<number>();
   private saveSoon: ReturnType<typeof setTimeout> | undefined;
   private dirtySince: number | undefined;
   /** Local storage couldn't be opened; this session keeps everything in memory. */
@@ -172,6 +177,30 @@ export class BoardSession {
   /** An edit that isn't the user's to undo (spec §6b: Player's live layer); redo is kept. */
   editSilent(ops: Op[]): boolean {
     return this.local((r) => r.edit_silent(JSON.stringify(ops)));
+  }
+
+  /**
+   * A silent edit that makes records whose ids anyone would derive the same (Player's live
+   * layer, player/live.ts). Two editors can both make them; the server keeps the first, and
+   * refuses the other `IdTaken`. For an ensure that refusal is the outcome wanted, the same
+   * records made by someone else, so it is not reported as a problem.
+   */
+  ensure(ops: Op[]): boolean {
+    const r = this.replica;
+    const cseq = r?.nextCseq();
+    const ok = this.local((r) => r.edit_silent(JSON.stringify(ops)));
+    if (ok && r && cseq !== undefined && r.nextCseq() === cseq + 1) this.ensures.add(cseq);
+    return ok;
+  }
+
+  /**
+   * Whether this copy has everything logged before this connection joined (Ready's `head`).
+   * A fresh copy starts from a snapshot that may be older, and until its catch-up lands its
+   * view can lack what others made: an ensure made from it would make them again. False while
+   * not connected; an older server, which sends no head, counts as current once live.
+   */
+  current(): boolean {
+    return this.live && this.replica !== undefined && this.replica.lastSeq() >= (this.head ?? 0);
   }
 
   /** Update what others see of us. Sent at most every PRESENCE_MS; the latest state always wins. */
@@ -370,6 +399,7 @@ export class BoardSession {
             if (sock === this.socket) this.retry();
           });
         this.live = true;
+        this.head = frame.head;
         this.readOnly = frame.role === "view";
         this.peers.clear(); // the room sends everyone present right after Ready
         this.o.onPeers?.([], true);
@@ -382,9 +412,11 @@ export class BoardSession {
       case "msg": {
         const r = this.replica;
         if (!r) throw new Error("message before ready");
-        this.apply(r.receive(JSON.stringify(frame)));
         const m = frame.msg;
-        if (typeof m === "object" && "Rejected" in m) this.problems.push(`rejected: ${JSON.stringify(m.Rejected.reason)}`);
+        // Decided before the change callback runs, so the UI never sees an ensure's refusal.
+        const lost = typeof m === "object" && "Rejected" in m && this.ensures.delete(m.Rejected.cseq) && m.Rejected.reason === "IdTaken";
+        if (typeof m === "object" && "Rejected" in m && !lost) this.problems.push(`rejected: ${JSON.stringify(m.Rejected.reason)}`);
+        this.apply(r.receive(JSON.stringify(frame)));
         this.persistSoon();
         return;
       }

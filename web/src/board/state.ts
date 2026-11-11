@@ -63,6 +63,7 @@ export function createBoardState(board: string, token: string) {
   const [status, setStatus] = createSignal<SaveStatus>({ kind: "saved" });
   const [connection, setConnection] = createSignal<Connection>({ kind: "connecting", attempt: 0 });
   const [myPeer, setMyPeer] = createSignal<number | undefined>();
+  const [current, setCurrent] = createSignal(false);
   const [problems, setProblems] = createSignal<string[]>([]);
   const [undoable, setUndoable] = createSignal({ undo: false, redo: false });
   const [lastRole, setLastRole] = createSignal<LinkRole | undefined>();
@@ -154,6 +155,7 @@ export function createBoardState(board: string, token: string) {
       if (c.kind === "live") setLastRole(c.role);
       if (c.kind === "closed") setLastRole(undefined);
       setMyPeer(s.myPeer);
+      setCurrent(s.current());
       if (s.canUndo !== undoable().undo || s.canRedo !== undoable().redo) setUndoable({ undo: s.canUndo, redo: s.canRedo });
       if (s.problems.length !== problems().length) setProblems([...s.problems]);
     },
@@ -270,6 +272,11 @@ export function createBoardState(board: string, token: string) {
     madeHere: (id: RecordId) => made.has(id),
     /** An edit that isn't the user's to undo: Player's live layer (spec §6b). */
     editSilent: (ops: Op[]) => session.editSilent(ops),
+    /** A silent edit of records anyone would make the same (the live layer): losing the race
+     * to make them is not a problem (session.ts `ensure`). */
+    ensure: (ops: Op[]) => session.ensure(ops),
+    /** This copy has everything logged before it connected (session.ts `current`). */
+    current,
     undo: () => session.undo(),
     redo: () => session.redo(),
     canUndo: () => undoable().undo,

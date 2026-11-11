@@ -95,9 +95,9 @@ fn raw(v: ValueRef<'_>) -> rusqlite::Result<Vec<u8>> {
 
 /// The `Ready` frame for a client with no copy, around the stored base document's JSON. A test
 /// checks it equals what serde writes.
-pub fn ready_frame(role: LinkRole, doc_json: &str, seq: u64, peer: u64) -> String {
+pub fn ready_frame(role: LinkRole, doc_json: &str, seq: u64, peer: u64, head: u64) -> String {
     let role = serde_json::to_string(&role).unwrap_or_default();
-    format!(r#"{{"t":"ready","role":{role},"base":{{"doc":{doc_json},"seq":{seq}}},"peer":{peer}}}"#)
+    format!(r#"{{"t":"ready","role":{role},"base":{{"doc":{doc_json},"seq":{seq}}},"peer":{peer},"head":{head}}}"#)
 }
 
 /// The `Entry` frame for a stored transaction, built around its JSON rather than by parsing
@@ -847,8 +847,8 @@ mod tests {
             "t",
         );
         let json = serde_json::to_string(&doc).expect("json");
-        let serde = serde_json::to_string(&WireOut::Ready { role: LinkRole::Edit, base: Some(Base { doc, seq: 0 }), peer: 9 }).expect("json");
-        assert_eq!(ready_frame(LinkRole::Edit, &json, 0, 9), serde);
+        let serde = serde_json::to_string(&WireOut::Ready { role: LinkRole::Edit, base: Some(Base { doc, seq: 0 }), peer: 9, head: Some(4) }).expect("json");
+        assert_eq!(ready_frame(LinkRole::Edit, &json, 0, 9, 4), serde);
     }
 
     #[test]

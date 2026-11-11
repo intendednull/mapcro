@@ -118,13 +118,15 @@ struct Client {
     id: ClientId,
     ws: Option<Ws>,
     role: Option<LinkRole>,
+    /// The last Ready's `head`: the log length when the room took the join.
+    head: Option<u64>,
     /// Latest presence per peer, as relayed by the server.
     peers: std::collections::BTreeMap<u64, mapcro_engine::wire::PeerPresence>,
 }
 
 impl Client {
     fn new(id: u128) -> Client {
-        Client { replica: None, id: ClientId(id), ws: None, role: None, peers: Default::default() }
+        Client { replica: None, id: ClientId(id), ws: None, role: None, head: None, peers: Default::default() }
     }
 
     /// Connect and authenticate. Returns the close reason if the server refused.
@@ -133,8 +135,9 @@ impl Client {
         let known_seq = self.replica.as_ref().map(Replica::last_seq);
         send(&mut ws, &WireIn::Auth { board: board.into(), token: token.into(), known_seq, build: None }).await;
         match recv(&mut ws).await {
-            Some(WireOut::Ready { role, base, .. }) => {
+            Some(WireOut::Ready { role, base, head, .. }) => {
                 self.role = Some(role);
+                self.head = head;
                 if self.replica.is_none() {
                     let Base { doc, seq } = base.expect("a new client gets a base document");
                     self.replica = Some(Replica::new(self.id, format!("secret-{:032x}", self.id.0), doc, seq));
@@ -1659,10 +1662,19 @@ async fn a_shared_snapshot_keeps_its_own_position() {
     let mut late = Client::new(0xe03);
     late.connect(server.port, &board, &owner).await.expect("late");
     assert_eq!(late.replica().last_seq(), 90, "the snapshot is reused, at its own position");
+    // Ready says how far the log was when the room took the join: until its copy is there, the
+    // late joiner's view lacks the Create (the live-layer IdTaken race, backlog 2026-11-11).
+    assert_eq!(w.head, Some(90));
+    assert_eq!(late.head, Some(95), "head is the log at the join, not the snapshot's position");
+    assert!(late.replica().view().get(mapcro_schema::RecordId(0xe0ca)).is_none());
     while late.replica().last_seq() < 95 {
         late.pump_one().await.expect("catch-up from the snapshot's position");
     }
     assert_eq!(late.replica().confirmed(), w.replica().confirmed());
+    // A client with a copy gets the head too.
+    late.drop_connection();
+    late.connect(server.port, &board, &owner).await.expect("again");
+    assert_eq!(late.head, Some(95));
 }
 
 #[tokio::test(flavor = "multi_thread")]

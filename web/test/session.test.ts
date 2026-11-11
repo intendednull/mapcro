@@ -209,6 +209,30 @@ describe("board sessions against the real server", () => {
     b.stop();
   });
 
+  it("an ensure that loses that race is not a problem, and a fresh joiner is current only once caught up", async () => {
+    const { board, owner_token } = await api.createBoard("live-layer-ensure");
+    const a = session(server, board, owner_token);
+    await a.start();
+    await until(() => a.connection.kind === "live" && a.current(), "a live and current");
+    a.ensure(ensureLiveOps(entries(a), board, 129000101, roster(a)));
+    await until(() => a.status.kind === "saved", "a made the layer");
+    let made = 0;
+    let currentThen: boolean | undefined;
+    const b = await joinAndAct(board, owner_token, (b) => {
+      currentThen = b.current();
+      const ops = ensureLiveOps(entries(b), board, 129000101, roster(b));
+      made = ops.length;
+      b.ensure(ops);
+    });
+    expect(currentThen).toBe(false); // its snapshot is behind the head: the layer is missing
+    expect(made).toBeGreaterThan(0); // so it made it, and the server refused it
+    expect(b.current()).toBe(true);
+    expect(b.problems).toEqual([]);
+    expect(view(b)).toBe(view(a));
+    a.stop();
+    b.stop();
+  });
+
   it("presence flows both ways and only editors are followable", async () => {
     const { board, owner_token } = await api.createBoard("presence");
     const { token: viewToken } = await api.mintLink(board, owner_token, "view", "fan");
@@ -293,6 +317,10 @@ describe("board sessions against the real server", () => {
       await until(() => a.status.kind === "saved", "every change decided");
       expect(a.problems.filter((p) => p === 'rejected: "BoardFull"')).toHaveLength(2);
       expect(pos(a, p0!)).toBe(5); // the last change that fit
+      // An ensure refused for anything but IdTaken is a problem like any other.
+      a.ensure(ensureLiveOps(entries(a), board, 129000101, roster(a)));
+      await until(() => a.status.kind === "saved", "the ensure decided");
+      expect(a.problems.filter((p) => p === 'rejected: "BoardFull"')).toHaveLength(3);
       expect(a.connection.kind).toBe("live"); // refused, not cut off
       a.stop();
     } finally {

@@ -23,9 +23,11 @@ export function liveLayer(state: BoardState, h: PlayerHost, board: string, inPla
   };
   createEffect(() => {
     const m = match();
-    if (!inPlayer() || m === undefined || !state.canEdit() || state.roster().length !== 12) return;
+    // Only from a current copy: a fresh one may start from an older snapshot, and would make a
+    // layer someone already made (refused `IdTaken`, shown as Conflict; backlog 2026-11-11).
+    if (!inPlayer() || m === undefined || !state.canEdit() || !state.current() || state.roster().length !== 12) return;
     const ops = ensureLiveOps(state.records as never, board, m, state.roster());
-    if (ops.length) state.editSilent(ops);
+    if (ops.length) state.ensure(ops);
   });
   const alone = () => !state.peerList().some((x) => x.peer !== state.myPeer() && x.state?.playback?.player);
   // Only the first entry into a match's Player in this session clears stale ink: coming back
