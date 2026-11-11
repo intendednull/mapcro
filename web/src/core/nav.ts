@@ -17,9 +17,8 @@ export function navigate(url: string) {
   setHref(location.href);
 }
 
-/** Show the address as it is now (back, forward, an edited fragment). */
-const follow = () => {
+// Back, forward and an edited fragment all fire `popstate` (a fragment's `hashchange` comes
+// after it, with the address already followed).
+addEventListener("popstate", () => {
   if (location.href !== href()) setHref(location.href);
-};
-addEventListener("popstate", follow);
-addEventListener("hashchange", follow);
+});

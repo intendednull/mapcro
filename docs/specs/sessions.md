@@ -691,7 +691,8 @@ Each phase is small, merges on its own, and leaves boards unchanged.
    module-state ledger guard, and add a test that mounts A, unmounts, and mounts B in one page.
    Fix whatever it finds. `core/nav.ts` back navigation can then stop reloading.
    **Done 2026-11-11 (branch `sessions-p0`).** What it found and fixed is in §4.1.
-   - `core/nav.ts` follows `popstate` and `hashchange` in place, with no reload.
+   - `core/nav.ts` follows `popstate` in place, with no reload. Back, forward and an edited
+     fragment all fire it.
      `applink.followHashChanges` is gone. App mounts Board keyed by board and token, so another
      board, or another token for the same board, mounts afresh.
    - `e2e/board-unmount.spec.ts` drives A, B, A by real history traversal (`history.back()`
