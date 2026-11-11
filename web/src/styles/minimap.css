@@ -17,10 +17,22 @@
 
 /* #hud_minimap: 360 of the 400 px frame, centred */
 .mm-clip { position: absolute; left: 5%; top: 5%; width: 90%; height: 90%; z-index: 1; }
-.mm-host.zoomed:not(.mm-crop) .mm-clip {
-  overflow: hidden;
-  -webkit-mask-position: 50% 50%; mask-position: 50% 50%; -webkit-mask-size: 111.11% 111.11%; mask-size: 111.11% 111.11%; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;   /* image: parity.css */
-}
+/* The stencil (map/stencil.ts, MapView; feedback #21): zoomed in, the view through the frame's
+   shape (compass_frame_mask's, or the drawn disc without the pack). A clip-path, not a mask, so
+   what it hides takes no pointer either. */
+.mm-host.zoomed:not(.mm-crop) .mm-clip { overflow: hidden; clip-path: var(--mm-stencil-box); }
+/* At any zoom, the map's art and what stands on the map (heroes, troopers, selection rings) are
+   clipped to the map's own stencil; ink, arrows and comments keep the notes margin. */
+.mm-host:not(.lite) .mm-rot { clip-path: var(--mm-stencil-box); }
+.mm-overlay.map > .tokens, .mm-overlay.map > .pl-troopers, .mm-overlay.map > .picks { clip-path: var(--mm-stencil-view); }
+.mm-defs { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
+/* The edge, over everything the stencil clips: compass_frame's rim (rgb 90 90 90, 3 of 880 px),
+   opaque and a little wider so it reads over the map; the drawn frame's cream without the pack.
+   Fixed over the frame zoomed in; moving with the map (as the frame does) out from there. */
+.mm-edge { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; overflow: visible; pointer-events: none; }
+.mm-zoom > .mm-edge.moving { inset: auto; left: -5.5556%; top: -5.5556%; width: 111.111%; height: 111.111%; z-index: 21; }
+.mm-edge path { fill: none; stroke: rgb(255 239 215 / 0.35); stroke-width: 0.45; }
+.mm-host.pack-art .mm-edge path { stroke: #5A5A5A; }
 .mm-host.lite .mm-clip, .mm-host.mm-crop .mm-clip { left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; }
 .mm-zoom { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 .mm-rot { position: absolute; inset: 0; isolation: isolate; }

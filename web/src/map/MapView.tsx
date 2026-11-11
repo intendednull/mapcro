@@ -10,6 +10,7 @@ import { defaultSplit, pathOf, splitAt, splitEdges } from "./lanes";
 import { type Art, artCss } from "./pack";
 import { FIT_VIEW, MARGIN, type Viewpoint } from "./transform";
 import { buffInfo } from "../match/buffs";
+import { FRAME_TO_BOX, FRAME_TO_VIEW, STENCIL } from "./stencil";
 
 /** A neutral cream: the spawners give any powerup, so no buff's own colour. */
 const POWERUP = "#FFEFD7";
@@ -179,6 +180,8 @@ function Lanes(p: { art: Art; vp: Viewpoint; waveT: ((lane: string) => number | 
 }
 
 let styleEl: HTMLStyleElement | undefined;
+/** Each map's stencil clips get ids of their own. */
+let stencils = 0;
 function useArtCss(art: () => Art) {
   createEffect(() => {
     const css = artCss(art());
@@ -262,14 +265,35 @@ export function MapView(p: {
       : p.art.model.markers.filter((m) => optionalShown(m.kind, { heals: p.heals, crates: p.crates })),
   );
   const hasArt = () => p.art.images.has("terrain-mid");
+  // The stencil (map/stencil.ts; feedback #21): zoomed in, the view is seen through it; at any
+  // zoom the map's own art and the heroes on it are clipped to the map's own, so nothing of
+  // theirs shows past its edge or takes the pointer there (a clip-path clips hit-testing; a mask
+  // didn't). Ink, arrows and comments keep the notes margin, out to the box. The edge is drawn
+  // over all of it, so it stays crisp over whatever is clipped at it.
+  const sid = `mm-stencil-${++stencils}`;
+  const edge = (moving: boolean) => (
+    <svg class={cx("mm-edge", moving && "moving")} viewBox="0 0 100 100" aria-hidden="true">
+      <path d={STENCIL} />
+    </svg>
+  );
   return (
     <div
       ref={host}
       class={cx("mm-host", `vp-${p.viewpoint}`, p.class, p.raisedLane && "lane-raised", hasArt() && "pack-art", p.lite && "lite", hud() && "zoomed", free() && "free", p.live && "live")}
       data-viewpoint={p.viewpoint}
       data-pack={p.art.packId ?? "none"}
-      style={{ "--u": `${u()}px`, "--mk-scale": String(Math.min(1, view().w / 1000)) }}
+      style={{ "--u": `${u()}px`, "--mk-scale": String(Math.min(1, view().w / 1000)), "--mm-stencil-box": `url(#${sid}-box)`, "--mm-stencil-view": `url(#${sid}-view)` }}
     >
+      <Show when={!p.lite}>
+        <svg class="mm-defs" width="0" height="0" aria-hidden="true">
+          <clipPath id={`${sid}-box`} clipPathUnits="objectBoundingBox">
+            <path d={STENCIL} transform={FRAME_TO_BOX} />
+          </clipPath>
+          <clipPath id={`${sid}-view`} clipPathUnits="userSpaceOnUse">
+            <path d={STENCIL} transform={FRAME_TO_VIEW} />
+          </clipPath>
+        </svg>
+      </Show>
       <Show when={!p.lite && !free()}>
         <div class="mm-frame">{frame()}</div>
       </Show>
@@ -322,8 +346,10 @@ export function MapView(p: {
             </Show>
             {p.children}
           </svg>
+          <Show when={!p.lite && free()}>{edge(true)}</Show>
         </div>
       </div>
+      <Show when={!p.lite && !free()}>{edge(false)}</Show>
     </div>
   );
 }

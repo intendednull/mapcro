@@ -11,6 +11,7 @@
 //!   cached by file size and time.
 //! - [`mode`]: installed or portable, and what that changes (the scheme's registration, updates).
 //! - [`link`]: a `mapcro://` board link, checked and mapped to the board's page on the site.
+//! - [`nav`]: where a link from the page goes: the app's window, the system browser, or nowhere.
 //!
 //! Privacy: nothing here logs a path, a player name or an account id. A replay leaves this crate
 //! only as its match id, its size, its time and its timeline (which the server shows on the board
@@ -19,6 +20,7 @@
 pub mod folder;
 pub mod link;
 pub mod mode;
+pub mod nav;
 pub mod parse;
 pub mod preview;
 pub mod replays;

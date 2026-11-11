@@ -109,8 +109,6 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .toast .link { background: none; border: 0; color: var(--accent); font-weight: 700; padding: 0; }
 .tb[disabled] { opacity: 0.35; cursor: default; }
 
-/* Zoomed without a pack: clip to the frame's disc (with a pack, the compass frame mask does it). */
-.mm-host.zoomed:not(.pack-art):not(.mm-crop) .mm-clip { clip-path: circle(47.8% at 50% 50%); }
 
 /* Share and clone */
 .dialog { max-height: calc(100dvh - 40px); overflow: auto; }

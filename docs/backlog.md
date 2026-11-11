@@ -200,7 +200,14 @@ much they matter.
   - the replay picker: the folder is found, a download in progress is left out until it settles
     (whether the game writes the `.dem` in place or renames it in; the 5 s is a guess), and
     Change folder's chooser opens over the window and is kept across runs;
-  - the passive update path works end to end.
+  - the passive update path works end to end;
+  - links off the site (desktop/README.md, Links off the site; feedback #23), installer and
+    portable: the feedback form's "See this issue in GitHub" (`target="_blank"`) and a landing
+    or help page link open in the default browser, the app's window stays put and no second
+    window opens. The smoke test checks `window.open` and plain links on Linux (a stand-in
+    `xdg-open`), but a `target="_blank"` click there raises no new-window request, so the
+    link the bug was about is checked only here. A real Linux desktop: does a `target="_blank"`
+    link open anything at all (it didn't under WebKitWebDriver)?
 - **Picker follow-ups (2026-11-10, replay-picker).** Held out of the first cut:
   - **Back to Steam's folder.** After Change folder there's no "use the default" action: the
     chosen folder wins while it exists (choose Steam's folder again, or delete

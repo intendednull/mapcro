@@ -16,7 +16,7 @@ import type { PeerPresence } from "../gen/PeerPresence";
 import type { RecordId } from "../gen/RecordId";
 import type { WorldPos } from "../gen/WorldPos";
 import type { Art } from "../map/pack";
-import { type Pt, type Viewpoint, clampToMap, viewToWorld, worldToView } from "../map/transform";
+import { type Pt, type Viewpoint, clampToDisc, clampToMap, viewToWorld, worldToView } from "../map/transform";
 import { FLIP_MS, smoothed } from "./smooth";
 import { fadeTiming, fadeTo, visionFade } from "./fade";
 import { hoverToken, hoveredToken, registerHover } from "../map/HoverLabel";
@@ -109,7 +109,7 @@ export function Tokens(p: {
     const e = p.state.records[id];
     return e && "PlayerState" in e.record ? e.record.PlayerState.pos : undefined;
   };
-  const moved = (from: WorldPos, d: { x: number; y: number }) => clampToMap({ x: from.x + d.x, y: from.y + d.y });
+  const moved = (from: WorldPos, d: { x: number; y: number }) => clampToDisc({ x: from.x + d.x, y: from.y + d.y });
 
   /** Others' drags (and the groups moving with them) and focus, by the record they touch. */
   const touching = createMemo(() => {
