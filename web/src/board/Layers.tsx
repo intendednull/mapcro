@@ -500,6 +500,8 @@ export function Layers(p: {
       return;
     }
     if (tool === "move") {
+      // A death skull with a recap handles its own press (Skulls.tsx).
+      if ((e.target as Element).closest?.(".pl-skull[data-recap]")) return;
       if (!editor()) {
         if (onComment) return; // the comment handles its own click
         pan(e); // Look: dragging the map pans

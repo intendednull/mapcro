@@ -1,6 +1,7 @@
 // A fallen hero and the game's small skull fade as one, driven only by replay time. No CSS
 // animation: pausing, scrubbing, reduced motion and following all show the same frame.
-// Unhoverable, so the brief death cue never takes a living hero's pointer.
+// Unhoverable, so the brief death cue never takes a living hero's pointer; with the Move tool, a
+// skull whose death has a recap is pressable and opens it (SkullRecap.tsx).
 
 import { Index, Show } from "solid-js";
 import { worldToView } from "../map/transform";
@@ -9,13 +10,19 @@ import { SKULL, TOKEN_R } from "../board/Tokens";
 import type { MatchPreview } from "../match/preview";
 
 /** `k`: the hero tokens' scale, so the fallen hero keeps exactly their on-screen size. */
-export function DeathSkulls(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; preview: () => MatchPreview | undefined; k: number }) {
+export function DeathSkulls(p: {
+  art: Art; vp: "amber" | "sapphire" | "neutral"; preview: () => MatchPreview | undefined; k: number;
+  /** Whether the death (slot "amber-0"…, its second) has a recap: its skull opens it. */
+  hasRecap?: (slot: string, t: number) => boolean;
+  onOpenRecap?: (slot: string, t: number) => void;
+}) {
   return (
     <g class="pl-skulls" data-testid="death-skulls">
       <Index each={p.preview()?.skulls ?? []}>
         {(s) => {
           const v = () => worldToView(s().at, p.vp);
           const hero = () => p.art.heroes.get(p.preview()?.players.get(s().slot)?.hero ?? -1);
+          const recap = () => !!p.onOpenRecap && !!p.hasRecap?.(s().slot, s().t);
           return (
             <g
               class={`pl-skull ${s().team}`}
@@ -26,7 +33,11 @@ export function DeathSkulls(p: { art: Art; vp: "amber" | "sapphire" | "neutral";
               data-y={s().at.y}
               opacity={s().opacity.toFixed(3)}
               transform={`translate(${v().x} ${v().y}) scale(${p.k})`}
-              aria-hidden="true"
+              aria-hidden={recap() ? undefined : "true"}
+              data-recap={recap() ? "" : undefined}
+              role={recap() ? "button" : undefined}
+              aria-label={recap() ? `Death recap: ${hero()?.name ?? "hero"}` : undefined}
+              onClick={() => recap() && p.onOpenRecap!(s().slot, s().t)}
             >
               <circle class="pl-fallen-body" r={TOKEN_R} />
               <Show when={hero()?.portrait}>

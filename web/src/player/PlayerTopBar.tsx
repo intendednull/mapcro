@@ -101,6 +101,8 @@ export function PlayerTopBar(p: {
   compact?: boolean;
   /** A click on a hero's portrait focuses it on the map at t (Board's focusHero). */
   onFocus?: (team: string, slot: number) => void;
+  /** A build-order row: seek the replay there. */
+  onSeek?: (t: number) => void;
 }) {
   let el!: HTMLDivElement;
   const [openBuild, setOpenBuild] = createSignal<string>();
@@ -254,7 +256,7 @@ export function PlayerTopBar(p: {
               </Show>
               <UltDial left={x()?.ult ?? null} label={label()} />
               <Show when={expanded(key) && player()}>
-                {pl => <BuildColumn inspect={!allBuilds() && !tabHeld()} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} />}
+                {pl => <BuildColumn inspect={!allBuilds() && !tabHeld()} onSeek={p.onSeek} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} />}
               </Show>
               {/* Never under the bar (styles/topbar.css): the name is the portrait's hover label's,
                   and the expanded column's. */}

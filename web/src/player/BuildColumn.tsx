@@ -1,12 +1,13 @@
 // The HUD's PlayerNameNWContainer: abilities above the two-column inventory.
 import { ActiveEffects } from "./ActiveEffects";
+import { BuildOrder } from "./BuildOrder";
 import { For, Index, Show, createMemo } from "solid-js";
 import type { Art, Hero } from "../map/pack";
 import { buildAt, killsAt, type BuildEntry } from "../match/builds";
 import { scoreboardValueAt, type Timeline, type TimelinePlayer } from "../match/timeline";
 import { cx } from "../ui/cx";
 
-export function BuildColumn(p: { inspect?: boolean; player: TimelinePlayer; timeline: Timeline | undefined; t: number; art: Art; hero: Hero | undefined; name: string | undefined; id: string }) {
+export function BuildColumn(p: { inspect?: boolean; onSeek?: ((t: number) => void) | undefined; player: TimelinePlayer; timeline: Timeline | undefined; t: number; art: Art; hero: Hero | undefined; name: string | undefined; id: string }) {
   const build = createMemo(() => buildAt(p.player, p.t));
   const record = (id: number) => p.art.buildCatalog?.records.get(id);
   const abilityIds = () => p.hero?.abilities?.length ? p.hero.abilities : (build().abilities ?? []).map(a => a.id);
@@ -72,7 +73,12 @@ export function BuildColumn(p: { inspect?: boolean; player: TimelinePlayer; time
         }}</Index>
       </div>
       <Show when={build().abilities === null}><p class="tb-build-empty">Upgrades unavailable</p></Show>
-      <Show when={p.inspect}><ActiveEffects player={p.player} t={p.t} art={p.art} endDs={p.timeline ? p.timeline.duration_s * 10 : undefined} /></Show>
+      <Show when={p.inspect}>
+        <div class="tb-build-popovers">
+          <ActiveEffects player={p.player} t={p.t} art={p.art} endDs={p.timeline ? p.timeline.duration_s * 10 : undefined} />
+          <BuildOrder player={p.player} t={p.t} art={p.art} onSeek={p.onSeek} />
+        </div>
+      </Show>
       <div class="tb-build-items" aria-label="Equipped items">
         <Index each={build().items ?? []}>{entry => {
           const info = () => record(entry().id);

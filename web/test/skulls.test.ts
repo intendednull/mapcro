@@ -1,7 +1,7 @@
 // Death skulls (spec §6b): which deaths show a skull at playback time t, where, how faded, and
 // under whose vision.
 import { describe, expect, it } from "vitest";
-import { SKULL_S, deathSeen, skullsAt } from "../src/player/skulls";
+import { SKULL_S, deathSeen, deathShown, skullsAt } from "../src/player/skulls";
 
 // Walks east 100 a second; dies at 8 (dead 8 and 9), back at 10, dies again at 11.
 const xs = [0, 100, 200, 300, 400, 500, 600, 700, null, null, 1000, 1100, null];
@@ -83,4 +83,13 @@ describe("death skulls", () => {
       expect(skullsAt([walker()], 8.5, "all")).toHaveLength(1);
     });
   });
+});
+
+it("shows a death to every view, its own team's, and an enemy's only if it saw it", () => {
+  const p = { team: "sapphire" as const, seen: [[50, 79]] as Array<[number, number]> };
+  expect(deathShown(p, 8, null)).toBe(true);
+  expect(deathShown(p, 8, "all")).toBe(true);
+  expect(deathShown(p, 8, "sapphire")).toBe(true);
+  expect(deathShown(p, 8, "amber")).toBe(true);
+  expect(deathShown(p, 20, "amber")).toBe(false);
 });

@@ -5,7 +5,7 @@ import { effectsAt } from "./effects";
 
 export function ActiveEffects(p: { player: TimelinePlayer; t: number; art: Art; endDs?: number | undefined }) {
   const effects = createMemo(() => effectsAt(p.player, p.t, p.art.buildCatalog, p.endDs));
-  return <details class="tb-effects" data-testid="active-effects">
+  return <details class="tb-effects" name="tb-build-popover" data-testid="active-effects">
     <summary>Effects · {effects()?.length ?? "—"}</summary>
     <div class="tb-effects-body">
       <Show when={effects() !== null} fallback={<p>Effects unavailable in this replay.</p>}>

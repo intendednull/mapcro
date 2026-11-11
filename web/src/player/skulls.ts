@@ -37,13 +37,19 @@ export function deathSeen(p: Pick<TimelinePlayer, "seen">, death: number): boole
   return (p.seen ?? []).some(([a, b]) => a <= hi && b > lo);
 }
 
+/** Whether a team's view (`null` or "all": every death) shows the death: its own hero's always,
+ * an enemy's only if it saw it. The skulls and their recaps both follow it. */
+export function deathShown(p: Pick<TimelinePlayer, "team" | "seen">, death: number, view: Vision | null): boolean {
+  const team = view === "all" ? null : view;
+  return !team || p.team === team || deathSeen(p, death);
+}
+
 /**
  * The skulls at playback time t: every death in `[t − SKULL_S, t]`. `view`: the team whose sight
  * the map draws (`null` or "all": every death). A team always sees its own heroes die; an enemy's
  * death only if it saw it (`deathSeen`).
  */
 export function skullsAt(players: ReadonlyArray<Pick<TimelinePlayer, "team" | "slot" | "x" | "y" | "deaths" | "seen" | "respawn">>, t: number, view: Vision | null): Skull[] {
-  const team = view === "all" ? null : view;
   const out: Skull[] = [];
   for (const p of players)
     for (const d of p.deaths) {
@@ -56,7 +62,7 @@ export function skullsAt(players: ReadonlyArray<Pick<TimelinePlayer, "team" | "s
       for (let s = Math.floor(d) + 1; s <= Math.min(Math.floor(t), p.x.length - 1); s++)
         if (p.x[s] != null && p.y[s] != null) { revived = true; break; }
       if (revived || p.deaths.some((next) => next > d && next <= t)) continue;
-      if (team && p.team !== team && !deathSeen(p, d)) continue;
+      if (!deathShown(p, d, view)) continue;
       const at = lastSeen(p, d);
       if (!at) continue;
       out.push({ slot: slotKey(p.team, p.slot), team: p.team, t: d, at, opacity: 1 - (age / SKULL_S) ** 2 });
