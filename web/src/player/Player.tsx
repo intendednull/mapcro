@@ -64,7 +64,8 @@ export function Player(p: {
   // its choice, so it no longer covers the tools under it (the bar's left end). Only then: not
   // on a match a presenter opened, nor one open on page load, nor a slow Load's answer once
   // another id is being typed (review 2026-11-11). Decided once the match's replay state is
-  // known too: a match with only the API summary, or a stale parse, keeps it open on its upload
+  // known (the job settled, not fetching or parsing) too: a match with only the API summary, or a
+  // stale parse, keeps it open on its upload
   // (the next step). A refused id or a failed load keeps it open, its status saying why.
   /** The id this user's own Load asked for, until the panel closes for it. */
   let loading: string | undefined;
@@ -76,7 +77,10 @@ export function Player(p: {
     on(
       () => {
         const m = h.tl();
-        return m && h.job() ? `${m.match_id}:${tierOf(m)}` : "";
+        // Decided once the job has settled: a fetch from Valve under way (the server starts one
+        // on attach) offers no upload yet, but may end in one (review 2026-11-11: the panel
+        // closed on "fetching" and its upload was hidden when the fetch failed).
+        return m && h.job() && !busy(h.job()) ? `${m.match_id}:${tierOf(m)}` : "";
       },
       (now, was) => {
         if (!now || now === was || !source?.open) return;
