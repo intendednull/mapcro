@@ -15,6 +15,12 @@ then with "read BRIEF.md and your NOTES.md, continue".
 
 ## Production
 
+- **2026-11-11 ~12:00 UTC (lead mapcro-2d):** `web` runs **4a5a384** (infra bba10f9): tooltips +
+  stat panels + minimap hero panel, web polish (feedback fixes), follow sync, local previews, salts
+  fixes, 32% lighter parse, clippy gated. Pack **6860-tooltips** (40 MB, newest) at
+  `~/.local/share/mapcro-lead/packs/6860-tooltips`. Desktop 0.1.0 published; 0.2.0 waits on the
+  Windows smoke fix (agent winsmoke, branch `ci-windows-smoke`). Running: `stream-parse` (vendored
+  streaming parser), `fix-batch-2` (#21 #22 #23). Open feedback: #5 (no data), #16 (backlog), #21–#23.
 - **2026-11-11 ~05:45 UTC (lead mapcro-2d):** `web` runs **98a21ae** (infra e339ef9): calculated
   hero stats (`crates/stats`, WASM), timeline **format 9** (statue pickups), the client-timeline
   route, ≈ on calculated values. Pack **6860-stats** (c9c55048…, 689 files: 6860-items plus 28
