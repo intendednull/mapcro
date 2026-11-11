@@ -9,6 +9,8 @@ import type { Hero } from "../map/pack";
 import { cx } from "../ui/cx";
 import { matchHeroes } from "./roster";
 import type { Slot } from "./state";
+import { ModalScrim } from "../ui/ModalScrim";
+import { dialogKeys } from "../ui/modal";
 
 const COLS = 6;
 
@@ -38,7 +40,6 @@ export function HeroPicker(p: {
     grid.querySelector<HTMLElement>(`[data-i="${at()}"]`)?.scrollIntoView({ block: "nearest" });
   };
   const key = (e: KeyboardEvent) => {
-    if (e.key === "Escape") return (e.preventDefault(), p.onClose());
     if (e.key === "Enter") {
       e.preventDefault();
       const h = shown()[at()];
@@ -61,8 +62,8 @@ export function HeroPicker(p: {
       .slice(0, 2)
       .toUpperCase();
   return (
-    <div class="scrim" data-testid="hero-picker" onPointerDown={(e) => e.target === e.currentTarget && p.onClose()}>
-      <div class="dialog hero-picker" role="dialog" aria-labelledby="hp-h" onKeyDown={key}>
+    <ModalScrim testid="hero-picker" onClose={p.onClose}>
+      <div class="dialog hero-picker" role="dialog" aria-modal="true" aria-labelledby="hp-h" onKeyDown={dialogKeys(p.onClose, key)}>
         <header>
           <div>
             <h2 id="hp-h">{who()}</h2>
@@ -125,6 +126,6 @@ export function HeroPicker(p: {
           </button>
         </footer>
       </div>
-    </div>
+    </ModalScrim>
   );
 }

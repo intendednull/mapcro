@@ -2,9 +2,9 @@
 // button shows only when the server has the form on (core/feedback.ts).
 
 import { Show, createSignal, onMount } from "solid-js";
-import { Portal } from "solid-js/web";
 import { type FeedbackMatch, MAX_DESCRIPTION, MAX_TITLE, feedbackEnabled, matchLine, sendFeedback } from "../core/feedback";
-import { useModal } from "./modal";
+import { dialogKeys } from "./modal";
+import { ModalScrim } from "./ModalScrim";
 
 const X = '<path d="M6 6l12 12M18 6L6 18"/>';
 const BUBBLE = '<path d="M5 5h14a1 1 0 011 1v9a1 1 0 01-1 1h-7l-4 3v-3H5a1 1 0 01-1-1V6a1 1 0 011-1z"/>';
@@ -21,11 +21,9 @@ export function FeedbackDialog(p: { onClose: () => void; match?: FeedbackMatch |
   const [busy, setBusy] = createSignal(false);
   const [problem, setProblem] = createSignal<{ field?: "title" | "description"; message: string }>();
   const [sent, setSent] = createSignal<string>();
-  let scrim!: HTMLDivElement;
   let titleInput!: HTMLInputElement;
   let textInput!: HTMLTextAreaElement;
   let done!: HTMLButtonElement;
-  useModal(() => scrim);
   onMount(() => titleInput.focus());
 
   const send = async (e: Event) => {
@@ -51,8 +49,7 @@ export function FeedbackDialog(p: { onClose: () => void; match?: FeedbackMatch |
   const count = (n: number, max: number) => n >= max * NEAR;
 
   return (
-    <Portal>
-      <div ref={scrim} class="scrim feedback-scrim" data-testid="feedback-dialog" onPointerDown={(e) => e.target === e.currentTarget && p.onClose()}>
+    <ModalScrim class="feedback-scrim" testid="feedback-dialog" onClose={p.onClose}>
         <form
           class="dialog feedback-dialog"
           role="dialog"
@@ -61,14 +58,7 @@ export function FeedbackDialog(p: { onClose: () => void; match?: FeedbackMatch |
           aria-describedby="feedback-notice"
           noValidate
           onSubmit={send}
-          onKeyDown={(e) => {
-            // The board listens on window for its own keys; nothing typed here reaches it.
-            e.stopPropagation();
-            if (e.key === "Escape") {
-              e.preventDefault();
-              p.onClose();
-            }
-          }}
+          onKeyDown={dialogKeys(p.onClose)}
         >
           <header>
             <div>
@@ -171,8 +161,7 @@ export function FeedbackDialog(p: { onClose: () => void; match?: FeedbackMatch |
             </footer>
           </Show>
         </form>
-      </div>
-    </Portal>
+    </ModalScrim>
   );
 }
 

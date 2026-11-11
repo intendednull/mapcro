@@ -7,6 +7,8 @@ import { Api, shareUrl } from "../core/api";
 import { cx } from "../ui/cx";
 import { linkIdOf, linkTree, mintedTokens, rememberMinted } from "./share";
 import { LIMITS } from "../gen/limits";
+import { ModalScrim } from "../ui/ModalScrim";
+import { dialogKeys } from "../ui/modal";
 
 const X = '<path d="M6 6l12 12M18 6L6 18"/>';
 const KEY_ICO = '<circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2 2M14 9l2 2"/>';
@@ -57,8 +59,8 @@ export function ShareDialog(p: { board: string; token: string; role: "owner" | "
   };
 
   return (
-    <div class="scrim" data-testid="share-dialog" onPointerDown={(e) => e.target === e.currentTarget && p.onClose()}>
-      <div class="dialog" role="dialog" aria-labelledby="share-h" onKeyDown={(e) => e.key === "Escape" && p.onClose()}>
+    <ModalScrim testid="share-dialog" onClose={p.onClose}>
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="share-h" onKeyDown={dialogKeys(p.onClose)}>
         <header>
           <div>
             <h2 id="share-h">Share</h2>
@@ -150,6 +152,6 @@ export function ShareDialog(p: { board: string; token: string; role: "owner" | "
           </button>
         </footer>
       </div>
-    </div>
+    </ModalScrim>
   );
 }

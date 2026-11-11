@@ -5,6 +5,8 @@ import { createSignal, onMount } from "solid-js";
 import { Api, shareUrl } from "../core/api";
 import { markJoined, rememberBoard } from "../core/device";
 import { LIMITS } from "../gen/limits";
+import { ModalScrim } from "../ui/ModalScrim";
+import { dialogKeys } from "../ui/modal";
 
 const Ico = (p: { d: string }) => <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" innerHTML={p.d} />;
 
@@ -32,8 +34,8 @@ export function CloneDialog(p: { board: string; token: string; title: string; on
     }
   };
   return (
-    <div class="scrim" data-testid="clone-dialog" onPointerDown={(e) => e.target === e.currentTarget && p.onClose()}>
-      <form class="dialog clone-dialog" role="dialog" aria-labelledby="clone-h" style={{ width: "560px" }} onSubmit={go} onKeyDown={(e) => e.key === "Escape" && p.onClose()}>
+    <ModalScrim testid="clone-dialog" onClose={p.onClose}>
+      <form class="dialog clone-dialog" role="dialog" aria-modal="true" aria-labelledby="clone-h" style={{ width: "560px" }} onSubmit={go} onKeyDown={dialogKeys(p.onClose)}>
         <header>
           <div>
             <h2 id="clone-h">Clone</h2>
@@ -56,6 +58,6 @@ export function CloneDialog(p: { board: string; token: string; title: string; on
           </button>
         </footer>
       </form>
-    </div>
+    </ModalScrim>
   );
 }
