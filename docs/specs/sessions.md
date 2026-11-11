@@ -505,7 +505,8 @@ By decision 1 of the view-state plan, new view state is a registry row:
 - **Remove**: the tab's ×, or the context menu's Remove. It deletes the `Tab` record. A toast
   reads "Removed <name>" with **Undo**. If you were on that tab, you move to its left neighbour.
 - **Rename**: double-click the tab or use the context menu. This sets `TabName`. The board's own
-  title is unchanged, and its editors rename it on the board.
+  title is unchanged, and its editors rename it on the board (its header title, or Rename in
+  "Your boards": architecture-design.md §11).
 - **Reorder**: drag a tab, which sets `TabOrder` between its new neighbours.
 - **One undo** (operator, 2026-11-11): the app's Undo button, Ctrl+Z and the toast's Undo all
   walk one history: your own strip edits (the session document's stack, §7) interleaved by time

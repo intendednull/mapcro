@@ -46,8 +46,15 @@
 .entry-label + .new-board { margin-top: 8px; }
 .entry-or { font: 400 13px var(--ui); color: var(--muted); text-align: center; margin: 20px 0 -12px; }
 .known { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.known li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: 7px; background: var(--panel); }
-.known a { color: var(--text); text-decoration: none; font-weight: 600; }
+.known li { display: flex; align-items: center; gap: 12px; padding: 4px 4px 4px 10px; border-radius: 7px; background: var(--panel); }
+.known a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); text-decoration: none; font-weight: 600; }
+.known .known-match { font-variant-numeric: tabular-nums; }
+/* Rename and Remove: quiet until the row is hovered or the button focused; always there to tap
+ * (no hover on touch, so full strength there). */
+.known-act { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--faint); opacity: 0.55; cursor: pointer; }
+.known li:hover .known-act, .known-act:focus-visible { opacity: 1; }
+.known-act:hover, .known-act:focus-visible { color: var(--text); background: var(--raised); }
+@media (hover: none) { .known-act { opacity: 1; width: 40px; height: 40px; } }
 .known a:hover { text-decoration: underline; }
 .known .muted { font-size: 12px; }
 .error { color: #ffb9ab; }

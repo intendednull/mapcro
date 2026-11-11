@@ -1742,6 +1742,18 @@ later bind owner capabilities to a person.
 - View links can't mint.
 - **Sessions** (several boards as tabs, [sessions.md](sessions.md), draft) delegate board access
   through grants that never exceed the adder's link, capped at edit (sessions.md §3).
+- **"Your boards" (the landing's list, operator, 2026-11-11)** is the links this device holds
+  (`core/device.ts`, localStorage), newest opened first. Each row shows the board's current title
+  (freshened whenever the board is open here, so a rename by anyone shows), a match board's id
+  beside a title it was given (not beside the default "Match <id>"), and two buttons, always
+  shown (quiet until hovered on desktop, full strength on touch):
+  - **Remove** takes the board off this device's list only, with an Undo toast. The board, its
+    links and this device's other data for it (offline copy, colour, comments toggle, join) are
+    untouched, and opening its link lists it again. Deleting a board is not built (backlog).
+  - **Rename**, for a link the board last said can edit, opens the board with its title's
+    editor open. Editors rename in the board's header too: click the title (`Title`, at most
+    `max_title`), one undoable edit through the usual path, so it is live and works offline. A
+    viewer gets no editor and no Rename. An empty name changes nothing.
 
 - Tokens are 256-bit random, base64url. The server stores only SHA-256(token), so a database leak
   yields no usable links.

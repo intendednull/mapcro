@@ -12,6 +12,10 @@ export interface KnownBoard {
   title: string;
   /** Last opened, ms since the epoch. */
   seen: number;
+  /** The match on the board, if it is a match board: the list shows its id beside the name. */
+  match?: string;
+  /** Whether the link can edit, as the board last said (owner or edit): the list offers Rename. */
+  edit?: boolean;
 }
 
 /** The presence palette (join card swatches); `Presence.color` indexes it. */
@@ -86,9 +90,54 @@ export function knownBoards(): KnownBoard[] {
   return read<KnownBoard[]>(BOARDS, []).sort((a, b) => b.seen - a.seen);
 }
 
-export function rememberBoard(b: Omit<KnownBoard, "seen">) {
-  const rest = knownBoards().filter((k) => k.board !== b.board);
-  write(BOARDS, [{ ...b, seen: Date.now() }, ...rest].slice(0, 50));
+/** Adds a board to "Your boards", or freshens it (title, link, last opened). Fields left out
+ * (`match`, `edit`) keep what the list already knew. */
+export function rememberBoard(b: Omit<KnownBoard, "seen" | "match" | "edit"> & { match?: string; edit?: boolean }) {
+  const all = knownBoards();
+  const prev = all.find((k) => k.board === b.board);
+  const next: KnownBoard = { ...prev, ...b, seen: Date.now() };
+  if (b.match === undefined && prev?.match !== undefined) next.match = prev.match;
+  if (b.edit === undefined && prev?.edit !== undefined) next.edit = prev.edit;
+  if (next.match === undefined) delete next.match;
+  if (next.edit === undefined) delete next.edit;
+  write(BOARDS, [next, ...all.filter((k) => k.board !== b.board)].slice(0, 50));
+}
+
+/** Takes a board off this device's list (the bin in "Your boards"); the board itself, and what
+ * else this device keeps for it (its offline copy, colour, comments toggle, join), stay. Hands
+ * back the entry, for Undo. Reopening its link adds it again. */
+export function forgetBoard(board: string): KnownBoard | undefined {
+  const all = read<KnownBoard[]>(BOARDS, []);
+  const gone = all.find((k) => k.board === board);
+  if (gone) write(BOARDS, all.filter((k) => k.board !== board));
+  return gone;
+}
+
+/** Puts a forgotten entry back as it was (Undo), unless the board came back meanwhile. */
+export function restoreBoard(k: KnownBoard) {
+  const all = read<KnownBoard[]>(BOARDS, []);
+  if (all.some((x) => x.board === k.board)) return;
+  write(BOARDS, [...all, k].sort((a, b) => b.seen - a.seen).slice(0, 50));
+}
+
+const RENAME = "mapcro.renameOnOpen";
+
+/** Rename from "Your boards": the board opens with its title's editor open (tab-local). */
+export function askRename(board: string) {
+  try {
+    sessionStorage.setItem(RENAME, board);
+  } catch {}
+}
+
+/** Whether this board was opened to be renamed; the ask is used up either way. */
+export function takeRename(board: string): boolean {
+  try {
+    if (sessionStorage.getItem(RENAME) !== board) return false;
+    sessionStorage.removeItem(RENAME);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Whether this device shows a board's comments expanded (the Comments toggle). */
