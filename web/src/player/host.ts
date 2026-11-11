@@ -422,7 +422,9 @@ export function createPlayerHost(board: string, token: string) {
     try {
       gz = await timeline();
     } catch (e) {
-      return end((e as { code?: string }).code ?? "parse_failed");
+      // The app's `not_found`: the file left the folder (not the match's metadata).
+      const code = (e as { code?: string }).code ?? "parse_failed";
+      return end(code === "not_found" ? "file_gone" : code);
     }
     if (ctl.signal.aborted) return end("aborted");
     const e = await api.uploadTimeline(id, gz);
@@ -432,7 +434,7 @@ export function createPlayerHost(board: string, token: string) {
       try {
         f = await file();
       } catch {
-        return setProblem({ code: "not_found", step: "upload" });
+        return setProblem({ code: "file_gone", step: "upload" });
       }
       return void (await take(f));
     }

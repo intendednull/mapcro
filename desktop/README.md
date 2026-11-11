@@ -54,6 +54,15 @@ only navigates within the site's origin; any other link opens in the system brow
 web side, `web/src/player/desktop.ts` feature-detects `window.__TAURI_INTERNALS__.invoke`. In a
 browser it isn't there and nothing changes.
 
+**The site's CSP and the IPC.** Tauri's IPC first tries a request to its own protocol
+(`http://ipc.localhost` on Windows, `ipc://localhost` on Linux), and the site's
+`connect-src 'self'` blocks that. Tauri then falls back to `postMessage`, which works, but a raw
+answer arrives as a JSON number array rather than an `ArrayBuffer` (`desktop.ts` `bytes` takes
+both). This was checked under Xvfb with a debug build against a page that sent the live CSP. A
+0.65 MB timeline is fine that way, but the ~500 MB `.dem` fallback is not. Adding
+`ipc: http://ipc.localhost` to `connect-src` gives `ArrayBuffer`s (checked the same way). That
+is a server CSP change and an open decision (spec §6a keeps `connect-src 'self'`).
+
 **A debug build only** takes `MAPCRO_URL` (for example `http://127.0.0.1:5173/`, `just dev`) and
 grants the same three commands to that origin at run time (`dev_capability`). A release build
 ignores the variable.

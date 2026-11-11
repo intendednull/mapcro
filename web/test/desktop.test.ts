@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Api } from "../src/player/api";
 import { DesktopError, type Invoke, WINDOWS_APP_URL, bridge, desktopSource, isLocal, windowsAppLink } from "../src/player/desktop";
 import { folderSource } from "../src/player/folder";
+import { noticeFor } from "../src/player/notice";
 
 describe("bridge", () => {
   it("is the app's invoke, called on its own object", async () => {
@@ -151,5 +152,14 @@ describe("windowsAppLink", () => {
     expect(windowsAppLink({ released: true, nav: linux, w: {} })).toBeUndefined();
     expect(windowsAppLink({ released: true, nav: { userAgentData: { platform: "macOS" }, userAgent: win.userAgent }, w: {} })).toBeUndefined();
     expect(windowsAppLink({ released: true, nav: win, w: { __TAURI_INTERNALS__: { invoke: () => Promise.resolve() } } })).toBeUndefined();
+  });
+});
+
+describe("the timeline route's refusals", () => {
+  it("each says what to do, not just Failed", () => {
+    for (const c of ["outdated_parser", "newer_parser", "wrong_match", "not_a_timeline", "file_gone"]) {
+      expect(noticeFor(c, "upload")?.text, c).not.toBe("Failed. Try again.");
+    }
+    expect(noticeFor("outdated_parser", "upload")?.text).toMatch(/Update the mapcro app/);
   });
 });

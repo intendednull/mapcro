@@ -55,6 +55,8 @@ export function noticeFor(code: string, step: Step): Notice | undefined {
     case "unsupported_mode":
       return { text: "Mode not supported. Open a standard match.", actions: [] };
     // A timeline parsed by the Windows app, refused.
+    case "file_gone":
+      return { text: "The replay left your replays folder. Download it again in Deadlock.", actions: ["upload"] };
     case "outdated_parser":
       return { text: "Update the mapcro app, then upload again.", actions: [] };
     case "newer_parser":
