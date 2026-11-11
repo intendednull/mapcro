@@ -70,7 +70,7 @@ test("two laser gestures are two trails, locally and for a peer and from a view 
   const url = await newBoardUrl(server, "Laser");
   const a = await joinNew(browser, url, "Coach");
   const b = await joinNew(browser, url, "Marrow");
-  await a.keyboard.press("a");
+  await a.keyboard.press("w");
   await twoGestures(a);
   await expectTwoSeparate(a, "mine");
   await expectTwoSeparate(b, "Coach");
@@ -80,7 +80,7 @@ test("two laser gestures are two trails, locally and for a peer and from a view 
 
   // A view link's laser, the same.
   const v = await joinNew(browser, await viewLink(server.url, url), "Guest");
-  await v.keyboard.press("a");
+  await v.keyboard.press("w");
   await twoGestures(v);
   await expectTwoSeparate(v, "mine");
   await expectTwoSeparate(a, "Guest");
@@ -104,7 +104,9 @@ test("in Player, a follower sees two laser gestures as two trails", async ({ bro
   await expect(b.getByTestId("follow-chip")).toContainText("Following Coach");
   await expect(b.getByTestId("player")).toHaveAttribute("data-state", "match");
 
-  await a.getByTestId("tool-laser").click();
+  // By its key: the match source's panel, still open after Load, lies over the toolbar's left end.
+  await a.keyboard.press("w");
+  await expect(a.getByTestId("tool-laser")).toHaveAttribute("aria-pressed", "true");
   await twoGestures(a);
   await expectTwoSeparate(a, "mine");
   await expectTwoSeparate(b, "Coach");
@@ -120,7 +122,7 @@ test("the laser keeps its size on screen when the map is zoomed in", async ({ br
       return parseFloat(getComputedStyle(el).strokeWidth) * svg.getScreenCTM()!.a;
     });
   const sweep = async () => {
-    await a.keyboard.press("a");
+    await a.keyboard.press("w");
     const from = await mapPoint(a, 0.4, 0.45);
     const to = await mapPoint(a, 0.6, 0.55);
     await a.mouse.move(from.x, from.y);

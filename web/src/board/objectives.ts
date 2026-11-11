@@ -74,7 +74,7 @@ export function groupToggleOps(clicked: M, group: M[], markers: M[], cur: Curren
 }
 
 /**
- * What a Move drag-select picks up: heroes inside win; with none, every objective inside.
+ * What a Select drag-select picks up: heroes inside win; with none, every objective inside.
  * Points are in the same space as the rectangle.
  */
 export function marqueePick<H extends { id: string; at: { x: number; y: number } }>(
