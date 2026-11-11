@@ -3,6 +3,8 @@
 //! by hero id only: never a name or an account id.
 //!
 //! `cargo run --release --example preview_probe -- <demo>`
+// A one-off research probe: failing loudly on a bad demo is what it should do.
+#![allow(clippy::unwrap_used, clippy::type_complexity)]
 use boon::Parser;
 use boon_proto::proto::{CDemoFileHeader, CDemoFileInfo};
 use prost::Message;

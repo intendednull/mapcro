@@ -32,7 +32,7 @@ Ids are `CUtlStringToken`s: MurmurHash2 of the lower-cased name, seed `0x3141592
 | `charges` | ability entity `m_iRemainingCharges` | parse_hero.rs | abilities-and-items §2 |
 | `cc` | pawn `m_pModifierProp.m_bvEnabledStateMask`; cause from a same-tick enemy modifier | hero_data.rs `cc` | [status-effects](status-effects.md) §1–2 |
 | `effects` | `ActiveModifiers` string table, filtered to icon-shown tokens (`modifiers.rs`, generated) | parse_hero.rs | status-effects §1, §3 |
-| `recaps` | msg 300 `CCitadelUserMessageDamage` over `RECAP_S` (10 s) before death, plus `cc` | hero_data.rs `recaps` | status-effects §4 |
+| `recaps` | msg 300 `CCitadelUserMessageDamage` over `RECAP_S` (10 s) before death, plus `cc`. A non-hero attacker's kind (`NPC_SRC` + `NPC_KINDS`, within format 9) from the message's `attacker_class` (4 trooper, 5 guardian, 6 neutral, 8 mid boss, 22 sentry, 29 walker, 30 base guardian, 31 patron; 1 a hero) and `attacker_subclass`, the token of the unit's vdata name (`trooper_medic`, `neutral_sinners_sacrifice`…); no entity tracking needed | hero_data.rs `recaps`, timeline.rs `npc_kind` | status-effects §4; `examples/recap_source_probe.rs` |
 | `objectives`, `objective_health` | `CNPC_TrooperBoss`, `CNPC_Boss_Tier2/3`, `CNPC_BarrackBoss`, `CNPC_MidBoss`, `CCitadel_Destroyable_Building` health; patron `m_ePhase` | derive.rs | exploration §4 |
 | `camps`, `mid_boss` respawn | rules `m_vecNeutralCampNextSpawnTimes/TimerOrigins/TimerIsMidBoss` | derive.rs `camps` | exploration round 3 |
 | `rifts` | `CCitadelItemKothSpawner`; rules `m_timeKothCashInStarted`, `m_timeKothGiveUp`, `m_vecTeamKothStates[]` | derive.rs `rift_capture` | exploration §6, round 7; [timers audit](replay-timers-audit.md) |
@@ -68,6 +68,20 @@ tick), played to the win. Souls grow after the win (+1,020/+812 on 129738985). b
 offsets). 129738985: 0.15–0.18 s, 11 MB of 504 MB, equal to the server preview and the full
 parse; 0.05–0.56 s and 5–23 MB on builds 6683–6839 and the Brawl demo. The demo has **no wall-clock start** (header, file info, entities checked), so a card's match time comes from the server's preview only.
 
+**Parser memory** ([parser-memory](parser-memory.md); probe `examples/memory_probe.rs`): a full
+parse of 129738985 at format 9 peaked at 48 MB anonymous on main, plus the mmapped demo's ~485 MB
+of clean file pages. The worker's `peak_rss_bytes` (VmHWM) counts both, so it reads ~530 MB. On
+main's peak, boon's `ModifierState` was 8 MB live and 14 MB mid-rehash (it never drops an entry
+without an explicit removal: 9,147 live × 584 B). The entity field maps were 13.4 MB (breakable
+props 6.2, troopers 3.4, zipline nodes 1.5) and our per-second `Obs` ~14 MB. Branch
+`parser-memory` keeps only the modifier fields read, filters those three classes' properties and
+collects only the 5 message types read. That gives 32.5 MB, the same timeline, and a parse that
+survives a 36M cap (main is killed at 40M). `from_bytes` adds 481 MB. boon has no reader API, but
+the forward pass needs none: a streamed reader means a small vendored pbdems2+boon patch
+(projected wasm peak 35–40 MB). The no-patch spliced read (minute stretches through `from_bytes`)
+gets every field right except the tough crates (70 of 78). `cargo check` for wasm32 passes, but
+zstd-sys builds host (x86-64) objects there.
+
 **Client-parsed timelines** (`replays.rs` `client_timeline`; spec §6a "Timelines parsed on the
 user's machine"): a timeline sent by the desktop app is refused unless its `format` equals
 `FORMAT` (`outdated_parser` / `newer_parser`), checked before the shape, so a parser change that
@@ -81,7 +95,9 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
 
 - **Allow-list** (`allow.rs`): only `steam.inf`, `pak01_dir.vpk` and its chunks,
   `maps/dl_midtown.vpk`, and named loose localisation files. Inside the VPK: `TOPBAR_FIXED`
-  (15 HUD images), `HUD_SOURCES` (11 panorama layouts/styles), `ABILITY_ICON_DIRS`
+  (15 HUD images), `HUD_SOURCES` (18 panorama layouts/styles: the top bar's, the minimap's, and the
+  tooltip and stat-panel styles), `TOOLTIP_ART` (17 frames), `TOOLTIP_ICON_DIRS` (the folders the
+  tooltip styles' icon rules may name), `ABILITY_ICON_DIRS`
   (`panorama/images/{hud/abilities,upgrades,items,hud/modifiers}/`, one folder deep) and hero
   portraits under `panorama/images/heroes/`. Per-account files (`account_*.stats`,
   `cache_*.soc`, `cfg/`) are never opened.
@@ -94,6 +110,9 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
 - **Localisation** (`allow.rs` `ABILITY_NAMES`, loose KV1, `kv1.rs`): `citadel_gc_hero_names`,
   then for the names table, in order: `citadel_gc_mod_names`, `citadel_heroes`,
   `citadel_attributes`, `citadel_mods`, `citadel_main`. The VPK has only a stub `items_english.txt`.
+  The rift's states are in `citadel_main` (`Citadel_HUD_Koth*`): "Rift Secured!", "Rift Lost",
+  "Rift Faded Away..." (`KothTimeRanOut`, the give-up), "Rift Has Faded..." (`KothExpired`); no
+  "stalemate" anywhere in the five files (checked 2026-11-11, feedback #13).
 - **Map** (`entities.rs`): `maps/dl_midtown/entities/default_ents.vents_c` → `entities[]` with
   semantic keys, camp `tier`, teleporter `exit`; minimap layers `minimap_midtown_*_psd`.
 - **HUD** (`hud.rs`, `topbar.rs`, `panorama.rs`): panorama styles/layouts → `hud_sources[]`.
@@ -109,9 +128,28 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   `item_investment.py` reads it there and asserts every hero's is the same); each row has
   `nGoldThreshold`, `flBonus` and `flPercentOnGraph` (its share of the bar, summing to 100).
   [stat-calc-spike](stat-calc-spike.md) "Production plan".
+- **Tooltips** (`tooltips.rs`; spec §12 "Tooltips"): items' layout is
+  `m_vecTooltipSectionInfo` (`EArea_Innate` / `EArea_Passive` / `EArea_Active`, attributes with
+  `m_strLocString`, `m_vecAbilityProperties`, `m_vecImportantAbilityProperties`); hero abilities'
+  is `m_AbilityTooltipDetails.m_vecAbilityInfoSections` (no `m_vecTooltipSectionInfo`). Property
+  words are `<key>_label` / `_prefix` (`{s:sign}`) / `_postfix` in `citadel_attributes` and
+  `citadel_heroes`, key = `m_strLocTokenOverride` or the property name; descriptions use
+  `<span class="highlight|diminish|…">`, `<br>`, `{s:Prop}` (sometimes the override name, as
+  Djinn's Mark's `{s:DMarkMaxMarks}`), `{g:citadel_inline_attribute:'X'}` (word
+  `InlineAttribute_X`) and `{g:citadel_binding:'X'}`. Property icons are
+  `ability_property_icons.vcss` `.prop_<m_strCSSClass>`; inline icons and colours are
+  `citadel_base_styles.vcss` `.InlineAttributeIcon/.InlineAttributeName.<X>`; the chrome
+  ("Active", "Owned", "Upgrades From:", "Weapon Investment", "Spirit Power Impact") is in
+  `citadel_main`. A spirit-scaled value is `m_strValue` + `m_flStatScale` × spirit power (Djinn's
+  Mark 11 + 0.35 × 176 = 73, the operator's screenshot). Upgrade bonuses carry `m_eUpgradeType`
+  (`EAddToScale` 82, `EMultiplyBase/Scale` 15, else added). **Not in the files:** the ability-point
+  cost of each upgrade tier (the "1 / 2 / 5" on the tier cards; `m_nAbilityPointsCost` is 0 on
+  every ability; the client hard-codes it, `TIER_COSTS`), and "Purchased late game in N% of matches" (Valve's stats). boon-data's
+  `abilities.json` `records[].definition` is the full vdata, so older patches' tooltip values
+  come from the same snapshots as the stat tables.
 - **Schema history:** 2 entities (web `map/model.ts`); 3 top-bar art (journal 2026-11-07-web-app);
-  4 names table, `application/json` blob. Schema 5 (tooltips) is planned in
-  `docs/plans/2026-11-10-game-tooltips.md`.
+  4 names table, `application/json` blob. The `stats` and `tooltips` sections are optional, so
+  neither bumped it; schema 5 is still unused.
 - **Deploy:** [deploy.md](../deploy.md) "Asset packs": copy into `PACKS_DIR`, restart (indexed
   once at start), schema 4 needs the server deployed first; keep old packs.
 
@@ -122,8 +160,11 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   `/salts`. A stored row is returned before the rate limiter, so reading a match it has is free
   with or without `disable_steam`. Only a match with no row reaches the Steam lookup, limited to
   3 per hour per IP (the 300/h key was declined 2026-11-08); that lookup is the one path that can
-  create a replay salt for it. So the server's salts call omits `disable_steam` on purpose
-  (replays.rs `salts`), and metadata sends it. For a fresh match with a row, a free read is as
+  create a replay salt for it. So the server reads salts free (`disable_steam=true`) first, and
+  only a match with no row, past the ~2 h salts pass, gets the read that may ask Steam
+  (replays.rs `salts`, counted as `salts_steam`); a 429 holds back only that read. A 400 "has
+  metadata already" means no row and Steam won't be asked: `no_replay`. Metadata sends
+  `disable_steam`. For a fresh match with a row, a free read is as
   good as a Steam one. About 10% have a `replay_salt` within 1 h, 42% at 2 h, then it levels
   off near 45–48%. For the rest, upload is the only path. Uploaded salts have always been correct.
   Metadata `match_info.winning_team` (lobby team, 0 Amber) and `players[].kills`, `deaths`,
@@ -195,6 +236,13 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   modifier table (no values), the user messages, and the `damage`/`pre_damage` ratio (rejected).
   The UI keeps "—". [scoreboard-values](scoreboard-values.md) "Bullet and spirit resistance";
   probes in `crates/replay/examples/{schema,statviewer,damage_ratio}_probe.rs`.
+- **No rift-spawned troopers to tell apart** (feedback #5, checked 2026-11-11 on 129738985, 5
+  rifts; `examples/trooper_probe.rs`). `CNPC_Trooper` carries `m_nSubclassID` (the token of
+  `trooper_normal`, `trooper_medic`, `trooper_melee`, plus one unnamed token on 96 units at
+  minute 0 only), `m_iLane` (1, 4, 6 only) and an empty `m_hOwnerEntity`; no other unit kind or
+  lane appears around the rifts, and `hud_minimap.vcss` styles every `.npc` alike. Nothing in the
+  recording or the HUD marks a trooper the rift spawned, so the minimap can't colour them. An
+  operator screenshot of one in game, or a replay where they appear, would reopen it.
 - **Recorded `max_health` refreshes only at (re)spawn.** It matched the live metadata value at
   10 of 132 snapshots, so it's stale between spawns. stat-calc-spike.md "Recorded max health" (branch
   `stat-calc`); lead handoff 2026-11-09; timeline.rs and scoreboard-values.md note it.
@@ -251,6 +299,10 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   `~/.local/share` on Linux are `kBlockAllChildren`. A browser folder picker can't open the
   default replays folder, only a secondary library's. Drop and `<input type=file>` still work.
   This is from the source and hasn't been tried in a real browser yet ([desktop-app](desktop-app.md) §2).
+- **Main's timelines aren't byte-stable:** same-instant `charges` reads came out in `HashMap` order
+  (fixed on branch `parser-memory`, TD-24). Compare with each player's `charges` sorted.
+- **A full packet at tick T follows tick T's packet** (`7@3841 13@3841`): a splice cut at a full
+  packet's offset splits that tick (parser-memory §2).
 - **Heavy probes** (`timer_audit` took 754 s) run alone under the load gate: the box is shared.
 
 ## Keeping this current

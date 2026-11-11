@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::pack::HudSource;
 use crate::{allow, panorama, resource, sha256_hex, Error, Result, Vpk};
 
-const SOURCES: [(&str, &str, Kind); 11] = [
+const SOURCES: [(&str, &str, Kind); 18] = [
     (
         "hud/hud_minimap.vcss",
         "panorama/styles/hud_minimap.vcss_c",
@@ -61,6 +61,41 @@ const SOURCES: [(&str, &str, Kind); 11] = [
         "panorama/styles/citadel_base_styles.vcss_c",
         Kind::Style,
     ),
+    (
+        "hud/ability_property_icons.vcss",
+        "panorama/styles/ability_property_icons.vcss_c",
+        Kind::Style,
+    ),
+    (
+        "hud/citadel_tooltip_mod_details.vcss",
+        "panorama/styles/tooltips/citadel_tooltip_mod_details.vcss_c",
+        Kind::Style,
+    ),
+    (
+        "hud/citadel_tooltip_ability_details.vcss",
+        "panorama/styles/tooltips/citadel_tooltip_ability_details.vcss_c",
+        Kind::Style,
+    ),
+    (
+        "hud/citadel_ability_details_panel.vcss",
+        "panorama/styles/citadel_ability_details_panel.vcss_c",
+        Kind::Style,
+    ),
+    (
+        "hud/citadel_ability_property_panel.vcss",
+        "panorama/styles/citadel_ability_property_panel.vcss_c",
+        Kind::Style,
+    ),
+    (
+        "hud/citadel_hero_stats_panels_shared.vcss",
+        "panorama/styles/citadel_hero_stats_panels_shared.vcss_c",
+        Kind::Style,
+    ),
+    (
+        "hud/citadel_mod_bonus_display.vcss",
+        "panorama/styles/citadel_mod_bonus_display.vcss_c",
+        Kind::Style,
+    ),
 ];
 
 #[derive(Clone, Copy, Debug)]
@@ -69,7 +104,7 @@ enum Kind {
     Layout,
 }
 
-/// Write the eleven HUD source files and record them in `pack.json`.
+/// Write the HUD source files and record them in `pack.json`.
 pub fn extract(
     vpk: &Vpk,
     out_dir: &Path,

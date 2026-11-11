@@ -36,7 +36,7 @@ export function DeathSkulls(p: {
               aria-hidden={recap() ? undefined : "true"}
               data-recap={recap() ? "" : undefined}
               role={recap() ? "button" : undefined}
-              aria-label={recap() ? `Death recap: ${hero()?.name ?? "hero"}` : undefined}
+              aria-label={recap() ? `${hero()?.name ?? "Hero"} death recap` : undefined}
               onClick={() => recap() && p.onOpenRecap!(s().slot, s().t)}
             >
               <circle class="pl-fallen-body" r={TOKEN_R} />

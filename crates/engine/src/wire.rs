@@ -43,8 +43,9 @@ pub enum WireIn {
         build: Option<String>,
     },
     Msg { msg: ClientMsg },
-    /// This client's presence, replacing its previous one. Ephemeral: never stored.
-    Presence { state: Presence },
+    /// This client's presence, replacing its previous one. Ephemeral: never stored. Boxed: it's
+    /// several times the size of the other variants (clippy `large_enum_variant`).
+    Presence { state: Box<Presence> },
 }
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -438,29 +439,29 @@ mod tests {
         assert!(!with(Playback { event_recap: death(1, 86_401), ..playback() }).is_valid());
         assert!(!with(Playback { inspect: Some(SlotRef { team: Amber, slot: 200 }), ..playback() }).is_valid());
         // Closed panels and absent layers cost nothing on the wire; an older client parses.
-        let json = serde_json::to_string(&with(playback())).unwrap();
+        let json = serde_json::to_string(&with(playback())).expect("serialises");
         for k in ["skull_recap", "event_recap", "inspect", "all_builds", "layers"] {
             assert!(!json.contains(k), "{k} in {json}");
         }
         let open = Playback { skull_recap: death(3, 12), all_builds: true, ..playback() };
-        let back: Playback = serde_json::from_str(&serde_json::to_string(&open).unwrap()).unwrap();
+        let back: Playback = serde_json::from_str(&serde_json::to_string(&open).expect("serialises")).expect("parses");
         assert_eq!(back, open);
         let p = Presence { layers: Some(LAYER_TROOPERS | LAYER_CRATES), ..Default::default() };
-        assert_eq!(serde_json::from_str::<Presence>(&serde_json::to_string(&p).unwrap()).unwrap().layers, Some(0b100_0001));
+        assert_eq!(serde_json::from_str::<Presence>(&serde_json::to_string(&p).expect("serialises")).expect("parses").layers, Some(0b100_0001));
     }
 
     #[test]
     fn vision_in_playback_is_optional_both_ways() {
         // An older client's playback has no vision: it still parses, as none.
         let old = r#"{"player":true,"match_id":1,"t":10.0,"playing":false,"speed":1.0}"#;
-        let pb: Playback = serde_json::from_str(old).unwrap();
+        let pb: Playback = serde_json::from_str(old).expect("old playback");
         assert_eq!(pb.vision, None);
         // A new one round-trips it, All as a null team.
         let new = r#"{"player":true,"match_id":1,"t":10.0,"playing":false,"speed":1.0,"vision":{"team":"Sapphire","last_seen":true}}"#;
-        let pb: Playback = serde_json::from_str(new).unwrap();
+        let pb: Playback = serde_json::from_str(new).expect("new playback");
         assert_eq!(pb.vision, Some(PlayerVision { team: Some(mapcro_schema::Team::Sapphire), last_seen: true }));
-        let all: Playback = serde_json::from_str(&new.replace(r#""Sapphire""#, "null")).unwrap();
+        let all: Playback = serde_json::from_str(&new.replace(r#""Sapphire""#, "null")).expect("all teams");
         assert_eq!(all.vision, Some(PlayerVision { team: None, last_seen: true }));
-        assert_eq!(serde_json::from_str::<Playback>(&serde_json::to_string(&pb).unwrap()).unwrap(), pb);
+        assert_eq!(serde_json::from_str::<Playback>(&serde_json::to_string(&pb).expect("json")).expect("round trip"), pb);
     }
 }

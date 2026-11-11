@@ -75,6 +75,10 @@ export const SIGNALS: Record<string, Entries> = {
   },
   "player/ReplayHelp.tsx": { over: ["local", "a file dragged over"] },
   "player/Urn.tsx": { el: ["local", "an element"] },
+  "player/GameTooltip.tsx": {
+    openId: ["local", "the one game tooltip open: under your pointer or finger"],
+    at: ["local", "the tooltip's position"],
+  },
   "map/HoverLabel.tsx": {
     version: ["local", "plumbing"],
     token: ["wired", "hover"],
@@ -110,6 +114,7 @@ export const SIGNALS: Record<string, Entries> = {
     noteDraft: ["local", "text being typed"],
     sceneDrawer: ["local", "the phone's drawer"],
     mapPx: ["local", "the layout"],
+    heroCard: ["unshared", "the hero panel opened from a token on the map (minimap hero panel, tooltips #9): this browser's"],
   },
 };
 

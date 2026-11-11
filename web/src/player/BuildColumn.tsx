@@ -8,13 +8,20 @@ import { PICKUPS_FORMAT, SLOT, investFill, statBuild, statsAt, type LoadedTable 
 import { scoreboardValueAt, type Timeline, type TimelinePlayer } from "../match/timeline";
 import { cx } from "../ui/cx";
 import { LABELS } from "./labels";
+import { GameTip, Hover, useTooltips } from "./GameTooltip";
+import { type Category, StatPanel } from "./StatPanel";
 
 
 /**
  * - `stats`: the replay build's stat table (none: the calculated values show "—").
  * - `ladder`: the investment ladder's table (the build's, else the pack's own patch).
+ * - `limited`: an enemy the selected Vision's team can't see (the minimap's info panel): no live
+ *   state (cooldowns, charges, effects), only what the scoreboard holds.
+ *
+ * Items, abilities, the investment bars and the stats show the game's tooltips and stat panels
+ * on hover (GameTooltip.tsx, StatPanel.tsx) when the pack has them.
  */
-export function BuildColumn(p: { inspect?: boolean; onSeek?: ((t: number) => void) | undefined; player: TimelinePlayer; timeline: Timeline | undefined; t: number; art: Art; hero: Hero | undefined; name: string | undefined; id: string; stats?: LoadedTable | undefined; ladder?: LoadedTable | undefined }) {
+export function BuildColumn(p: { inspect?: boolean; limited?: boolean; onSeek?: ((t: number) => void) | undefined; player: TimelinePlayer; timeline: Timeline | undefined; t: number; art: Art; hero: Hero | undefined; name: string | undefined; id: string; stats?: LoadedTable | undefined; ladder?: LoadedTable | undefined }) {
   const build = createMemo(() => buildAt(p.player, p.t));
   const record = (id: number) => p.art.buildCatalog?.records.get(id);
   const abilityIds = () => p.hero?.abilities?.length ? p.hero.abilities : (build().abilities ?? []).map(a => a.id);
@@ -50,6 +57,15 @@ export function BuildColumn(p: { inspect?: boolean; onSeek?: ((t: number) => voi
     const own = heroes?.[String(p.player.hero_id)] ?? (heroes ? Object.values(heroes)[0] : undefined);
     return own?.cost_bonuses[SLOT[category]];
   };
+  const tips = useTooltips(() => p.art, () => p.timeline?.build);
+  const spirit = () => calc()?.shown.spirit_power ?? null;
+  const ladderOf = (category: keyof typeof SLOT) => ladder(category) as Array<[number, number, number]> | undefined;
+  const panel = (category: Category) => () => (tips() || ladderOf(category)?.length) && (
+    <StatPanel category={category} stats={calc()?.shown ?? null} recordedHealth={scoreboardValueAt(p.player.max_health, p.t)} ladder={ladderOf(category)} souls={investment()[category]} tips={tips()} />
+  );
+  const hasTip = (id: number | undefined) => id != null && !!tips()?.tip(id);
+  const tipFor = (id: number | undefined, ctx: { owned?: boolean; tiers?: number | null }) => () =>
+    hasTip(id) && <GameTip id={id!} art={p.art} tips={tips()!} ctx={{ ...ctx, spirit: spirit() }} />;
   const value = (v: number | null | undefined, unit = "") => v == null ? "—" : `${v}${unit}`;
   const tag = (label: string, v: number | null | undefined) => v == null ? LABELS.missing : label;
   const tier = (n?: number) => n ? ["", "I", "II", "III", "IV", "V"][n] ?? String(n) : "";
@@ -64,21 +80,25 @@ export function BuildColumn(p: { inspect?: boolean; onSeek?: ((t: number) => voi
       </div>
       <div class="tb-build-investment">
         <For each={["weapon", "spirit", "vitality"] as const}>{category =>
-          <span class={category} data-testid={`invest-${category}`} data-fill={investFill(ladder(category), investment()[category]).toFixed(3)} title={LABELS[category]} role="img" aria-label={`${LABELS[category]}, ${investment()[category].toLocaleString("en-US")}`}>
-            <i style={{ height: `${investFill(ladder(category), investment()[category]) * 100}%` }} />
-          </span>
+          <Hover tip={panel(category)}>
+            <span class={category} data-testid={`invest-${category}`} data-fill={investFill(ladder(category), investment()[category]).toFixed(3)} title={tips() ? undefined : LABELS[category]} role="img" aria-label={`${LABELS[category]}, ${investment()[category].toLocaleString("en-US")}`}>
+              <i style={{ height: `${investFill(ladder(category), investment()[category]) * 100}%` }} />
+            </span>
+          </Hover>
         }</For>
       </div>
       <div class="tb-build-vitals" data-testid="build-stats">
-        <div data-testid="stat-max-health" classList={{ calc: calc()?.shown.max_health != null }} title={tag(LABELS.maxHealth, maxHealth())}><span aria-hidden="true">♥</span> <span class="tb-stat-v">{value(maxHealth())}</span></div>
+        <Hover tip={panel("vitality")}>
+        <div data-testid="stat-max-health" classList={{ calc: calc()?.shown.max_health != null }} title={tips() ? undefined : tag(LABELS.maxHealth, maxHealth())}><span aria-hidden="true">♥</span> <span class="tb-stat-v">{value(maxHealth())}</span></div>
         <div class="tb-build-resists">
           <span aria-hidden="true">⛨</span>
-          <b data-testid="stat-bullet-resist" classList={{ calc: calc()?.shown.bullet_resist != null }} title={tag(LABELS.bulletResist, calc()?.shown.bullet_resist)}>{value(calc()?.shown.bullet_resist, "%")}</b>
-          <b data-testid="stat-spirit-resist" classList={{ calc: calc()?.shown.spirit_resist != null }} class="spirit" title={tag(LABELS.spiritResist, calc()?.shown.spirit_resist)}>{value(calc()?.shown.spirit_resist, "%")}</b>
+          <b data-testid="stat-bullet-resist" classList={{ calc: calc()?.shown.bullet_resist != null }} title={tips() ? undefined : tag(LABELS.bulletResist, calc()?.shown.bullet_resist)}>{value(calc()?.shown.bullet_resist, "%")}</b>
+          <b data-testid="stat-spirit-resist" classList={{ calc: calc()?.shown.spirit_resist != null }} class="spirit" title={tips() ? undefined : tag(LABELS.spiritResist, calc()?.shown.spirit_resist)}>{value(calc()?.shown.spirit_resist, "%")}</b>
         </div>
+        </Hover>
         <div class="tb-build-power">
-          <b data-testid="stat-weapon-damage" classList={{ calc: calc()?.shown.weapon_damage != null }} class="weapon" title={tag(LABELS.weaponDamage, calc()?.shown.weapon_damage)}>{value(calc()?.shown.weapon_damage, "%")}</b>
-          <b data-testid="stat-spirit-power" classList={{ calc: calc()?.shown.spirit_power != null }} class="spirit" title={tag(LABELS.spiritPower, calc()?.shown.spirit_power)}>{value(calc()?.shown.spirit_power)}</b>
+          <Hover tip={panel("weapon")}><b data-testid="stat-weapon-damage" classList={{ calc: calc()?.shown.weapon_damage != null }} class="weapon" title={tips() ? undefined : tag(LABELS.weaponDamage, calc()?.shown.weapon_damage)}>{value(calc()?.shown.weapon_damage, "%")}</b></Hover>
+          <Hover tip={panel("spirit")}><b data-testid="stat-spirit-power" classList={{ calc: calc()?.shown.spirit_power != null }} class="spirit" title={tips() ? undefined : tag(LABELS.spiritPower, calc()?.shown.spirit_power)}>{value(calc()?.shown.spirit_power)}</b></Hover>
         </div>
       </div>
       <div class="tb-build-abilities" aria-label="Abilities">
@@ -87,24 +107,27 @@ export function BuildColumn(p: { inspect?: boolean; onSeek?: ((t: number) => voi
           const name = () => info()?.label ?? `Ability ${i + 1}`;
           // Tags only (spec §4b): the name on hover; the state as a tag for screen readers.
           const label = () => `${name()}, ${a().level == null ? LABELS.missing : a().level === 0 ? "Locked" : `Tier ${a().level! - 1}`}`;
+          const tip = tipFor(a().id, { tiers: a().level == null ? null : Math.max(0, a().level! - 1) });
           return (
-            <div class={cx("tb-build-ability", a().level === 0 && "locked")} data-ability-id={a().id} data-level={a().level ?? "unknown"} title={name()} role="img" aria-label={label()}>
+            <Hover tip={tip}>
+            <div class={cx("tb-build-ability", a().level === 0 && "locked")} data-ability-id={a().id} data-level={a().level ?? "unknown"} title={hasTip(a().id) ? undefined : name()} role="img" aria-label={label()}>
               <div class="tb-build-levels" aria-hidden="true"><For each={[1, 2, 3]}>{n => <i classList={{ on: a().level != null && a().level! > n }} />}</For></div>
               <div class="tb-build-circle">
                 <Show when={info()?.icon} fallback={<span class="tb-build-fallback">{i + 1}</span>}>{src => <img src={src()} alt="" />}</Show>
-                <Show when={cooldown(a().entry)}>{cd => <span class="tb-build-cooldown">{cd().replace("s", "")}</span>}</Show>
-                <Show when={a().entry?.charges != null}><span class="tb-build-charges">{a().entry!.charges}</span></Show>
+                <Show when={!p.limited && cooldown(a().entry)}>{cd => <span class="tb-build-cooldown">{cd().replace("s", "")}</span>}</Show>
+                <Show when={!p.limited && a().entry?.charges != null}><span class="tb-build-charges">{a().entry!.charges}</span></Show>
                 <Show when={a().level === 0}><span class="tb-build-locked" aria-hidden="true">×</span></Show>
               </div>
             </div>
+            </Hover>
           );
         }}</Index>
       </div>
       <Show when={build().abilities === null}><p class="tb-build-empty" title={LABELS.missing}>—</p></Show>
-      <Show when={p.inspect}>
+      <Show when={p.inspect && !p.limited}>
         <div class="tb-build-popovers">
           <ActiveEffects player={p.player} t={p.t} art={p.art} endDs={p.timeline ? p.timeline.duration_s * 10 : undefined} />
-          <BuildOrder player={p.player} t={p.t} art={p.art} onSeek={p.onSeek} />
+          <BuildOrder player={p.player} t={p.t} art={p.art} build={p.timeline?.build} onSeek={p.onSeek} />
         </div>
       </Show>
       <div class="tb-build-items" aria-label="Equipped items">
@@ -112,13 +135,16 @@ export function BuildColumn(p: { inspect?: boolean; onSeek?: ((t: number) => voi
           const info = () => record(entry().id);
           const name = () => info()?.label ?? "Unknown item";
           const label = () => `${name()}${info()?.tier ? `, Tier ${tier(info()?.tier)}` : ""}`;
+          const tip = tipFor(entry().id, { owned: true });
           return (
-            <div class={cx("tb-build-item", info()?.slot)} data-item-id={entry().id} role="img" aria-label={label()} title={name()}>
+            <Hover tip={tip}>
+            <div class={cx("tb-build-item", info()?.slot)} data-item-id={entry().id} role="img" aria-label={label()} title={hasTip(entry().id) ? undefined : name()}>
               <Show when={info()?.icon} fallback={<span class="tb-build-fallback">?</span>}>{src => <img src={src()} alt="" />}</Show>
               <span class="tb-build-tier" aria-hidden="true">{tier(info()?.tier)}</span>
-              <Show when={cooldown(entry())}>{cd => <span class="tb-build-cooldown">{cd()}</span>}</Show>
-              <Show when={entry().charges != null}><span class="tb-build-charges">{entry().charges}</span></Show>
+              <Show when={!p.limited && cooldown(entry())}>{cd => <span class="tb-build-cooldown">{cd()}</span>}</Show>
+              <Show when={!p.limited && entry().charges != null}><span class="tb-build-charges">{entry().charges}</span></Show>
             </div>
+            </Hover>
           );
         }}</Index>
       </div>

@@ -112,6 +112,13 @@ test("the inspected hero's build order lists buys, sales and upgrades in order, 
   expect(await rows.evaluateAll((els) => els.map((el) => `${el.getAttribute("data-t")} ${el.getAttribute("data-kind")} ${el.getAttribute("data-item-id")}`))).toEqual([
     "5 bought 715762406", "12 bought 1009965641", "30 bought 3000000001", "50 sold 1009965641",
   ]);
+  // #15: the list stays inside the single-hero panel.
+  const panel = (await a.getByTestId("hero-build").boundingBox())!;
+  const list = (await order.locator(".tb-effects-body").boundingBox())!;
+  expect(list.x).toBeGreaterThanOrEqual(panel.x - 1);
+  expect(list.x + list.width).toBeLessThanOrEqual(panel.x + panel.width + 1);
+  expect(list.y + list.height).toBeLessThanOrEqual(panel.y + panel.height + 1);
+  await expect(rows.nth(3)).toHaveAttribute("aria-label", /^Sold .+, 0:50$/);
   await expect(rows.nth(2)).toHaveClass(/\blater\b/);
   await expect(rows.nth(1)).not.toHaveClass(/\blater\b/);
   await expect(rows.nth(3)).toContainText("0:50");

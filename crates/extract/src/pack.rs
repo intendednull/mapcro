@@ -31,6 +31,21 @@ pub struct Pack {
     /// Optional, so a reader that doesn't know it is unaffected (no schema bump).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stats: Option<StatTables>,
+    /// Item and ability tooltips (`crate::tooltips`); optional like `stats`, so no schema bump.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tooltips: Option<TooltipTables>,
+}
+
+/// The manifest's `tooltips` section: the install's tooltips, and per-patch value overlays keyed
+/// like [`StatTables::tables`] (the client reads the overlay of the stat table its build reads).
+#[derive(Debug, Serialize)]
+pub struct TooltipTables {
+    pub format: u32,
+    /// `data/tooltips`: the layout, the install's values, strings, icons and frame art.
+    pub blob: String,
+    pub records: usize,
+    /// Stat table key → overlay blob (`data/tooltips/<key>`); a key absent here reads the install's.
+    pub overlays: BTreeMap<String, String>,
 }
 
 /// Which stat table a replay build reads (`crates/extract/src/stats.rs`). A build the sources
@@ -198,6 +213,7 @@ impl Pack {
             hud_sources: Vec::new(),
             abilities: None,
             stats: None,
+            tooltips: None,
         }
     }
 

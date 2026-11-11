@@ -183,7 +183,7 @@ fn main() {
                     let c = by_class.entry(class).or_default();
                     c.0 += 1;
                     c.1 += u64::from(visible);
-                    if c.2.len() < 8 || c.0 % 4096 == 0 {
+                    if c.2.len() < 8 || c.0.is_multiple_of(4096) {
                         let name = i32::try_from(idx).ok().and_then(|i| ents.get(i)).map_or("?".into(), |e| e.class_name.to_string());
                         *c.2.entry(name).or_default() += 1;
                     }

@@ -226,11 +226,11 @@ It does not prove the non-boolean kinds, or that step 3's group dedupe fits the 
 ## Risks
 
 - **Two mechanisms until step 3.** Vision and three panels are still hand-wired beside the
-  store. Stopping here for long leaves the code harder to read than before (TD-22).
+  store. Stopping here for long leaves the code harder to read than before (TD-29).
 - **The value kinds could grow** into a small type system. Hold the line at §3's list.
 - **The ledger is friction.** Every new signal in Player needs a line. That is the point, but
   agents may write `local` by reflex. The reason string and the reviewer are the only check.
-- **The scan is a regex** (TD-23). It is exact about what it counts (it fails on a
+- **The scan is a regex** (TD-30). It is exact about what it counts (it fails on a
   `createSignal` it can't name) but blind to the cases listed under the guard.
 - **Panel semantics in step 3.** Per-key dedupe would change "the presenter's next change wins"
   from "any panel" to "that panel". Keep it per group unless the operator wants otherwise.
@@ -251,3 +251,17 @@ It does not prove the non-boolean kinds, or that step 3's group dedupe fits the 
 4. **Split presence into slow and fast frames now, or wait for numbers?** Recommended: wait, and
    add presence bytes to the server's stats first.
 5. **Move scene / viewport / hover into the registry (step 5)?** Recommended: no.
+
+
+## Operator decisions (2026-11-11)
+
+All five as the lead recommended:
+
+1. **Adopt the rule.** New view state is a registry row (sync policy, wire field, restore, override); anything else in Player gets a ledger line. The guards fail the build otherwise.
+2. **When a follower's own change stops the follow, they keep everything they were seeing, plus that one change.** Nothing snaps back (today Vision reverts; that changes).
+3. **Share** which of Effects / Build order is open in the hero panel, and the Events list's filters and search. **Keep personal:** the sidebar tab and whether the Map layers popover is open.
+4. **Don't split presence into slow/fast frames yet.** Measure presence bytes in the server stats first.
+5. **Don't move scene, viewport and hover onto the registry.**
+
+Operator: this changes state management, so be extra vigilant about regressions: pin today's
+behaviour with tests before changing it, and review adversarially before merging.

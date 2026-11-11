@@ -134,3 +134,33 @@ test("clicking an event selects that event, with a filter, a search and any lead
   for (const i of [0, -1]) await clickAndCheck(a, i, 5);
   await a.screenshot({ path: "shots/events-click.png" });
 });
+
+test("a scrubber tick grows on hover, shows its tag, and a press jumps there (#6)", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Scrub ticks"), "Coach");
+  await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
+  await a.getByTestId("match-id").fill(ID);
+  await a.getByTestId("match-load").click();
+  const had = new Set(readdirSync(join(queue, "inbox")));
+  await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
+  let job = "";
+  await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f.startsWith(`${ID}-`) && f.endsWith(".dem") && !had.has(f)) ?? "")).not.toBe("");
+  writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify(timeline()));
+  await expect(a.getByTestId("match-tier")).toHaveText("Full replay");
+  const ticks = a.getByTestId("scrub-tick");
+  await expect(ticks).toHaveCount(30);
+  // 30 s: the third event, the walker.
+  const tick = a.locator('[data-testid=scrub-tick][data-t="30"]');
+  const tag = tick.locator(".pl-tick-tag");
+  await expect(tag).toBeHidden();
+  const before = (await tick.boundingBox())!;
+  await tick.hover();
+  await expect(tag).toBeVisible();
+  await expect(tag).toHaveText("Walker down");
+  await expect.poll(async () => (await tick.boundingBox())!.height).toBeGreaterThan(before.height);
+  await expect(tick).toHaveAttribute("aria-label", "Walker down, 0:30");
+  await tick.click();
+  const lead = Number(await a.getByTestId("events-lead").inputValue());
+  await expect.poll(() => clock(a)).toBe(Math.max(0, 30 - lead));
+  await expect(a.getByTestId("event-highlight")).toBeVisible();
+});

@@ -506,6 +506,48 @@ fn a_preview_without_kills_counts_deaths() {
     assert_eq!(up.hits("130816395"), 1);
 }
 
+/// A summary cached before it kept the winner (unstamped, no `winner`) is derived again from one
+/// metadata read, once, and its preview with it. If that read fails, the old one is served, and
+/// it isn't asked again. A current summary without a winner (130816395, above) isn't re-read.
+#[test]
+fn a_summary_cached_before_the_winner_is_derived_again_once() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let up = upstream(routes());
+    let s = Server::start(dir.path(), up.port, &[]);
+    assert_eq!(s.get("111").0, 200);
+    let cache = dir.path().join("matches/111.json");
+    let mut old: serde_json::Value = serde_json::from_slice(&std::fs::read(&cache).expect("cache")).expect("json");
+    assert_eq!(old["summary_format"], 1, "stamped");
+    for key in ["winner", "team_kills", "summary_format"] {
+        old.as_object_mut().expect("object").remove(key);
+    }
+    std::fs::write(&cache, serde_json::to_vec(&old).expect("json")).expect("write");
+    // The card made from it then, without a winner.
+    let mut card = serde_json::json!({ "match_id": 111, "start_time": old["start_time"], "duration_s": 120, "game_mode": 1, "winner": null, "teams": [] });
+    std::fs::write(dir.path().join("matches/111.preview.json"), serde_json::to_vec(&card).expect("json")).expect("write");
+    let (status, body) = s.preview("111");
+    assert_eq!(status, 200, "{body}");
+    let v: serde_json::Value = serde_json::from_str(&body).expect("json");
+    assert_eq!((v["winner"].as_str(), v["teams"][0]["kills"].as_u64()), (Some("sapphire"), Some(6)));
+    assert_eq!(up.hits("111"), 2, "one more metadata read");
+    assert_eq!(s.preview("111"), (200, body));
+    assert_eq!(s.get("111").0, 200);
+    assert_eq!(up.hits("111"), 2);
+
+    // Unknown upstream now (404): the old summary is served, and asked about once.
+    old["match_id"] = 777.into();
+    std::fs::write(dir.path().join("matches/777.json"), serde_json::to_vec(&old).expect("json")).expect("write");
+    card["match_id"] = 777.into();
+    std::fs::write(dir.path().join("matches/777.preview.json"), serde_json::to_vec(&card).expect("json")).expect("write");
+    let (status, body) = s.get("777");
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"match_id\":777") && !body.contains("winner"), "the old one");
+    assert_eq!(s.get("777").0, 200);
+    let (status, body) = s.preview("777");
+    assert_eq!((status, body.contains("\"winner\":null")), (200, true), "{body}");
+    assert_eq!(up.hits("777"), 1);
+}
+
 /// No metadata (a fresh match): a 404 the card reads as "Not recorded", and nothing cached.
 /// Bad ids never reach the upstream.
 #[test]

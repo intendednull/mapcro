@@ -184,6 +184,43 @@ test("each team's view shows its own heroes and the enemies in its sight; Show l
   }
 });
 
+test("1 2 3 pick the Vision (the hint on its hover); a mark by the map says whose and whether ghosts show", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Vision keys"), "Coach");
+  await open(a);
+  const pick = a.getByTestId("vision-select");
+  const mark = a.getByTestId("vision-mark");
+  await expect(pick).toHaveAttribute("title", "Vision (1, 2, 3)");
+  await expect(mark).toHaveCount(0);
+  await a.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await a.keyboard.press("2");
+  await expect(pick).toHaveValue("amber");
+  await expect(mark).toHaveAttribute("data-team", "amber");
+  await expect(mark).toHaveText("Hidden King");
+  await a.getByTestId("last-seen-toggle").click();
+  await expect(mark).toHaveAttribute("data-ghosts", "on");
+  await expect(mark).toHaveText("Hidden KingLast seen");
+  // #17: Flip is in the group, right after Vision, the mark at the far end.
+  const flip = a.getByTestId("viewpoint-flip");
+  await expect(flip).toHaveText("Flip map");
+  const [pb, fb, mb] = [(await pick.boundingBox())!, (await flip.boundingBox())!, (await mark.boundingBox())!];
+  expect(fb.x).toBeGreaterThan(pb.x);
+  expect(fb.x - (pb.x + pb.width)).toBeLessThan(120);
+  expect(mb.x).toBeGreaterThan(fb.x + fb.width);
+  await a.keyboard.press("3");
+  await expect(pick).toHaveValue("sapphire");
+  await expect(mark).toHaveAttribute("data-team", "sapphire");
+  // The mark is in the team's colour.
+  expect(await mark.locator("i").evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(77, 117, 195)");
+  await a.keyboard.press("1");
+  await expect(pick).toHaveValue("all");
+  await expect(mark).toHaveCount(0);
+  // Typing, the digits are the field's.
+  await a.getByTestId("events-search").fill("");
+  await a.getByTestId("events-search").press("2");
+  await expect(pick).toHaveValue("all");
+  await expect(a.getByTestId("events-search")).toHaveValue("2");
+});
+
 test("a ghost eases in and out, and jumps under reduced motion", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Vision ease"), "Coach");
   await open(a);

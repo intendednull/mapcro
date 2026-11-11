@@ -9,6 +9,8 @@
 import { hasVision, seenAt } from "./vision";
 import { killsAt } from "../match/builds";
 import { BuildColumn } from "./BuildColumn";
+import { GameTip, Hover, useTooltips } from "./GameTooltip";
+import { buildAt } from "../match/builds";
 import { rosterTeamShort } from "../map/model";
 import { For, Show, createMemo, createResource, onCleanup, onMount } from "solid-js";
 import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
@@ -60,8 +62,8 @@ function RejuvBadge(p: { held: () => RejuvNow | undefined; team: "Amber" | "Sapp
       data-team={p.team.toLowerCase()}
       data-left={left()}
       role={left() ? "img" : undefined}
-      aria-label={left() ? `${rosterTeamName(p.team)} Rejuvenator: ${left()} revive${left() === 1 ? "" : "s"} left` : undefined}
-      title={left() ? `${rosterTeamName(p.team)} Rejuvenator: ${left()} revive${left() === 1 ? "" : "s"} left` : undefined}
+      aria-label={left() ? `${rosterTeamName(p.team)} Rejuvenator, ${left()} revive${left() === 1 ? "" : "s"}` : undefined}
+      title={left() ? `${rosterTeamName(p.team)} Rejuvenator` : undefined}
     >
       {Array.from({ length: REJUV_MAX }, (_, i) => (
         <img class={cx("pl-rejuv-icons", left() === i + 1 && "on")} data-n={i + 1} src={p.art.images.get(`rejuv-${i + 1}`) ?? wingsFb(i + 1)} alt="" />
@@ -121,6 +123,8 @@ export function PlayerTopBar(p: {
   const [statTable] = createResource(() => tableKeyFor(p.art.stats, build()) ?? false, key => loadStatTable(p.art.stats, key || null));
   // A resource keeps its last value while the next key loads: never show another patch's numbers.
   const current = (t: LoadedTable | undefined, key: string | null) => t && key && p.art.stats?.tables.get(key)?.clientVersion === t.data.client_version ? t : undefined;
+  // The ult indicator's hover: the hero's ultimate's tooltip (feedback #9), its tiers at t.
+  const tips = useTooltips(() => p.art, build);
   const [ladderTable] = createResource(() => ladderKeyFor(p.art.stats, build()) ?? false, key => loadStatTable(p.art.stats, key || null));
   onMount(() => {
     const outside = (event: PointerEvent) => {
@@ -219,7 +223,7 @@ export function PlayerTopBar(p: {
               title={portraitTitle(label(), hero())}
               souls={
                 <button type="button" class="tb-souls tb-build-trigger" data-testid="souls-banner"
-                  aria-label={`Build for ${hero()?.name ?? label()}`} aria-expanded={expanded(key)}
+                  aria-label={`${hero()?.name ?? label()} build`} aria-expanded={expanded(key)}
                   aria-controls={`build-${t}-${s.slot.slot}`} onClick={() => toggleBuild(key)}>
                   <span class="tb-souls-value" data-testid="souls" data-souls={x()?.souls ?? "untracked"}>
                     <Show when={souls() != null} fallback={"–"}>
@@ -229,21 +233,21 @@ export function PlayerTopBar(p: {
                 </button>
               }
             >
-              <Show when={unseen()}><span class="tb-vis off" data-testid="tb-vision" title="Not seen by the selected team" role="img" aria-label="Not seen by the selected team">
+              <Show when={unseen()}><span class="tb-vis off" data-testid="tb-vision" title="Not seen" role="img" aria-label="Not seen">
                 <EyeIcon off />
               </span></Show>
               <Show when={x()}>
-                <button class="tb-focus" data-testid="focus-hero" title={`Inspect ${hero()?.name ?? label()} build and show on map`} aria-label={`Inspect ${label()}${hero() ? `, ${hero()!.name},` : ""} build and show on the map`} aria-expanded={expanded(key)} aria-controls={`build-${t}-${s.slot.slot}`} onClick={() => { toggleBuild(key); p.onFocus?.(t, s.slot.slot); }} />
+                <button class="tb-focus" data-testid="focus-hero" title={`Inspect ${hero()?.name ?? label()}`} aria-label={`Inspect ${label()}${hero() ? `, ${hero()!.name}` : ""}`} aria-expanded={expanded(key)} aria-controls={`build-${t}-${s.slot.slot}`} onClick={() => { toggleBuild(key); p.onFocus?.(t, s.slot.slot); }} />
               </Show>
               <Show when={dead() && x()?.respawn != null && respawn() != null}>
-                <span class="tb-respawn" data-testid="tb-respawn" data-respawn={Math.ceil(x()!.respawn!)} aria-label={`${label()} respawns in ${Math.ceil(x()!.respawn!)} s`}>
+                <span class="tb-respawn" data-testid="tb-respawn" data-respawn={Math.ceil(x()!.respawn!)} aria-label={`${label()} respawn, ${Math.ceil(x()!.respawn!)} s`}>
                   {Math.ceil(respawn()!)}
                 </span>
               </Show>
               {/* #HealthBar (citadel_hud_top_bar.vcss): the HUD's slanted card at the portrait's
                   edge, filled from the bottom. */}
               <Show when={hp() != null}>
-                <div class="tb-health" data-testid="tb-health" data-health={hp()!} aria-label={`${label()} health ${hp()}%`}>
+                <div class="tb-health" data-testid="tb-health" data-health={hp()!} aria-label={`${label()} health, ${hp()}%`}>
                   <i class="tb-health-back" />
                   <i class="tb-health-fill" style={{ height: `${hp()}%` }} />
                   <i class="tb-health-border" />
@@ -259,7 +263,20 @@ export function PlayerTopBar(p: {
               <Show when={expanded(key) && scoreboardValueAt(player()?.level, p.host.t())}>
                 {lv => <span class="tb-level" data-testid="tb-level" title="Hero level">{lv()}</span>}
               </Show>
-              <UltDial left={x()?.ult ?? null} label={label()} />
+              {(() => {
+                const ult = () => hero()?.abilities?.[3] || undefined;
+                const has = () => ult() != null && !!tips()?.tip(ult()!);
+                const tiers = () => {
+                  const pl = player();
+                  const a = pl && ult() != null ? buildAt(pl, p.host.t()).abilities?.find((e) => e.id === ult()) : undefined;
+                  return a ? Math.max(0, a.level - 1) : null;
+                };
+                return (
+                  <Hover testid="ult-hover" tip={() => has() && <GameTip id={ult()!} art={p.art} tips={tips()!} ctx={{ tiers: tiers() }} />}>
+                    <UltDial left={x()?.ult ?? null} label={label()} untitled={has()} />
+                  </Hover>
+                );
+              })()}
               <Show when={expanded(key) && player()}>
                 {pl => <BuildColumn inspect={!allBuilds() && !tabHeld()} onSeek={p.onSeek} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} stats={current(statTable(), tableKeyFor(p.art.stats, build()))} ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />}
               </Show>

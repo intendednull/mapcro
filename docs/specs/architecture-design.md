@@ -340,6 +340,13 @@ and shared boards therefore follow one code path and one set of tests.
     the clock to the win, the mode. Any build and mode reads (a Brawl demo is a card that says
     "Street Brawl"). The server's preview is asked only when the app has none (a broken file, an
     app without the command). docs/research/demo-preview.md.
+
+  - **Summary format (2026-11-11):** a cached summary carries `summary_format` (now 1: the
+    winner and team kills). One below it (unstamped and without `winner`, cached before the
+    winner was kept) is derived again on its next open or preview, from one metadata read on the
+    same limited path, once a process; if that read fails or is limited, the old one is served.
+    A cached card with `winner: null` isn't served as it is: it's made again from the summary,
+    so an old one picks up the winner (a match with none just makes the same card).
 - **Not in the metadata tier:** ults, zipline colours, camps, rifts, powerups and z. A match older than the
   pack is drawn on it with an "Older map" label.
 - The mid boss's respawn time isn't in the match data. The preview shows it down from a kill
@@ -362,22 +369,31 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
   - **Fetch:** `POST /api/boards/{board}/replays/{id}/fetch` asks deadlock-api's salts endpoint
     for the match's cluster and replay salt, then downloads
     `http://replay{cluster}.valve.net/1422450/{id}_{salt}.dem.bz2` (zstd since 2026-07-20; the
-    magic decides). The call doesn't send `disable_steam`: a stored row comes back before
-    deadlock-api's rate limiter, so it's free; only a match with no row spends one of the 3
-    Steam lookups an hour per address, and that GC lookup is the one path that can create a
-    replay salt (docs/research/deadlock-api-salts.md).
+    magic decides). A stored row comes back before deadlock-api's rate limiter, so it's free;
+    only a match with no row spends one of the 3 Steam lookups an hour per address, and that GC
+    lookup is the one path that can create a replay salt (docs/research/deadlock-api-salts.md).
+    So the free read (`disable_steam=true`) goes first. Only a match it has no row for gets the
+    read that may ask Steam, and only once the match is past deadlock-api's salts pass (2 h 10
+    min after its end, by the cached metadata; a match without it counts as past). Before then,
+    a Steam lookup never found a replay salt the free read lacked (salts "Results").
   - **Fetched on open (operator, 2026-11-08):** attaching a match to a board (the landing's Open
     match by id, Player's Load) starts that fetch on its own, unless the `cdn` timeline is
     cached or its job is under way (one job for every board: a second board joins it), the
     board's own upload is under way or done, the match is past Valve's three weeks from its
-    start (`expired`, from the cached metadata; a match without it isn't tried), its fetch
-    failed lately, or deadlock-api is backing us off. The mode refusal comes first.
+    start (`expired`, from the cached metadata; a match without it isn't tried), or its fetch
+    failed lately (including a lookup that met deadlock-api's backoff). The mode refusal comes
+    first.
     - **Remembered failures:** no salts or no demo (`no_replay`) and a failed download are kept
-      per match for 6 h, so opening it again doesn't ask deadlock-api (a no-row lookup spends
-      one of its 3 Steam lookups an hour per address). **Fetch replay** stays, and goes past this.
+      per match, so opening it again doesn't ask deadlock-api. A failed download and a match
+      past the salts pass are kept 6 h. A match before the pass with no replay salt yet (or no
+      row) is kept only until the pass, when most salts that come have come (about 10% at 1 h,
+      42% at 2 h, 45–48% after). The 400 "won't be fetched, as it has metadata already" (no row,
+      and Steam won't be asked) is `no_replay` too. **Fetch replay** stays, and goes past this.
     - **Pacing:** no fetch cap of ours. deadlock-api's own answers pace them: a `429` from the
-      salts endpoint backs every fetch off for its `Retry-After`, else 60 s doubling to an hour,
-      and a press of Fetch replay meanwhile is refused (`429 upstream_limited`). Fetches wait in
+      salts endpoint backs off the reads that may ask Steam for its `Retry-After`, else 60 s
+      doubling to an hour. Free reads of the rows it holds go on meanwhile, so a match it has a
+      salt for is fetched. A match with no row waits for the backoff (`upstream_limited`), on
+      open and on a press of Fetch replay (`429 upstream_limited`). Fetches wait in
       the queue's line (below) for a download slot (2 at once) and its room rather than being
       refused.
     - **API key:** optional, from the file `DEADLOCK_API_KEY_FILE` names (never a value in the
@@ -389,7 +405,8 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
       "API summary", and the tab that opened the match is asked what to do in the full-replay
       prompt (§6b, Getting a replay in).
     - **Why no fetch is coming, in the job state (2026-11-08):** with no job, the status says
-      `failed` with the remembered reason, `upstream_limited` while backing off, `busy` for
+      `failed` with the remembered reason (`upstream_limited` for a match whose lookup met the
+      backoff, until it ends), `busy` for
       10 min to the board whose open our caps skipped (that board only), and `expired` for a
       match past the three weeks by its cached metadata, whether or not anything opened it.
 - **Job state:** `GET /api/boards/{board}/replays/{id}` answers `none`, `waiting` (an upload's
@@ -569,6 +586,15 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     - `recaps` `{t, damage: [src, ability_id, damage], cc}`: per lethal hit (message 300,
       `victim_health_new` 0; another within 3 s is the same death), the damage taken in the 10 s
       before by source and ability, most first, and the `cc` rows overlapping that window. 78.
+      A source that isn't a hero is `256 + kind` when msg 300's attacker class is known
+      (trooper, medic or melee trooper, guardian, walker, base guardian, patron, mid boss,
+      neutral camp, Sinner's Sacrifice, sentry turret; timeline.rs `NPC_KINDS`), else 255. Added
+      without a FORMAT bump (2026-11-11, feedback #20): an older format-9 timeline or app writes
+      255 there and still reads as "World / other"; the server must be deployed before an app
+      that writes kinds. Player names each as the game does ("Trooper", "Walker", "Sinner's
+      Sacrifice", citadel_main), and an ability with only an engine name shows its parent's name,
+      else "Weapon" or "Ability". A death pairs with the latest lethal hit up to 1.5 s before its
+      sampled second (deaths are read once a second).
     - `height` `[second, level]` (0 level, 1 above, 2 below): the hero's own team's
       `m_vecFOWEntities` `m_eHeight`, held 2 s; level before the first entry. `zipline`
       `[from_s, to_s)`: the pawn's `m_eZipLineLaneColor` non-zero, held 2 s. Alive seconds:
@@ -641,13 +667,18 @@ board server (`MemoryMax=256M`; a 480 MB demo's pages alone exceed it).
   SIGBUS (the mapped demo changed under it) as `corrupt`, one past its clock as `timeout`; the
   worker and the other jobs carry on. The next job is the first the server's order lists
   (`inbox/.order`, below), else the oldest.
-- **Measured** on this machine, release build, the real 504 MB demo of 129738985: 5.3 s, 26 MB
+- **Measured** on this machine, release build, the real 504 MB demo of 129738985 (2026-11-08, format 6): 5.3 s, 26 MB
   anonymous plus 484 MB of the memory-mapped demo's clean pages. Those are reclaimable: under a
   transient cgroup's cap the parse still succeeds, at 96M in 6.1 s, at 64M in 6.2 s (+18%), at
   32M in 7.0 s, never OOM-killed. From zstd (356 MB), uncapped 6.3 s with an 849 MB peak (both
   files' page cache), at 128M 8.9 s. A zstd window adds at most 128 MiB anonymous
-  (`window_log_max(27)`). So a parse costs a core and ~26 MB; the 384M a job is headroom for a
-  window and a page cache that doesn't thrash. On `web` (3 cores, ~2.9 GB available), 2 at once
+  (`window_log_max(27)`). So a parse costs a core and ~33 MB at format 9 (below); the 384M a job is headroom for a
+  window and a page cache that doesn't thrash. **Re-measured 2026-11-11** at format 9
+  (docs/research/parser-memory.md): 48 MB anonymous before the parser-memory change, 32.5 MB
+  after, and a parse completes under a 36M cap (40M killed it before); 13–15 s on a loaded box.
+  The worker's record now carries the child's anonymous peak (`peak_anon_bytes`, beside VmHWM,
+  which counts the mapped pages) and a zstd download's window (`zstd_window_bytes`, from the
+  frame header). The 384M stays until a real CDN download's window has been read from those. On `web` (3 cores, ~2.9 GB available), 2 at once
   leaves a core and ~2 GB to the rest of the box.
 - **The queue** is `/var/lib/mapcro-replay` (`REPLAY_DIR`), group `mapcro-replay`, which the
   board server's user joins. Neither side can write where the other writes (security review
@@ -860,8 +891,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
       a held Rejuvenator, "Archmother Rejuvenator: 2 revives, ends in 1:40", joined by " · ";
     - **rifts**: "Rift opens in …" until its cash-in opens (`live_s`,
       `m_timeKothCashInStarted`; the spawner's announcement comes 80 s earlier and the label
-      already counts to the opening), "Rift opens at the other site in …"; open, "Gives up in
-      0:41" (format 3), then "Captured by …". The game has no fixed rift schedule, and no
+      already counts to the opening), "Rift opens at the other site in …"; open, "Fades in
+      0:41" (format 3; the game's word, citadel_main `Citadel_HUD_KothTimeRanOut` "Rift Faded
+      Away...", feedback #13), then "Captured by …". The game has no fixed rift schedule, and no
       next-rift field; the replay's own next opening is used;
     - **bridge buffs**: up, the buff's name ("Casting buff"); else "Buff respawns in …"
       ("spawns" before the site's first). Spawns every 300 s from 5:00 (misc.vdata
@@ -947,6 +979,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
   timeline from before format 9: without statue pickups the values would run short. Hovers are
   the stats' names (§4b); each calculated value carries a quiet "≈" before the number (operator,
   2026-11-10; §4b rule 5), drawn by CSS so the text stays the number.
+  With a pack that has tooltips, hovering a stat or an investment bar shows the stat panel
+  instead (below, "Tooltips"), and the plain title gives way to it.
   - **Investment bars**: the souls in owned items per category, each at its tier price in the
     replay's patch (sold items and components used up by an upgrade don't count), fill along the
     patch's ladder (`m_MapModCostBonuses`, 800 to 28,800 souls): each row takes its
@@ -955,6 +989,50 @@ makes a board with that match attached and lands in Player; **New board** is tod
     pack's own patch's ladder. This rule is ours, read from the vdata; that the game's Tab bars
     fill the same way is on the backlog's in-game checks. Hovers: "Weapon invest", "Spirit
     invest", "Vitality invest".
+- **Tooltips** (replay tier, 2026-11-11, feedback #7 and #9; docs/plans/2026-11-10-game-tooltips.md;
+  `player/GameTooltip.tsx`, `player/StatPanel.tsx`, `match/tooltips.ts`). With a pack that has
+  them (§12 "Tooltips"), hovering (a tap on touch, focus on the keyboard) shows the game's own
+  tooltip beside the thing, one at a time; Escape, a press elsewhere or a scroll closes it.
+  - Also on the events list (a major purchase's item, an ult's ability) and on the death
+    recap's hit icons.
+  - **Items** (the Tab column, the build order, the hero panel): the game's item tooltip
+    (`citadel_tooltip_mod_details.vcss`): the category's torn-paper backer and header art, the
+    name, "Owned" for an item the hero owns at t (else its cost), the innate stat lines, then each
+    Passive / Active section with its cooldown, its description (the localisation's markup:
+    highlights, inline attribute icons, `{s:Prop}` values), its property cards and rows, and
+    "Upgrades From:" / "Upgrades To:" (the components, and the items that list it as one).
+  - **Abilities** (the Tab column's four, and the ult indicator on the top bar): the ability
+    tooltip (`citadel_ability_details_panel.vcss`): the name, the header cooldown, each section's
+    description, cards and rows, and the three upgrade tiers, the bought ones marked. Values are
+    shown with the bought tiers applied (`m_eUpgradeType`: added to the base unless it says to
+    the scale or to multiply). A property that scales with spirit power (Djinn's Mark's ×0.35)
+    shows the "×" factor, and its value at the hero's calculated spirit power with "≈"; without a
+    calculated spirit power, the base value. A tier card's header is the tier's ability-point
+    cost, 1 / 2 / 5, hard-coded (`TIER_COSTS`, operator 2026-11-11) from the reference
+    screenshot: no file we read holds it.
+  - **Values** are the replay's patch's where the pack has them: the overlay of the stat table
+    the build reads (`tableKeyFor`; boon-data snapshots, 6711 onward), else the pack's own. The
+    words are always the pack's localisation. Values recorded at t are the column's (cooldown
+    left, charges); the tooltip itself is static data.
+  - **Stat panels**: hovering an investment bar, or the stats under it, shows the game's WEAPON /
+    VITALITY / SPIRIT STATS panel (`citadel_hero_stats_panels_shared.vcss`) beside its investment
+    ladder (`citadel_tooltip_mod_bonus_display.vcss`): the title and words from the localisation,
+    the calculated stats mapcro has (Weapon Damage; Max Health, Bullet and Spirit Resist; Spirit
+    Power under Spirit Power Impact), each with "≈", and the patch's `m_MapModCostBonuses` rows
+    with the row the hero's souls reach lit, the rows below dimmed as reached and above as not, and
+    the bar filled as the column's. The game's other panel stats (fire rate, ammo, regen, move
+    speed…) need rules mapcro doesn't have, so they aren't shown (backlog "Calculated stats").
+  - Hover only (operator, 2026-11-11: no pinning for now); on touch a tap opens one and a tap
+    elsewhere closes it.
+  - Without a pack's tooltips, the plain titles stay (§4b tags).
+- **Hero panel** (replay tier, 2026-11-11, feedback #8; `player/HeroCard.tsx`). A single click
+  (press and release within 6 px) on a hero's token with the Move tool opens a compact panel at
+  the map's lower left: the hero, and the Tab column's parts for it at t (K/D/A, investment bars,
+  stats, abilities with cooldowns and charges, items), with their tooltips and stat panels.
+  Escape or × closes it; another token swaps it; another match closes it. Vision: in a team's
+  view, a hero it can't see has no token, so no panel opens for it; an enemy that leaves sight
+  while its panel is open keeps only what the Tab scoreboard shows (no cooldowns, charges or
+  effects; `data-limited`). The panel is this browser's: it isn't shared with followers.
 - **The Soul Urn** (replay tier, 2026-11-08): the urn drawn as the game's minimap draws it
   (`hud_minimap.vcss`, in the pack; operator, 2026-11-08: "match how the real map looks").
   - On the ground, `.idol_spawn`: `soul_jar_marker` in a 32 px box, a rift's box
@@ -979,6 +1057,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
     default, one open at a time. The metadata tier has no urn.
 - **The transport:** play and pause, speed (0.5×, 1×, 2×, 4×, 8×), a scrubber with a tick per
   event, ±10 s, the match clock, and the replay tier's toggles (Troopers, Health), with Pings.
+  A tick hovered grows and shows its event's tag above it (the events list's short label, "Walker
+  down", "Haze died"); a press jumps there as a row does (less the lead, with the ring). Ticks
+  aren't in the tab order: ↑ ↓ step events from the keyboard (2026-11-11, feedback #6).
 - **Names** (2026-11-08, operator: content creators hide usernames in videos): a transport toggle,
   shown when the timeline has players' names, on by default. Off, no player name is on screen
   (top bar, events and their search, tokens' hover titles; the hero or slot label stands in).
@@ -993,7 +1074,12 @@ makes a board with that match attached and lands in Player; **New board** is tod
     scene sets them to the match's; a blank scene doesn't).
 - **Vision** (2026-11-09, operator: "in a replay usually we can set it to only see the heroes …
   the current team could see"): a transport select, "Vision: All / Hidden King / Archmother",
-  shown when the timeline has `seen` (format 4). In a team's view its own heroes always show;
+  shown when the timeline has `seen` (format 4). Keys 1, 2, 3 pick All, Hidden King and
+  Archmother (2026-11-11, feedback #10; the select's hover says "Vision (1, 2, 3)"); like the
+  select they stop following, and they're off while typing or in a dialog or menu. In a team's
+  view a mark at the map controls' right end (feedback #12) shows that team's name on a dot of
+  its colour, with "Last seen" while the ghosts show; under All there is none. Flip sits in the
+  same group, "Flip map" with a swap icon (feedback #17). In a team's view its own heroes always show;
   an enemy out of its sight isn't drawn, labelled or hoverable (2026-11-09, operator: a faded
   token "jumps around a lot"). Beside the select, in a team's view only, a "Show last seen
   location" toggle, off by default: on, an enemy out of sight is a ghost (the scene ghost's
@@ -1039,7 +1125,10 @@ makes a board with that match attached and lands in Player; **New board** is tod
 - **Keys while watching** (2026-11-08, operator): ↑ ↓ step to the previous and next event (its
   jump and ring), ← → seek 5 s (Shift: 30 s) and keep playing or paused, and a Space tap plays
   or pauses. A Space-drag still only pans, and nothing fires while typing. Viewing a scene, ← →
-  step scenes instead.
+  step scenes instead. Space plays or pauses wherever the focus is (2026-11-11, feedback #11,
+  #3: a clicked button, the scrubber, the speed or Vision list, a checkbox or a disclosure no
+  longer takes it), except in a text field, a dialog or a menu (`core/keys.ts` `spacePlays`).
+  Keyboard-only users press a focused button with Enter; Space on it plays or pauses.
 - **Troopers** (replay tier, on by default): each lane trooper as a small dot in its team's
   colour with a dark rim, under the heroes, sliding between the 1 Hz samples and gone when it
   dies; like the map's icons it keeps its size on screen as you zoom. The game's files don't
@@ -1145,12 +1234,29 @@ makes a board with that match attached and lands in Player; **New board** is tod
     - **Upload:** the pick sends only the parsed timeline (gzip) to `POST …/replays/{id}/timeline`
       (§6a, Timelines parsed on the user's machine). Against a server without that route (a 404
       with no `{error}`), it sends the `.dem` as before.
-    - **IPC:** five commands (list, read one, preview one, parse one, change the folder), by
-      match id, granted to the site's origin only.
-    - **Download link:** "Get the Windows app" (GitHub Releases) shows on Windows browsers only,
+    - **IPC:** six commands (list, read one, preview one, parse one, change the folder; and,
+      portable only, whether an update is out), by match id, granted to the site's origin only.
+    - **Installer or portable (operator, 2026-11-11; desktop/README.md):** the release carries the
+      per-user installer and a portable zip (`--features portable`, fixed at build time). Portable
+      registers `mapcro://` for the current user itself, and doesn't install updates: when the
+      feed has a newer version the page shows **Update available**, a link to the release page.
+    - **Download link:** "Get the Windows app" (the installer, by a stable name on GitHub
+      Releases; "Portable", quieter, beside it) shows on Windows browsers only,
       never in the app. It sits beside Link replays folder, in "Where's my replay?" and in the
       landing's footer. It stays off until the first release (`WINDOWS_APP_RELEASED`). There is
       no Linux link yet (backlog).
+    - **Board links (operator, 2026-11-11; desktop/README.md, Deep links):** a shared board
+      opens in the app. `mapcro://b/<board>#<token>` is the canonical form: the share link (§11)
+      with the scheme and host swapped, the token still in the fragment. The installer (per-user)
+      and the Linux packages register the scheme; a link starts the app on that board, or the
+      running app's window goes to it. Only a board id and token of the site's shapes are
+      followed, and only to the board's page on the site; anything else is ignored. The link is
+      never logged. On a board page in a browser, **Open in app** is that link (a quiet **Get the
+      app** beside it, the installer, for a browser without the app), gated like the
+      download link (a Windows browser, never in the app, `WINDOWS_APP_RELEASED`). In the app
+      (no address bar), the landing's **Open link** field and **Ctrl+L** anywhere take a pasted
+      share link, the site's or the `mapcro://` form; anything else reads "Not a board link". A
+      board page whose fragment changes (the same board, another token) loads again.
     - **Linux (2026-11-10, branch `linux-desktop`):** the same app on WebKitGTK, built as an
       AppImage, a .deb and `nix build .#mapcro-desktop`; it behaves as on Windows. Gated on the
       e2e suite passing in WebKit (`just e2e-webkit`, operator). The NVIDIA blank-window
@@ -1712,8 +1818,14 @@ pack.json   schema, extractor version,
             entities [{ key, kind, team, lane, world [x, y, z], src {...} }],
             geometry_hash,
             abilities { blob, items, abilities, modifiers, icons, icons_missing }   (schema 4)
+            stats { format, covered_through, builds, tables }        (optional, no bump)
+            tooltips { format, blob, records, overlays }             (optional, no bump)
 blobs/<sha256>.png
 data/abilities.json   the names table, a blob of type application/json
+data/stats/<key>.json         per-patch stat tables (§6b "Calculated stats")
+data/tooltips.json            item and ability tooltips (below)
+data/tooltips/<key>.json      a patch's tooltip values, keyed like the stat tables
+tooltips/<path under panorama/images>.png|.svg   tooltip frames, property and inline icons
 abilities/<path under panorama/images>.png|.svg   item, ability and modifier icons
 ```
 
@@ -1773,6 +1885,51 @@ items, ability levels, casts, charges, hard-CC causes, status effects and their 
   resolve, and 707 of the 711 overall. Six of the resolved ones are engine modifiers that no vdata
   defines, such as `modifier_citadel_tossup`. The extractor lists them by name
   (`abilities::ENGINE_MODIFIERS`). The other 3 are engine modifiers whose names we don't know.
+
+**Tooltips** (`data/tooltips.json`, 2026-11-11; `crates/extract/src/tooltips.rs`; the
+manifest's optional `tooltips` section, so no schema bump: schema 5 is still unused, and the
+server serves older packs as before). `{"format": 1, "client_version", "strings", "icons",
+"inline", "art", "records": {"<token>": {"tip", "values"}}}`:
+
+- **Records**: every shop item and hero signature or ultimate ability of `abilities.vdata`.
+  - An item's sections are its `m_vecTooltipSectionInfo` (`innate`, `passive`, `active`; a
+    section with no type is `info`), each attribute a block: its description
+    (`m_strLocString`), cards (`m_vecImportantAbilityProperties`) and rows
+    (`m_vecAbilityProperties`, then `m_vecElevatedAbilityProperties`). A passive or active
+    section's first `AbilityCooldown` or `ProcCooldown` row is its header's cooldown.
+  - An ability's are its `m_AbilityTooltipDetails.m_vecAbilityInfoSections` (cards from
+    `m_vecAbilityPropertiesBlock`, rows from `m_vecBasicProperties`; `requires` from
+    `m_strAbilityPropertyUpgradeRequired`), its header `AbilityCooldown` plus
+    `m_vecAdditionalHeaderProperties`, and its upgrade tiers (`m_vecAbilityUpgrades`, the text
+    `<name>_t<n>_desc`, a non-additive bonus's `m_eUpgradeType`).
+  - A record with no description of its own gets `<name>_desc`.
+- **Properties**: `m_mapAbilityProperties` entries; label, prefix and postfix from the
+  localisation's `<key>_label`, `_prefix`, `_postfix` (key: `m_strLocTokenOverride`, else the
+  property name). One without a label, or `m_bIsHidden`, isn't shown; nor is a zero value
+  (client). `css` is `m_strCSSClass`, `scale` a scale function's stat and `m_flStatScale`,
+  `conditional` `ConditionallyApplied`, `negative` `m_bIsNegativeAttribute`. `aliases` maps a
+  token override back to its property, for `{s:Override}` in the text.
+- **Values** are kept apart from the layout: each property's `m_strValue` written as the game
+  writes it (at most two decimals; `"40m"` → `"40"`), cut to what the tooltip shows or
+  substitutes, and each tier's bonuses. `data/tooltips/<stat key>.json` holds, for each
+  boon-data snapshot a stat table is built from, only what that patch changes (properties and
+  tier bonuses); a key with no overlay reads the install's values. Descriptions stay unsubstituted,
+  so a patch's values reach the text too.
+- **Strings**: the chrome's localisation (`Citadel_Mod_Tooltip_Active`, `Citadel_Shop_Purchased`,
+  `Citadel_ComponentRequired`, `CitadelHeroStats_*`, `Citadel_ModBonus_*`, `StatDesc_*`), and every
+  `InlineAttribute_*`, keys lower-cased (the words of `{g:citadel_inline_attribute:'X'}`).
+- **Icons and art**, from the game's own rules, not a mapping of ours: `icons` is
+  `ability_property_icons.vcss`'s `.prop_<class>` rules (image and `wash-color`, the palette
+  resolved from `citadel_base_styles.vcss`), `inline` its `.InlineAttributeIcon.<Name>` and
+  `.InlineAttributeName.<Name>` (colour), `art` the fixed frames (`allow::TOOLTIP_ART`: the item
+  backers and their masks, the category headers, the ability backer, the "Owned" check, the
+  cooldown clock, the souls glyph, the stat panels' backgrounds, the ladder's star). The icon
+  images the rules name are read only under `allow::TOOLTIP_ICON_DIRS`.
+- **Client 6860**: 600 records, a 0.64 MB table (values trimmed), 27 overlays of up to 7 KB
+  (6837's: 16 records), 62 images (8.2 MB, the category headers and backers most of it), in a
+  40 MB pack.
+- The tooltip and stat-panel styles ship as HUD sources (`hud/*.vcss`): the client's port
+  (`web/src/styles/tooltips.css`) names each rule it follows.
 
 The server serves packs at `/packs/<pack_id>/…`. Responses are immutable and cached forever,
 because the content is hashed. The server keeps every pack it has had, so an old board can still

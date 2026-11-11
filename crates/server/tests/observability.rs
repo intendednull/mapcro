@@ -143,9 +143,16 @@ fn requests_count_by_route_template_and_never_by_id() {
     for secret in [owner.as_str(), match_id] {
         assert!(!db.contains(secret), "the database holds {secret}");
     }
+    // The server's own memory, apart from the cgroup's page cache (TD-4): in development its
+    // resident peak and RssAnon.
+    assert!(v["health"]["server_memory_peak"]["rss"].as_f64().is_some_and(|b| b > 1e6), "{:#}", v["health"]);
+    assert!(text.contains("mapcro_server_rss_peak_bytes "), "{text}");
     let (text, code) = s.stats(&["summary"]);
     assert_eq!(code, 0);
     assert!(text.contains("HEALTH") && text.contains("match/5xx 1"), "{text}");
+    assert!(text.contains("server memory peak  rss ") && text.contains("anon "), "{text}");
+    let (text, _) = s.stats(&["limits"]);
+    assert!(text.contains("memory rss peak, server") && text.contains("memory anon, server"), "{text}");
 }
 
 #[test]
@@ -169,7 +176,7 @@ fn a_failed_replay_job_lands_in_failures_with_a_clean_message() {
         .find(|n| n.starts_with(id))
         .expect("queued");
     let outbox = s.queue.path().join("outbox");
-    let record = mapcro_replay::JobStats { queue_wait_s: Some(1.5), parse_s: Some(4.0), peak_rss_bytes: Some(100 << 20), demo_bytes: Some(25), ..Default::default() };
+    let record = mapcro_replay::JobStats { queue_wait_s: Some(1.5), parse_s: Some(4.0), peak_rss_bytes: Some(100 << 20), peak_anon_bytes: Some(30 << 20), zstd_window_bytes: Some(8 << 20), demo_bytes: Some(25), ..Default::default() };
     std::fs::write(outbox.join(format!("{job}.stats")), serde_json::to_vec(&record).expect("json")).expect("record");
     std::fs::write(outbox.join(format!("{job}.failed")), b"old_map").expect("failed");
 
@@ -185,6 +192,10 @@ fn a_failed_replay_job_lands_in_failures_with_a_clean_message() {
     assert!(!outbox.join(format!("{job}.stats")).exists(), "the record is read and removed");
     let series = s.stats_json(&["series", "parse_peak_rss_bytes"]);
     assert_eq!(series.as_array().map(Vec::len), Some(1), "{series:#}");
+    for name in ["parse_peak_anon_bytes", "zstd_window_bytes"] {
+        let series = s.stats_json(&["series", name]);
+        assert_eq!(series.as_array().map(Vec::len), Some(1), "{name}: {series:#}");
+    }
 }
 
 #[test]

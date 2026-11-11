@@ -3,6 +3,51 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Tooltips: follow-ups (2026-11-11, from tooltips)
+
+Shipped on branch `tooltips` (spec §6b "Tooltips", "Hero panel"; plan 2026-11-10-game-tooltips).
+- **Stat panels' other stats**: the weapon card (gun name, "Medium Range / Heavy Hitter", DPS,
+  falloff) and the panels' fire rate, ammo, reload, bullet velocity, regen, move speed, stamina,
+  CDR, lifesteal and the Spirit Power Impact rows need calculator rules (and hero weapon data
+  from `heroes.vdata` `m_mapStartingStats` / weapon info). The panels show only the five stats
+  mapcro calculates.
+- **Tier cards' ability-point cost**: hard-coded 1 / 2 / 5 (operator, 2026-11-11); if the game's
+  own source turns up, read it instead (and see "To verify in the running game").
+- **Pin a tooltip open**: not now (operator, 2026-11-11).
+- **Live values in the tooltip**: the remaining cooldown and charges at t are on the icon only;
+  the game's tooltip shows the static value.
+- **Hero panel for followers**: the panel is local; a presenter opening one isn't followed.
+- **Spirit-scaled values on items**: only abilities' cards take the calculated spirit power with
+  "≈"; items' scaled properties show the base value.
+
+## Stream the replay parse: browser, app, worker (2026-11-11, from parser-memory)
+
+The follow-up to [parser-memory](research/parser-memory.md), and the step that makes "Parse
+replays in the browser" possible on phones. Branch `parser-memory` already cut the anonymous peak
+from 48 to 32.5 MB with the same timeline, but boon still needs the whole demo mapped or in one
+buffer (`from_bytes`: +481 MB).
+
+1. Vendor pbdems2 0.4.1 and boon 0.19 (both MIT) with `[patch.crates-io]`. Add a reader-based
+   forward pass: an `initialize` through `DEM_SyncTick` and a `replay_cursor` over `impl Read`,
+   with `run_reader_with_properties` on boon's `Parser` (~200 lines). Gate boon's `reqwest`,
+   `tempfile` and `memmap2` behind a feature while there. Check it against the mmapped run:
+   the timeline must be the same bytes on 129738985 and on an old-map and a Brawl demo.
+2. Use it in the worker and the app instead of `from_file`. That removes the SIGBUS case, and
+   the ~485 MB of file pages the cap reclaims.
+3. Feed `worker::expand`'s decoder straight into the parse: no 504 MB `work/` file, no dirty page
+   cache.
+4. Split a `worker` feature (zstd, bzip2, libc, worker.rs) off `parse` (TD-25), then build the
+   wasm entry `observe_with` → `derive` → JSON over a `FileReaderSync`-backed `Read` in a Web
+   Worker. Projected 35–40 MB of wasm memory.
+5. Then decide the worker's `memoryMax`: 384M a job is far above the 32.5 MB anonymous peak.
+   The job record now carries the anonymous peak and a zstd download's window (TD-26): read
+   `stats series parse_peak_anon_bytes` and `zstd_window_bytes` after the first fetches
+   (`window_log_max(27)` allows up to 128 MiB).
+
+Cheaper wins that don't need the reader, in order: slimmer per-second `Obs` (~14 → ~6 MB: the
+name once, objectives as changes, narrower types), and trackers that walk only changed entities
+(TD-8: ~40% of parse time, the main cost on a phone).
+
 ## A macOS desktop app (2026-11-11, operator: only if users ask)
 
 Parked. Deadlock has no macOS client, so the app's job (the local replays folder, previews, local
@@ -58,6 +103,10 @@ Following now carries the map layers and the open panels (death recaps, builds; 
 
 ## Previews of matches cached before acf63c3 have no winner (2026-11-11, lead, prod check)
 
+## Previews of matches cached before acf63c3 have no winner (2026-11-11, lead, prod check): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 6064363): the summary cache is stamped `summary_format`; an unstamped one without a winner is derived again from one metadata read, once a process, and a card with `winner: null` is made again from the summary (spec §6a, Previews).
+
 `GET /api/matches/129738985/preview` on prod answers `"winner": null`: the summary was cached
 before the summary kept the winner, and the preview is derived from that cache. Kills and souls
 are there. Either re-derive the summary when a cached one lacks `winner` (one metadata read, the
@@ -87,6 +136,9 @@ of claims only the game (or its client) can settle. Add to it; strike items once
   share and fills linearly from the row below; full only at 28.8K. Also check what counts as
   spent: we count each owned item's tier price (not sold items, not components used up by an
   upgrade, not what was paid after an upgrade discount).
+- **Ability tier costs:** the tooltip's tier cards show 1 / 2 / 5 ability points, hard-coded
+  (`web/src/match/tooltips.ts` `TIER_COSTS`, from `item-djinns-mark.png`; no file holds them).
+  Check after a patch that touches ability upgrades that the game still shows these.
 - **HUD:** the kill-streak threshold that switches the souls tab to the mint `.KillStreak` style,
   and when the gloat card portrait appears (backlog "Kill-streak mint souls tab").
 
@@ -101,24 +153,24 @@ of claims only the game (or its client) can settle. Add to it; strike items once
   replay file"; for a desktop user, re-parsing locally would be the better offer.
 - zstd bodies aren't accepted (gzip only); add one if the wasm parse prefers it.
 
-## Label sweep (2026-11-10, from stat-calc-prod; spec §4b)
+## Label sweep (2026-11-10, from stat-calc-prod; spec §4b): resolved
 
-Hovers and aria-labels outside the Tab column that read as sentences or carry caveats; fix to
-tags (1–3 words; an aria-label may add a value tag). Found in `web/src/player/PlayerTopBar.tsx`,
-not fixed (out of that branch's scope):
-
-- Rejuvenator: aria-label "`<team>` Rejuvenator: N revives left" (line ~63).
-- Portrait button: aria-label "Build for `<hero>`".
-- Vision mark: title and aria-label "Not seen by the selected team".
-- Focus button: title "Inspect `<hero>` build and show on map", aria-label "Inspect `<slot>`, `<hero>`, build and show on the map".
-- Respawn: aria-label "`<slot>` respawns in N s"; health: aria-label "`<slot>` health N%".
-- Not yet swept: the rest of `web/src/player/` and `web/src/board/` (`grep -n 'title=\|aria-label=' -r web/src`).
+Resolved 2026-11-11 (branch `web-polish`): the top bar's Rejuvenator ("Hidden King Rejuvenator";
+aria "…, 2 revives"), portrait ("Abrams build"), vision mark ("Not seen"), focus button ("Inspect
+Abrams"), respawn and health aria ("Amber 1 respawn, 12 s"), the transport's and Map layers'
+explanatory hovers (dropped where they repeated the label), the Vision and Last seen hovers, the
+build order rows, the replays-folder and landing hovers, "Play from here", the skull's recap and
+the board top bar's aria-labels. `web/test/labels.test.ts` fails on any literal `title` or
+`aria-label` in `web/src` over four words (a key hint in parentheses and a value after a comma
+don't count) or written as a sentence. Left on purpose: the map markers' timer hovers ("Respawns
+in 1:20 · …", spec §6b) and the tier chip's hint (it explains what the summary lacks; spec §6b
+"tap or hover the summary"), which the operator may want shortened.
 
 ## Calculated stats: follow-ups (2026-11-10, from stat-calc-prod)
 
-- **A quiet "≈" on calculated values** (spec §4b rule 5): only with the operator's approval.
-- **Stat panels** (the tooltips plan's part 2): the ladder's bonus per row and the other panel
-  stats (fire rate, clip, CDR, lifesteal) need more rules; the tables already carry the ladder.
+- **A quiet "≈" on calculated values** (spec §4b rule 5): approved and shipped (topbar.css).
+- **Stat panels** (the tooltips plan's part 2): shipped with the ladder and the five calculated
+  stats (branch `tooltips`); the other panel stats are in "Tooltips: follow-ups".
 - **Stacking items** (Berserker, Cultist Sacrifice, Escalating Resilience …) from `effects`
   stack counts, and Spirit Snatch's stolen values from the stat viewer: later rules, the spike's
   largest remaining misses.
@@ -168,8 +220,29 @@ much they matter.
   - **Download link for Linux.** "Get the Windows app" shows on Windows only; a Linux link
     (AppImage) would need a label and a release flag like `WINDOWS_APP_RELEASED`.
   - **WebKit in CI.** `just e2e-webkit` is opt-in and local; the main CI runs no e2e at all.
+- **Portable build (2026-11-11, deep-links; desktop/README.md, Installer or portable).** Left:
+  - **First tagged release:** the release job's portable step (`cargo tauri build --no-bundle
+    --features portable`, `gh release upload` into the draft) has not run yet; check the draft
+    has `mapcro_<v>_x64-portable.zip`, `mapcro_x64-portable.zip` and `mapcro_x64-setup.exe`.
+  - **By hand on Windows:** unzip and run; a board's Open in app reaches it; Update available
+    shows against an older copy and opens the release page in the browser.
+  - **A moved or deleted portable copy** leaves `HKCU\Software\Classes\mapcro` pointing at it
+    until another copy or the installer runs.
+- **Board links (2026-11-11, deep-links; desktop/README.md, Deep links).** Built: `mapcro://`
+  registration, the hand-off to the running app, Open in app, Open link and Ctrl+L. Left:
+  - **Check on Windows by hand:** a browser's "Open in app" asks to open mapcro and the app
+    opens the board, cold and running; the NSIS uninstaller removes `HKCU\Software\Classes\mapcro`.
+  - **Check on a real Linux desktop:** clicking a `mapcro://` link in Firefox and Chrome with
+    the .deb installed, and with an AppImage (its self-registration writes a desktop file in
+    `~/.local/share/applications` on every start).
+  - **Open in app on Linux browsers,** with the Linux download link (above): the same gate.
+  - **Open in app when the app isn't installed** does nothing visible (the browser drops an
+    unknown scheme); a quiet "Get the app" sits beside it (operator, 2026-11-11). Detecting
+    the missing handler (blur/visibility timing) isn't done.
 
-## The salts backoff holds back free reads (2026-11-10, from salts-docs)
+## The salts backoff holds back free reads (2026-11-10, from salts-docs): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, aaf90b1; TD-9): the free read goes first and a 429 holds back only the Steam-capable read of a no-row match; the 400 is `no_replay`; a match before the ~2 h salts pass is held until it (spec §6a, Remembered failures and Pacing).
 
 deadlock-api answers a stored salts row before its rate limiter, so only a lookup of a match with
 no row spends its 3/h Steam budget (docs/research/deadlock-api-salts.md "When the backend asks the
@@ -287,7 +360,10 @@ The whole streak look (the lead's check, 2026-11-10; backlog only, not built):
 - **The threshold** is set in code and still unknown. An operator screenshot of a streak would
   confirm it.
 
-## The death recap shows internal ability names (2026-11-10, from ux-batch-1)
+## The death recap shows internal ability names (2026-11-10, from ux-batch-1): resolved
+
+Resolved 2026-11-11 (branch `web-polish`): `player/recap.ts` `recapAbility` uses the parent's name, else "Weapon" or "Ability"; never the engine name.
+
 
 The recap's hit rows (`player/DeathRecap.tsx`) print `record.label` as it is, so a record whose
 `label_from` is `"internal"` reads as the engine name. In 129738985, Infernus's death at 6:45
@@ -295,7 +371,10 @@ lists "deadpack_primary_weapon_charge" under Deadman Danny. The Effects list now
 the parent ability's or item's name (`player/effects.ts` `effectLabel`). The recap could share
 that fallback.
 
-## A death and its recap can be a second apart (2026-11-10, from ux-batch-1)
+## A death and its recap can be a second apart (2026-11-10, from ux-batch-1): resolved
+
+Resolved 2026-11-11 (branch `web-polish`): `recapOf` takes the latest lethal hit up to 1.5 s before the death's second. Amber 1's recap at 2545 s with no death stays unpaired (a revive in place, or past the parse's end).
+
 
 `recapOf` (player/recap.ts) pairs a death with the recap whose `ceil(t / 10)` equals the death's
 second exactly. In 129738985, Amber 3's death at 521 s has a recap at 520 s, so neither the
@@ -447,7 +526,9 @@ A record with no localised name gets its internal name with the prefix stripped
 821 of the 2,061 modifiers end up there. Whether the UI shows those at all, or turns `_` into
 spaces, waits on the build-card UX.
 
-## Clippy fails on engine and server under rust 1.99 (2026-11-10, from pack-abilities)
+## Clippy fails on engine and server under rust 1.99 (2026-11-10, from pack-abilities): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy --workspace --all-targets -- -D warnings` (nix dev shell, rust 1.99.1) stops before
 it reaches most crates:
@@ -529,7 +610,9 @@ negative or fractional `t_s`, a missing `tier`) at deserialisation, so the answe
 well-typed but invalid values get. Only a client other than ours can send those shapes; parsing
 `match` as a raw value and checking it by hand would give one message for both.
 
-## clippy: `unwrap()` in packs.rs (2026-11-09, from feedback-match)
+## clippy: `unwrap()` in packs.rs (2026-11-09, from feedback-match): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy -p mapcro-server --all-targets` warns `clippy::unwrap_used` at
 crates/server/src/packs.rs:188 (`p.0.parse().unwrap()` in `newest_first`). Already on main; an
@@ -554,7 +637,9 @@ toggle of their own at least. Not asked for; the audit's candidates list has the
 `CCitadel_BreakableProp` (709 entities) it runs at about real time (30 min for 129738985).
 Comparing raw field values and formatting only the changes would make it a seconds-long probe.
 
-## Clippy: collapsible_if in derive.rs's buffs (2026-11-09, from heavy-crates)
+## Clippy: collapsible_if in derive.rs's buffs (2026-11-09, from heavy-crates): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy -p mapcro-replay --all-targets` warns `collapsible_if` at
 crates/replay/src/derive.rs:751 (`} else if !b.active && up { if let Some(l) = out.last_mut()`),
@@ -641,7 +726,9 @@ times out polling the replay inbox, with nothing on the page or in the error say
 was hit. player-vision.spec.ts now raises the limit for its server; a shared default in
 e2e/server.ts, or the helper reporting the refusal, would spare the next spec the hunt.
 
-## Clippy fails on crates/replay/src/parse.rs (2026-11-09, from shop-state)
+## Clippy fails on crates/replay/src/parse.rs (2026-11-09, from shop-state): resolved
+
+Resolved 2026-11-11 (branch `server-debt`, 749182e; TD-1): the workspace is clippy-clean and `just clippy` gates it in `just check` and CI.
 
 `cargo clippy -p mapcro-replay --tests -- -D warnings` (rust 1.99) stops on
 `clippy::chunks_exact_to_as_chunks` at parse.rs:658 (`key.chunks_exact(4)`), and on two more
@@ -815,6 +902,13 @@ whole (the app's parse of 129738985 took 14.5 s and about 26 MB on the server's 
 file must not be loaded into memory at once). Blockers to check first: boon on wasm32 (mmap,
 threads), the zstd/bzip2 crates on wasm, and phone memory. The format-9 lockstep applies: the
 browser build ships with the server, so it never lags `FORMAT`.
+
+**2026-11-11 (parser-memory):** measured. boon needs the whole file in one buffer (+481 MB), and
+it has no reader API, but the forward pass needs no random access. A small vendored patch gives
+a streamed parse at a projected 35–40 MB of wasm memory. `cargo check` for wasm32 passes, but
+zstd-sys builds host objects (TD-25). Plan:
+[Stream the replay parse](#stream-the-replay-parse-browser-app-worker-2026-11-11-from-parser-memory);
+evidence: [parser-memory](research/parser-memory.md).
 
 ## A settings page (2026-11-08)
 
