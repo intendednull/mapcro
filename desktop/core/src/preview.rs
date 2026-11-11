@@ -9,7 +9,7 @@
 //!
 //! Previews carry heroes and scores only: no names, no account ids.
 
-use mapcro_replay::preview::Preview;
+pub use mapcro_replay::preview::Preview;
 use mapcro_replay::reason;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

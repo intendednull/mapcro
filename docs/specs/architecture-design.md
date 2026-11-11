@@ -331,6 +331,15 @@ and shared boards therefore follow one code path and one set of tests.
   the per-client and global limits, and the summary it fetches is cached for the open that
   follows. After the metadata call says 429, previews don't ask deadlock-api for 60 s (opens
   still do). Errors are the summary's (`not_found`, `brawl`, `upstream_limited`, …).
+  - **Read from the demo first (2026-11-11, operator: every replay in the folder gets a card):** in
+    the app, a card's preview comes from the `.dem` itself (`crates/replay` `preview::read`, the
+    same shape plus `build`; `start_time` is 0, the demo doesn't record it), so fresh matches,
+    matches deadlock-api doesn't have and uploads get one with no server call. It reads the
+    signon and the match's last minute (a few MB; 129738985: 0.2 s, 11 MB of 504 MB) and takes
+    the end as the full parse does: heroes by slot, kills, souls at the winning tick, the winner,
+    the clock to the win, the mode. Any build and mode reads (a Brawl demo is a card that says
+    "Street Brawl"). The server's preview is asked only when the app has none (a broken file, an
+    app without the command). docs/research/demo-preview.md.
 - **Not in the metadata tier:** ults, zipline colours, camps, rifts, powerups and z. A match older than the
   pack is drawn on it with an "Older map" label.
 - The mid boss's respawn time isn't in the match data. The preview shows it down from a kill
@@ -1112,12 +1121,16 @@ makes a board with that match attached and lands in Player; **New board** is tod
       landing's **Select replay** (beside the match id), Player's **Upload replay** (match
       source and notice; **Select replay** with no match open) and the prompt's **Upload replay**
       open a dialog, "Replays", listing the folder's replays as cards: the open match's first
-      ("This match"), then newest first, ten at a time (**More**). A file younger than 5 s
+      ("This match"), then the latest match first by match id (ids rise over time; not by the file's
+      time, which is when it was downloaded: operator, 2026-11-11), ten at a time (**More**). A file younger than 5 s
       isn't listed (it may be downloading). The folder is looked up and listed when the picker
       opens, on focus and every 5 s while it's open and shown; never while it's closed. Each
-      card: the match id, the file's time ("2 h ago"), the length ("34:12"), and, from the
-      preview (§6a, fetched once a card is in view, once per match for the tab; a miss is asked
-      again after a minute, ten for `not_found`), each team's name, its six heroes (the newest
+      card: the match id, when it was played ("Played 2 d ago", a date past a week) from the
+      preview's `start_time`, else the file's time ("2 h ago", "Downloaded" on hover: the demo
+      doesn't record a wall-clock start), the length ("34:12"), and, from the
+      preview (§6a, asked once a card is in view, once per match for the tab: read from the demo
+      by the app, which keeps it by the file's size and time across runs, else the server's; a
+      server miss is asked again after a minute, ten for `not_found`), each team's name, its six heroes (the newest
       pack's minimap icons, the hero's name on hover), its kills ("Kills" on hover), its souls
       ("Souls") and **Win** on the winner's row. A mode the board doesn't take shows its name
       ("Street Brawl"). With no metadata: "Not recorded" and "—". A pick is the upload: parsed
@@ -1131,8 +1144,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
     - **Upload:** the pick sends only the parsed timeline (gzip) to `POST …/replays/{id}/timeline`
       (§6a, Timelines parsed on the user's machine). Against a server without that route (a 404
       with no `{error}`), it sends the `.dem` as before.
-    - **IPC:** four commands (list, read one, parse one, change the folder), by match id, granted
-      to the site's origin only.
+    - **IPC:** five commands (list, read one, preview one, parse one, change the folder), by
+      match id, granted to the site's origin only.
     - **Download link:** "Get the Windows app" (GitHub Releases) shows on Windows browsers only,
       never in the app. It sits beside Link replays folder, in "Where's my replay?" and in the
       landing's footer. It stays off until the first release (`WINDOWS_APP_RELEASED`). There is

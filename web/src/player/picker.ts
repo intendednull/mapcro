@@ -1,9 +1,11 @@
 // The Windows app's replay picker (spec §6b, "The Windows app"): the pure parts. The list the
 // picker shows (the open match's replay first, then newest first, a page at a time), the labels on
-// each card, and the preview cards' data from `GET /api/matches/{id}/preview`, fetched once per
-// match and kept for the tab. `ReplayPicker.tsx` draws it; `picker.test.ts` drives this.
+// each card, and the preview cards' data, asked once per match and kept for the tab: read from the
+// demo by the app (`replay_preview`), and from `GET /api/matches/{id}/preview` only when the app
+// has none. `ReplayPicker.tsx` draws it; `picker.test.ts` drives this.
 
 import { type Replay, settled } from "./folder";
+import { bridge, desktopSource } from "./desktop";
 import { clockLabel } from "../match/timeline";
 
 /** Cards shown at first, and how many more each "More" adds. */
@@ -12,10 +14,14 @@ export const PAGE = 10;
 /** How often the picker lists the folder again while it's open (also on focus). */
 export const PICKER_POLL_MS = 5_000;
 
+/** Match ids rise over time: the later match first (by length, then digits; ids are plain digits). */
+const laterFirst = (a: Replay, b: Replay) => b.id.length - a.id.length || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+
 /** The picker's list: settled files only (a younger one may still be downloading), the open
- * match's first, then newest first as the source gives them. */
+ * match's first, then the most recently played first, by match id (operator, 2026-11-11: not by
+ * the file's time, which is when it was downloaded). */
 export function pickerList(list: readonly Replay[], current: string | undefined, now: number): Replay[] {
-  const done = list.filter((r) => settled(r, now));
+  const done = list.filter((r) => settled(r, now)).sort(laterFirst);
   const mine = done.filter((r) => r.id === current);
   return [...mine, ...done.filter((r) => r.id !== current)];
 }
@@ -28,6 +34,13 @@ export function ago(at: number, now: number): string {
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
   if (s < 7 * 86400) return `${Math.floor(s / 86400)} d ago`;
   return new Date(at).toLocaleDateString();
+}
+
+/** A card's time: when the match was played ("Played 2 d ago") when a preview says (the demo
+ * doesn't record it; the server's preview does), else the file's time ("2 h ago", "Downloaded"
+ * on hover). */
+export function whenLabel(startS: number | undefined, fileAt: number, now: number): { text: string; title?: string } {
+  return startS && startS > 0 ? { text: `Played ${ago(startS * 1000, now)}` } : { text: ago(fileAt, now), title: "Downloaded" };
 }
 
 /** A match's length as the game's clock writes it ("34:12"). */
@@ -43,7 +56,7 @@ export interface PreviewTeam {
   souls: number;
 }
 
-/** The server's preview of a match (no names, no ids). */
+/** A match's preview (no names, no ids): the app's, read from the demo, or the server's. */
 export interface Preview {
   match_id: number;
   start_time: number;
@@ -93,10 +106,27 @@ const http: Fetcher = async (id) => {
 };
 
 /**
+ * The app's preview first (read from the demo: every replay in the folder has one, fresh or old,
+ * with no server call), the server's only when the app has none (a broken file, an older app).
+ */
+export function localFirst(local: (id: string) => Promise<unknown>, server: Fetcher = http): Fetcher {
+  return async (id) => {
+    const v = await local(id).catch(() => undefined);
+    return parsePreview(v) ? { status: 200, body: v } : server(id);
+  };
+}
+
+/** In the app's window, local first; in a browser, the server. */
+const tabFetcher: Fetcher = (id) => {
+  const invoke = bridge();
+  return invoke ? localFirst((i) => desktopSource(invoke).preview(i))(id) : http(id);
+};
+
+/**
  * The previews for the tab: each match asked for once; a miss (no metadata, a busy upstream) is
  * asked again only after a while (`AGAIN_MS`), so a picker that stays open doesn't poll the server.
  */
-export function previewCache(get: Fetcher = http, clock: () => number = Date.now) {
+export function previewCache(get: Fetcher = tabFetcher, clock: () => number = Date.now) {
   const kept = new Map<string, { data: CardData; at: number; again: number | undefined }>();
   const asking = new Map<string, Promise<CardData>>();
   const peek = (id: string): CardData | undefined => kept.get(id)?.data;

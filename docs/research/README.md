@@ -56,6 +56,18 @@ it. The old one is served meanwhile. "Once" is kept in memory, so a restart allo
 Past three weeks, it stays. A stale upload stays (its demo is gone) and is marked `stale`;
 Player offers "Upload replay file".
 
+**A card's preview from the demo** ([demo-preview](demo-preview.md); `preview.rs` `read`):
+`CDemoFileInfo` (the header's file-info offset, 20 bytes from the end) holds only playback
+time, ticks and frames; `game_info` is empty, so no heroes, score or winner. The preview is a
+spliced light parse instead: the signon (to `DEM_SyncTick`, ~0.27 MB), the last
+`DEM_FullPacket` (every 3,840 ticks; found scanning back from the end, a candidate kept only if its
+header walk lands on the file info and its body decodes), and if the win came before it, the full
+packet before the rules' `m_nMatchClockUpdateTick` (minus `server_start_tick` = the winning demo
+tick), played to the win. Souls grow after the win (+1,020/+812 on 129738985). boon's
+`from_file` indexes the whole file first; `from_bytes` on the splice doesn't (zero the header's
+offsets). 129738985: 0.15–0.18 s, 11 MB of 504 MB, equal to the server preview and the full
+parse; 0.05–0.56 s and 5–23 MB on builds 6683–6839 and the Brawl demo. The demo has **no wall-clock start** (header, file info, entities checked), so a card's match time comes from the server's preview only.
+
 **Client-parsed timelines** (`replays.rs` `client_timeline`; spec §6a "Timelines parsed on the
 user's machine"): a timeline sent by the desktop app is refused unless its `format` equals
 `FORMAT` (`outdated_parser` / `newer_parser`), checked before the shape, so a parser change that

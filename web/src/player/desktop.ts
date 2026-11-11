@@ -1,6 +1,6 @@
-// The Windows app's bridge (desktop/README.md): the same site, in the app's window, with four
-// commands to the native side: list the replays folder, read one replay, parse one here, and
-// change the folder (the system's folder chooser). The page passes only match ids, never paths,
+// The Windows app's bridge (desktop/README.md): the same site, in the app's window, with five
+// commands to the native side: list the replays folder, read one replay, preview one (read from
+// its demo here), parse one here, and change the folder (the system's folder chooser). The page passes only match ids, never paths,
 // and the app grants the commands to this site's origin only. Feature-detected: in a browser none of this exists, and nothing changes.
 //
 // Also the download link for the app (`windowsAppLink`), shown on Windows browsers only.
@@ -23,6 +23,8 @@ export function bridge(w: unknown = globalThis): Invoke | undefined {
  * change which folder it lists (the app opens its folder chooser), kept for later runs. */
 export interface LocalSource extends ReplaySource {
   timeline(id: string): Promise<Blob>;
+  /** A picker card's preview, read from the demo (the server preview's shape; `picker.ts`). */
+  preview(id: string): Promise<unknown>;
   chooseFolder(): Promise<"chosen" | "cancelled">;
 }
 
@@ -68,6 +70,7 @@ export function desktopSource(invoke: Invoke): LocalSource {
     },
     read: async (id) => new File([bytes(await call("replay_read", { id }))], `${id}.dem`, { type: "application/octet-stream" }),
     timeline: async (id) => new Blob([bytes(await call("replay_timeline", { id }))], { type: "application/json" }),
+    preview: (id) => call("replay_preview", { id }),
     chooseFolder: async () => ((await call("replays_choose_folder")) === "chosen" ? "chosen" : "cancelled"),
   };
 }

@@ -90,6 +90,41 @@ fn main() {
     if std::env::args().any(|a| a == "--explore") {
         explore(&path);
     }
+    if std::env::args().any(|a| a == "--clock") {
+        wall_clock(&path);
+    }
+}
+
+/// Does any entity carry a wall-clock time (unix seconds 2024-2027, or ms)? Field paths and
+/// counts only; strings aren't looked at (they hold names).
+fn wall_clock(path: &std::path::Path) {
+    let parser = Parser::from_file(path).expect("parser");
+    let names: Vec<String> = parser.parse_class_info().expect("classes").classes().iter().map(|c| c.network_name.to_string()).collect();
+    let classes: HashSet<&str> = names.iter().map(String::as_str).collect();
+    let offs = parser.full_packet_offsets().expect("index");
+    let &(off, tick) = offs.last().expect("fp");
+    let mut hits: BTreeMap<String, usize> = BTreeMap::new();
+    let mut entities = 0;
+    let mut done = false;
+    parser.decode_segment(Some(off), tick + 1, &classes, |ctx| {
+        if done { return; }
+        done = true;
+        for (_, e) in ctx.entities().iter() {
+            entities += 1;
+            let Some(ser) = ctx.serializers().get(e.class_name.as_ref()) else { continue };
+            for (&k, v) in &e.fields {
+                let x = match v { boon::FieldValue::I32(n) => f64::from(*n), boon::FieldValue::U32(n) => f64::from(*n), boon::FieldValue::I64(n) => *n as f64, boon::FieldValue::U64(n) => *n as f64, boon::FieldValue::F32(n) => f64::from(*n), _ => continue };
+                let unix = (1.70e9..1.85e9).contains(&x) || (1.70e12..1.85e12).contains(&x);
+                let named = ser.field_name_for_key(k).unwrap_or_default();
+                let l = named.to_ascii_lowercase();
+                if unix || l.contains("date") || l.contains("rtime") || l.contains("unix") || l.contains("timestamp") || l.contains("starttime") {
+                    *hits.entry(format!("{}.{}{}", e.class_name, named, if unix { " (unix-like value)" } else { "" })).or_default() += 1;
+                }
+            }
+        }
+    }).expect("segment");
+    println!("wall clock scan at tick {tick}: {entities} entities, {} candidate fields", hits.len());
+    for (k, n) in hits { println!("  {k} x{n}"); }
 }
 
 /// The exploration behind preview.rs: the command census, and boon's segments from the last two

@@ -3,6 +3,26 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Demo previews: the rest (2026-11-11, from demo-preview)
+
+The app reads each card's preview from the demo (spec §6a "Read from the demo first";
+docs/research/demo-preview.md). Left over:
+
+- **Drop the server preview?** The app falls back to `GET /api/matches/{id}/preview` only when its
+  own read fails (a broken file, an older app). Once every app in the field has `replay_preview`,
+  the route serves no one: retire it with its cache (TD-17), or keep it for a browser picker.
+- **Old maps on cards:** a pre-6712 demo previews fine (6683 and 6701 read), but picking it fails
+  as `old_map`. The card could say "Older map" from `build` before the pick.
+- **The match's time on a card** (operator, 2026-11-11: "Played 2 d ago", not the file's time):
+  the demo has no wall-clock start (research demo-preview, `start_time`), so a card read locally
+  shows the file's time ("Downloaded" on hover). Options: ask the server for the time only where
+  it's free (a cached summary), or estimate it from the match id (ids rise over time, a fit
+  from known pairs). Needs the operator's call.
+- **A Windows cold-cache timing**: measured on Linux only (0.05–0.56 s, page cache warm or not on a
+  shared box). A first listing of ten 500 MB demos on a spinning disk is ~100–200 MB of reads.
+- **Previews ahead of view:** cards read one at a time as they scroll in; the next page's could be
+  read while the picker is idle.
+
 ## Previews of matches cached before acf63c3 have no winner (2026-11-11, lead, prod check)
 
 `GET /api/matches/129738985/preview` on prod answers `"winner": null`: the summary was cached

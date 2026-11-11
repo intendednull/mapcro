@@ -2,18 +2,19 @@
 // then newest first, settled files only), the card labels, the preview's shape, and the preview
 // cache (asked once per match; a miss asked again only after a while).
 import { describe, expect, it } from "vitest";
-import { MODE_LABELS, ago, lengthLabel, modeLabel, parsePreview, pickerList, previewCache } from "../src/player/picker";
+import { MODE_LABELS, ago, lengthLabel, localFirst, modeLabel, parsePreview, pickerList, previewCache, whenLabel } from "../src/player/picker";
 
 const NOW = 1_800_000_000_000;
 const r = (id: string, agoMs: number) => ({ id, lastModified: NOW - agoMs, size: 1 });
 
 describe("pickerList", () => {
-  it("puts the open match first, then newest first, and leaves out a file still downloading", () => {
-    const list = [r("300", 1_000), r("200", 60_000), r("100", 3_600_000), r("50", 7_200_000)];
-    expect(pickerList(list, "100", NOW).map((x) => x.id)).toEqual(["100", "200", "50"]);
-    expect(pickerList(list, undefined, NOW).map((x) => x.id)).toEqual(["200", "100", "50"]);
+  it("puts the open match first, then the latest match first by id, and leaves out a file still downloading", () => {
+    // File times say 50 is newest (downloaded last); match ids say 200 was played last.
+    const list = [r("300", 1_000), r("50", 60_000), r("100", 3_600_000), r("200", 7_200_000), r("1000", 9_000_000)];
+    expect(pickerList(list, "100", NOW).map((x) => x.id)).toEqual(["100", "1000", "200", "50"]);
+    expect(pickerList(list, undefined, NOW).map((x) => x.id)).toEqual(["1000", "200", "100", "50"]);
     // The open match's file, still downloading, isn't offered either.
-    expect(pickerList(list, "300", NOW).map((x) => x.id)).toEqual(["200", "100", "50"]);
+    expect(pickerList(list, "300", NOW).map((x) => x.id)).toEqual(["1000", "200", "100", "50"]);
   });
 });
 
@@ -25,6 +26,11 @@ describe("labels", () => {
     expect(ago(NOW - 3 * 86_400_000, NOW)).toBe("3 d ago");
     expect(ago(NOW - 30 * 86_400_000, NOW)).toBe(new Date(NOW - 30 * 86_400_000).toLocaleDateString());
     expect(ago(NOW + 5_000, NOW)).toBe("just now");
+  });
+  it("tells when the match was played when a preview says, else the file's time", () => {
+    expect(whenLabel(NOW / 1000 - 2 * 86_400, NOW - 60_000, NOW)).toEqual({ text: "Played 2 d ago" });
+    expect(whenLabel(0, NOW - 2 * 3_600_000, NOW)).toEqual({ text: "2 h ago", title: "Downloaded" });
+    expect(whenLabel(undefined, NOW - 60_000, NOW)).toEqual({ text: "1 min ago", title: "Downloaded" });
   });
   it("writes the length as the game's clock", () => {
     expect(lengthLabel(2052)).toBe("34:12");
@@ -105,5 +111,27 @@ describe("previewCache", () => {
     expect(await c.ask("4")).toEqual({ kind: "mode", label: "Street Brawl" });
     expect(await c.ask("9")).toEqual({ kind: "none" });
     expect(await previewCache(async () => { throw new Error("offline"); }, () => NOW).ask("1")).toEqual({ kind: "none" });
+  });
+
+  it("in the app, reads the demo first and asks the server only when the app has none", async () => {
+    const s = server({ "2": { status: 200, body: { ...PREVIEW, match_id: 2 } }, "3": { status: 404, body: { error: "not_found" } } });
+    const local = async (id: string) => {
+      if (id === "1") return { ...PREVIEW, match_id: 1, build: 6839 };
+      if (id === "4") return { ...PREVIEW, match_id: 4, game_mode: 4 };
+      if (id === "5") return { not: "a preview" };
+      throw new Error("corrupt");
+    };
+    const c = previewCache(localFirst(local, s.get), () => NOW);
+    // A fresh match: no server call at all.
+    expect(await c.ask("1")).toEqual({ kind: "preview", preview: { ...PREVIEW, match_id: 1 } });
+    // The app can't read it: the server's, or Not recorded.
+    expect(await c.ask("2")).toEqual({ kind: "preview", preview: { ...PREVIEW, match_id: 2 } });
+    expect(await c.ask("3")).toEqual({ kind: "none" });
+    // A Brawl demo is its mode, from the app.
+    const brawl = await c.ask("4");
+    expect(brawl.kind === "preview" && modeLabel(brawl.preview)).toBe("Street Brawl");
+    // An answer that isn't a preview is the server's turn.
+    await c.ask("5");
+    expect(s.calls).toEqual(["2", "3", "5"]);
   });
 });
