@@ -171,6 +171,14 @@ test("#35 the death recap moves by a drag of its top, with a mouse or a finger, 
   await a.locator('[data-testid=death-skull][data-slot="sapphire-2"]').click();
   await expect.poll(async () => JSON.stringify(await box(r))).toBe(JSON.stringify(there));
   await clear(a);
+  // With a hero panel open too, Escape closes that first, then the recap.
+  await token(a, "Amber-5").click();
+  await expect(hero(a, "amber-5")).toBeVisible();
+  await a.keyboard.press("Escape");
+  await expect(hero(a, "amber-5")).toHaveCount(0);
+  await expect(r).toBeVisible();
+  await a.keyboard.press("Escape");
+  await expect(r).toHaveCount(0);
 });
 
 test("#37 several hero panels open at once; each moves and closes by itself; a press brings one to the front; Escape closes the front one", async ({ browser }) => {
@@ -197,10 +205,11 @@ test("#37 several hero panels open at once; each moves and closes by itself; a p
   await expect(hero(a, "sapphire-4")).toHaveAttribute("data-front", "true");
   await hero(a, "sapphire-4").getByTestId("hero-card-close").click();
   await expect.poll(() => slots(a)).toBe("amber-4 amber-5");
-  // Escape: the front one, then the next.
-  const front = (await hero(a, "amber-5").getAttribute("data-front")) === "true" ? "amber-5" : "amber-4";
+  // Escape: the front one (the one opened last, brought to the front again), then the next.
+  await hero(a, "amber-4").click({ position: { x: 16, y: 12 } });
+  await expect(hero(a, "amber-4")).toHaveAttribute("data-front", "true");
   await a.keyboard.press("Escape");
-  await expect(hero(a, front)).toHaveCount(0);
+  await expect(hero(a, "amber-4")).toHaveCount(0);
   await expect(a.getByTestId("hero-card")).toHaveCount(1);
   await a.keyboard.press("Escape");
   await expect(a.getByTestId("hero-card")).toHaveCount(0);
