@@ -12,6 +12,14 @@ import type { PlayerHost } from "./host";
 const SETTLE_MS = 1500;
 
 /**
+ * Whether this copy may make the live layer now. Live, only once it is current: a fresh copy
+ * may start from an older snapshot, and would make a layer someone already made (refused
+ * `IdTaken`; backlog 2026-11-11). Offline, yes: the layer is made locally and sent on
+ * reconnect, and if that copy is behind then, losing the race is no problem (`ensure`).
+ */
+export const layerFrom = (live: boolean, current: boolean) => !live || current;
+
+/**
  * The live layer of the open match: made (or restored) whenever an editor is in Player with a
  * match, and cleared of stale ink when someone enters Player with nobody else in it. Returns
  * the layer's scene id for the open match (undefined: no annotating here).
@@ -23,9 +31,7 @@ export function liveLayer(state: BoardState, h: PlayerHost, board: string, inPla
   };
   createEffect(() => {
     const m = match();
-    // Only from a current copy: a fresh one may start from an older snapshot, and would make a
-    // layer someone already made (refused `IdTaken`, shown as Conflict; backlog 2026-11-11).
-    if (!inPlayer() || m === undefined || !state.canEdit() || !state.current() || state.roster().length !== 12) return;
+    if (!inPlayer() || m === undefined || !state.canEdit() || !layerFrom(state.connection().kind === "live", state.current()) || state.roster().length !== 12) return;
     const ops = ensureLiveOps(state.records as never, board, m, state.roster());
     if (ops.length) state.ensure(ops);
   });

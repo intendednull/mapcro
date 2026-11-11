@@ -131,8 +131,9 @@ export class BoardSession {
   private client: string | undefined;
   /** Ready's `head`: the log length when the room took this connection. */
   private head: number | undefined;
-  /** The cseqs of `ensure` transactions, until one is refused (cseqs never repeat, so one
-   * that landed stays harmlessly: a number per live layer made). */
+  /** The cseqs of `ensure` transactions, while the server may still report them: a refusal
+   * comes again on every reconnect until the hello's `pending_from` passes it (authority.rs),
+   * so each is kept until then (`connected`), never on first receipt. */
   private readonly ensures = new Set<number>();
   private saveSoon: ReturnType<typeof setTimeout> | undefined;
   private dirtySince: number | undefined;
@@ -206,6 +207,12 @@ export class BoardSession {
    */
   current(): boolean {
     return this.live && this.replica !== undefined && this.replica.lastSeq() >= (this.head ?? 0);
+  }
+
+  /** The hello just made: the server forgets refusals below its `pending_from`, so this does. */
+  private connected(hello: WireIn | undefined) {
+    const from = hello?.t === "msg" && "Hello" in hello.msg ? hello.msg.Hello.pending_from : undefined;
+    if (from !== undefined) for (const c of this.ensures) if (c < from) this.ensures.delete(c);
   }
 
   /** Update what others see of us. Sent at most every PRESENCE_MS; the latest state always wins. */
@@ -380,6 +387,7 @@ export class BoardSession {
           this.resetRecords(this.replica.view());
         }
         const u = this.apply(this.replica.connect());
+        this.connected(u.frames[0]);
         // The hello resends every pending transaction, so it goes through the save chain like any
         // edit: an edit made offline may not be durable yet, and the server must never ack what a
         // reload would forget (soak 2026-11-07, resend-before-durable). Later edits queue behind
@@ -419,7 +427,7 @@ export class BoardSession {
         if (!r) throw new Error("message before ready");
         const m = frame.msg;
         // Decided before the change callback runs, so the UI never sees an ensure's refusal.
-        const lost = typeof m === "object" && "Rejected" in m && this.ensures.delete(m.Rejected.cseq) && m.Rejected.reason === "IdTaken";
+        const lost = typeof m === "object" && "Rejected" in m && this.ensures.has(m.Rejected.cseq) && m.Rejected.reason === "IdTaken";
         if (typeof m === "object" && "Rejected" in m && !lost) this.problems.push(`rejected: ${JSON.stringify(m.Rejected.reason)}`);
         this.apply(r.receive(JSON.stringify(frame)));
         this.persistSoon();

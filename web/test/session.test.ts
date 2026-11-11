@@ -15,7 +15,8 @@ import { IdbPersist, MemoryPersist, type Persist } from "../src/core/persist";
 import { BoardSession, type SocketLike } from "../src/core/session";
 import type { Op } from "../src/gen/Op";
 import type { RosterSlot } from "../src/gen/RosterSlot";
-import { ensureLiveOps } from "../src/player/live";
+import { ensureLiveOps, liveIds } from "../src/player/live";
+import { layerFrom } from "../src/player/layer";
 import { pageSeat } from "../src/core/seat";
 import type { RecordId } from "../src/gen/RecordId";
 
@@ -174,10 +175,10 @@ describe("board sessions against the real server", () => {
     [...s.records].flatMap(([id, e]) => (!e.deleted && "RosterSlot" in e.record ? [{ id: id as RecordId, slot: e.record.RosterSlot as RosterSlot }] : []));
   const entries = (s: BoardSession) => Object.fromEntries(s.records) as never;
   /** A second editor that runs `act` the moment it is first live, before its catch-up. */
-  async function joinAndAct(board: string, token: string, act: (s: BoardSession) => void) {
+  async function joinAndAct(board: string, token: string, act: (s: BoardSession) => void, open = openSocket) {
     let acted = false;
     const b: BoardSession = new BoardSession({
-      wsUrl: server.ws, board, token, persist: new MemoryPersist(), openSocket, minDelayMs: 50, maxDelayMs: 400,
+      wsUrl: server.ws, board, token, persist: new MemoryPersist(), openSocket: open, minDelayMs: 50, maxDelayMs: 400,
       onChange: (s) => {
         if (acted || s.connection.kind !== "live") return;
         acted = true;
@@ -232,6 +233,89 @@ describe("board sessions against the real server", () => {
     expect(view(b)).toBe(view(a));
     a.stop();
     b.stop();
+  });
+
+  it("a refusal of an ensure the server sends again after a reconnect is still not a problem", async () => {
+    // The server reports every refusal from the hello's `pending_from` on (authority.rs), so a
+    // client that heard one with an earlier transaction of its own still pending hears it again
+    // on its next connection. A fresh joiner gets its own acks with its catch-up, after its
+    // refusals: its socket drops in between here (the first socket hears only refusals).
+    const { board, owner_token } = await api.createBoard("live-layer-refused-again");
+    const a = session(server, board, owner_token);
+    await a.start();
+    await until(() => a.connection.kind === "live" && a.current(), "a live and current");
+    a.ensure(ensureLiveOps(entries(a), board, 129000101, roster(a)));
+    await until(() => a.status.kind === "saved", "a made the layer");
+    const refusals: string[] = [];
+    const sockets: WebSocket[] = [];
+    let heldBack = true;
+    const open = (url: string): SocketLike => {
+      const ws = new WebSocket(url, { origin: ORIGIN });
+      sockets.push(ws);
+      const first = sockets.length === 1;
+      const tap: SocketLike = {
+        onopen: null, onmessage: null, onclose: null, onerror: null,
+        send: (d) => ws.send(d),
+        close: () => ws.close(),
+      };
+      ws.onopen = (e) => tap.onopen?.(e);
+      ws.onclose = (e) => tap.onclose?.(e);
+      ws.onerror = (e) => tap.onerror?.(e);
+      ws.onmessage = (e) => {
+        const data = String(e.data);
+        const refusal = data.includes('"Rejected"');
+        if (refusal) refusals.push(data);
+        if (first && heldBack && !data.includes('"ready"') && !refusal) return; // not here yet
+        tap.onmessage?.({ data });
+        if (first && refusal) ws.close();
+      };
+      return tap;
+    };
+    const b = await joinAndAct(
+      board, owner_token,
+      (b) => {
+        b.edit(move(players(b)[0]!, 7)); // still pending when the refusal comes
+        b.ensure(ensureLiveOps(entries(b), board, 129000101, roster(b)));
+      },
+      open,
+    );
+    heldBack = false;
+    expect(refusals).toHaveLength(2); // the same refusal, once on each connection
+    expect(new Set(refusals).size).toBe(1);
+    expect(b.problems).toEqual([]);
+    expect(view(b)).toBe(view(a));
+    // Kept only while the server can say it again: the next hello passes it.
+    const ensures = (b as unknown as { ensures: Set<number> }).ensures;
+    expect(ensures.size).toBe(1);
+    sockets.at(-1)!.close();
+    await until(() => b.connection.kind !== "live", "b dropped");
+    await until(() => b.connection.kind === "live" && b.status.kind === "saved", "b back");
+    expect(ensures.size).toBe(0);
+    expect(refusals).toHaveLength(2);
+    a.stop();
+    b.stop();
+  });
+
+  it("offline, the live layer is made and sent on reconnect, as on any edit", async () => {
+    const { board, owner_token } = await api.createBoard("live-layer-offline");
+    const a = session(server, board, owner_token);
+    await a.start();
+    await until(() => a.connection.kind === "live" && a.current(), "a live and current");
+    await server.kill9();
+    await until(() => a.connection.kind !== "live", "a offline");
+    const offline = { current: a.current(), makes: layerFrom(false, a.current()) };
+    const made = a.ensure(ensureLiveOps(entries(a), board, 129000101, roster(a)));
+    await server.start();
+    expect(offline).toEqual({ current: false, makes: true }); // offline: made, as before the gate
+    expect(made).toBe(true);
+    await until(() => a.connection.kind === "live" && a.status.kind === "saved", "back and saved");
+    expect(a.problems).toEqual([]);
+    const fresh = session(server, board, owner_token);
+    await fresh.start();
+    await until(() => fresh.status.kind === "saved" && view(fresh) === view(a), "the server has it");
+    expect(fresh.records.get(liveIds(board, 129000101, []).scene)).toBeDefined();
+    a.stop();
+    fresh.stop();
   });
 
   it("presence flows both ways and only editors are followable", async () => {
@@ -367,5 +451,13 @@ describe("board sessions against the real server", () => {
     } finally {
       small.child.kill("SIGKILL");
     }
+  });
+});
+
+describe("when Player makes its live layer (player/layer.ts)", () => {
+  it("live: only from a current copy; offline: yes, sent on reconnect", () => {
+    expect(layerFrom(true, false)).toBe(false); // a joiner before its catch-up
+    expect(layerFrom(true, true)).toBe(true);
+    expect(layerFrom(false, false)).toBe(true); // offline, or a deploy's reconnect window
   });
 });
