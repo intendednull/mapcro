@@ -49,11 +49,14 @@ all_builds?: boolean,
 /**
  * Which of Effects and Build order is open in the hero's build `inspect` names (operator
  * 2026-11-11). Left out when neither.
+ * A variant this build doesn't know (a newer client's) reads as none.
  */
 build_popover?: BuildPopover, 
 /**
  * The events list's filter chips that are on, a bit each in `view_state::EVENT_GROUPS`
- * order (operator 2026-11-11). Left out when none. Unknown bits are ignored.
+ * order (operator 2026-11-11). Left out when none. Unknown bits are ignored: past 16 they
+ * are dropped here, and anything but a whole number reads as none, so a newer client's
+ * presence still parses (an older server after a rollback).
  */
 event_filters?: number, 
 /**

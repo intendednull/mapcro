@@ -220,12 +220,15 @@ pub struct Playback {
     pub all_builds: bool,
     /// Which of Effects and Build order is open in the hero's build `inspect` names (operator
     /// 2026-11-11). Left out when neither.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// A variant this build doesn't know (a newer client's) reads as none.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_popover")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub build_popover: Option<BuildPopover>,
     /// The events list's filter chips that are on, a bit each in `view_state::EVENT_GROUPS`
-    /// order (operator 2026-11-11). Left out when none. Unknown bits are ignored.
-    #[serde(default, skip_serializing_if = "is_zero")]
+    /// order (operator 2026-11-11). Left out when none. Unknown bits are ignored: past 16 they
+    /// are dropped here, and anything but a whole number reads as none, so a newer client's
+    /// presence still parses (an older server after a rollback).
+    #[serde(default, skip_serializing_if = "is_zero", deserialize_with = "lenient_bits")]
     #[cfg_attr(feature = "ts", ts(as = "Option<u16>", optional))]
     pub event_filters: u16,
     /// The events list's search, at most `MAX_EVENT_SEARCH` bytes, no control characters.
@@ -237,6 +240,30 @@ pub struct Playback {
 
 fn is_zero(n: &u16) -> bool {
     *n == 0
+}
+
+/// A value read leniently: what this build knows, or anything else (ignored).
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Lenient<T> {
+    Known(T),
+    Other(serde::de::IgnoredAny),
+}
+
+/// `event_filters`: the low 16 bits of a whole number; anything else is none.
+fn lenient_bits<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u16, D::Error> {
+    Ok(match Lenient::<u64>::deserialize(d)? {
+        Lenient::Known(n) => (n & u64::from(u16::MAX)) as u16,
+        Lenient::Other(_) => 0,
+    })
+}
+
+/// `build_popover`: a variant this build doesn't know is none.
+fn lenient_popover<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<BuildPopover>, D::Error> {
+    Ok(match Option::<Lenient<BuildPopover>>::deserialize(d)? {
+        Some(Lenient::Known(p)) => Some(p),
+        _ => None,
+    })
 }
 
 /// The hero build's two popovers (BuildColumn.tsx); they are one `<details name>` group, so at
@@ -491,6 +518,69 @@ mod tests {
         assert_eq!(back, open);
         let p = Presence { layers: Some(LAYER_TROOPERS | LAYER_CRATES), ..Default::default() };
         assert_eq!(serde_json::from_str::<Presence>(&serde_json::to_string(&p).expect("serialises")).expect("parses").layers, Some(0b100_0001));
+    }
+
+    /// A presence frame as a client sends it, its playback's JSON ending in `extra` (raw JSON
+    /// text, so it can hold what `serde_json` would never write).
+    fn frame_with(extra: &str) -> String {
+        let state = serde_json::to_string(&Presence { playback: Some(playback()), ..Default::default() }).expect("serialises");
+        let (head, tail) = state.split_once(r#""speed":1.0"#).expect("speed in playback");
+        format!(r#"{{"t":"presence","state":{head}"speed":1.0{extra}{tail}}}"#)
+    }
+    fn parsed(frame: &str) -> Option<Presence> {
+        match serde_json::from_str::<WireIn>(frame) {
+            Ok(WireIn::Presence { state }) => Some(*state),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_search_the_client_clipped_parses_and_is_valid() {
+        // What viewstate.ts `clipText(s, 64)` gives (web/test/view-state.test.ts has the same
+        // table): cut by code point, a lone surrogate as U+FFFD.
+        let x = |n: usize| "x".repeat(n);
+        let cases = [
+            x(61),                        // 61 x then an emoji: the emoji doesn't fit
+            format!("{}😀", x(60)),       // it fits exactly
+            format!("{}é", x(62)),        // two bytes at the end
+            format!("{}\u{FFFD}", x(61)), // a lone high surrogate
+            "😀".repeat(16),
+            "ж".repeat(32),
+        ];
+        assert!(parsed(&frame_with("")).is_some_and(|p| p.is_valid()));
+        for q in &cases {
+            assert!(q.len() <= MAX_EVENT_SEARCH, "{q}");
+            let frame = frame_with(&format!(r#","event_search":{}"#, serde_json::to_string(q).expect("json")));
+            let state = parsed(&frame).unwrap_or_else(|| panic!("parses: {frame}"));
+            assert!(state.is_valid(), "{q}");
+            assert_eq!(state.playback.and_then(|b| b.event_search).as_deref(), Some(q.as_str()));
+        }
+        // What the old cut sent: half a pair, as JSON.stringify writes it. Unparseable, so the
+        // server closes the socket as abuse.
+        assert!(parsed(&frame_with(&format!(r#","event_search":"{}\ud83d""#, x(61)))).is_none());
+    }
+
+    #[test]
+    fn unknown_filter_bits_and_popovers_from_a_newer_client_are_ignored() {
+        let pb = |extra: &str| parsed(&frame_with(extra)).unwrap_or_else(|| panic!("parses: {extra}")).playback.expect("playback");
+        // Bits past 16 are dropped; the ones that fit are kept (a follower ignores unknown ones).
+        assert_eq!(pb(r#","event_filters":65541"#).event_filters, 5);
+        assert_eq!(pb(r#","event_filters":4294967295"#).event_filters, u16::MAX);
+        assert_eq!(pb(r#","event_filters":18446744073709551615"#).event_filters, u16::MAX);
+        // Anything but a whole number is none.
+        for v in ["-1", "1.5", r#""5""#, "null", "[1]", "{}"] {
+            assert_eq!(pb(&format!(r#","event_filters":{v}"#)).event_filters, 0, "{v}");
+        }
+        // A popover this build doesn't know is none; the known ones still read.
+        assert_eq!(pb(r#","build_popover":"order""#).build_popover, Some(BuildPopover::Order));
+        assert_eq!(pb(r#","build_popover":"effects""#).build_popover, Some(BuildPopover::Effects));
+        for v in [r#""stats""#, "null", "3", r#"{"a":1}"#] {
+            assert_eq!(pb(&format!(r#","build_popover":{v}"#)).build_popover, None, "{v}");
+        }
+        // Still valid, and the bounds is_valid checks still hold beside them.
+        assert!(parsed(&frame_with(r#","event_filters":131071,"build_popover":"stats""#)).expect("parses").is_valid());
+        let long = format!(r#","event_filters":131071,"build_popover":"stats","event_search":"{}""#, "x".repeat(MAX_EVENT_SEARCH + 1));
+        assert!(!parsed(&frame_with(&long)).expect("parses").is_valid());
     }
 
     #[test]
