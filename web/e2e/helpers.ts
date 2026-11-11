@@ -87,8 +87,14 @@ export async function pickHero(page: Page, slot: string, hero: string) {
   await expect(page.getByTestId("hero-picker")).toHaveCount(0);
 }
 
-/** Reveal controls grouped in the replay source or map layers disclosure. */
+/** Reveal a control the layout keeps out of sight until asked for: the scene note behind the
+ * sidebar's Scene Notes tab, or one grouped in the replay source or map layers disclosure. */
 export async function revealControls(page: Page, id: string) {
+  if (id === "scene-note-edit") {
+    await page.locator("#notes-tab").click();
+    await expect(page.locator("#notes-panel")).toBeVisible();
+    return;
+  }
   const source = ["match-id", "match-load", "match-upload", "match-fetch", "mode-sandbox"].includes(id);
   const details = page.locator(source ? ".pl-source" : ".map-layers");
   if (!(await details.evaluate(el => (el as HTMLDetailsElement).open))) await details.locator("summary").click();

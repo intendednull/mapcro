@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 
 const ID = "129738985";
@@ -106,6 +106,7 @@ function timeline() {
 
 async function open(p: Page) {
   await p.getByTestId("mode-player").click();
+  await revealControls(p, "match-id");
   await p.getByTestId("match-id").fill(ID);
   await p.getByTestId("match-load").click();
   await p.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
@@ -310,6 +311,7 @@ test("an objective with health says its name and health, live with the playback;
   await shot(a, "synthetic-walker-health");
   // Health off: the view has no health, so nothing to say. (The toggle takes the pointer: back
   // over the walker each time.)
+  await revealControls(a, "health-toggle");
   await a.getByTestId("health-toggle").click();
   const w = (await marker(a, WALKER).boundingBox())!;
   await a.mouse.move(w.x + w.width / 2, w.y + w.height / 2);

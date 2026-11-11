@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { type Browser, type Page, expect, test } from "./fixtures";
 import { Server, translate } from "./server";
-import { pickHero } from "./helpers";
+import { pickHero, revealControls } from "./helpers";
 
 // A 1×1 PNG (not game art).
 const PNG = Buffer.from(
@@ -95,6 +95,7 @@ test.describe("with a synthetic pack", () => {
     // Nor tough crates (a pack from before the Heavy boxes): the toggle borrows the built-in
     // map's, and our box shows with the pack's art on, where the fallback shapes don't.
     await expect(a.locator(".mapbox .mk.crate")).toHaveCount(0);
+    await revealControls(a, "crates-toggle");
     await a.getByTestId("crates-toggle").click();
     await expect(a.locator(".mapbox .mk.crate")).toHaveCount(78);
     await expect(a.locator(".mapbox .mk.crate .fb.crate").first()).toBeVisible();

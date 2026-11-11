@@ -10,7 +10,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { dragToken, joinNew, mapPoint, pickHero, viewOf } from "./helpers";
+import { dragToken, joinNew, mapPoint, pickHero, revealControls, viewOf } from "./helpers";
 import { Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 import { heroPack } from "./synthetic";
 
@@ -135,6 +135,7 @@ test("in Player, a portrait focuses the hero where the match has it at t; a dead
   const url = await newBoardUrl(server, "hero focus player");
   const a = await joinNew(browser, url, "Coach");
   await a.getByTestId("mode-player").click();
+  await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(ID);
   await a.getByTestId("match-load").click();
   await a.getByTestId("match-file").setInputFiles({ name: `${ID}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
