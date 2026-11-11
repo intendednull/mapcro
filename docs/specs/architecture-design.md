@@ -1162,12 +1162,29 @@ makes a board with that match attached and lands in Player; **New board** is tod
     - **Upload:** the pick sends only the parsed timeline (gzip) to `POST …/replays/{id}/timeline`
       (§6a, Timelines parsed on the user's machine). Against a server without that route (a 404
       with no `{error}`), it sends the `.dem` as before.
-    - **IPC:** five commands (list, read one, preview one, parse one, change the folder), by
-      match id, granted to the site's origin only.
-    - **Download link:** "Get the Windows app" (GitHub Releases) shows on Windows browsers only,
+    - **IPC:** six commands (list, read one, preview one, parse one, change the folder; and,
+      portable only, whether an update is out), by match id, granted to the site's origin only.
+    - **Installer or portable (operator, 2026-11-11; desktop/README.md):** the release carries the
+      per-user installer and a portable zip (`--features portable`, fixed at build time). Portable
+      registers `mapcro://` for the current user itself, and doesn't install updates: when the
+      feed has a newer version the page shows **Update available**, a link to the release page.
+    - **Download link:** "Get the Windows app" (the installer, by a stable name on GitHub
+      Releases; "Portable", quieter, beside it) shows on Windows browsers only,
       never in the app. It sits beside Link replays folder, in "Where's my replay?" and in the
       landing's footer. It stays off until the first release (`WINDOWS_APP_RELEASED`). There is
       no Linux link yet (backlog).
+    - **Board links (operator, 2026-11-11; desktop/README.md, Deep links):** a shared board
+      opens in the app. `mapcro://b/<board>#<token>` is the canonical form: the share link (§11)
+      with the scheme and host swapped, the token still in the fragment. The installer (per-user)
+      and the Linux packages register the scheme; a link starts the app on that board, or the
+      running app's window goes to it. Only a board id and token of the site's shapes are
+      followed, and only to the board's page on the site; anything else is ignored. The link is
+      never logged. On a board page in a browser, **Open in app** is that link (a quiet **Get the
+      app** beside it, the installer, for a browser without the app), gated like the
+      download link (a Windows browser, never in the app, `WINDOWS_APP_RELEASED`). In the app
+      (no address bar), the landing's **Open link** field and **Ctrl+L** anywhere take a pasted
+      share link, the site's or the `mapcro://` form; anything else reads "Not a board link". A
+      board page whose fragment changes (the same board, another token) loads again.
     - **Linux (2026-11-10, branch `linux-desktop`):** the same app on WebKitGTK, built as an
       AppImage, a .deb and `nix build .#mapcro-desktop`; it behaves as on Windows. Gated on the
       e2e suite passing in WebKit (`just e2e-webkit`, operator). The NVIDIA blank-window
