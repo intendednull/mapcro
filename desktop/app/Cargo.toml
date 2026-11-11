@@ -36,3 +36,12 @@ unwrap_used = "warn"
 codegen-units = 1
 lto = true
 strip = true
+
+# A debug build's parse child is the debug binary: dependencies optimized (the parser among
+# them), or a 500 MB demo takes minutes (3m42s unoptimized). The shell's own code stays debug.
+[profile.dev.package."*"]
+opt-level = 3
+[profile.dev.package.mapcro-replay]
+opt-level = 3
+[profile.dev.package.mapcro-desktop-core]
+opt-level = 3
