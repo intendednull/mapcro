@@ -122,6 +122,14 @@ much they matter.
   - **Download link for Linux.** "Get the Windows app" shows on Windows only; a Linux link
     (AppImage) would need a label and a release flag like `WINDOWS_APP_RELEASED`.
   - **WebKit in CI.** `just e2e-webkit` is opt-in and local; the main CI runs no e2e at all.
+- **Portable build (2026-11-11, deep-links; desktop/README.md, Installer or portable).** Left:
+  - **First tagged release:** the release job's portable step (`cargo tauri build --no-bundle
+    --features portable`, `gh release upload` into the draft) has not run yet; check the draft
+    has `mapcro_<v>_x64-portable.zip`, `mapcro_x64-portable.zip` and `mapcro_x64-setup.exe`.
+  - **By hand on Windows:** unzip and run; a board's Open in app reaches it; Update available
+    shows against an older copy and opens the release page in the browser.
+  - **A moved or deleted portable copy** leaves `HKCU\Software\Classes\mapcro` pointing at it
+    until another copy or the installer runs.
 - **Board links (2026-11-11, deep-links; desktop/README.md, Deep links).** Built: `mapcro://`
   registration, the hand-off to the running app, Open in app, Open link and Ctrl+L. Left:
   - **Check on Windows by hand:** a browser's "Open in app" asks to open mapcro and the app

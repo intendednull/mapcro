@@ -9,7 +9,7 @@ import { Show, createSignal, onCleanup } from "solid-js";
 import { cx } from "../ui/cx";
 import { isDem } from "./notice";
 import { REPLAYS_PATH, supported } from "./folder";
-import { bridge, windowsAppLink } from "./desktop";
+import { bridge, windowsAppLink, windowsPortableLink } from "./desktop";
 
 export function ReplayHelp(p: { id?: string | undefined; class?: string }) {
   let el!: HTMLDetailsElement;
@@ -50,6 +50,9 @@ export function ReplayHelp(p: { id?: string | undefined; class?: string }) {
               Or get the Windows app: it finds the replays folder on its own.{" "}
               <a href={href()} target="_blank" rel="noopener" data-testid="windows-app-help">
                 Get the Windows app
+              </a>{" "}
+              <a href={windowsPortableLink()} class="muted" target="_blank" rel="noopener" data-testid="windows-portable-help">
+                Portable
               </a>
             </li>
           )}

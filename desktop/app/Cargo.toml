@@ -28,6 +28,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"
 
+[features]
+# The portable build (desktop/README.md, Installer or portable): no installer, so it registers
+# mapcro:// itself and only says "Update available". Fixed at build time.
+portable = []
+
 [lints.rust]
 unsafe_code = "forbid"
 

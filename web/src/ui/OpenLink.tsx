@@ -1,8 +1,9 @@
 // Board links and the app (core/applink.ts): "Open in app" on a board page in a browser, and in
-// the app "Open link" (on the landing, and Ctrl+L anywhere) for a pasted share link.
+// the app "Open link" (on the landing, and Ctrl+L anywhere) for a pasted share link. Also the
+// portable app's "Update available" (desktop/README.md, Installer or portable).
 
-import { Show, createSignal, onCleanup, onMount } from "solid-js";
-import { bridge } from "../player/desktop";
+import { Show, createResource, createSignal, onCleanup, onMount } from "solid-js";
+import { WINDOWS_APP_RELEASES, appUpdate, bridge } from "../player/desktop";
 import { type BoardLink, openBoard, openInAppHref, parseBoardLink } from "../core/applink";
 import { ModalScrim } from "./ModalScrim";
 import { dialogKeys } from "./modal";
@@ -98,6 +99,19 @@ export function OpenLinkKeys() {
   return (
     <Show when={open()}>
       <OpenLinkDialog onClose={() => setOpen(false)} />
+    </Show>
+  );
+}
+
+/** The portable app's "Update available": the release page (it opens in the system browser). */
+export function UpdateLink(p: { class?: string; sep?: string }) {
+  const [version] = createResource(() => appUpdate());
+  return (
+    <Show when={version()}>
+      {p.sep}
+      <a class={p.class ?? "btn ghost"} href={WINDOWS_APP_RELEASES} data-testid="app-update">
+        Update available
+      </a>
     </Show>
   );
 }

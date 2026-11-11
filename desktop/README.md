@@ -52,7 +52,7 @@ app's cache folder and deletes it afterwards.
 
 ## IPC allow-list
 
-The page reaches the native side only through these four commands. `capabilities/site.json`
+The page reaches the native side only through these five commands. `capabilities/site.json`
 grants them to `https://mapcro.dmgdeadlock.com/*` only, in the `main` window. No plugin command
 is granted to the page; the folder chooser (`tauri-plugin-dialog`) and the updater are driven
 from Rust.
@@ -63,6 +63,7 @@ from Rust.
 | `replay_read` | `id` (match id, digits) | the `.dem` bytes (fallback upload, ≤ 1 GiB) |
 | `replay_timeline` | `id` | the timeline JSON, gzipped, or a reason code (`old_map`, `brawl`, …) |
 | `replays_choose_folder` | nothing | `chosen` or `cancelled` (the system's folder chooser; the path stays in the app) |
+| `app_update` | nothing | the newer version the update feed offers, or `null`. Portable only (it asks the feed once per run); the installed app answers `null` and installs updates itself |
 
 `replays_list` looks the folder up on each call (the picker calls it on open, on focus and every
 5 s while open); with none it answers `not_found`.
@@ -85,8 +86,35 @@ No `deep-link` plugin command is granted either (`get_current`, `register`, …)
 the link in Rust (`app/src/links.rs`).
 
 **A debug build only** takes `MAPCRO_URL` (for example `http://127.0.0.1:5173/`, `just dev`) and
-grants the same four commands to that origin at run time (`dev_capability`). A release build
+grants the same five commands to that origin at run time (`dev_capability`). A release build
 ignores the variable.
+
+## Installer or portable
+
+Windows releases come two ways, both on the same GitHub release:
+
+- **The installer** (`mapcro_<version>_x64-setup.exe`, also `mapcro_x64-setup.exe`): per-user
+  NSIS. It fetches WebView2 if it's missing, adds a Start-menu entry and an uninstaller,
+  registers `mapcro://`, and the app updates itself (passively, at start). "Get the Windows app"
+  links here.
+- **Portable** (`mapcro_<version>_x64-portable.zip`, also `mapcro_x64-portable.zip`): the same
+  app built with `--features portable`, the exe and a `README.txt`. Unzip and run it. The flag is
+  baked in at build time (`core/src/mode.rs` `Mode`), not a file beside the exe. It differs in:
+  - **No auto-update.** It asks the same feed (`app_update`, once per run, when the page asks)
+    and, if a newer version is out, the page shows **Update available**, a link to the release
+    page. You download the new zip yourself.
+  - **No Start-menu entry or uninstaller.** Delete the folder to remove it.
+  - **WebView2 must already be there** (it is on current Windows 10 and 11); nothing fetches it.
+  - **It registers `mapcro://` itself** for the current user on each start
+    (`HKCU\Software\Classes\mapcro` → this exe), so links reach the copy you ran last. Deleting
+    the folder leaves that key; the installer, if you install later, overwrites it.
+  - **Settings stay in the user's profile,** as for the installer, not beside the exe: the
+    chosen replays folder in `%APPDATA%\com.dmgdeadlock.mapcro` (Tauri's config folder, which is
+    Roaming), the webview's data and the parse's scratch in `%LOCALAPPDATA%\com.dmgdeadlock.mapcro`.
+
+The site's links use the stable names (`releases/latest/download/mapcro_x64-setup.exe`, `…/mapcro_x64-portable.zip`):
+tauri-action names the installer with its version, so the release job also uploads the copies.
+"Portable" is the quieter link beside "Get the Windows app", under the same `WINDOWS_APP_RELEASED`.
 
 ## Deep links
 
@@ -221,6 +249,7 @@ from `crates/server/src/main.rs`), points a debug build at it with `MAPCRO_URL`,
 
 - the page loads, and the IPC bridge (`__TAURI_INTERNALS__.invoke`) is there;
 - `replay_read` refuses an id that isn't digits;
+- `app_update` answers `null` (the installed build updates itself; only portable reports one);
 - no plugin command is the page's: opener, dialog, updater, window, webview, event and deep-link are
   each refused by the ACL;
 - with `--fake-steam`, a fake Steam install (its `libraryfolders.vdf`, Deadlock's manifest, and

@@ -7,6 +7,7 @@
 //! The token is in the URL's fragment and is never logged: not the link, not the URL.
 
 use mapcro_desktop_core::link;
+use mapcro_desktop_core::mode::Mode;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_deep_link::DeepLinkExt;
 use url::Url;
@@ -41,17 +42,19 @@ pub fn listen(app: &AppHandle, site: &Url, window: &'static str) {
     });
 }
 
-/// An AppImage isn't installed by a package manager, so it registers the scheme itself: the
-/// deep-link plugin writes `~/.local/share/applications/<binary>-handler.desktop` and makes it
-/// the `x-scheme-handler/mapcro` default (`xdg-mime`). The .deb, the nix package and the Windows
-/// installer register it at install, so they skip this.
-pub fn register_appimage(app: &AppHandle) {
+/// A copy nobody installed registers the scheme itself, on each start (so a moved copy is the
+/// one links reach), as `Mode::registers_scheme` says:
+/// - the portable build (Windows): `HKCU\Software\Classes\mapcro`, `"<this exe>" "%1"`;
+/// - an AppImage: `~/.local/share/applications/<binary>-handler.desktop`, made the
+///   `x-scheme-handler/mapcro` default (`xdg-mime`).
+///
+/// The NSIS installer, the .deb and the nix package register it at install, so they skip this.
+pub fn register(app: &AppHandle, mode: Mode) {
     #[cfg(target_os = "linux")]
-    if app.env().appimage.is_some()
-        && app.deep_link().register_all().is_err()
-    {
+    let appimage = app.env().appimage.is_some();
+    #[cfg(not(target_os = "linux"))]
+    let appimage = false;
+    if mode.registers_scheme(appimage) && app.deep_link().register_all().is_err() {
         eprintln!("mapcro: mapcro:// links not registered");
     }
-    #[cfg(not(target_os = "linux"))]
-    let _ = app;
 }

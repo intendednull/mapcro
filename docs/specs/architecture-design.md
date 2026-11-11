@@ -1131,9 +1131,14 @@ makes a board with that match attached and lands in Player; **New board** is tod
     - **Upload:** the pick sends only the parsed timeline (gzip) to `POST …/replays/{id}/timeline`
       (§6a, Timelines parsed on the user's machine). Against a server without that route (a 404
       with no `{error}`), it sends the `.dem` as before.
-    - **IPC:** four commands (list, read one, parse one, change the folder), by match id, granted
+    - **IPC:** five commands (list, read one, parse one, change the folder; and, portable only, whether an update is out), by match id, granted
       to the site's origin only.
-    - **Download link:** "Get the Windows app" (GitHub Releases) shows on Windows browsers only,
+    - **Installer or portable (operator, 2026-11-11; desktop/README.md):** the release carries the
+      per-user installer and a portable zip (`--features portable`, fixed at build time). Portable
+      registers `mapcro://` for the current user itself, and doesn't install updates: when the
+      feed has a newer version the page shows **Update available**, a link to the release page.
+    - **Download link:** "Get the Windows app" (the installer, by a stable name on GitHub
+      Releases; "Portable", quieter, beside it) shows on Windows browsers only,
       never in the app. It sits beside Link replays folder, in "Where's my replay?" and in the
       landing's footer. It stays off until the first release (`WINDOWS_APP_RELEASED`). There is
       no Linux link yet (backlog).

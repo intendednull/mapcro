@@ -163,6 +163,9 @@ try {
   const call = (cmd, args = {}) => exec(`return await window.__TAURI_INTERNALS__.invoke(${JSON.stringify(cmd)}, ${JSON.stringify(args)})`);
   const bad = await call("replay_read", { id: "../1" });
   check("replay_read refuses an id that isn't digits", bad.e === "bad_id", JSON.stringify(bad));
+  // The installed build updates itself: it tells the page of no update (only portable does).
+  const upd = await call("app_update");
+  check("app_update answers nothing in the installed build", "v" in upd && upd.v === null, JSON.stringify(upd));
 
   // No plugin, core or otherwise, is the page's to call.
   for (const [cmd, args] of [

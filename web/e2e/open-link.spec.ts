@@ -125,3 +125,28 @@ test("in a browser: no Open link, Ctrl+L is the browser's, and Open in app is of
   await expect(q.getByTestId("open-in-app")).toHaveCount(0);
   await app.close();
 });
+
+test("the portable app's Update available: shown when the app reports a newer version, linking to the release page", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await ctx.addInitScript(() => {
+    (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+      invoke: async (cmd: string) => (cmd === "app_update" ? "9.9.9" : Promise.reject("unknown_command")),
+    };
+  });
+  const p = await ctx.newPage();
+  await p.goto(server.url);
+  await expect(p.getByTestId("app-update")).toHaveText("Update available");
+  await expect(p.getByTestId("app-update")).toHaveAttribute("href", "https://github.com/intendednull/mapcro/releases/latest");
+  await p.goto(await newBoardUrl(server, "Update"));
+  await expect(p.getByTestId("board-title")).toHaveText("Update");
+  await expect(p.getByTestId("app-update")).toBeVisible();
+  await ctx.close();
+
+  // The installed app (it answers null) and a browser show nothing.
+  const app = await inApp(browser);
+  const q = await app.newPage();
+  await q.goto(server.url);
+  await expect(q.getByTestId("open-link")).toBeVisible();
+  await expect(q.getByTestId("app-update")).toHaveCount(0);
+  await app.close();
+});

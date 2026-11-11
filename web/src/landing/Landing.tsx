@@ -15,8 +15,8 @@ import { navigate } from "../core/nav";
 import { LIMITS } from "../gen/limits";
 import { feedbackEnabled } from "../core/feedback";
 import { FeedbackButton } from "../ui/Feedback";
-import { bridge, windowsAppLink } from "../player/desktop";
-import { OpenLinkForm } from "../ui/OpenLink";
+import { bridge, windowsAppLink, windowsPortableLink } from "../player/desktop";
+import { OpenLinkForm, UpdateLink } from "../ui/OpenLink";
 import { type Picked, ReplayPicker, pickerSource } from "../player/ReplayPicker";
 
 export function Landing() {
@@ -248,6 +248,9 @@ export function Landing() {
                 {" · "}
                 <a href={href()} target="_blank" rel="noopener" data-testid="windows-app-landing" title="Finds your replays folder on its own">
                   Get the Windows app
+                </a>{" "}
+                <a href={windowsPortableLink()} class="muted" target="_blank" rel="noopener" data-testid="windows-portable-landing">
+                  Portable
                 </a>
               </>
             )}
@@ -256,6 +259,7 @@ export function Landing() {
             {" · "}
             <FeedbackButton variant="link" />
           </Show>
+          <UpdateLink class="" sep=" · " />
         </footer>
       </main>
     </div>
