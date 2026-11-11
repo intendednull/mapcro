@@ -44,7 +44,7 @@ struct Settings {
 /// deadlock-api's key, if the operator gave one: read once from the file `DEADLOCK_API_KEY_FILE`
 /// names (never a value in the environment or the repo), sent as `X-API-KEY` on every call to
 /// deadlock-api (its openapi.json's `api_key_header`). It raises the salts endpoint's
-/// Steam-sourced limit from 3 to 300 an hour. Absent by default; the value is never logged.
+/// Steam-sourced limit (no-row lookups only) from 3 to 300 an hour. Absent by default; the value is never logged.
 pub fn api_key() -> Option<&'static str> {
     static K: OnceLock<Option<String>> = OnceLock::new();
     K.get_or_init(|| {

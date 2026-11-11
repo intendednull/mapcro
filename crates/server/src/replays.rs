@@ -147,11 +147,12 @@ struct Jobs {
     downloading: HashSet<String>,
     /// Matches whose fetch can't work for a while, by match id: no salts or demo, the download
     /// failed, or the match is past Valve's three weeks. Until then, opening the match doesn't
-    /// ask deadlock-api again (its Steam-sourced salts allow 3 an hour per address). "Fetch
-    /// replay" goes past it.
+    /// ask deadlock-api again: a no-row lookup spends one of its 3 Steam lookups an hour per
+    /// address (see `salts`). "Fetch replay" goes past it.
     negative: HashMap<String, (&'static str, Instant)>,
-    /// deadlock-api's salts endpoint said 429: no fetch asks it before this, and the last wait,
-    /// which the next 429 doubles.
+    /// deadlock-api's salts endpoint said 429 (in practice its Steam limit, met by a lookup of a
+    /// match it has no row for): no fetch asks it before this, and the last wait, which the next
+    /// 429 doubles.
     backoff: Option<(Instant, Duration)>,
     /// Opens whose fetch didn't start on its own for our caps (`fetch_refused`), by the board's
     /// job for the match: its status says `busy` for a while, so the opener hears why.
@@ -221,7 +222,9 @@ fn limited(j: &Jobs) -> bool {
     j.backoff.is_some_and(|(until, _)| Instant::now() < until)
 }
 
-/// A 429 from the salts endpoint: wait what it said, else twice the last wait (60 s first).
+/// A 429 from the salts endpoint: wait what it said, else twice the last wait (60 s first). It
+/// holds back every fetch, though reads of stored rows would still be free (backlog "The salts
+/// backoff holds back free reads").
 fn back_off(j: &mut Jobs, retry_after: Option<Duration>) {
     let last = j.backoff.map(|(_, d)| d);
     let wait = retry_after.unwrap_or_else(|| last.map_or(BACKOFF_FIRST, |d| d * 2)).min(BACKOFF_MAX);
@@ -1228,6 +1231,11 @@ fn agent(timeout: Duration) -> ureq::Agent {
 }
 
 /// The match's replay salts from deadlock-api, or why not (with a 429's `Retry-After`). Blocking.
+/// Without `disable_steam`, on purpose. deadlock-api answers a stored row before its rate limiter,
+/// so reading a match it has costs nothing, `replay_salt` or not. Only a match with no row (and
+/// no metadata: that's a free 400) reaches the limiter, 3 an hour per address (300 with a key),
+/// and then the GC, the one path that can create a working replay salt
+/// (docs/research/deadlock-api-salts.md "When the backend asks the GC", "Results").
 fn salts(id: &str) -> Result<(u32, u64), (&'static str, Option<Duration>)> {
     use crate::metrics::{ApiResult, Endpoint};
     let s = settings();
