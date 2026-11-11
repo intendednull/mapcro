@@ -246,10 +246,29 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
         return Err(reason::OLD_MAP);
     }
     let parser = Parser::from_file(path).map_err(|_| reason::NOT_A_REPLAY)?;
+    let ability_classes = crate::parse_hero::ability_classes(&parser);
+    observe_with(match_id, build, server_start, &ability_classes, |classes, properties, events, on_tick| {
+        parser.run_to_end_with_properties(classes, properties, Some(events), on_tick).map_err(|_| reason::PARSE_FAILED)
+    })
+}
+
+/// The callback a parse runs on every tick: the entities and the tick's collected messages.
+pub type Run<'a> = dyn FnMut(&boon::Context, &[boon::GameEvent]) + 'a;
+
+/// [`observe`] after the header checks. `run` plays the demo through the callback it's given,
+/// with the class filter, the property filter and the message types to collect: in one run
+/// over the mapped file here, or in several (docs/research/parser-memory.md, "the spliced
+/// read"). `ability_classes` is [`crate::parse_hero::ability_classes`] for the demo.
+pub fn observe_with(
+    match_id: u64,
+    build: u32,
+    server_start: i32,
+    ability_classes: &[String],
+    run: impl FnOnce(&HashSet<&str>, &[(&str, &[&str])], &HashSet<u32>, &mut Run<'_>) -> Result<(), Failure>,
+) -> Result<Obs, Failure> {
     let mut classes: HashSet<&str> = [CONTROLLER, PAWN, RULES, KOTH, PICKUP, PICKUP_MODIFIER, TROOPER, ZIP_NODE, IDOL, IDOL_RETURN, TEAM, HEAL, BREAKABLE].into_iter().collect();
     classes.extend(OBJECTIVES.iter().map(|(c, _)| *c));
     // Format 7: the ability and item entities, for cooldowns and charges.
-    let ability_classes = crate::parse_hero::ability_classes(&parser);
     classes.extend(ability_classes.iter().map(String::as_str));
     let mut hero = crate::parse_hero::HeroTracker::new();
     let mut heights: HashMap<i32, u8> = HashMap::new();
@@ -277,68 +296,79 @@ pub fn observe(path: &Path, match_id: u64) -> Result<Obs, Failure> {
     let mut fow_keys: Vec<[K; 4]> = Vec::new();
     let mut seen_now: HashMap<i32, bool> = HashMap::new();
     let mut vision: Vec<VisionObs> = Vec::new();
-    parser
-        .run_to_end_with_events_filtered(&classes, |ctx, events| {
-            let k = keys.get_or_insert_with(|| Keys::resolve(ctx));
-            if !over {
-                hero.modifiers(ctx);
+    // Only the fields read are kept for the classes with many entities (docs/research/
+    // parser-memory.md: 709 breakable props, ~200 troopers and 334 zipline nodes held 11 of the
+    // 13 MB of entity state), and only the messages read are collected.
+    let kept = [(TROOPER, kept_fields(&["m_iHealth", "m_iMaxHealth", "m_lifeState", "m_iTeamNum", "m_iLane"])), (BREAKABLE, kept_fields(&["m_nSubclassID"])), (ZIP_NODE, kept_fields(&["m_iTeamNum", "m_iPrimaryLane"]))];
+    let kept: Vec<(&str, Vec<&str>)> = kept.iter().map(|(c, f)| (*c, f.iter().map(String::as_str).collect())).collect();
+    let properties: Vec<(&str, &[&str])> = kept.iter().map(|(c, f)| (*c, f.as_slice())).collect();
+    let event_types: HashSet<u32> = [IMPORTANT_ABILITY_USED, REJUV_STATUS].into_iter().chain(crate::parse_hero::EVENT_TYPES).collect();
+    run(&classes, &properties, &event_types, &mut |ctx, events| {
+        let k = keys.get_or_insert_with(|| Keys::resolve(ctx));
+        if !over {
+            hero.modifiers(ctx);
+        }
+        for e in events.iter().filter(|e| e.msg_type == IMPORTANT_ABILITY_USED) {
+            if let Some(a) = ability_used(ctx, k, &e.payload) {
+                casts.push(a);
             }
-            for e in events.iter().filter(|e| e.msg_type == IMPORTANT_ABILITY_USED) {
-                if let Some(a) = ability_used(ctx, k, &e.payload) {
-                    casts.push(a);
-                }
+        }
+        let rules = ctx.entities().iter().find(|(_, e)| e.class_name.as_ref() == RULES).map(|(_, e)| e);
+        let Some(rules) = rules else { return };
+        game_mode = match rules.get_i64(k.game_mode) {
+            0 => game_mode,
+            m => m,
+        };
+        // The match is over once it has a winner; the recording runs on for a while.
+        if !over {
+            winner = rules.get_i64(k.winner);
+        }
+        over |= winner > 0;
+        if over {
+            return;
+        }
+        // The game's clock (`GameTime_t`) counts server ticks, and the recording starts
+        // `server_start_tick` into the server's life: checked against the metadata's death
+        // and objective times, and its duration, on match 122134063 (journal 2026-11-07).
+        let interval = f64::from(ctx.tick_interval());
+        let start = f64::from(rules.get_f32(k.game_start));
+        let pause = Pause { total: rules.get_i64(k.paused_ticks), running: rules.get_bool(k.game_paused), since: rules.get_i64(k.pause_start) };
+        let now = server_clock(i64::from(ctx.tick() + server_start), pause, interval);
+        let game = now - start;
+        // Camp timers change on any tick: read them on every one, from the horn.
+        if start > 0.0 && game >= 0.0 {
+            camp_timers(k, rules, game as f32, &mut camp_slots);
+            urn_tick(ctx, k, game as f32, &mut urn);
+            buff_tick(ctx, k, game as f32, &mut buff_state, &mut buffs);
+            heal_tick(ctx, k, game as f32, &mut heal_state, &mut heals);
+            crate_tick(ctx, k, game as f32, &mut crate_state, &mut crates);
+            for e in events.iter().filter(|e| e.msg_type == REJUV_STATUS) {
+                rejuv.extend(rejuv_status(ctx, k, game as f32, &e.payload));
             }
-            let rules = ctx.entities().iter().find(|(_, e)| e.class_name.as_ref() == RULES).map(|(_, e)| e);
-            let Some(rules) = rules else { return };
-            game_mode = match rules.get_i64(k.game_mode) {
-                0 => game_mode,
-                m => m,
-            };
-            // The match is over once it has a winner; the recording runs on for a while.
-            if !over {
-                winner = rules.get_i64(k.winner);
-            }
-            over |= winner > 0;
-            if over {
-                return;
-            }
-            // The game's clock (`GameTime_t`) counts server ticks, and the recording starts
-            // `server_start_tick` into the server's life: checked against the metadata's death
-            // and objective times, and its duration, on match 122134063 (journal 2026-11-07).
-            let interval = f64::from(ctx.tick_interval());
-            let start = f64::from(rules.get_f32(k.game_start));
-            let pause = Pause { total: rules.get_i64(k.paused_ticks), running: rules.get_bool(k.game_paused), since: rules.get_i64(k.pause_start) };
-            let now = server_clock(i64::from(ctx.tick() + server_start), pause, interval);
-            let game = now - start;
-            // Camp timers change on any tick: read them on every one, from the horn.
-            if start > 0.0 && game >= 0.0 {
-                camp_timers(k, rules, game as f32, &mut camp_slots);
-                urn_tick(ctx, k, game as f32, &mut urn);
-                buff_tick(ctx, k, game as f32, &mut buff_state, &mut buffs);
-                heal_tick(ctx, k, game as f32, &mut heal_state, &mut heals);
-                crate_tick(ctx, k, game as f32, &mut crate_state, &mut crates);
-                for e in events.iter().filter(|e| e.msg_type == REJUV_STATUS) {
-                    rejuv.extend(rejuv_status(ctx, k, game as f32, &e.payload));
-                }
-                rejuv_tick(k, rules, game as f32, &mut rejuv_counts);
-                koth_tick(k, rules, start, game, &mut koth);
-                vision_tick(ctx, k, game as f32, &mut fow_keys, &mut seen_now, &mut vision, &mut |player, level| crate::parse_hero::height(&mut hero.data, &mut heights, game as f32, player, level));
-                hero.tick(ctx, events, game, start);
-            }
-            if start <= 0.0 || game < seconds.len() as f64 || game > f64::from(crate::timeline::MAX_DURATION_S) {
-                return;
-            }
-            let mut s = sample(ctx, k, rules, now as f32);
-            s.abilities = std::mem::take(&mut casts);
-            s.zip_teams = zip_teams(ctx, k, &mut zip_index, &mut zip_nodes);
-            // Fill every second up to this one (a gap in ticks repeats the sample).
-            while (seconds.len() as f64) <= game {
-                seconds.push(s.clone());
-            }
-        })
-        .map_err(|_| reason::PARSE_FAILED)?;
+            rejuv_tick(k, rules, game as f32, &mut rejuv_counts);
+            koth_tick(k, rules, start, game, &mut koth);
+            vision_tick(ctx, k, game as f32, &mut fow_keys, &mut seen_now, &mut vision, &mut |player, level| crate::parse_hero::height(&mut hero.data, &mut heights, game as f32, player, level));
+            hero.tick(ctx, events, game, start);
+        }
+        if start <= 0.0 || game < seconds.len() as f64 || game > f64::from(crate::timeline::MAX_DURATION_S) {
+            return;
+        }
+        let mut s = sample(ctx, k, rules, now as f32);
+        s.abilities = std::mem::take(&mut casts);
+        s.zip_teams = zip_teams(ctx, k, &mut zip_index, &mut zip_nodes);
+        // Fill every second up to this one (a gap in ticks repeats the sample).
+        while (seconds.len() as f64) <= game {
+            seconds.push(s.clone());
+        }
+    })?;
     // Nodes first seen after a sample was taken make earlier samples short: those hold.
     Ok(Obs { match_id, build, game_mode, winner, seconds, zip_nodes, camp_slots, urn, buffs, heals, crates, rejuv, rejuv_counts, koth, vision, hero_data: hero.finish() })
+}
+
+/// `fields` and a body's origin (either layout: [`Body::of`]), for boon's property filter.
+fn kept_fields(fields: &[&str]) -> Vec<String> {
+    let origin = [ORIGIN, BODY_ORIGIN].into_iter().flat_map(|o| ["m_cellX", "m_cellY", "m_cellZ", "m_vecX", "m_vecY", "m_vecZ"].map(|c| format!("{o}.{c}")));
+    origin.chain(fields.iter().map(|f| (*f).to_owned())).collect()
 }
 
 /// The game rules' pause state on one tick.

@@ -8,7 +8,7 @@ use crate::hero_data::{ApplyObs, CastObs, CcObs, ChargeObs, DamageObs, EffectObs
 use crate::modifiers::ICON_MODIFIERS;
 use crate::timeline::{CC_STATES, token};
 use boon::entity::field_path::FieldPath;
-use boon::modifier_state::{ModifierChange, ModifierChangeKind, ModifierState};
+use boon::modifier_state::ModifierChangeKind;
 use prost::Message;
 use std::collections::{HashMap, HashSet};
 
@@ -18,6 +18,8 @@ const ABILITIES_CHANGED: u32 = 309;
 const ITEM_PURCHASE: u32 = 360;
 const IMPORTANT_ABILITY_USED: u32 = 365;
 const DAMAGE: u32 = 300;
+/// The user messages [`HeroTracker::tick`] reads (the parse collects only those it needs).
+pub const EVENT_TYPES: [u32; 4] = [ABILITIES_CHANGED, ITEM_PURCHASE, IMPORTANT_ABILITY_USED, DAMAGE];
 /// The ability list's length cap (4 signature abilities plus a few granted ones on 129738985).
 const MAX_UPGRADE_STATES: usize = 32;
 /// Entity indices player controllers may take (slot + 1; 12 players use 1 to 12).
@@ -96,6 +98,74 @@ impl Keys {
     }
 }
 
+/// The fields of a modifier-table entry the reads use (boon's `CModifierTableEntry` has ~25).
+#[derive(Clone, Copy, Default)]
+struct Entry {
+    parent: Option<u32>,
+    caster: Option<u32>,
+    modifier_subclass: Option<u32>,
+    ability_subclass: Option<u32>,
+    stack_count: Option<i32>,
+}
+
+/// One modifier-table change, as boon's `ModifierState::update` reports it: an applied change
+/// carries its delta, a changed or removed one the merged entry.
+struct ModChange {
+    kind: ModifierChangeKind,
+    serial: u32,
+    entry: Entry,
+}
+
+/// The live modifiers by serial: boon's `ModifierState` (modifier_state.rs `apply_delta`,
+/// `merge_entry`) with only what the reads use kept between deltas. boon's keeps whole
+/// `CModifierTableEntry`s (584 B each) and only drops one at an explicit removal, so it holds
+/// every modifier ever applied that wasn't removed: 9,147 on 129738985, 8 MB of a ~48 MB peak
+/// (docs/research/parser-memory.md). The changes are the same: an applied or removed change
+/// is reported exactly when boon reports it, and a changed one when the parent or the stack
+/// count changed (boon also reports other fields' changes, which nothing here reads).
+#[derive(Default)]
+struct Modifiers {
+    /// Serial → (parent, stack count), merged.
+    live: HashMap<u32, (Option<u32>, Option<i32>)>,
+}
+
+impl Modifiers {
+    fn update(&mut self, ctx: &boon::Context, out: &mut Vec<ModChange>) {
+        let Some(table) = ctx.string_tables().find_table("ActiveModifiers") else { return };
+        for change in table.changes() {
+            // Keyframe snapshots are table state, not new modifier events.
+            if change.kind == boon::entity::StringTableChangeKind::Snapshot {
+                continue;
+            }
+            let Some(data) = change.entry.user_data.as_deref().filter(|d| !d.is_empty()) else { continue };
+            let Ok(d) = boon_proto::proto::CModifierTableEntry::decode(data) else { continue };
+            let Some(serial) = d.serial_number else { continue };
+            if d.entry_type.unwrap_or(1) == 2 {
+                if let Some((parent, stack_count)) = self.live.remove(&serial) {
+                    out.push(ModChange { kind: ModifierChangeKind::Removed, serial, entry: Entry { parent, stack_count, ..Entry::default() } });
+                }
+                continue;
+            }
+            match self.live.entry(serial) {
+                std::collections::hash_map::Entry::Vacant(slot) => {
+                    slot.insert((d.parent, d.stack_count));
+                    let entry = Entry { parent: d.parent, caster: d.caster, modifier_subclass: d.modifier_subclass, ability_subclass: d.ability_subclass, stack_count: d.stack_count };
+                    out.push(ModChange { kind: ModifierChangeKind::Applied, serial, entry });
+                }
+                std::collections::hash_map::Entry::Occupied(mut slot) => {
+                    let (parent, stacks) = slot.get_mut();
+                    let changed = d.parent.is_some_and(|p| *parent != Some(p)) || d.stack_count.is_some_and(|c| *stacks != Some(c));
+                    *parent = d.parent.or(*parent);
+                    *stacks = d.stack_count.or(*stacks);
+                    if changed {
+                        out.push(ModChange { kind: ModifierChangeKind::Changed, serial, entry: Entry { parent: *parent, stack_count: *stacks, ..Entry::default() } });
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// A modifier being watched: an icon-shown one on a hero.
 struct Open {
     start: f32,
@@ -118,8 +188,8 @@ struct Pending {
 pub struct HeroTracker {
     keys: Option<Keys>,
     ability_keys: HashMap<String, Option<AbilityKeys>>,
-    state: ModifierState,
-    changes: Vec<ModifierChange>,
+    mods: Modifiers,
+    changes: Vec<ModChange>,
     open: HashMap<u32, Open>,
     pending: Vec<Pending>,
     /// (player, token) → the ability entity's index and keys, refreshed once a second.
@@ -143,8 +213,7 @@ impl HeroTracker {
     /// Merge this tick's modifier-table deltas, kept for the next [`HeroTracker::tick`] (those
     /// before the match starts open there, at 0).
     pub fn modifiers(&mut self, ctx: &boon::Context) {
-        let changes = self.state.update(ctx);
-        self.changes.extend(changes);
+        self.mods.update(ctx, &mut self.changes);
     }
 
     /// The reads, with the effects still on a hero ending where the recording does.
@@ -305,10 +374,11 @@ impl HeroTracker {
             return;
         }
         self.last_ds = d;
-        for (&(player, id), &(index, ak)) in &self.entity_of {
-            if !self.tracked.contains(&(player, id)) {
-                continue;
-            }
+        // In key order: the map's own order is random, which shuffled a player's same-tenth
+        // charge reads from run to run (docs/tech-debt.md TD-24).
+        let mut watched: Vec<_> = self.entity_of.iter().filter(|(k, _)| self.tracked.contains(k)).collect();
+        watched.sort_unstable_by_key(|(k, _)| **k);
+        for (&(player, id), &(index, ak)) in watched {
             let Some(e) = ents.get(index) else { continue };
             let n = e.get_i64(ak.charges).max(0) as u32;
             let last = self.charges.insert(index, n);

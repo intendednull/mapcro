@@ -20,6 +20,34 @@ Shipped on branch `tooltips` (spec §6b "Tooltips", "Hero panel"; plan 2026-11-1
 - **Spirit-scaled values on items**: only abilities' cards take the calculated spirit power with
   "≈"; items' scaled properties show the base value.
 
+## Stream the replay parse: browser, app, worker (2026-11-11, from parser-memory)
+
+The follow-up to [parser-memory](research/parser-memory.md), and the step that makes "Parse
+replays in the browser" possible on phones. Branch `parser-memory` already cut the anonymous peak
+from 48 to 32.5 MB with the same timeline, but boon still needs the whole demo mapped or in one
+buffer (`from_bytes`: +481 MB).
+
+1. Vendor pbdems2 0.4.1 and boon 0.19 (both MIT) with `[patch.crates-io]`. Add a reader-based
+   forward pass: an `initialize` through `DEM_SyncTick` and a `replay_cursor` over `impl Read`,
+   with `run_reader_with_properties` on boon's `Parser` (~200 lines). Gate boon's `reqwest`,
+   `tempfile` and `memmap2` behind a feature while there. Check it against the mmapped run:
+   the timeline must be the same bytes on 129738985 and on an old-map and a Brawl demo.
+2. Use it in the worker and the app instead of `from_file`. That removes the SIGBUS case, and
+   the ~485 MB of file pages the cap reclaims.
+3. Feed `worker::expand`'s decoder straight into the parse: no 504 MB `work/` file, no dirty page
+   cache.
+4. Split a `worker` feature (zstd, bzip2, libc, worker.rs) off `parse` (TD-25), then build the
+   wasm entry `observe_with` → `derive` → JSON over a `FileReaderSync`-backed `Read` in a Web
+   Worker. Projected 35–40 MB of wasm memory.
+5. Then decide the worker's `memoryMax`: 384M a job is far above the 32.5 MB anonymous peak.
+   The job record now carries the anonymous peak and a zstd download's window (TD-26): read
+   `stats series parse_peak_anon_bytes` and `zstd_window_bytes` after the first fetches
+   (`window_log_max(27)` allows up to 128 MiB).
+
+Cheaper wins that don't need the reader, in order: slimmer per-second `Obs` (~14 → ~6 MB: the
+name once, objectives as changes, narrower types), and trackers that walk only changed entities
+(TD-8: ~40% of parse time, the main cost on a phone).
+
 ## A macOS desktop app (2026-11-11, operator: only if users ask)
 
 Parked. Deadlock has no macOS client, so the app's job (the local replays folder, previews, local
@@ -874,6 +902,13 @@ whole (the app's parse of 129738985 took 14.5 s and about 26 MB on the server's 
 file must not be loaded into memory at once). Blockers to check first: boon on wasm32 (mmap,
 threads), the zstd/bzip2 crates on wasm, and phone memory. The format-9 lockstep applies: the
 browser build ships with the server, so it never lags `FORMAT`.
+
+**2026-11-11 (parser-memory):** measured. boon needs the whole file in one buffer (+481 MB), and
+it has no reader API, but the forward pass needs no random access. A small vendored patch gives
+a streamed parse at a projected 35–40 MB of wasm memory. `cargo check` for wasm32 passes, but
+zstd-sys builds host objects (TD-25). Plan:
+[Stream the replay parse](#stream-the-replay-parse-browser-app-worker-2026-11-11-from-parser-memory);
+evidence: [parser-memory](research/parser-memory.md).
 
 ## A settings page (2026-11-08)
 

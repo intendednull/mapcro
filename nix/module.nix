@@ -116,10 +116,11 @@ in
         default = "${toString (cfg.replay.workers * 384)}M";
         defaultText = lib.literalExpression ''"''${toString (workers * 384)}M"'';
         description = ''
-          The worker's memory cap, 384M a parse by default. Measured on the real 504 MB demo: 26 MB
-          anonymous, the rest the memory-mapped demo's clean pages, which the cap reclaims rather
-          than OOM-kills on (under a 64M cap one still parses, 18% slower). The headroom covers a
-          zstd window (at most 128 MiB) and keeps the page cache from thrashing.
+          The worker's memory cap, 384M a parse by default. Measured on the real 504 MB demo
+          (format 9, 2026-11-11): 32.5 MB anonymous, the rest the memory-mapped demo's clean
+          pages, which the cap reclaims rather than OOM-kills on (one still parses under 36M).
+          The headroom covers a zstd window (at most 128 MiB; the job record's
+          `zstd_window_bytes` says what downloads use) and keeps the page cache from thrashing.
         '';
       };
       cpuQuota = lib.mkOption {
