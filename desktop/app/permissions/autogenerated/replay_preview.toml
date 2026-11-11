@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-replay-preview"
+description = "Enables the replay_preview command without any pre-configured scope."
+commands.allow = ["replay_preview"]
+
+[[permission]]
+identifier = "deny-replay-preview"
+description = "Denies the replay_preview command without any pre-configured scope."
+commands.deny = ["replay_preview"]
