@@ -278,7 +278,7 @@ impl HeroTracker {
                     let Some((victim, _)) = m.entindex_victim.and_then(hero_at) else { continue };
                     let damage = m.damage.unwrap_or(0).max(0) as u32;
                     let attacker = m.entindex_attacker.and_then(hero_at).map(|h| h.0);
-                    self.data.damage.push(DamageObs { game: g, victim, attacker, ability: m.ability_id.unwrap_or(0), damage, lethal: damage > 0 && m.victim_health_new == Some(0) });
+                    self.data.damage.push(DamageObs { game: g, victim, attacker, ability: m.ability_id.unwrap_or(0), damage, lethal: damage > 0 && m.victim_health_new == Some(0), npc: if attacker.is_some() { None } else { crate::timeline::npc_kind(m.attacker_class, m.attacker_subclass) } });
                 }
                 _ => {}
             }
@@ -375,7 +375,7 @@ impl HeroTracker {
         }
         self.last_ds = d;
         // In key order: the map's own order is random, which shuffled a player's same-tenth
-        // charge reads from run to run (docs/tech-debt.md TD-22).
+        // charge reads from run to run (docs/tech-debt.md TD-24).
         let mut watched: Vec<_> = self.entity_of.iter().filter(|(k, _)| self.tracked.contains(k)).collect();
         watched.sort_unstable_by_key(|(k, _)| **k);
         for (&(player, id), &(index, ak)) in watched {
@@ -410,3 +410,4 @@ pub fn height(data: &mut HeroData, last: &mut HashMap<i32, u8>, game: f32, playe
         data.height.push(StateObs { game, player, value: v });
     }
 }
+

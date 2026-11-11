@@ -586,6 +586,15 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     - `recaps` `{t, damage: [src, ability_id, damage], cc}`: per lethal hit (message 300,
       `victim_health_new` 0; another within 3 s is the same death), the damage taken in the 10 s
       before by source and ability, most first, and the `cc` rows overlapping that window. 78.
+      A source that isn't a hero is `256 + kind` when msg 300's attacker class is known
+      (trooper, medic or melee trooper, guardian, walker, base guardian, patron, mid boss,
+      neutral camp, Sinner's Sacrifice, sentry turret; timeline.rs `NPC_KINDS`), else 255. Added
+      without a FORMAT bump (2026-11-11, feedback #20): an older format-9 timeline or app writes
+      255 there and still reads as "World / other"; the server must be deployed before an app
+      that writes kinds. Player names each as the game does ("Trooper", "Walker", "Sinner's
+      Sacrifice", citadel_main), and an ability with only an engine name shows its parent's name,
+      else "Weapon" or "Ability". A death pairs with the latest lethal hit up to 1.5 s before its
+      sampled second (deaths are read once a second).
     - `height` `[second, level]` (0 level, 1 above, 2 below): the hero's own team's
       `m_vecFOWEntities` `m_eHeight`, held 2 s; level before the first entry. `zipline`
       `[from_s, to_s)`: the pawn's `m_eZipLineLaneColor` non-zero, held 2 s. Alive seconds:
@@ -877,8 +886,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
       a held Rejuvenator, "Archmother Rejuvenator: 2 revives, ends in 1:40", joined by " · ";
     - **rifts**: "Rift opens in …" until its cash-in opens (`live_s`,
       `m_timeKothCashInStarted`; the spawner's announcement comes 80 s earlier and the label
-      already counts to the opening), "Rift opens at the other site in …"; open, "Gives up in
-      0:41" (format 3), then "Captured by …". The game has no fixed rift schedule, and no
+      already counts to the opening), "Rift opens at the other site in …"; open, "Fades in
+      0:41" (format 3; the game's word, citadel_main `Citadel_HUD_KothTimeRanOut` "Rift Faded
+      Away...", feedback #13), then "Captured by …". The game has no fixed rift schedule, and no
       next-rift field; the replay's own next opening is used;
     - **bridge buffs**: up, the buff's name ("Casting buff"); else "Buff respawns in …"
       ("spawns" before the site's first). Spawns every 300 s from 5:00 (misc.vdata
@@ -996,6 +1006,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
     default, one open at a time. The metadata tier has no urn.
 - **The transport:** play and pause, speed (0.5×, 1×, 2×, 4×, 8×), a scrubber with a tick per
   event, ±10 s, the match clock, and the replay tier's toggles (Troopers, Health), with Pings.
+  A tick hovered grows and shows its event's tag above it (the events list's short label, "Walker
+  down", "Haze died"); a press jumps there as a row does (less the lead, with the ring). Ticks
+  aren't in the tab order: ↑ ↓ step events from the keyboard (2026-11-11, feedback #6).
 - **Names** (2026-11-08, operator: content creators hide usernames in videos): a transport toggle,
   shown when the timeline has players' names, on by default. Off, no player name is on screen
   (top bar, events and their search, tokens' hover titles; the hero or slot label stands in).
@@ -1010,7 +1023,12 @@ makes a board with that match attached and lands in Player; **New board** is tod
     scene sets them to the match's; a blank scene doesn't).
 - **Vision** (2026-11-09, operator: "in a replay usually we can set it to only see the heroes …
   the current team could see"): a transport select, "Vision: All / Hidden King / Archmother",
-  shown when the timeline has `seen` (format 4). In a team's view its own heroes always show;
+  shown when the timeline has `seen` (format 4). Keys 1, 2, 3 pick All, Hidden King and
+  Archmother (2026-11-11, feedback #10; the select's hover says "Vision (1, 2, 3)"); like the
+  select they stop following, and they're off while typing or in a dialog or menu. In a team's
+  view a mark at the map controls' right end (feedback #12) shows that team's name on a dot of
+  its colour, with "Last seen" while the ghosts show; under All there is none. Flip sits in the
+  same group, "Flip map" with a swap icon (feedback #17). In a team's view its own heroes always show;
   an enemy out of its sight isn't drawn, labelled or hoverable (2026-11-09, operator: a faded
   token "jumps around a lot"). Beside the select, in a team's view only, a "Show last seen
   location" toggle, off by default: on, an enemy out of sight is a ghost (the scene ghost's
@@ -1056,7 +1074,10 @@ makes a board with that match attached and lands in Player; **New board** is tod
 - **Keys while watching** (2026-11-08, operator): ↑ ↓ step to the previous and next event (its
   jump and ring), ← → seek 5 s (Shift: 30 s) and keep playing or paused, and a Space tap plays
   or pauses. A Space-drag still only pans, and nothing fires while typing. Viewing a scene, ← →
-  step scenes instead.
+  step scenes instead. Space plays or pauses wherever the focus is (2026-11-11, feedback #11,
+  #3: a clicked button, the scrubber, the speed or Vision list, a checkbox or a disclosure no
+  longer takes it), except in a text field, a dialog or a menu (`core/keys.ts` `spacePlays`).
+  Keyboard-only users press a focused button with Enter; Space on it plays or pauses.
 - **Troopers** (replay tier, on by default): each lane trooper as a small dot in its team's
   colour with a dark rim, under the heroes, sliding between the 1 Hz samples and gone when it
   dies; like the map's icons it keeps its size on screen as you zoom. The game's files don't
@@ -1162,12 +1183,29 @@ makes a board with that match attached and lands in Player; **New board** is tod
     - **Upload:** the pick sends only the parsed timeline (gzip) to `POST …/replays/{id}/timeline`
       (§6a, Timelines parsed on the user's machine). Against a server without that route (a 404
       with no `{error}`), it sends the `.dem` as before.
-    - **IPC:** five commands (list, read one, preview one, parse one, change the folder), by
-      match id, granted to the site's origin only.
-    - **Download link:** "Get the Windows app" (GitHub Releases) shows on Windows browsers only,
+    - **IPC:** six commands (list, read one, preview one, parse one, change the folder; and,
+      portable only, whether an update is out), by match id, granted to the site's origin only.
+    - **Installer or portable (operator, 2026-11-11; desktop/README.md):** the release carries the
+      per-user installer and a portable zip (`--features portable`, fixed at build time). Portable
+      registers `mapcro://` for the current user itself, and doesn't install updates: when the
+      feed has a newer version the page shows **Update available**, a link to the release page.
+    - **Download link:** "Get the Windows app" (the installer, by a stable name on GitHub
+      Releases; "Portable", quieter, beside it) shows on Windows browsers only,
       never in the app. It sits beside Link replays folder, in "Where's my replay?" and in the
       landing's footer. It stays off until the first release (`WINDOWS_APP_RELEASED`). There is
       no Linux link yet (backlog).
+    - **Board links (operator, 2026-11-11; desktop/README.md, Deep links):** a shared board
+      opens in the app. `mapcro://b/<board>#<token>` is the canonical form: the share link (§11)
+      with the scheme and host swapped, the token still in the fragment. The installer (per-user)
+      and the Linux packages register the scheme; a link starts the app on that board, or the
+      running app's window goes to it. Only a board id and token of the site's shapes are
+      followed, and only to the board's page on the site; anything else is ignored. The link is
+      never logged. On a board page in a browser, **Open in app** is that link (a quiet **Get the
+      app** beside it, the installer, for a browser without the app), gated like the
+      download link (a Windows browser, never in the app, `WINDOWS_APP_RELEASED`). In the app
+      (no address bar), the landing's **Open link** field and **Ctrl+L** anywhere take a pasted
+      share link, the site's or the `mapcro://` form; anything else reads "Not a board link". A
+      board page whose fragment changes (the same board, another token) loads again.
     - **Linux (2026-11-10, branch `linux-desktop`):** the same app on WebKitGTK, built as an
       AppImage, a .deb and `nix build .#mapcro-desktop`; it behaves as on Windows. Gated on the
       e2e suite passing in WebKit (`just e2e-webkit`, operator). The NVIDIA blank-window

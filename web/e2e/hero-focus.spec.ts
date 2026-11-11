@@ -69,6 +69,14 @@ test("on a board, a portrait (or its menu, without a hero) pans to the hero, pin
   await dragToken(a, "Sapphire-1", 0.7, 0.62);
   await dragToken(a, "Amber-4", 0.62, 0.3);
 
+  // #18: the hover ring is on the portrait's disc, under the hero art, not on the button above it.
+  const ring = (sel: string) => a.locator(`.tb-player[data-slot="Amber-3"] ${sel}`).evaluate((el) => getComputedStyle(el).boxShadow);
+  expect(await ring(".tb-disc")).toBe("none");
+  await portrait(a, "Amber-3").hover();
+  await expect.poll(() => ring(".tb-disc")).not.toBe("none");
+  expect(await ring("[data-testid=focus-hero]")).toBe("none");
+  await a.mouse.move(0, 0);
+
   // Zoomed in: the view glides to centre Amber-3, at the same zoom.
   await zoomIn(a);
   const w = (await viewOf(a))[2];

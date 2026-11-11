@@ -32,7 +32,7 @@ Ids are `CUtlStringToken`s: MurmurHash2 of the lower-cased name, seed `0x3141592
 | `charges` | ability entity `m_iRemainingCharges` | parse_hero.rs | abilities-and-items §2 |
 | `cc` | pawn `m_pModifierProp.m_bvEnabledStateMask`; cause from a same-tick enemy modifier | hero_data.rs `cc` | [status-effects](status-effects.md) §1–2 |
 | `effects` | `ActiveModifiers` string table, filtered to icon-shown tokens (`modifiers.rs`, generated) | parse_hero.rs | status-effects §1, §3 |
-| `recaps` | msg 300 `CCitadelUserMessageDamage` over `RECAP_S` (10 s) before death, plus `cc` | hero_data.rs `recaps` | status-effects §4 |
+| `recaps` | msg 300 `CCitadelUserMessageDamage` over `RECAP_S` (10 s) before death, plus `cc`. A non-hero attacker's kind (`NPC_SRC` + `NPC_KINDS`, within format 9) from the message's `attacker_class` (4 trooper, 5 guardian, 6 neutral, 8 mid boss, 22 sentry, 29 walker, 30 base guardian, 31 patron; 1 a hero) and `attacker_subclass`, the token of the unit's vdata name (`trooper_medic`, `neutral_sinners_sacrifice`…); no entity tracking needed | hero_data.rs `recaps`, timeline.rs `npc_kind` | status-effects §4; `examples/recap_source_probe.rs` |
 | `objectives`, `objective_health` | `CNPC_TrooperBoss`, `CNPC_Boss_Tier2/3`, `CNPC_BarrackBoss`, `CNPC_MidBoss`, `CCitadel_Destroyable_Building` health; patron `m_ePhase` | derive.rs | exploration §4 |
 | `camps`, `mid_boss` respawn | rules `m_vecNeutralCampNextSpawnTimes/TimerOrigins/TimerIsMidBoss` | derive.rs `camps` | exploration round 3 |
 | `rifts` | `CCitadelItemKothSpawner`; rules `m_timeKothCashInStarted`, `m_timeKothGiveUp`, `m_vecTeamKothStates[]` | derive.rs `rift_capture` | exploration §6, round 7; [timers audit](replay-timers-audit.md) |
@@ -108,6 +108,9 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
 - **Localisation** (`allow.rs` `ABILITY_NAMES`, loose KV1, `kv1.rs`): `citadel_gc_hero_names`,
   then for the names table, in order: `citadel_gc_mod_names`, `citadel_heroes`,
   `citadel_attributes`, `citadel_mods`, `citadel_main`. The VPK has only a stub `items_english.txt`.
+  The rift's states are in `citadel_main` (`Citadel_HUD_Koth*`): "Rift Secured!", "Rift Lost",
+  "Rift Faded Away..." (`KothTimeRanOut`, the give-up), "Rift Has Faded..." (`KothExpired`); no
+  "stalemate" anywhere in the five files (checked 2026-11-11, feedback #13).
 - **Map** (`entities.rs`): `maps/dl_midtown/entities/default_ents.vents_c` → `entities[]` with
   semantic keys, camp `tier`, teleporter `exit`; minimap layers `minimap_midtown_*_psd`.
 - **HUD** (`hud.rs`, `topbar.rs`, `panorama.rs`): panorama styles/layouts → `hud_sources[]`.
@@ -212,6 +215,13 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   modifier table (no values), the user messages, and the `damage`/`pre_damage` ratio (rejected).
   The UI keeps "—". [scoreboard-values](scoreboard-values.md) "Bullet and spirit resistance";
   probes in `crates/replay/examples/{schema,statviewer,damage_ratio}_probe.rs`.
+- **No rift-spawned troopers to tell apart** (feedback #5, checked 2026-11-11 on 129738985, 5
+  rifts; `examples/trooper_probe.rs`). `CNPC_Trooper` carries `m_nSubclassID` (the token of
+  `trooper_normal`, `trooper_medic`, `trooper_melee`, plus one unnamed token on 96 units at
+  minute 0 only), `m_iLane` (1, 4, 6 only) and an empty `m_hOwnerEntity`; no other unit kind or
+  lane appears around the rifts, and `hud_minimap.vcss` styles every `.npc` alike. Nothing in the
+  recording or the HUD marks a trooper the rift spawned, so the minimap can't colour them. An
+  operator screenshot of one in game, or a replay where they appear, would reopen it.
 - **Recorded `max_health` refreshes only at (re)spawn.** It matched the live metadata value at
   10 of 132 snapshots, so it's stale between spawns. stat-calc-spike.md "Recorded max health" (branch
   `stat-calc`); lead handoff 2026-11-09; timeline.rs and scoreboard-values.md note it.
@@ -269,7 +279,7 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   default replays folder, only a secondary library's. Drop and `<input type=file>` still work.
   This is from the source and hasn't been tried in a real browser yet ([desktop-app](desktop-app.md) §2).
 - **Main's timelines aren't byte-stable:** same-instant `charges` reads came out in `HashMap` order
-  (fixed on branch `parser-memory`, TD-22). Compare with each player's `charges` sorted.
+  (fixed on branch `parser-memory`, TD-24). Compare with each player's `charges` sorted.
 - **A full packet at tick T follows tick T's packet** (`7@3841 13@3841`): a splice cut at a full
   packet's offset splits that tick (parser-memory §2).
 - **Heavy probes** (`timer_audit` took 754 s) run alone under the load gate: the box is shared.

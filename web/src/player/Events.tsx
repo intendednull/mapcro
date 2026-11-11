@@ -90,7 +90,7 @@ export function EventsList(p: {
     <div class="pl-events" data-testid="events">
       <div class="pl-events-head">
         <input class="input" data-testid="events-search" placeholder="Search" aria-label="Search events" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} />
-        <label class="pl-lead" title="Jump this many seconds before the event">
+        <label class="pl-lead" title="Lead">
           −
           <input type="number" min="0" max="60" data-testid="events-lead" aria-label="Lead seconds" value={lead()} onInput={(e) => setLead(Math.max(0, Math.min(60, Number(e.currentTarget.value) || 0)))} />s
         </label>

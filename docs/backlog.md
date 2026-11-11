@@ -19,12 +19,12 @@ buffer (`from_bytes`: +481 MB).
    the ~485 MB of file pages the cap reclaims.
 3. Feed `worker::expand`'s decoder straight into the parse: no 504 MB `work/` file, no dirty page
    cache.
-4. Split a `worker` feature (zstd, bzip2, libc, worker.rs) off `parse` (TD-23), then build the
+4. Split a `worker` feature (zstd, bzip2, libc, worker.rs) off `parse` (TD-25), then build the
    wasm entry `observe_with` → `derive` → JSON over a `FileReaderSync`-backed `Read` in a Web
    Worker. Projected 35–40 MB of wasm memory.
 5. Then decide the worker's `memoryMax`: 384M a job is far above the 32.5 MB anonymous peak.
    First measure a CDN download's zstd window, which `window_log_max(27)` lets reach 128 MiB, and
-   record the anonymous peak in `JobStats` (TD-24).
+   record the anonymous peak in `JobStats` (TD-26).
 
 Cheaper wins that don't need the reader, in order: slimmer per-second `Obs` (~14 → ~6 MB: the
 name once, objectives as changes, narrower types), and trackers that walk only changed entities
@@ -132,18 +132,18 @@ of claims only the game (or its client) can settle. Add to it; strike items once
   replay file"; for a desktop user, re-parsing locally would be the better offer.
 - zstd bodies aren't accepted (gzip only); add one if the wasm parse prefers it.
 
-## Label sweep (2026-11-10, from stat-calc-prod; spec §4b)
+## Label sweep (2026-11-10, from stat-calc-prod; spec §4b): resolved
 
-Hovers and aria-labels outside the Tab column that read as sentences or carry caveats; fix to
-tags (1–3 words; an aria-label may add a value tag). Found in `web/src/player/PlayerTopBar.tsx`,
-not fixed (out of that branch's scope):
-
-- Rejuvenator: aria-label "`<team>` Rejuvenator: N revives left" (line ~63).
-- Portrait button: aria-label "Build for `<hero>`".
-- Vision mark: title and aria-label "Not seen by the selected team".
-- Focus button: title "Inspect `<hero>` build and show on map", aria-label "Inspect `<slot>`, `<hero>`, build and show on the map".
-- Respawn: aria-label "`<slot>` respawns in N s"; health: aria-label "`<slot>` health N%".
-- Not yet swept: the rest of `web/src/player/` and `web/src/board/` (`grep -n 'title=\|aria-label=' -r web/src`).
+Resolved 2026-11-11 (branch `web-polish`): the top bar's Rejuvenator ("Hidden King Rejuvenator";
+aria "…, 2 revives"), portrait ("Abrams build"), vision mark ("Not seen"), focus button ("Inspect
+Abrams"), respawn and health aria ("Amber 1 respawn, 12 s"), the transport's and Map layers'
+explanatory hovers (dropped where they repeated the label), the Vision and Last seen hovers, the
+build order rows, the replays-folder and landing hovers, "Play from here", the skull's recap and
+the board top bar's aria-labels. `web/test/labels.test.ts` fails on any literal `title` or
+`aria-label` in `web/src` over four words (a key hint in parentheses and a value after a comma
+don't count) or written as a sentence. Left on purpose: the map markers' timer hovers ("Respawns
+in 1:20 · …", spec §6b) and the tier chip's hint (it explains what the summary lacks; spec §6b
+"tap or hover the summary"), which the operator may want shortened.
 
 ## Calculated stats: follow-ups (2026-11-10, from stat-calc-prod)
 
@@ -199,6 +199,25 @@ much they matter.
   - **Download link for Linux.** "Get the Windows app" shows on Windows only; a Linux link
     (AppImage) would need a label and a release flag like `WINDOWS_APP_RELEASED`.
   - **WebKit in CI.** `just e2e-webkit` is opt-in and local; the main CI runs no e2e at all.
+- **Portable build (2026-11-11, deep-links; desktop/README.md, Installer or portable).** Left:
+  - **First tagged release:** the release job's portable step (`cargo tauri build --no-bundle
+    --features portable`, `gh release upload` into the draft) has not run yet; check the draft
+    has `mapcro_<v>_x64-portable.zip`, `mapcro_x64-portable.zip` and `mapcro_x64-setup.exe`.
+  - **By hand on Windows:** unzip and run; a board's Open in app reaches it; Update available
+    shows against an older copy and opens the release page in the browser.
+  - **A moved or deleted portable copy** leaves `HKCU\Software\Classes\mapcro` pointing at it
+    until another copy or the installer runs.
+- **Board links (2026-11-11, deep-links; desktop/README.md, Deep links).** Built: `mapcro://`
+  registration, the hand-off to the running app, Open in app, Open link and Ctrl+L. Left:
+  - **Check on Windows by hand:** a browser's "Open in app" asks to open mapcro and the app
+    opens the board, cold and running; the NSIS uninstaller removes `HKCU\Software\Classes\mapcro`.
+  - **Check on a real Linux desktop:** clicking a `mapcro://` link in Firefox and Chrome with
+    the .deb installed, and with an AppImage (its self-registration writes a desktop file in
+    `~/.local/share/applications` on every start).
+  - **Open in app on Linux browsers,** with the Linux download link (above): the same gate.
+  - **Open in app when the app isn't installed** does nothing visible (the browser drops an
+    unknown scheme); a quiet "Get the app" sits beside it (operator, 2026-11-11). Detecting
+    the missing handler (blur/visibility timing) isn't done.
 
 ## The salts backoff holds back free reads (2026-11-10, from salts-docs): resolved
 
@@ -320,7 +339,10 @@ The whole streak look (the lead's check, 2026-11-10; backlog only, not built):
 - **The threshold** is set in code and still unknown. An operator screenshot of a streak would
   confirm it.
 
-## The death recap shows internal ability names (2026-11-10, from ux-batch-1)
+## The death recap shows internal ability names (2026-11-10, from ux-batch-1): resolved
+
+Resolved 2026-11-11 (branch `web-polish`): `player/recap.ts` `recapAbility` uses the parent's name, else "Weapon" or "Ability"; never the engine name.
+
 
 The recap's hit rows (`player/DeathRecap.tsx`) print `record.label` as it is, so a record whose
 `label_from` is `"internal"` reads as the engine name. In 129738985, Infernus's death at 6:45
@@ -328,7 +350,10 @@ lists "deadpack_primary_weapon_charge" under Deadman Danny. The Effects list now
 the parent ability's or item's name (`player/effects.ts` `effectLabel`). The recap could share
 that fallback.
 
-## A death and its recap can be a second apart (2026-11-10, from ux-batch-1)
+## A death and its recap can be a second apart (2026-11-10, from ux-batch-1): resolved
+
+Resolved 2026-11-11 (branch `web-polish`): `recapOf` takes the latest lethal hit up to 1.5 s before the death's second. Amber 1's recap at 2545 s with no death stays unpaired (a revive in place, or past the parse's end).
+
 
 `recapOf` (player/recap.ts) pairs a death with the recap whose `ceil(t / 10)` equals the death's
 second exactly. In 129738985, Amber 3's death at 521 s has a recap at 520 s, so neither the
@@ -860,7 +885,7 @@ browser build ships with the server, so it never lags `FORMAT`.
 **2026-11-11 (parser-memory):** measured. boon needs the whole file in one buffer (+481 MB), and
 it has no reader API, but the forward pass needs no random access. A small vendored patch gives
 a streamed parse at a projected 35–40 MB of wasm memory. `cargo check` for wasm32 passes, but
-zstd-sys builds host objects (TD-23). Plan:
+zstd-sys builds host objects (TD-25). Plan:
 [Stream the replay parse](#stream-the-replay-parse-browser-app-worker-2026-11-11-from-parser-memory);
 evidence: [parser-memory](research/parser-memory.md).
 

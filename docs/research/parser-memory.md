@@ -180,7 +180,7 @@ filter and the message types above, and `observe_with` split out of `observe`.
 each player's `charges` is sorted. main itself isn't deterministic there: `HeroTracker` walked a
 `HashMap` to emit a tenth-second's charge reads, so same-instant reads came out in random order.
 Two main runs differed in 4 and 30 places, all in `charges`. The branch emits them in key order
-(tech-debt TD-22). With the charges sorted, main ×2 and branch ×2 are equal. A run capped at 36M
+(tech-debt TD-24). With the charges sorted, main ×2 and branch ×2 are equal. A run capped at 36M
 gives the same bytes. Tests: `cargo test -p mapcro-replay --release -- --include-ignored` passes
 with `MAPCRO_REPLAY(_129738985)` set (73 unit, 11 local-replay, 3 queue tests). The old-map and
 Street Brawl local tests weren't run: only 129738985 was opened. Clippy is clean on the crate's

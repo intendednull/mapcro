@@ -15,7 +15,8 @@ import { navigate } from "../core/nav";
 import { LIMITS } from "../gen/limits";
 import { feedbackEnabled } from "../core/feedback";
 import { FeedbackButton } from "../ui/Feedback";
-import { windowsAppLink } from "../player/desktop";
+import { bridge, windowsAppLink, windowsPortableLink } from "../player/desktop";
+import { OpenLinkForm, UpdateLink } from "../ui/OpenLink";
 import { type Picked, ReplayPicker, pickerSource } from "../player/ReplayPicker";
 
 export function Landing() {
@@ -132,7 +133,7 @@ export function Landing() {
           <Show
             when={app}
             fallback={
-              <label class="btn ghost" title="A .dem from your replays folder">
+              <label class="btn ghost" title="Replay file (.dem)">
                 {file() ? file()!.name : "Select replay file"}
                 <input type="file" accept=".dem" hidden data-testid="open-match-file" onChange={(e) => setFile(e.currentTarget.files?.[0])} />
               </label>
@@ -220,6 +221,12 @@ export function Landing() {
         <Show when={error()}>
           <p class="error">{error()}</p>
         </Show>
+        {/* The app has no address bar: a shared board link is pasted here (or Ctrl+L). */}
+        <Show when={bridge()}>
+          <p class="entry-or">or</p>
+          <p class="entry-label">Open link</p>
+          <OpenLinkForm />
+        </Show>
         <Show when={boards.length > 0}>
           <h2>Your boards</h2>
           <ul class="known">
@@ -239,8 +246,11 @@ export function Landing() {
             {(href) => (
               <>
                 {" · "}
-                <a href={href()} target="_blank" rel="noopener" data-testid="windows-app-landing" title="Finds your replays folder on its own">
+                <a href={href()} target="_blank" rel="noopener" data-testid="windows-app-landing" title="Windows app">
                   Get the Windows app
+                </a>{" "}
+                <a href={windowsPortableLink()} class="muted" target="_blank" rel="noopener" data-testid="windows-portable-landing">
+                  Portable
                 </a>
               </>
             )}
@@ -249,6 +259,7 @@ export function Landing() {
             {" · "}
             <FeedbackButton variant="link" />
           </Show>
+          <UpdateLink class="" sep=" · " />
         </footer>
       </main>
     </div>

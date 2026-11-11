@@ -60,8 +60,8 @@ function RejuvBadge(p: { held: () => RejuvNow | undefined; team: "Amber" | "Sapp
       data-team={p.team.toLowerCase()}
       data-left={left()}
       role={left() ? "img" : undefined}
-      aria-label={left() ? `${rosterTeamName(p.team)} Rejuvenator: ${left()} revive${left() === 1 ? "" : "s"} left` : undefined}
-      title={left() ? `${rosterTeamName(p.team)} Rejuvenator: ${left()} revive${left() === 1 ? "" : "s"} left` : undefined}
+      aria-label={left() ? `${rosterTeamName(p.team)} Rejuvenator, ${left()} revive${left() === 1 ? "" : "s"}` : undefined}
+      title={left() ? `${rosterTeamName(p.team)} Rejuvenator` : undefined}
     >
       {Array.from({ length: REJUV_MAX }, (_, i) => (
         <img class={cx("pl-rejuv-icons", left() === i + 1 && "on")} data-n={i + 1} src={p.art.images.get(`rejuv-${i + 1}`) ?? wingsFb(i + 1)} alt="" />
@@ -219,7 +219,7 @@ export function PlayerTopBar(p: {
               title={portraitTitle(label(), hero())}
               souls={
                 <button type="button" class="tb-souls tb-build-trigger" data-testid="souls-banner"
-                  aria-label={`Build for ${hero()?.name ?? label()}`} aria-expanded={expanded(key)}
+                  aria-label={`${hero()?.name ?? label()} build`} aria-expanded={expanded(key)}
                   aria-controls={`build-${t}-${s.slot.slot}`} onClick={() => toggleBuild(key)}>
                   <span class="tb-souls-value" data-testid="souls" data-souls={x()?.souls ?? "untracked"}>
                     <Show when={souls() != null} fallback={"–"}>
@@ -229,21 +229,21 @@ export function PlayerTopBar(p: {
                 </button>
               }
             >
-              <Show when={unseen()}><span class="tb-vis off" data-testid="tb-vision" title="Not seen by the selected team" role="img" aria-label="Not seen by the selected team">
+              <Show when={unseen()}><span class="tb-vis off" data-testid="tb-vision" title="Not seen" role="img" aria-label="Not seen">
                 <EyeIcon off />
               </span></Show>
               <Show when={x()}>
-                <button class="tb-focus" data-testid="focus-hero" title={`Inspect ${hero()?.name ?? label()} build and show on map`} aria-label={`Inspect ${label()}${hero() ? `, ${hero()!.name},` : ""} build and show on the map`} aria-expanded={expanded(key)} aria-controls={`build-${t}-${s.slot.slot}`} onClick={() => { toggleBuild(key); p.onFocus?.(t, s.slot.slot); }} />
+                <button class="tb-focus" data-testid="focus-hero" title={`Inspect ${hero()?.name ?? label()}`} aria-label={`Inspect ${label()}${hero() ? `, ${hero()!.name}` : ""}`} aria-expanded={expanded(key)} aria-controls={`build-${t}-${s.slot.slot}`} onClick={() => { toggleBuild(key); p.onFocus?.(t, s.slot.slot); }} />
               </Show>
               <Show when={dead() && x()?.respawn != null && respawn() != null}>
-                <span class="tb-respawn" data-testid="tb-respawn" data-respawn={Math.ceil(x()!.respawn!)} aria-label={`${label()} respawns in ${Math.ceil(x()!.respawn!)} s`}>
+                <span class="tb-respawn" data-testid="tb-respawn" data-respawn={Math.ceil(x()!.respawn!)} aria-label={`${label()} respawn, ${Math.ceil(x()!.respawn!)} s`}>
                   {Math.ceil(respawn()!)}
                 </span>
               </Show>
               {/* #HealthBar (citadel_hud_top_bar.vcss): the HUD's slanted card at the portrait's
                   edge, filled from the bottom. */}
               <Show when={hp() != null}>
-                <div class="tb-health" data-testid="tb-health" data-health={hp()!} aria-label={`${label()} health ${hp()}%`}>
+                <div class="tb-health" data-testid="tb-health" data-health={hp()!} aria-label={`${label()} health, ${hp()}%`}>
                   <i class="tb-health-back" />
                   <i class="tb-health-fill" style={{ height: `${hp()}%` }} />
                   <i class="tb-health-border" />

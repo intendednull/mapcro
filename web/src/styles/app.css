@@ -238,7 +238,10 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 /* A click on a hero's portrait focuses it (Board's focusHero). With a hero picked, an editor's
    picker shrinks to a swap button on the portrait's corner, shown on hover. */
 .tb-focus { position: absolute; left: calc(8.8 * var(--u)); top: calc(15 * var(--u)); width: calc(70.4 * var(--u)); height: calc(70.4 * var(--u)); border-radius: 50%; border: 0; padding: 0; background: transparent; z-index: 3; cursor: pointer; }
-.tb-focus:hover { box-shadow: 0 0 0 calc(2 * var(--u)) var(--me, var(--accent)); }
+/* The hover ring goes on the portrait's disc, under the hero art that rises out of it (feedback
+   #18), not on this button above the art. */
+.tb-focus:focus-visible { outline: none; }
+.tb-player:has(.tb-focus:hover, .tb-focus:focus-visible) .tb-disc { box-shadow: 0 0 0 calc(2 * var(--u)) var(--me, var(--accent)); }
 .tb-player.card-art .tb-focus { top: calc(25.1 * var(--u)); }
 .tb-pick.swap { left: calc(4 * var(--u)); top: calc(10 * var(--u)); width: calc(22 * var(--u)); height: calc(22 * var(--u)); min-width: 14px; min-height: 14px; z-index: 4; display: grid; place-items: center; background: #0b1714cc; border: 1px solid #ffefd755; opacity: 0; transition: opacity 0.12s; }   /* the vision toggle's twin, top left */
 .tb-pick.swap svg { width: 62%; height: 62%; fill: none; stroke: #FFEFD7; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -333,7 +336,13 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-scrub { position: relative; flex: 1; display: flex; align-items: center; padding-top: 16px; }
 .pl-scrub .match-range { width: 100%; }
 .pl-ticks { position: absolute; left: 7px; right: 7px; top: 12px; height: 6px; pointer-events: none; }
-.pl-tick { position: absolute; width: 2px; height: 6px; background: var(--faint); transform: translateX(-1px); }
+/* A tick takes the pointer over a few px either side (::before); hovered it grows and shows its
+   tag above the scrubber. */
+.pl-tick { position: absolute; bottom: 0; width: 2px; height: 6px; padding: 0; border: 0; background: var(--faint); transform: translateX(-1px); cursor: pointer; pointer-events: auto; transition: height .1s, width .1s, transform .1s; }
+.pl-tick::before { content: ""; position: absolute; left: -3px; right: -3px; top: -3px; bottom: -2px; }
+.pl-tick:hover { z-index: 2; width: 4px; height: 12px; transform: translateX(-2px); }
+.pl-tick-tag { display: none; position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); padding: 2px 6px; border-radius: 3px; background: var(--panel); border: 1px solid var(--line); color: var(--text); font-size: 11px; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 8px #0006; }
+.pl-tick:hover .pl-tick-tag { display: block; }
 .pl-tick.death { background: var(--warn); }
 .pl-tick.objective, .pl-tick.mid_boss { background: var(--brass); }
 .pl-side { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; height: 62vh; overflow: hidden; border-bottom: 1px solid var(--line-soft); }
@@ -609,8 +618,18 @@ svg[data-tool="move"] .pl-skull[data-recap] { pointer-events: auto; cursor: poin
 /* Replay workspace: existing board surfaces, with display, drawing and playback separated. */
 .map-controls { position: absolute; top: 4px; left: 4px; right: 4px; z-index: 20; display: flex; align-items: center; gap: 6px; pointer-events: none; }
 .map-controls > * { pointer-events: auto; }
-.map-controls > :last-child { margin-left: auto; }
+.map-controls > .vision-mark { margin-left: auto; }
 .map-controls .btn, .map-controls .input { background: var(--panel); }
+.map-flip { display: inline-flex; align-items: center; gap: 5px; }
+.map-flip svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+/* The Vision in force (Player.tsx VisionMark): a dot in the team's colour, its name, and
+   "Last seen" when the ghosts show. */
+.vision-mark { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 3px; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--team-c); font-size: 12px; white-space: nowrap; pointer-events: none !important; }
+.vision-mark.amber { --team-c: #D4860B; }
+.vision-mark.sapphire { --team-c: #4D75C3; }
+.vision-mark > i { width: 8px; height: 8px; border-radius: 50%; background: var(--team-c); }
+.vision-mark small { color: var(--muted); font-size: 11px; }
+.vision-mark small::before { content: "· "; }
 .map-controls summary, .pl-source summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
 .map-controls summary::-webkit-details-marker, .pl-source summary::-webkit-details-marker { display: none; }
 .map-layers { position: relative; }

@@ -30,8 +30,9 @@ function meta(id: number) {
 
 test.beforeAll(async () => {
   upstream = createServer((req, res) => {
-    const url = req.url ?? "";
-    hits.push(url.split("?")[0]!);
+    // Kept with its query: the free salts read (`?disable_steam=true`) and the Steam one apart.
+    hits.push(req.url ?? "");
+    const url = (req.url ?? "").split("?")[0]!;
     const m = /^\/v1\/matches\/(\d+)\/metadata/.exec(url);
     if (m) {
       res.writeHead(200, { "content-type": "application/json" });
@@ -105,7 +106,8 @@ test("a fetched timeline in an older format shows at once, is fetched again once
   await expect(chip).toHaveText("Full replay");
   // Opened again: nothing more is asked.
   await openFromLanding(browser, CDN);
-  expect(hits.filter((h) => h === `/v1/matches/${CDN}/salts`)).toHaveLength(1);
+  // One free read (deadlock-api has its row), no Steam lookup.
+  expect(hits.filter((h) => h.startsWith(`/v1/matches/${CDN}/salts`))).toEqual([`/v1/matches/${CDN}/salts?disable_steam=true`]);
 });
 
 test("a stale upload stays, and offers Upload replay file as the way up", async ({ browser }) => {
@@ -122,6 +124,8 @@ test("a stale upload stays, and offers Upload replay file as the way up", async 
   await expect(chip).toHaveAttribute("data-stale", "true");
   await expect(chip).toHaveAttribute("title", /An older parse/);
   await expect(a.getByTestId("match-upload")).toHaveText("Upload replay file");
+  // At most the first open's lookup: a free read and, with no row, one Steam read.
+  expect(hits.filter((h) => h === `/v1/matches/${UP}/salts?disable_steam=true`).length).toBeLessThanOrEqual(1);
   expect(hits.filter((h) => h === `/v1/matches/${UP}/salts`).length).toBeLessThanOrEqual(1);
 });
 

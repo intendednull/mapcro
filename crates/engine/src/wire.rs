@@ -439,15 +439,15 @@ mod tests {
         assert!(!with(Playback { event_recap: death(1, 86_401), ..playback() }).is_valid());
         assert!(!with(Playback { inspect: Some(SlotRef { team: Amber, slot: 200 }), ..playback() }).is_valid());
         // Closed panels and absent layers cost nothing on the wire; an older client parses.
-        let json = serde_json::to_string(&with(playback())).unwrap();
+        let json = serde_json::to_string(&with(playback())).expect("serialises");
         for k in ["skull_recap", "event_recap", "inspect", "all_builds", "layers"] {
             assert!(!json.contains(k), "{k} in {json}");
         }
         let open = Playback { skull_recap: death(3, 12), all_builds: true, ..playback() };
-        let back: Playback = serde_json::from_str(&serde_json::to_string(&open).unwrap()).unwrap();
+        let back: Playback = serde_json::from_str(&serde_json::to_string(&open).expect("serialises")).expect("parses");
         assert_eq!(back, open);
         let p = Presence { layers: Some(LAYER_TROOPERS | LAYER_CRATES), ..Default::default() };
-        assert_eq!(serde_json::from_str::<Presence>(&serde_json::to_string(&p).unwrap()).unwrap().layers, Some(0b100_0001));
+        assert_eq!(serde_json::from_str::<Presence>(&serde_json::to_string(&p).expect("serialises")).expect("parses").layers, Some(0b100_0001));
     }
 
     #[test]

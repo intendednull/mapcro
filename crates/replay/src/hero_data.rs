@@ -7,7 +7,7 @@
 //! the observations; the timeline keeps only the index into `players`.
 
 use crate::modifiers::CC_MODIFIERS;
-use crate::timeline::{CC_STATES, HOLD_S, ITEM_BOUGHT, ITEM_MERGED, ITEM_REMOVED, ITEM_SOLD, MAX_CHARGE_COUNT, MAX_COOLDOWN_DS, MAX_RECAP_DAMAGE, MAX_RECAP_ROWS, MAX_STACKS, NO_HERO, Player, RECAP_S, Recap};
+use crate::timeline::{CC_STATES, HOLD_S, ITEM_BOUGHT, ITEM_MERGED, ITEM_REMOVED, ITEM_SOLD, MAX_CHARGE_COUNT, MAX_COOLDOWN_DS, MAX_RECAP_DAMAGE, MAX_RECAP_ROWS, MAX_STACKS, NO_HERO, NPC_SRC, Player, RECAP_S, Recap};
 use std::collections::{BTreeMap, HashMap};
 
 /// `CCitadelUserMsg_AbilitiesChanged` (msg 309): a shop event.
@@ -101,6 +101,8 @@ pub struct DamageObs {
     pub damage: u32,
     /// `victim_health_new` 0.
     pub lethal: bool,
+    /// Not a hero: the attacker's [`crate::timeline::NPC_KINDS`] index, from the message's `attacker_class`.
+    pub npc: Option<u32>,
 }
 
 /// A small per-hero state where it changes: the height level, or riding a zipline (1).
@@ -287,7 +289,11 @@ fn recaps(d: &HeroData, id: i32, cc: &[[u32; 5]], src: &dyn Fn(Option<i32>) -> u
         }
         let mut by: BTreeMap<(u32, u32), u64> = BTreeMap::new();
         for h in hits.iter().filter(|h| h.game <= death.game && death.game - h.game <= RECAP_S as f32 && h.damage > 0) {
-            *by.entry((src(h.attacker), h.ability)).or_default() += u64::from(h.damage);
+            let who = match (src(h.attacker), h.npc) {
+                (NO_HERO, Some(k)) => NPC_SRC + k,
+                (s, _) => s,
+            };
+            *by.entry((who, h.ability)).or_default() += u64::from(h.damage);
         }
         let mut damage: Vec<[u32; 3]> = by.into_iter().map(|((s, a), n)| [s, a, n.min(u64::from(MAX_RECAP_DAMAGE)) as u32]).collect();
         damage.sort_by(|a, b| b[2].cmp(&a[2]).then(a[0].cmp(&b[0])).then(a[1].cmp(&b[1])));
@@ -467,7 +473,7 @@ mod tests {
 
     #[test]
     fn a_recap_sums_the_ten_seconds_before_a_death_by_source_and_ability() {
-        let h = |game: f32, attacker: Option<i32>, ability: u32, damage: u32, lethal: bool| DamageObs { game, victim: 1, attacker, ability, damage, lethal };
+        let h = |game: f32, attacker: Option<i32>, ability: u32, damage: u32, lethal: bool| DamageObs { game, victim: 1, attacker, ability, damage, lethal, npc: None };
         let d = HeroData {
             damage: vec![
                 h(85.0, Some(2), 5, 999, false), // 15 s before: out of the window
@@ -478,7 +484,7 @@ mod tests {
                 h(100.0, Some(3), 7, 200, true),
                 h(101.0, Some(3), 7, 10, true), // the same death
                 h(200.0, Some(2), 5, 40, true),
-                DamageObs { game: 199.0, victim: 2, attacker: Some(1), ability: 1, damage: 5, lethal: false },
+                DamageObs { game: 199.0, victim: 2, attacker: Some(1), ability: 1, damage: 5, lethal: false, npc: None },
             ],
             cc: vec![CcObs { game: 80.0, player: 1, bits: 0b10000 }, CcObs { game: 89.0, player: 1, bits: 0 }, CcObs { game: 95.0, player: 1, bits: 0b10000 }, CcObs { game: 96.0, player: 1, bits: 0 }],
             ..HeroData::default()
@@ -488,6 +494,16 @@ mod tests {
         assert_eq!(p[0].recaps[0], Recap { t: 1000, damage: vec![[2, 7, 200], [1, 5, 150], [NO_HERO, 0, 30]], cc: vec![[950, 960, 20, NO_HERO, 0]] });
         assert_eq!(p[0].recaps[1], Recap { t: 2000, damage: vec![[1, 5, 40]], cc: vec![] });
         assert!(p[1].recaps.is_empty());
+    }
+
+    #[test]
+    fn a_recap_names_a_non_hero_attacker_by_its_kind() {
+        let h = |game: f32, attacker: Option<i32>, npc: Option<u32>, damage: u32, lethal: bool| DamageObs { game, victim: 1, attacker, ability: 0, damage, lethal, npc };
+        // A walker (kind 6) twice, a trooper (0), an unknown non-hero, and a hero whose npc is ignored.
+        let d = HeroData { damage: vec![h(95.0, None, Some(6), 300, false), h(96.0, None, Some(0), 40, false), h(97.0, None, None, 20, false), h(98.0, Some(2), Some(6), 10, false), h(100.0, None, Some(6), 100, true)], ..HeroData::default() };
+        let p = filled(&d, 2, 300);
+        assert_eq!(p[0].recaps[0].damage, [[NPC_SRC + 6, 0, 400], [NPC_SRC, 0, 40], [NO_HERO, 0, 20], [1, 0, 10]]);
+        assert!(crate::timeline::extras_ok(&p[0], 300, 2));
     }
 
     #[test]
@@ -513,7 +529,7 @@ mod tests {
         seconds[0].heroes = vec![hero(3, 3), hero(7, 2), hero(5, 2)];
         let hero_data = HeroData {
             items: vec![item(1.0, 7, 70, PURCHASED), item(2.0, 3, 30, PURCHASED)],
-            damage: vec![DamageObs { game: 5.0, victim: 5, attacker: Some(3), ability: 9, damage: 300, lethal: true }],
+            damage: vec![DamageObs { game: 5.0, victim: 5, attacker: Some(3), ability: 9, damage: 300, lethal: true, npc: None }],
             ..HeroData::default()
         };
         let t = derive(&Obs { match_id: 1, build: 6813, game_mode: 1, seconds, hero_data, ..Default::default() }, crate::map::current()).expect("timeline");

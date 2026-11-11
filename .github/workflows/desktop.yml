@@ -3,10 +3,13 @@
 # Every push to main and every PR that touches the app, the web client it shows, the parser it
 # runs or this file: a debug build of each, installed as a user would (NSIS `/S`; the .deb), then
 # a smoke test of the installed app over WebDriver (desktop/smoke/smoke.mjs: the page loads, the
-# IPC bridge answers, no plugin is the page's, and a fake Steam install's replays are found).
+# IPC bridge answers, no plugin is the page's, a fake Steam install's replays are found, and a
+# mapcro:// board link reaches the window, from a second launch and at start). The installer's
+# and the .deb's mapcro:// registration is checked after each install.
 # A tag `desktop-v<version>` also builds the signed release bundles into a **draft** GitHub
 # release with the updater's `latest.json` (Windows NSIS, Linux AppImage and .deb), once both
-# smoke tests pass. A manual run does the tests only.
+# smoke tests pass, plus the Windows portable zip and stable-named copies of it and the installer
+# (desktop/README.md, Installer or portable). A manual run does the tests only.
 #
 # Secrets (repository settings, never in the repo):
 #   TAURI_SIGNING_PRIVATE_KEY           the updater's minisign private key (the file's contents)
@@ -83,6 +86,11 @@ jobs:
           # DevTools port msedgedriver waits for ("DevToolsActivePort file doesn't exist").
           Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep -Seconds 3
+      - name: The installer registered mapcro:// (per-user)
+        run: |
+          $cmd = (Get-ItemProperty 'HKCU:\Software\Classes\mapcro\shell\open\command').'(default)'
+          Write-Output "mapcro:// opens: $cmd"
+          if ($cmd -notmatch '%1') { throw "mapcro:// isn't registered to the app" }
       - name: A fake Steam install (registry here; the files and synthetic replays in the smoke test)
         run: |
           $root = Join-Path $env:RUNNER_TEMP 'Steam'
@@ -102,6 +110,18 @@ jobs:
           "NATIVE_DRIVER=$(Join-Path $env:RUNNER_TEMP 'edgedriver\msedgedriver.exe')" >> $env:GITHUB_ENV
       - name: Smoke test of the installed app (tauri-driver + msedgedriver)
         run: node desktop/smoke/smoke.mjs "${{ steps.install.outputs.exe }}" --fake-steam
+      - name: The portable build registers mapcro:// itself (desktop/README.md, Installer or portable)
+        working-directory: desktop/app
+        run: |
+          cargo build --features portable
+          $exe = (Resolve-Path target/debug/mapcro-desktop.exe).Path
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 15
+          if ($p.HasExited) { throw "the portable build exited ($($p.ExitCode))" }
+          Stop-Process -Id $p.Id -Force
+          $cmd = (Get-ItemProperty 'HKCU:\Software\Classes\mapcro\shell\open\command').'(default)'
+          Write-Output "mapcro:// opens: $cmd"
+          if (-not $cmd.Contains($exe)) { throw "the portable build didn't register mapcro:// to itself" }
 
   linux:
     # The oldest supported Ubuntu, so the AppImage's glibc floor stays low.
@@ -113,7 +133,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev \
-            patchelf file webkit2gtk-driver xvfb
+            patchelf file webkit2gtk-driver xvfb dbus
       - name: Toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
@@ -139,8 +159,13 @@ jobs:
           bin=$(dpkg -L "$(dpkg-deb -f "$deb" Package)" | grep '^/usr/bin/' | head -1)
           test -x "$bin"
           echo "bin=$bin" >> "$GITHUB_OUTPUT"
-      - name: Smoke test of the installed app (tauri-driver + WebKitWebDriver, under Xvfb; fake Steam via XDG_DATA_HOME)
-        run: xvfb-run -a node desktop/smoke/smoke.mjs "${{ steps.install.outputs.bin }}" --fake-steam
+          # The package's desktop file handles mapcro:// links (desktop/README.md, Deep links).
+          desktop=$(dpkg -L "$(dpkg-deb -f "$deb" Package)" | grep '/usr/share/applications/.*\.desktop$' | head -1)
+          grep -H -E '^(Exec|MimeType)=' "$desktop"
+          grep -q '^MimeType=.*x-scheme-handler/mapcro' "$desktop"
+          grep -q '^Exec=.*%u' "$desktop"
+      - name: Smoke test of the installed app (tauri-driver + WebKitWebDriver, under Xvfb; fake Steam via XDG_DATA_HOME; a D-Bus session for the mapcro:// hand-off)
+        run: xvfb-run -a dbus-run-session -- node desktop/smoke/smoke.mjs "${{ steps.install.outputs.bin }}" --fake-steam
 
   release-windows:
     if: startsWith(github.ref, 'refs/tags/desktop-v')
@@ -188,6 +213,30 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
+      # The portable zip (desktop/README.md, Installer or portable), and stable-named copies of it
+      # and of the installer: tauri-action's names carry the version, and the site links to
+      # releases/latest/download/<name> (web/src/player/desktop.ts).
+      - name: Portable zip, and the stable-named copies, into the same draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $v = (Get-Content desktop/app/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $out = Join-Path $env:RUNNER_TEMP 'assets'
+          $dir = Join-Path $env:RUNNER_TEMP 'portable'
+          New-Item -ItemType Directory -Force $out, $dir | Out-Null
+          $setup = Get-ChildItem desktop/app/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          if (-not $setup) { throw "no installer built" }
+          Copy-Item $setup.FullName (Join-Path $out 'mapcro_x64-setup.exe')
+          Push-Location desktop/app
+          cargo tauri build --no-bundle --features portable
+          Pop-Location
+          Copy-Item desktop/app/target/release/mapcro-desktop.exe (Join-Path $dir 'mapcro.exe')
+          Copy-Item desktop/app/portable/README.txt $dir
+          $zip = Join-Path $out "mapcro_${v}_x64-portable.zip"
+          Compress-Archive -Path (Join-Path $dir '*') -DestinationPath $zip
+          Copy-Item $zip (Join-Path $out 'mapcro_x64-portable.zip')
+          Get-ChildItem $out | Out-Host
+          gh release upload "${{ github.ref_name }}" (Get-ChildItem $out).FullName --clobber
 
   # After Windows, not beside it: tauri-action adds its platform to the draft's latest.json by
   # reading and rewriting it, so two jobs at once could each drop the other's entry.
