@@ -1615,6 +1615,8 @@ later bind owner capabilities to a person.
 - **Revocation cascades:** revoking a link also revokes every link minted through it. A leaked edit
   link can then be cleaned up in one step, together with anything its holder handed out.
 - View links can't mint.
+- **Sessions** (several boards as tabs, [sessions.md](sessions.md), draft) delegate board access
+  through grants that never exceed the adder's link, capped at edit (sessions.md §3).
 
 - Tokens are 256-bit random, base64url. The server stores only SHA-256(token), so a database leak
   yields no usable links.

@@ -7,6 +7,7 @@ from Valve's CDN or uploaded, is parsed into a per-second match timeline that Pl
 ## Where things are
 
 - Design: `docs/specs/architecture-design.md` (§6a match import, §6b Player, §12 game assets).
+  Sessions (several boards as game tabs, their links and grants): `docs/specs/sessions.md`.
 - Open work: `docs/backlog.md`. History and decisions: `docs/journal/`. The living lead handoff
   is `docs/journal/2026-11-09-lead-handoff.md` (newest state at the top).
 - Tech debt: `docs/tech-debt.md`, the register and how we keep it. Log debt you create or find.
