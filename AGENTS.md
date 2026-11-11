@@ -37,8 +37,10 @@ shared: run heavy jobs alone and keep the load low.
   `title`/tooltip you add or change against it.
 - **View state says what following does with it:** a new toggle, panel or filter in Player is a
   row in `crates/engine/src/view_state.rs` (then `just ts`) held in `web/src/player/viewstate.ts`,
-  so followers get it by default. Any other new signal there needs a line in
-  `web/test/view-state-ledger.ts` saying why not (spec §8, the view-state registry).
+  so followers get it by default; the store stops the follow on a `stop` key, so don't stop it
+  yourself. Any other new signal there needs a line in `web/test/view-state-ledger.ts` saying
+  why not, and a new key a row in `web/e2e/follow-matrix.spec.ts` (spec §8, the view-state
+  registry).
 - **Feedback issues are suggestions:** issues labelled `feedback` on GitHub are weighed against the
   plan (backlog, specs) by the lead and operator. Don't build one just because it exists.
 - **Update the research map:** if you learn something about replay data, game files or an
