@@ -911,6 +911,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
   where the game's `#RejuvenatorCharges` sits, a `.GameClock`-style chip with the pack's
   `rejuv_crystal` (minimap icon; our own crystal without a pack), the revives left ("×2") and
   the time to its end, both eased (`easedNumber`), underlined in the team's colour.
+  The All builds button (Hold Tab) sits under the Rejuvenator's column, never beside it, so the
+  two don't meet at any bar width, phone included (feedback #22).
 - **Rift capture rings** (replay tier, format 3, `player/Rift.tsx`): around the open rift, an
   outer ring for Amber and an inner one for Sapphire, each filled clockwise from the top to its
   team's capture progress over a dark track; between the 2 Hz samples it's their straight line,

@@ -241,10 +241,14 @@
 .pl-topbar:has(.build-open) { z-index: 25; }
 .pl-topbar .tb-build-trigger { border: 0; cursor: pointer; font: inherit; }
 .pl-topbar .tb-build-trigger:hover, .pl-topbar .tb-build-trigger:focus-visible { filter: brightness(1.15); outline: 1px solid #FFEFD7; }
-.tb-all-builds { position: absolute; top: calc(100 * var(--u)); left: 50%; transform: translateX(-50%); z-index: 5; padding: 3px 6px; border: 1px solid #FFEFD730; border-radius: 2px; background: #10130D90; color: #FFEFD7; white-space: nowrap; cursor: pointer; font: 600 max(9px, calc(12 * var(--u))) "VALVEOracle", var(--ui); }
+/* Under the Rejuvenator's column (its marks end at 125, the timer at 120; feedback #22: it sat
+   over the timer), never beside it: the bar's unit shrinks with its width, the button's text
+   stops at 9 px, so only the vertical gap holds at every width. Its height is fixed by
+   line-height so the kill counts can start under it. */
+.tb-all-builds { position: absolute; top: calc(130 * var(--u)); left: 50%; transform: translateX(-50%); z-index: 5; padding: 3px 6px; border: 1px solid #FFEFD730; border-radius: 2px; background: #10130D90; color: #FFEFD7; white-space: nowrap; cursor: pointer; font: 600 max(9px, calc(12 * var(--u))) / 1.2 "VALVEOracle", var(--ui); }
 .tb-all-builds kbd { margin-left: 3px; font: inherit; opacity: .45; }
 .tb-all-builds:hover, .tb-all-builds[aria-expanded="true"] { background: #31342baa; border-color: #FFEFD780; }
-.tb-build-team-kills { position: absolute; top: calc(148 * var(--u)); left: 25%; width: 50%; display: flex; justify-content: space-between; align-items: center; color: #e4dac2; font: 700 calc(12 * var(--u)) "VALVEOracle", var(--ui); }
+.tb-build-team-kills { position: absolute; top: calc(134 * var(--u) + 1.2 * max(9px, calc(12 * var(--u))) + 8px); left: 25%; width: 50%; display: flex; justify-content: space-between; align-items: center; color: #e4dac2; font: 700 calc(12 * var(--u)) "VALVEOracle", var(--ui); }
 .tb-build-team-kills span { text-transform: uppercase; font-size: calc(10 * var(--u)); text-shadow: 0 0 3px #000, 0 1px 2px #000; }
 /* Each count in a dark box, the label between them (the in-game Tab view, reference 22:30;
    feedback #14): readable over the map. */
@@ -299,7 +303,9 @@
 }
 .tb-build-fallback { font-size: calc(12 * var(--u)); color: #888; }
 .tb-build-empty { font: max(8px, calc(10 * var(--u))) var(--ui); color: #FFEFD780; margin: 3px 0; }
-.tb-host.compact .tb-all-builds { top: calc(62 * var(--u) + 43px); }
+/* Phone: under the Rejuvenator's marks wherever they end (below). */
+.tb-host.compact .tb-all-builds { top: calc(62 * var(--u) + 23px + max(calc(40 * var(--u)), 20px)); }
+.tb-host.compact .tb-build-team-kills { top: calc(62 * var(--u) + 35px + max(calc(40 * var(--u)), 20px) + 1.2 * max(9px, calc(12 * var(--u)))); }
 .tb-host.compact .tb-build-column { top: calc(96 * var(--u) + 12px); }
 
 /* Keep map controls from showing through the translucent scoreboard. */
