@@ -64,6 +64,9 @@ export function createBoardState(board: string, token: string) {
   const [connection, setConnection] = createSignal<Connection>({ kind: "connecting", attempt: 0 });
   const [myPeer, setMyPeer] = createSignal<number | undefined>();
   const [current, setCurrent] = createSignal(false);
+  /** This page's joins of the room (each Ready) and when the last was: peer ids from an earlier
+   * one name nobody now (they restart with the server), so a follow re-finds its presenter. */
+  const [joined, setJoined] = createSignal({ n: 0, at: 0 });
   const [problems, setProblems] = createSignal<string[]>([]);
   const [undoable, setUndoable] = createSignal({ undo: false, redo: false });
   const [lastRole, setLastRole] = createSignal<LinkRole | undefined>();
@@ -142,7 +145,10 @@ export function createBoardState(board: string, token: string) {
     onRecords: applyChanged,
     onPeers: (changed, reset) =>
       batch(() => {
-        if (reset) setPeers(reconcile({}));
+        if (reset) {
+          setPeers(reconcile({}));
+          setJoined((j) => ({ n: j.n + 1, at: Date.now() }));
+        }
         for (const p of changed) setPeers(String(p.peer), p.state ? reconcile(p) : undefined!);
       }),
     onChange: (s) => {
@@ -247,6 +253,7 @@ export function createBoardState(board: string, token: string) {
     status,
     connection,
     myPeer,
+    joined,
     problems,
     title,
     metaId,

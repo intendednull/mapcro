@@ -12,6 +12,7 @@ import type { PeerPresence } from "../gen/PeerPresence";
 import type { Presence } from "../gen/Presence";
 import { BoardReplica, buildId, newClientId, newClientSecret, presenceFrameOk } from "../wasm/mapcro_wasm.js";
 import { MemoryPersist, type Persist } from "./persist";
+import { pageSeat } from "./seat";
 import type { SaveStatus, Update } from "./update";
 
 /** The subset of the WebSocket API the session uses (browser WebSocket or the `ws` package). */
@@ -56,6 +57,8 @@ export interface SessionOptions {
    */
   onOutdated?: () => void;
   maxDelayMs?: number;
+  /** The seat sent in presence (default: this page's, `pageSeat()`). */
+  seat?: number;
 }
 
 const FINAL: CloseReason[] = ["unauthorized", "revoked"];
@@ -136,7 +139,9 @@ export class BoardSession {
   /** Local storage couldn't be opened; this session keeps everything in memory. */
   storageUnavailable = false;
 
-  constructor(private o: SessionOptions) {}
+  constructor(private o: SessionOptions) {
+    this.presence.seat = o.seat ?? pageSeat();
+  }
 
   async start(): Promise<void> {
     this.roleStore = await roleKey(this.o.board, this.o.token);

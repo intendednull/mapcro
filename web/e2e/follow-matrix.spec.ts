@@ -153,8 +153,8 @@ interface Policy {
   /** After Stop following, and after the presenter leaves. */
   stop: Side;
   leave: Side;
-  /** After a server restart mid-follow: still following the presenter, or the follow ends
-   * (as when the presenter leaves: everyone comes back with a new peer id). */
+  /** After a server restart mid-follow: still following the presenter (found again by its
+   * seat, spec §8), or the follow ends (as when the presenter leaves). */
   reconnect: "follows" | "drops";
 }
 
@@ -173,7 +173,7 @@ const layer = (k: string, d: boolean): Row => ({
   own: onOff(!d),
   theirs: onOff(d),
   noWitness: k === "cc" ? ["cc"] : [],
-  policy: { mirror: true, own: "stops", witness: { vision: "theirs", cc: "theirs" }, stop: "own", leave: "own", reconnect: "drops" },
+  policy: { mirror: true, own: "stops", witness: { vision: "theirs", cc: "theirs" }, stop: "own", leave: "own", reconnect: "follows" },
 });
 
 const VISION: Row = {
@@ -185,20 +185,20 @@ const VISION: Row = {
   own: "sapphire",
   theirs: "all",
   noWitness: ["vision"],
-  policy: { mirror: true, own: "stops", witness: { cc: "theirs" }, stop: "own", leave: "own", reconnect: "drops" },
+  policy: { mirror: true, own: "stops", witness: { cc: "theirs" }, stop: "own", leave: "own", reconnect: "follows" },
 };
 const CC = layer("cc", false);
 const WITNESS = { vision: VISION, cc: CC } as const;
 
 /** Stopping the follow by a change to the board, not the store (Board.tsx `stopFollowing(why)`). */
-const boardStop: Policy = { mirror: true, own: "stops", witness: { vision: "theirs", cc: "theirs" }, stop: "theirs", leave: "theirs", reconnect: "drops" };
+const boardStop: Policy = { mirror: true, own: "stops", witness: { vision: "theirs", cc: "theirs" }, stop: "theirs", leave: "theirs", reconnect: "follows" };
 /** The panels (spec §8): a follower's own is its own until the presenter's next change. */
-const panel: Policy = { mirror: true, own: "local", stop: "theirs", leave: "theirs", reconnect: "drops" };
+const panel: Policy = { mirror: true, own: "local", stop: "theirs", leave: "theirs", reconnect: "follows" };
 /** The top bar's builds: Stop following is a press outside the top bar, which closes them
  * (PlayerTopBar.tsx `outside`), so after it they read as closed; the presenter leaving keeps them. */
 const buildsPanel: Policy = { ...panel, stop: "own" };
 /** Each browser's own (not shared, or not yet). */
-const personal: Policy = { mirror: false, own: "local", stop: "own", leave: "own", reconnect: "drops" };
+const personal: Policy = { mirror: false, own: "local", stop: "own", leave: "own", reconnect: "follows" };
 
 const skull = (p: Page) => p.locator('[data-testid=death-skull][data-slot="sapphire-2"]');
 const recapRow = (p: Page) => p.locator('[data-testid=event][data-kind=death][data-t="20"] [data-testid=death-recap]');
@@ -315,7 +315,7 @@ const ROWS: Row[] = [
       await VISION.set(b, "amber");
     },
     noWitness: ["vision"],
-    policy: { mirror: true, own: "stops", witness: { cc: "theirs" }, stop: "own", leave: "own", reconnect: "drops" },
+    policy: { mirror: true, own: "stops", witness: { cc: "theirs" }, stop: "own", leave: "own", reconnect: "follows" },
   },
   {
     key: "scene",
@@ -366,7 +366,7 @@ const ROWS: Row[] = [
     mine: "Amber-3",
     seen: (v) => (v === "none" ? v : `${v}@Coach`),
     // Your own hover wins while you hover; the presenter's shows again when you stop.
-    policy: { mirror: true, own: "held", stop: "own", leave: "own", reconnect: "drops" },
+    policy: { mirror: true, own: "held", stop: "own", leave: "own", reconnect: "follows" },
   },
   layer("troopers", true),
   layer("health", true),
@@ -621,11 +621,14 @@ for (const r of ROWS) {
       // just before the restart showed a refused `IdTaken`, its own copy of the live layer).
       for (const p of [a, b]) await expect(p.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
       if (P.reconnect === "follows") {
+        // Found again by seat on its new connection: still following, and live.
         await expect(following(b)).toHaveCount(1);
+        await shows(r, b, P.mirror ? seen(r.theirs) : r.own);
         await put(r, a, r.own);
-        await shows(r, b, seen(r.own));
+        await shows(r, b, P.mirror ? seen(r.own) : r.own);
         await put(r, a, r.theirs);
-        await shows(r, b, seen(r.theirs));
+        await shows(r, b, P.mirror ? seen(r.theirs) : r.own);
+        await expect(following(b)).toHaveCount(1);
       } else {
         await expect(following(b)).toHaveCount(0);
         await shows(r, b, P.leave === "own" || !P.mirror ? r.own : r.theirs);
@@ -638,6 +641,43 @@ for (const r of ROWS) {
     });
   });
 }
+
+// The presenter's connection alone drops and comes back (its own reconnect, the server up):
+// the follower waits for its seat and follows it on the new connection. A presenter that
+// doesn't come back is gone after the wait (spec §8).
+test("the presenter's own reconnect keeps the follow", async ({ browser }) => {
+  const r = ROWS.find((x) => x.key === "vision.team")!;
+  const url = await newBoardUrl(server, "Presenter reconnects");
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const sockets: Array<{ close: () => Promise<void> }> = [];
+  await ctx.routeWebSocket(/\/ws$/, (ws) => {
+    ws.connectToServer();
+    sockets.push(ws);
+  });
+  const a = await ctx.newPage();
+  await a.goto(url);
+  await a.locator("#join-name").fill("Coach");
+  await a.keyboard.press("Enter");
+  await expect(a.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  await load(a, ID);
+  const b = await joinNew(browser, url, "Second");
+  await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
+  await put(r, b, r.own);
+  await put(r, a, r.theirs);
+  await follow(b);
+  await shows(r, b, r.theirs);
+  // Drop the presenter's socket: the server sees it leave, and the page reconnects.
+  const before = sockets.length;
+  await sockets.at(-1)!.close();
+  await expect.poll(() => sockets.length).toBeGreaterThan(before);
+  await expect(a.getByTestId("save-status")).toHaveAttribute("data-connection", "live", { timeout: 20_000 });
+  await expect(following(b)).toHaveCount(1);
+  await put(r, a, r.own);
+  await shows(r, b, r.own);
+  await expect(following(b)).toHaveCount(1);
+  await expect(b.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  await ctx.close();
+});
 
 // Not a follow scenario, but the popover's state moved from the DOM into the store: a build you
 // open yourself opens with neither popover open, as a fresh <details> did.

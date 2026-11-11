@@ -145,6 +145,14 @@ pub struct Presence {
     pub focus: Option<RecordId>,
     /// The peer this person is following, if any.
     pub following: Option<u64>,
+    /// Random per page load, kept across reconnects (spec §8, sessions.md §6.1): peer ids are
+    /// per connection, so after a reconnect (a server restart: every deploy) a follower finds
+    /// its presenter again by seat. Never derived from anything about the person. Not
+    /// authority: copying a seat is as easy as copying a name. At most `MAX_SEAT`, so a
+    /// JavaScript number holds it exactly. Absent: an older client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub seat: Option<u64>,
     /// A stroke being drawn right now, so others see it as it's drawn. It becomes a Stroke
     /// record on release. Optional in TypeScript, like `picked`.
     #[serde(default)]
@@ -185,6 +193,9 @@ pub const LAYER_CC: u8 = 1 << 3;
 pub const LAYER_MOVEMENT: u8 = 1 << 4;
 pub const LAYER_HEALS: u8 = 1 << 5;
 pub const LAYER_CRATES: u8 = 1 << 6;
+
+/// The largest seat: 2^53 - 1, JavaScript's largest exact integer.
+pub const MAX_SEAT: u64 = (1 << 53) - 1;
 
 /// A hover reference is at most this long: a marker key is under 64.
 pub const MAX_HOVER: usize = 96;
@@ -434,6 +445,7 @@ impl Presence {
             && self.ink.as_ref().is_none_or(|i| i.color < 16 && i.points.len() <= MAX_INK_POINTS && i.points.iter().all(ok_pos))
             && self.ping.as_ref().is_none_or(|p| ok_pos(&p.at))
             && self.laser_color.is_none_or(|c| c < 16)
+            && self.seat.is_none_or(|s| s <= MAX_SEAT)
             && self.hover.as_ref().is_none_or(|h| h.len() <= MAX_HOVER && h.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b':' | b'_' | b'-')))
             && self.playback.as_ref().is_none_or(|b| {
                 let clock = |t: f32| t.is_finite() && (0.0..=86_400.0).contains(&t);
@@ -474,6 +486,20 @@ mod tests {
         assert!(!laser(10, vec![0]).is_valid());
         assert!(!laser(10, vec![10]).is_valid());
         assert!(!laser(0, vec![1]).is_valid());
+    }
+
+    #[test]
+    fn a_seat_is_optional_and_a_javascript_number() {
+        // An older client sends none; it parses as none and is left out again.
+        let old: Presence = serde_json::from_str(&serde_json::to_string(&Presence::default()).expect("json")).expect("old");
+        assert_eq!(old.seat, None);
+        assert!(!serde_json::to_string(&old).expect("json").contains("seat"));
+        let with = |s: u64| Presence { seat: Some(s), ..Presence::default() };
+        assert!(with(0).is_valid());
+        assert!(with(MAX_SEAT).is_valid());
+        assert!(!with(MAX_SEAT + 1).is_valid(), "a JavaScript number would read it as another");
+        let back: Presence = serde_json::from_str(&serde_json::to_string(&with(MAX_SEAT)).expect("json")).expect("parse");
+        assert_eq!(back.seat, Some(MAX_SEAT));
     }
 
     #[test]

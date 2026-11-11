@@ -19,6 +19,52 @@ export const MAX_W = 1000 + 2 * MARGIN;
 /** Anyone with edit rights can be followed; view-only people can't (the server stamps roles). */
 export const followable = (p: PeerPresence) => p.state !== null && p.role !== "view";
 
+/**
+ * How long a follow waits for its presenter to come back (spec §8). After this page's own
+ * reconnect, everyone else is coming back too, a server restart being every deploy, and their
+ * reconnect backoff reaches 15 s; after the presenter's connection alone goes, its own
+ * reconnect takes about a second.
+ */
+export const REJOIN_MS = 20_000;
+export const RECONNECT_MS = 5_000;
+
+/** Whom a follow is on: their peer id on the join it was made on (`joins`), and their seat. */
+export interface FollowTarget {
+  peer: number;
+  seat?: number | undefined;
+  /** `joined().n` when `peer` was last seen: an id from an earlier join names nobody now. */
+  joins: number;
+  /** When the presenter was first missed on this join, while waiting. */
+  lostAt?: number;
+}
+
+export type Located =
+  /** Here: `peer` is the presenter's connection now (its id may be a new one). */
+  | { kind: "here"; peer: PeerPresence }
+  /** Not here yet; look again at `until`. */
+  | { kind: "wait"; until: number }
+  | { kind: "gone" };
+
+/**
+ * Where a follow's presenter is now. On the same join, its peer, unless that peer now has
+ * another seat (someone else). Otherwise, the newest editor with its seat. Missing: wait while
+ * a reconnect may bring it back, then gone. A presenter with no seat (an older client) is
+ * found by peer only, and only on the join the follow was made on.
+ */
+export function locate(t: FollowTarget, peers: PeerPresence[], me: number | undefined, joined: { n: number; at: number }, now: number): Located {
+  if (t.joins === joined.n) {
+    const same = peers.find((p) => p.peer === t.peer && p.state);
+    const seat = same?.state?.seat;
+    if (same && (t.seat == null || seat == null || seat === t.seat)) return { kind: "here", peer: same };
+  }
+  if (t.seat == null) return { kind: "gone" };
+  let best: PeerPresence | undefined;
+  for (const p of peers) if (p.peer !== me && followable(p) && p.state?.seat === t.seat && (!best || p.peer > best.peer)) best = p;
+  if (best) return { kind: "here", peer: best };
+  const until = t.joins !== joined.n ? joined.at + REJOIN_MS : (t.lostAt ?? now) + RECONNECT_MS;
+  return now < until ? { kind: "wait", until } : { kind: "gone" };
+}
+
 /** Presenters: followable people someone is following, with how many follow them. */
 export function presenters(peers: PeerPresence[], me: number | undefined, iFollow: number | undefined) {
   const count = new Map<number, number>();
