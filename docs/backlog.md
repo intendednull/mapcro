@@ -32,6 +32,25 @@ prototype before fixing: the two-tab disconnect loop, Save scene clipped at 1280
 ignoring team vision, scene hover preview over portraits, Feedback missing match info from a scene.
 The passes' branches (`argon-ux`, `ux-pass-2`) are kept, not merged.
 
+## Kill-streak mint souls tab (HUD .KillStreak) (2026-11-10, from ux-batch-1)
+
+The mint souls tab is the game's kill-streak state, not a networth leader's. In the 6860 pack's
+`hud/citadel_hud_top_bar.vcss`, `.KillStreak .SoulsValueContainer{background-color: #90FFE3;}`
+and `.KillStreak .SoulsValue{wash-color: offBlack;}` (offBlack `#10130D`, citadel_base_styles);
+`hud/hero_badge.vcss` washes the portrait the same mint (`CitadelHudTopBarPlayer.KillStreak
+CitadelHeroBadge .HeroImageBackground`), and `.KillStreak #KillStreakContainer` shows the streak
+particles and `#kill_hype_KillStreak_count` (citadel_hud_top_bar_player.vxml). The Argon pass
+(`concierge/artifacts/mapcro-ux-argon/NOTES.md` §134) called it a "leader highlight", and the
+first UX batch asked for a networth-leader rule with `#09221B` text. Neither comes from the
+HUD: no rule mentions a leader, and `#09221B` appears nowhere in the pack. The lead dropped
+the leader version (2026-11-10).
+
+Still possible: a streak can be derived from the recorded `kills` series and `deaths` (kills
+since the last death). What's missing is the game's threshold for the class. No panorama script
+in the pack sets it (the top-bar layouts have no `<scripts>`; `CitadelHudTopBarPlayer` is a
+native panel, so code sets the class). The extractor would need to look in `panorama/scripts`
+and the `kill_hype_*` localisation (citadel_gc / hud english strings). Don't guess the threshold.
+
 ## Sixteen e2e tests act on controls the prototype moved into disclosures (2026-11-10, from scene-parity): resolved
 
 Resolved 2026-11-10 (branch `proto-e2e-fix`). The sixteen were a sample: 46 specs acted on the
