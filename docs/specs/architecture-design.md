@@ -116,13 +116,13 @@ transaction and one undo step.
 
 | Tool | What it does | Result |
 |---|---|---|
-| Move | the default: drag tokens and callouts, click objectives | ops |
+| Select | the default: drag tokens and callouts, click objectives (named Move until feedback #31, 2026-11-11) | ops |
 | Draw | freehand ink in a palette colour | a `stroke` record |
 | Arrow | drag out a rotation arrow | an `arrow` record |
 | Callout | click to place a label, typed in place | a `callout` record |
 | Laser | drawing that fades: the trail holds briefly, then fades away. Each press-to-release is its own trail: pressing again while one fades starts a new one, never joined to it (presence `laser_starts`, 2026-11-08). Everyone gets it, viewers included (operator, 2026-11-06) | presence only, never stored |
 | Erase | click or scrub over ink, arrows and callouts | deletes |
-| Clear ink | a button: removes every stroke on this scene, as one undoable step | one transaction of deletes |
+| Clear | a menu: removes every stroke, arrow or comment on this scene, or all of them, as one undoable step | one transaction of deletes |
 
 The map is still the surface for every tool; the picker only chooses the gesture.
 
@@ -131,10 +131,16 @@ map's stencil (the HUD frame's shape) and take no pointer past it, and the edge 
 them. A dragged hero stops at the map's disc. Ink, arrows and comments may still go into the
 notes margin round the map (design/parity/README.md, Stencil and edge).
 
-**Keys (operator, 2026-11-09):** close together under the left hand, the most used on the nearest:
-Move Q, Draw E, Arrow R, Comment T, Laser A, Erase S (and S over a placed thing deletes it, in any
-tool). W is unbound; F follows the presenter, K
-kills or revives the hovered hero. Keys are ignored while typing in a field.
+**Keys (operator, 2026-11-09; reordered by use 2026-11-11, feedback #28):** under the left hand,
+the most used on the nearest: Select Q, Laser W, Draw E, Arrow A, Comment S, Erase D (D under E,
+so drawing and erasing sit side by side; D over a placed thing deletes it, in any tool). The
+toolbar lists them in that order, each button showing its key and its hover saying it ("Select
+[Q]"). C opens the Clear menu and Shift+C clears everything on the scene at once, the menu's All
+as one undoable step (operator: "a button that clears without opening the menu"); T adds a scene
+after this one, as the scene tree's + does (feedback #30). Clear and T are an editor's only; a view
+link has Q and W. F follows the presenter, K kills or revives the hovered hero; R is unbound. The
+keys don't fire while typing in a field, in a dialog or a menu (`core/keys.ts` `boardKeys`), or
+with Ctrl, Cmd or Alt held, so Ctrl+C still copies; Shift is allowed.
 
 ## 4a. Client state
 
@@ -1043,7 +1049,7 @@ makes a board with that match attached and lands in Player; **New board** is tod
     elsewhere closes it.
   - Without a pack's tooltips, the plain titles stay (§4b tags).
 - **Hero panel** (replay tier, 2026-11-11, feedback #8; `player/HeroCard.tsx`). A single click
-  (press and release within 6 px) on a hero's token with the Move tool opens a compact panel at
+  (press and release within 6 px) on a hero's token with the Select tool opens a compact panel at
   the map's lower left: the hero, and the Tab column's parts for it at t (K/D/A, investment bars,
   stats, abilities with cooldowns and charges, items), with their tooltips and stat panels.
   Several can be open, one per hero, up to every hero's (#37, operator 2026-11-11): another
@@ -1107,10 +1113,14 @@ makes a board with that match attached and lands in Player; **New board** is tod
     board, so Names off hides them in Scenes too. The heroes stay the board's roster (Save as
     scene sets them to the match's; a blank scene doesn't).
 - **Vision** (2026-11-09, operator: "in a replay usually we can set it to only see the heroes …
-  the current team could see"): a transport select, "Vision: All / Hidden King / Archmother",
-  shown when the timeline has `seen` (format 4). Keys 1, 2, 3 pick All, Hidden King and
-  Archmother (2026-11-11, feedback #10; the select's hover says "Vision (1, 2, 3)"); like the
-  select they stop following, and they're off while typing or in a dialog or menu. In a team's
+  the current team could see"): a select in the map controls, "Vision: Hidden King [1] /
+  Archmother [2] / All [3]", shown when the timeline has `seen` (format 4). Keys 1, 2, 3 pick
+  Hidden King, Archmother and All (2026-11-11, feedback #10, #32: the teams read as team 1 and
+  team 2), and each option shows its key (#29; the select's hover says "Vision [1 2 3]"); like
+  the select they stop following, and they're off while typing or in a dialog or menu. The map
+  controls (Map layers, Vision, Last seen, Flip map) sit at the map pane's bottom left, just
+  above the dock's tools and timeline (feedback #33): the builds that holding Tab shows drop
+  over the map's top and never cover them, and Map layers opens upward. In a team's
   view a mark at the map controls' right end (feedback #12) shows that team's name on a dot of
   its colour, with "Last seen" while the ghosts show; under All there is none. Flip sits in the
   same group, "Flip map" with a swap icon (feedback #17). In a team's view its own heroes always show;
@@ -1166,6 +1176,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
   Holding Tab shows every build (All builds, as the game's scoreboard) wherever the focus is, in
   the same places (2026-11-11, feedback #24): plain Tab no longer moves focus through the board's
   controls, while Shift+Tab still does, and a text field, a dialog or a menu keeps its Tab.
+  1, 2, 3 pick the Vision (below). The tools' keys and C / Shift+C (§4) work in Player as on a
+  scene; T, a new scene, is a scene's key only (while watching, Save scene is the button).
 - **Troopers** (replay tier, on by default): each lane trooper as a small dot in its team's
   colour with a dark rim, under the heroes, sliding between the 1 Hz samples and gone when it
   dies; like the map's icons it keeps its size on screen as you zoom. The game's files don't

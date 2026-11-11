@@ -95,10 +95,12 @@ test("in Player others see your laser; a follower follows a presenter who pans w
   await expect(b.getByTestId("match-clock")).toHaveText("3:20 / 21:40");
 
   // A laser in Player shows to the follower in Player.
-  await a.getByTestId("tool-laser").click();
+  // By its key: the match source's panel, still open after Load, lies over the toolbar's left end.
+  await a.keyboard.press("w");
+  await expect(a.getByTestId("tool-laser")).toHaveAttribute("aria-pressed", "true");
   await gesture(a, [[0.3, 0.3], [0.5, 0.5]]);
   await expect(b.locator('.laser[data-laser="Coach"]')).toHaveCount(1);
-  await a.getByTestId("tool-move").click();
+  await a.keyboard.press("q");
 
   for (const speed of ["1", "8"]) {
     await a.getByTestId("match-speed").selectOption(speed);

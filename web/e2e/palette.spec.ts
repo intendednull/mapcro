@@ -46,7 +46,7 @@ test("Draw, Arrow, Comment and Laser use the palette colour, for you and for oth
     for (const p of [a, b]) await expect.poll(() => css(p.locator(`.mapbox [data-stroke="${sid}"] path.ink`), "stroke")).toBe(c.rgb);
 
     // Arrow (away from heroes: its team would come from one).
-    await a.keyboard.press("r");
+    await a.keyboard.press("a");
     const a0 = await ids(a, "data-arrow");
     await gesture(a, [[0.45, y], [0.6, y + 0.08]]);
     const aid = await made(a, "data-arrow", a0);
@@ -56,7 +56,7 @@ test("Draw, Arrow, Comment and Laser use the palette colour, for you and for oth
     }
 
     // Comment: the bubble collapsed, and the card open.
-    await a.keyboard.press("t");
+    await a.keyboard.press("s");
     const at = await mapPoint(a, 0.75, y);
     await a.mouse.click(at.x, at.y);
     await a.getByTestId("comment-input").fill(`${c.name} comment`);
@@ -74,7 +74,7 @@ test("Draw, Arrow, Comment and Laser use the palette colour, for you and for oth
     await b.mouse.click(5, 5);
 
     // Laser: held and moving, seen by B in the same colour.
-    await a.keyboard.press("a");
+    await a.keyboard.press("w");
     const l0 = await mapPoint(a, 0.3, 0.55 + i * 0.1);
     await a.mouse.move(l0.x, l0.y);
     await a.mouse.down();

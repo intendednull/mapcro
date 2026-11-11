@@ -118,7 +118,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const [viewpoint, setViewpoint] = createSignal<Viewpoint>("amber");
   const [sceneId, setSceneId] = createSignal<RecordId | undefined>();
   const [sideTab, setSideTab] = createSignal<"events" | "notes">("events");
-  const [tool, setTool] = createSignal<Tool>("move");
+  const [tool, setTool] = createSignal<Tool>("select");
   // The palette colour for Draw, Arrow, Comment and Laser: per person, per board.
   const [ink, setInkSignal] = createSignal(loadColour(p.board) ?? loadMe()?.color ?? 1);
   const setInk = (i: number) => {
@@ -398,7 +398,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
       if ("ObjectiveState" in r) m.set(r.ObjectiveState.key, { id, status: r.ObjectiveState.status });
     return m;
   });
-  // ---- Move: selected heroes, Space to pan, lane splits ----
+  // ---- Select: selected heroes, Space to pan, lane splits ----
   const [selection, setSelection] = createSignal<Set<RecordId>>(new Set());
   // ---- comments: bubbles by default; your open one (presence `focus`, so followers see it
   // open too), or all of them with the Comments toggle (per board, on this device) ----
@@ -547,8 +547,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
   mq.addEventListener("change", onMq);
   onCleanup(() => mq.removeEventListener("change", onMq));
   createEffect(() => {
-    // The phone picker is Look/Move and Laser; drawing tools need the desktop.
-    if (phone() && tool() !== "move" && tool() !== "laser") setTool("move");
+    // The phone picker is Look/Select and Laser; drawing tools need the desktop.
+    if (phone() && tool() !== "select" && tool() !== "laser") setTool("select");
   });
 
   // ---- the scene note: free text, one per scene ----
@@ -665,8 +665,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
           <ReplayPrompt host={player} art={p.art} />
         </Show>
         <div class="p-tools" role="toolbar" aria-label="Tools">
-          <button class={cx("tb", tool() === "move" && "on")} data-testid="tool-move" onClick={() => setTool("move")}>
-            <span>{state.canEdit() ? "Move" : "Look"}</span>
+          <button class={cx("tb", tool() === "select" && "on")} data-testid="tool-select" onClick={() => setTool("select")}>
+            <span>{state.canEdit() ? "Select" : "Look"}</span>
           </button>
           <button class={cx("tb", tool() === "laser" && "on")} data-testid="tool-laser" onClick={() => setTool("laser")}>
             <span>Laser</span>

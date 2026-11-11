@@ -8,7 +8,7 @@ const dir = process.env.AUDIT_DIR ?? "shots/comments-audit";
 const LONG = "Smoke the bridge, then rotate east through the vault and hold the walker until 9:30";
 
 async function place(p: Page, f: [number, number], text: string) {
-  await p.keyboard.press("t");
+  await p.keyboard.press("s");
   const at = await mapPoint(p, ...f);
   await p.mouse.click(at.x, at.y);
   await p.getByTestId("comment-input").fill(text);
@@ -30,7 +30,7 @@ test("comment states", async ({ browser }) => {
     const a = await joinNew(browser, url, "Coach");
     const b = await joinNew(browser, await editLink(server.url, url), "Marrow");
     // Placing: the editor open on a new comment.
-    await a.keyboard.press("t");
+    await a.keyboard.press("s");
     const at = await mapPoint(a, 0.62, 0.42);
     await a.mouse.click(at.x, at.y);
     await a.getByTestId("comment-input").fill("Smoke on the bridge");
@@ -104,7 +104,7 @@ test("comment states", async ({ browser }) => {
     await shot(b, "11-follower-sees-open");
     // Erase hover.
     await a.keyboard.press("Escape");
-    await a.keyboard.press("s");
+    await a.keyboard.press("d");
     await bubble(a, 4).locator(".bubble-body").hover();
     await shot(a, "12-erase-hover");
     await a.keyboard.press("q");

@@ -29,7 +29,7 @@ import { mapToView, worldToMap, worldToView } from "../map/transform";
 import { EventsList } from "./Events";
 import { eventKey, jumpTime, namesFor, placeOf, shortLabel, tierLabel } from "./events";
 import type { PlayerHost } from "./host";
-import { type Vision, VISIONS, hasVision } from "./vision";
+import { type Vision, VISIONS, hasVision, visionForCode, visionKey } from "./vision";
 import { teamName } from "../map/model";
 
 /** ← → seek this far (seconds), with Shift the further one. */
@@ -586,11 +586,11 @@ export function MapControls(p: {
                     data-testid="vision-select"
                     aria-label="Vision"
                     aria-keyshortcuts="1 2 3"
-                    title="Vision (1, 2, 3)"
+                    title="Vision [1 2 3]"
                     value={h.vision()}
                     onChange={(e) => h.setVision(e.currentTarget.value as Vision)}
                   >
-                    <For each={VISIONS}>{(v) => <option value={v}>Vision: {v === "all" ? "All" : teamName(v)}</option>}</For>
+                    <For each={VISIONS}>{(v) => <option value={v} aria-keyshortcuts={visionKey(v)}>Vision: {v === "all" ? "All" : teamName(v)} [{visionKey(v)}]</option>}</For>
                   </select>
                   <Show when={h.vision() !== "all"}>
                     <button
@@ -626,17 +626,16 @@ function VisionMark(p: { host: PlayerHost }) {
   }</Show>;
 }
 
-/** Vision's keys (#10): 1 All, 2 Hidden King, 3 Archmother, as the list orders them; off while
- * typing, in a dialog or a menu. Changing it is your own view, so following stops. */
+/** Vision's keys (#10, #32): 1 Hidden King, 2 Archmother, 3 All, as the list orders them; off
+ * while typing, in a dialog or a menu. Changing it is your own view, so following stops. */
 function useVisionKeys(h: PlayerHost) {
   onMount(() => {
     const key = (e: KeyboardEvent) => {
       if (e.altKey || e.ctrlKey || e.metaKey || e.repeat || e.defaultPrevented) return;
-      const i = ["Digit1", "Digit2", "Digit3", "Numpad1", "Numpad2", "Numpad3"].indexOf(e.code) % 3;
+      const v = visionForCode(e.code);
       const tl = h.tl();
-      if (i < 0 || !tl || !hasVision(tl) || h.mode() !== "player" || !boardKeys(e.target as Element | null)) return;
+      if (!v || !tl || !hasVision(tl) || h.mode() !== "player" || !boardKeys(e.target as Element | null)) return;
       e.preventDefault();
-      const v = VISIONS[i]!;
       if (v !== h.vision()) h.setVision(v);
     };
     window.addEventListener("keydown", key);

@@ -1,4 +1,4 @@
-// Hero tokens on the map: one per roster slot in the current scene. With the Move tool an
+// Hero tokens on the map: one per roster slot in the current scene. With the Select tool an
 // editor drags a token; while dragging, its position travels through presence (others watch it
 // move, with the dragger's name tag), and the drop commits one op (spec §4a).
 
@@ -96,7 +96,7 @@ export function Tokens(p: {
   focused?: (() => { slot: string; n: number } | undefined) | undefined;
   /** In a scene, the open match's in-game name for a slot (Board's `sceneMatchName`). */
   matchName?: ((team: string, slot: number) => string | undefined) | undefined;
-  /** Under a match preview, a single click (no drag) with the Move tool on a hero ("amber", 0):
+  /** Under a match preview, a single click (no drag) with the Select tool on a hero ("amber", 0):
    * Player's hero panel (player/HeroCard.tsx). */
   onOpen?: ((team: string, slot: number) => void) | undefined;
 }) {
@@ -132,7 +132,7 @@ export function Tokens(p: {
     return m;
   });
 
-  const editable = () => p.tool === "move" && p.state.canEdit() && !p.preview?.();
+  const editable = () => p.tool === "select" && p.state.canEdit() && !p.preview?.();
 
   /** A click under a match preview: press and release within a few px, the map's own pan aside. */
   const click = (pl: Player, e: PointerEvent) => {
@@ -150,7 +150,7 @@ export function Tokens(p: {
   };
 
   const down = (pl: Player, e: PointerEvent) => {
-    if (p.preview?.() && p.tool === "move" && e.button === 0) click(pl, e);
+    if (p.preview?.() && p.tool === "select" && e.button === 0) click(pl, e);
     if (!editable() || e.button !== 0) return;
     const svg = p.svg();
     if (!svg) return;

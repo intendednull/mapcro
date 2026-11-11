@@ -1,10 +1,12 @@
-// The compact tool picker under the map (design/v1-board, "Tools"). Keys: V D A C L E;
-// Ctrl+Z undo, Ctrl+Shift+Z or Ctrl+Y redo. A view link gets Look and Laser only.
+// The compact tool picker under the map (design/v1-board, "Tools"). Keys (tools.ts): Q W E A S D
+// pick a tool, C opens the Clear menu, Shift+C clears all; Ctrl+Z undo, Ctrl+Shift+Z or Ctrl+Y
+// redo. A view link gets Look and Laser only.
 
 import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { Palette } from "./Palette";
 import { cx } from "../ui/cx";
-import { ICON_CLEAR, ICON_COMMENTS, ICON_REDO, ICON_UNDO, TOOLS, type Tool, VIEWER_TOOLS } from "./tools";
+import { boardKeys } from "../core/keys";
+import { ICON_CLEAR, ICON_COMMENTS, ICON_REDO, ICON_UNDO, TOOLS, type Tool, VIEWER_TOOLS, toolbarKey } from "./tools";
 
 const Ico = (p: { d: string }) => <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" innerHTML={p.d} />;
 
@@ -57,9 +59,21 @@ export function Toolbar(p: {
         if (p.editor) p.redo();
         return;
       }
-      if (mod || e.altKey) return;
-      const hit = tools().find((x) => x.key.toLowerCase() === e.key.toLowerCase());
-      if (hit) p.setTool(hit.tool);
+      if (e.key === "Escape" && clearOpen()) {
+        setClearOpen(false);
+        return;
+      }
+      // Not in a dialog or a menu either (the Clear menu's own items keep their keys).
+      if (e.defaultPrevented || !boardKeys(t)) return;
+      const hit = toolbarKey(e, p.editor);
+      if (!hit) return;
+      if ("tool" in hit) return p.setTool(hit.tool);
+      if (e.repeat || p.counts.all === 0) return;
+      e.preventDefault();
+      if (hit.clear === "all") {
+        setClearOpen(false);
+        p.clear("all");
+      } else setClearOpen(!clearOpen());
     };
     window.addEventListener("keydown", key);
     onCleanup(() => window.removeEventListener("keydown", key));
@@ -74,10 +88,12 @@ export function Toolbar(p: {
                 class={cx("tb", p.tool === t.tool && "on")}
                 data-testid={`tool-${t.tool}`}
                 aria-pressed={p.tool === t.tool}
+                aria-keyshortcuts={t.key}
+                title={`${!p.editor && t.tool === "select" ? "Look" : t.label} [${t.key}]`}
                 onClick={() => p.setTool(t.tool)}
               >
                 <Ico d={t.icon} />
-                <span>{!p.editor && t.tool === "move" ? "Look" : t.label}</span>
+                <span>{!p.editor && t.tool === "select" ? "Look" : t.label}</span>
                 <i class="k">{t.key}</i>
               </button>
             </>
@@ -99,8 +115,9 @@ export function Toolbar(p: {
             <button
               class={cx("tb icon", clearOpen() && "on")}
               data-testid="clear-menu"
-              title="Clear"
+              title="Clear [C]"
               aria-label="Clear"
+              aria-keyshortcuts="C Shift+C"
               aria-haspopup="menu"
               aria-expanded={clearOpen()}
               disabled={p.counts.all === 0}

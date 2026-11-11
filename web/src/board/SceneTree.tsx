@@ -1,7 +1,8 @@
 // The scenes sidebar (operator, 2026-11-07): scenes as a tree down the left, replacing the strip.
 // A row: name, clock, who is there, the current one marked; a lite minimap on hover. Drag a row
 // above or below another to reorder among its siblings, or onto its middle to nest it; one
-// transaction per drop. Collapse is yours (remembered per board). ← → walk the tree in order.
+// transaction per drop. Collapse is yours (remembered per board). ← → walk the tree in order; T adds
+// a scene after this one.
 
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { colorOf } from "../core/device";
@@ -13,6 +14,7 @@ import { MapView } from "../map/MapView";
 import type { Art } from "../map/pack";
 import { type Viewpoint, worldToView } from "../map/transform";
 import { InlineEdit } from "../ui/InlineEdit";
+import { boardKeys } from "../core/keys";
 import { cx } from "../ui/cx";
 import { addSceneOps, deleteSceneOps, isUnnamed, moveSceneOps } from "./scenes";
 import type { BoardState } from "./state";
@@ -84,6 +86,8 @@ export function SceneTree(p: {
     const s = order()[index() + d];
     if (s) p.onFlip(s.id);
   };
+  /** An editor may add a scene: one slot stays free for Player's live layer (max_scenes 64). */
+  const canAdd = () => p.state.canEdit() && order().length < 63;
   const add = (asChild: boolean) => {
     const cur = order()[index()];
     const { id, ops } = addSceneOps(p.state, cur, asChild);
@@ -114,6 +118,13 @@ export function SceneTree(p: {
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       if (p.keys && !p.keys()) return;
+      // T: a new scene after this one, from where this one ends (#30), as the + does. Not in a
+      // dialog or a menu, and once per press.
+      if (e.key.toLowerCase() === "t") {
+        if (e.repeat || e.defaultPrevented || !canAdd() || !boardKeys(t)) return;
+        e.preventDefault();
+        return add(false);
+      }
       if (e.key === "ArrowLeft") flipBy(-1);
       else if (e.key === "ArrowRight") flipBy(1);
       else return;
@@ -144,10 +155,10 @@ export function SceneTree(p: {
             <kbd>←</kbd>
             <kbd>→</kbd>
           </span>
-          <Show when={p.state.canEdit() && order().length < 63}>
+          <Show when={canAdd()}>
             {/* One way in: a scene after this one, copying it. Nesting is a drag onto a row.
                 (One slot stays free for Player's live layer: max_scenes 64.) */}
-            <button class="scenes-add" data-testid="scene-add" aria-label="Add scene" title="Add scene" onClick={() => add(false)}>
+            <button class="scenes-add" data-testid="scene-add" aria-label="Add scene" title="Add scene [T]" aria-keyshortcuts="T" onClick={() => add(false)}>
               <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 5v14M5 12h14" />
               </svg>
@@ -298,7 +309,7 @@ export function SceneTree(p: {
                       row, nested or not (shown on hover or focus, always on the active row and on
                       the phone). */}
                   <span class="row-acts">
-                    <Show when={p.state.canEdit() && order().length < 63}>
+                    <Show when={canAdd()}>
                       <button
                         class="row-act"
                         data-testid="scene-clone"

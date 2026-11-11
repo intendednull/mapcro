@@ -288,7 +288,7 @@ test("the match source closes once the match is in, clear of the toolbar's left 
   const source = a.locator(".pl-source");
   await expect.poll(() => source.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(false);
   // Select and Laser take a press at their centres: nothing covers them.
-  for (const t of ["tool-move", "tool-laser"]) {
+  for (const t of ["tool-select", "tool-laser"]) {
     const hit = await a.getByTestId(t).evaluate((el) => {
       const r = el.getBoundingClientRect();
       return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));

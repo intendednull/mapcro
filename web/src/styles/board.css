@@ -567,7 +567,7 @@ kbd {
 .map .flip:hover circle { stroke: var(--text); }
 
 /* Cursors and hover states: each action announces itself before you press. */
-.map .terrain, .map .block, .map .lane, .map .path, .map .art-fo { cursor: default; }   /* Move: drag empty map to pan */
+.map .terrain, .map .block, .map .lane, .map .path, .map .art-fo { cursor: default; }   /* Select: drag empty map to pan */
 .map .tok { cursor: grab; }
 .map .tok:active { cursor: grabbing; }
 .map .tok .body { transition: stroke 120ms; }
@@ -669,7 +669,7 @@ kbd {
 .tb-hint { width: 640px; margin-top: 6px; text-align: center; font-size: 11.5px; color: var(--faint); }
 .tb-hint b { color: var(--muted); }
 
-/* A distinct cursor per tool. Move keeps the per-element cursors above. */
+/* A distinct cursor per tool. Select keeps the per-element cursors above. */
 .map[data-tool="draw"], .map[data-tool="draw"] * { cursor: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2228%22 height=%2228%22%3E%3Cpath d=%22M2 26l3-11L19 1l8 8-14 14z%22 fill=%22%23f4f1e8%22 stroke=%22%230b1714%22 stroke-width=%221.6%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E") 2 26, crosshair !important; }
 .map[data-tool="arrow"], .map[data-tool="arrow"] * { cursor: crosshair !important; }
 .map[data-tool="callout"], .map[data-tool="callout"] * { cursor: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2228%22 height=%2228%22%3E%3Cpath d=%22M2 2h22v15H11l-6 6v-6H2z%22 fill=%22%23f4f1e8%22 stroke=%22%230b1714%22 stroke-width=%221.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M13 6v7M9.5 9.5h7%22 stroke=%22%230b1714%22 stroke-width=%222%22 stroke-linecap=%22round%22/%3E%3C/svg%3E") 2 2, copy !important; }
@@ -865,10 +865,10 @@ kbd {
 .ctx-menu button { display: block; padding: 6px 10px; font: 500 13px var(--ui); color: var(--text); background: none; border: 0; border-radius: 5px; cursor: pointer; text-align: left; white-space: nowrap; }
 .ctx-menu button:hover, .ctx-menu button:focus-visible, .ctx-menu button:focus { background: var(--line-soft, #ffffff12); outline: none; }
 
-/* Placed things in Move: ends of an arrow to grab, a thing being moved, live ink, pings. */
+/* Placed things in Select: ends of an arrow to grab, a thing being moved, live ink, pings. */
 .mm-overlay.map .arrow-end { fill: transparent; stroke: transparent; pointer-events: all; cursor: grab; }
 .mm-overlay.map .arrow:hover .arrow-end { fill: #ffffff22; stroke: var(--text); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.mm-overlay.map[data-tool="move"] .arrow .hit, .mm-overlay.map[data-tool="move"] [data-stroke] .hit { cursor: grab; }
+.mm-overlay.map[data-tool="select"] .arrow .hit, .mm-overlay.map[data-tool="select"] [data-stroke] .hit { cursor: grab; }
 .mm-overlay.map .arrow.moving, .mm-overlay.map [data-stroke].moving { opacity: 0.85; }
 .mm-overlay.map .live-ink, .mm-overlay.map .pings { pointer-events: none; }
 .mm-overlay.map .live-ink .ink { opacity: 0.75; }

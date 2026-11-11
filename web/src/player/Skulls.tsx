@@ -1,6 +1,6 @@
 // A fallen hero and the game's small skull fade as one, driven only by replay time. No CSS
 // animation: pausing, scrubbing, reduced motion and following all show the same frame.
-// Unhoverable, so the brief death cue never takes a living hero's pointer; with the Move tool, a
+// Unhoverable, so the brief death cue never takes a living hero's pointer; with the Select tool, a
 // skull whose death has a recap is pressable and opens it (SkullRecap.tsx).
 
 import { Index, Show } from "solid-js";
