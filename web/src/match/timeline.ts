@@ -48,6 +48,9 @@ export interface TimelinePlayer {
   casts?: Array<[number, number, number]>;
   /** Replay tier: `[t_ds, ability_id, charges]` where charges left change. */
   charges?: Array<[number, number, number]>;
+  /** Replay tier (format 10): `[t_ds, ability_id, stacks]` where the stacks the hero holds on
+   * its own ability or item change (Leech Therapy's leeches collected); 0 once none is left. */
+  stacks?: Array<[number, number, number]>;
   /** Replay tier: `[start_ds, end_ds, state, src, ability_id]` hard CC (`MODIFIER_STATE_*`). */
   cc?: Array<[number, number, number, number, number]>;
   /** Replay tier: `[start_ds, end_ds, effect_id, src, ability_id, stacks]` icon-shown effects. */

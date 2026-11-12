@@ -40,6 +40,9 @@ export interface Tip {
   upgrades?: Array<{ text?: string; props: string[]; kinds?: Record<string, string> }>;
   /** `{s:Name}` names that are another property's token override → that property. */
   aliases?: Record<string, string>;
+  /** The words before the stacks held on it (`m_sCustomStackLabel`): "Current Bonus:",
+   * "Leeches Collected:", an item's "Current Stacks:". */
+  stack_label?: string;
 }
 
 export interface TipValues {
