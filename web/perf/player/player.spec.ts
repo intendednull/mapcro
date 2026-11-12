@@ -236,6 +236,12 @@ test("player: input latency and frame cost", async ({ browser }) => {
           await a.getByTestId("match-play").click();
           await a.waitForTimeout(500);
         }
+        // PERF_ALL_BUILDS=1: measure with all twelve build columns open (each runs buildAt per draw).
+        const allBuilds = !!process.env.PERF_ALL_BUILDS;
+        if (allBuilds) {
+          await a.locator(".tb-all-builds").click();
+          await a.waitForTimeout(500);
+        }
         const frame = await frames(a, cdp, 3000);
         let trace;
         if (playing) {
@@ -246,6 +252,10 @@ test("player: input latency and frame cost", async ({ browser }) => {
           trace = readTrace(file);
           // The raw trace holds the page's URLs and DOM: kept only when asked (PERF_KEEP_TRACE).
           if (!process.env.PERF_KEEP_TRACE) rmSync(file);
+        }
+        if (allBuilds) {
+          await a.locator(".tb-all-builds").click();
+          await a.waitForTimeout(300);
         }
         const tab = await tabLatency(a, 8);
         await a.getByTestId("souls-banner").first().click();
