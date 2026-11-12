@@ -958,6 +958,11 @@ makes a board with that match attached and lands in Player; **New board** is tod
   tag, "Archmother Rejuvenator ends in 1:40" (feedback #44; the game's own hover there,
   citadel_main `citadel_rejuvenator_hud_hint`, is an explaining sentence, not a time). Both
   holding one, the two timers sit side by side, each with its own hover.
+  With none held and the Mid-Boss dead, the same circle stays at the centre greyed, as the game's
+  `.midboss_cooldown` (mark `saturation: 0` at 0.3, border 0.15, no sweep), with the respawn's
+  m:ss under it (`.midbossTimerLabel`, 10 px bold at 0.3) and the hover "Mid-Boss respawns in
+  4:40", from the camps' cleared pairs as the map's "Respawns in". Up, with none held, nothing
+  (`.midboss_available`).
   The All builds button (Hold Tab) sits under the Rejuvenator's column, never beside it, so the
   two don't meet at any bar width, phone included (feedback #22).
 - **Rift capture rings** (replay tier, format 3, `player/Rift.tsx`): around the open rift, an

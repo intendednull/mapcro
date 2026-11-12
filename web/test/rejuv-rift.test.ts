@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { FALLBACK } from "../src/map/fallback-data";
 import { modelFromFallback } from "../src/map/model";
 import { type Timeline, captureAt, campsAt, rejuvAt, riftAt, urnAt } from "../src/match/timeline";
-import { markerTip, rejuvTip, riftTip, urnItemTip } from "../src/player/Camps";
+import { centreTimer, markerTip, rejuvTip, respawnTip, riftTip, urnItemTip } from "../src/player/Camps";
 import { groupOf, label, labelParts, namesFor, shortLabel } from "../src/player/events";
 import type { MatchPreview } from "../src/match/preview";
 
@@ -78,6 +78,25 @@ describe("Rejuvenator", () => {
     expect(markerTip(boss, { ...pv(2400), camps: new Map() }, 2400)).toBeUndefined();
     expect(markerTip(boss, { ...pv(2400), camps: new Map(), health: new Map([[boss.key, { pct: 45 }]]) } as MatchPreview, 2400)).toBe("Mid-Boss 45%");
     expect(markerTip(boss, { ...pv(2600), camps: new Map() }, 2600)).toBeUndefined();
+  });
+
+  it("the centre timer: a held Rejuvenator's, else the Mid-Boss's respawn while it's dead, else none", () => {
+    const boss = (t: number) => campsAt(tl, t).get(MID);
+    // Held (Sapphire's, from 1872), the boss dead: the Rejuvenator's.
+    expect(centreTimer(rejuvAt(tl, 1952), boss(1952))).toEqual({ kind: "rejuv" });
+    // Expired at 2052, the boss still dead until 2285: its respawn.
+    expect(rejuvAt(tl, 2100)).toEqual([]);
+    expect(centreTimer(rejuvAt(tl, 2100), boss(2100))).toEqual({ kind: "respawn", at: 2285 });
+    // Up again, nothing held: none.
+    expect(centreTimer([], boss(2300))).toEqual({ kind: "none" });
+    // Held with no revives left counts as none held.
+    expect(centreTimer([{ team: "amber", left: 0, ends: 2574 }], boss(2100))).toEqual({ kind: "respawn", at: 2285 });
+    // Held while the boss is up: the Rejuvenator's.
+    expect(centreTimer(rejuvAt(tl, 2400), boss(2400))).toEqual({ kind: "rejuv" });
+    // Before its first spawn, or no camps (the API summary): none.
+    expect(centreTimer([], { state: "unspawned", at: 600 })).toEqual({ kind: "none" });
+    expect(centreTimer([], undefined)).toEqual({ kind: "none" });
+    expect(respawnTip(2285, 2100)).toBe("Mid-Boss respawns in 3:05");
   });
 
   it("its events are the mid boss's, and name the revived hero", () => {

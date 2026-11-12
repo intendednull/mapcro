@@ -128,7 +128,11 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   `citadel_rejuvenator_hud_hint`: "Time remaining on active rejuvenators, or MidBoss respawn if
   no rejuvenators are active." The pack carries the layout, not the string. The objective is
   "Mid-Boss" (`Objective_MidBoss`), the item "Rejuvenator" (`Item_Rejuvenator`); a hero's
-  respawn is "Respawn in:" (`Citadel_Hud_RespawnIn`). Checked 2026-11-11, feedback #44.
+  respawn is "Respawn in:" (`Citadel_Hud_RespawnIn`). Checked 2026-11-11, feedback #44. The
+  timer's states (`citadel_hud_top_bar.vcss`): `.has_rejuv`; `.midboss_cooldown` (no Rejuvenator,
+  boss dead: `.statusEffectImage` `saturation: 0; opacity: 0.3; wash-color: none`,
+  `#StatusEffectsBorder` 0.15 offWhite, `.midbossTimerLabel` visible: 10 px bold `block` offWhite
+  0.3, `margin-bottom: -6px`); `.midboss_available` collapses it.
 - **Map** (`entities.rs`): `maps/dl_midtown/entities/default_ents.vents_c` → `entities[]` with
   semantic keys, camp `tier`, teleporter `exit`; minimap layers `minimap_midtown_*_psd`.
 - **HUD** (`hud.rs`, `topbar.rs`, `panorama.rs`): panorama styles/layouts → `hud_sources[]`.

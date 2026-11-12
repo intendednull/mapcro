@@ -10,7 +10,7 @@ import { hasVision, seenAt } from "./vision";
 import { killsAt } from "../match/builds";
 import { BuildColumn } from "./BuildColumn";
 import { GameTip, Hover, TagTip, useTooltips } from "./GameTooltip";
-import { rejuvTip } from "./Camps";
+import { centreTimer, rejuvTip, respawnTip } from "./Camps";
 import { buildAt } from "../match/builds";
 import { rosterTeamShort } from "../map/model";
 import { For, Show, batch, createMemo, createResource, onCleanup, onMount } from "solid-js";
@@ -19,7 +19,7 @@ import { cx } from "../ui/cx";
 import { boardKeys } from "../core/keys";
 import { modalOpen } from "../ui/modal";
 import { teamTotal } from "../core/souls";
-import { clockLabel, playersAt, scoreboardValueAt, rejuvAt, type PlayerAt, type RejuvNow } from "../match/timeline";
+import { campAt, clockLabel, playersAt, scoreboardValueAt, rejuvAt, type PlayerAt, type RejuvNow } from "../match/timeline";
 import { slotKey } from "../match/save";
 import type { Art } from "../map/pack";
 import { rosterTeamName } from "../map/model";
@@ -99,6 +99,33 @@ function RejuvTimer(p: { held: () => RejuvNow | undefined; taken: () => number |
           {/* 0..100 so only time eases, as the ult rings do. */}
           <circle class="pl-rejuv-ring" cx="15" cy="15" r="13.5" transform="rotate(-90 15 15)" pathLength="100" style={{ "stroke-dasharray": `${(frac() * 100).toFixed(2)} 100` }} />
         </svg>
+      </div>
+    </Hover>
+  );
+}
+
+/**
+ * The same centre circle while no team holds a Rejuvenator and the Mid-Boss is dead, as the game's
+ * `#RejuvenatorTimer.midboss_cooldown` draws it: the mark greyed (`saturation: 0`, opacity 0.3),
+ * the border at 0.15, no sweep, and under it `.midbossTimerLabel`, the respawn's m:ss (10 px, bold,
+ * offWhite at 0.3). Its hover says it: "Mid-Boss respawns in 4:40". Up, it's gone
+ * (`.midboss_available`).
+ */
+function RespawnTimer(p: { at: () => number | undefined; t: () => number; art: Art }) {
+  const img = () => p.art.images.get("rejuv-timer");
+  const left = () => (p.at() != null ? clockLabel(Math.max(0, Math.ceil(p.at()! - p.t()))) : "");
+  const tip = () => (p.at() != null ? respawnTip(p.at()!, p.t()) : undefined);
+  return (
+    <Hover tip={() => tip() && <TagTip text={tip()!} />}>
+      <div class={cx("pl-rejuv-timer", "pl-respawn-timer", p.at() != null && "on")} data-testid="tb-respawn-timer" role={tip() ? "img" : undefined} aria-label={tip()} aria-hidden={tip() ? undefined : "true"}>
+        <svg viewBox="0 0 30 30">
+          <circle class="pl-rejuv-disc" cx="15" cy="15" r="13.5" />
+          <Show when={img()} fallback={<path class="pl-rejuv-mark" transform="translate(6 6.5) scale(0.9)" d={WING} />}>
+            <image class="pl-rejuv-mark" href={img()} x="3" y="3" width="24" height="24" />
+          </Show>
+          <circle class="pl-rejuv-track" cx="15" cy="15" r="13.5" />
+        </svg>
+        <span class="pl-respawn-label" data-testid="tb-respawn-label">{left()}</span>
       </div>
     </Hover>
   );
@@ -196,6 +223,13 @@ export function PlayerTopBar(p: {
     const h = held(t);
     return h && p.host.tl()?.rejuv?.find((r) => r.team === h.team && r.ends_s === h.ends)?.taken_s;
   };
+  // The centre timer when no Rejuvenator is held: the Mid-Boss's respawn while it's dead.
+  const centre = createMemo(() => {
+    const tl = p.host.tl();
+    const c = tl?.camps?.find((c) => c.key.startsWith("mid_boss:"));
+    return centreTimer(rejuv(), c ? campAt(c, p.host.t()) : undefined);
+  });
+  const respawnAt = () => { const c = centre(); return c.kind === "respawn" ? c.at : undefined; };
   // Changing values ease (spec §4a): the totals count to each new value.
   const shown = { Amber: easedNumber(() => (known("Amber") ? total("Amber") : null)), Sapphire: easedNumber(() => (known("Sapphire") ? total("Sapphire") : null)) };
 
@@ -357,6 +391,7 @@ export function PlayerTopBar(p: {
       <RejuvBadge held={() => held(enemy())} team={enemy()} side="enemy" art={p.art} />
       <RejuvTimer held={() => held(friend())} taken={() => taken(friend())} both={() => !!held(enemy())} t={p.host.t} team={friend()} side="friend" art={p.art} />
       <RejuvTimer held={() => held(enemy())} taken={() => taken(enemy())} both={() => !!held(friend())} t={p.host.t} team={enemy()} side="enemy" art={p.art} />
+      <RespawnTimer at={respawnAt} t={p.host.t} art={p.art} />
     </TopBarFrame>
   );
 }

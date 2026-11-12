@@ -164,26 +164,46 @@ test("the Rejuvenator: its events, its badge on the holder's side of the top bar
   const box = async (l: ReturnType<typeof a.locator>) => (await l.boundingBox())!;
   // A timer's hover: its instant tag (#41), the only one open.
   const tag = a.getByTestId("tag-tip");
-  const timerSays = async (team: string, text: string) => {
-    const b = await box(timer(team));
+  const hoverSays = async (l: ReturnType<typeof a.locator>, text: string) => {
+    const b = await box(l);
     await a.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
     await expect(tag).toHaveCount(1, AT_ONCE);
     await expect(tag).toHaveText(text);
   };
+  const timerSays = (team: string, text: string) => hoverSays(timer(team), text);
+  // The centre circle while nothing is held and the Mid-Boss is dead.
+  const respawn = a.getByTestId("tb-respawn-timer");
   const bar = await box(a.getByTestId("topbar"));
   const mid = bar.x + bar.width / 2;
 
+  // Before the kill at 20, nothing held and the Mid-Boss up: no centre timer at all
+  // (.midboss_available).
+  await scrubTo(a, 10);
+  await expect(respawn).toBeHidden();
+  await ring("sapphire", null);
+  await ring("amber", null);
+
+  // Dead, nothing held: the centre circle greyed with its respawn under it (.midboss_cooldown),
+  // its hover the time.
   await scrubTo(a, 25);
   await marks("sapphire", 0);
   await marks("amber", 0);
   await ring("sapphire", null);
   await ring("amber", null);
+  await expect(respawn).toBeVisible();
+  await expect(respawn.getByTestId("tb-respawn-label")).toHaveText("5:55");
+  expect(await respawn.locator(".pl-rejuv-mark").evaluate((e) => [getComputedStyle(e).filter, getComputedStyle(e).opacity])).toEqual(["grayscale(1)", "0.3"]);
+  await expect(respawn.locator(".pl-rejuv-ring")).toHaveCount(0);
+  await hoverSays(respawn, "Mid-Boss respawns in 5:55");
 
   await scrubTo(a, 40);
   await marks("sapphire", 3);
   await marks("amber", 0);
   await ring("sapphire", "94.44");
   await ring("amber", null);
+  // Held: the team's coloured timer instead, its own hover; no greyed one.
+  await expect(respawn).toBeHidden();
+  expect(await timer("sapphire").locator(".pl-rejuv-mark").evaluate((e) => getComputedStyle(e).filter)).toBe("none");
   // No text: neither a count nor a countdown.
   await expect(badge("sapphire")).toHaveText("");
   await expect(timer("sapphire")).toHaveText("");
@@ -243,8 +263,15 @@ test("the Rejuvenator: its events, its badge on the holder's side of the top bar
   await scrubTo(a, 280);
   await marks("amber", 0);
   await ring("amber", null);
-  // Gone, it says nothing: no tag where it was.
-  await a.mouse.move(spot.x + spot.width / 2, spot.y + spot.height / 2);
+  // Spent, nothing is held: the greyed circle takes the centre, with the respawn (boss back at 380).
+  await expect(respawn).toBeVisible();
+  await expect(respawn.getByTestId("tb-respawn-label")).toHaveText("1:40");
+  await hoverSays(respawn, "Mid-Boss respawns in 1:40");
+  // Up again: nothing there, and nothing to say.
+  await scrubTo(a, 390);
+  await expect(respawn).toBeHidden();
+  await ring("amber", null);
+  await a.mouse.move(spot.x + spot.width / 2 + 1, spot.y + spot.height / 2);
   await expect(tag).toHaveCount(0);
 
   // From Sapphire's side it's on the friendly (left) side.
