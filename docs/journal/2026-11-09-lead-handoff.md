@@ -3,6 +3,23 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## State (2026-11-12 ~23:50 UTC, lead)
+
+- **Prod:** `web` runs 074647d (infra a94edb7). **Schema v7** (sessions; additive, floor 5). The
+  pre-v7 backup is at `/var/lib/mapcro/mapcro.sqlite.pre-v7`. Healthz ok, 0 5xx, 0 OOM.
+- **Shipped 2026-11-12:**
+  - Player perf (#39 closed): per-sample redraws, Tab keeps its columns, the events list skips
+    off-screen rows, the buildAt index, map icons, top-bar guard. `just perf-player` measures it.
+  - Laser seams (#46 closed).
+  - The lead's match lookup (`just stats timelines`, `just pull-timeline`).
+  - Sessions phase 1 (server, no UI). It passed a Fable adversarial review and a re-review.
+- **Open feedback:** only #16 (parked).
+- **Next:** sessions phase 2 (client UI, spec §10 item 2); TD-57 (the per-board grant cap can
+  lock the owner out). Fly Sprite profiling is parked (backlog).
+- **DeepSeek** (Paseo, opencode provider) handles mechanical perf/fix tasks well and cheaply
+  (about $0.20 for the whole day). Review its output, as with the buildAt walk-back gap and the
+  laser clip churn.
+
 ## State (2026-11-12 ~07:45 UTC, lead)
 
 - **Prod:** `web` runs aa783fc (infra 1166f8a) + pack **6861-stacks** (game 6861, with `stack_label`).
