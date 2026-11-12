@@ -254,8 +254,8 @@ export function FolderRecent(p: { onOpen: (id: string) => void }) {
 
 /** "Get the Windows app" (or Linux), quiet: on a Windows or desktop Linux browser only, never in
  * the app, once released (`desktop.ts` `desktopAppLinks`). It finds the replays folder on its own.
- * The installer or AppImage; "Portable" or ".deb", quieter, beside it. */
+ * The installer or the AppImage: the builds that update themselves. */
 export function DesktopApp(p: { class?: string }) {
   const links = desktopAppLinks();
-  return <Show when={links}>{(l) => <AppDownload links={l()} where="folder" class={cx("btn ghost small", p.class)} altClass="btn ghost small muted" />}</Show>;
+  return <Show when={links}>{(l) => <AppDownload links={l()} where="folder" class={cx("btn ghost small", p.class)} />}</Show>;
 }

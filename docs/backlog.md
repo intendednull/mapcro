@@ -310,8 +310,9 @@ much they matter.
   - **Check on a real Linux desktop:** clicking a `mapcro://` link in Firefox and Chrome with
     the .deb installed, and with an AppImage (its self-registration writes a desktop file in
     `~/.local/share/applications` on every start).
-  - **Open in app on Linux browsers** is on (2026-11-11, app-link) with the Linux download link;
-    the real-desktop check above covers it.
+  - **Open in app on Linux browsers** is on (2026-11-11, app-link) with the Linux download link
+    (the AppImage only: the site links only self-updating builds); the real-desktop check above
+    covers it.
   - **Open in app when the app isn't installed** does nothing visible (the browser drops an
     unknown scheme); a quiet "Get the app" sits beside it (operator, 2026-11-11). Detecting
     the missing handler (blur/visibility timing) isn't done.

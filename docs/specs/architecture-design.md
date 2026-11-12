@@ -1306,9 +1306,10 @@ makes a board with that match attached and lands in Player; **New board** is tod
       registers `mapcro://` for the current user itself, and doesn't install updates: when the
       feed has a newer version the page shows **Update available**, a link straight to the new
       portable zip.
-    - **Download link (operator, 2026-11-11):** per system, the default file and a quieter one
-      beside it: on Windows "Get the Windows app" (the installer) and "Portable"; on desktop Linux
-      "Get the Linux app" (the AppImage, which updates itself) and ".deb". Never in the app, never
+    - **Download link (operator, 2026-11-11):** per system, one link to the build that updates
+      itself: on Windows "Get the Windows app" (the installer), on desktop Linux "Get the Linux
+      app" (the AppImage). No portable or .deb link in a browser (releases still carry both; only
+      the portable app's Update available links its zip). Never in the app, never
       on other systems (macOS, Android, ChromeOS, phones). Every download link is a file of the
       latest release by a stable name (`releases/latest/download/<name>`), downloaded in place,
       never a release page. It sits in a quiet text row under Load a game, beside Link replays

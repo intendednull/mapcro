@@ -6,7 +6,7 @@
 //   (desktop/core/src/link.rs, the same rules as `parseBoardLink` here).
 // - On a board page in a browser, "Open in app" is that link (`openInAppHref`), shown where the
 //   app's download is (`desktopAppLinks`: a Windows or desktop Linux browser, never inside the
-//   app, once released). The installer, the .deb and the AppImage (at each start) register the scheme.
+//   app, once released). The installer and the AppImage (at each start) register the scheme; the .deb too.
 // - In the app, "Open link" takes a pasted share link or a mapcro:// one (`parseBoardLink`).
 
 import { shareUrl } from "./api";

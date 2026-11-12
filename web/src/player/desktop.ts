@@ -82,14 +82,14 @@ export function desktopSource(invoke: Invoke): LocalSource {
  * stable name the release job uploads beside the versioned one (desktop/README.md, Releasing).
  * A download link always names a file, never a release page (operator, 2026-11-11). */
 const LATEST = "https://github.com/intendednull/mapcro/releases/latest/download";
+/** A browser is offered only the builds that update themselves (operator, 2026-11-11). Releases
+ * still carry the portable zip and the .deb; only the portable app itself links its zip. */
 /** The Windows installer: "Get the Windows app". */
 export const WINDOWS_APP_URL = `${LATEST}/mapcro_x64-setup.exe`;
-/** The portable build's zip: the quieter "Portable" beside it, and the portable app's "Update available". */
+/** The portable build's zip: the portable app's "Update available" only, never a browser's link. */
 export const WINDOWS_APP_PORTABLE_URL = `${LATEST}/mapcro_x64-portable.zip`;
-/** The AppImage: "Get the Linux app" (it updates itself, like the installer). */
+/** The AppImage: "Get the Linux app". */
 export const LINUX_APP_URL = `${LATEST}/mapcro_amd64.AppImage`;
-/** The .deb: the quieter ".deb" beside it. */
-export const LINUX_APP_DEB_URL = `${LATEST}/mapcro_amd64.deb`;
 
 /**
  * One flag for both platforms: every tagged release builds both, and its `publish` job refuses a
@@ -117,12 +117,12 @@ export function desktopOs(nav: Nav | undefined): DesktopOs | undefined {
   return undefined;
 }
 
-/** A platform's downloads: the default link (`label`, `href`) and a quieter one beside it. */
-export type DesktopLinks = { os: DesktopOs; label: string; title: string; href: string; alt: { label: string; href: string } };
+/** A system's download: one link, the self-updating build. */
+export type DesktopLinks = { os: DesktopOs; label: string; title: string; href: string };
 
 const LINKS: Record<DesktopOs, DesktopLinks> = {
-  windows: { os: "windows", label: "Get the Windows app", title: "Windows app", href: WINDOWS_APP_URL, alt: { label: "Portable", href: WINDOWS_APP_PORTABLE_URL } },
-  linux: { os: "linux", label: "Get the Linux app", title: "Linux app", href: LINUX_APP_URL, alt: { label: ".deb", href: LINUX_APP_DEB_URL } },
+  windows: { os: "windows", label: "Get the Windows app", title: "Windows app", href: WINDOWS_APP_URL },
+  linux: { os: "linux", label: "Get the Linux app", title: "Linux app", href: LINUX_APP_URL },
 };
 
 /** The app's downloads to show, if any: on a Windows or desktop Linux browser, never inside the
@@ -136,7 +136,7 @@ export function desktopAppLinks(o: { released?: boolean; nav?: Nav; w?: unknown 
 
 /**
  * In the portable app: the newer version the update feed offers (the page shows "Update
- * available", a link straight to the portable zip). Nothing in a browser, in the installed app (it
+ * available", a link straight to the new portable zip). Nothing in a browser, in the installed app (it
  * updates itself), in an app without the command, or on any failure.
  */
 export async function appUpdate(invoke: Invoke | undefined = bridge()): Promise<string | undefined> {

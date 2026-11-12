@@ -1,12 +1,12 @@
-// The app's downloads (desktop/README.md, Releasing): per system, the default file and a quieter
-// one beside it, each a file of the latest release by the stable name the release jobs upload
-// (never a release page); shown on Windows and desktop Linux browsers only, never in the app,
-// under DESKTOP_APP_RELEASED. And the portable app's "Update available" (`appUpdate`).
+// The app's download (desktop/README.md, Releasing): per system, the one build that updates itself
+// (operator, 2026-11-11: a browser gets no portable zip or .deb link), a file of the latest release by the stable
+// name the release jobs upload (never a release page); shown on Windows and desktop Linux
+// browsers only, never in the app, under DESKTOP_APP_RELEASED. And the portable app's "Update
+// available" (`appUpdate`).
 import { describe, expect, it } from "vitest";
 import {
   DESKTOP_APP_RELEASED,
   type Invoke,
-  LINUX_APP_DEB_URL,
   LINUX_APP_URL,
   WINDOWS_APP_PORTABLE_URL,
   WINDOWS_APP_URL,
@@ -37,9 +37,9 @@ describe("the download files", () => {
   it("are files of the latest release by stable names, never a release page", () => {
     const base = "https://github.com/intendednull/mapcro/releases/latest/download/";
     expect(WINDOWS_APP_URL).toBe(`${base}mapcro_x64-setup.exe`);
-    expect(WINDOWS_APP_PORTABLE_URL).toBe(`${base}mapcro_x64-portable.zip`);
     expect(LINUX_APP_URL).toBe(`${base}mapcro_amd64.AppImage`);
-    expect(LINUX_APP_DEB_URL).toBe(`${base}mapcro_amd64.deb`);
+    // The portable app's Update available only.
+    expect(WINDOWS_APP_PORTABLE_URL).toBe(`${base}mapcro_x64-portable.zip`);
   });
   it("are on: the first releases are out (operator, 2026-11-11)", () => {
     expect(DESKTOP_APP_RELEASED).toBe(true);
@@ -47,25 +47,23 @@ describe("the download files", () => {
 });
 
 describe("desktopAppLinks: the system matrix", () => {
-  it("Windows: the installer, and Portable beside it", () => {
+  it("Windows: the installer only", () => {
     for (const o of [at(UA.windows), at(UA.windowsFirefox), at(UA.windows, "Windows"), at(UA.macOs, "Windows")]) {
       expect(desktopAppLinks(o)).toEqual({
         os: "windows",
         label: "Get the Windows app",
         title: "Windows app",
         href: WINDOWS_APP_URL,
-        alt: { label: "Portable", href: WINDOWS_APP_PORTABLE_URL },
       });
     }
   });
-  it("desktop Linux: the AppImage, and .deb beside it", () => {
+  it("desktop Linux: the AppImage only", () => {
     for (const o of [at(UA.linuxChrome), at(UA.linuxFirefox), at(UA.linuxChrome, "Linux")]) {
       expect(desktopAppLinks(o)).toEqual({
         os: "linux",
         label: "Get the Linux app",
         title: "Linux app",
         href: LINUX_APP_URL,
-        alt: { label: ".deb", href: LINUX_APP_DEB_URL },
       });
     }
   });

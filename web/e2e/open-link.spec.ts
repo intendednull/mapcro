@@ -8,6 +8,7 @@
 // (`__TAURI_INTERNALS__.invoke`, as Tauri injects it); the boards are the real server's.
 
 import { type Browser, expect, test } from "./fixtures";
+import { noSecondary } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
 let server: Server;
@@ -124,6 +125,7 @@ test("in a browser: no Open link, Ctrl+L is the browser's, and Open in app on Wi
   await expect(p.getByTestId("open-in-app-get")).toHaveAttribute("href", "https://github.com/intendednull/mapcro/releases/latest/download/mapcro_x64-setup.exe");
   await expect(p.getByTestId("open-in-app-get")).toHaveAttribute("download", "");
   await expect(p.getByTestId("open-in-app-get")).not.toHaveAttribute("target", /.+/);
+  await noSecondary(p);
   await ctx.close();
 
   // A desktop Linux browser: the same link, and the AppImage.
@@ -133,6 +135,7 @@ test("in a browser: no Open link, Ctrl+L is the browser's, and Open in app on Wi
   await expect(l.getByTestId("board-title")).toHaveText("Browser");
   await expect(l.getByTestId("open-in-app")).toHaveAttribute("href", `mapcro://b/${board}#${token}`);
   await expect(l.getByTestId("open-in-app-get")).toHaveAttribute("href", "https://github.com/intendednull/mapcro/releases/latest/download/mapcro_amd64.AppImage");
+  await noSecondary(l);
   await linux.close();
 
   // Not on other systems.

@@ -1,11 +1,13 @@
-// The app's downloads (operator, 2026-11-11; desktop/README.md, Releasing): a Windows browser gets
-// the installer with a quieter "Portable" beside it, a desktop Linux browser the AppImage with
-// ".deb"; a quiet text row under Load a game, the footer, and "Where's my replay?". Every download
-// link is a file of the latest release, downloaded in place (no new tab, never a release page).
+// The app's download (operator, 2026-11-11; desktop/README.md, Releasing): a Windows browser gets
+// the installer, a desktop Linux browser the AppImage: only the builds that update themselves,
+// never the portable zip or the .deb. A quiet text row under Load a game, the footer, and "Where's
+// my replay?". Every download link is a file of the latest release, downloaded in place (no new
+// tab, never a release page).
 // Never on other systems (macOS, phones) or inside the app. The footer links the source on every
 // system, the app included.
 
 import { type Browser, type Page, expect, test } from "./fixtures";
+import { noSecondary } from "./helpers";
 import { Server } from "./server";
 
 let server: Server;
@@ -21,7 +23,7 @@ const UA = {
   macOs: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
   android: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36",
 };
-const FILE = /^https:\/\/github\.com\/intendednull\/mapcro\/releases\/latest\/download\/mapcro_(x64-setup\.exe|x64-portable\.zip|amd64\.AppImage|amd64\.deb)$/;
+const FILE = /^https:\/\/github\.com\/intendednull\/mapcro\/releases\/latest\/download\/mapcro_(x64-setup\.exe|amd64\.AppImage)$/;
 const REPO = "https://github.com/intendednull/mapcro";
 
 async function at(browser: Browser, userAgent: string, o: { inApp?: boolean; width?: number } = {}) {
@@ -49,26 +51,27 @@ async function onlyFiles(page: Page) {
   return links.length;
 }
 
-for (const [os, ua, label, alt, file, altFile] of [
-  ["Windows", UA.windows, "Get the Windows app", "Portable", "mapcro_x64-setup.exe", "mapcro_x64-portable.zip"],
-  ["Linux", UA.linux, "Get the Linux app", ".deb", "mapcro_amd64.AppImage", "mapcro_amd64.deb"],
+for (const [os, ua, label, file] of [
+  ["Windows", UA.windows, "Get the Windows app", "mapcro_x64-setup.exe"],
+  ["Linux", UA.linux, "Get the Linux app", "mapcro_amd64.AppImage"],
 ] as const) {
   test(`a ${os} browser gets its app: under Load a game, in the footer, and in Where's my replay?`, async ({ browser }) => {
     const { ctx, page } = await at(browser, ua);
     const row = page.getByTestId("app-home");
     await expect(row).toBeVisible();
     await expect(row.getByRole("link", { name: label })).toHaveAttribute("href", new RegExp(`/releases/latest/download/${file.replace(".", "\\.")}$`));
-    await expect(row.getByRole("link", { name: alt, exact: true })).toHaveAttribute("href", new RegExp(`/releases/latest/download/${altFile.replace(".", "\\.")}$`));
+    // One link: the build that updates itself.
+    await expect(row.getByRole("link")).toHaveCount(1);
     // A quiet text row: no button styling.
     await expect(row.locator(".btn")).toHaveCount(0);
     for (const where of ["landing", "help"]) {
       await expect(page.getByTestId(`app-get-${where}`)).toHaveAttribute("href", await page.getByTestId("app-get-home").getAttribute("href") as string);
-      await expect(page.getByTestId(`app-alt-${where}`)).toHaveAttribute("href", await page.getByTestId("app-alt-home").getAttribute("href") as string);
       await expect(page.getByTestId(`app-get-${where}`)).toHaveText(label);
     }
     await page.getByTestId("replay-help-open").click();
     await expect(page.getByTestId("replay-help-app")).toContainText(`Or get the ${os} app`);
-    expect(await onlyFiles(page)).toBe(6);
+    expect(await onlyFiles(page)).toBe(3);
+    await noSecondary(page);
     await expect(page.getByTestId("github-landing")).toBeVisible();
     await expect(page.getByTestId("github-landing")).toHaveAttribute("href", REPO);
     await ctx.close();
@@ -105,8 +108,8 @@ test("the home row reads quietly on the dark page, at phone width too", async ({
     expect(s.border).toBe("none");
     expect(s.animation).toBe("none");
     expect(s.right).toBeLessThanOrEqual(width);
-    // The footer's links: its size, the quiet text colour (not the browser's blue), alt included.
-    for (const id of ["app-get-landing", "app-alt-landing", "github-landing"]) {
+    // The footer's links: its size, the quiet text colour (not the browser's blue).
+    for (const id of ["app-get-landing", "github-landing"]) {
       const f = await page.getByTestId(id).evaluate((a) => ({ color: getComputedStyle(a).color, size: getComputedStyle(a).fontSize }));
       expect(f, id).toEqual({ color: "rgb(147, 168, 160)", size: "11.5px" });
     }

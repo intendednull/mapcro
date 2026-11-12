@@ -136,10 +136,12 @@ Windows releases come two ways, both on the same GitHub release:
 
 The site's links use the stable names (`releases/latest/download/mapcro_x64-setup.exe`, `…/mapcro_x64-portable.zip`):
 tauri-action names the installer with its version, so the release job also uploads the copies.
-"Portable" is the quieter link beside "Get the Windows app". Linux has the same pair:
-"Get the Linux app" is `…/mapcro_amd64.AppImage` (it updates itself), ".deb" beside it is
-`…/mapcro_amd64.deb`; `release-linux` uploads those stable copies. Every download link on the site
-names a file, never a release page, and downloads in place (operator, 2026-11-11).
+A browser is offered only the builds that update themselves (operator, 2026-11-11): "Get the
+Windows app" is the installer, "Get the Linux app" is `…/mapcro_amd64.AppImage`. The portable
+zip is linked only by the portable app's own **Update available**; the .deb isn't linked at all.
+Releases still carry both, with stable names (`release-linux` uploads `mapcro_amd64.AppImage` and
+`mapcro_amd64.deb`), so existing users and direct links keep working. Every download link names
+a file, never a release page, and downloads in place.
 
 ## Deep links
 
@@ -378,8 +380,8 @@ Each release:
    `web/src/player/desktop.ts`, operator 2026-11-11; one flag for both systems, since `publish`
    refuses a release without both). They point at the stable names of `releases/latest`, so a
    new release needs no site change: on Windows browsers "Get the Windows app"
-   (`mapcro_x64-setup.exe`) with "Portable" (`mapcro_x64-portable.zip`), on desktop Linux
-   browsers "Get the Linux app" (`mapcro_amd64.AppImage`) with ".deb" (`mapcro_amd64.deb`).
+   (`mapcro_x64-setup.exe`), on desktop Linux browsers "Get the Linux app"
+   (`mapcro_amd64.AppImage`). Only the builds that update themselves; no portable or .deb link.
    Never inside the app, never on macOS, Android, ChromeOS or phones. They show under Load a
    game, beside the replays folder link, in "Where's my replay?", and in the landing page's
    footer. Board pages get **Open in app** (their `mapcro://` link) the same way. A release made
