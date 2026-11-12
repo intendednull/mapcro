@@ -3,8 +3,9 @@ import { ActiveEffects } from "./ActiveEffects";
 import { BuildOrder } from "./BuildOrder";
 import { For, Index, Show, createMemo, untrack } from "solid-js";
 import type { Art, Hero } from "../map/pack";
-import { buildAt, killsAt, type BuildEntry } from "../match/builds";
-import { PICKUPS_FORMAT, SLOT, investFill, statBuild, statsAt, type LoadedTable } from "../match/stats";
+import { killsAt, type BuildEntry } from "../match/builds";
+import { PICKUPS_FORMAT, SLOT, investFill, statsAt, type LoadedTable } from "../match/stats";
+import { buildState } from "./buildState";
 import { scoreboardValueAt, type Timeline, type TimelinePlayer } from "../match/timeline";
 import { cx } from "../ui/cx";
 import { LABELS } from "./labels";
@@ -28,7 +29,8 @@ export interface Popover {
 }
 
 export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefined; limited?: boolean; onSeek?: ((t: number) => void) | undefined; player: TimelinePlayer; timeline: Timeline | undefined; t: number; art: Art; hero: Hero | undefined; name: string | undefined; id: string; stats?: LoadedTable | undefined; ladder?: LoadedTable | undefined }) {
-  const build = createMemo(() => buildAt(p.player, p.t));
+  // Changing when what the column shows does, not on every frame of playback (#39).
+  const { build, statInput } = buildState(() => p.player, () => p.t);
   const record = (id: number) => p.art.buildCatalog?.records.get(id);
   /** One popover opened or closed. They share one disclosure name, so opening one closes
    * the other, whose toggle comes too: a close only counts for the one that is open. */
@@ -48,7 +50,7 @@ export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefine
   const kills = createMemo(() => p.player.kills != null ? scoreboardValueAt(p.player.kills, p.t) : killsAt(p.timeline, p.t, p.player.team, p.player.slot));
   const assists = () => scoreboardValueAt(p.player.assists, p.t);
   // Calculated from the build and the replay patch's data (crates/stats); "—" without a table.
-  const calc = createMemo(() => (p.timeline?.format ?? 0) >= PICKUPS_FORMAT ? statsAt(p.stats, statBuild(p.player, p.t, build())) : null);
+  const calc = createMemo(() => (p.timeline?.format ?? 0) >= PICKUPS_FORMAT ? statsAt(p.stats, statInput()) : null);
   // The recorded max health refreshes only at (re)spawn, so the calculated one replaces it.
   const maxHealth = () => calc()?.shown.max_health ?? scoreboardValueAt(p.player.max_health, p.t);
   const deaths = createMemo(() => p.player.deaths.filter(t => t <= p.t).length);

@@ -28,6 +28,7 @@ import { EventPings, Highlight, MapControls, Player, PlayerSide, PlayerSwitch, T
 import { createPlayerHost, playbackPresence } from "../player/host";
 import { ReplayPrompt } from "../player/ReplayPrompt";
 import { MarkerTips, TeleporterLink } from "../player/Camps";
+import { markerStates } from "../player/markerStates";
 import { HoverLabels, hoverFromWire, hoverWire, localHover, setRemoteHover } from "../map/HoverLabel";
 import { UrnMark } from "../player/Urn";
 import { DeathSkulls } from "../player/Skulls";
@@ -872,21 +873,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
       },
     };
   };
-  const markerStatus = (k: string) => {
-    const pv = matchPreview();
-    // A shop is up on a board; in Player a lane shop is gone once its guardian falls.
-    if (k.startsWith("shop:")) return pv?.shops?.has(k) ? "Hidden" : undefined;
-    const own = objectives().get(k)?.status;
-    // Player shows only the match at t (spec §6b): what was down, and from a replay
-    // the rifts and powerups; never the scene's states. Without a replay, rifts are off.
-    if (!pv) return own;
-    const site = pv.sites.get(k);
-    if (site) return site;
-    if (k.startsWith("rift:") || k.startsWith("urn:")) return "Destroyed";
-    if (pv.down.has(k)) return "Destroyed";
-    // The patron's stage from the replay: its shield (stage 1) or its core (stage 2).
-    return pv.health?.get(k)?.stage === 2 ? "Stage2" : "Active";
-  };
+  // Each marker's status, health, camp and buff at t: changing when one does, not with every
+  // frame's preview (#39).
+  const markerKeys = createMemo(() => p.art.model.markers.map((m) => m.key));
+  const marks = markerStates(matchPreview, markerKeys, (k) => objectives().get(k)?.status);
+  const markerStatus = marks.status;
   const mapControls = () => (<MapControls host={player} heals={heals()} crates={crates()}
               toggleHeals={() => player.setShowHeals(!heals())}
               toggleCrates={() => player.setShowCrates(!crates())}
@@ -943,14 +934,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
               overlayClass={!state.canEdit() && "readonly"}
               status={markerStatus}
               // Replay tier, Health on: each objective's icon filled to its health (operator, 2026-11-08).
-              health={(k) => matchPreview()?.health?.get(k)?.pct}
+              health={marks.health}
               waveT={splitOf}
               laneEdges={(k) => laneEdges().get(k)?.()}
-              camp={(k) => matchPreview()?.camps.get(k)?.state}
-              buff={(k) => {
-                const b = matchPreview()?.powerups?.get(k);
-                return b?.state === "up" ? b.buff : undefined;
-              }}
+              camp={marks.camp}
+              buff={marks.buff}
               raisedLane={waveDrag()?.key}
               picked={(k) => objSelection().has(k)}
               showHidden={state.canEdit()}

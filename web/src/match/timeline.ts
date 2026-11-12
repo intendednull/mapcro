@@ -437,6 +437,20 @@ const MARKER_KIND: Record<string, Marker["kind"]> = { guardian: "t1", walker: "t
  * and the mid boss, the same kind and team.
  */
 export function markerKey(key: string, markers: Array<Pick<Marker, "key" | "kind" | "team" | "at">>): string | undefined {
+  // Asked for every site on every frame of playback (host.ts `preview`), so each answer is kept
+  // by the marker list it came from (#39): a pack's markers never change once loaded.
+  let known = resolved.get(markers);
+  if (!known) resolved.set(markers, (known = new Map()));
+  if (known.has(key)) return known.get(key);
+  const found = resolveMarkerKey(key, markers);
+  known.set(key, found);
+  return found;
+}
+
+/** markerKey's answers by the marker list asked about (a WeakMap: a list let go takes its own). */
+const resolved = new WeakMap<object, Map<string, string | undefined>>();
+
+function resolveMarkerKey(key: string, markers: Array<Pick<Marker, "key" | "kind" | "team" | "at">>): string | undefined {
   if (markers.some((m) => m.key === key)) return key;
   const [k = "", team = ""] = key.split(":");
   const kind = MARKER_KIND[k];

@@ -29,6 +29,7 @@ import { BarClock, EyeIcon, PortraitSlot, Souls, TeamColumn, TeamScore, TopBarFr
 import { slotName } from "../board/roster";
 import { easedNumber } from "../board/smooth";
 import type { PlayerHost } from "./host";
+import { barSlot } from "./barSlot";
 
 /**
  * Health at or under this percent puts a portrait in the HUD's `.healthLow` state. The game sets
@@ -231,24 +232,27 @@ export function PlayerTopBar(p: {
   });
   const respawnAt = () => { const c = centre(); return c.kind === "respawn" ? c.at : undefined; };
   // Changing values ease (spec §4a): the totals count to each new value.
-  const shown = { Amber: easedNumber(() => (known("Amber") ? total("Amber") : null)), Sapphire: easedNumber(() => (known("Sapphire") ? total("Sapphire") : null)) };
+  // Memos: the totals change with a sample, not every frame (#39).
+  const totalShown = (t: "Amber" | "Sapphire") => createMemo(() => (known(t) ? total(t) : null));
+  const shown = { Amber: easedNumber(totalShown("Amber")), Sapphire: easedNumber(totalShown("Sapphire")) };
 
   const column = (t: "Amber" | "Sapphire", side: "friend" | "enemy") => (
     <TeamColumn team={t} side={side}>
       <For each={team(t)}>
         {(s) => {
-          const x = () => at().get(slotKey(t, s.slot.slot));
+          // Only what the bar draws, changing when a sample does, not every frame (#39).
+          const x = barSlot(at, slotKey(t, s.slot.slot));
           const hero = () => (x() ? p.art.heroes.get(x()!.hero_id) : undefined);
           const nameOf = () => p.host.playerName(t.toLowerCase(), s.slot.slot);
           // As the scene's bar and the tokens: the match's name, else the one typed into the slot.
           const label = () => slotName(nameOf() ?? "", s.slot.name) || `${rosterTeamShort(t)} ${s.slot.slot + 1}`;
-          const dead = () => !!x() && x()!.pos === null;
-          const unseen = () => {
+          const dead = () => !!x()?.dead;
+          const unseen = createMemo(() => {
             const tl = p.host.tl(), view = p.host.vision();
             if (!tl || view === "all" || view === t.toLowerCase() || !hasVision(tl)) return false;
             const player = tl.players.find(q => q.team === t.toLowerCase() && q.slot === s.slot.slot);
             return !!player && !seenAt(player, p.host.t())?.seen;
-          };
+          });
           /** Health to draw: replay tier, Health on, alive (.Dead #HealthBar collapses). */
           const hp = () => (p.host.showHealth() && !dead() && x()?.health != null ? Math.max(0, Math.min(100, x()!.health!)) : null);
           const low = () => hp() != null && hp()! <= LOW_HEALTH;

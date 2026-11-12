@@ -6,7 +6,7 @@
 // description, property cards with the spirit scale, rows, the three upgrade tiers). The words
 // and numbers are the game's (match/tooltips.ts); `Hover` shows one beside what it's about.
 
-import { For, type JSX, Show, createEffect, createResource, createSignal, onCleanup } from "solid-js";
+import { For, type JSX, Show, createEffect, createResource, createRoot, createSelector, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { Art, BuildRecord } from "../map/pack";
 import { TIER_COSTS, type MarkupNode, type TipIcon, type TipProp, type TipValues, type Tooltips, blockShown, loadTooltips, parseMarkup, shown, substitute, upgraded, upgradesTo } from "../match/tooltips";
@@ -295,6 +295,11 @@ export function TagTip(p: { text: string }) {
 // ---- hover: one tooltip at a time, beside its anchor ----
 
 const [openId, setOpenId] = createSignal<symbol | null>(null);
+/** Whether the tooltip `id` is the one open. A selector: opening one wakes only the two whose
+ * state changed, not every Hover on the page (#39: hundreds with the builds and events open). */
+const isOpen = createRoot(() => createSelector(openId));
+/** Whether the tooltip `id` (a `Hover`'s own) is open. */
+export const tipIsOpen = (id: symbol) => isOpen(id);
 /** Close whatever tooltip is open (a press elsewhere, Escape, a scroll; a board left). */
 export const closeTips = () => setOpenId(null);
 /** Open the tooltip `id` (a `Hover`'s own), closing any other. */
@@ -310,24 +315,45 @@ export const tipOpen = () => openId() !== null;
 export function Hover(p: { tip: () => JSX.Element | false | null | undefined; children: JSX.Element; testid?: string }) {
   const me = Symbol("tip");
   let anchor: HTMLSpanElement | undefined;
-  let float: HTMLDivElement | undefined;
-  const open = () => openId() === me;
-  const [at, setAt] = createSignal<{ left: number; top: number } | null>(null);
+  const open = () => tipIsOpen(me);
   // At once, as the game's do (feedback #41: an 80 ms wait read as lag). Moving across a row of
   // items needs no guard: leaving one closes it in the same event that opens the next.
   const show = () => {
-    if (open()) return;
-    setAt(null);
-    openTip(me);
+    if (!open()) openTip(me);
   };
   const hide = () => {
     if (open()) setOpenId(null);
   };
-  onCleanup(() => { if (open()) setOpenId(null); });
+  onCleanup(() => { if (untrack(open)) setOpenId(null); });
+  // The float, its placing and its listeners exist only while open: a Hover costs little to make
+  // (twelve build columns of them appear at once on Tab, #39).
+  const content = () => (open() ? p.tip() : undefined);
+  return (
+    <span
+      ref={anchor}
+      class="gt-anchor"
+      data-testid={p.testid}
+      onPointerEnter={(e) => e.pointerType !== "touch" && show()}
+      onPointerLeave={(e) => e.pointerType !== "touch" && hide()}
+      onPointerDown={(e) => { if (e.pointerType === "touch") open() ? hide() : show(); }}
+      onFocusIn={() => show()}
+      onFocusOut={hide}
+    >
+      {p.children}
+      <Show when={content()}>{(c) => <TipFloat anchor={() => anchor} hide={hide}>{c()}</TipFloat>}</Show>
+    </span>
+  );
+}
+
+/** An open tooltip beside its anchor. */
+function TipFloat(p: { anchor: () => HTMLSpanElement | undefined; hide: () => void; children: JSX.Element }) {
+  let float: HTMLDivElement | undefined;
+  const [at, setAt] = createSignal<{ left: number; top: number } | null>(null);
   // Placed as soon as it's drawn (the effect runs after it renders), and again a frame later
   // for anything that changed its size since: right of the anchor if it fits, else left; kept
   // on screen.
   const place = () => {
+    const anchor = p.anchor();
     const el = (anchor?.firstElementChild as HTMLElement | null) ?? anchor;
     if (!el || !float) return;
     const a = el.getBoundingClientRect();
@@ -343,16 +369,15 @@ export function Hover(p: { tip: () => JSX.Element | false | null | undefined; ch
     setAt({ left, top });
   };
   createEffect(() => {
-    if (!open()) return;
     place();
     const frame = requestAnimationFrame(place);
     onCleanup(() => cancelAnimationFrame(frame));
   });
-  createEffect(() => {
-    if (!open()) return;
-    // Escape closes the tooltip first, not the panel it's in (captured before their listeners).
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); hide(); } };
-    const away = (e: PointerEvent) => { if (!anchor?.contains(e.target as Node)) hide(); };
+  // Escape closes the tooltip first, not the panel it's in (captured before their listeners).
+  const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); p.hide(); } };
+  const away = (e: PointerEvent) => { if (!p.anchor()?.contains(e.target as Node)) p.hide(); };
+  const hide = () => p.hide();
+  onMount(() => {
     window.addEventListener("keydown", key, true);
     window.addEventListener("pointerdown", away, true);
     window.addEventListener("scroll", hide, true);
@@ -362,28 +387,11 @@ export function Hover(p: { tip: () => JSX.Element | false | null | undefined; ch
       window.removeEventListener("scroll", hide, true);
     });
   });
-  const content = () => (open() ? p.tip() : undefined);
   return (
-    <span
-      ref={anchor}
-      class="gt-anchor"
-      data-testid={p.testid}
-      onPointerEnter={(e) => e.pointerType !== "touch" && show()}
-      onPointerLeave={(e) => e.pointerType !== "touch" && hide()}
-      onPointerDown={(e) => { if (e.pointerType === "touch") open() ? hide() : show(); }}
-      onFocusIn={() => show()}
-      onFocusOut={hide}
-    >
-      {p.children}
-      <Show when={content()}>
-        {(c) => (
-          <Portal>
-            <div ref={float} class="gt-float" role="tooltip" data-testid="game-tooltip-float" style={at() ? { left: `${at()!.left}px`, top: `${at()!.top}px` } : { left: "0px", top: "0px", visibility: "hidden" }}>
-              {c()}
-            </div>
-          </Portal>
-        )}
-      </Show>
-    </span>
+    <Portal>
+      <div ref={float} class="gt-float" role="tooltip" data-testid="game-tooltip-float" style={at() ? { left: `${at()!.left}px`, top: `${at()!.top}px` } : { left: "0px", top: "0px", visibility: "hidden" }}>
+        {p.children}
+      </div>
+    </Portal>
   );
 }

@@ -129,7 +129,10 @@ export class NumberEase {
   }
 }
 
-const reducedMotion = () => typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+/** The query, made once: every eased value asks on every change, many each frame while a replay
+ * plays (#39), and its `matches` follows the setting. */
+let motionQuery: MediaQueryList | undefined;
+const reducedMotion = () => typeof matchMedia !== "undefined" && (motionQuery ??= matchMedia("(prefers-reduced-motion: reduce)")).matches;
 
 /**
  * `source`, eased out-expo over `ms` with requestAnimationFrame: for a changing value drawn as a

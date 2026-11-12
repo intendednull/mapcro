@@ -31,6 +31,7 @@ export const MODULE_STATE: Record<string, Entries> = {
   },
   "player/GameTooltip.tsx": {
     openId: ["reset-on-unmount", "the one game tooltip open (each tooltip also closes itself on cleanup)"],
+    isOpen: ["constant", "a selector over openId, made once: it holds nothing of its own"],
   },
   "player/handoff.ts": { pending: ["keyed-by-board", "takeHandoff(board) gives it only to the board it was made for"] },
   "player/ReplaysFolder.tsx": { store: ["device", "the app's replay folder: the same on every board"] },
@@ -44,6 +45,8 @@ export const MODULE_STATE: Record<string, Entries> = {
   },
   "player/api.ts": { MODE_CODES: ["constant", "the codes of a mode with no board"] },
   "match/tooltips.ts": { cache: ["immutable-cache", "tooltip data by pack and file"] },
+  "board/smooth.ts": { motionQuery: ["page", "the reduced-motion media query, made once; its answer follows the setting"] },
+  "match/timeline.ts": { resolved: ["immutable-cache", "markerKey's answers by marker list: a pack's markers never change once loaded"] },
   "match/stats.ts": { loaded: ["immutable-cache", "stat tables by pack and file"] },
   "board/state.ts": { wasm: ["immutable-cache", "the WASM module's init, once a page; every replica is the session's own"] },
   "board/fade.ts": { fades: ["owner-cleared", "a WeakMap keyed by element: goes with it"] },
