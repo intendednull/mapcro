@@ -140,7 +140,7 @@
   opacity: 0; visibility: hidden; pointer-events: none;
   transition: opacity var(--value-ease-ms) var(--ease-out-expo), visibility var(--value-ease-ms);
 }
-.pl-rejuv-timer.on { opacity: 1; visibility: visible; }
+.pl-rejuv-timer.on { opacity: 1; visibility: visible; pointer-events: auto; }
 /* Both teams holding one: each timer a step to its own side of the centre. */
 .pl-rejuv-timer.both.friend { left: calc(50% - 37 * var(--u)); }
 .pl-rejuv-timer.both.enemy { left: calc(50% - 3 * var(--u)); }

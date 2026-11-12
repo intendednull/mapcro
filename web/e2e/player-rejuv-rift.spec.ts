@@ -1,7 +1,7 @@
 // The timers a replay has beyond the camps (timers audit, gaps 1, 2 and 7; spec §6b), on a
 // synthetic replay timeline handed to the server as the worker would: the Rejuvenator a team
-// holds (its events, its marks and timer on the top bar as the game draws them, and on the mid
-// boss's label), an open rift's capture rings and give-up deadline, and the urn on the ground saying when
+// holds (its events, its marks and timer on the top bar as the game draws them, the time left on
+// the timer's hover and not on the mid boss's, feedback #44), an open rift's capture rings and give-up deadline, and the urn on the ground saying when
 // it walks back.
 
 import { createHash } from "node:crypto";
@@ -138,7 +138,7 @@ const shot = async (p: Page, name: string) => {
   if (SHOTS) await p.screenshot({ path: `${SHOTS}/${name}.png` });
 };
 
-test("the Rejuvenator: its events, its badge on the holder's side of the top bar, and the mid boss's label", async ({ browser }) => {
+test("the Rejuvenator: its events, its badge on the holder's side of the top bar, and its time on the timer's hover", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Rejuvenator"), "Coach");
   await open(a);
   const ev = a.getByTestId("event");
@@ -162,6 +162,14 @@ test("the Rejuvenator: its events, its badge on the holder's side of the top bar
     await expect.poll(async () => (await dash.evaluate((e) => getComputedStyle(e).strokeDasharray)).split(/[ ,]+/).map((v) => Math.round(parseFloat(v) * 100) / 100)).toEqual([Number(pct), 100]);
   };
   const box = async (l: ReturnType<typeof a.locator>) => (await l.boundingBox())!;
+  // A timer's hover: its instant tag (#41), the only one open.
+  const tag = a.getByTestId("tag-tip");
+  const timerSays = async (team: string, text: string) => {
+    const b = await box(timer(team));
+    await a.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await expect(tag).toHaveCount(1, AT_ONCE);
+    await expect(tag).toHaveText(text);
+  };
   const bar = await box(a.getByTestId("topbar"));
   const mid = bar.x + bar.width / 2;
 
@@ -194,12 +202,16 @@ test("the Rejuvenator: its events, its badge on the holder's side of the top bar
   await scrubTo(a, 60);
   await marks("sapphire", 2);
 
-  // The countdown stays in the mid boss's label.
+  // The dead mid boss says its respawn alone; the countdown is the timer's hover (feedback #44).
   await scrubTo(a, 100);
   await marks("sapphire", 1);
   await ring("sapphire", "61.11");
-  await says(a, BOSS, "Respawns in 4:40 · Archmother Rejuvenator: 1 revive, ends in 1:50");
+  await says(a, BOSS, "Respawns in 4:40");
   await shot(a, "synthetic-rejuv-100-boss-hover");
+  await timerSays("sapphire", "Archmother Rejuvenator ends in 1:50");
+  // It counts down while hovered.
+  await scrubTo(a, 101);
+  await timerSays("sapphire", "Archmother Rejuvenator ends in 1:49");
 
   // Both hold one: each side its marks, the timers side by side, Amber's (friendly) on the left.
   await scrubTo(a, 195);
@@ -209,6 +221,9 @@ test("the Rejuvenator: its events, its badge on the holder's side of the top bar
   await ring("amber", "91.67");
   const [ta, ts] = [await box(timer("amber")), await box(timer("sapphire"))];
   expect(ta.x + ta.width).toBeLessThanOrEqual(ts.x + 0.5);
+  // Each its own team's time.
+  await timerSays("amber", "Hidden King Rejuvenator ends in 2:45");
+  await timerSays("sapphire", "Archmother Rejuvenator ends in 0:15");
   expect((await box(badge("amber").locator("img:visible"))).x + 1).toBeLessThan(mid);
   await shot(a, "synthetic-rejuv-195-both");
 
@@ -217,15 +232,20 @@ test("the Rejuvenator: its events, its badge on the holder's side of the top bar
   await marks("sapphire", 0);
   await ring("sapphire", null);
   await marks("amber", 2);
-  await says(a, BOSS, "Respawns in 2:50 · Hidden King Rejuvenator: 2 revives, ends in 2:30");
+  await says(a, BOSS, "Respawns in 2:50");
 
   // Amber's last revive spent at 270: marks and timer go, though it would run to 360.
   await scrubTo(a, 250);
   await marks("amber", 1);
   await ring("amber", "61.11");
+  await timerSays("amber", "Hidden King Rejuvenator ends in 1:50");
+  const spot = await box(timer("amber"));
   await scrubTo(a, 280);
   await marks("amber", 0);
   await ring("amber", null);
+  // Gone, it says nothing: no tag where it was.
+  await a.mouse.move(spot.x + spot.width / 2, spot.y + spot.height / 2);
+  await expect(tag).toHaveCount(0);
 
   // From Sapphire's side it's on the friendly (left) side.
   await scrubTo(a, 50);

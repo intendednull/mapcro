@@ -60,20 +60,23 @@ describe("Rejuvenator", () => {
     expect(rejuvAt({}, 2000)).toEqual([]);
   });
 
-  it("the label counts down to its end, rounding the seconds up", () => {
-    expect(rejuvTip({ team: "sapphire", left: 2, ends: 2052 }, 1952)).toBe("Archmother Rejuvenator: 2 revives, ends in 1:40");
-    expect(rejuvTip({ team: "sapphire", left: 2, ends: 2052 }, 1951.2)).toBe("Archmother Rejuvenator: 2 revives, ends in 1:41");
-    expect(rejuvTip({ team: "amber", left: 1, ends: 2574 }, 2573.5)).toBe("Hidden King Rejuvenator: 1 revive, ends in 0:01");
-    expect(rejuvTip({ team: "amber", left: 0, ends: 2574 }, 2580)).toBe("Hidden King Rejuvenator: 0 revives, ends in 0:00");
+  it("the timer's hover counts down to its end, rounding the seconds up", () => {
+    expect(rejuvTip({ team: "sapphire", left: 2, ends: 2052 }, 1952)).toBe("Archmother Rejuvenator ends in 1:40");
+    expect(rejuvTip({ team: "sapphire", left: 2, ends: 2052 }, 1951.2)).toBe("Archmother Rejuvenator ends in 1:41");
+    expect(rejuvTip({ team: "amber", left: 1, ends: 2574 }, 2573.5)).toBe("Hidden King Rejuvenator ends in 0:01");
+    expect(rejuvTip({ team: "amber", left: 0, ends: 2574 }, 2580)).toBe("Hidden King Rejuvenator ends in 0:00");
   });
 
-  it("the mid boss's label carries the Rejuvenator a team holds", () => {
+  it("the mid boss's label is its respawn or health alone, never the Rejuvenator (feedback #44)", () => {
     const boss = markers.find((m) => m.kind === "midboss")!;
     const pv = (t: number): MatchPreview => ({ players: new Map(), down: new Set(), sites: new Map(), lanes: new Map(), camps: new Map([[boss.key, campsAt(tl, t).get(MID)!]]), rejuv: rejuvAt(tl, t) });
-    expect(markerTip(boss, pv(1952), 1952)).toBe("Respawns in 5:33 · Archmother Rejuvenator: 1 revive, ends in 1:40");
+    expect(pv(1952).rejuv).toHaveLength(1);
+    expect(markerTip(boss, pv(1952), 1952)).toBe("Respawns in 5:33");
     expect(markerTip(boss, pv(2100), 2100)).toBe("Respawns in 3:05");
-    // Up, with a Rejuvenator held: that alone.
-    expect(markerTip(boss, { ...pv(2400), camps: new Map() }, 2400)).toBe("Hidden King Rejuvenator: 3 revives, ends in 2:54");
+    // Up, with a Rejuvenator held: nothing (no health known here), or its health.
+    expect(pv(2400).rejuv).toHaveLength(1);
+    expect(markerTip(boss, { ...pv(2400), camps: new Map() }, 2400)).toBeUndefined();
+    expect(markerTip(boss, { ...pv(2400), camps: new Map(), health: new Map([[boss.key, { pct: 45 }]]) } as MatchPreview, 2400)).toBe("Mid boss 45%");
     expect(markerTip(boss, { ...pv(2600), camps: new Map() }, 2600)).toBeUndefined();
   });
 

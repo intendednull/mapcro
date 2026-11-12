@@ -9,7 +9,8 @@
 import { hasVision, seenAt } from "./vision";
 import { killsAt } from "../match/builds";
 import { BuildColumn } from "./BuildColumn";
-import { GameTip, Hover, useTooltips } from "./GameTooltip";
+import { GameTip, Hover, TagTip, useTooltips } from "./GameTooltip";
+import { rejuvTip } from "./Camps";
 import { buildAt } from "../match/builds";
 import { rosterTeamShort } from "../map/model";
 import { For, Show, batch, createMemo, createResource, onCleanup, onMount } from "solid-js";
@@ -76,25 +77,30 @@ function RejuvBadge(p: { held: () => RejuvNow | undefined; team: "Amber" | "Sapp
 
 /**
  * The buff's natural end, as the game's #RejuvenatorTimer shows it: the winged mark on a dark disc,
- * ringed by an arc that drains from pickup to 180 s later. No text: the mid boss's label says the
- * time. Gone when the buff is (expired, or its revives spent). Beside the other's when both hold one.
+ * ringed by an arc that drains from pickup to 180 s later. No text on it; its hover says the time
+ * left ("Archmother Rejuvenator ends in 1:40", feedback #44), at once like the panel's tags. Gone
+ * when the buff is (expired, or its revives spent), and with it the hover. Beside the other's when
+ * both hold one.
  */
 function RejuvTimer(p: { held: () => RejuvNow | undefined; taken: () => number | undefined; both: () => boolean; t: () => number; team: "Amber" | "Sapphire"; side: "friend" | "enemy"; art: Art }) {
   const on = () => (p.held()?.left ?? 0) > 0 && p.taken() != null;
   const frac = () => (on() ? Math.max(0, Math.min(1, (p.taken()! + REJUV_S - p.t()) / REJUV_S)) : 0);
   const img = () => p.art.images.get("rejuv-timer");
+  const tip = () => (on() ? rejuvTip(p.held()!, p.t()) : undefined);
   return (
-    <div class={cx("pl-rejuv-timer", p.side, p.team.toLowerCase(), on() && "on", p.both() && "both")} data-testid="tb-rejuv-timer" data-team={p.team.toLowerCase()} data-frac={frac().toFixed(3)} aria-hidden="true">
-      <svg viewBox="0 0 30 30">
-        <circle class="pl-rejuv-disc" cx="15" cy="15" r="13.5" />
-        <Show when={img()} fallback={<path class="pl-rejuv-mark" transform="translate(6 6.5) scale(0.9)" d={WING} />}>
-          <image class="pl-rejuv-mark" href={img()} x="3" y="3" width="24" height="24" />
-        </Show>
-        <circle class="pl-rejuv-track" cx="15" cy="15" r="13.5" />
-        {/* 0..100 so only time eases, as the ult rings do. */}
-        <circle class="pl-rejuv-ring" cx="15" cy="15" r="13.5" transform="rotate(-90 15 15)" pathLength="100" style={{ "stroke-dasharray": `${(frac() * 100).toFixed(2)} 100` }} />
-      </svg>
-    </div>
+    <Hover tip={() => tip() && <TagTip text={tip()!} />}>
+      <div class={cx("pl-rejuv-timer", p.side, p.team.toLowerCase(), on() && "on", p.both() && "both")} data-testid="tb-rejuv-timer" data-team={p.team.toLowerCase()} data-frac={frac().toFixed(3)} role={tip() ? "img" : undefined} aria-label={tip()} aria-hidden={tip() ? undefined : "true"}>
+        <svg viewBox="0 0 30 30">
+          <circle class="pl-rejuv-disc" cx="15" cy="15" r="13.5" />
+          <Show when={img()} fallback={<path class="pl-rejuv-mark" transform="translate(6 6.5) scale(0.9)" d={WING} />}>
+            <image class="pl-rejuv-mark" href={img()} x="3" y="3" width="24" height="24" />
+          </Show>
+          <circle class="pl-rejuv-track" cx="15" cy="15" r="13.5" />
+          {/* 0..100 so only time eases, as the ult rings do. */}
+          <circle class="pl-rejuv-ring" cx="15" cy="15" r="13.5" transform="rotate(-90 15 15)" pathLength="100" style={{ "stroke-dasharray": `${(frac() * 100).toFixed(2)} 100` }} />
+        </svg>
+      </div>
+    </Hover>
   );
 }
 
