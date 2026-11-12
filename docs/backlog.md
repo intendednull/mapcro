@@ -3,6 +3,22 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Profiling on a Fly Sprite: parked (2026-11-12)
+
+Branch `perf-sprite` (`just perf-sprite`, tools/perf-sprite/): runs `just perf-player` on one Fly Sprite
+(`mapcro-perf`, destroyed after each session) with an anonymized timeline, because the shared dev box's
+numbers drift about ±15% (4x fps 32–49 for one build). Setup works: Nix with its store bind-mounted
+from /tmp (the Sprite's root overlay faulted), the dev shell, and Chromium from nixpkgs.
+- **Blocked:** on the Sprite, the page's own `GET /api/boards/{board}/matches/{id}` gets the metadata
+  summary, while a direct GET of the same URL from Node gets `tier: replay`. The cache files exist
+  and parse, `REPLAY_DIR` is set, and the page opens after the upload. So it's the page's request
+  path (another server, port or board?), not timing or disk. It works on the dev box.
+- **Next if picked up:** log which server and board the page's request reaches. Or use a Fly Machine
+  with dedicated CPUs and a normal disk (the operator allowed one; tear it down after).
+- **Server gap found on the way:** `timeline()` falls back to the summary without logging why
+  (no cache, no `REPLAY_DIR`, or a failed read). One debug line per fallback would have saved
+  three sessions.
+
 ## Share a verified upload with every board (2026-11-12, operator: backlog)
 
 Today an uploaded timeline is served only to the board that uploaded it (and its clones), because a
