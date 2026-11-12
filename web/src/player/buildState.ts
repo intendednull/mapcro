@@ -41,10 +41,23 @@ export function sameStatBuild(a: StatBuild | null, b: StatBuild | null): boolean
   );
 }
 
+/** t while `visible`, else the value it last had: a hidden column reads nothing per frame, and
+ * reads the current t again the moment it's shown. */
+export function shownTime(visible: () => boolean, t: () => number) {
+  let last: number | undefined;
+  return createMemo(() => {
+    if (visible() || last === undefined) last = t();
+    return last;
+  });
+}
+
 /** The build at t and the stats' input from it, as memos that change only with what's shown.
+ * While `visible` is false the time holds still (Tab's columns stay mounted, hidden), so a hidden
+ * column does no per-frame work; showing it reads t at once.
  * Call inside a component or root. */
-export function buildState(player: () => TimelinePlayer, t: () => number) {
-  const build = createMemo(() => buildAt(player(), t()), undefined, { equals: sameBuild });
-  const statInput = createMemo(() => statBuild(player(), t(), build()), undefined, { equals: sameStatBuild });
-  return { build, statInput };
+export function buildState(player: () => TimelinePlayer, t: () => number, visible: () => boolean = () => true) {
+  const time = shownTime(visible, t);
+  const build = createMemo(() => buildAt(player(), time()), undefined, { equals: sameBuild });
+  const statInput = createMemo(() => statBuild(player(), time(), build()), undefined, { equals: sameStatBuild });
+  return { build, statInput, time };
 }

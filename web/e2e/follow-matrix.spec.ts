@@ -486,9 +486,9 @@ const ROWS: Row[] = [
   },
   {
     key: "builds.all",
-    read: async (p) => ((await p.getByTestId("hero-build").count()) === 12 ? "on" : "off"),
+    read: async (p) => ((await p.locator("[data-testid=hero-build]:visible").count()) === 12 ? "on" : "off"),
     set: async (p, v) => {
-      if (((await p.getByTestId("hero-build").count()) === 12 ? "on" : "off") !== v) await p.locator(".tb-all-builds").click();
+      if (((await p.locator("[data-testid=hero-build]:visible").count()) === 12 ? "on" : "off") !== v) await p.locator(".tb-all-builds").click();
     },
     own: "off",
     theirs: "on",
@@ -496,7 +496,7 @@ const ROWS: Row[] = [
   },
   {
     key: "builds.tab",
-    read: async (p) => ((await p.getByTestId("hero-build").count()) === 12 ? "on" : "off"),
+    read: async (p) => ((await p.locator("[data-testid=hero-build]:visible").count()) === 12 ? "on" : "off"),
     set: async (p, v) => {
       await p.locator("[data-testid=map]").hover();
       await (v === "on" ? p.keyboard.down("Tab") : p.keyboard.up("Tab"));

@@ -258,6 +258,9 @@ export function PlayerTopBar(p: {
           const low = () => hp() != null && hp()! <= LOW_HEALTH;
           const key = slotKey(t, s.slot.slot);
           const player = () => p.host.tl()?.players.find(q => q.team === t.toLowerCase() && q.slot === s.slot.slot);
+          // Tab and All builds mount the twelve once: after that they stay, hidden, and a press
+          // only toggles a class (BuildColumn's `visible`: a hidden column reads nothing per frame).
+          const allShown = createMemo((was: boolean) => was || allBuilds() || tabHeld(), false);
           // Changing values ease (spec §4a): souls count to each new value, and the respawn
           // countdown runs down through the seconds a scrub skips. Shown rounded from the eased
           // value; the data attributes keep the exact one.
@@ -335,8 +338,8 @@ export function PlayerTopBar(p: {
                   </Hover>
                 );
               })()}
-              <Show when={expanded(key) && player()}>
-                {pl => <BuildColumn inspect={!allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} stats={current(statTable(), tableKeyFor(p.art.stats, build()))} ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />}
+              <Show when={(allShown() || expanded(key)) && player()}>
+                {pl => <BuildColumn visible={() => expanded(key)} inspect={expanded(key) && !allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} stats={current(statTable(), tableKeyFor(p.art.stats, build()))} ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />}
               </Show>
               {/* Never under the bar (styles/topbar.css): the name is the portrait's hover label's,
                   and the expanded column's. */}

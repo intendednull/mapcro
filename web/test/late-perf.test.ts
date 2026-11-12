@@ -224,4 +224,29 @@ describe("a build column", () => {
       dispose();
     });
   });
+
+  // Tab's twelve columns stay mounted, hidden (#39): the time holds still, so playback costs
+  // them nothing, and showing one again reads the current t at once.
+  it("does no per-frame work while hidden, and shows the current time's build when shown again", () => {
+    createRoot((dispose) => {
+      let reads = 0;
+      const counted = new Proxy(hero, { get: (o, k, r) => (reads++, Reflect.get(o, k, r)) });
+      const [t, setT] = createSignal(40);
+      const [visible, setVisible] = createSignal(true);
+      const { build, statInput } = buildState(() => counted as TimelinePlayer, t, visible);
+      expect(build().items).toEqual([]);
+      setVisible(false);
+      const before = reads;
+      // Over the buy at 50 s and the level at 60 s: a visible column would read the player for each.
+      for (let i = 1; i <= 60; i++) setT(40 + i);
+      expect(reads).toBe(before);
+      expect(build().items).toEqual([]);
+      expect(statInput()?.level).toBe(1);
+      // Shown again: the build at t, not the one it was hidden at.
+      setVisible(true);
+      expect(build().items!.map((i) => i.id)).toEqual([11]);
+      expect(statInput()).toMatchObject({ level: 9, items: [11] });
+      dispose();
+    });
+  });
 });

@@ -260,8 +260,8 @@ test("a follower opens the presenter's death recaps and builds, closes them with
   await expect(b.locator('.tb-player[data-slot="Amber-0"] [data-testid=hero-build]')).toHaveCount(1);
   await expect(b.getByTestId("build-order")).toHaveCount(1);
   await a.locator(".tb-all-builds").click();
-  await expect(b.getByTestId("hero-build")).toHaveCount(12);
+  await expect(b.locator("[data-testid=hero-build]:visible")).toHaveCount(12);
   await a.locator(".tb-all-builds").click();
-  await expect(b.getByTestId("hero-build")).toHaveCount(0);
+  await expect(b.locator("[data-testid=hero-build]:visible")).toHaveCount(0);
   await expect(following(b)).toHaveCount(1);
 });
