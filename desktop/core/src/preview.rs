@@ -250,6 +250,14 @@ mod tests {
             let p = t.path().join("child.sh");
             std::fs::write(&p, format!("#!/bin/sh\n[ \"$1\" = {CHILD_ARG} ] || exit 9\n{body}\n")).expect("script");
             std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+            // A parallel test's fork can still hold the script's write fd for a moment, and exec
+            // then fails with "Text file busy" (ETXTBSY); wait until it runs (it exits 9 here).
+            for _ in 0..200 {
+                match Command::new(&p).arg("probe").status() {
+                    Err(e) if e.raw_os_error() == Some(26) => std::thread::sleep(Duration::from_millis(10)),
+                    _ => break,
+                }
+            }
             p
         };
         let demo = t.path().join("5.dem");
