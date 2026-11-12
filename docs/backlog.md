@@ -3,6 +3,24 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Share a verified upload with every board (2026-11-12, operator: backlog)
+
+Today an uploaded timeline is served only to the board that uploaded it (and its clones), because a
+demo carries no match id and an upload's claim to be match N can't be checked (spec §11, Scope). A
+fetched (CDN) timeline is shared by every board. Idea: share an upload too, once it is verified.
+
+- **Verify against the match's metadata** (deadlock-api): the hero lineup per team, duration,
+  winner and team kill totals must all match. Forging that means building a consistent demo.
+- **Precedence:** a CDN timeline always wins over a shared upload. An upload that doesn't match
+  stays private to its board, as today. A match with no metadata is never shared.
+- **Why:** fresh matches often can't be fetched (salt lookups, ~3/h) and old ones expire after
+  three weeks, so one upload would open the match for everyone after; it also shows which
+  matches people review.
+- **Privacy:** nothing new. CDN timelines already carry the same in-game names and are shared.
+- **Needs:** a spec update (§6a tiers, §11 scope and threat table) with the matching rule, and a
+  security review before merge (it changes what the server trusts). Builds on the lead's upload
+  lookup (2026-11-12).
+
 ## Reparse in the app: follow-ups (2026-11-11, from desktop-reparse)
 
 - After Later on the installed app's Update available, nothing offers Install again until the
