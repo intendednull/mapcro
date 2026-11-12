@@ -894,7 +894,6 @@ export function PlayerSide(p: Props) {
   // The search finds by player name as its maker's Names says (a presenter's: theirs), so a
   // follower's list is the presenter's whatever Names is here.
   const searchNames = createMemo(() => (h.tl() ? namesFor(h.tl()!, heroName, h.eventSearchByName() ? undefined : () => undefined) : undefined));
-  const at = createMemo(() => (h.tl() ? new Map(playersAt(h.tl()!, h.t()).map((x) => [slotKey(x.team, x.slot), x])) : new Map()));
   const user = (f: () => void) => {
     p.onUserPlayback();
     f();
