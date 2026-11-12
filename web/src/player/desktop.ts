@@ -102,17 +102,18 @@ export type DesktopOs = "windows" | "linux";
 type Nav = { userAgent?: string; userAgentData?: { platform?: string } };
 
 /**
- * The system a build is offered for: Windows, or desktop Linux on x86-64 (not Android or
- * ChromeOS, whose user agents also say Linux, nor an ARM machine: the builds are x86-64 only).
- * Anything else (macOS, phones) is none. The client-hints platform wins where the browser has it.
+ * The system a build is offered for: Windows, or desktop Linux on x86-64. Not Android (its user
+ * agent says Linux too), ChromeOS (its user agent says CrOS, its client hints "Chrome OS"), nor
+ * an ARM Linux (Firefox names the CPU; the builds are x86-64 only). Anything else (macOS, phones)
+ * is none. The client-hints platform wins where the browser has it (Chromium; its Linux user
+ * agent always says x86_64).
  */
 export function desktopOs(nav: Nav | undefined): DesktopOs | undefined {
   const platform = nav?.userAgentData?.platform;
   const ua = nav?.userAgent ?? "";
-  const arm = /\b(aarch64|arm64|armv\d+l?)\b/i.test(ua);
-  if (platform) return platform === "Windows" ? "windows" : platform === "Linux" && !arm ? "linux" : undefined;
+  if (platform) return platform === "Windows" ? "windows" : platform === "Linux" ? "linux" : undefined;
   if (/\bWindows\b/.test(ua) && !/\bWindows Phone\b/.test(ua)) return "windows";
-  if (/\bLinux\b/.test(ua) && !/\bAndroid\b/.test(ua) && !/\bCrOS\b/.test(ua) && !arm) return "linux";
+  if (/\bLinux\b/.test(ua) && !/\bAndroid\b/.test(ua) && !/\b(aarch64|arm64|armv\d+l?)\b/i.test(ua)) return "linux";
   return undefined;
 }
 
