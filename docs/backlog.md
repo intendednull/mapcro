@@ -1040,8 +1040,9 @@ a follower whose centre area has a different shape. The dashed edge of the margi
 
 ## Board download and upload (2026-11-08)
 
-Export and import a board as a file. The spec already plans a versioned `.mapcro.json` that goes through
-the same migrations (spec §6).
+Resolved (board-file, 2026-11-11): Download in the board's top bar and Import board on the landing,
+a versioned `.mapcro.json` (spec §6; limits and checks §11, Board files). Left: TD-42 (the
+document's own version), TD-43 (boards over 8 MiB).
 
 ## Data and storage decisions (deferred by the operator, 2026-11-08)
 

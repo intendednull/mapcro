@@ -14,21 +14,21 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
-fn err(status: StatusCode, msg: &str) -> Response {
+pub(crate) fn err(status: StatusCode, msg: &str) -> Response {
     (status, Json(serde_json::json!({ "error": msg }))).into_response()
 }
 
-fn internal(e: impl std::fmt::Display) -> Response {
+pub(crate) fn internal(e: impl std::fmt::Display) -> Response {
     tracing::error!(error = %e, "request failed");
     err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
 }
 
 /// The server is at its board or storage cap (spec §11, storage spam).
-fn server_full() -> Response {
+pub(crate) fn server_full() -> Response {
     tracing::warn!("board creation refused: server storage is full");
     err(StatusCode::INSUFFICIENT_STORAGE, "this server is full and can't create boards right now")
 }
@@ -46,7 +46,7 @@ pub struct CreateLimiter {
 
 impl CreateLimiter {
     /// Allow a creation from `ip` if both its own and the server-wide hourly budgets have room.
-    fn allow(&self, ip: IpAddr, per_hour: u32, global_per_hour: u32) -> bool {
+    pub(crate) fn allow(&self, ip: IpAddr, per_hour: u32, global_per_hour: u32) -> bool {
         let mut w = self.windows.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
         w.retain(|_, (start, _)| now.duration_since(*start) < Duration::from_secs(3600));
@@ -99,9 +99,9 @@ pub struct CreateBoard {
 }
 
 #[derive(Serialize)]
-struct Created {
-    board: String,
-    owner_token: String,
+pub(crate) struct Created {
+    pub(crate) board: String,
+    pub(crate) owner_token: String,
 }
 
 pub async fn create_board(
@@ -283,6 +283,23 @@ pub async fn rotate_owner(State(app): State<AppState>, Path(board): Path<String>
     }
 }
 
+/// Any live link to this board, view links included (`Authorization: Bearer <token>`): what
+/// Clone and Download ask, since anyone who can see a board could copy it by hand.
+#[allow(clippy::result_large_err)] // the error *is* the HTTP response
+pub(crate) async fn require_link(app: &AppState, board: &str, headers: &HeaderMap) -> Result<(), Response> {
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .filter(|t| links::plausible_token(t))
+        .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "link token required"))?;
+    match app.store.link(links::hash(token)).await {
+        Ok(Some(l)) if l.board == board && !l.revoked => Ok(()),
+        Ok(_) => Err(err(StatusCode::FORBIDDEN, "not a link to this board")),
+        Err(e) => Err(internal(e)),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct CloneBoard {
     #[serde(default)]
@@ -300,18 +317,8 @@ pub async fn clone_board(
     headers: HeaderMap,
     Json(body): Json<CloneBoard>,
 ) -> Response {
-    let token = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .filter(|t| links::plausible_token(t));
-    let Some(token) = token else {
-        return err(StatusCode::UNAUTHORIZED, "link token required");
-    };
-    match app.store.link(links::hash(token)).await {
-        Ok(Some(l)) if l.board == board && !l.revoked => {}
-        Ok(_) => return err(StatusCode::FORBIDDEN, "not a link to this board"),
-        Err(e) => return internal(e),
+    if let Err(r) = require_link(&app, &board, &headers).await {
+        return r;
     }
     if !app.limiter.allow(client_ip(peer, &headers), app.config.create_per_hour, app.config.create_global_per_hour) {
         return err(StatusCode::TOO_MANY_REQUESTS, "too many boards created; try again later");

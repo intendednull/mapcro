@@ -194,7 +194,7 @@ impl From<&mapcro_schema::Reject> for RejectReason {
 
 label! {
     /// How a board came to be.
-    pub enum How: "how" { New => "new", Clone => "clone" }
+    pub enum How: "how" { New => "new", Clone => "clone", Import => "import" }
 }
 
 label! {
@@ -397,7 +397,7 @@ registry! {
     op_ack_ms: Histogram<()> = Histogram::new("op_ack_ms", "Milliseconds from a room taking an edit to its ack (excludes the room's queue).", &MS),
     presence_bytes: Histogram<()> = Histogram::new("presence_bytes", "Bytes in a presence frame a client sent (the whole frame, resent on every change).", &PRESENCE),
     // usage
-    boards_created: Counter<(How,)> = Counter::new("boards_created", "Boards created, new or cloned."),
+    boards_created: Counter<(How,)> = Counter::new("boards_created", "Boards created: new, cloned or imported."),
     feedback_sent: Counter<()> = Counter::new("feedback_sent", "Feedback submissions that became GitHub issues."),
     feedback_rejected: Counter<(FeedbackRejection,)> = Counter::new("feedback_rejected", "Feedback submissions refused, by reason."),
     matches_opened: Counter<(Tier, MatchPath)> = Counter::new("matches_opened", "Matches served, by tier and where the data came from."),

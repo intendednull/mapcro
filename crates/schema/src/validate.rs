@@ -162,12 +162,22 @@ pub enum Reject {
     ServerFull,
 }
 
-fn check_text(s: &str, max: usize) -> Result<(), Reject> {
+pub(crate) fn check_text(s: &str, max: usize) -> Result<(), Reject> {
     if s.chars().count() > max {
         return Err(Reject::TextTooLong);
     }
     // Newlines are fine in notes; other control characters are not.
     if s.chars().any(|c| c.is_control() && c != '\n') {
+        return Err(Reject::BadText);
+    }
+    Ok(())
+}
+
+/// One line of text: a board's title. No control characters at all, newlines included, as
+/// creation, clone and import (file.rs) ask.
+pub(crate) fn check_line(s: &str, max: usize) -> Result<(), Reject> {
+    check_text(s, max)?;
+    if s.contains('\n') {
         return Err(Reject::BadText);
     }
     Ok(())
@@ -181,7 +191,7 @@ fn check_pos(p: WorldPos) -> Result<(), Reject> {
 fn check_value(v: &FieldValue) -> Result<(), Reject> {
     use FieldValue as V;
     match v {
-        V::Title(s) => check_text(s, LIMITS.max_title),
+        V::Title(s) => check_line(s, LIMITS.max_title),
         V::RosterName(s) | V::SceneName(s) => check_text(s, LIMITS.max_name),
         V::CalloutText(s) => check_text(s, LIMITS.max_callout),
         V::NoteText(s) => check_text(s, LIMITS.max_note),
