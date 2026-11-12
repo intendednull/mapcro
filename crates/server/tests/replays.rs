@@ -429,6 +429,22 @@ fn a_job_runs_to_a_cached_timeline_that_only_its_board_sees() {
     assert_eq!(server.status(&board, &owner, id)["state"], "queued");
 }
 
+/// A board opening a match with nothing cached falls back to the metadata summary: the log says
+/// why, naming the match, and never the cache path (which carries the board's id).
+#[test]
+fn a_fall_through_to_the_summary_says_why() {
+    let up = upstream(HashMap::new());
+    let (server, log) = Server::start_logged(up.port, &[("RUST_LOG", "mapcro_server=debug")]);
+    let (board, owner, _) = server.board();
+    let id = "130816395";
+    let _ = server.call("GET", &format!("/api/boards/{board}/matches/{id}"), &owner);
+    std::thread::sleep(Duration::from_millis(100)); // let the line reach the pipe
+    let log = log.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    assert!(log.contains(id), "the match is named: {log}");
+    assert!(log.contains("neither cached replay readable"), "the reason is logged: {log}");
+    assert!(!log.contains(&scope(&board)), "no path, which would carry the board's id: {log}");
+}
+
 #[test]
 fn a_jobs_stats_are_collected_with_its_result_not_as_stray_output() {
     let up = upstream(HashMap::new());

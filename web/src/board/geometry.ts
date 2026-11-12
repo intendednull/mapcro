@@ -126,6 +126,52 @@ export function laserAlpha(age: number): number {
   return 1 - x * x;
 }
 
+/** The joint's cut, as its direction: the turn's bisector, the line along which both segments
+ * meet. A near-reversal has no bisector, so cut square to the stroke (a line both still share). */
+function jointAxis(a: Pt, b: Pt, c: Pt): Pt {
+  const dx = b.x - a.x, dy = b.y - a.y, ex = c.x - b.x, ey = c.y - b.y;
+  const d = Math.hypot(dx, dy) || 1, e = Math.hypot(ex, ey) || 1;
+  const mx = -dy / d - ey / e, my = dx / d + ex / e;
+  const len = Math.hypot(mx, my);
+  return len < 1e-3 ? { x: -dy / d, y: dx / d } : { x: mx / len, y: my / len };
+}
+
+/** The convex polygon `poly` cut down to the half-plane `{(x - at) . n >= 0}`. */
+function halfPlane(poly: Pt[], at: Pt, n: Pt): Pt[] {
+  const out: Pt[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!, b = poly[(i + 1) % poly.length]!;
+    const da = (a.x - at.x) * n.x + (a.y - at.y) * n.y;
+    const db = (b.x - at.x) * n.x + (b.y - at.y) * n.y;
+    if (da >= 0) out.push(a);
+    if (da >= 0 !== db >= 0) out.push({ x: a.x + ((b.x - a.x) * da) / (da - db), y: a.y + ((b.y - a.y) * da) / (da - db) });
+  }
+  return out;
+}
+
+/**
+ * Segment `i`'s clip polygon (`points`, user space): its stroke, cut at each end where it meets a
+ * neighbour. Neighbours cut along the same line at their joint, so their round caps meet there
+ * instead of overlapping: overlapping caps doubled the alpha, a bright seam at every joint (#46).
+ */
+export function laserClip(pts: readonly Pt[], i: number): string {
+  const a = pts[i]!, b = pts[i + 1]!;
+  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  // Well clear of the stroke: a segment is at most 9 wide, and its caps reach 5 past its ends.
+  const r = len / 2 + 50;
+  const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+  let poly: Pt[] = [{ x: cx - r, y: cy - r }, { x: cx + r, y: cy - r }, { x: cx + r, y: cy + r }, { x: cx - r, y: cy + r }];
+  // The side of the cut this segment is on: the one its own body lies on. A trail's own ends are
+  // not joints, so they are left whole, cap and all.
+  const keep = (axis: Pt): Pt => ({ x: -axis.y, y: axis.x });
+  if (i > 0) {
+    const n = keep(jointAxis(pts[i - 1]!, a, b));
+    poly = halfPlane(poly, a, { x: -n.x, y: -n.y });
+  }
+  if (i + 2 < pts.length) poly = halfPlane(poly, b, keep(jointAxis(a, b, pts[i + 2]!)));
+  return poly.map((q) => `${Math.round(q.x * 100) / 100},${Math.round(q.y * 100) / 100}`).join(" ");
+}
+
 /**
  * A peer's trail (presence carries points, not times) stamped with when this browser first saw
  * each point: one already in `prev` keeps its time, a new one is `now`. Points match by position,

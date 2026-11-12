@@ -681,22 +681,37 @@ pub async fn timeline(
     if !crate::matches::valid_id(&id) {
         return err(StatusCode::BAD_REQUEST, "bad_id");
     }
+    // Why a board opening this match gets the summary and not a replay: only this route knows,
+    // and a path would carry the board's id, so the log names the match and the reason only.
+    let mut why = "no REPLAY_DIR";
+    let mut kind = None;
     if root(&app).is_some() {
+        why = "neither cached replay readable";
         for scope in [scope_of(&board), "cdn".to_owned()] {
-            if let Ok(bytes) = tokio::fs::read(cached_path(&app, &job_name(&id, &scope))).await {
-                let path = if scope == "cdn" { crate::metrics::MatchPath::Fetched } else { crate::metrics::MatchPath::Uploaded };
-                crate::metrics::get().matches_opened.inc((crate::metrics::Tier::Full, path));
-                // A board that already had the match (no fresh attach) still upgrades an older
-                // fetched timeline when an editor opens it: the same once-a-match refresh as an
-                // attach (`auto_fetch`), its old timeline served meanwhile (2026-11-09: a board's
-                // match kept a format-0 timeline, no respawns, because only attach checked).
-                if scope == "cdn" && matches!(who, LinkRole::Owner | LinkRole::Edit) {
-                    auto_fetch(&app, &board, &id, client_key(client_ip(peer, &headers)).to_string()).await;
+            let tier = if scope == "cdn" { "cdn" } else { "upload" };
+            match tokio::fs::read(cached_path(&app, &job_name(&id, &scope))).await {
+                Ok(bytes) => {
+                    let path = if scope == "cdn" { crate::metrics::MatchPath::Fetched } else { crate::metrics::MatchPath::Uploaded };
+                    crate::metrics::get().matches_opened.inc((crate::metrics::Tier::Full, path));
+                    // A board that already had the match (no fresh attach) still upgrades an older
+                    // fetched timeline when an editor opens it: the same once-a-match refresh as an
+                    // attach (`auto_fetch`), its old timeline served meanwhile (2026-11-09: a board's
+                    // match kept a format-0 timeline, no respawns, because only attach checked).
+                    if scope == "cdn" && matches!(who, LinkRole::Owner | LinkRole::Edit) {
+                        auto_fetch(&app, &board, &id, client_key(client_ip(peer, &headers)).to_string()).await;
+                    }
+                    return ([(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-store")], bytes).into_response();
                 }
-                return ([(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-store")], bytes).into_response();
+                Err(e) => {
+                    if e.kind() != std::io::ErrorKind::NotFound {
+                        kind = Some(e.kind());
+                        tracing::debug!(match_id = %id, tier, kind = ?e.kind(), "cached replay unreadable");
+                    }
+                }
             }
         }
     }
+    tracing::debug!(match_id = %id, reason = why, kind = ?kind, "match timeline: metadata summary");
     // The board's answer changes when a replay arrives: never let a browser keep the metadata
     // (its own route says max-age, which kept the upgrade from showing).
     let mut r = crate::matches::get(State(app), ConnectInfo(peer), headers, Path(id)).await;

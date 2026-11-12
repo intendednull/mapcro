@@ -680,7 +680,8 @@ kbd {
 /* Freehand ink and the laser */
 .map .ink { fill: none; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; opacity: 0.92; }
 .map .ink.erasing { opacity: 0.35; stroke-dasharray: 3 9; }
-/* --k: the view's zoom factor (Layers.tsx LaserTrail), so the glow keeps its size on screen too. */
+/* --k: the view's zoom factor (Layers.tsx LaserTrail), so the glow keeps its size on screen too.
+ * Each segment is clipped to its own strip (#46): neighbouring caps meet, they never overlap. */
 .map .laser path { fill: none; stroke: var(--c); stroke-linecap: round; filter: drop-shadow(0 0 calc(6px * var(--k, 1)) var(--c)); }
 .map .laser .head { fill: #fff; stroke: var(--c); stroke-width: 4; filter: drop-shadow(0 0 calc(10px * var(--k, 1)) var(--c)) drop-shadow(0 0 calc(4px * var(--k, 1)) var(--c)); }
 .map .laser .cur text { font: 700 13px var(--ui); fill: #10201c; dominant-baseline: central; }

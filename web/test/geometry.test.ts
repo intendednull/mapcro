@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LASER_FADE_MS, LASER_HOLD_MS, LASER_LIFE_MS, LASER_MAX_POINTS, LASER_STEP_MS, type Timed, addLaser, arrowHead, fitStroke, laserAlpha, polyline, pruneLaser, simplify, stampLaser } from "../src/board/geometry";
+import { LASER_FADE_MS, LASER_HOLD_MS, LASER_LIFE_MS, LASER_MAX_POINTS, LASER_STEP_MS, type Timed, addLaser, arrowHead, fitStroke, laserAlpha, laserClip, polyline, pruneLaser, simplify, stampLaser } from "../src/board/geometry";
 
 describe("ink", () => {
   it("drops points on a straight line and keeps corners", () => {
@@ -65,5 +65,54 @@ describe("laser", () => {
     // The same spot twice: each time is used once.
     const c = stampLaser([{ p: { x: 5, y: 5 }, t: 10 }], [{ x: 5, y: 5 }, { x: 5, y: 5 }], 20);
     expect(c.map((q) => q.t)).toEqual([10, 20]);
+  });
+});
+
+/** A `laserClip` polygon as its corners. */
+const corners = (points: string) => points.split(" ").map((q) => q.split(",").map(Number) as [number, number]);
+
+/** Is `q` inside the convex quad `poly`? */
+function inside(poly: [number, number][], q: { x: number; y: number }): boolean {
+  const side = (a: [number, number], b: [number, number]) => (b[0] - a[0]) * (q.y - a[1]) - (b[1] - a[1]) * (q.x - a[0]);
+  const s = poly.map((a, i) => Math.sign(side(a, poly[(i + 1) % poly.length]!)));
+  return s.every((v) => v === s[0]);
+}
+
+// #46: neighbouring segments' round caps used to overlap at every joint, doubling the alpha there
+// into a bright seam while the trail faded. Each segment is now cut at its joint, along one line
+// both share, so the caps meet: nothing covered twice, nothing left uncovered.
+describe("laser joints", () => {
+  const trail = [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 80, y: 40 }];
+  it("splits the joint between the two segments, with no overlap and no gap", () => {
+    const quads = [0, 1].map((i) => corners(laserClip(trail, i)));
+    let both = 0;
+    let neither = 0;
+    let once = 0;
+    // The disc the stroke paints around the joint (a segment is at most 9 wide on screen).
+    for (let dx = -4; dx <= 4; dx += 0.37) {
+      for (let dy = -4; dy <= 4; dy += 0.37) {
+        if (Math.hypot(dx, dy) > 4) continue;
+        const q = { x: 40 + dx, y: 0 + dy };
+        const n = quads.filter((poly) => inside(poly, q)).length;
+        if (n > 1) both++;
+        else if (n === 0) neither++;
+        else once++;
+      }
+    }
+    expect(both).toBe(0); // no doubled alpha at the joint
+    expect(neither).toBe(0); // and no gap in the trail either
+    expect(once).toBeGreaterThan(200);
+  });
+  it("leaves the trail's own ends uncut, cap and all", () => {
+    const line = [{ x: 0, y: 0 }, { x: 40, y: 0 }];
+    expect(inside(corners(laserClip(line, 0)), { x: 44, y: 0 })).toBe(true);
+  });
+  it("still cuts cleanly when the trail doubles back on itself", () => {
+    const back = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 1, y: 0.5 }];
+    for (const i of [0, 1]) for (const [x, y] of corners(laserClip(back, i))) {
+      expect(Number.isFinite(x) && Number.isFinite(y)).toBe(true);
+    }
+    const quads = [0, 1].map((i) => corners(laserClip(back, i)));
+    expect(quads.filter((poly) => inside(poly, { x: 20, y: 3.5 })).length).toBeLessThan(2);
   });
 });
