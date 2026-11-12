@@ -33,7 +33,7 @@ describe("player events", () => {
       "Rift captured by Hidden King",
       "Powerup taken (east)",
       "Souls swing Hidden King +12.4k",
-      "Mid boss killed",
+      "Mid-Boss killed",
       "Haze ult (bullet dance)",
     ]);
     expect(ev.map(groupOf)).toEqual(["death", "objective", "rift", "powerup", "souls", "mid_boss", "ult"]);

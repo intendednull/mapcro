@@ -930,13 +930,6 @@ states the game draws that Player doesn't:
   `.Rejuvenator` / `.RebirthIcon` / `.RebirthAndRejuvenator` icons on a player's card
   (`citadel_hud_top_bar_player.vxml`). Who carries a pending revive isn't in the timeline yet.
 
-## "Mid boss" is "Mid-Boss" in the game (2026-11-11)
-
-Found by midboss-hover (#44): the mid boss's health label says "Mid boss 45%"
-(`player/Camps.tsx` `HEALTH_NAME`), the game's objective name is "Mid-Boss" (citadel_main
-`Objective_MidBoss`). Other labels and events say "mid boss" too. A call for the lead (label
-rules: the game's words).
-
 ## laser-gestures "two trails" flakes under load (2026-11-11)
 
 Seen by midboss-hover: `e2e/laser-gestures.spec.ts:69` ("two laser gestures are two trails …")

@@ -924,7 +924,7 @@ makes a board with that match attached and lands in Player; **New board** is tod
   - **Labels, not captions** (operator, 2026-11-09): a label is short, and only there when it
     says something a player can't see: a timer, an objective's health, or a name that is the
     news. An objective with health says its name and health, rounded, following the playback
-    while hovered ("Walker 62%", "Guardian 100%", "Mid boss 45%"; operator 2026-11-09), from the
+    while hovered ("Walker 62%", "Guardian 100%", "Mid-Boss 45%"; operator 2026-11-09), from the
     replay's objective health in Player while Health is on; with no health known (Health off, the
     API summary, Sandbox, where the board sets none) or once it's down, nothing (the mid boss
     down: its timer). A camp that's up says nothing; a silent marker still takes the hover, so
@@ -1236,7 +1236,7 @@ makes a board with that match attached and lands in Player; **New board** is tod
   seen), objectives, mid boss kills, rifts up and captured, powerups up and taken (replay only, on
   seconds the spawner is in the recording; from format 2 with the buff), urn pick-ups, drops and deliveries (replay only,
   with the carrier), the Rejuvenator taken, each revive (with the hero) and its expiry (replay,
-  format 3; the "Mid boss" filter), ult casts (replay only: a rise of the hero's ult
+  format 3; the "Mid-Boss" filter), ult casts (replay only: a rise of the hero's ult
   cooldown, named by the game's `ImportantAbilityUsed` message, which covers every important
   ability, so it alone isn't an ult), and souls swings (the Amber-minus-Sapphire lead
   moving 5,000 within a minute and holding ten seconds on; none in the first two minutes, when

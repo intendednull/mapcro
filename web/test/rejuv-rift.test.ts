@@ -76,7 +76,7 @@ describe("Rejuvenator", () => {
     // Up, with a Rejuvenator held: nothing (no health known here), or its health.
     expect(pv(2400).rejuv).toHaveLength(1);
     expect(markerTip(boss, { ...pv(2400), camps: new Map() }, 2400)).toBeUndefined();
-    expect(markerTip(boss, { ...pv(2400), camps: new Map(), health: new Map([[boss.key, { pct: 45 }]]) } as MatchPreview, 2400)).toBe("Mid boss 45%");
+    expect(markerTip(boss, { ...pv(2400), camps: new Map(), health: new Map([[boss.key, { pct: 45 }]]) } as MatchPreview, 2400)).toBe("Mid-Boss 45%");
     expect(markerTip(boss, { ...pv(2600), camps: new Map() }, 2600)).toBeUndefined();
   });
 

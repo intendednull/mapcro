@@ -65,7 +65,7 @@ export function urnItemTip(u: UrnNow, t: number): string {
 export const URN_HOVER = "soul-urn";
 
 /** Objectives with health, by marker kind: what their label calls them. */
-const HEALTH_NAME: Partial<Record<Marker["kind"], string>> = { t1: "Guardian", t2: "Walker", barracks: "Base guardian", shrine: "Shrine", t3: "Patron", midboss: "Mid boss" };
+const HEALTH_NAME: Partial<Record<Marker["kind"], string>> = { t1: "Guardian", t2: "Walker", barracks: "Base guardian", shrine: "Shrine", t3: "Patron", midboss: "Mid-Boss" };
 
 /** "Walker 62%": an objective with health and its health now, rounded; `undefined` unknown. */
 export function healthTip(kind: Marker["kind"], pct: number | undefined): string | undefined {

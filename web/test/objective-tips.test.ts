@@ -80,7 +80,7 @@ describe("objective tips", () => {
     const pv = { players: new Map(), down: new Set<string>(), sites: new Map(), lanes: new Map(), camps: new Map(), health };
     expect(markerTip(walker, pv, 10)).toBe("Walker 62%");
     expect(markerTip(guardian, pv, 10)).toBe("Guardian 100%");
-    expect(markerTip(boss, pv, 10)).toBe("Mid boss 45%");
+    expect(markerTip(boss, pv, 10)).toBe("Mid-Boss 45%");
     // Down: nothing; the mid boss, its timer instead.
     expect(markerTip(walker, { ...pv, down: new Set([walker.key]) }, 10)).toBeUndefined();
     const camps = new Map([[boss.key, { state: "cleared" as const, at: 70 }]]);

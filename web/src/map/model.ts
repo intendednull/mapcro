@@ -163,7 +163,7 @@ export function markersFrom(entities: PackEntity[], t: Transform = DEFAULT_TRANS
         out.push({ ...base, kind: "shrine", px: 32, z: 15, title: `Shrine (${teamName(tm)}${where})` });
         break;
       case "mid_boss":
-        out.push({ ...base, kind: "midboss", px: 64, z: 4, lane: null, title: "Mid boss" });
+        out.push({ ...base, kind: "midboss", px: 64, z: 4, lane: null, title: "Mid-Boss" });
         break;
       case "camp": {
         if (isMidBossCamp(e, entities)) break;
