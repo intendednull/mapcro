@@ -11,7 +11,7 @@
 // Layer order (design/parity/README.md, layer 10): arrows, ink and callouts, drag ghosts, hero
 // tokens, then lasers, cursors and name tags.
 
-import { For, Index, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type Signal } from "solid-js";
 import { capture } from "../ui/capture";
 import { colorOf, inkOn } from "../core/device";
 import type { Arrow } from "../gen/Arrow";
@@ -1070,38 +1070,78 @@ export function Layers(p: {
   );
 }
 
+const samePt = (a: Pt, b: Pt) => a.x === b.x && a.y === b.y;
+
+/** A trail segment, kept across updates by its older point: a point dropping off the tail shifts no
+ * index here, so the segment keeps its DOM and its `clipPath` (an SVG resource: rewriting its
+ * polygon invalidates the path that references it). */
+type LaserSeg = {
+  /** Its clipPath's id, fixed for the segment's life. */
+  id: string;
+  /** The older end: a segment never moves once the point after it is there. */
+  a: Pt;
+  t: number;
+  /** The newer end: the head follows the pointer, so this one is a signal. */
+  b: Signal<Pt>;
+  /** Its cut polygon, a signal by value: only a changed cut is written. */
+  clip: Signal<string>;
+};
+
 /** One gesture's trail; the head dot only on the newest (`head`). */
 /** `k` is the view's zoom factor (as arrows and name tags use): the trail keeps its size on screen
  * however far the map is zoomed (operator, 2026-11-08: it grew huge zoomed in). */
 function LaserTrail(p: { points: Timed[]; now: number; color: string; name?: string; mine?: boolean; head?: boolean; k: number }) {
   const uid = createUniqueId();
-  const pts = () => p.points.map((q) => q.p);
+  let nextId = 0;
+  // The trail's positions, mapped once per change, not once per segment per change.
+  const pts = createMemo(() => p.points.map((q) => q.p));
   // Each segment by its older end's age (#42): the tail fades on the clock, not by its place.
-  const segs = () => {
+  //
+  // The trail only drops points at its front and appends at its back, so a dropped point shifts no
+  // index: the segments are re-matched by their older point and rendered with `For`, which keeps
+  // their DOM. A cut uses points i-1 .. i+2 only, so a new point changes the last segment's cut
+  // and a dropped tail point the first's: one or two writes per point, not one per segment
+  // (TD-53: a dynamic attribute is written on every run, so a memo is what keeps it quiet).
+  const segs = createMemo<LaserSeg[]>((prev) => {
+    const all = pts();
     const points = p.points;
-    return points.slice(1).map((q, i) => ({ a: points[i]!.p, b: q.p, t: points[i]!.t }));
-  };
+    const n = all.length - 1;
+    if (n <= 0) return [];
+    const first = points[0];
+    const from = prev.length && first ? prev.findIndex((s) => s.t === first.t && samePt(s.a, first.p)) : -1;
+    const out: LaserSeg[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = all[i]!, b = all[i + 1]!;
+      const old = from >= 0 ? prev[from + i] : undefined;
+      const kept = old && old.t === points[i]!.t && samePt(old.a, a) ? old : undefined;
+      if (kept) kept.b[1](b);
+      const seg = kept ?? { id: `${uid}-${++nextId}`, a, t: points[i]!.t, b: createSignal(b, { equals: samePt }), clip: createSignal("") };
+      seg.clip[1](laserClip(all, i));
+      out.push(seg);
+    }
+    return out;
+  }, []);
   const head = () => p.points[p.points.length - 1];
   return (
     <g class="laser" style={{ "--c": p.color, "--k": String(p.k) }} data-laser={p.mine ? "mine" : (p.name ?? "")}>
-      <Index each={segs()}>
-        {(s, i) => {
-          const alpha = () => laserAlpha(p.now - s().t);
+      <For each={segs()}>
+        {(s) => {
+          const alpha = () => laserAlpha(p.now - s.t);
           return (
             <>
               {/* Each segment cut at its joints (#46): abutting caps, so the fade never doubles. */}
-              <clipPath id={`${uid}-${i}`} clipPathUnits="userSpaceOnUse">
-                <polygon points={laserClip(pts(), i)} />
+              <clipPath id={s.id} clipPathUnits="userSpaceOnUse">
+                <polygon points={s.clip[0]()} />
               </clipPath>
               <path
-                d={`M${s().a.x} ${s().a.y} L${s().b.x} ${s().b.y}`}
-                clip-path={`url(#${uid}-${i})`}
+                d={`M${s.a.x} ${s.a.y} L${s.b[0]().x} ${s.b[0]().y}`}
+                clip-path={`url(#${s.id})`}
                 style={{ opacity: alpha().toFixed(3), "stroke-width": `${(5 + 4 * alpha()) * p.k}px` }}
               />
             </>
           );
         }}
-      </Index>
+      </For>
       <Show when={p.head !== false && head()}>{(h) => <circle class="head" cx={h().p.x} cy={h().p.y} r={7 * p.k} style={{ opacity: laserAlpha(p.now - h().t).toFixed(3), "stroke-width": `${4 * p.k}` }} />}</Show>
     </g>
   );

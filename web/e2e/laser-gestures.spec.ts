@@ -236,6 +236,53 @@ test("no joint of the laser trail is painted twice: the fade has no brighter sea
   }
 });
 
+/**
+ * A segment's clip polygon is an SVG resource its path references, so writing its `points` again
+ * invalidates it (TD-53: a dynamic attribute writes on every effect run). Drawing must not rewrite
+ * every segment's cut per new point: a cut depends on its own four points only, and a segment that
+ * merely shifted along the trail keeps its cut.
+ */
+test("a laser's clip polygons are written per changed cut, not per segment per point", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Laser clip writes"), "Coach");
+  await a.keyboard.press("w");
+  await expect(a.getByTestId("tool-laser")).toHaveAttribute("aria-pressed", "true");
+  await a.evaluate(() => {
+    const w = window as unknown as { writes: number; points: number; obs: MutationObserver };
+    w.writes = 0;
+    w.points = 0;
+    w.obs = new MutationObserver((records) => {
+      for (const r of records) {
+        const el = r.target as Element;
+        // Arrowheads carry `points` too; only the trail's cuts are watched.
+        if (r.type === "attributes" && r.attributeName === "points" && el.tagName.toLowerCase() === "polygon" && el.closest(".laser")) w.writes++;
+        // A path per new point (the first point draws none): the trail's own count of points added.
+        else if (r.type === "childList") for (const n of r.addedNodes) if (n.nodeType === 1 && (n as Element).tagName.toLowerCase() === "path" && (n as Element).closest(".laser")) w.points++;
+      }
+    });
+    w.obs.observe(document.querySelector(".mapbox")!, { attributes: true, subtree: true, attributeFilter: ["points"], childList: true });
+  });
+  // A steady stroke for about a second: a point every ~30 ms, so ~30 points and as many segments.
+  const from = await mapPoint(a, 0.3, 0.3);
+  const to = await mapPoint(a, 0.55, 0.55);
+  await a.mouse.move(from.x, from.y);
+  await a.mouse.down();
+  for (let i = 1; i <= 30; i++) {
+    await a.mouse.move(from.x + ((to.x - from.x) * i) / 30, from.y + ((to.y - from.y) * i) / 30);
+    await a.waitForTimeout(30);
+  }
+  const r = await a.evaluate(() => {
+    const w = window as unknown as { writes: number; points: number; obs: MutationObserver };
+    w.obs.disconnect();
+    return { writes: w.writes, points: w.points, segments: document.querySelectorAll('.mapbox .laser[data-laser="mine"] path').length };
+  });
+  await a.mouse.up();
+  expect(r.points).toBeGreaterThan(8);
+  // A point touches the cut of the segment before it (and the head's own, as it moves): about two
+  // writes per point. Rewriting every segment's cut per point would be ~10 here, rising with the
+  // trail's length.
+  expect(r.writes / r.points).toBeLessThanOrEqual(3);
+});
+
 test("the laser keeps its size on screen when the map is zoomed in", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Laser zoom"), "Coach");
   // The trail's width on screen: its stroke in the overlay's units times the overlay's scale.
