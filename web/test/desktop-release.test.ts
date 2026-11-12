@@ -1,8 +1,9 @@
 // The app's download (desktop/README.md, Releasing): per system, the one build that updates itself
 // (operator, 2026-11-11: a browser gets no portable zip or .deb link), a file of the latest release by the stable
 // name the release jobs upload (never a release page); shown on Windows and desktop Linux
-// browsers only, never in the app, under DESKTOP_APP_RELEASED. And the portable app's "Update
-// available" (`appUpdate`).
+// browsers only, never in the app, under DESKTOP_APP_RELEASED. And the app's "Update available"
+// (`appUpdate`; desktop/README.md, Updates): the installed app's banner, Install only on a click
+// (`updatePrompt`, issue #43), and the portable app's link.
 import { describe, expect, it } from "vitest";
 import {
   DESKTOP_APP_RELEASED,
@@ -10,8 +11,12 @@ import {
   LINUX_APP_URL,
   WINDOWS_APP_PORTABLE_URL,
   WINDOWS_APP_URL,
+  LATER_KEY,
+  type PromptState,
   appUpdate,
   desktopAppLinks,
+  installUpdate,
+  updatePrompt,
   desktopOs,
 } from "../src/player/desktop";
 import { openInAppHref } from "../src/core/applink";
@@ -118,15 +123,130 @@ describe("appUpdate", () => {
     if (cmd !== "app_update") throw "unknown_command";
     return v;
   };
-  it("is the version the portable app reports", async () => {
-    expect(await appUpdate(answering("0.2.0"))).toBe("0.2.0");
+  it("is the version the app reports, and how to offer it", async () => {
+    expect(await appUpdate(answering({ version: "0.2.3", kind: "install" }))).toEqual({ version: "0.2.3", kind: "install" });
+    expect(await appUpdate(answering({ version: "0.2.3", kind: "link" }))).toEqual({ version: "0.2.3", kind: "link" });
   });
-  it("is nothing when up to date, installed, in a browser, in an older app, or on a strange answer", async () => {
+  it("takes an app before 0.2.2's bare version as the portable link (only portable answered one)", async () => {
+    expect(await appUpdate(answering("0.2.0"))).toEqual({ version: "0.2.0", kind: "link" });
+  });
+  it("is nothing when up to date, in a browser, in an older app, or on a strange answer", async () => {
     expect(await appUpdate(answering(null))).toBeUndefined();
     expect(await appUpdate(undefined)).toBeUndefined();
     expect(await appUpdate(async () => Promise.reject("unknown_command"))).toBeUndefined();
     expect(await appUpdate(answering(2))).toBeUndefined();
     expect(await appUpdate(answering("<b>1</b>"))).toBeUndefined();
     expect(await appUpdate(answering("x".repeat(100)))).toBeUndefined();
+    expect(await appUpdate(answering({ version: "<b>1</b>", kind: "install" }))).toBeUndefined();
+    expect(await appUpdate(answering({ version: "0.2.3", kind: "run" }))).toBeUndefined();
+    expect(await appUpdate(answering({ kind: "install" }))).toBeUndefined();
+  });
+});
+
+/** A stand-in for the app with an update out: records every command, and answers Install as
+ * `install` says (never settling is the app restarting). */
+function updatingApp(o: { offer?: unknown; install?: () => Promise<unknown> } = {}) {
+  const calls: [string, Record<string, unknown> | undefined][] = [];
+  const invoke: Invoke = async (cmd, args) => {
+    calls.push([cmd, args]);
+    if (cmd === "app_update") return "offer" in o ? o.offer : { version: "0.2.3", kind: "install" };
+    if (cmd === "app_update_install") return (o.install ?? (() => new Promise(() => {})))();
+    throw "unknown_command";
+  };
+  return { invoke, calls };
+}
+
+/** sessionStorage's two calls, on a Map. */
+function memory() {
+  const m = new Map<string, string>();
+  return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), m };
+}
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+describe("updatePrompt (the installed app's banner)", () => {
+  it("shows the offer and installs nothing without a click", async () => {
+    const { invoke, calls } = updatingApp();
+    const states: PromptState[] = [];
+    const p = updatePrompt((s) => states.push(s), { invoke, storage: memory() });
+    await p.start();
+    await flush();
+    expect(states).toEqual([{ kind: "offer", version: "0.2.3" }]);
+    expect(calls.map(([c]) => c)).toEqual(["app_update"]);
+  });
+
+  it("installs the offered version on Install, and says so until the app restarts", async () => {
+    const { invoke, calls } = updatingApp();
+    const states: PromptState[] = [];
+    const p = updatePrompt((s) => states.push(s), { invoke, storage: memory() });
+    await p.start();
+    void p.install();
+    await flush();
+    expect(calls).toEqual([["app_update", undefined], ["app_update_install", { version: "0.2.3" }]]);
+    expect(states.at(-1)).toEqual({ kind: "installing", version: "0.2.3" });
+  });
+
+  it("says Update failed when the install fails, and Retry asks again", async () => {
+    let fail = true;
+    const { invoke, calls } = updatingApp({ install: () => (fail ? Promise.reject("failed") : new Promise(() => {})) });
+    const states: PromptState[] = [];
+    const p = updatePrompt((s) => states.push(s), { invoke, storage: memory() });
+    await p.start();
+    await p.install();
+    expect(states.slice(-2)).toEqual([{ kind: "installing", version: "0.2.3" }, { kind: "failed", version: "0.2.3" }]);
+    fail = false;
+    void p.install();
+    await flush();
+    expect(states.at(-1)).toEqual({ kind: "installing", version: "0.2.3" });
+    expect(calls.filter(([c]) => c === "app_update_install")).toHaveLength(2);
+  });
+
+  it("Later hides it for this run, for that version only", async () => {
+    const storage = memory();
+    const first = updatingApp();
+    const states: PromptState[] = [];
+    const p = updatePrompt((s) => states.push(s), { invoke: first.invoke, storage });
+    await p.start();
+    p.later();
+    expect(states.at(-1)).toEqual({ kind: "hidden" });
+    expect(storage.m.get(LATER_KEY)).toBe("0.2.3");
+    expect(first.calls.map(([c]) => c)).toEqual(["app_update"]);
+
+    // The next page load in this run (another board, a reload): still hidden.
+    const again: PromptState[] = [];
+    await updatePrompt((s) => again.push(s), { invoke: updatingApp().invoke, storage }).start();
+    expect(again).toEqual([]);
+
+    // A newer version than the one put off shows again.
+    const newer: PromptState[] = [];
+    await updatePrompt((s) => newer.push(s), { invoke: updatingApp({ offer: { version: "0.2.4", kind: "install" } }).invoke, storage }).start();
+    expect(newer).toEqual([{ kind: "offer", version: "0.2.4" }]);
+  });
+
+  it("shows nothing in a browser, when up to date, in the portable app (its link instead) or an older app", async () => {
+    for (const offer of [null, { version: "0.2.3", kind: "link" }, "0.2.3", undefined]) {
+      const states: PromptState[] = [];
+      const { invoke, calls } = updatingApp({ offer });
+      const p = updatePrompt((s) => states.push(s), { invoke, storage: memory() });
+      await p.start();
+      await p.install();
+      expect(states, JSON.stringify(offer)).toEqual([]);
+      expect(calls.map(([c]) => c)).toEqual(["app_update"]);
+    }
+    const states: PromptState[] = [];
+    const p = updatePrompt((s) => states.push(s), { invoke: undefined, storage: memory() });
+    await p.start();
+    await p.install();
+    expect(states).toEqual([]);
+  });
+});
+
+describe("installUpdate", () => {
+  it("names the version and passes the app's reason on", async () => {
+    const { invoke, calls } = updatingApp({ install: () => Promise.reject("no_update") });
+    await expect(installUpdate("0.2.3", invoke)).rejects.toMatchObject({ code: "no_update" });
+    await expect(installUpdate("0.2.3", async () => Promise.reject({ weird: 1 }))).rejects.toMatchObject({ code: "failed" });
+    await expect(installUpdate("0.2.3", undefined)).rejects.toMatchObject({ code: "failed" });
+    expect(calls).toEqual([["app_update_install", { version: "0.2.3" }]]);
   });
 });

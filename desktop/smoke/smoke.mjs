@@ -5,13 +5,18 @@
 // page can't reach any plugin, and (with --fake-steam) that the app finds a fake Steam install's
 // replays folder and lists its replays, as the replay picker asks for them (`replays_list`).
 // It never calls `replays_choose_folder`: that opens the native folder dialog.
+// Updates (desktop/README.md, Updates; issue #43): the app's feed is a local `latest.json` this
+// script serves (`MAPCRO_UPDATE_FEED`, debug builds only) offering 9.9.9. `app_update` offers it
+// with Install, and nothing is downloaded until `app_update_install` is called with that version;
+// that download is a junk file whose signature fails, so nothing is ever installed. With --deb
+// (CI's installed .deb, which its package manager updates) nothing is offered at all.
 // mapcro:// links (desktop/README.md, Deep links): a second launch with a board link hands it to
 // the running app (the single-instance plugin), whose window opens the board on the site, and a
 // link that isn't a board's changes nothing; then the app started by a link opens on its board.
 // On Linux the hand-off needs a D-Bus session (`just desktop-smoke` runs a private one); without
 // one those checks are skipped. The links are synthetic (no real board or token).
 //
-//   node desktop/smoke/smoke.mjs <app binary> [--fake-steam]
+//   node desktop/smoke/smoke.mjs <app binary> [--fake-steam] [--deb]
 //
 // Env: TAURI_DRIVER (default `tauri-driver` on PATH), NATIVE_DRIVER (passed as --native-driver;
 // default: the driver's own lookup). --fake-steam writes the layout under a temp dir, never real
@@ -30,10 +35,11 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const [app, ...flags] = process.argv.slice(2);
 if (!app) {
-  console.error("usage: node desktop/smoke/smoke.mjs <app binary> [--fake-steam]");
+  console.error("usage: node desktop/smoke/smoke.mjs <app binary> [--fake-steam] [--deb]");
   process.exit(2);
 }
 const fakeSteam = flags.includes("--fake-steam");
+const deb = flags.includes("--deb");
 /** Synthetic match ids for the fake replays folder (newest first, as `replays_list` gives them). */
 const IDS = ["990000003", "990000002", "990000001"];
 const DRIVER_PORT = 4444;
@@ -130,7 +136,30 @@ function launch(arg) {
   });
 }
 
+/** Every request for the update's file (a download), and every check of the feed. */
+const updateHits = { feed: 0, file: 0 };
+/** A feed offering 9.9.9 for both systems, its file on this server, with a signature that can't
+ * verify (minisign-shaped base64 of junk): a download fails before any install. */
+const feed = (site) =>
+  JSON.stringify({
+    version: "9.9.9",
+    pub_date: "2026-11-11T00:00:00Z",
+    platforms: Object.fromEntries(
+      ["linux-x86_64", "windows-x86_64"].map((t) => [t, { url: `${site}smoke-update.bin`, signature: Buffer.from("untrusted comment: smoke\nnot a signature\n").toString("base64") }]),
+    ),
+  });
+
 const server = createServer((req, res) => {
+  if (req.url === "/latest.json") {
+    updateHits.feed++;
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+    return res.end(feed(site));
+  }
+  if (req.url === "/smoke-update.bin") {
+    updateHits.file++;
+    res.writeHead(200, { "content-type": "application/octet-stream" });
+    return res.end(Buffer.alloc(1024));
+  }
   const js = req.url === "/smoke.js";
   res.writeHead(200, { "content-type": js ? "text/javascript" : "text/html; charset=utf-8", "content-security-policy": csp, "cache-control": "no-store" });
   res.end(js ? SCRIPT : PAGE);
@@ -138,7 +167,7 @@ const server = createServer((req, res) => {
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const site = `http://127.0.0.1:${server.address().port}/`;
 
-const env = { ...process.env, MAPCRO_URL: site };
+const env = { ...process.env, MAPCRO_URL: site, MAPCRO_UPDATE_FEED: `${site}latest.json` };
 // Links off the site: on Linux the opener runs `xdg-open <url>` (the `open` crate, first on its
 // list); a stand-in first on PATH records each URL instead of starting a browser. Elsewhere the
 // opener is the system's (Windows: ShellExecute), so those checks are Linux only.
@@ -188,9 +217,29 @@ try {
   const call = (cmd, args = {}) => exec(`return await window.__TAURI_INTERNALS__.invoke(${JSON.stringify(cmd)}, ${JSON.stringify(args)})`);
   const bad = await call("replay_read", { id: "../1" });
   check("replay_read refuses an id that isn't digits", bad.e === "bad_id", JSON.stringify(bad));
-  // The installed build updates itself: it tells the page of no update (only portable does).
+  // Updates: nothing is fetched at start, the feed's offer is the page's to show (Install), and
+  // nothing downloads or installs until Install names the offered version.
+  await new Promise((r) => setTimeout(r, 3000));
+  check("nothing downloads an update at start", updateHits.file === 0, JSON.stringify(updateHits));
   const upd = await call("app_update");
-  check("app_update answers nothing in the installed build", "v" in upd && upd.v === null, JSON.stringify(upd));
+  if (deb) {
+    check("app_update offers nothing in a .deb (its package manager updates it)", "v" in upd && upd.v === null, JSON.stringify(upd));
+    const r = await call("app_update_install", { version: "9.9.9" });
+    check("app_update_install refuses in a .deb", r.e === "no_update" && updateHits.file === 0, JSON.stringify(r));
+  } else {
+    check("app_update offers the feed's newer version with Install", upd.v?.version === "9.9.9" && upd.v?.kind === "install", JSON.stringify(upd));
+    const again = await call("app_update");
+    check("app_update asks the feed once per run", JSON.stringify(again) === JSON.stringify(upd) && updateHits.feed === 1, JSON.stringify(updateHits));
+    await new Promise((r) => setTimeout(r, 2000));
+    check("an offered update downloads nothing without Install", updateHits.file === 0, JSON.stringify(updateHits));
+    for (const args of [{ version: "9.9.8" }, { version: "" }, {}]) {
+      const r = await call("app_update_install", args);
+      check(`app_update_install refuses ${JSON.stringify(args)}`, "e" in r && updateHits.file === 0, JSON.stringify(r));
+    }
+    const inst = await call("app_update_install", { version: "9.9.9" });
+    check("Install downloads the offered version", updateHits.file === 1, JSON.stringify(updateHits));
+    check("an update whose signature fails isn't installed", inst.e === "failed", JSON.stringify(inst));
+  }
 
   // No plugin, core or otherwise, is the page's to call.
   for (const [cmd, args] of [

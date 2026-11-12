@@ -5,7 +5,7 @@ import { Board } from "./board/Board";
 import { Landing } from "./landing/Landing";
 import { DeadLink } from "./ui/DeadLink";
 import { loadArt } from "./map/pack";
-import { OpenLinkKeys } from "./ui/OpenLink";
+import { OpenLinkKeys, UpdateBanner } from "./ui/OpenLink";
 
 export function App() {
   // The landing can open a board in place, and back and forward follow the address
@@ -18,6 +18,7 @@ export function App() {
   return (
     <>
     <OpenLinkKeys />
+    <UpdateBanner />
     <Switch fallback={<Landing />}>
       <Match when={broken()}>
         <div class="app loading">

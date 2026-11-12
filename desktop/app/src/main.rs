@@ -1,16 +1,18 @@
 //! mapcro for Windows (desktop/README.md): one window on the live site, and the replay picker's
 //! native side: the replays folder, looked up when the picker asks (no watch), each card's preview
 //! read from its demo, and the parse of the one replay the user picks. The site reaches it through
-//! six commands only
-//! (capabilities/site.json); it never passes a path, only a match id.
+//! seven commands only
+//! (capabilities/site.json); it never passes a path, only a match id (and, for Install, the version
+//! the app itself offered).
 //!
 //! Logs carry reason codes and match ids, never a path, a player name or an account id.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use mapcro_desktop_core::mode::{self, Mode, OnUpdate};
+use mapcro_desktop_core::mode::{self, Mode, Offer, Package};
 use mapcro_desktop_core::{folder, parse, preview, replays, steam};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
 use tauri::ipc::Response;
@@ -25,7 +27,15 @@ mod routes;
 const SITE: &str = "https://mapcro.dmgdeadlock.com";
 const WINDOW: &str = "main";
 /// The app's own commands: the only IPC the site gets.
-const COMMANDS: [&str; 6] = ["allow-replays-list", "allow-replay-read", "allow-replay-timeline", "allow-replay-preview", "allow-replays-choose-folder", "allow-app-update"];
+const COMMANDS: [&str; 7] = [
+    "allow-replays-list",
+    "allow-replay-read",
+    "allow-replay-timeline",
+    "allow-replay-preview",
+    "allow-replays-choose-folder",
+    "allow-app-update",
+    "allow-app-update-install",
+];
 /// Installed or portable (the `portable` feature; desktop/README.md, Installer or portable).
 const MODE: Mode = Mode::of_build(cfg!(feature = "portable"));
 /// Timelines kept parsed (each ~0.6 MB gzip for a 44 min match).
@@ -68,8 +78,10 @@ struct Shared {
     previews: Mutex<Option<preview::Cache>>,
     /// One preview read at a time (the cards ask as they come into view).
     previewing: Mutex<()>,
-    /// Portable: the feed's answer, once asked (`Some(None)`: up to date).
-    update: Mutex<Option<Option<String>>>,
+    /// The feed's answer, once asked this run (`Some(None)`: up to date, or nothing to offer).
+    update: Mutex<Option<Option<tauri_plugin_updater::Update>>>,
+    /// Install was clicked and is under way (one at a time).
+    installing: AtomicBool,
 }
 
 impl Shared {
@@ -215,27 +227,97 @@ async fn replays_choose_folder(app: AppHandle, state: tauri::State<'_, Arc<Share
     .map_err(|_| "failed".to_string())?
 }
 
-/// Portable only: the newer version the update feed offers, if any (the page shows "Update
-/// available", a link to the new portable zip). Asked once per run, when the page first asks. The
-/// installed app installs updates itself (`check_for_update`), so it answers nothing here.
-#[tauri::command]
-async fn app_update(app: AppHandle, state: tauri::State<'_, Arc<Shared>>) -> Result<Option<String>, String> {
+/// A newer version the feed offers, as the page gets it: `{version, kind}`, `kind` being
+/// `install` (the page shows Install) or `link` (portable: a link to the new zip).
+#[derive(serde::Serialize)]
+struct Offered {
+    version: String,
+    kind: Offer,
+}
+
+/// What this copy offers for a newer version (core/src/mode.rs `Mode::offer`).
+fn offer() -> Option<Offer> {
+    MODE.offer(package())
+}
+
+/// The package this binary came in, from the bundle type the bundler stamped into it. A debug
+/// build straight from cargo is `Unbundled` (offered as the installer is, for the smoke test); a
+/// release build nobody bundled offers nothing.
+fn package() -> Package {
+    use tauri::utils::config::BundleType;
+    match tauri::utils::platform::bundle_type() {
+        Some(BundleType::Nsis) => Package::Nsis,
+        Some(BundleType::AppImage) => Package::AppImage,
+        Some(BundleType::Deb) => Package::Deb,
+        Some(_) => Package::Other,
+        None if cfg!(debug_assertions) => Package::Unbundled,
+        None => Package::Other,
+    }
+}
+
+/// The updater on the configured feed, or (a debug build only) on `MAPCRO_UPDATE_FEED`: the smoke
+/// test's local `latest.json`.
+fn updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
     use tauri_plugin_updater::UpdaterExt;
-    if MODE.on_update() != OnUpdate::Notify || !mode::updates_on(&pubkey(&app)) {
+    #[cfg(debug_assertions)]
+    if let Some(feed) = std::env::var("MAPCRO_UPDATE_FEED").ok().and_then(|s| Url::parse(&s).ok()) {
+        return app.updater_builder().endpoints(vec![feed]).and_then(|b| b.build()).map_err(|_| "failed".to_string());
+    }
+    app.updater().map_err(|_| "failed".to_string())
+}
+
+/// The newer version the update feed offers, if any, and how the page offers it (`Offered`).
+/// Asked once per run, when the page first asks; it only asks, never downloads or installs.
+/// Nothing for a package the system's package manager updates (the .deb, nix), or while updates
+/// are off.
+#[tauri::command]
+async fn app_update(app: AppHandle, state: tauri::State<'_, Arc<Shared>>) -> Result<Option<Offered>, String> {
+    let Some(kind) = offer() else { return Ok(None) };
+    if !mode::updates_on(&pubkey(&app)) {
         return Ok(None);
     }
-    if let Some(known) = state.update.lock().map_err(|_| "busy".to_string())?.clone() {
-        return Ok(known);
-    }
-    let found = match app.updater().map_err(|_| "failed".to_string())?.check().await {
-        Ok(u) => u.map(|u| u.version),
-        Err(e) => {
-            eprintln!("mapcro: update check failed: {e}");
-            return Err("failed".into());
+    let known = state.update.lock().map_err(|_| "busy".to_string())?.clone();
+    let found = match known {
+        Some(known) => known,
+        None => {
+            let found = match updater(&app)?.check().await {
+                Ok(u) => u,
+                Err(e) => {
+                    eprintln!("mapcro: update check failed: {e}");
+                    return Err("failed".into());
+                }
+            };
+            *state.update.lock().map_err(|_| "busy".to_string())? = Some(found.clone());
+            found
         }
     };
-    *state.update.lock().map_err(|_| "busy".to_string())? = Some(found.clone());
-    Ok(found)
+    Ok(found.map(|u| Offered { version: u.version, kind }))
+}
+
+/// Install, clicked: downloads the version `app_update` offered (the page names it back; any
+/// other is refused, `no_update`), checks its signature, installs it and restarts the app.
+/// Windows: the installer runs passively, closes the app and starts it again. Linux (AppImage):
+/// the file is replaced, then the app restarts. `failed` if the download or the install fails;
+/// `busy` while one is under way. Only ever on the user's click: nothing calls it at start.
+#[tauri::command]
+async fn app_update_install(app: AppHandle, state: tauri::State<'_, Arc<Shared>>, version: String) -> Result<(), String> {
+    let update = state.update.lock().map_err(|_| "busy".to_string())?.clone().flatten();
+    mode::may_install(offer(), update.as_ref().map(|u| u.version.as_str()), &version)?;
+    let Some(update) = update else { return Err("no_update".into()) };
+    if state.installing.swap(true, Ordering::SeqCst) {
+        return Err("busy".into());
+    }
+    match update.download_and_install(|_, _| {}, || {}).await {
+        Ok(()) => {
+            eprintln!("mapcro: update {version} installed; restarting");
+            app.restart()
+        }
+        Err(e) => {
+            state.installing.store(false, Ordering::SeqCst);
+            eprintln!("mapcro: update failed: {e}");
+            Err("failed".into())
+        }
+    }
 }
 
 fn show(app: &AppHandle) {
@@ -258,7 +340,7 @@ fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::clone(&shared))
-        .invoke_handler(tauri::generate_handler![replays_list, replay_read, replay_timeline, replay_preview, replays_choose_folder, app_update])
+        .invoke_handler(tauri::generate_handler![replays_list, replay_read, replay_timeline, replay_preview, replays_choose_folder, app_update, app_update_install])
         .setup(move |app| {
             let handle = app.handle().clone();
             if site.as_str().trim_end_matches('/') != SITE {
@@ -272,14 +354,16 @@ fn run() {
             window(&handle, &links::first_page(&handle, &site))?;
             links::listen(&handle, &site, WINDOW);
             links::register(&handle, MODE);
-            check_for_update(&handle);
+            if !mode::updates_on(&pubkey(&handle)) {
+                eprintln!("mapcro: updates off (no public key configured)");
+            }
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("mapcro failed to start");
 }
 
-/// A debug build pointed at a dev server: the same six commands for its origin.
+/// A debug build pointed at a dev server: the same seven commands for its origin.
 fn dev_capability(app: &AppHandle, site: &Url) -> tauri::Result<()> {
     let mut origin = site.clone();
     origin.set_path("/*");
@@ -348,38 +432,26 @@ fn merge_browser_args(base: &str, extra: &str) -> String {
 
 #[cfg(all(test, debug_assertions))]
 mod tests {
+    /// The allow-list is one list: the live site's capability, the dev server's (`COMMANDS`) and
+    /// the commands build.rs declares all name the same commands.
+    #[test]
+    fn the_allow_list_is_the_same_everywhere() {
+        let cap: serde_json::Value = serde_json::from_str(include_str!("../capabilities/site.json")).expect("site.json");
+        let granted: Vec<&str> = cap["permissions"].as_array().expect("permissions").iter().filter_map(|p| p.as_str()).collect();
+        assert_eq!(granted, super::COMMANDS);
+        let build = include_str!("../build.rs");
+        for p in super::COMMANDS {
+            let cmd = p.trim_start_matches("allow-").replace('-', "_");
+            assert!(build.contains(&format!("\"{cmd}\"")), "{cmd} not declared in build.rs");
+        }
+        assert!(super::COMMANDS.contains(&"allow-app-update-install"));
+    }
+
     #[test]
     fn merges_disable_features() {
         let merged = super::merge_browser_args("--disable-features=a,b --x", "--y --disable-features=b,c --remote-debugging-port=0");
         assert_eq!(merged, "--disable-features=a,b,c --x --y --remote-debugging-port=0");
     }
-}
-
-/// Check the update feed once at start, and install what it offers (Windows: the installer runs
-/// passively and restarts the app). Off while the public key is the placeholder. Portable doesn't
-/// install: the page asks `app_update` instead.
-fn check_for_update(app: &AppHandle) {
-    use tauri_plugin_updater::UpdaterExt;
-    if !mode::updates_on(&pubkey(app)) {
-        eprintln!("mapcro: updates off (no public key configured)");
-        return;
-    }
-    if MODE.on_update() != OnUpdate::Install {
-        return;
-    }
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let Ok(updater) = app.updater() else { return };
-        match updater.check().await {
-            Ok(Some(update)) => {
-                if let Err(e) = update.download_and_install(|_, _| {}, || {}).await {
-                    eprintln!("mapcro: update failed: {e}");
-                }
-            }
-            Ok(None) => {}
-            Err(e) => eprintln!("mapcro: update check failed: {e}"),
-        }
-    });
 }
 
 /// The updater's public key (`tauri.conf.json` `plugins.updater.pubkey`).

@@ -54,7 +54,7 @@ app's cache folder and deletes it afterwards.
 
 ## IPC allow-list
 
-The page reaches the native side only through these six commands. `capabilities/site.json`
+The page reaches the native side only through these seven commands. `capabilities/site.json`
 grants them to `https://mapcro.dmgdeadlock.com/*` only, in the `main` window. No plugin command
 is granted to the page; the folder chooser (`tauri-plugin-dialog`) and the updater are driven
 from Rust.
@@ -66,7 +66,8 @@ from Rust.
 | `replay_preview` | `id` | the card's preview read from the demo (`{match_id, start_time, duration_s, game_mode, winner, teams, build}`), or a reason code (`corrupt`, `parse_failed`, …) |
 | `replay_timeline` | `id` | the timeline JSON, gzipped, or a reason code (`old_map`, `brawl`, …) |
 | `replays_choose_folder` | nothing | `chosen` or `cancelled` (the system's folder chooser; the path stays in the app) |
-| `app_update` | nothing | the newer version the update feed offers, or `null`. Portable only (it asks the feed once per run); the installed app answers `null` and installs updates itself |
+| `app_update` | nothing | the newer version the update feed offers and how the page offers it, `{version, kind}` (`install` or `link`), or `null` (up to date, a .deb, updates off). It asks the feed once per run and never downloads (Updates, below) |
+| `app_update_install` | `version` (the one `app_update` gave) | downloads, verifies and installs it, then restarts the app; any other version is `no_update`, a second call while one runs `busy`, a failure `failed`. Only where `app_update` offered `install` |
 
 `replays_list` looks the folder up on each call (the picker calls it on open, on focus and every
 5 s while open); with none it answers `not_found`.
@@ -108,8 +109,9 @@ unhandled new-window request. The opener stays the app's: no opener command is g
 page.
 
 **A debug build only** takes `MAPCRO_URL` (for example `http://127.0.0.1:5173/`, `just dev`) and
-grants the same six commands to that origin at run time (`dev_capability`). A release build
-ignores the variable.
+grants the same seven commands to that origin at run time (`dev_capability`). A release build
+ignores the variable, as it does `MAPCRO_UPDATE_FEED` (the update feed's URL instead of the
+configured one: the smoke test's local `latest.json`).
 
 ## Installer or portable
 
@@ -117,12 +119,12 @@ Windows releases come two ways, both on the same GitHub release:
 
 - **The installer** (`mapcro_<version>_x64-setup.exe`, also `mapcro_x64-setup.exe`): per-user
   NSIS. It fetches WebView2 if it's missing, adds a Start-menu entry and an uninstaller,
-  registers `mapcro://`, and the app updates itself (passively, at start). "Get the Windows app"
-  links here.
+  registers `mapcro://`, and the app offers updates with **Install** (Updates, below). "Get the
+  Windows app" links here.
 - **Portable** (`mapcro_<version>_x64-portable.zip`, also `mapcro_x64-portable.zip`): the same
   app built with `--features portable`, the exe and a `README.txt`. Unzip and run it. The flag is
   baked in at build time (`core/src/mode.rs` `Mode`), not a file beside the exe. It differs in:
-  - **No auto-update.** It asks the same feed (`app_update`, once per run, when the page asks)
+  - **No Install.** It asks the same feed (`app_update`, once per run, when the page asks)
     and, if a newer version is out, the page shows **Update available**, a link straight to the
     new zip (`mapcro_x64-portable.zip`), which the system browser downloads. You unzip it yourself.
   - **No Start-menu entry or uninstaller.** Delete the folder to remove it.
@@ -290,7 +292,11 @@ from `crates/server/src/main.rs`), points a debug build at it with `MAPCRO_URL`,
 
 - the page loads, and the IPC bridge (`__TAURI_INTERNALS__.invoke`) is there;
 - `replay_read` refuses an id that isn't digits;
-- `app_update` answers `null` (the installed build updates itself; only portable reports one);
+- updates, against a local feed offering 9.9.9 (`MAPCRO_UPDATE_FEED`): nothing is downloaded at
+  start; `app_update` offers it with `install`, asking the feed once; nothing is downloaded until
+  `app_update_install` names that version (another, or none, is refused); then the download's
+  junk signature fails it (`failed`), so nothing is ever installed. With `--deb` (CI's installed
+  .deb) `app_update` offers nothing and `app_update_install` answers `no_update`;
 - no plugin command is the page's: opener, dialog, updater, window, webview, event and deep-link are
   each refused by the ACL;
 - with `--fake-steam`, a fake Steam install (its `libraryfolders.vdf`, Deadlock's manifest, and
@@ -347,12 +353,45 @@ every 3 s.
   release bundles into the same draft release. Linux runs after Windows
   because tauri-action adds its platform to `latest.json` by reading and rewriting it.
 
+## Updates
+
+Nothing installs, closes or restarts the app without the user's click (operator, 2026-11-11;
+issue #43: an installer that ran by itself and closed the app was frightening). Before 0.2.2
+the installed app installed what the feed offered at start.
+
+- **When.** The page asks `app_update` once it loads; the app asks the feed then, once per run,
+  and keeps the answer. Asking only asks: nothing is downloaded before Install (the simpler
+  option the operator allowed; a background download could make Install faster).
+- **What it offers** (`core/src/mode.rs` `Mode::offer`, by the bundle type the bundler stamps
+  into the binary):
+  - the Windows installer and the AppImage: `install`. The page shows a small banner in the
+    window's corner, on the landing and boards alike, out of the board's way: **Update
+    available** with **Install** and **Later** (`web/src/ui/OpenLink.tsx` `UpdateBanner`,
+    `player/desktop.ts` `updatePrompt`).
+  - portable: `link`. The page's **Update available** links the new zip (Installer or portable).
+  - a .deb, and the nix package (built from the .deb): nothing. The package manager updates it
+    (a .deb user installs the new .deb). Before 0.2.2 it would have tried at start (read from
+    the updater's source, not run): `latest.json` has a `linux-x86_64-deb` entry, which the
+    updater installs with `pkexec dpkg -i`.
+  - a release build no bundler stamped: nothing. A debug build straight from cargo: `install`
+    (the smoke test).
+- **Install** calls `app_update_install` with the offered version. The banner says
+  **Installing…** ("App restarts") while the app downloads it, checks its signature and installs
+  it; then the app restarts (Windows: the installer runs passively, closes the app and starts it
+  again; AppImage: the file is replaced and the app restarts itself). On a failure the banner says
+  **Update failed** with **Retry** and Later.
+- **Later** hides the banner for this run: kept in the window's `sessionStorage` by version, so
+  another page in the window doesn't bring it back, quitting the app forgets it, and a newer
+  version shows again.
+- Apps before 0.2.2 still install 0.2.2 at start: the change ships with it. A pre-0.2.2 portable
+  app answers `app_update` with a bare version; the page takes that as the link.
+
 ## Releasing
 
 Updates come from GitHub Releases on the public repo. The updater feed is
 `https://github.com/intendednull/mapcro/releases/latest/download/latest.json`
-(`app/tauri.conf.json` `plugins.updater.endpoints`). The app checks once at start and installs
-passively. Updates are off while the public key is the placeholder.
+(`app/tauri.conf.json` `plugins.updater.endpoints`). The app asks it once per run and installs
+only on the user's click (Updates). Updates are off while the public key is the placeholder.
 
 One-time setup (the operator, on a trusted machine):
 
@@ -374,7 +413,7 @@ Each release:
    `linux-x86_64`).
 3. The workflow's `publish` job checks the draft (every asset the site and the updater link to,
    and `latest.json` naming this version for both platforms), then publishes it. Installed apps
-   offer the update on their next start. If `publish` fails, the draft stays a draft: fix it and
+   offer the update (Install) on their next start. If `publish` fails, the draft stays a draft: fix it and
    re-run the job. `releases/latest` only points at a published release.
 4. The site's download links are on (`DESKTOP_APP_RELEASED = true` in
    `web/src/player/desktop.ts`, operator 2026-11-11; one flag for both systems, since `publish`
