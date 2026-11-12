@@ -69,6 +69,7 @@ for (const [os, ua, label, alt, file, altFile] of [
     await page.getByTestId("replay-help-open").click();
     await expect(page.getByTestId("replay-help-app")).toContainText(`Or get the ${os} app`);
     expect(await onlyFiles(page)).toBe(6);
+    await expect(page.getByTestId("github-landing")).toBeVisible();
     await expect(page.getByTestId("github-landing")).toHaveAttribute("href", REPO);
     await ctx.close();
   });
@@ -120,6 +121,7 @@ test("other systems and the app itself get no download; the footer's GitHub show
     await expect(page.getByTestId("app-get-landing")).toHaveCount(0);
     await expect(page.locator("a[download]")).toHaveCount(0);
     const gh = page.getByTestId("github-landing");
+    await expect(gh).toBeVisible();
     await expect(gh).toHaveText("GitHub");
     await expect(gh).toHaveAttribute("href", REPO);
     // In the app it's a plain navigation (the app hands it to the system browser); a new tab elsewhere.
