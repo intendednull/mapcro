@@ -324,6 +324,21 @@ test("a panel moves off the map controls when their row changes size, the pane u
   expect((await box(hero(a, "amber-5"))).y).toBeLessThan(was.y - 60);
 });
 
+test("#40 characterisation (before): a hero panel stops at the map pane's edges", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Panels map edges"), "Coach");
+  await load(a);
+  await scrubTo(a, 15);
+  await token(a, "Amber-5").click();
+  const panel = hero(a, "amber-5");
+  const ap = await pane(a);
+  await dragTo(a, panel, ap.x - 300, ap.y - 300);
+  await expect.poll(async () => Math.round((await box(panel)).x)).toBe(Math.round(ap.x));
+  expect(Math.round((await box(panel)).y)).toBe(Math.round(ap.y));
+  await dragTo(a, panel, ap.x + ap.width + 300, ap.y + 100);
+  await expect.poll(async () => { const b = await box(panel); return Math.round(b.x + b.width); }).toBe(Math.round(ap.x + ap.width));
+  await clear(a);
+});
+
 test("a follower on another screen size sees the same panels at the same places in its pane, each clamped clear of its controls", async ({ browser }) => {
   const url = await newBoardUrl(server, "Panels follow");
   const a = await joinNew(browser, url, "Coach");
