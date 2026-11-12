@@ -9,6 +9,7 @@
 //! mapcro-server stats limits
 //! mapcro-server stats usage    [--since 30d] [--by day|week]
 //! mapcro-server stats series <metric> [--since 24h] [--labels k=v,…]
+//! mapcro-server stats timelines <match id>   (the replay cache, not the metrics: lookup.rs)
 //!   common: [--json] [--data-dir DIR] (else $DATA_DIR)
 //! ```
 //!
@@ -22,13 +23,14 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: mapcro-server stats <summary|failures|funnel|limits|usage|series> [flags]
+const USAGE: &str = "usage: mapcro-server stats <summary|failures|funnel|limits|usage|series|timelines> [flags]
   summary  [--since 24h]                          health, usage, speed, limits vs the period before
   failures [--since 7d] [--kind KIND]             the recent-failures log, grouped
   funnel   [--since 7d] [--path cached|fetched|uploaded]   time to usable/full per day
   limits                                          each resource against its cap: now, peak, trend
   usage    [--since 30d] [--by day|week]          people, boards, matches, features
   series   METRIC [--since 24h] [--labels k=v,…]  one metric's raw rows
+  timelines MATCH_ID                              every cached timeline of a match: source, board, links
 common: --json (full data), --data-dir DIR (default $DATA_DIR)";
 
 struct Args {
@@ -73,7 +75,7 @@ fn parse_args(a: &[String]) -> Result<Args, String> {
             "--data-dir" => args.data_dir = Some(PathBuf::from(val("--data-dir")?)),
             "-h" | "--help" => return Err(String::new()),
             m if !m.starts_with('-') && args.cmd.is_empty() => args.cmd = m.to_owned(),
-            m if !m.starts_with('-') && args.cmd == "series" && args.metric.is_none() => args.metric = Some(m.to_owned()),
+            m if !m.starts_with('-') && matches!(args.cmd.as_str(), "series" | "timelines") && args.metric.is_none() => args.metric = Some(m.to_owned()),
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
@@ -125,6 +127,27 @@ pub fn main(argv: &[String]) -> i32 {
         eprintln!("mapcro-server stats: pass --data-dir or set DATA_DIR");
         return 2;
     };
+    if args.cmd == "timelines" {
+        // The replay cache and the boards, not the metrics: it needs no metrics tables.
+        let Some(id) = &args.metric else {
+            eprintln!("mapcro-server stats: timelines needs a match id\n{USAGE}");
+            return 2;
+        };
+        return match crate::lookup::timelines(&dir, id) {
+            Ok((text, data)) => {
+                if args.json {
+                    println!("{}", serde_json::to_string_pretty(&data).unwrap_or_default());
+                } else {
+                    print!("{text}");
+                }
+                0
+            }
+            Err(e) => {
+                eprintln!("mapcro-server stats: {e}");
+                1
+            }
+        };
+    }
     let c = match open(&dir) {
         Ok(c) => c,
         Err(e) => {
@@ -206,7 +229,7 @@ fn span(s: i64) -> String {
 
 // ---- formatting ----
 
-fn bytes(b: f64) -> String {
+pub(crate) fn bytes(b: f64) -> String {
     let units = ["B", "KB", "MB", "GB", "TB"];
     let mut v = b;
     let mut i = 0;

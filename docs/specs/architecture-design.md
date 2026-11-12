@@ -1978,6 +1978,11 @@ proof-of-work or accounts if rotation is seen in practice.
   replaces or removes only its own name (the trim counts a linked timeline's bytes once). Any link
   that can clone could already read those timelines, so a clone grants nothing new, and the
   clone's names carry only its own id's hash. An upload still in the queue isn't carried.
+- **Operator lookup (2026-11-12).** The lead can list every cached timeline of a match, with the
+  board each upload and clone belongs to, from the server's own files over the deploy SSH
+  (`mapcro-server stats timelines <id>`, observability §4), and copy one to the dev box
+  (`just pull-timeline`). It's a command on the host, not a route: it serves nothing to users and
+  changes no scope. An upload stays its board's (sharing verified uploads is a backlog item).
 - **Privacy, as in v1:** the worker never reads Steam or account ids (`m_steamID` is not among
   the fields it resolves), so no timeline can hold one. In-game names are kept when the demo
   carries them. Demos are deleted when their parse ends; only the derived timeline is kept.
