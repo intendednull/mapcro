@@ -11,7 +11,7 @@
 // Layer order (design/parity/README.md, layer 10): arrows, ink and callouts, drag ghosts, hero
 // tokens, then lasers, cursors and name tags.
 
-import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack } from "solid-js";
 import { capture } from "../ui/capture";
 import { colorOf, inkOn } from "../core/device";
 import type { Arrow } from "../gen/Arrow";
@@ -32,7 +32,7 @@ import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampShift, clampToBoard, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { cx } from "../ui/cx";
-import { LASER_MAX_POINTS, type Timed, addLaser, arrowHead, fitStroke, laserAlpha, laserRuns, laserStarts, polyline, pruneLaser, shaftEnd, stampLaser } from "./geometry";
+import { LASER_MAX_POINTS, type Timed, addLaser, arrowHead, fitStroke, laserAlpha, laserClip, laserRuns, laserStarts, polyline, pruneLaser, shaftEnd, stampLaser } from "./geometry";
 import { PRESENCE_MS } from "../core/session";
 import { liveInk, moveStrokeOps, strokePoints } from "./placed";
 import { smoothed } from "./smooth";
@@ -1074,22 +1074,31 @@ export function Layers(p: {
 /** `k` is the view's zoom factor (as arrows and name tags use): the trail keeps its size on screen
  * however far the map is zoomed (operator, 2026-11-08: it grew huge zoomed in). */
 function LaserTrail(p: { points: Timed[]; now: number; color: string; name?: string; mine?: boolean; head?: boolean; k: number }) {
+  const uid = createUniqueId();
+  const pts = () => p.points.map((q) => q.p);
   // Each segment by its older end's age (#42): the tail fades on the clock, not by its place.
   const segs = () => {
-    const pts = p.points;
-    return pts.slice(1).map((q, i) => ({ a: pts[i]!.p, b: q.p, t: pts[i]!.t }));
+    const points = p.points;
+    return points.slice(1).map((q, i) => ({ a: points[i]!.p, b: q.p, t: points[i]!.t }));
   };
   const head = () => p.points[p.points.length - 1];
   return (
     <g class="laser" style={{ "--c": p.color, "--k": String(p.k) }} data-laser={p.mine ? "mine" : (p.name ?? "")}>
       <Index each={segs()}>
-        {(s) => {
+        {(s, i) => {
           const alpha = () => laserAlpha(p.now - s().t);
           return (
-            <path
-              d={`M${s().a.x} ${s().a.y} L${s().b.x} ${s().b.y}`}
-              style={{ opacity: alpha().toFixed(3), "stroke-width": `${(5 + 4 * alpha()) * p.k}px` }}
-            />
+            <>
+              {/* Each segment cut at its joints (#46): abutting caps, so the fade never doubles. */}
+              <clipPath id={`${uid}-${i}`} clipPathUnits="userSpaceOnUse">
+                <polygon points={laserClip(pts(), i)} />
+              </clipPath>
+              <path
+                d={`M${s().a.x} ${s().a.y} L${s().b.x} ${s().b.y}`}
+                clip-path={`url(#${uid}-${i})`}
+                style={{ opacity: alpha().toFixed(3), "stroke-width": `${(5 + 4 * alpha()) * p.k}px` }}
+              />
+            </>
           );
         }}
       </Index>
