@@ -1,7 +1,9 @@
 // Panels a person moves in the board pane (#35 the death recap, #37 the hero panels; spec §6b
 // "Moving panels"): where one sits travels as a place relative to the pane (wire.rs `PanelPlace`), so a
 // follower with another screen keeps the layout, and each screen clamps it into its own pane, off
-// its own controls (the Map layers and Vision row).
+// its own controls (the Map layers and Vision row). The pane is the panel's offset parent: on a
+// desktop the board area round the map (#40: anywhere in it, not only over the map), on a phone
+// the map.
 //
 // A place is, on each axis, the distance from the pane's nearer edge to the panel's edge on that
 // side, in `PLACE_SCALE`ths of the pane's width or height.

@@ -1,5 +1,6 @@
 // Panels on the board pane (#35, #37; spec §6b "Panels"): the death recap and the hero panels
-// move by a drag of their top, with a mouse or a finger; several hero panels open at once; a
+// move by a drag of their top, with a mouse or a finger, anywhere in the board area round the
+// map (#40); several hero panels open at once; a
 // follower on another screen size gets the same set at the same places relative to its pane,
 // each clamped into it and off its own controls. And the match source closes once a match is in
 // (it covered the toolbar's left end).
@@ -99,7 +100,8 @@ async function scrubTo(p: Page, t: number) {
 
 type Box = { x: number; y: number; width: number; height: number };
 const box = async (l: Locator): Promise<Box> => (await l.boundingBox())!;
-const pane = (p: Page) => box(p.getByTestId("map"));
+/** The pane the panels are placed in: the board area round the map (#40). */
+const pane = (p: Page) => box(p.getByTestId("board-area"));
 const token = (p: Page, slot: string) => p.locator(`.mapbox .tok[data-slot="${slot}"]`);
 const hero = (p: Page, slot: string) => p.locator(`[data-testid=hero-card][data-slot="${slot}"]`);
 const recap = (p: Page) => p.getByTestId("skull-recap");
@@ -150,7 +152,7 @@ async function clear(p: Page) {
 /** The panel sits against the pane's controls, or its edge, at its top or bottom (clamped there). */
 const clamped = (p: Page, panel: Locator) =>
   panel.evaluate((el) => {
-    const pane = document.querySelector("[data-testid=map]")!.getBoundingClientRect();
+    const pane = document.querySelector("[data-testid=board-area]")!.getBoundingClientRect();
     const r = el.getBoundingClientRect();
     const mid = pane.top + pane.height / 2;
     const controls = [...document.querySelectorAll(".map-controls > *")].map((c) => c.getBoundingClientRect()).filter((c) => c.width > 0 && c.height > 0);
@@ -161,7 +163,7 @@ const clamped = (p: Page, panel: Locator) =>
 /** The panels outside the pane or over one of its controls. */
 async function faults(p: Page) {
   return p.evaluate(() => {
-    const paneEl = document.querySelector("[data-testid=map]")!.getBoundingClientRect();
+    const paneEl = document.querySelector("[data-testid=board-area]")!.getBoundingClientRect();
     const controls = [...document.querySelectorAll(".map-controls > *")].map((c) => c.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
     const bad: string[] = [];
     for (const el of document.querySelectorAll("[data-testid=hero-card], [data-testid=skull-recap]")) {
@@ -324,19 +326,57 @@ test("a panel moves off the map controls when their row changes size, the pane u
   expect((await box(hero(a, "amber-5"))).y).toBeLessThan(was.y - 60);
 });
 
-test("#40 characterisation (before): a hero panel stops at the map pane's edges", async ({ browser }) => {
-  const a = await joinNew(browser, await newBoardUrl(server, "Panels map edges"), "Coach");
+test("#40 a panel moves anywhere in the board area, off the map too, clamped to the area's edges and clear of its controls; a follower on another screen gets the same place in its area", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Panels anywhere");
+  const a = await joinNew(browser, url, "Coach");
   await load(a);
   await scrubTo(a, 15);
   await token(a, "Amber-5").click();
   const panel = hero(a, "amber-5");
   const ap = await pane(a);
-  await dragTo(a, panel, ap.x - 300, ap.y - 300);
+  const map = await box(a.getByTestId("map"));
+  // The area is wider than the map (the map is the largest square that fits it): room beside it.
+  expect(ap.width).toBeGreaterThan(map.width + 200);
+  // Past the map's left edge: it goes there, into the room left of the map.
+  const p0 = await box(panel);
+  await drag(a, panel, ap.x - p0.x, 0);
   await expect.poll(async () => Math.round((await box(panel)).x)).toBe(Math.round(ap.x));
-  expect(Math.round((await box(panel)).y)).toBe(Math.round(ap.y));
+  expect((await box(panel)).x).toBeLessThan(map.x - 100);
+  await clear(a);
+  // Far past the top left, then the right: it stops at the area's edges, not the map's.
+  await dragTo(a, panel, ap.x - 300, ap.y - 300);
+  await expect.poll(async () => { const b = await box(panel); return [Math.round(b.x), Math.round(b.y)]; }).toEqual([Math.round(ap.x), Math.round(ap.y)]);
   await dragTo(a, panel, ap.x + ap.width + 300, ap.y + 100);
   await expect.poll(async () => { const b = await box(panel); return Math.round(b.x + b.width); }).toBe(Math.round(ap.x + ap.width));
+  const r = await box(panel);
+  expect(r.x + r.width).toBeGreaterThan(map.x + map.width + 100);
+  // Far past the bottom: it stops clear of the map's controls (they are in the area too).
+  await dragTo(a, panel, ap.x + 40, ap.y + ap.height + 300);
+  await expect.poll(() => clamped(a, panel)).toBe(true);
   await clear(a);
+  // A drag of its top leaves the focused control, as a press on the map does.
+  await a.getByTestId("match-time").focus();
+  await drag(a, panel, 0, 20);
+  expect(await a.evaluate(() => document.activeElement?.getAttribute("data-testid") ?? "")).not.toBe("match-time");
+  // Left of the map, a little down: a follower with a smaller screen has it the same share of
+  // its area from the same edges (on y, unless that would put it past its controls: clamped).
+  await dragTo(a, panel, ap.x + 60, ap.y + 40);
+  await expect.poll(async () => (await box(panel)).x < map.x - 50).toBe(true);
+  const want = relative(await box(panel), ap);
+  expect(want.right).toBe(false);
+  const b = await joinNew(browser, url, "Second");
+  await b.setViewportSize({ width: 1180, height: 760 });
+  await expect(b.getByTestId("match-tier")).toHaveText("Full replay");
+  await b.getByTestId("follow-Coach").click();
+  await expect(b.getByTestId("stop-following")).toHaveCount(1);
+  await expect(hero(b, "amber-5")).toBeVisible();
+  const bp = await pane(b);
+  expect(bp.width).toBeLessThan(ap.width - 50);
+  await expect.poll(async () => {
+    const got = relative(await box(hero(b, "amber-5")), bp, want);
+    return Math.abs(got.x - want.x) < 0.01 && (Math.abs(got.y - want.y) < 0.01 || (await clamped(b, hero(b, "amber-5"))));
+  }).toBe(true);
+  await clear(b);
 });
 
 test("a follower on another screen size sees the same panels at the same places in its pane, each clamped clear of its controls", async ({ browser }) => {
@@ -431,8 +471,9 @@ test("a follower on another screen size sees the same panels at the same places 
   await expect(recap(b)).toBeVisible();
   // A smaller screen still: everything stays in the pane, off the controls.
   await b.setViewportSize({ width: 1000, height: 640 });
-  await expect.poll(async () => (await pane(b)).width).toBeLessThan(bp.width - 20);
-  await clear(b);
+  await expect.poll(async () => { const q = await pane(b); return q.width * q.height; }).toBeLessThan(bp.width * bp.height - 20 * bp.height);
+  // The panels are laid out again on the next frame after the pane's resize: wait for it.
+  await expect.poll(() => faults(b)).toEqual([]);
 });
 
 test("the match source closes once the match is in, clear of the toolbar's left end; a refused id keeps it open", async ({ browser }) => {

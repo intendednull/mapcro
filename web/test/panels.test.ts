@@ -56,6 +56,24 @@ describe("a panel's place in the pane", () => {
     expect(at.top).toBeGreaterThanOrEqual(36);
     expect(at.top + 300).toBeLessThanOrEqual(400 - 30);
   });
+  it("in a board area wider than the map (#40): beside the map stays beside it, the same share of the area from the same edges", () => {
+    // A desktop's area round a 620 px map, its controls a band at the bottom; a follower's smaller one.
+    const area = pane(1100, 620, 0, 40);
+    const theirs = pane(900, 540, 0, 40);
+    // Left of the map (it spans 240..860), half way down: from the left and the top.
+    const left = placeOf({ left: 20, top: 250 }, 200, 100, area);
+    expect(left).toEqual({ x: Math.round((20 / 1100) * PLACE_SCALE), y: Math.round((250 / 620) * PLACE_SCALE), right: false, bottom: false });
+    expect(spotOf(left, 200, 100, theirs)).toEqual({ left: (left.x / PLACE_SCALE) * 900, top: (left.y / PLACE_SCALE) * 540 });
+    // Right of the map, low: from the right and the bottom, clear of the controls' band on both.
+    const right = placeOf({ left: 1100 - 200 - 10, top: 620 - 40 - 100 }, 200, 100, area);
+    expect(right).toMatchObject({ right: true, bottom: true });
+    const there = spotOf(right, 200, 100, theirs);
+    expect(there.left + 200).toBeCloseTo(900 - (right.x / PLACE_SCALE) * 900, 6);
+    expect(there.top + 100).toBeLessThanOrEqual(540 - 40);
+    // Clamped to the area's edges, not the map's: hard left is the area's 0, hard right its width.
+    expect(clampSpot({ left: -500, top: -500 }, 200, 100, area)).toEqual({ left: 0, top: 0 });
+    expect(clampSpot({ left: 5000, top: 5000 }, 200, 100, area)).toEqual({ left: 900, top: 620 - 40 - 100 });
+  });
   it("opens a step down and right of the last, below the controls, starting over after eight", () => {
     const p = pane(1000, 1000, 50, 0);
     const spots = [0, 1, 7, 8].map((n) => spotOf(cascade(n, p), 0, 0, p));

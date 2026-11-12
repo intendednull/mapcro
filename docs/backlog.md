@@ -19,6 +19,9 @@ Decided, to build after fix-batch-4 (#41 #42) and harrow-stacks (#38) land:
   click on a marker still jumps to it.
 - **#40 hero panels anywhere:** panels move anywhere in the main board area (not only the minimap
   pane), clamped to it; followers get places relative to that area.
+  **Built** on branch `panels-anywhere` (2026-11-11): the panels' pane is the board area round the
+  map (`.mapfit`, between the top bar and the dock) on a desktop, the map on a phone; the death
+  recap moves the same way (same code). Place shape unchanged on the wire (spec §6b, §8).
 - **#44 dead midboss hover:** only the respawn time; the Rejuvenator countdown shows on hover of the
   central rejuv timer under the souls count. Check the game's own HUD wording first.
 - **#39 sluggish late-match:** profile after the above land (Tab and tooltips lag at 28:55, match
