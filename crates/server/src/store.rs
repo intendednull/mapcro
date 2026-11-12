@@ -163,7 +163,7 @@ pub struct NewGrant {
     pub now: i64,
     /// Live grants a session may hold (§3.8).
     pub max_live: u64,
-    /// Live grants a board may hold, from every session together (§3.8).
+    /// Live grants one top-level link may mint on a board (§3.8).
     pub max_per_board: u64,
 }
 
@@ -178,7 +178,7 @@ pub enum GrantWrite {
     Refused,
     /// The session holds `max_live` live grants.
     Full,
-    /// The board holds `max_per_board` live grants.
+    /// The top-level link has `max_per_board` live grants on the board.
     BoardFull,
 }
 
@@ -1025,13 +1025,30 @@ fn write_grant(t: &rusqlite::Transaction<'_>, g: &NewGrant) -> Result<GrantWrite
         return Ok(GrantWrite::Full);
     }
     // Any link, a view link too, may add its board to a session: each grant is a row on the
-    // board, so a board holds a bounded number, from all sessions together.
-    let on_board: i64 = t.query_row(
-        "SELECT COUNT(*) FROM session_grants s JOIN links l ON l.hash = s.link_hash WHERE s.board = ?1 AND l.revoked_at IS NULL",
-        [&g.board],
+    // board, so each holder is allowed a bounded number. The count is per top-level ancestor
+    // link, the one the owner minted: a view-link holder filling its own allowance never uses
+    // up the owner's, and an editor cannot dodge its allowance by minting a child link and
+    // adding through that. The walk maps every link to its ancestor, or to the owner link
+    // itself for links the owner minted.
+    let minted: i64 = t.query_row(
+        "WITH RECURSIVE walk(hash, top) AS (
+           SELECT hash, hash FROM links WHERE board = ?1 AND role = 'owner' AND revoked_at IS NULL
+           UNION ALL
+           SELECT l.hash,
+                  CASE WHEN w.hash IN (SELECT hash FROM links WHERE board = ?1 AND role = 'owner' AND revoked_at IS NULL)
+                       THEN l.hash ELSE w.top END
+           FROM links l JOIN walk w ON l.minted_by = w.hash
+           WHERE l.board = ?1
+         )
+         SELECT COUNT(*) FROM session_grants s
+         JOIN links l ON l.hash = s.link_hash
+         JOIN walk w ON w.hash = l.minted_by
+         WHERE s.board = ?1 AND l.revoked_at IS NULL
+           AND w.top = (SELECT top FROM walk WHERE hash = ?2)",
+        params![g.board, g.minted_by],
         |r| r.get(0),
     )?;
-    if on_board as u64 >= g.max_per_board {
+    if minted as u64 >= g.max_per_board {
         return Ok(GrantWrite::BoardFull);
     }
     t.execute(
