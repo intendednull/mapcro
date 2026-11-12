@@ -125,8 +125,8 @@ mod tests {
 
     #[test]
     fn the_page_sees_the_offer_as_a_word() {
-        assert_eq!(serde_json::to_string(&Offer::Install).unwrap(), "\"install\"");
-        assert_eq!(serde_json::to_string(&Offer::Link).unwrap(), "\"link\"");
+        assert_eq!(serde_json::to_string(&Offer::Install).expect("serialize"), "\"install\"");
+        assert_eq!(serde_json::to_string(&Offer::Link).expect("serialize"), "\"link\"");
     }
 
     #[test]
