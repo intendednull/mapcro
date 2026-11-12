@@ -157,17 +157,12 @@ async fn require_manager(app: &AppState, room: &str, kind: RoomKind, headers: &H
 }
 
 /// Close the live connections of revoked links: in the room itself, and for a session's links
-/// in every board opened through them too (sessions spec §3.7).
-async fn close_revoked(app: &AppState, room: &str, kind: RoomKind, hashes: Vec<String>) {
+/// in every board opened through them too (sessions spec §3.7). Call it once the revocation is
+/// committed; the sends run on their own tasks, so the request needn't stay for them.
+fn close_revoked(app: &AppState, room: &str, kind: RoomKind, hashes: Vec<String>) {
     match kind {
-        RoomKind::Session => app.rooms.revoke_everywhere(&hashes).await,
-        RoomKind::Board => {
-            if let Some(r) = app.rooms.lookup(room) {
-                for link_hash in hashes {
-                    let _ = r.send(crate::room::RoomCmd::Revoke { link_hash }).await;
-                }
-            }
-        }
+        RoomKind::Session => app.rooms.revoke_everywhere(&hashes),
+        RoomKind::Board => app.rooms.revoke_in(room, hashes),
     }
 }
 
@@ -278,7 +273,7 @@ async fn revoke(app: AppState, kind: RoomKind, (board, link_id): (String, String
     let is_owner = caller.role == LinkRole::Owner;
     match app.store.revoke(board.clone(), link_id, caller.link_hash, is_owner, now()).await {
         Ok(hashes) if !hashes.is_empty() => {
-            close_revoked(&app, &board, kind, hashes).await;
+            close_revoked(&app, &board, kind, hashes);
             StatusCode::NO_CONTENT.into_response()
         }
         // Not found and not yours look the same, so link ids can't be probed.
@@ -307,7 +302,7 @@ async fn rotate(app: AppState, kind: RoomKind, board: String, headers: HeaderMap
     let token = links::new_token();
     match app.store.rotate_owner(board.clone(), caller.link_hash.clone(), links::hash(&token), now()).await {
         Ok(true) => {
-            close_revoked(&app, &board, kind, vec![caller.link_hash]).await;
+            close_revoked(&app, &board, kind, vec![caller.link_hash]);
             Json(Rotated { owner_token: token }).into_response()
         }
         Ok(false) => err(StatusCode::CONFLICT, "owner token changed concurrently"),

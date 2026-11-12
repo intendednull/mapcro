@@ -29,6 +29,9 @@ pub const GRANTS_PER_ADDRESS_PER_HOUR: u32 = 240;
 
 /// Live grants one session may hold (§3.8): as many as it may hold tabs.
 const MAX_LIVE_GRANTS: u64 = LIMITS.max_tabs as u64;
+/// Live grants one board may hold, from every session together (§3.8). Any link to a board,
+/// a view link too, may add it to a session, and each grant is a links row on the board.
+pub const MAX_GRANTS_PER_BOARD: u64 = 50;
 
 /// The per-link and per-address hourly windows on adding grants: each one writes a `links` row
 /// on somebody's board (§3.8).
@@ -131,6 +134,7 @@ fn new_grant(
         added_by,
         now: now(),
         max_live: MAX_LIVE_GRANTS,
+        max_per_board: MAX_GRANTS_PER_BOARD,
     }
 }
 
@@ -278,7 +282,7 @@ pub async fn create(
         )
         .await
     {
-        Ok(true) => (
+        Ok(GrantWrite::Written) => (
             StatusCode::CREATED,
             Json(CreatedSession {
                 session,
@@ -289,7 +293,9 @@ pub async fn create(
         )
             .into_response(),
         // The board link was revoked between the check and the write.
-        Ok(false) => err(StatusCode::FORBIDDEN, "not a link to this board"),
+        Ok(GrantWrite::Refused | GrantWrite::Existing(_)) => err(StatusCode::FORBIDDEN, "not a link to this board"),
+        Ok(GrantWrite::BoardFull) => err(StatusCode::CONFLICT, "board full"),
+        Ok(GrantWrite::Full) => err(StatusCode::CONFLICT, "session full"),
         Err(crate::store::StoreError::Full) => server_full(),
         Err(e) => internal(e),
     }
@@ -357,15 +363,57 @@ pub async fn add_grant(
         minted_by,
         caller.link_hash,
     );
-    let info = GrantInfo {
+    let mut info = GrantInfo {
         grant_id: g.grant_id.clone(),
         board: body.board,
         role,
     };
     match app.store.add_grant(g).await {
         Ok(GrantWrite::Written) => (StatusCode::CREATED, Json(info)).into_response(),
+        // Added already, through this link at this role: that grant.
+        Ok(GrantWrite::Existing(id)) => {
+            info.grant_id = id;
+            (StatusCode::OK, Json(info)).into_response()
+        }
         Ok(GrantWrite::Refused) => err(StatusCode::FORBIDDEN, "not a link to this board"),
         Ok(GrantWrite::Full) => err(StatusCode::CONFLICT, "session full"),
+        Ok(GrantWrite::BoardFull) => err(StatusCode::CONFLICT, "board full"),
+        Err(e) => internal(e),
+    }
+}
+
+/// `DELETE /api/sessions/{s}/grants/{g}`: withdraw a grant from the session's side (§3.7). Its
+/// links row on the board is revoked, so connections through it close and its tabs read "No
+/// access". The session's owner may, and so may the session link that added it; nobody else,
+/// and never through a grant. Not found and not yours read the same.
+pub async fn withdraw_grant(
+    State(app): State<AppState>,
+    Path((session, grant)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    let caller = match auth::own_link(&app, &session, RoomKind::Session, &headers).await {
+        Ok(a) => a,
+        Err(Denied::Missing) => return err(StatusCode::UNAUTHORIZED, "link token required"),
+        Err(Denied::Refused) => return err(StatusCode::FORBIDDEN, "not a link to this session"),
+        Err(Denied::Storage(e)) => return internal(e),
+        Err(Denied::Unavailable) => return err(StatusCode::SERVICE_UNAVAILABLE, "busy; try again"),
+    };
+    let not_found = || err(StatusCode::NOT_FOUND, "no such grant");
+    if !mapcro_schema::is_id22(&grant) {
+        return not_found();
+    }
+    let is_owner = caller.role == LinkRole::Owner;
+    match app
+        .store
+        .revoke_grant(session, grant, caller.link_hash, is_owner, now())
+        .await
+    {
+        // Committed: now close what came in through it.
+        Ok(Some((board, link_hash))) => {
+            app.rooms.revoke_in(&board, vec![link_hash]);
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Ok(None) => not_found(),
         Err(e) => internal(e),
     }
 }

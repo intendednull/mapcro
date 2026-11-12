@@ -186,6 +186,7 @@ async fn serve() {
         // and the metrics' route labels are shared with boards.
         .route("/api/sessions", post(sessions::create))
         .route("/api/sessions/{board}/grants", post(sessions::add_grant))
+        .route("/api/sessions/{board}/grants/{grant}", delete(sessions::withdraw_grant))
         .route("/api/sessions/{board}/links", post(api::mint_session_link).get(api::list_session_links))
         .route("/api/sessions/{board}/links/{link}", delete(api::revoke_session_link))
         .route("/api/sessions/{board}/owner/rotate", post(api::rotate_session_owner))

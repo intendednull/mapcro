@@ -335,7 +335,8 @@ impl Server {
 
     fn grant_ok(&self, session: &str, token: &str, board: &str, board_token: &str, role: Option<&str>) -> (String, String) {
         let (s, v) = self.add_grant(session, token, board, board_token, role);
-        assert_eq!(s, 201, "{v}");
+        // 200: the same board through the same link at the same role, so the same grant.
+        assert!(s == 201 || s == 200, "{s} {v}");
         (v["grant_id"].as_str().expect("grant").into(), v["role"].as_str().expect("role").into())
     }
 
@@ -700,12 +701,13 @@ const SESSION_ROUTES: &[(&str, &str, bool)] = &[
     ("GET", "/api/sessions/{b}/links", false),
     ("DELETE", "/api/sessions/{b}/links/0000000000000000", false),
     ("POST", "/api/sessions/{b}/owner/rotate", false),
+    ("DELETE", "/api/sessions/{b}/grants/gggggggggggggggggggggg", false),
 ];
 /// Routes that name no room.
 const ROOMLESS: &[&str] = &["/healthz", "/ws", "/api/boards", "/api/packs", "/api/matches/{id}", "/api/matches/{id}/preview", "/packs/{pack}/{*file}", "/api/boards/import", "/api/feedback", "/api/sessions"];
 
 fn template(path: &str) -> String {
-    path.replace("{b}", "{board}").replace("/x", "/{id}").replace("/0000000000000000", "/{link}")
+    path.replace("{b}", "{board}").replace("/gggggggggggggggggggggg", "/{grant}").replace("/x", "/{id}").replace("/0000000000000000", "/{link}")
 }
 
 #[test]
@@ -895,18 +897,23 @@ async fn no_board_token_leaks_to_the_session_or_the_log() {
 #[tokio::test(flavor = "multi_thread")]
 async fn abuse_limits_hold() {
     let server = Server::start(&[]);
-    let (board, owner) = server.create_board();
+    // A fresh board each time: adding one board again returns its grant, and a board holds 50.
+    let board = || server.create_board();
     let a = server.create_session("A", None);
     for i in 0..120 {
-        assert_eq!(server.add_grant(&a.id, &a.owner, &board, &owner, None).0, 201, "grant {i}");
+        let (b, o) = board();
+        assert_eq!(server.add_grant(&a.id, &a.owner, &b, &o, None).0, 201, "grant {i}");
     }
-    assert_eq!(server.add_grant(&a.id, &a.owner, &board, &owner, None).0, 429, "the link's hour is spent");
+    let (b, o) = board();
+    assert_eq!(server.add_grant(&a.id, &a.owner, &b, &o, None).0, 429, "the link's hour is spent");
     let (_, a_edit) = server.mint_session(&a.id, &a.owner, "edit");
     for i in 0..120 {
-        assert_eq!(server.add_grant(&a.id, &a_edit, &board, &owner, None).0, 201, "second link, grant {i}");
+        let (b, o) = board();
+        assert_eq!(server.add_grant(&a.id, &a_edit, &b, &o, None).0, 201, "second link, grant {i}");
     }
-    let b = server.create_session("B", None);
-    assert_eq!(server.add_grant(&b.id, &b.owner, &board, &owner, None).0, 429, "the address's hour is spent");
+    let s_b = server.create_session("B", None);
+    let (b, o) = board();
+    assert_eq!(server.add_grant(&s_b.id, &s_b.owner, &b, &o, None).0, 429, "the address's hour is spent");
     drop(server);
 
     // Sessions count toward the creation limiter, as boards do.
@@ -988,4 +995,192 @@ async fn junk_tabs_open_nothing() {
     let made_up = "z".repeat(22);
     editor.submit(vec![mapcro_schema::Op::Create { id: rid(), record: tab_record(&real.board, &made_up, "Made up") }]).await.expect("junk");
     assert_eq!(server.http_role(&real.board, &grant_auth(&session.id, &made_up, &session.owner)), None);
+}
+
+// ---- the security review of phase 1 (2026-11-12) ----
+
+impl Server {
+    /// `DELETE /api/sessions/{s}/grants/{g}` with `Authorization: <auth>`: (status, body).
+    fn withdraw(&self, session: &str, grant: &str, auth: Option<&str>) -> (u16, String) {
+        self.call("DELETE", &format!("/api/sessions/{session}/grants/{grant}"), auth, None)
+    }
+
+    /// The board's "Session: …" links rows as the owner lists them: (link id, revoked).
+    fn grant_rows(&self, board: &str, owner: &str) -> Vec<(String, bool)> {
+        let (s, b) = self.call("GET", &format!("/api/boards/{board}/links"), Some(&bearer(owner)), None);
+        assert_eq!(s, 200, "{b}");
+        let v: serde_json::Value = serde_json::from_str(&b).expect("json");
+        v.as_array()
+            .expect("list")
+            .iter()
+            .filter(|l| l["label"].as_str().is_some_and(|x| x.starts_with("Session: ")))
+            .map(|l| (l["link_id"].as_str().expect("id").to_owned(), l["revoked"].as_bool().expect("revoked")))
+            .collect()
+    }
+}
+
+/// §3.7: the session's owner, or the session link that added a grant, withdraws it: its links
+/// row on the board is revoked and connections through it close. Anyone else, a grant
+/// credential, a board's token or an unknown grant are refused, and refusals don't say which
+/// check failed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_grant_is_withdrawn_from_the_session_side() {
+    let server = Server::start(&[]);
+    let p = server.port;
+    let (board, owner) = server.create_board();
+    let (_, view) = server.mint(&board, &owner, "view");
+    let session = server.create_session("Withdraw", None);
+    let (_, adder) = server.mint_session(&session.id, &session.owner, "view");
+    let (_, other) = server.mint_session(&session.id, &session.owner, "edit");
+    // The adder is an edit link (view links can't add) that isn't the owner.
+    let (_, adder_edit) = server.mint_session(&session.id, &session.owner, "edit");
+    let (grant, _) = server.grant_ok(&session.id, &adder_edit, &board, &view, None);
+    let mut editor = Raw::open(p, &session.id, &session.owner, 0xe1).await;
+    editor.submit(vec![mapcro_schema::Op::Create { id: rid(), record: tab_record(&board, &grant, "Game") }]).await.expect("tab");
+    let (j, mut ws) = ws_via(p, &board, &session.id, &grant, &session.owner).await;
+    assert_eq!(j, Joined::Role(LinkRole::View));
+
+    // Refused: no credential, a grant credential, the board's own token, another session link
+    // (edit or view), and an unknown grant.
+    assert_eq!(server.withdraw(&session.id, &grant, None).0, 401);
+    assert_eq!(server.withdraw(&session.id, &grant, Some(&grant_auth(&session.id, &grant, &session.owner))).0, 403);
+    assert_eq!(server.withdraw(&session.id, &grant, Some(&bearer(&owner))).0, 403);
+    let not_yours = server.withdraw(&session.id, &grant, Some(&bearer(&other)));
+    assert_eq!(not_yours.0, 404, "{}", not_yours.1);
+    assert_eq!(server.withdraw(&session.id, &grant, Some(&bearer(&adder))).0, 404);
+    let unknown = server.withdraw(&session.id, &"q".repeat(22), Some(&bearer(&session.owner)));
+    assert_eq!(unknown, not_yours, "not yours and not found read the same");
+    let other_session = server.create_session("Other", None);
+    assert_eq!(server.withdraw(&other_session.id, &grant, Some(&bearer(&other_session.owner))), not_yours, "a grant id names nothing in another session");
+    assert!(tokio::time::timeout(Duration::from_millis(300), closed(&mut ws)).await.is_err(), "nothing was withdrawn");
+    assert_eq!(server.grant_rows(&board, &owner).iter().filter(|(_, r)| *r).count(), 0);
+
+    // The adder withdraws it: the row is revoked, the connection closes, the tab opens nothing.
+    assert_eq!(server.withdraw(&session.id, &grant, Some(&bearer(&adder_edit))).0, 204);
+    assert_eq!(closed(&mut ws).await, Some(CloseReason::Revoked));
+    assert_eq!(server.grant_rows(&board, &owner), vec![(server.grant_rows(&board, &owner)[0].0.clone(), true)]);
+    assert_eq!(ws_via(p, &board, &session.id, &grant, &session.owner).await.0, Joined::Closed(CloseReason::Unauthorized));
+    assert_eq!(server.http_role(&board, &grant_auth(&session.id, &grant, &session.owner)), None);
+
+    // The session's owner withdraws a grant another link added.
+    let (grant2, _) = server.grant_ok(&session.id, &other, &board, &owner, None);
+    editor.submit(vec![mapcro_schema::Op::Create { id: rid(), record: tab_record(&board, &grant2, "Game") }]).await.expect("tab");
+    let (j, mut ws) = ws_via(p, &board, &session.id, &grant2, &other).await;
+    assert_eq!(j, Joined::Role(LinkRole::Edit));
+    assert_eq!(server.withdraw(&session.id, &grant2, Some(&bearer(&session.owner))).0, 204);
+    assert_eq!(closed(&mut ws).await, Some(CloseReason::Revoked));
+    // The board's own links are untouched.
+    assert_eq!(ws_join(p, &board, &view).await, Joined::Role(LinkRole::View));
+    assert_eq!(ws_join(p, &board, &owner).await, Joined::Role(LinkRole::Owner));
+}
+
+/// §3.2, §3.8: adding the same board through the same link at the same role again gives the
+/// same grant and writes nothing on the board; a different role, or after the grant is
+/// revoked, is a new grant.
+#[tokio::test(flavor = "multi_thread")]
+async fn adding_a_board_again_returns_its_grant() {
+    let server = Server::start(&[]);
+    let (board, owner) = server.create_board();
+    let (_, view) = server.mint(&board, &owner, "view");
+    let (_, edit) = server.mint(&board, &owner, "edit");
+    let session = server.create_session("Again", None);
+    let (g1, r1) = server.grant_ok(&session.id, &session.owner, &board, &view, None);
+    let (s, again) = server.add_grant(&session.id, &session.owner, &board, &view, None);
+    assert_eq!(s, 200, "{again}");
+    assert_eq!((again["grant_id"].as_str(), again["role"].as_str()), (Some(g1.as_str()), Some(r1.as_str())));
+    // A view link asking for edit still gets view: the same grant.
+    let (s, again) = server.add_grant(&session.id, &session.owner, &board, &view, Some("edit"));
+    assert_eq!((s, again["grant_id"].as_str()), (200, Some(g1.as_str())));
+    assert_eq!(server.grant_rows(&board, &owner).len(), 1, "one row on the board");
+    // Another link, or another role through the same link, is another grant.
+    let (g2, _) = server.grant_ok(&session.id, &session.owner, &board, &edit, None);
+    let (g3, r3) = server.grant_ok(&session.id, &session.owner, &board, &edit, Some("view"));
+    assert_eq!(r3, "view");
+    assert!(g2 != g1 && g3 != g2 && g3 != g1);
+    // Another session is another grant.
+    let other = server.create_session("Other", None);
+    let (g4, _) = server.grant_ok(&other.id, &other.owner, &board, &view, None);
+    assert_ne!(g4, g1);
+    // Once revoked, adding again makes a new grant.
+    assert_eq!(server.withdraw(&session.id, &g1, Some(&bearer(&session.owner))).0, 204);
+    let (g5, _) = server.grant_ok(&session.id, &session.owner, &board, &view, None);
+    assert_ne!(g5, g1);
+    assert_eq!(server.grant_rows(&board, &owner).len(), 5);
+}
+
+/// §3.8: a board holds at most 50 live grants, however many sessions add it; past that it's
+/// 409, when adding or when making a session from the board, until one is revoked.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_board_holds_at_most_50_live_grants() {
+    let server = Server::start(&[]);
+    let (board, owner) = server.create_board();
+    let (_, view) = server.mint(&board, &owner, "view");
+    for i in 0..50 {
+        let s = server.create_session("Many", None);
+        assert_eq!(server.add_grant(&s.id, &s.owner, &board, &view, None).0, 201, "grant {i}");
+    }
+    let s = server.create_session("One too many", None);
+    let (code, body) = server.add_grant(&s.id, &s.owner, &board, &view, None);
+    assert_eq!(code, 409, "{body}");
+    let (code, body) = server.json("POST", "/api/sessions", None, serde_json::json!({ "title": "From it", "board": board, "board_token": view }));
+    assert_eq!(code, 409, "{body}");
+    // Another board is unaffected.
+    let (other, other_owner) = server.create_board();
+    assert_eq!(server.add_grant(&s.id, &s.owner, &other, &other_owner, None).0, 201);
+    // The board's owner revokes one: there is room again.
+    let rows = server.grant_rows(&board, &owner);
+    assert_eq!(rows.len(), 50);
+    assert_eq!(server.revoke(&board, &owner, &rows[0].0), 204);
+    assert_eq!(server.add_grant(&s.id, &s.owner, &board, &view, None).0, 201);
+}
+
+/// §3.7: removing one of two tabs with the same grant leaves the other's connections open, and
+/// a delete of a tab that's already removed closes nothing; removing the last one closes them.
+#[tokio::test(flavor = "multi_thread")]
+async fn removing_one_of_two_tabs_on_a_grant_keeps_the_other() {
+    let server = Server::start(&[]);
+    let p = server.port;
+    let session = server.create_session("Twins", None);
+    let mut editor = Raw::open(p, &session.id, &session.owner, 0xf1).await;
+    let a = add_board(&server, &session, &mut editor, "edit").await;
+    let twin = rid();
+    editor.submit(vec![mapcro_schema::Op::Create { id: twin, record: tab_record(&a.board, &a.grant, "Twin") }]).await.expect("twin");
+    let (j, mut ws) = ws_via(p, &a.board, &session.id, &a.grant, &session.owner).await;
+    assert_eq!(j, Joined::Role(LinkRole::Edit));
+    editor.submit(vec![mapcro_schema::Op::Delete { id: a.tab }]).await.expect("remove one");
+    assert!(tokio::time::timeout(Duration::from_millis(500), closed(&mut ws)).await.is_err(), "the twin still holds the grant");
+    // Deleting the removed tab again is skipped: still nothing closes.
+    editor.submit(vec![mapcro_schema::Op::Delete { id: a.tab }]).await.expect("delete again");
+    assert!(tokio::time::timeout(Duration::from_millis(500), closed(&mut ws)).await.is_err(), "a skipped delete closes nothing");
+    // The last one goes: its connections close.
+    editor.submit(vec![mapcro_schema::Op::Delete { id: twin }]).await.expect("remove the twin");
+    assert_eq!(closed(&mut ws).await, Some(CloseReason::Revoked));
+}
+
+/// §3.6: `Ready` says what the room is, so a client can tell a board from a session.
+#[tokio::test(flavor = "multi_thread")]
+async fn ready_says_what_the_room_is() {
+    let server = Server::start(&[]);
+    let p = server.port;
+    let (board, owner) = server.create_board();
+    let session = server.create_session("Kind", Some((&board, &owner)));
+    let grant = session.grant.as_ref().expect("grant")["grant_id"].as_str().expect("id").to_owned();
+    let kind = |raw: &Raw| serde_json::from_str::<serde_json::Value>(&raw.seen[0]).expect("json")["kind"].clone();
+    assert_eq!(kind(&Raw::open(p, &session.id, &session.owner, 0x71).await), "session");
+    assert_eq!(kind(&Raw::open(p, &board, &owner, 0x72).await), "board");
+    // Through a session, as the client parses it, with a base and without one.
+    for known_seq in [serde_json::Value::Null, 0.into()] {
+        let mut ws = open_ws(p).await;
+        send(&mut ws, &serde_json::json!({ "t": "auth", "board": board, "token": session.owner, "known_seq": known_seq, "via": { "session": session.id, "grant": grant } })).await;
+        match recv(&mut ws).await {
+            Some(WireOut::Ready { kind, .. }) => assert_eq!(kind, Some(mapcro_engine::wire::RoomKind::Board), "known_seq {known_seq}"),
+            other => panic!("{other:?}"),
+        }
+    }
+    let mut ws = open_ws(p).await;
+    send(&mut ws, &serde_json::json!({ "t": "auth", "board": session.id, "token": session.owner, "known_seq": 0 })).await;
+    match recv(&mut ws).await {
+        Some(WireOut::Ready { kind, .. }) => assert_eq!(kind, Some(mapcro_engine::wire::RoomKind::Session)),
+        other => panic!("{other:?}"),
+    }
 }

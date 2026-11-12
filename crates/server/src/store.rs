@@ -95,9 +95,10 @@ fn raw(v: ValueRef<'_>) -> rusqlite::Result<Vec<u8>> {
 
 /// The `Ready` frame for a client with no copy, around the stored base document's JSON. A test
 /// checks it equals what serde writes.
-pub fn ready_frame(role: LinkRole, doc_json: &str, seq: u64, peer: u64, head: u64) -> String {
+pub fn ready_frame(role: LinkRole, doc_json: &str, seq: u64, peer: u64, head: u64, kind: RoomKind) -> String {
     let role = serde_json::to_string(&role).unwrap_or_default();
-    format!(r#"{{"t":"ready","role":{role},"base":{{"doc":{doc_json},"seq":{seq}}},"peer":{peer},"head":{head}}}"#)
+    let kind = serde_json::to_string(&kind).unwrap_or_default();
+    format!(r#"{{"t":"ready","role":{role},"base":{{"doc":{doc_json},"seq":{seq}}},"peer":{peer},"head":{head},"kind":{kind}}}"#)
 }
 
 /// The `Entry` frame for a stored transaction, built around its JSON rather than by parsing
@@ -120,27 +121,22 @@ pub struct LinkRow {
 }
 
 /// What a room in the `boards` table is (sessions spec §2.1, §3.6). Board and session ids share
-/// a shape and a table, so every link lookup says which, and every route asserts it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RoomKind {
-    Board,
-    Session,
+/// a shape and a table, so every link lookup says which, and every route asserts it. It's the
+/// wire's type: `Ready` tells the client too.
+pub use mapcro_engine::wire::RoomKind;
+
+fn kind_str(k: RoomKind) -> &'static str {
+    match k {
+        RoomKind::Board => "board",
+        RoomKind::Session => "session",
+    }
 }
 
-impl RoomKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            RoomKind::Board => "board",
-            RoomKind::Session => "session",
-        }
-    }
-
-    fn parse(s: &str) -> Result<RoomKind, StoreError> {
-        match s {
-            "board" => Ok(RoomKind::Board),
-            "session" => Ok(RoomKind::Session),
-            other => Err(StoreError::Corrupt(format!("unknown room kind {other:?}"))),
-        }
+fn parse_kind(s: &str) -> Result<RoomKind, StoreError> {
+    match s {
+        "board" => Ok(RoomKind::Board),
+        "session" => Ok(RoomKind::Session),
+        other => Err(StoreError::Corrupt(format!("unknown room kind {other:?}"))),
     }
 }
 
@@ -167,16 +163,23 @@ pub struct NewGrant {
     pub now: i64,
     /// Live grants a session may hold (§3.8).
     pub max_live: u64,
+    /// Live grants a board may hold, from every session together (§3.8).
+    pub max_per_board: u64,
 }
 
 /// What writing a grant came to.
 #[derive(Debug, PartialEq, Eq)]
 pub enum GrantWrite {
     Written,
+    /// The session already holds a live grant for this board through the same board link at
+    /// the same role: this one, and nothing was written (§3.2).
+    Existing(String),
     /// The board link or the session link was revoked (or isn't what it was) by now.
     Refused,
     /// The session holds `max_live` live grants.
     Full,
+    /// The board holds `max_per_board` live grants.
+    BoardFull,
 }
 
 #[derive(Clone)]
@@ -490,7 +493,7 @@ impl Store {
         max_boards: u64,
         max_bytes: u64,
         grant: Option<NewGrant>,
-    ) -> Result<bool, StoreError> {
+    ) -> Result<GrantWrite, StoreError> {
         let (base_codec, base) = codec::encode(&serde_json::to_vec(&base).map_err(corrupt)?);
         self.with(move |c| {
             let t = c.transaction()?;
@@ -500,19 +503,20 @@ impl Store {
             }
             t.execute(
                 "INSERT INTO boards (id, created_at, base_doc, base_seq, base_codec, kind) VALUES (?1, ?2, ?3, 0, ?4, ?5)",
-                params![id, now, base, base_codec.as_str(), kind.as_str()],
+                params![id, now, base, base_codec.as_str(), kind_str(kind)],
             )?;
             t.execute(
                 "INSERT INTO links (hash, board, role, label, created_at) VALUES (?1, ?2, 'owner', 'owner', ?3)",
                 params![owner_hash, id, now],
             )?;
-            if let Some(g) = grant
-                && write_grant(&t, &g)? != GrantWrite::Written
-            {
-                return Ok(false); // dropped: the transaction rolls back
+            if let Some(g) = grant {
+                let w = write_grant(&t, &g)?;
+                if w != GrantWrite::Written {
+                    return Ok(w); // dropped: the transaction rolls back
+                }
             }
             t.commit()?;
-            Ok(true)
+            Ok(GrantWrite::Written)
         })
         .await
     }
@@ -528,6 +532,42 @@ impl Store {
                 t.commit()?;
             }
             Ok(w)
+        })
+        .await
+    }
+
+    /// Withdraw a session's grant (sessions spec §3.7): revoke its links row on the board, if
+    /// `actor` is the session's owner or the session link that added it. Returns the board and
+    /// the row's hash, or `None` if there's no such grant or it isn't the actor's to withdraw.
+    pub async fn revoke_grant(
+        &self,
+        session: String,
+        grant_id: String,
+        actor: String,
+        actor_is_owner: bool,
+        now: i64,
+    ) -> Result<Option<(String, String)>, StoreError> {
+        self.with(move |c| {
+            let t = c.transaction()?;
+            let row: Option<(String, String, String)> = t
+                .query_row(
+                    "SELECT board, link_hash, added_by FROM session_grants WHERE session = ?1 AND grant_id = ?2",
+                    params![session, grant_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .optional()?;
+            let Some((board, link_hash, added_by)) = row else { return Ok(None) };
+            if !actor_is_owner && added_by != actor {
+                return Ok(None);
+            }
+            // Nothing is minted through a grant's row, but revoke as a cascade would.
+            t.execute(
+                "WITH RECURSIVE sub(hash) AS (SELECT ?1 UNION SELECT l.hash FROM links l JOIN sub ON l.minted_by = sub.hash)
+                 UPDATE links SET revoked_at = ?2 WHERE hash IN (SELECT hash FROM sub) AND revoked_at IS NULL",
+                params![link_hash, now],
+            )?;
+            t.commit()?;
+            Ok(Some((board, link_hash)))
         })
         .await
     }
@@ -831,7 +871,7 @@ impl Store {
                 )
                 .optional()?;
             row.map(|(hash, board, role, label, created_at, revoked, minted_by, kind)| {
-                Ok(LinkRow { hash, board, role: parse_role(&role)?, label, created_at, revoked, minted_by, kind: RoomKind::parse(&kind)? })
+                Ok(LinkRow { hash, board, role: parse_role(&role)?, label, created_at, revoked, minted_by, kind: parse_kind(&kind)? })
             })
             .transpose()
         })
@@ -876,6 +916,10 @@ impl Store {
                  SELECT hash, board, role, label, created_at, revoked_at IS NOT NULL, minted_by FROM links
                  WHERE board = ?1 AND hash IN (SELECT hash FROM sub) ORDER BY created_at"
             };
+            // Every link listed is on `board`: they all have its kind.
+            let kind: Option<String> = c.query_row("SELECT kind FROM boards WHERE id = ?1", [&board], |r| r.get(0)).optional()?;
+            let Some(kind) = kind else { return Ok(Vec::new()) };
+            let kind = parse_kind(&kind)?;
             let mut stmt = c.prepare(sql)?;
             let rows = stmt.query_map(params![board, viewer], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get::<_, String>(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
@@ -883,8 +927,7 @@ impl Store {
             let mut out = Vec::new();
             for row in rows {
                 let (hash, board, role, label, created_at, revoked, minted_by) = row?;
-                // Every link listed is on `board`, whose kind the route already asserted.
-                out.push(LinkRow { hash, board, role: parse_role(&role)?, label, created_at, revoked, minted_by, kind: RoomKind::Board });
+                out.push(LinkRow { hash, board, role: parse_role(&role)?, label, created_at, revoked, minted_by, kind });
             }
             Ok(out)
         })
@@ -952,7 +995,7 @@ fn write_grant(t: &rusqlite::Transaction<'_>, g: &NewGrant) -> Result<GrantWrite
         t.query_row(
             "SELECT EXISTS (SELECT 1 FROM links l JOIN boards b ON b.id = l.board
                             WHERE l.hash = ?1 AND l.board = ?2 AND b.kind = ?3 AND l.revoked_at IS NULL)",
-            params![hash, room, kind.as_str()],
+            params![hash, room, kind_str(kind)],
             |r| r.get(0),
         )
     };
@@ -964,8 +1007,32 @@ fn write_grant(t: &rusqlite::Transaction<'_>, g: &NewGrant) -> Result<GrantWrite
         [&g.session],
         |r| r.get(0),
     )?;
+    // The same board through the same link at the same role is the grant already made, so
+    // adding again writes nothing (security review of phase 1, finding 2).
+    let existing: Option<String> = t
+        .query_row(
+            "SELECT s.grant_id FROM session_grants s JOIN links l ON l.hash = s.link_hash
+             WHERE s.session = ?1 AND s.board = ?2 AND l.minted_by = ?3 AND l.role = ?4 AND l.revoked_at IS NULL
+             ORDER BY s.created_at LIMIT 1",
+            params![g.session, g.board, g.minted_by, role_str(g.role)],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(id) = existing {
+        return Ok(GrantWrite::Existing(id));
+    }
     if held as u64 >= g.max_live {
         return Ok(GrantWrite::Full);
+    }
+    // Any link, a view link too, may add its board to a session: each grant is a row on the
+    // board, so a board holds a bounded number, from all sessions together.
+    let on_board: i64 = t.query_row(
+        "SELECT COUNT(*) FROM session_grants s JOIN links l ON l.hash = s.link_hash WHERE s.board = ?1 AND l.revoked_at IS NULL",
+        [&g.board],
+        |r| r.get(0),
+    )?;
+    if on_board as u64 >= g.max_per_board {
+        return Ok(GrantWrite::BoardFull);
     }
     t.execute(
         "INSERT INTO links (hash, board, role, label, created_at, minted_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -1022,8 +1089,8 @@ mod tests {
             "t",
         );
         let json = serde_json::to_string(&doc).expect("json");
-        let serde = serde_json::to_string(&WireOut::Ready { role: LinkRole::Edit, base: Some(Base { doc, seq: 0 }), peer: 9, head: Some(4) }).expect("json");
-        assert_eq!(ready_frame(LinkRole::Edit, &json, 0, 9, 4), serde);
+        let serde = serde_json::to_string(&WireOut::Ready { role: LinkRole::Edit, base: Some(Base { doc, seq: 0 }), peer: 9, head: Some(4), kind: Some(RoomKind::Session) }).expect("json");
+        assert_eq!(ready_frame(LinkRole::Edit, &json, 0, 9, 4, RoomKind::Session), serde);
     }
 
     #[test]
@@ -1187,5 +1254,23 @@ mod tests {
         // A second open is a no-op.
         Store::open(&path).expect("idempotent");
         assert_eq!(meta(&path, "schema_version").as_deref(), Some("7"));
+    }
+
+    /// A session's listed links say they're a session's, as `link` does (security review of
+    /// sessions phase 1, finding 6).
+    #[tokio::test]
+    async fn listed_links_carry_their_rooms_kind() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Store::open(&dir.path().join("db")).expect("open");
+        let mut n = 0u128;
+        let doc = mapcro_schema::session_genesis(|| { n += 1; mapcro_schema::RecordId(n) }, "S", &[]);
+        let owner = crate::links::hash("o");
+        assert!(store.create_room(RoomKind::Session, "s".into(), doc, owner.clone(), 1, 10, u64::MAX, None).await.expect("create") == GrantWrite::Written);
+        assert!(store.add_link(crate::links::hash("e"), "s".into(), LinkRole::Edit, "e".into(), owner.clone(), 2).await.expect("mint"));
+        for (viewer, is_owner) in [(owner.clone(), true), (owner, false)] {
+            let rows = store.links_visible_to("s".into(), viewer, is_owner).await.expect("list");
+            assert!(!rows.is_empty());
+            assert!(rows.iter().all(|l| l.kind == RoomKind::Session), "is_owner {is_owner}");
+        }
     }
 }

@@ -542,13 +542,21 @@ impl Rooms {
     }
 
     /// Send `Revoke` for each hash to every open room: a session link's sessions reach into
-    /// every board opened through it (sessions spec §3.7).
-    pub async fn revoke_everywhere(&self, hashes: &[String]) {
+    /// every board opened through it (sessions spec §3.7). Call it once the revocation is
+    /// committed. Returns at once: each room is sent to by its own task, so neither a dropped
+    /// request nor one room's full mailbox keeps the others from closing those connections.
+    pub fn revoke_everywhere(&self, hashes: &[String]) {
         let open: Vec<mpsc::Sender<RoomCmd>> = self.registry().open.values().filter(|h| !h.tx.is_closed()).map(|h| h.tx.clone()).collect();
         for room in open {
-            for link_hash in hashes {
-                let _ = room.send(RoomCmd::Revoke { link_hash: link_hash.clone() }).await;
-            }
+            send_revokes(room, hashes.to_vec());
+        }
+    }
+
+    /// Send `Revoke` for each hash to `board`'s room if it's open, as `revoke_everywhere` does:
+    /// after the commit, from a task of its own.
+    pub fn revoke_in(&self, board: &str, hashes: Vec<String>) {
+        if let Some(room) = self.lookup(board) {
+            send_revokes(room, hashes);
         }
     }
 
@@ -873,8 +881,8 @@ impl Room {
             record_commit(outboxes.len(), n);
         }
         // Removed tabs close their connections once the removal is durable (sessions §3.7).
-        if !self.removed_tabs.is_empty() {
-            let removed = std::mem::take(&mut self.removed_tabs);
+        let removed = self.take_removed_tabs();
+        if !removed.is_empty() {
             let (store, rooms, session) = (self.store.clone(), self.rooms.clone(), self.id.clone());
             tokio::spawn(async move { close_removed_tabs(store, rooms, session, removed).await });
         }
@@ -951,8 +959,10 @@ impl Room {
         // against the board's byte quota, and if it's logged, these are the bytes written.
         let mut encoded = None;
         let mut size = 0;
+        let mut doomed = Vec::new();
         let (outbox, effects) = match msg {
             ClientMsg::Submit(tx) => {
+                doomed = self.live_tabs_deleted_by(&tx);
                 let json = serde_json::to_vec(&tx).map_err(|e| StoreError::Corrupt(e.to_string()))?;
                 size = json.len();
                 let (codec, stored) = codec::encode(&json);
@@ -965,7 +975,7 @@ impl Room {
         for effect in effects {
             writes.push(match effect {
                 Effect::Logged { seq, tx } => {
-                    self.note_removed_tabs(&tx);
+                    self.note_removed_tabs(&doomed);
                     let (codec, stored) = encoded.take().ok_or_else(|| StoreError::Corrupt("logged without a submit".into()))?;
                     self.since_weighed += 1;
                     if self.since_weighed >= REWEIGH_EVERY {
@@ -990,21 +1000,47 @@ impl Room {
         Ok(size)
     }
 
-    /// A session's tabs that `tx` (just applied) left deleted. A tab is only ever removed by a
-    /// `Delete` (an edit, or an undo of its creation), so those are the ops to look at.
-    fn note_removed_tabs(&mut self, tx: &mapcro_schema::Tx) {
-        if self.authority.doc().kind() != mapcro_schema::DocKind::Session {
-            return;
+    /// The live tabs `tx` (not yet applied) deletes. A tab is only ever removed by a `Delete`
+    /// (an edit, or an undo of its creation), so those are the ops to look at; one of a tab
+    /// already removed is skipped when applied, and removes nothing.
+    fn live_tabs_deleted_by(&self, tx: &mapcro_schema::Tx) -> Vec<mapcro_schema::RecordId> {
+        let doc = self.authority.doc();
+        if doc.kind() != mapcro_schema::DocKind::Session {
+            return Vec::new();
         }
-        for op in &tx.ops {
-            if let mapcro_schema::Op::Delete { id } = op
-                && let Some(e) = self.authority.doc().get(*id)
+        tx.ops
+            .iter()
+            .filter_map(|op| match op {
+                mapcro_schema::Op::Delete { id } if matches!(doc.live(*id), Some(mapcro_schema::Record::Tab(_))) => Some(*id),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Of the tabs that were live before a transaction (`doomed`), those it left deleted, now
+    /// that it's applied: their grants' connections close once it's durable.
+    fn note_removed_tabs(&mut self, doomed: &[mapcro_schema::RecordId]) {
+        for id in doomed {
+            if let Some(e) = self.authority.doc().get(*id)
                 && e.deleted
                 && let mapcro_schema::Record::Tab(t) = &e.record
             {
                 self.removed_tabs.push((t.board.0.clone(), t.grant.0.clone()));
             }
         }
+    }
+
+    /// The removed tabs whose grant no live tab still uses: another tab with the same board and
+    /// grant keeps its connections open (security review of phase 1, finding 4).
+    fn take_removed_tabs(&mut self) -> Vec<(String, String)> {
+        let mut removed = std::mem::take(&mut self.removed_tabs);
+        removed.sort();
+        removed.dedup();
+        let doc = self.authority.doc();
+        removed.retain(|(board, grant)| {
+            !doc.iter_live().any(|(_, r)| matches!(r, mapcro_schema::Record::Tab(t) if t.board.0 == *board && t.grant.0 == *grant))
+        });
+        removed
     }
 
     /// Send what a message produced (after its effects are durable).
@@ -1059,18 +1095,69 @@ impl Room {
     }
 }
 
+/// `Revoke` each hash in `room`, from a task of its own, so the caller never waits on its mailbox.
+fn send_revokes(room: mpsc::Sender<RoomCmd>, hashes: Vec<String>) {
+    tokio::spawn(async move {
+        for link_hash in hashes {
+            if room.send(RoomCmd::Revoke { link_hash }).await.is_err() {
+                return; // the room closed, and its connections with it
+            }
+        }
+    });
+}
+
 /// Close the connections that came in through removed tabs' grants: each grant's links row is
 /// unique to its session, so `Revoke` with its hash closes exactly those (sessions spec §3.7).
 /// The grant itself stays, so undo (a restore) opens the tab again.
 async fn close_removed_tabs(store: Store, rooms: Rooms, session: String, removed: Vec<(String, String)>) {
     for (board, grant) in removed {
-        let Some(room) = rooms.lookup(&board) else { continue }; // nobody is on it
+        if rooms.lookup(&board).is_none() {
+            continue; // nobody is on it
+        }
         match store.grant(session.clone(), grant).await {
-            Ok(Some(g)) if g.board == board => {
-                let _ = room.send(RoomCmd::Revoke { link_hash: g.link_hash }).await;
-            }
+            Ok(Some(g)) if g.board == board => rooms.revoke_in(&board, vec![g.link_hash]),
             Ok(_) => {} // a made-up tab: nothing came in through it
             Err(e) => tracing::error!(error = %e, "grant lookup for a removed tab failed"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A room in the registry whose mailbox is `depth` deep, and its receiving end.
+    fn fake_room(rooms: &Rooms, id: &str, depth: usize) -> mpsc::Receiver<RoomCmd> {
+        let (tx, rx) = mpsc::channel(depth);
+        rooms.registry().open.insert(id.to_owned(), Handle { tx, occupancy: Arc::default(), weight: Arc::default() });
+        rx
+    }
+
+    fn rooms() -> (Rooms, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Store::open(&dir.path().join("db")).expect("open");
+        let caps = Caps { quota: Quota::default(), max_open_rooms: 8, room_memory_bytes: 1 << 20, max_storage_bytes: u64::MAX };
+        (Rooms::new(store, std::time::Duration::from_secs(60), caps), dir)
+    }
+
+    /// Security review of sessions phase 1, finding 3: one room with a full mailbox doesn't hold
+    /// up the others' `Revoke`, nor the caller, which returns at once.
+    #[tokio::test]
+    async fn a_full_room_does_not_hold_up_revocation_elsewhere() {
+        let (rooms, _dir) = rooms();
+        let mut stuck = fake_room(&rooms, "stuck", 1);
+        rooms.lookup("stuck").expect("open").try_send(RoomCmd::Unload).expect("fills it");
+        // Several others, so whichever order the registry yields, most come after the stuck one.
+        let mut fine: Vec<_> = (0..15).map(|i| fake_room(&rooms, &format!("fine{i}"), 8)).collect();
+        let hashes = vec!["h".to_owned()];
+        tokio::time::timeout(std::time::Duration::from_secs(2), async { rooms.revoke_everywhere(&hashes) }).await.expect("returns at once");
+        for rx in &mut fine {
+            let got = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()).await.expect("every other room hears").expect("a command");
+            assert!(matches!(got, RoomCmd::Revoke { link_hash } if link_hash == "h"));
+        }
+        // The stuck room gets it too, once it drains.
+        assert!(matches!(stuck.recv().await, Some(RoomCmd::Unload)));
+        let got = tokio::time::timeout(std::time::Duration::from_secs(2), stuck.recv()).await.expect("delivered later").expect("a command");
+        assert!(matches!(got, RoomCmd::Revoke { .. }));
     }
 }

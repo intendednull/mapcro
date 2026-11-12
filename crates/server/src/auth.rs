@@ -72,6 +72,8 @@ pub struct Access {
     /// The links row the room revokes this access by: the caller's own link, or the grant's.
     pub link_hash: String,
     pub via: Option<Via>,
+    /// What the room is: a session's own link opens the session; anything else, a board.
+    pub kind: RoomKind,
 }
 
 impl Access {
@@ -130,6 +132,7 @@ pub async fn resolve(
                         role: l.role,
                         link_hash: hash,
                         via: None,
+                        kind: l.kind,
                     })
                 }
                 _ => Err(Denied::Refused),
@@ -188,6 +191,7 @@ pub async fn resolve(
                 role,
                 link_hash: g.link_hash,
                 via: Some(Via { session_hash }),
+                kind: RoomKind::Board,
             })
         }
     }

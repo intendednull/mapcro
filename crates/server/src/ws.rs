@@ -218,11 +218,11 @@ async fn session(app: AppState, mut socket: WebSocket) -> Option<CloseReason> {
         Some((doc, seq)) => {
             let kib = (2 * doc.len() / 1024 + 1).min(BASE_SENDS_KIB) as u32;
             permit = app.base_sends.clone().acquire_many_owned(kib).await.ok();
-            Message::Text(crate::store::ready_frame(role, &doc, seq, conn.0, head).into())
+            Message::Text(crate::store::ready_frame(role, &doc, seq, conn.0, head, access.kind).into())
         }
         None => {
             permit = None;
-            frame(&WireOut::Ready { role, base: None, peer: conn.0, head: Some(head) })
+            frame(&WireOut::Ready { role, base: None, peer: conn.0, head: Some(head), kind: Some(access.kind) })
         }
     };
     let sent = socket.send(ready).await;
