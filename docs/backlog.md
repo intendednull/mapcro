@@ -28,6 +28,14 @@ Decided, to build after fix-batch-4 (#41 #42) and harrow-stacks (#38) land:
   134623152).
 - **#38 follow-up:** survey every hero's stacks, not just Harrow's (operator).
 
+## e2e: player-names "Scenes show the match's names" fails in a fresh worktree (2026-11-11, panels-anywhere)
+
+- On branch `panels-anywhere` (off bff5abc) `player-names.spec.ts:159` times out at
+  `mode-sandbox` ("element is not visible": the match source isn't open when the click comes),
+  three runs out of three, at load ~2 too, and also with `Board.tsx` put back to bff5abc's, so
+  it isn't #40. The lead's gate passed it at 20:14, so it is likely this tree's environment or
+  a race with the source closing after an API-summary load. Check it at the gate.
+
 ## Follow across restarts: small leftovers (2026-11-11, restart-follow)
 
 - **"Follow again" right after a restart waits only 5 s** (`RECONNECT_MS`) for the seat, not 20 s
