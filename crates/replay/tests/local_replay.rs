@@ -563,3 +563,36 @@ fn match_129738985_marks_its_rift_troopers_and_draws_no_base_units() {
     assert_eq!(flagged, big, "flagged by the modifier = drawn bigger by the game");
     assert!(big.iter().all(|i| !plain.contains(i)), "and never drawn unflagged");
 }
+
+/// Feedback #38: Nurse Harrow's leeches collected (Leech Therapy, ability 1). The count is the
+/// `stack_count` of one hidden, permanent modifier she holds,
+/// `ability_nurse_leech_therapy/modifier_nurse_leech_therapy_stack_bonus` (no icon, so never an
+/// effect). On 129738985 (`examples/stack_probe.rs`): 36 changes, up to 18 (10 + the third
+/// tier's 8), a quarter lost at each death (10 → 8 at 520 s), 8 at the end.
+#[test]
+#[ignore = "needs 129738985: MAPCRO_REPLAY_129738985"]
+fn match_129738985_has_nurse_harrows_leeches_collected() {
+    let Some(dem) = env_path("MAPCRO_REPLAY_129738985") else { panic!("set MAPCRO_REPLAY_129738985 to 129738985.dem") };
+    let dir = tempfile::tempdir().expect("dir");
+    let out = dir.path().join("t.json");
+    worker::job(&dem, &out, 129_738_985, 2 << 30).expect("parses");
+    let t = timeline::validate(&std::fs::read(&out).expect("output")).expect("the server's checks pass");
+    const HARROW: u32 = 87;
+    let leech = timeline::token("ability_nurse_leech_therapy");
+    let h = t.players.iter().find(|p| p.hero_id == HARROW).expect("Nurse Harrow played");
+    let rows: Vec<[u32; 3]> = h.stacks.iter().filter(|r| r[1] == leech).copied().collect();
+    let at = |s: u32| rows.iter().rev().find(|r| r[0] <= s * 10).map_or(0, |r| r[2]);
+    assert_eq!(rows.len(), 36, "{rows:?}");
+    assert_eq!(rows.first(), Some(&[789, leech, 1]), "the first leech at 78.9 s");
+    assert_eq!(rows.iter().map(|r| r[2]).max(), Some(18));
+    assert_eq!((at(519), at(521), at(633), at(t.duration_s)), (10, 8, 9, 8));
+    // Every death takes a quarter, rounded down to whole leeches lost.
+    for d in &h.deaths {
+        let before = at(d.saturating_sub(3));
+        assert_eq!(at(*d), before - before / 4, "at the death at {d} s");
+    }
+    // Leech Therapy is the only own stack she holds here; others' are their items' and abilities'.
+    assert!(h.stacks.iter().all(|r| r[1] == leech));
+    let holders = t.players.iter().filter(|p| !p.stacks.is_empty()).count();
+    assert!(holders >= 8, "{holders} heroes hold stacks of their own");
+}

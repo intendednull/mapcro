@@ -59,6 +59,17 @@ pub struct ChargeObs {
     pub charges: u32,
 }
 
+/// The stacks a hero holds on one of its own abilities or items where they change: the most
+/// `stack_count` among the modifiers it put on itself with that ability or item (Leech
+/// Therapy's leeches, Berserker's stacks), 0 once none is left.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StackObs {
+    pub game: f32,
+    pub player: i32,
+    pub id: u32,
+    pub stacks: u32,
+}
+
 /// The pawn's hard-CC bits where they change: bit i = [`CC_STATES`]`[i]`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CcObs {
@@ -121,6 +132,7 @@ pub struct HeroData {
     pub levels: Vec<LevelObs>,
     pub casts: Vec<CastObs>,
     pub charges: Vec<ChargeObs>,
+    pub stacks: Vec<StackObs>,
     pub cc: Vec<CcObs>,
     pub effects: Vec<EffectObs>,
     pub applied: Vec<ApplyObs>,
@@ -166,6 +178,7 @@ pub fn fill(players: &mut [Player], ids: &[i32], d: &HeroData, duration_s: u32) 
             })
             .collect();
         p.charges = d.charges.iter().filter(|c| c.player == id && c.id != 0).map(|c| [ds(c.game, end_ds), c.id, c.charges.min(MAX_CHARGE_COUNT)]).collect();
+        p.stacks = own_stacks(d.stacks.iter().filter(|s| s.player == id && s.id != 0), end_ds);
         p.cc = cc(d, id, &src, end_ds);
         let mut effects: Vec<[u32; 6]> = d
             .effects
@@ -184,6 +197,23 @@ pub fn fill(players: &mut [Player], ids: &[i32], d: &HeroData, duration_s: u32) 
         let zip = per_second(d.zip.iter().filter(|z| z.player == id), duration_s);
         p.zipline = on_runs(&held(&zip, HOLD_S));
     }
+}
+
+/// `[t_ds, id, stacks]` where an ability's or item's stacks change: the last read in a tenth
+/// stands for it, and a tenth that ends where the one before it left off is dropped.
+fn own_stacks<'a>(obs: impl Iterator<Item = &'a StackObs>, end_ds: u32) -> Vec<[u32; 3]> {
+    let mut out: Vec<[u32; 3]> = Vec::new();
+    let mut held: HashMap<u32, u32> = HashMap::new();
+    for s in obs {
+        let row = [ds(s.game, end_ds), s.id, s.stacks.min(MAX_STACKS)];
+        // A later read in the same tenth replaces the earlier one.
+        if let Some(i) = out.iter().rposition(|r| r[0] == row[0] && r[1] == row[1]) {
+            out.remove(i);
+        }
+        out.push(row);
+    }
+    out.retain(|[_, id, n]| held.insert(*id, *n).unwrap_or(0) != *n);
+    out
 }
 
 /// Each 309 event's `items` kind, `None` to skip. A sell is real if a 360 sell of the item
@@ -462,6 +492,29 @@ mod tests {
         // instant: no source. Player 1's own application (index 0) is filtered by the parser
         // (only enemy applications are kept), so here it's a candidate after the ability ones.
         assert_eq!(p[0].cc, [[100, 140, 17, 1, 77], [100, 115, 20, 2, 88], [500, 600, 20, NO_HERO, 0]]);
+    }
+
+    #[test]
+    fn own_stacks_are_where_they_change_per_ability() {
+        let s = |game: f32, player: i32, id: u32, stacks: u32| StackObs { game, player, id, stacks };
+        let d = HeroData {
+            stacks: vec![
+                s(2.0, 1, 7, 1),
+                s(2.0, 1, 7, 2),  // the same tenth: the last read stands
+                s(3.0, 1, 8, 4),  // another ability of the same hero
+                s(5.0, 1, 7, 2),  // no change
+                s(6.0, 1, 7, 1),  // a death took some
+                s(6.0, 2, 7, 9),  // another hero
+                s(7.0, 1, 0, 3),  // no ability
+                s(9.0, 1, 7, 5000),
+                s(9.5, 1, 8, 0),  // none left
+            ],
+            ..HeroData::default()
+        };
+        let p = filled(&d, 2, 100);
+        assert_eq!(p[0].stacks, [[20, 7, 2], [30, 8, 4], [60, 7, 1], [90, 7, MAX_STACKS], [95, 8, 0]]);
+        assert_eq!(p[1].stacks, [[60, 7, 9]]);
+        assert!(crate::timeline::extras_ok(&p[0], 100, 2));
     }
 
     #[test]
