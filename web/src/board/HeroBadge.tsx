@@ -4,7 +4,7 @@
 // a team-coloured disc, and at low health the critical card in the same frame. A pack without
 // cards keeps the older vertical bust (m_strTopBarVertical). Styles: styles/topbar.css.
 
-import { Show } from "solid-js";
+import { Show, createMemo } from "solid-js";
 import { cx } from "../ui/cx";
 import type { Art, Hero } from "../map/pack";
 import type { Slot } from "./state";
@@ -25,8 +25,12 @@ export function HeroBadge(p: { art: Art; slot: Slot["slot"]; hero: Hero | undefi
   const url = (src: string) => ({ "background-image": `url(${JSON.stringify(src)})` });
   /** The critical card at low health, when the pack has it. */
   const critical = () => (p.low ? p.hero?.critical : undefined);
+  // Written only when it changes. A lone dynamic `class` sets the attribute every time its
+  // inputs re-run (each sample of playback), and each write, same value or not, restyles the
+  // disc and re-checks the stage's `:has()` rules (#39).
+  const cls = createMemo(() => cx("tb-badge", hasCard(p.art, p.hero) && "card-badge", !!p.hero?.card && "has-card"));
   return (
-    <div class={cx("tb-badge", hasCard(p.art, p.hero) && "card-badge", !!p.hero?.card && "has-card")}>
+    <div class={cls()}>
       <i class="tb-disc">{initials(p.slot, p.hero?.name)}</i>
       <Show
         when={p.hero?.card}

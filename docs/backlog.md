@@ -37,6 +37,18 @@ while playing 156 → 96 ms), see its commit. What's left:
   PrePaint 118 → 27 ms. Ideas: troopers on a canvas, or one path per team; the clip on the
   map's group, not per layer; `content-visibility: auto` on event rows. At 4x the main thread
   is still saturated (about 47 fps).
+- **The top bar's class writes and `:has()` storm are gone** (topbar-churn, 2026-11-12):
+  - On 30d8667 each portrait's `.tb-badge` class was written again every frame with the same
+    value: about 726 writes a second. Each write restyled `.tb-disc` (2,148 in 3 s) and re-ran
+    the stage's `:has()` rules (1,439 in 3 s).
+  - late-perf's `barSlot.ts` cut that to once per sample (22 writes per 2 s; 36 and 7 in 3 s).
+  - A memo on the badge's class now stops the writes altogether. That's a guard, not a
+    speed-up: `just perf-player` at 4x reads 32–46 fps for both builds.
+  - What's left: 7 `:has()` checks on `.stage` in 3 s, from nodes inserted under it
+    (`.stage:has(.tb-host)` is a descendant `:has`). There are also 36 `.tb-disc` restyles in
+    3 s from `.tb-player:has(.tb-focus:hover, …)`. Without that rule the restyles go to 0;
+    making it a child `:has(> …)` doesn't stop them. Both are too small to measure, so they're
+    left as they are (TD-52).
 - **Tab mounts twelve build columns on each press** (about 11 ms of JS at 1x for the columns,
   plus their layout): Tab to painted is about 35 ms at 1x and 120–180 ms at 4x, paused or
   playing, and slower late (more items). Keeping the columns mounted while hidden would make Tab
