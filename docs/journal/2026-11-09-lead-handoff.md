@@ -3,6 +3,19 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## State (2026-11-12 ~07:45 UTC, lead)
+
+- **Prod:** `web` runs aa783fc (infra 1166f8a) + pack **6861-stacks** (game 6861, with `stack_label`).
+  Healthz ok, 0 OOM, 0 5xx; `id_taken` 0 since the fix (last one 2026-11-11 08:12).
+- **Desktop 0.2.2 published** (auto-publish): updates install only on a click (#43). The .deb offers
+  no update (package manager). Apps on 0.2.1 or older self-install 0.2.2 once, at start.
+- **Replay FORMAT is 10** (own hero stacks, #38). Old uploads show "Upload replay file", or in the
+  app "Outdated · Reparse" when the demo is in the replays folder.
+- **Feedback closed today:** #38, #40–45. Open: #39 (agent `lateperf`, worktree `late-perf`, profiling
+  late-match sluggishness), #16 parked.
+- **Next:** gate/QA/deploy late-perf; sessions phase 1 (server sessions + grants, then a security
+  review) not started; TD-36 (follower wait vs reconnect backoff) still to consider.
+
 ## In flight at compaction (2026-11-11 ~14:00 UTC, lead mapcro-2d)
 
 - **Prod:** `web` runs 4a5a384 + pack 6860-tooltips. **Main is 3cbc680** (+ handoff docs): adds the
