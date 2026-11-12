@@ -2,7 +2,7 @@
 //! start. The installed app (NSIS, .deb, nix) is registered for `mapcro://` by its installer and
 //! updates itself. The portable build (`--features portable`, the release's
 //! `mapcro_<version>_x64-portable.zip`) has no installer: it registers the scheme for the current
-//! user itself, and an update only shows as "Update available", a link to the release page.
+//! user itself, and an update only shows as "Update available", a link to the new portable zip.
 //! An AppImage is installed by nobody either, so it also registers itself; it updates itself.
 
 /// How this copy was shipped.
@@ -19,7 +19,7 @@ pub enum Mode {
 pub enum OnUpdate {
     /// Download and install it (Windows: the installer runs passively and restarts the app).
     Install,
-    /// Tell the page there is one; the user fetches it from the release page.
+    /// Tell the page there is one; the user downloads the new zip from its link.
     Notify,
 }
 

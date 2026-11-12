@@ -3,7 +3,7 @@
 // `.dem` when the server has no timeline route; and the download link, gated.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Api } from "../src/player/api";
-import { DesktopError, type Invoke, WINDOWS_APP_URL, bridge, desktopSource, isLocal, windowsAppLink } from "../src/player/desktop";
+import { DesktopError, type Invoke, bridge, desktopSource, isLocal } from "../src/player/desktop";
 import { folderSource } from "../src/player/folder";
 import { noticeFor } from "../src/player/notice";
 
@@ -157,21 +157,6 @@ describe("Api.uploadTimeline", () => {
     expect(await new Api("b", "t").uploadTimeline("1", new Blob())).toBe("failed");
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("network"))));
     expect(await new Api("b", "t").uploadTimeline("1", new Blob())).toBe("offline");
-  });
-});
-
-describe("windowsAppLink", () => {
-  const win = { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/142 Safari/537.36" };
-  const linux = { userAgent: "Mozilla/5.0 (X11; Linux x86_64) Chrome/142" };
-  it("is the releases page on a Windows browser, once released", () => {
-    expect(windowsAppLink({ released: true, nav: win, w: {} })).toBe(WINDOWS_APP_URL);
-    expect(windowsAppLink({ released: true, nav: { userAgentData: { platform: "Windows" } }, w: {} })).toBe(WINDOWS_APP_URL);
-  });
-  it("is nothing before the first release, elsewhere, or inside the app", () => {
-    expect(windowsAppLink({ nav: win, w: {} })).toBeUndefined();
-    expect(windowsAppLink({ released: true, nav: linux, w: {} })).toBeUndefined();
-    expect(windowsAppLink({ released: true, nav: { userAgentData: { platform: "macOS" }, userAgent: win.userAgent }, w: {} })).toBeUndefined();
-    expect(windowsAppLink({ released: true, nav: win, w: { __TAURI_INTERNALS__: { invoke: () => Promise.resolve() } } })).toBeUndefined();
   });
 });
 

@@ -4,12 +4,13 @@
 //   spec §11): the scheme and host swapped, the token still in the fragment. The app's installer
 //   registers the scheme; the app maps the link back to the board's page on the site
 //   (desktop/core/src/link.rs, the same rules as `parseBoardLink` here).
-// - On a board page in a browser, "Open in app" is that link (`openInAppHref`), shown where "Get
-//   the Windows app" is (`windowsAppLink`: a Windows browser, never inside the app, once released).
+// - On a board page in a browser, "Open in app" is that link (`openInAppHref`), shown where the
+//   app's download is (`desktopAppLinks`: a Windows or desktop Linux browser, never inside the
+//   app, once released). The installer, the .deb and the AppImage (at each start) register the scheme.
 // - In the app, "Open link" takes a pasted share link or a mapcro:// one (`parseBoardLink`).
 
 import { shareUrl } from "./api";
-import { windowsAppLink } from "../player/desktop";
+import { desktopAppLinks } from "../player/desktop";
 
 /** The live site: a pasted https link must be its (or this page's own origin's). */
 export const SITE = "https://mapcro.dmgdeadlock.com";
@@ -53,9 +54,9 @@ export const appLink = (b: BoardLink) => `${SCHEME}://b/${b.board}#${b.token}`;
 /** The board's page on this origin. */
 export const boardHref = (b: BoardLink, origin: string = location.origin) => shareUrl(origin, b.board, b.token);
 
-/** "Open in app" on a board page: its mapcro:// link, where "Get the Windows app" shows. */
-export function openInAppHref(b: BoardLink, o: Parameters<typeof windowsAppLink>[0] = {}): string | undefined {
-  return windowsAppLink(o) ? appLink(b) : undefined;
+/** "Open in app" on a board page: its mapcro:// link, where the app's download shows. */
+export function openInAppHref(b: BoardLink, o: Parameters<typeof desktopAppLinks>[0] = {}): string | undefined {
+  return desktopAppLinks(o) ? appLink(b) : undefined;
 }
 
 /**

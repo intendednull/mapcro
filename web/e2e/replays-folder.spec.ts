@@ -131,6 +131,11 @@ test("link the folder, a new replay is found on focus, and one click uploads it"
   await prompt.getByTestId("replay-help-open").click();
   await expect(prompt.getByTestId("replay-help-link")).toContainText("steamapps › common › Deadlock › game › citadel › replays");
   await prompt.getByTestId("replay-help-open").click();
+  // Beside Link replays folder, the app's download for this system (the project's "Desktop Chrome"
+  // is a Windows browser): the installer, "Portable" beside it, both files.
+  await expect(prompt.getByTestId("app-get-folder")).toHaveText("Get the Windows app");
+  await expect(prompt.getByTestId("app-get-folder")).toHaveAttribute("href", /\/releases\/latest\/download\/mapcro_x64-setup\.exe$/);
+  await expect(prompt.getByTestId("app-alt-folder")).toHaveAttribute("href", /\/releases\/latest\/download\/mapcro_x64-portable\.zip$/);
   // Linked: another match's replay is there, not this one's.
   await prompt.getByTestId("folder-link").click();
   await expect(prompt.getByTestId("folder-none")).toHaveText("Not in your replays folder yet");

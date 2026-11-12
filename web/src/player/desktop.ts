@@ -3,8 +3,8 @@
 // its demo here), parse one here, and change the folder (the system's folder chooser). The page passes only match ids, never paths,
 // and the app grants the commands to this site's origin only. Feature-detected: in a browser none of this exists, and nothing changes.
 //
-// Also the download links for the app (`windowsAppLink`, `windowsPortableLink`), shown on
-// Windows browsers only, and the portable app's update notice (`appUpdate`).
+// Also the download links for the app (`desktopAppLinks`), shown on Windows and desktop Linux
+// browsers only, and the portable app's update notice (`appUpdate`).
 
 import { type Replay, type ReplaySource, newestFirst } from "./folder";
 
@@ -76,42 +76,66 @@ export function desktopSource(invoke: Invoke): LocalSource {
   };
 }
 
-// ---- "Get the Windows app" ----
+// ---- "Get the Windows app" / "Get the Linux app" ----
 
-/** The app's release page (the newest published release). */
-export const WINDOWS_APP_RELEASES = "https://github.com/intendednull/mapcro/releases/latest";
-/** The installer, by its stable name (the release job uploads it beside the versioned one;
- * desktop/README.md, Installer or portable). "Get the Windows app" links here. */
-export const WINDOWS_APP_URL = `${WINDOWS_APP_RELEASES}/download/mapcro_x64-setup.exe`;
-/** The portable build's zip, by its stable name: the quieter "Portable" beside it. */
-export const WINDOWS_APP_PORTABLE_URL = `${WINDOWS_APP_RELEASES}/download/mapcro_x64-portable.zip`;
+/** The repository's releases; every download is a file of the newest published one, by the
+ * stable name the release job uploads beside the versioned one (desktop/README.md, Releasing).
+ * A download link always names a file, never a release page (operator, 2026-11-11). */
+const LATEST = "https://github.com/intendednull/mapcro/releases/latest/download";
+/** The Windows installer: "Get the Windows app". */
+export const WINDOWS_APP_URL = `${LATEST}/mapcro_x64-setup.exe`;
+/** The portable build's zip: the quieter "Portable" beside it, and the portable app's "Update available". */
+export const WINDOWS_APP_PORTABLE_URL = `${LATEST}/mapcro_x64-portable.zip`;
+/** The AppImage: "Get the Linux app" (it updates itself, like the installer). */
+export const LINUX_APP_URL = `${LATEST}/mapcro_amd64.AppImage`;
+/** The .deb: the quieter ".deb" beside it. */
+export const LINUX_APP_DEB_URL = `${LATEST}/mapcro_amd64.deb`;
 
 /**
- * Off until the first release is published, so the site never links to an empty releases page.
- * Turn it on by setting this to `true` (desktop/README.md, Releasing).
+ * One flag for both platforms: every tagged release builds both, and its `publish` job refuses a
+ * draft that lacks either platform's files, so one can't be out without the other. Off would
+ * hide every download link and "Open in app" (desktop/README.md, Releasing).
  */
-export const WINDOWS_APP_RELEASED = true;
+export const DESKTOP_APP_RELEASED = true;
 
+export type DesktopOs = "windows" | "linux";
 type Nav = { userAgent?: string; userAgentData?: { platform?: string } };
 
-/** The download link to show, if any: on a Windows browser, not inside the app, once released. */
-export function windowsAppLink(o: { released?: boolean; nav?: Nav; w?: unknown } = {}): string | undefined {
-  const released = o.released ?? WINDOWS_APP_RELEASED;
-  const nav = o.nav ?? (globalThis.navigator as Nav | undefined);
-  if (!released || bridge(o.w ?? globalThis)) return undefined;
+/**
+ * The system a build is offered for: Windows, or desktop Linux on x86-64 (not Android or
+ * ChromeOS, whose user agents also say Linux, nor an ARM machine: the builds are x86-64 only).
+ * Anything else (macOS, phones) is none. The client-hints platform wins where the browser has it.
+ */
+export function desktopOs(nav: Nav | undefined): DesktopOs | undefined {
   const platform = nav?.userAgentData?.platform;
-  const windows = platform ? platform === "Windows" : /\bWindows\b/.test(nav?.userAgent ?? "");
-  return windows ? WINDOWS_APP_URL : undefined;
+  const ua = nav?.userAgent ?? "";
+  const arm = /\b(aarch64|arm64|armv\d+l?)\b/i.test(ua);
+  if (platform) return platform === "Windows" ? "windows" : platform === "Linux" && !arm ? "linux" : undefined;
+  if (/\bWindows\b/.test(ua) && !/\bWindows Phone\b/.test(ua)) return "windows";
+  if (/\bLinux\b/.test(ua) && !/\bAndroid\b/.test(ua) && !/\bCrOS\b/.test(ua) && !arm) return "linux";
+  return undefined;
 }
 
-/** "Portable", beside "Get the Windows app": shown exactly where it is. */
-export function windowsPortableLink(o: Parameters<typeof windowsAppLink>[0] = {}): string | undefined {
-  return windowsAppLink(o) ? WINDOWS_APP_PORTABLE_URL : undefined;
+/** A platform's downloads: the default link (`label`, `href`) and a quieter one beside it. */
+export type DesktopLinks = { os: DesktopOs; label: string; title: string; href: string; alt: { label: string; href: string } };
+
+const LINKS: Record<DesktopOs, DesktopLinks> = {
+  windows: { os: "windows", label: "Get the Windows app", title: "Windows app", href: WINDOWS_APP_URL, alt: { label: "Portable", href: WINDOWS_APP_PORTABLE_URL } },
+  linux: { os: "linux", label: "Get the Linux app", title: "Linux app", href: LINUX_APP_URL, alt: { label: ".deb", href: LINUX_APP_DEB_URL } },
+};
+
+/** The app's downloads to show, if any: on a Windows or desktop Linux browser, never inside the
+ * app, once released. Every placement (and "Open in app") shows exactly when this is something. */
+export function desktopAppLinks(o: { released?: boolean; nav?: Nav; w?: unknown } = {}): DesktopLinks | undefined {
+  const released = o.released ?? DESKTOP_APP_RELEASED;
+  if (!released || bridge(o.w ?? globalThis)) return undefined;
+  const os = desktopOs(o.nav ?? (globalThis.navigator as Nav | undefined));
+  return os ? LINKS[os] : undefined;
 }
 
 /**
  * In the portable app: the newer version the update feed offers (the page shows "Update
- * available", a link to the release page). Nothing in a browser, in the installed app (it
+ * available", a link straight to the portable zip). Nothing in a browser, in the installed app (it
  * updates itself), in an app without the command, or on any failure.
  */
 export async function appUpdate(invoke: Invoke | undefined = bridge()): Promise<string | undefined> {
