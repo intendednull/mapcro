@@ -5,6 +5,7 @@ import type { HeroPanel } from "./HeroPanel";
 import type { Jump } from "./Jump";
 import type { PanelPlace } from "./PanelPlace";
 import type { PlayerVision } from "./PlayerVision";
+import type { SearchNames } from "./SearchNames";
 import type { SlotRef } from "./SlotRef";
 
 /**
@@ -66,6 +67,12 @@ event_filters?: number,
  * Left out when empty.
  */
 event_search?: string, 
+/**
+ * Whether that search finds players by name: the sender's Player names, on or off
+ * (operator 2026-11-11), so a follower's list is the sender's. Left out by an older
+ * client: its follower searches by its own Names. A value this build doesn't know is none.
+ */
+event_search_names?: SearchNames, 
 /**
  * Where the death recap on the map (`skull_recap`) sits, once moved (#35): left out while
  * it is where it opens. A shape this build doesn't read (a newer client's) is none.

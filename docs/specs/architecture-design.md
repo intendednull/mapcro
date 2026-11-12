@@ -1114,8 +1114,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
 - **Names** (2026-11-08, operator: content creators hide usernames in videos): a transport toggle,
   shown when the timeline has players' names, on by default. Off, no player name is on screen
   (top bar, events and their search, tokens' hover titles; the hero or slot label stands in).
-  It is this browser's alone: kept in localStorage for every board, never in presence, and a
-  follower keeps its own (the one "Map layers" toggle that isn't followed, §8).
+  It is this browser's alone: kept in localStorage for every board, never followed (presence
+  carries only whether your events search finds by name, §8), and a follower keeps its own (the one "Map layers" toggle that isn't followed, §8).
   - **In Scenes** (operator, 2026-11-09: "in the scene the player names are not showing"): a
     slot with no name of its own shows the open match's in-game name, as Player does: under its
     top-bar portrait, in the portrait's title and menu, and in its token's hover label. A scene
@@ -1467,7 +1467,7 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
     while following is a change to what it sees, so it stops following and keeps everything it
     saw (the presenter's layers and Vision) with that one change. A presenter that sends no `layers` (an
     older client) leaves a follower on its own. **Player names is the exception:** it stays each
-    browser's own and is never in presence, as it is for recording without names (§6b "Names").
+    browser's own and is never followed, as it is for recording without names (§6b "Names").
   - **Panels** (same bug: "doesn't see the death recap the presenter has open"): presence's
     `playback` carries the death recap open on the map (`skull_recap`: team, slot, the death's
     second), the events list's last opened recap still open (`event_recap`), the hero whose build
@@ -1507,8 +1507,10 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
     list, and so its event pings, show the presenter's; like a panel, a follower may filter its
     own without stopping, and the presenter's next change to either wins; stopping keeps them.
     A presenter's search may hold a player's name (operator 2026-11-11): with Names off, a
-    follower's box shows none of it (blank, "Search"), and its list still finds by name as the
-    presenter's does; Names on, or its own typing, shows the text.
+    follower's box shows none of it ("Filtered", and a Clear), and its list finds by name as
+    the presenter's Names says (`event_search_names`, on or off; left out by an older client:
+    the follower's own Names). Names on, or its own typing, shows the text; Names on shows a
+    search kept after Stop following too, by design.
   - **Each browser's own:** Player names, the sidebar tab (Events or Notes) and whether the Map
     layers popover is open (operator 2026-11-11: layout), the tool, ink colour, Comments toggle
     and jump lead. Not followed yet (docs/backlog.md): the events list's scroll and the teleporter

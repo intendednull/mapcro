@@ -2,7 +2,7 @@
 // replay job, the playback clock, the mode (Player or Sandbox) and the jump highlight. The
 // board creates one; Player renders it; following reads and writes its playback.
 
-import { createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js";
+import { batch, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js";
 import { type CampAt, type MatchEvent, type PowerupAt, type RiftAt, type Timeline, tierOf, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, riftAt, shopsClosed, sitesAt, urnAt } from "../match/timeline";
 import { movementAt } from "./movement";
 import type { MatchPreview } from "../match/preview";
@@ -131,6 +131,7 @@ export function createPlayerHost(board: string, token: string) {
       "events.filter.souls": false,
       "events.filter.purchase": false,
       "events.search": "",
+      "events.search.names": playerNamesShown() ? "on" : "off",
     },
     { onOwn: (k, v) => REMEMBER[k]?.(v as never), onStop: () => stopFollow?.() },
   );
@@ -197,10 +198,26 @@ export function createPlayerHost(board: string, token: string) {
   const eventFilters = () => new Set(GROUPS.filter((g) => viewState.get(`events.filter.${g.id}`)).map((g) => g.id));
   const setEventFilter = (g: EventGroup, on: boolean) => viewState.set(`events.filter.${g}`, on);
   const eventSearch = showing("events.search");
-  const setEventSearch = (q: string) => viewState.set("events.search", clipText(q, VIEW_STATE["events.search"].max));
+  /** Your own search finds by name as your Names says, and says so to followers. */
+  const ownSearchNames = () => (untrack(showNames) ? "on" : "off");
+  const setEventSearch = (q: string) =>
+    batch(() => {
+      viewState.set("events.search.names", ownSearchNames());
+      viewState.set("events.search", clipText(q, VIEW_STATE["events.search"].max));
+    });
+  // While the search's way of finding is your own, it follows your Names.
+  createEffect(() => {
+    if (!viewState.heard("events.search.names")) viewState.set("events.search.names", showNames() ? "on" : "off");
+  });
   /** The search is a presenter's (operator 2026-11-11): it may hold a player's name, so with
-   * Names off its box shows none of it, and it finds by name as the presenter's list does. */
+   * Names off its box shows none of it. */
   const eventSearchHeard = () => viewState.heard("events.search");
+  /** Whether the search finds players by name: as the presenter's Names, for theirs (an older
+   * presenter's says nothing: your own Names). */
+  const eventSearchByName = () => {
+    const n = viewState.get("events.search.names");
+    return n === "own" ? showNames() : n === "on";
+  };
   /** The player's name in a slot when names are shown and the timeline has one: the top bar and
    * the events read names here, the tokens through `preview` (which checks `showNames` too). */
   const playerName = (team: string | null | undefined, slot: number | null | undefined): string | undefined =>
@@ -935,6 +952,7 @@ export function createPlayerHost(board: string, token: string) {
     eventSearch,
     setEventSearch,
     eventSearchHeard,
+    eventSearchByName,
     /** The match at playback time t as the board draws it; empty with no timeline (finding 7). */
     preview: (markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane" | "at">>): MatchPreview => {
       const m = tl();

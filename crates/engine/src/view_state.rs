@@ -143,6 +143,10 @@ pub const VISIONS: &[(&str, Option<&str>)] = &[("all", None), ("amber", Some("Am
 /// The hero build's popovers (`wire::BuildPopover`), none open by default.
 pub const POPOVERS: &[(&str, Option<&str>)] = &[("none", None), ("effects", Some("effects")), ("order", Some("order"))];
 
+/// Whether the events search finds by player name (`wire::SearchNames`): the sender's Names.
+/// The default, left out, is an older presenter's: its follower searches by its own Names.
+pub const SEARCH_NAMES: &[(&str, Option<&str>)] = &[("own", None), ("on", Some("on")), ("off", Some("off"))];
+
 /// Every registered key. Append; a key's name and bit never change once shipped.
 pub const VIEW_STATE: &[ViewKey] = &[
     layer("layer.troopers", LAYER_TROOPERS),
@@ -216,6 +220,17 @@ pub const VIEW_STATE: &[ViewKey] = &[
         group: Some("events"),
         reset_on_match: false,
         note: "The events list's search (operator 2026-11-11: shared)",
+    },
+    ViewKey {
+        key: "events.search.names",
+        sync: Sync::Shared,
+        kind: Kind::Choice(SEARCH_NAMES),
+        wire: Wire::Optional { field: "playback.event_search_names" },
+        unfollow: Unfollow::Keep,
+        on_override: Override::Local,
+        group: Some("events"),
+        reset_on_match: false,
+        note: "Whether the search finds by player name: the presenter's Names, so a follower's list is theirs (review 2026-11-11)",
     },
 ];
 
@@ -379,6 +394,7 @@ mod tests {
                 build_popover: Some(BuildPopover::Order),
                 event_filters: 1,
                 event_search: Some("q".into()),
+                event_search_names: Some(crate::wire::SearchNames::Off),
                 skull_place: Some(PanelPlace { x: 1, y: 2, right: true, bottom: false }),
                 hero_panels: Some(vec![HeroPanel { team: Team::Sapphire, slot: 2, at: None }]),
             }),
@@ -504,6 +520,8 @@ mod tests {
         assert_eq!(VISIONS.iter().map(|(_, w)| w.map(|w| serde_json::json!(w))).collect::<Vec<_>>(), vec![None, Some(team(Team::Amber)), Some(team(Team::Sapphire))]);
         let pop = |p: BuildPopover| serde_json::to_value(p).expect("popover");
         assert_eq!(POPOVERS.iter().map(|(_, w)| w.map(|w| serde_json::json!(w))).collect::<Vec<_>>(), vec![None, Some(pop(BuildPopover::Effects)), Some(pop(BuildPopover::Order))]);
+        let names = |n: crate::wire::SearchNames| serde_json::to_value(n).expect("names");
+        assert_eq!(SEARCH_NAMES.iter().map(|(_, w)| w.map(|w| serde_json::json!(w))).collect::<Vec<_>>(), vec![None, Some(names(crate::wire::SearchNames::On)), Some(names(crate::wire::SearchNames::Off))]);
         // The text bound is the one `is_valid` checks.
         let search = VIEW_STATE.iter().find(|k| k.key == "events.search").expect("events.search");
         assert_eq!(search.kind, Kind::Text { max: crate::wire::MAX_EVENT_SEARCH });

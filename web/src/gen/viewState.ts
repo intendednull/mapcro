@@ -32,6 +32,7 @@ export const VIEW_STATE = {
   "events.filter.souls": { sync: "shared", kind: "bool", field: "playback.event_filters", mask: 128, omit: true, unfollow: "keep", override: "local", group: "events", reset: false },
   "events.filter.purchase": { sync: "shared", kind: "bool", field: "playback.event_filters", mask: 256, omit: true, unfollow: "keep", override: "local", group: "events", reset: false },
   "events.search": { sync: "shared", kind: "text", max: 64, field: "playback.event_search", mask: null, omit: true, unfollow: "keep", override: "local", group: "events", reset: false },
+  "events.search.names": { sync: "shared", kind: "choice", options: ["own", "on", "off"], wires: [null, "on", "off"], field: "playback.event_search_names", mask: null, omit: true, unfollow: "keep", override: "local", group: "events", reset: false },
 } as const;
 
 export type ViewKey = keyof typeof VIEW_STATE;
