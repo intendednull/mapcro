@@ -100,6 +100,27 @@ describe("board sessions against the real server", () => {
     s.stop();
   });
 
+  it("storage that opened but failed a read is let go as the session falls back to memory", async () => {
+    // The database opens, then the role's read fails: the session swaps to memory, and `end`
+    // would close only that, so the swap must close what opened.
+    const base = new MemoryPersist();
+    const calls: string[] = [];
+    let reads = 0;
+    const flaky: Persist = {
+      load: (k) => (calls.push("load"), ++reads === 2 ? Promise.reject(new Error("quota")) : base.load(k)),
+      save: (k, v) => base.save(k, v),
+      close: () => void calls.push("close"),
+    };
+    const { board, owner_token } = await api.createBoard("fallback-closes");
+    const s = session(server, board, owner_token, flaky);
+    await s.start();
+    expect(s.storageUnavailable).toBe(true);
+    expect(calls).toEqual(["load", "load", "close"]);
+    s.end();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls.filter((c) => c === "close").length).toBe(1);
+  });
+
   it("two editors converge", async () => {
     const { board, owner_token } = await api.createBoard("converge");
     const { token } = await api.mintLink(board, owner_token, "edit", "teammate");
@@ -338,6 +359,62 @@ describe("board sessions against the real server", () => {
     coach.stop();
     await until(() => fan.followable().length === 0, "coach left");
     fan.stop();
+  });
+
+  it("ending a session (its board unmounted) closes the socket, takes no edit after, writes nothing more, lets go of storage and frees the replica", async () => {
+    const { board, owner_token } = await api.createBoard("end");
+    const base = new MemoryPersist();
+    const calls: string[] = [];
+    const persist: Persist = {
+      load: (k) => (calls.push("load"), base.load(k)),
+      save: (k, v) => (calls.push("save"), base.save(k, v)),
+      close: () => void calls.push("close"),
+    };
+    const a = session(server, board, owner_token, persist);
+    const observer = session(server, board, owner_token);
+    await a.start();
+    await observer.start();
+    await until(() => a.connection.kind === "live" && observer.connection.kind === "live", "both live");
+    a.setPresence({ name: "Leaving" });
+    await until(() => [...observer.peers.values()].some((p) => p.state?.name === "Leaving"), "observer sees it");
+    const [p0] = players(a);
+    expect(a.edit(move(p0!, 5))).toBe(true);
+    // Acked: the lazy save of the ack is due as it ends, and never lands.
+    await until(() => a.status.kind === "saved", "acked");
+    a.end();
+    const saves = calls.filter((c) => c === "save").length;
+    expect(a.edit(move(p0!, 6))).toBe(false);
+    await until(() => ![...observer.peers.values()].some((p) => p.state?.name === "Leaving"), "the server saw it leave");
+    await until(() => calls.includes("close"), "storage let go");
+    await new Promise((r) => setTimeout(r, 600));
+    expect(calls.filter((c) => c === "save").length).toBe(saves);
+    expect(calls.filter((c) => c === "close").length).toBe(1);
+    expect(a.current()).toBe(false);
+    // The replica is freed and unreachable (an undo can't reach freed memory).
+    expect((a as unknown as { replica: unknown }).replica).toBeUndefined();
+    a.undo();
+    // The edit after it ended never reaches the server.
+    expect(pos(observer, p0!)).toBe(5);
+    observer.stop();
+  });
+
+  it("a session ended before it finished starting lets go of storage only after its loads", async () => {
+    const { board, owner_token } = await api.createBoard("end-early");
+    const base = new MemoryPersist();
+    const calls: string[] = [];
+    const slow = <T,>(v: Promise<T>) => new Promise<T>((r) => setTimeout(() => r(v), 100));
+    const persist: Persist = {
+      load: (k) => (calls.push("load"), slow(base.load(k))),
+      save: (k, v) => (calls.push("save"), base.save(k, v)),
+      close: () => void calls.push("close"),
+    };
+    const a = session(server, board, owner_token, persist);
+    const started = a.start();
+    a.end();
+    await started;
+    await until(() => calls.includes("close"), "storage let go");
+    expect(calls).toEqual(["load", "load", "close"]);
+    expect(a.connection.kind).not.toBe("live");
   });
 
   it("a presence the server would refuse is held back, not resent in a reconnect loop", async () => {

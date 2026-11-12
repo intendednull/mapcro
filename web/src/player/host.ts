@@ -306,16 +306,28 @@ export function createPlayerHost(board: string, token: string) {
   };
 
   let poll: ReturnType<typeof setTimeout> | undefined;
-  onCleanup(() => clearTimeout(poll));
+  // The board unmounted (sessions.md §4.1): nothing of this host runs on. The upload in flight
+  // stops (waiting for its turn too: its place is given back), as a page left would stop it, and
+  // no poll is set again by an answer that comes after. Every step that makes a request checks
+  // `gone` first and again after each wait, so an answer that comes after the board left (its
+  // matches, a timeline, an attach) starts nothing: no request, and no upload its cleanup could
+  // no longer stop.
+  let gone = false;
+  onCleanup(() => {
+    gone = true;
+    clearTimeout(poll);
+    inflight?.ctl.abort();
+  });
   /** Follow the replay job until it settles; a finished one swaps the replay in. */
   const watch = async (id: string) => {
     clearTimeout(poll);
+    if (gone) return;
     try {
       // This tab's own upload (waiting for its turn, then sending) is the truth while it runs;
       // its end watches again.
       if (inflight?.id === id) return;
       const j = await api.job(id);
-      if (!j || matchId() !== id) return;
+      if (gone || !j || matchId() !== id) return;
       const was = job()?.state;
       setJob(j);
       if (j.state === "done" && was !== "done") await loadTimeline(id, true);
@@ -326,8 +338,9 @@ export function createPlayerHost(board: string, token: string) {
   };
 
   const loadTimeline = async (id: string, keep: boolean) => {
+    if (gone) return;
     const r = await api.timeline(id);
-    if (matchId() !== id) return;
+    if (gone || matchId() !== id) return;
     if ("error" in r) {
       setStatus("");
       // An upload's failure says more (a handed-off upload can fail before this answers).
@@ -353,7 +366,7 @@ export function createPlayerHost(board: string, token: string) {
     if (!id || !m || m.tier === "replay" || busy(job())) return;
     const timer = setInterval(() => {
       void api.job(id).then((j) => {
-        if (!j || matchId() !== id) return;
+        if (gone || !j || matchId() !== id) return;
         if (j.state === "done") void loadTimeline(id, true);
         if (j.state !== job()?.state) setJob(j);
         if (busy(j)) void watch(id);
@@ -364,6 +377,7 @@ export function createPlayerHost(board: string, token: string) {
 
   /** Open a match: attach it (editors), load its timeline and its replay job's state. */
   const open = async (id: string, opts: { attach: boolean; at?: number } = { attach: false }) => {
+    if (gone) return;
     if (!/^[1-9]\d{0,11}$/.test(id)) return setStatus("Invalid id");
     setMatchId(id);
     setTl(undefined);
@@ -377,6 +391,7 @@ export function createPlayerHost(board: string, token: string) {
     try {
       // The timeline first: a match refused for its mode is never attached (2026-11-08).
       await loadTimeline(id, false);
+      if (gone) return;
       let attached = false;
       if (opts.attach && matchId() === id && !MODE_CODES.has(problem()?.code ?? "") && (await api.attach(id))) {
         attached = true;
@@ -443,7 +458,7 @@ export function createPlayerHost(board: string, token: string) {
    */
   const upload = async (f: Blob, opts: { attach?: boolean; opened?: () => void } = {}) => {
     const id = matchId();
-    if (!id || inflight) return;
+    if (gone || !id || inflight) return;
     const ctl = new AbortController();
     inflight = { id, ctl };
     setJob({ state: "waiting", source: "upload" });
@@ -454,7 +469,7 @@ export function createPlayerHost(board: string, token: string) {
     if (got !== "ready") {
       inflight = undefined;
       setSent(undefined);
-      if (matchId() !== id) return;
+      if (gone || matchId() !== id) return;
       if (got === "done") {
         // The match's replay came from Valve meanwhile: the board shows it, nothing to send.
         if (opts.attach && (await api.attach(id).catch(() => false))) {
@@ -475,12 +490,12 @@ export function createPlayerHost(board: string, token: string) {
     let attaching: Promise<void> | undefined;
     const attach = () =>
       (attaching ??= (async () => {
-        for (let i = 0; i < 20 && !ended; i++) {
+        for (let i = 0; i < 20 && !ended && !gone; i++) {
           const j = await api.job(id).catch(() => undefined);
           if (j?.source === "upload" && j.state !== "none") break;
           await new Promise((r) => setTimeout(r, 250));
         }
-        if (failed || !(await api.attach(id).catch(() => false))) return;
+        if (gone || failed || !(await api.attach(id).catch(() => false))) return;
         setMatches([Number(id), ...matches().filter((m) => m !== Number(id))]);
         opts.opened?.();
       })());
@@ -501,7 +516,7 @@ export function createPlayerHost(board: string, token: string) {
     setSent(undefined);
     if (opts.attach && !e) await attach();
     else await attaching;
-    if (matchId() !== id) return;
+    if (gone || matchId() !== id) return;
     if (e) {
       setJob(undefined);
       setProblem({ code: e, step: "upload" });
@@ -525,7 +540,7 @@ export function createPlayerHost(board: string, token: string) {
    * the route gets the `.dem` instead, through `take`. The chip says Parsing meanwhile.
    */
   const takeLocal = async (id: string, timeline: () => Promise<Blob>, file: () => Promise<File>, opts: { attach?: boolean; opened?: () => void } = {}) => {
-    if (matchId() !== id || inflight) return;
+    if (gone || matchId() !== id || inflight) return;
     const ctl = new AbortController();
     inflight = { id, ctl };
     setStatus("");
@@ -545,8 +560,9 @@ export function createPlayerHost(board: string, token: string) {
       const code = (e as { code?: string }).code ?? "parse_failed";
       return end(code === "not_found" ? "file_gone" : code);
     }
-    if (ctl.signal.aborted) return end("aborted");
-    const e = await api.uploadTimeline(id, gz);
+    if (gone || ctl.signal.aborted) return end("aborted");
+    const e = await api.uploadTimeline(id, gz, ctl.signal);
+    if (gone) return end();
     if (e === "missing") {
       end();
       let f: File;
@@ -555,6 +571,7 @@ export function createPlayerHost(board: string, token: string) {
       } catch {
         return setProblem({ code: "file_gone", step: "upload" });
       }
+      if (gone) return;
       return void (opts.attach ? await upload(f, opts) : await take(f));
     }
     end(e);
@@ -572,9 +589,10 @@ export function createPlayerHost(board: string, token: string) {
    * full replay yet.
    */
   const pick = async (r: { id: string; timeline: () => Promise<Blob>; file: () => Promise<File> }) => {
+    if (gone) return;
     if (r.id !== matchId()) {
       await open(r.id, { attach: true });
-      if (matchId() !== r.id || MODE_CODES.has(problem()?.code ?? "")) return;
+      if (gone || matchId() !== r.id || MODE_CODES.has(problem()?.code ?? "")) return;
       const now = tl();
       // It has its replay, or Valve's is on its way.
       if ((now && tierOf(now) === "replay") || busy(job())) return;
@@ -589,10 +607,10 @@ export function createPlayerHost(board: string, token: string) {
 
   const fetchReplay = async () => {
     const id = matchId();
-    if (!id) return;
+    if (gone || !id) return;
     setProblem(undefined);
     const e = await api.fetchReplay(id);
-    if (matchId() !== id) return;
+    if (gone || matchId() !== id) return;
     if (e) return setProblem({ code: e, step: "fetch" });
     setStatus("");
     await watch(id);
@@ -692,9 +710,11 @@ export function createPlayerHost(board: string, token: string) {
 
   /** Load the board's matches; a board with one opens in Player. */
   const init = async () => {
+    if (gone) return;
     const handed = takeHandoff(board);
     if (handed) return startHandoff(handed);
     const ms = await api.matches().catch(() => []);
+    if (gone) return;
     setMatches(ms);
     if (ms.length && !matchId()) await open(String(ms[0]), { attach: false });
   };

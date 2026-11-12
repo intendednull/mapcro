@@ -9,7 +9,8 @@ import { Show, createSignal, onCleanup } from "solid-js";
 import { cx } from "../ui/cx";
 import { isDem } from "./notice";
 import { REPLAYS_PATH, supported } from "./folder";
-import { bridge, windowsAppLink, windowsPortableLink } from "./desktop";
+import { bridge, desktopAppLinks } from "./desktop";
+import { AppDownload } from "./AppDownload";
 
 export function ReplayHelp(p: { id?: string | undefined; class?: string }) {
   let el!: HTMLDetailsElement;
@@ -44,16 +45,10 @@ export function ReplayHelp(p: { id?: string | undefined; class?: string }) {
             finds new replays: <code>{REPLAYS_PATH}</code>
           </li>
         </Show>
-        <Show when={windowsAppLink()}>
-          {(href) => (
+        <Show when={desktopAppLinks()}>
+          {(l) => (
             <li class="replay-help-app" data-testid="replay-help-app">
-              Or get the Windows app: it finds the replays folder on its own.{" "}
-              <a href={href()} target="_blank" rel="noopener" data-testid="windows-app-help">
-                Get the Windows app
-              </a>{" "}
-              <a href={windowsPortableLink()} class="muted" target="_blank" rel="noopener" data-testid="windows-portable-help">
-                Portable
-              </a>
+              Or get the {l().title}: it finds the replays folder on its own. <AppDownload links={l()} where="help" />
             </li>
           )}
         </Show>
@@ -65,17 +60,19 @@ export function ReplayHelp(p: { id?: string | undefined; class?: string }) {
 /**
  * Files dragged over the page: while `enabled`, an overlay says where it goes, and a dropped
  * `.dem` goes to `onFile`; anything else is refused with a short line. A file dropped while not
- * enabled is still caught, so the browser doesn't leave the page to open it.
+ * enabled is still caught, so the browser doesn't leave the page to open it. The overlay follows
+ * `enabled` during the drag: a drag that starts while the match's replay job is still being
+ * looked up shows it once the upload is possible, as the drop would take the file by then.
  */
 export function createDemDrop(o: { enabled: () => boolean; onFile: (f: File) => void; onRefuse: (text: string) => void; onOther?: (f: File) => boolean }) {
-  const [over, setOver] = createSignal(false);
+  const [dragged, setDragged] = createSignal(false);
   let depth = 0;
   const files = (e: DragEvent) => !!e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
   const enter = (e: DragEvent) => {
     if (!files(e)) return;
     e.preventDefault();
     depth++;
-    setOver(o.enabled());
+    setDragged(true);
   };
   const move = (e: DragEvent) => {
     if (!files(e)) return;
@@ -85,13 +82,13 @@ export function createDemDrop(o: { enabled: () => boolean; onFile: (f: File) => 
   const leave = (e: DragEvent) => {
     if (!files(e)) return;
     depth = Math.max(0, depth - 1);
-    if (!depth) setOver(false);
+    if (!depth) setDragged(false);
   };
   const drop = (e: DragEvent) => {
     if (!files(e)) return;
     e.preventDefault();
     depth = 0;
-    setOver(false);
+    setDragged(false);
     if (!o.enabled()) return;
     const f = e.dataTransfer?.files[0];
     if (!f) return;
@@ -102,7 +99,7 @@ export function createDemDrop(o: { enabled: () => boolean; onFile: (f: File) => 
   };
   const end = () => {
     depth = 0;
-    setOver(false);
+    setDragged(false);
   };
   addEventListener("dragenter", enter);
   addEventListener("dragover", move);
@@ -116,7 +113,7 @@ export function createDemDrop(o: { enabled: () => boolean; onFile: (f: File) => 
     removeEventListener("drop", drop);
     removeEventListener("dragend", end);
   });
-  return over;
+  return () => dragged() && o.enabled();
 }
 
 export const NOT_DEM = "Not a .dem file. Pick the match's replay.";

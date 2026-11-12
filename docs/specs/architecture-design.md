@@ -1323,12 +1323,18 @@ makes a board with that match attached and lands in Player; **New board** is tod
     - **Installer or portable (operator, 2026-11-11; desktop/README.md):** the release carries the
       per-user installer and a portable zip (`--features portable`, fixed at build time). Portable
       registers `mapcro://` for the current user itself, and doesn't install updates: when the
-      feed has a newer version the page shows **Update available**, a link to the release page.
-    - **Download link:** "Get the Windows app" (the installer, by a stable name on GitHub
-      Releases; "Portable", quieter, beside it) shows on Windows browsers only,
-      never in the app. It sits beside Link replays folder, in "Where's my replay?" and in the
-      landing's footer. It stays off until the first release (`WINDOWS_APP_RELEASED`). There is
-      no Linux link yet (backlog).
+      feed has a newer version the page shows **Update available**, a link straight to the new
+      portable zip.
+    - **Download link (operator, 2026-11-11):** per system, one link to the build that updates
+      itself: on Windows "Get the Windows app" (the installer), on desktop Linux "Get the Linux
+      app" (the AppImage). No portable or .deb link in a browser (releases still carry both; only
+      the portable app's Update available links its zip). Never in the app, never
+      on other systems (macOS, Android, ChromeOS, phones). Every download link is a file of the
+      latest release by a stable name (`releases/latest/download/<name>`), downloaded in place,
+      never a release page. It sits in a quiet text row under Load a game, beside Link replays
+      folder, in "Where's my replay?" and in the landing's footer. One flag, `DESKTOP_APP_RELEASED`
+      (`player/desktop.ts` `desktopAppLinks`), as every release carries both systems' files.
+      The footer also links the source ("GitHub") on every system, the app included.
     - **Board links (operator, 2026-11-11; desktop/README.md, Deep links):** a shared board
       opens in the app. `mapcro://b/<board>#<token>` is the canonical form: the share link (§11)
       with the scheme and host swapped, the token still in the fragment. The installer (per-user)
@@ -1336,8 +1342,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
       running app's window goes to it. Only a board id and token of the site's shapes are
       followed, and only to the board's page on the site; anything else is ignored. The link is
       never logged. On a board page in a browser, **Open in app** is that link (a quiet **Get the
-      app** beside it, the installer, for a browser without the app), gated like the
-      download link (a Windows browser, never in the app, `WINDOWS_APP_RELEASED`). In the app
+      app** beside it, the system's default download, for a browser without the app), gated like
+      the download link (a Windows or desktop Linux browser, never in the app). In the app
       (no address bar), the landing's **Open link** field and **Ctrl+L** anywhere take a pasted
       share link, the site's or the `mapcro://` form; anything else reads "Not a board link". A
       board page whose fragment changes (the same board, another token) loads again.
@@ -1749,7 +1755,7 @@ limits` after each deploy.
   The file's `version` is read before anything else: a newer one is refused whole ("Newer file"),
   an older one goes through `boardfile::upgrade`, one pure step a version. Version 1 is the first,
   so there is no step yet; records written by older builds load as stored boards do, through
-  serde defaults on the fields added since (tech debt TD-39: the document has no version of its
+  serde defaults on the fields added since (tech debt TD-42: the document has no version of its
   own).
 
 ## 11. Links, capabilities and security
@@ -1839,7 +1845,7 @@ document reaches the server from outside. For the security review:
   so no part of a file is echoed.
 - **Export** (`GET /api/boards/{board}/export`) asks for any live link to the board, as Clone
   does, writes only what §6 lists, and refuses a board over 8 MiB rather than write a file the
-  server couldn't import (TD-40).
+  server couldn't import (TD-43).
 
 **Address rotation (IPv6 /64), accepted.** Per-address limits key on an IPv4 address or an IPv6
 /64, and someone with a routed /56 or /48 holds many /64s. That is left as is (security review

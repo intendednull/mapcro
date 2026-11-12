@@ -80,6 +80,18 @@ export interface RemoteHover {
 }
 const [remote, setRemote] = createSignal<RemoteHover | undefined>(undefined, { equals: (a, b) => same(a?.ref, b?.ref) && a?.name === b?.name && a?.color === b?.color });
 export const setRemoteHover = (r: RemoteHover | undefined) => setRemote(r);
+/** The presenter's hover shown here, if any. */
+export const remoteHover = remote;
+
+/** Nothing hovered, here or by a presenter: a board left (board/reset.ts). Each thing clears its
+ * own hover as it goes, too; this is the board's word that none outlives it. */
+export function resetHover() {
+  setToken(undefined);
+  setMarker(undefined);
+  setUnit(undefined);
+  setHandle(undefined);
+  setRemote(undefined);
+}
 
 /** For presence: `marker:<key>` or `token:<slot>[:part]`. */
 export function hoverWire(r: HoverRef | undefined): string | null {

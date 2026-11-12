@@ -4,12 +4,13 @@
 //   spec §11): the scheme and host swapped, the token still in the fragment. The app's installer
 //   registers the scheme; the app maps the link back to the board's page on the site
 //   (desktop/core/src/link.rs, the same rules as `parseBoardLink` here).
-// - On a board page in a browser, "Open in app" is that link (`openInAppHref`), shown where "Get
-//   the Windows app" is (`windowsAppLink`: a Windows browser, never inside the app, once released).
+// - On a board page in a browser, "Open in app" is that link (`openInAppHref`), shown where the
+//   app's download is (`desktopAppLinks`: a Windows or desktop Linux browser, never inside the
+//   app, once released). The installer and the AppImage (at each start) register the scheme; the .deb too.
 // - In the app, "Open link" takes a pasted share link or a mapcro:// one (`parseBoardLink`).
 
 import { shareUrl } from "./api";
-import { windowsAppLink } from "../player/desktop";
+import { desktopAppLinks } from "../player/desktop";
 
 /** The live site: a pasted https link must be its (or this page's own origin's). */
 export const SITE = "https://mapcro.dmgdeadlock.com";
@@ -53,25 +54,15 @@ export const appLink = (b: BoardLink) => `${SCHEME}://b/${b.board}#${b.token}`;
 /** The board's page on this origin. */
 export const boardHref = (b: BoardLink, origin: string = location.origin) => shareUrl(origin, b.board, b.token);
 
-/** "Open in app" on a board page: its mapcro:// link, where "Get the Windows app" shows. */
-export function openInAppHref(b: BoardLink, o: Parameters<typeof windowsAppLink>[0] = {}): string | undefined {
-  return windowsAppLink(o) ? appLink(b) : undefined;
+/** "Open in app" on a board page: its mapcro:// link, where the app's download shows. */
+export function openInAppHref(b: BoardLink, o: Parameters<typeof desktopAppLinks>[0] = {}): string | undefined {
+  return desktopAppLinks(o) ? appLink(b) : undefined;
 }
 
 /**
- * Open a board in this window. A board page doesn't follow its link changing in place, so a
- * change of fragment only (the same board, another token) reloads (`followHashChanges`).
+ * Open a board in this window. A change of fragment only (the same board, another token) is
+ * followed in place: the board mounts again with the new token (core/nav.ts).
  */
 export function openBoard(b: BoardLink) {
   location.assign(boardHref(b));
-}
-
-/**
- * A board page whose fragment changes (another token for the same board: a link opened in the
- * app, an edited address) loads again with it. Nothing in the client sets the fragment.
- */
-export function followHashChanges() {
-  addEventListener("hashchange", () => {
-    if (location.pathname.startsWith("/b/")) location.reload();
-  });
 }

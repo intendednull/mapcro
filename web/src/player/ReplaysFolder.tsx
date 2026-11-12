@@ -28,7 +28,8 @@ import {
   settleIn,
   supported,
 } from "./folder";
-import { WINDOWS_APP_PORTABLE_URL, bridge, windowsAppLink } from "./desktop";
+import { bridge, desktopAppLinks } from "./desktop";
+import { AppDownload } from "./AppDownload";
 
 /** Where the source stands: none here, none linked, linked but needing a click to read it, or
  * read (its replays). */
@@ -208,7 +209,7 @@ export function FolderLink(p: { id: string | undefined }) {
           Link replays folder
         </button>
         {note()}
-        <WindowsApp />
+        <DesktopApp />
       </Match>
       <Match when={f.state().kind === "prompt"}>
         <button class="btn ghost small" type="button" data-testid="folder-allow" onClick={() => void f.allow()}>
@@ -251,23 +252,10 @@ export function FolderRecent(p: { onOpen: (id: string) => void }) {
   );
 }
 
-/** "Get the Windows app", quiet: on a Windows browser only, never in the app, once released
- * (`desktop.ts` `WINDOWS_APP_RELEASED`). It finds the replays folder on its own. The installer;
- * "Portable", quieter, beside it. */
-export function WindowsApp(p: { class?: string }) {
-  const href = windowsAppLink();
-  return (
-    <Show when={href}>
-      {(h) => (
-        <>
-          <a class={cx("btn ghost small", p.class)} data-testid="windows-app" href={h()} target="_blank" rel="noopener" title="Windows app">
-            Get the Windows app
-          </a>
-          <a class="btn ghost small muted" data-testid="windows-portable" href={WINDOWS_APP_PORTABLE_URL} target="_blank" rel="noopener">
-            Portable
-          </a>
-        </>
-      )}
-    </Show>
-  );
+/** "Get the Windows app" (or Linux), quiet: on a Windows or desktop Linux browser only, never in
+ * the app, once released (`desktop.ts` `desktopAppLinks`). It finds the replays folder on its own.
+ * The installer or the AppImage: the builds that update themselves. */
+export function DesktopApp(p: { class?: string }) {
+  const links = desktopAppLinks();
+  return <Show when={links}>{(l) => <AppDownload links={l()} where="folder" class={cx("btn ghost small", p.class)} />}</Show>;
 }

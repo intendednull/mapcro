@@ -298,7 +298,9 @@ export function createBoardState(board: string, token: string) {
       await loadWasm();
       await session.start();
     },
-    stop: () => session.stop(),
+    /** The board unmounted: its session ends for good. (The per-scene memos above read only
+     * this board's own signals, which nothing writes after: they go with it.) */
+    stop: () => session.end(),
   };
 }
 

@@ -122,6 +122,10 @@ export class BoardSession {
   private attempt = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
+  /** `end` was called: the session is over for good. */
+  private ended = false;
+  /** `start` under way or done. */
+  private starting: Promise<void> = Promise.resolve();
   /** Saves and sends run in order through this chain, so frames leave in cseq order. */
   private chain: Promise<void> = Promise.resolve();
   /** Whole-state saves, one at a time and in the order taken, so storage never goes back. */
@@ -144,7 +148,11 @@ export class BoardSession {
     this.presence.seat = o.seat ?? pageSeat();
   }
 
-  async start(): Promise<void> {
+  start(): Promise<void> {
+    return (this.starting = this.begin());
+  }
+
+  private async begin(): Promise<void> {
     this.roleStore = await roleKey(this.o.board, this.o.token);
     let saved: string | undefined;
     let role: string | undefined;
@@ -157,6 +165,9 @@ export class BoardSession {
       // they're acked would lose them.
       this.problems.push(`local storage unavailable: ${e instanceof Error ? e.message : e}`);
       this.storageUnavailable = true;
+      // What did open (the database, before a read failed) is let go now: `end` closes only the
+      // memory that replaces it.
+      this.o.persist.close?.();
       this.o = { ...this.o, persist: new MemoryPersist() };
     }
     if (saved !== undefined) {
@@ -167,12 +178,32 @@ export class BoardSession {
     this.open();
   }
 
+  /** Disconnect and stay so (offline: edits are kept locally, and sent if started again). */
   stop(): void {
     this.stopped = true;
     clearTimeout(this.timer);
     this.dropSocket();
     // The save indicator must say "offline", never "syncing", once nothing is connected.
     this.markOffline();
+  }
+
+  /**
+   * End the session for good: its board was left (unmounted, sessions.md §4.1). As `stop`, and
+   * no timer of its own runs on: the presence send and the lazy save are dropped, as a page left
+   * drops them (the journal and the server hold what that save would have, and a late one would
+   * land under the board's next mount). No edit is taken after. Once the writes in flight are
+   * done, its storage is let go and the replica freed.
+   */
+  end(): void {
+    this.stop();
+    this.ended = true;
+    clearTimeout(this.presenceTimer);
+    clearTimeout(this.saveSoon);
+    void Promise.allSettled([this.starting, this.chain, this.saves]).then(() => {
+      this.o.persist.close?.();
+      this.replica?.free();
+      this.replica = undefined;
+    });
   }
 
   /** Apply an edit; false if it was refused locally (the server may still refuse it later). */
@@ -243,6 +274,7 @@ export class BoardSession {
   private local(call: (r: BoardReplica) => string): boolean {
     const r = this.replica;
     if (!r) return false; // not loaded yet: the UI is read-only until the first Ready
+    if (this.ended) return false;
     if (this.readOnly) {
       // View links never edit; the server would treat it as abuse and drop the connection.
       this.problems.push("this link is view-only");

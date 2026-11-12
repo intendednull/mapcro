@@ -6,7 +6,7 @@ Run mapcro.exe. Nothing is installed.
   If the window stays blank, install the "Evergreen Runtime" from
   https://developer.microsoft.com/microsoft-edge/webview2/
 - No automatic updates. When a newer version is out, the app shows
-  "Update available": download the new zip from the release page.
+  "Update available": click it to download the new zip.
 - No Start-menu entry and no uninstaller. To remove it, delete this folder.
 - It registers mapcro:// links for your Windows account on each start, so a
   board's "Open in app" opens here.

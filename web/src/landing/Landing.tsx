@@ -15,10 +15,15 @@ import { navigate } from "../core/nav";
 import { LIMITS } from "../gen/limits";
 import { feedbackEnabled } from "../core/feedback";
 import { FeedbackButton } from "../ui/Feedback";
-import { bridge, windowsAppLink, windowsPortableLink } from "../player/desktop";
+import { bridge, desktopAppLinks } from "../player/desktop";
+import { AppDownload } from "../player/AppDownload";
 import { OpenLinkForm, UpdateLink } from "../ui/OpenLink";
 import { importBoard, isBoardFile } from "../core/boardfile";
 import { type Picked, ReplayPicker, pickerSource } from "../player/ReplayPicker";
+
+/** The source, in the footer on every system. In the app it's a plain navigation, which the app
+ * sends to the system browser (desktop/README.md, Links off the site); in a browser, a new tab. */
+const REPO = "https://github.com/intendednull/mapcro";
 
 export function Landing() {
   const [title, setTitle] = createSignal("");
@@ -28,7 +33,13 @@ export function Landing() {
   // The bin takes a board off this device's list only; the toast's Undo puts it back.
   const [toast, setToast] = createSignal<{ text: string; undo: KnownBoard }>();
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
-  onCleanup(() => clearTimeout(toastTimer));
+  // The landing was left (back or forward onto a board, an opened link) while a board was being
+  // made: an answer that comes after takes no one anywhere (sessions.md §4.1).
+  let left = false;
+  onCleanup(() => {
+    left = true;
+    clearTimeout(toastTimer);
+  });
   const remove = (b: KnownBoard) => {
     const gone = forgetBoard(b.board);
     setBoards(knownBoards());
@@ -54,6 +65,7 @@ export function Landing() {
     try {
       const t = title().trim() || "Untitled board";
       const { board, owner_token } = await new Api("").createBoard(t);
+      if (left) return;
       rememberBoard({ board, token: owner_token, title: t, edit: true });
       sessionStorage.setItem(FRESH_BOARD, board); // its first load rolls twelve random heroes
       location.assign(shareUrl(location.origin, board, owner_token));
@@ -94,8 +106,10 @@ export function Landing() {
     setOpening("Opening");
     try {
       if (f && !(await looksLikeDemo(f))) return fail(noticeFor("not_a_replay", "upload")!.text);
+      if (left) return;
       // A Brawl (or other non-standard) match gets no board (2026-11-08).
       const code = await lookup(id);
+      if (left) return;
       if (code && MODE_CODES.has(code)) return fail(noticeFor(code, "load")!.text);
       // Without its replay, a match needs deadlock-api's metadata to open: say why it can't. A
       // replay stands alone (spec §6a).
@@ -106,6 +120,7 @@ export function Landing() {
       if (made?.id !== id) {
         const t = `Match ${id}`;
         const { board, owner_token } = await new Api("").createBoard(t);
+        if (left) return;
         made = { board, token: owner_token, id };
       }
       const m = made;
@@ -119,6 +134,7 @@ export function Landing() {
         return navigate(shareUrl(location.origin, m.board, m.token));
       }
       const r = await fetch(`/api/boards/${m.board}/matches/${id}`, { method: "PUT", headers: { authorization: `Bearer ${m.token}` } });
+      if (left) return;
       if (!r.ok) throw new Error("attach");
       remember();
       // This tab opened it: if the full replay can't come, the board asks it (spec §6b).
@@ -236,6 +252,13 @@ export function Landing() {
           )}
         </Show>
         <ReplayHelp class="inline" id={/^[1-9]\d{0,11}$/.test(matchId().trim()) ? matchId().trim() : undefined} />
+        <Show when={desktopAppLinks()}>
+          {(l) => (
+            <p class="landing-app" data-testid="app-home">
+              <AppDownload links={l()} where="home" />
+            </p>
+          )}
+        </Show>
         <DropOverlay over={dragging()} id={matchId().trim() || undefined} board />
         <Show when={app && picking()}>
           <ReplayPicker
@@ -338,16 +361,15 @@ export function Landing() {
         </Show>
         <footer class="legal muted">
           MIT · Not affiliated with Valve
-          <Show when={windowsAppLink()}>
-            {(href) => (
+          {" · "}
+          <a href={REPO} target={bridge() ? undefined : "_blank"} rel="noopener" data-testid="github-landing">
+            GitHub
+          </a>
+          <Show when={desktopAppLinks()}>
+            {(l) => (
               <>
                 {" · "}
-                <a href={href()} target="_blank" rel="noopener" data-testid="windows-app-landing" title="Windows app">
-                  Get the Windows app
-                </a>{" "}
-                <a href={windowsPortableLink()} class="muted" target="_blank" rel="noopener" data-testid="windows-portable-landing">
-                  Portable
-                </a>
+                <AppDownload links={l()} where="landing" />
               </>
             )}
           </Show>

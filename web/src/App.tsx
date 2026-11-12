@@ -6,14 +6,12 @@ import { Landing } from "./landing/Landing";
 import { DeadLink } from "./ui/DeadLink";
 import { loadArt } from "./map/pack";
 import { OpenLinkKeys } from "./ui/OpenLink";
-import { followHashChanges } from "./core/applink";
-
-// Another token for the same board (a link opened in the app, an edited address) loads it.
-followHashChanges();
 
 export function App() {
-  // The landing can open a board in place (core/nav.ts): the link follows the address.
-  const link = createMemo(() => parseShareUrl(href()));
+  // The landing can open a board in place, and back and forward follow the address
+  // (core/nav.ts): the link follows it. Another board or another token is a new link, and the
+  // board mounts afresh for it (sessions.md §4.1); the same one keeps its mount.
+  const link = createMemo(() => parseShareUrl(href()), undefined, { equals: (a, b) => a?.board === b?.board && a?.token === b?.token });
   // A board path whose link doesn't parse (cut short, mistyped): say so, don't show the landing.
   const broken = () => !link() && new URL(href()).pathname.startsWith("/b/");
   const [art] = createResource(() => loadArt());
@@ -26,8 +24,8 @@ export function App() {
           <DeadLink />
         </div>
       </Match>
-      <Match when={link() && art()}>
-        <Board board={link()!.board} token={link()!.token} art={art()!} />
+      <Match when={art() && link()} keyed>
+        {(l) => <Board board={l.board} token={l.token} art={art()!} />}
       </Match>
       <Match when={link()}>
         <div class="app loading" />
