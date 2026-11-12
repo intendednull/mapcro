@@ -39,6 +39,10 @@ export function EventsList(p: {
   setFilter: (g: EventGroup, on: boolean) => void;
   query: () => string;
   setQuery: (q: string) => void;
+  /** The search is a presenter's and Names is off here: the box shows none of it (spec §8). */
+  queryHidden?: () => boolean;
+  /** Names the search finds by, when not `names` (a presenter's: as its Names says). */
+  searchNames?: Named | undefined;
 }) {
   // A purchase's item, or an ult's ability, shows its tooltip on hover (GameTooltip.tsx).
   const tips = useTooltips(() => p.art, () => p.tl.build);
@@ -53,7 +57,7 @@ export function EventsList(p: {
   // Ticked events by a stable key, not a position: a replay arriving reorders the list.
   const [picked, setPicked] = createSignal(new Set<string>());
   const all = createMemo(() => [...(p.tl.events ?? []), ...majorPurchases(p.tl, p.art.buildCatalog)].sort((a, b) => a.t - b.t));
-  const shown = createMemo(() => search(all().filter(e => e.kind !== "item_buy" || on().has("purchase")), p.names, query(), on()));
+  const shown = createMemo(() => search(all().filter(e => e.kind !== "item_buy" || on().has("purchase")), p.searchNames ?? p.names, query(), on()));
   createEffect(() => p.onShown?.(shown()));
   onCleanup(() => p.onShown?.(undefined));
   const present = createMemo(() => GROUPS.filter((g) => all().some((e) => groupOf(e) === g.id)));
@@ -110,7 +114,12 @@ export function EventsList(p: {
   return (
     <div class="pl-events" data-testid="events">
       <div class="pl-events-head">
-        <input class="input" data-testid="events-search" placeholder="Search" aria-label="Search events" maxLength={VIEW_STATE["events.search"].max} value={query()} onInput={(e) => typed(e.currentTarget)} />
+        <input class="input" data-testid="events-search" placeholder={p.queryHidden?.() ? "Filtered" : "Search"} aria-label="Search events" maxLength={VIEW_STATE["events.search"].max} value={p.queryHidden?.() ? "" : query()} onInput={(e) => typed(e.currentTarget)} />
+        <Show when={p.queryHidden?.()}>
+          <button type="button" class="btn ghost small" data-testid="events-search-clear" title="Clear" aria-label="Clear" onClick={() => p.setQuery("")}>
+            ×
+          </button>
+        </Show>
         <label class="pl-lead" title="Lead">
           −
           <input type="number" min="0" max="60" data-testid="events-lead" aria-label="Lead seconds" value={lead()} onInput={(e) => setLead(Math.max(0, Math.min(60, Number(e.currentTarget.value) || 0)))} />s

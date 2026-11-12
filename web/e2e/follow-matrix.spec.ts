@@ -898,3 +898,86 @@ test("the events search shows exactly what it keeps, and a follower sees the sam
   await expect(box(b)).toHaveValue("x".repeat(61));
   await expect(a.getByTestId("save-status")).toHaveAttribute("data-connection", "live");
 });
+
+// A presenter's search may hold a player's name (operator 2026-11-11): a follower with Player
+// names off sees none of its text ("Filtered", and a Clear), but its list is the presenter's,
+// which finds by name as the presenter's Names says; Names on shows the text. The fixture's
+// players are "A0".."S5": "A1" finds Amber 1's death only, and only by name.
+const searchBox = (p: Page) => p.getByTestId("events-search");
+const searchClear = (p: Page) => p.getByTestId("events-search-clear");
+const searchText = (p: Page) => searchBox(p).inputValue();
+/** The box as it shows: its text, else its placeholder in brackets; and whether Clear is there. */
+const searchShown = (p: Page) =>
+  p.locator(".pl-events-head").evaluate((h) => {
+    const box = h.querySelector<HTMLInputElement>("[data-testid=events-search]")!;
+    return `${box.value || `[${box.placeholder}]`}${h.querySelector("[data-testid=events-search-clear]") ? " ×" : ""}`;
+  });
+const listed = (p: Page) => p.getByTestId("event").evaluateAll((els) => els.map((e) => e.getAttribute("data-t")).join(" "));
+const namesRow = () => ROWS.find((r) => r.key === "names")!;
+async function nameSearch(browser: Browser, names: "on" | "off", presenter: "on" | "off" = "on") {
+  const { a, b } = await board(browser, ROWS.find((r) => r.key === "events.search")!);
+  await put(namesRow(), b, names);
+  await put(namesRow(), a, presenter);
+  await follow(b);
+  await searchBox(a).fill("A1");
+  await expect.poll(() => searchText(a)).toBe("A1");
+  await expect.poll(() => listed(a)).toBe(presenter === "on" ? "20" : "");
+  return { a, b };
+}
+test("a follower with Names off sees a blank search, but the presenter's list", async ({ browser }) => {
+  const { b } = await nameSearch(browser, "off");
+  await expect.poll(() => listed(b)).toBe("20");
+  await expect.poll(() => searchShown(b)).toBe("[Filtered] ×");
+  await expect(searchClear(b)).toHaveAttribute("title", "Clear");
+  // Stopping keeps the presenter's search, still unseen; Clear clears it.
+  await following(b).click();
+  await expect.poll(() => listed(b)).toBe("20");
+  await expect.poll(() => searchShown(b)).toBe("[Filtered] ×");
+  await searchClear(b).click();
+  await expect.poll(() => searchShown(b)).toBe("[Search]");
+  await expect.poll(() => listed(b)).toBe("20 30 40");
+  await searchBox(b).fill("walker");
+  await expect.poll(() => searchShown(b)).toBe("walker");
+  await expect.poll(() => listed(b)).toBe("30");
+});
+test("a follower with Names on sees the presenter's search", async ({ browser }) => {
+  const { b } = await nameSearch(browser, "on");
+  await expect.poll(() => listed(b)).toBe("20");
+  await expect.poll(() => searchShown(b)).toBe("A1");
+});
+test("a follower turning Names on and off shows and hides the presenter's search", async ({ browser }) => {
+  const { b } = await nameSearch(browser, "off");
+  await expect.poll(() => searchShown(b)).toBe("[Filtered] ×");
+  await put(namesRow(), b, "on");
+  await expect.poll(() => searchShown(b)).toBe("A1");
+  await put(namesRow(), b, "off");
+  await expect.poll(() => searchShown(b)).toBe("[Filtered] ×");
+  await expect.poll(() => listed(b)).toBe("20");
+  await expect(following(b)).toHaveCount(1);
+});
+test("a presenter with Names off: its search finds no one by name, for its followers too", async ({ browser }) => {
+  const { b } = await nameSearch(browser, "off", "off");
+  await expect.poll(() => searchShown(b)).toBe("[Filtered] ×");
+  await expect.poll(() => listed(b)).toBe("");
+  // The follower's own Names on shows the text; the list is still the presenter's.
+  await put(namesRow(), b, "on");
+  await expect.poll(() => searchShown(b)).toBe("A1");
+  await expect.poll(() => listed(b)).toBe("");
+});
+test("a follower with Names off typing the same text makes it its own: shown, and no name found", async ({ browser }) => {
+  const { b } = await nameSearch(browser, "off");
+  await expect.poll(() => searchShown(b)).toBe("[Filtered] ×");
+  await searchBox(b).fill("A1");
+  await expect.poll(() => searchShown(b)).toBe("A1");
+  await expect.poll(() => listed(b)).toBe("");
+  await expect(following(b)).toHaveCount(1);
+});
+test("the presenter's next search hides it again over the follower's own", async ({ browser }) => {
+  const { a, b } = await nameSearch(browser, "off");
+  await searchBox(b).fill("walker");
+  await expect.poll(() => searchShown(b)).toBe("walker");
+  await expect.poll(() => listed(b)).toBe("30");
+  await searchBox(a).fill("A1 ");
+  await expect.poll(() => searchShown(b)).toBe("[Filtered] ×");
+  await expect.poll(() => listed(b)).toBe("20");
+});

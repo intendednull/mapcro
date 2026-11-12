@@ -170,6 +170,12 @@ export interface ViewState {
    * (`onStop`). A `local` key is yours until the presenter's next change to its group.
    */
   set<K extends ViewKey>(k: K, v: ValueOf<K>): void;
+  /**
+   * Whether what `get` shows came from a presenter: heard while following, and still so once
+   * stopping keeps it, until your own change or another match's reset (a follower with Player
+   * names off doesn't see a presenter's search, spec §8).
+   */
+  heard(k: ViewKey): boolean;
   /** What presence carries for the shared keys, at their fields' paths: the shown values.
    * `under`: only the keys in that top-level field (`layers`, `playback`). */
   wire(under?: string): Wire;
@@ -202,13 +208,15 @@ export interface Options {
 
 /** `first`: each key's value to start with (a default, or what this browser remembers). */
 export function createViewState(first: Values, o: Options = {}): ViewState {
-  type Cell = { own: Accessor<unknown>; setOwn: Setter<unknown>; theirs: Accessor<unknown>; setTheirs: Setter<unknown> };
+  type Cell = { own: Accessor<unknown>; setOwn: Setter<unknown>; theirs: Accessor<unknown>; setTheirs: Setter<unknown>; heard: Accessor<boolean>; setHeard: Setter<boolean> };
   const cells = {} as Record<ViewKey, Cell>;
   for (const k of VIEW_KEYS) {
     const equals = (a: unknown, b: unknown) => (a === ABSENT || b === ABSENT ? a === b : same(row(k), a, b));
     const [own, setOwn] = createSignal<unknown>(first[k], { equals });
     const [theirs, setTheirs] = createSignal<unknown>(ABSENT, { equals });
-    cells[k] = { own, setOwn, theirs, setTheirs };
+    // Whether `own` holds a presenter's value (a key that isn't `restore` takes it there).
+    const [heard, setHeard] = createSignal(false);
+    cells[k] = { own, setOwn, theirs, setTheirs, heard, setHeard };
   }
   const get = (k: ViewKey) => {
     const t = cells[k].theirs();
@@ -225,6 +233,7 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
       const t = untrack(cells[k].theirs);
       if (t === ABSENT) return;
       setOwn(k, t);
+      cells[k].setHeard(true);
       cells[k].setTheirs(() => ABSENT);
     });
   /** The presenter's values for each group, as last heard: what they open (a change applies
@@ -236,6 +245,7 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
     const r = row(k);
     if (r.unfollow === "restore") return cells[k].setTheirs(() => w);
     if (w === ABSENT) return;
+    cells[k].setHeard(true);
     if (r.kind !== "deaths") return cells[k].setOwn(() => w);
     // The presenter's last one closes as theirs does (or another opens); your own stay.
     const now = w as Death | undefined;
@@ -263,11 +273,13 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
   const shared = (group: string | undefined) => VIEW_KEYS.filter((k) => row(k).sync === "shared" && (row(k).group ?? undefined) === group);
   return {
     get: get as ViewState["get"],
+    heard: (k) => cells[k].theirs() !== ABSENT || cells[k].heard(),
     set: (k, v) =>
       batch(() => {
         const stop = row(k).override === "stop";
         if (stop) adopt();
         setOwn(k, v);
+        cells[k].setHeard(false);
         if (stop) o.onStop?.();
       }),
     wire: (under) => {
@@ -326,6 +338,7 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
           if (r.group !== null) delete heard[r.group];
           delete lastDeath[k];
           setOwn(k, first[k]);
+          cells[k].setHeard(false);
         }
       }),
   };
