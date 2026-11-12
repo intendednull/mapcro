@@ -20,9 +20,25 @@ pub struct Entry {
 #[serde(from = "Vec<(RecordId, Entry)>", into = "Vec<(RecordId, Entry)>")]
 pub struct Doc {
     entries: BTreeMap<RecordId, Entry>,
+    /// Whether this document is a session: it holds a `SessionMeta` (sessions spec §2.2). Kept
+    /// as records go in, so the kind check on every op costs nothing.
+    session: bool,
+}
+
+/// What a document is, by its genesis record (sessions spec §2.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DocKind {
+    Board,
+    Session,
 }
 
 impl Doc {
+    /// A board, unless it holds a `SessionMeta`. A session's genesis is that record, which no
+    /// edit can create or delete, so a document never changes kind.
+    pub fn kind(&self) -> DocKind {
+        if self.session { DocKind::Session } else { DocKind::Board }
+    }
+
     pub fn get(&self, id: RecordId) -> Option<&Entry> {
         self.entries.get(&id)
     }
@@ -58,6 +74,7 @@ impl Doc {
     }
 
     pub(crate) fn insert(&mut self, id: RecordId, record: Record) {
+        self.session |= matches!(record, Record::SessionMeta(_));
         self.entries.insert(id, Entry { record, deleted: false });
     }
 
@@ -65,10 +82,15 @@ impl Doc {
     pub(crate) fn restore_entry(&mut self, id: RecordId, entry: Option<Entry>) {
         match entry {
             Some(e) => {
+                self.session |= matches!(e.record, Record::SessionMeta(_));
                 self.entries.insert(id, e);
             }
             None => {
-                self.entries.remove(&id);
+                if let Some(e) = self.entries.remove(&id)
+                    && matches!(e.record, Record::SessionMeta(_))
+                {
+                    self.session = self.entries.values().any(|e| matches!(e.record, Record::SessionMeta(_)));
+                }
             }
         }
     }
@@ -80,7 +102,9 @@ impl Doc {
 
 impl From<Vec<(RecordId, Entry)>> for Doc {
     fn from(v: Vec<(RecordId, Entry)>) -> Self {
-        Doc { entries: v.into_iter().collect() }
+        let entries: BTreeMap<RecordId, Entry> = v.into_iter().collect();
+        let session = entries.values().any(|e| matches!(e.record, Record::SessionMeta(_)));
+        Doc { entries, session }
     }
 }
 
@@ -107,6 +131,8 @@ fn record_heap_bytes(r: &Record) -> usize {
         Record::Callout(c) => c.text.capacity(),
         Record::Note(n) => n.text.capacity(),
         Record::Stroke(s) => s.points.capacity() * std::mem::size_of::<WorldPos>(),
+        Record::SessionMeta(m) => m.title.capacity(),
+        Record::Tab(t) => t.board.0.capacity() + t.grant.0.capacity() + t.name.capacity() + t.order.0.capacity(),
         Record::PlayerState(_) | Record::Arrow(_) => 0,
     }
 }

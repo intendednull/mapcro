@@ -30,6 +30,11 @@ label! {
         ReplayReserve => "replay_reserve",
         BoardMatch => "board_match",
         BoardMatches => "board_matches",
+        Sessions => "sessions",
+        SessionGrants => "session_grants",
+        SessionLinks => "session_links",
+        SessionLink => "session_link",
+        SessionRotate => "session_rotate",
         Feedback => "feedback",
         Assets => "assets",
         /// The client's pages and files (the fallback).
@@ -60,6 +65,11 @@ impl Route {
             "/api/boards/{board}/replays/{id}/reserve" => Route::ReplayReserve,
             "/api/boards/{board}/matches/{id}" => Route::BoardMatch,
             "/api/boards/{board}/matches" => Route::BoardMatches,
+            "/api/sessions" => Route::Sessions,
+            "/api/sessions/{board}/grants" => Route::SessionGrants,
+            "/api/sessions/{board}/links" => Route::SessionLinks,
+            "/api/sessions/{board}/links/{link}" => Route::SessionLink,
+            "/api/sessions/{board}/owner/rotate" => Route::SessionRotate,
             "/api/feedback" => Route::Feedback,
             t if t.starts_with("/assets") => Route::Assets,
             _ => Route::Other,
@@ -156,6 +166,8 @@ label! {
         TxTooLarge => "tx_too_large",
         BoardFull => "board_full",
         ServerFull => "server_full",
+        WrongDocKind => "wrong_doc_kind",
+        SessionFull => "session_full",
     }
 }
 
@@ -188,6 +200,8 @@ impl From<&mapcro_schema::Reject> for RejectReason {
             R::TxTooLarge => RejectReason::TxTooLarge,
             R::BoardFull => RejectReason::BoardFull,
             R::ServerFull => RejectReason::ServerFull,
+            R::WrongDocKind => RejectReason::WrongDocKind,
+            R::SessionFull => RejectReason::SessionFull,
         }
     }
 }

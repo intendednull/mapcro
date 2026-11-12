@@ -39,6 +39,8 @@ const REASONS: Record<Reject, string> = {
   TxTooLarge: "Change too big",
   BoardFull: "Board full",
   ServerFull: "Server full",
+  WrongDocKind: "Invalid change",
+  SessionFull: "Session full",
 };
 
 /** The reason in a session problem string (`rejected: "TextTooLong"`), if it is a rejection. */

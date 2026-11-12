@@ -10,14 +10,14 @@ mod ids;
 mod records;
 mod validate;
 
-pub use doc::{Doc, Entry};
+pub use doc::{Doc, DocKind, Entry};
 pub use file::{export_records, import_records};
 #[cfg(feature = "ts")]
 pub use doc::DocPair;
-pub use ids::{ClientId, HeroId, LaneKey, ObjectiveKey, OrderKey, RecordId};
+pub use ids::{BoardId, ClientId, GrantId, HeroId, LaneKey, ObjectiveKey, OrderKey, RecordId, is_id22};
 pub use records::{
     Arrow, BoardMeta, Callout, Field, FieldValue, Note, ObjectiveState, ObjectiveStatus, PlayerState,
-    Record, RecordKind, RosterSlot, Scene, SceneSource, Stroke, Team, WAVE_T_MAX, Wave, WorldPos,
+    Record, RecordKind, RosterSlot, Scene, SceneSource, SessionMeta, Stroke, Tab, Team, WAVE_T_MAX, Wave, WorldPos,
 };
 pub use validate::{Limits, Reject, LIMITS};
 
@@ -176,6 +176,23 @@ pub fn retitle(mut doc: Doc, title: &str) -> Doc {
         && let Some(e) = doc.entry_mut(id)
     {
         e.record.set(FieldValue::Title(title.to_owned()));
+    }
+    doc
+}
+
+/// The session document's format (`SessionMeta::version`).
+pub const SESSION_VERSION: u32 = 1;
+
+/// A fresh session (sessions spec §2.2): its `SessionMeta`, and the given tabs as
+/// `(board, grant, name)`, in order. Ids come from the caller, as for [`genesis`].
+pub fn session_genesis(mut next_id: impl FnMut() -> RecordId, title: &str, tabs: &[(BoardId, GrantId, String)]) -> Doc {
+    let mut doc = Doc::default();
+    doc.insert(next_id(), Record::SessionMeta(SessionMeta { title: title.to_owned(), version: SESSION_VERSION }));
+    let mut order: Option<OrderKey> = None;
+    for (board, grant, name) in tabs {
+        let key = OrderKey::between(order.as_ref(), None);
+        doc.insert(next_id(), Record::Tab(Tab { board: board.clone(), grant: grant.clone(), name: name.clone(), order: key.clone() }));
+        order = Some(key);
     }
     doc
 }

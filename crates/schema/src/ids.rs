@@ -74,6 +74,35 @@ impl LaneKey {
     }
 }
 
+/// A board's server id, as a session's tab names it (sessions spec §2.2): 22 base64url
+/// characters (128 random bits). Not a secret: it grants nothing alone.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct BoardId(pub String);
+
+/// A grant's id within its session (sessions spec §3.2): 22 base64url characters. Not a
+/// secret: it grants nothing without a live token for that session.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct GrantId(pub String);
+
+/// 22 base64url characters: the shape of a board, session or grant id.
+pub fn is_id22(s: &str) -> bool {
+    s.len() == 22 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+impl BoardId {
+    pub fn is_valid(&self) -> bool {
+        is_id22(&self.0)
+    }
+}
+
+impl GrantId {
+    pub fn is_valid(&self) -> bool {
+        is_id22(&self.0)
+    }
+}
+
 /// A fractional-index key ordering scenes: concurrent inserts between the same two scenes get
 /// distinct keys, so reorders never collide. Validated: 1–32 chars of `[0-9a-z]`, not ending in
 /// `0`, so there is always room on both sides.
