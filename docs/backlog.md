@@ -489,6 +489,10 @@ are per board. No hard limit on tabs.
   isolation rules, follow across tabs, a phased build plan, and 11 open questions for the
   operator.
 - Later: cross-game build comparison, series scoreline.
+- **Phase 2, rotating a board's owner token** (2026-11-12, sessions phase 1 security review):
+  rotation doesn't cut grants or links the old owner minted (sessions §3.7). When the owner
+  rotates because the token leaked, the rotate UI should offer to review or revoke what was
+  minted, "Session: …" grants included.
 
 ## UX follow-ups from the Argon and Sol passes (2026-11-10, operator approved the first batch)
 

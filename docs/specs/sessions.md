@@ -188,7 +188,10 @@ grant.**
    away, role `G`, `minted_by` = hash(board_token), and label "Session: <session title>"
    (cleaned and capped like any label). It also writes the `session_grants` row that points at
    it. No one ever holds that token, so the row can only be used through the session path
-   (§3.4).
+   (§3.4). Adding the same board again through the same board link at the same role, while
+   that grant is live, writes nothing and returns the existing grant (200, not 201). Any link
+   may add its board, a view link too, so this and the per-board cap (§3.8) bound the rows a
+   session can write on someone else's board.
 5. It returns `{ grant_id, board, role: G }`. The board token is dropped from memory. It is
    never logged, stored, echoed back, or put in the session document.
 6. The client creates the `Tab { board, grant, name, order }` record with an ordinary engine
@@ -282,6 +285,10 @@ route asserts it:
 - A grant whose board isn't `Auth.board`: refused.
 - A transaction carrying session records into a board, or board records into a session:
   `WrongDocKind` (§2.2).
+- The socket's `Ready` says what the room is: `kind` is `"board"` or `"session"` (wire
+  `RoomKind`; absent from servers before it). Without `via`, a token opens its own room, whatever
+  its kind, so `/b/<id>` with a session's token joins the session. The client checks `kind` is
+  what its page expected and leaves if not (phase 2 builds the check; phase 1 sends it).
 
 ### 3.7 Revocation
 
@@ -289,13 +296,19 @@ route asserts it:
 |---|---|
 | B's owner (or the link's minter) revokes the adder's B link, or one above it | cascade revokes the grant; B's room closes connections whose `link_hash` is the grant's; the tab reads "No access" for everyone |
 | B's owner revokes the grant itself ("Session: …" in B's links) | the same, for that session only |
+| The session's owner, or the session link that added the grant, withdraws it: `DELETE /api/sessions/{s}/grants/{g}` | the grant's links row on B is revoked (in the store, then `Revoke` to B's room); the same as B's owner revoking it. Anyone else, a grant credential and an unknown grant are refused, and "not yours" and "not found" both read 404 |
+| B's owner rotates B's owner token | the grant is **not** cut, even one added with a leaked owner token: rotation re-parents what the old owner minted onto the new one, grants included, as for any link ("links the old owner minted stay valid"). The owner revokes what they don't trust from B's links (backlog: phase 2's rotate offers that review) |
 | A session link is revoked (cascade) | the session room closes its sessions; the server sends `Revoke` to every open board room, matching `via_hash` too, so those board connections close; the tabs are gone for that holder |
 | A tab is removed | it is un-linked: new opens through that grant are refused (check 4), and B's room is sent the existing `Revoke { link_hash }` with the grant's hash, which is unique to this session, so connections through it close |
 | The removal is undone (restore) | check 4 passes again; open again. The grant row was never touched |
 | B is expired or deleted (§9a) | its grants go with it; the tab reads "No access" |
 
 Removing a tab is not revocation. The grant stays in the database, which is why undo can
-restore it, but nothing can use it while the tab is removed. To cut a session off from B for
+restore it, but nothing can use it while the tab is removed. Removing one of two tabs with the
+same board and grant closes nothing: the server sends `Revoke` only once no live tab uses the
+grant, and only for a delete that removed a live tab. **Phase 2** offers two actions on a tab:
+**Remove** (the tab only, undoable) and **Remove and revoke** (the tab, then the withdraw
+above, which undo can't bring back). To cut a session off from B for
 good, revoke the grant or the link it came from. Grants of tabs that have been removed for 30
 days are deleted by housekeeping, and an undo after that reads "No access".
 
@@ -304,7 +317,7 @@ days are deleted by housekeeping, and an undo after that reads "No access".
 | Threat | Control |
 |---|---|
 | Session spam | `POST /api/sessions` shares the board creation limiter (per address per hour, global per hour) and `MAX_BOARDS` and database caps; 507 past them |
-| Grant spam (each one writes a `links` row on someone's board) | per session link: 120 grants an hour; per address: 240 an hour; the 2,000-tab cap bounds grants per session, and live grants per session are capped at 2,000 too |
+| Grant spam (each one writes a `links` row on someone's board) | per session link: 120 grants an hour; per address: 240 an hour; the 2,000-tab cap bounds grants per session, and live grants per session are capped at 2,000 too. Adding a board again through the same link at the same role returns its live grant and writes nothing. A board holds at most 50 live grants from all sessions together (`MAX_GRANTS_PER_BOARD`); past it, adding answers 409 "board full" until B's owner revokes one. Someone with a view link could fill those 50 and keep others from adding B; B's owner sees each in B's links and revokes it |
 | Probing grants or link ids | grant ids are 128-bit random; "not found" and "not yours" read the same, as for link revoke |
 | Junk tabs (an editor writes `Tab` records with made-up board or grant ids) | harmless: check 2 fails on open and the tab reads "No access". An editor could already vandalize the list, and undo restores |
 | Socket load | a person in a session holds one session socket plus one board socket (two during a switch, briefly). `MAX_SOCKETS_PER_IP` (32) then allows ~15 people behind one NAT in a session, against 32 on a board alone. Parked boards hold no socket (§5) |
@@ -732,7 +745,8 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      extractor, so each route keeps its own error bodies (the characterisation pins them).
    - **Endpoints** (`crates/server/src/sessions.rs`): `POST /api/sessions`
      `{ title, board?, board_token?, role? }` → `{ session, owner_token, tab?, grant? }`, and
-     `POST /api/sessions/{s}/grants` `{ board, board_token, role? }` → `{ grant_id, board, role }`.
+     `POST /api/sessions/{s}/grants` `{ board, board_token, role? }` → `{ grant_id, board, role }`
+     (201, or 200 with the existing grant), and `DELETE /api/sessions/{s}/grants/{g}` (204).
      Session links are the board handlers with `RoomKind::Session`:
      `/api/sessions/{s}/links` (mint, list), `/links/{link}` (revoke), `/owner/rotate`.
    - **Revocation** (`room.rs`): a peer that came through a session records `link_hash` = the
@@ -764,6 +778,23 @@ Each phase is small, merges on its own, and leaves boards unchanged.
    - The 2,000 live grants cap answers 409 "session full".
    - The edit cap in the role (`min(…, edit)`) is redundant today, because a grant is never more
      than edit, and kept as defence in depth (an equivalent mutant: it survives mutation).
+   - **Security review fixes (2026-11-12).** An adversarial review found six things; all fixed on
+     the branch, each with a test that failed first:
+     1. a grant could only be cut from the board's side: `DELETE /api/sessions/{s}/grants/{g}`
+        (§3.7) lets the session's owner or the grant's adder withdraw it;
+     2. any link, a view link too, could write unbounded "Session: …" rows on a board: adding
+        again returns the live grant (§3.2), and a board holds 50 live grants (§3.8). B's link
+        list shows revoked grant rows marked revoked, as it shows every revoked link: it hides
+        none, so this didn't change;
+     3. revocation sent `Revoke` to each room in turn from the request: one full mailbox, or a
+        dropped request, left later rooms un-revoked. Each room is now sent to from its own task,
+        after the commit;
+     4. removing one of two tabs with the same grant revoked it for both: `Revoke` now waits for
+        the last live tab, and a delete of an already removed tab sends nothing;
+     5. `Ready` carries the room's `kind` (§3.6);
+     6. a session's listed links were stamped kind `board`; they carry the room's kind now.
+     Left as designed: board owner rotation doesn't cut grants (§3.7). Deleting a session must
+     revoke its grants' rows on other boards (TD-54).
    - Not built, because what they hang on isn't built: board expiry (§9a: no board is ever
      deleted yet, so the matrix's "board expired" column can't be tried) and deleting grants of
      tabs removed 30 days ago (§3.7). Both are in docs/tech-debt.md (TD-54, TD-55).
