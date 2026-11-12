@@ -161,7 +161,7 @@ test("the portable app's Update available: shown when the app reports a newer ve
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await ctx.addInitScript(() => {
     (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
-      invoke: async (cmd: string) => (cmd === "app_update" ? "9.9.9" : Promise.reject("unknown_command")),
+      invoke: async (cmd: string) => (cmd === "app_update" ? { version: "9.9.9", kind: "link" } : Promise.reject("unknown_command")),
     };
   });
   const p = await ctx.newPage();
@@ -171,13 +171,83 @@ test("the portable app's Update available: shown when the app reports a newer ve
   await p.goto(await newBoardUrl(server, "Update"));
   await expect(p.getByTestId("board-title")).toHaveText("Update");
   await expect(p.getByTestId("app-update")).toBeVisible();
+  await expect(p.getByTestId("app-update-banner")).toHaveCount(0);
   await ctx.close();
 
-  // The installed app (it answers null) and a browser show nothing.
+  // The installed app with nothing to offer (it answers null) and a browser show nothing.
   const app = await inApp(browser);
   const q = await app.newPage();
   await q.goto(server.url);
   await expect(q.getByTestId("open-link")).toBeVisible();
   await expect(q.getByTestId("app-update")).toHaveCount(0);
   await app.close();
+});
+
+/** The installed app with an update out (issue #43): records each command; Install fails the
+ * first time, then hangs (the app restarting). */
+async function updatingApp(browser: Browser) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await ctx.addInitScript(() => {
+    const w = window as unknown as { __TAURI_INTERNALS__: unknown; __calls: string[] };
+    const calls = JSON.parse(sessionStorage.getItem("calls") ?? "[]") as string[];
+    w.__calls = calls;
+    w.__TAURI_INTERNALS__ = {
+      invoke: async (cmd: string, args?: { version?: string }) => {
+        calls.push(cmd === "app_update_install" ? `${cmd} ${args?.version}` : cmd);
+        sessionStorage.setItem("calls", JSON.stringify(calls));
+        if (cmd === "app_update") return { version: "9.9.9", kind: "install" };
+        if (cmd === "app_update_install") return calls.filter((c) => c.startsWith("app_update_install")).length === 1 ? Promise.reject("failed") : new Promise(() => {});
+        return Promise.reject("unknown_command");
+      },
+    };
+  });
+  return ctx;
+}
+
+test("the installed app's Update available: a banner with Install and Later, on the landing and boards; nothing installs without a click", async ({ browser }) => {
+  const ctx = await updatingApp(browser);
+  const p = await ctx.newPage();
+  const calls = () => p.evaluate(() => (window as unknown as { __calls: string[] }).__calls);
+  await p.goto(server.url);
+  const banner = p.getByTestId("app-update-banner");
+  await expect(banner).toContainText("Update available");
+  await expect(p.getByTestId("app-update-install")).toHaveText("Install");
+  await expect(p.getByTestId("app-update-later")).toHaveText("Later");
+  // The portable app's link is not this.
+  await expect(p.getByTestId("app-update")).toHaveCount(0);
+
+  // On a board too, out of the board's way, and still nothing installed.
+  await p.goto(await newBoardUrl(server, "Banner"));
+  await expect(p.getByTestId("board-title")).toHaveText("Banner");
+  await expect(banner).toContainText("Update available");
+  await p.waitForTimeout(500);
+  expect((await calls()).filter((c) => c.startsWith("app_update_install"))).toEqual([]);
+  const box = (await banner.boundingBox())!;
+  expect(box.height).toBeLessThan(60);
+  expect(box.width).toBeLessThan(400);
+
+  // Install (on the landing: a board's join card is a dialog, over it): the offered version; a
+  // failure says so and offers Retry, which asks again.
+  await p.goto(server.url);
+  await p.getByTestId("app-update-install").click();
+  await expect(banner).toContainText("Update failed");
+  await p.getByTestId("app-update-retry").click();
+  await expect(banner).toContainText("Installing…");
+  expect((await calls()).filter((c) => c.startsWith("app_update_install"))).toEqual(["app_update_install 9.9.9", "app_update_install 9.9.9"]);
+  await ctx.close();
+});
+
+test("the installed app's Later hides the banner for the run: another page doesn't bring it back", async ({ browser }) => {
+  const ctx = await updatingApp(browser);
+  const p = await ctx.newPage();
+  await p.goto(server.url);
+  await p.getByTestId("app-update-later").click();
+  await expect(p.getByTestId("app-update-banner")).toHaveCount(0);
+  await p.goto(await newBoardUrl(server, "Later"));
+  await expect(p.getByTestId("board-title")).toHaveText("Later");
+  await p.waitForTimeout(500);
+  await expect(p.getByTestId("app-update-banner")).toHaveCount(0);
+  const calls = await p.evaluate(() => (window as unknown as { __calls: string[] }).__calls);
+  expect(calls.filter((c) => c.startsWith("app_update_install"))).toEqual([]);
+  await ctx.close();
 });

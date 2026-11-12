@@ -1,10 +1,12 @@
-// The Windows app's bridge (desktop/README.md): the same site, in the app's window, with five
+// The Windows app's bridge (desktop/README.md): the same site, in the app's window, with seven
 // commands to the native side: list the replays folder, read one replay, preview one (read from
-// its demo here), parse one here, and change the folder (the system's folder chooser). The page passes only match ids, never paths,
+// its demo here), parse one here, change the folder (the system's folder chooser), ask whether an
+// update is out, and install it on the user's click. The page passes only match ids, never paths,
 // and the app grants the commands to this site's origin only. Feature-detected: in a browser none of this exists, and nothing changes.
 //
 // Also the download links for the app (`desktopAppLinks`), shown on Windows and desktop Linux
-// browsers only, and the portable app's update notice (`appUpdate`).
+// browsers only, and the app's update notice (`appUpdate`): the installed app's banner with
+// Install (`updatePrompt`), the portable app's link to the new zip.
 
 import { type Replay, type ReplaySource, newestFirst } from "./folder";
 
@@ -134,17 +136,88 @@ export function desktopAppLinks(o: { released?: boolean; nav?: Nav; w?: unknown 
   return os ? LINKS[os] : undefined;
 }
 
+/** A newer version of the app, and how the page offers it: `install` (the installer, the
+ * AppImage: "Update available" with Install and Later) or `link` (portable: a link to the new zip). */
+export type AppUpdate = { version: string; kind: "install" | "link" };
+
+const VERSION = /^[0-9A-Za-z.+-]{1,32}$/;
+
 /**
- * In the portable app: the newer version the update feed offers (the page shows "Update
- * available", a link straight to the new portable zip). Nothing in a browser, in the installed app (it
- * updates itself), in an app without the command, or on any failure.
+ * In the app: the newer version the update feed offers, if any (desktop/README.md, Updates).
+ * Nothing in a browser, when up to date, for a .deb (its package manager updates it), in an app
+ * without the command, or on any failure. An app before 0.2.2 answers a bare version, and only
+ * the portable one answers at all (the installed one installed by itself): that's a link.
  */
-export async function appUpdate(invoke: Invoke | undefined = bridge()): Promise<string | undefined> {
+export async function appUpdate(invoke: Invoke | undefined = bridge()): Promise<AppUpdate | undefined> {
   if (!invoke) return undefined;
   try {
     const v = await invoke("app_update");
-    return typeof v === "string" && /^[0-9A-Za-z.+-]{1,32}$/.test(v) ? v : undefined;
+    if (typeof v === "string") return VERSION.test(v) ? { version: v, kind: "link" } : undefined;
+    const o = v as Partial<AppUpdate> | null;
+    if (!o || typeof o.version !== "string" || !VERSION.test(o.version)) return undefined;
+    return o.kind === "install" || o.kind === "link" ? { version: o.version, kind: o.kind } : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** Install, clicked: the app downloads and installs `version` (the one `appUpdate` gave), then
+ * restarts, so on success this never settles. Rejects with a `DesktopError` (`failed`, `busy`,
+ * `no_update`). Only ever on the user's click. */
+export async function installUpdate(version: string, invoke: Invoke | undefined = bridge()): Promise<void> {
+  if (!invoke) throw new DesktopError("failed");
+  try {
+    await invoke("app_update_install", { version });
+  } catch (e) {
+    throw codeOf(e);
+  }
+}
+
+/** The update banner's states: nothing to show, the offer, Install under way, Install failed. */
+export type PromptState = { kind: "hidden" } | { kind: "offer" | "installing" | "failed"; version: string };
+
+/** Where Later is kept: this run's session (the window's sessionStorage, which a page load in
+ * the app keeps and quitting the app drops), by version. */
+export const LATER_KEY = "mapcro.update-later";
+type Session = Pick<Storage, "getItem" | "setItem">;
+
+const session = (): Session | undefined => {
+  try {
+    return globalThis.sessionStorage;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * The installed app's "Update available" banner (operator, 2026-11-11, issue #43): shown when the
+ * app offers Install for a newer version, unless Later was clicked for it this run. `install`
+ * asks the app to install (it restarts on success; "Update failed" with Retry otherwise), `later`
+ * hides it for this run. Nothing happens without a click: `start` only asks whether there is one.
+ */
+export function updatePrompt(set: (s: PromptState) => void, o: { invoke?: Invoke | undefined; storage?: Session | undefined } = {}) {
+  const invoke = "invoke" in o ? o.invoke : bridge();
+  const storage = "storage" in o ? o.storage : session();
+  let version: string | undefined;
+  return {
+    async start() {
+      const u = await appUpdate(invoke);
+      if (!u || u.kind !== "install" || storage?.getItem(LATER_KEY) === u.version) return;
+      version = u.version;
+      set({ kind: "offer", version });
+    },
+    async install() {
+      if (!version) return;
+      set({ kind: "installing", version });
+      try {
+        await installUpdate(version, invoke);
+      } catch {
+        set({ kind: "failed", version });
+      }
+    },
+    later() {
+      if (version) storage?.setItem(LATER_KEY, version);
+      set({ kind: "hidden" });
+    },
+  };
 }

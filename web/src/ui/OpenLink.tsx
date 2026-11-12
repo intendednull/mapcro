@@ -1,9 +1,10 @@
 // Board links and the app (core/applink.ts): "Open in app" on a board page in a browser, and in
 // the app "Open link" (on the landing, and Ctrl+L anywhere) for a pasted share link. Also the
-// portable app's "Update available" (desktop/README.md, Installer or portable).
+// app's "Update available" (desktop/README.md, Updates): the installed app's banner with Install
+// and Later, the portable app's link to the new zip.
 
-import { Show, createResource, createSignal, onCleanup, onMount } from "solid-js";
-import { WINDOWS_APP_PORTABLE_URL, appUpdate, bridge, desktopAppLinks } from "../player/desktop";
+import { Match, Show, Switch, createResource, createSignal, onCleanup, onMount } from "solid-js";
+import { type PromptState, WINDOWS_APP_PORTABLE_URL, appUpdate, bridge, desktopAppLinks, updatePrompt } from "../player/desktop";
 import { type BoardLink, openBoard, openInAppHref, parseBoardLink } from "../core/applink";
 import { ModalScrim } from "./ModalScrim";
 import { dialogKeys } from "./modal";
@@ -113,13 +114,53 @@ export function OpenLinkKeys() {
 /** The portable app's "Update available": the new portable zip itself (an off-site link, so the
  * app hands it to the system browser, which downloads it). Portable is Windows only. */
 export function UpdateLink(p: { class?: string; sep?: string }) {
-  const [version] = createResource(() => appUpdate());
+  const [update] = createResource(() => appUpdate());
   return (
-    <Show when={version()}>
+    <Show when={update()?.kind === "link"}>
       {p.sep}
       <a class={p.class ?? "btn ghost"} href={WINDOWS_APP_PORTABLE_URL} download="" data-testid="app-update">
         Update available
       </a>
+    </Show>
+  );
+}
+
+/** The installed app's "Update available" (issue #43): a small banner in the corner, over the
+ * landing and boards alike, with Install and Later. Nothing installs until Install is clicked;
+ * then "Installing…" until the app restarts, or "Update failed" with Retry. Later hides it for
+ * this run. In a browser, the portable app or when up to date, nothing. */
+export function UpdateBanner() {
+  const [state, setState] = createSignal<PromptState>({ kind: "hidden" });
+  const prompt = updatePrompt(setState);
+  onMount(() => void prompt.start());
+  return (
+    <Show when={state().kind !== "hidden"}>
+      <div class="app-update" role="status" data-testid="app-update-banner" data-state={state().kind}>
+        <Switch>
+          <Match when={state().kind === "offer"}>
+            <span>Update available</span>
+            <button class="btn primary small" data-testid="app-update-install" onClick={() => void prompt.install()}>
+              Install
+            </button>
+            <button class="btn ghost small" data-testid="app-update-later" onClick={() => prompt.later()}>
+              Later
+            </button>
+          </Match>
+          <Match when={state().kind === "installing"}>
+            <span>Installing…</span>
+            <span class="muted">App restarts</span>
+          </Match>
+          <Match when={state().kind === "failed"}>
+            <span>Update failed</span>
+            <button class="btn small" data-testid="app-update-retry" onClick={() => void prompt.install()}>
+              Retry
+            </button>
+            <button class="btn ghost small" data-testid="app-update-later" onClick={() => prompt.later()}>
+              Later
+            </button>
+          </Match>
+        </Switch>
+      </div>
     </Show>
   );
 }

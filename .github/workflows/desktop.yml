@@ -3,7 +3,7 @@
 # Every push to main and every PR that touches the app, the web client it shows, the parser it
 # runs or this file: a debug build of each, installed as a user would (NSIS `/S`; the .deb), then
 # a smoke test of the installed app over WebDriver (desktop/smoke/smoke.mjs: the page loads, the
-# IPC bridge answers, no plugin is the page's, a fake Steam install's replays are found, and a
+# IPC bridge answers, an offered update installs nothing without a click, no plugin is the page's, a fake Steam install's replays are found, and a
 # mapcro:// board link reaches the window, from a second launch and at start). The installer's
 # and the .deb's mapcro:// registration is checked after each install.
 # A tag `desktop-v<version>` also builds the signed release bundles into a draft GitHub
@@ -196,7 +196,7 @@ jobs:
           grep -q '^MimeType=.*x-scheme-handler/mapcro' "$desktop"
           grep -q '^Exec=.*%u' "$desktop"
       - name: Smoke test of the installed app (tauri-driver + WebKitWebDriver, under Xvfb; fake Steam via XDG_DATA_HOME; a D-Bus session for the mapcro:// hand-off)
-        run: xvfb-run -a dbus-run-session -- node desktop/smoke/smoke.mjs "${{ steps.install.outputs.bin }}" --fake-steam
+        run: xvfb-run -a dbus-run-session -- node desktop/smoke/smoke.mjs "${{ steps.install.outputs.bin }}" --fake-steam --deb
 
   release-windows:
     if: startsWith(github.ref, 'refs/tags/desktop-v')
