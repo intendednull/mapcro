@@ -149,6 +149,17 @@
 .pl-rejuv-mark { fill: #FFEFD7; opacity: 0.6; }
 .pl-rejuv-track { fill: none; stroke: #FFEFD7; stroke-opacity: 0.15; stroke-width: 1.6; }
 .pl-rejuv-ring { fill: none; stroke: #FFD700; stroke-width: 1.6; transition: stroke-dasharray var(--value-ease-ms) var(--ease-out-expo); }
+/* No Rejuvenator held, the Mid-Boss dead (#RejuvenatorTimer.midboss_cooldown): .statusEffectImage
+   saturation 0, opacity 0.3; #StatusEffectsBorder 0.15 offWhite; .midbossTimerLabel under it,
+   align center bottom, margin-bottom -6px (of the 130 px column: 120..136), 10 px bold offWhite at
+   0.3, an offBlack shadow. */
+.pl-respawn-timer .pl-rejuv-mark { filter: grayscale(1); opacity: 0.3; }
+.pl-respawn-timer .pl-rejuv-track { stroke-opacity: 0.15; }
+.pl-respawn-label {
+  position: absolute; left: 50%; top: 100%; transform: translateX(-50%); padding: calc(2 * var(--u));
+  font: 700 max(7px, calc(10 * var(--u))) / 1 "VALVEOracle", var(--ui); color: #FFEFD7; opacity: 0.3;
+  text-shadow: 0 0 calc(3 * var(--u)) #10130D; white-space: nowrap; pointer-events: none;
+}
 
 /* Compressed (phone): the same bar, scaled down, with legibility floors on the text */
 .tb-host.compact .tb-souls-value { font-size: max(calc(15 * var(--u)), 8.5px); }

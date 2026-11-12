@@ -955,17 +955,11 @@ almost every death seen, the FOW position matching the true one while visible. T
 questions stand: hero 81's death while hidden for 2 s (stealth?), the spectator team's list, and
 `m_nOwnerOnlyEntIndex`.
 
-## The HUD's mid-boss timer circle and per-player Rejuvenator marks (2026-11-09)
+## The HUD's per-player Rejuvenator marks (2026-11-09)
 
-Noticed by rejuv-icons while reading `citadel_hud_top_bar.vcss` for the Rejuvenator marks. Two
-states the game draws that Player doesn't:
-- `#RejuvenatorTimer.midboss_cooldown`: when no team holds one, the same centre circle shows
-  greyed (`saturation: 0`, opacity 0.3) with `.midbossTimerLabel` (`{s:midboss_timer}`, 10 px,
-  under it), the mid boss's respawn countdown. The timeline has the respawn (`camps` cleared
-  pairs). `.midboss_available` hides it. Its hover is `citadel_rejuvenator_hud_hint` ("Time
-  remaining on active rejuvenators, or MidBoss respawn if no rejuvenators are active."), so with
-  this state drawn, the timer's hover (feedback #44, "… Rejuvenator ends in m:ss") would say the
-  respawn there too (midboss-hover, 2026-11-11).
+Noticed by rejuv-icons while reading `citadel_hud_top_bar.vcss` for the Rejuvenator marks. A state
+the game draws that Player doesn't (its mid-boss timer circle, `.midboss_cooldown`, is drawn since
+midboss-hover, 2026-11-11):
 - Per player: `.HasRejuvenator .SoulsValueContainer { border-bottom: 3px solid gold }` and the
   `.Rejuvenator` / `.RebirthIcon` / `.RebirthAndRejuvenator` icons on a player's card
   (`citadel_hud_top_bar_player.vxml`). Who carries a pending revive isn't in the timeline yet.

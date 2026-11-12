@@ -55,6 +55,23 @@ export function rejuvTip(r: RejuvNow, t: number): string {
   return `${teamName(r.team)} Rejuvenator ends ${inAt(r.ends, t)}`;
 }
 
+/**
+ * What the top bar's centre timer draws at t, as the game's #RejuvenatorTimer does
+ * (citadel_hud_top_bar.vcss): a held Rejuvenator's timer (`.has_rejuv`, with revives left), else
+ * the Mid-Boss's respawn while it's dead (`.midboss_cooldown`, the circle greyed with the time
+ * under it), else nothing (`.midboss_available` collapses it). `boss` is the mid boss's camp at t
+ * (the timeline's cleared pairs, as its map hover's "Respawns in").
+ */
+export type CentreTimer = { kind: "rejuv" } | { kind: "respawn"; at: number } | { kind: "none" };
+export function centreTimer(held: RejuvNow[], boss: CampAt | undefined): CentreTimer {
+  if (held.some((r) => r.left > 0)) return { kind: "rejuv" };
+  if (boss?.state === "cleared") return { kind: "respawn", at: boss.at };
+  return { kind: "none" };
+}
+
+/** The greyed centre timer's hover: "Mid-Boss respawns in 4:40". */
+export const respawnTip = (at: number, t: number) => `Mid-Boss respawns ${inAt(at, t)}`;
+
 /** The Soul Urn itself at t, where it lies: when it walks back, once it has settled. */
 export function urnItemTip(u: UrnNow, t: number): string {
   if (u.state !== "ground" || u.returns == null) return "Urn";
