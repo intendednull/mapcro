@@ -159,7 +159,8 @@ test("from the board: validation, send, the issue's link; Escape and Tab stay in
 
 test("from the landing; a rate limit says when to try again, and retry keeps the text", async ({ page }) => {
   await landing(page, on);
-  await expect(page.locator("footer.legal")).toHaveText("MIT · Not affiliated with Valve · Feedback");
+  // The project's "Desktop Chrome" is a Windows browser, so the app's downloads show (app-download.spec.ts).
+  await expect(page.locator("footer.legal")).toHaveText("MIT · Not affiliated with Valve · GitHub · Get the Windows app Portable · Feedback");
   await page.screenshot({ path: `${SHOTS}/landing.png` });
   await page.getByTestId("feedback-open").click();
   await expect(page.getByTestId("feedback-dialog")).toBeVisible();
@@ -194,7 +195,7 @@ test("hidden when the server has it off", async ({ browser, page }) => {
   await landing(page, off);
   await expect(page.getByTestId("new-board")).toBeVisible();
   await expect(page.getByTestId("feedback-open")).toHaveCount(0);
-  await expect(page.locator("footer.legal")).toHaveText("MIT · Not affiliated with Valve");
+  await expect(page.locator("footer.legal")).toHaveText("MIT · Not affiliated with Valve · GitHub · Get the Windows app Portable");
 
   const answered = (p: Page) => p.waitForResponse((r) => r.url().endsWith("/api/feedback"));
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
