@@ -102,6 +102,19 @@ perf *args: wasm
     cargo build -q --release -p mapcro-server
     cd web && npx vite build --logLevel warn && node perf/bundle.mjs && node perf/.build/run.js {{args}}
 
+# Player's input latency and frame cost on a real replay (feedback #39; web/perf/player/): Tab to
+# painted, hover to the game tooltip painted, a scrub step, and while playing fps, main-thread busy
+# %, long tasks and a Chromium trace (Layerize, PrePaint, HitTest, Paint, style, layout totals;
+# invalidations by kind), paused and playing, at 1x and 4x CPU throttle. Reads the dev stack's
+# cached timeline (~/.local/share/mapcro/data/replays/<id>-cdn.json; fetch it on `just dev` first),
+# else measures the reference replay 129738985. Prints numbers only, never names; summary.md and
+# raw.json go to /tmp/mapcro-perf/out/player-<time> (PERF_OUT to choose; PERF_KEEP_TRACE=1 keeps
+# the raw traces there). Keep the box's load low: each row records it.
+# `just perf-player`, `just perf-player 129738985 1735`, `just perf-player 134623152 300,1735 1,4`.
+perf-player match="134623152" at="300,1735" rates="1,4": wasm
+    cargo build -q -p mapcro-server
+    cd web && npx vite build --logLevel warn && PERF_MATCH={{match}} PERF_AT={{at}} PERF_RATES={{rates}} npx playwright test -c perf/player/playwright.config.ts
+
 # Metrics, read-only (docs/specs/observability.md §4): `just stats summary`, `just stats failures
 # --since 7d`, `just stats series op_ack_ms --since 6h --json` query production on `web` over the
 # deploy SSH, as the mapcro user; `just stats local summary` queries the dev database
