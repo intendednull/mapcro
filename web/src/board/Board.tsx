@@ -382,7 +382,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const heroPanel = (slot: string) => player.heroPanels().find((h) => h.slot === slot);
   const heroZ = (slot: string) => 8 + Math.max(0, heroesShown().findIndex((h) => h.slot === slot));
   const openHero = (team: string, slot: number) => {
-    const pane = (mapEl && paneOf(mapEl, mapEl.parentElement?.querySelectorAll(".map-controls > *") ?? [])) || { w: 1, h: 1, top: 0, bottom: 0 };
+    // The pane the panels are placed in: the board area on a desktop (#40), the map on a phone.
+    const el = boardEl?.isConnected ? boardEl : mapEl;
+    const pane = (el && paneOf(el, el.parentElement?.querySelectorAll(".map-controls > *") ?? [])) || { w: 1, h: 1, top: 0, bottom: 0 };
     player.openHeroPanel(slotKey(team, slot), opening(player.heroPanels().map((h) => h.at), pane));
   };
   const hasRecap = (slot: string, t: number) => !!recapOf(player.tl()?.players.find((q) => slotKey(q.team, q.slot) === slot), t);
@@ -803,8 +805,21 @@ export function Board(p: { board: string; token: string; art: Art }) {
 
   // The map's width on screen, so comments can be drawn at screen size.
   const [mapPx, setMapPx] = createSignal(500);
-  /** The board pane: the panels on it are placed relative to it. */
+  /** The map pane (on a phone, the panels are placed relative to it). */
   let mapEl: HTMLDivElement | undefined;
+  /** The board area round the map on a desktop: the panels are placed relative to it (#40). */
+  let boardEl: HTMLDivElement | undefined;
+  const measureBoard = (el: HTMLDivElement) => {
+    boardEl = el;
+    // A press on a panel leaves the focused control, as a press on the map does (the panels
+    // were on the map before #40).
+    const onPress = (e: PointerEvent) => {
+      const panel = (e.target as Element | null)?.closest?.(".hero-panel, .skull-recap");
+      if (panel && !panel.contains(document.activeElement)) leaveControl();
+    };
+    el.addEventListener("pointerdown", onPress, true);
+    onCleanup(() => el.removeEventListener("pointerdown", onPress, true));
+  };
   const measureMap = (el: HTMLDivElement) => {
     mapEl = el;
     // A press on the map leaves the focused control too (operator, 2026-11-08); capture, so it
@@ -876,6 +891,39 @@ export function Board(p: { board: string; token: string; art: Art }) {
               toggleHeals={() => player.setShowHeals(!heals())}
               toggleCrates={() => player.setShowCrates(!crates())}
               flip={flipSide} />);
+  /** The death recap and the hero panels (#35, #37): placed relative to the pane they are in
+   * (panelPlace.ts `movable`, their offset parent). On a desktop that is the board area round
+   * the map, so they move anywhere in it (#40); on a phone, the map pane (it has no room
+   * beside it). */
+  const panelsView = () => (
+          <>
+            <Show when={inPlayer() && player.tl() && skullRecap()}>
+              {(d) => <SkullRecap death={d()} timeline={player.tl()!} vision={player.vision()} art={p.art} name={player.playerName} onSeek={seekMatch} onClose={() => setSkullRecap(undefined)} place={player.skullPlace()} onPlace={player.setSkullPlace} escape={heroesShown().length === 0} />}
+            </Show>
+            <Show when={inPlayer() && player.tl()}>
+              <For each={heroSlots()}>
+                {(slot) => (
+                  <HeroCard
+                    open={heroCardSlot(slot)}
+                    timeline={player.tl()!}
+                    t={player.t()}
+                    vision={player.vision()}
+                    art={p.art}
+                    name={player.playerName}
+                    onSeek={seekMatch}
+                    onClose={() => player.closeHeroPanel(slot)}
+                    place={heroPanel(slot)?.at}
+                    home={HERO_HOME}
+                    onPlace={(at) => player.placeHeroPanel(slot, at)}
+                    onPress={() => player.raiseHeroPanel(slot)}
+                    z={heroZ(slot)}
+                    front={heroesShown().at(-1)?.slot === slot}
+                  />
+                )}
+              </For>
+            </Show>
+          </>
+  );
   const mapBox = (phone: boolean) => (
           <div
             ref={measureMap}
@@ -962,31 +1010,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               </Show>
               <HoverLabels k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
             </MapView>
-            <Show when={inPlayer() && player.tl() && skullRecap()}>
-              {(d) => <SkullRecap death={d()} timeline={player.tl()!} vision={player.vision()} art={p.art} name={player.playerName} onSeek={seekMatch} onClose={() => setSkullRecap(undefined)} place={player.skullPlace()} onPlace={player.setSkullPlace} escape={heroesShown().length === 0} />}
-            </Show>
-            <Show when={inPlayer() && player.tl()}>
-              <For each={heroSlots()}>
-                {(slot) => (
-                  <HeroCard
-                    open={heroCardSlot(slot)}
-                    timeline={player.tl()!}
-                    t={player.t()}
-                    vision={player.vision()}
-                    art={p.art}
-                    name={player.playerName}
-                    onSeek={seekMatch}
-                    onClose={() => player.closeHeroPanel(slot)}
-                    place={heroPanel(slot)?.at}
-                    home={HERO_HOME}
-                    onPlace={(at) => player.placeHeroPanel(slot, at)}
-                    onPress={() => player.raiseHeroPanel(slot)}
-                    z={heroZ(slot)}
-                    front={heroesShown().at(-1)?.slot === slot}
-                  />
-                )}
-              </For>
-            </Show>
+            {phone && panelsView()}
           </div>
   );
   const toastView = () => (
@@ -1143,9 +1167,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
             <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
           </Show>
           {/* The map takes all the room left, as the largest square that fits. */}
-          <div class="mapfit">
+          <div class="mapfit" ref={measureBoard} data-testid="board-area">
             {mapBox(false)}
             {mapControls()}
+            {panelsView()}
             <Show when={joined()}>
               <ReplayPrompt host={player} art={p.art} />
             </Show>

@@ -278,10 +278,10 @@ pub struct Playback {
     pub hero_panels: Option<Vec<HeroPanel>>,
 }
 
-/// Where a panel sits in the board pane (the map's box), so a screen of another size keeps the
-/// layout: from the pane's nearer edge on each axis, to the panel's edge on that side, in
-/// `PLACE_SCALE`ths of the pane's width (`x`) and height (`y`). Each screen clamps it so it
-/// stays in the pane and off its own controls.
+/// Where a panel sits in the board pane (the board area round the map, #40; on a phone the
+/// map's box), so a screen of another size keeps the layout: from the pane's nearer edge on each
+/// axis, to the panel's edge on that side, in `PLACE_SCALE`ths of the pane's width (`x`) and
+/// height (`y`). Each screen clamps it so it stays in the pane and off its own controls.
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PanelPlace {

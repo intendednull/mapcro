@@ -1120,7 +1120,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
 - **Moving panels** (#35, #37; `player/panelPlace.ts`): the death recap on the map and each hero
   panel move by a drag of their top bar, with a mouse, pen or finger (pointer events; the bar
   takes the touch, so it never scrolls the page). A press on a hero panel brings it to the front.
-  Where a panel sits is a place relative to the board pane: on each axis, the distance from the
+  A panel moves anywhere in the board area (#40): on a desktop, the whole space between the top
+  bar and the dock, round the map as well as over it; on a phone, the map pane. Where a panel
+  sits is a place relative to that pane: on each axis, the distance from the
   pane's nearer edge to the panel's edge on that side, as a share of the pane's width or height.
   Each screen draws it from that place and clamps it into its own pane, clear of the pane's own
   controls (the Map layers and Vision row: a band at the pane's top or bottom, whichever the
@@ -1556,7 +1558,10 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
     them). A server reading a newer client's presence drops or clips what is past those bounds (a
     13th panel, a slot past 15, a hero twice, a place past 10,000) and relays the rest, rather
     than refusing the whole presence. Every hero's panel, moved, is under 1 KiB of a frame. A
-    follower draws them at the presenter's places in its own pane, clamped there; a slot the
+    follower draws them at the presenter's places in its own pane, clamped there (the board
+    area since #40; the place's shape is unchanged, so a build from before it reads a newer
+    presenter's place as the same share of its map pane, and the reverse: another pane size,
+    clamped as ever, nothing refused); a slot the
     match has no player in has no panel (and takes no Escape). They are in the panels group, so
     a follower's own open, close or move is its own until the presenter's next panel change, and
     doesn't stop following. What that next change does depends on what changed (lead
