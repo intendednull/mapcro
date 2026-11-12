@@ -278,6 +278,12 @@ function AbilityTip(p: { record: BuildRecord; art: Art; tips: Tooltips; ctx?: Ti
   );
 }
 
+/** A plain tag on hover (spec §4b), shown at once like the game's tooltips, where the browser's
+ * own `title` waits half a second (#41). */
+export function TagTip(p: { text: string }) {
+  return <span class="gt-tag" data-testid="tag-tip">{p.text}</span>;
+}
+
 // ---- hover: one tooltip at a time, beside its anchor ----
 
 const [openId, setOpenId] = createSignal<symbol | null>(null);
@@ -297,36 +303,41 @@ export function Hover(p: { tip: () => JSX.Element | false | null | undefined; ch
   const me = Symbol("tip");
   let anchor: HTMLSpanElement | undefined;
   let float: HTMLDivElement | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
   const open = () => openId() === me;
   const [at, setAt] = createSignal<{ left: number; top: number } | null>(null);
-  const show = (delay: number) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => { setAt(null); openTip(me); }, delay);
+  // At once, as the game's do (feedback #41: an 80 ms wait read as lag). Moving across a row of
+  // items needs no guard: leaving one closes it in the same event that opens the next.
+  const show = () => {
+    if (open()) return;
+    setAt(null);
+    openTip(me);
   };
   const hide = () => {
-    clearTimeout(timer);
     if (open()) setOpenId(null);
   };
-  onCleanup(() => { clearTimeout(timer); if (open()) setOpenId(null); });
-  // Placed once it's drawn: right of the anchor if it fits, else left; kept on screen.
+  onCleanup(() => { if (open()) setOpenId(null); });
+  // Placed as soon as it's drawn (the effect runs after it renders), and again a frame later
+  // for anything that changed its size since: right of the anchor if it fits, else left; kept
+  // on screen.
+  const place = () => {
+    const el = (anchor?.firstElementChild as HTMLElement | null) ?? anchor;
+    if (!el || !float) return;
+    const a = el.getBoundingClientRect();
+    const f = float.getBoundingClientRect();
+    const gap = 8;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let left = a.right + gap;
+    if (left + f.width > vw - gap) left = a.left - gap - f.width;
+    if (left < gap) left = Math.max(gap, Math.min(vw - f.width - gap, a.left));
+    let top = a.top;
+    if (left === a.left || (left < a.right && left + f.width > a.left)) top = a.bottom + gap;
+    top = Math.max(gap, Math.min(top, vh - f.height - gap));
+    setAt({ left, top });
+  };
   createEffect(() => {
     if (!open()) return;
-    const frame = requestAnimationFrame(() => {
-      const el = (anchor?.firstElementChild as HTMLElement | null) ?? anchor;
-      if (!el || !float) return;
-      const a = el.getBoundingClientRect();
-      const f = float.getBoundingClientRect();
-      const gap = 8;
-      const vw = window.innerWidth, vh = window.innerHeight;
-      let left = a.right + gap;
-      if (left + f.width > vw - gap) left = a.left - gap - f.width;
-      if (left < gap) left = Math.max(gap, Math.min(vw - f.width - gap, a.left));
-      let top = a.top;
-      if (left === a.left || (left < a.right && left + f.width > a.left)) top = a.bottom + gap;
-      top = Math.max(gap, Math.min(top, vh - f.height - gap));
-      setAt({ left, top });
-    });
+    place();
+    const frame = requestAnimationFrame(place);
     onCleanup(() => cancelAnimationFrame(frame));
   });
   createEffect(() => {
@@ -349,10 +360,10 @@ export function Hover(p: { tip: () => JSX.Element | false | null | undefined; ch
       ref={anchor}
       class="gt-anchor"
       data-testid={p.testid}
-      onPointerEnter={(e) => e.pointerType !== "touch" && show(80)}
+      onPointerEnter={(e) => e.pointerType !== "touch" && show()}
       onPointerLeave={(e) => e.pointerType !== "touch" && hide()}
-      onPointerDown={(e) => { if (e.pointerType === "touch") open() ? hide() : show(0); }}
-      onFocusIn={() => show(0)}
+      onPointerDown={(e) => { if (e.pointerType === "touch") open() ? hide() : show(); }}
+      onFocusIn={() => show()}
       onFocusOut={hide}
     >
       {p.children}

@@ -15,6 +15,7 @@ import { slotKey } from "../match/save";
 import { ladderKeyFor, loadStatTable, tableKeyFor } from "../match/stats";
 import type { Timeline } from "../match/timeline";
 import { BuildColumn } from "./BuildColumn";
+import { Hover, TagTip } from "./GameTooltip";
 import { type Place, type Spot, movable } from "./panelPlace";
 import { type Vision, hasVision, seenAt } from "./vision";
 
@@ -76,7 +77,7 @@ export function HeroCard(p: {
             <Show when={hero()?.portrait}>{(src) => <img src={src()} alt="" />}</Show>
             {/* The column below names the player and the hero. */}
             <span />
-            <button type="button" class="btn small" data-testid="hero-card-close" aria-label="Close" title="Close (Esc)" onClick={() => p.onClose()}>×</button>
+            <Hover tip={() => <TagTip text="Close (Esc)" />}><button type="button" class="btn small" data-testid="hero-card-close" aria-label="Close" onClick={() => p.onClose()}>×</button></Hover>
           </div>
           <BuildColumn limited={limited()} player={pl()} timeline={p.timeline} t={p.t} art={p.art} hero={hero()} name={name()} id={`hero-card-${pl().team}-${pl().slot}`} stats={stats.latest} ladder={ladder.latest} onSeek={p.onSeek} />
         </section>

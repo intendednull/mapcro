@@ -16,6 +16,9 @@
   filter: drop-shadow(0 0 calc(10px * var(--gt)) #000);
 }
 
+/* A plain tag (TagTip): the scrubber's tick tag's look (app.css .pl-tick-tag). */
+.gt-tag { display: block; padding: 5px 11px; border-radius: 7px; background: #0b1714e6; border: 1px solid #ffffff33; color: #fff; font: 600 15px / 1.2 var(--ui); white-space: nowrap; box-shadow: 0 4px 14px #0008; }
+
 /* ---- items: #ModTooltipContainer ---- */
 .gt { width: calc(450px * var(--gt)); box-sizing: border-box; line-height: 1.25; }
 .gt-item {
