@@ -123,7 +123,12 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   `citadel_attributes`, `citadel_mods`, `citadel_main`. The VPK has only a stub `items_english.txt`.
   The rift's states are in `citadel_main` (`Citadel_HUD_Koth*`): "Rift Secured!", "Rift Lost",
   "Rift Faded Away..." (`KothTimeRanOut`, the give-up), "Rift Has Faded..." (`KothExpired`); no
-  "stalemate" anywhere in the five files (checked 2026-11-11, feedback #13).
+  "stalemate" anywhere in the five files (checked 2026-11-11, feedback #13). The top bar's
+  `#RejuvenatorTimer` hover (`citadel_hud_top_bar.vxml` `onmouseover`) is `citadel_main`
+  `citadel_rejuvenator_hud_hint`: "Time remaining on active rejuvenators, or MidBoss respawn if
+  no rejuvenators are active." The pack carries the layout, not the string. The objective is
+  "Mid-Boss" (`Objective_MidBoss`), the item "Rejuvenator" (`Item_Rejuvenator`); a hero's
+  respawn is "Respawn in:" (`Citadel_Hud_RespawnIn`). Checked 2026-11-11, feedback #44.
 - **Map** (`entities.rs`): `maps/dl_midtown/entities/default_ents.vents_c` → `entities[]` with
   semantic keys, camp `tier`, teleporter `exit`; minimap layers `minimap_midtown_*_psd`.
 - **HUD** (`hud.rs`, `topbar.rs`, `panorama.rs`): panorama styles/layouts → `hud_sources[]`.

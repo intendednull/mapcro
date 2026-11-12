@@ -936,8 +936,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
     The wave handle says "Wave", below any marker under it.
   - **Timers** (replay tier), all from the replay's own times (exploration round 7, timers
     audit):
-    - camps and the mid boss (down): "Respawns in m:ss" / "Spawns in m:ss" (above); the mid boss adds
-      a held Rejuvenator, "Archmother Rejuvenator: 2 revives, ends in 1:40", joined by " · ";
+    - camps and the mid boss (down): "Respawns in m:ss" / "Spawns in m:ss" (above), the mid boss's
+      alone: a held Rejuvenator's time is its top-bar timer's hover (below; feedback #44);
     - **rifts**: "Rift opens in …" until its cash-in opens (`live_s`,
       `m_timeKothCashInStarted`; the spawner's announcement comes 80 s earlier and the label
       already counts to the opening), "Rift opens at the other site in …"; open, "Fades in
@@ -951,10 +951,13 @@ makes a board with that match attached and lands in Player; **New board** is tod
       landed or been dropped (misc.vdata walk-back wait, 180 s; on 129738985 the 25:00 urn
       landed at 25:12.5 and set off at 28:13), then "Urn returning"; falling, just "Urn".
   - The API summary has no rift, buff, camp or urn times, so its markers say nothing.
-- **The Rejuvenator on the top bar** (replay tier, format 3): under the holding team's souls,
-  where the game's `#RejuvenatorCharges` sits, a `.GameClock`-style chip with the pack's
-  `rejuv_crystal` (minimap icon; our own crystal without a pack), the revives left ("×2") and
-  the time to its end, both eased (`easedNumber`), underlined in the team's colour.
+- **The Rejuvenator on the top bar** (replay tier, format 3): as the game's `#RejuvenatorCharges`
+  draws it, the holding team's marks under its souls (`team_rejuv_N`, one image per revive
+  left) and, at the centre, its timer: the winged mark on a dark disc, ringed by an arc that
+  drains over its 180 s. The timer has no text; hovering it shows its time left at once, as a
+  tag, "Archmother Rejuvenator ends in 1:40" (feedback #44; the game's own hover there,
+  citadel_main `citadel_rejuvenator_hud_hint`, is an explaining sentence, not a time). Both
+  holding one, the two timers sit side by side, each with its own hover.
   The All builds button (Hold Tab) sits under the Rejuvenator's column, never beside it, so the
   two don't meet at any bar width, phone included (feedback #22).
 - **Rift capture rings** (replay tier, format 3, `player/Rift.tsx`): around the open rift, an

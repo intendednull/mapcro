@@ -922,18 +922,20 @@ states the game draws that Player doesn't:
 - `#RejuvenatorTimer.midboss_cooldown`: when no team holds one, the same centre circle shows
   greyed (`saturation: 0`, opacity 0.3) with `.midbossTimerLabel` (`{s:midboss_timer}`, 10 px,
   under it), the mid boss's respawn countdown. The timeline has the respawn (`camps` cleared
-  pairs). `.midboss_available` hides it.
+  pairs). `.midboss_available` hides it. Its hover is `citadel_rejuvenator_hud_hint` ("Time
+  remaining on active rejuvenators, or MidBoss respawn if no rejuvenators are active."), so with
+  this state drawn, the timer's hover (feedback #44, "… Rejuvenator ends in m:ss") would say the
+  respawn there too (midboss-hover, 2026-11-11).
 - Per player: `.HasRejuvenator .SoulsValueContainer { border-bottom: 3px solid gold }` and the
   `.Rejuvenator` / `.RebirthIcon` / `.RebirthAndRejuvenator` icons on a player's card
   (`citadel_hud_top_bar_player.vxml`). Who carries a pending revive isn't in the timeline yet.
 
-## "0 revives" in the mid boss's label (2026-11-09)
+## "Mid boss" is "Mid-Boss" in the game (2026-11-11)
 
-`player/Camps.tsx` `rejuvLine` says "Archmother Rejuvenator: 0 revives, ends in …" if a
-timeline's `left` reaches 0 before `ends_s`. The top bar drops its marks and timer then
-(PlayerTopBar `RejuvTimer`), so the two disagree. 129738985 never reaches 0 early (both expire
-at 180 s with 1 left). Only seen on a synthetic timeline. Whether the game ends the buff at 0 is
-unconfirmed.
+Found by midboss-hover (#44): the mid boss's health label says "Mid boss 45%"
+(`player/Camps.tsx` `HEALTH_NAME`), the game's objective name is "Mid-Boss" (citadel_main
+`Objective_MidBoss`). Other labels and events say "mid boss" too. A call for the lead (label
+rules: the game's words).
 
 ## Hover-label token parts are unused now (2026-11-09)
 
