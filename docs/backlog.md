@@ -937,6 +937,14 @@ Found by midboss-hover (#44): the mid boss's health label says "Mid boss 45%"
 `Objective_MidBoss`). Other labels and events say "mid boss" too. A call for the lead (label
 rules: the game's words).
 
+## laser-gestures "two trails" flakes under load (2026-11-11)
+
+Seen by midboss-hover: `e2e/laser-gestures.spec.ts:69` ("two laser gestures are two trails …")
+failed once in the full `just e2e --workers 2` and once in 4 runs alone (`--repeat-each 3`), at
+different assertions each time (a `toBeGreaterThan` on the trail, then a `toHaveCount`), with the
+1-min load at 13–17 from other jobs. It passed in the lead's gate. The trail fades by age on the
+clock (#42), so the spec's timing likely depends on load. That branch changed nothing in the laser.
+
 ## Hover-label token parts are unused now (2026-11-09)
 
 Left by portrait-menu: with the tokens' eye and skull buttons gone (kill and vision moved to the
