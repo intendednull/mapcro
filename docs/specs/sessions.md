@@ -1,5 +1,5 @@
 **Date:** 2026-11-11
-**Status:** draft for the operator's review. Nothing built.
+**Status:** draft for the operator's review. Phase 0 built (2026-11-11, §4.1 and §10).
 **Supersedes:** the 2026-11-10 sketch "Several replays on one board, as game tabs" (docs/backlog.md,
 mockup `/home/intendednull/concierge/artifacts/mapcro-multi-replay/index.html`). The tab strip
 and the reasons stay. The model changes: there is still one board per game, not several games
@@ -326,10 +326,10 @@ memory survives into another board's mount unless it is either:
   id unmounts the whole subtree and mounts a fresh one. The Solid stores (`createBoardState`),
   the Player host (`createPlayerHost`), the view-state store, timers, listeners and dialogs are
   all new.
-- **Prerequisite: Board unmounts cleanly.** Today it doesn't need to (`core/nav.ts`: "the board
-  isn't built to be unmounted by history"). Phase 0 makes it so and proves it: mount A, unmount,
-  mount B in one page, then assert that A's socket is closed (or parked, §5), that no interval
-  or rAF of A's runs, and that module state is at its defaults.
+- **Prerequisite: Board unmounts cleanly.** Done in phase 0 (2026-11-11, below and §10):
+  `web/e2e/board-unmount.spec.ts` mounts A, B and A again in one page and asserts that A's
+  socket is closed (the server drops it), that nothing of A's runs, and that module state is at
+  its defaults.
 - **Module state is the leak to fear.** The scan on 2026-11-11 found module-level state that
   outlives a Board. Each needs a policy:
 
@@ -346,6 +346,46 @@ memory survives into another board's mount unless it is either:
   any that isn't in `web/test/module-state-ledger.ts` with a class (`reset-on-unmount`,
   `keyed-by-board`, `immutable-cache`, `device`) and a reason. The isolation test (§9.1)
   checks the `reset-on-unmount` ones.
+
+  **Built in phase 0.** The guard is `web/test/module-state.test.ts`. It scans every module
+  under `web/src` except `gen/` and `wasm/`, for a top-level `let`/`var`, a destructured
+  `createSignal`/`createStore`/`createResource`, and a `new Map`/`Set`/`WeakMap`/`WeakSet`, an
+  empty array or object, or a store or root. It also fails on any top-level reactive call it
+  can't name. Three classes were added to the four above. `owner-cleared`: what sets it clears
+  it as it goes (`HoverLabel` `resolvers`, `ui/modal.ts` `open`/`made`, `board/fade.ts`).
+  `page`: page-wide on purpose (`core/seat.ts` `page`, `core/nav.ts` `href`, `core/feedback.ts`,
+  `MapView.tsx` `styleEl` and its stencil id counter, `HoverLabel` `version`). `constant`:
+  `TEXT_TYPES`, `MODE_CODES`. The `reset-on-unmount` ones (the hover label's `token`, `marker`,
+  `unit`, `handle` and `remote`, and `GameTooltip` `openId`) are reset by
+  `web/src/board/reset.ts`, which Board's cleanup calls. The same test sets each one away from
+  its default and checks that the reset brings it back. The scan found nothing outside the
+  table above. Every hover channel and the tooltip were already cleared by their own
+  components' cleanup, so the reset is a backstop for phase 2's keyed remount.
+
+  **What leaked on main (phase 0's characterisation, before the fixes).** Board unmounted
+  without a reload, on main plus only the navigation change. The socket closed, and every
+  interval, rAF, window and document listener, observer and modal was released. Three leaks
+  showed, each fixed in phase 0:
+  - **An upload in flight kept going.** One waiting for its turn asked the queue again every 2 s
+    after the board was gone. One being sent kept its XHR open. Worse, a waiting one from board A
+    took its turn and uploaded while board B was showing. Now the Player host aborts it on
+    cleanup (a waiting one gives its place back), and the replay-job poll never re-arms after.
+  - **IndexedDB connections.** Each mount's `IdbPersist` opened one, and none was closed (1, 2,
+    then 3 over A, B, A). `BoardSession.end()` closes it once the writes in flight are done.
+  - **The WASM replica** was left to the FinalizationRegistry. `end()` frees it at the same
+    point and takes no edit after. `stop()` keeps its offline meaning for the tests and the
+    soak.
+
+  Also tidied: `end()` drops the session's presence and lazy-save timers. A lazy save landing
+  after the board's next mount had read storage would write an older state. The journal and
+  the server hold what that save would have held. `createBoardState`'s per-scene player memos
+  (each in its own `createRoot`) aren't disposed: they read only that board's own signals, which
+  nothing writes after it ends, so they go with the board's state.
+
+  **Not handled yet (phase 2).** A gesture in progress at unmount (a token drag's window
+  `pointerup`, a swipe) removes its own listener on its next pointerup. But it runs against the
+  disposed board, whose session takes no edit. The "switch waits for the gesture" rule below
+  covers it.
 - **Device settings stay device-wide, as on a board today:** Vision, Show last seen, Player
   names, Heals and Heavy boxes (localStorage, every board). The ink colour is per board already
   (`mapcro.colour.<board>`). Comments open is per board. The tool resets to Move on a new
@@ -652,6 +692,19 @@ Each phase is small, merges on its own, and leaves boards unchanged.
 0. **Board unmounts cleanly** (no user-visible change). Reset module state on cleanup, add the
    module-state ledger guard, and add a test that mounts A, unmounts, and mounts B in one page.
    Fix whatever it finds. `core/nav.ts` back navigation can then stop reloading.
+   **Done 2026-11-11 (branch `sessions-p0`).** What it found and fixed is in §4.1.
+   - `core/nav.ts` follows `popstate` in place, with no reload. Back, forward and an edited
+     fragment all fire it.
+     `applink.followHashChanges` is gone. App mounts Board keyed by board and token, so another
+     board, or another token for the same board, mounts afresh.
+   - `e2e/board-unmount.spec.ts` drives A, B, A by real history traversal (`history.back()`
+     onto entries the test pushes) and asserts one page load throughout. The page is
+     instrumented from before the app loads, and each count is taken on the landing between
+     boards and held to a fresh landing's: intervals; timeouts, rAFs and requests made in a
+     quiet 2.5 s; live XHRs; window and document listeners; observers; open sockets; IndexedDB
+     connections; inert body children. Each board is used before it's left: playing a match, a
+     presenter followed, a hero hovered, an upload waiting or sending, and Share open. A second
+     person on the board sees this one leave.
 1. **Server: sessions and grants, no UI.** Schema v7, `RoomKind`, the `SessionMeta`/`Tab`
    records and the doc-kind check, `POST /api/sessions`, session links (reusing the handlers
    with a kind), grants, `Auth.via`, `BoardAuth` on every board route, tab removal closing connections, and the

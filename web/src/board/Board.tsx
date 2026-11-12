@@ -18,6 +18,7 @@ import { JoinCard } from "./JoinCard";
 import { SceneTree } from "./SceneTree";
 import { TopBar } from "./TopBar";
 import { createBoardState } from "./state";
+import { resetBoardModules } from "./reset";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type FollowTarget, type ViewRect, clampView, fromViewport, locate, presenters, sideOf, startFollow, toViewport, zoomAt } from "./follow";
@@ -59,6 +60,8 @@ import { easedNumber, smoothed } from "./smooth";
 import type { Tool } from "./tools";
 import { LIMITS } from "../gen/limits";
 
+/** The page's title, as index.html has it: what the tab says with no board open. */
+const PAGE_TITLE = "mapcro";
 
 function SaveStatus(p: { state: ReturnType<typeof createBoardState>; rejected: Reject | undefined; dismiss: () => void }) {
   // "Syncing" shows only once a change has waited 400 ms, so quick saves don't flicker; until
@@ -410,6 +413,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
     void state.start();
   });
   onCleanup(() => state.stop());
+  // Unmounted (another board, or back to the landing): module state goes back to its defaults.
+  onCleanup(resetBoardModules);
 
   createEffect(() => {
     // In Player, presence is on the live layer, so cursors, lasers, pings and ink in progress
@@ -417,6 +422,10 @@ export function Board(p: { board: string; token: string; art: Art }) {
     const s = annScene();
     state.presence({ scene: s ?? null });
   });
+  // The tab's title is this board's while it's mounted: until its meta arrives, and after it
+  // leaves (the landing, another board, a dead link), the page's own.
+  document.title = PAGE_TITLE;
+  onCleanup(() => (document.title = PAGE_TITLE));
   // "Your boards" keeps the current title (a rename here or by anyone else), the match on the
   // board, and whether this link can edit (the list's Rename).
   createEffect(() => {

@@ -281,8 +281,12 @@ function AbilityTip(p: { record: BuildRecord; art: Art; tips: Tooltips; ctx?: Ti
 // ---- hover: one tooltip at a time, beside its anchor ----
 
 const [openId, setOpenId] = createSignal<symbol | null>(null);
-/** Close whatever tooltip is open (a press elsewhere, Escape, a scroll). */
+/** Close whatever tooltip is open (a press elsewhere, Escape, a scroll; a board left). */
 export const closeTips = () => setOpenId(null);
+/** Open the tooltip `id` (a `Hover`'s own), closing any other. */
+export const openTip = (id: symbol) => setOpenId(id);
+/** Whether a tooltip is open, anywhere. */
+export const tipOpen = () => openId() !== null;
 
 /**
  * Shows `tip` beside its children while they're hovered (pointer), focused (keyboard) or tapped
@@ -298,7 +302,7 @@ export function Hover(p: { tip: () => JSX.Element | false | null | undefined; ch
   const [at, setAt] = createSignal<{ left: number; top: number } | null>(null);
   const show = (delay: number) => {
     clearTimeout(timer);
-    timer = setTimeout(() => { setAt(null); setOpenId(me); }, delay);
+    timer = setTimeout(() => { setAt(null); openTip(me); }, delay);
   };
   const hide = () => {
     clearTimeout(timer);
