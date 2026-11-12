@@ -1,5 +1,6 @@
 **Date:** 2026-11-11
-**Status:** draft for the operator's review. Phase 0 built (2026-11-11, §4.1 and §10).
+**Status:** draft for the operator's review. Phase 0 built (2026-11-11, §4.1 and §10). Phase 1
+(the server) built 2026-11-12 (§10), awaiting its security review.
 **Supersedes:** the 2026-11-10 sketch "Several replays on one board, as game tabs" (docs/backlog.md,
 mockup `/home/intendednull/concierge/artifacts/mapcro-multi-replay/index.html`). The tab strip
 and the reasons stay. The model changes: there is still one board per game, not several games
@@ -709,6 +710,63 @@ Each phase is small, merges on its own, and leaves boards unchanged.
    records and the doc-kind check, `POST /api/sessions`, session links (reusing the handlers
    with a kind), grants, `Auth.via`, `BoardAuth` on every board route, tab removal closing connections, and the
    §9.2 suite. A security review of this phase gates phase 2.
+   **Built 2026-11-12 (branch `sessions-p1`), not yet reviewed.** No UI.
+   - **Schema** (`crates/schema`): `SessionMeta { title, version }` and
+     `Tab { board: BoardId, grant: GrantId, name, order }`, `FieldValue::SessionTitle`, `TabName`,
+     `TabOrder`, `Reject::WrongDocKind` and `SessionFull`, `LIMITS.max_tabs` = 2,000.
+     `Doc::kind()` is `Session` when the document holds a `SessionMeta`; it's kept as records go
+     in, so the check costs nothing per op. `check_record` refuses the other kind's records as
+     `WrongDocKind`, and a `Tab` whose board or grant id isn't 22 base64url characters as
+     `BadText`. A session's invariants: one live `SessionMeta`, only session records, at most
+     2,000 tabs counting tombstones. `session_genesis` builds one.
+   - **Database v7** (`store.rs`): `boards.kind` (default `'board'`), `session_grants` and its
+     index on `board`. Additive, so the floor stays 5 and a v6 server opens it. Every link lookup
+     joins `boards.kind` and returns a `RoomKind`. A grant and its links row are written in one
+     transaction that refuses if the adder's board link or the adding session link was revoked
+     meanwhile, or if the session holds 2,000 live grants.
+   - **One auth check** (`crates/server/src/auth.rs`, `resolve`): a Bearer link, or a grant as
+     `Authorization: Grant <session>.<grant>.<session token>` on HTTP and `Auth.via` on the
+     socket. The four checks of §3.4 in order, and role `min(session role, grant role, edit)`.
+     Every board route goes through it (`api::require_link`, `require_manager`,
+     `replays::role`), and each asserts its kind. This is `BoardAuth` as a function, not an axum
+     extractor, so each route keeps its own error bodies (the characterisation pins them).
+   - **Endpoints** (`crates/server/src/sessions.rs`): `POST /api/sessions`
+     `{ title, board?, board_token?, role? }` → `{ session, owner_token, tab?, grant? }`, and
+     `POST /api/sessions/{s}/grants` `{ board, board_token, role? }` → `{ grant_id, board, role }`.
+     Session links are the board handlers with `RoomKind::Session`:
+     `/api/sessions/{s}/links` (mint, list), `/links/{link}` (revoke), `/owner/rotate`.
+   - **Revocation** (`room.rs`): a peer that came through a session records `link_hash` = the
+     grant's and `via_hash` = the session link's; `Revoke` matches either. A committed edit that
+     deletes a `Tab` sends `Revoke` with that grant's hash to the board's room, after the commit.
+     A session link's revocation or rotation sends `Revoke` to every open room. After joining,
+     the socket resolves the whole chain again (the M5 race check, now with the tab).
+   - **Tests**: characterisation of board auth first (`crates/server/tests/sessions.rs`, passing
+     on main 262d507 before any change, and unchanged after), then §9.2 in the same file, the
+     schema's in `validate.rs` `mod sessions`, and a v6 database in use migrating to v7
+     (`store.rs`). Mutation testing over the auth and grant checks: the phase report.
+
+   Decisions taken where this spec left a choice (the conservative option each time):
+   - `POST /api/sessions` may also make an empty session (no board). It counts against the board
+     creation limiter and `MAX_BOARDS` either way; made from a board, its grant also counts
+     against the per-address grant limit.
+   - The first tab's name, when the server makes it, is the board's title cut to `max_name` (24),
+     as `TabName` allows. A grant's label is "Session: <title>" cut to `max_label` (40), as the
+     title was when it was added.
+   - **Download** (`/export`) is allowed through a session, as clone is (§3.5): both copy what a
+     viewer can see.
+   - A grant credential on a link-managing route is refused before anything is looked up (403
+     "this link cannot share"); on `POST /grants` it's refused too, so a grant can't be passed on
+     (no grant of a grant, v1).
+   - Errors don't say which check failed: a bad board link, a revoked one, another board's or a
+     session's all read 403 "not a link to this board"; on the socket every failed check is
+     `Unauthorized`. A session room that can't load (busy) fails the tab closed: `Busy` on the
+     socket, 503 on HTTP.
+   - The 2,000 live grants cap answers 409 "session full".
+   - The edit cap in the role (`min(…, edit)`) is redundant today, because a grant is never more
+     than edit, and kept as defence in depth (an equivalent mutant: it survives mutation).
+   - Not built, because what they hang on isn't built: board expiry (§9a: no board is ever
+     deleted yet, so the matrix's "board expired" column can't be tried) and deleting grants of
+     tabs removed 30 days ago (§3.7). Both are in docs/tech-debt.md (TD-54, TD-55).
 2. **Client: the session view.** The `/s/` route, the session connection, the strip, keyed
    remount (no pool yet), `?tab=`, the add paths (Your boards, Paste link), remove/undo, rename
    and reorder, the toast, Your boards listing sessions, "+ Add game" on a board (§7.3), and the
