@@ -225,6 +225,15 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   NVIDIA: `WEBKIT_DISABLE_DMABUF_RENDERER=1` (Tauri's linux-graphics page, WebKit bug 261874).
   The app's WebDriver smoke test (WebKitWebDriver, Xvfb) passes: the bridge works under the live
   CSP, and every plugin is refused to the page.
+- **The app's updater** (`tauri-plugin-updater` 2.14.1; desktop/README.md "Updates"; 2026-11-11,
+  update-prompt): it picks the feed entry by the bundle type stamped into the binary
+  (`{os}-{arch}-{bundle}`, then `{os}-{arch}`), and our `latest.json` carries
+  `windows-x86_64-nsis`, `linux-x86_64-appimage` and `linux-x86_64-deb` as well as the bare two.
+  So a .deb would self-update before 0.2.2 (`pkexec dpkg -i`, then GUI sudo, then `sudo`), at
+  start (read from the source, not run); the nix package, built from the .deb, would try the same and fail. `check()` only
+  fetches the feed; the signature is checked on download, before any install. A debug build
+  takes an `http` endpoint (with a warning; a release build refuses it); an unbundled binary has
+  no bundle type and installs as an AppImage would, over its own file.
 - **Licensing:** Valve's SSA §2.G bars redistribution, so art is extracted by the operator and
   never committed (deadlock-assets-and-extraction "Risks"; spec §12). deadlock-api's code is MIT
   and the main API has no published terms; we credit it as a courtesy. deadlock-plus is GPL-3.0,

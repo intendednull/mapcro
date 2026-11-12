@@ -1299,13 +1299,22 @@ makes a board with that match attached and lands in Player; **New board** is tod
     - **Upload:** the pick sends only the parsed timeline (gzip) to `POST …/replays/{id}/timeline`
       (§6a, Timelines parsed on the user's machine). Against a server without that route (a 404
       with no `{error}`), it sends the `.dem` as before.
-    - **IPC:** six commands (list, read one, preview one, parse one, change the folder; and,
-      portable only, whether an update is out), by match id, granted to the site's origin only.
+    - **IPC:** seven commands (list, read one, preview one, parse one, change the folder, whether
+      an update is out, and install the one offered), by match id (Install by the offered
+      version), granted to the site's origin only.
     - **Installer or portable (operator, 2026-11-11; desktop/README.md):** the release carries the
       per-user installer and a portable zip (`--features portable`, fixed at build time). Portable
       registers `mapcro://` for the current user itself, and doesn't install updates: when the
       feed has a newer version the page shows **Update available**, a link straight to the new
       portable zip.
+    - **Updates (operator, 2026-11-11; issue #43; desktop/README.md, Updates):** nothing
+      installs, closes or restarts the app without the user's click. When the feed has a newer
+      version, the installer and the AppImage show a small banner in the window's corner, on the
+      landing and boards, never over the board's tools: **Update available** with **Install**
+      and **Later**. Install downloads and installs it ("Installing…", "App restarts"), then the
+      app restarts; a failure says **Update failed** with **Retry**. Later hides it for the run.
+      Nothing downloads before the click. A .deb (and the nix package) offers nothing: its
+      package manager updates it. Portable keeps its link.
     - **Download link (operator, 2026-11-11):** per system, one link to the build that updates
       itself: on Windows "Get the Windows app" (the installer), on desktop Linux "Get the Linux
       app" (the AppImage). No portable or .deb link in a browser (releases still carry both; only
