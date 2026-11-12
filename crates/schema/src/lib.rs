@@ -5,11 +5,13 @@
 //! does. It is pure: no I/O, no clocks, no randomness.
 
 mod doc;
+mod file;
 mod ids;
 mod records;
 mod validate;
 
 pub use doc::{Doc, Entry};
+pub use file::{export_records, import_records};
 #[cfg(feature = "ts")]
 pub use doc::DocPair;
 pub use ids::{ClientId, HeroId, LaneKey, ObjectiveKey, OrderKey, RecordId};

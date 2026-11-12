@@ -38,6 +38,7 @@ import { RiftRings } from "../player/Rift";
 import { liveLayer } from "../player/layer";
 import { PlayerTopBar } from "../player/PlayerTopBar";
 import { OpenInApp, UpdateLink } from "../ui/OpenLink";
+import { downloadBoard } from "../core/boardfile";
 import { Layers, calloutOrder } from "./Layers";
 import { FRESH_BOARD, randomRosterOps, sceneMatchName } from "./roster";
 import { HeroPicker } from "./HeroPicker";
@@ -1051,6 +1052,18 @@ export function Board(p: { board: string; token: string; art: Art }) {
               <path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3" />
             </svg>
             Clone
+          </button>
+          {/* The board as a file (spec §6): anyone who can see it, as for Clone. */}
+          <button
+            class="btn ghost"
+            data-testid="download"
+            title="Download"
+            aria-label="Download"
+            onClick={() => void downloadBoard(p.board, p.token, state.title()).then((why) => why && say(why))}
+          >
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
+            </svg>
           </button>
         </Show>
         <Show when={state.canEdit()}>

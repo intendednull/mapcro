@@ -706,7 +706,7 @@ pub async fn timeline(
 
 /// The matches a board has opened, newest first (spec §6b): kept by the server beside the board,
 /// not in its document, so attaching one needs no schema change. At most this many.
-const ATTACHED_MAX: usize = 20;
+pub const ATTACHED_MAX: usize = 20;
 
 fn attached_path(app: &AppState, board: &str) -> PathBuf {
     app.config.data_dir.join("attached").join(format!("{}.json", scope_of(board)))
@@ -802,6 +802,44 @@ pub async fn carry_to_clone(app: &AppState, from: &str, to: &str) {
     if !matches!(carried, Ok(Ok(()))) {
         tracing::warn!("a clone's matches not carried");
     }
+}
+
+/// The matches a board has opened, newest first, for its export (boardfile.rs).
+pub async fn attached_ids(app: &AppState, board: &str) -> Vec<u64> {
+    read_attached(app, board).await
+}
+
+/// An imported board's matches (boardfile.rs, spec §6): the file's list, by id only, as an
+/// attach would leave it. Ids out of range, repeats and matches refused for their mode are
+/// dropped; at most [`ATTACHED_MAX`]. No timeline comes with a file: the newest match starts
+/// its fetch from Valve as an attach does, and a match only an upload had asks for the replay
+/// again where it can't come (the prompt, §6b). Returns the list kept.
+pub async fn attach_imported(app: &AppState, board: &str, ids: &[u64], client: Client) -> Vec<u64> {
+    let mut kept: Vec<u64> = Vec::new();
+    for &n in ids {
+        if kept.len() >= ATTACHED_MAX {
+            break;
+        }
+        let id = n.to_string();
+        if !crate::matches::valid_id(&id) || kept.contains(&n) || crate::matches::refused(app, &id).await.is_some() {
+            continue;
+        }
+        kept.push(n);
+    }
+    let Some(&first) = kept.first() else { return kept };
+    let path = attached_path(app, board);
+    let bytes = serde_json::to_vec(&kept).unwrap_or_default();
+    let written = tokio::task::spawn_blocking(move || {
+        std::fs::create_dir_all(path.parent().unwrap_or(FsPath::new(".")))?;
+        write_atomic(&path, &bytes)
+    })
+    .await;
+    if !matches!(written, Ok(Ok(()))) {
+        tracing::warn!("an imported board's matches not written");
+        return Vec::new();
+    }
+    auto_fetch(app, board, &first.to_string(), client).await;
+    kept
 }
 
 /// Whether a match that started at `start` (unix seconds) is past Valve's three weeks.

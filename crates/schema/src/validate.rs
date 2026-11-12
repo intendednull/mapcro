@@ -162,7 +162,7 @@ pub enum Reject {
     ServerFull,
 }
 
-fn check_text(s: &str, max: usize) -> Result<(), Reject> {
+pub(crate) fn check_text(s: &str, max: usize) -> Result<(), Reject> {
     if s.chars().count() > max {
         return Err(Reject::TextTooLong);
     }

@@ -67,7 +67,7 @@ export function ReplayHelp(p: { id?: string | undefined; class?: string }) {
  * `.dem` goes to `onFile`; anything else is refused with a short line. A file dropped while not
  * enabled is still caught, so the browser doesn't leave the page to open it.
  */
-export function createDemDrop(o: { enabled: () => boolean; onFile: (f: File) => void; onRefuse: (text: string) => void }) {
+export function createDemDrop(o: { enabled: () => boolean; onFile: (f: File) => void; onRefuse: (text: string) => void; onOther?: (f: File) => boolean }) {
   const [over, setOver] = createSignal(false);
   let depth = 0;
   const files = (e: DragEvent) => !!e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
@@ -95,6 +95,8 @@ export function createDemDrop(o: { enabled: () => boolean; onFile: (f: File) => 
     if (!o.enabled()) return;
     const f = e.dataTransfer?.files[0];
     if (!f) return;
+    // Another kind of file the page takes (the landing's board files).
+    if (!isDem(f.name) && o.onOther?.(f)) return;
     if (!isDem(f.name)) return o.onRefuse(NOT_DEM);
     o.onFile(f);
   };
@@ -120,13 +122,16 @@ export function createDemDrop(o: { enabled: () => boolean; onFile: (f: File) => 
 export const NOT_DEM = "Not a .dem file. Pick the match's replay.";
 
 /** The overlay while a file is dragged over the page. */
-export function DropOverlay(p: { over: boolean; id?: string | undefined }) {
+export function DropOverlay(p: { over: boolean; id?: string | undefined; board?: boolean }) {
   return (
     <Show when={p.over}>
       <div class="drop-overlay" data-testid="drop-overlay">
         <div class="drop-card">
           <b>Drop the replay to upload it</b>
-          <span>{p.id ? `${p.id}.dem` : "<match id>.dem"}</span>
+          <span>
+            {p.id ? `${p.id}.dem` : "<match id>.dem"}
+            {p.board ? " · .mapcro.json" : ""}
+          </span>
         </div>
       </div>
     </Show>

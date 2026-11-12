@@ -17,6 +17,7 @@ import { feedbackEnabled } from "../core/feedback";
 import { FeedbackButton } from "../ui/Feedback";
 import { bridge, windowsAppLink, windowsPortableLink } from "../player/desktop";
 import { OpenLinkForm, UpdateLink } from "../ui/OpenLink";
+import { importBoard, isBoardFile } from "../core/boardfile";
 import { type Picked, ReplayPicker, pickerSource } from "../player/ReplayPicker";
 
 export function Landing() {
@@ -131,7 +132,31 @@ export function Landing() {
     setFile(f);
     void openMatch();
   };
-  const dragging = createDemDrop({ enabled: () => !opening(), onFile: dropped, onRefuse: fail });
+  // ---- Import board: a `.mapcro.json` makes a new board, yours (spec §6) ----
+  const [importing, setImporting] = createSignal(false);
+  const [importError, setImportError] = createSignal("");
+  let importPick!: HTMLInputElement;
+  const importFile = async (f: File) => {
+    if (importing()) return;
+    setImporting(true);
+    setImportError("");
+    const r = await importBoard(f);
+    if ("error" in r) {
+      setImporting(false);
+      return setImportError(r.error);
+    }
+    const match = r.matches[0] === undefined ? undefined : String(r.matches[0]);
+    rememberBoard({ board: r.board, token: r.owner_token, title: r.title, ...(match ? { match } : {}), edit: true });
+    // This tab opened the board's match: if its full replay can't come, it's asked (spec §6b).
+    if (match) markOpened(r.board, match);
+    location.assign(shareUrl(location.origin, r.board, r.owner_token));
+  };
+  const dragging = createDemDrop({
+    enabled: () => !opening() && !importing(),
+    onFile: dropped,
+    onRefuse: fail,
+    onOther: (f) => isBoardFile(f.name) && (void importFile(f), true),
+  });
 
   return (
     <div class="landing">
@@ -211,7 +236,7 @@ export function Landing() {
           )}
         </Show>
         <ReplayHelp class="inline" id={/^[1-9]\d{0,11}$/.test(matchId().trim()) ? matchId().trim() : undefined} />
-        <DropOverlay over={dragging()} id={matchId().trim() || undefined} />
+        <DropOverlay over={dragging()} id={matchId().trim() || undefined} board />
         <Show when={app && picking()}>
           <ReplayPicker
             source={app!}
@@ -239,9 +264,29 @@ export function Landing() {
           <button class="btn primary" type="submit" disabled={busy()}>
             {busy() ? "Creating…" : "New board"}
           </button>
+          <button class="btn ghost" type="button" data-testid="import-board" disabled={importing()} onClick={() => importPick.click()}>
+            {importing() ? "Importing…" : "Import board"}
+          </button>
         </form>
+        <input
+          ref={importPick}
+          type="file"
+          accept=".json,application/json"
+          hidden
+          data-testid="import-board-file"
+          onChange={(e) => {
+            const f = e.currentTarget.files?.[0];
+            e.currentTarget.value = "";
+            if (f) void importFile(f);
+          }}
+        />
         <Show when={error()}>
           <p class="error">{error()}</p>
+        </Show>
+        <Show when={importError()}>
+          <p class="error" data-testid="import-error">
+            {importError()}
+          </p>
         </Show>
         {/* The app has no address bar: a shared board link is pasted here (or Ctrl+L). */}
         <Show when={bridge()}>

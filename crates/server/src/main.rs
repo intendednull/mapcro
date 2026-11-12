@@ -1,6 +1,7 @@
 //! mapcro-server. Config from env; binds 127.0.0.1:$PORT behind Caddy (infra contract).
 
 mod api;
+mod boardfile;
 mod codec;
 mod config;
 mod feedback;
@@ -168,6 +169,7 @@ async fn serve() {
         .route("/api/boards/{board}/links/{link}", delete(api::revoke_link))
         .route("/api/boards/{board}/owner/rotate", post(api::rotate_owner))
         .route("/api/boards/{board}/clone", post(api::clone_board))
+        .route("/api/boards/{board}/export", get(boardfile::export))
         .route("/api/packs", get(packs::list))
         .route("/api/matches/{id}", get(matches::get).layer(compression()))
         .route("/api/matches/{id}/preview", get(matches::preview))
@@ -198,6 +200,13 @@ async fn serve() {
         .layer(RequestBodyLimitLayer::new(16 * 1024))
         // After the 16 KiB limit, so replay uploads stream under their own cap (replays.rs).
         .merge(replays::routes())
+        // A board file's own cap (boardfile.rs): the largest board sent as one snapshot.
+        .merge(
+            Router::new()
+                .route("/api/boards/import", post(boardfile::import))
+                .layer(axum::extract::DefaultBodyLimit::max(boardfile::MAX_BYTES))
+                .layer(RequestBodyLimitLayer::new(boardfile::MAX_BYTES)),
+        )
         // Its own cap: a full description of 4-byte characters is past 16 KiB (feedback.rs).
         .merge(
             Router::new()

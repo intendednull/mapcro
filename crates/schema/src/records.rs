@@ -390,6 +390,20 @@ impl Record {
         }
     }
 
+    /// The scene reference of a scene-scoped record, to rewrite it (an import's fresh ids).
+    pub(crate) fn scene_mut(&mut self) -> Option<&mut RecordId> {
+        match self {
+            Record::PlayerState(r) => Some(&mut r.scene),
+            Record::ObjectiveState(r) => Some(&mut r.scene),
+            Record::Arrow(r) => Some(&mut r.scene),
+            Record::Callout(r) => Some(&mut r.scene),
+            Record::Note(r) => Some(&mut r.scene),
+            Record::Stroke(r) => Some(&mut r.scene),
+            Record::Wave(r) => Some(&mut r.scene),
+            Record::BoardMeta(_) | Record::RosterSlot(_) | Record::Scene(_) => None,
+        }
+    }
+
     /// Current value of `field`, or `None` if this kind has no such field.
     pub fn get(&self, field: Field) -> Option<FieldValue> {
         use FieldValue as V;
