@@ -15,9 +15,14 @@ import { navigate } from "../core/nav";
 import { LIMITS } from "../gen/limits";
 import { feedbackEnabled } from "../core/feedback";
 import { FeedbackButton } from "../ui/Feedback";
-import { bridge, windowsAppLink, windowsPortableLink } from "../player/desktop";
+import { bridge, desktopAppLinks } from "../player/desktop";
+import { AppDownload } from "../player/AppDownload";
 import { OpenLinkForm, UpdateLink } from "../ui/OpenLink";
 import { type Picked, ReplayPicker, pickerSource } from "../player/ReplayPicker";
+
+/** The source, in the footer on every system. In the app it's a plain navigation, which the app
+ * sends to the system browser (desktop/README.md, Links off the site); in a browser, a new tab. */
+const REPO = "https://github.com/intendednull/mapcro";
 
 export function Landing() {
   const [title, setTitle] = createSignal("");
@@ -222,6 +227,13 @@ export function Landing() {
           )}
         </Show>
         <ReplayHelp class="inline" id={/^[1-9]\d{0,11}$/.test(matchId().trim()) ? matchId().trim() : undefined} />
+        <Show when={desktopAppLinks()}>
+          {(l) => (
+            <p class="landing-app" data-testid="app-home">
+              <AppDownload links={l()} where="home" />
+            </p>
+          )}
+        </Show>
         <DropOverlay over={dragging()} id={matchId().trim() || undefined} />
         <Show when={app && picking()}>
           <ReplayPicker
@@ -304,16 +316,15 @@ export function Landing() {
         </Show>
         <footer class="legal muted">
           MIT · Not affiliated with Valve
-          <Show when={windowsAppLink()}>
-            {(href) => (
+          {" · "}
+          <a href={REPO} target={bridge() ? undefined : "_blank"} rel="noopener" data-testid="github-landing">
+            GitHub
+          </a>
+          <Show when={desktopAppLinks()}>
+            {(l) => (
               <>
                 {" · "}
-                <a href={href()} target="_blank" rel="noopener" data-testid="windows-app-landing" title="Windows app">
-                  Get the Windows app
-                </a>{" "}
-                <a href={windowsPortableLink()} class="muted" target="_blank" rel="noopener" data-testid="windows-portable-landing">
-                  Portable
-                </a>
+                <AppDownload links={l()} where="landing" />
               </>
             )}
           </Show>

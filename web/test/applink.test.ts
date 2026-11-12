@@ -2,7 +2,7 @@
 // desktop/core/src/link.rs), the mapcro:// form, and "Open in app"'s gating.
 import { describe, expect, it } from "vitest";
 import { SITE, appLink, boardHref, openInAppHref, parseBoardLink } from "../src/core/applink";
-import { WINDOWS_APP_URL, windowsAppLink } from "../src/player/desktop";
+import { LINUX_APP_URL, WINDOWS_APP_URL, desktopAppLinks } from "../src/player/desktop";
 
 const ID = "AbCdEfGhIjKlMnOpQrSt-_";
 const TOKEN = "0123456789abcdefghijklmnopqrstuvwxyzABCD-_Z";
@@ -75,14 +75,17 @@ describe("the mapcro:// form", () => {
 describe("openInAppHref", () => {
   const win = { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/142 Safari/537.36" };
   const linux = { userAgent: "Mozilla/5.0 (X11; Linux x86_64) Chrome/142" };
-  it("is the board's mapcro:// link on a Windows browser, once the app is released", () => {
+  const mac = { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15" };
+  it("is the board's mapcro:// link on a Windows or desktop Linux browser, once the app is released", () => {
     expect(openInAppHref(want, { released: true, nav: win, w: {} })).toBe(`mapcro://b/${ID}#${TOKEN}`);
-    // Its "Get the app" fallback is the installer, under the same gate.
-    expect(windowsAppLink({ released: true, nav: win, w: {} })).toBe(WINDOWS_APP_URL);
+    expect(openInAppHref(want, { released: true, nav: linux, w: {} })).toBe(`mapcro://b/${ID}#${TOKEN}`);
+    // Its "Get the app" fallback is that system's default download, under the same gate.
+    expect(desktopAppLinks({ released: true, nav: win, w: {} })?.href).toBe(WINDOWS_APP_URL);
+    expect(desktopAppLinks({ released: true, nav: linux, w: {} })?.href).toBe(LINUX_APP_URL);
   });
-  it("is nothing before the first release, elsewhere, or inside the app", () => {
-    expect(openInAppHref(want, { nav: win, w: {} })).toBeUndefined();
-    expect(openInAppHref(want, { released: true, nav: linux, w: {} })).toBeUndefined();
+  it("is nothing before the release, elsewhere, or inside the app", () => {
+    expect(openInAppHref(want, { released: false, nav: win, w: {} })).toBeUndefined();
+    expect(openInAppHref(want, { released: true, nav: mac, w: {} })).toBeUndefined();
     expect(openInAppHref(want, { released: true, nav: win, w: { __TAURI_INTERNALS__: { invoke: () => Promise.resolve() } } })).toBeUndefined();
   });
 });

@@ -3,16 +3,16 @@
 // portable app's "Update available" (desktop/README.md, Installer or portable).
 
 import { Show, createResource, createSignal, onCleanup, onMount } from "solid-js";
-import { WINDOWS_APP_RELEASES, appUpdate, bridge, windowsAppLink } from "../player/desktop";
+import { WINDOWS_APP_PORTABLE_URL, appUpdate, bridge, desktopAppLinks } from "../player/desktop";
 import { type BoardLink, openBoard, openInAppHref, parseBoardLink } from "../core/applink";
 import { ModalScrim } from "./ModalScrim";
 import { dialogKeys } from "./modal";
 
 export const NOT_A_BOARD_LINK = "Not a board link";
 
-/** A board page's "Open in app" (a Windows browser, once the app is released; never in the app),
- * and a quiet "Get the app" beside it for when it isn't installed (the browser drops an unknown
- * scheme silently). */
+/** A board page's "Open in app" (a Windows or desktop Linux browser, once the app is released;
+ * never in the app), and a quiet "Get the app" beside it for when it isn't installed (the browser
+ * drops an unknown scheme silently): this system's default download, a file. */
 export function OpenInApp(p: BoardLink) {
   const href = () => openInAppHref({ board: p.board, token: p.token });
   return (
@@ -22,7 +22,7 @@ export function OpenInApp(p: BoardLink) {
           <a class="btn ghost" href={h()} data-testid="open-in-app">
             Open in app
           </a>
-          <a class="btn ghost small muted" href={windowsAppLink()} target="_blank" rel="noopener" data-testid="open-in-app-get">
+          <a class="btn ghost small muted" href={desktopAppLinks()?.href} download="" data-testid="open-in-app-get">
             Get the app
           </a>
         </>
@@ -110,13 +110,14 @@ export function OpenLinkKeys() {
   );
 }
 
-/** The portable app's "Update available": the release page (it opens in the system browser). */
+/** The portable app's "Update available": the new portable zip itself (an off-site link, so the
+ * app hands it to the system browser, which downloads it). Portable is Windows only. */
 export function UpdateLink(p: { class?: string; sep?: string }) {
   const [version] = createResource(() => appUpdate());
   return (
     <Show when={version()}>
       {p.sep}
-      <a class={p.class ?? "btn ghost"} href={WINDOWS_APP_RELEASES} data-testid="app-update">
+      <a class={p.class ?? "btn ghost"} href={WINDOWS_APP_PORTABLE_URL} download="" data-testid="app-update">
         Update available
       </a>
     </Show>

@@ -108,3 +108,12 @@ export async function revealControls(page: Page, id: string) {
   const details = page.locator(where);
   if (!(await details.evaluate(el => (el as HTMLDetailsElement).open))) await details.locator(":scope > summary").click();
 }
+
+/** In a browser, no link on the page names the portable zip or the .deb: a browser is offered
+ * only the builds that update themselves (operator, 2026-11-11; app-download.spec.ts). Not for
+ * the app's window: the portable app's Update available links its zip. */
+export async function noSecondary(page: Page) {
+  const hrefs = await page.locator("a[href]").evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).href));
+  expect(hrefs.length).toBeGreaterThan(0);
+  for (const h of hrefs) expect(h).not.toMatch(/\.(zip|deb)([?#]|$)/i);
+}

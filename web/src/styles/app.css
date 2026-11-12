@@ -59,6 +59,9 @@
 .known .muted { font-size: 12px; }
 .error { color: #ffb9ab; }
 .legal { margin-top: 64px; font-size: 11.5px !important; color: var(--faint) !important; }
+/* Its links (GitHub, the app's download, Update available): quiet, readable on the dark page. */
+.legal a { color: var(--muted); text-underline-offset: 2px; }
+.legal a:hover { color: var(--text); }
 
 /* Join card: the real input */
 .join { display: flex; flex-direction: column; gap: 10px; }
@@ -510,6 +513,9 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 /* Player's bar sits at the bottom: its steps open upward, from the link's right edge. */
 .pl-bar .replay-help-steps { top: auto; bottom: calc(100% + 6px); left: auto; right: 0; }
 .replay-help.inline { display: block; margin-top: 8px; font-size: 13px; }
+/* The app's download under Load a game: a quiet text row, the site's link colour, no button. */
+.landing-app { margin: 10px 0 0; font-size: 12.5px; line-height: 1.5; }
+.landing-app a { color: var(--accent); text-underline-offset: 3px; }
 .replay-help.inline .replay-help-steps { position: static; width: auto; max-width: none; margin-top: 8px; box-shadow: none; }
 /* The full-replay prompt (spec §6b): a dialog centred over the map, the match playing behind. */
 .board-app .stage > .mapfit { position: relative; }

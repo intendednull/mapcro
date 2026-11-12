@@ -216,7 +216,7 @@ async fn replays_choose_folder(app: AppHandle, state: tauri::State<'_, Arc<Share
 }
 
 /// Portable only: the newer version the update feed offers, if any (the page shows "Update
-/// available", a link to the release page). Asked once per run, when the page first asks. The
+/// available", a link to the new portable zip). Asked once per run, when the page first asks. The
 /// installed app installs updates itself (`check_for_update`), so it answers nothing here.
 #[tauri::command]
 async fn app_update(app: AppHandle, state: tauri::State<'_, Arc<Shared>>) -> Result<Option<String>, String> {
