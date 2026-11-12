@@ -240,6 +240,15 @@ browser's linked-folder UI (`ReplaysFolder.tsx`) doesn't show in the app. A pick
    `replay_read(id)` and the usual `.dem` upload run. Any other error is shown as its code
    (`outdated_parser` says "Update the mapcro app").
 
+**Reparse** (operator, 2026-11-11; spec §6a, format versions). A board's upload parsed in an
+older timeline format is stale, and its demo went with the server's parse. In the app Player asks
+`replays_list` whether the folder still has the match's demo (when the stale upload shows, and on
+focus); if it does, a small alert says **Outdated** with **Reparse**, which runs the steps above
+for the open match (`web/src/player/reparse.ts`, no new command); a failure is said in the
+alert (notices stay quiet while a replay shows) with Reparse again. Only for someone who may
+upload. A refusal as `outdated_parser` is kept for the run (sessionStorage, which quitting the
+app drops), and the alert then says **Update the mapcro app** instead of offering Reparse.
+
 ## Building
 
 - Windows: `.github/workflows/desktop.yml` on `windows-latest`. The release build is `cargo tauri

@@ -2,7 +2,7 @@
 // playback time t (the board renders the preview this produces); this draws the transport, the
 // roster with ult rings, the match source controls and the events list. Labels only.
 
-import { For, Index, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
 import type { Art } from "../map/pack";
 import { Dynamic } from "solid-js/web";
 import { cx } from "../ui/cx";
@@ -16,10 +16,11 @@ import { UltRing } from "../match/preview";
 import { matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
 import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensureLiveOps, liveIds, takeAnnotationsOps } from "./live";
 import { FETCH_WHY, busy, jobLabel, queueLabel, staleUpload } from "./api";
-import { PROMPT, sizeLabel } from "./notice";
+import { PROMPT, noticeFor, sizeLabel } from "./notice";
 import { DropOverlay, ReplayHelp, createDemDrop } from "./ReplayHelp";
 import { FolderFound, FolderLink, FolderRecent, folderHas, useReplaysFolder } from "./ReplaysFolder";
 import { ReplayPicker, pickerSource } from "./ReplayPicker";
+import { REPARSE, isOutdated, reparseOffer } from "./reparse";
 import { SPEEDS } from "./clock";
 import { type Dot, troopersAt } from "./troopers";
 import { hoverUnit, registerHover } from "../map/HoverLabel";
@@ -197,6 +198,34 @@ export function Player(p: {
       </button>
     </Show>
   );
+  // In the app, a stale upload whose demo is still in the replays folder is parsed again on one
+  // click (`reparse.ts`): the folder is asked when one shows, and again when the window regains
+  // focus (a replay downloaded meanwhile).
+  const stale = () => !!app && canUpload() && staleUpload(h.job());
+  const [hasDemo, { refetch: recheckDemo }] = createResource(
+    () => (stale() ? h.matchId() : undefined),
+    async (id) => ({ id, has: (await app!.list().catch(() => [])).some((r) => r.id === id) }),
+  );
+  onMount(() => {
+    const focus = () => stale() && void recheckDemo();
+    window.addEventListener("focus", focus);
+    onCleanup(() => window.removeEventListener("focus", focus));
+  });
+  const reparse = () =>
+    // A refusal sets the problem, so this is read again then (the outdated mark is storage).
+    (h.problem(), reparseOffer({ app: !!app, stale: stale(), canUpload: canUpload(), inFolder: !!hasDemo.latest?.has && hasDemo.latest.id === h.matchId(), outdated: isOutdated() }));
+  // Notices stay quiet while a replay shows, so the alert says how its parse failed (the
+  // pick's words), Reparse still offered.
+  const reparseFailed = () => {
+    const pr = h.problem();
+    return pr?.step === "upload" && pr.code !== "outdated_parser" ? noticeFor(pr.code, "upload")?.text : undefined;
+  };
+  const reparseNow = () => {
+    const id = h.matchId();
+    if (!app || !id) return;
+    void h.takeLocal(id, () => app.timeline(id), () => app.read(id));
+  };
+
   // Dropped anywhere on the board while Player shows a match without its replay.
   const dragging = createDemDrop({ enabled: () => watching() && canUpload(), onFile: (f) => void take(f), onRefuse: (t) => h.setStatus(t) });
 
@@ -408,6 +437,20 @@ export function Player(p: {
                 <UploadButton />
                 <ReplayHelp id={h.matchId()} />
                 <FolderLink id={h.matchId()} />
+              </Show>
+            </div>
+          )}
+        </Show>
+        <Show when={watching() && !h.notice() && reparse()}>
+          {(r) => (
+            <div class="pl-notice" data-testid="match-reparse" data-offer={r()} role="status">
+              <span class="pl-notice-text">
+                <b data-testid="match-reparse-text">{r() === "reparse" ? (reparseFailed() ?? REPARSE.text) : REPARSE.update}</b>
+              </span>
+              <Show when={r() === "reparse"}>
+                <button class="btn small primary" type="button" data-testid="match-reparse-go" title={REPARSE.title} onClick={reparseNow}>
+                  {REPARSE.button}
+                </button>
               </Show>
             </div>
           )}

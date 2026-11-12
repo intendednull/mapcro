@@ -670,6 +670,15 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     - **An upload in an older format** stays: its demo went with its parse, so nothing can parse
       it again. Its status says `"stale": true`; Player then offers "Upload replay file" on the
       full replay, and the chip's hint says it's an older parse. A new upload replaces it.
+      In the app (§6b, The Windows app), when the replays folder still has the match's demo, a
+      small alert under the match source says **Outdated** with **Reparse** (hover "Reparse
+      replay"; operator, 2026-11-11): one click parses the demo in the app and sends the
+      timeline, as a pick does (the chip says Parsing; a failure is said in the alert, in the
+      notice's words, with Reparse again, the old timeline kept), and Player shows the new one. It is for whoever may upload (an editor, nothing under way). An
+      app whose timeline the server refused as `outdated_parser` this run (its parser is older
+      than the server's format, so a reparse can't help) gets **Update the mapcro app** there
+      instead, beside the app's Update available. Without the demo, or in a browser, the upload
+      stays the way.
   - **PVS gaps:** a demo records only entities near players. Powerups with nothing in the
     recording hold their last value, and the timeline lists those seconds as stale. Zipline
     colours and camp timers are networked whatever anyone sees. An objective counts as

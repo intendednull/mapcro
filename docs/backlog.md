@@ -3,6 +3,15 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Reparse in the app: follow-ups (2026-11-11, from desktop-reparse)
+
+- After Later on the installed app's Update available, nothing offers Install again until the
+  app restarts; an outdated app's Reparse alert then says only "Update the mapcro app". Could
+  bring the banner back (clear Later) when the server refuses `outdated_parser`.
+- A fetched (CDN) timeline in an older format is fetched again on open; past Valve's three weeks
+  it stays old. In the app, the same Reparse could serve it when the folder has the demo (today
+  it's offered only for the board's own upload, which the server marks `stale`).
+
 ## Owner delete of a board (2026-11-11, operator, from boards-list)
 
 - "Your boards" Remove takes a board off one device's list only (spec §11). Real deletion, by the
