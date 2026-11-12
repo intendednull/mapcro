@@ -30,6 +30,7 @@ Ids are `CUtlStringToken`s: MurmurHash2 of the lower-cased name, seed `0x3141592
 | `abilities` (tiers, not hero level) | controller `m_vecAbilityUpgradeState[].m_ItemID/m_nUpgradeInfo` | hero_data.rs `levels` | abilities-and-items §2 |
 | `casts` | msg 365 `ImportantAbilityUsed`; cooldown from the ability entity's `m_flCooldownEnd` | parse_hero.rs | abilities-and-items §2 |
 | `charges` | ability entity `m_iRemainingCharges` | parse_hero.rs | abilities-and-items §2 |
+| `stacks` (format 10) | `ActiveModifiers` entries a hero applied to itself (`caster` = `parent`) with one of its abilities or items (`ability_subclass`): per ability, the most `stack_count` among the live ones, 0 once none is left. See "Own stacks" | parse_hero.rs `OwnStacks`, hero_data.rs `own_stacks` | this map; `examples/stack_probe.rs` |
 | `cc` | pawn `m_pModifierProp.m_bvEnabledStateMask`; cause from a same-tick enemy modifier | hero_data.rs `cc` | [status-effects](status-effects.md) §1–2 |
 | `effects` | `ActiveModifiers` string table, filtered to icon-shown tokens (`modifiers.rs`, generated) | parse_hero.rs | status-effects §1, §3 |
 | `recaps` | msg 300 `CCitadelUserMessageDamage` over `RECAP_S` (10 s) before death, plus `cc`. A non-hero attacker's kind (`NPC_SRC` + `NPC_KINDS`, within format 9) from the message's `attacker_class` (4 trooper, 5 guardian, 6 neutral, 8 mid boss, 22 sentry, 29 walker, 30 base guardian, 31 patron; 1 a hero) and `attacker_subclass`, the token of the unit's vdata name (`trooper_medic`, `neutral_sinners_sacrifice`…); no entity tracking needed | hero_data.rs `recaps`, timeline.rs `npc_kind` | status-effects §4; `examples/recap_source_probe.rs` |
@@ -47,10 +48,36 @@ Ids are `CUtlStringToken`s: MurmurHash2 of the lower-cased name, seed `0x3141592
 **Format history** (`timeline::FORMAT`, now 9): 0 unstamped; 1 respawns, urn; 2 buff types,
 rift opening; 3 Rejuvenator, rift capture; 4 vision; 5 healing pickups; 6 clock holds through a
 pause; 7 builds, abilities, casts, charges, CC, effects, recaps, height, zipline, tough crates;
-8 level, max HP, kills, assists; 9 statue pickups (`pickups`). Format 7 runs about 41 KB per match minute.
+8 level, max HP, kills, assists; 9 statue pickups (`pickups`); 10 own stacks (`stacks`; its
+re-fetch also brings TD-22's recap kinds). Format 7 runs about 41 KB per match minute.
 Within 9, without a bump: `troopers` ids carry bit 15 for a rift's trooper, and the base units
 are left out. Older format-9 timelines just lack both; a client that ignores the bit draws the
 unit as any other (the id stays stable for following it), so no app update is needed.
+
+**Own stacks** (feedback #38; checked 2026-11-11 on 129738985, `examples/stack_probe.rs`, which
+prints per hero id and modifier token the most `stack_count` on and by heroes). Nurse Harrow's
+leeches collected (Leech Therapy, ability 1) are the `stack_count` of one hidden, permanent
+modifier she applies to herself, `ability_nurse_leech_therapy/modifier_nurse_leech_therapy_stack_bonus`
+(`m_bIsHidden`, `DISPLAY_HUD_NONE`, `MODIFIER_ATTRIBUTE_PERMANENT`, the ability's
+`m_PickupBonusModifier`): 36 changes, up to 18 (`MaxLeechBonusStacks` 10, +8 at tier 3), a quarter
+lost at each death (`StacksLostOnDeathPercent`), and once at 2,538 s with no death recorded (a
+revive in place?). With no icon it was never in `effects`, so Player never had it. No networked
+field counts stacks: the schemas' `stack` fields are a few items' and `CCitadel_Ability_Nurse_Fear.m_nLeechStacksAtCast`.
+The game words it with the ability's vdata `m_sCustomStackLabel` (citadel_heroes
+`nurse_leech_pickups_stacklabel` "Leeches Collected:"; 558 records "Current Bonus:", 275 items
+"Current Stacks:", also "Sketches Collected:", `BonusBatsCurrent_label`, goose egg "Souls To
+Gain"), shown in the tooltip's `.BonusContainer` (abilities) or `.StacksContainer` (items). The
+same read covers every self-applied stack: on 129738985 also Celeste's Radiant Daggers (6), Rat
+King's Royal Pestments (7, `DISPLAY_HUD_CENTER`), and the items Berserker (10), Spellslinger (6),
+Escalating Resilience (30), Siphon Bullets (up to 847: health), Spirit Snatch (100 steps to 500),
+Glass Cannon, Mystic Regeneration and Split Shot. **Not covered:** stacks on targets (Fixation,
+Djinn's Mark, Jettison Fuel, Strix Salvo, Rat Swarm, Escalating Exposure, Crushing Fists…) are
+icon-shown, so they are `effects` rows, whose `stacks` is the most an application reached, not
+the count at t (TD-42); hidden target stacks (Rat Swarm's `ratking_nibble_enemy_linger`, Card
+Trick's `diamond_card_debuff`, Spirit Snatch's debuff) aren't kept anywhere. Abilities the vdata
+gives stack or per-kill properties but 129738985 doesn't show (no hero played them, or no stack
+appeared): backlog "Own stacks: the rest". Siphon Bullets' and Spirit Snatch's counts are in
+health and spirit units, not stacks: unverified what the game prints for them.
 
 **Cache re-fetch** (`crates/server/src/replays.rs` `stale`; spec §6a "Format stamp"; backlog
 "Replay timeline format versions"): a cached fetched timeline whose `format` is below `FORMAT`,
@@ -290,6 +317,9 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   applied, 367/368 combat log: all 0 (status-effects §1). No Weapon/Spirit/Vitality category
   field (exploration round 2 §4; scoreboard-values "Category progression"). There's no active-item
   flag in the pack, and a missing cast doesn't prove an item is passive.
+- **Match 135357391 (feedback #38) can't be fetched:** deadlock-api's free read (2026-11-11) has
+  a metadata salt but `replay_salt` null, and no local cache has it; #38's data came from
+  129738985, where Nurse Harrow played (hero 87).
 - **Unreliable fields:** controller `m_bAlive` is always 0 (use the pawn's `m_lifeState`).
   Controller `m_flRespawnTime` is always 0. A modifier's `duration` isn't when it ends (use the
   removed delta). `m_nSpentCurrencies[0]` read 0 (on 122134063, a Brawl demo: unverified on
