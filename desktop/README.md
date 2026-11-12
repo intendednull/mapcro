@@ -123,8 +123,8 @@ Windows releases come two ways, both on the same GitHub release:
   app built with `--features portable`, the exe and a `README.txt`. Unzip and run it. The flag is
   baked in at build time (`core/src/mode.rs` `Mode`), not a file beside the exe. It differs in:
   - **No auto-update.** It asks the same feed (`app_update`, once per run, when the page asks)
-    and, if a newer version is out, the page shows **Update available**, a link to the release
-    page. You download the new zip yourself.
+    and, if a newer version is out, the page shows **Update available**, a link straight to the
+    new zip (`mapcro_x64-portable.zip`), which the system browser downloads. You unzip it yourself.
   - **No Start-menu entry or uninstaller.** Delete the folder to remove it.
   - **WebView2 must already be there** (it is on current Windows 10 and 11); nothing fetches it.
   - **It registers `mapcro://` itself** for the current user on each start
@@ -136,7 +136,10 @@ Windows releases come two ways, both on the same GitHub release:
 
 The site's links use the stable names (`releases/latest/download/mapcro_x64-setup.exe`, `…/mapcro_x64-portable.zip`):
 tauri-action names the installer with its version, so the release job also uploads the copies.
-"Portable" is the quieter link beside "Get the Windows app", under the same `WINDOWS_APP_RELEASED`.
+"Portable" is the quieter link beside "Get the Windows app". Linux has the same pair:
+"Get the Linux app" is `…/mapcro_amd64.AppImage` (it updates itself), ".deb" beside it is
+`…/mapcro_amd64.deb`; `release-linux` uploads those stable copies. Every download link on the site
+names a file, never a release page, and downloads in place (operator, 2026-11-11).
 
 ## Deep links
 
@@ -170,8 +173,11 @@ the site's share link (`https://mapcro.dmgdeadlock.com/b/<board>#<token>`, spec 
   point the window anywhere else. `Board`'s `Debug` prints no token; nothing logs the link.
 - **In the page** (spec §6b): on a board page in a browser, **Open in app** is the board's
   `mapcro://` link, with a quiet **Get the app** (the installer) beside it for a browser without
-  the app (an unknown scheme does nothing visible). It shows where "Get the Windows app" does: a Windows browser, never in the
-  app, once `WINDOWS_APP_RELEASED` is on (Linux when its download link ships, backlog). In the
+  the app (an unknown scheme does nothing visible). It shows where the download link does: a
+  Windows or desktop Linux browser, never in the app, while `DESKTOP_APP_RELEASED` is on. On
+  Linux the .deb registers the scheme at install and the AppImage at each start, so an AppImage
+  that has never run (or was moved since) isn't reached until it runs once; "Get the app" covers
+  that. In the
   app, the landing's **Open link** field and **Ctrl+L** anywhere take a pasted link in either
   form (or on the page's own origin, for a dev server), checked by the same rules
   (`parseBoardLink`); anything else says "Not a board link".
@@ -334,8 +340,9 @@ every 3 s.
   would (`/S`; `apt-get install ./….deb`), then the smoke test against the installed app. Windows
   also starts the installed app on its own for 15 s. A debug build is used because only a debug
   build takes `MAPCRO_URL`.
-- On a tag only, after both pass: `release-windows` (NSIS) and then `release-linux` (AppImage and
-  .deb) build the signed release bundles into the same draft release. Linux runs after Windows
+- On a tag only, after both pass: `release-windows` (NSIS, plus the portable zip and stable-named
+  copies) and then `release-linux` (AppImage and .deb, plus stable-named copies) build the signed
+  release bundles into the same draft release. Linux runs after Windows
   because tauri-action adds its platform to `latest.json` by reading and rewriting it.
 
 ## Releasing
@@ -367,11 +374,18 @@ Each release:
    and `latest.json` naming this version for both platforms), then publishes it. Installed apps
    offer the update on their next start. If `publish` fails, the draft stays a draft: fix it and
    re-run the job. `releases/latest` only points at a published release.
-4. After the first release, turn the site's download link on. Set `WINDOWS_APP_RELEASED = true`
-   in `web/src/player/desktop.ts` and deploy. "Get the Windows app" then shows on Windows
-   browsers only (never inside the app): beside the replays folder link, in "Where's my
-   replay?", and in the landing page's footer. Board pages
-   get **Open in app** (their `mapcro://` link) the same way.
+4. The site's download links are on (`DESKTOP_APP_RELEASED = true` in
+   `web/src/player/desktop.ts`, operator 2026-11-11; one flag for both systems, since `publish`
+   refuses a release without both). They point at the stable names of `releases/latest`, so a
+   new release needs no site change: on Windows browsers "Get the Windows app"
+   (`mapcro_x64-setup.exe`) with "Portable" (`mapcro_x64-portable.zip`), on desktop Linux
+   browsers "Get the Linux app" (`mapcro_amd64.AppImage`) with ".deb" (`mapcro_amd64.deb`).
+   Never inside the app, never on macOS, Android, ChromeOS or phones. They show under Load a
+   game, beside the replays folder link, in "Where's my replay?", and in the landing page's
+   footer. Board pages get **Open in app** (their `mapcro://` link) the same way. A release made
+   before `release-linux` uploaded the Linux stable copies needs them added by hand
+   (`gh release upload desktop-v<version> mapcro_amd64.AppImage mapcro_amd64.deb`, copies of
+   that release's versioned files).
 
 Builds have no Authenticode signature (operator, 2026-11-10: unsigned beta). On first run,
 Windows SmartScreen says "Windows protected your PC" (More info → Run anyway).

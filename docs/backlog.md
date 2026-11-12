@@ -294,8 +294,6 @@ much they matter.
   - **WebKit frame cost.** Headless WebKit drew a scene flip at ~10 fps (Chromium ~30), so the
     heroes-live glide spec is fixme on WebKit. Measure Player at 8× in the real app before calling
     it slow.
-  - **Download link for Linux.** "Get the Windows app" shows on Windows only; a Linux link
-    (AppImage) would need a label and a release flag like `WINDOWS_APP_RELEASED`.
   - **WebKit in CI.** `just e2e-webkit` is opt-in and local; the main CI runs no e2e at all.
 - **Portable build (2026-11-11, deep-links; desktop/README.md, Installer or portable).** Left:
   - **First tagged release:** the release job's portable step (`cargo tauri build --no-bundle
@@ -312,7 +310,8 @@ much they matter.
   - **Check on a real Linux desktop:** clicking a `mapcro://` link in Firefox and Chrome with
     the .deb installed, and with an AppImage (its self-registration writes a desktop file in
     `~/.local/share/applications` on every start).
-  - **Open in app on Linux browsers,** with the Linux download link (above): the same gate.
+  - **Open in app on Linux browsers** is on (2026-11-11, app-link) with the Linux download link;
+    the real-desktop check above covers it.
   - **Open in app when the app isn't installed** does nothing visible (the browser drops an
     unknown scheme); a quiet "Get the app" sits beside it (operator, 2026-11-11). Detecting
     the missing handler (blur/visibility timing) isn't done.
