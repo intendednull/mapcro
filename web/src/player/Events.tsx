@@ -78,10 +78,24 @@ export function EventsList(p: {
     if (pin) {
       const k = eventKey(pin);
       const j = list.findIndex((e) => eventKey(e) === k);
-      if (j >= 0 && !list.slice(j + 1).some((e) => e.t < t)) return k;
+      if (j >= 0) {
+        // Playback passes it once a listed event after it is before t.
+        let passed = false;
+        for (let i = j + 1; i < list.length && !passed; i++) passed = list[i]!.t < t;
+        if (!passed) return k;
+      }
     }
+    // The list is sorted by t, so the latest event at or before t is a halving search: a frame of
+    // playback reads a handful of rows, not all of them.
     let at: string | undefined;
-    for (const e of list) if (e.t <= t) at = eventKey(e);
+    for (let lo = 0, hi = list.length - 1; lo <= hi; ) {
+      const mid = (lo + hi) >> 1;
+      const e = list[mid]!;
+      if (e.t <= t) {
+        at = eventKey(e);
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
     return at;
   });
   const [follow, setFollow] = createSignal(true);

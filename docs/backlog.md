@@ -33,10 +33,11 @@ while playing 156 → 96 ms), see its commit. What's left:
   200 ms, PrePaint 118, HitTest 115, Paint 111, style 76, layout 51, against 309 ms of JS. Hiding
   the map cuts Layerize to 62 and HitTest to 56; most of the invalidations are troopers (about
   2,600 attribute and "SVG resource invalidated" invalidations in 3 s) and tokens, whose groups
-  are clipped (`clip-path: var(--mm-stencil-view)`, minimap.css). Hiding the events list cuts
-  PrePaint 118 → 27 ms. Ideas: troopers on a canvas, or one path per team; the clip on the
-  map's group, not per layer; `content-visibility: auto` on event rows. At 4x the main thread
-  is still saturated (about 47 fps).
+  are clipped (`clip-path: var(--mm-stencil-view)`, minimap.css). The events list no longer costs
+  PrePaint (branch `events-layout`: `content-visibility: auto` on its rows, a frame touches no
+  row): 190 → 39 ms at 1x, 303 → 73 at 4x, and 4x play 34 → 44 fps. Ideas left: troopers on a
+  canvas, or one path per team; the clip on the map's group, not per layer. At 4x the main
+  thread is still saturated.
 - **Tab mounts twelve build columns on each press** (about 11 ms of JS at 1x for the columns,
   plus their layout): Tab to painted is about 35 ms at 1x and 120–180 ms at 4x, paused or
   playing, and slower late (more items). Keeping the columns mounted while hidden would make Tab

@@ -375,7 +375,11 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-chip { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--faint); cursor: pointer; }
 .pl-chip.on { color: var(--brass); border-color: var(--brass-dim); }
 .pl-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; }
-.pl-ev { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid #ffffff0d; }
+/* A 40-minute match lists hundreds of events while a screenful shows: a row out of view is
+   skipped for style, layout and paint, so a playback frame doesn't walk every row (backlog:
+   hiding the list cut PrePaint 118 -> 27 ms). `auto` keeps the height a row had last drawn;
+   40px is the middle of the one to three lines a label takes. */
+.pl-ev { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid #ffffff0d; content-visibility: auto; contain-intrinsic-size: auto 40px; }
 .pl-ev-go { flex: 1; display: flex; gap: 8px; align-items: baseline; text-align: left; background: transparent; border: 0; color: inherit; padding: 4px 2px; cursor: pointer; font-size: 12px; }
 .pl-ev-go:hover { background: #ffffff0a; }
 .pl-ev.now { background: color-mix(in srgb, var(--brass) 18%, transparent); box-shadow: inset 3px 0 0 var(--brass); }
