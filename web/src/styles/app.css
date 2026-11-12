@@ -346,6 +346,9 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 /* The scene marks and event ticks sit in the scrubber's own top padding, inside its row, so they
    never reach the row above (QA 2026-11-08: marks drew over the tier chip). */
 .pl-scrub { position: relative; flex: 1; display: flex; align-items: center; padding-top: 16px; }
+/* The marker space scrubs on a press and drag (#45): a finger's sideways drag there is the
+   scrub's, not the page's, and a drag selects nothing. */
+.pl-scrub { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 .pl-scrub .match-range { width: 100%; }
 .pl-ticks { position: absolute; left: 7px; right: 7px; top: 12px; height: 6px; pointer-events: none; }
 /* A tick takes the pointer over a few px either side (::before); hovered it grows and shows its

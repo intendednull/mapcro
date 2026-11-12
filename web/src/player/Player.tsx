@@ -28,6 +28,7 @@ import { svgPoint } from "../board/Tokens";
 import { easedNumber } from "../board/smooth";
 import { mapToView, worldToMap, worldToView } from "../map/transform";
 import { EventsList } from "./Events";
+import { markerScrub } from "./scrubDrag";
 import { eventKey, jumpTime, namesFor, placeOf, shortLabel, tierLabel } from "./events";
 import type { PlayerHost } from "./host";
 import { type Vision, VISIONS, hasVision, visionForCode, visionKey } from "./vision";
@@ -140,6 +141,13 @@ export function Player(p: {
       const t = transportTime();
       h.setMode("player"); h.control.seek(t); h.control.play(true);
     } else h.control.play(!h.playback().playing);
+  });
+  let ticksRow: HTMLDivElement | undefined;
+  const scrubFromMarks = markerScrub({
+    track: () => ticksRow,
+    duration: () => h.tl()?.duration_s ?? 0,
+    marker: (el) => !!el.closest(".pl-tick, .pl-mark"),
+    seek: seekReplay,
   });
   /** Scenes saved from this match: markers on the scrubber. */
   const marks = createMemo(() => {
@@ -488,10 +496,12 @@ export function Player(p: {
                 }}>
                 <For each={SPEEDS}>{(s) => <option value={String(s)}>{s}×</option>}</For>
               </select>
-              <div class="pl-scrub">
+              {/* The marker space above the bar scrubs too (#45): a press and drag there scrubs as
+                  the bar does, a plain press on a marker still does the marker's thing. */}
+              <div class="pl-scrub" onPointerDown={(e) => { if (!(e.target as Element).closest(".match-range")) scrubFromMarks(e); }}>
                 {/* Events (#6): a hover grows the tick and shows its tag; a press jumps there, as
                     ↑ ↓ do (which is the keyboard's way: the ticks aren't in the tab order). */}
-                <div class="pl-ticks">
+                <div class="pl-ticks" ref={ticksRow}>
                   <For each={m().events ?? []}>{(e) => (
                     <button type="button" tabindex="-1" class={cx("pl-tick", e.kind, edge(e.t / Math.max(1, m().duration_s)))} data-testid="scrub-tick" data-t={e.t} data-kind={e.kind}
                       style={{ left: `${(e.t / Math.max(1, m().duration_s)) * 100}%` }}
