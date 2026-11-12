@@ -966,3 +966,26 @@ async fn a_board_becomes_a_session_and_stays_as_it_was() {
 fn links_like() -> String {
     "A".repeat(43)
 }
+
+/// §3.8: junk tabs open nothing. A tab naming one board with another board's grant opens neither
+/// the named board nor, once the real tab is gone, the grant's own board.
+#[tokio::test(flavor = "multi_thread")]
+async fn junk_tabs_open_nothing() {
+    let server = Server::start(&[]);
+    let p = server.port;
+    let session = server.create_session("Junk", None);
+    let mut editor = Raw::open(p, &session.id, &session.owner, 0xd1).await;
+    let real = add_board(&server, &session, &mut editor, "edit").await;
+    let (other, _) = server.create_board();
+    editor.submit(vec![mapcro_schema::Op::Create { id: rid(), record: tab_record(&other, &real.grant, "Junk") }]).await.expect("an editor may write junk");
+    let auth = grant_auth(&session.id, &real.grant, &session.owner);
+    assert_eq!(server.http_role(&other, &auth), None, "another board's grant opens nothing");
+    assert_eq!(ws_via(p, &other, &session.id, &real.grant, &session.owner).await.0, Joined::Closed(CloseReason::Unauthorized));
+    assert_eq!(server.http_role(&real.board, &auth), Some(LinkRole::Edit));
+    editor.submit(vec![mapcro_schema::Op::Delete { id: real.tab }]).await.expect("remove");
+    assert_eq!(server.http_role(&real.board, &auth), None, "a junk tab with the grant doesn't keep its board open");
+    assert_eq!(ws_via(p, &real.board, &session.id, &real.grant, &session.owner).await.0, Joined::Closed(CloseReason::Unauthorized));
+    let made_up = "z".repeat(22);
+    editor.submit(vec![mapcro_schema::Op::Create { id: rid(), record: tab_record(&real.board, &made_up, "Made up") }]).await.expect("junk");
+    assert_eq!(server.http_role(&real.board, &grant_auth(&session.id, &made_up, &session.owner)), None);
+}
