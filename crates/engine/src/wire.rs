@@ -26,6 +26,14 @@ impl LinkRole {
     }
 }
 
+/// The session and grant a board is opened through (`WireIn::Auth::via`). Neither is secret.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Via {
+    pub session: String,
+    pub grant: String,
+}
+
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
@@ -41,6 +49,11 @@ pub enum WireIn {
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional))]
         build: Option<String>,
+        /// Opening `board` as a session's tab (sessions spec §3.4): `token` is then the
+        /// session's token, and the access is the grant's, capped by the session role.
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        via: Option<Via>,
     },
     Msg { msg: ClientMsg },
     /// This client's presence, replacing its previous one. Ephemeral: never stored. Boxed: it's
@@ -64,12 +77,27 @@ pub enum WireOut {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "ts", ts(optional))]
         head: Option<u64>,
+        /// What the room is: a board, or a session (sessions spec §3.6). A page checks it is
+        /// what it expected. Absent from older servers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        kind: Option<RoomKind>,
     },
     Msg { msg: ServerMsg },
     /// Presence changes since the last batch; `state: null` means the peer left.
     Presence { peers: Vec<PeerPresence> },
     /// The server is closing this connection.
     Closed { reason: CloseReason },
+}
+
+/// What a room is (sessions spec §2.1). Board and session ids share a shape, so the server
+/// says which a connection joined.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RoomKind {
+    Board,
+    Session,
 }
 
 /// A document at a log position, from which a replica starts.

@@ -1,6 +1,7 @@
 //! mapcro-server. Config from env; binds 127.0.0.1:$PORT behind Caddy (infra contract).
 
 mod api;
+mod auth;
 mod boardfile;
 mod codec;
 mod config;
@@ -13,6 +14,7 @@ mod packs;
 mod replay_queue;
 mod replays;
 mod room;
+mod sessions;
 mod stats;
 mod store;
 mod ws;
@@ -32,6 +34,8 @@ pub struct AppState {
     pub store: store::Store,
     pub rooms: room::Rooms,
     pub limiter: Arc<api::CreateLimiter>,
+    /// Adding boards to sessions, per session link and per address (sessions.rs).
+    pub grants: Arc<sessions::GrantLimiter>,
     /// The feedback form's per-client and server-wide windows.
     pub feedback: Arc<feedback::Limiter>,
     /// Open WebSockets per client address key.
@@ -152,6 +156,7 @@ async fn serve() {
         ),
         store,
         limiter: Arc::new(api::CreateLimiter::default()),
+        grants: Arc::default(),
         feedback: Arc::default(),
         sockets: Arc::default(),
         base_sends: Arc::new(tokio::sync::Semaphore::new(ws::BASE_SENDS_KIB)),
@@ -177,6 +182,14 @@ async fn serve() {
         .route("/api/boards/{board}/owner/rotate", post(api::rotate_owner))
         .route("/api/boards/{board}/clone", post(api::clone_board))
         .route("/api/boards/{board}/export", get(boardfile::export))
+        // Sessions (docs/specs/sessions.md): {board} is the session's id, so the link handlers
+        // and the metrics' route labels are shared with boards.
+        .route("/api/sessions", post(sessions::create))
+        .route("/api/sessions/{board}/grants", post(sessions::add_grant))
+        .route("/api/sessions/{board}/grants/{grant}", delete(sessions::withdraw_grant))
+        .route("/api/sessions/{board}/links", post(api::mint_session_link).get(api::list_session_links))
+        .route("/api/sessions/{board}/links/{link}", delete(api::revoke_session_link))
+        .route("/api/sessions/{board}/owner/rotate", post(api::rotate_session_owner))
         .route("/api/packs", get(packs::list))
         .route("/api/matches/{id}", get(matches::get).layer(compression()))
         .route("/api/matches/{id}/preview", get(matches::preview))

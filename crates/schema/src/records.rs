@@ -1,4 +1,4 @@
-use crate::ids::{HeroId, LaneKey, ObjectiveKey, OrderKey, RecordId};
+use crate::ids::{BoardId, GrantId, HeroId, LaneKey, ObjectiveKey, OrderKey, RecordId};
 use serde::{Deserialize, Serialize};
 
 pub const SLOTS_PER_TEAM: u8 = 6;
@@ -34,6 +34,28 @@ pub enum ObjectiveStatus {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoardMeta {
     pub title: String,
+}
+
+/// A session's genesis record (sessions spec §2.2): a document holding one is a session, not a
+/// board. Never created or deleted by an edit.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionMeta {
+    pub title: String,
+    /// The session document's own format, for a later change to read older ones by.
+    pub version: u32,
+}
+
+/// One tab of a session: a board, opened through a grant (sessions spec §2.2, §3.2). `board`
+/// and `grant` are identity fields (no `FieldValue`), so a tab never comes to point elsewhere.
+/// Removing a tab deletes the record; undo restores it, through the same grant.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tab {
+    pub board: BoardId,
+    pub grant: GrantId,
+    pub name: String,
+    pub order: OrderKey,
 }
 
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
@@ -205,7 +227,8 @@ pub struct Note {
     pub text: String,
 }
 
-/// Every record a board can hold.
+/// Every record a document can hold: a board's kinds, then a session's (`SessionMeta`, `Tab`).
+/// A document is one or the other, by its genesis record (`Doc::kind`).
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Record {
@@ -219,6 +242,8 @@ pub enum Record {
     Note(Note),
     Stroke(Stroke),
     Wave(Wave),
+    SessionMeta(SessionMeta),
+    Tab(Tab),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -233,6 +258,15 @@ pub enum RecordKind {
     Note,
     Stroke,
     Wave,
+    SessionMeta,
+    Tab,
+}
+
+impl RecordKind {
+    /// A session's kinds; every other kind is a board's.
+    pub fn is_session(self) -> bool {
+        matches!(self, RecordKind::SessionMeta | RecordKind::Tab)
+    }
 }
 
 /// A value for one mutable field. Each variant names its field, so a `Set` can never write a
@@ -266,6 +300,9 @@ pub enum FieldValue {
     StrokeOffset(WorldPos),
     ArrowColor(Option<u8>),
     CalloutColor(Option<u8>),
+    SessionTitle(String),
+    TabName(String),
+    TabOrder(OrderKey),
 }
 
 /// The field a [`FieldValue`] writes, without its value.
@@ -296,10 +333,13 @@ pub enum Field {
     StrokeOffset,
     ArrowColor,
     CalloutColor,
+    SessionTitle,
+    TabName,
+    TabOrder,
 }
 
 impl Field {
-    pub const ALL: [Field; 25] = [
+    pub const ALL: [Field; 28] = [
         Field::Title,
         Field::RosterName,
         Field::RosterHero,
@@ -325,6 +365,9 @@ impl Field {
         Field::StrokeOffset,
         Field::ArrowColor,
         Field::CalloutColor,
+        Field::SessionTitle,
+        Field::TabName,
+        Field::TabOrder,
     ];
 }
 
@@ -356,6 +399,9 @@ impl FieldValue {
             FieldValue::StrokeOffset(_) => Field::StrokeOffset,
             FieldValue::ArrowColor(_) => Field::ArrowColor,
             FieldValue::CalloutColor(_) => Field::CalloutColor,
+            FieldValue::SessionTitle(_) => Field::SessionTitle,
+            FieldValue::TabName(_) => Field::TabName,
+            FieldValue::TabOrder(_) => Field::TabOrder,
         }
     }
 }
@@ -373,6 +419,8 @@ impl Record {
             Record::Note(_) => RecordKind::Note,
             Record::Stroke(_) => RecordKind::Stroke,
             Record::Wave(_) => RecordKind::Wave,
+            Record::SessionMeta(_) => RecordKind::SessionMeta,
+            Record::Tab(_) => RecordKind::Tab,
         }
     }
 
@@ -386,7 +434,7 @@ impl Record {
             Record::Note(r) => Some(r.scene),
             Record::Stroke(r) => Some(r.scene),
             Record::Wave(r) => Some(r.scene),
-            Record::BoardMeta(_) | Record::RosterSlot(_) | Record::Scene(_) => None,
+            Record::BoardMeta(_) | Record::RosterSlot(_) | Record::Scene(_) | Record::SessionMeta(_) | Record::Tab(_) => None,
         }
     }
 
@@ -400,7 +448,7 @@ impl Record {
             Record::Note(r) => Some(&mut r.scene),
             Record::Stroke(r) => Some(&mut r.scene),
             Record::Wave(r) => Some(&mut r.scene),
-            Record::BoardMeta(_) | Record::RosterSlot(_) | Record::Scene(_) => None,
+            Record::BoardMeta(_) | Record::RosterSlot(_) | Record::Scene(_) | Record::SessionMeta(_) | Record::Tab(_) => None,
         }
     }
 
@@ -433,6 +481,9 @@ impl Record {
             (Record::Stroke(r), Field::StrokeOffset) => V::StrokeOffset(r.offset),
             (Record::Arrow(r), Field::ArrowColor) => V::ArrowColor(r.color),
             (Record::Callout(r), Field::CalloutColor) => V::CalloutColor(r.color),
+            (Record::SessionMeta(r), Field::SessionTitle) => V::SessionTitle(r.title.clone()),
+            (Record::Tab(r), Field::TabName) => V::TabName(r.name.clone()),
+            (Record::Tab(r), Field::TabOrder) => V::TabOrder(r.order.clone()),
             _ => return None,
         })
     }
@@ -466,6 +517,9 @@ impl Record {
             (Record::Stroke(r), V::StrokeOffset(v)) => r.offset = v,
             (Record::Arrow(r), V::ArrowColor(v)) => r.color = v,
             (Record::Callout(r), V::CalloutColor(v)) => r.color = v,
+            (Record::SessionMeta(r), V::SessionTitle(v)) => r.title = v,
+            (Record::Tab(r), V::TabName(v)) => r.name = v,
+            (Record::Tab(r), V::TabOrder(v)) => r.order = v,
             _ => return false,
         }
         true

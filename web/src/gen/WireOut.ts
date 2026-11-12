@@ -3,6 +3,12 @@ import type { Base } from "./Base";
 import type { CloseReason } from "./CloseReason";
 import type { LinkRole } from "./LinkRole";
 import type { PeerPresence } from "./PeerPresence";
+import type { RoomKind } from "./RoomKind";
 import type { ServerMsg } from "./ServerMsg";
 
-export type WireOut = { "t": "ready", role: LinkRole, base: Base | null, peer: number, head?: number, } | { "t": "msg", msg: ServerMsg, } | { "t": "presence", peers: Array<PeerPresence>, } | { "t": "closed", reason: CloseReason, };
+export type WireOut = { "t": "ready", role: LinkRole, base: Base | null, peer: number, head?: number, 
+/**
+ * What the room is: a board, or a session (sessions spec §3.6). A page checks it is
+ * what it expected. Absent from older servers.
+ */
+kind?: RoomKind, } | { "t": "msg", msg: ServerMsg, } | { "t": "presence", peers: Array<PeerPresence>, } | { "t": "closed", reason: CloseReason, };

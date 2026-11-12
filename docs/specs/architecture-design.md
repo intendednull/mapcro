@@ -1642,6 +1642,9 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   - `boards`: id, schema version, head seq, latest snapshot and the seq it covers
   - `ops`: board id, seq, client id, client seq, transaction JSON, time. Append-only.
   - `links`: token hash, board id, role, label, created, revoked
+  - Since v7, `boards.kind` (`board` or `session`) and `session_grants` (session, grant id,
+    board, the grant's own `links` row, the session link that added it): a session is a room in
+    the same tables (sessions.md §2.1).
 - **Stored rows are compressed JSON.** Each op row and base document is the engine's JSON,
   compressed with zstd and a static 16 KiB dictionary trained from the simulation (`just zdict`,
   reproducible byte for byte; `crates/server/dict/ops-v1.zdict`). JSON stays the inner format so
@@ -1704,7 +1707,7 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   other raises it to the new version. A server older than the database opens it when its own
   version is at least the floor, with a warning, and leaves version and floor alone; migrations
   never run backwards. Below the floor, or with no floor recorded, it refuses to start. v6 (the
-  metrics tables) is additive, floor 5; the steps before it predate the rule and raised it. The
+  metrics tables) and v7 (sessions: `boards.kind`, `session_grants`) are additive, floor 5; the steps before it predate the rule and raised it. The
   server deployed before v6 doesn't read the floor, so rolling back the deploy that first reaches
   v6 means restoring the pre-deploy copy (docs/deploy.md, Rollbacks and backups).
 - **Tombstones:** deleted ids stay tombstoned in the board (and so in every base), so a rebased
@@ -1826,7 +1829,11 @@ later bind owner capabilities to a person.
   link can then be cleaned up in one step, together with anything its holder handed out.
 - View links can't mint.
 - **Sessions** (several boards as tabs, [sessions.md](sessions.md), draft) delegate board access
-  through grants that never exceed the adder's link, capped at edit (sessions.md §3).
+  through grants that never exceed the adder's link, capped at edit (sessions.md §3). Server side
+  built (2026-11-12, phase 1): every credential is resolved in one place, `auth::resolve`, which
+  takes a board or session link (`Authorization: Bearer`) or a session's grant on a board
+  (`Authorization: Grant <session>.<grant>.<token>`, `Auth.via` on the socket), and every route
+  asserts the kind of room it serves. Access through a session is at most edit and can't share.
 - **"Your boards" (the landing's list, operator, 2026-11-11)** is the links this device holds
   (`core/device.ts`, localStorage), newest opened first. Each row shows the board's current title
   (freshened whenever the board is open here, so a rename by anyone shows), a match board's id

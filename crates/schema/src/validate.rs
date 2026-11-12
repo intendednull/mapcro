@@ -1,7 +1,7 @@
 //! The board's rules. Every op is checked here before it touches the document, on both the
 //! server and the client, so an invalid board cannot be built through the public API.
 
-use crate::doc::Doc;
+use crate::doc::{Doc, DocKind};
 use crate::ids::RecordId;
 use crate::records::{FieldValue, Record, RecordKind, SLOTS_PER_TEAM, WorldPos};
 use crate::{Op, OpOutcome};
@@ -25,6 +25,10 @@ pub struct Limits {
     /// note carries the note twice, about 32 KB), so any one legal op always fits, and the
     /// server's frame cap follows from this (security review 2026-11-07, C1).
     pub max_tx_bytes: usize,
+    /// `Tab` records in one session, removed ones included (they are kept as tombstones):
+    /// "no hard limit" in practice, and a bound on what one edit link can make the server hold
+    /// (sessions spec §2.2, decided §12).
+    pub max_tabs: usize,
 }
 
 impl Limits {
@@ -51,6 +55,7 @@ pub const LIMITS: Limits = Limits {
     max_stroke_points: 512,
     max_coord: 16384,
     max_tx_bytes: 64 * 1024,
+    max_tabs: 2000,
 };
 
 // Every legal op fits in a transaction on its own.
@@ -72,6 +77,7 @@ impl Limits {
             ("max_label", self.max_label),
             ("max_stroke_points", self.max_stroke_points),
             ("max_tx_bytes", self.max_tx_bytes),
+            ("max_tabs", self.max_tabs),
         ];
         let mut out = String::from("// Generated from crates/schema/src/validate.rs `LIMITS` by `just ts`. Do not edit.\n\n/** The schema's limits, in characters (Unicode scalar values) where they're text. */\nexport const LIMITS = {\n");
         for (k, v) in fields {
@@ -160,6 +166,12 @@ pub enum Reject {
     /// The server's storage is at its cap; no board takes edits until the operator makes room.
     #[error("server storage is full")]
     ServerFull,
+    /// A session's record in a board, or a board's in a session (sessions spec §2.2).
+    #[error("this record does not belong in this kind of document")]
+    WrongDocKind,
+    /// The session holds `Limits::max_tabs` tabs, removed ones included.
+    #[error("session full")]
+    SessionFull,
 }
 
 pub(crate) fn check_text(s: &str, max: usize) -> Result<(), Reject> {
@@ -191,7 +203,9 @@ fn check_pos(p: WorldPos) -> Result<(), Reject> {
 fn check_value(v: &FieldValue) -> Result<(), Reject> {
     use FieldValue as V;
     match v {
-        V::Title(s) => check_line(s, LIMITS.max_title),
+        V::Title(s) | V::SessionTitle(s) => check_line(s, LIMITS.max_title),
+        V::TabName(s) => check_line(s, LIMITS.max_name),
+        V::TabOrder(k) => if k.is_valid() { Ok(()) } else { Err(Reject::BadOrderKey) },
         V::RosterName(s) | V::SceneName(s) => check_text(s, LIMITS.max_name),
         V::CalloutText(s) => check_text(s, LIMITS.max_callout),
         V::NoteText(s) => check_text(s, LIMITS.max_note),
@@ -219,9 +233,26 @@ fn check_value(v: &FieldValue) -> Result<(), Reject> {
 /// Field-level checks for a whole record, as created.
 fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
     let live_scene = |id: RecordId| matches!(doc.live(id), Some(Record::Scene(_)));
+    // A session's genesis record is never created by an edit, in either kind of document.
+    if matches!(r, Record::SessionMeta(_)) {
+        return Err(Reject::Immutable);
+    }
+    // Each kind of document holds only its own kinds of record (sessions spec §2.2).
+    if r.kind().is_session() != (doc.kind() == DocKind::Session) {
+        return Err(Reject::WrongDocKind);
+    }
     match r {
         // Board metadata and the roster exist from genesis and are never created by an edit.
-        Record::BoardMeta(_) | Record::RosterSlot(_) => Err(Reject::Immutable),
+        Record::BoardMeta(_) | Record::RosterSlot(_) | Record::SessionMeta(_) => Err(Reject::Immutable),
+        Record::Tab(t) => {
+            // Shape only: whether the board and grant exist is the server's question, asked on
+            // open (sessions spec §3.4); a made-up one is a tab that reads "No access".
+            if !t.board.is_valid() || !t.grant.is_valid() {
+                return Err(Reject::BadText);
+            }
+            check_line(&t.name, LIMITS.max_name)?;
+            if t.order.is_valid() { Ok(()) } else { Err(Reject::BadOrderKey) }
+        }
         Record::Scene(s) => {
             check_text(&s.name, LIMITS.max_name)?;
             check_value(&FieldValue::SceneClock(s.clock))?;
@@ -372,7 +403,7 @@ pub(crate) fn apply_op(doc: &mut Doc, op: &Op) -> Result<OpOutcome, Reject> {
             let entry = doc.entry_mut(*id).ok_or(Reject::NoSuchRecord)?;
             match entry.record.kind() {
                 // Player states live and die with their scene.
-                RecordKind::BoardMeta | RecordKind::RosterSlot | RecordKind::PlayerState => Err(Reject::Immutable),
+                RecordKind::BoardMeta | RecordKind::RosterSlot | RecordKind::PlayerState | RecordKind::SessionMeta => Err(Reject::Immutable),
                 _ if entry.deleted => Ok(OpOutcome::Skipped),
                 _ => {
                     entry.deleted = true;
@@ -394,6 +425,12 @@ pub(crate) fn apply_op(doc: &mut Doc, op: &Op) -> Result<OpOutcome, Reject> {
 /// Whole-board invariants, checked after every transaction.
 #[allow(clippy::collapsible_match)] // one arm per record kind reads better here
 pub(crate) fn check_invariants(doc: &Doc) -> Result<(), Reject> {
+    if doc.kind() == DocKind::Session {
+        return check_session(doc);
+    }
+    if doc.iter().any(|(_, e)| e.record.kind().is_session()) {
+        return Err(Reject::WrongDocKind);
+    }
     let mut scenes = BTreeSet::new();
     let mut slots = BTreeSet::new();
     let (mut metas, mut amber, mut sapphire) = (0, 0, 0);
@@ -462,4 +499,140 @@ pub(crate) fn check_invariants(doc: &Doc) -> Result<(), Reject> {
         }
     }
     Ok(())
+}
+
+/// A session's invariants: exactly one live `SessionMeta`, only session records, and at most
+/// `max_tabs` tabs, removed ones included.
+fn check_session(doc: &Doc) -> Result<(), Reject> {
+    let (mut metas, mut tabs) = (0, 0);
+    for (_, e) in doc.iter() {
+        match &e.record {
+            Record::SessionMeta(_) if !e.deleted => metas += 1,
+            Record::SessionMeta(_) => {}
+            Record::Tab(_) => tabs += 1,
+            _ => return Err(Reject::WrongDocKind),
+        }
+    }
+    if metas != 1 {
+        return Err(Reject::Immutable);
+    }
+    if tabs > LIMITS.max_tabs {
+        return Err(Reject::SessionFull);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod sessions {
+    use crate::{
+        BoardId, ClientId, DocKind, FieldValue, GrantId, Op, OrderKey, Record, RecordId, Reject, SessionMeta, Tab, Tx, TxKind,
+        apply_tx, genesis, session_genesis, validate_doc, LIMITS,
+    };
+
+    fn ids(from: u128) -> impl FnMut() -> RecordId {
+        let mut n = from;
+        move || {
+            n += 1;
+            RecordId(n)
+        }
+    }
+
+    fn tab(name: &str) -> Record {
+        Record::Tab(Tab { board: BoardId("b".repeat(22)), grant: GrantId("g".repeat(22)), name: name.into(), order: OrderKey::first() })
+    }
+
+    fn tx(ops: Vec<Op>) -> Tx {
+        Tx { client: ClientId(1), cseq: 0, kind: TxKind::Edit, ops }
+    }
+
+    fn session() -> crate::Doc {
+        session_genesis(ids(0), "Scrims", &[(BoardId("a".repeat(22)), GrantId("c".repeat(22)), "Game 1".into())])
+    }
+
+    #[test]
+    fn a_session_is_known_by_its_genesis_and_keeps_its_kind_through_json() {
+        let s = session();
+        assert_eq!(s.kind(), DocKind::Session);
+        validate_doc(&s).expect("a fresh session is valid");
+        let back: crate::Doc = serde_json::from_str(&serde_json::to_string(&s).expect("json")).expect("doc");
+        assert_eq!(back.kind(), DocKind::Session);
+        assert_eq!(back, s);
+        assert_eq!(genesis(ids(100), "b").kind(), DocKind::Board);
+    }
+
+    #[test]
+    fn tabs_are_added_renamed_reordered_removed_and_restored() {
+        let mut s = session();
+        let t = RecordId(50);
+        apply_tx(&mut s, &tx(vec![Op::Create { id: t, record: tab("Game 2") }])).expect("add");
+        apply_tx(&mut s, &tx(vec![Op::Set { id: t, value: FieldValue::TabName("Final".into()) }])).expect("rename");
+        apply_tx(&mut s, &tx(vec![Op::Set { id: t, value: FieldValue::TabOrder(OrderKey("a".into())) }])).expect("reorder");
+        apply_tx(&mut s, &tx(vec![Op::Delete { id: t }])).expect("remove");
+        assert!(s.live(t).is_none());
+        apply_tx(&mut s, &tx(vec![Op::Restore { id: t }])).expect("undo restores");
+        let Some(Record::Tab(back)) = s.live(t) else { panic!("tab back") };
+        assert_eq!((back.name.as_str(), back.board.0.as_str(), back.grant.0.as_str()), ("Final", "b".repeat(22).as_str(), "g".repeat(22).as_str()));
+        let meta = s.iter_live().find(|(_, r)| matches!(r, Record::SessionMeta(_))).map(|(id, _)| id).expect("meta");
+        apply_tx(&mut s, &tx(vec![Op::Set { id: meta, value: FieldValue::SessionTitle("Block B".into()) }])).expect("retitle");
+    }
+
+    #[test]
+    fn each_kind_of_document_refuses_the_others_records() {
+        let mut board = genesis(ids(0), "b");
+        let scene = board.iter_live().find(|(_, r)| matches!(r, Record::Scene(_))).map(|(id, _)| id).expect("scene");
+        assert_eq!(apply_tx(&mut board, &tx(vec![Op::Create { id: RecordId(900), record: tab("x") }])), Err(Reject::WrongDocKind));
+        let meta = Record::SessionMeta(SessionMeta { title: "s".into(), version: 1 });
+        assert_eq!(apply_tx(&mut board, &tx(vec![Op::Create { id: RecordId(901), record: meta.clone() }])), Err(Reject::Immutable));
+        assert_eq!(board.kind(), DocKind::Board, "a refused SessionMeta leaves a board a board");
+
+        let mut s = session();
+        let note = Record::Note(crate::Note { scene, text: "n".into() });
+        let stroke = Record::Stroke(crate::Stroke { scene, points: vec![Default::default(); 2], color: 0, width: 10, offset: Default::default() });
+        let scene_rec = Record::Scene(crate::Scene { name: String::new(), order: OrderKey::first(), clock: None, source: None, live: false, parent: None });
+        for r in [note, stroke, scene_rec] {
+            assert_eq!(apply_tx(&mut s, &tx(vec![Op::Create { id: RecordId(902), record: r }])), Err(Reject::WrongDocKind));
+        }
+        assert_eq!(apply_tx(&mut s, &tx(vec![Op::Create { id: RecordId(903), record: meta }])), Err(Reject::Immutable));
+        let smeta = s.iter_live().find(|(_, r)| matches!(r, Record::SessionMeta(_))).map(|(id, _)| id).expect("meta");
+        assert_eq!(apply_tx(&mut s, &tx(vec![Op::Delete { id: smeta }])), Err(Reject::Immutable));
+        // A board's field on a session's record, and the other way round.
+        assert_eq!(apply_tx(&mut s, &tx(vec![Op::Set { id: smeta, value: FieldValue::Title("t".into()) }])), Err(Reject::WrongField));
+        let bmeta = board.iter_live().find(|(_, r)| matches!(r, Record::BoardMeta(_))).map(|(id, _)| id).expect("meta");
+        assert_eq!(apply_tx(&mut board, &tx(vec![Op::Set { id: bmeta, value: FieldValue::SessionTitle("t".into()) }])), Err(Reject::WrongField));
+    }
+
+    #[test]
+    fn a_tab_is_checked_for_shape() {
+        let mut s = session();
+        let bad_board = Record::Tab(Tab { board: BoardId("short".into()), grant: GrantId("g".repeat(22)), name: "x".into(), order: OrderKey::first() });
+        let bad_grant = Record::Tab(Tab { board: BoardId("b".repeat(22)), grant: GrantId("g/".repeat(11)), name: "x".into(), order: OrderKey::first() });
+        let long = Record::Tab(Tab { board: BoardId("b".repeat(22)), grant: GrantId("g".repeat(22)), name: "n".repeat(LIMITS.max_name + 1), order: OrderKey::first() });
+        let bad_order = Record::Tab(Tab { board: BoardId("b".repeat(22)), grant: GrantId("g".repeat(22)), name: "x".into(), order: OrderKey("i0".into()) });
+        assert_eq!(apply_tx(&mut s, &tx(vec![Op::Create { id: RecordId(60), record: bad_board }])), Err(Reject::BadText));
+        assert_eq!(apply_tx(&mut s, &tx(vec![Op::Create { id: RecordId(60), record: bad_grant }])), Err(Reject::BadText));
+        assert_eq!(apply_tx(&mut s, &tx(vec![Op::Create { id: RecordId(60), record: long }])), Err(Reject::TextTooLong));
+        assert_eq!(apply_tx(&mut s, &tx(vec![Op::Create { id: RecordId(60), record: bad_order }])), Err(Reject::BadOrderKey));
+        assert_eq!(apply_tx(&mut s, &tx(vec![Op::Create { id: RecordId(60), record: tab("a\nb") }])), Err(Reject::BadText));
+    }
+
+    #[test]
+    fn a_session_holds_at_most_max_tabs_removed_ones_included() {
+        let mut s = session(); // one tab already
+        let mut next = 1000u128;
+        let mut created = Vec::new();
+        while created.len() + 1 < LIMITS.max_tabs {
+            let n = (LIMITS.max_tabs - 1 - created.len()).min(LIMITS.max_ops_per_tx);
+            let ops: Vec<Op> = (0..n)
+                .map(|_| {
+                    next += 1;
+                    created.push(RecordId(next));
+                    Op::Create { id: RecordId(next), record: tab("t") }
+                })
+                .collect();
+            apply_tx(&mut s, &tx(ops)).expect("under the cap");
+        }
+        // Removing tabs doesn't make room: tombstones count.
+        apply_tx(&mut s, &tx(created[..10].iter().map(|id| Op::Delete { id: *id }).collect())).expect("remove");
+        assert_eq!(apply_tx(&mut s, &tx(vec![Op::Create { id: RecordId(999_999), record: tab("one more") }])), Err(Reject::SessionFull));
+    }
 }
