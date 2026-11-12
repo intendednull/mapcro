@@ -77,6 +77,10 @@ it("matches the linear reference on random sorted series and every t shape", () 
     for (let i = 0; i < 10; i++) times.add(rand() * 60);
     for (const t of times) expect(buildAt(player, t)).toEqual(referenceBuildAt(player, t));
   }
+  // Wanted ids with no rows at all in a series (most owned items never cast, most abilities
+  // never stack).
+  const sparse: PlayerBuild = { items: [[0, 1, 0], [0, 2, 0], [5, 3, 0]], abilities: [[0, 9, 1]], casts: [[10, 1, 40], [20, 1, 0]], charges: [[30, 2, 2]] };
+  for (const t of [0, 0.5, 1, 2, 3, 4, 10, 100]) expect(buildAt(sparse, t)).toEqual(referenceBuildAt(sparse, t));
 });
 
 it("looks up casts without scanning all of them", () => {
@@ -91,12 +95,36 @@ it("looks up casts without scanning all of them", () => {
     },
   });
   const player: PlayerBuild = { items: [[0, 100, 0]], abilities: ids.map((id) => [0, id, 1]), casts: counted };
+  buildAt(player, n / 10); // the per-array index's one pass
   reads = 0;
   const build = buildAt(player, n / 10);
   expect(build.abilities?.map((a) => a.id)).toEqual(ids);
   // A binary search plus one step per wanted id; the linear version read all 10,000.
   expect(reads).toBeLessThan(100);
   expect(reads).toBeLessThan(n / 10);
+});
+
+it("does not walk back through casts for ids that never cast", () => {
+  // A real build: six owned items, two of them active and cast; the rest never appear.
+  const n = 10_000;
+  const castIds = [200, 201];
+  const owned = [200, 201, 202, 203, 204, 205];
+  const rows: [number, number, number][] = Array.from({ length: n }, (_, i) => [i, castIds[i % castIds.length]!, 0]);
+  let reads = 0;
+  const counted = new Proxy(rows, {
+    get(target, prop, receiver) {
+      if (typeof prop === "string" && /^\d+$/.test(prop)) reads++;
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  const player: PlayerBuild = { items: owned.map((id) => [0, id, 0]), casts: counted };
+  buildAt(player, n / 10); // the per-array index's one pass
+  reads = 0;
+  const build = buildAt(player, n / 10);
+  expect(build.items?.map((e) => e.id)).toEqual(owned);
+  // One binary search per id that has rows; ids with none cost nothing. The linear version read
+  // all 10,000 to look for the four that never cast.
+  expect(reads).toBeLessThan(200);
 });
 
 it("distinguishes unavailable builds from tracked empty builds", () => {

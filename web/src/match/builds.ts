@@ -34,14 +34,37 @@ function lastAtOrBefore<T>(arr: ReadonlyArray<T>, t: number, getT: (entry: T) =>
   return found;
 }
 
-/** Each wanted id's value from the latest row at or before `end`. Rows are sorted by time, so
- * walking back from the end reads only as far as the last row of each wanted id, not all of them. */
+/** Each row array's ids to the row indices where they occur, in time order. Built once per array:
+ * timelines are never mutated after load (player/host.ts replaces the timeline wholesale), and a
+ * WeakMap keyed by the array holds nothing past it. */
+const INDEX = new WeakMap<ReadonlyArray<readonly [number, number, number]>, Map<number, number[]>>();
+
+function indicesById(rows: ReadonlyArray<readonly [number, number, number]>): Map<number, number[]> {
+  let byId = INDEX.get(rows);
+  if (!byId) {
+    byId = new Map();
+    for (let i = 0; i < rows.length; i++) {
+      const id = rows[i]![1];
+      const at = byId.get(id);
+      if (at) at.push(i);
+      else byId.set(id, [i]);
+    }
+    INDEX.set(rows, byId);
+  }
+  return byId;
+}
+
+/** Each wanted id's value from the latest row at or before `end`: one binary search in that id's
+ * index list, so ids with no rows cost nothing and the walk never crosses the whole array. */
 function latestById(rows: ReadonlyArray<readonly [number, number, number]> | undefined, end: number, want: ReadonlySet<number>): Map<number, number> {
   const out = new Map<number, number>();
   if (rows == null || want.size === 0) return out;
-  for (let i = lastAtOrBefore(rows, end, (row) => row[0]); i >= 0 && out.size < want.size; i--) {
-    const [, id, value] = rows[i]!;
-    if (want.has(id) && !out.has(id)) out.set(id, value);
+  const byId = indicesById(rows);
+  for (const id of want) {
+    const at = byId.get(id);
+    if (!at) continue;
+    const k = lastAtOrBefore(at, end, (i) => rows[i]![0]);
+    if (k >= 0) out.set(id, rows[at[k]!]![2]);
   }
   return out;
 }
