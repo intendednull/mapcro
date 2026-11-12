@@ -1810,7 +1810,7 @@ later bind owner capabilities to a person.
 | Malicious edit-link holder | Typed op validation, per-record and per-board size caps, per-transaction size cap, per-board history quota (§9), per-session op rate limit, owner restores from version history (not built yet; until then, clone) |
 | Cross-site WebSocket hijacking | `Origin` allow-list on upgrade; no cookies, so no ambient authority |
 | XSS via names, notes, callouts | All user text rendered as text, never HTML; strict CSP; no user-supplied URLs or images |
-| Hostile board files | Import's body and depth caps, the schema's checks on every record, fresh ids, shared creation limits, fixed refusal codes (Board files, below) |
+| Hostile board files | Import's body, board-size and depth caps, nothing read before the limits pass, a read deadline and four imports at once, JSON from the site only, the schema's checks on every record, fresh ids, shared creation limits, fixed refusal codes; downloads under a server-wide memory budget (Board files, below) |
 | Storage spam (anonymous board creation) | Per-IP creation rate limit plus a global hourly cap, max board size and history quota, total board and database caps (§9), idle-board expiry (Q3, not built) |
 | Room flooding | Max sessions per room, sockets per address, presence rate limit, message size cap, open-room cap and room memory budget with early unload of idle rooms, outbox caps in frames and bytes |
 | View link as a write primitive | A view connection registers no client id and stores nothing; only an id someone registered by editing is checked against its secret (security review 2026-11-07, H-B) |
@@ -1822,10 +1822,20 @@ document reaches the server from outside. For the security review:
 
 - **Limits:** the body is capped at 8 MiB (`boardfile::MAX_BYTES`, the largest board the server
   sends as one snapshot frame; real boards are kilobytes to a few hundred, and the schema's
-  ~64 MB maximum would not fit the room memory budget as a request), by the route before the
-  handler (`413`). Nesting deeper than 10 (the format's deepest value is at 7) is refused by one
-  pass over the bytes before any parse. The header is parsed alone first (the rest skipped
-  unread), then the body into its types once, off the async threads. At most 20 match ids.
+  ~64 MB maximum would not fit the room memory budget as a request), by its stated length
+  before any of it is read (`413`; no stated length, `411`). So is the board it makes: the
+  board's own JSON, and its file as a download would write it, must fit the same 8 MiB, since a
+  file can be shorter than its board (a point written `[0,0]`). Nesting deeper than 10 (the
+  format's deepest value is at 7) is refused by one pass over the bytes before any parse. The
+  header is parsed alone first (the rest skipped unread), then the body into its types once,
+  off the async threads. At most 20 match ids.
+- **Before the body is read** (security review 2026-11-11, F2 and F4): the request must say
+  `content-type: application/json` (`415`), which a cross-site page can't send without a
+  preflight nothing answers, and an `Origin`, if it has one, must be the site's
+  (`PUBLIC_ORIGIN`, `403`; the desktop app loads the site, so it is the site's). Then a free
+  import slot (`boardfile::IMPORTS_AT_ONCE`, 4 server-wide; else `503 busy`, no attempt spent)
+  and the creation limits. Only then is the body read, and it must arrive within 15 s
+  (`IMPORT_READ`; else `408`), so a stalled or refused upload holds no body and no slot for long.
 - **Checks:** every record goes through an edit's `Create` checks (text caps and control
   characters, coordinates, stroke points, palette, enums, order keys, scene references, the
   scene tree without cycles), the title and roster through the checks genesis makes true (one
@@ -1841,11 +1851,18 @@ document reaches the server from outside. For the security review:
   and storage caps), and an attempt counts whether or not its file is good: the parse is the cost.
 - **Nothing reaches disk by the file's say:** no path or file name is taken from it; match ids are
   digits, written to the board's match list as an attach writes it. Refusals are fixed codes
-  (`newer`, `not_a_board`, `invalid`, `too_deep`, `too_large`, `rate_limited`), never parser text,
-  so no part of a file is echoed.
+  (`newer`, `not_a_board`, `invalid`, `too_deep`, `too_large`, `rate_limited`, `busy`,
+  `timeout`, `content_type`, `origin`, `length_required`), never parser text, so no part of a
+  file is echoed.
 - **Export** (`GET /api/boards/{board}/export`) asks for any live link to the board, as Clone
-  does, writes only what §6 lists, and refuses a board over 8 MiB rather than write a file the
-  server couldn't import (TD-43).
+  (live: a revoked link can do neither), writes only what §6 lists, and refuses a board over
+  8 MiB rather than write a file the server couldn't import (TD-43). The size is the room's
+  snapshot of the whole document (deleted records too; taken again if the board has moved), so
+  that refusal comes before anything is copied. The copy and the file are then built under a
+  server-wide budget, `boardfile::EXPORT_BUDGET_KIB` (32 MiB, each download counting twice the
+  board's JSON); one past it is refused (`503 busy`, "Try later"), not queued (F1: unbounded,
+  eight at once of the largest board peaked at 436 MB). A title is one line on every path: an
+  edit can't make it two, and a board stored before that was refused is written with a space.
 
 **Address rotation (IPv6 /64), accepted.** Per-address limits key on an IPv4 address or an IPv6
 /64, and someone with a routed /56 or /48 holds many /64s. That is left as is (security review

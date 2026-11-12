@@ -113,3 +113,42 @@ fn port_after(line: &str, prefix: &str) -> Option<u16> {
 pub fn dead_port() -> u16 {
     TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).expect("port")
 }
+
+/// The largest board a file may make (`boardfile::MAX_BYTES`, the snapshot cap).
+pub const BOARD_FILE_MAX: usize = 8 * 1024 * 1024;
+
+/// A stroke of the most points, all at a corner: the most JSON a stroke can be.
+pub fn heavy_stroke(scene: mapcro_schema::RecordId) -> mapcro_schema::Record {
+    let corner = mapcro_schema::WorldPos { x: -mapcro_schema::LIMITS.max_coord, y: -mapcro_schema::LIMITS.max_coord };
+    mapcro_schema::Record::Stroke(mapcro_schema::Stroke { scene, points: vec![corner; mapcro_schema::LIMITS.max_stroke_points], color: 0, width: 10, offset: mapcro_schema::WorldPos::default() })
+}
+
+/// A board file whose board, as the server holds it (the document's JSON), is within one stroke
+/// under `BOARD_FILE_MAX - margin`: genesis and heavy strokes in its scene.
+pub fn large_board_file(margin: usize) -> serde_json::Value {
+    use mapcro_schema::{Doc, Op, Record, RecordId, Tx, TxKind};
+    let mut n = 0u128;
+    let mut doc = mapcro_schema::genesis(
+        || {
+            n += 1;
+            RecordId(n)
+        },
+        "Large",
+    );
+    let scene = doc.iter_live().find(|(_, r)| matches!(r, Record::Scene(_))).map(|(id, _)| id).expect("scene");
+    let add = |doc: &mut Doc, i: u128| {
+        let tx = Tx { client: mapcro_schema::ClientId(1), cseq: 0, kind: TxKind::Edit, ops: vec![Op::Create { id: RecordId(10_000 + i), record: heavy_stroke(scene) }] };
+        mapcro_schema::apply_tx(doc, &tx).expect("a stroke");
+    };
+    let len = |doc: &Doc| serde_json::to_vec(doc).expect("json").len();
+    add(&mut doc, 0);
+    let one = len(&doc);
+    add(&mut doc, 1);
+    let each = len(&doc) - one;
+    let target = BOARD_FILE_MAX - margin;
+    for i in 2..(1 + (target - one) / each) as u128 {
+        add(&mut doc, i);
+    }
+    assert!(len(&doc) <= target && len(&doc) + each > target, "{} of {target}", len(&doc));
+    serde_json::json!({ "format": "mapcro-board", "version": 1, "build": "test", "exported_at": 0, "records": mapcro_schema::export_records(&doc), "matches": [] })
+}

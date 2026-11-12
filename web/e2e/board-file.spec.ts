@@ -200,6 +200,18 @@ test("a refused file says why in a tag, and makes no board", async ({ browser })
     window.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
   }, newer.toString());
   await expect(p.getByTestId("import-error")).toHaveText("Newer file");
+  // Another JSON file dropped isn't sent: it isn't a board's download, and a send would spend
+  // a creation attempt to be told so.
+  const sent: string[] = [];
+  p.on("request", (r) => r.url().includes("/api/boards/import") && sent.push(r.url()));
+  await p.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(['{"hello": "world"}'], "notes.json", { type: "application/json" }));
+    window.dispatchEvent(new DragEvent("dragenter", { dataTransfer: dt, bubbles: true, cancelable: true }));
+    window.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+  });
+  await expect(p.getByTestId("import-error")).toHaveText("Not a board");
+  expect(sent).toEqual([]);
   await expect(p).toHaveURL(`${server.url}/`);
   await expect(p.getByTestId("known-boards")).toHaveCount(0);
 });

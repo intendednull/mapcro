@@ -38,6 +38,10 @@ pub struct AppState {
     pub packs: Arc<packs::Packs>,
     /// Bytes of fresh-join base frames being built and sent at once, in KiB (ws.rs).
     pub base_sends: Arc<tokio::sync::Semaphore>,
+    /// Board downloads being built at once, by the KiB they hold (boardfile.rs).
+    pub exports: Arc<tokio::sync::Semaphore>,
+    /// Board imports reading or parsing at once (boardfile.rs).
+    pub imports: Arc<tokio::sync::Semaphore>,
 }
 
 /// Gzip or zstd for a client that accepts it: for the timeline routes, whose JSON is 1–2 MB and
@@ -150,6 +154,8 @@ async fn serve() {
         feedback: Arc::default(),
         sockets: Arc::default(),
         base_sends: Arc::new(tokio::sync::Semaphore::new(ws::BASE_SENDS_KIB)),
+        exports: Arc::new(tokio::sync::Semaphore::new(boardfile::EXPORT_BUDGET_KIB)),
+        imports: Arc::new(tokio::sync::Semaphore::new(boardfile::IMPORTS_AT_ONCE)),
         config: Arc::new(config.clone()),
     };
     replays::spawn(state.clone());

@@ -26,8 +26,12 @@ pub fn export_records(doc: &Doc) -> Vec<(RecordId, Record)> {
         .filter(|(_, r)| r.scene().is_none_or(live_scene))
         .map(|(id, r)| {
             let mut r = r.clone();
-            if let Record::Scene(s) = &mut r {
-                s.parent = live_ancestor(doc, s.parent);
+            match &mut r {
+                Record::Scene(s) => s.parent = live_ancestor(doc, s.parent),
+                // A title is one line (an import refuses two). Edits took a newline before
+                // 2026-11-11, so a stored board can hold one: it's written as a space.
+                Record::BoardMeta(m) if m.title.contains('\n') => m.title = m.title.replace('\n', " "),
+                _ => {}
             }
             (id, r)
         })
@@ -96,13 +100,7 @@ pub fn import_records(records: Vec<(RecordId, Record)>, mut next_id: impl FnMut(
     let mut seats = BTreeSet::new();
     for (id, r) in meta_roster {
         match &r {
-            // A title is one line: no control characters at all, newlines included.
-            Record::BoardMeta(m) => {
-                validate::check_text(&m.title, LIMITS.max_title)?;
-                if m.title.contains('\n') {
-                    return Err(Reject::BadText);
-                }
-            }
+            Record::BoardMeta(m) => validate::check_line(&m.title, LIMITS.max_title)?,
             Record::RosterSlot(s) => {
                 validate::check_text(&s.name, LIMITS.max_name)?;
                 if s.slot >= SLOTS_PER_TEAM {
@@ -251,6 +249,24 @@ mod tests {
         // The scene under the deleted one moves up to where the board shows it.
         assert!(file.iter().any(|(id, r)| *id == RecordId(501) && matches!(r, Record::Scene(sc) if sc.parent == Some(s))));
         import_records(file, counter(10_000)).expect("still a whole board");
+    }
+
+    /// A title is one line on every path: an edit can't make it two (security review F5: a
+    /// two-line title made every download of its board unimportable), and a board stored
+    /// before edits refused one is written with a space.
+    #[test]
+    fn a_title_is_one_line() {
+        let mut doc = board();
+        let meta = doc.iter_live().find(|(_, r)| matches!(r, Record::BoardMeta(_))).map(|(id, _)| id).expect("meta");
+        let set = |t: &str| Tx { client: crate::ClientId(1), cseq: 0, kind: TxKind::Edit, ops: vec![Op::Set { id: meta, value: crate::FieldValue::Title(t.into()) }] };
+        assert_eq!(apply_tx(&mut doc, &set("two\nlines")), Err(Reject::BadText));
+        assert_eq!(apply_tx(&mut doc, &set("bell\u{7}")), Err(Reject::BadText));
+        apply_tx(&mut doc, &set("one line")).expect("a title");
+
+        let stored = crate::retitle(board(), "two\nlines");
+        let mut file = export_records(&stored);
+        assert_eq!(title_of(&mut file), "two lines");
+        import_records(file, counter(10_000)).expect("its download imports");
     }
 
     fn with(mut file: Vec<(RecordId, Record)>, f: impl FnOnce(&mut Vec<(RecordId, Record)>)) -> Vec<(RecordId, Record)> {

@@ -6,12 +6,26 @@
 /** The server's cap on a board file (`boardfile::MAX_BYTES`). */
 export const MAX_FILE_BYTES = 8 * 1024 * 1024;
 
-export const isBoardFile = (name: string) => /\.json$/i.test(name);
+/** A JSON file: what the landing's drop takes as a board file rather than a replay. */
+export const isJsonFile = (name: string) => /\.json$/i.test(name);
 
-/** `<title>.mapcro.json`, with what a file system refuses replaced. */
+/** A board's download, by its name: `<title>.mapcro.json`, or as a browser renames a second
+ * copy (`<title>.mapcro (1).json`). Only these are sent when dropped; another JSON file isn't
+ * a board, and sending it would spend a creation attempt to be told so. */
+export const isBoardFile = (name: string) => /\.mapcro(?: ?\(\d+\))?\.json$/i.test(name);
+
+/** Names Windows keeps for devices, alone or before any extension (`CON.mapcro.json`). */
+const RESERVED = /^(?:con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])$/i;
+
+/** `<title>.mapcro.json`, with what a file system refuses replaced, and the marks that would
+ * make the name read other than it is (bidi overrides) taken out. At most 80 characters. */
 export function fileName(title: string): string {
-  // eslint-disable-next-line no-control-regex
-  const base = title.replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, "_").replace(/^[\s.]+|[\s.]+$/g, "").slice(0, 80);
+  const cleaned = title
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029<>:"/\\|?*]/g, "_")
+    .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "");
+  let base = Array.from(cleaned.replace(/^[\s.]+/, "")).slice(0, 80).join("").replace(/[\s.]+$/, "");
+  if (RESERVED.test(base.split(".")[0]!.trim())) base = `_${base}`;
   return `${base || "board"}.mapcro.json`;
 }
 
@@ -21,7 +35,7 @@ export function refusalTag(status: number, code?: string): string {
   if (code === "too_large" || status === 413) return "Too large";
   if (code === "not_a_board") return "Not a board";
   if (code === "invalid" || code === "too_deep") return "Bad file";
-  if (status === 429) return "Try later";
+  if (status === 429 || status === 503 || status === 408 || code === "busy" || code === "timeout") return "Try later";
   if (status === 507) return "Server full";
   return "Failed";
 }

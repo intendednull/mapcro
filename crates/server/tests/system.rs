@@ -2268,3 +2268,33 @@ async fn a_client_from_another_build_is_told_it_is_outdated() {
         assert!(matches!(recv(&mut ws).await, Some(WireOut::Ready { .. })), "build {build:?} gets in");
     }
 }
+
+/// Security review F1: a download of a board too large for a file is refused by the board's
+/// size as the room knows it (its snapshot), before the board is copied or written out. That
+/// size is the whole document, deleted records included: here the strokes added and then
+/// deleted put the board past the cap, while the file of what's left would be under it.
+#[tokio::test]
+async fn a_download_of_a_board_past_the_cap_is_refused_before_it_is_copied() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let file = support::large_board_file(24 * 1024);
+    let v: serde_json::Value = ureq::post(&server.url("/api/boards/import")).header("content-type", "application/json").send(file.to_string().as_bytes()).expect("import").body_mut().read_json().expect("json");
+    let (board, owner) = (v["board"].as_str().expect("board").to_owned(), v["owner_token"].as_str().expect("token").to_owned());
+    let export = |token: &str| {
+        let mut r = ureq::get(&server.url(&format!("/api/boards/{board}/export"))).header("authorization", &format!("Bearer {token}")).config().http_status_as_error(false).build().call().expect("answer");
+        (r.status().as_u16(), r.body_mut().with_config().limit(16 * 1024 * 1024).read_to_string().unwrap_or_default())
+    };
+    assert_eq!(export(&owner).0, 200, "under the cap, it downloads");
+
+    let mut c = Client::new(0x91);
+    c.connect(server.port, &board, &owner).await.expect("owner");
+    let scene = scene_of(c.replica());
+    let ids: Vec<_> = (0..3u128).map(|i| mapcro_schema::RecordId(0xdead_0000 + i)).collect();
+    c.edit(ids.iter().map(|&id| Op::Create { id, record: support::heavy_stroke(scene) }).collect()).await;
+    c.until_saved().await;
+    c.edit(ids.iter().map(|&id| Op::Delete { id }).collect()).await;
+    c.until_saved().await;
+
+    let (status, body) = export(&owner);
+    assert_eq!((status, body.as_str()), (413, r#"{"error":"too_large"}"#));
+}

@@ -59,6 +59,9 @@ pub enum RoomCmd {
     Leave { conn: ConnId },
     /// The board as it is now (for cloning).
     Snapshot { reply: oneshot::Sender<mapcro_schema::Doc> },
+    /// The board's size as JSON now, or `None` if it's over `SNAPSHOT_MAX_BYTES` (for a
+    /// download, before anything is copied: boardfile.rs).
+    DocBytes { reply: oneshot::Sender<Option<usize>> },
     Revoke { link_hash: String },
     /// Unload now if nobody is in the room (the server is at its open-room or memory cap).
     Unload,
@@ -493,6 +496,23 @@ impl Rooms {
         Err(RoomError::Unavailable)
     }
 
+    /// The board's current size as JSON, loading the room if needed: `None` if it's over
+    /// `SNAPSHOT_MAX_BYTES`. Taken from the room's snapshot (taken again if the board has moved
+    /// since), so nothing is copied.
+    pub async fn doc_bytes(&self, board: &str) -> Result<Option<usize>, RoomError> {
+        for _ in 0..3 {
+            let room = self.get(board).await?;
+            let (reply, rx) = oneshot::channel();
+            if room.send(RoomCmd::DocBytes { reply }).await.is_ok()
+                && let Ok(n) = rx.await
+            {
+                return Ok(n);
+            }
+            self.forget(board, &room);
+        }
+        Err(RoomError::Unavailable)
+    }
+
     pub fn open_count(&self) -> usize {
         self.registry().open.values().filter(|h| !h.tx.is_closed()).count()
     }
@@ -600,6 +620,11 @@ impl Room {
             }
             RoomCmd::Snapshot { reply } => {
                 let _ = reply.send(self.authority.doc().clone());
+                Ok(())
+            }
+            RoomCmd::DocBytes { reply } => {
+                self.snapshot_within(0);
+                let _ = reply.send(self.snapshot.as_ref().and_then(|(_, doc)| doc.as_ref().map(|d| d.len())));
                 Ok(())
             }
             RoomCmd::Revoke { link_hash } => {
@@ -739,17 +764,22 @@ impl Room {
     /// catch-up meet exactly. Reuses the last snapshot, at the position it was taken at, while it's
     /// at most `SNAPSHOT_STALE_ENTRIES` behind; the client catches up the difference.
     fn base_snapshot(&mut self) -> FreshBase {
+        self.snapshot_within(SNAPSHOT_STALE_ENTRIES);
+        match &self.snapshot {
+            Some((seq, Some(doc))) => FreshBase::Snapshot(*seq, doc.clone()),
+            _ => FreshBase::Stored,
+        }
+    }
+
+    /// Take the snapshot again unless the last is at most `stale` log entries behind.
+    fn snapshot_within(&mut self, stale: u64) {
         let len = self.authority.log_len();
-        let fresh_enough = matches!(&self.snapshot, Some((seq, _)) if len - *seq <= SNAPSHOT_STALE_ENTRIES);
+        let fresh_enough = matches!(&self.snapshot, Some((seq, _)) if len - *seq <= stale);
         if !fresh_enough {
             let json = serde_json::to_string(self.authority.doc()).unwrap_or_default();
             let doc = (json.len() <= SNAPSHOT_MAX_BYTES).then(|| Arc::<str>::from(json));
             self.snapshot = Some((len, doc));
             self.publish_weight();
-        }
-        match &self.snapshot {
-            Some((seq, Some(doc))) => FreshBase::Snapshot(*seq, doc.clone()),
-            _ => FreshBase::Stored,
         }
     }
 

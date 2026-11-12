@@ -18,13 +18,14 @@
 use crate::api::{Created, client_ip, err, internal, now, require_link, server_full};
 use crate::{AppState, links};
 use axum::Json;
-use axum::body::Bytes;
+use axum::body::Body;
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use mapcro_schema::{BUILD_ID, Doc, LIMITS, Record, RecordId};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::time::Duration;
 
 /// What the file says it is.
 pub const FORMAT: &str = "mapcro-board";
@@ -38,6 +39,17 @@ pub const VERSION: u64 = 1;
 pub const MAX_BYTES: usize = crate::room::SNAPSHOT_MAX_BYTES;
 /// Nesting, in arrays and objects. The format's deepest value (a stroke's point) is at 7.
 pub const MAX_DEPTH: usize = 10;
+/// Downloads being built at once, server-wide, by what they hold in KiB: 32 MiB. One costs
+/// twice the board's JSON (its copy of the board, and the file); past the budget a download is
+/// refused ("busy"), not queued, so a burst of them never holds memory waiting. A board near
+/// [`MAX_BYTES`] takes half, so two of the largest run at once; a real board, a few hundred KiB.
+pub const EXPORT_BUDGET_KIB: usize = 32 * 1024;
+/// Imports reading or parsing at once, server-wide: each holds up to [`MAX_BYTES`] of body and
+/// its parse. Past it, refused ("busy") before any of the body is read.
+pub const IMPORTS_AT_ONCE: usize = 4;
+/// An import's body must arrive within this. A real file is kilobytes; the largest takes this
+/// long at about 5 Mbit/s. A body that stalls holds its slot no longer.
+pub const IMPORT_READ: Duration = Duration::from_secs(15);
 
 /// The file, as written and read.
 #[derive(Serialize, Deserialize)]
@@ -85,17 +97,24 @@ impl Refusal {
     }
 }
 
-/// The board's file.
-pub fn write(doc: &Doc, matches: Vec<u64>, exported_at: i64) -> Vec<u8> {
-    let file = BoardFile {
+fn file(doc: &Doc, matches: Vec<u64>, exported_at: i64) -> BoardFile {
+    BoardFile {
         format: FORMAT.to_owned(),
         version: VERSION,
         build: BUILD_ID.to_owned(),
         exported_at,
         records: mapcro_schema::export_records(doc),
         matches,
-    };
-    serde_json::to_vec(&file).unwrap_or_default()
+    }
+}
+
+/// The board's file, into a buffer of `capacity` (the file's size, if known: no regrowth).
+pub fn write(doc: &Doc, matches: Vec<u64>, exported_at: i64, capacity: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(capacity);
+    match serde_json::to_writer(&mut out, &file(doc, matches, exported_at)) {
+        Ok(()) => out,
+        Err(_) => Vec::new(),
+    }
 }
 
 /// Whether `bytes` nest arrays and objects deeper than `max`, outside strings. One pass, no
@@ -163,6 +182,12 @@ pub fn read(bytes: &[u8], next_id: impl FnMut() -> RecordId) -> Result<(Doc, Vec
         return Err(Refusal::Invalid);
     }
     let doc = mapcro_schema::import_records(file.records, next_id).map_err(|_| Refusal::Invalid)?;
+    // The board as the server holds it, not the file's bytes: a file can be shorter than its
+    // board (a point as `[0,0]`). Past the cap, the board couldn't be sent as one snapshot nor
+    // downloaded again.
+    if json_len(&doc) > MAX_BYTES || json_len(&self::file(&doc, file.matches.clone(), i64::MAX)) > MAX_BYTES {
+        return Err(Refusal::TooLarge);
+    }
     let title = doc
         .iter_live()
         .find_map(|(_, r)| match r {
@@ -173,6 +198,25 @@ pub fn read(bytes: &[u8], next_id: impl FnMut() -> RecordId) -> Result<(Doc, Vec
     debug_assert!(title.chars().count() <= LIMITS.max_title);
     let title = if title.is_empty() { "Imported board".to_owned() } else { title };
     Ok((mapcro_schema::retitle(doc, &title), file.matches))
+}
+
+/// `value`'s length as JSON, counted, not built.
+fn json_len(value: &impl Serialize) -> usize {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0 += b.len();
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut n = Count(0);
+    match serde_json::to_writer(&mut n, value) {
+        Ok(()) => n.0,
+        Err(_) => usize::MAX,
+    }
 }
 
 fn random_id() -> RecordId {
@@ -186,17 +230,29 @@ fn refuse(r: Refusal) -> Response {
 }
 
 /// `GET /api/boards/{board}/export`: the board's file. Any live link, view included, as for
-/// Clone: anyone who can see the board could copy it by hand.
+/// Clone: anyone who can see the board could copy it by hand. Its size is known before
+/// anything is copied (the room's snapshot), so a board too large for a file is refused first,
+/// and the copy and the file are built under the server-wide [`EXPORT_BUDGET_KIB`].
 pub async fn export(State(app): State<AppState>, Path(board): Path<String>, headers: HeaderMap) -> Response {
     if let Err(r) = require_link(&app, &board, &headers).await {
         return r;
     }
+    // The whole document as JSON (deleted records too): a file is never larger, less its header.
+    let json = match app.rooms.doc_bytes(&board).await {
+        Ok(Some(n)) => n,
+        Ok(None) => return refuse(Refusal::TooLarge),
+        Err(e) => return internal(e),
+    };
+    let kib = (2 * json / 1024 + 1).min(EXPORT_BUDGET_KIB) as u32;
+    let Ok(_permit) = app.exports.clone().try_acquire_many_owned(kib) else {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "busy");
+    };
     let doc = match app.rooms.snapshot(&board).await {
         Ok(d) => d,
         Err(e) => return internal(e),
     };
     let matches = crate::replays::attached_ids(&app, &board).await;
-    let bytes = match tokio::task::spawn_blocking(move || write(&doc, matches, now())).await {
+    let bytes = match tokio::task::spawn_blocking(move || write(&doc, matches, now(), json + 1024)).await {
         Ok(b) => b,
         Err(e) => return internal(e),
     };
@@ -226,11 +282,43 @@ struct Imported {
 /// `POST /api/boards/import`: a new board, owned by the caller, from a file's bytes. It never
 /// touches an existing board. Shares board creation's limits (per address and server-wide), and
 /// an attempt counts whether or not its file is good: the parse is the cost being limited.
-pub async fn import(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, body: Bytes) -> Response {
+///
+/// Nothing of the body is read until the request has passed every check that needs none of it:
+/// a JSON body from this site or no browser at all (a cross-site page can't post one without a
+/// preflight, which nothing here answers), a stated length under the cap, a free import slot
+/// ([`IMPORTS_AT_ONCE`]) and the creation limits. Then it must arrive within [`IMPORT_READ`].
+pub async fn import(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, body: Body) -> Response {
+    let json = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(';').next())
+        .is_some_and(|m| m.trim().eq_ignore_ascii_case("application/json"));
+    if !json {
+        return err(StatusCode::UNSUPPORTED_MEDIA_TYPE, "content_type");
+    }
+    if let Some(origin) = headers.get(header::ORIGIN)
+        && !app.config.allowed_origins.iter().any(|o| o.as_bytes() == origin.as_bytes())
+    {
+        return err(StatusCode::FORBIDDEN, "origin");
+    }
+    let Some(length) = headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<usize>().ok()) else {
+        return err(StatusCode::LENGTH_REQUIRED, "length_required");
+    };
+    if length > MAX_BYTES {
+        return refuse(Refusal::TooLarge);
+    }
+    let Ok(_slot) = app.imports.clone().try_acquire_owned() else {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "busy");
+    };
     let ip = client_ip(peer, &headers);
     if !app.limiter.allow(ip, app.config.create_per_hour, app.config.create_global_per_hour) {
         return err(StatusCode::TOO_MANY_REQUESTS, "rate_limited");
     }
+    let body = match tokio::time::timeout(IMPORT_READ, axum::body::to_bytes(body, MAX_BYTES)).await {
+        Ok(Ok(b)) => b,
+        Ok(Err(_)) => return refuse(Refusal::TooLarge),
+        Err(_) => return err(StatusCode::REQUEST_TIMEOUT, "timeout"),
+    };
     let read = tokio::task::spawn_blocking(move || read(&body, random_id)).await;
     let (doc, matches) = match read {
         Ok(Ok(x)) => x,
@@ -283,7 +371,7 @@ mod tests {
             },
             "t",
         );
-        let bytes = write(&doc, vec![130816395], 0);
+        let bytes = write(&doc, vec![130816395], 0, 0);
         assert!(!too_deep(&bytes, 6), "a board without strokes is shallower");
         let deepest = br#"{"records":[["0",{"Stroke":{"points":[{"x":0}]}}]]}"#;
         assert!(!too_deep(deepest, 7) && too_deep(deepest, 6));

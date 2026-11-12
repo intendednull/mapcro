@@ -310,3 +310,190 @@ fn imports_share_board_creation_s_rate_limit() {
     let r = ureq::post(&server.url("/api/boards")).config().http_status_as_error(false).build().send_json(json!({ "title": "x" })).expect("answer");
     assert_eq!(r.status().as_u16(), 429, "and creation is out too");
 }
+
+/// A connection that sent an import's head (`content-length: length`) and the first `sent`
+/// bytes of its body, and no more.
+fn held_import(port: u16, extra: &str, length: usize, sent: usize) -> std::net::TcpStream {
+    use std::io::Write;
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).expect("connect");
+    write!(s, "POST /api/boards/import HTTP/1.1\r\nhost: x\r\ncontent-type: application/json\r\n{extra}content-length: {length}\r\n\r\n").expect("head");
+    s.write_all(&vec![b' '; sent]).expect("body");
+    s
+}
+
+/// The status a held connection is answered with within `within`, if any.
+fn answer(s: &mut std::net::TcpStream, within: std::time::Duration) -> Option<u16> {
+    use std::io::Read;
+    s.set_read_timeout(Some(within)).expect("timeout");
+    let mut buf = [0u8; 64];
+    let n = s.read(&mut buf).ok()?;
+    std::str::from_utf8(&buf[..n]).ok()?.split(' ').nth(1)?.parse().ok()
+}
+
+fn error_of(body: &str) -> String {
+    serde_json::from_str::<Value>(body).ok().and_then(|v| v["error"].as_str().map(str::to_owned)).unwrap_or_else(|| body.to_owned())
+}
+
+/// Security review F2: an import was read whole (8 MiB) before the creation limit was asked, so
+/// rate-limited connections still each held a body. Now nothing is read until the request
+/// passes: a stated length, the creation limits.
+#[test]
+fn an_import_is_refused_before_its_body_is_read() {
+    let server = Server::start(&[("CREATE_PER_HOUR", "1")]);
+    server.import_ok(&rich_file());
+    // Rate-limited: answered with the body unsent.
+    let mut held = held_import(server.port, "", MAX_BYTES - 1, 0);
+    assert_eq!(answer(&mut held, std::time::Duration::from_secs(5)), Some(429));
+    // Over the cap by its length, or no length at all.
+    assert_eq!(answer(&mut held_import(server.port, "", MAX_BYTES + 1, 0), std::time::Duration::from_secs(5)), Some(413));
+    let r = ureq::post(&server.url("/api/boards/import"))
+        .header("content-type", "application/json")
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .send(ureq::SendBody::from_reader(&mut &b"{}"[..]));
+    assert_eq!(r.expect("answer").status().as_u16(), 411, "a body of no stated length (chunked)");
+}
+
+/// F2: a body that stalls is cut off, and only so many imports read at once; one past them is
+/// refused before any of its body is read, and costs no attempt.
+#[test]
+fn a_stalled_import_times_out_and_imports_at_once_are_capped() {
+    let server = Server::start(&[("CREATE_PER_HOUR", "1000")]);
+    let started = std::time::Instant::now();
+    let mut held: Vec<_> = (0..4).map(|_| held_import(server.port, "", 4096, 100)).collect();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let (status, body) = server.import(rich_file().to_string().as_bytes());
+    assert_eq!((status, error_of(&body).as_str()), (503, "busy"), "a fifth import while four read");
+    // Each stalled body is answered once its 15 s are up, never later.
+    for s in &mut held {
+        assert_eq!(answer(s, std::time::Duration::from_secs(25)), Some(408));
+    }
+    let waited = started.elapsed();
+    assert!(waited >= std::time::Duration::from_secs(14) && waited < std::time::Duration::from_secs(25), "{waited:?}");
+    server.import_ok(&rich_file());
+}
+
+/// Security review F3: a point may be written `[0,0]`, which the board holds as
+/// `{"x":0,"y":0}`, so a file under the cap could make a board over it (one that could then be
+/// neither sent as a snapshot nor downloaded). The board's own size is what's capped.
+#[test]
+fn a_file_under_the_cap_whose_board_is_over_it_is_refused() {
+    let server = Server::start(&[]);
+    let mut file = rich_file();
+    let scene = records(&mut file).iter().find(|r| r[1].get("Scene").is_some()).expect("scene")[0].clone();
+    let points = json!(vec![json!([0, 0]); 512]);
+    for i in 0..2600u32 {
+        records(&mut file).push(json!([format!("{:032x}", 0xf000_0000u64 + u64::from(i)), { "Stroke": { "scene": scene, "points": points, "color": 0, "width": 1 } }]));
+    }
+    let bytes = file.to_string();
+    assert!(bytes.len() < MAX_BYTES, "{}", bytes.len());
+    let (status, body) = server.import(bytes.as_bytes());
+    assert_eq!((status, error_of(&body).as_str()), (413, "too_large"));
+    // The array form itself is fine in a board that fits.
+    let small = with(|v| {
+        let i = records(v).iter().position(|r| r[1].get("Stroke").is_some()).expect("stroke");
+        records(v)[i][1]["Stroke"]["points"] = json!([[0, 0], [10, 10]]);
+    });
+    server.import_ok(&small);
+}
+
+/// Security review F4: an import took any body from any page, so a cross-site form could post
+/// one (`text/plain` needs no preflight). It takes JSON only, and a browser's request only from
+/// the site.
+#[test]
+fn an_import_from_another_site_is_refused() {
+    let server = Server::start(&[]);
+    let body = rich_file().to_string();
+    let post = |ct: &str, origin: Option<&str>| {
+        let mut r = ureq::post(&server.url("/api/boards/import")).header("content-type", ct);
+        if let Some(o) = origin {
+            r = r.header("origin", o);
+        }
+        let mut r = r.config().http_status_as_error(false).build().send(body.as_bytes()).expect("answer");
+        (r.status().as_u16(), error_of(&r.body_mut().read_to_string().unwrap_or_default()))
+    };
+    assert_eq!(post("text/plain", Some("https://evil.example")), (415, "content_type".into()));
+    assert_eq!(post("text/plain", None), (415, "content_type".into()));
+    assert_eq!(post("application/json", Some("https://evil.example")), (403, "origin".into()));
+    assert_eq!(post("application/json", Some("null")), (403, "origin".into()));
+    // The site itself (the landing, and the desktop app, which loads the site), and no browser.
+    assert_eq!(post("application/json", Some("http://localhost:5173")).0, 201);
+    assert_eq!(post("application/json; charset=utf-8", None).0, 201);
+}
+
+/// F6: a revoked link can neither download nor clone its board.
+#[test]
+fn a_revoked_link_cannot_download_or_clone() {
+    let server = Server::start(&[]);
+    let (board, owner, _) = server.import_ok(&rich_file());
+    let v: Value = ureq::post(&server.url(&format!("/api/boards/{board}/links")))
+        .header("authorization", &format!("Bearer {owner}"))
+        .send_json(json!({ "role": "view", "label": "v" }))
+        .expect("mint")
+        .body_mut()
+        .read_json()
+        .expect("json");
+    let (link, view) = (v["link_id"].as_str().expect("id").to_owned(), v["token"].as_str().expect("token").to_owned());
+    let clone = |token: &str| {
+        ureq::post(&server.url(&format!("/api/boards/{board}/clone"))).header("authorization", &format!("Bearer {token}")).config().http_status_as_error(false).build().send_json(json!({})).expect("answer").status().as_u16()
+    };
+    assert_eq!(server.export(&board, &view).0, 200);
+    assert_eq!(clone(&view), 201);
+    let revoked = ureq::delete(&server.url(&format!("/api/boards/{board}/links/{link}"))).header("authorization", &format!("Bearer {owner}")).call().expect("revoke");
+    assert!(revoked.status().is_success());
+    assert_eq!(server.export(&board, &view).0, 403);
+    assert_eq!(clone(&view), 403);
+}
+
+/// F6: a match the server refused for its mode (Street Brawl) is dropped from a file's list.
+/// The id is made up; its refusal is planted where the server keeps one.
+#[test]
+fn a_mode_refused_match_in_a_file_is_dropped() {
+    let server = Server::start(&[]);
+    let matches = server._dir.path().join("matches");
+    std::fs::create_dir_all(&matches).expect("dir");
+    std::fs::write(matches.join("77.refused"), "brawl").expect("refusal");
+    let (board, owner, answer) = server.import_ok(&with(|v| v["matches"] = json!([77, 130816395])));
+    assert_eq!(answer["matches"], json!([130816395]));
+    assert_eq!(server.export_json(&board, &owner)["matches"], json!([130816395]));
+}
+
+/// Security review F1: a download copied the whole board and wrote it on the blocking pool with
+/// nothing bounding how many ran at once (about 50 MB each for the largest). Downloads past the
+/// server-wide budget are refused, not all run.
+#[test]
+fn downloads_at_once_are_capped() {
+    let server = Server::start(&[]);
+    let (board, owner, _) = server.import_ok(&support::large_board_file(64 * 1024));
+    // Rounds of 16 at once, until one is refused: on a loaded box a round can arrive spread out
+    // enough that each ends before the next starts. With no budget, none ever is.
+    let round = || -> Vec<(u16, String)> {
+        let barrier = std::sync::Barrier::new(16);
+        std::thread::scope(|s| {
+            let all: Vec<_> = (0..16)
+                .map(|_| {
+                    s.spawn(|| {
+                        barrier.wait();
+                        let (status, body) = server.export(&board, &owner);
+                        (status, if status == 200 { String::new() } else { error_of(&body) })
+                    })
+                })
+                .collect();
+            all.into_iter().map(|t| t.join().expect("thread")).collect()
+        })
+    };
+    let mut refused = false;
+    for _ in 0..5 {
+        let codes = round();
+        assert!(codes.iter().all(|(s, e)| *s == 200 || (*s == 503 && e == "busy")), "{codes:?}");
+        assert!(codes.iter().any(|(s, _)| *s == 200), "{codes:?}");
+        if codes.iter().any(|(s, _)| *s == 503) {
+            refused = true;
+            break;
+        }
+    }
+    assert!(refused, "five rounds of 16 at once, and none refused");
+    // Once they're done, one goes through again.
+    assert_eq!(server.export(&board, &owner).0, 200);
+}

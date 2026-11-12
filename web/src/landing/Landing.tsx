@@ -18,7 +18,7 @@ import { FeedbackButton } from "../ui/Feedback";
 import { bridge, desktopAppLinks } from "../player/desktop";
 import { AppDownload } from "../player/AppDownload";
 import { OpenLinkForm, UpdateLink } from "../ui/OpenLink";
-import { importBoard, isBoardFile } from "../core/boardfile";
+import { importBoard, isBoardFile, isJsonFile } from "../core/boardfile";
 import { type Picked, ReplayPicker, pickerSource } from "../player/ReplayPicker";
 
 /** The source, in the footer on every system. In the app it's a plain navigation, which the app
@@ -171,7 +171,8 @@ export function Landing() {
     enabled: () => !opening() && !importing(),
     onFile: dropped,
     onRefuse: fail,
-    onOther: (f) => isBoardFile(f.name) && (void importFile(f), true),
+    // A dropped JSON file is taken as a board file; only a board's own download is sent.
+    onOther: (f) => isJsonFile(f.name) && (isBoardFile(f.name) ? void importFile(f) : setImportError("Not a board"), true),
   });
 
   return (
