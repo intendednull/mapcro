@@ -1,6 +1,131 @@
 import { expect, it, vi } from "vitest";
-import { buildAt, buildOrder, killsAt } from "../src/match/builds";
+import { buildAt, buildOrder, killsAt, type BuildAt, type BuildEntry } from "../src/match/builds";
 import { artFromManifest, buildCatalogFromData, loadArt, type PackManifest } from "../src/map/pack";
+import type { TimelinePlayer } from "../src/match/timeline";
+
+type PlayerBuild = Pick<TimelinePlayer, "items" | "abilities" | "casts" | "charges" | "stacks">;
+
+/** The linear version `buildAt` replaced, kept as the oracle for the equivalence test. */
+function referenceBuildAt(player: PlayerBuild, t: number): BuildAt {
+  const ds = t * 10;
+  const casts = new Map<number, number>();
+  const charges = new Map<number, number>();
+  for (const [at, id, end] of player.casts ?? []) if (at <= ds) casts.set(id, end);
+  for (const [at, id, count] of player.charges ?? []) if (at <= ds) charges.set(id, count);
+  const stacks = new Map<number, number>();
+  for (const [at, id, count] of player.stacks ?? []) if (at <= ds) stacks.set(id, count);
+  const entry = (id: number): BuildEntry => {
+    const end = casts.get(id);
+    return { id, cooldown: end == null || end === 0 ? null : Math.max(0, (end - ds) / 10), charges: charges.get(id) ?? null, stacks: stacks.get(id) || null };
+  };
+  const owned = new Set<number>();
+  for (const [at, id, kind] of player.items ?? []) {
+    if (at > ds) continue;
+    if (kind === 0) owned.add(id);
+    else owned.delete(id);
+  }
+  const levels = new Map<number, number>();
+  for (const [at, id, level] of player.abilities ?? []) if (at <= t) levels.set(id, level);
+  return {
+    items: player.items == null ? null : [...owned].map(entry),
+    abilities: player.abilities == null ? null : [...levels].map(([id, level]) => ({ ...entry(id), level })),
+  };
+}
+
+/** Deterministic PRNG (mulberry32) so a failure is reproducible. */
+function rng(seed: number): () => number {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** A time-sorted series, with duplicate times, over a small id set. */
+function series(rand: () => number, n: number, ids: number[], value: () => number): [number, number, number][] {
+  const rows: [number, number, number][] = [];
+  let at = 0;
+  for (let i = 0; i < n; i++) {
+    at += rand() < 0.25 ? 0 : 1 + Math.floor(rand() * 4);
+    rows.push([at, ids[Math.floor(rand() * ids.length)]!, value()]);
+  }
+  return rows;
+}
+
+it("matches the linear reference on random sorted series and every t shape", () => {
+  const rand = rng(129738985);
+  for (let round = 0; round < 60; round++) {
+    const ids = Array.from({ length: 1 + Math.floor(rand() * 5) }, (_, i) => 10 + i);
+    const player: PlayerBuild = {};
+    if (rand() >= 0.1) player.items = series(rand, Math.floor(rand() * 8), ids, () => Math.floor(rand() * 4));
+    if (rand() >= 0.1) player.abilities = series(rand, Math.floor(rand() * 6), ids, () => 1 + Math.floor(rand() * 4));
+    if (rand() >= 0.1) player.casts = series(rand, Math.floor(rand() * 12), ids, () => (rand() < 0.15 ? 0 : Math.floor(rand() * 200)));
+    if (rand() >= 0.1) player.charges = series(rand, Math.floor(rand() * 10), ids, () => Math.floor(rand() * 4));
+    if (rand() >= 0.1) player.stacks = series(rand, Math.floor(rand() * 10), ids, () => Math.floor(rand() * 8));
+    const times = new Set<number>([-1, 0, 0.05, 0.1, 1.5, 2.345, 1e6]);
+    for (const rows of [player.items, player.abilities, player.casts, player.charges, player.stacks]) {
+      for (const row of rows ?? []) {
+        // Exactly on the entry, just before and just after it, in both clocks.
+        times.add(row[0] / 10);
+        times.add(row[0] / 10 - 0.001);
+        times.add(row[0] / 10 + 0.001);
+        times.add(row[0]);
+        times.add(row[0] - 0.001);
+      }
+    }
+    for (let i = 0; i < 10; i++) times.add(rand() * 60);
+    for (const t of times) expect(buildAt(player, t)).toEqual(referenceBuildAt(player, t));
+  }
+  // Wanted ids with no rows at all in a series (most owned items never cast, most abilities
+  // never stack).
+  const sparse: PlayerBuild = { items: [[0, 1, 0], [0, 2, 0], [5, 3, 0]], abilities: [[0, 9, 1]], casts: [[10, 1, 40], [20, 1, 0]], charges: [[30, 2, 2]] };
+  for (const t of [0, 0.5, 1, 2, 3, 4, 10, 100]) expect(buildAt(sparse, t)).toEqual(referenceBuildAt(sparse, t));
+});
+
+it("looks up casts without scanning all of them", () => {
+  const n = 10_000;
+  const ids = [100, 101, 102, 103];
+  const rows: [number, number, number][] = Array.from({ length: n }, (_, i) => [i, ids[i % ids.length]!, 0]);
+  let reads = 0;
+  const counted = new Proxy(rows, {
+    get(target, prop, receiver) {
+      if (typeof prop === "string" && /^\d+$/.test(prop)) reads++;
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  const player: PlayerBuild = { items: [[0, 100, 0]], abilities: ids.map((id) => [0, id, 1]), casts: counted };
+  buildAt(player, n / 10); // the per-array index's one pass
+  reads = 0;
+  const build = buildAt(player, n / 10);
+  expect(build.abilities?.map((a) => a.id)).toEqual(ids);
+  // A binary search plus one step per wanted id; the linear version read all 10,000.
+  expect(reads).toBeLessThan(100);
+  expect(reads).toBeLessThan(n / 10);
+});
+
+it("does not walk back through casts for ids that never cast", () => {
+  // A real build: six owned items, two of them active and cast; the rest never appear.
+  const n = 10_000;
+  const castIds = [200, 201];
+  const owned = [200, 201, 202, 203, 204, 205];
+  const rows: [number, number, number][] = Array.from({ length: n }, (_, i) => [i, castIds[i % castIds.length]!, 0]);
+  let reads = 0;
+  const counted = new Proxy(rows, {
+    get(target, prop, receiver) {
+      if (typeof prop === "string" && /^\d+$/.test(prop)) reads++;
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  const player: PlayerBuild = { items: owned.map((id) => [0, id, 0]), casts: counted };
+  buildAt(player, n / 10); // the per-array index's one pass
+  reads = 0;
+  const build = buildAt(player, n / 10);
+  expect(build.items?.map((e) => e.id)).toEqual(owned);
+  // One binary search per id that has rows; ids with none cost nothing. The linear version read
+  // all 10,000 to look for the four that never cast.
+  expect(reads).toBeLessThan(200);
+});
 
 it("distinguishes unavailable builds from tracked empty builds", () => {
   expect(buildAt({}, 5)).toEqual({ items: null, abilities: null });

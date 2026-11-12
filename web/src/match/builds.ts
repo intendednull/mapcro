@@ -18,30 +18,86 @@ export interface BuildAt {
   abilities: AbilityBuildEntry[] | null;
 }
 
+/** The last index whose time is at or before `t`, or -1 before the first. The series are sorted
+ * by time (timeline.ts; crates/replay/src/timeline.rs validates it), so this is a binary search. */
+function lastAtOrBefore<T>(arr: ReadonlyArray<T>, t: number, getT: (entry: T) => number): number {
+  let lo = 0;
+  let hi = arr.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (getT(arr[mid]!) <= t) {
+      found = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return found;
+}
+
+/** Each row array's ids to the row indices where they occur, in time order. Built once per array:
+ * timelines are never mutated after load (player/host.ts replaces the timeline wholesale), and a
+ * WeakMap keyed by the array holds nothing past it. */
+const INDEX = new WeakMap<ReadonlyArray<readonly [number, number, number]>, Map<number, number[]>>();
+
+function indicesById(rows: ReadonlyArray<readonly [number, number, number]>): Map<number, number[]> {
+  let byId = INDEX.get(rows);
+  if (!byId) {
+    byId = new Map();
+    for (let i = 0; i < rows.length; i++) {
+      const id = rows[i]![1];
+      const at = byId.get(id);
+      if (at) at.push(i);
+      else byId.set(id, [i]);
+    }
+    INDEX.set(rows, byId);
+  }
+  return byId;
+}
+
+/** Each wanted id's value from the latest row at or before `end`: one binary search in that id's
+ * index list, so ids with no rows cost nothing and the walk never crosses the whole array. */
+function latestById(rows: ReadonlyArray<readonly [number, number, number]> | undefined, end: number, want: ReadonlySet<number>): Map<number, number> {
+  const out = new Map<number, number>();
+  if (rows == null || want.size === 0) return out;
+  const byId = indicesById(rows);
+  for (const id of want) {
+    const at = byId.get(id);
+    if (!at) continue;
+    const k = lastAtOrBefore(at, end, (i) => rows[i]![0]);
+    if (k >= 0) out.set(id, rows[at[k]!]![2]);
+  }
+  return out;
+}
+
 /** A pure snapshot. Shop/cast/charge clocks use deciseconds, upgrades use seconds. */
 export function buildAt(player: Pick<TimelinePlayer, "items" | "abilities" | "casts" | "charges" | "stacks">, t: number): BuildAt {
   const ds = t * 10;
-  const casts = new Map<number, number>();
-  const charges = new Map<number, number>();
-  for (const [at, id, end] of player.casts ?? []) if (at <= ds) casts.set(id, end);
-  for (const [at, id, count] of player.charges ?? []) if (at <= ds) charges.set(id, count);
-  const stacks = new Map<number, number>();
-  for (const [at, id, count] of player.stacks ?? []) if (at <= ds) stacks.set(id, count);
+  const items = player.items;
+  const owned = new Set<number>();
+  if (items != null) {
+    for (let i = 0, last = lastAtOrBefore(items, ds, (row) => row[0]); i <= last; i++) {
+      const [, id, kind] = items[i]!;
+      if (kind === 0) owned.add(id);
+      else owned.delete(id);
+    }
+  }
+  const abilities = player.abilities;
+  const levels = new Map<number, number>();
+  if (abilities != null) {
+    for (let i = 0, last = lastAtOrBefore(abilities, t, (row) => row[0]); i <= last; i++) levels.set(abilities[i]![1], abilities[i]![2]);
+  }
+  // Only the ids the snapshot reports need a cast, charge or stack value; unknown ones can't show.
+  const want = new Set<number>([...owned, ...levels.keys()]);
+  const casts = latestById(player.casts, ds, want);
+  const charges = latestById(player.charges, ds, want);
+  const stacks = latestById(player.stacks, ds, want);
   const entry = (id: number): BuildEntry => {
     const end = casts.get(id);
     return { id, cooldown: end == null || end === 0 ? null : Math.max(0, (end - ds) / 10), charges: charges.get(id) ?? null, stacks: stacks.get(id) || null };
   };
-  const owned = new Set<number>();
-  for (const [at, id, kind] of player.items ?? []) {
-    if (at > ds) continue;
-    if (kind === 0) owned.add(id);
-    else owned.delete(id);
-  }
-  const levels = new Map<number, number>();
-  for (const [at, id, level] of player.abilities ?? []) if (at <= t) levels.set(id, level);
   return {
-    items: player.items == null ? null : [...owned].map(entry),
-    abilities: player.abilities == null ? null : [...levels].map(([id, level]) => ({ ...entry(id), level })),
+    items: items == null ? null : [...owned].map(entry),
+    abilities: abilities == null ? null : [...levels].map(([id, level]) => ({ ...entry(id), level })),
   };
 }
 

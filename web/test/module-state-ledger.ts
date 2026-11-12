@@ -47,6 +47,7 @@ export const MODULE_STATE: Record<string, Entries> = {
   "match/tooltips.ts": { cache: ["immutable-cache", "tooltip data by pack and file"] },
   "board/smooth.ts": { motionQuery: ["page", "the reduced-motion media query, made once; its answer follows the setting"] },
   "match/timeline.ts": { resolved: ["immutable-cache", "markerKey's answers by marker list: a pack's markers never change once loaded"] },
+  "match/builds.ts": { INDEX: ["immutable-cache", "a per-array index cache keyed by immutable timeline arrays (WeakMap; holds nothing past the timeline)"] },
   "match/stats.ts": { loaded: ["immutable-cache", "stat tables by pack and file"] },
   "board/state.ts": { wasm: ["immutable-cache", "the WASM module's init, once a page; every replica is the session's own"] },
   "board/fade.ts": { fades: ["owner-cleared", "a WeakMap keyed by element: goes with it"] },
