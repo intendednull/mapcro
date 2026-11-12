@@ -378,8 +378,9 @@ memory survives into another board's mount unless it is either:
 
   Also tidied: `end()` drops the session's presence and lazy-save timers. A lazy save landing
   after the board's next mount had read storage would write an older state. The journal and
-  the server hold what that save would have held. `createBoardState`'s per-scene memo roots are
-  disposed.
+  the server hold what that save would have held. `createBoardState`'s per-scene player memos
+  (each in its own `createRoot`) aren't disposed: they read only that board's own signals, which
+  nothing writes after it ends, so they go with the board's state.
 
   **Not handled yet (phase 2).** A gesture in progress at unmount (a token drag's window
   `pointerup`, a swipe) removes its own listener on its next pointerup. But it runs against the
