@@ -27,6 +27,8 @@ export interface TipContext {
   tiers?: number | null;
   /** The hero's calculated spirit power: a property that scales with it shows "≈" its value. */
   spirit?: number | null;
+  /** The stacks the hero holds on it now (Leech Therapy's leeches); null or absent: none. */
+  stacks?: number | null | undefined;
 }
 
 const SLOT_CLASS = { weapon: "weapon", vitality: "vitality", spirit: "spirit" } as const;
@@ -152,6 +154,9 @@ function ItemTip(p: { record: BuildRecord; art: Art; tips: Tooltips; ctx?: TipCo
           <div class="gt-owned" data-testid="game-tooltip-owned">{p.tips.str("Citadel_Shop_Purchased", "Owned")}<Show when={art("purchased_check_png")}>{(u) => <img src={u()} alt="" />}</Show></div>
         </Show>
       </div>
+      <Show when={p.ctx?.stacks && e().tip.stack_label}>
+        <div class="gt-stacks" data-testid="game-tooltip-stacks"><span>{e().tip.stack_label}</span><b>{p.ctx!.stacks}</b></div>
+      </Show>
       <For each={e().tip.sections}>
         {(s) => (
           <section class={cx("gt-section", s.kind)} data-section={s.kind}>
@@ -258,6 +263,9 @@ function AbilityTip(p: { record: BuildRecord; art: Art; tips: Tooltips; ctx?: Ti
             </For>
           )}
         </For>
+        <Show when={p.ctx?.stacks && e().tip.stack_label}>
+          <div class="gt-bonus" data-testid="game-tooltip-stacks"><span>{e().tip.stack_label}</span><b>{p.ctx!.stacks}</b></div>
+        </Show>
       </div>
       <Show when={e().tip.upgrades?.length}>
         <div class="gt-tiers">

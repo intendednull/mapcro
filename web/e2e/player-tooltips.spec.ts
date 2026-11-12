@@ -8,7 +8,9 @@
 // - hovering an investment bar shows its stat panel with the ladder's current row and the "≈";
 // - hovering a hero's ult indicator on the top bar shows the ult's tooltip (feedback #9);
 // - a single click on a hero's minimap token opens its panel (feedback #8); Escape and × close
-//   it; in a team's view, an enemy out of sight shows no cooldowns.
+//   it; in a team's view, an enemy out of sight shows no cooldowns;
+// - the stacks a hero holds on an ability or item (feedback #38, Leech Therapy's leeches) show on
+//   its button and in its tooltip with the game's words, as they change.
 
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
@@ -69,7 +71,7 @@ function pack(): string {
         tip: { sections: [
           { kind: "innate", blocks: [{ basic: [p("TechResist", "Spirit Resist", { prefix: "{s:sign}", postfix: "%" }), p("TechPower", "Spirit Power", { prefix: "{s:sign}" })] }] },
           { kind: "active", cooldown: p("AbilityCooldown", "Cooldown", { postfix: "s", css: "cooldown" }), blocks: [{ text: "Gain <span class=\"highlight\">Spirit Lifesteal</span> and {g:citadel_inline_attribute:'SpiritDamage'}.", important: [p("Lifesteal", "Spirit Lifesteal", { prefix: "{s:sign}", postfix: "%", css: "healing", conditional: true })], basic: [p("AbilityDuration", "Duration", { postfix: "s" })] }] },
-        ] },
+        ], stack_label: "Current Stacks:" },
         values: { props: { TechResist: "10", TechPower: "8", AbilityCooldown: "30", Lifesteal: "75", AbilityDuration: "7" } },
       },
       [LIFESTEAL]: { tip: { sections: [{ kind: "innate", blocks: [{ basic: [p("Lifesteal", "Spirit Lifesteal", { postfix: "%" })] }] }] }, values: { props: { Lifesteal: "15" } } },
@@ -78,6 +80,7 @@ function pack(): string {
           header: [p("AbilityCooldown", "Cooldown", { postfix: "s", css: "cooldown" })],
           sections: [{ kind: "info", blocks: [{ text: "Deals {g:citadel_inline_attribute:'SpiritDamage'}.", important: [p("Damage", "Base Damage", { scale: ["ETechPower", 0.35] })], basic: [p("Duration", "Duration", { postfix: "s" })] }] }],
           upgrades: [{ text: "+{s:Damage} Base Damage", props: ["Damage"] }, { text: "{s:AbilityCooldown}s Cooldown", props: ["AbilityCooldown"] }, { text: "Third", props: [] }],
+          stack_label: "Leeches Collected:",
         },
         values: { props: { AbilityCooldown: "10", Damage: "11", Duration: "5" }, upgrades: [{ Damage: "20" }, { AbilityCooldown: "-2" }, {}] },
       },
@@ -132,6 +135,9 @@ function timeline(id: string) {
         items: [[50, LIFESTEAL, 0], [120, LIFESTEAL, 2], [120, INFUSER, 0]],
         abilities: [[0, ABILITY, 1], [0, ULT, 1], [15, ABILITY, 2]],
         casts: [[130, INFUSER, 400]], charges: [], cc: [], effects: [],
+        // Amber 0 collects leeches on the first ability (a death at 38 s takes some), and stacks
+        // on the Infuser.
+        stacks: team === "amber" && slot === 0 ? [[100, ABILITY, 3], [150, INFUSER, 4], [180, ABILITY, 8], [380, ABILITY, 6]] : [],
         // Sapphire 0 (players[6]) kills Amber 1 with the first ability.
         recaps: dies(team, slot) ? [{ t: 300, damage: [[6, ABILITY, 500]], cc: [] }] : [],
       })),
@@ -232,6 +238,36 @@ test("hovering items, abilities and investment shows the game's tooltips with th
   // Calculated values carry the "≈" (spec §4b rule 5).
   await expect(panel.locator("[data-testid=sp-max_health] b")).toHaveClass(/\bcalc\b/);
   await expect(panel.locator("[data-testid=sp-spirit_resist] b")).toHaveText("10%");
+});
+
+test("the stacks a hero holds on an ability or item show on it and in its tooltip as they change", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Stacks"), "Coach");
+  await open(a, "129000105");
+  await a.locator(".tb-all-builds").click();
+  const c = column(a);
+  const ability = c.locator(`[data-ability-id="${ABILITY}"]`);
+  const item = c.locator(`[data-item-id="${INFUSER}"]`);
+  await scrubTo(a, 9);
+  await expect(ability.getByTestId("ability-stacks")).toHaveCount(0);
+  await scrubTo(a, 20);
+  await expect(ability.getByTestId("ability-stacks")).toHaveText("8");
+  await expect(item.getByTestId("item-stacks")).toHaveText("4");
+  // Another hero holds none.
+  await expect(a.locator('.tb-player[data-slot="Amber-2"] [data-testid=ability-stacks]')).toHaveCount(0);
+  // The ability tooltip's bonus row: the game's words, then the count.
+  await ability.hover();
+  const at = float(a).getByTestId("game-tooltip");
+  await expect(at).toHaveAttribute("data-kind", "ability");
+  await expect(at.getByTestId("game-tooltip-stacks")).toHaveText("Leeches Collected:8");
+  await a.keyboard.press("Escape");
+  await expect(float(a)).toHaveCount(0);
+  // The item tooltip's stacks box.
+  await item.hover();
+  await expect(float(a).getByTestId("game-tooltip-stacks")).toHaveText("Current Stacks:4");
+  await a.keyboard.press("Escape");
+  // After the death took some.
+  await scrubTo(a, 39);
+  await expect(ability.getByTestId("ability-stacks")).toHaveText("6");
 });
 
 test("the events list's purchases and the death recap's icons show their tooltips", async ({ browser }) => {

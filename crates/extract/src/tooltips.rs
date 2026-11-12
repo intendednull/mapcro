@@ -134,6 +134,11 @@ pub struct Tip {
     /// `MaxStacks`): the text substitutes that property's value.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub aliases: BTreeMap<String, String>,
+    /// The words before the stacks the hero holds on it (`m_sCustomStackLabel`): an ability's
+    /// "Current Bonus:" ("Leeches Collected:" on Leech Therapy), an item's "Current Stacks:".
+    /// The ability tooltip's bonus row, the item tooltip's stacks box.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_label: Option<String>,
 }
 
 /// A record's numbers: every property's value, and each upgrade tier's bonuses, formatted as the
@@ -417,7 +422,8 @@ fn tip(name: &str, d: &Value, names: &BTreeMap<String, String>) -> Tip {
         .flatten()
         .filter_map(|(k, p)| Some((p["m_strLocTokenOverride"].as_str().filter(|o| !o.is_empty() && o != k)?.to_owned(), k.clone())))
         .collect();
-    Tip { header, sections, upgrades: if item { Vec::new() } else { upgrades }, aliases }
+    let stack_label = d["m_sCustomStackLabel"].as_str().and_then(loc);
+    Tip { header, sections, upgrades: if item { Vec::new() } else { upgrades }, aliases, stack_label }
 }
 
 /// `values` cut to what `tip` shows or substitutes (the rest of `m_mapAbilityProperties` is
@@ -614,6 +620,8 @@ mod tests {
             ("ability_test_t1_desc", "+{s:MaxStacks} Max Marks"),
             ("DMarkMaxMarks_label", "Max Marks"),
             ("ProcDamageBase_label", "Base Damage"),
+            ("CurrentStacks_label", "Current Stacks:"),
+            ("nurse_leech_pickups_stacklabel", "Leeches Collected:"),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_ascii_lowercase(), v.to_owned()))
@@ -700,6 +708,20 @@ mod tests {
         let v = trim(&t, &values([("ability_test", &d)])[&crate::token("ability_test")]);
         assert_eq!(v.props.keys().map(String::as_str).collect::<Vec<_>>(), ["AbilityCooldown", "MaxStacks", "ProcDamageBase"]);
         assert_eq!(v.upgrades.len(), 2);
+    }
+
+    #[test]
+    fn a_tip_carries_the_words_for_the_stacks_held_on_it() {
+        let mut a = ability();
+        a["m_sCustomStackLabel"] = json!("#nurse_leech_pickups_stacklabel");
+        assert_eq!(tip("ability_test", &a, &names()).stack_label.as_deref(), Some("Leeches Collected:"));
+        let mut i = item();
+        i["m_sCustomStackLabel"] = json!("#CurrentStacks_label");
+        assert_eq!(tip("upgrade_test", &i, &names()).stack_label.as_deref(), Some("Current Stacks:"));
+        // None set, or a key with no words: no label.
+        assert_eq!(tip("ability_test", &ability(), &names()).stack_label, None);
+        a["m_sCustomStackLabel"] = json!("#no_such_label");
+        assert_eq!(tip("ability_test", &a, &names()).stack_label, None);
     }
 
     #[test]

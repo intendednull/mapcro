@@ -78,7 +78,7 @@ export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefine
     <StatPanel category={category} stats={calc()?.shown ?? null} recordedHealth={scoreboardValueAt(p.player.max_health, p.t)} ladder={ladderOf(category)} souls={investment()[category]} tips={tips()} />
   );
   const hasTip = (id: number | undefined) => id != null && !!tips()?.tip(id);
-  const tipFor = (id: number | undefined, ctx: { owned?: boolean; tiers?: number | null }) => () =>
+  const tipFor = (id: number | undefined, ctx: { owned?: boolean; tiers?: number | null; stacks?: number | null | undefined }) => () =>
     hasTip(id) && <GameTip id={id!} art={p.art} tips={tips()!} ctx={{ ...ctx, spirit: spirit() }} />;
   const value = (v: number | null | undefined, unit = "") => v == null ? "—" : `${v}${unit}`;
   const tag = (label: string, v: number | null | undefined) => v == null ? LABELS.missing : label;
@@ -122,7 +122,8 @@ export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefine
           const name = () => info()?.label ?? `Ability ${i + 1}`;
           // Tags only (spec §4b): the name on hover; the state as a tag for screen readers.
           const label = () => `${name()}, ${a().level == null ? LABELS.missing : a().level === 0 ? "Locked" : `Tier ${a().level! - 1}`}`;
-          const tip = tipFor(a().id, { tiers: a().level == null ? null : Math.max(0, a().level! - 1) });
+          // Read at hover, not when the slot was made: the tiers and stacks are t's.
+          const tip = () => tipFor(a().id, { tiers: a().level == null ? null : Math.max(0, a().level! - 1), stacks: p.limited ? null : a().entry?.stacks })();
           return (
             <Hover tip={tip}>
             <div class={cx("tb-build-ability", a().level === 0 && "locked")} data-ability-id={a().id} data-level={a().level ?? "unknown"} title={hasTip(a().id) ? undefined : name()} role="img" aria-label={label()}>
@@ -131,6 +132,7 @@ export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefine
                 <Show when={info()?.icon} fallback={<span class="tb-build-fallback">{i + 1}</span>}>{src => <img src={src()} alt="" />}</Show>
                 <Show when={!p.limited && cooldown(a().entry)}>{cd => <span class="tb-build-cooldown">{cd().replace("s", "")}</span>}</Show>
                 <Show when={!p.limited && a().entry?.charges != null}><span class="tb-build-charges">{a().entry!.charges}</span></Show>
+                <Show when={!p.limited && a().entry?.stacks}><span class="tb-build-stacks" data-testid="ability-stacks">{a().entry!.stacks}</span></Show>
                 <Show when={a().level === 0}><span class="tb-build-locked" aria-hidden="true">×</span></Show>
               </div>
             </div>
@@ -150,7 +152,7 @@ export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefine
           const info = () => record(entry().id);
           const name = () => info()?.label ?? "Unknown item";
           const label = () => `${name()}${info()?.tier ? `, Tier ${tier(info()?.tier)}` : ""}`;
-          const tip = tipFor(entry().id, { owned: true });
+          const tip = () => tipFor(entry().id, { owned: true, stacks: p.limited ? null : entry().stacks })();
           return (
             <Hover tip={tip}>
             <div class={cx("tb-build-item", info()?.slot)} data-item-id={entry().id} role="img" aria-label={label()} title={hasTip(entry().id) ? undefined : name()}>
@@ -158,6 +160,7 @@ export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefine
               <span class="tb-build-tier" aria-hidden="true">{tier(info()?.tier)}</span>
               <Show when={!p.limited && cooldown(entry())}>{cd => <span class="tb-build-cooldown">{cd()}</span>}</Show>
               <Show when={!p.limited && entry().charges != null}><span class="tb-build-charges">{entry().charges}</span></Show>
+              <Show when={!p.limited && entry().stacks}><span class="tb-build-stacks" data-testid="item-stacks">{entry().stacks}</span></Show>
             </div>
             </Hover>
           );

@@ -16,10 +16,26 @@ it("applies merges, sales, removals and ability upgrades at the exact clocks", (
 });
 it("tracks casts and charges by token without interpreting unknown end times as ready", () => {
   const player = { items: [[0, 10, 0]] as [number, number, number][], casts: [[20, 10, 50], [60, 10, 0]] as [number, number, number][], charges: [[25, 10, 2], [40, 10, 1]] as [number, number, number][] };
-  expect(buildAt(player, 1).items?.[0]).toEqual({ id: 10, cooldown: null, charges: null });
-  expect(buildAt(player, 3).items?.[0]).toEqual({ id: 10, cooldown: 2, charges: 2 });
-  expect(buildAt(player, 5).items?.[0]).toEqual({ id: 10, cooldown: 0, charges: 1 });
+  expect(buildAt(player, 1).items?.[0]).toEqual({ id: 10, cooldown: null, charges: null, stacks: null });
+  expect(buildAt(player, 3).items?.[0]).toEqual({ id: 10, cooldown: 2, charges: 2, stacks: null });
+  expect(buildAt(player, 5).items?.[0]).toEqual({ id: 10, cooldown: 0, charges: 1, stacks: null });
   expect(buildAt(player, 6).items?.[0]?.cooldown).toBeNull();
+});
+it("holds the stacks on each ability and item as they change, none at 0", () => {
+  // Leech Therapy (90): leeches collected rise, a death takes some; an item's stacks run out.
+  const player = {
+    items: [[0, 10, 0]] as [number, number, number][],
+    abilities: [[0, 90, 1]] as [number, number, number][],
+    stacks: [[20, 90, 1], [40, 90, 4], [60, 90, 3], [50, 10, 6], [70, 10, 0]] as [number, number, number][],
+  };
+  expect(buildAt(player, 1).abilities?.[0]?.stacks).toBeNull();
+  expect(buildAt(player, 2).abilities?.[0]?.stacks).toBe(1);
+  expect(buildAt(player, 5).abilities?.[0]?.stacks).toBe(4);
+  expect(buildAt(player, 6).abilities?.[0]?.stacks).toBe(3);
+  expect(buildAt(player, 6).items?.[0]?.stacks).toBe(6);
+  expect(buildAt(player, 7).items?.[0]?.stacks).toBeNull();
+  // A timeline from before format 10 has none.
+  expect(buildAt({ abilities: player.abilities }, 6).abilities?.[0]?.stacks).toBeNull();
 });
 const manifest: PackManifest = {
   game: { client_version: 6860 },

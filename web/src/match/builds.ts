@@ -5,6 +5,8 @@ export interface BuildEntry {
   /** Seconds remaining; null means unknown, including casts with an unknown end. */
   cooldown: number | null;
   charges: number | null;
+  /** Stacks held on it (Leech Therapy's leeches, Berserker's stacks); null when none. */
+  stacks: number | null;
 }
 export interface AbilityBuildEntry extends BuildEntry {
   /** 1 unlocked, 2–4 upgrade tiers 1–3, as recorded in the timeline. */
@@ -17,15 +19,17 @@ export interface BuildAt {
 }
 
 /** A pure snapshot. Shop/cast/charge clocks use deciseconds, upgrades use seconds. */
-export function buildAt(player: Pick<TimelinePlayer, "items" | "abilities" | "casts" | "charges">, t: number): BuildAt {
+export function buildAt(player: Pick<TimelinePlayer, "items" | "abilities" | "casts" | "charges" | "stacks">, t: number): BuildAt {
   const ds = t * 10;
   const casts = new Map<number, number>();
   const charges = new Map<number, number>();
   for (const [at, id, end] of player.casts ?? []) if (at <= ds) casts.set(id, end);
   for (const [at, id, count] of player.charges ?? []) if (at <= ds) charges.set(id, count);
+  const stacks = new Map<number, number>();
+  for (const [at, id, count] of player.stacks ?? []) if (at <= ds) stacks.set(id, count);
   const entry = (id: number): BuildEntry => {
     const end = casts.get(id);
-    return { id, cooldown: end == null || end === 0 ? null : Math.max(0, (end - ds) / 10), charges: charges.get(id) ?? null };
+    return { id, cooldown: end == null || end === 0 ? null : Math.max(0, (end - ds) / 10), charges: charges.get(id) ?? null, stacks: stacks.get(id) || null };
   };
   const owned = new Set<number>();
   for (const [at, id, kind] of player.items ?? []) {

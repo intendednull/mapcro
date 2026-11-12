@@ -36,6 +36,14 @@
 /* .ModPurchasedLabel shardColor&90 bold 20px; .ModPurchasedCheck 23px. */
 .gt-owned { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-weight: 700; font-size: calc(20px * var(--gt)); color: #99FFD6E6; }
 .gt-owned img { width: calc(23px * var(--gt)); height: calc(23px * var(--gt)); }
+/* .StacksContainer: offBlack&50, 0 20px 0 15px, washed by the slot's bright colour (&ea);
+   .StacksDescLabel semi-bold 16px at 0.8; #StacksLabel bold. */
+.gt-stacks { display: flex; align-items: center; gap: 8px; height: calc(32px * var(--gt)); margin: 0 calc(20px * var(--gt)); padding: 0 calc(20px * var(--gt)) 0 calc(15px * var(--gt)); background: #10130D50; font-size: calc(16px * var(--gt)); }
+.gt-stacks span { opacity: 0.8; font-weight: 600; }
+.gt-stacks b { font-weight: 700; font-size: calc(19px * var(--gt)); }
+.gt-item.weapon .gt-stacks { color: #EC9719EA; } /* courageBrightColor */
+.gt-item.vitality .gt-stacks { color: #7BBA1DEA; } /* fortitudeBrightColor */
+.gt-item.spirit .gt-stacks { color: #CE90FFEA; } /* spiritBrightColor */
 /* .ModCost: shardColor bold 20px. */
 .gt-cost { display: flex; align-items: center; gap: 4px; margin-top: 4px; font-weight: 700; font-size: calc(20px * var(--gt)); color: #99FFD6; }
 .gt-cost .gt-icon { width: calc(11px * var(--gt)); height: calc(20px * var(--gt)); }
@@ -119,6 +127,11 @@
 /* AbilityPropertyPanel 85px; .AbilityPropertyContainer offWhite&08; .CurrentValue bold 26px oracle. */
 .gt-ability .gt-card { background: #FFEFD714; min-height: calc(85px * var(--gt)); }
 .gt-ability .gt-cards { margin-bottom: 3px; }
+/* .BonusContainer: offWhite&03, 8px 20px, margin 0 30px 20px 40px; .BonusDescLabel oracle semi-bold
+   16px at 0.8; #BonusLabel oracle bold, deadlockGreen, right. The words are m_sCustomStackLabel's. */
+.gt-bonus { display: flex; align-items: center; margin: calc(6px * var(--gt)) calc(30px * var(--gt)) calc(6px * var(--gt)) calc(40px * var(--gt)); padding: calc(8px * var(--gt)) calc(20px * var(--gt)); background: #FFEFD708; font-family: "VALVEOracle", var(--ui); }
+.gt-bonus span { margin-right: 8px; opacity: 0.8; font-weight: 600; font-size: calc(16px * var(--gt)); }
+.gt-bonus b { margin-left: auto; color: #69e799; font-weight: 700; font-size: calc(18px * var(--gt)); }
 /* The tier cards below (citadel_tooltip_ability_upgrade_button.vcss's place). */
 .gt-tiers { display: flex; gap: calc(8px * var(--gt)); margin-top: calc(8px * var(--gt)); }
 .gt-tier { flex: 1; display: flex; flex-direction: column; background: linear-gradient(#2a1414, #4a1c1c); box-shadow: 0 0 calc(10px * var(--gt)) #000; }

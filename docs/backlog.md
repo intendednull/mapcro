@@ -225,6 +225,10 @@ of claims only the game (or its client) can settle. Add to it; strike items once
 - **Ability tier costs:** the tooltip's tier cards show 1 / 2 / 5 ability points, hard-coded
   (`web/src/match/tooltips.ts` `TIER_COSTS`, from `item-djinns-mark.png`; no file holds them).
   Check after a patch that touches ability upgrades that the game still shows these.
+- **Stacks held** (feedback #38, branch `harrow-stacks`): where the HUD's own ability and item
+  buttons draw a stack count, if they do (Player puts it at the top right, in the tooltip bonus
+  green); that "Current Bonus:" on an ability is its stack count; what Siphon Bullets' and Spirit
+  Snatch's counts (health, spirit) read as in the game.
 - **HUD:** the kill-streak threshold that switches the souls tab to the mint `.KillStreak` style,
   and when the gloat card portrait appears (backlog "Kill-streak mint souls tab").
 
@@ -589,6 +593,33 @@ before fixing it.
    below. *Resolved 2026-11-10 (ux-batch-1).*
 8. **Feedback offers no match while you're viewing a scene saved from a match.**
    `feedbackMatchOf` only reads Player; the scene's `source` has the match id and time.
+
+## Own stacks: the rest (2026-11-11, from harrow-stacks, feedback #38)
+
+Format 10's `stacks` covers every stack a hero holds on its own ability or item through a
+self-applied modifier (docs/research/README.md "Own stacks"). Seen and shown on 129738985: Nurse
+Harrow's Leech Therapy, Celeste's Radiant Daggers, Rat King's Royal Pestments, and the items
+Berserker, Spellslinger, Escalating Resilience, Siphon Bullets, Spirit Snatch, Glass Cannon,
+Mystic Regeneration, Split Shot. Left:
+
+- **Unverified on a replay** (the vdata gives them stack, per-kill or collected properties, but
+  129738985 has no such stack): Grey Talon's Guided Owl, Vindicta's Assassinate, Warden's Last
+  Stand and Mina's Rake (per-kill bonuses), Mina's Nox Nostra (`BonusBatsCurrent_label`), Violet's
+  Still Life ("Sketches Collected:") and Living Ink, Silver's Slam Fire and Lycan Curse, Paradox's
+  Kinetic Carbine, Calico's Ava, Solomon's Develop Queen, Apollo's Flawless Advance, Baba's
+  Threadsap and Feed The Birds, Lash's Death Slam lock-on, Mirage's Fire Scarabs. If one keeps its
+  count anywhere but a self-applied modifier (an ability field, the stat viewer), it won't show.
+  Check with `examples/stack_probe.rs` on a replay where each is played.
+- **Stacks on targets** are `effects` rows with the most an application reached, not the count at
+  t (TD-47): Haze's Fixation and Sleep Dagger, Mirage's Djinn's Mark, Deadman Danny's Jettison
+  Fuel and Strix Salvo, Rat King's Rat Swarm and Scrap Grenade, Lady Geist's Malice, Vyper's
+  Screwjab Dagger, Graves' Jar of Dead and Borrowed Decree, Shiv's Serrated Knives, Paradox's
+  Pulse Grenade, Pocket's Barrage, and items (Escalating Exposure, Crushing Fists, Siphon Bullets'
+  health loss). Hidden target stacks (Rat Swarm's `ratking_nibble_enemy_linger`, Card Trick's
+  `diamond_card_debuff`, Spirit Snatch's debuff) aren't kept at all.
+- **Harrow's Healing Needles and Lurking Terrors** scale with leeches
+  (`ChargePercentPerSecondPerLeech`, `FearDurationPerLeechStack`); their tooltips could show the
+  leech count's effect. Not built.
 
 ## Three modifiers on heroes have no name in the pack (2026-11-10, from pack-abilities)
 

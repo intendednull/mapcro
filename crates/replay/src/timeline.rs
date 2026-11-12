@@ -27,7 +27,10 @@ pub const TIER: &str = "replay";
 /// 8: authoritative scoreboard scalar changes (`Player::level`, `Player::max_health`, kills and assists).
 /// 9: statue pickups, the permanent stat bonuses the calculated stats add (`Player::pickups`;
 /// docs/research/stat-calc-spike.md).
-pub const FORMAT: u32 = 9;
+/// 10: the stacks each hero holds on its own abilities and items (`Player::stacks`, feedback #38;
+/// docs/research/README.md "Own stacks"). Its re-fetch also brings older format-9 timelines the
+/// recap source kinds (TD-22).
+pub const FORMAT: u32 = 10;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Timeline {
@@ -270,6 +273,12 @@ pub struct Player {
     /// (`m_iRemainingCharges`), in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub charges: Vec<[u32; 3]>,
+    /// `[t_ds, ability_id, stacks]` where the stacks the hero holds on one of its own abilities
+    /// or items change (format 10): the most `stack_count` among the modifiers it put on itself
+    /// with that ability or item, 0 once none is left (Leech Therapy's leeches collected,
+    /// Berserker's stacks). In order. What the game's ability tooltip calls its bonus.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stacks: Vec<[u32; 3]>,
     /// `[start_ds, end_ds, state, src, ability_id]` per hard-CC interval on this hero (the pawn's
     /// enabled-state mask; `state` is one of [`CC_STATES`]), with the enemy hero and ability the
     /// game applied it with in the same instant, where there was one (ability 0: unknown).
@@ -418,6 +427,8 @@ pub const MAX_ITEMS: usize = 512;
 pub const MAX_ABILITY_CHANGES: usize = 256;
 pub const MAX_CASTS: usize = 4096;
 pub const MAX_CHARGES: usize = 8192;
+/// Own-stack changes per hero (129738985: at most 160, 496 in all).
+pub const MAX_STACK_CHANGES: usize = 8192;
 pub const MAX_CC: usize = 2048;
 pub const MAX_EFFECTS: usize = 8192;
 pub const MAX_RECAPS: usize = 256;
@@ -450,6 +461,9 @@ pub fn extras_ok(p: &Player, duration_s: u32, players: usize) -> bool {
         && p.charges.len() <= MAX_CHARGES
         && p.charges.iter().all(|[t, id, n]| *t <= end && *id != 0 && *n <= MAX_CHARGE_COUNT)
         && p.charges.windows(2).all(|w| rising(w[0][0], w[1][0]))
+        && p.stacks.len() <= MAX_STACK_CHANGES
+        && p.stacks.iter().all(|[t, id, n]| *t <= end && *id != 0 && *n <= MAX_STACKS)
+        && p.stacks.windows(2).all(|w| rising(w[0][0], w[1][0]))
         && p.cc.len() <= MAX_CC
         && p.cc.iter().all(cc_ok)
         && p.cc.windows(2).all(|w| rising(w[0][0], w[1][0]))
@@ -953,6 +967,7 @@ mod tests {
                 abilities: vec![[0, 21, 1], [2, 21, 2]],
                 casts: vec![[3, 21, 300], [4, 22, 0]],
                 charges: vec![[3, 21, 1], [9, 21, 2]],
+                stacks: vec![[2, 21, 3], [8, 21, 0]],
                 cc: vec![[1, 4, 20, NO_HERO, 0], [2, 6, 17, 0, 21]],
                 effects: vec![[1, 9, 31, 0, 21, 2], [2, 2, 32, NO_HERO, 0, 0]],
                 recaps: vec![Recap { t: 10, damage: vec![[NO_HERO, 0, 120], [0, 21, 40]], cc: vec![[1, 4, 20, NO_HERO, 0]] }],
@@ -1116,6 +1131,11 @@ mod tests {
             Box::new(|t| t.players[0].charges[0][2] = MAX_CHARGE_COUNT + 1),
             Box::new(|t| t.players[0].charges.swap(0, 1)),
             Box::new(|t| t.players[0].charges = vec![[0, 1, 0]; MAX_CHARGES + 1]),
+            Box::new(|t| t.players[0].stacks[0][0] = 21),
+            Box::new(|t| t.players[0].stacks[0][1] = 0),
+            Box::new(|t| t.players[0].stacks[0][2] = MAX_STACKS + 1),
+            Box::new(|t| t.players[0].stacks.swap(0, 1)),
+            Box::new(|t| t.players[0].stacks = vec![[0, 1, 0]; MAX_STACK_CHANGES + 1]),
             Box::new(|t| t.players[0].cc[1] = [2, 2, 17, 0, 21]),
             Box::new(|t| t.players[0].cc[0][1] = 21),
             Box::new(|t| t.players[0].cc[0][2] = 21),
@@ -1168,7 +1188,7 @@ mod tests {
         o.remove("rejuv");
         o.remove("heals");
         o.remove("crates");
-        for f in ["items", "abilities", "casts", "charges", "cc", "effects", "recaps", "height", "zipline"] {
+        for f in ["items", "abilities", "casts", "charges", "stacks", "cc", "effects", "recaps", "height", "zipline"] {
             o["players"][0].as_object_mut().expect("player").remove(f);
         }
         let rift = o["rifts"][0].as_object_mut().expect("rift");
@@ -1181,7 +1201,7 @@ mod tests {
         assert_eq!((t.rifts[0].live_s, t.powerups[0].spawns.len()), (None, 0));
         assert_eq!((t.rifts[0].give_up_s, t.rifts[0].capture.len(), t.rejuv.len(), t.heals.len(), t.crates.len()), (None, 0, 0, 0, 0));
         let p = &t.players[0];
-        assert!(p.items.is_empty() && p.abilities.is_empty() && p.casts.is_empty() && p.charges.is_empty() && p.cc.is_empty());
+        assert!(p.items.is_empty() && p.abilities.is_empty() && p.casts.is_empty() && p.charges.is_empty() && p.stacks.is_empty() && p.cc.is_empty());
         assert!(p.effects.is_empty() && p.recaps.is_empty() && p.height.is_empty() && p.zipline.is_empty());
     }
 

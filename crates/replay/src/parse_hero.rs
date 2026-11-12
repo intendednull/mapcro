@@ -4,7 +4,7 @@
 //! the minimap feed `parse::vision_tick` already walks. Steam ids are never read: every message
 //! and field here names entities, slots or tokens.
 
-use crate::hero_data::{ApplyObs, CastObs, CcObs, ChargeObs, DamageObs, EffectObs, HeroData, ItemObs, LevelObs, SellObs, StateObs};
+use crate::hero_data::{ApplyObs, CastObs, CcObs, ChargeObs, DamageObs, EffectObs, HeroData, ItemObs, LevelObs, SellObs, StackObs, StateObs};
 use crate::modifiers::ICON_MODIFIERS;
 use crate::timeline::{CC_STATES, token};
 use boon::entity::field_path::FieldPath;
@@ -201,6 +201,50 @@ struct Open {
     stacks: u32,
 }
 
+/// The stacks each hero holds on its own abilities and items (feedback #38): the modifiers a hero
+/// put on itself with one of them, by serial, and per (player, ability) the most `stack_count`
+/// among the live ones. Many of these are hidden (no icon, so not in `effects`): Leech Therapy's
+/// `modifier_nurse_leech_therapy_stack_bonus` is one permanent modifier whose count is the
+/// leeches collected. docs/research/README.md "Own stacks".
+#[derive(Default)]
+struct OwnStacks {
+    /// Serial → (player, ability).
+    of: HashMap<u32, (i32, u32)>,
+    /// (player, ability) → serial → stack count.
+    live: HashMap<(i32, u32), HashMap<u32, u32>>,
+    /// (player, ability) → the count last reported.
+    shown: HashMap<(i32, u32), u32>,
+}
+
+impl OwnStacks {
+    fn applied(&mut self, serial: u32, player: i32, ability: u32, stacks: u32, game: f32, out: &mut Vec<StackObs>) {
+        self.of.insert(serial, (player, ability));
+        self.live.entry((player, ability)).or_default().insert(serial, stacks);
+        self.settle((player, ability), game, out);
+    }
+
+    fn changed(&mut self, serial: u32, stacks: u32, game: f32, out: &mut Vec<StackObs>) {
+        let Some(&key) = self.of.get(&serial) else { return };
+        self.live.entry(key).or_default().insert(serial, stacks);
+        self.settle(key, game, out);
+    }
+
+    fn removed(&mut self, serial: u32, game: f32, out: &mut Vec<StackObs>) {
+        let Some(key) = self.of.remove(&serial) else { return };
+        if let Some(m) = self.live.get_mut(&key) {
+            m.remove(&serial);
+        }
+        self.settle(key, game, out);
+    }
+
+    fn settle(&mut self, key: (i32, u32), game: f32, out: &mut Vec<StackObs>) {
+        let n = self.live.get(&key).and_then(|m| m.values().max().copied()).unwrap_or(0);
+        if self.shown.insert(key, n).unwrap_or(0) != n {
+            out.push(StackObs { game, player: key.0, id: key.1, stacks: n });
+        }
+    }
+}
+
 /// A cast waiting for its ability entity's cooldown.
 struct Pending {
     cast: usize,
@@ -216,6 +260,7 @@ pub struct HeroTracker {
     mods: Modifiers,
     changes: Vec<ModChange>,
     open: HashMap<u32, Open>,
+    own: OwnStacks,
     pending: Vec<Pending>,
     /// (player, token) → the ability entity's index and keys, refreshed once a second.
     entity_of: HashMap<(i32, u32), (i32, AbilityKeys)>,
@@ -317,6 +362,11 @@ impl HeroTracker {
 
         // The modifier table: icon-shown effects on heroes, and enemy applications for CC.
         for c in std::mem::take(&mut self.changes) {
+            let stacks = c.entry.stack_count.unwrap_or(0).max(0) as u32;
+            // A removed one's parent may have gone (a pawn swapped out): its serial is enough.
+            if c.kind == ModifierChangeKind::Removed {
+                self.own.removed(c.serial, g, &mut self.data.stacks);
+            }
             let Some((player, team)) = hero_of(c.entry.parent) else { continue };
             let id = c.entry.modifier_subclass.unwrap_or(0);
             match c.kind {
@@ -326,14 +376,17 @@ impl HeroTracker {
                     if let Some((by, _)) = caster.filter(|(_, t)| *t != team) {
                         self.data.applied.push(ApplyObs { game: g, player, caster: by, id, ability });
                     }
+                    if ability != 0 && caster.is_some_and(|(by, _)| by == player) {
+                        self.own.applied(c.serial, player, ability, stacks, g, &mut self.data.stacks);
+                    }
                     if ICON_MODIFIERS.binary_search(&id).is_ok() {
-                        let stacks = c.entry.stack_count.unwrap_or(0).max(0) as u32;
                         self.open.insert(c.serial, Open { start: g, player, caster: caster.map(|h| h.0), id, ability, stacks });
                     }
                 }
                 ModifierChangeKind::Changed => {
+                    self.own.changed(c.serial, stacks, g, &mut self.data.stacks);
                     if let Some(o) = self.open.get_mut(&c.serial) {
-                        o.stacks = o.stacks.max(c.entry.stack_count.unwrap_or(0).max(0) as u32);
+                        o.stacks = o.stacks.max(stacks);
                     }
                 }
                 ModifierChangeKind::Removed => {
@@ -447,6 +500,27 @@ pub fn height(data: &mut HeroData, last: &mut HashMap<i32, u8>, game: f32, playe
 mod tests {
     use super::*;
     use boon_proto::proto::CModifierTableEntry;
+
+    #[test]
+    fn own_stacks_follow_the_most_stacked_live_modifier_of_each_ability() {
+        let mut o = OwnStacks::default();
+        let mut out = Vec::new();
+        // Leech Therapy's one permanent modifier, its count rising, then a death taking 25%.
+        o.applied(1, 3, 77, 0, 1.0, &mut out);
+        o.changed(1, 1, 2.0, &mut out);
+        o.changed(1, 4, 3.0, &mut out);
+        o.changed(1, 3, 4.0, &mut out);
+        // An item with two modifiers of its own: the larger count is the item's.
+        o.applied(2, 3, 88, 5, 5.0, &mut out);
+        o.applied(3, 3, 88, 2, 5.0, &mut out);
+        o.removed(2, 6.0, &mut out);
+        o.removed(3, 7.0, &mut out);
+        // A change to a serial never applied as an own stack (an icon effect, an enemy's) is not one.
+        o.changed(9, 50, 8.0, &mut out);
+        o.removed(9, 8.0, &mut out);
+        let got: Vec<(f32, i32, u32, u32)> = out.iter().map(|s| (s.game, s.player, s.id, s.stacks)).collect();
+        assert_eq!(got, [(2.0, 3, 77, 1), (3.0, 3, 77, 4), (4.0, 3, 77, 3), (5.0, 3, 88, 5), (6.0, 3, 88, 2), (7.0, 3, 88, 0)]);
+    }
 
     #[test]
     fn the_kothtrooper_token_is_the_modifier_s_name() {

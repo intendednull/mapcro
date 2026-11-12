@@ -610,6 +610,12 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
       1.5 s after the cast), 0 if it didn't show (2107 of 2227 have it). Cooldown at t is
       client-side: no per-second percentages. `charges` `[t_ds, ability_id, n]` where
       `m_iRemainingCharges` changes on an ability or item the hero bought, levelled or cast.
+      `stacks` `[t_ds, ability_id, n]` (format 10, feedback #38) where the stacks a hero holds on
+      its own ability or item change: the most `stack_count` among the `ActiveModifiers` entries
+      it applied to itself with that ability or item (`ability_subclass`), 0 once none is left;
+      the last read in a tenth stands. Many are hidden modifiers, never in `effects` (Leech
+      Therapy's `modifier_nurse_leech_therapy_stack_bonus`, one permanent modifier whose count is
+      the leeches collected). 496 rows on 129738985, at most 160 a hero.
       The worker decodes every class with a cooldown, a subclass and an owner for this.
     - `cc` `[start_ds, end_ds, state, src, ability_id]`: the pawn's `m_bvEnabledStateMask` bits
       in `CC_STATES` (immobilized, disarmed, muted, silenced, stunned, dash disabled, shooting
@@ -649,7 +655,7 @@ above). The old `GET /api/matches/{id}` still serves the metadata alone.
     server share): each worker timeline carries `format` (1 from respawns and the urn; 2 buff
     types and rift openings; 3 the Rejuvenator and rift capture; 4 vision; 5 healing pickups; 6
     the clock holding through a pause; 7 builds, casts, status effects, height and the tough
-    crates; 8 each hero's level, max HP, kills and assists; 9 statue pickups; 0 before). Format 3 adds 4.2 KB to 129738985's 1.50 MB; format 4, 26.6 KB (1,501,758
+    crates; 8 each hero's level, max HP, kills and assists; 9 statue pickups; 10 own stacks; 0 before). Format 3 adds 4.2 KB to 129738985's 1.50 MB; format 4, 26.6 KB (1,501,758
     to 1,528,328 bytes); format 7, 304 KB for the hero data (1,530,253 to 1,834,572 bytes; 577 to
     657 KB gzipped), effects 160 KB and casts 53 KB of it, plus 7.7 KB for the crates. The
     timeline routes answer gzip or zstd to a client that accepts it. New fields are optional, so
@@ -1065,7 +1071,13 @@ makes a board with that match attached and lands in Player; **New board** is tod
   - **Values** are the replay's patch's where the pack has them: the overlay of the stat table
     the build reads (`tableKeyFor`; boon-data snapshots, 6711 onward), else the pack's own. The
     words are always the pack's localisation. Values recorded at t are the column's (cooldown
-    left, charges); the tooltip itself is static data.
+    left, charges, stacks); the tooltip itself is static data, except the stacks row below.
+  - **Stacks held** (format 10, feedback #38): an ability or item the hero holds stacks on (the
+    timeline's `stacks`) shows the count at its top right, and its tooltip shows it after the
+    game's words for it, `m_sCustomStackLabel` (an ability's "Current Bonus:", Leech Therapy's
+    "Leeches Collected:", an item's "Current Stacks:"): the ability's `.BonusContainer` row (count
+    in deadlockGreen) or the item's `.StacksContainer` box. None at 0. Unverified against the
+    running game: where the HUD's own button draws the count (backlog "To verify").
   - **Stat panels**: hovering an investment bar, or the stats under it, shows the game's WEAPON /
     VITALITY / SPIRIT STATS panel (`citadel_hero_stats_panels_shared.vcss`) beside its investment
     ladder (`citadel_tooltip_mod_bonus_display.vcss`): the title and words from the localisation,

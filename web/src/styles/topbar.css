@@ -306,6 +306,10 @@
   border: 1px solid #b8c4ba; background: #30332e; color: #fff0d6;
   line-height: 1; box-shadow: 0 1px 2px #0006;
 }
+/* Stacks held on an ability or item (Leech Therapy's leeches): the count at the top right, apart
+   from charges (bottom); the tooltip's "Current Bonus" green (deadlockGreen). */
+.tb-build-stacks { position: absolute; right: -2px; top: -2px; min-width: calc(10 * var(--u)); padding: 0 1px; box-sizing: border-box; border-radius: 2px; text-align: center; color: #69e799; background: #10130De6; font: 700 max(7px, calc(8 * var(--u))) var(--ui); line-height: 1.2; text-shadow: 0 1px 1px #000; }
+.tb-build-circle .tb-build-stacks { right: -3px; top: -3px; }
 .tb-build-fallback { font-size: calc(12 * var(--u)); color: #888; }
 .tb-build-empty { font: max(8px, calc(10 * var(--u))) var(--ui); color: #FFEFD780; margin: 3px 0; }
 /* Phone: under the Rejuvenator's marks wherever they end (below). */
