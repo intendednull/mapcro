@@ -1132,6 +1132,11 @@ makes a board with that match attached and lands in Player; **New board** is tod
   A tick hovered grows and shows its event's tag above it (the events list's short label, "Walker
   down", "Haze died"); a press jumps there as a row does (less the lead, with the ring). Ticks
   aren't in the tab order: ↑ ↓ step events from the keyboard (2026-11-11, feedback #6).
+  The marker space above the bar (ticks and scene marks) scrubs as the bar does (2026-11-11,
+  feedback #45): a press between markers seeks there, a press and drag anywhere in it scrubs and
+  holds the pointer off the row; a press on a marker is still its click (a tick's jump, a mark's
+  scene) until it travels 4 px (mouse, pen) or 10 px (touch), then it's a drag
+  (`web/src/player/scrubDrag.ts`).
 - **Names** (2026-11-08, operator: content creators hide usernames in videos): a transport toggle,
   shown when the timeline has players' names, on by default. Off, no player name is on screen
   (top bar, events and their search, tokens' hover titles; the hero or slot label stands in).
