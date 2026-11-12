@@ -6,6 +6,7 @@ mod codec;
 mod config;
 mod feedback;
 mod links;
+mod lookup;
 mod matches;
 mod metrics;
 mod packs;

@@ -306,7 +306,7 @@ fn cache_dir(app: &AppState) -> PathBuf {
     app.config.data_dir.join("replays")
 }
 
-fn scope_of(board: &str) -> String {
+pub(crate) fn scope_of(board: &str) -> String {
     links::hash(board)[..16].to_owned()
 }
 
@@ -1159,7 +1159,7 @@ fn check_client_timeline(body: &[u8], gzip: bool, match_id: u64) -> Result<Vec<u
 }
 
 /// The `source` the server stamps on a timeline parsed on the user's machine.
-const CLIENT_SOURCE: &str = "client";
+pub(crate) const CLIENT_SOURCE: &str = "client";
 
 /// A refusal's words for the person: only where the code alone doesn't say what to do.
 fn refusal_message(code: &str) -> Option<&'static str> {

@@ -291,3 +291,29 @@ when it clears. A site-down alert also goes to the concierge.
 The lead's Paseo agent id is read from `~/.config/mapcro-watch/lead`; update it when a new lead
 session takes over. Open alerts are kept in `~/.local/state/mapcro-watch.json`. To check by hand,
 run `python3 -I tools/prod-watch/watch.py --dry-run` inside `nix develop`.
+
+## Looking up a match from feedback
+
+A feedback issue names the match its sender had open ("Match 134623152 at 28:55 (full replay)"),
+not the board. An upload is cached under its board's scope, so the match id alone doesn't find
+it through the app. To see what they saw:
+
+1. `just stats timelines 134623152` lists every cached timeline of the match on production:
+   source (`cdn` fetched from Valve, `upload`, `client` parsed on the user's machine), scope and
+   board id, format, current or stale, and the worker's check. Rows with the same `#n` are one
+   file (a clone's carried upload). "open on" says what each board with the match sees: its own
+   upload first, else the `cdn` one, else the metadata. Nothing in the output comes from inside a
+   timeline. Add `--json` for the data, or `just stats local timelines <id>` for the dev cache.
+2. `just pull-timeline 134623152 <cdn | scope | board id>` copies that one (the `cdn` one by
+   default) over the deploy SSH, read-only as the mapcro user, to
+   `~/.local/share/mapcro-lead/timelines/<id>-<scope>.json` (0600). It's never printed:
+   timelines hold in-game names, so don't cat it, paste it or commit it.
+3. To see it in Player, add `--dev`: the file also goes to the dev cache as `<id>-cdn.json`
+   (`~/.local/share/mapcro/data/replays/`, or `MAPCRO_DATA_DIR`), moving a local one aside to
+   `mapcro-lead/timelines/displaced/`, and the local lookup shows it with its check. The dev server
+   serves cached timelines only with `REPLAY_DIR` set (no worker is needed to serve one), so start
+   it as `REPLAY_DIR=$HOME/.local/share/mapcro/replays/qa just dev`, then open the match on any
+   local board (Open match by id). The server reads the file on each open, so no restart is
+   needed; it checks nothing on read. A pull from a server on an older format than the local tree
+   reads as stale, and an editor's open then tries a re-fetch (only when the match's metadata is
+   cached locally); a local board's own upload of the match is served before it.

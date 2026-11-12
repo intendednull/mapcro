@@ -184,6 +184,15 @@ step reached (waiting for slot, uploading, queued or parsing).
     database, memory with its anon and resident peak apart, deadlock-api).
   - `stats usage [--by day|week]`: people, boards, matches by tier and path, and feature use.
   - `stats series <metric> [--since …]`: the raw series of one metric.
+  - `stats timelines <match id>` (2026-11-12, the replay cache, not the metrics): every cached
+    timeline of one match, for finding what a feedback issue's sender saw. Each row is a file:
+    its source (`cdn`, `upload` or `client`), scope and board id, format, tier, build, length,
+    size, when cached (a clone's link shows its source's time: links share it), current or
+    stale, and whether it passes the worker's check. Names of one file (a clone's carried
+    upload, hard-linked) share a `#n` and get a line saying so. Then the metadata summary, a mode
+    refusal, and the boards the match is open on with what each sees. It prints no names, ids
+    or contents from inside a timeline. `just pull-timeline` copies one to the dev box
+    (docs/deploy.md, "Looking up a match from feedback").
 - **A `just stats …` recipe** wraps the SSH call, so it is one command from the dev box.
 - **The lead's routine:** check `stats summary` after every deploy and at the start of a session.
   Read `stats failures` before triaging bugs. Use the numbers when choosing work: what's breaking

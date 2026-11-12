@@ -117,6 +117,59 @@ stats *args:
     fi
     exec ssh -i ~/.ssh/id_infra_2026 -o BatchMode=yes deploy@100.96.92.104 "sudo -u mapcro mapcro-stats $(printf '%q ' "$@")"
 
+# Pull one of production's cached timelines to the dev box, for the lead (docs/deploy.md "Looking
+# up a match from feedback"; find it first with `just stats timelines <id>`):
+# `just pull-timeline <match id> [cdn|<scope>|<board id>] [--dev]`. It's copied, read-only, as
+# the mapcro user, to ${XDG_DATA_HOME:-~/.local/share}/mapcro-lead/timelines/<id>-<scope>.json
+# (0600, outside the repo) and never printed: timelines hold in-game names. `--dev` also puts it
+# where the `just dev` server serves it to every local board, as <id>-cdn.json in the dev cache
+# (MAPCRO_DATA_DIR or ~/.local/share/mapcro/data), moving a local one aside first.
+pull-timeline +args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -- {{args}}
+    id="" which="" dev=0
+    for a in "$@"; do
+      case "$a" in
+        --dev) dev=1 ;;
+        -*) echo "pull-timeline: unknown flag $a" >&2; exit 2 ;;
+        *) if [ -z "$id" ]; then id=$a; elif [ -z "$which" ]; then which=$a; else echo "pull-timeline: <match id> [cdn|scope|board] [--dev]" >&2; exit 2; fi ;;
+      esac
+    done
+    [[ $id =~ ^[1-9][0-9]{0,11}$ ]] || { echo "pull-timeline: the match id is digits" >&2; exit 2; }
+    which=${which:-cdn}
+    if [[ $which == cdn || $which =~ ^[0-9a-f]{16}$ ]]; then
+      scope=$which
+    elif [[ $which =~ ^[A-Za-z0-9_-]{22}$ ]]; then
+      scope=$(printf %s "$which" | sha256sum | cut -c1-16) # the board's scope (replays.rs scope_of)
+    else
+      echo "pull-timeline: name it by cdn, its 16-hex scope or its board id" >&2; exit 2
+    fi
+    dir="${XDG_DATA_HOME:-$HOME/.local/share}/mapcro-lead/timelines"
+    mkdir -p -m 700 "$dir"
+    out="$dir/$id-$scope.json"
+    tmp=$(mktemp "$dir/.pull.XXXXXX")
+    trap 'rm -f "$tmp"' EXIT
+    ssh -i ~/.ssh/id_infra_2026 -o BatchMode=yes deploy@100.96.92.104 \
+      "sudo -u mapcro gzip -c /var/lib/mapcro/replays/$id-$scope.json" | gunzip > "$tmp" \
+      || { echo "pull-timeline: no $id-$scope.json on production (just stats timelines $id)" >&2; exit 1; }
+    chmod 600 "$tmp"
+    mv "$tmp" "$out"
+    echo "pulled $id-$scope ($(stat -c %s "$out") bytes) to $out"
+    [ "$dev" = 1 ] || exit 0
+    data="${MAPCRO_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mapcro/data}"
+    mkdir -p "$data/replays"
+    dest="$data/replays/$id-cdn.json"
+    if [ -e "$dest" ] && ! cmp -s "$dest" "$out"; then
+      mkdir -p -m 700 "$dir/displaced"
+      mv "$dest" "$dir/displaced/$id-cdn.$(date +%s).json"
+      echo "moved the dev cache's own $id-cdn.json to $dir/displaced/"
+    fi
+    cp "$out" "$data/replays/.$id-cdn.pull" && mv "$data/replays/.$id-cdn.pull" "$dest"
+    cargo build -q -p mapcro-server
+    target/debug/mapcro-server stats timelines "$id" --data-dir "$data"
+    echo "open match $id on any local board (the dev server needs REPLAY_DIR set to serve it: docs/deploy.md)"
+
 # The app, live-reloading: the server (state and packs under ~/.local/share/mapcro, outside the
 # repo) plus Vite on http://localhost:5173 proxying /api, /ws and /packs to it.
 dev port="8094": wasm

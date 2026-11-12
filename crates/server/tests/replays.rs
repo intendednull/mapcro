@@ -1374,6 +1374,109 @@ fn a_clone_keeps_the_matches_and_the_uploaded_replay() {
     assert_eq!(server.call("GET", &format!("/api/boards/{c2}/matches"), &c2_owner).1, serde_json::json!({ "matches": [] }));
 }
 
+/// `mapcro-server stats timelines <id>` on `server`'s data dir: (exit code, text, JSON).
+fn lookup(server: &Server, id: &str) -> (i32, String, serde_json::Value) {
+    let run = |json: bool| {
+        let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_mapcro-server"));
+        cmd.args(["stats", "timelines", id, "--data-dir"]).arg(server.data.path());
+        if json {
+            cmd.arg("--json");
+        }
+        let out = cmd.output().expect("run");
+        (out.status.code().unwrap_or(-1), String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr))
+    };
+    let (code, text) = run(false);
+    let (jcode, json) = run(true);
+    assert_eq!(code, jcode);
+    (code, text, serde_json::from_str(&json).unwrap_or_default())
+}
+
+/// Operator, 2026-11-12 ("so we can debug things easier"): the lead finds every timeline a match
+/// has from its id alone, uploads and their clones' links included, with their boards, and never
+/// a name from inside them.
+#[test]
+fn the_lookup_lists_every_timeline_of_a_match_by_source_board_and_link() {
+    use std::os::unix::fs::MetadataExt;
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[]);
+    let (a, a_owner, a_view) = server.board();
+    let (c, c_owner, _) = server.board();
+    let id = "130816395";
+    let named = |name: &str| {
+        let mut t = timeline(130816395);
+        t.players[0].name = Some(name.into());
+        serde_json::to_vec(&t).expect("json")
+    };
+    // Fetched from Valve (every board), an upload on A, a timeline parsed on C's user's machine.
+    let cache = server.data.path().join("replays");
+    std::fs::write(cache.join(format!("{id}-cdn.json")), named("Fetchedname")).expect("cdn");
+    let put = |b: &str, t: &str| agent().put(&server.url(&format!("/api/boards/{b}/matches/{id}"))).header("authorization", &format!("Bearer {t}")).send_empty().expect("put").status().as_u16();
+    assert_eq!(put(&a, &a_owner), 200);
+    let job = format!("{id}-{}", scope(&a));
+    assert_eq!(server.upload(&a, &a_owner, id, &fake_demo(1000)).0, 202);
+    work(&server, &job, Ok(&named("Uploadedname")));
+    server.until_state(&a, &a_owner, id, "done");
+    assert_eq!(server.send_timeline(&c, &c_owner, id, &named("Clientname"), None, "10.0.0.1").0, 200);
+    // A clone of A, B: its upload a hard link of A's.
+    let mut r = agent()
+        .post(&server.url(&format!("/api/boards/{a}/clone")))
+        .header("authorization", &format!("Bearer {a_view}"))
+        .header("content-type", "application/json")
+        .send("{}")
+        .expect("clone");
+    assert_eq!(r.status().as_u16(), 201);
+    let b = r.body_mut().read_json::<serde_json::Value>().expect("json")["board"].as_str().unwrap_or_default().to_owned();
+    let ino = |s: &str| std::fs::metadata(cache.join(format!("{id}-{s}.json"))).expect("cached").ino();
+    assert_eq!(ino(&scope(&a)), ino(&scope(&b)), "the clone's is a link");
+
+    let (code, text, v) = lookup(&server, id);
+    assert_eq!(code, 0, "{text}");
+    let rows = v["timelines"].as_array().cloned().unwrap_or_default();
+    let row = |s: &str| rows.iter().find(|r| r["scope"] == s).cloned().unwrap_or_else(|| panic!("no {s} row:\n{text}"));
+    assert_eq!(rows.len(), 4, "{text}");
+    let (cdn, ra, rb, rc) = (row("cdn"), row(&scope(&a)), row(&scope(&b)), row(&scope(&c)));
+    assert_eq!((&cdn["source"], &cdn["board"]), (&"cdn".into(), &serde_json::Value::Null));
+    assert_eq!((&ra["source"], &ra["board"]), (&"upload".into(), &a.clone().into()));
+    assert_eq!((&rb["source"], &rb["board"]), (&"upload".into(), &b.clone().into()));
+    assert_eq!((&rc["source"], &rc["board"]), (&"client".into(), &c.clone().into()));
+    assert_eq!(ra["file_no"], rb["file_no"], "A's and B's are one file");
+    assert_ne!(ra["file_no"], cdn["file_no"]);
+    assert_ne!(ra["file_no"], rc["file_no"]);
+    assert_eq!((&ra["links"], &cdn["links"]), (&2.into(), &1.into()));
+    let mut linked: Vec<String> = v["linked"][0]["scopes"].as_array().into_iter().flatten().filter_map(|s| s.as_str().map(String::from)).collect();
+    linked.sort();
+    let mut ab = vec![scope(&a), scope(&b)];
+    ab.sort();
+    assert_eq!((v["linked"].as_array().map(Vec::len), linked), (Some(1), ab), "{text}");
+    for r in &rows {
+        assert_eq!((&r["format"], &r["tier"], &r["state"], &r["check"]), (&mapcro_replay::timeline::FORMAT.into(), &"replay".into(), &"current".into(), &"ok".into()), "{r}");
+    }
+    let mut on: Vec<&str> = v["attached"].as_array().into_iter().flatten().filter_map(|x| x["board"].as_str()).collect();
+    on.sort();
+    let mut want = vec![a.as_str(), b.as_str()];
+    want.sort();
+    assert_eq!(on, want, "the boards the match is open on");
+    for board in [&a, &b, &c] {
+        assert!(text.contains(board.as_str()), "the text names each board:\n{text}");
+    }
+    assert!(text.contains("hard links"), "{text}");
+    for out in [&text, &v.to_string()] {
+        for name in ["Fetchedname", "Uploadedname", "Clientname", "Coach"] {
+            assert!(!out.contains(name), "no in-game name in the output ({name}):\n{out}");
+        }
+    }
+
+    // An older format reads as stale; an unknown match lists nothing; a bad id is refused.
+    cache_old(&server, 130816395, &format!("{id}-cdn"));
+    let (_, text, v) = lookup(&server, id);
+    let cdn = v["timelines"].as_array().into_iter().flatten().find(|r| r["scope"] == "cdn").cloned().unwrap_or_default();
+    assert_eq!((&cdn["format"], &cdn["state"]), (&0.into(), &"stale".into()), "{text}");
+    assert!(!text.contains("Old"), "{text}");
+    let (code, text, v) = lookup(&server, "130816396");
+    assert_eq!((code, v["timelines"].as_array().map(Vec::len)), (0, Some(0)), "{text}");
+    assert_ne!(lookup(&server, "../x").0, 0);
+}
+
 // ---- timelines parsed on the user's machine (spec §6a) ----
 
 fn gz(bytes: &[u8]) -> Vec<u8> {
