@@ -430,6 +430,51 @@ test("holding Tab shows every build wherever the focus is, but in a text field; 
   await a.keyboard.up("Tab");
 });
 
+test("a second Tab mounts no build column, and a column hidden at one time shows the current time's build (#39)", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Tab mounts"), "Coach");
+  await open(a, "129000108");
+  await scrubTo(a, 40);
+  const shown = a.locator("[data-testid=hero-build]:visible");
+  // Count the columns the top bar adds from now on (mounts, not shows).
+  await a.evaluate(() => {
+    const w = window as any;
+    w.tabMounts = 0;
+    w.tabObserver = new MutationObserver((list) => {
+      for (const m of list) for (const n of m.addedNodes) if ((n as Element).matches?.("[data-testid=hero-build]")) w.tabMounts++;
+    });
+    w.tabObserver.observe(document.querySelector("[data-testid=topbar]")!, { childList: true, subtree: true });
+  });
+  await a.keyboard.down("Tab");
+  await expect(shown).toHaveCount(12);
+  expect(await a.evaluate(() => (window as any).tabMounts)).toBe(12);
+  // Closed: still mounted, hidden; a hidden column can't be hovered or focused.
+  await a.keyboard.up("Tab");
+  await expect(shown).toHaveCount(0);
+  await expect(column(a)).toBeHidden();
+  // A second press mounts none: Tab only shows them again.
+  await a.keyboard.down("Tab");
+  await expect(shown).toHaveCount(12);
+  expect(await a.evaluate(() => (window as any).tabMounts)).toBe(12);
+  await a.keyboard.up("Tab");
+  await expect(shown).toHaveCount(0);
+  // Hidden at 5 s (the first ability at tier 1), shown again at 20 s (tier 2): the column has t's
+  // values at once, not the ones it was hidden at.
+  const ability = column(a).locator(`[data-ability-id="${ABILITY}"]`);
+  await scrubTo(a, 5);
+  await a.keyboard.down("Tab");
+  await expect(ability).toHaveAttribute("data-level", "1");
+  await a.keyboard.up("Tab");
+  await expect(shown).toHaveCount(0);
+  await scrubTo(a, 20);
+  await a.keyboard.down("Tab");
+  await expect(ability).toHaveAttribute("data-level", "2");
+  // A tooltip open in the column closes with it: a hidden element gets no pointerleave.
+  await ability.hover();
+  await expect(float(a)).toHaveCount(1);
+  await a.keyboard.up("Tab");
+  await expect(float(a)).toHaveCount(0);
+});
+
 test("an open build column draws over its hero's ult and the bar's marks (#27)", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Ult under column"), "Coach");
   await open(a, "129000105");

@@ -31,6 +31,7 @@ export const MODULE_STATE: Record<string, Entries> = {
   },
   "player/GameTooltip.tsx": {
     openId: ["reset-on-unmount", "the one game tooltip open (each tooltip also closes itself on cleanup)"],
+    openAnchor: ["owner-cleared", "the open tooltip's anchor: its Hover clears it on cleanup, and closeTips clears it on a board's unmount"],
     isOpen: ["constant", "a selector over openId, made once: it holds nothing of its own"],
   },
   "player/handoff.ts": { pending: ["keyed-by-board", "takeHandoff(board) gives it only to the board it was made for"] },

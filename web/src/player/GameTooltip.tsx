@@ -295,13 +295,18 @@ export function TagTip(p: { text: string }) {
 // ---- hover: one tooltip at a time, beside its anchor ----
 
 const [openId, setOpenId] = createSignal<symbol | null>(null);
+/** The open tooltip's anchor, to close it when the column holding it is hidden (Tab's columns
+ * stay mounted: a hidden element gets no pointerleave). */
+let openAnchor: Element | undefined;
 /** Whether the tooltip `id` is the one open. A selector: opening one wakes only the two whose
  * state changed, not every Hover on the page (#39: hundreds with the builds and events open). */
 const isOpen = createRoot(() => createSelector(openId));
 /** Whether the tooltip `id` (a `Hover`'s own) is open. */
 export const tipIsOpen = (id: symbol) => isOpen(id);
 /** Close whatever tooltip is open (a press elsewhere, Escape, a scroll; a board left). */
-export const closeTips = () => setOpenId(null);
+export const closeTips = () => { openAnchor = undefined; setOpenId(null); };
+/** Close the open tooltip if its anchor is in a hidden build column (BuildColumn's `visible`). */
+export const closeTipsHidden = () => { if (openAnchor?.closest("[data-testid=hero-build][hidden]")) closeTips(); };
 /** Open the tooltip `id` (a `Hover`'s own), closing any other. */
 export const openTip = (id: symbol) => setOpenId(id);
 /** Whether a tooltip is open, anywhere. */
@@ -319,12 +324,15 @@ export function Hover(p: { tip: () => JSX.Element | false | null | undefined; ch
   // At once, as the game's do (feedback #41: an 80 ms wait read as lag). Moving across a row of
   // items needs no guard: leaving one closes it in the same event that opens the next.
   const show = () => {
-    if (!open()) openTip(me);
+    if (!open()) {
+      openAnchor = anchor;
+      openTip(me);
+    }
   };
   const hide = () => {
-    if (open()) setOpenId(null);
+    if (open()) closeTips();
   };
-  onCleanup(() => { if (untrack(open)) setOpenId(null); });
+  onCleanup(() => { if (untrack(open)) closeTips(); });
   // The float, its placing and its listeners exist only while open: a Hover costs little to make
   // (twelve build columns of them appear at once on Tab, #39).
   const content = () => (open() ? p.tip() : undefined);
