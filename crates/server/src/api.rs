@@ -1,6 +1,7 @@
 //! HTTP API: create boards, mint, list and revoke links (spec §11). No accounts: the owner
 //! token, held by the creator's device, is the only key to link management.
 
+use crate::auth::{self, Denied, RoomKind};
 use crate::{AppState, links};
 use axum::Json;
 use axum::extract::{ConnectInfo, Path, State};
@@ -140,20 +141,33 @@ pub async fn create_board(
     }
 }
 
-/// The caller's link from `Authorization: Bearer <token>`, if it may manage links on this board:
-/// the owner, or an editor (who manages the links it minted). View links can't.
+/// The caller's link from `Authorization: Bearer <token>`, if it may manage links on this room
+/// (a board, or a session for the session routes): the owner, or an editor (who manages the
+/// links it minted). View links can't, and neither can access through a session (sessions
+/// spec §3.5) or a link to the other kind of room (§3.6).
 #[allow(clippy::result_large_err)] // the error *is* the HTTP response
-async fn require_manager(app: &AppState, board: &str, headers: &HeaderMap) -> Result<crate::store::LinkRow, Response> {
-    let token = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .filter(|t| links::plausible_token(t))
-        .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "link token required"))?;
-    match app.store.link(links::hash(token)).await {
-        Ok(Some(l)) if l.board == board && !l.revoked && matches!(l.role, LinkRole::Owner | LinkRole::Edit) => Ok(l),
-        Ok(_) => Err(err(StatusCode::FORBIDDEN, "this link cannot share")),
-        Err(e) => Err(internal(e)),
+async fn require_manager(app: &AppState, room: &str, kind: RoomKind, headers: &HeaderMap) -> Result<auth::Access, Response> {
+    match auth::own_link(app, room, kind, headers).await {
+        Ok(a) if a.can_share() => Ok(a),
+        Ok(_) | Err(Denied::Refused) => Err(err(StatusCode::FORBIDDEN, "this link cannot share")),
+        Err(Denied::Missing) => Err(err(StatusCode::UNAUTHORIZED, "link token required")),
+        Err(Denied::Storage(e)) => Err(internal(e)),
+        Err(Denied::Unavailable) => Err(err(StatusCode::SERVICE_UNAVAILABLE, "busy; try again")),
+    }
+}
+
+/// Close the live connections of revoked links: in the room itself, and for a session's links
+/// in every board opened through them too (sessions spec §3.7).
+async fn close_revoked(app: &AppState, room: &str, kind: RoomKind, hashes: Vec<String>) {
+    match kind {
+        RoomKind::Session => app.rooms.revoke_everywhere(&hashes).await,
+        RoomKind::Board => {
+            if let Some(r) = app.rooms.lookup(room) {
+                for link_hash in hashes {
+                    let _ = r.send(crate::room::RoomCmd::Revoke { link_hash }).await;
+                }
+            }
+        }
     }
 }
 
@@ -170,13 +184,29 @@ struct Minted {
     token: String,
 }
 
-pub async fn mint_link(
-    State(app): State<AppState>,
-    Path(board): Path<String>,
-    headers: HeaderMap,
-    Json(body): Json<MintLink>,
-) -> Response {
-    let caller = match require_manager(&app, &board, &headers).await {
+pub async fn mint_link(State(app): State<AppState>, Path(board): Path<String>, headers: HeaderMap, Json(body): Json<MintLink>) -> Response {
+    mint(app, RoomKind::Board, board, headers, body).await
+}
+
+/// Session links (sessions spec §3.1): the board link handlers, for a session.
+pub async fn mint_session_link(State(app): State<AppState>, Path(s): Path<String>, headers: HeaderMap, Json(body): Json<MintLink>) -> Response {
+    mint(app, RoomKind::Session, s, headers, body).await
+}
+
+pub async fn list_session_links(State(app): State<AppState>, Path(s): Path<String>, headers: HeaderMap) -> Response {
+    list(app, RoomKind::Session, s, headers).await
+}
+
+pub async fn revoke_session_link(State(app): State<AppState>, Path(path): Path<(String, String)>, headers: HeaderMap) -> Response {
+    revoke(app, RoomKind::Session, path, headers).await
+}
+
+pub async fn rotate_session_owner(State(app): State<AppState>, Path(s): Path<String>, headers: HeaderMap) -> Response {
+    rotate(app, RoomKind::Session, s, headers).await
+}
+
+async fn mint(app: AppState, kind: RoomKind, board: String, headers: HeaderMap, body: MintLink) -> Response {
+    let caller = match require_manager(&app, &board, kind, &headers).await {
         Ok(c) => c,
         Err(r) => return r,
     };
@@ -189,7 +219,7 @@ pub async fn mint_link(
     let token = links::new_token();
     let hash = links::hash(&token);
     let link_id = links::link_id(&hash).to_owned();
-    match app.store.add_link(hash, board, body.role, label, caller.hash, now()).await {
+    match app.store.add_link(hash, board, body.role, label, caller.link_hash, now()).await {
         Ok(true) => (StatusCode::CREATED, Json(Minted { link_id, token })).into_response(),
         // The caller's link was revoked between the check and the insert.
         Ok(false) => err(StatusCode::FORBIDDEN, "this link cannot share"),
@@ -209,12 +239,16 @@ struct LinkInfo {
 }
 
 pub async fn list_links(State(app): State<AppState>, Path(board): Path<String>, headers: HeaderMap) -> Response {
-    let caller = match require_manager(&app, &board, &headers).await {
+    list(app, RoomKind::Board, board, headers).await
+}
+
+async fn list(app: AppState, kind: RoomKind, board: String, headers: HeaderMap) -> Response {
+    let caller = match require_manager(&app, &board, kind, &headers).await {
         Ok(c) => c,
         Err(r) => return r,
     };
     let is_owner = caller.role == LinkRole::Owner;
-    match app.store.links_visible_to(board, caller.hash, is_owner).await {
+    match app.store.links_visible_to(board, caller.link_hash, is_owner).await {
         Ok(rows) => Json(
             rows.into_iter()
                 .map(|l| LinkInfo {
@@ -232,23 +266,19 @@ pub async fn list_links(State(app): State<AppState>, Path(board): Path<String>, 
     }
 }
 
-pub async fn revoke_link(
-    State(app): State<AppState>,
-    Path((board, link_id)): Path<(String, String)>,
-    headers: HeaderMap,
-) -> Response {
-    let caller = match require_manager(&app, &board, &headers).await {
+pub async fn revoke_link(State(app): State<AppState>, Path(path): Path<(String, String)>, headers: HeaderMap) -> Response {
+    revoke(app, RoomKind::Board, path, headers).await
+}
+
+async fn revoke(app: AppState, kind: RoomKind, (board, link_id): (String, String), headers: HeaderMap) -> Response {
+    let caller = match require_manager(&app, &board, kind, &headers).await {
         Ok(c) => c,
         Err(r) => return r,
     };
     let is_owner = caller.role == LinkRole::Owner;
-    match app.store.revoke(board.clone(), link_id, caller.hash, is_owner, now()).await {
+    match app.store.revoke(board.clone(), link_id, caller.link_hash, is_owner, now()).await {
         Ok(hashes) if !hashes.is_empty() => {
-            if let Some(room) = app.rooms.lookup(&board) {
-                for link_hash in hashes {
-                    let _ = room.send(crate::room::RoomCmd::Revoke { link_hash }).await;
-                }
-            }
+            close_revoked(&app, &board, kind, hashes).await;
             StatusCode::NO_CONTENT.into_response()
         }
         // Not found and not yours look the same, so link ids can't be probed.
@@ -265,17 +295,19 @@ struct Rotated {
 /// Replace a (possibly leaked) owner token (security review M4). The caller presents the current
 /// owner token and gets a new one; the old one stops working, and its live sessions close.
 pub async fn rotate_owner(State(app): State<AppState>, Path(board): Path<String>, headers: HeaderMap) -> Response {
-    let caller = match require_manager(&app, &board, &headers).await {
+    rotate(app, RoomKind::Board, board, headers).await
+}
+
+async fn rotate(app: AppState, kind: RoomKind, board: String, headers: HeaderMap) -> Response {
+    let caller = match require_manager(&app, &board, kind, &headers).await {
         Ok(c) if c.role == LinkRole::Owner => c,
         Ok(_) => return err(StatusCode::FORBIDDEN, "only the owner can rotate the owner token"),
         Err(r) => return r,
     };
     let token = links::new_token();
-    match app.store.rotate_owner(board.clone(), caller.hash.clone(), links::hash(&token), now()).await {
+    match app.store.rotate_owner(board.clone(), caller.link_hash.clone(), links::hash(&token), now()).await {
         Ok(true) => {
-            if let Some(room) = app.rooms.lookup(&board) {
-                let _ = room.send(crate::room::RoomCmd::Revoke { link_hash: caller.hash }).await;
-            }
+            close_revoked(&app, &board, kind, vec![caller.link_hash]).await;
             Json(Rotated { owner_token: token }).into_response()
         }
         Ok(false) => err(StatusCode::CONFLICT, "owner token changed concurrently"),
@@ -283,20 +315,17 @@ pub async fn rotate_owner(State(app): State<AppState>, Path(board): Path<String>
     }
 }
 
-/// Any live link to this board, view links included (`Authorization: Bearer <token>`): what
-/// Clone and Download ask, since anyone who can see a board could copy it by hand.
+/// Any live access to this board, view links included, and a session's grant on it (sessions
+/// spec §3.5: clone is allowed through a session): what Clone and Download ask, since anyone who
+/// can see a board could copy it by hand.
 #[allow(clippy::result_large_err)] // the error *is* the HTTP response
 pub(crate) async fn require_link(app: &AppState, board: &str, headers: &HeaderMap) -> Result<(), Response> {
-    let token = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .filter(|t| links::plausible_token(t))
-        .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "link token required"))?;
-    match app.store.link(links::hash(token)).await {
-        Ok(Some(l)) if l.board == board && !l.revoked => Ok(()),
-        Ok(_) => Err(err(StatusCode::FORBIDDEN, "not a link to this board")),
-        Err(e) => Err(internal(e)),
+    match auth::board(app, board, headers).await {
+        Ok(_) => Ok(()),
+        Err(Denied::Missing) => Err(err(StatusCode::UNAUTHORIZED, "link token required")),
+        Err(Denied::Refused) => Err(err(StatusCode::FORBIDDEN, "not a link to this board")),
+        Err(Denied::Storage(e)) => Err(internal(e)),
+        Err(Denied::Unavailable) => Err(err(StatusCode::SERVICE_UNAVAILABLE, "busy; try again")),
     }
 }
 

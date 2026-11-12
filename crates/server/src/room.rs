@@ -48,6 +48,8 @@ pub const SNAPSHOT_MAX_BYTES: usize = 8 * 1024 * 1024;
 pub enum RoomCmd {
     Join {
         link_hash: String,
+        /// The session link this peer came through, for a board opened as a session's tab.
+        via_hash: Option<String>,
         role: LinkRole,
         /// The client holds no copy: send it the board as it is now (spec §5, fresh join).
         want_base: bool,
@@ -62,7 +64,11 @@ pub enum RoomCmd {
     /// The board's size as JSON now, or `None` if it's over `SNAPSHOT_MAX_BYTES` (for a
     /// download, before anything is copied: boardfile.rs).
     DocBytes { reply: oneshot::Sender<Option<usize>> },
+    /// Close every connection that came in through this link, or through a session by it.
     Revoke { link_hash: String },
+    /// A session's room: whether it has a live tab for this board through this grant (sessions
+    /// spec §3.4, check 4).
+    TabLive { board: String, grant: String, reply: oneshot::Sender<bool> },
     /// Unload now if nobody is in the room (the server is at its open-room or memory cap).
     Unload,
 }
@@ -153,6 +159,7 @@ fn frame(out: &WireOut) -> Arc<str> {
 
 struct Peer {
     link_hash: String,
+    via_hash: Option<String>,
     role: LinkRole,
     out: mpsc::Sender<Out>,
     /// Bytes of frames queued in `out`; the socket task subtracts what it takes.
@@ -224,6 +231,9 @@ struct Room {
     /// neither ends every batch nor logs on every one).
     compact_retry_at: u64,
     compaction: Compaction,
+    /// Tabs this session's committed edits removed, as `(board, grant)`: their connections are
+    /// closed once the edit is durable (sessions spec §3.7). Always empty in a board's room.
+    removed_tabs: Vec<(String, String)>,
 }
 
 /// Where a fresh client starts.
@@ -434,6 +444,7 @@ impl Rooms {
             base_seq,
             compact_retry_at: 0,
             compaction: self.compaction,
+            removed_tabs: Vec::new(),
         };
         let registry = self.clone();
         let sender = tx.clone();
@@ -457,13 +468,14 @@ impl Rooms {
         &self,
         board: &str,
         link_hash: String,
+        via_hash: Option<String>,
         role: LinkRole,
         want_base: bool,
     ) -> Result<(mpsc::Sender<RoomCmd>, Result<Joined, CloseReason>), RoomError> {
         for _ in 0..3 {
             let room = self.get(board).await?;
             let (reply, joined) = oneshot::channel();
-            let cmd = RoomCmd::Join { link_hash: link_hash.clone(), role, want_base, reply };
+            let cmd = RoomCmd::Join { link_hash: link_hash.clone(), via_hash: via_hash.clone(), role, want_base, reply };
             if room.send(cmd).await.is_ok()
                 && let Ok(j) = joined.await
             {
@@ -511,6 +523,33 @@ impl Rooms {
             self.forget(board, &room);
         }
         Err(RoomError::Unavailable)
+    }
+
+    /// Whether `session`'s document has a live tab for `board` through `grant`, loading the
+    /// session's room if needed (sessions spec §3.4, check 4).
+    pub async fn tab_live(&self, session: &str, board: &str, grant: &str) -> Result<bool, RoomError> {
+        for _ in 0..3 {
+            let room = self.get(session).await?;
+            let (reply, rx) = oneshot::channel();
+            if room.send(RoomCmd::TabLive { board: board.to_owned(), grant: grant.to_owned(), reply }).await.is_ok()
+                && let Ok(live) = rx.await
+            {
+                return Ok(live);
+            }
+            self.forget(session, &room);
+        }
+        Err(RoomError::Unavailable)
+    }
+
+    /// Send `Revoke` for each hash to every open room: a session link's sessions reach into
+    /// every board opened through it (sessions spec §3.7).
+    pub async fn revoke_everywhere(&self, hashes: &[String]) {
+        let open: Vec<mpsc::Sender<RoomCmd>> = self.registry().open.values().filter(|h| !h.tx.is_closed()).map(|h| h.tx.clone()).collect();
+        for room in open {
+            for link_hash in hashes {
+                let _ = room.send(RoomCmd::Revoke { link_hash: link_hash.clone() }).await;
+            }
+        }
     }
 
     pub fn open_count(&self) -> usize {
@@ -595,8 +634,8 @@ impl Room {
 
     async fn dispatch_one(&mut self, cmd: RoomCmd) -> Result<(), StoreError> {
         let result = match cmd {
-            RoomCmd::Join { link_hash, role, want_base, reply } => {
-                self.join(link_hash, role, want_base, reply);
+            RoomCmd::Join { link_hash, via_hash, role, want_base, reply } => {
+                self.join(link_hash, via_hash, role, want_base, reply);
                 Ok(())
             }
             RoomCmd::Msg { .. } => Ok(()), // engine messages go through `batch` (see `dispatch`)
@@ -627,8 +666,22 @@ impl Room {
                 let _ = reply.send(self.snapshot.as_ref().and_then(|(_, doc)| doc.as_ref().map(|d| d.len())));
                 Ok(())
             }
+            RoomCmd::TabLive { board, grant, reply } => {
+                let live = self
+                    .authority
+                    .doc()
+                    .iter_live()
+                    .any(|(_, r)| matches!(r, mapcro_schema::Record::Tab(t) if t.board.0 == board && t.grant.0 == grant));
+                let _ = reply.send(live);
+                Ok(())
+            }
             RoomCmd::Revoke { link_hash } => {
-                let gone: Vec<ConnId> = self.peers.iter().filter(|(_, p)| p.link_hash == link_hash).map(|(c, _)| *c).collect();
+                let gone: Vec<ConnId> = self
+                    .peers
+                    .iter()
+                    .filter(|(_, p)| p.link_hash == link_hash || p.via_hash.as_deref() == Some(link_hash.as_str()))
+                    .map(|(c, _)| *c)
+                    .collect();
                 for conn in gone {
                     self.close(conn, CloseReason::Revoked);
                 }
@@ -725,6 +778,7 @@ impl Room {
     fn join(
         &mut self,
         link_hash: String,
+        via_hash: Option<String>,
         role: LinkRole,
         want_base: bool,
         reply: oneshot::Sender<Result<Joined, CloseReason>>,
@@ -738,7 +792,7 @@ impl Room {
         let conn = ConnId(self.next_conn);
         self.next_conn += 1;
         let (out, rx) = mpsc::channel(OUTBOX_DEPTH);
-        let peer = Peer { link_hash, role: link_role, out, queued: Arc::default(), presence: None, missed: Vec::new() };
+        let peer = Peer { link_hash, via_hash, role: link_role, out, queued: Arc::default(), presence: None, missed: Vec::new() };
         self.authority.connect(conn, role);
         // Everyone already here, so the newcomer sees the room at once.
         let here: Vec<PeerPresence> = self
@@ -817,6 +871,12 @@ impl Room {
             m.commit_batch_size.observe((), outboxes.len() as f64);
             failpoint("after_commit");
             record_commit(outboxes.len(), n);
+        }
+        // Removed tabs close their connections once the removal is durable (sessions §3.7).
+        if !self.removed_tabs.is_empty() {
+            let removed = std::mem::take(&mut self.removed_tabs);
+            let (store, rooms, session) = (self.store.clone(), self.rooms.clone(), self.id.clone());
+            tokio::spawn(async move { close_removed_tabs(store, rooms, session, removed).await });
         }
         let messages = outboxes.len();
         for outbox in outboxes {
@@ -905,6 +965,7 @@ impl Room {
         for effect in effects {
             writes.push(match effect {
                 Effect::Logged { seq, tx } => {
+                    self.note_removed_tabs(&tx);
                     let (codec, stored) = encoded.take().ok_or_else(|| StoreError::Corrupt("logged without a submit".into()))?;
                     self.since_weighed += 1;
                     if self.since_weighed >= REWEIGH_EVERY {
@@ -927,6 +988,23 @@ impl Room {
         }
         outboxes.push(outbox);
         Ok(size)
+    }
+
+    /// A session's tabs that `tx` (just applied) left deleted. A tab is only ever removed by a
+    /// `Delete` (an edit, or an undo of its creation), so those are the ops to look at.
+    fn note_removed_tabs(&mut self, tx: &mapcro_schema::Tx) {
+        if self.authority.doc().kind() != mapcro_schema::DocKind::Session {
+            return;
+        }
+        for op in &tx.ops {
+            if let mapcro_schema::Op::Delete { id } = op
+                && let Some(e) = self.authority.doc().get(*id)
+                && e.deleted
+                && let mapcro_schema::Record::Tab(t) = &e.record
+            {
+                self.removed_tabs.push((t.board.0.clone(), t.grant.0.clone()));
+            }
+        }
     }
 
     /// Send what a message produced (after its effects are durable).
@@ -978,5 +1056,21 @@ impl Room {
             let _ = peer.out.try_send(Out::Closed(reason));
         }
         self.forget_peer(conn);
+    }
+}
+
+/// Close the connections that came in through removed tabs' grants: each grant's links row is
+/// unique to its session, so `Revoke` with its hash closes exactly those (sessions spec §3.7).
+/// The grant itself stays, so undo (a restore) opens the tab again.
+async fn close_removed_tabs(store: Store, rooms: Rooms, session: String, removed: Vec<(String, String)>) {
+    for (board, grant) in removed {
+        let Some(room) = rooms.lookup(&board) else { continue }; // nobody is on it
+        match store.grant(session.clone(), grant).await {
+            Ok(Some(g)) if g.board == board => {
+                let _ = room.send(RoomCmd::Revoke { link_hash: g.link_hash }).await;
+            }
+            Ok(_) => {} // a made-up tab: nothing came in through it
+            Err(e) => tracing::error!(error = %e, "grant lookup for a removed tab failed"),
+        }
     }
 }

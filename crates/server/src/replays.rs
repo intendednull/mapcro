@@ -357,22 +357,21 @@ fn group_readable() -> std::fs::Permissions {
     std::fs::Permissions::from_mode(0o640)
 }
 
-/// The caller's role on `board`, from `Authorization: Bearer <token>`.
+/// The caller's role on `board`: its own link (`Authorization: Bearer <token>`), or a session's
+/// grant on it (`Authorization: Grant …`, sessions spec §3.4), which any session editor may
+/// upload and attach through (§12).
 #[allow(clippy::result_large_err)] // the error *is* the HTTP response
 async fn role(app: &AppState, board: &str, headers: &HeaderMap) -> Result<LinkRole, Response> {
+    use crate::auth::Denied;
     if !links::plausible_board_id(board) {
         return Err(err(StatusCode::NOT_FOUND, "no_board"));
     }
-    let token = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .filter(|t| links::plausible_token(t))
-        .ok_or_else(|| err(StatusCode::UNAUTHORIZED, "link_required"))?;
-    match app.store.link(links::hash(token)).await {
-        Ok(Some(l)) if l.board == board && !l.revoked => Ok(l.role),
-        Ok(_) => Err(err(StatusCode::FORBIDDEN, "not_this_board")),
-        Err(e) => {
+    match crate::auth::board(app, board, headers).await {
+        Ok(a) => Ok(a.role),
+        Err(Denied::Missing) => Err(err(StatusCode::UNAUTHORIZED, "link_required")),
+        Err(Denied::Refused) => Err(err(StatusCode::FORBIDDEN, "not_this_board")),
+        Err(Denied::Unavailable) => Err(err(StatusCode::SERVICE_UNAVAILABLE, "unavailable")),
+        Err(Denied::Storage(e)) => {
             tracing::error!(error = %e, "link lookup failed");
             Err(err(StatusCode::INTERNAL_SERVER_ERROR, "internal"))
         }

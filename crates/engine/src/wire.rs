@@ -26,6 +26,14 @@ impl LinkRole {
     }
 }
 
+/// The session and grant a board is opened through (`WireIn::Auth::via`). Neither is secret.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Via {
+    pub session: String,
+    pub grant: String,
+}
+
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
@@ -41,6 +49,11 @@ pub enum WireIn {
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional))]
         build: Option<String>,
+        /// Opening `board` as a session's tab (sessions spec §3.4): `token` is then the
+        /// session's token, and the access is the grant's, capped by the session role.
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        via: Option<Via>,
     },
     Msg { msg: ClientMsg },
     /// This client's presence, replacing its previous one. Ephemeral: never stored. Boxed: it's

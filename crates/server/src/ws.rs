@@ -2,6 +2,7 @@
 //! both ways with size, rate and liveness limits.
 
 use crate::AppState;
+use crate::auth::{self, Credential, Denied, RoomKind};
 use crate::links;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
@@ -151,28 +152,32 @@ async fn session(app: AppState, mut socket: WebSocket) -> Option<CloseReason> {
         Ok(None | Some(Err(_))) => return None,
         Ok(Some(Ok(_))) => return send_closed(&mut socket, CloseReason::Unauthorized).await,
     };
-    let Ok(WireIn::Auth { board, token, known_seq, build }) = serde_json::from_str::<WireIn>(&first) else {
+    let Ok(WireIn::Auth { board, token, known_seq, build, via }) = serde_json::from_str::<WireIn>(&first) else {
         return send_closed(&mut socket, CloseReason::Unauthorized).await;
     };
     // A tab from before a deploy reads this build's messages wrong: tell it to reload.
     if build.as_deref().is_some_and(|b| b != mapcro_schema::BUILD_ID) {
         return send_closed(&mut socket, CloseReason::Outdated).await;
     }
-    if !links::plausible_board_id(&board) || !links::plausible_token(&token) {
+    // Through a session only a board opens (sessions spec §3.6); a link alone opens its own room.
+    let kind = via.is_some().then_some(RoomKind::Board);
+    let Some(cred) = links::plausible_board_id(&board).then(|| Credential::from_auth(token, via)).flatten() else {
         return send_closed(&mut socket, CloseReason::Unauthorized).await;
-    }
-    let hash = links::hash(&token);
-    let link = match app.store.link(hash.clone()).await {
-        Ok(Some(l)) if l.board == board && !l.revoked => l,
-        Ok(_) => return send_closed(&mut socket, CloseReason::Unauthorized).await,
-        Err(e) => {
+    };
+    let access = match auth::resolve(&app, &board, kind, &cred).await {
+        Ok(a) => a,
+        Err(Denied::Missing | Denied::Refused) => return send_closed(&mut socket, CloseReason::Unauthorized).await,
+        Err(Denied::Unavailable) => return send_closed(&mut socket, CloseReason::Busy).await,
+        Err(Denied::Storage(e)) => {
             tracing::error!(error = %e, "link lookup failed");
             return send_closed(&mut socket, CloseReason::StorageFailure).await;
         }
     };
+    let role = access.role;
 
     // 2. Join the room.
-    let (room, joined) = match app.rooms.join(&board, hash.clone(), link.role, known_seq.is_none()).await {
+    let via_hash = access.via.as_ref().map(|v| v.session_hash.clone());
+    let (room, joined) = match app.rooms.join(&board, access.link_hash.clone(), via_hash, role, known_seq.is_none()).await {
         Ok(j) => j,
         Err(crate::room::RoomError::Busy) => return send_closed(&mut socket, CloseReason::Busy).await,
         Err(e) => {
@@ -186,13 +191,12 @@ async fn session(app: AppState, mut socket: WebSocket) -> Option<CloseReason> {
     };
     // Revocation race (security review M5): a revoke that landed between the first check and
     // the join reached the store but maybe not this room. Check again now that we're in it;
-    // any revoke after this point finds the room open and closes us through it.
-    match app.store.link(hash).await {
-        Ok(Some(l)) if !l.revoked => {}
-        _ => {
-            let _ = room.send(RoomCmd::Leave { conn }).await;
-            return send_closed(&mut socket, CloseReason::Revoked).await;
-        }
+    // any revoke after this point finds the room open and closes us through it. Through a
+    // session the whole chain is checked again, the tab included: a removal after this point
+    // is durable before its `Revoke` is sent, and that finds us here.
+    if auth::resolve(&app, &board, kind, &cred).await.is_err() {
+        let _ = room.send(RoomCmd::Leave { conn }).await;
+        return send_closed(&mut socket, CloseReason::Revoked).await;
     }
     // A client with no copy gets the board as it is now, at the log position the room took it
     // at (spec §5, fresh join). It says hello from there and catches up only what came after.
@@ -214,11 +218,11 @@ async fn session(app: AppState, mut socket: WebSocket) -> Option<CloseReason> {
         Some((doc, seq)) => {
             let kib = (2 * doc.len() / 1024 + 1).min(BASE_SENDS_KIB) as u32;
             permit = app.base_sends.clone().acquire_many_owned(kib).await.ok();
-            Message::Text(crate::store::ready_frame(link.role, &doc, seq, conn.0, head).into())
+            Message::Text(crate::store::ready_frame(role, &doc, seq, conn.0, head).into())
         }
         None => {
             permit = None;
-            frame(&WireOut::Ready { role: link.role, base: None, peer: conn.0, head: Some(head) })
+            frame(&WireOut::Ready { role, base: None, peer: conn.0, head: Some(head) })
         }
     };
     let sent = socket.send(ready).await;

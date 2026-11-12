@@ -115,6 +115,68 @@ pub struct LinkRow {
     pub revoked: bool,
     /// The link that minted this one (`None` for the owner link).
     pub minted_by: Option<String>,
+    /// What the link's room is: a board or a session (sessions spec §2.1).
+    pub kind: RoomKind,
+}
+
+/// What a room in the `boards` table is (sessions spec §2.1, §3.6). Board and session ids share
+/// a shape and a table, so every link lookup says which, and every route asserts it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoomKind {
+    Board,
+    Session,
+}
+
+impl RoomKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            RoomKind::Board => "board",
+            RoomKind::Session => "session",
+        }
+    }
+
+    fn parse(s: &str) -> Result<RoomKind, StoreError> {
+        match s {
+            "board" => Ok(RoomKind::Board),
+            "session" => Ok(RoomKind::Session),
+            other => Err(StoreError::Corrupt(format!("unknown room kind {other:?}"))),
+        }
+    }
+}
+
+/// A grant (sessions spec §3.2): the board it opens and the `links` row that carries its role.
+#[derive(Clone, Debug)]
+pub struct GrantRow {
+    pub board: String,
+    pub link_hash: String,
+}
+
+/// A grant to write, with its links row on `board` (sessions spec §3.2 step 4).
+pub struct NewGrant {
+    pub session: String,
+    pub grant_id: String,
+    pub board: String,
+    /// The hash of a token nobody holds: the grant's own link on `board`.
+    pub link_hash: String,
+    pub role: LinkRole,
+    pub label: String,
+    /// The board link the adder presented: the grant is minted by it, so it cascades.
+    pub minted_by: String,
+    /// The session link that added it.
+    pub added_by: String,
+    pub now: i64,
+    /// Live grants a session may hold (§3.8).
+    pub max_live: u64,
+}
+
+/// What writing a grant came to.
+#[derive(Debug, PartialEq, Eq)]
+pub enum GrantWrite {
+    Written,
+    /// The board link or the session link was revoked (or isn't what it was) by now.
+    Refused,
+    /// The session holds `max_live` live grants.
+    Full,
 }
 
 #[derive(Clone)]
@@ -128,7 +190,7 @@ pub struct Store {
 }
 
 /// Database schema version. Each step in `migrate` takes the database one version forward.
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 /// Whether the step from `from` to `from + 1` is additive: it only adds tables (or other things
 /// an older server never reads), so a server that predates it still uses the database correctly.
@@ -138,7 +200,7 @@ const SCHEMA_VERSION: i64 = 6;
 /// Steps before v6 predate the floor and count as breaking: servers of those versions refuse a
 /// newer database whatever it says.
 fn additive_step(from: i64) -> bool {
-    matches!(from, 5)
+    matches!(from, 5 | 6)
 }
 
 /// The oldest server version that can safely open a database at schema `version`: the floor
@@ -191,6 +253,29 @@ fn migrate(conn: &Connection, from: i64, to: i64) -> Result<(), StoreError> {
             // v5 → v6: the metrics tables (docs/specs/observability.md): minute and hourly
             // rows, the recent-failures log, the daily user counts.
             5 => t.execute_batch(crate::metrics::db::SCHEMA)?,
+            // v6 → v7: sessions (docs/specs/sessions.md §2.1). A room says what it is, and a
+            // session's grants say which board each opens through which links row. Additive:
+            // a v6 server never reads either, and every existing row is a board.
+            6 => {
+                // A database that went forward and back (a rollback) may have the column already.
+                let has_kind: bool =
+                    t.query_row("SELECT EXISTS (SELECT 1 FROM pragma_table_info('boards') WHERE name = 'kind')", [], |r| r.get(0))?;
+                if !has_kind {
+                    t.execute_batch("ALTER TABLE boards ADD COLUMN kind TEXT NOT NULL DEFAULT 'board';")?;
+                }
+                t.execute_batch(
+                    "CREATE TABLE IF NOT EXISTS session_grants (
+                       session TEXT NOT NULL REFERENCES boards(id),
+                       grant_id TEXT NOT NULL,
+                       board TEXT NOT NULL REFERENCES boards(id),
+                       link_hash TEXT NOT NULL REFERENCES links(hash),
+                       added_by TEXT NOT NULL,
+                       created_at INTEGER NOT NULL,
+                       PRIMARY KEY (session, grant_id)
+                     ) WITHOUT ROWID;
+                     CREATE INDEX IF NOT EXISTS session_grants_by_board ON session_grants(board);",
+                )?
+            }
             other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
         }
         v += 1;
@@ -274,6 +359,11 @@ fn corrupt(e: serde_json::Error) -> StoreError {
 
 impl Store {
     pub fn open(path: &Path) -> Result<Store, StoreError> {
+        Store::open_at(path, SCHEMA_VERSION)
+    }
+
+    /// Open as a server that knows schema `known` would (tests build older databases with it).
+    fn open_at(path: &Path, known: i64) -> Result<Store, StoreError> {
         let conn = Connection::open(path)?;
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
@@ -310,7 +400,7 @@ impl Store {
              );
              CREATE INDEX IF NOT EXISTS links_by_board ON links(board);",
         )?;
-        reconcile(&conn, SCHEMA_VERSION)?;
+        reconcile(&conn, known)?;
         let bytes = Arc::new(AtomicU64::new(db_size(&conn)?));
         let reader = Connection::open(path)?;
         reader.execute_batch("PRAGMA query_only = ON; PRAGMA busy_timeout = 5000;")?;
@@ -383,6 +473,24 @@ impl Store {
         max_boards: u64,
         max_bytes: u64,
     ) -> Result<(), StoreError> {
+        self.create_room(RoomKind::Board, id, base, owner_hash, now, max_boards, max_bytes, None).await.map(|_| ())
+    }
+
+    /// Create a board or a session, under the same caps (sessions count toward `max_boards`,
+    /// spec §2.1). A session may come with its first grant, written in the same transaction:
+    /// then `false` if the grant was refused, and nothing is written.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_room(
+        &self,
+        kind: RoomKind,
+        id: String,
+        base: Doc,
+        owner_hash: String,
+        now: i64,
+        max_boards: u64,
+        max_bytes: u64,
+        grant: Option<NewGrant>,
+    ) -> Result<bool, StoreError> {
         let (base_codec, base) = codec::encode(&serde_json::to_vec(&base).map_err(corrupt)?);
         self.with(move |c| {
             let t = c.transaction()?;
@@ -391,15 +499,48 @@ impl Store {
                 return Err(StoreError::Full);
             }
             t.execute(
-                "INSERT INTO boards (id, created_at, base_doc, base_seq, base_codec) VALUES (?1, ?2, ?3, 0, ?4)",
-                params![id, now, base, base_codec.as_str()],
+                "INSERT INTO boards (id, created_at, base_doc, base_seq, base_codec, kind) VALUES (?1, ?2, ?3, 0, ?4, ?5)",
+                params![id, now, base, base_codec.as_str(), kind.as_str()],
             )?;
             t.execute(
                 "INSERT INTO links (hash, board, role, label, created_at) VALUES (?1, ?2, 'owner', 'owner', ?3)",
                 params![owner_hash, id, now],
             )?;
+            if let Some(g) = grant
+                && write_grant(&t, &g)? != GrantWrite::Written
+            {
+                return Ok(false); // dropped: the transaction rolls back
+            }
             t.commit()?;
-            Ok(())
+            Ok(true)
+        })
+        .await
+    }
+
+    /// Write a grant and its links row on the board, atomically refusing if the board link it
+    /// comes from or the session link adding it was revoked, so a revocation never misses a
+    /// grant made concurrently (sessions spec §3.2).
+    pub async fn add_grant(&self, g: NewGrant) -> Result<GrantWrite, StoreError> {
+        self.with(move |c| {
+            let t = c.transaction()?;
+            let w = write_grant(&t, &g)?;
+            if w == GrantWrite::Written {
+                t.commit()?;
+            }
+            Ok(w)
+        })
+        .await
+    }
+
+    /// A session's grant, if it exists.
+    pub async fn grant(&self, session: String, grant_id: String) -> Result<Option<GrantRow>, StoreError> {
+        self.with(move |c| {
+            Ok(c.query_row(
+                "SELECT board, link_hash FROM session_grants WHERE session = ?1 AND grant_id = ?2",
+                params![session, grant_id],
+                |r| Ok(GrantRow { board: r.get(0)?, link_hash: r.get(1)? }),
+            )
+            .optional()?)
         })
         .await
     }
@@ -683,13 +824,14 @@ impl Store {
         self.with(move |c| {
             let row = c
                 .query_row(
-                    "SELECT hash, board, role, label, created_at, revoked_at IS NOT NULL, minted_by FROM links WHERE hash = ?1",
+                    "SELECT l.hash, l.board, l.role, l.label, l.created_at, l.revoked_at IS NOT NULL, l.minted_by, b.kind
+                     FROM links l JOIN boards b ON b.id = l.board WHERE l.hash = ?1",
                     [&hash],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, String>(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, String>(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get::<_, String>(7)?)),
                 )
                 .optional()?;
-            row.map(|(hash, board, role, label, created_at, revoked, minted_by)| {
-                Ok(LinkRow { hash, board, role: parse_role(&role)?, label, created_at, revoked, minted_by })
+            row.map(|(hash, board, role, label, created_at, revoked, minted_by, kind)| {
+                Ok(LinkRow { hash, board, role: parse_role(&role)?, label, created_at, revoked, minted_by, kind: RoomKind::parse(&kind)? })
             })
             .transpose()
         })
@@ -741,7 +883,8 @@ impl Store {
             let mut out = Vec::new();
             for row in rows {
                 let (hash, board, role, label, created_at, revoked, minted_by) = row?;
-                out.push(LinkRow { hash, board, role: parse_role(&role)?, label, created_at, revoked, minted_by });
+                // Every link listed is on `board`, whose kind the route already asserted.
+                out.push(LinkRow { hash, board, role: parse_role(&role)?, label, created_at, revoked, minted_by, kind: RoomKind::Board });
             }
             Ok(out)
         })
@@ -801,6 +944,38 @@ impl Store {
         })
         .await
     }
+}
+
+/// `add_grant`'s body, in the caller's transaction.
+fn write_grant(t: &rusqlite::Transaction<'_>, g: &NewGrant) -> Result<GrantWrite, StoreError> {
+    let live = |hash: &str, room: &str, kind: RoomKind| -> rusqlite::Result<bool> {
+        t.query_row(
+            "SELECT EXISTS (SELECT 1 FROM links l JOIN boards b ON b.id = l.board
+                            WHERE l.hash = ?1 AND l.board = ?2 AND b.kind = ?3 AND l.revoked_at IS NULL)",
+            params![hash, room, kind.as_str()],
+            |r| r.get(0),
+        )
+    };
+    if !live(&g.minted_by, &g.board, RoomKind::Board)? || !live(&g.added_by, &g.session, RoomKind::Session)? {
+        return Ok(GrantWrite::Refused);
+    }
+    let held: i64 = t.query_row(
+        "SELECT COUNT(*) FROM session_grants s JOIN links l ON l.hash = s.link_hash WHERE s.session = ?1 AND l.revoked_at IS NULL",
+        [&g.session],
+        |r| r.get(0),
+    )?;
+    if held as u64 >= g.max_live {
+        return Ok(GrantWrite::Full);
+    }
+    t.execute(
+        "INSERT INTO links (hash, board, role, label, created_at, minted_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![g.link_hash, g.board, role_str(g.role), g.label, g.now, g.minted_by],
+    )?;
+    t.execute(
+        "INSERT INTO session_grants (session, grant_id, board, link_hash, added_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![g.session, g.grant_id, g.board, g.link_hash, g.added_by, g.now],
+    )?;
+    Ok(GrantWrite::Written)
 }
 
 #[cfg(test)]
@@ -881,16 +1056,18 @@ mod tests {
     }
 
     #[test]
-    fn a_v5_server_opens_a_v6_database_without_touching_it() {
+    fn v5_and_v6_servers_open_a_v7_database_without_touching_it() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
-        Store::open(&path).expect("create at v6");
-        // What a v5 server's open does with it: v6 only added tables, so it may.
-        let c = Connection::open(&path).expect("open");
-        reconcile(&c, 5).expect("a v5 server opens a v6 database");
-        drop(c);
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("6"), "not migrated backwards");
-        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("5"));
+        Store::open(&path).expect("create at v7");
+        // What a v5 or v6 server's open does with it: v6 and v7 only added, so they may.
+        for older in [5, 6] {
+            let c = Connection::open(&path).expect("open");
+            reconcile(&c, older).expect("an older server opens a v7 database");
+            drop(c);
+            assert_eq!(meta(&path, "schema_version").as_deref(), Some("7"), "not migrated backwards");
+            assert_eq!(meta(&path, "compat_floor").as_deref(), Some("5"));
+        }
         // And a v4 server, below the floor, may not.
         let c = Connection::open(&path).expect("open");
         assert!(matches!(reconcile(&c, 4), Err(StoreError::Corrupt(_))));
@@ -903,19 +1080,19 @@ mod tests {
         Store::open(&path).expect("create");
         Connection::open(&path)
             .expect("open")
-            .execute_batch("UPDATE meta SET value = '8' WHERE key = 'schema_version'; UPDATE meta SET value = '7' WHERE key = 'compat_floor';")
-            .expect("a v8 database that a v7 migration broke for older servers");
+            .execute_batch("UPDATE meta SET value = '9' WHERE key = 'schema_version'; UPDATE meta SET value = '8' WHERE key = 'compat_floor';")
+            .expect("a v9 database that a v8 migration broke for older servers");
         assert!(matches!(Store::open(&path), Err(StoreError::Corrupt(_))));
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("8"), "left as it was");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("9"), "left as it was");
         // The same database with an additive history opens.
-        Connection::open(&path).expect("open").execute("UPDATE meta SET value = '6' WHERE key = 'compat_floor'", []).expect("floor");
+        Connection::open(&path).expect("open").execute("UPDATE meta SET value = '7' WHERE key = 'compat_floor'", []).expect("floor");
         Store::open(&path).expect("floor at this server's version: opens");
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("8"), "still not migrated backwards");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("9"), "still not migrated backwards");
     }
 
     #[test]
     fn the_floor_persists_across_migrations() {
-        assert_eq!((1..=6).map(compat_floor).collect::<Vec<_>>(), [1, 2, 3, 4, 5, 5], "v6 is additive; earlier steps are not");
+        assert_eq!((1..=7).map(compat_floor).collect::<Vec<_>>(), [1, 2, 3, 4, 5, 5, 5], "v6 and v7 are additive; earlier steps are not");
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
         // A database a pre-floor v5 server wrote: no compat_floor row.
@@ -923,12 +1100,92 @@ mod tests {
         Store::open(&path).expect("create");
         c.execute_batch("UPDATE meta SET value = '5' WHERE key = 'schema_version'; DELETE FROM meta WHERE key = 'compat_floor';").expect("v5");
         drop(c);
-        Store::open(&path).expect("migrates to v6");
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("6"));
+        Store::open(&path).expect("migrates to v7");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("7"));
         assert_eq!(meta(&path, "compat_floor").as_deref(), Some("5"), "the additive step kept v5's floor");
         // A database migrated before the floor existed gets it on open.
         Connection::open(&path).expect("open").execute("DELETE FROM meta WHERE key = 'compat_floor'", []).expect("drop floor");
         Store::open(&path).expect("reopen");
         assert_eq!(meta(&path, "compat_floor").as_deref(), Some("5"));
+    }
+
+    /// A database as a v6 server left it, with what a board in use holds (its base, a log of
+    /// edits, a client, a chain of links, one revoked), opens on v7 with every board a board,
+    /// every link as it was, and the board loading as it did (sessions spec §2.1, §7.3).
+    #[tokio::test]
+    async fn a_v6_database_in_use_migrates_to_v7_with_boards_unchanged() {
+        use crate::links;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        let mut n = 0u128;
+        let doc = mapcro_schema::genesis(
+            || {
+                n += 1;
+                mapcro_schema::RecordId(n)
+            },
+            "Scrim",
+        );
+        let scene = doc.iter_live().find(|(_, r)| matches!(r, mapcro_schema::Record::Scene(_))).map(|(id, _)| id).expect("scene");
+        let (owner, edit, view, gone) = (links::hash("o"), links::hash("e"), links::hash("v"), links::hash("g"));
+        let mut tx_doc = doc.clone();
+        let mut writes = Vec::new();
+        for seq in 0..5u64 {
+            let tx = Tx {
+                client: ClientId(7),
+                cseq: seq,
+                kind: mapcro_schema::TxKind::Edit,
+                ops: vec![mapcro_schema::Op::Create {
+                    id: mapcro_schema::RecordId(1000 + u128::from(seq)),
+                    record: mapcro_schema::Record::Callout(mapcro_schema::Callout { scene, pos: Default::default(), text: format!("c{seq}"), color: None }),
+                }],
+            };
+            mapcro_schema::apply_tx(&mut tx_doc, &tx).expect("edit");
+            let (codec, stored) = codec::encode(&serde_json::to_vec(&tx).expect("json"));
+            writes.push(Write::Op { seq: seq + 1, codec, stored });
+        }
+        writes.push(Write::Client { client: ClientId(7), secret_hash: [9; 32] });
+        {
+            let v6 = Store::open_at(&path, 6).expect("a v6 database");
+            assert_eq!(meta(&path, "schema_version").as_deref(), Some("6"));
+            // The board row and owner link as v6's `create_board` wrote them (no kind column).
+            let (base_codec, base) = codec::encode(&serde_json::to_vec(&doc).expect("json"));
+            v6.with(move |c| {
+                c.execute("INSERT INTO boards (id, created_at, base_doc, base_seq, base_codec) VALUES ('b', 1, ?1, 0, ?2)", params![base, base_codec.as_str()])?;
+                c.execute("INSERT INTO links (hash, board, role, label, created_at) VALUES (?1, 'b', 'owner', 'owner', 1)", [&links::hash("o")])?;
+                Ok(())
+            })
+            .await
+            .expect("board");
+            assert!(v6.add_link(edit.clone(), "b".into(), LinkRole::Edit, "coach".into(), owner.clone(), 2).await.expect("edit link"));
+            assert!(v6.add_link(view.clone(), "b".into(), LinkRole::View, "team".into(), edit.clone(), 3).await.expect("view link"));
+            assert!(v6.add_link(gone.clone(), "b".into(), LinkRole::Edit, "old".into(), owner.clone(), 4).await.expect("link"));
+            assert_eq!(v6.revoke("b".into(), links::link_id(&gone).into(), owner.clone(), true, 5).await.expect("revoke"), vec![gone.clone()]);
+            v6.commit("b".into(), writes).await.expect("log");
+        }
+        let store = Store::open(&path).expect("migrates");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("7"));
+        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("5"), "additive: a v5 or v6 server still opens it");
+        for (hash, role, label, revoked, parent) in [
+            (&owner, LinkRole::Owner, "owner", false, None),
+            (&edit, LinkRole::Edit, "coach", false, Some(&owner)),
+            (&view, LinkRole::View, "team", false, Some(&edit)),
+            (&gone, LinkRole::Edit, "old", true, Some(&owner)),
+        ] {
+            let l = store.link(hash.clone()).await.expect("read").expect("still there");
+            assert_eq!((l.board.as_str(), l.role, l.label.as_str(), l.revoked, l.minted_by.as_ref(), l.kind), ("b", role, label, revoked, parent, RoomKind::Board));
+        }
+        let caps = LoadCaps { ops: 1000, bytes: 1 << 20, clients: 10, rejections: 10 };
+        let loaded = store.load_board("b".into(), caps, Quota::default()).await.expect("load").expect("the board");
+        assert_eq!(loaded.authority.doc(), &tx_doc, "the board reads as it did, log and all");
+        assert_eq!(loaded.authority.log_len(), 5);
+        let c = Connection::open(&path).expect("open");
+        let kinds: Vec<String> = c.prepare("SELECT kind FROM boards").expect("kind column").query_map([], |r| r.get(0)).expect("rows").collect::<Result<_, _>>().expect("kinds");
+        assert_eq!(kinds, ["board"]);
+        let grants: i64 = c.query_row("SELECT COUNT(*) FROM session_grants", [], |r| r.get(0)).expect("grants table");
+        assert_eq!(grants, 0);
+        drop((c, store));
+        // A second open is a no-op.
+        Store::open(&path).expect("idempotent");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("7"));
     }
 }
