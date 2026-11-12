@@ -211,6 +211,18 @@ export function Landing() {
           )}
         </Show>
         <ReplayHelp class="inline" id={/^[1-9]\d{0,11}$/.test(matchId().trim()) ? matchId().trim() : undefined} />
+        <Show when={windowsAppLink()}>
+          {(href) => (
+            <p class="landing-app" data-testid="windows-app-home">
+              <a href={href()} target="_blank" rel="noopener" class="btn small" title="Windows app">
+                Get the Windows app
+              </a>{" "}
+              <a href={windowsPortableLink()} class="muted" target="_blank" rel="noopener" data-testid="windows-portable-home">
+                Portable
+              </a>
+            </p>
+          )}
+        </Show>
         <DropOverlay over={dragging()} id={matchId().trim() || undefined} />
         <Show when={app && picking()}>
           <ReplayPicker

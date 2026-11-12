@@ -17,7 +17,7 @@ describe("the download links", () => {
     expect(windowsPortableLink({ released: true, nav: win, w: {} })).toBe(WINDOWS_APP_PORTABLE_URL);
   });
   it("Portable shows exactly where the installer's link does", () => {
-    for (const o of [{ nav: win, w: {} }, { released: true, nav: linux, w: {} }, { released: true, nav: win, w: inApp }]) {
+    for (const o of [{ released: false, nav: win, w: {} }, { released: true, nav: linux, w: {} }, { released: true, nav: win, w: inApp }]) {
       expect(windowsAppLink(o)).toBeUndefined();
       expect(windowsPortableLink(o)).toBeUndefined();
     }

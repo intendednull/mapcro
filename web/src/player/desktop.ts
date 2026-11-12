@@ -90,7 +90,7 @@ export const WINDOWS_APP_PORTABLE_URL = `${WINDOWS_APP_RELEASES}/download/mapcro
  * Off until the first release is published, so the site never links to an empty releases page.
  * Turn it on by setting this to `true` (desktop/README.md, Releasing).
  */
-export const WINDOWS_APP_RELEASED = false;
+export const WINDOWS_APP_RELEASED = true;
 
 type Nav = { userAgent?: string; userAgentData?: { platform?: string } };
 

@@ -510,6 +510,7 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 /* Player's bar sits at the bottom: its steps open upward, from the link's right edge. */
 .pl-bar .replay-help-steps { top: auto; bottom: calc(100% + 6px); left: auto; right: 0; }
 .replay-help.inline { display: block; margin-top: 8px; font-size: 13px; }
+.landing-app { margin-top: 10px; display: flex; align-items: center; gap: 12px; font-size: 13px; }
 .replay-help.inline .replay-help-steps { position: static; width: auto; max-width: none; margin-top: 8px; box-shadow: none; }
 /* The full-replay prompt (spec §6b): a dialog centred over the map, the match playing behind. */
 .board-app .stage > .mapfit { position: relative; }
