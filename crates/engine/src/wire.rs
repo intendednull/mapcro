@@ -258,6 +258,12 @@ pub struct Playback {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub event_search: Option<String>,
+    /// Whether that search finds players by name: the sender's Player names, on or off
+    /// (operator 2026-11-11), so a follower's list is the sender's. Left out by an older
+    /// client: its follower searches by its own Names. A value this build doesn't know is none.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_names")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub event_search_names: Option<SearchNames>,
     /// Where the death recap on the map (`skull_recap`) sits, once moved (#35): left out while
     /// it is where it opens. A shape this build doesn't read (a newer client's) is none.
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_place")]
@@ -388,6 +394,23 @@ fn lenient_popover<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Buil
         Some(Lenient::Known(p)) => Some(p),
         _ => None,
     })
+}
+
+/// `event_search_names`: a variant this build doesn't know is none.
+fn lenient_names<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<SearchNames>, D::Error> {
+    Ok(match Option::<Lenient<SearchNames>>::deserialize(d)? {
+        Some(Lenient::Known(n)) => Some(n),
+        _ => None,
+    })
+}
+
+/// Whether the events search finds players by name (the sender's Player names).
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchNames {
+    On,
+    Off,
 }
 
 /// The hero build's two popovers (BuildColumn.tsx); they are one `<details name>` group, so at
@@ -637,7 +660,7 @@ mod tests {
     }
 
     fn playback() -> Playback {
-        Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: None, vision: None, skull_recap: None, event_recap: None, inspect: None, all_builds: false, build_popover: None, event_filters: 0, event_search: None, skull_place: None, hero_panels: None }
+        Playback { player: true, match_id: 1, t: 10.0, playing: false, speed: 1.0, jump: None, vision: None, skull_recap: None, event_recap: None, inspect: None, all_builds: false, build_popover: None, event_filters: 0, event_search: None, event_search_names: None, skull_place: None, hero_panels: None }
     }
 
     #[test]
@@ -833,6 +856,15 @@ mod tests {
         for v in [r#""stats""#, "null", "3", r#"{"a":1}"#] {
             assert_eq!(pb(&format!(r#","build_popover":{v}"#)).build_popover, None, "{v}");
         }
+        // Whether the search finds by name: on or off; left out (an older client) or anything
+        // else is none, and the frame still parses.
+        assert_eq!(pb("").event_search_names, None);
+        assert_eq!(pb(r#","event_search_names":"on""#).event_search_names, Some(SearchNames::On));
+        assert_eq!(pb(r#","event_search_names":"off""#).event_search_names, Some(SearchNames::Off));
+        for v in [r#""own""#, "true", "null", "1", r#"{"a":1}"#] {
+            assert_eq!(pb(&format!(r#","event_search_names":{v}"#)).event_search_names, None, "{v}");
+        }
+        assert_eq!(serde_json::to_value(Playback { event_search_names: None, ..playback() }).expect("json").get("event_search_names"), None);
         // Still valid, and the bounds is_valid checks still hold beside them.
         assert!(parsed(&frame_with(r#","event_filters":131071,"build_popover":"stats""#)).expect("parses").is_valid());
         let long = format!(r#","event_filters":131071,"build_popover":"stats","event_search":"{}""#, "x".repeat(MAX_EVENT_SEARCH + 1));

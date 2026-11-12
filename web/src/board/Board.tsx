@@ -5,7 +5,7 @@ import { rosterTeamName, teamName } from "../map/model";
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
-import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe } from "../core/device";
+import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe, takeRename } from "../core/device";
 import type { RecordId } from "../gen/RecordId";
 import { MapView } from "../map/MapView";
 import type { Art } from "../map/pack";
@@ -420,13 +420,25 @@ export function Board(p: { board: string; token: string; art: Art }) {
     const s = annScene();
     state.presence({ scene: s ?? null });
   });
+  // "Your boards" keeps the current title (a rename here or by anyone else), the match on the
+  // board, and whether this link can edit (the list's Rename).
   createEffect(() => {
     const t = state.title();
     if (t) {
       document.title = `${t} · mapcro`;
-      rememberBoard({ board: p.board, token: p.token, title: t });
+      const r = state.role();
+      const m = player.matchId();
+      rememberBoard({ board: p.board, token: p.token, title: t, ...(m ? { match: m } : {}), ...(r ? { edit: state.canEdit() } : {}) });
     }
   });
+  // The board's title, renamed in the header by an editor: one undoable edit, synced live.
+  let openTitle: (() => void) | undefined;
+  const renameBoard = (text: string) => {
+    const t = text.trim();
+    const id = state.metaId();
+    if (!t || !id || t === state.title()) return;
+    state.edit([{ Set: { id, value: { Title: t } } }]);
+  };
 
   const join = (m: Me) => {
     saveMe(m);
@@ -603,6 +615,17 @@ export function Board(p: { board: string; token: string; art: Art }) {
   createEffect(() => {
     // The phone picker is Look/Select and Laser; drawing tools need the desktop.
     if (phone() && tool() !== "select" && tool() !== "laser") setTool("select");
+  });
+
+  // Rename from "Your boards": the title's editor opens once the board can take the edit. A
+  // link that turns out view-only drops the ask.
+  const [renameAsked, setRenameAsked] = createSignal(takeRename(p.board));
+  createEffect(() => {
+    if (!renameAsked() || !state.role()) return;
+    if (!state.canEdit()) return setRenameAsked(false);
+    if (!joined() || !state.metaId() || phone()) return;
+    setRenameAsked(false);
+    queueMicrotask(() => openTitle?.());
   });
 
   // ---- the scene note: free text, one per scene ----
@@ -990,7 +1013,19 @@ export function Board(p: { board: string; token: string; art: Art }) {
       <header class="top">
         <Wordmark />
         <div class="board-title">
-          <b data-testid="board-title">{state.title() || "…"}</b>
+          <b>
+            <InlineEdit
+              class="title"
+              label="Board title"
+              testid="board-title"
+              editable={state.canEdit() && !!state.metaId()}
+              value={state.title()}
+              placeholder="…"
+              maxLength={LIMITS.max_title}
+              bindOpen={(o) => (openTitle = o)}
+              onCommit={renameBoard}
+            />
+          </b>
           <span>
             {state.scenes().length} scene{state.scenes().length === 1 ? "" : "s"}
           </span>

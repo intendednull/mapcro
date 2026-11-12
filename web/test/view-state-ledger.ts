@@ -47,6 +47,7 @@ export const SIGNALS: Record<string, Entries> = {
   "player/viewstate.ts": {
     own: ["local", "the registry store's cells"],
     theirs: ["local", "the registry store's cells"],
+    heard: ["local", "the registry store's cells: whether one shows a presenter's value"],
   },
   "player/Events.tsx": {
     picked: ["local", "rows ticked to save as scenes"],
@@ -82,6 +83,7 @@ export const SIGNALS: Record<string, Entries> = {
     remote: ["local", "a follower's side of hover"],
   },
   "board/Board.tsx": {
+    renameAsked: ["local", "Rename from Your boards: open the title editor once the board can take it"],
     slow: ["local", "loading"],
     me: ["local", "name and colour: presence says who you are"],
     joined: ["local", "the join card"],

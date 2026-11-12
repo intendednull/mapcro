@@ -322,6 +322,34 @@ describe("every registry key follows its row", () => {
   });
 });
 
+describe("whether what a key shows is a presenter's", () => {
+  // host.ts hides a presenter's events search while Names is off (spec §8): `heard` says so.
+  for (const k of VIEW_KEYS) {
+    const d = row(k);
+    const [, second, third] = samples(k);
+    it(`${k}: ${d.sync === "personal" ? "never" : "heard until your own change"}`, () => {
+      const f = follower();
+      expect(f.s.heard(k)).toBe(false);
+      hear(f, presenter({ [k]: second }));
+      expect(f.s.heard(k)).toBe(d.sync === "shared");
+      f.s.set(k, third as never);
+      expect(f.s.heard(k)).toBe(false);
+      if (d.sync !== "shared") return;
+      // Stopping keeps it heard when the screen keeps it; a `restore` key's own comes back.
+      const kept = follower();
+      hear(kept, presenter({ [k]: second }));
+      kept.s.forget("keep");
+      expect(kept.s.heard(k)).toBe(true);
+      kept.s.reset();
+      expect(kept.s.heard(k)).toBe(!d.reset);
+      const back = follower();
+      hear(back, presenter({ [k]: second }));
+      back.s.forget("restore");
+      expect(back.s.heard(k)).toBe(d.unfollow !== "restore");
+    });
+  }
+});
+
 describe("text clipped for presence", () => {
   const max = VIEW_STATE["events.search"].max;
   const bytes = (s: string) => new TextEncoder().encode(s).length;

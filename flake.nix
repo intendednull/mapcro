@@ -216,7 +216,7 @@
           # The replay worker: its own sandboxed unit, sharing only the queue with the server.
           machine.wait_for_unit("mapcro-replay.service")
           # Two parses at once by default: a core and 384M each (journal 2026-11-08-replay-capacity).
-          for prop in ["PrivateNetwork=yes", "User=mapcro-replay", "OOMPolicy=continue", "MemoryMax=805306368", "MemorySwapMax=0", "CPUQuotaPerSecUSec=2s", "TasksMax=16", "ProtectSystem=strict"]:
+          for prop in ["PrivateNetwork=yes", "User=mapcro-replay", "OOMPolicy=continue", "MemoryMax=402653184", "LimitFSIZE=67108864", "MemorySwapMax=0", "CPUQuotaPerSecUSec=2s", "TasksMax=16", "ProtectSystem=strict"]:
               machine.succeed(f"systemctl show mapcro-replay.service -p {prop.split('=')[0]} | grep -qx {prop}")
           machine.succeed("systemctl show mapcro-replay.service -p Environment | grep -q REPLAY_WORKERS=2")
           # The server knows the worker count (for the wait estimate) and the queue's budgets.
