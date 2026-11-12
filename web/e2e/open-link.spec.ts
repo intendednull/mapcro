@@ -1,7 +1,8 @@
 // Board links and the app (spec §6b, The Windows app; desktop/README.md, Deep links): in the app,
 // "Open link" on the landing and Ctrl+L anywhere take a pasted share link (the site's, or the
-// mapcro:// form) and open the board in the window; anything else says "Not a board link". A
-// board page reloads when only its token changes (a link the app opened in place). In a browser
+// mapcro:// form) and open the board in the window; anything else says "Not a board link". The
+// same board with another token mounts afresh with it, in place: the page doesn't reload
+// (sessions.md §4.1; a link the app opened in place). In a browser
 // none of it shows, and "Open in app" stays off until the app's first release
 // (`WINDOWS_APP_RELEASED`; its gating is unit-tested in test/applink.test.ts). The app is stubbed
 // (`__TAURI_INTERNALS__.invoke`, as Tauri injects it); the boards are the real server's.
@@ -97,7 +98,7 @@ test("the same board with another token loads again with it", async ({ browser }
   await p.keyboard.press("Control+l");
   await p.getByTestId("open-link-dialog").getByTestId("open-link-input").fill(`${server.url}/b/${board}#${view}`);
   await p.getByTestId("open-link-dialog").getByTestId("open-link-input").press("Enter");
-  // Reloaded as the view link: no Share.
+  // Mounted again as the view link: no Share.
   await expect(p.getByTestId("board-title")).toHaveText("Two links");
   await expect(p.getByTestId("share")).toBeHidden();
   expect(p.url()).toBe(`${server.url}/b/${board}#${view}`);

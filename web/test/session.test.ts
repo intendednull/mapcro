@@ -100,6 +100,27 @@ describe("board sessions against the real server", () => {
     s.stop();
   });
 
+  it("storage that opened but failed a read is let go as the session falls back to memory", async () => {
+    // The database opens, then the role's read fails: the session swaps to memory, and `end`
+    // would close only that, so the swap must close what opened.
+    const base = new MemoryPersist();
+    const calls: string[] = [];
+    let reads = 0;
+    const flaky: Persist = {
+      load: (k) => (calls.push("load"), ++reads === 2 ? Promise.reject(new Error("quota")) : base.load(k)),
+      save: (k, v) => base.save(k, v),
+      close: () => void calls.push("close"),
+    };
+    const { board, owner_token } = await api.createBoard("fallback-closes");
+    const s = session(server, board, owner_token, flaky);
+    await s.start();
+    expect(s.storageUnavailable).toBe(true);
+    expect(calls).toEqual(["load", "load", "close"]);
+    s.end();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls.filter((c) => c === "close").length).toBe(1);
+  });
+
   it("two editors converge", async () => {
     const { board, owner_token } = await api.createBoard("converge");
     const { token } = await api.mintLink(board, owner_token, "edit", "teammate");

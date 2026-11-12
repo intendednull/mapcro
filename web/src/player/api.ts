@@ -161,14 +161,17 @@ export class Api {
    * Upload a timeline parsed on this machine (the Windows app), gzipped JSON: `POST
    * …/replays/{id}/timeline` (spec §6a, Timelines parsed on the user's machine). Nothing on
    * success; `missing` when the server has no such route (an older server: a 404 without an error
-   * body), so the caller sends the `.dem` instead; else the error code.
+   * body), so the caller sends the `.dem` instead; else the error code. `signal` cancels it
+   * (`aborted`).
    */
-  async uploadTimeline(id: string, gz: Blob): Promise<string | undefined> {
+  async uploadTimeline(id: string, gz: Blob, signal?: AbortSignal): Promise<string | undefined> {
     const r = await fetch(`/api/boards/${this.board}/replays/${id}/timeline`, {
       method: "POST",
       headers: { ...this.auth, "content-type": "application/json", "content-encoding": "gzip" },
       body: gz,
+      ...(signal ? { signal } : {}),
     }).catch(() => undefined);
+    if (signal?.aborted) return "aborted";
     if (!r) return "offline";
     if (r.ok) return undefined;
     const body = (await r.json().catch(() => ({}))) as { error?: string };

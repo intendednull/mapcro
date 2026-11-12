@@ -165,6 +165,9 @@ export class BoardSession {
       // they're acked would lose them.
       this.problems.push(`local storage unavailable: ${e instanceof Error ? e.message : e}`);
       this.storageUnavailable = true;
+      // What did open (the database, before a read failed) is let go now: `end` closes only the
+      // memory that replaces it.
+      this.o.persist.close?.();
       this.o = { ...this.o, persist: new MemoryPersist() };
     }
     if (saved !== undefined) {

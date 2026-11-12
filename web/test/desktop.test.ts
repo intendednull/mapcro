@@ -158,6 +158,21 @@ describe("Api.uploadTimeline", () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("network"))));
     expect(await new Api("b", "t").uploadTimeline("1", new Blob())).toBe("offline");
   });
+  it("is cancelled by its signal: the request is given it, and an abort is `aborted`", async () => {
+    let given: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_u: string, init: RequestInit) => {
+        given = init.signal ?? undefined;
+        return new Promise((_ok, fail) => given?.addEventListener("abort", () => fail(new DOMException("aborted", "AbortError"))));
+      }),
+    );
+    const ctl = new AbortController();
+    const sent = new Api("b", "t").uploadTimeline("1", new Blob(), ctl.signal);
+    expect(given).toBe(ctl.signal);
+    ctl.abort();
+    expect(await sent).toBe("aborted");
+  });
 });
 
 describe("windowsAppLink", () => {
