@@ -770,14 +770,22 @@ test("the presenter's own reconnect keeps the follow", async ({ browser }) => {
 
 // A restart where the presenter is back well after its follower (its reconnect backoff has
 // grown): the follower waits for it longer than for a presenter's own blip (spec §8).
+//
+// The presenter's reconnect is held, not refused: its first attempt after the restart stays
+// connecting until the test lets it through, so it lands 9 s after the follower's. Refusing
+// each attempt instead left the return to the backoff, whose next try after the unblock came
+// up to 15 s later, which is past the follower's 20 s wait (REJOIN_MS) in a few runs in a
+// hundred, more under load.
 test("after a restart, a presenter back 9 s after its follower is still followed", async ({ browser }) => {
   const r = ROWS.find((x) => x.key === "vision.team")!;
   const url = await newBoardUrl(server, "Presenter back late");
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  let blocked = false;
-  await ctx.routeWebSocket(/\/ws$/, (ws) => {
-    if (blocked) void ws.close();
-    else ws.connectToServer();
+  let held: Promise<void> | undefined;
+  let release = () => {};
+  await ctx.routeWebSocket(/\/ws$/, async (ws) => {
+    // The page's socket opens only once this returns: until then, the attempt is connecting.
+    await held;
+    ws.connectToServer();
   });
   const a = await ctx.newPage();
   await a.goto(url);
@@ -791,15 +799,16 @@ test("after a restart, a presenter back 9 s after its follower is still followed
   await put(r, a, r.theirs);
   await follow(b);
   await shows(r, b, r.theirs);
-  blocked = true;
+  held = new Promise<void>((done) => (release = done));
   await server.kill();
   await server.start();
   await expect(b.getByTestId("save-status")).toHaveAttribute("data-connection", "live", { timeout: 20_000 });
+  // The time under test: the presenter away 9 s past its follower's return, inside the 20 s wait.
   await b.waitForTimeout(9000);
   // Still waiting for it, showing what it showed.
   await expect(following(b)).toHaveCount(1);
   await shows(r, b, r.theirs);
-  blocked = false;
+  release();
   await expect(a.getByTestId("save-status")).toHaveAttribute("data-connection", "live", { timeout: 20_000 });
   await put(r, a, r.own);
   await shows(r, b, r.own);
