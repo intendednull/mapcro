@@ -9,6 +9,7 @@ import type { MatchPreview } from "../match/preview";
 import { slotKey } from "../match/save";
 import type { Marker } from "../map/model";
 import { Api, type JobState, MODE_CODES, busy } from "./api";
+import { markOutdated } from "./reparse";
 import { type Notice, type Step, type Unavailable, idFromName, isDem, looksLikeDemo, noticeFor, unavailableFor } from "./notice";
 import { NOT_DEM } from "./ReplayHelp";
 import { type Handoff, takeHandoff } from "./handoff";
@@ -550,6 +551,8 @@ export function createPlayerHost(board: string, token: string) {
       inflight = undefined;
       if (matchId() !== id) return;
       setJob(undefined);
+      // This run's parser is older than the server's: Reparse can't help (`reparse.ts`).
+      if (code === "outdated_parser") markOutdated();
       if (code) setProblem({ code, step: "upload" });
     };
     let gz: Blob;
@@ -558,7 +561,10 @@ export function createPlayerHost(board: string, token: string) {
     } catch (e) {
       // The app's `not_found`: the file left the folder (not the match's metadata).
       const code = (e as { code?: string }).code ?? "parse_failed";
-      return end(code === "not_found" ? "file_gone" : code);
+      end(code === "not_found" ? "file_gone" : code);
+      // The job as it stands again (the board's stale upload, say), not none: without it the
+      // upload and Reparse aren't offered after a failed parse.
+      return void (gone || matchId() !== id || (await watch(id)));
     }
     if (gone || ctl.signal.aborted) return end("aborted");
     const e = await api.uploadTimeline(id, gz, ctl.signal);
