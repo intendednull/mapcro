@@ -13,7 +13,7 @@ export const GROUPS: Array<{ id: EventGroup; label: string }> = [
   { id: "death", label: "Deaths" },
   { id: "ult", label: "Ults" },
   { id: "objective", label: "Objectives" },
-  { id: "mid_boss", label: "Mid boss" },
+  { id: "mid_boss", label: "Mid-Boss" },
   { id: "rift", label: "Rifts" },
   { id: "powerup", label: "Powerups" },
   { id: "urn", label: "Urn" },
@@ -77,7 +77,7 @@ export function label(e: MatchEvent, n: Named): string {
       return `${team(e.team)} ${kind} down${lane && kind !== "patron" ? ` (${lane})` : ""}`.trim();
     }
     case "mid_boss":
-      return e.team && e.team !== "neutral" && e.team !== "unknown" ? `Mid boss killed by ${team(e.team)}` : "Mid boss killed";
+      return e.team && e.team !== "neutral" && e.team !== "unknown" ? `Mid-Boss killed by ${team(e.team)}` : "Mid-Boss killed";
     case "rift_up":
       return `Rift up (${laneOf(e.key) || "?"})`;
     case "rift_capture":
@@ -140,7 +140,7 @@ export function shortLabel(e: MatchEvent, n: Named): string {
     case "objective":
       return `${cap(OBJECTIVE[e.key?.split(":")[0] ?? ""] ?? "objective")} down`;
     case "mid_boss":
-      return "Mid boss";
+      return "Mid-Boss";
     case "rift_up":
       return "Rift up";
     case "rift_capture":

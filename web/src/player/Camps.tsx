@@ -1,8 +1,7 @@
 // What a hovered map marker says (spec §6b), through the map's one hover label
 // (map/HoverLabel.tsx), in Player. A label is short, and only there when it says something a
 // player can't see (operator 2026-11-08): a timer ("Respawns in 1:20", "Buff respawns in 0:35",
-// "Rift opens in 0:46", "Fades in 0:41", "Urn returns in 2:13", a held Rejuvenator on the mid
-// boss), an objective's health ("Walker 62%") or a name that is the news ("Casting buff", "Urn
+// "Rift opens in 0:46", "Fades in 0:41", "Urn returns in 2:13"), an objective's health ("Walker 62%") or a name that is the news ("Casting buff", "Urn
 // delivery point"). A camp that's up says nothing, and nor does any marker in Sandbox. Hovering
 // one, or tapping it on the phone, shows it; the map never stops a pointer for it.
 
@@ -48,9 +47,12 @@ export function powerupTip(p: PowerupAt, t: number): string | undefined {
   return `Buff ${p.first ? "spawns" : "respawns"} ${inAt(p.next.t, t)}`;
 }
 
-/** A team's Rejuvenator at t: "Sapphire Rejuvenator: 2 revives, ends in 1:40". */
+/** A team's Rejuvenator at t, on its top-bar timer's hover (feedback #44): "Archmother
+ * Rejuvenator ends in 1:40". The revives left are the marks beside it, so not here; the game's
+ * own hover there (#RejuvenatorTimer, citadel_main `citadel_rejuvenator_hud_hint`) is a sentence
+ * that explains, not a time. */
 export function rejuvTip(r: RejuvNow, t: number): string {
-  return `${teamName(r.team)} Rejuvenator: ${r.left} revive${r.left === 1 ? "" : "s"}, ends in ${clockLabel(Math.max(0, Math.ceil(r.ends - t)))}`;
+  return `${teamName(r.team)} Rejuvenator ends ${inAt(r.ends, t)}`;
 }
 
 /** The Soul Urn itself at t, where it lies: when it walks back, once it has settled. */
@@ -63,7 +65,7 @@ export function urnItemTip(u: UrnNow, t: number): string {
 export const URN_HOVER = "soul-urn";
 
 /** Objectives with health, by marker kind: what their label calls them. */
-const HEALTH_NAME: Partial<Record<Marker["kind"], string>> = { t1: "Guardian", t2: "Walker", barracks: "Base guardian", shrine: "Shrine", t3: "Patron", midboss: "Mid boss" };
+const HEALTH_NAME: Partial<Record<Marker["kind"], string>> = { t1: "Guardian", t2: "Walker", barracks: "Base guardian", shrine: "Shrine", t3: "Patron", midboss: "Mid-Boss" };
 
 /** "Walker 62%": an objective with health and its health now, rounded; `undefined` unknown. */
 export function healthTip(kind: Marker["kind"], pct: number | undefined): string | undefined {
@@ -85,11 +87,10 @@ export function markerTip(m: Pick<Marker, "key" | "kind">, pv: MatchPreview | un
   if ((m.kind === "camp" || m.kind === "heal" || m.kind === "crate") && c) return campTip(c, t);
   const hp = pv.down.has(m.key) ? undefined : pv.health?.get(m.key)?.pct;
   if (m.kind === "midboss") {
-    // Down: its timer; up: its health. The reward a team holds goes with it: the mid boss is
-    // where it came from. The API summary has the kills, not the respawns: nothing timed there.
-    const timer = c ? campTip(c, t) : undefined;
-    const said = [timer ?? healthTip(m.kind, hp), ...(pv.rejuv ?? []).map((r) => rejuvTip(r, t))].filter((x) => x);
-    return said.length ? said.join(" · ") : undefined;
+    // Down: its respawn alone; up: its health. A held Rejuvenator's time is on its top-bar
+    // timer's hover, its revives the marks beside it (feedback #44). The API summary has the
+    // kills, not the respawns: nothing timed there.
+    return (c ? campTip(c, t) : undefined) ?? healthTip(m.kind, hp);
   }
   if (HEALTH_NAME[m.kind]) return healthTip(m.kind, hp);
   const r = pv.rifts?.get(m.key);

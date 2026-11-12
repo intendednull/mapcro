@@ -962,18 +962,21 @@ states the game draws that Player doesn't:
 - `#RejuvenatorTimer.midboss_cooldown`: when no team holds one, the same centre circle shows
   greyed (`saturation: 0`, opacity 0.3) with `.midbossTimerLabel` (`{s:midboss_timer}`, 10 px,
   under it), the mid boss's respawn countdown. The timeline has the respawn (`camps` cleared
-  pairs). `.midboss_available` hides it.
+  pairs). `.midboss_available` hides it. Its hover is `citadel_rejuvenator_hud_hint` ("Time
+  remaining on active rejuvenators, or MidBoss respawn if no rejuvenators are active."), so with
+  this state drawn, the timer's hover (feedback #44, "… Rejuvenator ends in m:ss") would say the
+  respawn there too (midboss-hover, 2026-11-11).
 - Per player: `.HasRejuvenator .SoulsValueContainer { border-bottom: 3px solid gold }` and the
   `.Rejuvenator` / `.RebirthIcon` / `.RebirthAndRejuvenator` icons on a player's card
   (`citadel_hud_top_bar_player.vxml`). Who carries a pending revive isn't in the timeline yet.
 
-## "0 revives" in the mid boss's label (2026-11-09)
+## laser-gestures "two trails" flakes under load (2026-11-11)
 
-`player/Camps.tsx` `rejuvLine` says "Archmother Rejuvenator: 0 revives, ends in …" if a
-timeline's `left` reaches 0 before `ends_s`. The top bar drops its marks and timer then
-(PlayerTopBar `RejuvTimer`), so the two disagree. 129738985 never reaches 0 early (both expire
-at 180 s with 1 left). Only seen on a synthetic timeline. Whether the game ends the buff at 0 is
-unconfirmed.
+Seen by midboss-hover: `e2e/laser-gestures.spec.ts:69` ("two laser gestures are two trails …")
+failed once in the full `just e2e --workers 2` and once in 4 runs alone (`--repeat-each 3`), at
+different assertions each time (a `toBeGreaterThan` on the trail, then a `toHaveCount`), with the
+1-min load at 13–17 from other jobs. It passed in the lead's gate. The trail fades by age on the
+clock (#42), so the spec's timing likely depends on load. That branch changed nothing in the laser.
 
 ## Hover-label token parts are unused now (2026-11-09)
 
