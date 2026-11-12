@@ -8,8 +8,8 @@
 # and the .deb's mapcro:// registration is checked after each install.
 # A tag `desktop-v<version>` also builds the signed release bundles into a draft GitHub
 # release with the updater's `latest.json` (Windows NSIS, Linux AppImage and .deb), once both
-# smoke tests pass, plus the Windows portable zip and stable-named copies of it and the installer
-# (desktop/README.md, Installer or portable). The `publish` job then checks the draft is complete
+# smoke tests pass, plus the Windows portable zip and stable-named copies of it, the installer,
+# the AppImage and the .deb (desktop/README.md, Installer or portable). The `publish` job then checks the draft is complete
 # and publishes it: a green tag run is a release, and installed apps update from it. A manual run
 # does the tests only.
 #
@@ -185,7 +185,7 @@ jobs:
       - name: Install the .deb
         id: install
         run: |
-          deb=$(ls desktop/app/target/debug/bundle/deb/*.deb | head -1)
+          deb=$(find desktop/app/target/debug/bundle/deb -maxdepth 1 -name '*.deb' | head -1)
           sudo apt-get install -y "./$deb"
           bin=$(dpkg -L "$(dpkg-deb -f "$deb" Package)" | grep '^/usr/bin/' | head -1)
           test -x "$bin"
@@ -310,6 +310,21 @@ jobs:
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
+      # Stable-named copies of both, as the Windows job uploads its own: the site links to
+      # releases/latest/download/mapcro_amd64.AppImage and …/mapcro_amd64.deb
+      # (web/src/player/desktop.ts), and tauri-action's names carry the version.
+      - name: Stable-named copies of the AppImage and the .deb, into the same draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          v=$(jq -r .version desktop/app/tauri.conf.json)
+          out="$RUNNER_TEMP/assets"
+          mkdir -p "$out"
+          cp "desktop/app/target/release/bundle/appimage/mapcro_${v}_amd64.AppImage" "$out/mapcro_amd64.AppImage"
+          cp "desktop/app/target/release/bundle/deb/mapcro_${v}_amd64.deb" "$out/mapcro_amd64.deb"
+          ls -l "$out"
+          gh release upload "$GITHUB_REF_NAME" "$out/mapcro_amd64.AppImage" "$out/mapcro_amd64.deb" --repo "$GITHUB_REPOSITORY" --clobber
 
   # Publishes the draft once both platforms are in it (operator, 2026-11-11: publish automatically
   # when the checks pass). It checks what the lead checked by hand: every asset the site and the
@@ -331,7 +346,8 @@ jobs:
           names=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')
           for a in latest.json "mapcro_${v}_x64-setup.exe" "mapcro_${v}_x64-setup.exe.sig" \
                    "mapcro_${v}_x64-portable.zip" mapcro_x64-setup.exe mapcro_x64-portable.zip \
-                   "mapcro_${v}_amd64.AppImage" "mapcro_${v}_amd64.AppImage.sig" "mapcro_${v}_amd64.deb"; do
+                   "mapcro_${v}_amd64.AppImage" "mapcro_${v}_amd64.AppImage.sig" "mapcro_${v}_amd64.deb" \
+                   mapcro_amd64.AppImage mapcro_amd64.deb; do
             grep -qxF "$a" <<<"$names" || { echo "::error::missing asset $a"; exit 1; }
           done
           dir=$(mktemp -d)
