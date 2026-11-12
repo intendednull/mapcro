@@ -133,7 +133,7 @@ impl Client {
     async fn connect(&mut self, port: u16, board: &str, token: &str) -> Result<(), Option<CloseReason>> {
         let mut ws = open_ws(port, ORIGIN).await.map_err(|_| None)?;
         let known_seq = self.replica.as_ref().map(Replica::last_seq);
-        send(&mut ws, &WireIn::Auth { board: board.into(), token: token.into(), known_seq, build: None }).await;
+        send(&mut ws, &WireIn::Auth { board: board.into(), token: token.into(), known_seq, build: None, via: None }).await;
         match recv(&mut ws).await {
             Some(WireOut::Ready { role, base, head, .. }) => {
                 self.role = Some(role);
@@ -330,7 +330,7 @@ async fn client_ids_cannot_be_hijacked() {
     victim.until_saved().await;
 
     let mut ws = open_ws(server.port, ORIGIN).await.expect("ws");
-    send(&mut ws, &WireIn::Auth { board: board.clone(), token: view.clone(), known_seq: Some(0), build: None }).await;
+    send(&mut ws, &WireIn::Auth { board: board.clone(), token: view.clone(), known_seq: Some(0), build: None, via: None }).await;
     assert!(matches!(recv(&mut ws).await, Some(WireOut::Ready { .. })));
     let hello = mapcro_engine::Hello { client: ClientId(0x51), secret: "guess".into(), last_seq: 0, pending_from: 0 };
     send(&mut ws, &WireIn::Msg { msg: ClientMsg::Hello(hello) }).await;
@@ -348,7 +348,7 @@ async fn client_ids_cannot_be_hijacked() {
     victim.drop_connection();
     let server = Server::start(&d, Some(port));
     let mut ws = open_ws(server.port, ORIGIN).await.expect("ws");
-    send(&mut ws, &WireIn::Auth { board: board.clone(), token: view, known_seq: Some(0), build: None }).await;
+    send(&mut ws, &WireIn::Auth { board: board.clone(), token: view, known_seq: Some(0), build: None, via: None }).await;
     assert!(matches!(recv(&mut ws).await, Some(WireOut::Ready { .. })));
     let hello = mapcro_engine::Hello { client: ClientId(0x51), secret: "guess".into(), last_seq: 0, pending_from: 0 };
     send(&mut ws, &WireIn::Msg { msg: ClientMsg::Hello(hello) }).await;
@@ -842,7 +842,7 @@ async fn cloning_makes_an_independent_board_with_fresh_links() {
 /// back (on a board with history, success is a catch-up entry).
 async fn raw_hello(port: u16, board: &str, token: &str, client: u128) -> Option<WireOut> {
     let mut ws = open_ws(port, ORIGIN).await.ok()?;
-    send(&mut ws, &WireIn::Auth { board: board.into(), token: token.into(), known_seq: Some(0), build: None }).await;
+    send(&mut ws, &WireIn::Auth { board: board.into(), token: token.into(), known_seq: Some(0), build: None, via: None }).await;
     match recv(&mut ws).await? {
         WireOut::Ready { .. } => {}
         other => return Some(other),
@@ -1203,7 +1203,7 @@ async fn the_csp_forbids_plugins() {
 /// A hand-driven session: authenticated and helloed, nothing read yet.
 async fn raw_session(port: u16, board: &str, token: &str, client: u128) -> Ws {
     let mut ws = open_ws(port, ORIGIN).await.expect("ws");
-    send(&mut ws, &WireIn::Auth { board: board.into(), token: token.into(), known_seq: Some(0), build: None }).await;
+    send(&mut ws, &WireIn::Auth { board: board.into(), token: token.into(), known_seq: Some(0), build: None, via: None }).await;
     assert!(matches!(recv(&mut ws).await, Some(WireOut::Ready { .. })));
     let hello = mapcro_engine::Hello { client: ClientId(client), secret: format!("s-{client}"), last_seq: 0, pending_from: 0 };
     send(&mut ws, &WireIn::Msg { msg: ClientMsg::Hello(hello) }).await;
@@ -1239,7 +1239,7 @@ async fn stored_rejections_are_capped_per_board() {
     // Once `a` says it has heard its rejections, they're forgotten and there's room again.
     drop(a);
     let mut a = open_ws(server.port, ORIGIN).await.expect("ws");
-    send(&mut a, &WireIn::Auth { board: board.clone(), token: owner.clone(), known_seq: Some(0), build: None }).await;
+    send(&mut a, &WireIn::Auth { board: board.clone(), token: owner.clone(), known_seq: Some(0), build: None, via: None }).await;
     assert!(matches!(recv(&mut a).await, Some(WireOut::Ready { .. })));
     let hello = mapcro_engine::Hello { client: ClientId(0xa1), secret: format!("s-{}", 0xa1), last_seq: 0, pending_from: 3 };
     send(&mut a, &WireIn::Msg { msg: ClientMsg::Hello(hello) }).await;
@@ -1389,7 +1389,7 @@ async fn a_loaded_room_does_not_hold_its_history() {
     let before = rss_kb(&server);
     // Open the room without catch-up: a client that already has everything.
     let mut ws = open_ws(server.port, ORIGIN).await.expect("ws");
-    send(&mut ws, &WireIn::Auth { board: board.clone(), token: owner.clone(), known_seq: Some(total), build: None }).await;
+    send(&mut ws, &WireIn::Auth { board: board.clone(), token: owner.clone(), known_seq: Some(total), build: None, via: None }).await;
     assert!(matches!(recv(&mut ws).await, Some(WireOut::Ready { .. })));
     assert_eq!(open_rooms(&server), 1);
     let grew = rss_kb(&server).saturating_sub(before);
@@ -1476,7 +1476,7 @@ async fn a_peer_that_stops_reading_is_dropped_by_bytes_queued() {
     req.headers_mut().insert("origin", ORIGIN.parse().expect("origin"));
     let (mut slow, _) = tokio_tungstenite::client_async(req, stream).await.expect("ws");
     let text = |f: &WireIn| M::Text(serde_json::to_string(f).expect("json").into());
-    slow.send(text(&WireIn::Auth { board: board.clone(), token: view, known_seq: Some(0), build: None })).await.expect("auth");
+    slow.send(text(&WireIn::Auth { board: board.clone(), token: view, known_seq: Some(0), build: None, via: None })).await.expect("auth");
     let hello = mapcro_engine::Hello { client: ClientId(0x7a1), secret: "slow".into(), last_seq: 0, pending_from: 0 };
     slow.send(text(&WireIn::Msg { msg: ClientMsg::Hello(hello) })).await.expect("hello");
 
@@ -1952,7 +1952,7 @@ async fn a_real_v4_database_migrates_and_its_board_compacts_and_rebases() {
     {
         let c = rusqlite::Connection::open(&path).expect("open");
         let v: String = c.query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("version");
-        assert_eq!(v, "6", "migrated to the current schema");
+        assert_eq!(v, "7", "migrated to the current schema");
         let codecs: i64 = c.query_row("SELECT COUNT(*) FROM ops WHERE codec = 'zstd-v1'", [], |r| r.get(0)).expect("ops");
         assert_eq!(codecs as u64, entries, "the v4 rows are untouched");
     }
@@ -2085,7 +2085,7 @@ async fn a_migration_interrupted_by_a_crash_still_boots() {
     let fresh = fresh_catch_up(server.port, &board, &owner, 0x3f3, fx["entries"].as_u64().expect("entries")).await;
     assert!(fresh.replica().view().live(mapcro_schema::RecordId(0xa0a0)).is_some());
     let v: String = rusqlite::Connection::open(&path).expect("open").query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("v");
-    assert_eq!(v, "6", "migrated to the current schema");
+    assert_eq!(v, "7", "migrated to the current schema");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2178,7 +2178,7 @@ async fn compaction_in_the_same_batch_as_a_stale_hello_rebases_not_errors() {
     // C authenticates; then the room is kept busy (a commit pausing) while C's hello and the
     // edits that make compaction due queue behind it, and so share the next batch.
     let mut raw = open_ws(server.port, ORIGIN).await.expect("ws");
-    send(&mut raw, &WireIn::Auth { board: board.clone(), token: owner.clone(), known_seq: Some(5), build: None }).await;
+    send(&mut raw, &WireIn::Auth { board: board.clone(), token: owner.clone(), known_seq: Some(5), build: None, via: None }).await;
     assert!(matches!(recv(&mut raw).await, Some(WireOut::Ready { .. })));
     let ops = move_op(w.replica(), 100);
     w.edit(ops).await;
@@ -2258,7 +2258,7 @@ async fn a_client_from_another_build_is_told_it_is_outdated() {
     let dir = tempfile::tempdir().expect("tempdir");
     let server = Server::start(dir.path(), None);
     let (board, owner) = server.create_board();
-    let auth = |build: Option<&str>| WireIn::Auth { board: board.clone(), token: owner.clone(), known_seq: None, build: build.map(Into::into) };
+    let auth = |build: Option<&str>| WireIn::Auth { board: board.clone(), token: owner.clone(), known_seq: None, build: build.map(Into::into), via: None };
     let mut ws = open_ws(server.port, ORIGIN).await.expect("ws");
     send(&mut ws, &auth(Some("0000000000000000"))).await;
     assert!(matches!(recv(&mut ws).await, Some(WireOut::Closed { reason: CloseReason::Outdated })));
