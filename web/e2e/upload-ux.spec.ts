@@ -88,8 +88,11 @@ async function queued(id: number) {
   return job.replace(/\.dem$/, "");
 }
 
-/** Drag a file over the page, then drop it on `target`: the page builds the file itself. */
-async function drop(p: Page, target: string, name: string, kb = 64) {
+/**
+ * Drag a file over the page, then drop it on `target`: the page builds the file itself. `over`
+ * runs while the file is over the page, before the overlay is awaited.
+ */
+async function drop(p: Page, target: string, name: string, kb = 64, over?: () => Promise<void>) {
   const dt = await p.evaluateHandle(
     ({ name, kb }) => {
       const bytes = new Uint8Array(8 + kb * 1024).fill(7);
@@ -102,6 +105,7 @@ async function drop(p: Page, target: string, name: string, kb = 64) {
   );
   await p.dispatchEvent(target, "dragenter", { dataTransfer: dt });
   await p.dispatchEvent(target, "dragover", { dataTransfer: dt });
+  await over?.();
   await expect(p.getByTestId("drop-overlay")).toBeVisible();
   await p.dispatchEvent(target, "drop", { dataTransfer: dt });
   await expect(p.getByTestId("drop-overlay")).toBeHidden();
@@ -261,6 +265,15 @@ test("upload progress shows the percent and the size, the board stays in use, an
   test.skip(browserName !== "chromium", "Chromium-only: throttles the upload with a CDP session (Network.emulateNetworkConditions)");
   const a = await joinNew(browser, await newBoardUrl(server, "Progress"), "Coach");
   await a.getByTestId("mode-player").click();
+  // The replay job's state answers after the summary shows. Held here, so the drag below always
+  // starts before the board knows an upload is possible: the overlay comes once it does.
+  let answer!: () => void;
+  const held = new Promise<void>((r) => (answer = r));
+  const lookup = `**/api/boards/*/replays/${KNOWN}`;
+  await a.route(lookup, async (route) => {
+    await held;
+    await route.continue();
+  });
   await revealControls(a, "match-id");
   await a.getByTestId("match-id").fill(String(KNOWN));
   await a.getByTestId("match-load").click();
@@ -269,7 +282,14 @@ test("upload progress shows the percent and the size, the board stays in use, an
   const cdp = await a.context().newCDPSession(a);
   await cdp.send("Network.enable");
   await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: 3 * 1024 * 1024 });
-  await drop(a, ".stage", `${KNOWN}.dem`, 40 * 1024);
+  await drop(a, ".stage", `${KNOWN}.dem`, 40 * 1024, async () => {
+    await expect(a.getByTestId("drop-overlay")).toHaveCount(0);
+    answer();
+    // Answered once the overlay shows. The route goes before the drop: while one is set,
+    // Chromium's interception holds the upload's body, and its progress never moves.
+    await expect(a.getByTestId("drop-overlay")).toBeVisible();
+    await a.unroute(lookup);
+  });
   const size = a.getByTestId("upload-size");
   await expect(size).toHaveText(/^\d+% · \d+ \/ 42 MB$/);
   await expect.poll(async () => Number((await size.textContent())?.split("%")[0]), { timeout: 15_000 }).toBeGreaterThan(5);

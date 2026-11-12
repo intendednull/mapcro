@@ -65,17 +65,19 @@ export function ReplayHelp(p: { id?: string | undefined; class?: string }) {
 /**
  * Files dragged over the page: while `enabled`, an overlay says where it goes, and a dropped
  * `.dem` goes to `onFile`; anything else is refused with a short line. A file dropped while not
- * enabled is still caught, so the browser doesn't leave the page to open it.
+ * enabled is still caught, so the browser doesn't leave the page to open it. The overlay follows
+ * `enabled` during the drag: a drag that starts while the match's replay job is still being
+ * looked up shows it once the upload is possible, as the drop would take the file by then.
  */
 export function createDemDrop(o: { enabled: () => boolean; onFile: (f: File) => void; onRefuse: (text: string) => void }) {
-  const [over, setOver] = createSignal(false);
+  const [dragged, setDragged] = createSignal(false);
   let depth = 0;
   const files = (e: DragEvent) => !!e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
   const enter = (e: DragEvent) => {
     if (!files(e)) return;
     e.preventDefault();
     depth++;
-    setOver(o.enabled());
+    setDragged(true);
   };
   const move = (e: DragEvent) => {
     if (!files(e)) return;
@@ -85,13 +87,13 @@ export function createDemDrop(o: { enabled: () => boolean; onFile: (f: File) => 
   const leave = (e: DragEvent) => {
     if (!files(e)) return;
     depth = Math.max(0, depth - 1);
-    if (!depth) setOver(false);
+    if (!depth) setDragged(false);
   };
   const drop = (e: DragEvent) => {
     if (!files(e)) return;
     e.preventDefault();
     depth = 0;
-    setOver(false);
+    setDragged(false);
     if (!o.enabled()) return;
     const f = e.dataTransfer?.files[0];
     if (!f) return;
@@ -100,7 +102,7 @@ export function createDemDrop(o: { enabled: () => boolean; onFile: (f: File) => 
   };
   const end = () => {
     depth = 0;
-    setOver(false);
+    setDragged(false);
   };
   addEventListener("dragenter", enter);
   addEventListener("dragover", move);
@@ -114,7 +116,7 @@ export function createDemDrop(o: { enabled: () => boolean; onFile: (f: File) => 
     removeEventListener("drop", drop);
     removeEventListener("dragend", end);
   });
-  return over;
+  return () => dragged() && o.enabled();
 }
 
 export const NOT_DEM = "Not a .dem file. Pick the match's replay.";

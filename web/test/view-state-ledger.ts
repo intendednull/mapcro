@@ -67,7 +67,7 @@ export const SIGNALS: Record<string, Entries> = {
     heroes: ["local", "data"],
     data: ["local", "data"],
   },
-  "player/ReplayHelp.tsx": { over: ["local", "a file dragged over"] },
+  "player/ReplayHelp.tsx": { dragged: ["local", "a file dragged over"] },
   "player/Urn.tsx": { el: ["local", "an element"] },
   "player/GameTooltip.tsx": {
     openId: ["local", "the one game tooltip open: under your pointer or finger"],
