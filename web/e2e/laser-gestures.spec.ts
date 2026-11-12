@@ -93,6 +93,35 @@ test("two laser gestures are two trails, locally and for a peer and from a view 
   await expect(b.locator('.mapbox .ping[data-ping="Coach"]')).toHaveCount(1);
 });
 
+/** The opacity of `who`'s newest trail segment on `p` (null: none drawn), in one evaluation. */
+const headOpacity = (p: Page, who: string) =>
+  p.evaluate((who) => {
+    const paths = [...document.querySelectorAll(`.mapbox .laser[data-laser="${who}"] path`)];
+    const last = paths.at(-1);
+    return last ? Number(getComputedStyle(last).opacity) : null;
+  }, who);
+
+// #42: the tail fades on the clock, every point by its own age: holding the pointer still mid-draw,
+// the trail keeps fading for you and for a peer (it used to sit solid until points were dropped).
+test("a laser held still mid-draw keeps fading, for you and for a peer", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Laser fade");
+  const a = await joinNew(browser, url, "Coach");
+  const b = await joinNew(browser, url, "Marrow");
+  await a.keyboard.press("w");
+  await expect(a.getByTestId("tool-laser")).toHaveAttribute("aria-pressed", "true");
+  const from = await mapPoint(a, 0.3, 0.4);
+  const to = await mapPoint(a, 0.6, 0.5);
+  await a.mouse.move(from.x, from.y);
+  await a.mouse.down();
+  await a.mouse.move(to.x, to.y, { steps: 8 });
+  // Held: no more moves. The newest segment, solid as drawn, fades away while still held.
+  await expect(b.locator('.mapbox .laser[data-laser="Coach"] path').first()).toBeAttached();
+  await expect.poll(() => headOpacity(a, "mine"), { timeout: 3000 }).toBeLessThan(0.6);
+  await expect.poll(() => headOpacity(b, "Coach"), { timeout: 3000 }).toBeLessThan(0.6);
+  await expect(a.locator('.mapbox .laser[data-laser="mine"]')).toHaveCount(0, { timeout: 4000 });
+  await a.mouse.up();
+});
+
 test("in Player, a follower sees two laser gestures as two trails", async ({ browser }) => {
   const url = await newBoardUrl(server, "Laser Player");
   const a = await joinNew(browser, url, "Coach");

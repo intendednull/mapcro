@@ -120,7 +120,7 @@ transaction and one undo step.
 | Draw | freehand ink in a palette colour | a `stroke` record |
 | Arrow | drag out a rotation arrow | an `arrow` record |
 | Callout | click to place a label, typed in place | a `callout` record |
-| Laser | drawing that fades: the trail holds briefly, then fades away. Each press-to-release is its own trail: pressing again while one fades starts a new one, never joined to it (presence `laser_starts`, 2026-11-08). Everyone gets it, viewers included (operator, 2026-11-06) | presence only, never stored |
+| Laser | drawing that fades: each point of the trail fades by its own age, near solid at first and gone after 1.2 s, on the clock whether or not the pointer moves (#42, 2026-11-11; a peer ages each point from when it arrives). Each press-to-release is its own trail: pressing again while one fades starts a new one, never joined to it (presence `laser_starts`, 2026-11-08). Everyone gets it, viewers included (operator, 2026-11-06) | presence only, never stored |
 | Erase | click or scrub over ink, arrows and callouts | deletes |
 | Clear | a menu: removes every stroke, arrow or comment on this scene, or all of them, as one undoable step | one transaction of deletes |
 
@@ -1043,7 +1043,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
 - **Tooltips** (replay tier, 2026-11-11, feedback #7 and #9; docs/plans/2026-11-10-game-tooltips.md;
   `player/GameTooltip.tsx`, `player/StatPanel.tsx`, `match/tooltips.ts`). With a pack that has
   them (§12 "Tooltips"), hovering (a tap on touch, focus on the keyboard) shows the game's own
-  tooltip beside the thing, one at a time; Escape, a press elsewhere or a scroll closes it.
+  tooltip beside the thing, one at a time, at once as the game's do (no open delay, #41);
+  Escape, a press elsewhere or a scroll closes it.
   - Also on the events list (a major purchase's item, an ult's ability) and on the death
     recap's hit icons.
   - **Items** (the Tab column, the build order, the hero panel): the game's item tooltip
@@ -1080,6 +1081,7 @@ makes a board with that match attached and lands in Player; **New board** is tod
   (press and release within 6 px) on a hero's token with the Select tool opens a compact panel at
   the map's lower left: the hero, and the Tab column's parts for it at t (K/D/A, investment bars,
   stats, abilities with cooldowns and charges, items), with their tooltips and stat panels.
+  K/D/A and × show their tags at once on hover too (#41), not the browser's delayed `title`.
   Several can be open, one per hero, up to every hero's (#37, operator 2026-11-11): another
   token opens its own a step down and right of the last (or brings its open one to the front),
   × closes that one, Escape the front one, and another match closes them all. Vision: in a team's

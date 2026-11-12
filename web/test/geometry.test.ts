@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LASER_FADE_MS, LASER_HOLD_MS, arrowHead, fitStroke, laserOpacity, polyline, pruneLaser, simplify } from "../src/board/geometry";
+import { LASER_FADE_MS, LASER_HOLD_MS, LASER_LIFE_MS, LASER_MAX_POINTS, LASER_STEP_MS, type Timed, addLaser, arrowHead, fitStroke, laserAlpha, polyline, pruneLaser, simplify, stampLaser } from "../src/board/geometry";
 
 describe("ink", () => {
   it("drops points on a straight line and keeps corners", () => {
@@ -37,8 +37,33 @@ describe("laser", () => {
     expect(out).toHaveLength(48);
     expect(out.at(-1)!.p.x).toBe(99);
   });
-  it("fades from the tail", () => {
-    expect(laserOpacity(0, 10)).toBeLessThan(laserOpacity(5, 10));
-    expect(laserOpacity(9, 10)).toBe(1);
+  // #42: a point fades by its own age, on the clock: older is always fainter, from the start.
+  it("fades each point by its age, all the way, never by its place in the trail", () => {
+    expect(laserAlpha(0)).toBe(1);
+    for (let age = 0; age < LASER_LIFE_MS; age += 50) expect(laserAlpha(age + 50)).toBeLessThan(laserAlpha(age));
+    expect(laserAlpha(100)).toBeGreaterThan(0.95);
+    expect(laserAlpha(LASER_LIFE_MS)).toBe(0);
+  });
+  it("keeps points a step apart, the head following the pointer, so a fast stroke's tail ages out", () => {
+    // A stroke at 120 Hz for a whole second: the cap never cuts its tail; it spans the second.
+    let trail: Timed[] = [];
+    for (let i = 0; i <= 120; i++) trail = addLaser(trail, { x: i, y: 0 }, (i * 1000) / 120, 1);
+    expect(trail.length).toBeLessThanOrEqual(LASER_MAX_POINTS);
+    expect(trail[0]!.t).toBe(0);
+    expect(trail.at(-1)!.p.x).toBe(120);
+    for (let i = 2; i < trail.length; i++) expect(trail[i - 1]!.t - trail[i - 2]!.t).toBeGreaterThanOrEqual(LASER_STEP_MS);
+    // A new gesture always starts its own point.
+    const next = addLaser(trail, { x: 0, y: 9 }, 1001, 2);
+    expect(next.at(-1)!.g).toBe(2);
+    expect(next.at(-2)!.g).toBe(1);
+  });
+  it("stamps a peer's points when first seen, keeping each known point's time", () => {
+    const a = stampLaser([], [{ x: 1, y: 1 }, { x: 2, y: 2 }], 100);
+    expect(a.map((q) => q.t)).toEqual([100, 100]);
+    const b = stampLaser(a, [{ x: 2, y: 2 }, { x: 3, y: 3 }], 150);
+    expect(b.map((q) => q.t)).toEqual([100, 150]);
+    // The same spot twice: each time is used once.
+    const c = stampLaser([{ p: { x: 5, y: 5 }, t: 10 }], [{ x: 5, y: 5 }, { x: 5, y: 5 }], 20);
+    expect(c.map((q) => q.t)).toEqual([10, 20]);
   });
 });

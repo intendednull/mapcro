@@ -303,6 +303,62 @@ test("a click on a hero's token opens its panel; Escape and × close it; an unse
   await expect(token("Amber-0")).toHaveCount(0);
 });
 
+/**
+ * Milliseconds, by the page's clock, from the pointer reaching `target` to its tooltip float drawn
+ * and placed, holding `text`.
+ */
+async function msToShow(p: Page, target: ReturnType<Page["locator"]>, text: string) {
+  await p.mouse.move(5, 400);
+  await expect(float(p)).toHaveCount(0);
+  await target.evaluate((el, text) => {
+    const w = window as unknown as { __over: number | undefined; __shown: number | undefined };
+    w.__over = undefined;
+    w.__shown = undefined;
+    el.addEventListener("pointerover", () => { w.__over ??= performance.now(); }, { once: true });
+    const seen = () => {
+      const f = document.querySelector<HTMLElement>("[data-testid=game-tooltip-float]");
+      if (w.__over != null && w.__shown == null && f && f.style.visibility !== "hidden" && f.textContent?.includes(text)) {
+        w.__shown = performance.now();
+        mo.disconnect();
+      }
+    };
+    const mo = new MutationObserver(seen);
+    mo.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+  }, text);
+  await target.hover();
+  let ms: number | null = null;
+  await expect.poll(async () => (ms = await p.evaluate(() => {
+    const w = window as unknown as { __over: number | undefined; __shown: number | undefined };
+    return w.__shown != null && w.__over != null ? w.__shown - w.__over : null;
+  }))).not.toBeNull();
+  return ms!;
+}
+
+// #41: the hero panel's tooltips show at once, as the game's do: its items' and abilities' game
+// tooltips (they waited 80 ms) and its K/D/A and × tags (the browser's title waits ~500 ms).
+test("the hero panel's tooltips and tags show at once on hover", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Instant tips"), "Coach");
+  await open(a, "129000107");
+  await scrubTo(a, 15);
+  await a.locator('.mapbox .tok[data-slot="Sapphire-1"]').click();
+  const card = a.getByTestId("hero-card");
+  await expect(card).toHaveAttribute("data-slot", "sapphire-1");
+  expect(await msToShow(a, card.locator(`[data-item-id="${INFUSER}"]`), "Test Infuser")).toBeLessThan(50);
+  expect(await msToShow(a, card.locator(`[data-ability-id="${ABILITY}"]`), "Test Mark")).toBeLessThan(50);
+  // The tags are the game's words, no title left for the browser to show late.
+  const kills = card.getByTestId("kda-kills").locator("div");
+  await expect(kills).not.toHaveAttribute("title");
+  expect(await msToShow(a, kills, "Kills")).toBeLessThan(50);
+  expect(await msToShow(a, card.getByTestId("kda-deaths").locator("div"), "Deaths")).toBeLessThan(50);
+  const close = card.getByTestId("hero-card-close");
+  await expect(close).not.toHaveAttribute("title");
+  expect(await msToShow(a, close, "Close (Esc)")).toBeLessThan(50);
+  await expect(float(a).getByTestId("tag-tip")).toHaveText("Close (Esc)");
+  // Off it, it goes at once too.
+  await a.mouse.move(5, 400);
+  await expect(float(a)).toHaveCount(0);
+});
+
 test("holding Tab shows every build wherever the focus is, but in a text field; Shift+Tab moves focus (#24)", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Tab builds"), "Coach");
   await open(a, "129000104");
@@ -392,7 +448,7 @@ test("the hero panel reads at the app's sizes, its K/D/A and investment bars on 
     }
     const panel = el.querySelector(".tb-build-column")!.getBoundingClientRect();
     const mid = (r: DOMRect) => r.left + r.width / 2;
-    const kda = [...el.querySelectorAll(".tb-build-kda > div")].map((d) => d.getBoundingClientRect());
+    const kda = [...el.querySelectorAll(".tb-build-kda > .gt-anchor > div")].map((d) => d.getBoundingClientRect());
     const bars = [...el.querySelectorAll("[data-testid^=invest-]")].map((d) => d.getBoundingClientRect());
     return {
       small,

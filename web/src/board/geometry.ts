@@ -63,10 +63,15 @@ export function shaftEnd(from: Pt, to: Pt, inset: number): Pt {
   return { x: to.x - ((to.x - from.x) / d) * inset, y: to.y - ((to.y - from.y) / d) * inset };
 }
 
-/** Laser timing: the trail holds, then fades from its tail (spec §4). */
+/** Laser timing (spec §4): each point of the trail fades by its own age, from the moment it's
+ * drawn, whether or not the pointer moves (#42), and is gone at `LASER_LIFE_MS`. */
 export const LASER_HOLD_MS = 700;
 export const LASER_FADE_MS = 500;
+export const LASER_LIFE_MS = LASER_HOLD_MS + LASER_FADE_MS;
 export const LASER_MAX_POINTS = 48; // the server's cap on presence `laser`
+/** The least time between two kept points of a gesture: the cap then spans a whole life, so a
+ * fast stroke's tail ages out rather than being cut off by the point count. */
+export const LASER_STEP_MS = Math.ceil(LASER_LIFE_MS / LASER_MAX_POINTS) + 1;
 
 export interface Timed {
   p: Pt;
@@ -97,12 +102,42 @@ export function laserRuns<T>(points: T[], starts: readonly number[] = []): T[][]
 
 /** Drop what has fully faded, and keep at most the newest `max` points. */
 export function pruneLaser(trail: Timed[], now: number, max = LASER_MAX_POINTS): Timed[] {
-  const live = trail.filter((q) => now - q.t < LASER_HOLD_MS + LASER_FADE_MS);
+  const live = trail.filter((q) => now - q.t < LASER_LIFE_MS);
   return live.slice(Math.max(0, live.length - max));
 }
 
-/** Opacity for a segment `i` of `n` (0 = oldest): the tail fades in, the head is solid. */
-export function laserOpacity(i: number, n: number): number {
-  if (n <= 1) return 1;
-  return Math.min(1, 0.15 + (i / (n - 1)) * 1.4);
+/**
+ * The trail with the pointer at `p` in gesture `g`: a new point, or, when the newest came less
+ * than `LASER_STEP_MS` after the one before it in the same gesture, that newest point moved here
+ * (the head follows the pointer; kept points stay `LASER_STEP_MS` apart).
+ */
+export function addLaser(trail: Timed[], p: Pt, now: number, g: number): Timed[] {
+  const live = pruneLaser(trail, now);
+  const last = live[live.length - 1], before = live[live.length - 2];
+  if (last && before && last.g === g && before.g === g && last.t - before.t < LASER_STEP_MS) live.pop();
+  return pruneLaser([...live, { p, t: now, g }], now);
+}
+
+/** A point's opacity at `age` ms: near solid at first, fading ever faster, gone at the end. */
+export function laserAlpha(age: number): number {
+  if (age <= 0) return 1;
+  if (age >= LASER_LIFE_MS) return 0;
+  const x = age / LASER_LIFE_MS;
+  return 1 - x * x;
+}
+
+/**
+ * A peer's trail (presence carries points, not times) stamped with when this browser first saw
+ * each point: one already in `prev` keeps its time, a new one is `now`. Points match by position,
+ * in order, so a repeated position keeps each time once.
+ */
+export function stampLaser<P extends { x: number; y: number }>(prev: readonly { p: P; t: number }[], next: readonly P[], now: number): { p: P; t: number }[] {
+  const seen = new Map<string, number[]>();
+  for (const q of prev) {
+    const k = `${q.p.x},${q.p.y}`;
+    const ts = seen.get(k);
+    if (ts) ts.push(q.t);
+    else seen.set(k, [q.t]);
+  }
+  return next.map((p) => ({ p, t: seen.get(`${p.x},${p.y}`)?.shift() ?? now }));
 }

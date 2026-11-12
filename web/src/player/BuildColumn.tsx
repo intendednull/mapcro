@@ -8,7 +8,7 @@ import { PICKUPS_FORMAT, SLOT, investFill, statBuild, statsAt, type LoadedTable 
 import { scoreboardValueAt, type Timeline, type TimelinePlayer } from "../match/timeline";
 import { cx } from "../ui/cx";
 import { LABELS } from "./labels";
-import { GameTip, Hover, useTooltips } from "./GameTooltip";
+import { GameTip, Hover, TagTip, useTooltips } from "./GameTooltip";
 import { type Category, StatPanel } from "./StatPanel";
 
 
@@ -88,9 +88,10 @@ export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefine
       <Show when={p.name}><div class="tb-build-name">{p.name}</div></Show>
       <div class="tb-build-hero">{p.hero?.name ?? "Hero"}</div>
       <div class="tb-build-kda" aria-label="Kills, deaths, assists">
-        <div title={tag(LABELS.kills, kills())}><small>K</small><b>{kills() ?? "—"}</b></div>
-        <div title={LABELS.deaths}><small>D</small><b>{deaths()}</b></div>
-        <div title={tag(LABELS.assists, assists())}><small>A</small><b>{assists() ?? "—"}</b></div>
+        {/* Their names at once on hover (#41), not the browser's delayed title. */}
+        <Hover tip={() => <TagTip text={tag(LABELS.kills, kills())} />} testid="kda-kills"><div><small>K</small><b>{kills() ?? "—"}</b></div></Hover>
+        <Hover tip={() => <TagTip text={LABELS.deaths} />} testid="kda-deaths"><div><small>D</small><b>{deaths()}</b></div></Hover>
+        <Hover tip={() => <TagTip text={tag(LABELS.assists, assists())} />} testid="kda-assists"><div><small>A</small><b>{assists() ?? "—"}</b></div></Hover>
       </div>
       <div class="tb-build-investment">
         <For each={["weapon", "spirit", "vitality"] as const}>{category =>

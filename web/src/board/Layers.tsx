@@ -32,7 +32,7 @@ import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampShift, clampToBoard, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { cx } from "../ui/cx";
-import { LASER_MAX_POINTS, type Timed, arrowHead, fitStroke, laserOpacity, laserRuns, laserStarts, polyline, pruneLaser, shaftEnd } from "./geometry";
+import { LASER_MAX_POINTS, type Timed, addLaser, arrowHead, fitStroke, laserAlpha, laserRuns, laserStarts, polyline, pruneLaser, shaftEnd, stampLaser } from "./geometry";
 import { PRESENCE_MS } from "../core/session";
 import { liveInk, moveStrokeOps, strokePoints } from "./placed";
 import { smoothed } from "./smooth";
@@ -175,7 +175,7 @@ export function Layers(p: {
   const pushLaser = (pt: Pt, fresh = false) => {
     const now = performance.now();
     if (fresh) gesture++;
-    setLaser(pruneLaser([...laser(), { p: pt, t: now, g: gesture }], now));
+    setLaser(addLaser(laser(), pt, now, gesture));
     st.presence({ laser: laser().map((q) => world(q.p)), laser_starts: laserStarts(laser()), laser_color: p.ink });
     if (!laserTick)
       laserTick = setInterval(() => {
@@ -748,8 +748,24 @@ export function Layers(p: {
   const arrowClass = (team: Arrow["team"]) => (team === "Amber" ? "amber" : team === "Sapphire" ? "sapphire" : "neutral");
 
   /** My laser, one trail per gesture. */
-  const myLaser = createMemo(() => laserRuns(laser().map((q) => q.p), laserStarts(laser())));
+  const myLaser = createMemo(() => laserRuns(laser(), laserStarts(laser())));
   const remoteLasers = createMemo(() => st.peerList().filter((x) => (x.state?.laser.length ?? 0) > 0 && x.state?.scene === p.scene));
+  // The fade's clock: a frame at a time while any trail shows, mine or a peer's, so every point
+  // fades by its own age whether or not its pointer moves (#42).
+  const [laserNow, setLaserNow] = createSignal(performance.now());
+  let laserFrame = 0;
+  const laserFrameTick = () => {
+    laserFrame = 0;
+    setLaserNow(performance.now());
+    if (laser().length || remoteLasers().length) laserFrame = requestAnimationFrame(laserFrameTick);
+  };
+  createEffect(() => {
+    if ((laser().length || remoteLasers().length) && !laserFrame) {
+      setLaserNow(performance.now());
+      laserFrame = requestAnimationFrame(laserFrameTick);
+    }
+  });
+  onCleanup(() => cancelAnimationFrame(laserFrame));
   const remoteInks = createMemo(() => st.peerList().filter((x) => (x.state?.ink?.points.length ?? 0) > 0 && x.state?.scene === p.scene));
 
   return (
@@ -1020,15 +1036,17 @@ export function Layers(p: {
       <g class="lasers">
         <For each={remoteLasers()}>
           {(peer) => {
-            const runs = createMemo(() => laserRuns(peer.state!.laser.map(view), peer.state!.laser_starts ?? []));
+            // Presence has no times: each point ages from when this browser first saw it.
+            const timed = createMemo<{ p: WorldPos; t: number }[]>((prev) => stampLaser(prev, peer.state?.laser ?? [], performance.now()), []);
+            const runs = createMemo(() => laserRuns(timed(), peer.state?.laser_starts ?? []));
             return (
               <Index each={runs()}>
-                {(run, i) => <LaserTrail points={run()} color={colorOf(peer.state!.laser_color ?? peer.state!.color)} name={peer.state!.name} head={i === runs().length - 1} k={p.k} />}
+                {(run, i) => <LaserTrail points={run().map((q) => ({ p: view(q.p), t: q.t }))} now={laserNow()} color={colorOf(peer.state!.laser_color ?? peer.state!.color)} name={peer.state!.name} head={i === runs().length - 1} k={p.k} />}
               </Index>
             );
           }}
         </For>
-        <Index each={myLaser()}>{(run, i) => <LaserTrail points={run()} color={colorOf(p.ink)} mine head={i === myLaser().length - 1} k={p.k} />}</Index>
+        <Index each={myLaser()}>{(run, i) => <LaserTrail points={run()} now={laserNow()} color={colorOf(p.ink)} mine head={i === myLaser().length - 1} k={p.k} />}</Index>
       </g>
       <g class="pings">
         <For each={pings()}>
@@ -1055,20 +1073,27 @@ export function Layers(p: {
 /** One gesture's trail; the head dot only on the newest (`head`). */
 /** `k` is the view's zoom factor (as arrows and name tags use): the trail keeps its size on screen
  * however far the map is zoomed (operator, 2026-11-08: it grew huge zoomed in). */
-function LaserTrail(p: { points: Pt[]; color: string; name?: string; mine?: boolean; head?: boolean; k: number }) {
-  const segs = () => p.points.slice(1).map((q, i) => ({ a: p.points[i]!, b: q, i }));
+function LaserTrail(p: { points: Timed[]; now: number; color: string; name?: string; mine?: boolean; head?: boolean; k: number }) {
+  // Each segment by its older end's age (#42): the tail fades on the clock, not by its place.
+  const segs = () => {
+    const pts = p.points;
+    return pts.slice(1).map((q, i) => ({ a: pts[i]!.p, b: q.p, t: pts[i]!.t }));
+  };
   const head = () => p.points[p.points.length - 1];
   return (
     <g class="laser" style={{ "--c": p.color, "--k": String(p.k) }} data-laser={p.mine ? "mine" : (p.name ?? "")}>
-      <For each={segs()}>
-        {(s) => (
-          <path
-            d={`M${s.a.x} ${s.a.y} L${s.b.x} ${s.b.y}`}
-            style={{ opacity: laserOpacity(s.i, segs().length), "stroke-width": `${(5 + 4 * laserOpacity(s.i, segs().length)) * p.k}px` }}
-          />
-        )}
-      </For>
-      <Show when={p.head !== false && head()}>{(h) => <circle class="head" cx={h().x} cy={h().y} r={7 * p.k} style={{ "stroke-width": `${4 * p.k}` }} />}</Show>
+      <Index each={segs()}>
+        {(s) => {
+          const alpha = () => laserAlpha(p.now - s().t);
+          return (
+            <path
+              d={`M${s().a.x} ${s().a.y} L${s().b.x} ${s().b.y}`}
+              style={{ opacity: alpha().toFixed(3), "stroke-width": `${(5 + 4 * alpha()) * p.k}px` }}
+            />
+          );
+        }}
+      </Index>
+      <Show when={p.head !== false && head()}>{(h) => <circle class="head" cx={h().p.x} cy={h().p.y} r={7 * p.k} style={{ opacity: laserAlpha(p.now - h().t).toFixed(3), "stroke-width": `${4 * p.k}` }} />}</Show>
     </g>
   );
 }
