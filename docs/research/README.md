@@ -380,6 +380,10 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   probe's output with another probe's, a job's with a job's.
 - **A full packet at tick T follows tick T's packet** (`7@3841 13@3841`): a splice cut at a full
   packet's offset splits that tick (parser-memory §2).
+- **Measuring Player's frame cost:** headless Chromium doesn't cap frames at 1x, so compare
+  per-frame phase costs there and fps only at 4x CPU. The trooper dots are cheap. A canvas for them
+  costs more Layerize than it saves. The map's waste was icons rebuilt every frame
+  ([player-render-cost](player-render-cost.md)).
 - **Heavy probes** (`timer_audit` took 754 s) run alone under the load gate: the box is shared.
 
 ## Keeping this current

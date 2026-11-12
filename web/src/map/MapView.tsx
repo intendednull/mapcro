@@ -60,6 +60,9 @@ function Fb(p: { shape: string; color: string; k: number; part?: string }) {
  */
 function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | undefined; picked: boolean; health?: number | undefined; camp?: string | undefined; buff?: string | undefined }) {
   const c = () => washFor(p.m, p.vp);
+  // The buff that's up, as a value: the preview behind it is new every frame of playback, and
+  // the icon is built from it, so reading it raw rebuilt a powerup's icon every frame (#39).
+  const buff = createMemo(() => p.buff);
   // Destroyed keeps its own look.
   const hp = () => (p.health === undefined || p.status === "Destroyed" ? undefined : Math.max(0, Math.min(100, p.health)));
   const body = () => {
@@ -97,7 +100,7 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
         return [<Fb shape="dot" color="#99FFD6" k={0.5} />, <Layer img="koth" style={{ inset: "15%" }} />];
       case "powerup": {
         // Player, replay tier: the buff that's up, in its own icon and wash (match/buffs.ts).
-        const b = buffInfo(p.buff);
+        const b = buffInfo(buff());
         return b ? [<Fb shape="star" color={b.wash} k={0.8} />, <Layer img={b.img} wash={b.wash} />] : [<Fb shape="star" color={POWERUP} k={0.8} />, <Layer img="powerup" wash={POWERUP} />];
       }
       case "shop":
@@ -133,7 +136,7 @@ function MarkerView(p: { m: Marker; vp: Viewpoint; status: ObjectiveStatus | und
       data-key={p.m.key}
       data-health={hp() === undefined ? undefined : Math.round(hp()!)}
       data-camp={p.camp}
-      data-buff={p.buff}
+      data-buff={buff()}
       style={{
         "--hp": hp() === undefined ? undefined : `${hp()}%`,
         left: `${p.m.at.x / 10}%`,

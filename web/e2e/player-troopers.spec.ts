@@ -140,3 +140,44 @@ test("a rift's trooper is bigger and darker, says so on hover, and a follower se
   await expect(a.getByTestId("hover-label")).toHaveCount(0);
   await expect(b.getByTestId("hover-label")).toHaveCount(0);
 });
+
+test("playing moves the dots and rebuilds none of the map's icons", async ({ browser }) => {
+  // #39: every frame of playback rebuilt each powerup's icon (its parts removed and inserted),
+  // relaying out and repainting the map. Counted as DOM work, not time.
+  const { a } = await loaded(browser, "Still icons");
+  await scrubTo(a, 20);
+  await expect(a.locator("[data-testid=trooper]")).toHaveCount(9);
+  await expect(a.locator("[data-testid=map] .mk.powerup")).not.toHaveCount(0);
+  await a.getByTestId("match-play").click();
+  const work = await a.evaluate(async () => {
+    const map = document.querySelector("[data-testid=map]")!;
+    const n = { icons: 0, iconAttrs: 0, dots: 0, frames: 0 };
+    const mo = new MutationObserver((ms) => {
+      for (const m of ms) {
+        const el = (m.target.nodeType === 1 ? m.target : m.target.parentNode) as Element;
+        if (el.closest(".mm-objs")) {
+          if (m.type === "childList") n.icons += m.addedNodes.length + m.removedNodes.length;
+          else n.iconAttrs++;
+        } else if (el.closest(".pl-troopers") && m.type === "attributes") n.dots++;
+      }
+    });
+    mo.observe(map, { subtree: true, childList: true, attributes: true });
+    let on = true;
+    const tick = () => {
+      if (!on) return;
+      n.frames++;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    await new Promise((r) => setTimeout(r, 1000));
+    on = false;
+    mo.disconnect();
+    return n;
+  });
+  await a.getByTestId("match-play").click();
+  // It played: the dots moved, frame by frame.
+  expect(work.frames).toBeGreaterThan(10);
+  expect(work.dots).toBeGreaterThan(work.frames);
+  // And no icon was rebuilt.
+  expect(work.icons).toBe(0);
+});
