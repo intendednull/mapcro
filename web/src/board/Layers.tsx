@@ -1075,7 +1075,10 @@ export function Layers(p: {
  * however far the map is zoomed (operator, 2026-11-08: it grew huge zoomed in). */
 function LaserTrail(p: { points: Timed[]; now: number; color: string; name?: string; mine?: boolean; head?: boolean; k: number }) {
   // Each segment by its older end's age (#42): the tail fades on the clock, not by its place.
-  const segs = () => p.points.slice(1).map((q, i) => ({ a: p.points[i]!.p, b: q.p, t: p.points[i]!.t }));
+  const segs = () => {
+    const pts = p.points;
+    return pts.slice(1).map((q, i) => ({ a: pts[i]!.p, b: q.p, t: pts[i]!.t }));
+  };
   const head = () => p.points[p.points.length - 1];
   return (
     <g class="laser" style={{ "--c": p.color, "--k": String(p.k) }} data-laser={p.mine ? "mine" : (p.name ?? "")}>
