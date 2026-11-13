@@ -393,7 +393,11 @@ memory survives into another board's mount unless it is either:
 
   Also tidied: `end()` drops the session's presence and lazy-save timers. A lazy save landing
   after the board's next mount had read storage would write an older state. The journal and
-  the server hold what that save would have held. `createBoardState`'s per-scene player memos
+  the server hold what that save would have held. **Changed in phase 2's review (2026-11-12):**
+  the journal doesn't hold an edit's undo entry, so a switch within the lazy save's delay lost
+  the newest edit's undo step. `end()` now makes a due lazy save once, at once, and the board's
+  next `BoardSession` loads only after it (`ending` in `core/session.ts`), so it
+  can't land over a newer load. `createBoardState`'s per-scene player memos
   (each in its own `createRoot`) aren't disposed: they read only that board's own signals, which
   nothing writes after it ends, so they go with the board's state.
 
@@ -860,6 +864,28 @@ Each phase is small, merges on its own, and leaves boards unchanged.
    - **Mutation checks** over the isolation, removal and undo logic: 23 mutants, 22 killed; the
      one left (an edit not clearing its document's redo marks) is equivalent, since a spent redo
      mark is dropped when its document has nothing to redo. The table is in the phase report.
+   - **Review fixes (2026-11-12).** An adversarial review found these; each fixed with a test
+     that failed first:
+     1. undo after a quick switch took back the older edit: `end()` saves once (above, §4.1);
+     2. Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y belong to `SessionView`, so they reach the strip on a
+        view-only tab, a "No access" tab and "No games"; a board in a session leaves them to it;
+     3. a toast's Undo is for its own step. **Decided:** it keeps where the history was just
+        after that step (`UndoHistory.at`), and goes once anything else is edited, undone or
+        redone; it then takes back exactly its steps (`undoSince`), never an older one. Clear's
+        toast in a session works the same; on a board alone it's unchanged;
+     4. Remove and revoke withdraws the grant first and removes the tab only on 204, as an edit
+        that is no step in the history (undo can't bring back a tab whose grant is gone). Refused,
+        the tab stays and the toast says why ("No access");
+     5. a switch held for a pointer press ends with the press on window `blur` or a pointer move
+        with no button down, and a switch picked directly cancels a held one;
+     6. a tab's remembered role is keyed by its grant too. **Decided:** pending edits in the
+        board's stored copy (made through an edit link) aren't sent when `Ready` says `view`:
+        they're held, with the problem "edits not sent: this link is view-only", and go the next
+        time the board opens through a link that can edit. Dropping them would lose work, and
+        sending them gets the socket closed as abuse on every reconnect;
+     7. an `outdated` session page shows Update available, not the dead link; `persistSoon`
+        does nothing once ended; `begin` parses the stored view once. Undo after a reload in a
+        session (TD-63) and an add interrupted between the grant and the tab (TD-62) are logged.
    - **Not in the matrix yet**, and why: the parked-board rows (phase 3's pool); hover labels,
      the game tooltip, recaps, inspect and events filters (each reset or per-mount by
      construction, and pinned by `board-unmount.spec.ts` and `module-state.test.ts`); an upload
