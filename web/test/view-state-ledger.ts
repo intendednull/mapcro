@@ -112,7 +112,7 @@ export const SIGNALS: Record<string, Entries> = {
     heroPick: ["local", "a dialog"],
     phone: ["local", "the layout"],
     phoneEdit: ["personal", "your editing tools and gestures"],
-    phoneEvents: ["personal", "phone events sheet: sidebar layout, like sideTab"],
+    phoneSheet: ["personal", "the phone's open sheet (Events, Map layers, More): layout, like sideTab"],
     noteDraft: ["local", "text being typed"],
     sceneDrawer: ["local", "the phone's drawer"],
     mapPx: ["local", "the layout"],
