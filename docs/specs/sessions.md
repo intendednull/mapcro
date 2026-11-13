@@ -190,7 +190,7 @@ grant.**
    it. No one ever holds that token, so the row can only be used through the session path
    (§3.4). Adding the same board again through the same board link at the same role, while
    that grant is live, writes nothing and returns the existing grant (200, not 201). Any link
-   may add its board, a view link too, so this and the per-board cap (§3.8) bound the rows a
+   may add its board, a view link too, so this and the per-link cap (§3.8) bound the rows a
    session can write on someone else's board.
 5. It returns `{ grant_id, board, role: G }`. The board token is dropped from memory. It is
    never logged, stored, echoed back, or put in the session document.
@@ -317,7 +317,7 @@ days are deleted by housekeeping, and an undo after that reads "No access".
 | Threat | Control |
 |---|---|
 | Session spam | `POST /api/sessions` shares the board creation limiter (per address per hour, global per hour) and `MAX_BOARDS` and database caps; 507 past them |
-| Grant spam (each one writes a `links` row on someone's board) | per session link: 120 grants an hour; per address: 240 an hour; the 2,000-tab cap bounds grants per session, and live grants per session are capped at 2,000 too. Adding a board again through the same link at the same role returns its live grant and writes nothing. A board holds at most 50 live grants from all sessions together (`MAX_GRANTS_PER_BOARD`); past it, adding answers 409 "board full" until B's owner revokes one. Someone with a view link could fill those 50 and keep others from adding B; B's owner sees each in B's links and revokes it |
+| Grant spam (each one writes a `links` row on someone's board) | per session link: 120 grants an hour; per address: 240 an hour; the 2,000-tab cap bounds grants per session, and live grants per session are capped at 2,000 too. Adding a board again through the same link at the same role returns its live grant and writes nothing. One top-level link — a link the owner minted, or the owner link itself — holds at most 50 live grants on a board (`MAX_GRANTS_PER_BOARD`); past it, adding through that link or any link it minted answers 409 "board full" until one of those grants is revoked. Counting per top-level link means a view-link holder fills only its own allowance, never the owner's, and an editor can't dodge the cap by minting a child link. B's owner sees every grant in B's links and revokes it |
 | Probing grants or link ids | grant ids are 128-bit random; "not found" and "not yours" read the same, as for link revoke |
 | Junk tabs (an editor writes `Tab` records with made-up board or grant ids) | harmless: check 2 fails on open and the tab reads "No access". An editor could already vandalize the list, and undo restores |
 | Socket load | a person in a session holds one session socket plus one board socket (two during a switch, briefly). `MAX_SOCKETS_PER_IP` (32) then allows ~15 people behind one NAT in a session, against 32 on a board alone. Parked boards hold no socket (§5) |
@@ -783,8 +783,8 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      1. a grant could only be cut from the board's side: `DELETE /api/sessions/{s}/grants/{g}`
         (§3.7) lets the session's owner or the grant's adder withdraw it;
      2. any link, a view link too, could write unbounded "Session: …" rows on a board: adding
-        again returns the live grant (§3.2), and a board holds 50 live grants (§3.8). B's link
-        list shows revoked grant rows marked revoked, as it shows every revoked link: it hides
+        again returns the live grant (§3.2), and one top-level link holds 50 live grants (§3.8).
+        B's link list shows revoked grant rows marked revoked, as it shows every revoked link: it hides
         none, so this didn't change;
      3. revocation sent `Revoke` to each room in turn from the request: one full mailbox, or a
         dropped request, left later rooms un-revoked. Each room is now sent to from its own task,
