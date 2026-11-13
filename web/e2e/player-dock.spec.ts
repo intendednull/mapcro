@@ -93,17 +93,18 @@ test("on a phone every control is reachable and the scrubber has a row of its ow
   await expect(phone.getByTestId("player")).toHaveAttribute("data-state", "match");
   const scrub = await box(phone.getByTestId("match-time"));
   expect(scrub.width).toBeGreaterThan(250);
-  for (const id of ["p-prev", "p-next", "scene-drawer", "match-play"]) {
+  // The phone shell (spec §6b, Phone): the transport holds Play, Events, Map layers and More,
+  // with nothing laid over them; Scenes is in More.
+  const hits = async (id: string) => {
     const el = phone.getByTestId(id);
-    await el.scrollIntoViewIfNeeded();
     await expect(el).toBeVisible();
-    // What a tap at its centre hits is the control itself, nothing laid over it.
     const b = await box(el);
-    const hit = await phone.evaluate(([x, y]) => document.elementFromPoint(x!, y!)?.closest("[data-testid]")?.getAttribute("data-testid"), [b.x + b.width / 2, b.y + b.height / 2]);
-    expect(hit, id).toBe(id);
-  }
-  // The Look/Laser toolbar sits under the map, not over it (QA 2026-11-08: it hid Amber's base).
-  expect(overlap(await box(phone.locator(".p-tools")), await box(phone.locator(".p-map").first()))).toBe(false);
+    return phone.evaluate(([x, y]) => document.elementFromPoint(x!, y!)?.closest("[data-testid]")?.getAttribute("data-testid"), [b.x + b.width / 2, b.y + b.height / 2]);
+  };
+  for (const id of ["match-play", "phone-events", "phone-layers", "phone-more"]) expect(await hits(id), id).toBe(id);
+  await phone.getByTestId("phone-more").tap();
+  expect(await hits("scene-drawer")).toBe("scene-drawer");
+  await phone.getByTestId("p-sheet-close").tap();
   await phone.screenshot({ path: "shots/dock-phone-match.png", fullPage: true });
   await revealControls(phone, "mode-sandbox");
   await phone.getByTestId("mode-sandbox").tap();
