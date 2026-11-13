@@ -1074,12 +1074,22 @@ kbd {
 .phone-player .pl-transport .pl-scrub { grid-area: scrub; order: 0; flex: none; }
 .phone-player [data-testid=match-save] { display: none; }
 .phone-player .pl-tail { grid-area: clock; justify-self: end; }
-.phone .p-events-sheet { margin: 8px; padding: 8px 8px 12px; border: 1px solid var(--line); border-radius: 16px; max-height: 45dvh; overflow: auto; }
+/* Events: a bottom sheet on the transport, like a build (it covers the map, never Play); the
+   whole sheet scrolls, filters and list together, under its Close. */
+.phone .p-events-sheet {
+  position: fixed; left: 8px; right: 8px; bottom: var(--transport-h, calc(116px + env(safe-area-inset-bottom)));
+  z-index: 56; max-height: 45dvh; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 12px;
+  background: var(--bg-deep); border: 1px solid var(--brass-dim); border-radius: 16px; box-shadow: 0 -8px 32px #0008;
+}
+.phone .p-events-sheet > .btn { position: sticky; top: 0; z-index: 1; display: block; margin: 0 0 0 auto; background: var(--bg-deep); }
+.phone .p-events-sheet > .pl-side { height: auto; overflow: visible; padding: 0; border: 0; }
+.phone .p-events-sheet .pl-list { overflow: visible; flex: none; }
 .phone .p-events-toggle { margin: 4px 8px; }
-.phone .p-events-sheet .pl-side { width: 100%; }
+.phone .p-events-sheet .pl-side { width: 100%; box-sizing: border-box; }
 .phone .p-events-sheet * { font-size: 12px; }
 @media (max-height: 500px) and (pointer: coarse) {
   .phone .p-map > .mm-host { height: 65dvh; }
   .phone .tb-host, .phone-roster { width: min(560px, calc(100% - 16px)); align-self: center; }
-  .phone-build-sheet { max-height: 50dvh; }
+  /* Landscape: sheets stand on the right, the map's left half stays in view. */
+  .phone-build-sheet, .phone .p-events-sheet { left: auto; top: 8px; width: min(440px, 55vw); max-height: none; }
 }

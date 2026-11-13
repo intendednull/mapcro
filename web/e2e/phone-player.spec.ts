@@ -95,6 +95,9 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     await phone.getByTestId("events-lead").fill("0");
     await phone.getByTestId("event-jump").first().tap();
     await expect(phone.getByTestId("match-clock")).toContainText("0:30 /");
+    await checkPhoneLayout(phone);
+    await phone.getByTestId("phone-events-close").tap();
+    await expect(phone.getByTestId("player-side")).toHaveCount(0);
     await phone.getByTestId("map-layers-toggle").tap();
     await expect(phone.getByTestId("vision-select")).toBeVisible();
     await phone.getByTestId("vision-select").selectOption("amber");

@@ -812,7 +812,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
         <button class="btn p-events-toggle" data-testid="phone-events" aria-expanded={phoneEvents()} onClick={() => setPhoneEvents(!phoneEvents())}>Events</button>
         <Show when={phoneEvents()}>
           <section class="p-events-sheet" aria-label="Events">
-            <button class="btn" onClick={() => setPhoneEvents(false)}>Close</button>
+            <button class="btn" data-testid="phone-events-close" onClick={() => setPhoneEvents(false)}>Close</button>
             <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={savedScene} onUserPlayback={() => stopFollowing("changed the playback")} />
           </section>
         </Show>

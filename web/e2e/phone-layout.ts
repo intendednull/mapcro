@@ -9,7 +9,7 @@ export async function checkPhoneLayout(page: Page) {
       if (!e.checkVisibility({ contentVisibilityAuto: true, opacityProperty: true, visibilityProperty: true })) return false;
       // Content scrolled under the fixed transport, a sheet or an open menu is out of reach until
       // scrolled clear, not overlapped (the page reserves the transport's height: checked below).
-      for (const cover of document.querySelectorAll(".phone-player .pl-bar, .phone-build-sheet, .map-layers[open] .map-layers-pop")) {
+      for (const cover of document.querySelectorAll(".phone-player .pl-bar, .phone-build-sheet, .p-events-sheet, .map-layers[open] .map-layers-pop")) {
         const c = cover.getBoundingClientRect();
         if (!cover.contains(e) && !e.contains(cover) && r.left < c.right && c.left < r.right && r.top < c.bottom && c.top < r.bottom) return false;
       }
@@ -24,7 +24,7 @@ export async function checkPhoneLayout(page: Page) {
       return true;
     };
     const controls = [...document.querySelectorAll(".phone button, .phone summary, .phone select, .phone input:not([type=hidden]), .phone a[href], .phone [role=button]")].filter(visible);
-    const sheet = document.querySelector(".phone-build-sheet")?.getBoundingClientRect();
+    const sheets = [...document.querySelectorAll(".phone-build-sheet, .p-events-sheet")].map(e => e.getBoundingClientRect());
     const transport = document.querySelector(".phone-player .pl-bar")?.getBoundingClientRect();
     const rects = controls.map(e => e.getBoundingClientRect());
     const overlaps: string[] = [];
@@ -42,7 +42,7 @@ export async function checkPhoneLayout(page: Page) {
       overflow: document.documentElement.scrollWidth > innerWidth,
       smallControls: controls.filter(e => { const r = e.getBoundingClientRect(); return r.width < 43.9 || r.height < 43.9; }).map(tag),
       overlaps, smallText,
-      sheetOverTransport: !!sheet && !!transport && sheet.bottom > transport.top,
+      sheetOverTransport: !!transport && sheets.some(sheet => sheet.bottom > transport.top + 1),
       mapHeight: document.querySelector(".p-map")?.getBoundingClientRect().height ?? 0,
       // Everything scrolls clear of the fixed transport: the page's end is padded by its height.
       transportHeight: transport?.height ?? 0,
