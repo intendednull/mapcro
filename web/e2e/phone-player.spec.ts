@@ -44,6 +44,8 @@ async function open(p: Page, id: string) {
   answered.add(job);
   writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify({
     ...timeline(id),
+    // Several events, so the Events sheet's density can be judged.
+    events: [30, 32, 34, 36, 38, 39].map((t, i) => ({ t, kind: "death", team: i % 2 ? "sapphire" : "amber", slot: i ? 2 + (i % 3) : 1, hero_id: i ? 3 + (i % 3) : 2, x: -2500, y: -3000 })),
     troopers: { every_s: 1, amber: Array(41).fill(Buffer.from([1, 0, 0, 0, 0, 0]).toString("base64")), sapphire: Array(41).fill("") },
   }));
   await expect(p.getByTestId("match-tier")).toHaveText("Full replay");
@@ -127,6 +129,27 @@ async function checkRoster(p: Page) {
   await expect(cell).not.toHaveClass(/\bdead\b/);
 }
 
+/** Events: search, lead and chips in one row of at most 48 px; at least four events in view;
+ *  the current one marked for assistive tech; the source credit not in the sheet. */
+async function checkEvents(p: Page) {
+  const side = p.getByTestId("player-side");
+  await p.screenshot({ path: `/tmp/mapcro-events-${p.viewportSize()!.width}-${p.viewportSize()!.height}.png` });
+  const head = (await side.locator(".pl-events-head").boundingBox())!;
+  const chips = (await side.locator(".pl-chips").boundingBox())!;
+  const top = Math.min(head.y, chips.y), bottom = Math.max(head.y + head.height, chips.y + chips.height);
+  expect(bottom - top).toBeLessThanOrEqual(48);
+  const list = (await side.locator(".pl-list").boundingBox())!;
+  const pane = (await side.boundingBox())!;
+  const floor = Math.min(list.y + list.height, pane.y + pane.height);
+  const rows = side.getByTestId("event");
+  await expect(rows).toHaveCount(6);
+  let inView = 0;
+  for (let i = 0; i < 6; i++) { const r = (await rows.nth(i).boundingBox())!; if (r.y >= list.y - 1 && r.y + r.height <= floor + 1) inView++; }
+  expect(inView).toBeGreaterThanOrEqual(4);
+  await expect(side.locator('[data-testid=event][aria-current="true"]')).toHaveAttribute("data-t", "30");
+  await expect(side.getByTestId("match-credit")).toBeHidden();
+}
+
 import { checkPhoneLayout, touchDrag } from "./phone-layout";
 
 const PHONES = [{ width: 390, height: 844 }, { width: 360, height: 800 }, { width: 390, height: 664 }, { width: 844, height: 390 }];
@@ -205,6 +228,7 @@ for (const viewport of [...PHONES, ...TABLETS]) {
     await phone.getByTestId("event-jump").first().tap();
     await expect(phone.getByTestId("match-clock")).toContainText("0:30 /");
     await checkPhoneLayout(phone);
+    await checkEvents(phone);
     await phone.getByTestId("p-sheet-close").tap();
     // Landscape's dock falls back to Events, with no close of its own.
     if (viewport.width > viewport.height) {

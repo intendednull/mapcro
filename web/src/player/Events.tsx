@@ -159,7 +159,7 @@ export function EventsList(p: {
           {(e) => {
             const i = eventKey(e);
             return (
-              <li class={cx("pl-ev", groupOf(e), e.team ?? "", current() === i && "now")} data-testid="event" data-kind={e.kind} data-t={e.t} data-key={i} data-current={current() === i ? "true" : undefined}>
+              <li class={cx("pl-ev", groupOf(e), e.team ?? "", current() === i && "now")} data-testid="event" data-kind={e.kind} data-t={e.t} data-key={i} data-current={current() === i ? "true" : undefined} aria-current={current() === i ? "true" : undefined}>
                 <Show when={p.canSave}>
                   <input type="checkbox" aria-label="Select" data-testid="event-pick" checked={picked().has(i)} onChange={() => setPicked(toggle(picked(), i))} />
                 </Show>

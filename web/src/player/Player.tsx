@@ -396,6 +396,12 @@ export function Player(p: {
             }}
           />
         </form>
+        {/* The phone's credit: here with the source, not in the Events sheet. */}
+        <Show when={h.tl()}>{(m) => (
+          <span class="match-credit p-credit" data-testid="match-credit-source">
+            {tierOf(m()) === "replay" ? (h.job()?.source === "cdn" ? "Replay: Valve, via deadlock-api.com" : "Replay: uploaded") : "Match data: deadlock-api.com"}
+          </span>
+        )}</Show>
         </details>
         <Show when={watching() && h.uploading() && h.sent()}>
           {(u) => {

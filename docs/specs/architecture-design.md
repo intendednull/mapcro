@@ -1513,6 +1513,11 @@ tappable and a second portrait swaps the hero in place. A 48 px header holds the
 jumps there and the sheet stays. Items and abilities open the game tooltip on tap, clamped between
 the roster's foot and the transport's top; a tap outside closes it.
 
+**Events** puts the search (96 px), the lead and the filter chips in one row of at most 48 px,
+the chips scrolling sideways; the event at the current time carries `aria-current`. The source
+credit ("Replay: uploaded", "Match data: deadlock-api.com") is in the Match sheet, not under
+the events.
+
 **The build sheet** is titled with the hero's name (several builds open: "Builds") and reads items
 (6 across), abilities (4), then one row of the investment bars, the vitals (left-aligned) and
 K/D/A, then Effects and Build order side by side, 8 px between rows; items and abilities are in

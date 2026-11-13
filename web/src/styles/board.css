@@ -1125,6 +1125,20 @@ kbd {
 .phone-player .pl-source:not([open]) { display: none; }
 .phone-player .pl-source[open] { position: fixed; left: 0; right: 0; bottom: var(--transport-h, 104px); z-index: 57; max-width: none; padding: 12px 8px; background: var(--panel); border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; }
 .phone-player .pl-source[open] > summary { display: none; }
+/* Events: search, lead and the chips share one row (the chips scroll sideways); the credit is
+   with the match source. */
+.phone .pl-events { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; }
+.phone .pl-events > * { grid-column: 1 / -1; }
+.phone .pl-events > .pl-events-head { grid-column: 1; grid-row: 1; }
+.phone .pl-events > .pl-chips { grid-column: 2; grid-row: 1; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; touch-action: pan-x; }
+.phone .pl-events > .pl-now { grid-row: 2; justify-self: end; }
+.phone .pl-events > .pl-list { grid-row: 3; align-self: stretch; }
+.phone .pl-events > .pl-events-foot { grid-row: 4; }
+.phone .pl-chips > * { flex: none; }
+.phone .pl-events-head .input { flex: none; width: 96px; }
+.phone .pl-side .match-credit { display: none; }
+.p-credit { display: none; }
+.phone-player .pl-source[open] .p-credit { display: block; margin-top: 8px; font-size: 12px; }
 .phone-player .pl-source[open] .pl-head { position: static; width: auto; max-width: none; box-shadow: none; border: 0; padding: 0; background: transparent; }
 .phone-player .pl-play { grid-area: play; min-width: 64px; background: var(--raised); }
 .phone-player .pl-speed { grid-area: speed; }
