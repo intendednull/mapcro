@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { randomRosterOps, sceneMatchName, slotName } from "../src/board/roster";
+import { randomRosterOps, sceneMatchName, slotName, slotPlaceholder } from "../src/board/roster";
 import type { Slot } from "../src/board/state";
 import type { Hero } from "../src/map/pack";
 
@@ -52,5 +52,14 @@ describe("scene names (spec §6b Names)", () => {
     expect(slotName("Coach", "Kestrel")).toBe("Coach");
     expect(slotName("  ", "Kestrel")).toBe("Kestrel");
     expect(slotName("", undefined)).toBeUndefined();
+  });
+});
+
+describe("placeholder names (spec §6b Names, feedback #50)", () => {
+  it("is the game's short patron and the slot's number, from either team's casing", () => {
+    expect(slotPlaceholder("Amber", 0)).toBe("King 1");
+    expect(slotPlaceholder("amber", 2)).toBe("King 3");
+    expect(slotPlaceholder("Sapphire", 5)).toBe("Archmother 6");
+    expect(slotPlaceholder("sapphire", 3)).toBe("Archmother 4");
   });
 });

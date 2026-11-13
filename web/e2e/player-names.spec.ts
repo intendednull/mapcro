@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { expect, test } from "./fixtures";
 import { joinNew } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
+import { slotPlaceholder } from "../src/board/roster";
 
 const ID = "130816395";
 const NAMES = ["Coach", "Marrow", "Juno", "Pike", "Wren", "Ash", "Vale", "Rook", "Sable", "Tarn", "Kite", "Moss"];
@@ -79,6 +80,13 @@ test("names show by their heroes: top bar, roster, events", async ({ browser }) 
   await a.screenshot({ path: "shots/player-names.png" });
 });
 
+/** A hero panel opened by a click on its token: the panel's top edge is clear of the top bar. */
+async function openCard(p: import("@playwright/test").Page, slot: string) {
+  const body = (await p.locator(`.tok[data-slot="${slot}"] circle.body`).boundingBox())!;
+  await p.mouse.click(body.x + body.width / 2, body.y + 2);
+  return p.locator(`[data-testid=hero-card][data-slot="${slot.toLowerCase()}"]`);
+}
+
 /** Every player name anywhere on the page: its text, tooltips (title attributes and SVG titles)
  * and aria-labels. */
 const namesOnPage = (p: import("@playwright/test").Page) =>
@@ -111,9 +119,17 @@ test("a token's hover label names its player; Names off hides every name, here o
   await expect(a.locator('.tb-player[data-slot="Amber-0"] [data-testid=tb-name]')).toHaveText("Coach");
   await expect(a.getByTestId("event").filter({ hasText: "Juno" }).first()).toBeVisible();
   expect(await namesOnPage(a)).toEqual(expect.arrayContaining(["Coach", "Juno", "Moss"]));
+  // The hero panel's header names the player when Names shows it.
+  const card = await openCard(a, "Amber-0");
+  await expect(card).toHaveCount(1);
+  await expect(card.locator(".tb-build-name")).toHaveText("Coach");
+  await card.getByTestId("hero-card-close").click();
+  await expect(card).toHaveCount(0);
   await a.screenshot({ path: "shots/player-names-on.png" });
 
   // Off: no name in the top bar, the events, the tokens' titles, or anywhere else on the page.
+  // (The click on the token above put the revealed controls away.)
+  await revealControls(a, "names-toggle");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(a.getByTestId("tb-name")).toHaveCount(0);
@@ -126,6 +142,13 @@ test("a token's hover label names its player; Names off hides every name, here o
   await a.mouse.move(5, 5);
   await expect(a.getByTestId("event").first()).toBeVisible();
   expect(await namesOnPage(a)).toEqual([]);
+  // The hero panel's header is never empty with Names off (feedback #50): the same placeholder
+  // the token's label uses stands in, from the one function.
+  const offCard = await openCard(a, "Amber-0");
+  await expect(offCard).toHaveCount(1);
+  await expect(offCard.locator(".tb-build-name")).toHaveText(slotPlaceholder("Amber", 0));
+  await offCard.getByTestId("hero-card-close").click();
+  await expect(offCard).toHaveCount(0);
   // Searching by a hidden name doesn't reveal it.
   await a.getByTestId("events-search").fill("juno");
   await expect(a.getByTestId("event")).toHaveCount(0);

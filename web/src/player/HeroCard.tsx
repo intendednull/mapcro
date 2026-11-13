@@ -11,6 +11,7 @@
 
 import { Show, createMemo, createResource, onCleanup, onMount } from "solid-js";
 import type { Art } from "../map/pack";
+import { slotPlaceholder } from "../board/roster";
 import { slotKey } from "../match/save";
 import { ladderKeyFor, loadStatTable, tableKeyFor } from "../match/stats";
 import type { Timeline } from "../match/timeline";
@@ -59,7 +60,12 @@ export function HeroCard(p: {
     window.addEventListener("keydown", key);
     onCleanup(() => window.removeEventListener("keydown", key));
   });
-  const name = () => (player() ? p.name?.(player()!.team, player()!.slot) : undefined);
+  // The match's name when Names shows it, else the same stand-in as the tokens and both top bars
+  // ("King 1"), so the panel never opens with an empty header (feedback #50).
+  const name = () => {
+    const pl = player();
+    return pl ? p.name?.(pl.team, pl.slot) || slotPlaceholder(pl.team, pl.slot) : undefined;
+  };
   return (
     <Show when={player()}>
       {(pl) => (
