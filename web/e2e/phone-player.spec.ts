@@ -78,11 +78,12 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     await phone.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').tap();
     await expect(column(phone)).toBeVisible();
     await checkPhoneLayout(phone);
-    await column(phone).locator(`[data-item-id="${INFUSER}"]`).tap();
+    await column(phone).locator(`.tb-build-item[data-item-id="${INFUSER}"]`).tap();
     await expect(float(phone)).toBeVisible();
     await column(phone).locator(`[data-ability-id="${ABILITY}"]`).tap();
     await expect(float(phone).getByTestId("game-tooltip")).toHaveAttribute("data-kind", "ability");
-    await phone.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').tap();
+    await phone.locator(".p-build-close").tap();
+    await expect(column(phone)).toHaveCount(0);
     await phone.getByTestId("phone-events").tap();
     await expect(phone.getByTestId("player-side")).toBeVisible();
     await phone.getByTestId("events-lead").fill("0");

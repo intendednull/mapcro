@@ -624,6 +624,20 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const onMq = () => setPhone(mq.matches);
   mq.addEventListener("change", onMq);
   onCleanup(() => mq.removeEventListener("change", onMq));
+  // Sheets sit on the transport, which wraps to one or two rows by width: its height, live.
+  let phoneEl: HTMLDivElement | undefined;
+  createEffect(() => {
+    if (!phone() || !(inPlayer() || player.matchId())) return;
+    let ro: ResizeObserver | undefined;
+    const frame = requestAnimationFrame(() => {
+      const bar = phoneEl?.querySelector<HTMLElement>(".pl-bar");
+      if (!bar || !phoneEl) return;
+      const root = phoneEl;
+      ro = new ResizeObserver(() => root.style.setProperty("--transport-h", `${bar.offsetHeight}px`));
+      ro.observe(bar);
+    });
+    onCleanup(() => { cancelAnimationFrame(frame); ro?.disconnect(); });
+  });
   createEffect(() => {
     // Viewing keeps editing gestures out of the map.
     if (phone() && !phoneEdit() && tool() !== "select" && tool() !== "laser") setTool("select");
@@ -690,7 +704,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
   };
 
   const PhoneBoard = () => (
-    <div class="phone" classList={{ "phone-player": inPlayer(), "phone-editing": phoneEdit() }} data-testid="board" data-board={p.board} data-layout="phone">
+    <div class="phone" ref={phoneEl} classList={{ "phone-player": inPlayer(), "phone-editing": phoneEdit() }} data-testid="board" data-board={p.board} data-layout="phone">
       <header class="p-top">
         <Wordmark />
         <span class="viewonly" data-testid="role-chip">
@@ -1012,7 +1026,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               <Show when={inPlayer()}>
                 <RiftRings art={p.art} vp={viewpoint()} preview={matchPreview} mk={Math.min(1, view().w / 1000)} />
                 <UrnMark art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} mk={Math.min(1, view().w / 1000)} />
-                <DeathSkulls art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} hasRecap={hasRecap} onOpenRecap={(slot, t) => setSkullRecap({ slot, t })} />
+                <DeathSkulls art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} hit={phone ? 26 * view().w / mapPx() / (Math.min(1, view().w / 1000) * 1.4) : undefined} hasRecap={hasRecap} onOpenRecap={(slot, t) => setSkullRecap({ slot, t })} />
               </Show>
               <TeleporterLink art={p.art} vp={viewpoint()} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               <MarkerTips art={p.art} vp={viewpoint()} hidden={(k) => markerStatus(k) === "Hidden"} shown={() => ({ heals: heals(), crates: crates() })} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />

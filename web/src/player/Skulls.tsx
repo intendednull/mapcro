@@ -14,6 +14,8 @@ export function DeathSkulls(p: {
   art: Art; vp: "amber" | "sapphire" | "neutral"; preview: () => MatchPreview | undefined; k: number;
   /** Whether the death (slot "amber-0"…, its second) has a recap: its skull opens it. */
   hasRecap?: (slot: string, t: number) => boolean;
+  /** A touch target's radius, in the skull's own units (phone: 44 px across on screen). */
+  hit?: number | undefined;
   onOpenRecap?: (slot: string, t: number) => void;
 }) {
   return (
@@ -39,6 +41,7 @@ export function DeathSkulls(p: {
               aria-label={recap() ? `${hero()?.name ?? "Hero"} death recap` : undefined}
               onClick={() => recap() && p.onOpenRecap!(s().slot, s().t)}
             >
+              <Show when={recap() && p.hit}>{(r) => <circle class="pl-hit" r={Math.max(TOKEN_R, r())} />}</Show>
               <circle class="pl-fallen-body" r={TOKEN_R} />
               <Show when={hero()?.portrait}>
                 {(src) => <image class="pl-fallen-portrait" href={src()} x={-TOKEN_R + 2} y={-TOKEN_R + 2} width={2 * TOKEN_R - 4} height={2 * TOKEN_R - 4} />}

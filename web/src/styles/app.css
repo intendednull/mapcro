@@ -455,6 +455,7 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 .skull-recap-head span { flex: 1; }
 .skull-recap-head small { display: block; color: var(--muted); }
 .skull-recap .death-recap summary { padding-left: 4px; }
+.pl-hit { fill: transparent; stroke: none; }
 .pl-fallen-body { fill: #0b1714; stroke: #c85b54; stroke-width: 3; }
 .pl-fallen-portrait { clip-path: circle(50%) fill-box; filter: grayscale(1) sepia(1) saturate(3) hue-rotate(310deg) brightness(0.8); }
 .pl-fallen-tint { fill: #c84940; opacity: 0.22; }
