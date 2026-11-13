@@ -1,6 +1,7 @@
 // Clone to a new board (design/v1-board/clone-flow.html): the current state, fresh links, you
 // as its owner. Anyone with a link may clone (spec §11).
 
+import type { Via } from "../gen/Via";
 import { createSignal, onMount } from "solid-js";
 import { Api, shareUrl } from "../core/api";
 import { markJoined, rememberBoard } from "../core/device";
@@ -12,7 +13,7 @@ const Ico = (p: { d: string }) => <svg class="ico" viewBox="0 0 24 24" aria-hidd
 
 export const JUST_CLONED = "mapcro.justCloned";
 
-export function CloneDialog(p: { board: string; token: string; title: string; onClose: () => void }) {
+export function CloneDialog(p: { board: string; token: string; via?: Via; title: string; onClose: () => void }) {
   const [title, setTitle] = createSignal(`${p.title} (copy)`.slice(0, LIMITS.max_title));
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal("");
@@ -23,7 +24,7 @@ export function CloneDialog(p: { board: string; token: string; title: string; on
     setBusy(true);
     try {
       const t = title().trim() || `${p.title} (copy)`;
-      const { board, owner_token } = await new Api("").cloneBoard(p.board, p.token, t);
+      const { board, owner_token } = await new Api("").cloneBoard(p.board, p.token, t, p.via);
       rememberBoard({ board, token: owner_token, title: t });
       markJoined(board); // you already said who you are
       sessionStorage.setItem(JUST_CLONED, board);

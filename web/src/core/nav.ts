@@ -22,3 +22,10 @@ export function navigate(url: string) {
 addEventListener("popstate", () => {
   if (location.href !== href()) setHref(location.href);
 });
+
+/** Show `url` (same origin) in place of the current entry, without a page load: a session's open
+ * tab (`?tab=`, sessions.md §7.1), which never adds history. */
+export function replace(url: string) {
+  history.replaceState(null, "", url);
+  setHref(location.href);
+}

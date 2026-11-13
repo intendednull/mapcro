@@ -1,6 +1,7 @@
 **Date:** 2026-11-11
 **Status:** draft for the operator's review. Phase 0 built (2026-11-11, §4.1 and §10). Phase 1
-(the server) built 2026-11-12 (§10), awaiting its security review.
+(the server) built 2026-11-12 (§10), reviewed and fixed. Phase 2 (the client) built 2026-11-12
+(§10).
 **Supersedes:** the 2026-11-10 sketch "Several replays on one board, as game tabs" (docs/backlog.md,
 mockup `/home/intendednull/concierge/artifacts/mapcro-multi-replay/index.html`). The tab strip
 and the reasons stay. The model changes: there is still one board per game, not several games
@@ -802,6 +803,77 @@ Each phase is small, merges on its own, and leaves boards unchanged.
    remount (no pool yet), `?tab=`, the add paths (Your boards, Paste link), remove/undo, rename
    and reorder, the toast, Your boards listing sessions, "+ Add game" on a board (§7.3), and the
    §9.1 isolation matrix. Validate in a real browser before deploy.
+   **Built 2026-11-12 (branch `sessions-p2`).** No server or bindings change; phase 1's endpoints
+   as they are.
+   - **`Ready.kind`** (`core/session.ts`): a `BoardSession` says what it expects (`expect`,
+     default `"board"`; the session view's is `"session"`). A `Ready` of the other kind closes it
+     as `wrong_kind` before a base, replica or role is kept, and it isn't retried; a stored copy
+     of the other kind is never drawn (`docKind`). A board page shows "Invalid link", a session
+     page the same. A server that sends no `kind` is taken at its word.
+   - **The credential** (`core/cred.ts`): a tab's board opens with `Auth.via` on the socket and
+     `Authorization: Grant <session>.<grant>.<token>` on every board route Player, Download and
+     Clone use (`player/api.ts`, `core/boardfile.ts`, `core/api.ts`). If this device holds its own
+     link for the board that can edit (Your boards says `edit`), the tab uses that instead (§3.4).
+     A tab opened through the session is never added to Your boards, shows no Open in app, and
+     its board's Share is replaced by the session's.
+   - **`/s/<session>?tab=<tab>#<token>`** (`App.tsx`, `session/SessionView.tsx`). The session's
+     connection is `session/state.ts`; the strip's rules are pure functions in `session/tabs.ts`.
+     The open tab's board mounts in a `<Show keyed>` on (board, token, grant): another tab of
+     another board, or the same board through another grant ("Can view"), is a new mount; a
+     rename or reorder isn't. The tab is picked once the session copy has caught up (`settled`:
+     a fresh copy's snapshot can lack recent tabs). `?tab=` is replaced in place (`nav.replace`).
+     The open tab removed, here or by a peer, moves you to its left neighbour as the strip stood,
+     else its right.
+   - **The strip** sits under the header (the header shows the session title, inline edit for
+     editors, the count of games, and the session's Share). Tabs: name, × (Remove), double-click
+     to rename, drag to reorder, and a right-click menu: Rename, Move left, Move right, Remove,
+     Remove and revoke. "+ Add game" opens the add menu: Paste link, Your boards (boards only),
+     and "Can view". Ctrl+PageUp / Ctrl+PageDown switch tabs outside fields. A view link sees the
+     strip without any of the editing.
+   - **The toast** "Removed <name>" with Undo (Remove and revoke has no Undo: the grant is gone).
+   - **One undo** (`session/history.ts`): marks naming the document of each undoable edit, newest
+     last. Undo takes the newest mark whose document is here (the session, or the mounted board)
+     and can undo; a board not mounted keeps its marks. The toolbar's Undo and Redo, Ctrl+Z, and
+     the toast's Undo all go through it.
+   - **A switch waits for the pointer gesture in progress** (a drag held while Ctrl+PageDown is
+     pressed): the switch runs after the pointer comes up. And `BoardSession.end()` now lets an
+     edit already on its way through the save chain go out on its socket before closing it
+     (bounded at 2 s; with nothing on its way it closes at once, as before), so that edit lands on
+     its own board.
+   - **"+ Add game" on a board** (`session/AddGame.tsx`), beside the title, any role: makes the
+     session from the board, keeps the owner token in Your boards, and opens it with the add menu
+     up. **Your boards** lists sessions ("<title>", "3 games"), opened by their `/s/` link, with no
+     Rename (rename in the session's header). `KnownBoard` has `kind?: "session"` and `games?`.
+   - **Tests.** `test/sessions-client.test.ts`: the tab rules, the one history, and against the
+     real server: `Ready.kind` both ways, a stored copy of the other kind, a tab's board through
+     its grant at the session's role, removal cutting live connections and undo bringing them
+     back, a view link refused editing the strip, and an edit made as a board is left reaching it.
+     `e2e/sessions.spec.ts`: the add paths, switching, remove and undo (toast, button, Ctrl+Z
+     interleaved with a board edit), rename, reorder, reload on `?tab=`, a dead `?tab=`, a second
+     device live, a view link, the same board twice at two grants, the session's Share, a board
+     alone unchanged, and `Ready.kind` in the browser. `e2e/session-isolation.spec.ts`: §9.1 for
+     scenes and the current scene, strokes and the scene note, heroes' places and objectives, the
+     tool, ink colour and comments open, peers' cursors, lasers and the people list, undo on B
+     after an edit on A, an edit made offline on A, a drag released during a switch, and Player
+     (the match, t and playing, Sandbox, map layers device-wide). Each row runs on a device that
+     holds no board link, so every tab goes through its grant.
+   - **Mutation checks** over the isolation, removal and undo logic: 23 mutants, 22 killed; the
+     one left (an edit not clearing its document's redo marks) is equivalent, since a spent redo
+     mark is dropped when its document has nothing to redo. The table is in the phase report.
+   - **Not in the matrix yet**, and why: the parked-board rows (phase 3's pool); hover labels,
+     the game tooltip, recaps, inspect and events filters (each reset or per-mount by
+     construction, and pinned by `board-unmount.spec.ts` and `module-state.test.ts`); an upload
+     handoff (keyed by board already, `handoff.ts`); rejections (per `BoardSession`); hero
+     picks (need a hero pack; heroes' places are in).
+   - **Decisions taken** where the spec left a choice: the strip renders inside each board's
+     mount, under its header (a rename or menu in progress ends with a switch); session presence
+     isn't sent yet (phase 4); the join card asks once per session, not per tab; a pasted board
+     this device doesn't know is named "Game <n>" (the grant's answer has no board title: TD-59);
+     "Remove and revoke" is offered to every editor, and the server's 404 for one who isn't the
+     owner or the adder reads "No access" after the tab is removed; an empty session shows its
+     strip and "No games"; the phone shows the strip under its header, scrolling (the Games sheet
+     is phase 5); a board's "+ Add game" is "+" alone at 1280 to 1360 px and hidden below, as the
+     header has no room (TD-61). Debt: TD-58 to TD-61.
 3. **Speed: remembered state and warmth.** `TabView`, the timeline cache, `RoomPool`. Measure
    switch times first. Add each piece only if it pays.
 4. **Follow across tabs.** `seat`, `tab` and `session_role`, the `session.tab` registry row and

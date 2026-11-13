@@ -778,3 +778,32 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 .picker-won { display: none; }
 .picker-team.won .picker-won { display: inline; grid-column: 6; font-size: 11px; font-weight: 600; color: var(--text); }
 .picker-more { margin: 8px auto 0; display: block; }
+
+/* ---------- Sessions: the game tab strip (sessions.md §8) ---------- */
+.app:has(> .game-strip) { grid-template-rows: 56px 36px 1fr auto; }
+.board-app:has(> .game-strip) { --map-side: min(100%, calc(100dvh - 56px - 36px - 104px - 150px - var(--bar-w) * 0.1365)); }
+.session-app { grid-template-rows: 56px 36px 1fr; }
+.game-strip { display: flex; align-items: stretch; gap: 6px; min-width: 0; padding: 0 calc(var(--space) * 2); border-bottom: 1px solid var(--line); background: var(--bg-deep); }
+.game-tabs { display: flex; align-items: stretch; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.game-tab { display: flex; align-items: center; gap: 6px; padding: 0 6px 0 12px; max-width: 220px; border-bottom: 2px solid transparent; color: var(--muted); font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; user-select: none; }
+.game-tab:hover { color: var(--text); }
+.game-tab.on { color: var(--text); border-bottom-color: var(--brass); }
+.game-tab.dragging { opacity: 0.5; }
+.game-tab .game-name { overflow: hidden; text-overflow: ellipsis; }
+.game-tab .game-x { background: none; border: 0; color: var(--muted); font-size: 14px; line-height: 1; padding: 2px 4px; border-radius: 4px; opacity: 0.6; }
+.game-tab .game-x:hover, .game-tab .game-x:focus-visible { opacity: 1; color: var(--text); background: var(--raised); }
+.game-strip .add-game { align-self: center; white-space: nowrap; }
+.board-title + .add-game { flex: none; }
+/* The board header is full at laptop widths: there "+ Add game" is its "+" alone (hover: Add game),
+   and below 1280 px it isn't shown: one more control would widen the page past the window
+   (panels.spec at 1180 px). TD-61. */
+@media (max-width: 1360px) { .board-title + .add-game .add-label { display: none; } }
+@media (max-width: 1279px) { .board-title + .add-game { display: none; } }
+.session-empty { display: grid; place-items: center; }
+.session-board { display: contents; }
+.no-access { position: fixed; left: 50%; top: 120px; transform: translateX(-50%); z-index: 45; }
+.add-menu .check { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 12.5px; }
+.add-menu .add-known { margin-top: 6px; max-height: 240px; overflow-y: auto; }
+.add-menu .add-known .link { background: none; border: 0; color: var(--text); font-weight: 600; text-align: left; padding: 4px 0; width: 100%; cursor: pointer; }
+.add-menu .add-known .link:hover { text-decoration: underline; }
+.phone > .game-strip { min-height: 36px; }
