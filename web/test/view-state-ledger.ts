@@ -114,6 +114,7 @@ export const SIGNALS: Record<string, Entries> = {
     landscape: ["local", "the layout: the orientation, which picks the docked panel"],
     phoneEdit: ["personal", "your editing tools and gestures"],
     phoneSheet: ["personal", "the phone's open sheet (Events, Map layers, More): layout, like sideTab"],
+    lastBuild: ["personal", "the build the landscape dock's Build tab reopens: layout, like phoneSheet"],
     noteDraft: ["local", "text being typed"],
     sceneDrawer: ["local", "the phone's drawer"],
     mapPx: ["local", "the layout"],
