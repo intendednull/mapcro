@@ -204,8 +204,8 @@ test("undo on B never undoes A's edit; an edit made offline on A lands on A, nev
   await expect(tabs(me)).toHaveCount(1);
   await expect.poll(() => mounted(me)).toBe(boardOf(a));
   await saved(me);
-  expect(await tokenAt(peerA, "Amber-0")).toEqual(moved);
-  expect(await tokenAt(me, "Amber-0")).toEqual(moved);
+  await expect.poll(() => tokenAt(peerA, "Amber-0")).toEqual(moved);
+  await expect.poll(() => tokenAt(me, "Amber-0")).toEqual(moved);
   await me.keyboard.press("Control+Shift+z");
   await expect(tabs(me)).toHaveCount(2);
   await go(1);
