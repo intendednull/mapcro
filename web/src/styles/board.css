@@ -1045,6 +1045,20 @@ kbd {
 .phone .tb-build-investment > span { min-width: 44px; }
 .phone-build-content { min-height: 0; overflow: auto; }
 .phone .p-build-close { flex: none; display: block; margin-left: auto; }
+/* The build sheet reads items, abilities, then stats; the hero's name is the sheet's title. */
+.phone .phone-build-sheet .tb-build-column { display: flex; flex-direction: column; gap: 8px; padding: 0 0 8px; }
+.phone .phone-build-sheet .tb-build-column > * { margin: 0; }
+.phone .phone-build-sheet .tb-build-items { order: 1; grid-template-columns: repeat(6, 52px); gap: 6px; padding: 0; justify-content: start; }
+.phone .phone-build-sheet .tb-build-abilities { order: 2; grid-template-columns: repeat(4, 52px); gap: 8px; padding-bottom: 4px; justify-content: start; }
+.phone .phone-build-sheet .tb-build-investment { order: 3; justify-content: flex-start; }
+.phone .phone-build-sheet .tb-build-vitals { order: 4; justify-content: flex-start; }
+.phone .phone-build-sheet .tb-build-kda { order: 5; justify-content: flex-start; }
+.phone .phone-build-sheet .tb-build-name { order: 6; }
+.phone .phone-build-sheet .tb-build-popovers { order: 7; }
+.phone .phone-build-sheet .tb-build-items ~ .tb-build-empty { order: 1; }
+.phone .phone-build-sheet .tb-build-abilities + .tb-build-empty { order: 2; }
+.phone .phone-build-sheet:has(.tb-build-column + .tb-build-column) .tb-build-hero { order: 0; }
+.phone .phone-build-sheet:not(:has(.tb-build-column + .tb-build-column)) .tb-build-hero { display: none; }
 
 .phone .pl-bar { width: 100%; box-sizing: border-box; grid-template-columns: 1fr; }
 .phone .pl-transport { display: flex; flex-wrap: wrap; gap: 4px; }

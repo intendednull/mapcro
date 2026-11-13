@@ -370,6 +370,7 @@ export function PlayerTopBar(p: {
     />
   );
 
+  const shownBuilds = () => p.host.tl()?.players.filter(q => expanded(slotKey(q.team, q.slot))) ?? [];
   if (p.compact) return (
     <div class="phone-roster" data-testid="topbar" data-mode="player" ref={e => el = e}>
       <For each={[friend(), enemy()] as const}>{t =>
@@ -388,8 +389,11 @@ export function PlayerTopBar(p: {
       }</For>
       <Show when={openBuild() || allBuilds() || tabHeld()}>
         <section class="phone-build-sheet" aria-label="Builds">
-          <button class="btn p-build-close" onClick={closeBuilds}>Close</button>
-          <div class="phone-build-content"><For each={p.host.tl()?.players.filter(q => expanded(slotKey(q.team, q.slot))) ?? []}>{pl =>
+          <header class="p-sheet-head">
+            <b>{shownBuilds().length === 1 ? p.art.heroes.get(shownBuilds()[0]?.hero_id ?? 0)?.name ?? "Hero" : "Builds"}</b>
+            <button class="btn ghost p-build-close" aria-label="Close" onClick={closeBuilds}>×</button>
+          </header>
+          <div class="phone-build-content"><For each={shownBuilds()}>{pl =>
             <BuildColumn inspect={!allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek}
               player={pl} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={p.art.heroes.get(pl.hero_id)}
               name={p.host.playerName(pl.team, pl.slot)} id={`phone-build-${slotKey(pl.team, pl.slot)}`}

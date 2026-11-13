@@ -621,7 +621,15 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const [phoneEdit, setPhoneEdit] = createSignal(false);
   /** The phone's one open sheet besides a build (a build is the host's, and follows). */
   const [phoneSheet, setPhoneSheet] = createSignal<"events" | "layers" | "more">();
-  const phoneEvents = () => phoneSheet() === "events";
+  // Landscape docks a panel beside the map: Events, unless a build or another sheet is open.
+  const wide = window.matchMedia("(orientation: landscape)");
+  const [landscape, setLandscape] = createSignal(wide.matches);
+  const onWide = () => setLandscape(wide.matches);
+  wide.addEventListener("change", onWide);
+  onCleanup(() => wide.removeEventListener("change", onWide));
+  const docked = () => !phoneSheet() && landscape() && !player.openBuild();
+  const sheet = () => phoneSheet() ?? (docked() ? "events" : undefined);
+  const phoneEvents = () => sheet() === "events";
   const openSheet = (k: "events" | "layers" | "more") => {
     if (phoneSheet() === k) return setPhoneSheet(undefined);
     setPhoneSheet(k);
@@ -777,7 +785,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
       </div>
     }>
       <div class="p-tail">
-        <button class="btn ghost" data-testid="phone-events" aria-expanded={phoneSheet() === "events"} onClick={() => openSheet("events")}>Events</button>
+        <button class="btn ghost" data-testid="phone-events" aria-expanded={sheet() === "events"} onClick={() => openSheet("events")}>Events</button>
         <button class="btn ghost" data-testid="phone-layers" aria-expanded={phoneSheet() === "layers"} onClick={() => openSheet("layers")}>Map layers</button>
         <button class="btn ghost" data-testid="phone-more" aria-label="More" aria-expanded={phoneSheet() === "more"} onClick={() => openSheet("more")}>⋯</button>
       </div>
@@ -788,14 +796,16 @@ export function Board(p: { board: string; token: string; art: Art }) {
     <section class="p-sheet" data-testid={q.testid} aria-label={q.title}>
       <header class="p-sheet-head">
         <b>{q.title}</b>
-        <button class="btn ghost" data-testid="p-sheet-close" aria-label="Close" onClick={() => setPhoneSheet(undefined)}>×</button>
+        <Show when={!docked()}>
+          <button class="btn ghost" data-testid="p-sheet-close" aria-label="Close" onClick={() => setPhoneSheet(undefined)}>×</button>
+        </Show>
       </header>
       <div class="p-sheet-body">{q.children}</div>
     </section>
   );
   const PlayerSheets = () => (
     <>
-      <Show when={phoneSheet() === "events"}>
+      <Show when={sheet() === "events"}>
         <PhoneSheet title="Events" testid="phone-events-sheet">
           <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={savedScene} onUserPlayback={() => stopFollowing("changed the playback")} />
         </PhoneSheet>

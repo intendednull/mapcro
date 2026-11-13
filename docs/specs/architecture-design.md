@@ -1506,6 +1506,11 @@ tappable and a second portrait swaps the hero in place. A 48 px header holds the
 jumps there and the sheet stays. Items and abilities open the game tooltip on tap, clamped between
 the roster's foot and the transport's top; a tap outside closes it.
 
+**The build sheet** is titled with the hero's name (several builds open: "Builds") and reads items
+(6 across), abilities (4), then the investment bars, vitals and K/D/A, left-aligned; items and
+abilities are in view without scrolling, in landscape too. In landscape the right pane's dock is
+never empty: with no build and no other sheet open it shows Events, with no close.
+
 **Board (not Player)** still scrolls, with its own header, follow row, scene nav and the Edit
 toggle in its tool row (P2 of the direction moves it into the shell).
 

@@ -60,6 +60,35 @@ async function scrubTo(p: Page, t: number) {
 const column = (p: Page) => p.locator(".phone-build-sheet [data-testid=hero-build]");
 const float = (p: Page) => p.getByTestId("game-tooltip-float");
 
+/** The build sheet: a title row (hero, ×), then items, abilities, stats; items and all four
+ *  abilities in view without scrolling. Geometry and counts only. */
+async function checkBuildSheet(p: Page) {
+  const sheet = p.locator(".phone-build-sheet");
+  const head = sheet.locator(".p-sheet-head");
+  await expect(head.locator("b")).toHaveText("Testhero 1");
+  await expect(head.getByRole("button", { name: "Close" })).toBeVisible();
+  const box = async (sel: string) => (await sheet.locator(sel).first().boundingBox())!;
+  const h = await box(".p-sheet-head");
+  expect(h.height).toBeLessThanOrEqual(52);
+  const items = await box(".tb-build-items");
+  const abilities = await box(".tb-build-abilities");
+  const stats = await box(".tb-build-investment");
+  expect(items.y).toBeGreaterThanOrEqual(h.y + h.height - 1);
+  expect(abilities.y).toBeGreaterThanOrEqual(items.y + items.height - 1);
+  expect(stats.y).toBeGreaterThanOrEqual(abilities.y + abilities.height - 1);
+  const view = (await sheet.boundingBox())!;
+  const inView = (r: { y: number; height: number }) => r.y >= view.y - 1 && r.y + r.height <= view.y + view.height + 1;
+  expect(inView((await box(".tb-build-item")))).toBe(true);
+  const abs = sheet.locator(".tb-build-ability");
+  await expect(abs).toHaveCount(4);
+  for (let i = 0; i < 4; i++) expect(inView((await abs.nth(i).boundingBox())!)).toBe(true);
+  // Close shuts the sheet; the portrait opens it again.
+  await head.getByRole("button", { name: "Close" }).tap();
+  await expect(sheet).toHaveCount(0);
+  await p.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').tap();
+  await expect(sheet).toHaveCount(1);
+}
+
 
 import { checkPhoneLayout, touchDrag } from "./phone-layout";
 
@@ -73,6 +102,9 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     await open(phone, String(129001000 + viewport.width));
     await scrubTo(phone, 20);
     await expect(phone.locator(".p-map .tok")).toHaveCount(12);
+    // Landscape docks a panel beside the map, Events until a build is picked.
+    if (viewport.width > viewport.height) await expect(phone.getByTestId("player-side")).toBeVisible();
+    else await expect(phone.getByTestId("player-side")).toHaveCount(0);
     await expect(phone.getByTestId("trooper")).toHaveCount(1);
     await phone.screenshot({ path: `/tmp/mapcro-phone-${viewport.width}-${viewport.height}.png` });
     await checkPhoneLayout(phone);
@@ -88,6 +120,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     await phone.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').tap();
     await expect(column(phone)).toBeVisible();
     await checkPhoneLayout(phone);
+    await checkBuildSheet(phone);
     await column(phone).locator(`.tb-build-item[data-item-id="${INFUSER}"]`).tap();
     await expect(float(phone)).toBeVisible();
     await column(phone).locator(`[data-ability-id="${ABILITY}"]`).tap();
@@ -112,7 +145,11 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     await expect(phone.getByTestId("match-clock")).toContainText("0:30 /");
     await checkPhoneLayout(phone);
     await phone.getByTestId("p-sheet-close").tap();
-    await expect(phone.getByTestId("player-side")).toHaveCount(0);
+    // Landscape's dock falls back to Events, with no close of its own.
+    if (viewport.width > viewport.height) {
+      await expect(phone.getByTestId("player-side")).toBeVisible();
+      await expect(phone.getByTestId("p-sheet-close")).toHaveCount(0);
+    } else await expect(phone.getByTestId("player-side")).toHaveCount(0);
     // Map layers and Vision: a sheet from the transport.
     await phone.getByTestId("phone-layers").tap();
     await expect(phone.getByTestId("vision-select")).toBeVisible();
