@@ -3,6 +3,7 @@
 
 import type { Op } from "../gen/Op";
 import type { Hero } from "../map/pack";
+import { rosterTeamShort } from "../map/model";
 import type { Slot } from "./state";
 
 export function randomRosterOps(slots: Slot[], heroes: Hero[], random: () => number = Math.random): Op[] {
@@ -42,3 +43,10 @@ export function sceneMatchName(
 
 /** A slot's name in a scene: the one typed into the board's slot wins over the match's. */
 export const slotName = (typed: string, match: string | undefined): string | undefined => typed.trim() || match || undefined;
+
+/**
+ * A slot's placeholder player name, where there is no name to show: Names off (spec §6b), a match
+ * without one, or a board with none typed in. The game's short patron and the slot's number
+ * ("King 1", "Archmother 3"). One function, so every label that needs a stand-in agrees.
+ */
+export const slotPlaceholder = (team: string, slot: number): string => `${rosterTeamShort(team)} ${slot + 1}`;

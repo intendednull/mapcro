@@ -13,7 +13,7 @@ import { BuildColumn } from "./BuildColumn";
 import { GameTip, Hover, TagTip, useTooltips } from "./GameTooltip";
 import { centreTimer, rejuvTip, respawnTip } from "./Camps";
 import { buildAt } from "../match/builds";
-import { rosterTeamShort } from "../map/model";
+
 import { For, Show, batch, createMemo, createResource, onCleanup, onMount } from "solid-js";
 import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
 import { cx } from "../ui/cx";
@@ -27,7 +27,7 @@ import { rosterTeamName } from "../map/model";
 import type { Viewpoint } from "../map/transform";
 import type { BoardState } from "../board/state";
 import { BarClock, EyeIcon, PortraitSlot, Souls, TeamColumn, TeamScore, TopBarFrame, UltDial, portraitTitle } from "../board/TopBarParts";
-import { slotName } from "../board/roster";
+import { slotName, slotPlaceholder } from "../board/roster";
 import { easedNumber } from "../board/smooth";
 import type { PlayerHost } from "./host";
 import { barSlot } from "./barSlot";
@@ -246,7 +246,7 @@ export function PlayerTopBar(p: {
           const hero = () => (x() ? p.art.heroes.get(x()!.hero_id) : undefined);
           const nameOf = () => p.host.playerName(t.toLowerCase(), s.slot.slot);
           // As the scene's bar and the tokens: the match's name, else the one typed into the slot.
-          const label = () => slotName(nameOf() ?? "", s.slot.name) || `${rosterTeamShort(t)} ${s.slot.slot + 1}`;
+          const label = () => slotName(nameOf() ?? "", s.slot.name) || slotPlaceholder(t, s.slot.slot);
           const dead = () => !!x()?.dead;
           const unseen = createMemo(() => {
             const tl = p.host.tl(), view = p.host.vision();

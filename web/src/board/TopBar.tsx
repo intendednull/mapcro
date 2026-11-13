@@ -7,7 +7,7 @@
 // "Names") leads the portrait's hover label, as in Player; never under the bar (TopBarParts.tsx).
 // "Rename…" opens its editor in place, under the portrait, while it is open.
 
-import { rosterTeamName, rosterTeamShort } from "../map/model";
+import { rosterTeamName } from "../map/model";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
@@ -21,7 +21,7 @@ import { InlineEdit } from "../ui/InlineEdit";
 import type { BoardState, Player, Slot } from "./state";
 import { BarClock, EyeIcon, PortraitSlot, Souls, TeamColumn, TeamScore, TopBarFrame, UltDial, portraitTitle } from "./TopBarParts";
 import { aliveOps } from "./Tokens";
-import { slotName } from "./roster";
+import { slotName, slotPlaceholder } from "./roster";
 import { LIMITS } from "../gen/limits";
 import { ContextMenu, type MenuItem } from "../ui/ContextMenu";
 
@@ -158,7 +158,7 @@ export function TopBar(p: {
       <For each={team(t)}>
         {({ slot, player }) => {
           const hero = () => (slot.slot.hero != null ? p.art.heroes.get(slot.slot.hero) : undefined);
-          const label = () => nameOf(slot) || `${rosterTeamShort(t)} ${slot.slot.slot + 1}`;
+          const label = () => nameOf(slot) || slotPlaceholder(t, slot.slot.slot);
           let openSouls: (() => void) | undefined;
           return (
             <PortraitSlot
@@ -232,7 +232,7 @@ export function TopBar(p: {
                 <InlineEdit
                   bindOpen={(o) => (openName.set(slot.id, o), onCleanup(() => openName.delete(slot.id)))}
                   class="pl-tb-name"
-                  label={`${rosterTeamShort(t)} ${slot.slot.slot + 1} name`}
+                  label={`${slotPlaceholder(t, slot.slot.slot)} name`}
                   testid="tb-name"
                   editable={editable()}
                   value={slot.slot.name}

@@ -2,8 +2,8 @@
 // editor drags a token; while dragging, its position travels through presence (others watch it
 // move, with the dragger's name tag), and the drop commits one op (spec §4a).
 
-import { slotName } from "./roster";
-import { rosterTeamShort, slotTag } from "../map/model";
+import { slotName, slotPlaceholder } from "./roster";
+import { slotTag } from "../map/model";
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import { formatClock, parseClock } from "../core/clock";
@@ -306,7 +306,7 @@ export function Tokens(p: {
           const r = () => TOKEN_R * p.k;
           // In Player, the match's player name (spec §6b); else the board's slot name, falling back
           // in a scene to the open match's.
-          const label = () => `${pv()?.name || slotName(slot().name, live() ? undefined : p.matchName?.(slot().team, slot().slot)) || `${rosterTeamShort(slot().team)} ${slot().slot + 1}`}${hero() ? `, ${hero()!.name}` : ""}${ghost() != null ? ` · Seen ${formatClock(Math.floor(ghost()!))} ago` : ""}`;
+          const label = () => `${pv()?.name || slotName(slot().name, live() ? undefined : p.matchName?.(slot().team, slot().slot)) || slotPlaceholder(slot().team, slot().slot)}${hero() ? `, ${hero()!.name}` : ""}${ghost() != null ? ` · Seen ${formatClock(Math.floor(ghost()!))} ago` : ""}`;
           // The map's hover label (map/HoverLabel.tsx), by roster slot, never the player's id.
           const hoverId = () => `${slot().team}-${slot().slot}`;
           const shownOnMap = () => (live() ? !!pv()?.pos && !leaving() : pl().state.placed);
