@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { initSync, presenceFrameOk } from "../src/wasm/mapcro_wasm.js";
 import { VIEW_STATE } from "../src/gen/viewState";
 import { PLACE_SCALE, type HeroPanelOpen, heroPanelsFromWire, heroPanelsToWire, placeFromWire, placeToWire } from "../src/player/layers";
-import { type Pane, cascade, clampSpot, opening, paneOf, placeOf, spotOf } from "../src/player/panelPlace";
+import { BESIDE_GAP, type Pane, beside, cascade, clampSpot, opening, paneOf, placeOf, spotOf } from "../src/player/panelPlace";
 import { createViewState, type Values, VIEW_KEYS } from "../src/player/viewstate";
 
 initSync({ module: readFileSync(join(resolve(__dirname, "../.."), "web/src/wasm/mapcro_wasm_bg.wasm")) });
@@ -93,6 +93,47 @@ describe("where a hero panel opens", () => {
     // Every step taken: the next after the open ones.
     const all = [...Array(8).keys()].map((k) => cascade(k, p));
     expect(opening([...all, undefined], p)).toEqual(cascade(9, p));
+  });
+});
+
+describe("a hero panel opened from its token (#48)", () => {
+  // A desktop's board area, the controls a band at its top and bottom; a 256 × 300 panel.
+  const p = pane(1200, 800, 40, 30);
+  const tok = (x: number, y: number, r = 14) => ({ left: x - r, top: y - r, right: x + r, bottom: y + r });
+  const covers = (at: { left: number; top: number }, t: ReturnType<typeof tok>) =>
+    at.left < t.right && at.left + 256 > t.left && at.top < t.bottom && at.top + 300 > t.top;
+  it("opens to the token's right, its middle level with the token's", () => {
+    const t = tok(400, 400);
+    expect(beside(t, 256, 300, p)).toEqual({ left: 414 + BESIDE_GAP, top: 250 });
+  });
+  it("opens to the token's left when it doesn't fit to its right", () => {
+    const t = tok(1100, 400);
+    expect(beside(t, 256, 300, p)).toEqual({ left: 1086 - BESIDE_GAP - 256, top: 250 });
+    expect(covers(beside(t, 256, 300, p), t)).toBe(false);
+  });
+  it("is clamped into the area and clear of its controls, still off the token", () => {
+    // By the top: below the controls' band. By the bottom: above the bottom band.
+    const high = tok(300, 30);
+    expect(beside(high, 256, 300, p)).toEqual({ left: 314 + BESIDE_GAP, top: 40 });
+    const low = tok(300, 790);
+    expect(beside(low, 256, 300, p)).toEqual({ left: 314 + BESIDE_GAP, top: 800 - 30 - 300 });
+    // The left edge of a narrow area with the token at it: to its right still, off it.
+    const edge = tok(10, 400);
+    expect(beside(edge, 256, 300, pane(400, 800))).toEqual({ left: 24 + BESIDE_GAP, top: 250 });
+    for (const t of [high, low, edge]) expect(covers(beside(t, 256, 300, p), t)).toBe(false);
+  });
+  it("is never exactly over an open one: it steps down (or up, at the bottom) off it", () => {
+    const t = tok(400, 400);
+    const first = beside(t, 256, 300, p);
+    const second = beside(t, 256, 300, p, [first]);
+    expect(second.left).toBe(first.left);
+    expect(second.top).toBeGreaterThan(first.top + 12);
+    const third = beside(t, 256, 300, p, [first, second]);
+    expect(new Set([first.top, second.top, third.top]).size).toBe(3);
+    // At the bottom band there is no room down: up instead.
+    const low = tok(300, 790);
+    const a = beside(low, 256, 300, p);
+    expect(beside(low, 256, 300, p, [a]).top).toBeLessThan(a.top - 12);
   });
 });
 

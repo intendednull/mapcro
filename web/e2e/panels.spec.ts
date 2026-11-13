@@ -133,6 +133,11 @@ async function touchDrag(p: Page, panel: Locator, dx: number, dy: number) {
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await cdp.detach();
 }
+/** Bring a panel to the front with a press on it, wherever another covers it. */
+async function raise(panel: Locator) {
+  await panel.dispatchEvent("pointerdown", { bubbles: true, button: 0, pointerType: "mouse" });
+  await expect(panel).toHaveAttribute("data-front", "true");
+}
 const moved = async (panel: Locator, from: Box, dx: number, dy: number) =>
   expect.poll(async () => {
     const b = await box(panel);
@@ -218,10 +223,14 @@ test("#37 several hero panels open at once; each moves and closes by itself; a p
   await scrubTo(a, 15);
   for (const s of ["Amber-5", "Sapphire-4", "Amber-4"]) await token(a, s).click();
   await expect.poll(() => slots(a)).toBe("amber-4 amber-5 sapphire-4");
-  // Each opens a step from the last, so none hides another.
-  const [b5, s4, b4] = await Promise.all(["amber-5", "sapphire-4", "amber-4"].map((s) => box(hero(a, s))));
-  expect(s4!.x - b5!.x).toBeCloseTo(24, 0);
-  expect(b4!.y - s4!.y).toBeCloseTo(24, 0);
+  // Each opens beside its own token (#48), so neighbours' panels overlap: set them apart in a
+  // row, each brought to the front first so its top is free.
+  const ap = await pane(a);
+  for (const [s, x] of [["amber-5", 0], ["sapphire-4", 400], ["amber-4", 598]] as const) {
+    await raise(hero(a, s));
+    await dragTo(a, hero(a, s), ap.x + x + 44, ap.y + 100);
+  }
+  const [b5, s4] = await Promise.all(["amber-5", "sapphire-4"].map((s) => box(hero(a, s))));
   await expect(hero(a, "amber-4")).toHaveAttribute("data-front", "true");
   // One moves; the others stay.
   await drag(a, hero(a, "amber-5"), 120, 0);
@@ -246,21 +255,55 @@ test("#37 several hero panels open at once; each moves and closes by itself; a p
   await expect(a.getByTestId("hero-card")).toHaveCount(0);
   // The front one opened first: Escape closes it alone, not the one that comes to the front.
   for (const s of ["Amber-5", "Amber-4"]) await token(a, s).click();
+  // (Amber-4's, beside the next token, over part of Amber-5's: moved off it, to the front again.)
+  await dragTo(a, hero(a, "amber-4"), ap.x + 44, ap.y + 100);
+  await hero(a, "amber-4").click({ position: { x: 16, y: 12 } });
+  await expect(hero(a, "amber-4")).toHaveAttribute("data-front", "true");
   await hero(a, "amber-5").click({ position: { x: 8, y: 120 } });
   await expect(hero(a, "amber-5")).toHaveAttribute("data-front", "true");
   await a.keyboard.press("Escape");
   await expect(hero(a, "amber-5")).toHaveCount(0);
   await expect(hero(a, "amber-4")).toHaveCount(1);
-  // Open A, open B, close A, open C: C opens on A's step, never exactly over B.
+  // Open A, open B, close A, open C: C opens beside its own token, and B stays where it was.
   await a.keyboard.press("Escape");
   await expect(a.getByTestId("hero-card")).toHaveCount(0);
   for (const s of ["Amber-5", "Sapphire-4"]) await token(a, s).click();
-  const first = await box(hero(a, "amber-5"));
+  await expect(hero(a, "sapphire-4")).toHaveCount(1);
   const second = await box(hero(a, "sapphire-4"));
   await hero(a, "amber-5").getByTestId("hero-card-close").click();
   await token(a, "Amber-4").click();
-  await expect.poll(async () => JSON.stringify(await box(hero(a, "amber-4")))).toBe(JSON.stringify(first));
+  const t4 = await box(token(a, "Amber-4"));
+  await expect.poll(async () => { const c = await box(hero(a, "amber-4")); return Math.abs(c.x - (t4.x + t4.width)) < 24 || Math.abs(c.x + c.width - t4.x) < 24; }).toBe(true);
   expect(await box(hero(a, "sapphire-4"))).toEqual(second);
+});
+
+test("#48 a hero panel opens beside its token, to its right (its left at the area's right edge), level with it and off it", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Panels beside"), "Coach");
+  await load(a);
+  await scrubTo(a, 15);
+  const area = await pane(a);
+  for (const s of ["Amber-0", "Sapphire-5", "Amber-5"]) {
+    await token(a, s).click();
+    const card = hero(a, s.toLowerCase());
+    await expect(card).toHaveCount(1);
+    // Placed again at its own size on the next frame: wait for it to settle.
+    let c = await box(card);
+    await expect.poll(async () => { const was = c; c = await box(card); return JSON.stringify(was) === JSON.stringify(c); }).toBe(true);
+    const t = await box(token(a, s));
+    const right = c.x >= t.x + t.width;
+    const gap = right ? c.x - (t.x + t.width) : t.x - (c.x + c.width);
+    // Within 24 px of the token, on one side, never over it.
+    expect(gap).toBeGreaterThanOrEqual(0);
+    expect(gap).toBeLessThanOrEqual(24);
+    // To its right where it fits in the area.
+    expect(right).toBe(t.x + t.width + 10 + c.width <= area.x + area.width);
+    // Level with it, unless clamped into the area (it stays inside it).
+    expect(c.y).toBeGreaterThanOrEqual(area.y);
+    expect(c.y + c.height).toBeLessThanOrEqual(area.y + area.height + 0.5);
+    const off = Math.abs(c.y + c.height / 2 - (t.y + t.height / 2));
+    expect(off < 30 || c.y <= area.y + 60 || c.y + c.height >= area.y + area.height - 60).toBe(true);
+    await card.getByTestId("hero-card-close").click();
+  }
 });
 
 test("a drag ends when the browser cancels the pointer or takes its capture away", async ({ browser }) => {
@@ -388,7 +431,11 @@ test("a follower on another screen size sees the same panels at the same places 
   // The recap to the bottom right, one hero panel to the right edge, the other left as it opened.
   const ap = await pane(a);
   await dragTo(a, recap(a), ap.x + ap.width + 100, ap.y + ap.height + 100);
-  for (const s of ["Amber-5", "Sapphire-4"]) await token(a, s).click();
+  // (Sapphire-4's first, moved to the left: Amber-5's, beside a token near it (#48), is then on
+  // top, its top free, and off it once moved.)
+  await token(a, "Sapphire-4").click();
+  await dragTo(a, hero(a, "sapphire-4"), ap.x - 100, ap.y + ap.height / 2);
+  await token(a, "Amber-5").click();
   await dragTo(a, hero(a, "amber-5"), ap.x + ap.width + 100, ap.y + 60);
   await clear(a);
   // Off the pane is clamped into it: dragged far past the bottom right, it sits in the corner.

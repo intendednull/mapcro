@@ -19,8 +19,10 @@
 .mm-clip { position: absolute; left: 5%; top: 5%; width: 90%; height: 90%; z-index: 1; }
 /* The stencil (map/stencil.ts, MapView; feedback #21): zoomed in, the view through the frame's
    shape (compass_frame_mask's, or the drawn disc without the pack). A clip-path, not a mask, so
-   what it hides takes no pointer either. */
-.mm-host.zoomed:not(.mm-crop) .mm-clip { overflow: hidden; clip-path: var(--mm-stencil-box); }
+   what it hides takes no pointer either. The clip-path alone: the stencil's nubs reach past this
+   box (the map square, 5..95 of the frame) to the frame's edge, and the view shows through them
+   too (#51; an overflow clip here left the frame's nubs over it). */
+.mm-host.zoomed:not(.mm-crop) .mm-clip { clip-path: var(--mm-stencil-box); }
 /* At any zoom, the map's art and what stands on the map (heroes, troopers, selection rings) are
    clipped to the map's own stencil; ink, arrows and comments keep the notes margin. */
 .mm-host:not(.lite) .mm-rot { clip-path: var(--mm-stencil-box); }
