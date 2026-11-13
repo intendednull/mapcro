@@ -13,6 +13,7 @@
 
 import { For, Index, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type Signal } from "solid-js";
 import { capture } from "../ui/capture";
+import { touchGestures } from "./touchGestures";
 import { colorOf, inkOn } from "../core/device";
 import type { Arrow } from "../gen/Arrow";
 import type { Callout } from "../gen/Callout";
@@ -314,8 +315,11 @@ export function Layers(p: {
   };
 
   /** Pan by dragging: middle or right button anywhere, Space+drag, or a viewer's Look drag. */
+  /** Pointers whose gesture is a pan: a second finger turns one into a pinch at any age. */
+  const panning = new Set<number>();
   const pan = (e: PointerEvent, onClick?: (at: Pt) => void) => {
     const svg = p.svg()!;
+    panning.add(e.pointerId);
     e.preventDefault();
     e.stopPropagation(); // a pan never also drags the hero under the pointer
     const perPx = svg.viewBox.baseVal.width / svg.getBoundingClientRect().width;
@@ -331,7 +335,8 @@ export function Layers(p: {
         last = { x: ev.clientX, y: ev.clientY };
       },
       (_, ok) => {
-        if (ok && far < 4) onClick?.(at);
+        panning.delete(e.pointerId);
+        if (ok && far < (e.pointerType === "touch" ? 10 : 4)) onClick?.(at);
       },
     );
   };
@@ -545,6 +550,14 @@ export function Layers(p: {
         dragWave(e, lane.key, lane.t);
         return;
       }
+      // A finger on empty map pans (the marquee stays mouse and pen); a tap clears, as a click.
+      if (e.pointerType === "touch") {
+        pan(e, () => {
+          p.setSelection(new Set());
+          p.setObjSelection(new Set());
+        });
+        return;
+      }
       marquee(e, start);
       return;
     }
@@ -637,7 +650,12 @@ export function Layers(p: {
     const svg = p.svg();
     if (!svg) return;
     // Your cursor, for everyone looking at the same scene.
-    const cursor = (e: PointerEvent) => st.presence({ cursor: world(svgPoint(svg, e)) });
+    // Mouse and pen only: a finger's "cursor" would jump to wherever it pans or taps. Peers see
+    // a touch user's laser, stroke, drag and ping instead.
+    const cursor = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return;
+      st.presence({ cursor: world(svgPoint(svg, e)) });
+    };
     const leave = () => st.presence({ cursor: null });
     const wheel = (e: WheelEvent) => {
       if (e.ctrlKey && Math.abs(e.deltaY) < 1) return;
@@ -668,6 +686,8 @@ export function Layers(p: {
       svg.removeEventListener("pointermove", track);
       svg.removeEventListener("pointerleave", untrackHover);
     });
+    const untouch = touchGestures(svg, { onPan: (dx, dy) => p.onPan(dx, dy), onZoom: (at, k) => p.onZoom(at, k), isPan: (id) => panning.has(id), toView: (x, y) => svgPoint(svg, { clientX: x, clientY: y }) });
+    onCleanup(untouch);
     svg.addEventListener("pointerdown", down);
     svg.addEventListener("pointermove", cursor);
     svg.addEventListener("pointerleave", leave);
