@@ -3,6 +3,21 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## State (2026-11-13 ~22:40 UTC, new lead 9eb2516b)
+
+- **Prod:** `web` runs **0bb907d** (infra 8700e14), the former `ready-to-deploy` branch, now
+  main. It holds sessions phase 2 and the grant cap, the phone/tablet/touch shell, event starts,
+  the desktop header, and feedback #47, #48, #50 and #51. No schema bump (still v7). The VM test
+  was green. Prod QA with Playwright on 129738985: the header at 1920/1180, the hero panel beside
+  its token, the phone layout playing. Stats: 0 5xx, 0 failures, 0 OOM. Closed #48, #50 and #51.
+- **#47 stays open** until desktop 0.2.3 ships (bump `desktop/app/{tauri.conf.json,Cargo.toml,
+  Cargo.lock}`, tag `desktop-v0.2.3`). The tag push publishes a public release, so it waits on
+  the operator's OK.
+- **Map state:** the spec is `docs/specs/map-state.md` on `scene-state` (f5addeb). A fresh Fable
+  xhigh adversarial review was rerun (the first one hit the weekly limit). Its verdict goes to the
+  operator; **no Phase 0 until the operator decides.**
+- **Open feedback:** #47 (above), #49 (superseded by map state), #16 (parked).
+
 ## State (2026-11-12 ~23:50 UTC, lead)
 
 - **Prod:** `web` runs 074647d (infra a94edb7). **Schema v7** (sessions; additive, floor 5). The
