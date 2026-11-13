@@ -336,3 +336,56 @@ test("More's menu sits under More, inside the window, and works by keyboard", as
   await p.keyboard.press("Tab");
   expect(await focused(p)).toBe("more");
 });
+
+test("the save state: a quiet check when saved, a full pill when offline or rejected", async ({ browser }) => {
+  // 8. Saved: a 16 px check by the title, "Saved" still its text.
+  const p = await enter(browser, await newBoardUrl(server, "Saved"), "Coach");
+  const status = p.getByTestId("save-status");
+  await expect(status).toHaveText("Saved");
+  const s = (await status.boundingBox())!;
+  const t = (await p.locator("header.top .board-title").boundingBox())!;
+  expect(Math.abs(s.width - 16)).toBeLessThanOrEqual(1);
+  expect(s.x - (t.x + t.width)).toBeGreaterThanOrEqual(0);
+  expect(s.x - (t.x + t.width)).toBeLessThanOrEqual(12);
+  await expect(status).toHaveAttribute("title", "Saved");
+
+  // Rejected: the server refuses a title it finds too long (the socket rewrites it on the way).
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await ctx.routeWebSocket(/\/ws$/, (ws) => {
+    const srv = ws.connectToServer();
+    ws.onMessage((m) => srv.send(typeof m === "string" ? m.replace("Too long", "x".repeat(400)) : m));
+  });
+  const r = await ctx.newPage();
+  await r.goto(await newBoardUrl(server, "Rejected"));
+  await r.locator("#join-name").fill("Coach");
+  await r.keyboard.press("Enter");
+  await expect(r.getByTestId("save-status")).toHaveText("Saved");
+  await r.getByTestId("board-title").click();
+  await r.getByTestId("board-title-input").fill("Too long");
+  await r.keyboard.press("Enter");
+  await expect(r.getByTestId("save-status")).toHaveAttribute("data-state", "rejected");
+  await expect(r.getByTestId("dismiss-rejection")).toBeVisible();
+  expect((await r.getByTestId("save-status").boundingBox())!.width).toBeGreaterThan(60);
+  await r.getByTestId("dismiss-rejection").click();
+  await expect(r.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+
+  // Offline (the server killed), for an editor following in Player, at 1180: a full pill, and
+  // the header still fits (check 1).
+  const down = new Server(undefined, env());
+  await down.start();
+  try {
+    const url = await newBoardUrl(down, "Offline");
+    const coach = await enter(browser, url, "Coach");
+    await loadMatch(coach);
+    const ed = await enter(browser, await editLink(down.url, url), "Marrow", { width: 1180 });
+    await follow(ed);
+    await down.kill();
+    const st = ed.getByTestId("save-status");
+    await expect(st).toHaveAttribute("data-state", "offline");
+    await expect(st.getByText("Offline")).toBeVisible();
+    expect((await st.boundingBox())!.width).toBeGreaterThan(60);
+    fits(await header(ed), "editor following, offline, at 1180");
+  } finally {
+    down.stop();
+  }
+});

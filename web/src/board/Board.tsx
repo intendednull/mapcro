@@ -71,7 +71,9 @@ import { AddGameOnBoard } from "../session/AddGame";
 /** The page's title, as index.html has it: what the tab says with no board open. */
 const PAGE_TITLE = "mapcro";
 
-function SaveStatus(p: { state: ReturnType<typeof createBoardState>; rejected: Reject | undefined; dismiss: () => void }) {
+/** `quiet`: the desktop header's look (spec §4b): saved, or a change under 400 ms old, is a 16 px
+ * box, the check alone (its word the hover); a problem is the full pill. */
+function SaveStatus(p: { state: ReturnType<typeof createBoardState>; rejected: Reject | undefined; dismiss: () => void; quiet?: boolean }) {
   // "Syncing" shows only once a change has waited 400 ms, so quick saves don't flicker; until
   // then the indicator is blank, never "Saved".
   const [slow, setSlow] = createSignal(false);
@@ -85,7 +87,10 @@ function SaveStatus(p: { state: ReturnType<typeof createBoardState>; rejected: R
   onCleanup(() => clearTimeout(timer));
   const v = () => statusView(p.state.status(), p.state.connection(), slow(), p.rejected);
   return (
-    <span class={cx("save", v().kind === "connecting" ? "syncing" : v().kind === "closed" ? "rejected" : v().kind)} data-testid="save-status" data-state={v().kind} data-connection={p.state.connection().kind} data-can-edit={String(p.state.canEdit())} role="status">
+    <span
+      class={cx("save", v().kind === "connecting" ? "syncing" : v().kind === "closed" ? "rejected" : v().kind, p.quiet && (v().kind === "saved" || (v().kind === "syncing" && !v().text)) && "quiet")}
+      title={p.quiet && v().kind === "saved" ? v().text : undefined}
+      data-testid="save-status" data-state={v().kind} data-connection={p.state.connection().kind} data-can-edit={String(p.state.canEdit())} role="status">
       <Show when={v().kind === "saved"}>
         <svg class="ico glyph" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M5 12.5l4.5 4.5L19 7.5" />
@@ -1307,7 +1312,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
           </span>
         </div>
         </Show>
-        <SaveStatus state={state} rejected={rejected()} dismiss={() => setSeenProblems(state.problems().length)} />
+        <SaveStatus quiet state={state} rejected={rejected()} dismiss={() => setSeenProblems(state.problems().length)} />
         <Show when={!inSession}>
         <AddGameOnBoard board={p.board} token={p.token} title={state.title()} ready={!!state.role()} />
         </Show>
