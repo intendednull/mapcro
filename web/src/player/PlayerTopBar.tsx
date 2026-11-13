@@ -8,6 +8,7 @@
 
 import { hasVision, seenAt } from "./vision";
 import { killsAt } from "../match/builds";
+import { HeroBadge } from "../board/HeroBadge";
 import { BuildColumn } from "./BuildColumn";
 import { GameTip, Hover, TagTip, useTooltips } from "./GameTooltip";
 import { centreTimer, rejuvTip, respawnTip } from "./Camps";
@@ -339,7 +340,7 @@ export function PlayerTopBar(p: {
                 );
               })()}
               <Show when={(allShown() || expanded(key)) && player()}>
-                {pl => <BuildColumn onClose={p.compact ? closeBuilds : undefined} visible={() => expanded(key)} inspect={expanded(key) && !allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} stats={current(statTable(), tableKeyFor(p.art.stats, build()))} ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />}
+                {pl => <BuildColumn visible={() => expanded(key)} inspect={expanded(key) && !allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} stats={current(statTable(), tableKeyFor(p.art.stats, build()))} ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />}
               </Show>
               {/* Never under the bar (styles/topbar.css): the name is the portrait's hover label's,
                   and the expanded column's. */}
@@ -367,6 +368,37 @@ export function PlayerTopBar(p: {
         </span>
       }
     />
+  );
+
+  if (p.compact) return (
+    <div class="phone-roster" data-testid="topbar" data-mode="player" ref={e => el = e}>
+      <For each={[friend(), enemy()] as const}>{t =>
+        <div class="phone-team">
+          <For each={team(t)}>{s => {
+            const key = slotKey(t, s.slot.slot);
+            const player = () => p.host.tl()?.players.find(q => slotKey(q.team, q.slot) === key);
+            const hero = () => p.art.heroes.get(player()?.hero_id ?? 0);
+            return <div class={`tb-player ${t.toLowerCase()}`} data-slot={`${t}-${s.slot.slot}`}>
+              <HeroBadge art={p.art} slot={s.slot} hero={hero()} />
+              <button class="phone-hero" data-testid="focus-hero" aria-label={`${hero()?.name ?? "Hero"} build`} aria-expanded={expanded(key)}
+                onClick={() => { toggleBuild(key); p.onFocus?.(t, s.slot.slot); }} />
+            </div>;
+          }}</For>
+        </div>
+      }</For>
+      <Show when={openBuild() || allBuilds() || tabHeld()}>
+        <section class="phone-build-sheet" aria-label="Builds">
+          <button class="btn p-build-close" onClick={closeBuilds}>Close</button>
+          <For each={p.host.tl()?.players.filter(q => expanded(slotKey(q.team, q.slot))) ?? []}>{pl =>
+            <BuildColumn inspect={!allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek}
+              player={pl} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={p.art.heroes.get(pl.hero_id)}
+              name={p.host.playerName(pl.team, pl.slot)} id={`phone-build-${slotKey(pl.team, pl.slot)}`}
+              stats={current(statTable(), tableKeyFor(p.art.stats, build()))}
+              ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />
+          }</For>
+        </section>
+      </Show>
+    </div>
   );
 
   return (

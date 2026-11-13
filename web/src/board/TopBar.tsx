@@ -94,6 +94,7 @@ export function TopBar(p: {
   vp: Viewpoint;
   scene: RecordId | undefined;
   compact?: boolean;
+  readOnly?: boolean;
   /** A click on a portrait: pick that slot's hero. */
   onPickHero?: (slot: RecordId) => void;
   /** A click on a hero's portrait focuses it on the map (Board's focusHero). */
@@ -119,7 +120,7 @@ export function TopBar(p: {
         return [pair];
       });
   const total = (t: "Amber" | "Sapphire") => teamTotal(team(t).map((x) => x.player.state.souls));
-  const editable = () => p.state.canEdit();
+  const editable = () => !p.readOnly && p.state.canEdit();
   const sceneRow = () => p.state.scenes().find((s) => s.id === p.scene);
   const focus = (id: RecordId) => (on: boolean) => p.state.presence({ focus: on ? id : null });
   const nameOf = (s: Slot) => slotName(s.slot.name, p.matchName?.(s.slot.team, s.slot.slot));

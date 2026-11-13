@@ -746,7 +746,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
       </div>
       </Show>
       <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} compact onFocus={focusHero} onSeek={seekMatch} />}>
-        <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
+        <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact readOnly onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
       </Show>
       <div class="p-map-wrap">
         {mapControls()}
@@ -757,7 +757,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
         </Show>
         <div class="p-tools" role="toolbar" aria-label="Tools">
           <button class={cx("tb", tool() === "select" && "on")} data-testid="tool-select" onClick={() => setTool("select")}>
-            <span>{state.canEdit() ? "Select" : "Look"}</span>
+            <span>{state.canEdit() && phoneEdit() ? "Select" : "Look"}</span>
           </button>
           <button class={cx("tb", tool() === "laser" && "on")} data-testid="tool-laser" onClick={() => setTool("laser")}>
             <span>Laser</span>

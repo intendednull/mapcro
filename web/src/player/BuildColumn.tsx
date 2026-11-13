@@ -28,7 +28,7 @@ export interface Popover {
   set: (v: "none" | "effects" | "order") => void;
 }
 
-export function BuildColumn(p: { onClose?: (() => void) | undefined; inspect?: boolean; popover?: Popover | undefined; limited?: boolean; onSeek?: ((t: number) => void) | undefined; player: TimelinePlayer; timeline: Timeline | undefined; t: number; art: Art; hero: Hero | undefined; name: string | undefined; id: string; stats?: LoadedTable | undefined; ladder?: LoadedTable | undefined; visible?: (() => boolean) | undefined }) {
+export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefined; limited?: boolean; onSeek?: ((t: number) => void) | undefined; player: TimelinePlayer; timeline: Timeline | undefined; t: number; art: Art; hero: Hero | undefined; name: string | undefined; id: string; stats?: LoadedTable | undefined; ladder?: LoadedTable | undefined; visible?: (() => boolean) | undefined }) {
   // Tab's columns stay mounted and hidden (PlayerTopBar): while hidden the time holds still, so
   // the column reads nothing per frame, and reads the current t again as soon as it's shown.
   const visible = () => p.visible?.() ?? true;
@@ -92,7 +92,6 @@ export function BuildColumn(p: { onClose?: (() => void) | undefined; inspect?: b
   const tier = (n?: number) => n ? ["", "I", "II", "III", "IV", "V"][n] ?? String(n) : "";
   return (
     <section id={p.id} class="tb-build-column" data-testid="hero-build" hidden={!visible()} aria-label={`${p.hero?.name ?? "Hero"} build`}>
-      <Show when={p.onClose}><button class="btn p-build-close" onClick={() => p.onClose?.()}>Close</button></Show>
       <Show when={p.name}><div class="tb-build-name">{p.name}</div></Show>
       <div class="tb-build-hero">{p.hero?.name ?? "Hero"}</div>
       <div class="tb-build-kda" aria-label="Kills, deaths, assists">
