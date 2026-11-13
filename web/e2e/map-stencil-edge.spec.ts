@@ -74,3 +74,29 @@ test("zoomed in, the map's stencil holds when the view pans past each edge", asy
     for (let i = 0; i < n; i++) await drag(a, -dx, -dy); // back to the middle
   }
 });
+
+// Feedback #51: zoomed in, the view shows through the whole stencil, its nubs at the top and
+// bottom too (map/stencil.ts: they reach the frame's edge, past the map square's 5..95). The
+// box the view is laid out in is that square; were it to clip, the frame's own nub would show in
+// them, over where the view goes on.
+test("zoomed in, the view shows through the stencil's nubs at the top and bottom (#51)", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "stencil nubs"), "Coach");
+  const c = await mapPoint(a, 0.5, 0.5);
+  await a.mouse.move(c.x, c.y);
+  await a.mouse.wheel(0, -300);
+  await expect.poll(async () => (await viewOf(a))[2]).toBeLessThan(800);
+  await expect(a.locator("[data-testid=map] .mm-host")).toHaveClass(/zoomed/);
+  // Frame units (0..100 over the host, where the frame sits zoomed in): inside each nub, past the
+  // map square, and inside the disc, as a control; a corner outside the stencil takes none.
+  const inView = await a.evaluate(() => {
+    const host = document.querySelector<HTMLElement>("[data-testid=map] .mm-host")!;
+    const clip = host.querySelector(".mm-clip")!;
+    const r = host.getBoundingClientRect();
+    const at = (x: number, y: number) => {
+      const hit = document.elementFromPoint(r.x + (r.width * x) / 100, r.y + (r.height * y) / 100);
+      return !!hit && clip.contains(hit);
+    };
+    return { top: at(55.3, 2.5), bottom: at(44.3, 97.5), disc: at(50, 30), corner: at(4, 4) };
+  });
+  expect(inView).toEqual({ top: true, bottom: true, disc: true, corner: false });
+});

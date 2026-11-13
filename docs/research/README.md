@@ -165,6 +165,12 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
 - **Map** (`entities.rs`): `maps/dl_midtown/entities/default_ents.vents_c` → `entities[]` with
   semantic keys, camp `tier`, teleporter `exit`; minimap layers `minimap_midtown_*_psd`.
 - **HUD** (`hud.rs`, `topbar.rs`, `panorama.rs`): panorama styles/layouts → `hud_sources[]`.
+- **Minimap frame and mask** (`hud.vxml`/`hud.vcss`, checked 2026-11-13, feedback #51):
+  `#minimap_container` draws `#minimap_blur`, then `#minimap_frame` (`compass_frame_psd`,
+  `opacity-mask: compass_frame_mask_psd`), then `#HudMinimapContainer` (105%, `overflow: render`,
+  `clip` only under `.useZoomedMinimap`), so the mask shapes the frame, not the map: the map draws
+  over it. The terrain (`minimap_midtown_mid`) lies wholly inside the mask's shape (disc and both
+  nubs; its top reaches frame y 6.05, its bottom 93.8 of 100); the nubs reach the frame's edge.
 - **Formats** ported from ValveResourceFormat (MIT, credited): `vpk.rs`, `kv3.rs` (binary KV3 v5),
   `resource.rs`, `vtex.rs`, `panorama.rs`. [deadlock-assets-and-extraction](deadlock-assets-and-extraction.md) §3.
 - **Stat tables** (`stats.rs`, crate `crates/stats`): the manifest's optional `stats` section
