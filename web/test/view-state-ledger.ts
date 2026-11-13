@@ -111,6 +111,8 @@ export const SIGNALS: Record<string, Entries> = {
     waveDrag: ["local", "a gesture in progress"],
     heroPick: ["local", "a dialog"],
     phone: ["local", "the layout"],
+    phoneEdit: ["personal", "your editing tools and gestures"],
+    phoneEvents: ["personal", "phone events sheet: sidebar layout, like sideTab"],
     noteDraft: ["local", "text being typed"],
     sceneDrawer: ["local", "the phone's drawer"],
     mapPx: ["local", "the layout"],

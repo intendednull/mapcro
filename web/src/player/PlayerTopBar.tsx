@@ -339,7 +339,7 @@ export function PlayerTopBar(p: {
                 );
               })()}
               <Show when={(allShown() || expanded(key)) && player()}>
-                {pl => <BuildColumn visible={() => expanded(key)} inspect={expanded(key) && !allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} stats={current(statTable(), tableKeyFor(p.art.stats, build()))} ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />}
+                {pl => <BuildColumn onClose={p.compact ? closeBuilds : undefined} visible={() => expanded(key)} inspect={expanded(key) && !allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} stats={current(statTable(), tableKeyFor(p.art.stats, build()))} ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />}
               </Show>
               {/* Never under the bar (styles/topbar.css): the name is the portrait's hover label's,
                   and the expanded column's. */}

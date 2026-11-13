@@ -995,3 +995,67 @@ kbd {
 .tok-height { pointer-events: none; }
 .map .tok .tok-height circle { fill: var(--panel); stroke: #efdfc6; stroke-width: 1.5; }
 .map .tok .tok-height text { fill: var(--text); text-anchor: middle; dominant-baseline: central; font-size: 12px; font-weight: 800; }
+
+/* Phone: a touch roster, generous map pane and transport kept above the home edge. */
+.phone { overflow-x: clip; padding-bottom: env(safe-area-inset-bottom); }
+.phone button, .phone summary, .phone select, .phone input:not([type=hidden]) {
+  min-width: 44px; min-height: 44px; font-size: 12px;
+}
+.phone .p-top { height: auto; min-height: 52px; gap: 6px; padding: 4px 8px; }
+.phone .p-top .viewonly { font-size: 12px; }
+.phone .p-map { min-height: 50dvh; aspect-ratio: auto; }
+.phone .p-map > .mm-host { width: 100%; height: 50dvh; }
+.phone .p-tools { flex-wrap: wrap; max-width: 100%; }
+.phone .p-top .save, .phone .ord, .phone .where { font-size: 12px; }
+.phone .pl-transport { display: flex; flex-wrap: wrap; gap: 4px; }
+.phone .pl-scrub { order: 2; flex: 1 0 100%; min-width: 0; height: 44px; }
+.phone .match-range { width: 100%; height: 44px; margin: 0; }
+.phone .pl-ticks, .phone .pl-marks { display: none; }
+.phone .pl-tail { margin-left: auto; min-width: 0; }
+.phone .match-clock { font-size: 12px; }
+.phone .pl-bar { width: 100%; box-sizing: border-box; }
+.phone-player .pl-bar { position: sticky; bottom: 0; z-index: 55; background: var(--bg-deep); }
+.phone .map-layers-pop { max-width: calc(100vw - 24px); max-height: 45dvh; overflow-y: auto; }
+.phone .p-events-sheet { margin: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 16px; max-height: 45dvh; overflow: auto; }
+.phone .p-events-toggle { margin: 4px 8px; }
+.phone .p-events-sheet .pl-side { width: 100%; }
+.phone .pl-topbar { height: 100px; --u: .6px !important; }
+.phone .pl-topbar .tb-bar { position: static; width: 100%; height: 100%; }
+.phone .pl-topbar .tb-team { position: absolute; width: 100%; height: 48px; left: 0; right: auto; gap: 4px; }
+.phone .pl-topbar .tb-team.enemy { top: 52px; }
+.phone .pl-topbar .tb-player { flex: 1; width: auto; min-width: 0; height: 44px; }
+.phone .pl-topbar .tb-focus { inset: 0; width: 100%; height: 44px; transform: none; }
+.phone .pl-topbar .tb-souls, .phone .pl-topbar .tb-ult,
+.phone .pl-topbar .tb-clock, .phone .pl-topbar .tb-scores,
+.phone .pl-topbar .pl-rejuv, .phone .pl-topbar .pl-rejuv-timer,
+.phone .pl-topbar .tb-all-builds, .phone .pl-topbar .tb-build-team-kills { display: none; }
+.phone .pl-topbar .tb-build-column:not([hidden]) {
+  position: fixed; left: 8px; right: 8px; top: auto; bottom: 156px;
+  width: auto; max-height: 38dvh; overflow: auto; z-index: 54;
+  transform: none; border-radius: 16px; padding: 12px; font-size: 12px;
+}
+.phone .tb-build-column * { font-size: max(12px, 1em); }
+@media (max-height: 500px) and (pointer: coarse) {
+  .phone .p-map > .mm-host { height: 65dvh; }
+  .phone .pl-topbar { max-width: 560px; align-self: center; }
+  .phone .pl-topbar .tb-build-column:not([hidden]) { max-height: 50dvh; bottom: 110px; }
+}
+.phone .pl-bar { grid-template-columns: 1fr; }
+.phone .pl-source > summary { max-width: none; }
+.phone .pl-tail .match-clock { font-size: 12px; }
+.phone .pl-transport .pl-scrub { padding-top: 0; }
+.phone .tb-build-column:not([hidden]) { --u: 1px; }
+.phone .tb-build-column [data-item-id], .phone .tb-build-column [data-ability-id] { min-width: 44px; min-height: 44px; }
+.phone-player { padding-bottom: calc(116px + env(safe-area-inset-bottom)); }
+.phone-player .pl-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: wrap;
+  gap: 4px; padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line);
+}
+.phone-player .pl-transport { display: contents; }
+.phone-player .pl-source { max-width: 80px; }
+.phone-player .pl-source > summary { max-width: 80px; }
+.phone-player:not(.phone-editing) [data-testid=match-save] { display: none; }
+.phone-player .pl-tail { flex: 1; justify-content: flex-end; }
+.phone-player .pl-tail .match-clock { white-space: normal; }
+.phone-player .pl-topbar .tb-build-column:not([hidden]) { bottom: calc(116px + env(safe-area-inset-bottom)); }
+.phone .p-build-close { float: right; position: sticky; top: 0; z-index: 8; }

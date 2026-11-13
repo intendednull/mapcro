@@ -89,6 +89,7 @@ export function Tokens(p: {
   selection: () => Set<RecordId>;
   setSelection: (s: Set<RecordId>) => void;
   /** A press on a hero ends an objective group selection. */
+  editing?: boolean | undefined;
   onPress?: () => void;
   /** A match preview: heroes at the match's positions (by "amber-0"…), dead ones hidden. */
   preview?: (() => MatchPreview | undefined) | undefined;
@@ -132,7 +133,7 @@ export function Tokens(p: {
     return m;
   });
 
-  const editable = () => p.tool === "select" && p.state.canEdit() && !p.preview?.();
+  const editable = () => p.tool === "select" && (p.state.canEdit() && p.editing !== false) && !p.preview?.();
 
   /** A click under a match preview: press and release within a few px, the map's own pan aside. */
   const click = (pl: Player, e: PointerEvent) => {
@@ -204,7 +205,7 @@ export function Tokens(p: {
 
   /** Dead or alive (K on a hovered hero). */
   const toggleAlive = (pl: Player) => {
-    if (!p.state.canEdit() || p.preview?.()) return;
+    if (!(p.state.canEdit() && p.editing !== false) || p.preview?.()) return;
     p.state.edit(aliveOps(pl));
   };
   // K acts on the hero under the pointer: the hover is a hint, and is checked against what is
@@ -495,9 +496,9 @@ export function Tokens(p: {
                       when={timing() === pl().id}
                       fallback={
                         <g
-                          class={cx("respawn-label", p.state.canEdit() && "editable", pl().state.respawn == null && "unset", armed() === pl().id && "hint")}
+                          class={cx("respawn-label", (p.state.canEdit() && p.editing !== false) && "editable", pl().state.respawn == null && "unset", armed() === pl().id && "hint")}
                           onPointerDown={(e) => {
-                            if (e.button !== 0 || !p.state.canEdit()) return;
+                            if (e.button !== 0 || !(p.state.canEdit() && p.editing !== false)) return;
                             e.preventDefault();
                             e.stopPropagation();
                             setTiming(pl().id);

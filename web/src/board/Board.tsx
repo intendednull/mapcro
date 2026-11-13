@@ -617,14 +617,16 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const sceneIndex = () => state.scenes().findIndex((s) => s.id === scene()?.id);
 
   // ---- the phone layout (design/v1-board/phone-following.html) below 700 px ----
-  const mq = window.matchMedia("(max-width: 700px)");
+  const mq = window.matchMedia("(max-width: 700px), (max-height: 500px) and (pointer: coarse)");
+  const [phoneEdit, setPhoneEdit] = createSignal(false);
+  const [phoneEvents, setPhoneEvents] = createSignal(false);
   const [phone, setPhone] = createSignal(mq.matches);
   const onMq = () => setPhone(mq.matches);
   mq.addEventListener("change", onMq);
   onCleanup(() => mq.removeEventListener("change", onMq));
   createEffect(() => {
-    // The phone picker is Look/Select and Laser; drawing tools need the desktop.
-    if (phone() && tool() !== "select" && tool() !== "laser") setTool("select");
+    // Viewing keeps editing gestures out of the map.
+    if (phone() && !phoneEdit() && tool() !== "select" && tool() !== "laser") setTool("select");
   });
 
   // Rename from "Your boards": the title's editor opens once the board can take the edit. A
@@ -688,7 +690,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
   };
 
   const PhoneBoard = () => (
-    <div class="phone" data-testid="board" data-board={p.board} data-layout="phone">
+    <div class="phone" classList={{ "phone-player": inPlayer(), "phone-editing": phoneEdit() }} data-testid="board" data-board={p.board} data-layout="phone">
       <header class="p-top">
         <Wordmark />
         <span class="viewonly" data-testid="role-chip">
@@ -698,6 +700,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
         <Show when={player.matchId()}><TierChip host={player} /></Show>
         <div class="spacer" />
         <SaveStatus state={state} rejected={rejected()} dismiss={() => setSeenProblems(state.problems().length)} />
+        <FeedbackButton variant="bar" match={feedbackMatch} />
       </header>
       <Show
         when={followed()}
@@ -730,7 +733,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </div>
         )}
       </Show>
-      <div class="p-title" onPointerDown={swipe}>
+      <Show when={!inPlayer()}><div class="p-title" onPointerDown={swipe}>
         <div class="ord">
           Scene {sceneIndex() + 1} of {state.scenes().length} · {state.title()}
         </div>
@@ -741,6 +744,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           {sceneName(scene()?.scene.name ?? "", sceneIndex())}
         </h1>
       </div>
+      </Show>
       <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} compact onFocus={focusHero} onSeek={seekMatch} />}>
         <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
       </Show>
@@ -758,6 +762,16 @@ export function Board(p: { board: string; token: string; art: Art }) {
           <button class={cx("tb", tool() === "laser" && "on")} data-testid="tool-laser" onClick={() => setTool("laser")}>
             <span>Laser</span>
           </button>
+          <Show when={state.canEdit()}>
+            <button class="tb" data-testid="phone-edit" aria-pressed={phoneEdit()} onClick={() => setPhoneEdit(!phoneEdit())}>Edit</button>
+            <Show when={phoneEdit()}>
+              <For each={["draw", "arrow", "erase"] as const}>{t =>
+                <button class={cx("tb", tool() === t && "on")} data-testid={`tool-${t}`} onClick={() => setTool(t)}>{t === "draw" ? "Draw" : t === "arrow" ? "Arrow" : "Erase"}</button>
+              }</For>
+              <button class="tb" data-testid="phone-undo" onClick={() => state.undo()}>Undo</button>
+              <button class="tb" data-testid="phone-redo" onClick={() => state.redo()}>Redo</button>
+            </Show>
+          </Show>
           <Palette value={ink()} set={setInk} />
 
         </div>
@@ -780,6 +794,15 @@ export function Board(p: { board: string; token: string; art: Art }) {
         </p>
       </Show>
       {playerBar()}
+      <Show when={inPlayer()}>
+        <button class="btn p-events-toggle" data-testid="phone-events" aria-expanded={phoneEvents()} onClick={() => setPhoneEvents(!phoneEvents())}>Events</button>
+        <Show when={phoneEvents()}>
+          <section class="p-events-sheet" aria-label="Events">
+            <button class="btn" onClick={() => setPhoneEvents(false)}>Close</button>
+            <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={savedScene} onUserPlayback={() => stopFollowing("changed the playback")} />
+          </section>
+        </Show>
+      </Show>
       <nav class="p-nav" onPointerDown={swipe}>
         <div class="row">
           <button class="btn" data-testid="p-prev" disabled={sceneIndex() <= 0} onClick={() => flipBy(-1)}>
@@ -950,6 +973,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
               </Show>
               <Layers
                 state={state}
+                editing={!phone || phoneEdit()}
                 art={p.art}
                 vp={viewpoint()}
                 // In Player, annotation goes to the live layer (spec §6b).

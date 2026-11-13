@@ -98,6 +98,7 @@ export function Layers(p: {
   visible: () => { x: number; y: number; w: number };
   setOpenComment: (id: RecordId | undefined) => void;
   /** Hands the board a ping at a world spot, the same as a middle click there (hero focus). */
+  editing?: boolean;
   bindPing?: (ping: (at: WorldPos) => void) => void;
   /** A hero just focused ("Amber-0"), its token flashes; `n` restarts the flash. */
   focused?: () => { slot: string; n: number } | undefined;
@@ -116,7 +117,7 @@ export function Layers(p: {
     const wb = viewToWorld(b, p.vp);
     return { x: wb.x - wa.x, y: wb.y - wa.y };
   };
-  const editor = () => st.canEdit();
+  const editor = () => st.canEdit() && p.editing !== false;
 
   // Stable rows (one object per record), so a new stroke adds one node and moves nothing else.
   const strokes = createMemo(() => st.rowsIn<Stroke>("Stroke", p.scene));
@@ -860,7 +861,7 @@ export function Layers(p: {
           />
         )}
       </Show>
-      <Tokens state={st} art={p.art} vp={p.vp} scene={p.tokenScene ?? p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} onPress={clearObjects} preview={p.preview} focused={p.focused} matchName={p.matchName} onOpen={p.onOpenHero} />
+      <Tokens editing={p.editing} state={st} art={p.art} vp={p.vp} scene={p.tokenScene ?? p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} onPress={clearObjects} preview={p.preview} focused={p.focused} matchName={p.matchName} onOpen={p.onOpenHero} />
       <For each={othersPicks()}>
         {(x) => (
           <g class="picks" data-picks={x.peer.state!.name} style={{ "pointer-events": "none" }}>
