@@ -1496,7 +1496,8 @@ and moves the art off the tokens), full width in portrait and aligned to the top
 **The transport** holds the chrome. Portrait row 1: Play and the scrubber (at least 60% of the
 width). Row 2: speed, the clock, then Events, Map layers and More (⋯). More holds Match (the source
 menu, opened as a sheet), Scenes, Laser, Edit, Feedback, and the role. Laser or Edit swaps row 2
-for a tool rail that scrolls sideways (Look, Laser, Draw, Arrow, Erase, Undo, Redo, ink, Done);
+for a tool rail: the tools scroll sideways (Look, Laser, Draw, Arrow, Erase, Undo, Redo), and the
+ink swatch and Done are pinned at its right end, outside the scroll, so they are always on screen;
 Done restores row 2 and Look. Back/forward, Save scene and the scrubber's event and scene marks
 are not on the phone: Events and Scenes are the larger targets for those jumps.
 
@@ -1508,8 +1509,10 @@ jumps there and the sheet stays. Items and abilities open the game tooltip on ta
 the roster's foot and the transport's top; a tap outside closes it.
 
 **The build sheet** is titled with the hero's name (several builds open: "Builds") and reads items
-(6 across), abilities (4), then the investment bars, vitals and K/D/A, left-aligned; items and
-abilities are in view without scrolling, in landscape too. In landscape the right pane's dock is
+(6 across), abilities (4), then one row of the investment bars, the vitals (left-aligned) and
+K/D/A, then Effects and Build order side by side, 8 px between rows; items and abilities are in
+view without scrolling, in landscape too. In portrait on a phone it is at most 320 px tall
+(about 308 at 390 × 844), so at least 70% of the map shows above it. In landscape the right pane's dock is
 never empty: with no build and no other sheet open it shows Events, with no close.
 
 **Board (not Player)** still scrolls, with its own header, follow row, scene nav and the Edit
