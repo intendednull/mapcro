@@ -393,6 +393,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     return pl?.state.placed ? pl.state.pos : undefined;
   };
   let pingAt: ((w: WorldPos) => void) | undefined;
+  // The top bar's hero menu, opened from a token on the map too (feedback #53); unset in Player.
+  let heroMenu: ((player: RecordId, at: { x: number; y: number }) => void) | undefined;
   const [focused, setFocused] = createSignal<{ slot: string; n: number }>();
   let focusN = 0;
   let unflash: ReturnType<typeof setTimeout> | undefined;
@@ -1208,6 +1210,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 focused={focused}
                 matchName={matchName}
                 onOpenHero={openHero}
+                onHeroMenu={(id, at) => heroMenu?.(id, at)}
                 svg={overlay}
                 objectives={objectives}
                 k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)}
@@ -1431,7 +1434,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             </div>
           </div>
           <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} onFocus={focusHero} onSeek={seekMatch} />}>
-            <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
+            <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} bindMenu={(f) => (heroMenu = f)} />
           </Show>
           {/* The map takes all the room left, as the largest square that fits. */}
           <div class="mapfit" ref={measureBoard} data-testid="board-area">

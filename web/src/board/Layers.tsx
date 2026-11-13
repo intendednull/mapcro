@@ -107,6 +107,8 @@ export function Layers(p: {
   matchName?: (team: string, slot: number) => string | undefined;
   /** Player: a hero token's single click opens its panel (player/HeroCard.tsx). */
   onOpenHero?: (team: string, slot: number, token?: Element) => void;
+  /** A scene: a right click (no drag) on a hero's token opens its menu there (feedback #53). */
+  onHeroMenu?: (player: RecordId, at: { x: number; y: number }) => void;
 }) {
   const st = p.state;
   const view = (w: WorldPos) => worldToView(w, p.vp);
@@ -495,7 +497,10 @@ export function Layers(p: {
       return;
     }
     if (e.button === 2 || (e.button === 0 && p.spaceHeld())) {
-      pan(e);
+      // A right drag pans; a right click on a hero's token opens its menu, as on its portrait.
+      const tok = e.button === 2 && p.onHeroMenu ? (e.target as Element).closest?.(".tok[data-player]")?.getAttribute("data-player") : undefined;
+      const at = { x: e.clientX, y: e.clientY };
+      pan(e, tok ? () => p.onHeroMenu?.(tok as RecordId, at) : undefined);
       return;
     }
     if (e.button !== 0) return;

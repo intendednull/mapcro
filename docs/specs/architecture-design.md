@@ -1065,7 +1065,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
     hands focus back; a press outside, a resize or a lost window focus closes it. The labels
     follow edits made while it's open. Viewers get no menu. The tokens' eye and skull buttons
     are gone; K still kills or revives the hero under the pointer, and the top bar's eye toggle
-    stays. Player has none.
+    stays. The same menu opens from a right click on the hero's token on the map, at the
+    pointer (operator, 2026-11-13, feedback #53); a right drag from a token still pans, and
+    opens nothing. Player has none.
   - **No side roster** (operator, 2026-11-09: "the roster in the top right is back, I don't
     think we need it there either"): neither Player (since 0a1948b) nor Scenes lists the roster
     in the side panel. The top bar has what it had: names and heroes, focus (a portrait click,
