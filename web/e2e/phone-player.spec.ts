@@ -57,7 +57,7 @@ const column = (p: Page) => p.locator(".phone-build-sheet [data-testid=hero-buil
 const float = (p: Page) => p.getByTestId("game-tooltip-float");
 
 
-import { checkPhoneLayout } from "./phone-layout";
+import { checkPhoneLayout, touchDrag } from "./phone-layout";
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }, { width: 844, height: 390 }]) {
   test(`phone Player at ${viewport.width}×${viewport.height}`, async ({ browser }) => {
@@ -75,6 +75,12 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     await phone.getByTestId("match-play").tap();
     await expect(phone.getByTestId("match-play")).toHaveText("Pause");
     await phone.getByTestId("match-play").tap();
+    // A finger along the scrubber seeks: the far end is the match's last second.
+    const range = (await phone.getByTestId("match-time").boundingBox())!;
+    const y = range.y + range.height / 2;
+    await touchDrag(phone, [{ x: range.x + range.width / 2, y }, { x: range.x + range.width * .8, y }, { x: range.x + range.width - 1, y }]);
+    await expect(phone.getByTestId("match-clock")).toContainText("0:40 /");
+    await scrubTo(phone, 20);
     await phone.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').tap();
     await expect(column(phone)).toBeVisible();
     await checkPhoneLayout(phone);
