@@ -99,7 +99,8 @@ export function Tokens(p: {
   matchName?: ((team: string, slot: number) => string | undefined) | undefined;
   /** Under a match preview, a single click (no drag) with the Select tool on a hero ("amber", 0):
    * Player's hero panel (player/HeroCard.tsx). */
-  onOpen?: ((team: string, slot: number) => void) | undefined;
+  /** A token clicked under a match preview: its slot, and the token (its panel opens beside it, #48). */
+  onOpen?: ((team: string, slot: number, token?: Element) => void) | undefined;
 }) {
   const [drag, setDrag] = createSignal<Drag | undefined>();
   const slots = createMemo(() => new Map(p.state.roster().map((s) => [s.id, s.slot])));
@@ -140,11 +141,12 @@ export function Tokens(p: {
     const slot = slots().get(pl.state.slot);
     if (!slot || !p.onOpen) return;
     const from = { x: e.clientX, y: e.clientY };
+    const tok = (e.target as Element | null)?.closest(".tok") ?? undefined;
     const up = (ev: PointerEvent) => {
       if (ev.pointerId !== e.pointerId) return;
       window.removeEventListener("pointerup", up, true);
       window.removeEventListener("pointercancel", up, true);
-      if (ev.type === "pointerup" && Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < 6) p.onOpen!(slot.team.toLowerCase(), slot.slot);
+      if (ev.type === "pointerup" && Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < 6) p.onOpen!(slot.team.toLowerCase(), slot.slot, tok);
     };
     window.addEventListener("pointerup", up, true);
     window.addEventListener("pointercancel", up, true);

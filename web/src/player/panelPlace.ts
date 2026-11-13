@@ -69,6 +69,37 @@ export function opening(open: (Place | undefined)[], pane: Pane): Place {
   return cascade(open.length, pane);
 }
 
+/** The px between a token and the panel opened beside it (#48). */
+export const BESIDE_GAP = 10;
+/** A box in the pane, px from its top left. */
+export interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+/** How far a panel steps off an open one it would sit on. */
+const STACK_STEP = 24;
+
+/** Where a panel `w`×`h` opened from a token (`token`, its box in the pane) sits (#48): beside
+ * it, to its right if it fits there, else its left (else the side with more room); its middle
+ * level with the token's, clamped into the pane and clear of its controls. Never exactly over an
+ * open one (`open`, their spots): it steps down, or up, off them, staying beside the token. */
+export function beside(token: Box, w: number, h: number, pane: Pane, open: Spot[] = []): Spot {
+  const toRight = pane.w - token.right - BESIDE_GAP;
+  const toLeft = token.left - BESIDE_GAP;
+  const left = toRight >= w || (toLeft < w && toRight >= toLeft) ? token.right + BESIDE_GAP : token.left - BESIDE_GAP - w;
+  const base = clampSpot({ left, top: (token.top + token.bottom) / 2 - h / 2 }, w, h, pane);
+  const free = (at: Spot) => !open.some((o) => Math.abs(o.left - at.left) < STACK_STEP / 2 && Math.abs(o.top - at.top) < STACK_STEP / 2);
+  for (let k = 0; k <= CASCADE_STEPS; k++) {
+    for (const dir of k ? [1, -1] : [0]) {
+      const at = clampSpot({ left: base.left, top: base.top + dir * k * STACK_STEP }, w, h, pane);
+      if (free(at)) return at;
+    }
+  }
+  return base;
+}
+
 /** The px the pane's own controls take at its top and bottom: each visible control over the
  * pane takes a band from the nearer edge to its far side, with a gap. */
 export function paneOf(pane: HTMLElement, controls: Iterable<Element>, gap = 4): Pane {

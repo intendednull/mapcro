@@ -1112,7 +1112,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
   stats, abilities with cooldowns and charges, items), with their tooltips and stat panels.
   K/D/A and × show their tags at once on hover too (#41), not the browser's delayed `title`.
   Several can be open, one per hero, up to every hero's (#37, operator 2026-11-11): another
-  token opens its own a step down and right of the last (or brings its open one to the front),
+  token opens its own beside that token (#48: to its right if it fits, else its left, level
+  with it, clamped into the board area off its controls, and stepped off an open one it would
+  sit exactly on; on a phone a step down and right of the last), or brings its open one to the front;
   × closes that one, Escape the front one, and another match closes them all. Vision: in a team's
   view, a hero it can't see has no token, so no panel opens for it; an enemy that leaves sight
   while its panel is open keeps only what the Tab scoreboard shows (no cooldowns, charges or

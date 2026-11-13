@@ -106,7 +106,7 @@ export function Layers(p: {
   /** In a scene, the open match's in-game name for a slot. */
   matchName?: (team: string, slot: number) => string | undefined;
   /** Player: a hero token's single click opens its panel (player/HeroCard.tsx). */
-  onOpenHero?: (team: string, slot: number) => void;
+  onOpenHero?: (team: string, slot: number, token?: Element) => void;
 }) {
   const st = p.state;
   const view = (w: WorldPos) => worldToView(w, p.vp);

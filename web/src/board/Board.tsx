@@ -34,7 +34,8 @@ import { UrnMark } from "../player/Urn";
 import { DeathSkulls } from "../player/Skulls";
 import { SkullRecap } from "../player/SkullRecap";
 import { HeroCard, type HeroCardSlot } from "../player/HeroCard";
-import { opening, paneOf } from "../player/panelPlace";
+import { beside, opening, paneOf, placeOf } from "../player/panelPlace";
+import { type Place, placeToWire } from "../player/layers";
 import { recapOf } from "../player/recap";
 import { RiftRings } from "../player/Rift";
 import { liveLayer } from "../player/layer";
@@ -115,8 +116,8 @@ const heroCardSlot = (key: string): HeroCardSlot => {
   const [team, n] = key.split("-");
   return { team: team!, slot: Number(n) };
 };
-/** Where a hero panel sits until it is placed: the pane's top left (one opened from the map is
- * always placed, a step from the last: panelPlace.ts `cascade`). */
+/** Where a hero panel sits until it is placed: the pane's top left (one opened from a token is
+ * always placed: beside the token on a desktop, panelPlace.ts `beside`; a step from the last on a phone, `cascade`). */
 const HERO_HOME = { left: 12, top: 44 };
 
 /**
@@ -417,11 +418,41 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const heroSlots = createMemo(() => heroesShown().map((h) => h.slot).sort(), undefined, { equals: (a, b) => a.join() === b.join() });
   const heroPanel = (slot: string) => player.heroPanels().find((h) => h.slot === slot);
   const heroZ = (slot: string) => 8 + Math.max(0, heroesShown().findIndex((h) => h.slot === slot));
-  const openHero = (team: string, slot: number) => {
+  const openHero = (team: string, slot: number, token?: Element) => {
     // The pane the panels are placed in: the board area on a desktop (#40), the map on a phone.
     const el = boardEl?.isConnected ? boardEl : mapEl;
-    const pane = (el && paneOf(el, el.parentElement?.querySelectorAll(".map-controls > *") ?? [])) || { w: 1, h: 1, top: 0, bottom: 0 };
-    player.openHeroPanel(slotKey(team, slot), opening(player.heroPanels().map((h) => h.at), pane));
+    const measure = () => (el && paneOf(el, el.parentElement?.querySelectorAll(".map-controls > *") ?? [])) || { w: 1, h: 1, top: 0, bottom: 0 };
+    const key = slotKey(team, slot);
+    // On a desktop, a new panel opens beside the token clicked (#48); on a phone (and one open
+    // already, which only comes to the front), a step from the last.
+    if (!token || !el || el !== boardEl || player.heroPanels().some((h) => h.slot === key)) {
+      player.openHeroPanel(key, opening(player.heroPanels().map((h) => h.at), measure()));
+      return;
+    }
+    const cards = () => [...el.querySelectorAll<HTMLElement>(".hero-panel")];
+    const besideToken = (w: number, h: number) => {
+      const pane = measure();
+      const at = el.getBoundingClientRect();
+      const t = token.getBoundingClientRect();
+      const open = cards().filter((c) => c.dataset.slot !== key).map((c) => {
+        const r = c.getBoundingClientRect();
+        return { left: r.left - at.left, top: r.top - at.top };
+      });
+      return placeOf(beside({ left: t.left - at.left, top: t.top - at.top, right: t.right - at.left, bottom: t.bottom - at.top }, w, h, pane, open), w, h, pane);
+    };
+    // Its size is known once it is in: open it the size of another (or about a panel's), then
+    // on the next frame, unless it was moved meanwhile, put it beside the token at its own size.
+    const like = cards()[0]?.getBoundingClientRect();
+    const first = besideToken(like?.width ?? 256, like?.height ?? 360);
+    player.openHeroPanel(key, first);
+    const same = (a: Place | undefined, b: Place | undefined) => JSON.stringify(placeToWire(a) ?? null) === JSON.stringify(placeToWire(b) ?? null);
+    requestAnimationFrame(() => {
+      const card = cards().find((c) => c.dataset.slot === key);
+      if (!card || !token.isConnected || !same(player.heroPanels().find((h) => h.slot === key)?.at, first)) return;
+      const r = card.getBoundingClientRect();
+      const at = besideToken(r.width, r.height);
+      if (!same(at, first)) player.placeHeroPanel(key, at);
+    });
   };
   const hasRecap = (slot: string, t: number) => !!recapOf(player.tl()?.players.find((q) => slotKey(q.team, q.slot) === slot), t);
   /** In a scene, the open match's in-game name for a slot (spec §6b "Names"); a typed one wins. */
