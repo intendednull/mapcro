@@ -1259,5 +1259,6 @@ html:has(.phone) :is(input:not([type=range], [type=checkbox], [type=radio]), tex
 .phone-build-row .tb-player { position: relative; display: block; width: 44px; height: 44px; overflow: hidden; border-radius: 8px; }
 .phone-build-row.amber .tb-player { border-bottom: 2px solid #d4860b; }
 .phone-build-row.sapphire .tb-player { border-bottom: 2px solid #4d75c3; }
+.phone-build-head { position: sticky; top: 0; z-index: 1; min-height: 24px; background: var(--panel); color: var(--muted); font-size: 12px; }
 .phone-row-items { display: flex; gap: 2px; overflow: hidden; }
 .phone-row-items img { width: 24px; height: 24px; object-fit: contain; }

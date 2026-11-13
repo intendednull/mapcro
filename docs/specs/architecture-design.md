@@ -1553,7 +1553,7 @@ keeps at least 40% of the width (with the tool rail open too: Play, scrubber, ra
 height. Tab has no key on a tablet: an `All builds` toggle (44 px; at the roster's end in portrait, at
 the dock's tab row's end in landscape) drives the
 host's existing all-builds state (so followers get it) and lists twelve 48 px rows (portrait,
-K/D/A, souls, items); a row opens that hero's build. A phone has no room for it. Checks:
+K/D/A, souls, items) under one sticky header row (K / D / A, Souls); a row opens that hero's build. A phone has no room for it. Checks:
 `phone-layout.ts` at 768 × 1024, 820 × 1180, 1024 × 768, 1180 × 820 and
 1366 × 1024 (`phone-player.spec.ts`), and 1440 × 900 and 1024 × 768 without touch stay desktop.
 

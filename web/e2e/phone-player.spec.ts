@@ -252,6 +252,11 @@ for (const viewport of [...PHONES, ...TABLETS]) {
       await expect(all).toHaveAttribute("aria-pressed", "true");
       await expect(phone.locator(".phone-build-sheet .p-sheet-head b")).toHaveText("All builds");
       await expect(phone.getByTestId("all-builds-row")).toHaveCount(12);
+      // One header row names the columns, in the scoreboard's words.
+      const heads = phone.getByTestId("all-builds-head");
+      await expect(heads).toHaveCount(1);
+      await expect(heads).toBeVisible();
+      await expect(heads.locator("span")).toHaveText(["", "K / D / A", "Souls", ""]);
       await checkPhoneLayout(phone);
       await phone.getByTestId("all-builds-row").first().tap();
       await expect(phone.getByTestId("all-builds-list")).toHaveCount(0);

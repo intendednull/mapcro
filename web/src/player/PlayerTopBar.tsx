@@ -417,6 +417,7 @@ export function PlayerTopBar(p: {
           }</For></div>}>
             {/* Twelve rows: portrait, K/D/A, souls, items. A row opens that hero's build. */}
             <div class="phone-build-content phone-build-list" data-testid="all-builds-list">
+              <div class="phone-build-row phone-build-head" data-testid="all-builds-head"><span /><span>K / D / A</span><span>Souls</span><span /></div>
               <For each={[friend(), enemy()] as const}>{t =>
                 <For each={team(t)}>{s => {
                   const key = slotKey(t, s.slot.slot);
