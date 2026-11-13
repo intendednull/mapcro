@@ -1478,23 +1478,42 @@ makes a board with that match attached and lands in Player; **New board** is tod
 
 ### Phone
 
-Phone viewing uses two rows of six hero portraits, each with a touch target of at least
-44 CSS pixels. The map pane keeps at least half the viewport height. Short landscape touch
-screens use the same phone layout; the page may scroll vertically. Desktop layout is unchanged.
+The phone layout applies below 700 CSS px wide, and on short touch screens (under 500 px high,
+coarse pointer), so a phone in landscape gets it too. The page scrolls vertically, never
+sideways. Desktop layout is unchanged.
 
-The replay transport stays at the bottom edge with play/pause, seeking, speed and the match
-clock. The header retains the tier and adds Feedback. Map layers and Vision share the existing
-compact menu. Selecting a portrait opens its build and stats in a bounded bottom sheet above
-the transport; items and abilities use the shared tap tooltips. Close dismisses the build.
-Events has its own bounded scrolling panel below the map, with the existing filters and
-event jumps. Scene navigation and presenter following remain available.
+From the top: a header (wordmark, role, tier chip, save state, Feedback), the follow chip, the
+12-hero roster in two rows of six, the map controls (Map layers ▾, Vision, flip), the map, the
+tools, and in Player the Events button. The map is at least half the viewport high.
 
-Viewing disables map edits even for an editor. Edit reveals drawing, arrows, erase and
-undo/redo and enables scene token dragging. Replay hero positions remain replay-controlled.
-The editing toggle and events panel disclosure are personal layout/tool state, recorded in the
-module-state ledger; playback, builds, layers, Vision and event filters retain their existing
-registry and following behavior. Small scrubber event/scene markers are omitted on phones:
-Events and Scenes provide the larger touch targets for those jumps.
+**Player.** The transport is fixed to the bottom edge in two rows: Play beside the scrubber, then
+speed, Match (the source menu) and the clock. Back/forward and Save are hidden, as are the
+scrubber's small event and scene marks: Events and Scenes are the larger touch targets for those
+jumps. The page reserves the transport's height so everything scrolls clear of it.
+
+**Sheets.** A tap on a portrait opens that hero's build and stats; a tap on Events opens the
+events list with its filters. Both are sheets that sit on the transport (measured, so they never
+cover Play or the scrubber) and scroll inside; Close dismisses them. Portrait: bottom sheets,
+at most 38% (build) or 45% (events) of the height. Landscape: they stand on the right side and
+leave the map's left half in view. Items and abilities in a build open the shared game tooltip on
+tap. A tap on an event jumps there; the sheet stays open.
+
+**Map layers and Vision** share the compact Map layers menu row above the map.
+
+**Editing.** Viewing disables map edits even for an editor. Edit (editors only) reveals Draw,
+Arrow, Erase, Undo and Redo and enables token dragging in scenes; turning it off returns the
+tool to Look. Replay hero positions remain replay-controlled.
+
+**Touch.** Every control is at least 44 × 44 px with text at least 12 px; death skulls that open
+a recap get a 44 px touch target. `web/e2e/phone-layout.ts` checks this at 390 × 844, 360 × 800
+and 844 × 390: no sideways scroll, control sizes, no overlapping controls (content under the
+transport, a sheet or an open menu counts as out of reach), the map's height, sheets clear of the
+transport, a two-row transport with the scrubber at least 60% of the width, and text size.
+
+**State.** Edit and the Events sheet are personal layout and tool state, in the module-state
+ledger; the open build follows the existing build-panel rows. Playback, layers, Vision and event
+filters keep their registry rows and following behaviour, so a phone following a presenter
+follows their replay time.
 
 ## 7. Per-user undo
 
