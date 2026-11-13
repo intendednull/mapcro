@@ -644,14 +644,21 @@ export function Board(p: { board: string; token: string; art: Art }) {
       const root = phoneEl;
       // The sheets stop at the roster's foot, so a second portrait swaps the hero in place.
       const roster = root.querySelector<HTMLElement>(".phone-roster");
+      // On the root element: the game tooltip floats outside the board.
+      const html = document.documentElement.style;
       ro = new ResizeObserver(() => {
-        root.style.setProperty("--transport-h", `${bar.offsetHeight}px`);
-        if (roster) root.style.setProperty("--sheet-top", `${Math.round(roster.getBoundingClientRect().bottom)}px`);
+        html.setProperty("--transport-h", `${bar.offsetHeight}px`);
+        if (roster) html.setProperty("--sheet-top", `${Math.round(roster.getBoundingClientRect().bottom)}px`);
       });
       ro.observe(bar);
       if (roster) ro.observe(roster);
     });
-    onCleanup(() => { cancelAnimationFrame(frame); ro?.disconnect(); });
+    onCleanup(() => {
+      cancelAnimationFrame(frame);
+      ro?.disconnect();
+      document.documentElement.style.removeProperty("--transport-h");
+      document.documentElement.style.removeProperty("--sheet-top");
+    });
   });
   createEffect(() => {
     // Viewing keeps editing gestures out of the map.

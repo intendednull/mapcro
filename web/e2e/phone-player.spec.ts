@@ -92,6 +92,14 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     await expect(float(phone)).toBeVisible();
     await column(phone).locator(`[data-ability-id="${ABILITY}"]`).tap();
     await expect(float(phone).getByTestId("game-tooltip")).toHaveAttribute("data-kind", "ability");
+    // The tooltip is clamped between the roster and the transport.
+    const tip = (await float(phone).boundingBox())!;
+    const roster = (await phone.locator(".phone-roster").boundingBox())!;
+    const bar = (await phone.getByTestId("player").boundingBox())!;
+    expect(tip.y).toBeGreaterThanOrEqual(roster.y + roster.height - 1);
+    expect(tip.y + tip.height).toBeLessThanOrEqual(bar.y + 1);
+    expect(tip.x).toBeGreaterThanOrEqual(0);
+    expect(tip.x + tip.width).toBeLessThanOrEqual(viewport.width + 1);
     // One sheet at a time: a second portrait swaps the hero in place; Events replaces the build.
     await phone.locator('.tb-player[data-slot="Sapphire-0"] [data-testid=focus-hero]').tap();
     await expect(phone.locator(".phone-build-sheet")).toHaveCount(1);

@@ -1142,3 +1142,10 @@ kbd {
     left: calc(100dvh - var(--transport-h, 52px)); top: var(--sheet-top, 152px); max-height: none; border-radius: 16px 0 0 0;
   }
 }
+
+/* The game tooltip on a phone: a card between the roster's foot and the transport's top. */
+body:has(.phone-player) .gt-float {
+  top: var(--sheet-top, 140px) !important; left: 50% !important; transform: translateX(-50%);
+  max-width: calc(100vw - 16px); max-height: calc(100dvh - var(--sheet-top, 140px) - var(--transport-h, 104px));
+  overflow: hidden;
+}
