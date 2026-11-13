@@ -115,6 +115,18 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     await phone.getByTestId("troopers-toggle").tap();
     await expect(phone.getByTestId("trooper")).toHaveCount(1);
     await checkPhoneLayout(phone);
+    // Edit in More swaps transport row 2 for the tool rail; Done brings row 2 back, and Look.
+    const barH = async () => (await phone.getByTestId("player").boundingBox())!.height;
+    const before = await barH();
+    await phone.getByTestId("phone-more").tap();
+    await phone.getByTestId("phone-edit").tap();
+    await expect(phone.getByTestId("tool-draw")).toBeVisible();
+    await expect(phone.getByTestId("phone-events")).toHaveCount(0);
+    expect(Math.abs(await barH() - before)).toBeLessThanOrEqual(1);
+    await checkPhoneLayout(phone);
+    await phone.getByTestId("phone-done").tap();
+    await expect(phone.getByTestId("phone-events")).toBeVisible();
+    await expect(phone.getByTestId("tool-draw")).toHaveCount(0);
     // More: Feedback, Scenes, Laser and Edit.
     await phone.getByTestId("phone-more").tap();
     await expect(phone.getByTestId("phone-layers-sheet")).toHaveCount(0);
