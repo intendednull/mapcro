@@ -1055,14 +1055,25 @@ kbd {
 .phone .pl-tail .match-clock { font-size: 12px; white-space: normal; }
 .phone [data-testid=match-back], .phone [data-testid=match-forward] { display: none; }
 .phone-player { padding-bottom: var(--transport-h, calc(116px + env(safe-area-inset-bottom))); }
+/* The phone transport: two rows, the scrubber as wide as the thumb can travel.
+   Play  | scrubber ......................
+   speed | Match ................... clock   (notices and uploads take whole rows) */
 .phone-player .pl-bar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 55; display: flex; flex-wrap: wrap;
-  gap: 4px; padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--bg-deep);
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 55; display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-areas: "play scrub scrub scrub" "speed source . clock"; align-items: center;
+  gap: 4px 8px; padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--bg-deep);
 }
+.phone-player .pl-bar > * { grid-column: 1 / -1; }
 .phone-player .pl-transport { display: contents; }
-.phone-player .pl-source, .phone-player .pl-source > summary { max-width: 80px; }
+.phone-player .pl-bar > .pl-source { grid-area: source; }
+.phone-player .pl-source { max-width: 150px; }
+.phone-player .pl-source > summary { max-width: 150px; overflow: hidden; }
+.phone-player .pl-play { grid-area: play; min-width: 64px; }
+.phone-player .pl-speed { grid-area: speed; width: 100%; }
+.phone-player .pl-transport .pl-scrub { grid-area: scrub; order: 0; flex: none; }
 .phone-player [data-testid=match-save] { display: none; }
-.phone-player .pl-tail { flex: 1; justify-content: flex-end; }
+.phone-player .pl-tail { grid-area: clock; justify-self: end; }
 .phone .p-events-sheet { margin: 8px; padding: 8px 8px 12px; border: 1px solid var(--line); border-radius: 16px; max-height: 45dvh; overflow: auto; }
 .phone .p-events-toggle { margin: 4px 8px; }
 .phone .p-events-sheet .pl-side { width: 100%; }

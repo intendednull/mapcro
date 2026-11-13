@@ -7,10 +7,12 @@ export async function checkPhoneLayout(page: Page) {
       const r = e.getBoundingClientRect();
       if (r.width <= 0 || r.height <= 0 || r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth || e.closest("[hidden]")) return false;
       if (!e.checkVisibility({ contentVisibilityAuto: true, opacityProperty: true, visibilityProperty: true })) return false;
-      // Content under the fixed transport, a sheet or an open menu is out of reach, not overlapped.
-      const top = document.elementFromPoint(Math.min(innerWidth - 1, Math.max(0, (r.left + r.right) / 2)), Math.min(innerHeight - 1, Math.max(0, (r.top + r.bottom) / 2)));
-      const cover = top?.closest(".phone-player .pl-bar, .phone-build-sheet, .map-layers[open] .map-layers-pop");
-      if (cover && !cover.contains(e)) return false;
+      // Content scrolled under the fixed transport, a sheet or an open menu is out of reach until
+      // scrolled clear, not overlapped (the page reserves the transport's height: checked below).
+      for (const cover of document.querySelectorAll(".phone-player .pl-bar, .phone-build-sheet, .map-layers[open] .map-layers-pop")) {
+        const c = cover.getBoundingClientRect();
+        if (!cover.contains(e) && !e.contains(cover) && r.left < c.right && c.left < r.right && r.top < c.bottom && c.top < r.bottom) return false;
+      }
       for (let parent: Element | null = e; parent; parent = parent.parentElement) {
         const style = getComputedStyle(parent);
         if (style.visibility === "hidden" || style.opacity === "0") return false;
@@ -42,11 +44,19 @@ export async function checkPhoneLayout(page: Page) {
       overlaps, smallText,
       sheetOverTransport: !!sheet && !!transport && sheet.bottom > transport.top,
       mapHeight: document.querySelector(".p-map")?.getBoundingClientRect().height ?? 0,
+      // Everything scrolls clear of the fixed transport: the page's end is padded by its height.
+      transportHeight: transport?.height ?? 0,
+      scrubShare: transport ? (document.querySelector(".phone-player .match-range")?.getBoundingClientRect().width ?? 0) / innerWidth : 1,
+      reserve: transport ? parseFloat(getComputedStyle(document.querySelector(".phone-player")!).paddingBottom) - transport.height : 0,
       height: innerHeight,
     };
   });
   expect(report.sheetOverTransport).toBe(false);
   expect(report.overflow).toBe(false);
+  expect(report.reserve).toBeGreaterThanOrEqual(-1);
+  // A two-row transport, the scrubber most of the width.
+  expect(report.transportHeight).toBeLessThanOrEqual(120);
+  expect(report.scrubShare).toBeGreaterThanOrEqual(.6);
   expect(report.smallControls).toEqual([]);
   expect(report.overlaps).toEqual([]);
   expect(report.smallText).toEqual([]);
