@@ -7,6 +7,7 @@
 mod doc;
 mod file;
 mod ids;
+mod map_state;
 mod records;
 mod validate;
 
@@ -15,9 +16,10 @@ pub use file::{export_records, import_records};
 #[cfg(feature = "ts")]
 pub use doc::DocPair;
 pub use ids::{BoardId, ClientId, GrantId, HeroId, LaneKey, ObjectiveKey, OrderKey, RecordId, is_id22};
+pub use map_state::{Entity, Kind, MAX_SAFE_INT, More, MoreValue, ROWS, Row, RowId, Status};
 pub use records::{
     Arrow, BoardMeta, Callout, Field, FieldValue, Note, ObjectiveState, ObjectiveStatus, PlayerState,
-    Record, RecordKind, RosterSlot, Scene, SceneSource, SessionMeta, Stroke, Tab, Team, WAVE_T_MAX, Wave, WorldPos,
+    Record, RecordKind, RosterSlot, Scene, SceneSource, SceneState, SessionMeta, Stroke, Tab, Team, WAVE_T_MAX, Wave, WorldPos,
 };
 pub use validate::{Limits, Reject, LIMITS};
 
@@ -422,7 +424,7 @@ mod tests {
         for k in ["camp:neutral:lane1:10", "rift:neutral:lane6:1", "mid_boss:neutral:lane4:1", "base_guardian:amber:lane4"] {
             let op = Op::Create {
                 id: RecordId(900),
-                record: Record::ObjectiveState(ObjectiveState { scene, key: crate::ids::ObjectiveKey(k.into()), status: ObjectiveStatus::Destroyed }),
+                record: Record::ObjectiveState(ObjectiveState { scene, key: crate::ids::ObjectiveKey(k.into()), status: ObjectiveStatus::Destroyed, more: More::default() }),
             };
             apply_tx(&mut doc.clone(), &tx(vec![op])).expect(k);
         }
@@ -433,7 +435,7 @@ mod tests {
         let (mut doc, scene, _) = board();
         let wave = |id: u128, lane: &str, t: u16| Op::Create {
             id: RecordId(id),
-            record: Record::Wave(Wave { scene, lane: LaneKey(lane.into()), t }),
+            record: Record::Wave(Wave { scene, lane: LaneKey(lane.into()), t, more: More::default() }),
         };
         apply_tx(&mut doc, &tx(vec![wave(900, "lane1", 500), wave(901, "lane4", 0)])).expect("two lanes");
         assert_eq!(apply_tx(&mut doc.clone(), &tx(vec![wave(902, "lane1", 10)])), Err(Reject::Duplicate));
@@ -452,6 +454,263 @@ mod tests {
         let (mut doc, _, player) = board();
         apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: FieldValue::PlayerVisible(false) }])).expect("set");
         assert!(matches!(doc.live(player), Some(Record::PlayerState(PlayerState { visible: false, .. }))));
+    }
+
+    fn key(k: &str) -> RowId {
+        RowId::of(k).expect("a registry row")
+    }
+
+    fn more(k: &str, value: Option<MoreValue>) -> FieldValue {
+        FieldValue::More { key: key(k), value }
+    }
+
+    fn state(scene: RecordId) -> Record {
+        Record::SceneState(SceneState { scene, more: More::default() })
+    }
+
+    #[test]
+    fn a_registry_value_is_set_replaced_and_cleared_like_any_field() {
+        let (mut doc, _, player) = board();
+        let hero = |doc: &Doc| match doc.live(player) {
+            Some(Record::PlayerState(p)) => p.more.get(key("hero")).cloned(),
+            _ => panic!("player"),
+        };
+        assert_eq!(hero(&doc), None);
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: more("hero", Some(MoreValue::Int(13))) }])).expect("set");
+        assert_eq!(hero(&doc), Some(MoreValue::Int(13)));
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: more("hero", Some(MoreValue::Int(14))) }])).expect("replace");
+        assert_eq!(hero(&doc), Some(MoreValue::Int(14)));
+        // Two keys of one record are two fields: writing one leaves the other.
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: more("name", Some(MoreValue::Text("Solo".into()))) }])).expect("another key");
+        assert_eq!(hero(&doc), Some(MoreValue::Int(14)));
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: more("hero", None) }])).expect("clear");
+        assert_eq!(hero(&doc), None);
+        let Some(Record::PlayerState(p)) = doc.live(player) else { panic!("player") };
+        assert_eq!(p.more.iter().count(), 1, "the other key stays");
+        // The typed fields beside it are untouched, and it's a field write: no invariant check.
+        assert!(p.alive && p.visible);
+        assert!(!affects_invariants(&Op::Set { id: player, value: more("hero", None) }));
+    }
+
+    #[test]
+    fn a_registry_value_is_refused_off_its_row_its_entity_or_its_record() {
+        let (mut doc, scene, player) = board();
+        let before = doc.clone();
+        let set = |value| tx(vec![Op::Set { id: player, value }]);
+        assert_eq!(apply_tx(&mut doc, &set(more("hero", Some(MoreValue::Int(-1))))), Err(Reject::OutOfBounds));
+        assert_eq!(apply_tx(&mut doc, &set(more("hero", Some(MoreValue::Text("13".into()))))), Err(Reject::WrongField));
+        assert_eq!(apply_tx(&mut doc, &set(more("name", Some(MoreValue::Text("n".repeat(LIMITS.max_name + 1).into()))))), Err(Reject::TextTooLong));
+        // A scene's key on a hero, a hero's key on the scene's state, any key on a note.
+        assert_eq!(apply_tx(&mut doc, &set(more("has_builds", Some(MoreValue::Bool(true))))), Err(Reject::WrongField));
+        assert_eq!(apply_tx(&mut doc, &set(more("has_builds", None))), Err(Reject::WrongField));
+        apply_tx(&mut doc, &tx(vec![Op::Create { id: RecordId(900), record: state(scene) }, Op::Create { id: RecordId(901), record: Record::Note(Note { scene, text: "n".into() }) }])).expect("state and note");
+        let on = |id: u128, value| tx(vec![Op::Set { id: RecordId(id), value }]);
+        assert_eq!(apply_tx(&mut doc, &on(900, more("hero", Some(MoreValue::Int(1))))), Err(Reject::WrongField));
+        assert_eq!(apply_tx(&mut doc, &on(901, more("hero", Some(MoreValue::Int(1))))), Err(Reject::WrongField));
+        assert_eq!(apply_tx(&mut doc, &on(900, more("has_builds", Some(MoreValue::Bool(true))))).map(|_| ()), Ok(()));
+        // A record created with a bad `more` is refused whole, for each kind that holds one.
+        let hero_key: More = [(key("hero"), MoreValue::Int(1))].into_iter().collect();
+        let out_of_row: More = [(key("rows"), MoreValue::Int(-1))].into_iter().collect();
+        let slot = match doc.live(player) {
+            Some(Record::PlayerState(p)) => p.slot,
+            _ => panic!("player"),
+        };
+        let bad = [
+            (Record::SceneState(SceneState { scene, more: hero_key.clone() }), Reject::WrongField),
+            (Record::SceneState(SceneState { scene, more: out_of_row.clone() }), Reject::OutOfBounds),
+            (Record::ObjectiveState(ObjectiveState { scene, key: ObjectiveKey("walker:amber:lane1:1".into()), status: ObjectiveStatus::Active, more: hero_key.clone() }), Reject::WrongField),
+            (Record::Wave(Wave { scene, lane: LaneKey("lane1".into()), t: 1, more: hero_key }), Reject::WrongField),
+            (Record::PlayerState(PlayerState { more: out_of_row, ..PlayerState::starting(scene, slot, Team::Amber, 0) }), Reject::WrongField),
+        ];
+        for (record, why) in bad {
+            assert_eq!(apply_tx(&mut doc.clone(), &tx(vec![Op::Create { id: RecordId(950), record: record.clone() }])), Err(why), "{record:?}");
+        }
+        assert_eq!(before.live(player), doc.live(player), "nothing refused was written");
+    }
+
+    #[test]
+    fn undo_restores_a_registry_value_set_replaced_or_cleared() {
+        let (mut doc, _, player) = board();
+        let start = doc.clone();
+        // Set where there was none: undo clears it.
+        let (_, undo_set) = apply_tx_with_inverse(&mut doc, &tx(vec![Op::Set { id: player, value: more("hero", Some(MoreValue::Int(13))) }])).expect("set");
+        assert_eq!(undo_set, vec![Op::SetIf { id: player, expect: more("hero", Some(MoreValue::Int(13))), value: more("hero", None) }]);
+        let set = doc.clone();
+        // Replace, then clear: each undo puts back exactly what it saw.
+        let (_, undo_replace) = apply_tx_with_inverse(&mut doc, &tx(vec![Op::Set { id: player, value: more("hero", Some(MoreValue::Int(14))) }])).expect("replace");
+        let replaced = doc.clone();
+        let (_, undo_clear) = apply_tx_with_inverse(&mut doc, &tx(vec![Op::Set { id: player, value: more("hero", None) }])).expect("clear");
+        assert_eq!(undo_clear, vec![Op::SetIf { id: player, expect: more("hero", None), value: more("hero", Some(MoreValue::Int(14))) }]);
+        assert_eq!(apply_tx(&mut doc, &tx(undo_clear)), Ok(vec![OpOutcome::Applied]));
+        assert_eq!(doc, replaced);
+        assert_eq!(apply_tx(&mut doc, &tx(undo_replace)), Ok(vec![OpOutcome::Applied]));
+        assert_eq!(doc, set);
+        assert_eq!(apply_tx(&mut doc, &tx(undo_set.clone())), Ok(vec![OpOutcome::Applied]));
+        assert_eq!(doc, start);
+        // Writing the value a key already has changes nothing, so there is nothing to undo.
+        let (_, none) = apply_tx_with_inverse(&mut doc, &tx(vec![Op::Set { id: player, value: more("hero", None) }])).expect("no-op");
+        assert_eq!(none, vec![]);
+        // An undo whose value someone else changed since is skipped, and so is one on another key.
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: more("hero", Some(MoreValue::Int(20))) }])).expect("a peer's write");
+        assert_eq!(apply_tx(&mut doc, &tx(undo_set)), Ok(vec![OpOutcome::Skipped]));
+        let cross = Op::SetIf { id: player, expect: more("hero", Some(MoreValue::Int(20))), value: more("name", Some(MoreValue::Text("x".into()))) };
+        assert_eq!(apply_tx(&mut doc, &tx(vec![cross])), Err(Reject::MismatchedSetIf));
+    }
+
+    #[test]
+    fn a_scene_has_at_most_one_live_scene_state_and_it_deletes_and_restores() {
+        let (mut doc, scene, _) = board();
+        let create = |id: u128| Op::Create { id: RecordId(id), record: state(scene) };
+        assert!(affects_invariants(&create(1)));
+        let (_, undo) = apply_tx_with_inverse(&mut doc, &tx(vec![create(900)])).expect("the scene's state");
+        assert_eq!(undo, vec![Op::Delete { id: RecordId(900) }]);
+        assert_eq!(apply_tx(&mut doc, &tx(vec![create(901)])), Err(Reject::Duplicate));
+        assert_eq!(apply_tx(&mut doc, &tx(vec![Op::Create { id: RecordId(902), record: state(RecordId(77)) }])), Err(Reject::NoSuchScene));
+        // Deleted (an undo of its creation), the scene may get another; the first can't come back
+        // beside it.
+        apply_tx(&mut doc, &tx(undo)).expect("undo");
+        assert!(doc.live(RecordId(900)).is_none());
+        apply_tx(&mut doc, &tx(vec![create(901)])).expect("another");
+        assert_eq!(apply_tx(&mut doc, &tx(vec![Op::Restore { id: RecordId(900) }])), Err(Reject::Duplicate));
+        apply_tx(&mut doc, &tx(vec![Op::Delete { id: RecordId(901) }, Op::Restore { id: RecordId(900) }])).expect("swap back");
+        validate_doc(&doc).expect("valid");
+        // It belongs to its scene: exported with it, and its scene is `Record::scene`.
+        assert_eq!(state(scene).scene(), Some(scene));
+        assert_eq!(state(scene).kind(), RecordKind::SceneState);
+        assert!(!RecordKind::SceneState.is_session());
+        assert!(export_records(&doc).iter().any(|(id, _)| *id == RecordId(900)));
+        // A session holds none.
+        let mut session = session_genesis(|| RecordId(1), "s", &[]);
+        assert_eq!(apply_tx(&mut session, &tx(vec![create(5)])), Err(Reject::WrongDocKind));
+    }
+
+    #[test]
+    fn a_records_more_is_capped_as_json_on_create_and_on_every_write() {
+        let (mut doc, _, player) = board();
+        let list = |k: &str, n: usize| more(k, Some(MoreValue::ints(vec![4_294_967_295; n])));
+        // Each list is within its row; together they pass the record's cap, at the write that crosses it.
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: list("build_order", 600) }, Op::Set { id: player, value: list("items", 128) }])).expect("two full lists fit");
+        let before = doc.clone();
+        assert_eq!(apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: list("abilities", 48) }])), Err(Reject::TxTooLarge));
+        assert_eq!(doc, before);
+        // The same through a SetIf whose expectation holds; one that doesn't hold is skipped first.
+        let grow = |expect| Op::SetIf { id: player, expect, value: list("abilities", 48) };
+        assert_eq!(apply_tx(&mut doc, &tx(vec![grow(more("abilities", None))])), Err(Reject::TxTooLarge));
+        assert_eq!(apply_tx(&mut doc, &tx(vec![grow(list("abilities", 1))])), Ok(vec![OpOutcome::Skipped]));
+        assert_eq!(doc, before);
+        // Replacing the big list with a small one makes room; clearing always fits.
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: list("build_order", 10) }, Op::Set { id: player, value: list("abilities", 48) }])).expect("room now");
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: more("items", None) }])).expect("clear");
+        // A write to a deleted record is skipped before it is measured, like any field's.
+        let Some(Record::PlayerState(p)) = doc.live(player) else { panic!("player") };
+        assert!(p.more.json_len() <= LIMITS.max_more_bytes);
+    }
+
+    #[test]
+    fn the_largest_legal_registry_ops_fit_the_op_and_tx_bounds() {
+        let (mut doc, scene, player) = board();
+        // The fullest `more` a record may hold: its lists filled to the byte cap with the widest ints.
+        let widest = |n: usize| MoreValue::ints(vec![4_294_967_295; n]);
+        let filled = |n: usize| -> More { [(key("build_order"), widest(600)), (key("items"), widest(128)), (key("abilities"), widest(n))].into_iter().collect() };
+        let fill = (1..=48usize).rev().find(|n| filled(*n).json_len() <= LIMITS.max_more_bytes).expect("fits");
+        let full = filled(fill);
+        assert!(full.json_len() > LIMITS.max_more_bytes - 12, "filled to within one more int of the cap: {}", full.json_len());
+        full.check(Entity::Hero).expect("legal");
+        let slot = match doc.live(player) {
+            Some(Record::PlayerState(p)) => p.slot,
+            _ => panic!("player"),
+        };
+        let mut hero = PlayerState::starting(scene, slot, Team::Sapphire, 5);
+        hero.more = full.clone();
+        hero.souls = Some(1_000_000);
+        hero.respawn = Some(600);
+        hero.ult_cooldown = Some(100);
+        hero.pos = WorldPos { x: -LIMITS.max_coord, y: -LIMITS.max_coord };
+        let ops = [
+            // Not applied (a scene already has this slot's player): measured as a client sends it.
+            Op::Create { id: RecordId(u128::MAX), record: Record::PlayerState(hero) },
+            Op::SetIf { id: player, expect: more("build_order", Some(widest(600))), value: more("build_order", Some(widest(600))) },
+        ];
+        for op in ops {
+            let t = Tx { client: ClientId(u128::MAX), cseq: u64::MAX, kind: TxKind::Redo { of: u64::MAX }, ops: vec![op] };
+            let op_len = serde_json::to_vec(&t.ops[0]).expect("json").len();
+            assert!(op_len <= LIMITS.max_op_bytes(), "{op_len} > {}", LIMITS.max_op_bytes());
+            assert!(serde_json::to_vec(&t).expect("json").len() <= LIMITS.max_tx_bytes);
+        }
+        // And the SetIf is legal: the value fits the record it lands on.
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: more("build_order", Some(widest(600))) }])).expect("legal");
+        assert!(LIMITS.to_ts().contains("max_more_bytes: 8192,") && LIMITS.to_ts().contains("max_more_ints: 1280,"));
+    }
+
+    #[test]
+    fn the_heap_estimate_counts_registry_values_on_every_kind_that_holds_them() {
+        let (mut doc, scene, player) = board();
+        let ints = |n: usize| MoreValue::ints(vec![7; n]);
+        let with: More = [(key("build"), MoreValue::Int(1))].into_iter().collect();
+        let small = doc.approx_heap_bytes();
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: more("items", Some(ints(100))) }])).expect("hero");
+        let hero = doc.approx_heap_bytes() - small;
+        assert!((800 + 300..800 + 500).contains(&hero), "{hero} for 800 bytes of ints and a map node");
+        let before = doc.approx_heap_bytes();
+        apply_tx(&mut doc, &tx(vec![Op::Create { id: RecordId(900), record: Record::SceneState(SceneState { scene, more: More::default() }) }])).expect("state");
+        let empty = doc.approx_heap_bytes() - before;
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: RecordId(900), value: more("build", Some(MoreValue::Int(1))) }])).expect("scene");
+        let entry = doc.approx_heap_bytes() - before - empty;
+        assert!(entry >= 11 * std::mem::size_of::<MoreValue>(), "the first entry counts its map node: {entry}");
+        // A marker's and a lane's count the same entry on top of their key.
+        for record in [
+            Record::ObjectiveState(ObjectiveState { scene, key: ObjectiveKey("walker:amber:lane1:1".into()), status: ObjectiveStatus::Active, more: More::default() }),
+            Record::Wave(Wave { scene, lane: LaneKey("lane1".into()), t: 1, more: More::default() }),
+        ] {
+            let mut plain = doc.clone();
+            apply_tx(&mut plain, &tx(vec![Op::Create { id: RecordId(950), record: record.clone() }])).expect("plain");
+            // No row belongs to a marker or a lane yet, so hold the map directly.
+            let held = match record {
+                Record::ObjectiveState(o) => Record::ObjectiveState(ObjectiveState { more: with.clone(), ..o }),
+                Record::Wave(w) => Record::Wave(Wave { more: with.clone(), ..w }),
+                _ => unreachable!(),
+            };
+            let mut filled = doc.clone();
+            filled.insert(RecordId(950), held);
+            assert_eq!(filled.approx_heap_bytes() - plain.approx_heap_bytes(), entry);
+        }
+    }
+
+    #[test]
+    fn every_field_value_names_a_field_in_all_and_every_row_is_a_field() {
+        let all: Vec<Field> = Field::all().collect();
+        assert_eq!(all.len(), Field::TYPED.len() + ROWS.len());
+        assert!(RowId::all().all(|r| all.contains(&Field::More(r))));
+        assert!(all.contains(&more("hero", None).field()));
+        assert_eq!(more("hero", Some(MoreValue::Int(1))).field(), Field::More(key("hero")));
+        assert_ne!(more("hero", None).field(), more("name", None).field(), "each key is its own field");
+        // On the wire: the key by name, the value bare, `null` to clear.
+        let json = r#"{"Set":{"id":"00000000000000000000000000000001","value":{"More":{"key":"items","value":[1,2]}}}}"#;
+        let op: Op = serde_json::from_str(json).expect("parses");
+        assert_eq!(op, Op::Set { id: RecordId(1), value: more("items", Some(MoreValue::ints(vec![1, 2]))) });
+        assert_eq!(serde_json::to_string(&op).expect("json"), json);
+        assert_eq!(serde_json::to_string(&more("hero", None)).expect("json"), r#"{"More":{"key":"hero","value":null}}"#);
+        assert!(serde_json::from_str::<FieldValue>(r#"{"More":{"key":"no_such_row","value":1}}"#).is_err(), "an unknown key is not a transaction");
+    }
+
+    #[test]
+    fn records_from_before_more_load_empty_and_an_empty_more_is_not_written() {
+        let s = "00000000000000000000000000000001";
+        for old in [
+            format!(r#"{{"PlayerState":{{"scene":"{s}","slot":"{s}","pos":{{"x":1,"y":2}},"alive":true,"placed":true,"souls":null,"ult_cooldown":null,"visible":true,"respawn":null}}}}"#),
+            format!(r#"{{"ObjectiveState":{{"scene":"{s}","key":"walker:amber:lane1:1","status":"Destroyed"}}}}"#),
+            format!(r#"{{"Wave":{{"scene":"{s}","lane":"lane1","t":500}}}}"#),
+            format!(r#"{{"SceneState":{{"scene":"{s}"}}}}"#),
+        ] {
+            let r: Record = serde_json::from_str(&old).expect("loads");
+            assert!(r.more().expect("holds a map").1.is_empty());
+            assert_eq!(serde_json::to_string(&r).expect("json"), old, "written back byte for byte");
+        }
+        let filled: Record = serde_json::from_str(&format!(r#"{{"SceneState":{{"scene":"{s}","more":{{"rows":3,"has_builds":true}}}}}}"#)).expect("loads");
+        let (entity, map) = filled.more().expect("map");
+        assert_eq!((entity, map.iter().count()), (Entity::Scene, 2));
+        // The kinds that hold no registry values say so.
+        assert!(Record::Note(Note { scene: RecordId(1), text: String::new() }).more().is_none());
     }
 
     #[test]

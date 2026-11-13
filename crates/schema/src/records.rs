@@ -1,4 +1,5 @@
 use crate::ids::{BoardId, GrantId, HeroId, LaneKey, ObjectiveKey, OrderKey, RecordId};
+use crate::map_state::{Entity, More, MoreValue, RowId};
 use serde::{Deserialize, Serialize};
 
 pub const SLOTS_PER_TEAM: u8 = 6;
@@ -130,6 +131,11 @@ pub struct PlayerState {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub respawn: Option<u16>,
+    /// Registry values (`map_state.rs`): everything else a snapshot holds for this hero. Left
+    /// out when empty, so a record from before it is written back byte for byte.
+    #[serde(default, skip_serializing_if = "More::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<More>", optional))]
+    pub more: More,
 }
 
 fn visible_by_default() -> bool {
@@ -149,7 +155,7 @@ impl PlayerState {
             Team::Amber => (-5900 + col * 1000, -7100 - row * 900),
             Team::Sapphire => (3900 + col * 1000, 7100 + row * 900),
         };
-        PlayerState { scene, slot, pos: WorldPos { x, y }, alive: true, placed: true, souls: None, ult_cooldown: None, visible: true, respawn: None }
+        PlayerState { scene, slot, pos: WorldPos { x, y }, alive: true, placed: true, souls: None, ult_cooldown: None, visible: true, respawn: None, more: More::default() }
     }
 }
 
@@ -159,6 +165,11 @@ pub struct ObjectiveState {
     pub scene: RecordId,
     pub key: ObjectiveKey,
     pub status: ObjectiveStatus,
+    /// Registry values (`map_state.rs`): everything else a snapshot holds for this marker. Left
+    /// out when empty, so a record from before it is written back byte for byte.
+    #[serde(default, skip_serializing_if = "More::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<More>", optional))]
+    pub more: More,
 }
 
 /// Where a lane's creep waves meet (the lane equilibrium), at most one per lane per scene.
@@ -170,6 +181,23 @@ pub struct Wave {
     /// Position along the lane's zipline by arc length: 0 at the Amber end, 1000 at the
     /// Sapphire end. Independent of viewpoint and of small changes to the map's geometry.
     pub t: u16,
+    /// Registry values (`map_state.rs`): everything else a snapshot holds for this lane. Left
+    /// out when empty, so a record from before it is written back byte for byte.
+    #[serde(default, skip_serializing_if = "More::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<More>", optional))]
+    pub more: More,
+}
+
+/// A scene's match-wide registry values (map-state spec §4.2): what the snapshot holds and the
+/// frame's values that belong to no hero, marker or lane. At most one live per scene. A scene
+/// with none, or an empty one, is a scene from before snapshots: nothing was captured.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SceneState {
+    pub scene: RecordId,
+    #[serde(default, skip_serializing_if = "More::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<More>", optional))]
+    pub more: More,
 }
 
 /// The largest `Wave::t`: the Sapphire end of the lane.
@@ -244,6 +272,7 @@ pub enum Record {
     Wave(Wave),
     SessionMeta(SessionMeta),
     Tab(Tab),
+    SceneState(SceneState),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -260,6 +289,7 @@ pub enum RecordKind {
     Wave,
     SessionMeta,
     Tab,
+    SceneState,
 }
 
 impl RecordKind {
@@ -303,6 +333,8 @@ pub enum FieldValue {
     SessionTitle(String),
     TabName(String),
     TabOrder(OrderKey),
+    /// One registry value of a hero, marker, lane or scene (`map_state.rs`): `None` clears it.
+    More { key: RowId, value: Option<MoreValue> },
 }
 
 /// The field a [`FieldValue`] writes, without its value.
@@ -336,10 +368,18 @@ pub enum Field {
     SessionTitle,
     TabName,
     TabOrder,
+    /// A registry row: each is its own field, for conflicts and undo.
+    More(RowId),
 }
 
 impl Field {
-    pub const ALL: [Field; 28] = [
+    /// Every field: the typed ones, then one per registry row.
+    pub fn all() -> impl Iterator<Item = Field> {
+        Field::TYPED.into_iter().chain(RowId::all().map(Field::More))
+    }
+
+    /// The fields that are struct members. Not every field: see [`Field::all`].
+    pub const TYPED: [Field; 28] = [
         Field::Title,
         Field::RosterName,
         Field::RosterHero,
@@ -402,6 +442,7 @@ impl FieldValue {
             FieldValue::SessionTitle(_) => Field::SessionTitle,
             FieldValue::TabName(_) => Field::TabName,
             FieldValue::TabOrder(_) => Field::TabOrder,
+            FieldValue::More { key, .. } => Field::More(*key),
         }
     }
 }
@@ -421,6 +462,7 @@ impl Record {
             Record::Wave(_) => RecordKind::Wave,
             Record::SessionMeta(_) => RecordKind::SessionMeta,
             Record::Tab(_) => RecordKind::Tab,
+            Record::SceneState(_) => RecordKind::SceneState,
         }
     }
 
@@ -434,6 +476,7 @@ impl Record {
             Record::Note(r) => Some(r.scene),
             Record::Stroke(r) => Some(r.scene),
             Record::Wave(r) => Some(r.scene),
+            Record::SceneState(r) => Some(r.scene),
             Record::BoardMeta(_) | Record::RosterSlot(_) | Record::Scene(_) | Record::SessionMeta(_) | Record::Tab(_) => None,
         }
     }
@@ -448,7 +491,29 @@ impl Record {
             Record::Note(r) => Some(&mut r.scene),
             Record::Stroke(r) => Some(&mut r.scene),
             Record::Wave(r) => Some(&mut r.scene),
+            Record::SceneState(r) => Some(&mut r.scene),
             Record::BoardMeta(_) | Record::RosterSlot(_) | Record::Scene(_) | Record::SessionMeta(_) | Record::Tab(_) => None,
+        }
+    }
+
+    /// This record's registry values and whose they are, for the kinds that hold them.
+    pub fn more(&self) -> Option<(Entity, &More)> {
+        match self {
+            Record::PlayerState(r) => Some((Entity::Hero, &r.more)),
+            Record::ObjectiveState(r) => Some((Entity::Marker, &r.more)),
+            Record::Wave(r) => Some((Entity::Lane, &r.more)),
+            Record::SceneState(r) => Some((Entity::Scene, &r.more)),
+            Record::BoardMeta(_) | Record::RosterSlot(_) | Record::Scene(_) | Record::Arrow(_) | Record::Callout(_) | Record::Note(_) | Record::Stroke(_) | Record::SessionMeta(_) | Record::Tab(_) => None,
+        }
+    }
+
+    fn more_mut(&mut self) -> Option<(Entity, &mut More)> {
+        match self {
+            Record::PlayerState(r) => Some((Entity::Hero, &mut r.more)),
+            Record::ObjectiveState(r) => Some((Entity::Marker, &mut r.more)),
+            Record::Wave(r) => Some((Entity::Lane, &mut r.more)),
+            Record::SceneState(r) => Some((Entity::Scene, &mut r.more)),
+            Record::BoardMeta(_) | Record::RosterSlot(_) | Record::Scene(_) | Record::Arrow(_) | Record::Callout(_) | Record::Note(_) | Record::Stroke(_) | Record::SessionMeta(_) | Record::Tab(_) => None,
         }
     }
 
@@ -456,6 +521,14 @@ impl Record {
     pub fn get(&self, field: Field) -> Option<FieldValue> {
         use FieldValue as V;
         Some(match (self, field) {
+            // A registry row is a field of the one kind that holds its entity; unset reads as `None`.
+            (r, Field::More(key)) => {
+                let (entity, more) = r.more()?;
+                if key.row().entity != entity {
+                    return None;
+                }
+                V::More { key, value: more.get(key).cloned() }
+            }
             (Record::BoardMeta(r), Field::Title) => V::Title(r.title.clone()),
             (Record::RosterSlot(r), Field::RosterName) => V::RosterName(r.name.clone()),
             (Record::RosterSlot(r), Field::RosterHero) => V::RosterHero(r.hero),
@@ -492,6 +565,10 @@ impl Record {
     pub fn set(&mut self, value: FieldValue) -> bool {
         use FieldValue as V;
         match (self, value) {
+            (r, V::More { key, value }) => match r.more_mut() {
+                Some((entity, more)) if key.row().entity == entity => more.put(key, value),
+                _ => return false,
+            },
             (Record::BoardMeta(r), V::Title(v)) => r.title = v,
             (Record::RosterSlot(r), V::RosterName(v)) => r.name = v,
             (Record::RosterSlot(r), V::RosterHero(v)) => r.hero = v,

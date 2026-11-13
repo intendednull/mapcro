@@ -161,8 +161,12 @@ its life today.
 - **Markers are one packed baseline:** the state of every camp, heal and crate at the frame is
   `Ints` rows on `SceneState`. An `ObjectiveState` exists only for a marker someone edits (and,
   as today, for objectives that are down). About 45 records per scene.
-- **Per record, `more` is at most 16 KiB of JSON** (`LIMITS.max_more_bytes`), counted exactly on
-  every write. `max_op_bytes` covers it, and `Doc::approx_heap_bytes` counts it.
+- **Per record, `more` is at most 8 KiB of JSON** (`LIMITS.max_more_bytes`), counted exactly on
+  every write. That is under a full stroke, so the largest document as JSON is unchanged.
+  `max_op_bytes` covers it.
+- **Per record, the lists hold at most 1,280 integers** (`LIMITS.max_more_ints`): each entity's
+  `Ints` rows, all full, sum to no more (a test on the registry). It bounds a record's heap at
+  about 10 KB, which `Doc::approx_heap_bytes` counts, so a room's memory budget holds.
 - **A save is one transaction** (one undo step): the scene, its 12 heroes and its `SceneState`
   must be created together. It fits: the fullest frame measured 47 KB and 189 ops against 64 KiB
   and 256. The client checks the encoded size before sending and drops whole features in a fixed

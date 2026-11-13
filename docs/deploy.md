@@ -189,6 +189,13 @@ Without a pack, boards render on the built-in placeholder map.
 The database is `/var/lib/mapcro/mapcro.sqlite` (WAL mode). A server migrates it forwards on start
 when its schema is older, and never backwards (spec §9, §10).
 
+**Map-state rows: lock them at each deploy.** After a deploy is live, run `just rows-lock` and
+commit `crates/schema/rows.lock`. It lists the map-state rows the deployed build reads
+(`docs/specs/map-state.md` §4.3). A row may be written only by a build that follows one that
+reads it, and the schema's test refuses a row that is written (`Live`) but not in the lock, or a
+locked row that changed. Schema v8 is the reader (additive: a v7 server still opens the
+database); v9 will ship with the first writer and set the floor to 8.
+
 **Rolling back after a schema bump.** `meta` holds two numbers: `schema_version` and
 `compat_floor`, the oldest server schema version that can still use the database. An additive
 migration (one that only adds tables or columns older servers never read) keeps the floor; any

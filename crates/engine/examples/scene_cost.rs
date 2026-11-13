@@ -12,8 +12,8 @@
 
 use mapcro_engine::{Replica, ServerMsg};
 use mapcro_schema::{
-    ClientId, Doc, FieldValue, LaneKey, ObjectiveKey, ObjectiveState, ObjectiveStatus, Op, OrderKey, PlayerState, Record, RecordId, Scene,
-    SceneSource, Tx, TxKind, Wave, WorldPos, apply_tx, genesis, LIMITS,
+    ClientId, Doc, FieldValue, LaneKey, More, MoreValue, ObjectiveKey, ObjectiveState, ObjectiveStatus, Op, OrderKey, PlayerState, Record, RecordId, Scene,
+    RowId, SceneSource, Tx, TxKind, Wave, WorldPos, apply_tx, genesis, LIMITS,
 };
 use std::time::Instant;
 
@@ -58,10 +58,10 @@ fn board(objectives: usize, more: usize) -> Doc {
         }
         for k in 0..objectives {
             let key = ObjectiveKey(format!("camp:neutral:lane{}:{k}", 1 + k % 6));
-            ops.push(Op::Create { id: next(), record: Record::ObjectiveState(ObjectiveState { scene, key, status: ObjectiveStatus::Destroyed }) });
+            ops.push(Op::Create { id: next(), record: Record::ObjectiveState(ObjectiveState { scene, key, status: ObjectiveStatus::Destroyed, more: More::default() }) });
         }
         for lane in ["lane1", "lane4", "lane6"] {
-            ops.push(Op::Create { id: next(), record: Record::Wave(Wave { scene, lane: LaneKey(lane.into()), t: 500 }) });
+            ops.push(Op::Create { id: next(), record: Record::Wave(Wave { scene, lane: LaneKey(lane.into()), t: 500, more: More::default() }) });
         }
         // A save is one transaction; past the op cap this fixture splits, which a save never does.
         for (c, chunk) in ops.chunks(LIMITS.max_ops_per_tx).enumerate() {
@@ -76,8 +76,18 @@ fn board(objectives: usize, more: usize) -> Doc {
     doc
 }
 
-/// What a snapshot adds to a hero, as `bytes` of packed lists. Today's records have no `more`.
-fn fill(_p: &mut PlayerState, _bytes: usize) {}
+/// What a snapshot adds to a hero: about `bytes` of JSON as packed lists (a build order, items
+/// and abilities, as the tracer's rows hold them). 0: today's records, with no `more`.
+fn fill(p: &mut PlayerState, bytes: usize) {
+    if bytes == 0 {
+        return;
+    }
+    let row = |key: &str| RowId::of(key).expect("a registry row");
+    // Item ids are 32-bit hashes: ten digits and a comma each.
+    let ids = |n: usize| MoreValue::Ints((0..n).map(|i| 1_000_000_000 + i as i64).collect());
+    let n = bytes / 11;
+    p.more = [(row("build_order"), ids((n * 3 / 4).min(600))), (row("items"), ids((n / 8).min(128))), (row("abilities"), ids((n / 8).min(48)))].into_iter().collect::<More>();
+}
 
 fn time(runs: u32, mut f: impl FnMut()) -> f64 {
     let start = Instant::now();

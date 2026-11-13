@@ -61,6 +61,12 @@ ts:
     rm -rf web/src/gen
     cargo test -q -p mapcro-schema -p mapcro-engine --features ts export_bindings
 
+# Record the map-state rows this build has as deployed (crates/schema/rows.lock). Run at each
+# deploy, after it is live, and commit the file: a row may be written only once it is in here
+# (docs/specs/map-state.md §4.3; the schema's test enforces it).
+rows-lock:
+    MAPCRO_ROWS_LOCK=1 cargo test -q -p mapcro-schema --lib rows_are_append_only
+
 # Build the browser replica (WASM) into web/src/wasm.
 wasm:
     cargo build -q --release -p mapcro-wasm --target wasm32-unknown-unknown

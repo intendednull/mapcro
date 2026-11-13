@@ -7,6 +7,7 @@ import type { ObjectiveState } from "./ObjectiveState";
 import type { PlayerState } from "./PlayerState";
 import type { RosterSlot } from "./RosterSlot";
 import type { Scene } from "./Scene";
+import type { SceneState } from "./SceneState";
 import type { SessionMeta } from "./SessionMeta";
 import type { Stroke } from "./Stroke";
 import type { Tab } from "./Tab";
@@ -16,4 +17,4 @@ import type { Wave } from "./Wave";
  * Every record a document can hold: a board's kinds, then a session's (`SessionMeta`, `Tab`).
  * A document is one or the other, by its genesis record (`Doc::kind`).
  */
-export type Record = { "BoardMeta": BoardMeta } | { "RosterSlot": RosterSlot } | { "Scene": Scene } | { "PlayerState": PlayerState } | { "ObjectiveState": ObjectiveState } | { "Arrow": Arrow } | { "Callout": Callout } | { "Note": Note } | { "Stroke": Stroke } | { "Wave": Wave } | { "SessionMeta": SessionMeta } | { "Tab": Tab };
+export type Record = { "BoardMeta": BoardMeta } | { "RosterSlot": RosterSlot } | { "Scene": Scene } | { "PlayerState": PlayerState } | { "ObjectiveState": ObjectiveState } | { "Arrow": Arrow } | { "Callout": Callout } | { "Note": Note } | { "Stroke": Stroke } | { "Wave": Wave } | { "SessionMeta": SessionMeta } | { "Tab": Tab } | { "SceneState": SceneState };

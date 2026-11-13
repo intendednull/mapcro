@@ -6,13 +6,14 @@
 //! that wrote them, and a server rolled back a release reads what the newer one wrote.
 //!
 //! The fixtures are built here from the public API, so they hold every record kind, every op and
-//! every field value there was on 2026-11-13 (before `more` and `SceneState`). A change that
+//! every typed field value there was on 2026-11-13, before `more` and `SceneState`: neither is in
+//! them, and an empty `more` is never written, so they hold still through the map-state work. A change that
 //! moves a byte fails the comparison. `MAPCRO_BLESS=1 cargo test -p mapcro-schema --test
 //! characterisation` rewrites them, which is right only for a change these fixtures were never
 //! meant to hold still (a new typed field with a serde default that is always written).
 
 use mapcro_schema::{
-    Arrow, BoardId, Callout, ClientId, Doc, Field, FieldValue, GrantId, HeroId, LaneKey, Note, ObjectiveKey, ObjectiveState,
+    Arrow, BoardId, Callout, ClientId, Doc, Field, FieldValue, GrantId, HeroId, LaneKey, More, Note, ObjectiveKey, ObjectiveState,
     ObjectiveStatus, Op, OpOutcome, OrderKey, PlayerState, Record, RecordId, Scene, SceneSource, Stroke, Tab, Team, Tx, TxKind, Wave,
     WorldPos, apply_tx, apply_tx_with_inverse, export_records, genesis, session_genesis, validate_doc,
 };
@@ -111,9 +112,9 @@ fn board_log() -> (Doc, Vec<Tx>) {
     ]);
     let objective = |n: u128, scene: RecordId, key: &str, status| Op::Create {
         id: id(n),
-        record: Record::ObjectiveState(ObjectiveState { scene, key: ObjectiveKey(key.into()), status }),
+        record: Record::ObjectiveState(ObjectiveState { scene, key: ObjectiveKey(key.into()), status, more: More::default() }),
     };
-    let wave = |n: u128, scene: RecordId, lane: &str, t| Op::Create { id: id(n), record: Record::Wave(Wave { scene, lane: LaneKey(lane.into()), t }) };
+    let wave = |n: u128, scene: RecordId, lane: &str, t| Op::Create { id: id(n), record: Record::Wave(Wave { scene, lane: LaneKey(lane.into()), t, more: More::default() }) };
     send(&mut doc, TxKind::Edit, vec![
         objective(100, first, "walker:amber:lane1:1", ObjectiveStatus::Destroyed),
         objective(101, first, "patron:sapphire:lane0:1", ObjectiveStatus::Stage2),
@@ -242,7 +243,7 @@ fn the_fixture_log_holds_every_op_and_every_typed_field() {
     assert_eq!(ops.len(), 5, "every op: {ops:?}");
     // A board's typed fields: every one but a session's three (pinned by the session fixture).
     let board: BTreeSet<String> =
-        Field::ALL.iter().filter(|f| !matches!(f, Field::SessionTitle | Field::TabName | Field::TabOrder)).map(|f| format!("{f:?}")).collect();
+        Field::TYPED.iter().filter(|f| !matches!(f, Field::SessionTitle | Field::TabName | Field::TabOrder)).map(|f| format!("{f:?}")).collect();
     assert_eq!(fields, board);
     assert_eq!(kinds.len(), 8, "every kind an edit creates in a board: {kinds:?}");
     assert!(log.iter().any(|t| matches!(t.kind, TxKind::Undo { .. })) && log.iter().any(|t| matches!(t.kind, TxKind::Redo { .. })));

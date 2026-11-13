@@ -33,6 +33,12 @@ pub const FORMAT: &str = "mapcro-board";
 /// build's file can't be read into by serde defaults alone, bumps it and adds a step to
 /// [`upgrade`]: a pure function from the old version's shape to the next.
 pub const VERSION: u64 = 1;
+/// The newest version this build reads. Version 2 is version 1 with a `rows` header: how many
+/// map-state rows the build that wrote the file knew (docs/specs/map-state.md §4.3). This build
+/// reads it and still writes version 1, since it writes no row; the build that first writes
+/// them writes version 2, so a build from before this reader says "Newer file" rather than
+/// dropping the values, which its lenient record parsing would.
+pub const READS: u64 = 2;
 /// The largest file, either way. A board this size as JSON is the largest the server sends as
 /// one snapshot (`room::SNAPSHOT_MAX_BYTES`); real boards are kilobytes to a few hundred. The
 /// schema's own limits allow ~64 MB, which would never fit the room memory budget as a body.
@@ -62,6 +68,10 @@ pub struct BoardFile {
     pub records: Vec<(RecordId, Record)>,
     #[serde(default)]
     pub matches: Vec<u64>,
+    /// Version 2: the map-state rows its writer knew. A file with more than this build has holds
+    /// keys it can't read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows: Option<u64>,
 }
 
 /// Why a file wasn't imported. Codes, not text: nothing from the file reaches the answer.
@@ -105,6 +115,7 @@ fn file(doc: &Doc, matches: Vec<u64>, exported_at: i64) -> BoardFile {
         exported_at,
         records: mapcro_schema::export_records(doc),
         matches,
+        rows: None,
     }
 }
 
@@ -151,14 +162,17 @@ fn too_deep(bytes: &[u8], max: usize) -> bool {
 struct Head {
     format: String,
     version: u64,
+    #[serde(default)]
+    rows: Option<u64>,
 }
 
 /// A file of any version this build reads, as the current one. Version 1 is the first; an
 /// older version's step goes here (`2 => from_v1(serde_json::from_slice::<V1>(bytes)?)`).
 fn upgrade(version: u64, bytes: &[u8]) -> Result<BoardFile, Refusal> {
     match version {
-        VERSION => serde_json::from_slice::<BoardFile>(bytes).map_err(|_| Refusal::NotABoard),
-        v if v > VERSION => Err(Refusal::Newer),
+        // Version 2 only adds a header this build reads, so both parse as the current shape.
+        1..=READS => serde_json::from_slice::<BoardFile>(bytes).map_err(|_| Refusal::NotABoard),
+        v if v > READS => Err(Refusal::Newer),
         _ => Err(Refusal::NotABoard),
     }
 }
@@ -176,6 +190,11 @@ pub fn read(bytes: &[u8], next_id: impl FnMut() -> RecordId) -> Result<(Doc, Vec
     let head: Head = serde_json::from_slice(bytes).map_err(|_| Refusal::NotABoard)?;
     if head.format != FORMAT {
         return Err(Refusal::NotABoard);
+    }
+    // A file from a build with more map-state rows than this one: its records may name keys
+    // this build can't hold. Said before the records are parsed, where it would read as damage.
+    if head.rows.is_some_and(|n| n > mapcro_schema::ROWS.len() as u64) {
+        return Err(Refusal::Newer);
     }
     let file = upgrade(head.version, bytes)?;
     if file.matches.len() > crate::replays::ATTACHED_MAX {
