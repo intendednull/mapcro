@@ -10,6 +10,8 @@ import type { WireIn } from "../gen/WireIn";
 import type { WireOut } from "../gen/WireOut";
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { Presence } from "../gen/Presence";
+import type { RoomKind } from "../gen/RoomKind";
+import type { Via } from "../gen/Via";
 import { BoardReplica, buildId, newClientId, newClientSecret, presenceFrameOk } from "../wasm/mapcro_wasm.js";
 import { MemoryPersist, type Persist } from "./persist";
 import { pageSeat } from "./seat";
@@ -29,13 +31,22 @@ export type Connection =
   | { kind: "connecting"; attempt: number }
   | { kind: "live"; role: LinkRole }
   | { kind: "waiting"; retryInMs: number }
-  /** The server refused this link for good (unauthorized, revoked). */
-  | { kind: "closed"; reason: CloseReason };
+  /** The server refused this link for good (unauthorized, revoked), or the room isn't the kind
+   * the page expected (`wrong_kind`: a session's link on a board page, or the reverse). */
+  | { kind: "closed"; reason: CloseReason | "wrong_kind" };
 
 export interface SessionOptions {
   wsUrl: string;
   board: string;
   token: string;
+  /** Opening `board` as a session's tab: `token` is the session's (sessions.md §3.4). */
+  via?: Via;
+  /**
+   * What the room must be (sessions.md §3.6): the server's `Ready` says, and a room of the other
+   * kind is left at once, before anything of it is kept or drawn. Default `"board"`. A server
+   * from before sessions says nothing, and is taken at its word.
+   */
+  expect?: RoomKind;
   persist: Persist;
   openSocket: (url: string) => SocketLike;
   onChange?: (s: BoardSession) => void;
@@ -63,6 +74,9 @@ export interface SessionOptions {
 
 const FINAL: CloseReason[] = ["unauthorized", "revoked"];
 
+/** How long an ended session waits for its edits in flight to go out before it closes. */
+const FLUSH_MS = 2000;
+
 /**
  * Presence send cadence. The server coalesces presence in 50 ms batches, the latest state per
  * peer winning. Sent every 50 ms, arrival jitter put two of one person's updates in one batch
@@ -81,12 +95,32 @@ export const PRESENCE_MS = 60;
 const RESEND_BURST = 200;
 const RESEND_PER_SEC = 30;
 
-/** Where a link's role is remembered, per board and per link (one device may hold several). */
-async function roleKey(board: string, token: string): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)));
+/**
+ * Where a link's role is remembered, per board and per link (one device may hold several). A
+ * session's tab is its token and the tab's grant: one session token opens a board through an
+ * edit grant and a view grant alike (sessions.md §3.4), at two roles.
+ */
+async function roleKey(board: string, token: string, via?: Via): Promise<string> {
+  const link = via ? `${token}\u0000${via.session}\u0000${via.grant}` : token;
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(link)));
   const hex = Array.from(digest.slice(0, 8), (b) => b.toString(16).padStart(2, "0")).join("");
   return `${board}\u0000role\u0000${hex}`;
 }
+
+/** A document's kind by its genesis record, as the server's `Doc::kind` (sessions.md §2.2). */
+export function docKind(records: Iterable<[RecordId, Entry]>): RoomKind {
+  for (const [, e] of records) if ("SessionMeta" in e.record) return "session";
+  return "board";
+}
+
+/**
+ * A board's last writes, from a session that ended (its tab was left, sessions.md §4.1), by
+ * board id. The next session of that board loads only once they're done, so its load never reads
+ * storage from before them. Each entry is removed as it settles.
+ */
+const ending = new Map<string, Promise<unknown>>();
+
+const isSubmit = (f: WireIn) => f.t === "msg" && "Submit" in f.msg;
 
 export class BoardSession {
   readonly records = new Map<RecordId, Entry>();
@@ -128,6 +162,8 @@ export class BoardSession {
   private starting: Promise<void> = Promise.resolve();
   /** Saves and sends run in order through this chain, so frames leave in cseq order. */
   private chain: Promise<void> = Promise.resolve();
+  /** Edits on the chain not yet sent (or given up on). */
+  private sending = 0;
   /** Whole-state saves, one at a time and in the order taken, so storage never goes back. */
   private saves: Promise<void> = Promise.resolve();
   /** The next cseq after every transaction journaled so far, and whose they are. */
@@ -153,7 +189,9 @@ export class BoardSession {
   }
 
   private async begin(): Promise<void> {
-    this.roleStore = await roleKey(this.o.board, this.o.token);
+    // The writes of this board's last session (left just now) land first.
+    await ending.get(this.o.board);
+    this.roleStore = await roleKey(this.o.board, this.o.token, this.o.via);
     let saved: string | undefined;
     let role: string | undefined;
     try {
@@ -171,8 +209,14 @@ export class BoardSession {
       this.o = { ...this.o, persist: new MemoryPersist() };
     }
     if (saved !== undefined) {
-      this.replica = BoardReplica.restore(saved);
-      this.resetRecords(this.replica.view());
+      const r = BoardReplica.restore(saved);
+      const all = JSON.parse(r.view()) as Array<[RecordId, Entry]>;
+      // A stored copy of the other kind (sessions.md §3.6) is never drawn: the server is asked
+      // afresh, and its Ready decides.
+      if (docKind(all) === (this.o.expect ?? "board")) {
+        this.replica = r;
+        this.resetRecords(all);
+      } else r.free();
     }
     this.readOnly = role !== "owner" && role !== "edit";
     this.open();
@@ -189,21 +233,54 @@ export class BoardSession {
 
   /**
    * End the session for good: its board was left (unmounted, sessions.md §4.1). As `stop`, and
-   * no timer of its own runs on: the presence send and the lazy save are dropped, as a page left
-   * drops them (the journal and the server hold what that save would have, and a late one would
-   * land under the board's next mount). No edit is taken after. Once the writes in flight are
-   * done, its storage is let go and the replica freed.
+   * no timer of its own runs on: the presence send is dropped, and a lazy save due is made now,
+   * once. The journal holds the edits that save would have, but not their undo entries, so
+   * without it the board's undo after a quick switch back would take back an older edit (review
+   * 2026-11-12, finding 1). It's queued here, in order behind earlier saves, and the board's next
+   * session loads only after it (`ending`), so it never lands over a newer load. No edit is taken
+   * after. Once the writes in flight are done, its storage is let go and the replica freed.
    */
   end(): void {
-    this.stop();
+    if (this.ended) return;
     this.ended = true;
     clearTimeout(this.presenceTimer);
     clearTimeout(this.saveSoon);
-    void Promise.allSettled([this.starting, this.chain, this.saves]).then(() => {
-      this.o.persist.close?.();
-      this.replica?.free();
-      this.replica = undefined;
-    });
+    this.saveSoon = undefined;
+    if (this.dirtySince !== undefined) this.saveState().catch(() => {});
+    {
+      // No timer of its own: a write that never ends would hold the next load in storage anyway
+      // (IndexedDB runs a store's transactions in order).
+      const board = this.o.board;
+      const last: Promise<unknown> = Promise.allSettled([this.saves, this.chain]).finally(() => {
+        if (ending.get(board) === last) ending.delete(board);
+      });
+      ending.set(board, last);
+    }
+    // No reconnect from here on.
+    this.stopped = true;
+    clearTimeout(this.timer);
+    // An edit made just before (a drag released as a tab switches, sessions.md §4.1) is still on
+    // its way through the save chain: it goes out on this socket, to this board, before the
+    // socket closes. Bounded, so a stuck write never holds the socket open.
+    const close = () => {
+      this.dropSocket();
+      this.markOffline();
+    };
+    let flushed: Promise<unknown> = Promise.resolve();
+    if (this.live && this.sending > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      flushed = Promise.race([this.chain, new Promise<void>((r) => (timer = setTimeout(r, FLUSH_MS)))]).then(() => {
+        clearTimeout(timer);
+        close();
+      });
+    } else close(); // nothing on its way: closed at once, as a page left
+    void flushed
+      .then(() => Promise.allSettled([this.starting, this.chain, this.saves]))
+      .then(() => {
+        this.o.persist.close?.();
+        this.replica?.free();
+        this.replica = undefined;
+      });
   }
 
   /** Apply an edit; false if it was refused locally (the server may still refuse it later). */
@@ -307,6 +384,7 @@ export class BoardSession {
       }
       this.persistSoon();
     } else durable = this.saveState();
+    this.sending += 1;
     this.chain = this.chain
       .then(() => durable)
       .then(() => {
@@ -315,7 +393,8 @@ export class BoardSession {
       .catch((e) => {
         this.problems.push(`could not save locally, reconnecting: ${e}`);
         if (sock === this.socket) this.retry();
-      });
+      })
+      .finally(() => (this.sending -= 1));
     return !u.refused;
   }
 
@@ -351,9 +430,8 @@ export class BoardSession {
     return u;
   }
 
-  private resetRecords(viewJson: string) {
+  private resetRecords(all: Array<[RecordId, Entry]>) {
     this.records.clear();
-    const all = JSON.parse(viewJson) as Array<[RecordId, Entry]>;
     for (const [id, entry] of all) this.records.set(id, entry);
     this.o.onRecords?.(all, true);
   }
@@ -384,7 +462,8 @@ export class BoardSession {
     this.live = false;
     sock.onopen = () => {
       const known_seq = this.replica ? this.replica.lastSeq() : null;
-      sock.send(JSON.stringify({ t: "auth", board: this.o.board, token: this.o.token, known_seq, build: this.o.build ?? buildId() } satisfies WireIn));
+      const via = this.o.via ? { via: this.o.via } : {};
+      sock.send(JSON.stringify({ t: "auth", board: this.o.board, token: this.o.token, known_seq, build: this.o.build ?? buildId(), ...via } satisfies WireIn));
     };
     sock.onmessage = (ev) => {
       if (sock !== this.socket) return;
@@ -413,13 +492,32 @@ export class BoardSession {
   private onFrame(frame: WireOut) {
     switch (frame.t) {
       case "ready": {
+        if (frame.kind !== undefined && frame.kind !== (this.o.expect ?? "board")) {
+          // Another kind of room than this page shows: nothing of it is kept (no base, no
+          // replica, no role remembered), and it isn't retried.
+          this.stopped = true;
+          clearTimeout(this.timer);
+          this.connection = { kind: "closed", reason: "wrong_kind" };
+          this.dropSocket();
+          this.o.onChange?.(this);
+          return;
+        }
         if (!this.replica) {
           if (!frame.base) throw new Error("server sent no base for a new replica");
           this.replica = new BoardReplica(newClientId(), newClientSecret(), JSON.stringify(frame.base));
-          this.resetRecords(this.replica.view());
+          this.resetRecords(JSON.parse(this.replica.view()) as Array<[RecordId, Entry]>);
         }
         const u = this.apply(this.replica.connect());
         this.connected(u.frames[0]);
+        // Edits made through another link (an edit grant, or this board's own link) are pending
+        // in the copy this one shares by board id. Through a view link the server would take
+        // them as abuse and drop the socket, on every reconnect: they're held instead, and go
+        // the next time this board opens through a link that can edit (review 2026-11-12, 6).
+        let frames = u.frames;
+        if (frame.role === "view" && frames.some(isSubmit)) {
+          frames = frames.filter((f) => !isSubmit(f));
+          this.problems.push("edits not sent: this link is view-only");
+        }
         // The hello resends every pending transaction, so it goes through the save chain like any
         // edit: an edit made offline may not be durable yet, and the server must never ack what a
         // reload would forget (soak 2026-11-07, resend-before-durable). Later edits queue behind
@@ -431,11 +529,11 @@ export class BoardSession {
           .then(() => saved)
           .then(() => (this.roleStore ? this.o.persist.save(this.roleStore, role) : undefined))
           .then(async () => {
-            for (let i = 0; i < u.frames.length; i++) {
+            for (let i = 0; i < frames.length; i++) {
               if (sock !== this.socket) return;
               if (i >= RESEND_BURST) await new Promise((r) => setTimeout(r, 1000 / RESEND_PER_SEC));
               if (sock !== this.socket) return;
-              this.send(u.frames[i]!);
+              this.send(frames[i]!);
               if (i === 0) this.send({ t: "presence", state: this.presence });
             }
           })
@@ -499,6 +597,8 @@ export class BoardSession {
    * the journal short.
    */
   private persistSoon() {
+    // Ended: its one last save was made in `end`.
+    if (this.ended) return;
     const now = Date.now();
     this.dirtySince ??= now;
     clearTimeout(this.saveSoon);

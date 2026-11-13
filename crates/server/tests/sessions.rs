@@ -1108,10 +1108,12 @@ async fn adding_a_board_again_returns_its_grant() {
     assert_eq!(server.grant_rows(&board, &owner).len(), 5);
 }
 
-/// §3.8: a board holds at most 50 live grants, however many sessions add it; past that it's
-/// 409, when adding or when making a session from the board, until one is revoked.
+/// §3.8: one top-level link holds at most 50 live grants on a board, however many sessions add
+/// it; past that it's 409, when adding or when making a session from the board, until one of
+/// its grants is revoked. The cap is per link now, so this used to be "a board holds at most
+/// 50"; another link's allowance is separate.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_board_holds_at_most_50_live_grants() {
+async fn a_top_level_link_holds_at_most_50_live_grants() {
     let server = Server::start(&[]);
     let (board, owner) = server.create_board();
     let (_, view) = server.mint(&board, &owner, "view");
@@ -1132,6 +1134,61 @@ async fn a_board_holds_at_most_50_live_grants() {
     assert_eq!(rows.len(), 50);
     assert_eq!(server.revoke(&board, &owner, &rows[0].0), 204);
     assert_eq!(server.add_grant(&s.id, &s.owner, &board, &view, None).0, 201);
+}
+
+/// §3.8: the 50-live-grants cap is per minting link, not board-wide, so a view-link holder
+/// filling its own allowance leaves the board owner's untouched.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_view_link_holders_grants_do_not_fill_the_owners_allowance() {
+    let server = Server::start(&[]);
+    let (board, owner) = server.create_board();
+    let (_, view) = server.mint(&board, &owner, "view");
+    for i in 0..50 {
+        let s = server.create_session("View's", None);
+        assert_eq!(server.add_grant(&s.id, &s.owner, &board, &view, None).0, 201, "grant {i}");
+    }
+    // The owner's own allowance is untouched: the board still goes into a new session.
+    let (code, body) = server.json("POST", "/api/sessions", None, serde_json::json!({ "title": "Owner's", "board": board, "board_token": owner }));
+    assert_eq!(code, 201, "{body}");
+    // And the owner's grants are their own, not the view holder's.
+    let s = server.create_session("Owner's again", None);
+    assert_eq!(server.add_grant(&s.id, &s.owner, &board, &owner, None).0, 201);
+}
+
+/// §3.8: the cap still bounds what one view-link holder can write: its 51st grant is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_view_link_holder_is_still_capped_at_50_grants() {
+    let server = Server::start(&[]);
+    let (board, owner) = server.create_board();
+    let (_, view) = server.mint(&board, &owner, "view");
+    for i in 0..50 {
+        let s = server.create_session("View's", None);
+        assert_eq!(server.add_grant(&s.id, &s.owner, &board, &view, None).0, 201, "grant {i}");
+    }
+    let s = server.create_session("One too many", None);
+    let (code, body) = server.add_grant(&s.id, &s.owner, &board, &view, None);
+    assert_eq!(code, 409, "{body}");
+    // A second view link the owner minted has its own allowance.
+    let (_, other_view) = server.mint(&board, &owner, "view");
+    let s = server.create_session("Other link", None);
+    assert_eq!(server.add_grant(&s.id, &s.owner, &board, &other_view, None).0, 201);
+}
+
+/// §3.8: an editor can't dodge its allowance by minting a child link and adding through it:
+/// the cap is counted per top-level ancestor link, the one the owner minted.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_editor_cannot_dodge_the_grant_cap_with_a_child_link() {
+    let server = Server::start(&[]);
+    let (board, owner) = server.create_board();
+    let (_, editor) = server.mint(&board, &owner, "edit");
+    let (_, child) = server.mint(&board, &editor, "view");
+    for i in 0..50 {
+        let s = server.create_session("Editor's", None);
+        assert_eq!(server.add_grant(&s.id, &s.owner, &board, &editor, None).0, 201, "grant {i}");
+    }
+    let s = server.create_session("Through the child", None);
+    let (code, body) = server.add_grant(&s.id, &s.owner, &board, &child, None);
+    assert_eq!(code, 409, "{body}");
 }
 
 /// §3.7: removing one of two tabs with the same grant leaves the other's connections open, and

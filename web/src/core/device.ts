@@ -16,6 +16,11 @@ export interface KnownBoard {
   match?: string;
   /** Whether the link can edit, as the board last said (owner or edit): the list offers Rename. */
   edit?: boolean;
+  /** A session's link, not a board's (sessions.md §7.3); absent for boards, so older entries read
+   * as boards. `board` is then the session's id. */
+  kind?: "session";
+  /** A session's tab count, as it last read ("Scrim review · 4 games"). */
+  games?: number;
 }
 
 /** The presence palette (join card swatches); `Presence.color` indexes it. */

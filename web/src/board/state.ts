@@ -19,6 +19,7 @@ import type { Presence } from "../gen/Presence";
 import type { RecordId } from "../gen/RecordId";
 import type { RosterSlot } from "../gen/RosterSlot";
 import type { Scene } from "../gen/Scene";
+import type { Via } from "../gen/Via";
 import { flatten } from "./tree";
 
 let wasm: Promise<unknown> | undefined;
@@ -36,7 +37,7 @@ export interface Player {
 
 export type BoardState = ReturnType<typeof createBoardState>;
 
-function persistence(): Persist {
+export function persistence(): Persist {
   try {
     return typeof indexedDB === "undefined" ? new MemoryPersist() : new IdbPersist(indexedDB);
   } catch {
@@ -53,7 +54,14 @@ export interface Row<T> {
   readonly r: T;
 }
 
-export function createBoardState(board: string, token: string) {
+export interface BoardStateOptions {
+  /** Opened as a session's tab (sessions.md §3.4): `token` is the session's. */
+  via?: Via;
+  /** You made an undoable edit (the page's one history, session/history.ts). */
+  onEdit?: () => void;
+}
+
+export function createBoardState(board: string, token: string, opts: BoardStateOptions = {}) {
   // Records live in a store keyed by id, updated only where the replica says something changed
   // (perf report 2026-11-07, findings 1 and 2): a new stroke touches one key, not the board.
   const [records, setRecords] = createStore<Record<RecordId, Entry>>({});
@@ -135,6 +143,7 @@ export function createBoardState(board: string, token: string) {
     wsUrl: `${proto}//${location.host}/ws`,
     board,
     token,
+    ...(opts.via ? { via: opts.via } : {}),
     persist: persistence(),
     // A deploy happened under this tab: reload once to the new build (edits are kept in
     // storage); if that didn't help, the board offers the reload.
@@ -273,7 +282,9 @@ export function createBoardState(board: string, token: string) {
     },
     edit: (ops: Op[]) => {
       for (const op of ops) if ("Create" in op) made.add(op.Create.id);
-      return session.edit(ops);
+      const ok = session.edit(ops);
+      if (ok) opts.onEdit?.();
+      return ok;
     },
     /** Whether this tab's user made the record (an `edit` this page load): never stale ink. */
     madeHere: (id: RecordId) => made.has(id),

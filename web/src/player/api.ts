@@ -1,6 +1,8 @@
 // The server calls Player makes (spec §6a, §6b): the board's matches, a match's richest
 // timeline, and the replay tier's jobs (upload with progress, fetch, state).
 
+import { authHeader } from "../core/cred";
+import type { Via } from "../gen/Via";
 import type { Timeline } from "../match/timeline";
 
 /** The codes of a match refused for its game mode. */
@@ -98,10 +100,12 @@ export class Api {
   constructor(
     readonly board: string,
     readonly token: string,
+    /** Opened as a session's tab: the token is the session's (core/cred.ts). */
+    readonly via?: Via,
   ) {}
 
   private get auth() {
-    return { authorization: `Bearer ${this.token}` };
+    return { authorization: authHeader(this.token, this.via) };
   }
 
   /** The matches this board has opened, newest first. */
@@ -188,7 +192,7 @@ export class Api {
     return new Promise((done) => {
       const x = new XMLHttpRequest();
       x.open("POST", `/api/boards/${this.board}/replays/${id}/upload`);
-      x.setRequestHeader("authorization", `Bearer ${this.token}`);
+      x.setRequestHeader("authorization", authHeader(this.token, this.via));
       x.setRequestHeader("content-type", "application/octet-stream");
       x.upload.onprogress = (ev) => progress(ev.loaded, ev.lengthComputable ? ev.total : f.size);
       x.onload = () => {

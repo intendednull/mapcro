@@ -61,6 +61,9 @@ import { isUnnamed, sceneName } from "./scenes";
 import { easedNumber, smoothed } from "./smooth";
 import type { Tool } from "./tools";
 import { LIMITS } from "../gen/limits";
+import type { Via } from "../gen/Via";
+import type { UndoHistory } from "../session/history";
+import { AddGameOnBoard } from "../session/AddGame";
 
 /** The page's title, as index.html has it: what the tab says with no board open. */
 const PAGE_TITLE = "mapcro";
@@ -116,10 +119,42 @@ const heroCardSlot = (key: string): HeroCardSlot => {
  * always placed, a step from the last: panelPlace.ts `cascade`). */
 const HERO_HOME = { left: 12, top: 44 };
 
-export function Board(p: { board: string; token: string; art: Art }) {
-  const state = createBoardState(p.board, p.token);
+/**
+ * A board mounted as a session's tab (sessions.md §4.1, §8): the session's header parts and strip
+ * replace the board's title and Share, and its undo is the page's one history (§7.2). With
+ * `via`, the board is opened through the tab's grant; without, through this device's own link.
+ */
+/** A toast's button; `live` false hides it (its step is no longer the newest). */
+interface ToastAction {
+  label: string;
+  run: () => void;
+  live?: () => boolean;
+}
+
+export interface InSession {
+  via?: Via;
+  history: UndoHistory;
+  /** The join card shows once per session, not once per tab. */
+  joinKey: string;
+  title: () => JSX.Element;
+  share: () => JSX.Element;
+  strip: () => JSX.Element;
+}
+
+export function Board(p: { board: string; token: string; art: Art; session?: InSession }) {
+  // Fixed for the mount: another tab, or another credential, is a new mount (SessionView).
+  const inSession = p.session;
+  const via = inSession?.via;
+  const history = inSession?.history;
+  const state = createBoardState(p.board, p.token, { ...(via ? { via } : {}), ...(history ? { onEdit: () => history.edited(p.board) } : {}) });
+  if (history) onCleanup(history.attach(p.board, { canUndo: () => state.canUndo(), canRedo: () => state.canRedo(), undo: () => state.undo(), redo: () => state.redo() }));
+  const undo = () => (history ? void history.undo() : state.undo());
+  const redo = () => (history ? void history.redo() : state.redo());
+  const canUndo = () => (history ? history.canUndo() : state.canUndo());
+  const canRedo = () => (history ? history.canRedo() : state.canRedo());
+  const joinKey = inSession?.joinKey ?? p.board;
   const [me, setMe] = createSignal<Me | undefined>(loadMe());
-  const [joined, setJoined] = createSignal(hasJoined(p.board) && !!loadMe());
+  const [joined, setJoined] = createSignal(hasJoined(joinKey) && !!loadMe());
   const [viewpoint, setViewpoint] = createSignal<Viewpoint>("amber");
   const [sceneId, setSceneId] = createSignal<RecordId | undefined>();
   const [sideTab, setSideTab] = createSignal<"events" | "notes">("events");
@@ -130,9 +165,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
     setInkSignal(i);
     saveColour(p.board, i);
   };
-  const [toast, setToast] = createSignal<{ text: string; action?: { label: string; run: () => void } }>();
+  const [toast, setToast] = createSignal<{ text: string; action?: ToastAction }>();
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
-  const say = (text: string, action?: { label: string; run: () => void }) => {
+  const say = (text: string, action?: ToastAction) => {
     setToast(action ? { text, action } : { text });
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => setToast(undefined), 6000);
@@ -141,7 +176,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const [overlay, setOverlay] = createSignal<SVGSVGElement>();
   const [dialog, setDialog] = createSignal<"share" | "clone">();
   // ---- Player (spec §6b): a board with a match opens on it; its preview drives the map ----
-  const player = createPlayerHost(p.board, p.token);
+  const player = createPlayerHost(p.board, p.token, via);
   onMount(() => void player.init());
   const inPlayer = () => player.mode() === "player";
   /** The match open in Player, for the feedback form (spec §11a); none in sandbox. */
@@ -436,6 +471,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
     const t = state.title();
     if (t) {
       document.title = `${t} · mapcro`;
+      // A tab opened through the session isn't this device's link: Your boards lists only links
+      // the device holds (§7.3).
+      if (via) return;
       const r = state.role();
       const m = player.matchId();
       rememberBoard({ board: p.board, token: p.token, title: t, ...(m ? { match: m } : {}), ...(r ? { edit: state.canEdit() } : {}) });
@@ -452,7 +490,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
 
   const join = (m: Me) => {
     saveMe(m);
-    markJoined(p.board);
+    markJoined(joinKey);
     setMe(m);
     setJoined(true);
     state.presence({ name: m.name, color: m.color });
@@ -779,8 +817,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
           <For each={["draw", "arrow", "erase"] as const}>{t =>
             <button class={cx("btn ghost", tool() === t && "on")} data-testid={`tool-${t}`} onClick={() => setTool(t)}>{t === "draw" ? "Draw" : t === "arrow" ? "Arrow" : "Erase"}</button>
           }</For>
-          <button class="btn ghost" data-testid="phone-undo" onClick={() => state.undo()}>Undo</button>
-          <button class="btn ghost" data-testid="phone-redo" onClick={() => state.redo()}>Redo</button>
+          <button class="btn ghost" data-testid="phone-undo" onClick={undo}>Undo</button>
+          <button class="btn ghost" data-testid="phone-redo" onClick={redo}>Redo</button>
           <Palette value={ink()} set={setInk} />
         </Show>
         <button class="btn ghost" data-testid="phone-done" onClick={() => { setPhoneEdit(false); setTool("select"); }}>Done</button>
@@ -851,6 +889,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
         <SaveStatus state={state} rejected={rejected()} dismiss={() => setSeenProblems(state.problems().length)} />
         <Show when={!inPlayer()}><FeedbackButton variant="bar" match={feedbackMatch} /></Show>
       </header>
+      {/* Sessions on a phone are out of scope: the strip shows on the phone board, not in Player's shell. */}
+      <Show when={inSession && !inPlayer()}>{inSession!.strip()}</Show>
       <Show when={!inPlayer()}>{followChip()}</Show>
       <Show when={!inPlayer()}><div class="p-title" onPointerDown={swipe}>
         <div class="ord">
@@ -887,8 +927,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
               <For each={["draw", "arrow", "erase"] as const}>{t =>
                 <button class={cx("tb", tool() === t && "on")} data-testid={`tool-${t}`} onClick={() => setTool(t)}>{t === "draw" ? "Draw" : t === "arrow" ? "Arrow" : "Erase"}</button>
               }</For>
-              <button class="tb" data-testid="phone-undo" onClick={() => state.undo()}>Undo</button>
-              <button class="tb" data-testid="phone-redo" onClick={() => state.redo()}>Redo</button>
+              <button class="tb" data-testid="phone-undo" onClick={undo}>Undo</button>
+              <button class="tb" data-testid="phone-redo" onClick={redo}>Redo</button>
             </Show>
           </Show>
           <Palette value={ink()} set={setInk} />
@@ -1143,7 +1183,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
             {(t) => (
               <div class="toast" role="status" data-testid="toast">
                 {t().text}
-                <Show when={t().action}>
+                <Show when={t().action && (t().action!.live?.() ?? true) ? t().action : undefined}>
                   {(a) => (
                     <button
                       class="link"
@@ -1168,6 +1208,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
     <div class="app board-app" data-testid="board" data-board={p.board}>
       <header class="top">
         <Wordmark />
+        <Show when={!inSession} fallback={inSession!.title()}>
         <div class="board-title">
           <b>
             <InlineEdit
@@ -1186,6 +1227,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
             {state.scenes().length} scene{state.scenes().length === 1 ? "" : "s"}
           </span>
         </div>
+        <AddGameOnBoard board={p.board} token={p.token} title={state.title()} ready={!!state.role()} />
+        </Show>
         <Show when={player.matchId()}><TierChip host={player} /></Show>
         <div class="spacer" />
         <PresentingPill followers={followersOf(state.myPeer())} />
@@ -1201,7 +1244,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
           <For each={people()}>{(peer) => <Avatar name={peer.state!.name || "?"} color={peer.state!.color} title={peer.state!.name || "Joining"} />}</For>
         </div>
         <FeedbackButton variant="bar" match={feedbackMatch} />
-        <OpenInApp board={p.board} token={p.token} />
+        <Show when={!via}>
+          <OpenInApp board={p.board} token={p.token} />
+        </Show>
         <UpdateLink />
         <Show when={state.role()}>
           <button class="btn ghost" data-testid="clone" onClick={() => setDialog("clone")}>
@@ -1217,14 +1262,15 @@ export function Board(p: { board: string; token: string; art: Art }) {
             data-testid="download"
             title="Download"
             aria-label="Download"
-            onClick={() => void downloadBoard(p.board, p.token, state.title()).then((why) => why && say(why))}
+            onClick={() => void downloadBoard(p.board, p.token, state.title(), via).then((why) => why && say(why))}
           >
             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
             </svg>
           </button>
         </Show>
-        <Show when={state.canEdit()}>
+        <Show when={inSession}>{inSession!.share()}</Show>
+        <Show when={state.canEdit() && !inSession}>
           <button class="btn primary" data-testid="share" onClick={() => setDialog("share")}>
             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1" />
@@ -1234,6 +1280,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </button>
         </Show>
       </header>
+      <Show when={inSession}>{inSession!.strip()}</Show>
       <div class="main">
         <SceneTree
           state={state}
@@ -1309,10 +1356,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
             editor={state.canEdit()}
             ink={ink()}
             setInk={setInk}
-            canUndo={state.canUndo()}
-            canRedo={state.canRedo()}
-            undo={() => state.undo()}
-            redo={() => state.redo()}
+            canUndo={canUndo()}
+            canRedo={canRedo()}
+            undo={undo}
+            redo={redo}
+            undoKeysElsewhere={!!inSession}
             counts={{ ink: inkIds().length, arrows: arrowIds().length, comments: commentIds().length, all: clearIds("all").length }}
             commentsOpen={allOpen()}
             toggleComments={() => {
@@ -1333,7 +1381,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
               }
               if (!steps) return; // refused: the problem toast says why
               const text = done < ids.length ? `${CLEARED[what]}: ${done} of ${ids.length}` : CLEARED[what];
-              say(text, { label: "Undo", run: () => Array.from({ length: steps }).forEach(() => state.undo()) });
+              // In a session, the one history: its Undo is for these steps alone, and goes once
+              // anything else is done (review 2026-11-12, finding 3).
+              const at = history?.at();
+              if (history && at !== undefined) say(text, { label: "Undo", run: () => void history.undoSince(at, p.board, steps), live: () => history.live(at) });
+              else say(text, { label: "Undo", run: () => Array.from({ length: steps }).forEach(() => undo()) });
             }}
           />
           {playerBar()}
@@ -1406,7 +1458,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
       </div>
     </div>
     </Show>
-    <Show when={dialog() === "share" && state.canEdit()}>
+    <Show when={dialog() === "share" && state.canEdit() && !inSession}>
       <ShareDialog
         board={p.board}
         token={p.token}
@@ -1429,7 +1481,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
       />
     </Show>
     <Show when={dialog() === "clone"}>
-      <CloneDialog board={p.board} token={p.token} title={state.title()} onClose={() => setDialog(undefined)} />
+      <CloneDialog board={p.board} token={p.token} {...(via ? { via } : {})} title={state.title()} onClose={() => setDialog(undefined)} />
     </Show>
     <Show when={justCloned() && state.role() === "owner" && joined() && !dialog()}>
       <div class="owner-note landed-note" data-testid="owner-note">
@@ -1448,7 +1500,11 @@ export function Board(p: { board: string; token: string; art: Art }) {
       </div>
     </Show>
     <Show when={state.connection().kind === "closed" && !outdated()}>
-      <DeadLink />
+      <Show when={inSession} fallback={<DeadLink />}>
+        <div class="banner revoked no-access" role="alert" data-testid="no-access">
+          <b>No access</b>
+        </div>
+      </Show>
     </Show>
     <Show when={outdated()}>
       <div class="update-banner" role="alert" data-testid="update-available">

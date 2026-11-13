@@ -29,8 +29,10 @@ pub const GRANTS_PER_ADDRESS_PER_HOUR: u32 = 240;
 
 /// Live grants one session may hold (§3.8): as many as it may hold tabs.
 const MAX_LIVE_GRANTS: u64 = LIMITS.max_tabs as u64;
-/// Live grants one board may hold, from every session together (§3.8). Any link to a board,
-/// a view link too, may add it to a session, and each grant is a links row on the board.
+/// Live grants one top-level link may mint on a board (§3.8). Any link to a board, a view
+/// link too, may add it to a session, and each grant is a links row on the board. Counting per
+/// top-level ancestor link (the one the owner minted) means a holder fills only its own
+/// allowance, never the owner's, and can't dodge it by minting child links.
 pub const MAX_GRANTS_PER_BOARD: u64 = 50;
 
 /// The per-link and per-address hourly windows on adding grants: each one writes a `links` row

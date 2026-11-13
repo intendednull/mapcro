@@ -1,6 +1,7 @@
 **Date:** 2026-11-11
 **Status:** draft for the operator's review. Phase 0 built (2026-11-11, §4.1 and §10). Phase 1
-(the server) built 2026-11-12 (§10), awaiting its security review.
+(the server) built 2026-11-12 (§10), reviewed and fixed. Phase 2 (the client) built 2026-11-12
+(§10).
 **Supersedes:** the 2026-11-10 sketch "Several replays on one board, as game tabs" (docs/backlog.md,
 mockup `/home/intendednull/concierge/artifacts/mapcro-multi-replay/index.html`). The tab strip
 and the reasons stay. The model changes: there is still one board per game, not several games
@@ -190,7 +191,7 @@ grant.**
    it. No one ever holds that token, so the row can only be used through the session path
    (§3.4). Adding the same board again through the same board link at the same role, while
    that grant is live, writes nothing and returns the existing grant (200, not 201). Any link
-   may add its board, a view link too, so this and the per-board cap (§3.8) bound the rows a
+   may add its board, a view link too, so this and the per-link cap (§3.8) bound the rows a
    session can write on someone else's board.
 5. It returns `{ grant_id, board, role: G }`. The board token is dropped from memory. It is
    never logged, stored, echoed back, or put in the session document.
@@ -317,7 +318,7 @@ days are deleted by housekeeping, and an undo after that reads "No access".
 | Threat | Control |
 |---|---|
 | Session spam | `POST /api/sessions` shares the board creation limiter (per address per hour, global per hour) and `MAX_BOARDS` and database caps; 507 past them |
-| Grant spam (each one writes a `links` row on someone's board) | per session link: 120 grants an hour; per address: 240 an hour; the 2,000-tab cap bounds grants per session, and live grants per session are capped at 2,000 too. Adding a board again through the same link at the same role returns its live grant and writes nothing. A board holds at most 50 live grants from all sessions together (`MAX_GRANTS_PER_BOARD`); past it, adding answers 409 "board full" until B's owner revokes one. Someone with a view link could fill those 50 and keep others from adding B; B's owner sees each in B's links and revokes it |
+| Grant spam (each one writes a `links` row on someone's board) | per session link: 120 grants an hour; per address: 240 an hour; the 2,000-tab cap bounds grants per session, and live grants per session are capped at 2,000 too. Adding a board again through the same link at the same role returns its live grant and writes nothing. One top-level link — a link the owner minted, or the owner link itself — holds at most 50 live grants on a board (`MAX_GRANTS_PER_BOARD`); past it, adding through that link or any link it minted answers 409 "board full" until one of those grants is revoked. Counting per top-level link means a view-link holder fills only its own allowance, never the owner's, and an editor can't dodge the cap by minting a child link. B's owner sees every grant in B's links and revokes it |
 | Probing grants or link ids | grant ids are 128-bit random; "not found" and "not yours" read the same, as for link revoke |
 | Junk tabs (an editor writes `Tab` records with made-up board or grant ids) | harmless: check 2 fails on open and the tab reads "No access". An editor could already vandalize the list, and undo restores |
 | Socket load | a person in a session holds one session socket plus one board socket (two during a switch, briefly). `MAX_SOCKETS_PER_IP` (32) then allows ~15 people behind one NAT in a session, against 32 on a board alone. Parked boards hold no socket (§5) |
@@ -392,7 +393,11 @@ memory survives into another board's mount unless it is either:
 
   Also tidied: `end()` drops the session's presence and lazy-save timers. A lazy save landing
   after the board's next mount had read storage would write an older state. The journal and
-  the server hold what that save would have held. `createBoardState`'s per-scene player memos
+  the server hold what that save would have held. **Changed in phase 2's review (2026-11-12):**
+  the journal doesn't hold an edit's undo entry, so a switch within the lazy save's delay lost
+  the newest edit's undo step. `end()` now makes a due lazy save once, at once, and the board's
+  next `BoardSession` loads only after it (`ending` in `core/session.ts`), so it
+  can't land over a newer load. `createBoardState`'s per-scene player memos
   (each in its own `createRoot`) aren't disposed: they read only that board's own signals, which
   nothing writes after it ends, so they go with the board's state.
 
@@ -783,8 +788,8 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      1. a grant could only be cut from the board's side: `DELETE /api/sessions/{s}/grants/{g}`
         (§3.7) lets the session's owner or the grant's adder withdraw it;
      2. any link, a view link too, could write unbounded "Session: …" rows on a board: adding
-        again returns the live grant (§3.2), and a board holds 50 live grants (§3.8). B's link
-        list shows revoked grant rows marked revoked, as it shows every revoked link: it hides
+        again returns the live grant (§3.2), and one top-level link holds 50 live grants (§3.8).
+        B's link list shows revoked grant rows marked revoked, as it shows every revoked link: it hides
         none, so this didn't change;
      3. revocation sent `Revoke` to each room in turn from the request: one full mailbox, or a
         dropped request, left later rooms un-revoked. Each room is now sent to from its own task,
@@ -802,6 +807,99 @@ Each phase is small, merges on its own, and leaves boards unchanged.
    remount (no pool yet), `?tab=`, the add paths (Your boards, Paste link), remove/undo, rename
    and reorder, the toast, Your boards listing sessions, "+ Add game" on a board (§7.3), and the
    §9.1 isolation matrix. Validate in a real browser before deploy.
+   **Built 2026-11-12 (branch `sessions-p2`).** No server or bindings change; phase 1's endpoints
+   as they are.
+   - **`Ready.kind`** (`core/session.ts`): a `BoardSession` says what it expects (`expect`,
+     default `"board"`; the session view's is `"session"`). A `Ready` of the other kind closes it
+     as `wrong_kind` before a base, replica or role is kept, and it isn't retried; a stored copy
+     of the other kind is never drawn (`docKind`). A board page shows "Invalid link", a session
+     page the same. A server that sends no `kind` is taken at its word.
+   - **The credential** (`core/cred.ts`): a tab's board opens with `Auth.via` on the socket and
+     `Authorization: Grant <session>.<grant>.<token>` on every board route Player, Download and
+     Clone use (`player/api.ts`, `core/boardfile.ts`, `core/api.ts`). If this device holds its own
+     link for the board that can edit (Your boards says `edit`), the tab uses that instead (§3.4).
+     A tab opened through the session is never added to Your boards, shows no Open in app, and
+     its board's Share is replaced by the session's.
+   - **`/s/<session>?tab=<tab>#<token>`** (`App.tsx`, `session/SessionView.tsx`). The session's
+     connection is `session/state.ts`; the strip's rules are pure functions in `session/tabs.ts`.
+     The open tab's board mounts in a `<Show keyed>` on (board, token, grant): another tab of
+     another board, or the same board through another grant ("Can view"), is a new mount; a
+     rename or reorder isn't. The tab is picked once the session copy has caught up (`settled`:
+     a fresh copy's snapshot can lack recent tabs). `?tab=` is replaced in place (`nav.replace`).
+     The open tab removed, here or by a peer, moves you to its left neighbour as the strip stood,
+     else its right.
+   - **The strip** sits under the header (the header shows the session title, inline edit for
+     editors, the count of games, and the session's Share). Tabs: name, × (Remove), double-click
+     to rename, drag to reorder, and a right-click menu: Rename, Move left, Move right, Remove,
+     Remove and revoke. "+ Add game" opens the add menu: Paste link, Your boards (boards only),
+     and "Can view". Ctrl+PageUp / Ctrl+PageDown switch tabs outside fields. A view link sees the
+     strip without any of the editing.
+   - **The toast** "Removed <name>" with Undo (Remove and revoke has no Undo: the grant is gone).
+   - **One undo** (`session/history.ts`): marks naming the document of each undoable edit, newest
+     last. Undo takes the newest mark whose document is here (the session, or the mounted board)
+     and can undo; a board not mounted keeps its marks. The toolbar's Undo and Redo, Ctrl+Z, and
+     the toast's Undo all go through it.
+   - **A switch waits for the pointer gesture in progress** (a drag held while Ctrl+PageDown is
+     pressed): the switch runs after the pointer comes up. And `BoardSession.end()` now lets an
+     edit already on its way through the save chain go out on its socket before closing it
+     (bounded at 2 s; with nothing on its way it closes at once, as before), so that edit lands on
+     its own board.
+   - **"+ Add game" on a board** (`session/AddGame.tsx`), beside the title, any role: makes the
+     session from the board, keeps the owner token in Your boards, and opens it with the add menu
+     up. **Your boards** lists sessions ("<title>", "3 games"), opened by their `/s/` link, with no
+     Rename (rename in the session's header). `KnownBoard` has `kind?: "session"` and `games?`.
+   - **Tests.** `test/sessions-client.test.ts`: the tab rules, the one history, and against the
+     real server: `Ready.kind` both ways, a stored copy of the other kind, a tab's board through
+     its grant at the session's role, removal cutting live connections and undo bringing them
+     back, a view link refused editing the strip, and an edit made as a board is left reaching it.
+     `e2e/sessions.spec.ts`: the add paths, switching, remove and undo (toast, button, Ctrl+Z
+     interleaved with a board edit), rename, reorder, reload on `?tab=`, a dead `?tab=`, a second
+     device live, a view link, the same board twice at two grants, the session's Share, a board
+     alone unchanged, and `Ready.kind` in the browser. `e2e/session-isolation.spec.ts`: §9.1 for
+     scenes and the current scene, strokes and the scene note, heroes' places and objectives, the
+     tool, ink colour and comments open, peers' cursors, lasers and the people list, undo on B
+     after an edit on A, an edit made offline on A, a drag released during a switch, and Player
+     (the match, t and playing, Sandbox, map layers device-wide). Each row runs on a device that
+     holds no board link, so every tab goes through its grant.
+   - **Mutation checks** over the isolation, removal and undo logic: 23 mutants, 22 killed; the
+     one left (an edit not clearing its document's redo marks) is equivalent, since a spent redo
+     mark is dropped when its document has nothing to redo. The table is in the phase report.
+   - **Review fixes (2026-11-12).** An adversarial review found these; each fixed with a test
+     that failed first:
+     1. undo after a quick switch took back the older edit: `end()` saves once (above, §4.1);
+     2. Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y belong to `SessionView`, so they reach the strip on a
+        view-only tab, a "No access" tab and "No games"; a board in a session leaves them to it;
+     3. a toast's Undo is for its own step. **Decided:** it keeps where the history was just
+        after that step (`UndoHistory.at`), and goes once anything else is edited, undone or
+        redone; it then takes back exactly its steps (`undoSince`), never an older one. Clear's
+        toast in a session works the same; on a board alone it's unchanged;
+     4. Remove and revoke withdraws the grant first and removes the tab only on 204, as an edit
+        that is no step in the history (undo can't bring back a tab whose grant is gone). Refused,
+        the tab stays and the toast says why ("No access");
+     5. a switch held for a pointer press ends with the press on window `blur` or a pointer move
+        with no button down, and a switch picked directly cancels a held one;
+     6. a tab's remembered role is keyed by its grant too. **Decided:** pending edits in the
+        board's stored copy (made through an edit link) aren't sent when `Ready` says `view`:
+        they're held, with the problem "edits not sent: this link is view-only", and go the next
+        time the board opens through a link that can edit. Dropping them would lose work, and
+        sending them gets the socket closed as abuse on every reconnect;
+     7. an `outdated` session page shows Update available, not the dead link; `persistSoon`
+        does nothing once ended; `begin` parses the stored view once. Undo after a reload in a
+        session (TD-63) and an add interrupted between the grant and the tab (TD-62) are logged.
+   - **Not in the matrix yet**, and why: the parked-board rows (phase 3's pool); hover labels,
+     the game tooltip, recaps, inspect and events filters (each reset or per-mount by
+     construction, and pinned by `board-unmount.spec.ts` and `module-state.test.ts`); an upload
+     handoff (keyed by board already, `handoff.ts`); rejections (per `BoardSession`); hero
+     picks (need a hero pack; heroes' places are in).
+   - **Decisions taken** where the spec left a choice: the strip renders inside each board's
+     mount, under its header (a rename or menu in progress ends with a switch); session presence
+     isn't sent yet (phase 4); the join card asks once per session, not per tab; a pasted board
+     this device doesn't know is named "Game <n>" (the grant's answer has no board title: TD-59);
+     "Remove and revoke" is offered to every editor, and the server's 404 for one who isn't the
+     owner or the adder reads "No access" after the tab is removed; an empty session shows its
+     strip and "No games"; the phone shows the strip under its header, scrolling (the Games sheet
+     is phase 5); a board's "+ Add game" is "+" alone at 1280 to 1360 px and hidden below, as the
+     header has no room (TD-61). Debt: TD-58 to TD-61.
 3. **Speed: remembered state and warmth.** `TabView`, the timeline cache, `RoomPool`. Measure
    switch times first. Add each piece only if it pays.
 4. **Follow across tabs.** `seat`, `tab` and `session_role`, the `session.tab` registry row and

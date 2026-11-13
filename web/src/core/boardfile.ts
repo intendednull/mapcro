@@ -3,6 +3,9 @@
 // a new board back. The server checks everything; the client only names the file and says
 // why one was refused, in a tag (§4b).
 
+import { authHeader } from "./cred";
+import type { Via } from "../gen/Via";
+
 /** The server's cap on a board file (`boardfile::MAX_BYTES`). */
 export const MAX_FILE_BYTES = 8 * 1024 * 1024;
 
@@ -46,8 +49,8 @@ async function codeOf(r: Response): Promise<string | undefined> {
 }
 
 /** Save the board as a file. Resolves to a refusal tag, or nothing once it's saved. */
-export async function downloadBoard(board: string, token: string, title: string): Promise<string | undefined> {
-  const r = await fetch(`/api/boards/${board}/export`, { headers: { authorization: `Bearer ${token}` } }).catch(() => undefined);
+export async function downloadBoard(board: string, token: string, title: string, via?: Via): Promise<string | undefined> {
+  const r = await fetch(`/api/boards/${board}/export`, { headers: { authorization: authHeader(token, via) } }).catch(() => undefined);
   if (!r) return "Offline";
   if (!r.ok) return refusalTag(r.status, await codeOf(r));
   const url = URL.createObjectURL(await r.blob());
