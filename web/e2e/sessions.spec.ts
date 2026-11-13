@@ -79,13 +79,14 @@ test("a board becomes a session; boards are added, switched, removed and undone,
   await expect(tabs(page).nth(0)).toHaveAttribute("aria-selected", "true");
   await expect(tabs(page).nth(0)).toHaveAttribute("aria-label", "Game tab, Game one");
 
-  // Remove the open middle tab: you move to its left neighbour; the toast's Undo brings it back.
-  await tabs(page).nth(1).click();
-  await expect.poll(() => activeBoard(page)).toBe(boardOf(b));
-  await tabs(page).nth(1).getByTestId("tab-remove").click();
+  // Remove the open last tab: you move to its left neighbour (not the first); the toast's Undo
+  // brings it back.
+  await tabs(page).nth(2).click();
+  await expect.poll(() => activeBoard(page)).toBe(boardOf(c));
+  await tabs(page).nth(2).getByTestId("tab-remove").click();
   await expect(tabs(page)).toHaveCount(2);
-  await expect.poll(() => activeBoard(page)).toBe(boardOf(a));
-  await expect(page.getByTestId("session-toast")).toContainText("Removed Game two");
+  await expect.poll(() => activeBoard(page)).toBe(boardOf(b));
+  await expect(page.getByTestId("session-toast")).toContainText("Removed Game 3");
   await page.getByTestId("session-toast-undo").click();
   await expect(tabs(page)).toHaveCount(3);
   expect(await tabNames(page)).toEqual(["Game one", "Game two", "Game 3"]);
@@ -215,6 +216,26 @@ test("a second device on the session link sees the same tabs, live; a view link 
   await expect.poll(() => activeBoard(viewer)).toBe(boardOf(b));
   await expect(viewer.getByTestId("save-status")).toHaveAttribute("data-can-edit", "false");
   expect(await tabNames(page)).toEqual(["Renamed", "Game two", "Game 3"]);
+});
+
+test("the same board twice, once with Can view: each tab opens it at its own grant", async ({ browser }) => {
+  const { page, b } = await threeTabs(browser);
+  // On a fresh device, so the tabs open through their grants (not this device's own link).
+  const other = await joinNew(browser, page.url(), "Peer");
+  await page.getByTestId("add-game").click();
+  await page.getByTestId("add-view").check();
+  await page.getByTestId("add-paste").fill(b);
+  await page.getByTestId("add-paste-go").click();
+  await expect(tabs(page)).toHaveCount(4);
+  await expect(tabs(other)).toHaveCount(4);
+  await tabs(other).nth(1).click();
+  await expect.poll(() => activeBoard(other)).toBe(boardOf(b));
+  await expect(other.getByTestId("save-status")).toHaveAttribute("data-can-edit", "true");
+  await tabs(other).nth(3).click();
+  await expect(other.getByTestId("save-status")).toHaveAttribute("data-can-edit", "false");
+  await expect(other.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  await tabs(other).nth(1).click();
+  await expect(other.getByTestId("save-status")).toHaveAttribute("data-can-edit", "true");
 });
 
 test("the session's Share mints session links; a board's own link still opens it alone", async ({ browser }) => {
