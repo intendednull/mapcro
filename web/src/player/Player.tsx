@@ -29,7 +29,7 @@ import { easedNumber } from "../board/smooth";
 import { mapToView, worldToMap, worldToView } from "../map/transform";
 import { EventsList } from "./Events";
 import { markerScrub } from "./scrubDrag";
-import { eventKey, jumpTime, namesFor, placeOf, shortLabel, tierLabel } from "./events";
+import { eventKey, jumpAt, jumpTarget, namesFor, placeOf, shortLabel, tierLabel } from "./events";
 import type { PlayerHost } from "./host";
 import { type Vision, VISIONS, hasVision, visionForCode, visionKey } from "./vision";
 import { teamName } from "../map/model";
@@ -270,7 +270,14 @@ export function Player(p: {
         e.preventDefault();
         const t = h.t();
         const lead = h.lead();
-        const next = e.key === "ArrowDown" ? events().find((x) => jumpTime(x, lead) > t + 0.5) : [...events()].reverse().find((x) => jumpTime(x, lead) < t - 0.5);
+        const tl = h.tl();
+        if (!tl) return;
+        const list = events();
+        // After a jump, step from the event it pinned: a start can lie before earlier rows, so
+        // comparing jump targets with the clock would step backwards through the list.
+        const pin = h.pinned();
+        const at = pin ? list.findIndex((x) => eventKey(x) === eventKey(pin)) : -1;
+        const next = at >= 0 ? list[e.key === "ArrowDown" ? at + 1 : at - 1] : e.key === "ArrowDown" ? list.find((x) => jumpTarget(tl, x, lead) > t + 0.5) : [...list].reverse().find((x) => jumpTarget(tl, x, lead) < t - 0.5);
         if (next) jumpTo(next, lead);
       }
     };
@@ -297,9 +304,10 @@ export function Player(p: {
     });
   });
   const jumpTo = (e: MatchEvent, lead: number) => {
+    const tl = h.tl();
     user(() => {
       h.control.play(false);
-      h.control.seek(jumpTime(e, lead));
+      h.control.seek(tl ? jumpTarget(tl, e, lead) : jumpAt(e.t, lead));
     });
     h.flash(e, placeOf(e, markers()));
   };
@@ -908,7 +916,7 @@ export function PlayerSide(p: Props) {
     const saved = new Set<string>();
     if (!m || !n || !events.length) return saved;
     const sorted = [...events].sort((a, b) => a.t - b.t);
-    const moments = sorted.map((e) => ({ t: jumpTime(e, lead), name: shortLabel(e, n) }));
+    const moments = sorted.map((e) => ({ t: jumpTarget(m, e, lead), name: shortLabel(e, n) }));
     const { ids, groups } = matchScenesOps(p.state.roster(), p.state.scenes(), p.scene, m, moments, markers(), p.mint, lanes());
     // Chunk whole scenes, remembering which events each transaction carries.
     let i = 0;
@@ -930,10 +938,11 @@ export function PlayerSide(p: Props) {
     return saved;
   };
   const jump = (e: MatchEvent, lead: number) => {
+    const m = h.tl();
     user(() => {
       h.setMode("player");
       h.control.play(false);
-      h.control.seek(jumpTime(e, lead));
+      h.control.seek(m ? jumpTarget(m, e, lead) : jumpAt(e.t, lead));
     });
     h.flash(e, placeOf(e, markers()));
   };

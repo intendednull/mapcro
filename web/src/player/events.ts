@@ -1,11 +1,11 @@
-// Match events for Player's list (spec §6b): labels, search, filters, where each happened, and
-// the jump time. Pure.
+// Match events for Player's list (spec §6b): labels, search, filters, where each happened, when
+// what it marks began, and the jump time. Pure.
 
 import type { BuildCatalog } from "../map/pack";
 import { buffInfo, buffLabel } from "../match/buffs";
 import { type Marker, teamName } from "../map/model";
 import { type Pt, worldToMap } from "../map/transform";
-import { type MatchEvent, type Timeline, clockLabel, markerKey, tierOf } from "../match/timeline";
+import { type MatchEvent, type Timeline, type TimelineRift, clockLabel, markerKey, tierOf } from "../match/timeline";
 
 export type EventGroup = "purchase" | "death" | "ult" | "objective" | "mid_boss" | "rift" | "powerup" | "urn" | "souls";
 
@@ -197,8 +197,155 @@ export function search(events: MatchEvent[], n: Named, query: string, on: Set<Ev
 /** A key that names an event across timeline tiers and reloads: when, what, and about whom. */
 export const eventKey = (e: MatchEvent) => `${e.t}:${e.kind}:${e.team ?? ""}:${e.slot ?? ""}:${e.key ?? ""}:${e.hero_id ?? ""}`;
 
-/** Where to scrub to: `lead` seconds before the event, never before the start. */
-export const jumpTime = (e: Pick<MatchEvent, "t">, lead: number) => Math.max(0, e.t - Math.max(0, lead));
+/** The parser's souls-swing window (`crates/replay/src/timeline.rs`): an event fires when the
+ * lead moved by its `SWING_SOULS` within this many seconds. Only the window is needed here. */
+const SWING_WINDOW_S = 60;
+
+/** Seconds each side of a second averaged to smooth the lead: players' souls samples land on
+ * different seconds, so the raw lead jumps by thousands between neighbours. */
+const SWING_SMOOTH_S = 2;
+
+/** How long an objective's health must stand still for the next change to be a new push. */
+const OBJECTIVE_QUIET_S = 20;
+
+/** The team-souls lead at t: Amber's net worth minus Sapphire's, each player's last sample at or
+ * before t (0 before the first), as `souls_swings` reads it. */
+export function soulsLead(tl: Pick<Timeline, "players">, t: number): number {
+  let lead = 0;
+  for (const p of tl.players) lead += (p.team === "amber" ? 1 : -1) * worthAt(p.souls, t);
+  return lead;
+}
+
+/** A player's net worth at t: the last sample at or before it (0 before the first). */
+function worthAt(souls: ReadonlyArray<readonly [number, number]>, t: number): number {
+  let lo = 0;
+  let hi = souls.length - 1;
+  let v = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const [s, n] = souls[mid]!;
+    if (s <= t) {
+      v = n;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return v;
+}
+
+/**
+ * When a souls swing began: the turning point of the lead in the parser's window (the last
+ * minimum on the way up, the last maximum on the way down), on a 5 s mean so one player's late
+ * sample isn't the turn. The window's first second when the lead was still moving then: the true
+ * turn is earlier, and this is the earliest the timeline can say (docs/research/event-starts.md).
+ */
+export function swingStart(tl: Pick<Timeline, "players">, t: number): number | undefined {
+  const from = Math.max(0, t - SWING_WINDOW_S);
+  const vals: number[] = [];
+  for (let s = from; s <= t; s++) vals.push(soulsLead(tl, s));
+  if (vals.length < 2) return undefined;
+  const total = vals[vals.length - 1]! - vals[0]!;
+  if (total === 0) return undefined;
+  const up = total > 0;
+  const smooth = (i: number) => {
+    let sum = 0;
+    let n = 0;
+    for (let j = Math.max(0, i - SWING_SMOOTH_S); j <= Math.min(vals.length - 1, i + SWING_SMOOTH_S); j++) {
+      sum += vals[j]!;
+      n++;
+    }
+    return sum / n;
+  };
+  let best = 0;
+  let bestV = smooth(0);
+  for (let i = 1; i < vals.length; i++) {
+    const v = smooth(i);
+    if (up ? v < bestV : v > bestV) {
+      best = i;
+      bestV = v;
+    }
+  }
+  return from + best;
+}
+
+/**
+ * When the push that took an objective down began: the first health row after the last gap of
+ * [`OBJECTIVE_QUIET_S`] seconds before the destruction. The objective's first drop from 100 is
+ * not it: chip damage runs for most of the match, and its health goes back up (regeneration).
+ * The last push wins when there were several.
+ */
+export function objectiveStart(at: ReadonlyArray<readonly [number, number]>, t: number): number | undefined {
+  let prev: number | undefined;
+  let start: number | undefined;
+  for (const [s] of at) {
+    if (s > t) break;
+    if (prev !== undefined && s - prev >= OBJECTIVE_QUIET_S) start = s;
+    prev = s;
+  }
+  return start;
+}
+
+/**
+ * When the Mid-Boss fight that killed it began: its first health drop after the last time it was
+ * at 100 before the kill. It regenerates to full between attempts, so the last full health is the
+ * one this fight started from.
+ */
+export function midBossStart(at: ReadonlyArray<readonly [number, number]>, t: number): number | undefined {
+  let lastFull: number | undefined;
+  for (const [s, v] of at) {
+    if (s > t) break;
+    if (v >= 100) lastFull = s;
+  }
+  if (lastFull === undefined) return undefined;
+  for (const [s, v] of at) {
+    if (s >= lastFull && s <= t && v < 100) return s;
+  }
+  return undefined;
+}
+
+/** When a rift's capture began: the first capture row where the capturing team's progress is
+ * above 0 (its cash-in's start), else when the cash-in opened. */
+export function riftCaptureStart(r: TimelineRift, team: string | null | undefined): number | undefined {
+  if (team !== "amber" && team !== "sapphire") return undefined;
+  const col = team === "amber" ? 1 : 2;
+  for (const c of r.capture ?? []) if ((c[col] ?? 0) > 0) return c[0] / 10;
+  return r.live_s ?? undefined;
+}
+
+/**
+ * When what an event marks began, from data the timeline already holds; `e.t` when it has none
+ * (docs/research/event-starts.md). A death keeps its second: its recap sums the 10 s before with
+ * no per-hit times. The other kinds are instants (a cast, a spawn, a pickup) or already start at
+ * their start (a rift coming up, a Rejuvenator taken).
+ */
+export function eventStart(tl: Timeline, e: MatchEvent): number {
+  switch (e.kind) {
+    case "souls_swing":
+      return swingStart(tl, e.t) ?? e.t;
+    case "objective": {
+      // A patron's "down" at the match's end is the game ending, and its health restarts between
+      // stages: there is no push to start at.
+      if (e.key?.startsWith("patron:")) return e.t;
+      const track = tl.objective_health?.find((o) => o.key === e.key);
+      return (track && objectiveStart(track.at, e.t)) ?? e.t;
+    }
+    case "mid_boss": {
+      const track = tl.objective_health?.find((o) => o.key.startsWith("mid_boss:"));
+      return (track && midBossStart(track.at, e.t)) ?? e.t;
+    }
+    case "rift_capture": {
+      const rift = tl.rifts?.find((r) => r.key === e.key && e.t >= r.start_s && e.t <= r.end_s);
+      return (rift && riftCaptureStart(rift, e.team)) ?? e.t;
+    }
+    default:
+      return e.t;
+  }
+}
+
+/** Where to scrub to for a second: `lead` seconds before it, never before the start. */
+export const jumpAt = (t: number, lead: number) => Math.max(0, t - Math.max(0, lead));
+
+/** Where a click on the event scrubs to: its start less the lead, not the event's own second. */
+export const jumpTarget = (tl: Timeline, e: MatchEvent, lead: number) => jumpAt(eventStart(tl, e), lead);
 
 /** Where it happened, in map units: its own place, else its objective's marker. */
 export function placeOf(e: MatchEvent, markers: Array<Pick<Marker, "key" | "at" | "kind" | "team">>): Pt | undefined {
