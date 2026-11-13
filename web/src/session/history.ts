@@ -22,6 +22,8 @@ export class UndoHistory {
   private undos: string[] = [];
   private redos: string[] = [];
   private readonly sides = new Map<string, UndoSide>();
+  /** Moves on with every edit, undo and redo: a point in the history (`at`). */
+  private seq = 0;
   private readonly version: Accessor<number>;
   private readonly bump: () => void;
 
@@ -46,7 +48,39 @@ export class UndoHistory {
     this.undos.push(id);
     if (this.undos.length > MAX_MARKS) this.undos.splice(0, this.undos.length - MAX_MARKS);
     this.redos = this.redos.filter((x) => x !== id);
+    this.seq += 1;
     this.bump();
+  }
+
+  /** Where the history is now; a toast keeps it to know whether its step is still the newest. */
+  at(): number {
+    this.version();
+    return this.seq;
+  }
+
+  /** Nothing was edited, undone or redone since `at` (reactive). */
+  live(at: number): boolean {
+    return this.at() === at;
+  }
+
+  /**
+   * A toast's Undo (sessions.md §7.2): take back the newest `n` steps, which must all be `id`'s,
+   * and only if nothing was done since `at`, when they were made. Never an older step instead:
+   * if one can't be undone (a peer's edit made it a no-op), it stops there.
+   */
+  undoSince(at: number, id: string, n = 1): boolean {
+    if (at !== this.seq) return false;
+    const side = this.sides.get(id);
+    const tail = this.undos.slice(-n);
+    if (!side || tail.length < n || tail.some((x) => x !== id) || !side.canUndo()) return false;
+    for (let k = 0; k < n && side.canUndo(); k++) {
+      this.undos.pop();
+      this.redos.push(id);
+      side.undo();
+    }
+    this.seq += 1;
+    this.bump();
+    return true;
   }
 
   /** The newest step that can be undone here, as an index into the marks. */
@@ -68,6 +102,7 @@ export class UndoHistory {
     const [id] = this.undos.splice(i, 1);
     this.redos.push(id!);
     this.sides.get(id!)!.undo();
+    this.seq += 1;
     this.bump();
     return true;
   }
@@ -78,6 +113,7 @@ export class UndoHistory {
     const [id] = this.redos.splice(i, 1);
     this.undos.push(id!);
     this.sides.get(id!)!.redo();
+    this.seq += 1;
     this.bump();
     return true;
   }

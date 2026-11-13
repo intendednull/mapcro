@@ -92,6 +92,11 @@ export function createSessionState(id: string, token: string, history: UndoHisto
       if (ok) history.edited(SESSION_SIDE);
       return ok;
     },
+    /** A strip edit that is no step in the history: undo mustn't bring it back (a tab whose
+     * grant was withdrawn, "Remove and revoke"). */
+    removeUnmarked(ops: Op[]): boolean {
+      return ops.length > 0 && session.editSilent(ops);
+    },
     async start() {
       await loadWasm();
       await session.start();

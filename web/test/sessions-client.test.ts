@@ -14,9 +14,9 @@ import { createRoot } from "solid-js";
 import WebSocket from "ws";
 import "fake-indexeddb/auto";
 import { startServer } from "./support/server";
-import { initSync } from "../src/wasm/mapcro_wasm.js";
+import { initSync, newRecordId } from "../src/wasm/mapcro_wasm.js";
 import { Api } from "../src/core/api";
-import { MemoryPersist } from "../src/core/persist";
+import { IdbPersist, MemoryPersist, type Persist } from "../src/core/persist";
 import { BoardSession, type SocketLike, docKind } from "../src/core/session";
 import { authHeader } from "../src/core/cred";
 import type { Entry } from "../src/gen/Entry";
@@ -24,7 +24,7 @@ import type { RecordId } from "../src/gen/RecordId";
 import type { KnownBoard } from "../src/core/device";
 import { UndoHistory, type UndoSide } from "../src/session/history";
 import { createSessionState } from "../src/session/state";
-import { type TabRow, addTabOps, credentialFor, liveTabs, moveOps, neighbourOf, pickTab, removeOps, renameOps, sessionMeta, tabName } from "../src/session/tabs";
+import { type TabRow, addTabOps, credentialFor, linkDead, liveTabs, moveOps, neighbourOf, pickTab, removeOps, renameOps, sessionMeta, tabName } from "../src/session/tabs";
 
 const ROOT = resolve(__dirname, "../..");
 const ORIGIN = "http://localhost:5173";
@@ -109,6 +109,15 @@ describe("the tab list", () => {
     expect(credentialFor(t, "S", "st", [k({ edit: true, kind: "session" })])).toEqual({ token: "st", via: { session: "S", grant: G1 } });
     expect(authHeader("tok")).toBe("Bearer tok");
     expect(authHeader("tok", { session: "S", grant: "G" })).toBe("Grant S.G.tok");
+  });
+
+  it("a link is dead when refused for good, never when the build is outdated (review 7)", () => {
+    expect(linkDead({ kind: "closed", reason: "unauthorized" })).toBe(true);
+    expect(linkDead({ kind: "closed", reason: "revoked" })).toBe(true);
+    expect(linkDead({ kind: "closed", reason: "wrong_kind" })).toBe(true);
+    expect(linkDead({ kind: "closed", reason: "outdated" })).toBe(false);
+    expect(linkDead({ kind: "live", role: "edit" })).toBe(false);
+    expect(linkDead({ kind: "waiting", retryInMs: 5 })).toBe(false);
   });
 });
 
@@ -204,6 +213,70 @@ describe("one undo over the strip and the board", () => {
     expect(h.redo()).toBe(true);
     expect(log.at(-1)).toBe("redo s1");
     expect(h.redo()).toBe(false);
+  });
+});
+
+describe("a toast's Undo (review finding 3)", () => {
+  const setup = () => {
+    const log: string[] = [];
+    const h = createRoot(() => new UndoHistory());
+    const session = new Stack(log);
+    const a = new Stack(log);
+    h.attach("session", session);
+    h.attach("A", a);
+    const edit = (side: string, st: Stack, step: string) => {
+      st.push(step);
+      h.edited(side);
+    };
+    return { log, h, session, a, edit };
+  };
+
+  it("takes back exactly the steps it names, once", () => {
+    const { log, h, a, session, edit } = setup();
+    edit("session", session, "s1");
+    edit("A", a, "a1");
+    edit("A", a, "a2");
+    const at = h.at();
+    expect(h.undoSince(at, "A", 2)).toBe(true);
+    expect(log).toEqual(["undo a2", "undo a1"]);
+    expect(h.undoSince(at, "A", 2)).toBe(false);
+    expect(log.length).toBe(2);
+    // The rest of the history is as it was: the strip's step is next, and redo has both.
+    expect(h.undo()).toBe(true);
+    expect(log.at(-1)).toBe("undo s1");
+  });
+
+  it("does nothing once anything else was done after it", () => {
+    const { log, h, a, session, edit } = setup();
+    edit("session", session, "remove");
+    const at = h.at();
+    expect(h.live(at)).toBe(true);
+    edit("A", a, "a1");
+    expect(h.live(at)).toBe(false);
+    expect(h.undoSince(at, "session")).toBe(false);
+    expect(log).toEqual([]);
+    // An undo or a redo moves it on too.
+    edit("session", session, "rename");
+    const at2 = h.at();
+    h.undo();
+    expect(h.live(at2)).toBe(false);
+    const at3 = h.at();
+    h.redo();
+    expect(h.live(at3)).toBe(false);
+    expect(h.undoSince(at2, "session")).toBe(false);
+    expect(log).toEqual(["undo rename", "redo rename"]);
+  });
+
+  it("never takes an older step when its own can't be undone", () => {
+    const { log, h, a, session, edit } = setup();
+    edit("A", a, "a1");
+    edit("session", session, "remove");
+    const at = h.at();
+    session.done = []; // a peer's edit made the removal a no-op
+    expect(h.undoSince(at, "session")).toBe(false);
+    expect(log).toEqual([]);
+    // Names a document whose steps aren't the newest: refused.
+    expect(h.undoSince(h.at(), "A")).toBe(false);
   });
 });
 
@@ -399,5 +472,128 @@ describe("the session connection against the real server", () => {
       expect(h.canUndo()).toBe(false);
       st.stop();
     });
+  });
+
+  const move = (id: RecordId, x: number) => [{ Set: { id, value: { PlayerPos: { x, y: -x } } } }] as Parameters<BoardSession["edit"]>[0];
+  const xOf = (s: BoardSession, id: RecordId) => {
+    const e = s.records.get(id);
+    return e && "PlayerState" in e.record ? e.record.PlayerState.pos.x : undefined;
+  };
+  const players = (s: BoardSession) => [...s.records].filter(([, e]) => "PlayerState" in e.record).map(([id]) => id);
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  // Review finding 1: e1, a pause (its lazy save lands), e2, then the board is left before e2's
+  // lazy save. Back on it, one undo must take back e2, the newest, not e1.
+  for (const [what, persists] of [
+    ["one store", () => { const m = new MemoryPersist(); return () => m as Persist; }],
+    ["a database per mount, the next opened at once", () => { const name = `undo-${Math.random()}`; return () => new IdbPersist(indexedDB, name) as Persist; }],
+    // A slow write (a busy disk): the next mount's load must wait for the last save, not read
+    // the storage from before it.
+    ["a slow store, the next mount opened at once", () => {
+      const m = new MemoryPersist();
+      const slow: Persist = {
+        load: (k) => m.load(k),
+        save: (k, v) => sleep(300).then(() => m.save(k, v)),
+        savePending: (b, t) => m.savePending(b, t),
+        dropPending: (b, c, n) => m.dropPending(b, c, n),
+      };
+      return () => slow;
+    }],
+  ] as const) {
+    it(`undo after leaving a board just after an edit takes back that edit (${what})`, async () => {
+      const b = await api.createBoard("quick switch");
+      const persist = persists();
+      const a = new BoardSession({ wsUrl: server.ws, board: b.board, token: b.owner_token, persist: persist(), openSocket, minDelayMs: 50, maxDelayMs: 400 });
+      await a.start();
+      await until(() => a.connection.kind === "live", "live");
+      const [p0, p1] = players(a);
+      expect(a.edit(move(p0!, 11))).toBe(true);
+      await sleep(700);
+      expect(a.edit(move(p1!, 22))).toBe(true);
+      await sleep(100);
+      a.end();
+      const back = new BoardSession({ wsUrl: server.ws, board: b.board, token: b.owner_token, persist: persist(), openSocket, minDelayMs: 50, maxDelayMs: 400 });
+      await back.start();
+      await until(() => back.connection.kind === "live" && back.status.kind === "saved", "back live");
+      expect(xOf(back, p1!)).toBe(22);
+      expect(back.canUndo).toBe(true);
+      back.undo();
+      expect(xOf(back, p1!)).not.toBe(22);
+      expect(xOf(back, p0!)).toBe(11);
+      back.end();
+    });
+  }
+
+  it("an ended session's lazy save never runs after its final one", async () => {
+    const b = await api.createBoard("no late save");
+    const base = new MemoryPersist();
+    const saves: string[] = [];
+    const persist: Persist = {
+      load: (k) => base.load(k),
+      save: (k, v) => (saves.push(k), base.save(k, v)),
+      // A slow journal: the edit is still on its way as the board is left, so the session
+      // flushes (and its replica lives) for a while after `end`.
+      savePending: (bd, t) => sleep(1000).then(() => base.savePending(bd, t)),
+      dropPending: (bd, c, n) => base.dropPending(bd, c, n),
+    };
+    const a = new BoardSession({ wsUrl: server.ws, board: b.board, token: b.owner_token, persist, openSocket });
+    await a.start();
+    await until(() => a.connection.kind === "live" && a.status.kind === "saved", "live");
+    await sleep(400);
+    expect(a.edit(move(players(a)[0]!, 5))).toBe(true);
+    a.end();
+    await sleep(20);
+    const n = saves.length;
+    // A frame landing while it flushes asks for a lazy save.
+    (a as unknown as { persistSoon(): void }).persistSoon();
+    await sleep(500);
+    expect(saves.length).toBe(n);
+  });
+
+  // Review finding 6: edits made through an edit grant, then the same board opened through a
+  // view grant of the same session (the same session token): the role isn't taken from the edit
+  // grant, and the pending edits are held, not resent through a link that can't edit.
+  it("pending edits are held, not resent, through a view grant; the edit grant sends them", async () => {
+    const s = await makeSession("view hold");
+    const vg = await post<{ grant_id: string }>(`/api/sessions/${s.session}/grants`, { board: s.board, board_token: s.boardToken, role: "view" }, s.owner_token);
+    expect(vg.grant_id).not.toBe(s.grant.grant_id);
+    // A grant opens its board only while a tab holds it.
+    const strip = open(s.session, s.owner_token, { expect: "session" });
+    await strip.start();
+    await until(() => strip.connection.kind === "live" && strip.current(), "strip live");
+    expect(strip.edit(addTabOps(newRecordId(), liveTabs(strip.records), s.board, vg.grant_id, "Can view"))).toBe(true);
+    await until(() => strip.status.kind === "saved", "tab added");
+    strip.end();
+    const persist = new MemoryPersist();
+    const editVia = { session: s.session, grant: s.grant.grant_id };
+    const viewVia = { session: s.session, grant: vg.grant_id };
+    const ed = open(s.board, s.owner_token, { via: editVia, persist });
+    await ed.start();
+    await until(() => ed.connection.kind === "live" && ed.status.kind === "saved", "edit grant live");
+    const [p0] = players(ed);
+    ed.stop(); // offline
+    expect(ed.edit(move(p0!, 33))).toBe(true);
+    await sleep(50);
+    ed.end();
+    const observer = open(s.board, s.boardToken);
+    await observer.start();
+    await until(() => observer.connection.kind === "live", "observer live");
+
+    const vw = open(s.board, s.owner_token, { via: viewVia, persist });
+    await vw.start();
+    // Before its Ready, the view grant's role is unknown on this device: no edit is taken.
+    expect(vw.edit(move(p0!, 44))).toBe(false);
+    await until(() => vw.connection.kind === "live", `view grant live`).catch((e) => { throw new Error(`${e} ${JSON.stringify(vw.connection)} ${JSON.stringify(vw.problems)}`); });
+    await sleep(1000);
+    expect(vw.connection).toEqual({ kind: "live", role: "view" });
+    expect(vw.problems).toContain("edits not sent: this link is view-only");
+    expect(xOf(observer, p0!)).not.toBe(33);
+    vw.end();
+
+    const again = open(s.board, s.owner_token, { via: editVia, persist });
+    await again.start();
+    await until(() => xOf(observer, p0!) === 33, "the held edit lands through the edit grant");
+    again.end();
+    observer.end();
   });
 });

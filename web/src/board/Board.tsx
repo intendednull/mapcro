@@ -124,6 +124,13 @@ const HERO_HOME = { left: 12, top: 44 };
  * replace the board's title and Share, and its undo is the page's one history (§7.2). With
  * `via`, the board is opened through the tab's grant; without, through this device's own link.
  */
+/** A toast's button; `live` false hides it (its step is no longer the newest). */
+interface ToastAction {
+  label: string;
+  run: () => void;
+  live?: () => boolean;
+}
+
 export interface InSession {
   via?: Via;
   history: UndoHistory;
@@ -158,9 +165,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     setInkSignal(i);
     saveColour(p.board, i);
   };
-  const [toast, setToast] = createSignal<{ text: string; action?: { label: string; run: () => void } }>();
+  const [toast, setToast] = createSignal<{ text: string; action?: ToastAction }>();
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
-  const say = (text: string, action?: { label: string; run: () => void }) => {
+  const say = (text: string, action?: ToastAction) => {
     setToast(action ? { text, action } : { text });
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => setToast(undefined), 6000);
@@ -1038,7 +1045,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             {(t) => (
               <div class="toast" role="status" data-testid="toast">
                 {t().text}
-                <Show when={t().action}>
+                <Show when={t().action && (t().action!.live?.() ?? true) ? t().action : undefined}>
                   {(a) => (
                     <button
                       class="link"
@@ -1215,6 +1222,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             canRedo={canRedo()}
             undo={undo}
             redo={redo}
+            undoKeysElsewhere={!!inSession}
             counts={{ ink: inkIds().length, arrows: arrowIds().length, comments: commentIds().length, all: clearIds("all").length }}
             commentsOpen={allOpen()}
             toggleComments={() => {
@@ -1235,7 +1243,11 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               }
               if (!steps) return; // refused: the problem toast says why
               const text = done < ids.length ? `${CLEARED[what]}: ${done} of ${ids.length}` : CLEARED[what];
-              say(text, { label: "Undo", run: () => Array.from({ length: steps }).forEach(() => undo()) });
+              // In a session, the one history: its Undo is for these steps alone, and goes once
+              // anything else is done (review 2026-11-12, finding 3).
+              const at = history?.at();
+              if (history && at !== undefined) say(text, { label: "Undo", run: () => void history.undoSince(at, p.board, steps), live: () => history.live(at) });
+              else say(text, { label: "Undo", run: () => Array.from({ length: steps }).forEach(() => undo()) });
             }}
           />
           {playerBar()}
