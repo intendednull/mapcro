@@ -1,7 +1,8 @@
-// The Windows app's bridge (desktop/README.md): the same site, in the app's window, with seven
+// The Windows app's bridge (desktop/README.md): the same site, in the app's window, with eight
 // commands to the native side: list the replays folder, read one replay, preview one (read from
-// its demo here), parse one here, change the folder (the system's folder chooser), ask whether an
-// update is out, and install it on the user's click. The page passes only match ids, never paths,
+// its demo here), parse one here, change the folder (the system's folder chooser), save a board
+// where the user says (the Save as dialog), ask whether an update is out, and install it on the
+// user's click. The page passes only match ids and a board's suggested name, never paths,
 // and the app grants the commands to this site's origin only. Feature-detected: in a browser none of this exists, and nothing changes.
 //
 // Also the download links for the app (`desktopAppLinks`), shown on Windows and desktop Linux
