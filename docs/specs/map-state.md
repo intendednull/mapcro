@@ -221,3 +221,84 @@ coach changed. One undo takes it all back.
 - **The timeline for a scene** is loaded by `source.match_id`, not "the open match", through the
   client's existing timeline cache. This fixes "a scene saved from another match shows no names".
   While it loads, and if it can't, the copy draws; when it arrives the base swaps in.
+
+## 4. Rendering
+
+### 4.1 One source
+
+A new module, `web/src/mapstate/`, is the only thing the map, the top bar and the panels read.
+
+```ts
+// One per board view. Built from the row of §2's table that is current.
+createMapState({
+  timeline: () => Timeline | undefined,   // by source.match_id; undefined: none, or not loaded
+  copy:     () => MatchCopy | undefined,  // the base while there is no timeline
+  t:        () => number | undefined,     // host.t in Player; scene.clock in a scene
+  edits:    RecordId,                     // the live scene, or the scene
+  view:     ViewState,                    // vision, layers, names (§5)
+}): MapState
+
+interface MapState {
+  token(slot): TokenState;      bar(slot): BarState;        build(slot): BuildState;
+  marker(key): MarkerState;     lane(key): LaneState;       clock(): number | undefined;
+  urn(); rifts(); rejuv(); skulls(); troopers(); events(); recap(death);
+  has(feature): boolean;        // is there data to draw: hides a control with nothing behind it
+  edited(slot | key): boolean;  // drives Reset and the edited mark
+}
+```
+
+- **Each accessor is one feature**, declared once as a row: its base (`(timeline, t) → value`), its
+  no-match default, its fallback from the copy, how an edit record changes it, and whether it
+  moves per frame or per second. `compose` is generic over the rows. Adding a feature is adding a
+  row and drawing it; it is then in Player and in scenes, and there is nowhere else to add it.
+- **Components take `MapState`, never the host, the timeline or scene records.** `Board.tsx`
+  loses `matchPreview`, the `own` argument of `markerStates`, and its `inPlayer()` branches
+  around what is drawn. `PlayerTopBar` and `TopBar` become one `TopBar` over `bar(slot)`, with
+  editing on where the viewer may edit. An import rule enforces it (§7): only `mapstate/` may
+  import the `*At` functions of `match/timeline.ts` or read `state.inScene` for edit records.
+- **Writes go through one place too:** `mapstate/edit.ts` (`setToken(slot, field, value)`,
+  `setMarker`, `setLane`, `reset`), which creates the record on a first edit and sets a field
+  after. Dragging a hero in Player and in a scene is the same call with a different edit scene.
+- **What stays outside:** the transport (play, seek, speed), which exists while `t` is live;
+  pings, which need a moving clock; drawing tools, which already write to the current edit scene
+  (`annScene`, Board.tsx 199).
+
+### 4.2 Performance
+
+This is TD-50's fix made structural, not one more guarded reader.
+
+- **Two clocks.** `t()` per frame and `sec() = floor(t)` as its own memo. A row marked
+  per-second reads `sec()`; only positions, eased numbers and fades read `t()`. In a scene both
+  are constant, so nothing recomputes after the first draw.
+- **No whole-state object.** There is no replacement for `host.preview()` that builds a new map
+  each frame. Each accessor is a memo keyed by slot or marker with an equality check, which is
+  what `barSlot.ts`, `markerStates.ts` and `buildState.ts` do today; those three move into the
+  rows and stop being separate guards.
+- **Edits are indexed once** per edit scene (by slot, by key), updated by the store's record
+  changes, not rescanned per frame. Today `Board.tsx` rebuilds these maps in memos over
+  `state.inScene`; they move here.
+- **Budgets,** held by the existing specs (`player-troopers.spec.ts` "rebuilds none",
+  `player-topbar-writes.spec.ts`) and one new one: playing with no edits, the number of memo
+  runs per second of per-second rows is bounded by the number of values that changed; and a
+  scene at rest runs none. TD-51 and TD-53 still apply to the components.
+
+## 5. Follow and view state
+
+- **The document carries the edits and a scene's clock**, so a follower on the same scene sees
+  the same map with nothing new in presence. Which scene (or Player) the presenter is on, and
+  Player's playback, are followed as today.
+- **Existing keys keep their rows.** Vision, the layers, names, the hero panels and builds, All
+  builds, the recap, the events filter and search are in `crates/engine/src/view_state.rs`
+  already, with their follow behaviour decided. They were only reachable in Player; now they
+  apply wherever the base has the data. No key changes meaning, so no row changes. The store
+  (`web/src/player/viewstate.ts`) moves out of `player/` since it's no longer Player's.
+- **A value survives a scene with nothing to show for it.** On a no-match scene the Vision
+  control is hidden (`has("vision")` is false), but the key keeps its value and comes back with
+  the next match scene. Following doesn't stop on that; the follower's control is hidden too.
+- **New view state:** none is required by the model. Each phase that adds a control (for
+  example an "edited" filter) adds its row, per AGENTS.md. `sec()` and the per-feature memos are
+  derived, and get a line in `web/test/view-state-ledger.ts` saying so.
+- **The follow matrix** (`web/e2e/follow-matrix.spec.ts`) gains a second column: each key is
+  checked with the presenter in Player and with the presenter on a match scene.
+- **Editing while following** doesn't stop the follow, as drawing doesn't today: an edit changes
+  the document, not what you look at.
