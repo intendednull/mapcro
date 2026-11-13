@@ -921,18 +921,19 @@ makes a board with that match attached and lands in Player; **New board** is tod
   20, beside the board rather than in its document (`DATA_DIR/attached/<hash of the board id>.json`):
   `GET /api/boards/{board}/matches` (any link) lists them, `PUT /api/boards/{board}/matches/{id}`
   (owner or edit link) attaches one. A board with one opens in Player on its newest.
-- **The map is the match at t, plus the edits** (operator, 2026-11-13; `docs/specs/map-state.md`,
-  which replaces the 2026-11-08 rule "Player draws only the timeline at t; Sandbox only the
-  scene's records"). Player, a scene saved from a match and a scene with no match are one view
-  with a different source, owner of t and edit layer, and every map and top-bar feature reads one
-  source. **Until that spec's phases land, the code still follows the old rule:** the map shows
+- **One map state, computed by Player and stored by a scene** (operator, 2026-11-13;
+  `docs/specs/map-state.md`, which replaces the 2026-11-08 rule "Player draws only the timeline
+  at t; Sandbox only the scene's records"). Player computes everything it shows at a frame;
+  Save as scene stores all of it; the scene viewer draws and edits that stored state with
+  Player's components. A scene's clock and source only record when it was taken.
+  **Until that spec's phases land, the code still follows the old rule:** the map shows
   the match at playback time t: heroes interpolated between 1 Hz samples and hidden while dead,
   objectives, and from a replay rifts, powerups, zipline colours and camps; ult rings sit in
   Player's top bar. No scene state (alive, seen, placed, objective, rift or wave records) shows
   through in Player, and none of Player's shows through in Sandbox. What stays true under the
   new spec: switching modes, scenes or matches leaves nothing behind (operator report
   2026-11-08: heroes drawn dark where the scene had them dead); an existing scene looks as it
-  does now (map-state §3.3).
+  does now (map-state §3.5).
 - **Lanes** on the replay tier take the game's zipline colours (2026-11-08): Amber's colour
   over `[0, amber_t]`, Sapphire's over `[sapphire_t, 1000]`, and the gap between drawn bare,
   as the board's own split gap (never narrower than it). The colour is captured ground: a node

@@ -3,14 +3,16 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
-## Map state: the match at t, plus the edits (2026-11-13, operator; spec written, not built)
+## Map state: one shape, computed by Player, stored by a scene (2026-11-13, operator; spec written, not built)
 
-Spec: `docs/specs/map-state.md`. One source for the map, the top bar and the panels, so a scene
-saved from a match shows everything Player does, with the coach's edits on top, and a new feature
-is in both. Phases 0 to 9; six open questions for the operator in its §8. It **supersedes the
-narrow fix for feedback #49** (build dropdowns in a scene): that lands as phase 3, not as a port.
-It also settles, when built: the scene-names entries below (the name order, a scene from another
-match, 2026-11-09), "Resume a scene" (2026-11-08) and TD-50.
+Spec: `docs/specs/map-state.md`. One `MapState` shape for everything Player shows at a frame:
+Player computes it, Save as scene stores all of it, the scene viewer draws and edits it with
+Player's components. A field registry makes a new feature three steps (a row, Player's producer,
+the drawing), with storage, sync, undo, clone and board files following. Phases 0 to 8; six open
+questions for the operator in its §8. It **supersedes the narrow fix for feedback #49** (build
+dropdowns in a scene): that lands as phase 5, not as a port. When built it also settles the
+scene-names entry "A scene saved from another match shows no names" (2026-11-09), "Resume a
+scene" (2026-11-08) and TD-50.
 
 ## Profiling on a Fly Sprite: parked (2026-11-12)
 

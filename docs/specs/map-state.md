@@ -149,7 +149,7 @@ Say Player gains a hero's spirit power.
 
 Nothing else is written. Save as scene walks the rows and stores it; the scene viewer decodes
 it into the same `ms.hero(slot).spirit`; it syncs, undoes, clones, exports and imports through
-`more`; the round-trip test (§8) covers it because it iterates the rows. To make it editable
+`more`; the round-trip test (§7) covers it because it iterates the rows. To make it editable
 later, change the row's `edit` (§4): no schema or storage change.
 
 ### 3.4 What is stored, what is derived, and the size
