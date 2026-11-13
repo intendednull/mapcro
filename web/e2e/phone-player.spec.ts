@@ -140,6 +140,22 @@ for (const viewport of [...PHONES, ...TABLETS]) {
     expect(tip.y + tip.height).toBeLessThanOrEqual(bar.y + 1);
     expect(tip.x).toBeGreaterThanOrEqual(0);
     expect(tip.x + tip.width).toBeLessThanOrEqual(viewport.width + 1);
+    // A tablet's All builds (Tab's stand-in): twelve rows; a row opens that hero's build.
+    if (Math.min(viewport.width, viewport.height) > 500) {
+      await expect(phone.getByText("Hold Tab")).toHaveCount(0);
+      const all = phone.getByTestId("phone-all-builds");
+      const b = (await all.boundingBox())!;
+      expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(44);
+      await all.tap();
+      await expect(all).toHaveAttribute("aria-pressed", "true");
+      await expect(phone.locator(".phone-build-sheet .p-sheet-head b")).toHaveText("All builds");
+      await expect(phone.getByTestId("all-builds-row")).toHaveCount(12);
+      await checkPhoneLayout(phone);
+      await phone.getByTestId("all-builds-row").first().tap();
+      await expect(phone.getByTestId("all-builds-list")).toHaveCount(0);
+      await expect(column(phone)).toHaveCount(1);
+      await expect(all).toHaveAttribute("aria-pressed", "false");
+    } else await expect(phone.getByTestId("phone-all-builds")).toBeHidden();
     // One sheet at a time: a second portrait swaps the hero in place; Events replaces the build.
     await phone.locator('.tb-player[data-slot="Sapphire-0"] [data-testid=focus-hero]').tap();
     await expect(phone.locator(".phone-build-sheet")).toHaveCount(1);

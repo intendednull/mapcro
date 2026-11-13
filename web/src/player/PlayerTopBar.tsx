@@ -387,19 +387,51 @@ export function PlayerTopBar(p: {
           }}</For>
         </div>
       }</For>
+      {/* Tab's stand-in on a touch screen: the same all-builds state, so followers get it. */}
+      <button class="btn ghost phone-all" data-testid="phone-all-builds" aria-pressed={allBuilds() || tabHeld()} onClick={toggleAll}>All builds</button>
       <Show when={openBuild() || allBuilds() || tabHeld()}>
         <section class="phone-build-sheet" aria-label="Builds">
           <header class="p-sheet-head">
-            <b>{shownBuilds().length === 1 ? p.art.heroes.get(shownBuilds()[0]?.hero_id ?? 0)?.name ?? "Hero" : "Builds"}</b>
+            <b>{allBuilds() || tabHeld() ? "All builds" : p.art.heroes.get(shownBuilds()[0]?.hero_id ?? 0)?.name ?? "Hero"}</b>
             <button class="btn ghost p-build-close" aria-label="Close" onClick={closeBuilds}>×</button>
           </header>
-          <div class="phone-build-content"><For each={shownBuilds()}>{pl =>
+          <Show when={allBuilds() || tabHeld()} fallback={<div class="phone-build-content"><For each={shownBuilds()}>{pl =>
             <BuildColumn inspect={!allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek}
               player={pl} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={p.art.heroes.get(pl.hero_id)}
               name={p.host.playerName(pl.team, pl.slot)} id={`phone-build-${slotKey(pl.team, pl.slot)}`}
               stats={current(statTable(), tableKeyFor(p.art.stats, build()))}
               ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />
-          }</For></div>
+          }</For></div>}>
+            {/* Twelve rows: portrait, K/D/A, souls, items. A row opens that hero's build. */}
+            <div class="phone-build-content phone-build-list" data-testid="all-builds-list">
+              <For each={[friend(), enemy()] as const}>{t =>
+                <For each={team(t)}>{s => {
+                  const key = slotKey(t, s.slot.slot);
+                  const pl = () => p.host.tl()?.players.find(q => slotKey(q.team, q.slot) === key);
+                  const hero = () => p.art.heroes.get(pl()?.hero_id ?? 0);
+                  const now = () => p.host.t();
+                  const kda = () => {
+                    const q = pl();
+                    if (!q) return "—";
+                    const k = q.kills != null ? scoreboardValueAt(q.kills, now()) : killsAt(p.host.tl(), now(), q.team, q.slot);
+                    const a = scoreboardValueAt(q.assists, now());
+                    return `${k ?? "—"} / ${q.deaths.filter(d => d <= now()).length} / ${a ?? "—"}`;
+                  };
+                  const items = () => { const q = pl(); return q ? buildAt(q, now()).items ?? [] : []; };
+                  const souls = () => at().get(key)?.souls;
+                  return <button class={`phone-build-row ${t.toLowerCase()}`} data-testid="all-builds-row" aria-label={`${hero()?.name ?? "Hero"} build`} onClick={() => { batch(() => { setAllBuilds(false); setOpenBuild(key); p.host.setBuildPopover("none"); }); p.onFocus?.(t, s.slot.slot); }}>
+                    <span class="tb-player"><HeroBadge art={p.art} slot={s.slot} hero={hero()} /></span>
+                    <span class="phone-row-kda">{kda()}</span>
+                    <span class="phone-row-souls">{souls() != null ? souls()!.toLocaleString("en-US") : "—"}</span>
+                    <span class="phone-row-items"><For each={items()}>{it => {
+                      const icon = () => p.art.buildCatalog?.records.get(it.id)?.icon;
+                      return <Show when={icon()}>{src => <img src={src()} alt="" />}</Show>;
+                    }}</For></span>
+                  </button>;
+                }}</For>
+              }</For>
+            </div>
+          </Show>
         </section>
       </Show>
     </div>

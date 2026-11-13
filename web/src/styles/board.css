@@ -1187,3 +1187,23 @@ html:has(.phone) :is(input:not([type=range], [type=checkbox], [type=radio]), tex
   /* Sheets stop at half the height, so most of the map stays in view. */
   .phone .p-sheet, .phone-player .phone-build-sheet { max-height: min(50dvh, calc(100dvh - var(--transport-h, 104px) - var(--sheet-top, 152px))); }
 }
+
+/* All builds: Tab's stand-in at the roster's end on a tablet (a phone has no room for it). */
+.phone-all { display: none; }
+@media (min-width: 701px) and (min-height: 501px) {
+  .phone-player .phone-all { display: block; justify-self: end; min-width: 44px; min-height: 44px; font-size: 14px; }
+}
+@media (orientation: portrait) and (min-width: 701px) {
+  .phone-player > .phone-roster { grid-template-columns: 1fr 1fr auto; }
+}
+.phone-build-list { display: flex; flex-direction: column; }
+.phone-build-row {
+  display: grid; grid-template-columns: 44px 7em 5em minmax(0, 1fr); align-items: center; gap: 8px;
+  min-height: 48px; padding: 2px 4px; text-align: left; font-size: 14px; font-variant-numeric: tabular-nums;
+  background: transparent; border: 0; border-bottom: 1px solid var(--line); color: var(--text);
+}
+.phone-build-row .tb-player { position: relative; display: block; width: 44px; height: 44px; overflow: hidden; border-radius: 8px; }
+.phone-build-row.amber .tb-player { border-bottom: 2px solid #d4860b; }
+.phone-build-row.sapphire .tb-player { border-bottom: 2px solid #4d75c3; }
+.phone-row-items { display: flex; gap: 2px; overflow: hidden; }
+.phone-row-items img { width: 24px; height: 24px; object-fit: contain; }

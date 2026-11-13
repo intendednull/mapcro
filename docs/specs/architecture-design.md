@@ -1533,7 +1533,10 @@ A tablet is the same shell (no third layout). Landscape (any size) is two panes:
 on the left, at least 300 px of roster and dock on the right, a one-row transport whose scrubber
 keeps at least 40% of the width (with the tool rail open too: Play, scrubber, rail). Portrait over
 700 px wide: the roster is one row of 12 (the teams side by side), and sheets stop at half the
-height. Checks: `phone-layout.ts` at 768 × 1024, 820 × 1180, 1024 × 768, 1180 × 820 and
+height. Tab has no key on a tablet: an `All builds` toggle (44 px) at the roster's end drives the
+host's existing all-builds state (so followers get it) and lists twelve 48 px rows (portrait,
+K/D/A, souls, items); a row opens that hero's build. A phone has no room for it. Checks:
+`phone-layout.ts` at 768 × 1024, 820 × 1180, 1024 × 768, 1180 × 820 and
 1366 × 1024 (`phone-player.spec.ts`), and 1440 × 900 and 1024 × 768 without touch stay desktop.
 
 ### Touch

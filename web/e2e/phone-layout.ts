@@ -79,7 +79,7 @@ export async function checkPhoneLayout(page: Page) {
       transport: transport && { h: r1(transport.height), top: r1(transport.top) },
       rosterBottom: roster ? r1(roster.bottom) : 0, rosterLeft: roster ? r1(roster.left) : 0,
       sheets: sheets.map(r => ({ left: r1(r.left), right: r1(r.right), top: r1(r.top), bottom: r1(r.bottom) })),
-      portraits: [...document.querySelectorAll(".phone-player .phone-roster .tb-player")].map(e => { const r = e.getBoundingClientRect(); return { top: r1(r.top), w: r.width }; }),
+      portraits: [...document.querySelectorAll(".phone-player .phone-team .tb-player")].map(e => { const r = e.getBoundingClientRect(); return { top: r1(r.top), w: r.width }; }),
       play: (() => { const b = document.querySelector(".phone-player [data-testid=match-play]"); return !!b && visible(b); })(),
       scrubShare: transport ? (document.querySelector(".phone-player .match-range")?.getBoundingClientRect().width ?? 0) / innerWidth : 1,
     };

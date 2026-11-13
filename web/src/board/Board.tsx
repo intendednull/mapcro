@@ -628,16 +628,17 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const onWide = () => setLandscape(wide.matches);
   wide.addEventListener("change", onWide);
   onCleanup(() => wide.removeEventListener("change", onWide));
-  const docked = () => !phoneSheet() && landscape() && !player.openBuild();
+  const docked = () => !phoneSheet() && landscape() && !player.openBuild() && !player.allBuilds() && !player.tabHeld();
   const sheet = () => phoneSheet() ?? (docked() ? "events" : undefined);
   const phoneEvents = () => sheet() === "events";
   const openSheet = (k: "events" | "layers" | "more") => {
     if (phoneSheet() === k) return setPhoneSheet(undefined);
     setPhoneSheet(k);
     if (player.openBuild()) player.setOpenBuild(undefined);
+    if (player.allBuilds()) player.setAllBuilds(false);
   };
   // A build opened (a portrait, a token, or following) closes the other sheet: one at a time.
-  createEffect(on(() => player.openBuild(), (b) => b && setPhoneSheet(undefined), { defer: true }));
+  createEffect(on(() => player.openBuild() || player.allBuilds(), (b) => b && setPhoneSheet(undefined), { defer: true }));
   const [phone, setPhone] = createSignal(mq.matches);
   const onMq = () => setPhone(mq.matches);
   mq.addEventListener("change", onMq);
