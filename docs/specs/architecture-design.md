@@ -1526,6 +1526,30 @@ module-state ledger. The open build is the host's existing build row and follows
 layers, Vision and event filters keep their registry rows, so a phone following a presenter
 follows their replay time.
 
+### Touch
+
+The media query picks the layout; each event's `pointerType` picks the behaviour, so a hybrid can
+touch and then mouse in the same second. On the map (`board/touchGestures.ts`, every layout):
+
+- **Two fingers pinch** (zoom about their midpoint, pan with it) in every tool, through the same
+  `userView` path as the wheel, so it stops following.
+- **One gesture at a time.** A second finger that lands while the first finger's gesture is young
+  (under 150 ms or under 10 px travelled) cancels that gesture uncommitted (no stroke, move or undo
+  entry: a synthetic `pointercancel`) and starts a pinch; a pan always turns into one. Later than
+  that the extra finger is a palm and is ignored. After a pinch, the finger left down does nothing
+  until a fresh press.
+- **An editor pans by touch** on empty map in Select (a tap clears the selection); the marquee
+  stays mouse and pen. Viewers' Look already panned.
+- **No cursor from a finger:** presence `cursor` is sent for mouse and pen only; peers see a touch
+  user's laser, stroke and drag.
+- **Page guards in the touch shell:** no overscroll on the page, no text selection or long-press
+  callout (fields keep selection), `touch-action: manipulation` on controls, text fields at 16 px
+  (iOS zooms on focusing anything smaller), the map `none`, the shell's scrubber `none`, sheet
+  bodies `pan-y`, the tool rail `pan-x`. The viewport meta stays zoomable.
+
+Checks: `web/e2e/touch.spec.ts` (CDP multi-touch, in the phone shell and the desktop layout with
+`hasTouch`).
+
 ## 7. Per-user undo
 
 Undo covers only your own transactions, in the order you made them. Each history entry records the
