@@ -95,9 +95,14 @@ export const PRESENCE_MS = 60;
 const RESEND_BURST = 200;
 const RESEND_PER_SEC = 30;
 
-/** Where a link's role is remembered, per board and per link (one device may hold several). */
-async function roleKey(board: string, token: string): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)));
+/**
+ * Where a link's role is remembered, per board and per link (one device may hold several). A
+ * session's tab is its token and the tab's grant: one session token opens a board through an
+ * edit grant and a view grant alike (sessions.md §3.4), at two roles.
+ */
+async function roleKey(board: string, token: string, via?: Via): Promise<string> {
+  const link = via ? `${token}\u0000${via.session}\u0000${via.grant}` : token;
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(link)));
   const hex = Array.from(digest.slice(0, 8), (b) => b.toString(16).padStart(2, "0")).join("");
   return `${board}\u0000role\u0000${hex}`;
 }
@@ -107,6 +112,15 @@ export function docKind(records: Iterable<[RecordId, Entry]>): RoomKind {
   for (const [, e] of records) if ("SessionMeta" in e.record) return "session";
   return "board";
 }
+
+/**
+ * A board's last writes, from a session that ended (its tab was left, sessions.md §4.1), by
+ * board id. The next session of that board loads only once they're done, so its load never reads
+ * storage from before them. Each entry is removed as it settles.
+ */
+const ending = new Map<string, Promise<unknown>>();
+
+const isSubmit = (f: WireIn) => f.t === "msg" && "Submit" in f.msg;
 
 export class BoardSession {
   readonly records = new Map<RecordId, Entry>();
@@ -175,7 +189,9 @@ export class BoardSession {
   }
 
   private async begin(): Promise<void> {
-    this.roleStore = await roleKey(this.o.board, this.o.token);
+    // The writes of this board's last session (left just now) land first.
+    await ending.get(this.o.board);
+    this.roleStore = await roleKey(this.o.board, this.o.token, this.o.via);
     let saved: string | undefined;
     let role: string | undefined;
     try {
@@ -194,12 +210,12 @@ export class BoardSession {
     }
     if (saved !== undefined) {
       const r = BoardReplica.restore(saved);
-      const view = r.view();
+      const all = JSON.parse(r.view()) as Array<[RecordId, Entry]>;
       // A stored copy of the other kind (sessions.md §3.6) is never drawn: the server is asked
       // afresh, and its Ready decides.
-      if (docKind(JSON.parse(view) as Array<[RecordId, Entry]>) === (this.o.expect ?? "board")) {
+      if (docKind(all) === (this.o.expect ?? "board")) {
         this.replica = r;
-        this.resetRecords(view);
+        this.resetRecords(all);
       } else r.free();
     }
     this.readOnly = role !== "owner" && role !== "edit";
@@ -217,16 +233,29 @@ export class BoardSession {
 
   /**
    * End the session for good: its board was left (unmounted, sessions.md §4.1). As `stop`, and
-   * no timer of its own runs on: the presence send and the lazy save are dropped, as a page left
-   * drops them (the journal and the server hold what that save would have, and a late one would
-   * land under the board's next mount). No edit is taken after. Once the writes in flight are
-   * done, its storage is let go and the replica freed.
+   * no timer of its own runs on: the presence send is dropped, and a lazy save due is made now,
+   * once. The journal holds the edits that save would have, but not their undo entries, so
+   * without it the board's undo after a quick switch back would take back an older edit (review
+   * 2026-11-12, finding 1). It's queued here, in order behind earlier saves, and the board's next
+   * session loads only after it (`ending`), so it never lands over a newer load. No edit is taken
+   * after. Once the writes in flight are done, its storage is let go and the replica freed.
    */
   end(): void {
     if (this.ended) return;
     this.ended = true;
     clearTimeout(this.presenceTimer);
     clearTimeout(this.saveSoon);
+    this.saveSoon = undefined;
+    if (this.dirtySince !== undefined) this.saveState().catch(() => {});
+    {
+      // No timer of its own: a write that never ends would hold the next load in storage anyway
+      // (IndexedDB runs a store's transactions in order).
+      const board = this.o.board;
+      const last: Promise<unknown> = Promise.allSettled([this.saves, this.chain]).finally(() => {
+        if (ending.get(board) === last) ending.delete(board);
+      });
+      ending.set(board, last);
+    }
     // No reconnect from here on.
     this.stopped = true;
     clearTimeout(this.timer);
@@ -401,9 +430,8 @@ export class BoardSession {
     return u;
   }
 
-  private resetRecords(viewJson: string) {
+  private resetRecords(all: Array<[RecordId, Entry]>) {
     this.records.clear();
-    const all = JSON.parse(viewJson) as Array<[RecordId, Entry]>;
     for (const [id, entry] of all) this.records.set(id, entry);
     this.o.onRecords?.(all, true);
   }
@@ -477,10 +505,19 @@ export class BoardSession {
         if (!this.replica) {
           if (!frame.base) throw new Error("server sent no base for a new replica");
           this.replica = new BoardReplica(newClientId(), newClientSecret(), JSON.stringify(frame.base));
-          this.resetRecords(this.replica.view());
+          this.resetRecords(JSON.parse(this.replica.view()) as Array<[RecordId, Entry]>);
         }
         const u = this.apply(this.replica.connect());
         this.connected(u.frames[0]);
+        // Edits made through another link (an edit grant, or this board's own link) are pending
+        // in the copy this one shares by board id. Through a view link the server would take
+        // them as abuse and drop the socket, on every reconnect: they're held instead, and go
+        // the next time this board opens through a link that can edit (review 2026-11-12, 6).
+        let frames = u.frames;
+        if (frame.role === "view" && frames.some(isSubmit)) {
+          frames = frames.filter((f) => !isSubmit(f));
+          this.problems.push("edits not sent: this link is view-only");
+        }
         // The hello resends every pending transaction, so it goes through the save chain like any
         // edit: an edit made offline may not be durable yet, and the server must never ack what a
         // reload would forget (soak 2026-11-07, resend-before-durable). Later edits queue behind
@@ -492,11 +529,11 @@ export class BoardSession {
           .then(() => saved)
           .then(() => (this.roleStore ? this.o.persist.save(this.roleStore, role) : undefined))
           .then(async () => {
-            for (let i = 0; i < u.frames.length; i++) {
+            for (let i = 0; i < frames.length; i++) {
               if (sock !== this.socket) return;
               if (i >= RESEND_BURST) await new Promise((r) => setTimeout(r, 1000 / RESEND_PER_SEC));
               if (sock !== this.socket) return;
-              this.send(u.frames[i]!);
+              this.send(frames[i]!);
               if (i === 0) this.send({ t: "presence", state: this.presence });
             }
           })
@@ -560,6 +597,8 @@ export class BoardSession {
    * the journal short.
    */
   private persistSoon() {
+    // Ended: its one last save was made in `end`.
+    if (this.ended) return;
     const now = Date.now();
     this.dirtySince ??= now;
     clearTimeout(this.saveSoon);

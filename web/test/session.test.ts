@@ -361,7 +361,7 @@ describe("board sessions against the real server", () => {
     fan.stop();
   });
 
-  it("ending a session (its board unmounted) closes the socket, takes no edit after, writes nothing more, lets go of storage and frees the replica", async () => {
+  it("ending a session (its board unmounted) closes the socket, takes no edit after, makes its due save once and nothing after, lets go of storage and frees the replica", async () => {
     const { board, owner_token } = await api.createBoard("end");
     const base = new MemoryPersist();
     const calls: string[] = [];
@@ -379,9 +379,12 @@ describe("board sessions against the real server", () => {
     await until(() => [...observer.peers.values()].some((p) => p.state?.name === "Leaving"), "observer sees it");
     const [p0] = players(a);
     expect(a.edit(move(p0!, 5))).toBe(true);
-    // Acked: the lazy save of the ack is due as it ends, and never lands.
+    // Acked: the lazy save of the ack is due as it ends. It's made once, at the end (its undo
+    // entry is in no journal), and nothing after.
     await until(() => a.status.kind === "saved", "acked");
+    const before = calls.filter((c) => c === "save").length;
     a.end();
+    await until(() => calls.filter((c) => c === "save").length === before + 1, "the final save");
     const saves = calls.filter((c) => c === "save").length;
     expect(a.edit(move(p0!, 6))).toBe(false);
     await until(() => ![...observer.peers.values()].some((p) => p.state?.name === "Leaving"), "the server saw it leave");

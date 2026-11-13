@@ -52,6 +52,7 @@ export const MODULE_STATE: Record<string, Entries> = {
   "match/stats.ts": { loaded: ["immutable-cache", "stat tables by pack and file"] },
   "board/state.ts": { wasm: ["immutable-cache", "the WASM module's init, once a page; every replica is the session's own"] },
   "board/fade.ts": { fades: ["owner-cleared", "a WeakMap keyed by element: goes with it"] },
+  "core/session.ts": { ending: ["keyed-by-board", "an ended session's last writes by board id, which that board's next load waits for; each entry is removed as it settles"] },
   "map/MapView.tsx": {
     styleEl: ["page", "the art's CSS in <head>: the art is the page's (App loads it once), and each map sets it again"],
     stencils: ["page", "an id counter: only ever moves on, so every map's clip ids are its own"],
