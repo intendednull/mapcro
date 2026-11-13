@@ -3,7 +3,7 @@
 // footer offers Clone instead.
 
 import { For, Show, createResource, createSignal, onMount } from "solid-js";
-import { Api, shareUrl } from "../core/api";
+import { Api, sessionUrl, shareUrl } from "../core/api";
 import { cx } from "../ui/cx";
 import { linkIdOf, linkTree, mintedTokens, rememberMinted } from "./share";
 import { LIMITS } from "../gen/limits";
@@ -26,15 +26,18 @@ async function copy(text: string) {
 
 const day = (s: number) => new Date(s * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
-export function ShareDialog(p: { board: string; token: string; role: "owner" | "edit"; onClose: () => void; onClone: () => void }) {
+/** A board's Share, or a session's (`session`: its links, `/s/` urls, no Clone; sessions.md §8). */
+export function ShareDialog(p: { board: string; token: string; role: "owner" | "edit"; onClose: () => void; onClone?: () => void; session?: boolean }) {
   const api = new Api("");
+  const kind = p.session ? "sessions" : "boards";
+  const urlOf = (token: string) => (p.session ? sessionUrl(location.origin, p.board, token) : shareUrl(location.origin, p.board, token));
   const [label, setLabel] = createSignal("");
   const [role, setRole] = createSignal<"view" | "edit">("view");
   const [minted, setMinted] = createSignal<{ url: string; role: "view" | "edit" }>();
   const [copied, setCopied] = createSignal<string>();
   const [error, setError] = createSignal("");
   const [mine] = createResource(() => linkIdOf(p.token));
-  const [links, { refetch }] = createResource(() => api.listLinks(p.board, p.token));
+  const [links, { refetch }] = createResource(() => api.listLinks(p.board, p.token, kind));
   const rows = () => (mine() && links() ? linkTree(links()!, mine()!) : []);
   const tokens = () => (links(), mintedTokens(p.board));
   let input!: HTMLInputElement;
@@ -45,9 +48,9 @@ export function ShareDialog(p: { board: string; token: string; role: "owner" | "
     setError("");
     try {
       const r = role();
-      const { link_id, token } = await api.mintLink(p.board, p.token, r, label().trim());
+      const { link_id, token } = await api.mintLink(p.board, p.token, r, label().trim(), kind);
       rememberMinted(p.board, link_id, token);
-      setMinted({ url: shareUrl(location.origin, p.board, token), role: r });
+      setMinted({ url: urlOf(token), role: r });
       setLabel("");
       void refetch();
     } catch (err) {
@@ -133,7 +136,7 @@ export function ShareDialog(p: { board: string; token: string; role: "owner" | "
                       <div>{r.mine ? `you · ${day(r.link.created_at)}` : `${r.from ? `from “${r.from}” · ` : ""}${day(r.link.created_at)}`}</div>
                     </div>
                     <Show when={token()} fallback={<span />}>
-                      <button class="btn small ghost" onClick={() => doCopy(r.link.link_id, shareUrl(location.origin, p.board, token()!))}>
+                      <button class="btn small ghost" onClick={() => doCopy(r.link.link_id, urlOf(token()!))}>
                         <Ico d={COPY} />
                         {copied() === r.link.link_id ? "Copied" : "Copy"}
                       </button>
@@ -147,9 +150,13 @@ export function ShareDialog(p: { board: string; token: string; role: "owner" | "
         </div>
         <footer>
           <span />
-          <button class="btn small" data-testid="share-clone" onClick={() => p.onClone()}>
-            Clone to a new board
-          </button>
+          <Show when={p.onClone}>
+            {(clone) => (
+              <button class="btn small" data-testid="share-clone" onClick={() => clone()()}>
+                Clone to a new board
+              </button>
+            )}
+          </Show>
         </footer>
       </div>
     </ModalScrim>

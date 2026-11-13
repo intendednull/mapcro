@@ -3,7 +3,7 @@
 // app, a replay comes from its replay picker (`ReplayPicker.tsx`), not a file dialog.
 
 import { For, Show, createSignal, onCleanup } from "solid-js";
-import { Api, shareUrl } from "../core/api";
+import { Api, sessionUrl, shareUrl } from "../core/api";
 import { type KnownBoard, askRename, forgetBoard, knownBoards, markOpened, rememberBoard, restoreBoard } from "../core/device";
 import { Wordmark } from "../ui/Wordmark";
 import { FRESH_BOARD } from "../board/roster";
@@ -323,17 +323,22 @@ export function Landing() {
           <ul class="known" data-testid="known-boards">
             <For each={boards()}>
               {(b) => (
-                <li data-testid="known-board" data-board={b.board}>
-                  <a href={shareUrl(location.origin, b.board, b.token)} data-testid="known-title">
+                <li data-testid="known-board" data-board={b.board} data-kind={b.kind ?? "board"}>
+                  <a href={b.kind === "session" ? sessionUrl(location.origin, b.board, b.token) : shareUrl(location.origin, b.board, b.token)} data-testid="known-title">
                     {b.title}
                   </a>
+                  <Show when={b.kind === "session"}>
+                    <span class="muted known-match" data-testid="known-games">
+                      {b.games ?? 0} game{b.games === 1 ? "" : "s"}
+                    </span>
+                  </Show>
                   <Show when={b.match && b.title !== `Match ${b.match}`}>
                     <span class="muted known-match" data-testid="known-match">
                       {b.match}
                     </span>
                   </Show>
                   <span class="muted known-seen">{new Date(b.seen).toLocaleDateString()}</span>
-                  <Show when={b.edit}>
+                  <Show when={b.edit && b.kind !== "session"}>
                     <button class="known-act" type="button" data-testid="known-rename" title="Rename" aria-label="Rename" onClick={() => rename(b)}>
                       <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />
