@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { FALLBACK } from "../src/map/fallback-data";
 import { modelFromFallback } from "../src/map/model";
 import type { MatchEvent, Timeline } from "../src/match/timeline";
-import { groupOf, jumpTime, label, labelParts, namesFor, placeOf, search, shortLabel } from "../src/player/events";
+import { groupOf, jumpAt, label, labelParts, namesFor, placeOf, search, shortLabel } from "../src/player/events";
 import { sceneName } from "../src/match/save";
 
 const tl = {
@@ -60,8 +60,8 @@ describe("player events", () => {
   });
 
   it("jumps a lead before, finds the place, and names scenes within 24 characters", () => {
-    expect(jumpTime(ev[0]!, 5)).toBe(120);
-    expect(jumpTime({ t: 3 }, 5)).toBe(0);
+    expect(jumpAt(ev[0]!.t, 5)).toBe(120);
+    expect(jumpAt(3, 5)).toBe(0);
     const markers = modelFromFallback(FALLBACK).markers;
     expect(placeOf(ev[0]!, markers)).toEqual({ x: (100 + 10752) / 21504 * 1000, y: (10752 + 200) / 21504 * 1000 });
     expect(placeOf(ev[1]!, markers)).toEqual(markers.find((m) => m.key === "walker:sapphire:lane6:1")!.at);

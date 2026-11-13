@@ -11,7 +11,7 @@ import { slotKey } from "../match/save";
 import { cx } from "../ui/cx";
 import { type MatchEvent, type Timeline, clockLabel } from "../match/timeline";
 import { VIEW_STATE } from "../gen/viewState";
-import { type EventGroup, GROUPS, type Named, eventKey, groupOf, labelParts, search, majorPurchases } from "./events";
+import { type EventGroup, GROUPS, type Named, eventKey, eventStart, groupOf, labelParts, search, majorPurchases } from "./events";
 
 export function EventsList(p: {
   tl: Timeline;
@@ -158,8 +158,9 @@ export function EventsList(p: {
         <For each={shown()} fallback={<li class="pl-empty">No events</li>}>
           {(e) => {
             const i = eventKey(e);
+            const start = eventStart(p.tl, e);
             return (
-              <li class={cx("pl-ev", groupOf(e), e.team ?? "", current() === i && "now")} data-testid="event" data-kind={e.kind} data-t={e.t} data-key={i} data-current={current() === i ? "true" : undefined} aria-current={current() === i ? "true" : undefined}>
+              <li class={cx("pl-ev", groupOf(e), e.team ?? "", current() === i && "now")} data-testid="event" data-kind={e.kind} data-t={e.t} data-start={start < e.t ? start : undefined} data-key={i} data-current={current() === i ? "true" : undefined} aria-current={current() === i ? "true" : undefined}>
                 <Show when={p.canSave}>
                   <input type="checkbox" aria-label="Select" data-testid="event-pick" checked={picked().has(i)} onChange={() => setPicked(toggle(picked(), i))} />
                 </Show>
@@ -174,6 +175,8 @@ export function EventsList(p: {
                 <Show when={recapFor(p.tl, e)}>{recap => {
                   // Open or closed with the host, so a follower opens the one its presenter does.
                   const death = { slot: slotKey(e.team ?? "", e.slot ?? 0), t: e.t };
+                  // A death has no start (its recap has no per-hit times), so its jump is its own
+                  // second and this lead is measured from `e.t`.
                   return <DeathRecap recap={recap()} timeline={p.tl} art={p.art} open={p.recapOpen?.(death)} onToggle={(o) => p.onRecap?.(death, o)} onSeek={t => p.onJump(e, e.t - t)} />;
                 }}</Show>
               </li>
