@@ -1,9 +1,9 @@
 # Map state: one shape, computed by Player, stored by a scene
 
-Status: design, 2026-11-13 (branch `scene-state`), revised the same day after the operator's
-review. Replaces the §6b rule "Player draws only the timeline at t; Sandbox only the scene's
-records" (`architecture-design.md`). Supersedes the narrow fix for feedback #49 ("Build info
-dropdown does not work in the scene viewer").
+Status: design, 2026-11-13 (branch `scene-state`). Third revision: folds in the independent review
+(`map-state-review.md`, findings H1–H5 and M1–M7, all accepted) and the decisions in §2. Replaces
+the §6b rule "Player draws only the timeline at t; Sandbox only the scene's records"
+(`architecture-design.md`). Supersedes the narrow fix for feedback #49.
 
 Operator's ask: saving a scene snapshots the Player frame. The scene viewer shows that snapshot
 with every feature Player has, and edits change the snapshot, for that scene only. The clock and
@@ -12,336 +12,317 @@ keep in step; the design must make a new feature cheap to carry through both.
 
 ## 1. The problem today
 
-The views were unified on 2026-11-10 (`docs/journal/2026-11-10-scene-parity.md`): the top bar's
-parts live in `web/src/board/TopBarParts.tsx`, and the map controls, toolbar, side panel, scene
-list and dock bar are one render in `Board.tsx`. **The data is still two things.**
+The views were unified on 2026-11-10 (`docs/journal/2026-11-10-scene-parity.md`): one top bar's
+parts, one map, toolbar, side panel and dock in `Board.tsx`. **The data is still two things.**
 
-- **Player** reads `host.preview(markers)` (`web/src/player/host.ts`, ~984): a `MatchPreview`
-  (`web/src/match/preview.tsx`) built from the timeline at `t`, new on every frame.
-- **A scene** reads its own records: `PlayerState`, `ObjectiveState`, `Wave`
-  (`crates/schema/src/records.rs`), through `state.playersIn(scene)` and `state.inScene(...)`.
-- **`Board.tsx` picks between them by hand**, about 40 `inPlayer()` branches:
-  `matchPreview = inPlayer() ? player.preview(...) : undefined` (196), token positions (390),
-  `markerStates(matchPreview, keys, own)` whose `own` is the scene's state "outside Player"
-  (1124, `player/markerStates.ts`), `PlayerTopBar` or `TopBar` (976, 1436), and
-  `<Show when={inPlayer()}>` around `RiftRings`, `UrnMark`, `DeathSkulls`, the skull recap,
-  `Highlight` and the hero panels (1136–1242).
-- **Save as scene copies** (`web/src/match/save.ts` `matchSceneOps`): the match at `t` is written
-  out as twelve `PlayerState` records, `ObjectiveState` for what is down, and one `Wave` per lane.
-  The copy is lossy: the lane colours' gap becomes its midpoint, a dead hero's place becomes its
-  last one, and health, builds, items, camp and powerup timers, the urn, the Rejuvenator, vision
-  and skulls are dropped. `Scene.source` (`{match_id, t, tier}`) is stored but nothing draws from it.
+- **Player** reads `host.preview(markers)` (`web/src/player/host.ts`): a `MatchPreview` built from
+  the timeline at `t`, new on every frame.
+- **A scene** reads its own records: `PlayerState`, `ObjectiveState`, `Wave`.
+- **`Board.tsx` picks between them by hand**, 34 `inPlayer()` branches.
+- **Save as scene copies** (`web/src/match/save.ts`): twelve `PlayerState`, an `ObjectiveState`
+  for what is down, one `Wave` per lane. Lossy: the lane colours' gap becomes its midpoint, and
+  health, builds, items, timers, the urn, the Rejuvenator, sight and skulls are dropped.
+  `Scene.source` is used only by the ▶ chip, the transport and scene names; nothing draws from it.
 
-What this costs:
+What this costs: a Player feature is absent from scenes until someone ports it (#49); the two
+disagree where they overlap (names); performance fixes are per reader (TD-50); and every field a
+scene can hold is hand-written five times (record, `Field`, `FieldValue`, validation, the copy in
+`save.ts`, the scene's reader).
 
-- A Player feature is absent from scenes until someone ports it. #49 is one; every `Show
-  when={inPlayer()}` above is another.
-- The two disagree where they overlap. From the backlog (scene-names, 2026-11-09): Player puts the
-  match's name before a typed one and Scenes the reverse; a scene saved from another match shows
-  no names, because names come from the open match (`sceneMatchName`, `board/roster.ts`); the
-  hero picker's labels use neither.
-- Performance fixes are per reader (TD-50): the equality memos in `player/barSlot.ts`,
-  `markerStates.ts` and `buildState.ts` each guard one consumer of the per-frame `t`, and the next
-  reader of `preview()` redraws every frame again.
-- Every field a scene can hold is hand-written five times: the Rust record, its `Field` and
-  `FieldValue`, the validation, the copy in `save.ts`, and the scene's reader. That cost is why
-  the copy stayed small.
+## 2. Decisions
 
-## 2. The model
+"Default" rows are the lead's defaults (2026-11-13), recommended to the operator, who may still
+override them. "Operator" rows are the operator's own words.
+
+| # | Question | Decision | Status |
+|---|---|---|---|
+| D1 | Match names in the snapshot? | **Not stored.** Architecture §6b's rule stands: nothing writes a match's names into a board. A scene shows match names by reading them from its `source` match when that loads; a name typed on the board still works. | decided (default) |
+| D2 | Whose hero and name? | **Per scene.** A scene's own hero and name (rows `hero`, `name`) win over the board roster; editing them in a scene writes only that scene. Save as scene stores the match's hero per slot in the scene and no longer rewrites the roster. | decided (default) |
+| D3 | Sight in a scene | **Player's Vision logic.** The viewer's Vision setting decides who is seen, as in Player. The one difference: a hero Player would hide as unseen is drawn **faded** in the scene editor, not removed, so it stays visible and editable. ("The only difference in vision in the scene editor is that the token appears faded, instead of completely gone.") | decided (operator, 2026-11-13) |
+| D4 | Dead heroes in a new scene | A dark token with its respawn time, so it stays editable (Player hides it). | decided (default) |
+| D5 | Old scenes | Keep their current look. A feature a scene didn't capture keeps its legacy meaning (§4.5). | decided (default) |
+| D6 | Phase order | The review's (§8): builds end to end first, fixing #49 for old and new scenes. | decided (default) |
+| D7 | `max_records` | Not raised. Camps, heals and crates are one packed baseline (§4.4). | decided (default) |
+| D8 | Events list and pings in a scene | No: they are a span of the match. The build order up to the frame, and a recap for each hero dead at the frame, are stored. | decided (default) |
+| D9 | Capture everything at save | Yes, from unfiltered producers, whatever layers and Vision were on. | decided (default) |
+| D10 | Old scenes get more | By hand only: **Retake**, on a scene whose match is open (phase 2). | decided (default) |
+| D11 | Troopers and recaps | Stored (1–2 KB together). The caps aim at effects and marker records. | decided (default) |
+| D12 | Editable first | Per-scene hero and name, then health and level. Timers after the per-kind consistency rules. Builds and troopers stay view-only. | decided (default) |
+| D13 | Lanes | Stored as the split (`Wave.t`, still draggable) plus the gap between the colours. | decided (default) |
+
+## 3. The model
 
 **One shape, `MapState`: everything Player can show at one frame.** Two producers, one renderer.
 
 - **Player computes it** from the timeline at `t`, every frame.
-- **Save as scene stores it**, whole, in the scene's records.
+- **Save as scene stores it**, whole, in the scene's records, in one transaction.
 - **The scene viewer reads it back** and draws it with the components Player uses.
 - **Edits change the stored state**, for that scene only.
 
-There is no match under a scene. `Scene.source` (`match_id`, `t`, `tier`) and `Scene.clock` are
-metadata: where and when the snapshot was taken. Changing the clock changes the label on the bar
-and nothing else; `source.t` is never edited and is where "Resume a scene" will start playback.
-A scene never needs its match to draw.
+`Scene.source` (`match_id`, `t`, `tier`) and `Scene.clock` are metadata. Changing the clock changes
+the label on the bar and nothing else; `source.t` is never edited and is where Resume will start.
+A scene needs no timeline to draw. Two things it reads from outside its records, and draws
+without when they are missing: match names (D1, from the source match) and the patch's stat table
+(by the build number stored in the snapshot, from the asset pack).
 
-`MapState` is four kinds of entity, each a flat set of fields:
+`MapState` is four kinds of entity, each a flat set of fields. The full list is the registry (§4.2).
 
-| Entity | Keyed by | Fields (the full list is the registry, §3.2) |
+| Entity | Keyed by | Record |
 |---|---|---|
-| Hero | slot | hero, name, place, alive, placed, respawn, souls, ult, health, level, kills, build, items, effects, seen, last seen place and age, trail |
-| Marker | marker key | status, health, stage, camp state, timer, buff, rift progress |
-| Lane | lane key | Amber's and Sapphire's extent, troopers |
-| Match | one per frame | urn, Rejuvenators, skulls and their recaps |
+| Hero | slot | `PlayerState` |
+| Marker | marker key (the pack's, at save time) | `ObjectiveState` |
+| Lane | lane key | `Wave` |
+| Scene (match-wide) | one per scene | `SceneState` |
 
-- **It holds the frame, not the match.** A timer is "seconds left at this frame", not a death
-  time to subtract from a clock. So a stored frame needs no clock to draw, and the scene's clock
-  can be a label.
-- **It holds facts, not the viewer's choices.** Health is in it whether or not the Health layer
-  was on at save; both teams' sight of each hero is in it whichever Vision was picked. Vision,
-  the layers and names are view state, applied at render, in a scene as in Player (§5).
-- **Not in it:** things that are a span of the match and not a frame: the events list, pings,
-  the seek bar. They stay Player's (open question 2). Drawings, callouts and the note are the
-  scene's own records, as today, and are not part of the snapshot.
+- **It holds the frame, not the match.** A timer is "seconds left at this frame". Features that
+  span the match are stored up to the frame (the build order) or are Player's alone (D8). Seek
+  controls ("Watch lead-up", a build-order row) are absent in a scene.
+- **It holds facts, not the viewer's choices** (D9). Health is in it whether or not Health was on;
+  both teams' sight of each hero is in it whichever Vision was picked.
+- **Capture time** is `floor(t)`, as Save does today. Stored values are integers (records are
+  `Eq`): an interpolated value is rounded at capture, and the round-trip property (§9) compares
+  after the same rounding.
+- **Not in it:** the events list, pings, the seek bar; drawings, callouts and the note (the
+  scene's own records, as today).
 
-## 3. Storage
+## 4. Storage
 
-### 3.1 Granularity: a record per entity, a field per value
+### 4.1 Granularity: a record per entity, a field per value
 
-**Chosen: keep today's record model.** One `PlayerState` per hero, one `ObjectiveState` per
-marker, one `Wave` per lane, and one new `SceneState` per scene for the match-wide fields. Each
-value is its own field, set by its own op.
+Today's record model stays: one `PlayerState` per hero, an `ObjectiveState` per marker someone
+edited, a `Wave` per lane, and one new `SceneState` per scene. Each value is its own field, set by
+its own op, so last-writer-wins and undo are per field, as now. Rejected: one snapshot blob per
+scene (any edit replaces the frame); a new record kind per feature (the hand-written cost again).
 
-- Two people editing different heroes, or one hero's place and its souls, both keep their edit:
-  last writer wins per field, as now.
-- Undo takes back one field, as now.
-- The duplicate check (`Reject::Duplicate`, validate.rs), delete-with-the-scene, clone and
-  `export_records` already work per record and need nothing new.
+### 4.2 The registry
 
-Rejected: **one snapshot blob per scene.** Simple to write, but any edit replaces the whole
-frame, so a concurrent edit is lost and undo restores everything; it would also be one value of
-tens of kilobytes rewritten on each drag. Rejected: **new record kinds per feature** (a
-`BuildState`, a `CampState`…): that is the hand-written cost again, once per feature.
-
-### 3.2 The registry: how a field gets stored without new schema code
-
-The cost today is that each field is a Rust struct member, a `Field`, a `FieldValue`, a
-validation arm and TypeScript on both ends. The fix is the view-state registry's pattern
-(`crates/engine/src/view_state.rs`): **one table of rows, and generic code driven by it.**
-
-`crates/schema/src/map_state.rs` holds one row per `MapState` field:
+`crates/schema/src/map_state.rs` holds one row per stored `MapState` field:
 
 ```rust
-Row { key: "health", entity: Hero, kind: Int { min: 0, max: 100 },
-      default: None, feature: "health", edit: Edit::None, rate: PerSecond }
+Row { key: "hero", entity: Entity::Hero, kind: Kind::Int { min: 0, max: u32::MAX as i64 }, status: Status::Ahead }
 ```
 
-- `kind`: a short closed list with bounds, as in the view-state registry: `Bool`, `Int`,
-  `Choice`, `Text { max }`, `Pos`, `Ints { max }` (a packed list: a build, a trail, troopers).
-  One codec and one validator per kind.
-- `feature`: the group it is captured and drawn with ("builds", "camps", "troopers").
-- `edit`: `None` (stored, view-only) or the control that edits it (§4).
-- `rate`: per frame or per second, for Player's producer (§5).
+- **`kind`**, a closed list, each with bounds: `Bool`, `Int { min, max }`, `Text { max }`, `Pos`,
+  `Ints { len, min, max }` (a packed list: a build, troopers). One validator per kind. No floats.
+  A choice is an `Int` with a small range.
+- **`status`**: `Ahead` (readable; nothing writes it yet), `Live`, `Retired`.
+- Client-only attributes (the feature a row draws with, its editor, its producer's rate) are added
+  with the client in phase 2 and never reach validation.
 
 Storage is generic:
 
-- Each of the four entity records gets one new member, **`more`: a map from row key to value**
-  (`#[serde(default)]`, empty in every existing record).
-- One new op value, **`More { key, value: Option<Value> }`**, sets or clears one entry. It is
-  one field for conflicts and undo, like any other. The schema validates it against the row:
-  unknown key, wrong kind or out of bounds is refused.
-- The fields that exist today (`pos`, `alive`, `placed`, `souls`, `ult_cooldown`, `visible`,
-  `respawn`; `status`; `Wave.t`) keep their typed members and ops. Their rows say
-  `stored: Typed(Field::PlayerPos)`, so the registry covers them and nothing about old data moves.
-- `SceneState { scene, captured, more }`: `captured` lists the features this snapshot holds
-  (§3.4); one per scene.
-- `just ts` generates `web/src/gen/mapState.ts`: the row table and the four entity interfaces.
+- Each of the four records has **`more`: a map from row key to value**. It is left out of the JSON
+  when empty, so every record that exists today serialises byte for byte as before.
+- One new field value, **`More { key, value }`** (`value: null` clears the key). It rides the
+  existing `Set` and `SetIf`, so sync, conflicts and undo are per key with no change to the
+  protocol or its Quint model. `Field::More(row)` names the key; the simulation's no-clobber check
+  walks every row.
+- In memory a key is the row's index, so an unknown key cannot be held: a transaction, record or
+  file that names one fails to parse and is refused whole. A value of the wrong kind or out of
+  bounds, or a key on the wrong entity, is a `Reject`.
+- **`SceneState { scene, more }`**: at most one live per scene. Created with the scene (Save, New
+  scene, Duplicate) or later (Retake). It can be deleted and restored like a note; with none, or an
+  empty one, the scene has the legacy meaning (§4.5). Two clients creating one at once: the second
+  is refused as `Duplicate`, as for a marker's first record.
+- The typed fields that exist today (`pos`, `alive`, `placed`, `souls`, `ult_cooldown`, `visible`,
+  `respawn`; `status`; `Wave.t`) keep their members and ops.
+- `just ts` generates the row table for the client (phase 2).
 
-So sync, conflicts, undo, validation, clone, export and import are written once, for `more`,
-and every later field gets them.
+### 4.3 Rows are append-only, and the reader ships first (H1)
 
-### 3.3 A new field, end to end
+Cold load replays every logged transaction through validation and fails the board on a refusal, and
+a server without the reader would drop `more` silently. So:
 
-Say Player gains a hero's spirit power.
+- **Rows are never removed and never reordered; bounds only widen.** A dead row becomes `Retired`:
+  still read and validated, no longer written.
+- **A row is readable one release before anything writes it.** A new row lands as `Ahead`.
+  `crates/schema/rows.lock` lists the rows of the last deployed build (`just rows-lock` at each
+  deploy, `docs/deploy.md`). A test refuses: a locked row that changed or narrowed; a row that is
+  not `Ahead` and not in the lock.
+- **The store version moves twice.** v8 (additive, no SQL) ships with the reader, so a v7 server
+  still opens the database while nothing is written. v9 ships with the writer and sets the floor to
+  8, so a server older than the reader refuses to start.
+- **Board files:** the reader accepts file version 2 (version 1 plus a `rows` header: the registry
+  length at export) and still writes version 1. The writer writes version 2. A file whose `rows`
+  is above this build's is refused as "Newer file".
 
-1. **Add the row** in `map_state.rs`: `key: "spirit", entity: Hero, kind: Int {..}, feature:
-   "stats"`. Run `just ts`. The generated `HeroState` now has `spirit`.
-2. **Produce it in Player**: one entry in `web/src/mapstate/match.ts`, `spirit: (tl, slot, sec)
-   => …`. The producers object is typed `satisfies` the generated interface, so a missing
-   producer doesn't compile.
-3. **Draw it**: read `ms.hero(slot).spirit` in the component. It shows in Player.
+A new field therefore costs: the row (as `Ahead`), its producer in Player, its draw; then one
+release later the row goes `Live` and Save writes it. Lists (`Ints`) also need a hand-written
+pack, unpack and defensive decoder each, since the server checks only length and range.
 
-Nothing else is written. Save as scene walks the rows and stores it; the scene viewer decodes
-it into the same `ms.hero(slot).spirit`; it syncs, undoes, clones, exports and imports through
-`more`; the round-trip test (§7) covers it because it iterates the rows. To make it editable
-later, change the row's `edit` (§4): no schema or storage change.
+### 4.4 The record and byte budget (H2, M7)
 
-### 3.4 What is stored, what is derived, and the size
+Measured by the review on two matches, every 5 s: today's save is 51–72 records at the median, 96
+at p90, 181 at most, because all 165 camps, heals and crates wait for their first spawn in the first
+two minutes. `doc.len()` counts deleted records too, so a board holds about 60 replay scenes over
+its life today.
 
-**Stored as it is at the frame:** every row. Timers as seconds left. Each hero's sight as two
-facts: seen by the enemy or not, and where and how long ago it was last seen.
+- **`max_records` stays 5,000.** Raising it breaks `DOC_DECODE_LIMIT` and the room memory budget.
+- **Markers are one packed baseline:** the state of every camp, heal and crate at the frame is
+  `Ints` rows on `SceneState`. An `ObjectiveState` exists only for a marker someone edits (and,
+  as today, for objectives that are down). About 45 records per scene.
+- **Per record, `more` is at most 16 KiB of JSON** (`LIMITS.max_more_bytes`), counted exactly on
+  every write. `max_op_bytes` covers it, and `Doc::approx_heap_bytes` counts it.
+- **A save is one transaction** (one undo step): the scene, its 12 heroes and its `SceneState`
+  must be created together. It fits: the fullest frame measured 47 KB and 189 ops against 64 KiB
+  and 256. The client checks the encoded size before sending and drops whole features in a fixed
+  order when over (effects first), clearing their captured flag.
+- **Saving many scenes** sends one transaction per scene, chunked by bytes, not op count.
+- **Retake** writes with `SetIf` on an absent value, so it never overwrites; it may take more than
+  one transaction and is then more than one undo step.
+- Tombstones still count toward the cap. "Board full" stays the answer; a copy starts fresh.
+  Reclaiming them is logged as debt, not built here.
 
-**Derived at render, never stored:** team soul totals (summed); shops closed (from the guardians
-down); a marker's look from status, stage and health; a ghost or a hidden hero (from sight and
-the viewer's Vision); the urn hidden with an unseen carrier; eased numbers and fades; every
-label. If a value can be computed from stored fields, it is not a row.
+### 4.5 What is stored, what is derived, and what was captured (H4)
 
-**A default is not stored.** Save writes a field only where it differs from the row's default,
-and a record only where it has a field to hold. `SceneState.captured` says which features the
-snapshot holds, so the reader can tell the two absences apart:
+**Stored as it is at the frame:** every row. **Derived at render, never stored:** team soul totals,
+a marker's look, a faded hero (from sight and the viewer's Vision), eased numbers, every label.
+**A default is not stored:** Save writes a key only where it differs from the row's default.
 
-- absent, feature captured: the default (a camp with no record is up);
-- absent, feature not captured: not known, so nothing is drawn for it.
+So that an absent key can be told from an unknown one, `SceneState.more` holds:
 
-**Budget** (estimates; phase 0 measures them on the reference replay and sets the caps):
+- **`rows`**: the registry's length when the snapshot was taken (the watermark). A row with an
+  index at or above it was not known then, and reads as "not captured", never as its default.
+- **`has_<feature>`**, one `Bool` row per feature: the snapshot holds it. These are ordinary keys,
+  so they merge per key and undo. Retake and a hand edit of an uncaptured feature set them.
 
-| Part | Size per scene |
+Reading a key that is absent:
+
+- feature captured and the row below the watermark: the row's default;
+- otherwise: not captured. Nothing is drawn for it, and the **legacy meaning** applies where there
+  is one: `visible: false` fades the hero for every viewer; a dead hero is a dark token; the lane
+  is one split; shops are never closed.
+
+**An existing scene has no `SceneState`**, so nothing is captured and it draws exactly as today.
+Nothing is rewritten. `addSceneOps` (New scene, Duplicate) copies `SceneState` and every `more`
+with the records it already copies, so a new scene from a snapshot inherits it.
+
+### 4.6 Sync, undo, clone, files
+
+- **Sync and conflicts:** per field and per `more` key, last writer wins; a delete beats a set.
+- **Undo:** an edit is one field; a save is one step.
+- **Clone and export** work per record. A clone keeps tombstones, as today.
+- **Older clients** are closed as `Outdated` (the build id hashes the schema sources, so a new row
+  forces a reload). The desktop app loads the client from the server.
+- **The compression dictionary** was trained without `more`; rows compress less well until a new
+  codec is trained. Logged as debt.
+
+## 5. Editing
+
+An edit sets one field of the stored state through `mapstate/edit.ts` `set(scene, entity, key,
+value)`, which picks the typed op or `More`. Player's state is computed and not editable.
+
+- **It writes only the scene.** No edit in a scene writes the board roster (D2).
+- **A marker with no record yet** is created by its first edit. Two people editing it at once:
+  the second edit is refused and retried as a `Set`.
+- **Generic editors by kind** (phase 6): `Int` an in-place number, `Bool` and a small `Int` an
+  entry in the hero's or marker's menu, `Pos` a drag. Lists need a purpose-built editor each.
+- **Labels** follow spec §4b: the game's words, one to three of them.
+
+**Consistency is the renderer's, by these rules; an edit never rewrites other fields.**
+
+| Edit | What is drawn |
 |---|---|
-| 12 heroes: typed fields, health, level, kills, sight | ~2 KB |
-| Builds and items (item id and time, ≤ 64 per hero) | ~4 KB |
-| Effects, trails (≤ 16 points per hero) | ~2 KB |
-| Markers that aren't default: status, health, timers, buffs | ~2 KB, 15 to 30 records |
-| Lanes: extents; troopers packed (≤ 100 per lane) | ~3 KB |
-| Urn, Rejuvenators, skulls; recaps (≤ 6, capped each) | ~4 KB |
-| **Total** | **~15 to 20 KB, 30 to 50 records** |
+| A hero set dead | No health, effects or cooldowns; the dark token and its respawn time (D4). |
+| A hero revived that was captured dead | Full health, not the stored 0. |
+| A hero's hero changed | The stored abilities, items and build order are not drawn (they are the old hero's). |
+| An unseen hero dragged | Writes its place (`pos`); the last seen place is not moved. |
+| A marker set up | No timer. A camp, powerup or mid-boss timer shows only while the marker is down. |
+| A timer at 0 | Drawn as up. |
+| `status` against a row that repeats it (camp state, stage) | `status` wins; the row is detail under it. |
+| One rift up at a time | The other rift's rows are not drawn while it is down. |
 
-- Against the limits: a save is sent in chunks under `max_ops_per_tx` (256) and `max_tx_bytes`
-  (64 KiB), as Save as scene does now. 64 scenes at 20 KB is about 1.3 MiB, well under the board
-  file's 8 MiB (TD-43). 64 scenes at 50 records is 3,200 of `max_records` (5,000), which leaves
-  too little for ink on a full board: raise `max_records` to 8,000 with phase 4.
-- Each `Ints` row has its own `max`, and `SceneState` a total cap. Over it, save drops whole
-  features in a fixed order (recaps, then trails, then troopers), leaves them out of `captured`,
-  and the scene simply doesn't draw them.
+## 6. Rendering and performance
 
-### 3.5 Existing scenes
-
-**An existing scene has no `SceneState`, so its captured features are exactly today's: hero
-place, alive, placed, souls, ult, seen, respawn; marker status; the lane split. It draws those
-from the records it has, by the code path it does now, and nothing for any other feature.**
-Nothing is rewritten, and no default can change its look, because a default applies only to a
-captured feature. A hand-made scene is the same case, and stays so.
-
-A new scene differs only by having a `SceneState` and fuller records. Lanes: an old `Wave.t` is
-one split; a new scene stores the two colours' extents, and the split is drawn when they are
-absent.
-
-Old scenes can get more, by hand: **Retake** (phase 8), on a scene whose `source` match still
-loads. It captures the frame at `source.t` and fills only what the scene doesn't hold, never
-overwriting a stored value, in one undoable step.
-
-### 3.6 Sync, undo, clone, files, older clients
-
-- **Sync and conflicts:** per field, last writer wins; a delete beats a set; a second record
-  for the same scene and key is refused. All as today.
-- **Undo:** an edit is one field; Save as scene and Retake are one step each.
-- **Clone:** the document is copied; a scene needs no timeline, so nothing else has to come along.
-- **`.mapcro.json`:** `export_records` writes the records as they are. Import validates each
-  `more` entry against its row and drops none silently. File version +1; older files import
-  unchanged; a newer file is refused by an older server, by the envelope's rule.
-- **Older clients:** the server closes a socket from another build as `Outdated`, so none edits
-  a newer document. Old documents and pending ops decode (`more` defaults to empty). The hazard
-  is a **server rollback** after `more` is written, so the schema that reads it ships one deploy
-  before anything writes it. A row removed later leaves stored values that are ignored on read.
-
-## 4. Editing
-
-An edit sets a field of the stored state through one function, `mapstate/edit.ts`
-`set(scene, entity, key, value)`, which picks the typed op or `More` from the row. Player's
-state is computed and is not editable; the live scene keeps holding ink only.
-
-| | Fields | How |
-|---|---|---|
-| **Editable now** (unchanged) | hero place, alive, placed, respawn, souls, ult, seen; marker status and hide; the lane split; the clock label; a slot's name | today's controls, now writing through `set` |
-| **Stored, view-only at first** | health, level, kills, build, items, effects, sight detail, trail; marker health, stage, timers, buffs, rift progress; lane colours, troopers; urn, Rejuvenators, skulls, recaps | drawn as Player draws them |
-| **Made editable later** | any of the above | change the row's `edit` |
-
-- **Generic editors by kind:** `Int` an in-place number (as souls is now), `Bool` and `Choice` an
-  entry in the hero's or marker's menu, `Pos` a drag. A row with one of these needs no editor
-  code. Lists (`Ints`: builds, troopers) need a purpose-built editor each, and are the last to
-  become editable, if ever.
-- **An edit never rewrites other fields.** Consistency is the renderer's: a hero set dead shows
-  no health or effects; a marker set down shows no timer or buff; a moved hero shows no trail.
-  The stored values stay, so reviving the hero shows its health again.
-- **Labels** for any new control follow spec §4b: the game's words, one to three of them.
-
-## 5. Rendering, performance, follow
-
-**One renderer.** `web/src/mapstate/` gives every component the same interface, whoever
-produced the state:
+**One renderer.** `web/src/mapstate/` gives every component the same interface:
 
 ```ts
 interface MapState {
-  hero(slot): HeroState;  marker(key): MarkerState;  lane(key): LaneState;  match(): MatchState;
-  has(feature): boolean;  // captured, or computed by Player: hides a control with nothing behind it
+  hero(slot): HeroState;  marker(key): MarkerState;  lane(key): LaneState;  scene(): SceneState;
+  has(feature): boolean;  // captured, or computed by Player
 }
-fromTimeline(tl, t, sec): MapState   // Player
+fromTimeline(tl, t): MapState        // Player
 fromScene(state, sceneId): MapState  // a scene: decodes records by the registry
 ```
 
-Components take a `MapState` and never the host, the timeline or scene records. `Board.tsx`
-loses `matchPreview`, `markerStates`' `own` argument and its `inPlayer()` branches around what
-is drawn; `PlayerTopBar` and `TopBar` become one bar. What still asks about the mode: the
-transport, the events list, pings, and whether editing is on.
+Components take a `MapState`, never the host, the timeline or scene records. The producers object
+is typed with every key required (`-?`), so a row with no producer doesn't compile. The merged
+clicks keep each mode's meaning: in a scene a portrait click opens the edit menu and a token click
+selects; the build opens from the portrait's build control in both. The phone layout
+(`PlayerSheets`) moves with the desktop one.
 
-**Performance** (TD-50, made structural):
+**Performance** (TD-50, M5):
 
-- **Two clocks in Player:** `t()` per frame, `sec() = floor(t)` as its own memo. A row's `rate`
-  says which its producer reads; only places, eased numbers and fades are per frame.
-- **No whole-state object per frame.** Each entity's fields are memos keyed by slot or marker
-  with an equality check, which is what `barSlot.ts`, `markerStates.ts` and `buildState.ts` do
-  by hand today; they fold into the producers.
-- **A scene is static:** its `MapState` changes only when a record does, indexed once per scene
-  by slot and key, not rescanned.
-- **Budgets:** the existing churn specs (`player-troopers.spec.ts`, `player-topbar-writes.spec.ts`)
-  plus one new: per-second rows run at most once per changed value while playing, and a scene at
-  rest runs none. TD-51 and TD-53 still apply to components.
+- **Three clocks in Player:** per frame (places, eased numbers), per tenth (sight, CC, effects,
+  casts, which are tenth-of-a-second series), per second (the rest). Marker timers stay computed
+  on hover.
+- **The bound is on consumers:** a component reruns only when a value it reads changes. Each
+  entity's fields are memos keyed by slot or marker with an equality check.
+- **A scene is static:** its `MapState` changes only when a record does.
+- **Edit cost:** the replica clones the whole document on every edit and receive. Phase 0 measures
+  a 64-scene board before and after `more` (§9); the numbers decide whether the clone must go
+  before the writer ships.
 
-**Follow and view state:**
+## 7. Follow on scenes (H5)
 
-- The stored state and its edits are the document, so followers on a scene see the same map with
-  nothing new in presence. Which scene is shown, and Player's playback, follow as today.
-- The existing keys (Vision, last seen, the layers, names, hero panels and builds, All builds,
-  the recap) keep their rows in `view_state.rs` unchanged. They now apply on any scene whose
-  snapshot has the feature; on one that doesn't, the control is hidden and the key keeps its
-  value. The store moves out of `player/`.
-- No new key is needed by the model. The follow matrix gains a column: each key with the
-  presenter on a full scene. Derived signals (`sec()`, the memos) get their ledger lines.
-- Editing doesn't stop a follow, as drawing doesn't.
+Vision, builds, panels and the recap are view state that today rides inside presence's `playback`,
+which is not sent for a board without a match, is not mirrored when the presenter is outside
+Player, and resets when the match changes. For a scene to follow as Player does (phase 2 for the
+panel keys, phase 4 for the rest):
 
-## 6. Phases
+- the keys are carried outside the match gate, so a board with no match sends them;
+- a follower mirrors the panel group when the presenter is on a scene;
+- keys that name a death by match second (`recap.skull`) reset when the scene changes;
+- the store moves out of `player/`; the follow matrix gains a column (the presenter on a full
+  scene) and each new policy its ledger line.
+
+The stored state and its edits are the document, so they need nothing in presence. Editing doesn't
+stop a follow, as drawing doesn't.
+
+## 8. Phases
 
 Each ships alone and leaves every board working.
 
-| # | Built | The user gets |
+| # | Built | Ships |
 |---|---|---|
-| 0 | Characterisation tests (§7): old scenes and Player pinned as they are. Snapshot sizes measured on the reference replay. | Nothing visible. |
-| 1 | The registry (`map_state.rs`) with rows for the fields both modes have now, generated TypeScript, the `MapState` interface. | Nothing visible. |
-| 2 | Player produces `MapState` (`fromTimeline`); `host.preview` retired; the two clocks. | Nothing visible. TD-50 closed. |
-| 3 | One renderer: scenes decode into `MapState` (`fromScene`); the map and one `TopBar` read only it; writes go through `set`. | Nothing visible: old scenes proven unchanged. |
-| 4 | Storage: `more`, `SceneState`, the `More` op, validation, file version, `max_records`. Reader one deploy ahead of the writer. Save as scene captures by walking the rows. | A new scene holds lane colours with their gap and each slot's hero and name, so a scene from another match reads right. |
-| 5 | Rows: build, items, hero panel, All builds. | Build dropdowns and hold-Tab work in a scene (#49). |
-| 6 | Rows, in any order, one small change each: the bar (health, level, kills, respawn, Rejuvenator); objectives, camps, powerups, rifts, urn; troopers; skulls and recaps; sight (Vision), trails and effects. | Each shows on newly saved scenes as it lands. |
-| 7 | Editing per kind: the generic editors, then rows switched to editable in the order asked for. | View-only values become editable. |
-| 8 | Retake for old scenes. Resume a scene (backlog). The last `inPlayer()` draw branches go. | Old scenes can be filled in. Play on from a scene. |
+| 0 | Characterisation tests and measurements (§9). | Nothing. |
+| 1 | Server and schema reader only: `more`, `SceneState`, `FieldValue::More`, the registry with the tracer's rows as `Ahead`, limits, the heap estimate, the simulation, store v8, file version 2 read. | Nothing; the reader is ahead. |
+| 2 | Builds end to end as the tracer: components read a build interface in Player; Save captures; the scene shows it; the writer (store v9, rows `Live`, file version 2); Retake for scenes whose match is open; panel follow on scenes. | #49, for old and new scenes. |
+| 3 | Player producers for the rest, feature by feature, with the clocks. | TD-50. |
+| 4 | One map and bar renderer, with decisions D1–D5 and D13. | Decided changes only. |
+| 5 | The remaining rows, each a release behind its reader; the marker baseline. | Per feature. |
+| 6 | Editing: per-scene hero and name, generic editors, the consistency rules. Supersedes the quick right-click of #53. | Editing. |
+| 7 | Resume a scene; the last `inPlayer()` draw branches go. | |
 
-Phases 0 to 5 answer #49 without building it twice. From phase 5 on, a feature costs the three
-steps of §3.3.
-
-## 7. Test plan
+## 9. Test plan
 
 State and sync change, so: characterisation first, mutation testing on each diff, adversarial
 review before each merge.
 
-- **Old scenes look the same.** Real-shaped fixtures: a blank board; hand-made scenes; a scene
-  saved from the replay tier, one from the metadata tier, one from another match than the open
-  one, one edited after saving (moved, killed, souls and ult typed, objectives toggled, a wave
-  dragged, a hero unseen); nested scenes; a document with none of the `serde(default)` fields.
-  Their decoded state and the DOM of map and bar are recorded on the release candidate and must
-  not change in any phase. No names or ids in fixtures; 6v6 only; no game art committed.
-- **Player looks the same:** `fromTimeline` at a spread of times of the reference replay equals
-  `host.preview`, `playersAt` and `buildAt` until each is retired.
-- **The property, over every row:** capture Player's state at `t`, decode it, and get the same
-  value (`fromScene(capture(fromTimeline(t)))` equals `fromTimeline(t)`). The test iterates the
-  registry, so a new row is covered without a new test, and a row with no producer doesn't
-  compile. One e2e per feature: its test id is present on a scene saved from the reference replay.
-- **Boundaries:** a lint test that only `mapstate/` imports the timeline's `*At` functions or
-  reads scene state records; a count of `inPlayer()` in `Board.tsx` that may only go down.
-- **Schema (Rust):** old records round-trip byte for byte; every kind's bounds; an unknown key
-  refused; `apply_tx_with_inverse` restores the document for `More`, cleared included; a second
-  `SceneState` refused; old file imports; a newer file refused; the size caps and the drop order.
-- **Sync and undo, two replicas:** edits to two fields of one hero both kept; edit against
-  delete; undo and redo of a field edit, Save as scene and Retake.
-- **Clone and file round trip** of a full scene, with no timeline on the target.
+- **Stored bytes don't move** (phase 0, `crates/schema/tests/characterisation.rs`): a board with
+  every record kind, old shapes included, and a log with every op and field value, as committed
+  JSON. Each parses, validates and serialises back byte for byte, in every phase.
+- **Old scenes look the same; Player looks the same:** the frame functions and Save's ops are
+  pinned on a synthetic match (`web/test/map-state-pins.test.ts`); the DOM of map and bar on
+  fixture scenes is pinned before phase 2 touches rendering. No names or ids in fixtures; 6v6
+  only; no game art.
+- **The property, over every row:** `fromScene(capture(fromTimeline(t)))` equals
+  `fromTimeline(t)` after capture's rounding. It iterates the registry.
+- **Schema (Rust):** every kind's bounds; a key on the wrong entity; an unknown key fails to parse;
+  `apply_tx_with_inverse` restores the document for `More`, cleared included; a second
+  `SceneState` refused; `max_more_bytes`; the largest legal ops fit a transaction; the heap
+  estimate; the lock file.
+- **Store:** a v7 database in use opens on v8 unchanged; a v7 server opens a v8 database.
+- **Sync and undo, two replicas (the simulation):** `More` writes by every honest behaviour, with
+  the no-clobber check over every row.
+- **Files:** version 1 and 2 import; a `rows` above this build's is "Newer file"; a full scene
+  round-trips through a file and a clone.
 - **Follow:** the matrix's new column; a presenter going Player → scene → another match's scene.
-- **Performance:** the memo-run budget and the two churn specs, every phase.
+- **Performance:** the 64-scene edit cost (`cargo run --release -p mapcro-engine --example
+  scene_cost`), the consumer-rerun budget and the two churn specs.
 
-## 8. Open questions for the operator
+## 10. Still open
 
-1. **Store player names in the snapshot?** Recommended: yes. They are on screen in Player, and
-   it is the only way a scene from another match keeps its names. They would then be in the
-   board's document and its exported file.
-2. **Events list and pings in a scene?** Recommended: no. They are a span of the match, not a
-   frame. A scene with a `source` gets a way back into Player at that moment instead (Resume).
-3. **Capture everything at save, whatever layers and Vision were on?** Recommended: yes; the
-   viewer of the scene picks layers and Vision afterwards.
-4. **Old scenes: leave as they are, with Retake by hand?** Recommended: yes; never automatic.
-5. **Troopers and recaps are the bulk of a snapshot. Store them?** Recommended: yes, within the
-   caps, dropped first when a scene is over budget.
-6. **Which view-only values should become editable first (phase 7)?** Recommended: health and
-   level, then camp and objective timers; builds and troopers stay view-only.
+- The operator may override any "decided (default)" row in §2.
+- Whether the replica's whole-document clone per edit must be fixed before the writer ships: by
+  the phase 0 and phase 1 numbers (§6).
