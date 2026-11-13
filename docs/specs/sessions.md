@@ -872,7 +872,8 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      "Remove and revoke" is offered to every editor, and the server's 404 for one who isn't the
      owner or the adder reads "No access" after the tab is removed; an empty session shows its
      strip and "No games"; the phone shows the strip under its header, scrolling (the Games sheet
-     is phase 5). Debt: TD-58 to TD-60.
+     is phase 5); a board's "+ Add game" is "+" alone at 1280 to 1360 px and hidden below, as the
+     header has no room (TD-61). Debt: TD-58 to TD-61.
 3. **Speed: remembered state and warmth.** `TabView`, the timeline cache, `RoomPool`. Measure
    switch times first. Add each piece only if it pays.
 4. **Follow across tabs.** `seat`, `tab` and `session_role`, the `session.tab` registry row and

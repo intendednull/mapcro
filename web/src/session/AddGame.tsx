@@ -62,8 +62,8 @@ export function AddGameOnBoard(p: { board: string; token: string; title: string;
   };
   return (
     <>
-      <button class="btn ghost small add-game" data-testid="add-game" disabled={busy() || !p.ready} onClick={() => void go()}>
-        + Add game
+      <button class="btn ghost small add-game" data-testid="add-game" title="Add game" aria-label="Add game" disabled={busy() || !p.ready} onClick={() => void go()}>
+        +<span class="add-label"> Add game</span>
       </button>
       <Show when={error()}>
         <span class="error small" data-testid="add-game-error">

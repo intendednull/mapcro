@@ -794,6 +794,11 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 .game-tab .game-x:hover, .game-tab .game-x:focus-visible { opacity: 1; color: var(--text); background: var(--raised); }
 .game-strip .add-game { align-self: center; white-space: nowrap; }
 .board-title + .add-game { flex: none; }
+/* The board header is full at laptop widths: there "+ Add game" is its "+" alone (hover: Add game),
+   and below 1280 px it isn't shown: one more control would widen the page past the window
+   (panels.spec at 1180 px). TD-61. */
+@media (max-width: 1360px) { .board-title + .add-game .add-label { display: none; } }
+@media (max-width: 1279px) { .board-title + .add-game { display: none; } }
 .session-empty { display: grid; place-items: center; }
 .session-board { display: contents; }
 .no-access { position: fixed; left: 50%; top: 120px; transform: translateX(-50%); z-index: 45; }
