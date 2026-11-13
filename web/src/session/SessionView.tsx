@@ -19,8 +19,8 @@ import { InlineEdit } from "../ui/InlineEdit";
 import { Wordmark } from "../ui/Wordmark";
 import { type AddChoice, AddMenu, refusal, takeAddOnOpen } from "./AddGame";
 import { UndoHistory } from "./history";
-import { createSessionState } from "./state";
-import { type TabRow, addTabOps, credentialFor, moveOps, neighbourOf, pickTab, removeOps, renameOps } from "./tabs";
+import { SESSION_SIDE, createSessionState } from "./state";
+import { type TabRow, addTabOps, credentialFor, linkDead, moveOps, neighbourOf, pickTab, removeOps, renameOps } from "./tabs";
 
 const editable = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || (t instanceof HTMLElement && t.isContentEditable);
 
@@ -80,10 +80,12 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   );
 
   // ---- the toast (§7.2: "Removed <name>", Undo) ----
-  const [toast, setToast] = createSignal<{ text: string; undo: boolean }>();
+  // Its Undo is for the step it names: it keeps where the history was just after that step, and
+  // goes once anything else is edited, undone or redone (review 2026-11-12, finding 3).
+  const [toast, setToast] = createSignal<{ text: string; undo?: number }>();
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
-  const say = (text: string, undo = false) => {
-    setToast({ text, undo });
+  const say = (text: string, undo?: number) => {
+    setToast(undo === undefined ? { text } : { text, undo });
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => setToast(undefined), 6000);
   };
@@ -92,38 +94,60 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   // ---- strip edits: each one step in the page's one undo (§7.2) ----
   // A switch waits for the pointer gesture in progress to end (§4.1): a drag released during it
   // lands on the board it began on, which unmounts after.
+  // A pointerup can be lost (released outside the window, a focus change): the press then ends
+  // when the window loses focus, or when the pointer moves with no button down, so a held switch
+  // never waits for some later, unrelated pointerup (review 2026-11-12, finding 5).
   let pressed = false;
   let queued: RecordId | undefined;
+  let queuedTimer: ReturnType<typeof setTimeout> | undefined;
   onMount(() => {
-    const down = () => (pressed = true);
+    const down = (e: PointerEvent) => (pressed = e.buttons !== 0);
     const up = () => {
       pressed = false;
       const q = queued;
       queued = undefined;
       // After the board's own pointerup handlers have run.
-      if (q !== undefined) setTimeout(() => setActive(q), 0);
+      if (q !== undefined) queuedTimer = setTimeout(() => setActive(q), 0);
     };
+    const move = (e: PointerEvent) => pressed && e.buttons === 0 && up();
     window.addEventListener("pointerdown", down, true);
     window.addEventListener("pointerup", up, true);
     window.addEventListener("pointercancel", up, true);
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("blur", up);
     onCleanup(() => {
+      clearTimeout(queuedTimer);
       window.removeEventListener("pointerdown", down, true);
       window.removeEventListener("pointerup", up, true);
       window.removeEventListener("pointercancel", up, true);
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("blur", up);
     });
   });
   const pick = (id: RecordId) => {
     setMenu(undefined);
-    if (pressed) queued = id;
-    else setActive(id);
+    if (pressed) return void (queued = id);
+    // A switch picked now wins over one held for a press that just ended.
+    queued = undefined;
+    clearTimeout(queuedTimer);
+    setActive(id);
   };
-  const remove = (t: TabRow, revoke = false) => {
+  const remove = (t: TabRow) => {
     setMenu(undefined);
-    if (!s.edit(removeOps(t.id))) return;
-    if (!revoke) return say(`Removed ${t.name}`, true);
-    // Remove and revoke (§3.7): the grant is withdrawn too, which undo can't bring back.
-    say(`Removed ${t.name}`);
-    withdrawGrant(p.session, p.token, t.grant).catch((e) => say(refusal(e)));
+    if (s.edit(removeOps(t.id))) say(`Removed ${t.name}`, history.at());
+  };
+  // Remove and revoke (§3.7): the grant is withdrawn first, and the tab removed only once that's
+  // done (204). The removal is no step in the history: undo would bring back a tab whose grant is
+  // gone. Refused, the tab stays and the toast says why (review 2026-11-12, finding 4).
+  const revoke = (t: TabRow) => {
+    setMenu(undefined);
+    withdrawGrant(p.session, p.token, t.grant).then(
+      () => {
+        s.removeUnmarked(removeOps(t.id));
+        say(`Removed ${t.name}`);
+      },
+      (e) => say(refusal(e)),
+    );
   };
   const rename = (t: TabRow, name: string) => void s.edit(renameOps(t, name));
   const move = (t: TabRow, by: number) => {
@@ -157,13 +181,23 @@ export function SessionView(p: { session: string; token: string; tab: string | u
     if (i > 0) items.push({ label: "Move left", testid: "tab-move-left", run: () => move(t, -1) });
     if (i < s.tabs().length - 1) items.push({ label: "Move right", testid: "tab-move-right", run: () => move(t, 1) });
     items.push({ label: "Remove", testid: "tab-remove-menu", run: () => remove(t) });
-    items.push({ label: "Remove and revoke", testid: "tab-revoke", run: () => remove(t, true) });
+    items.push({ label: "Remove and revoke", testid: "tab-revoke", run: () => revoke(t) });
     return items;
   };
 
-  // Ctrl+PageUp / Ctrl+PageDown switch tabs, outside fields (§8).
+  // Ctrl+PageUp / Ctrl+PageDown switch tabs, outside fields (§8). Ctrl+Z, Ctrl+Shift+Z and
+  // Ctrl+Y walk the one history here, whatever the open tab can do or with none open (§7.2:
+  // undo re-links a removed tab wherever focus is); the board leaves them to this.
   onMount(() => {
     const key = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      const k = e.key.toLowerCase();
+      if (mod && (k === "z" || k === "y") && !editable(e.target) && !(e.target instanceof HTMLSelectElement)) {
+        e.preventDefault();
+        if (k === "y" || e.shiftKey) history.redo();
+        else history.undo();
+        return;
+      }
       if (!e.ctrlKey || (e.key !== "PageUp" && e.key !== "PageDown") || editable(e.target)) return;
       const tabs = s.tabs();
       const i = tabs.findIndex((t) => t.id === active());
@@ -282,7 +316,12 @@ export function SessionView(p: { session: string; token: string; tab: string | u
     </nav>
   );
   const inSession = (): Omit<InSession, "via"> => ({ history, joinKey: p.session, title, share, strip });
-  const closed = () => s.connection().kind === "closed";
+  // A dead link, not an outdated build: that one reloads, or says Update available, as a board does.
+  const closed = () => linkDead(s.connection());
+  const outdated = () => {
+    const c = s.connection();
+    return c.kind === "closed" && c.reason === "outdated";
+  };
 
   return (
     <>
@@ -315,6 +354,14 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       <Show when={closed()}>
         <DeadLink />
       </Show>
+      <Show when={outdated()}>
+        <div class="update-banner" role="alert" data-testid="update-available">
+          Update available
+          <button class="btn small" data-testid="update-reload" onClick={() => location.reload()}>
+            Reload
+          </button>
+        </div>
+      </Show>
       <Show when={adding() && s.canEdit()}>
         <AddMenu onAdd={add} onClose={() => setAdding(false)} />
       </Show>
@@ -328,12 +375,12 @@ export function SessionView(p: { session: string; token: string; tab: string | u
         {(t) => (
           <div class="toast session-toast" role="status" data-testid="session-toast">
             {t().text}
-            <Show when={t().undo}>
+            <Show when={t().undo !== undefined && history.live(t().undo!)}>
               <button
                 class="link"
                 data-testid="session-toast-undo"
                 onClick={() => {
-                  history.undo();
+                  history.undoSince(t().undo!, SESSION_SIDE);
                   setToast(undefined);
                 }}
               >

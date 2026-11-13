@@ -4,9 +4,12 @@
 // the open tab across a reload; a second device on the session link sees the same tabs, and a
 // view link can't edit them. Also `Ready.kind`: a session's link on a board page is refused.
 
-import { type Page, expect, test } from "./fixtures";
+import { expect, test } from "./fixtures";
 import { dragToken, joinNew, tokenAt } from "./helpers";
 import { Server, newBoardUrl } from "./server";
+import { activeBoard, boardOf, tabNames, tabParam, tabs, threeTabs as three } from "./session-helpers";
+
+const threeTabs = (browser: Parameters<typeof joinNew>[0]) => three(server, browser);
 
 let server: Server;
 test.beforeAll(async () => {
@@ -14,58 +17,6 @@ test.beforeAll(async () => {
   await server.start();
 });
 test.afterAll(() => server.stop());
-
-const boardOf = (url: string) => /\/b\/([^#]+)#/.exec(url)![1]!;
-const tabs = (page: Page) => page.getByTestId("game-tab");
-const tabNames = (page: Page) => page.getByTestId("game-tab").getByTestId("tab-name").allInnerTexts();
-const activeBoard = (page: Page) => page.locator('[data-testid="board"]').getAttribute("data-board");
-const tabParam = (page: Page) => new URL(page.url()).searchParams.get("tab");
-
-/** Visit a board on this device so it's in Your boards, then come back. */
-async function visit(page: Page, url: string, title: string) {
-  await page.goto(url);
-  await expect(page.getByTestId("board-title")).toHaveText(title);
-  // The name is known on this device: the join card asks once per board, with it filled in.
-  if (await page.getByTestId("join-card").isVisible()) {
-    await page.locator("#join-name").press("Enter");
-    await expect(page.getByTestId("join-card")).toBeHidden();
-  }
-  await expect(page.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
-}
-
-/** A session made from board `a` with `+ Add game`, then `b` added from Your boards and `c` by
- * pasting its link. */
-async function threeTabs(browser: Parameters<typeof joinNew>[0]) {
-  const a = await newBoardUrl(server, "Game one");
-  const b = await newBoardUrl(server, "Game two");
-  const c = await newBoardUrl(server, "Game three");
-  const page = await joinNew(browser, b, "Coach");
-  await visit(page, a, "Game one");
-  await page.getByTestId("add-game").click();
-  await expect(page).toHaveURL(/\/s\/[A-Za-z0-9_-]{22}\?tab=[0-9a-f]{32}#/);
-  // The session opens on its one tab, the board, with the add menu up.
-  await expect(tabs(page)).toHaveCount(1);
-  expect(await activeBoard(page)).toBe(boardOf(a));
-  await expect(page.getByTestId("session-title")).toHaveText("Game one");
-  await expect(page.getByTestId("add-menu")).toBeVisible();
-  // From Your boards: the device's boards, never sessions.
-  await expect(page.getByTestId("add-known-board")).toHaveCount(2);
-  await page.locator(`[data-testid="add-known-board"][data-board="${boardOf(b)}"]`).click();
-  await expect(page.getByTestId("add-menu")).toHaveCount(0);
-  await expect(tabs(page)).toHaveCount(2);
-  await expect.poll(() => activeBoard(page)).toBe(boardOf(b));
-  // Paste link.
-  await page.getByTestId("add-game").click();
-  await page.getByTestId("add-paste").fill("not a link");
-  await page.getByTestId("add-paste-go").click();
-  await expect(page.getByTestId("add-error")).toHaveText("Not a board link");
-  await page.getByTestId("add-paste").fill(c);
-  await page.getByTestId("add-paste-go").click();
-  await expect(tabs(page)).toHaveCount(3);
-  await expect.poll(() => activeBoard(page)).toBe(boardOf(c));
-  await expect(page.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
-  return { page, a, b, c };
-}
 
 test("a board becomes a session; boards are added, switched, removed and undone, renamed, reordered", async ({ browser }) => {
   const { page, a, b, c } = await threeTabs(browser);

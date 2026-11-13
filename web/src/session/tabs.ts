@@ -9,6 +9,7 @@ import { LIMITS } from "../gen/limits";
 import type { Via } from "../gen/Via";
 import { keyBetween } from "../core/order";
 import type { KnownBoard } from "../core/device";
+import type { Connection } from "../core/session";
 
 export interface TabRow {
   id: RecordId;
@@ -101,3 +102,7 @@ export function credentialFor(tab: TabRow, session: string, token: string, known
   const own = known.find((k) => k.kind !== "session" && k.board === tab.board && k.edit === true);
   return own ? { token: own.token } : { token, via: { session, grant: tab.grant } };
 }
+
+/** The session's link is dead (refused for good, or the wrong kind of room); an outdated build
+ * isn't: it reloads, as a board does. */
+export const linkDead = (c: Connection): boolean => c.kind === "closed" && c.reason !== "outdated";

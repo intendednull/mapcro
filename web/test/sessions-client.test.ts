@@ -24,7 +24,7 @@ import type { RecordId } from "../src/gen/RecordId";
 import type { KnownBoard } from "../src/core/device";
 import { UndoHistory, type UndoSide } from "../src/session/history";
 import { createSessionState } from "../src/session/state";
-import { type TabRow, addTabOps, credentialFor, liveTabs, moveOps, neighbourOf, pickTab, removeOps, renameOps, sessionMeta, tabName } from "../src/session/tabs";
+import { type TabRow, addTabOps, credentialFor, linkDead, liveTabs, moveOps, neighbourOf, pickTab, removeOps, renameOps, sessionMeta, tabName } from "../src/session/tabs";
 
 const ROOT = resolve(__dirname, "../..");
 const ORIGIN = "http://localhost:5173";
@@ -109,6 +109,15 @@ describe("the tab list", () => {
     expect(credentialFor(t, "S", "st", [k({ edit: true, kind: "session" })])).toEqual({ token: "st", via: { session: "S", grant: G1 } });
     expect(authHeader("tok")).toBe("Bearer tok");
     expect(authHeader("tok", { session: "S", grant: "G" })).toBe("Grant S.G.tok");
+  });
+
+  it("a link is dead when refused for good, never when the build is outdated (review 7)", () => {
+    expect(linkDead({ kind: "closed", reason: "unauthorized" })).toBe(true);
+    expect(linkDead({ kind: "closed", reason: "revoked" })).toBe(true);
+    expect(linkDead({ kind: "closed", reason: "wrong_kind" })).toBe(true);
+    expect(linkDead({ kind: "closed", reason: "outdated" })).toBe(false);
+    expect(linkDead({ kind: "live", role: "edit" })).toBe(false);
+    expect(linkDead({ kind: "waiting", retryInMs: 5 })).toBe(false);
   });
 });
 
@@ -204,6 +213,70 @@ describe("one undo over the strip and the board", () => {
     expect(h.redo()).toBe(true);
     expect(log.at(-1)).toBe("redo s1");
     expect(h.redo()).toBe(false);
+  });
+});
+
+describe("a toast's Undo (review finding 3)", () => {
+  const setup = () => {
+    const log: string[] = [];
+    const h = createRoot(() => new UndoHistory());
+    const session = new Stack(log);
+    const a = new Stack(log);
+    h.attach("session", session);
+    h.attach("A", a);
+    const edit = (side: string, st: Stack, step: string) => {
+      st.push(step);
+      h.edited(side);
+    };
+    return { log, h, session, a, edit };
+  };
+
+  it("takes back exactly the steps it names, once", () => {
+    const { log, h, a, session, edit } = setup();
+    edit("session", session, "s1");
+    edit("A", a, "a1");
+    edit("A", a, "a2");
+    const at = h.at();
+    expect(h.undoSince(at, "A", 2)).toBe(true);
+    expect(log).toEqual(["undo a2", "undo a1"]);
+    expect(h.undoSince(at, "A", 2)).toBe(false);
+    expect(log.length).toBe(2);
+    // The rest of the history is as it was: the strip's step is next, and redo has both.
+    expect(h.undo()).toBe(true);
+    expect(log.at(-1)).toBe("undo s1");
+  });
+
+  it("does nothing once anything else was done after it", () => {
+    const { log, h, a, session, edit } = setup();
+    edit("session", session, "remove");
+    const at = h.at();
+    expect(h.live(at)).toBe(true);
+    edit("A", a, "a1");
+    expect(h.live(at)).toBe(false);
+    expect(h.undoSince(at, "session")).toBe(false);
+    expect(log).toEqual([]);
+    // An undo or a redo moves it on too.
+    edit("session", session, "rename");
+    const at2 = h.at();
+    h.undo();
+    expect(h.live(at2)).toBe(false);
+    const at3 = h.at();
+    h.redo();
+    expect(h.live(at3)).toBe(false);
+    expect(h.undoSince(at2, "session")).toBe(false);
+    expect(log).toEqual(["undo rename", "redo rename"]);
+  });
+
+  it("never takes an older step when its own can't be undone", () => {
+    const { log, h, a, session, edit } = setup();
+    edit("A", a, "a1");
+    edit("session", session, "remove");
+    const at = h.at();
+    session.done = []; // a peer's edit made the removal a no-op
+    expect(h.undoSince(at, "session")).toBe(false);
+    expect(log).toEqual([]);
+    // Names a document whose steps aren't the newest: refused.
+    expect(h.undoSince(h.at(), "A")).toBe(false);
   });
 });
 

@@ -33,6 +33,9 @@ export function Toolbar(p: {
   counts: Record<ClearKind, number>;
   commentsOpen: boolean;
   toggleComments: () => void;
+  /** Ctrl+Z and Ctrl+Y are someone else's: a session's tab, whose page owns the one undo
+   * (sessions.md §7.2). */
+  undoKeysElsewhere?: boolean;
 }) {
   const tools = () => (p.editor ? TOOLS : TOOLS.filter((t) => VIEWER_TOOLS.includes(t.tool)));
   const [clearOpen, setClearOpen] = createSignal(false);
@@ -47,6 +50,7 @@ export function Toolbar(p: {
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       const mod = e.ctrlKey || e.metaKey;
+      if (mod && p.undoKeysElsewhere && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) return;
       if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (!p.editor) return;
