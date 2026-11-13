@@ -190,6 +190,13 @@ for (const viewport of [...PHONES, ...TABLETS]) {
     await phone.getByTestId("phone-edit").tap();
     await expect(phone.getByTestId("tool-draw")).toBeVisible();
     await expect(phone.getByTestId("phone-events")).toHaveCount(0);
+    // Done and the ink swatch are pinned: fully on screen without scrolling the rail.
+    for (const id of ["phone-done", "palette"]) {
+      const r = (await phone.locator(`.p-rail [data-testid=${id}]`).boundingBox())!;
+      expect(r.x, id).toBeGreaterThanOrEqual(0);
+      expect(r.x + r.width, id).toBeLessThanOrEqual(viewport.width);
+      expect(r.y + r.height, id).toBeLessThanOrEqual(viewport.height);
+    }
     expect(Math.abs(await barH() - before)).toBeLessThanOrEqual(1);
     await checkPhoneLayout(phone);
     await phone.getByTestId("phone-done").tap();

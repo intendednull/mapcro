@@ -1111,8 +1111,10 @@ kbd {
 .phone-player .p-tail .btn, .phone-player .p-rail .btn { border: 0; background: transparent; color: var(--muted); font-size: 14px; padding: 0 8px; }
 .phone-player .p-tail .btn[aria-expanded=true], .phone-player .p-rail .btn.on { color: var(--text); box-shadow: inset 0 -2px var(--brass); }
 .phone-player .pl-bar:has(.p-rail) .pl-speed, .phone-player .pl-bar:has(.p-rail) .pl-tail { display: none; }
-.phone-player .p-rail { grid-column: 1 / -1; grid-row: 2; display: flex; gap: 0; overflow-x: auto; scrollbar-width: none; }
+.phone-player .p-rail { grid-column: 1 / -1; grid-row: 2; display: flex; align-items: center; gap: 0; min-width: 0; }
 .phone-player .p-rail > * { flex: none; }
+.phone-player .p-rail > .p-rail-tools { flex: 1 1 auto; min-width: 0; display: flex; overflow-x: auto; scrollbar-width: none; }
+.phone-player .p-rail-tools > * { flex: none; }
 
 /* One sheet: edge to edge on the transport, up to the roster's foot at most. */
 .phone .p-sheet, .phone-player .phone-build-sheet {
@@ -1179,7 +1181,7 @@ html:has(.phone) :is(input:not([type=range], [type=checkbox], [type=radio]), tex
    sheet's body scrolls up and down, the tool rail sideways. */
 .phone-player .pl-scrub { touch-action: none; }
 .phone .p-sheet-body, .phone .phone-build-content { touch-action: pan-y; }
-.phone-player .p-rail { touch-action: pan-x; }
+.phone-player .p-rail-tools { touch-action: pan-x; }
 
 /* Tablet portrait: the roster is one row of 12, the two teams side by side. */
 @media (orientation: portrait) and (min-width: 701px) {

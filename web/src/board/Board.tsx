@@ -811,6 +811,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const phoneTail = () => (
     <Show when={!rail()} fallback={
       <div class="p-rail" role="toolbar" aria-label="Tools">
+        <div class="p-rail-tools">
         <button class={cx("btn ghost", tool() === "select" && "on")} data-testid="tool-select" onClick={() => setTool("select")}>Look</button>
         <button class={cx("btn ghost", tool() === "laser" && "on")} data-testid="tool-laser" onClick={() => setTool("laser")}>Laser</button>
         <Show when={state.canEdit() && phoneEdit()}>
@@ -819,8 +820,10 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
           }</For>
           <button class="btn ghost" data-testid="phone-undo" onClick={undo}>Undo</button>
           <button class="btn ghost" data-testid="phone-redo" onClick={redo}>Redo</button>
-          <Palette value={ink()} set={setInk} />
         </Show>
+        </div>
+        {/* Pinned outside the scrolling tools: the ink and the way out are always on screen. */}
+        <Show when={state.canEdit() && phoneEdit()}><Palette value={ink()} set={setInk} /></Show>
         <button class="btn ghost" data-testid="phone-done" onClick={() => { setPhoneEdit(false); setTool("select"); }}>Done</button>
       </div>
     }>
