@@ -53,9 +53,9 @@ import type { WorldPos } from "../gen/WorldPos";
 import { slotKey } from "../match/save";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { ShareDialog } from "./ShareDialog";
-import { BUBBLE, FeedbackButton, FeedbackDialog } from "../ui/Feedback";
+import { FeedbackButton } from "../ui/Feedback";
 import { ShareIcon } from "../ui/ShareIcon";
-import { feedbackEnabled, feedbackMatchOf } from "../core/feedback";
+import { feedbackMatchOf } from "../core/feedback";
 import { rejection, statusView } from "./status";
 import type { Reject } from "../gen/Reject";
 import { Avatar, FollowChip, PeopleList, PresentingPill } from "./Presence";
@@ -1255,7 +1255,6 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   wideQuery.addEventListener("change", onWideHeader);
   onCleanup(() => wideQuery.removeEventListener("change", onWideHeader));
   const shownPeople = () => people().slice(0, (wideHeader() ? 5 : 3) - (me() && joined() ? 1 : 0));
-  const [feedbackOpen, setFeedbackOpen] = createSignal<{ match?: ReturnType<typeof feedbackMatch> }>();
   const [update] = createResource(() => appUpdate());
   const updateLink = () => update()?.kind === "link";
   const editsHere = () => (inSession ? inSession.canEdit() : state.canEdit());
@@ -1297,7 +1296,6 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             { label: "Get the app", testid: "open-in-app-get", href: desktopAppLinks()?.href, download: true, icon: () => rowIcon('<rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/>') },
           ]
         : [],
-      feedbackEnabled() ? [{ label: "Feedback", testid: "feedback-open", icon: () => rowIcon(BUBBLE), run: () => setFeedbackOpen({ match: feedbackMatch() }) }] : [],
     ].filter((g) => g.length > 0);
   });
   const toastView = () => (
@@ -1370,14 +1368,13 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             {(n) => <span class="av more-people" data-testid="avatars-more">+{n()}</span>}
           </Show>
         </div>
+        {/* Feedback stays in sight, next to the main action (feedback #52; spec §4b). */}
+        <FeedbackButton variant="bar" match={feedbackMatch} />
         {/* The main action (spec §4b): Share for anyone who can edit, Clone for a view link. */}
         <Show when={mainClone()}>{cloneButton()}</Show>
         <Show when={inSession} fallback={<Show when={state.canEdit()}>{shareButton()}</Show>}>{inSession!.share()}</Show>
         <MoreMenu groups={moreGroups()} dot={updateLink()} />
       </header>
-      <Show when={feedbackOpen()}>
-        {(o) => <FeedbackDialog match={o().match} onClose={() => setFeedbackOpen(undefined)} />}
-      </Show>
       <Show when={inSession}>{inSession!.strip()}</Show>
       <div class="main">
         <SceneTree

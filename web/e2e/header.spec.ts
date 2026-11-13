@@ -1,8 +1,8 @@
 // The desktop board header (spec §4b, The board header): one row that fits from 1920 down to
 // 1180 px for every role. Left: the wordmark, the title (the only part that shrinks), a quiet save
 // state and "+ Add game"; the Presenting pill or Follow chip between two spacers; right: the
-// avatars (5, or 3 at 1440 and under, then "+N"), the one main action (Share for an editor, Clone
-// for a view link) and More, a menu with the rest. Checked at four widths for: the owner alone,
+// avatars (5, or 3 at 1440 and under, then "+N"), Feedback (feedback #52), the one main action
+// (Share for an editor, Clone for a view link) and More, a menu with the rest. Checked at four widths for: the owner alone,
 // the owner presenting with two followers, an editor following in Player with a match, a view
 // link following and a session's owner; then the menu, the save states, a long title and a full
 // room on their own.
@@ -170,7 +170,7 @@ function fits(h: Awaited<ReturnType<typeof header>>, at: string) {
 
 const mainOf = (c: Case) => (c.role === "viewer" ? "clone" : c.role === "session" ? "session-share" : "share");
 
-test("the header fits at 1920, 1440, 1280 and 1180 for every role, in order, with one main action and the rest in More", async ({ browser }) => {
+test("the header fits at 1920, 1440, 1280 and 1180 for every role, in order, with Feedback, one main action and the rest in More", async ({ browser }) => {
   test.setTimeout(300_000);
   const all = await cases(browser);
   for (const c of all) {
@@ -182,8 +182,8 @@ test("the header fits at 1920, 1440, 1280 and 1180 for every role, in order, wit
       const h = await header(p);
       // 1. No overflow.
       fits(h, at);
-      // 2. Order: by left edge, and nothing overlaps; More last and 34 x 34.
-      const want = ["home", "title", "save-status", ...(c.role === "session" ? [] : ["add-game"]), ...(c.match ? ["match-tier"] : []), ...(c.live ? [c.live] : []), "avatars", mainOf(c), "more"];
+      // 2. Order: by left edge, and nothing overlaps; Feedback by the main action; More last and 34 x 34.
+      const want = ["home", "title", "save-status", ...(c.role === "session" ? [] : ["add-game"]), ...(c.match ? ["match-tier"] : []), ...(c.live ? [c.live] : []), "avatars", "feedback-open", mainOf(c), "more"];
       expect.soft([...h.kids].sort((a, b) => a.left - b.left).map((k) => k.id), `${at}: order`).toEqual(want);
       for (let i = 0; i < h.kids.length; i++)
         for (let j = i + 1; j < h.kids.length; j++) {
@@ -229,8 +229,10 @@ test("the header fits at 1920, 1440, 1280 and 1180 for every role, in order, wit
     }
     expect.soft(await top.locator(".btn.primary").count(), `${at}: filled controls`).toBeLessThanOrEqual(1);
     if (c.role === "session") await expect.soft(top.getByTestId("session-share").locator("svg.ico"), `${at}: session-share's icon`).toHaveCount(1);
-    // 4. Nothing else on the right: these are rows of More's menu now.
-    for (const id of ["feedback-open", "open-in-app", "open-in-app-get", "download", "app-update"])
+    // 4. Feedback stays in the header, in every mode (feedback #52), its word shown; the rest
+    // are rows of More's menu.
+    await expect.soft(top.locator(':scope > [data-testid="feedback-open"]'), `${at}: feedback in the header`).toHaveText("Feedback");
+    for (const id of ["open-in-app", "open-in-app-get", "download", "app-update"])
       await expect.soft(p.locator(`header.top > [data-testid="${id}"]`), `${at}: ${id} in the header`).toHaveCount(0);
   }
 });
@@ -247,15 +249,15 @@ test("More's menu: its rows by role and app, the update dot, the rows' testids",
   await expect(owner.getByTestId("more")).toHaveAttribute("aria-expanded", "false");
   await owner.getByTestId("more").click();
   await expect(owner.getByTestId("more")).toHaveAttribute("aria-expanded", "true");
-  await expect(rows(owner)).toHaveText(["Clone", "Download", "Open in app", "Get the app", "Feedback"]);
-  for (const id of ["clone", "download", "open-in-app", "open-in-app-get", "feedback-open"]) {
+  await expect(rows(owner)).toHaveText(["Clone", "Download", "Open in app", "Get the app"]);
+  for (const id of ["clone", "download", "open-in-app", "open-in-app-get"]) {
     await expect(owner.locator(`[role="menu"] [data-testid="${id}"]`)).toHaveAttribute("role", "menuitem");
     await expect(owner.locator(`[role="menu"] [data-testid="${id}"]`)).not.toHaveAttribute("title");
   }
   await expect(owner.getByTestId("more-dot")).toHaveCount(0);
   const viewer = await enter(browser, await viewLink(server.url, url), "Juno");
   await viewer.getByTestId("more").click();
-  await expect(rows(viewer)).toHaveText(["Download", "Open in app", "Get the app", "Feedback"]);
+  await expect(rows(viewer)).toHaveText(["Download", "Open in app", "Get the app"]);
 
   // Through a session grant (another device on the session's link): no Open in app.
   await owner.keyboard.press("Escape");
@@ -263,13 +265,13 @@ test("More's menu: its rows by role and app, the update dot, the rows' testids",
   await expect(owner.getByTestId("session-share")).toBeVisible();
   const guest = await enter(browser, owner.url(), "Vexa");
   await guest.getByTestId("more").click();
-  await expect(rows(guest)).toHaveText(["Clone", "Download", "Feedback"]);
+  await expect(rows(guest)).toHaveText(["Clone", "Download"]);
 
   // The portable app with an update: Update available first, and a dot on More.
   const app = await enter(browser, url, "Marrow", { update: true });
   await expect(app.getByTestId("more-dot")).toBeVisible();
   await app.getByTestId("more").click();
-  await expect(rows(app)).toHaveText(["Update available", "Clone", "Download", "Feedback"]);
+  await expect(rows(app)).toHaveText(["Update available", "Clone", "Download"]);
   await expect(app.locator('[role="menu"] [data-testid="app-update"]')).toHaveAttribute("role", "menuitem");
 });
 
@@ -301,11 +303,11 @@ test("More's menu sits under More, inside the window, and works by keyboard", as
   await expect(menu).toBeVisible();
   expect(await focused(p)).toBe("clone");
   await p.keyboard.press("End");
-  expect(await focused(p)).toBe("feedback-open");
+  expect(await focused(p)).toBe("open-in-app-get");
   await p.keyboard.press("ArrowDown");
   expect(await focused(p)).toBe("clone");
   await p.keyboard.press("ArrowUp");
-  expect(await focused(p)).toBe("feedback-open");
+  expect(await focused(p)).toBe("open-in-app-get");
   await p.keyboard.press("Home");
   expect(await focused(p)).toBe("clone");
   await p.keyboard.press("Escape");
@@ -320,14 +322,17 @@ test("More's menu sits under More, inside the window, and works by keyboard", as
   await p.keyboard.press("Escape");
   await expect(p.getByTestId("clone-dialog")).toHaveCount(0);
   expect(await focused(p)).toBe("more");
-  // Feedback's dialog, the same.
+  // Feedback is no row of it (feedback #52): its own button, whose dialog gives focus back to it.
   await p.keyboard.press("Enter");
-  await p.keyboard.press("End");
+  await expect(menu.getByTestId("feedback-open")).toHaveCount(0);
+  await p.keyboard.press("Escape");
+  await p.getByTestId("feedback-open").focus();
   await p.keyboard.press("Enter");
   await expect(p.getByTestId("feedback-dialog")).toBeVisible();
   await p.keyboard.press("Escape");
   await expect(p.getByTestId("feedback-dialog")).toHaveCount(0);
-  expect(await focused(p)).toBe("more");
+  expect(await focused(p)).toBe("feedback-open");
+  await more.focus();
   // Tab closes it and moves on.
   await p.keyboard.press("Enter");
   await p.keyboard.press("Tab");
