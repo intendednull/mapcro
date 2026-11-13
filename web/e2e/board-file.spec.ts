@@ -182,6 +182,7 @@ test("in the app, Download opens the app's Save as dialog: the same name and tex
   let downloads = 0;
   a.on("download", () => downloads++);
 
+  await openMore(a);
   await a.getByTestId("download").click();
   const calls = async () =>
     (await a.evaluate(() => (window as unknown as { __calls: { cmd: string; args: Record<string, unknown> | undefined }[] }).__calls)).filter(
