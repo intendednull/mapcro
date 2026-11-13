@@ -74,6 +74,9 @@ export interface SessionOptions {
 
 const FINAL: CloseReason[] = ["unauthorized", "revoked"];
 
+/** How long an ended session waits for its edits in flight to go out before it closes. */
+const FLUSH_MS = 2000;
+
 /**
  * Presence send cadence. The server coalesces presence in 50 ms batches, the latest state per
  * peer winning. Sent every 50 ms, arrival jitter put two of one person's updates in one batch
@@ -145,6 +148,8 @@ export class BoardSession {
   private starting: Promise<void> = Promise.resolve();
   /** Saves and sends run in order through this chain, so frames leave in cseq order. */
   private chain: Promise<void> = Promise.resolve();
+  /** Edits on the chain not yet sent (or given up on). */
+  private sending = 0;
   /** Whole-state saves, one at a time and in the order taken, so storage never goes back. */
   private saves: Promise<void> = Promise.resolve();
   /** The next cseq after every transaction journaled so far, and whose they are. */
@@ -218,15 +223,35 @@ export class BoardSession {
    * done, its storage is let go and the replica freed.
    */
   end(): void {
-    this.stop();
+    if (this.ended) return;
     this.ended = true;
     clearTimeout(this.presenceTimer);
     clearTimeout(this.saveSoon);
-    void Promise.allSettled([this.starting, this.chain, this.saves]).then(() => {
-      this.o.persist.close?.();
-      this.replica?.free();
-      this.replica = undefined;
-    });
+    // No reconnect from here on.
+    this.stopped = true;
+    clearTimeout(this.timer);
+    // An edit made just before (a drag released as a tab switches, sessions.md §4.1) is still on
+    // its way through the save chain: it goes out on this socket, to this board, before the
+    // socket closes. Bounded, so a stuck write never holds the socket open.
+    const close = () => {
+      this.dropSocket();
+      this.markOffline();
+    };
+    let flushed: Promise<unknown> = Promise.resolve();
+    if (this.live && this.sending > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      flushed = Promise.race([this.chain, new Promise<void>((r) => (timer = setTimeout(r, FLUSH_MS)))]).then(() => {
+        clearTimeout(timer);
+        close();
+      });
+    } else close(); // nothing on its way: closed at once, as a page left
+    void flushed
+      .then(() => Promise.allSettled([this.starting, this.chain, this.saves]))
+      .then(() => {
+        this.o.persist.close?.();
+        this.replica?.free();
+        this.replica = undefined;
+      });
   }
 
   /** Apply an edit; false if it was refused locally (the server may still refuse it later). */
@@ -330,6 +355,7 @@ export class BoardSession {
       }
       this.persistSoon();
     } else durable = this.saveState();
+    this.sending += 1;
     this.chain = this.chain
       .then(() => durable)
       .then(() => {
@@ -338,7 +364,8 @@ export class BoardSession {
       .catch((e) => {
         this.problems.push(`could not save locally, reconnecting: ${e}`);
         if (sock === this.socket) this.retry();
-      });
+      })
+      .finally(() => (this.sending -= 1));
     return !u.refused;
   }
 
