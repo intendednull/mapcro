@@ -135,6 +135,7 @@ kbd {
 .top > .save.quiet { width: 16px; height: 16px; padding: 0; gap: 0; font-size: 0; }
 .top > .save.saved .glyph { stroke: var(--faint); }
 .top > .save.syncing { padding: 0; color: var(--muted); }
+.avatars .av.more-people { background: var(--raised); color: var(--muted); font-size: 10px; }
 .top > .more { width: 34px; padding: 0; position: relative; font-size: 18px; line-height: 1; border-color: transparent; color: var(--muted); }
 .top > .more:hover, .top > .more[aria-expanded="true"] { color: var(--text); background: var(--raised); }
 .more-dot { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--brass); }

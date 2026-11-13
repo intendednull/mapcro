@@ -1216,7 +1216,14 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             {phone && panelsView()}
           </div>
   );
-  // The desktop header's right side (spec §4b, The board header): one main action; the rest in More.
+  // The desktop header's right side (spec §4b, The board header): at most 5 avatars (3 at 1440 px
+  // and under) and "+N"; one main action; the rest in More.
+  const wideQuery = window.matchMedia("(min-width: 1441px)");
+  const [wideHeader, setWideHeader] = createSignal(wideQuery.matches);
+  const onWideHeader = () => setWideHeader(wideQuery.matches);
+  wideQuery.addEventListener("change", onWideHeader);
+  onCleanup(() => wideQuery.removeEventListener("change", onWideHeader));
+  const shownPeople = () => people().slice(0, (wideHeader() ? 5 : 3) - (me() && joined() ? 1 : 0));
   const [feedbackOpen, setFeedbackOpen] = createSignal<{ match?: ReturnType<typeof feedbackMatch> }>();
   const [update] = createResource(() => appUpdate());
   const updateLink = () => update()?.kind === "link";
@@ -1327,7 +1334,10 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               {avatarLetter(me()!.name)}
             </span>
           </Show>
-          <For each={people()}>{(peer) => <Avatar name={peer.state!.name || "?"} color={peer.state!.color} title={peer.state!.name || "Joining"} />}</For>
+          <For each={shownPeople()}>{(peer) => <Avatar name={peer.state!.name || "?"} color={peer.state!.color} title={peer.state!.name || "Joining"} />}</For>
+          <Show when={people().length - shownPeople().length}>
+            {(n) => <span class="av more-people" data-testid="avatars-more">+{n()}</span>}
+          </Show>
         </div>
         {/* The main action (spec §4b): Share for anyone who can edit, Clone for a view link. */}
         <Show when={mainClone()}>{cloneButton()}</Show>

@@ -206,6 +206,8 @@ test("the header fits at 1920, 1440, 1280 and 1180 for every role, in order, wit
       const count = c.role === "session" ? top.getByTestId("session-games") : top.locator(".board-title > span");
       if (w > 1440) await expect.soft(count, `${at}: the count`).toBeVisible();
       else await expect.soft(count, `${at}: the count`).toBeHidden();
+      // 12 (in part). The avatars never take more than 150 px.
+      expect.soft(h.kids.find((k) => k.id === "avatars")?.width ?? 0, `${at}: avatars' width`).toBeLessThanOrEqual(150);
       // 13. The chip drops its scene label under 1280; the chip and the pill stay one line.
       // (In Player the chip names no scene: its label is empty.)
       if (c.live === "follow-chip" && !c.match) {
@@ -409,4 +411,24 @@ test("a long title truncates, never under 96 px, and still renames by click", as
   await owner.getByTestId("board-title-input").fill("Short");
   await owner.keyboard.press("Enter");
   await expect(el).toHaveText("Short");
+});
+
+test("seven people: five avatars and +2 above 1440, three and +4 at 1440", async ({ browser }) => {
+  // 12.
+  test.setTimeout(120_000);
+  const url = await newBoardUrl(server, "Full room");
+  const me = await enter(browser, url, "Coach", { width: 1920 });
+  const edit = await editLink(server.url, url);
+  for (const n of ["Juno", "Vexa", "Marrow", "Amber", "Sapph", "Guest"]) await enter(browser, edit, n);
+  const avatars = me.getByTestId("avatars");
+  const discs = avatars.locator(".av:not([data-testid=avatars-more])");
+  await expect(discs).toHaveCount(5);
+  await expect(avatars.getByTestId("avatars-more")).toHaveText("+2");
+  await expect(discs.first()).toHaveClass(/\bring\b/);
+  expect((await avatars.boundingBox())!.width).toBeLessThanOrEqual(150);
+  await me.setViewportSize({ width: 1440, height: 900 });
+  await expect(discs).toHaveCount(3);
+  await expect(avatars.getByTestId("avatars-more")).toHaveText("+4");
+  await expect(discs.first()).toHaveClass(/\bring\b/);
+  await expect(avatars.getByTestId("avatars-more")).not.toHaveAttribute("tabindex");
 });
