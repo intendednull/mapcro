@@ -7,7 +7,7 @@ import { dialogKeys } from "./modal";
 import { ModalScrim } from "./ModalScrim";
 
 const X = '<path d="M6 6l12 12M18 6L6 18"/>';
-const BUBBLE = '<path d="M5 5h14a1 1 0 011 1v9a1 1 0 01-1 1h-7l-4 3v-3H5a1 1 0 01-1-1V6a1 1 0 011-1z"/>';
+export const BUBBLE = '<path d="M5 5h14a1 1 0 011 1v9a1 1 0 01-1 1h-7l-4 3v-3H5a1 1 0 01-1-1V6a1 1 0 011-1z"/>';
 const Ico = (p: { d: string }) => <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" innerHTML={p.d} />;
 
 /** Counts show from this share of a limit. */

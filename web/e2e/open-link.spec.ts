@@ -8,8 +8,8 @@
 // unit-tested in test/desktop-release.test.ts). The app is stubbed
 // (`__TAURI_INTERNALS__.invoke`, as Tauri injects it); the boards are the real server's.
 
-import { type Browser, expect, test } from "./fixtures";
-import { noSecondary } from "./helpers";
+import { type Browser, type Page, expect, test } from "./fixtures";
+import { noSecondary, openMore } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
 let server: Server;
@@ -28,6 +28,13 @@ async function inApp(browser: Browser) {
     (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = { invoke: async () => Promise.reject("unknown_command") };
   });
   return ctx;
+}
+
+/** Join the board open on `p` (its join card is modal: the header is inert until then). */
+async function joinHere(p: Page) {
+  await p.locator("#join-name").fill("Coach");
+  await p.keyboard.press("Enter");
+  await expect(p.getByTestId("join-card")).toBeHidden();
 }
 
 const parts = (url: string) => {
@@ -122,6 +129,9 @@ test("in a browser: no Open link, Ctrl+L is the browser's, and Open in app on Wi
   await p.keyboard.press("Control+l");
   await expect(p.getByTestId("open-link-dialog")).toHaveCount(0);
   const { board, token } = parts(url);
+  // Rows of the top bar's More menu.
+  await joinHere(p);
+  await openMore(p);
   await expect(p.getByTestId("open-in-app")).toHaveAttribute("href", `mapcro://b/${board}#${token}`);
   await expect(p.getByTestId("open-in-app-get")).toHaveAttribute("href", "https://github.com/intendednull/mapcro/releases/latest/download/mapcro_x64-setup.exe");
   await expect(p.getByTestId("open-in-app-get")).toHaveAttribute("download", "");
@@ -134,6 +144,8 @@ test("in a browser: no Open link, Ctrl+L is the browser's, and Open in app on Wi
   const l = await linux.newPage();
   await l.goto(url);
   await expect(l.getByTestId("board-title")).toHaveText("Browser");
+  await joinHere(l);
+  await openMore(l);
   await expect(l.getByTestId("open-in-app")).toHaveAttribute("href", `mapcro://b/${board}#${token}`);
   await expect(l.getByTestId("open-in-app-get")).toHaveAttribute("href", "https://github.com/intendednull/mapcro/releases/latest/download/mapcro_amd64.AppImage");
   await noSecondary(l);
@@ -170,6 +182,10 @@ test("the portable app's Update available: shown when the app reports a newer ve
   await expect(p.getByTestId("app-update")).toHaveAttribute("href", "https://github.com/intendednull/mapcro/releases/latest/download/mapcro_x64-portable.zip");
   await p.goto(await newBoardUrl(server, "Update"));
   await expect(p.getByTestId("board-title")).toHaveText("Update");
+  // On a board, the first row of the top bar's More menu, and a dot on More.
+  await joinHere(p);
+  await expect(p.getByTestId("more-dot")).toBeVisible();
+  await openMore(p);
   await expect(p.getByTestId("app-update")).toBeVisible();
   await expect(p.getByTestId("app-update-banner")).toHaveCount(0);
   await ctx.close();

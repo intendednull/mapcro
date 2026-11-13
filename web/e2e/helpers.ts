@@ -123,3 +123,12 @@ export async function noSecondary(page: Page) {
   expect(hrefs.length).toBeGreaterThan(0);
   for (const h of hrefs) expect(h).not.toMatch(/\.(zip|deb)([?#]|$)/i);
 }
+
+/** Open the desktop board header's More menu (spec §4b, The board header), where Clone (for an
+ * editor), Download, Open in app, Get the app, Feedback and Update available live. Safe to call
+ * when it is open. */
+export async function openMore(page: Page) {
+  const more = page.getByTestId("more");
+  if ((await more.getAttribute("aria-expanded")) !== "true") await more.click();
+  await expect(page.getByTestId("more-menu")).toBeVisible();
+}

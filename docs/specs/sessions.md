@@ -576,7 +576,8 @@ By decision 1 of the view-state plan, new view state is a registry row:
 
 ### 7.3 A board becomes a session
 
-- On a board page, "+ Add game" sits beside the board's title as a one-tab strip, for any role.
+- On a board page, "+ Add game" sits after the board's title and save state (spec §4b, The board
+  header; "+" alone under 1280 px), for any role.
   It calls `POST /api/sessions { board, board_token, title }`. That creates the session (owner
   token back to this device), its first tab and that tab's grant in one request. The client then
   navigates to `/s/<id>?tab=<first>#<owner token>`, and the Add menu is open.

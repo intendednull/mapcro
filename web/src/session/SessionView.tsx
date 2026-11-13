@@ -3,6 +3,7 @@
 // credential: nothing of one board's mount reaches another's). No pool yet (phase 3): a switch
 // is a cold open, from IndexedDB where the board is stored.
 
+import { ShareIcon } from "../ui/ShareIcon";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { Board, type InSession } from "../board/Board";
@@ -235,6 +236,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   const share = () => (
     <Show when={s.canEdit()}>
       <button class="btn primary" data-testid="session-share" onClick={() => setSharing(true)}>
+        <ShareIcon />
         Share
       </button>
     </Show>
@@ -315,7 +317,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       </Show>
     </nav>
   );
-  const inSession = (): Omit<InSession, "via"> => ({ history, joinKey: p.session, title, share, strip });
+  const inSession = (): Omit<InSession, "via"> => ({ history, joinKey: p.session, title, share, strip, canEdit: () => s.canEdit() });
   // A dead link, not an outdated build: that one reloads, or says Update available, as a board does.
   const closed = () => linkDead(s.connection());
   const outdated = () => {

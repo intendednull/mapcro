@@ -9,7 +9,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew, revealControls, useSummary } from "./helpers";
+import { joinNew, openMore, revealControls, useSummary } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ISSUE = "https://github.com/intendednull/mapcro/issues/7";
@@ -77,10 +77,11 @@ async function landing(page: Page, server: Server) {
 
 test("from the board: validation, send, the issue's link; Escape and Tab stay in the dialog", async ({ browser }) => {
   const page = await joinNew(browser, await newBoardUrl(on, "Feedback board"), "Coach");
-  const open = page.getByTestId("feedback-open");
-  await expect(open).toBeVisible();
-  // In the top bar, next to Clone and Share.
-  await expect(page.locator("header.top").getByTestId("feedback-open")).toHaveCount(1);
+  // A row of the top bar's More menu; focus comes back to More.
+  const open = { click: async () => (await openMore(page), await page.getByTestId("feedback-open").click()) };
+  const more = page.getByTestId("more");
+  await openMore(page);
+  await expect(page.getByTestId("more-menu").getByTestId("feedback-open")).toHaveCount(1);
   await page.locator("header.top").screenshot({ path: `${SHOTS}/topbar.png` });
   await open.click();
   const dlg = page.getByTestId("feedback-dialog");
@@ -91,10 +92,10 @@ test("from the board: validation, send, the issue's link; Escape and Tab stay in
   await expect(dlg.getByTestId("feedback-title")).toBeFocused();
   await page.screenshot({ path: `${SHOTS}/empty.png` });
 
-  // Escape closes it, and focus goes back to the button that opened it.
+  // Escape closes it, and focus goes back to More, which opened it.
   await page.keyboard.press("Escape");
   await expect(dlg).toHaveCount(0);
-  await expect(open).toBeFocused();
+  await expect(more).toBeFocused();
 
   // Tab and Shift+Tab wrap inside; the board behind is inert.
   await open.click();
@@ -154,7 +155,7 @@ test("from the board: validation, send, the issue's link; Escape and Tab stay in
 
   await dlg.getByTestId("feedback-close").click();
   await expect(dlg).toHaveCount(0);
-  await expect(open).toBeFocused();
+  await expect(more).toBeFocused();
 });
 
 test("from the landing; a rate limit says when to try again, and retry keeps the text", async ({ page }) => {
@@ -198,12 +199,12 @@ test("hidden when the server has it off", async ({ browser, page }) => {
   await expect(page.locator("footer.legal")).toHaveText("MIT · Not affiliated with Valve · GitHub · Get the Windows app");
 
   const answered = (p: Page) => p.waitForResponse((r) => r.url().endsWith("/api/feedback"));
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  const board = await ctx.newPage();
-  const asked = answered(board);
-  await board.goto(await newBoardUrl(off, "No feedback"));
+  let asked: Promise<unknown> = Promise.resolve();
+  const board = await joinNew(browser, await newBoardUrl(off, "No feedback"), "Coach", (p) => (asked = answered(p)));
   await asked;
-  await expect(board.getByTestId("clone")).toBeVisible();
+  await expect(board.getByTestId("more")).toBeVisible();
+  await openMore(board);
+  await expect(board.getByTestId("download")).toBeVisible();
   await expect(board.getByTestId("feedback-open")).toHaveCount(0);
 });
 
@@ -225,7 +226,7 @@ test("on a board with a match open, the issue names the match and the time; unti
   await scrubTo(page, 542);
   await expect(page.getByTestId("match-clock")).toHaveText("9:02 / 21:40");
 
-  const open = page.getByTestId("feedback-open");
+  const open = { click: async () => (await openMore(page), await page.getByTestId("feedback-open").click()) };
   await open.click();
   const dlg = page.getByTestId("feedback-dialog");
   await expect(dlg.getByTestId("feedback-match")).toHaveText(`Includes: match ${MATCH} at 9:02 (API summary)Helps find the moment. Untick to leave it out of the issue.`);

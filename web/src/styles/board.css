@@ -78,6 +78,8 @@ kbd {
   height: 100vh; height: 100dvh;
   display: grid;
   grid-template-rows: 56px 1fr auto;
+  /* The header can never widen the page past the window (TD-61). */
+  grid-template-columns: minmax(0, 1fr);
   background:
     radial-gradient(ellipse 60% 70% at 50% 45%, #14302b 0%, transparent 70%),
     var(--bg);
@@ -111,6 +113,38 @@ kbd {
 .board-title b { font-weight: 600; font-size: 14px; white-space: nowrap; }
 .board-title > span { color: var(--faint); font-size: 12px; white-space: nowrap; }
 .top .spacer { flex: 1; }
+
+/* The desktop board header (spec §4b, The board header): one line from 1920 down to 1180 px.
+   Only the title shrinks (an ellipsis, never under 96 px); everything else keeps its size. */
+.top { min-width: 0; }
+.top > * { flex: none; white-space: nowrap; }
+.top > .spacer { flex: 1 1 0; min-width: 0; }
+.top > .board-title { flex: 0 1 auto; min-width: 96px; }
+.top > .board-title b { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.top > .board-title > span { flex: none; }
+.top > .board-title .ie { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Gaps inside the groups: title 10, save state 12, Add game; avatars 12, main action 8, More. */
+.top > .save { margin-left: -8px; }
+.top > .save + .add-game { margin-left: -6px; }
+.top > .avatars + * { margin-left: -6px; }
+.top > .more { margin-left: -10px; }
+@media (max-width: 1440px) { .top > .board-title > span { display: none; } }
+@media (max-width: 1279px) { .top .follow-chip .where { display: none; } }
+.top .follow-chip { height: 34px; }
+/* Saved, or a change under 400 ms old: a quiet 16 px box ("Saved" stays its text, unseen). */
+.top > .save.quiet { width: 16px; height: 16px; padding: 0; gap: 0; font-size: 0; }
+.top > .save.saved .glyph { stroke: var(--faint); }
+.top > .save.syncing { padding: 0; color: var(--muted); }
+.avatars .av.more-people { background: var(--raised); color: var(--muted); font-size: 10px; }
+.top > .more { width: 34px; padding: 0; position: relative; font-size: 18px; line-height: 1; border-color: transparent; color: var(--muted); }
+.top > .more:hover, .top > .more[aria-expanded="true"] { color: var(--text); background: var(--raised); }
+.more-dot { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--brass); }
+.more-menu { position: fixed; z-index: 60; width: 208px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 10px 30px #0009; }
+.more-menu .more-row { display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: var(--text); font: 500 13px var(--ui); text-align: left; text-decoration: none; cursor: pointer; white-space: nowrap; }
+.more-menu .more-row:hover, .more-menu .more-row:focus { background: var(--raised); outline: none; }
+.more-menu .more-row .ico { width: 16px; height: 16px; flex: none; stroke: var(--muted); }
+.more-menu .more-row.brass, .more-menu .more-row.brass .ico { color: var(--brass); stroke: var(--brass); }
+.more-menu .more-rule { height: 1px; margin: 4px 6px; background: var(--line); }
 
 .present-pill {
   display: flex; align-items: center; gap: 10px;
