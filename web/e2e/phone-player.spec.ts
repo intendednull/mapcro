@@ -108,6 +108,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     await expect(phone.getByTestId("trooper")).toHaveCount(1);
     await phone.screenshot({ path: `/tmp/mapcro-phone-${viewport.width}-${viewport.height}.png` });
     await checkPhoneLayout(phone);
+    // The shell never scrolls: the scrubber takes a finger in every direction.
+    await expect(phone.locator(".pl-scrub")).toHaveCSS("touch-action", "none");
     await phone.getByTestId("match-play").tap();
     await expect(phone.getByTestId("match-play")).toHaveText("Pause");
     await phone.getByTestId("match-play").tap();

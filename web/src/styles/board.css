@@ -1163,3 +1163,18 @@ body:has(.phone-player) .gt-float {
   max-width: calc(100vw - 16px); max-height: calc(100dvh - var(--sheet-top, 140px) - var(--transport-h, 104px));
   overflow: hidden;
 }
+
+/* ---- Touch shell guards (touch direction, accidental input) ----
+   No pull-to-refresh or rubber band, no text selection or callout on a long press, no double-tap
+   zoom on controls, and text fields at 16 px so iOS doesn't zoom the page when one takes focus.
+   The viewport meta stays zoomable. */
+html:has(.phone), html:has(.phone) body { overscroll-behavior: none; }
+.phone { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.phone :is(input, textarea, [contenteditable]) { user-select: text; -webkit-user-select: text; }
+:where(.phone) :where(button, summary, select, a[href], [role=button], [role=tab]) { touch-action: manipulation; }
+html:has(.phone) :is(input:not([type=range], [type=checkbox], [type=radio]), textarea, select) { font-size: 16px !important; }
+/* touch-action per surface: the shell never scrolls, so the scrubber takes every direction; a
+   sheet's body scrolls up and down, the tool rail sideways. */
+.phone-player .pl-scrub { touch-action: none; }
+.phone .p-sheet-body, .phone .phone-build-content { touch-action: pan-y; }
+.phone-player .p-rail { touch-action: pan-x; }

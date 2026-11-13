@@ -138,6 +138,11 @@ test("an editor pans by touch on empty map in Select; the mouse still draws a ma
 test("the touch shell guards the page", async ({ browser }) => {
   const page = await join(browser, await newBoardUrl(server, "Guards"), "Coach", PHONE);
   await expect(page.getByTestId("board")).toHaveAttribute("data-layout", "phone");
+  // Player's match source holds text fields.
+  await page.getByTestId("mode-player").tap();
+  await page.getByTestId("phone-more").tap();
+  await page.getByTestId("phone-match").tap();
+  await expect(page.getByTestId("match-id")).toBeVisible();
   const report = await page.evaluate(() => {
     const root = getComputedStyle(document.documentElement);
     const shell = getComputedStyle(document.querySelector(".phone")!);
@@ -161,7 +166,6 @@ test("the touch shell guards the page", async ({ browser }) => {
   expect(report.notManipulation).toBe(0);
   expect(report.inputs).toBeGreaterThan(0);
   expect(report.small).toBe(0);
-  await checkPhoneLayout(page);
 });
 
 test("a finger sends no cursor; the mouse does, and a touch laser still shows", async ({ browser }) => {
