@@ -389,3 +389,24 @@ test("the save state: a quiet check when saved, a full pill when offline or reje
     down.stop();
   }
 });
+
+test("a long title truncates, never under 96 px, and still renames by click", async ({ browser }) => {
+  // 9.
+  const long = "Scrim vs Team Two, game three: the mid boss fight and the rotation after it, ok?";
+  expect(long.length).toBe(80);
+  const url = await newBoardUrl(server, long);
+  const owner = await enter(browser, url, "Coach");
+  const viewer = await enter(browser, await viewLink(server.url, url), "Juno");
+  await follow(viewer);
+  await owner.setViewportSize({ width: 1180, height: 900 });
+  const title = owner.locator("header.top .board-title");
+  expect((await title.boundingBox())!.width).toBeGreaterThanOrEqual(96);
+  const el = owner.getByTestId("board-title");
+  expect(await el.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);
+  await expect(owner.locator("header.top .board-title b")).toHaveAttribute("title", long);
+  fits(await header(owner), "a long title at 1180");
+  await el.click();
+  await owner.getByTestId("board-title-input").fill("Short");
+  await owner.keyboard.press("Enter");
+  await expect(el).toHaveText("Short");
+});

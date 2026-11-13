@@ -1294,7 +1294,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         <Wordmark />
         <Show when={!inSession} fallback={inSession!.title()}>
         <div class="board-title">
-          <b>
+          <b title={state.title()}>
             <InlineEdit
               class="title"
               label="Board title"

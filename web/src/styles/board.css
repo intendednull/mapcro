@@ -115,11 +115,14 @@ kbd {
 .top .spacer { flex: 1; }
 
 /* The desktop board header (spec §4b, The board header): one line from 1920 down to 1180 px.
-   Everything keeps its size. */
+   Only the title shrinks (an ellipsis, never under 96 px); everything else keeps its size. */
 .top { min-width: 0; }
 .top > * { flex: none; white-space: nowrap; }
 .top > .spacer { flex: 1 1 0; min-width: 0; }
+.top > .board-title { flex: 0 1 auto; min-width: 96px; }
+.top > .board-title b { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .top > .board-title > span { flex: none; }
+.top > .board-title .ie { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Gaps inside the groups: title 10, save state 12, Add game; avatars 12, main action 8, More. */
 .top > .save { margin-left: -8px; }
 .top > .save + .add-game { margin-left: -6px; }
