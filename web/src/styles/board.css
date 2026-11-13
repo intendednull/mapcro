@@ -1237,6 +1237,19 @@ html:has(.phone) :is(input:not([type=range], [type=checkbox], [type=radio]), tex
 @media (orientation: portrait) and (min-width: 701px) {
   .phone-player > .phone-roster { grid-template-columns: 1fr 1fr auto; }
 }
+/* Landscape's dock: Events, Build, Scenes (and All builds on a tablet) in one tab row under the
+   roster; the roster keeps its two rows. */
+.p-dock-tabs { display: none; }
+@media (orientation: landscape) {
+  .phone-player > .phone-roster .phone-all { display: none; }
+  .phone-player > .p-dock-tabs { grid-area: dock; align-self: start; display: flex; gap: 0; min-width: 0; margin: 0 8px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+  .phone-player .p-dock-tabs > .btn { flex: none; border: 0; background: transparent; color: var(--muted); font-size: 14px; padding: 0 12px; min-height: 44px; }
+  .phone-player .p-dock-tabs > .btn[aria-selected=true], .phone-player .p-dock-tabs > .btn[aria-pressed=true] { color: var(--text); box-shadow: inset 0 -2px var(--brass); }
+  .phone-player .p-dock-tabs > .phone-all { margin-left: auto; }
+  /* The tab row is the docked panels' head: Events closes a build. */
+  .phone-player .phone-build-sheet .p-sheet-head, .phone-player [data-testid=phone-events-sheet] .p-sheet-head { display: none; }
+  .phone-player .phone-build-sheet, .phone-player [data-testid=phone-events-sheet] { padding-top: 8px; }
+}
 .phone-build-list { display: flex; flex-direction: column; }
 .phone-build-row {
   display: grid; grid-template-columns: 44px 7em 5em minmax(0, 1fr); align-items: center; gap: 8px;

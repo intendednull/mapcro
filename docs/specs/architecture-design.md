@@ -1523,7 +1523,11 @@ the events.
 K/D/A, then Effects and Build order side by side, 8 px between rows; items and abilities are in
 view without scrolling, in landscape too. In portrait on a phone it is at most 320 px tall
 (about 308 at 390 × 844), so at least 70% of the map shows above it. In landscape the right pane's dock is
-never empty: with no build and no other sheet open it shows Events, with no close.
+never empty: with no build and no other sheet open it shows Events. A tab row under the roster
+heads the dock (Events, Build, Scenes, and All builds on a tablet) and replaces the build and
+Events sheets' own head: Events closes a build, Build reopens the last one looked at (personal
+layout state), Scenes opens the scene list, and a portrait tap selects Build. The roster keeps
+its two rows (at most 96 px where the totals have their column).
 
 **Board (not Player)** still scrolls, with its own header, follow row, scene nav and the Edit
 toggle in its tool row (P2 of the direction moves it into the shell).
@@ -1546,7 +1550,8 @@ A tablet is the same shell (no third layout). Landscape (any size) is two panes:
 on the left, at least 300 px of roster and dock on the right, a one-row transport whose scrubber
 keeps at least 40% of the width (with the tool rail open too: Play, scrubber, rail). Portrait over
 700 px wide: the roster is one row of 12 (the teams side by side), and sheets stop at half the
-height. Tab has no key on a tablet: an `All builds` toggle (44 px) at the roster's end drives the
+height. Tab has no key on a tablet: an `All builds` toggle (44 px; at the roster's end in portrait, at
+the dock's tab row's end in landscape) drives the
 host's existing all-builds state (so followers get it) and lists twelve 48 px rows (portrait,
 K/D/A, souls, items); a row opens that hero's build. A phone has no room for it. Checks:
 `phone-layout.ts` at 768 × 1024, 820 × 1180, 1024 × 768, 1180 × 820 and

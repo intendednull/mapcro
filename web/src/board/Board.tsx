@@ -2,7 +2,7 @@
 // panel. The map is the interface: edits happen on it directly.
 
 import { rosterTeamName, teamName } from "../map/model";
-import { type JSX, For, Match, Show, Switch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
+import { type JSX, For, Match, Show, Switch, batch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
 import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe, takeRename } from "../core/device";
@@ -675,6 +675,16 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     if (player.openBuild()) player.setOpenBuild(undefined);
     if (player.allBuilds()) player.setAllBuilds(false);
   };
+  // Landscape's Build tab reopens the last build looked at (personal layout state).
+  const [lastBuild, setLastBuild] = createSignal<string>();
+  createEffect(() => { const b = player.openBuild(); if (b) setLastBuild(b); });
+  /** Landscape's dock tab: Events (the default), a build, or the scene list. */
+  const dockEvents = () => batch(() => {
+    setPhoneSheet(undefined);
+    if (player.openBuild()) player.setOpenBuild(undefined);
+    if (player.allBuilds()) player.setAllBuilds(false);
+  });
+  const dockBuild = () => batch(() => { setPhoneSheet(undefined); player.setAllBuilds(false); player.setOpenBuild(lastBuild()); });
   // A build opened (a portrait, a token, or following) closes the other sheet: one at a time.
   createEffect(on(() => player.openBuild() || player.allBuilds(), (b) => b && setPhoneSheet(undefined), { defer: true }));
   const [phone, setPhone] = createSignal(mq.matches);
@@ -685,6 +695,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   let phoneEl: HTMLDivElement | undefined;
   createEffect(() => {
     if (!phone() || !(inPlayer() || player.matchId())) return;
+    landscape();
     let ro: ResizeObserver | undefined;
     const frame = requestAnimationFrame(() => {
       const bar = phoneEl?.querySelector<HTMLElement>(".pl-bar");
@@ -696,10 +707,14 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       const html = document.documentElement.style;
       ro = new ResizeObserver(() => {
         html.setProperty("--transport-h", `${bar.offsetHeight}px`);
-        if (roster) html.setProperty("--sheet-top", `${Math.round(roster.getBoundingClientRect().bottom)}px`);
+        // Landscape: under the dock's tab row.
+        const foot = root.querySelector<HTMLElement>(".p-dock-tabs") ?? roster;
+        if (foot) html.setProperty("--sheet-top", `${Math.round(foot.getBoundingClientRect().bottom)}px`);
       });
       ro.observe(bar);
       if (roster) ro.observe(roster);
+      const tabs = root.querySelector<HTMLElement>(".p-dock-tabs");
+      if (tabs) ro.observe(tabs);
     });
     onCleanup(() => {
       cancelAnimationFrame(frame);
@@ -848,6 +863,16 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   );
   const PlayerSheets = () => (
     <>
+      <Show when={landscape()}>
+        <nav class="p-dock-tabs" role="tablist" aria-label="Panel">
+          <button class="btn ghost" role="tab" data-testid="dock-events" aria-selected={sheet() === "events"} onClick={dockEvents}>Events</button>
+          <button class="btn ghost" role="tab" data-testid="dock-build" aria-selected={!!player.openBuild()} disabled={!lastBuild()} onClick={dockBuild}>Build</button>
+          <button class="btn ghost" role="tab" data-testid="dock-scenes" aria-selected={sceneDrawer()} onClick={() => setSceneDrawer(true)}>Scenes</button>
+          {/* Tab's stand-in on a tablet: the same all-builds state as the roster's toggle. */}
+          <button class="btn ghost phone-all" data-testid="dock-all-builds" aria-pressed={player.allBuilds() || player.tabHeld()}
+            onClick={() => batch(() => { setPhoneSheet(undefined); player.setOpenBuild(undefined); player.setAllBuilds(!player.allBuilds()); player.setBuildPopover("none"); })}>All builds</button>
+        </nav>
+      </Show>
       <Show when={sheet() === "events"}>
         <PhoneSheet title="Events" testid="phone-events-sheet">
           <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={savedScene} onUserPlayback={() => stopFollowing("changed the playback")} />

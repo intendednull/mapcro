@@ -67,10 +67,19 @@ const float = (p: Page) => p.getByTestId("game-tooltip-float");
 async function checkBuildSheet(p: Page) {
   const sheet = p.locator(".phone-build-sheet");
   const head = sheet.locator(".p-sheet-head");
+  const vp0 = p.viewportSize()!;
+  const wide = vp0.width > vp0.height;
   await expect(head.locator("b")).toHaveText("Testhero 1");
-  await expect(head.getByRole("button", { name: "Close" })).toBeVisible();
   const box = async (sel: string) => (await sheet.locator(sel).first().boundingBox())!;
-  const h = await box(".p-sheet-head");
+  let h: { y: number; height: number };
+  if (wide) {
+    // Landscape: the dock's tab row is the sheet's head (Events closes the build).
+    await expect(head).toBeHidden();
+    h = (await p.locator(".p-dock-tabs").boundingBox())!;
+  } else {
+    await expect(head.getByRole("button", { name: "Close" })).toBeVisible();
+    h = await box(".p-sheet-head");
+  }
   expect(h.height).toBeLessThanOrEqual(52);
   const items = await box(".tb-build-items");
   const abilities = await box(".tb-build-abilities");
@@ -91,8 +100,8 @@ async function checkBuildSheet(p: Page) {
     expect(view.height).toBeLessThanOrEqual(320);
     if (vp.height >= 844) expect(view.y).toBeGreaterThanOrEqual(420);
   }
-  // Close shuts the sheet; the portrait opens it again.
-  await head.getByRole("button", { name: "Close" }).tap();
+  // Close (landscape: Events) shuts the sheet; the portrait opens it again.
+  await (wide ? p.getByTestId("dock-events") : head.getByRole("button", { name: "Close" })).tap();
   await expect(sheet).toHaveCount(0);
   await p.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').tap();
   await expect(sheet).toHaveCount(1);
@@ -150,6 +159,35 @@ async function checkEvents(p: Page) {
   await expect(side.getByTestId("match-credit")).toBeHidden();
 }
 
+/** Landscape's dock: Events, Build and Scenes tabs (and All builds on a tablet) in one row; a
+ *  portrait tap selects Build; the roster block is two rows, at most 96 px. */
+async function checkDock(p: Page) {
+  const vp = p.viewportSize()!;
+  const tab = (id: string) => p.getByTestId(`dock-${id}`);
+  await p.screenshot({ path: `/tmp/mapcro-dock-${vp.width}-${vp.height}.png` });
+  for (const id of ["events", "build", "scenes"]) {
+    await expect(tab(id)).toBeVisible();
+    expect((await tab(id).boundingBox())!.height, id).toBeGreaterThanOrEqual(44);
+  }
+  await expect(tab("build")).toHaveAttribute("aria-selected", "true");
+  await expect(tab("events")).toHaveAttribute("aria-selected", "false");
+  if (Math.min(vp.width, vp.height) > 500) {
+    await expect(tab("all-builds")).toBeVisible();
+    await expect(p.getByTestId("phone-all-builds")).toBeHidden();
+  }
+  // A pane too narrow for the totals' column (a 4:3 tablet) heads each row with its total.
+  const roster = (await p.locator(".phone-roster").boundingBox())!;
+  expect(roster.height).toBeLessThanOrEqual(roster.width >= 336 ? 96 : 132);
+  await tab("events").tap();
+  await expect(tab("events")).toHaveAttribute("aria-selected", "true");
+  await expect(p.locator(".phone-build-sheet")).toHaveCount(0);
+  await expect(p.getByTestId("player-side")).toBeVisible();
+  await tab("build").tap();
+  await expect(p.locator(".phone-build-sheet")).toHaveCount(1);
+  await expect(tab("build")).toHaveAttribute("aria-selected", "true");
+  await checkPhoneLayout(p);
+}
+
 import { checkPhoneLayout, touchDrag } from "./phone-layout";
 
 const PHONES = [{ width: 390, height: 844 }, { width: 360, height: 800 }, { width: 390, height: 664 }, { width: 844, height: 390 }];
@@ -189,6 +227,7 @@ for (const viewport of [...PHONES, ...TABLETS]) {
     if (viewport.width > viewport.height) expect(await phone.locator(".p-map").boundingBox()).toEqual(mapBefore);
     await checkPhoneLayout(phone);
     await checkBuildSheet(phone);
+    if (viewport.width > viewport.height) await checkDock(phone);
     await column(phone).locator(`.tb-build-item[data-item-id="${INFUSER}"]`).tap();
     await expect(float(phone)).toBeVisible();
     await column(phone).locator(`[data-ability-id="${ABILITY}"]`).tap();
@@ -204,7 +243,9 @@ for (const viewport of [...PHONES, ...TABLETS]) {
     // A tablet's All builds (Tab's stand-in): twelve rows; a row opens that hero's build.
     if (Math.min(viewport.width, viewport.height) > 500) {
       await expect(phone.getByText("Hold Tab")).toHaveCount(0);
-      const all = phone.getByTestId("phone-all-builds");
+      // Portrait: at the roster's end; landscape: in the dock's tab row.
+      const all = phone.locator("[data-testid=phone-all-builds]:visible, [data-testid=dock-all-builds]:visible");
+      await expect(all).toHaveCount(1);
       const b = (await all.boundingBox())!;
       expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(44);
       await all.tap();
@@ -229,7 +270,7 @@ for (const viewport of [...PHONES, ...TABLETS]) {
     await expect(phone.getByTestId("match-clock")).toContainText("0:30 /");
     await checkPhoneLayout(phone);
     await checkEvents(phone);
-    await phone.getByTestId("p-sheet-close").tap();
+    await phone.getByTestId(viewport.width > viewport.height ? "dock-events" : "p-sheet-close").tap();
     // Landscape's dock falls back to Events, with no close of its own.
     if (viewport.width > viewport.height) {
       await expect(phone.getByTestId("player-side")).toBeVisible();
