@@ -82,6 +82,13 @@ async function checkBuildSheet(p: Page) {
   const abs = sheet.locator(".tb-build-ability");
   await expect(abs).toHaveCount(4);
   for (let i = 0; i < 4; i++) expect(inView((await abs.nth(i).boundingBox())!)).toBe(true);
+  // Compact in portrait: at most ~320 px, so at least 70% of the map shows above it.
+  const vp = p.viewportSize()!;
+  await p.screenshot({ path: `/tmp/mapcro-build-sheet-${vp.width}-${vp.height}.png` });
+  if (vp.width < vp.height && vp.width < 500) {
+    expect(view.height).toBeLessThanOrEqual(320);
+    if (vp.height >= 844) expect(view.y).toBeGreaterThanOrEqual(420);
+  }
   // Close shuts the sheet; the portrait opens it again.
   await head.getByRole("button", { name: "Close" }).tap();
   await expect(sheet).toHaveCount(0);

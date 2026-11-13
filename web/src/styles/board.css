@@ -1059,6 +1059,19 @@ kbd {
 .phone .phone-build-sheet .tb-build-abilities + .tb-build-empty { order: 2; }
 .phone .phone-build-sheet:has(.tb-build-column + .tb-build-column) .tb-build-hero { order: 0; }
 .phone .phone-build-sheet:not(:has(.tb-build-column + .tb-build-column)) .tb-build-hero { display: none; }
+/* Compact: items, abilities, then one row of bars, vitals and K/D/A; Effects and Build order
+   share a row. 8 px between rows (review: ~300 px at 390×844). */
+.phone .phone-build-sheet .tb-build-column { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 8px; }
+.phone .phone-build-sheet .tb-build-column > :is(.tb-build-items, .tb-build-abilities, .tb-build-name, .tb-build-hero, .tb-build-popovers, .tb-build-empty) { flex: 1 0 100%; }
+.phone .phone-build-sheet .tb-build-abilities { padding-bottom: 0; }
+.phone .phone-build-sheet .tb-build-levels { margin-bottom: 2px; }
+.phone .phone-build-sheet .tb-build-investment { margin: 0; }
+.phone .phone-build-sheet .tb-build-vitals { display: flex; flex-direction: column; gap: 2px; margin: 0; text-align: left; }
+.phone .phone-build-sheet :is(.tb-build-resists, .tb-build-power) { justify-content: flex-start; margin: 0; }
+.phone .phone-build-sheet .tb-build-kda { grid-template-columns: repeat(3, 32px); margin: 0 0 0 auto; text-align: center; }
+.phone .phone-build-sheet .tb-build-popovers { display: flex; flex-wrap: wrap; column-gap: 16px; margin: 0; }
+.phone .phone-build-sheet .tb-build-popovers > .tb-effects { margin: 0; }
+.phone .phone-build-sheet .tb-build-popovers > .tb-order[open] { flex-basis: 100%; }
 
 .phone .pl-bar { width: 100%; box-sizing: border-box; grid-template-columns: 1fr; }
 .phone .pl-transport { display: flex; flex-wrap: wrap; gap: 4px; }
