@@ -63,14 +63,16 @@ test("Share and Clone hold the focus, Escape closes them, and focus goes back to
   expect(await boardInert(a)).toBe(false);
   expect(await focusedTestId(a)).toBe("share");
 
-  // Clone from the header.
-  await a.getByTestId("clone").focus();
+  // Clone from the header's More menu (an owner's): focus goes back to More.
+  await a.getByTestId("more").focus();
+  await a.keyboard.press("Enter");
+  expect(await focusedTestId(a)).toBe("clone");
   await a.keyboard.press("Enter");
   await expect(clone).toBeVisible();
   await holdsFocus(a, clone);
   await a.keyboard.press("Escape");
   await expect(clone).toHaveCount(0);
-  expect(await focusedTestId(a)).toBe("clone");
+  expect(await focusedTestId(a)).toBe("more");
 });
 
 test("the hero picker holds the focus; Escape closes it back to the portrait", async ({ browser }) => {

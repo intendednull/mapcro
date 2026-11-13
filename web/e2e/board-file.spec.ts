@@ -9,6 +9,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Browser, type Page, expect, test } from "./fixtures";
+import { openMore } from "./helpers";
 import { ROOT, Server, TIMELINE_FORMAT } from "./server";
 
 /** A match whose replay Valve served (cached by the server, shared by every board). */
@@ -115,7 +116,8 @@ test("Download, then Import board: the same board, new and yours, and the origin
   await expect(a.locator(".mapbox [data-callout]")).toContainText("rotate");
   await expect(strokes(a)).toHaveCount(1);
 
-  await expect(a.getByTestId("download")).toHaveAttribute("title", "Download");
+  await openMore(a);
+  await expect(a.getByTestId("download")).toHaveText("Download");
   const saving = a.waitForEvent("download");
   await a.getByTestId("download").click();
   const dl = await saving;
@@ -158,6 +160,7 @@ test("a match board's import opens on the match again, with Valve's replay", asy
   await joinAs(a);
   await expect(a.getByTestId("match-tier")).toHaveText("Full replay");
   const saving = a.waitForEvent("download");
+  await openMore(a);
   await a.getByTestId("download").click();
   const dl = await saving;
 

@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew, revealControls } from "./helpers";
+import { joinNew, openMore, revealControls } from "./helpers";
 import { ROOT, Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 const ID = "130816395";
@@ -60,9 +60,10 @@ function replayTimeline() {
 
 const chip = (p: Page) => p.getByTestId("match-tier");
 
-/** Clone the board from the top bar, and land on the copy. */
+/** Clone the board from the top bar's More menu (an editor's), and land on the copy. */
 async function cloneIt(p: Page, title: string) {
   const from = new URL(p.url()).pathname;
+  await openMore(p);
   await p.getByTestId("clone").click();
   await p.locator("#clone-title").fill(title);
   await p.getByTestId("clone-go").click();

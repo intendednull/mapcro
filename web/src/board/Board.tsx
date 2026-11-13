@@ -2,7 +2,7 @@
 // panel. The map is the interface: edits happen on it directly.
 
 import { rosterTeamName, teamName } from "../map/model";
-import { type JSX, For, Match, Show, Switch, batch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
+import { type JSX, For, Match, Show, Switch, batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
 import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe, takeRename } from "../core/device";
@@ -39,7 +39,9 @@ import { recapOf } from "../player/recap";
 import { RiftRings } from "../player/Rift";
 import { liveLayer } from "../player/layer";
 import { PlayerTopBar } from "../player/PlayerTopBar";
-import { OpenInApp, UpdateLink } from "../ui/OpenLink";
+import { MoreMenu, type MoreRow } from "./MoreMenu";
+import { openInAppHref } from "../core/applink";
+import { WINDOWS_APP_PORTABLE_URL, appUpdate, desktopAppLinks } from "../player/desktop";
 import { downloadBoard } from "../core/boardfile";
 import { Layers, calloutOrder } from "./Layers";
 import { FRESH_BOARD, randomRosterOps, sceneMatchName } from "./roster";
@@ -50,8 +52,9 @@ import type { WorldPos } from "../gen/WorldPos";
 import { slotKey } from "../match/save";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { ShareDialog } from "./ShareDialog";
-import { FeedbackButton } from "../ui/Feedback";
-import { feedbackMatchOf } from "../core/feedback";
+import { BUBBLE, FeedbackButton, FeedbackDialog } from "../ui/Feedback";
+import { ShareIcon } from "../ui/ShareIcon";
+import { feedbackEnabled, feedbackMatchOf } from "../core/feedback";
 import { rejection, statusView } from "./status";
 import type { Reject } from "../gen/Reject";
 import { Avatar, FollowChip, PeopleList, PresentingPill } from "./Presence";
@@ -139,6 +142,8 @@ export interface InSession {
   title: () => JSX.Element;
   share: () => JSX.Element;
   strip: () => JSX.Element;
+  /** The session's role: Share (its own) is the main action, else Clone (spec §4b). */
+  canEdit: () => boolean;
 }
 
 export function Board(p: { board: string; token: string; art: Art; session?: InSession }) {
@@ -1206,6 +1211,52 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             {phone && panelsView()}
           </div>
   );
+  // The desktop header's right side (spec §4b, The board header): one main action; the rest in More.
+  const [feedbackOpen, setFeedbackOpen] = createSignal<{ match?: ReturnType<typeof feedbackMatch> }>();
+  const [update] = createResource(() => appUpdate());
+  const updateLink = () => update()?.kind === "link";
+  const editsHere = () => (inSession ? inSession.canEdit() : state.canEdit());
+  const mainClone = () => !!state.role() && !editsHere();
+  const cloneIcon = () => (
+    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3" />
+    </svg>
+  );
+  const cloneButton = () => (
+    <button class="btn ghost" data-testid="clone" onClick={() => setDialog("clone")}>
+      {cloneIcon()}
+      Clone
+    </button>
+  );
+  const shareButton = () => (
+    <button class="btn primary" data-testid="share" onClick={() => setDialog("share")}>
+      <ShareIcon />
+      Share
+    </button>
+  );
+  const rowIcon = (d: string) => <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" innerHTML={d} />;
+  const DOWN = '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>';
+  const moreGroups = createMemo((): MoreRow[][] => {
+    const app = !via ? openInAppHref({ board: p.board, token: p.token }) : undefined;
+    return [
+      updateLink() ? [{ label: "Update available", testid: "app-update", href: WINDOWS_APP_PORTABLE_URL, download: true, brass: true, icon: () => rowIcon(DOWN) }] : [],
+      state.role()
+        ? [
+            ...(mainClone() ? [] : [{ label: "Clone", testid: "clone", icon: cloneIcon, run: () => setDialog("clone") }]),
+            // The board as a file (spec §6): anyone who can see it, as for Clone.
+            { label: "Download", testid: "download", icon: () => rowIcon(DOWN), run: () => void downloadBoard(p.board, p.token, state.title(), via).then((why) => why && say(why)) },
+          ]
+        : [],
+      app
+        ? [
+            { label: "Open in app", testid: "open-in-app", href: app, icon: () => rowIcon('<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5"/>') },
+            { label: "Get the app", testid: "open-in-app-get", href: desktopAppLinks()?.href, download: true, icon: () => rowIcon('<rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/>') },
+          ]
+        : [],
+      feedbackEnabled() ? [{ label: "Feedback", testid: "feedback-open", icon: () => rowIcon(BUBBLE), run: () => setFeedbackOpen({ match: feedbackMatch() }) }] : [],
+    ].filter((g) => g.length > 0);
+  });
   const toastView = () => (
           <Show when={toast()}>
             {(t) => (
@@ -1255,6 +1306,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             {state.scenes().length} scene{state.scenes().length === 1 ? "" : "s"}
           </span>
         </div>
+        </Show>
+        <SaveStatus state={state} rejected={rejected()} dismiss={() => setSeenProblems(state.problems().length)} />
+        <Show when={!inSession}>
         <AddGameOnBoard board={p.board} token={p.token} title={state.title()} ready={!!state.role()} />
         </Show>
         <Show when={player.matchId()}><TierChip host={player} /></Show>
@@ -1262,7 +1316,6 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         <PresentingPill followers={followersOf(state.myPeer())} />
         <FollowChip following={followed()} presenters={presenterList()} sceneLabel={sceneLabel} follow={follow} stop={() => stopFollowing()} />
         <div class="spacer" />
-        <SaveStatus state={state} rejected={rejected()} dismiss={() => setSeenProblems(state.problems().length)} />
         <div class="avatars" data-testid="avatars">
           <Show when={me() && joined()}>
             <span class="av ring" style={{ background: colorOf(me()!.color) }} title={me()!.name}>
@@ -1271,43 +1324,14 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
           </Show>
           <For each={people()}>{(peer) => <Avatar name={peer.state!.name || "?"} color={peer.state!.color} title={peer.state!.name || "Joining"} />}</For>
         </div>
-        <FeedbackButton variant="bar" match={feedbackMatch} />
-        <Show when={!via}>
-          <OpenInApp board={p.board} token={p.token} />
-        </Show>
-        <UpdateLink />
-        <Show when={state.role()}>
-          <button class="btn ghost" data-testid="clone" onClick={() => setDialog("clone")}>
-            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
-              <rect x="8" y="8" width="12" height="12" rx="2" />
-              <path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3" />
-            </svg>
-            Clone
-          </button>
-          {/* The board as a file (spec §6): anyone who can see it, as for Clone. */}
-          <button
-            class="btn ghost"
-            data-testid="download"
-            title="Download"
-            aria-label="Download"
-            onClick={() => void downloadBoard(p.board, p.token, state.title(), via).then((why) => why && say(why))}
-          >
-            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
-            </svg>
-          </button>
-        </Show>
-        <Show when={inSession}>{inSession!.share()}</Show>
-        <Show when={state.canEdit() && !inSession}>
-          <button class="btn primary" data-testid="share" onClick={() => setDialog("share")}>
-            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1" />
-              <path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1" />
-            </svg>
-            Share
-          </button>
-        </Show>
+        {/* The main action (spec §4b): Share for anyone who can edit, Clone for a view link. */}
+        <Show when={mainClone()}>{cloneButton()}</Show>
+        <Show when={inSession} fallback={<Show when={state.canEdit()}>{shareButton()}</Show>}>{inSession!.share()}</Show>
+        <MoreMenu groups={moreGroups()} dot={updateLink()} />
       </header>
+      <Show when={feedbackOpen()}>
+        {(o) => <FeedbackDialog match={o().match} onClose={() => setFeedbackOpen(undefined)} />}
+      </Show>
       <Show when={inSession}>{inSession!.strip()}</Show>
       <div class="main">
         <SceneTree

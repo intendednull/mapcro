@@ -83,6 +83,7 @@ export const SIGNALS: Record<string, Entries> = {
     remote: ["local", "a follower's side of hover"],
   },
   "board/Board.tsx": {
+    feedbackOpen: ["local", "the Feedback dialog, opened from the header's More menu"],
     renameAsked: ["local", "Rename from Your boards: open the title editor once the board can take it"],
     slow: ["local", "loading"],
     me: ["local", "name and colour: presence says who you are"],
