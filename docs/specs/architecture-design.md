@@ -209,6 +209,38 @@ equipped items (current shop prices)": hover text had grown into explanations. T
 Reviewers check new or changed `title`, `aria-label` and tooltip text against these rules.
 `aria-label` follows the same rule; it may add a tag a screen reader needs ("Weapon invest, 4,800"), still not a sentence.
 
+### The board header (desktop)
+
+One line, 56 px, that fits every role from 1920 down to 1180 px (header redesign, 2026-11-13;
+`web/e2e/header.spec.ts`). The phone and tablet shell has its own header (§6b, Phone).
+
+```
+[wordmark] | Title  1 scene  ✓  [+ Add game] [tier]   ( Presenting / Follow chip )   (avatars) [Share] [⋯]
+```
+
+- **Order** is DOM order and tab order: wordmark, title, save state, Add game (a plain board; in a
+  session it is the game strip's), the tier chip (with a match), then between two spacers the
+  Presenting pill or Follow chip, then the avatars, the main action and More.
+- **Only the title shrinks**, with an ellipsis, never under 96 px; its full text is its hover.
+  Every other child keeps its size on one line, and `.app`'s one column is `minmax(0, 1fr)`, so
+  the header never widens the page (TD-61).
+- **The main action** is the one filled control: Share for anyone who can edit (the session's
+  Share in a session), Clone (ghost) for a view-only link.
+- **More** ("⋯", `aria-label` "More") opens a menu under it, in groups: Update available (the
+  portable app with an update; More then carries a brass dot), Clone (unless it is the main
+  action) and Download, Open in app and Get the app (as their own rules say), Feedback. Rows have
+  no hover text. Keys as for a context menu: Enter, Space or Down opens it on its first row; Up,
+  Down, Home and End move; Enter or Space runs a row; Escape gives focus back to More, as does a
+  dialog opened from it; Tab moves on. Its open flag is local, not followed.
+- **The avatars**: you first (ringed), then the others, at most 5 above 1440 px and 3 at or under
+  it, then "+N".
+- **Narrower windows**: at 1440 px and under the scene (or game) count goes; under 1280 px Add
+  game is "+" alone and the Follow chip drops its scene name.
+- **The save state** sits after the title: saved, or a change under 400 ms old, is a quiet 16 px
+  box (a faint check; "Saved" is its hover and its text); Syncing is the spinner and its word;
+  Offline, a rejection (with Dismiss) and a dead link are the full pill, which pushes the rest
+  right and takes its room from the title.
+
 ## 5. Offline and reconnect
 
 1. Connect. The socket's first frame is `auth { board, token, known_seq, build? }`. `build` is the
@@ -312,7 +344,7 @@ and shared boards therefore follow one code path and one set of tests.
 - **Make a copy** turns any viewable board into a local one.
 - **Export / import** a versioned `.mapcro.json` file, using the same schema and migrations. This is
   the durable, portable save, independent of browser storage. Built (operator, 2026-11-11):
-  - **Download** (the top bar, beside Clone; anyone who can view the board, as for Clone) saves
+  - **Download** (the top bar's More menu, after Clone; anyone who can view the board, as for Clone) saves
     `<title>.mapcro.json` from `GET /api/boards/{board}/export`: a header (`format`
     `"mapcro-board"`, `version`, the server's `build`, `exported_at` in unix seconds), the board's
     live records under their ids (title, roster, scenes and their tree, players, objectives,
@@ -2110,7 +2142,7 @@ the right trade-off. A dedicated security review gates public exposure.
 Operator, 2026-11-09: "a feedback button … asks for a title and a description and … creates an
 issue in the Github repo." Code: `crates/server/src/feedback.rs`, `web/src/ui/Feedback.tsx`.
 
-- **Where.** A "Feedback" button in the board's top bar beside Clone and Share, and a "Feedback"
+- **Where.** A "Feedback" row, last in the board top bar's More menu (§4b), and a "Feedback"
   link in the landing's footer. Both are hidden unless `GET /api/feedback` answers
   `{"enabled": true}`, which it does only when the server has a token.
 - **The dialog.** Title (required, 120 characters) and description (required, 5,000 characters,
