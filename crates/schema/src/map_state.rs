@@ -432,6 +432,17 @@ mod tests {
         assert_eq!(broken(lock, &more), ["f: not deployed yet, so it must be Ahead"]);
     }
 
+    /// The rows as first shipped (phase 1), spelled out: until a deploy has locked them, this is
+    /// what holds their keys, order and bounds still. Later rows are the lock file's to hold.
+    #[test]
+    fn the_first_rows_are_as_they_shipped() {
+        let shipped = "hero hero int 0 4294967295\nname hero text 24\nrows scene int 0 65535\nhas_builds scene bool\nbuild scene int 0 4294967295\n\
+                       items hero ints 128 -1 4294967295\nabilities hero ints 48 -1 4294967295\nbuild_order hero ints 600 -1 4294967295\n\
+                       level hero int 0 1000\nhealth hero int 0 100\npickups hero ints 16 -1000000000 1000000000\n";
+        assert_eq!(broken(shipped, ROWS), Vec::<String>::new());
+        assert!(lock_lines().starts_with(shipped), "{}", lock_lines());
+    }
+
     #[test]
     fn the_lock_file_format_round_trips_every_row() {
         let lines = lock_lines();
@@ -474,7 +485,9 @@ mod tests {
         assert_eq!(serde_json::to_string(&More::default()).expect("json"), "{}");
         assert!(serde_json::from_str::<More>(r#"{"no_such_row":1}"#).is_err());
         assert!(serde_json::from_str::<RowId>(r#""no_such_row""#).is_err());
-        assert!(serde_json::from_str::<RowId>("0").is_err(), "a key is its name, never its index");
+        let not_a_name = serde_json::from_str::<RowId>("0").expect_err("a key is its name, never its index");
+        assert!(not_a_name.to_string().contains("a map-state row key"), "{not_a_name}");
+        assert!(serde_json::from_str::<RowId>(r#""no_such_row""#).expect_err("unknown").to_string().contains("unknown map-state row key"));
         assert_eq!(serde_json::to_string(&id("hero")).expect("json"), r#""hero""#);
         assert_eq!(format!("{:?}", id("hero")), "hero");
     }
@@ -556,7 +569,7 @@ mod tests {
         assert_eq!(empty.heap_bytes(), 0);
         let small: More = [(id("hero"), MoreValue::Int(7))].into_iter().collect();
         let node = small.heap_bytes();
-        assert!(node >= 11 * std::mem::size_of::<MoreValue>(), "the first entry allocates a whole node");
+        assert_eq!(node, 11 * std::mem::size_of::<(RowId, MoreValue)>() + 48, "the first entry allocates a whole node");
         let list: More = [(id("items"), MoreValue::ints(vec![1; 100]))].into_iter().collect();
         assert_eq!(list.heap_bytes(), node + 800);
         let text: More = [(id("name"), MoreValue::Text("abcdefgh".into()))].into_iter().collect();

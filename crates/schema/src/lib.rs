@@ -677,6 +677,45 @@ mod tests {
     }
 
     #[test]
+    fn a_record_refuses_a_registry_value_that_is_not_its_entity_s() {
+        // `apply_op` asks `get` first, so this is the record's own guard, checked directly.
+        let mut hero = Record::PlayerState(PlayerState::starting(RecordId(1), RecordId(2), Team::Amber, 0));
+        let before = hero.clone();
+        assert!(!hero.set(more("has_builds", Some(MoreValue::Bool(true)))));
+        assert_eq!(hero, before);
+        assert!(hero.set(more("hero", Some(MoreValue::Int(3)))));
+        assert_eq!(hero.get(Field::More(key("hero"))), Some(more("hero", Some(MoreValue::Int(3)))));
+        assert_eq!(hero.get(Field::More(key("has_builds"))), None);
+        let mut note = Record::Note(Note { scene: RecordId(1), text: String::new() });
+        assert!(!note.set(more("hero", None)));
+    }
+
+    #[test]
+    fn the_op_bound_is_the_largest_of_text_a_stroke_and_two_maps() {
+        let with = |max_note, max_stroke_points, max_more_bytes| Limits { max_note, max_stroke_points, max_more_bytes, ..LIMITS }.max_op_bytes();
+        assert_eq!(with(1000, 10, 10), 2 * 4 * 1000 + 512);
+        assert_eq!(with(10, 1000, 10), 1000 * 25 + 512);
+        assert_eq!(with(10, 10, 1000), 2 * 1000 + 512);
+        assert_eq!(LIMITS.max_op_bytes(), 2 * 4 * LIMITS.max_note + 512, "today a note's text is the largest");
+    }
+
+    #[test]
+    fn the_heap_estimate_counts_every_string_a_scene_and_a_tab_own() {
+        let scene = |name: &str, order: &str| Doc::from(vec![(RecordId(1), Entry { record: Record::Scene(Scene { name: name.into(), order: OrderKey(order.into()), clock: None, source: None, live: false, parent: None }), deleted: false })]);
+        let base = scene("", "").approx_heap_bytes();
+        assert_eq!(scene("abc", "").approx_heap_bytes() - base, 3);
+        assert_eq!(scene("abc", "zzzzz").approx_heap_bytes() - base, 8);
+        let tab = |board: &str, grant: &str, name: &str, order: &str| {
+            Doc::from(vec![(RecordId(1), Entry { record: Record::Tab(Tab { board: BoardId(board.into()), grant: GrantId(grant.into()), name: name.into(), order: OrderKey(order.into()) }), deleted: false })])
+        };
+        let base = tab("", "", "", "").approx_heap_bytes();
+        for (i, t) in [tab("b", "", "", ""), tab("", "gg", "", ""), tab("", "", "nnn", ""), tab("", "", "", "oooo")].iter().enumerate() {
+            assert_eq!(t.approx_heap_bytes() - base, i + 1);
+        }
+        assert_eq!(tab("b", "gg", "nnn", "oooo").approx_heap_bytes() - base, 10);
+    }
+
+    #[test]
     fn every_field_value_names_a_field_in_all_and_every_row_is_a_field() {
         let all: Vec<Field> = Field::all().collect();
         assert_eq!(all.len(), Field::TYPED.len() + ROWS.len());
