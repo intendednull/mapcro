@@ -379,12 +379,25 @@ export function PlayerTopBar(p: {
             const key = slotKey(t, s.slot.slot);
             const player = () => p.host.tl()?.players.find(q => slotKey(q.team, q.slot) === key);
             const hero = () => p.art.heroes.get(player()?.hero_id ?? 0);
-            return <div class={`tb-player ${t.toLowerCase()}`} data-slot={`${t}-${s.slot.slot}`}>
+            // The bar's readout: souls under the portrait; the dead greyed with their respawn.
+            const x = barSlot(at, key);
+            const dead = () => !!x()?.dead;
+            const respawn = () => (dead() && x()?.respawn != null ? Math.ceil(x()!.respawn!) : null);
+            return <div class={cx(`tb-player ${t.toLowerCase()}`, dead() && "dead")} data-slot={`${t}-${s.slot.slot}`}>
               <HeroBadge art={p.art} slot={s.slot} hero={hero()} />
+              <span class="phone-souls" data-testid="souls" data-souls={x()?.souls ?? "untracked"}>
+                <Show when={x()?.souls != null} fallback={"–"}><Souls n={x()!.souls!} /></Show>
+              </span>
+              <Show when={respawn() != null}>
+                <span class="phone-respawn" data-testid="tb-respawn" data-respawn={respawn()!}>{respawn()}</span>
+              </Show>
               <button class="phone-hero" data-testid="focus-hero" aria-label={`${hero()?.name ?? "Hero"} build`} aria-expanded={expanded(key)}
                 onClick={() => { toggleBuild(key); p.onFocus?.(t, s.slot.slot); }} />
             </div>;
           }}</For>
+          <span class={`phone-total ${t.toLowerCase()}`} data-testid="team-souls" data-souls={known(t) ? total(t) : "untracked"}>
+            <Show when={known(t)} fallback={"–"}><Souls n={total(t)} /></Show>
+          </span>
         </div>
       }</For>
       {/* Tab's stand-in on a touch screen: the same all-builds state, so followers get it. */}

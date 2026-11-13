@@ -96,6 +96,36 @@ async function checkBuildSheet(p: Page) {
   await expect(sheet).toHaveCount(1);
 }
 
+/** The roster reads like the HUD's bar: souls under each portrait, the team totals, and the
+ *  dead greyed with their respawn seconds; cells stay 44 × 44. Counts and numbers only. */
+async function checkRoster(p: Page) {
+  const roster = p.locator(".phone-roster");
+  const souls = roster.getByTestId("souls");
+  await expect(souls).toHaveCount(12);
+  for (let i = 0; i < 12; i++) {
+    await expect(souls.nth(i)).toHaveAttribute("data-souls", "500");
+    await expect(souls.nth(i)).toBeVisible();
+    expect(parseFloat(await souls.nth(i).evaluate((e) => getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(12);
+  }
+  const totals = roster.getByTestId("team-souls");
+  await expect(totals).toHaveCount(2);
+  for (let i = 0; i < 2; i++) await expect(totals.nth(i)).toHaveAttribute("data-souls", "3000");
+  const cell = roster.locator('.tb-player[data-slot="Amber-1"]');
+  await expect(cell).not.toHaveClass(/\bdead\b/);
+  await scrubTo(p, 32);
+  await expect(cell).toHaveClass(/\bdead\b/);
+  await expect(cell.getByTestId("tb-respawn")).toHaveAttribute("data-respawn", "3");
+  await expect(cell.getByTestId("tb-respawn")).toBeVisible();
+  const cells = roster.locator(".phone-team .tb-player");
+  await expect(cells).toHaveCount(12);
+  for (let i = 0; i < 12; i++) {
+    const b = (await cells.nth(i).boundingBox())!;
+    expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(44);
+  }
+  await checkPhoneLayout(p);
+  await scrubTo(p, 20);
+  await expect(cell).not.toHaveClass(/\bdead\b/);
+}
 
 import { checkPhoneLayout, touchDrag } from "./phone-layout";
 
@@ -117,6 +147,7 @@ for (const viewport of [...PHONES, ...TABLETS]) {
     await expect(phone.getByTestId("trooper")).toHaveCount(1);
     await phone.screenshot({ path: `/tmp/mapcro-phone-${viewport.width}-${viewport.height}.png` });
     await checkPhoneLayout(phone);
+    await checkRoster(phone);
     // The shell never scrolls: the scrubber takes a finger in every direction.
     await expect(phone.locator(".pl-scrub")).toHaveCSS("touch-action", "none");
     await phone.getByTestId("match-play").tap();

@@ -1025,7 +1025,19 @@ kbd {
 
 /* Two teams, six equal targets each. Build selection remains the host's shared state. */
 .phone-roster { margin: 6px 8px; display: grid; gap: 4px; --u: .6px; }
-.phone-team { display: grid; grid-template-columns: repeat(6, minmax(44px, 1fr)); gap: 4px; }
+.phone-team { display: grid; grid-template-columns: repeat(6, minmax(44px, 1fr)) auto; gap: 4px; }
+/* The bar's readout in each cell: souls along the foot; the dead greyed, their respawn on top. */
+.phone-souls { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 0 2px; background: #000a; color: #ded6c4; font: 600 12px/14px var(--ui); text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
+.phone-team .tb-player.dead .tb-badge { filter: grayscale(1) brightness(.45); }
+.phone-respawn { position: absolute; left: 0; right: 0; top: 4px; z-index: 2; color: #f0e6d2; font: 700 14px/16px var(--ui); text-align: center; text-shadow: 0 1px 2px #000; pointer-events: none; }
+.phone-roster .demote { font-size: 12px; }
+/* A narrow pane (a 4:3 tablet in landscape) has no room for the totals' column: they head the rows. */
+.phone-player > .phone-roster { container-type: inline-size; }
+@container (width < 336px) {
+  .phone-team { grid-template-columns: repeat(6, minmax(44px, 1fr)); }
+  .phone-total { grid-column: 1 / -1; grid-row: 1; text-align: left; line-height: 14px; }
+}
+.phone-total { align-self: center; min-width: 32px; color: #ded6c4; font: 600 12px var(--ui); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; border-bottom: 0 !important; }
 .phone-team .tb-player { position: relative; width: auto; height: 44px; overflow: hidden; border-radius: 8px; background: #ffffff08; }
 .phone-team .amber { border-bottom: 2px solid #d4860b; }
 .phone-team .sapphire { border-bottom: 2px solid #4d75c3; }

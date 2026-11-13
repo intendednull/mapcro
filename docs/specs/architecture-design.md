@@ -1501,6 +1501,11 @@ ink swatch and Done are pinned at its right end, outside the scroll, so they are
 Done restores row 2 and Look. Back/forward, Save scene and the scrubber's event and scene marks
 are not on the phone: Events and Scenes are the larger targets for those jumps.
 
+**The roster reads like the HUD's bar.** Each 44 px cell is a portrait (a tap opens the build),
+its souls along the foot (12 px), and while dead the portrait greys with the respawn seconds on
+top. Each team's row ends with its souls total; where the pane is too narrow for that column (a
+4:3 tablet in landscape) the total heads the row instead.
+
 **One sheet at a time.** Events, Map layers, More and a hero's build are sheets: edge to edge on
 the transport (landscape: the right pane), at most up to the roster's foot, so the roster stays
 tappable and a second portrait swaps the hero in place. A 48 px header holds the title and a close
