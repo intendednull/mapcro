@@ -1,9 +1,9 @@
 //! mapcro for Windows (desktop/README.md): one window on the live site, and the replay picker's
 //! native side: the replays folder, looked up when the picker asks (no watch), each card's preview
-//! read from its demo, and the parse of the one replay the user picks. The site reaches it through
-//! seven commands only
-//! (capabilities/site.json); it never passes a path, only a match id (and, for Install, the version
-//! the app itself offered).
+//! read from its demo, and the parse of the one replay the user picks. A board's Download saves it
+//! where the user says, through the system's Save as dialog. The site reaches it through eight
+//! commands only (capabilities/site.json); it never passes a path, only a match id (and, for
+//! Install, the version the app itself offered).
 //!
 //! Logs carry reason codes and match ids, never a path, a player name or an account id.
 
@@ -27,7 +27,7 @@ mod routes;
 const SITE: &str = "https://mapcro.dmgdeadlock.com";
 const WINDOW: &str = "main";
 /// The app's own commands: the only IPC the site gets.
-const COMMANDS: [&str; 7] = [
+const COMMANDS: [&str; 8] = [
     "allow-replays-list",
     "allow-replay-read",
     "allow-replay-timeline",
@@ -35,11 +35,15 @@ const COMMANDS: [&str; 7] = [
     "allow-replays-choose-folder",
     "allow-app-update",
     "allow-app-update-install",
+    "allow-board-file-save",
 ];
 /// Installed or portable (the `portable` feature; desktop/README.md, Installer or portable).
 const MODE: Mode = Mode::of_build(cfg!(feature = "portable"));
 /// Timelines kept parsed (each ~0.6 MB gzip for a 44 min match).
 const CACHED: usize = 8;
+/// The largest board file saved (`boardfile::MAX_BYTES` in `crates/server`, and the web's
+/// `MAX_FILE_BYTES`).
+const MAX_BOARD_BYTES: usize = 8 * 1024 * 1024;
 
 fn main() {
     let args: Vec<_> = std::env::args_os().collect();
@@ -227,6 +231,87 @@ async fn replays_choose_folder(app: AppHandle, state: tauri::State<'_, Arc<Share
     .map_err(|_| "failed".to_string())?
 }
 
+/// Whether a board's text is over the cap: checked before the dialog opens.
+fn too_large(len: usize) -> bool {
+    len > MAX_BOARD_BYTES
+}
+
+/// A board's suggested file name, made safe to write (the web's `fileName` rules,
+/// `web/src/core/boardfile.ts`): `<title>.mapcro.json`, with what a file system refuses replaced,
+/// bidi overrides (which would make the name read as another) taken out, at most 80 characters,
+/// Windows' device names prefixed, and an empty name `board`. The page's suggestion never decides
+/// the folder: only the Save as dialog's answer does.
+fn safe_board_name(suggested: &str) -> String {
+    const SUFFIX: &str = ".mapcro.json";
+    // The page sends the name `fileName` made; accept a bare title too.
+    let base = match suggested.len().checked_sub(SUFFIX.len()) {
+        Some(n) if suggested.is_char_boundary(n) && suggested[n..].eq_ignore_ascii_case(SUFFIX) => &suggested[..n],
+        _ => suggested,
+    };
+    let cleaned: String = base
+        .chars()
+        .filter_map(|c| match c {
+            // Controls, line separators, and what a file system refuses.
+            '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}' | '\u{2028}' | '\u{2029}' | '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => Some('_'),
+            // Bidi marks and overrides.
+            '\u{61c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' => None,
+            c => Some(c),
+        })
+        .collect();
+    let mut base: String = cleaned.trim_start_matches(['.', ' ']).chars().take(80).collect();
+    base = base.trim_end_matches(['.', ' ']).to_owned();
+    let first = base.split('.').next().unwrap_or("").trim();
+    if is_device_name(first) {
+        base.insert(0, '_');
+    }
+    if base.is_empty() {
+        base.push_str("board");
+    }
+    format!("{base}{SUFFIX}")
+}
+
+/// Windows' device names, alone or before any extension (`CON.mapcro.json`).
+fn is_device_name(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    if matches!(lower.as_str(), "con" | "prn" | "aux" | "nul") {
+        return true;
+    }
+    let rest = lower.strip_prefix("com").or_else(|| lower.strip_prefix("lpt"));
+    let mut chars = rest.unwrap_or("").chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) => c.is_ascii_digit() || matches!(c, '\u{b9}' | '\u{b2}' | '\u{b3}'),
+        _ => false,
+    }
+}
+
+/// A board's Download in the app (feedback #47): the system's Save as dialog, the name
+/// `safe_board_name` made pre-filled and a `.mapcro.json` filter, then the board's text written
+/// where the user chose. `saved`, `cancelled`, `failed`, or (over the cap, before any dialog)
+/// `too_large`. The page passes no path: only the dialog's answer decides where the file goes.
+#[tauri::command]
+async fn board_file_save(app: AppHandle, name: String, contents: String) -> Result<&'static str, String> {
+    if too_large(contents.len()) {
+        return Err("too_large".into());
+    }
+    let name = safe_board_name(&name);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut dialog = app.dialog().file().set_title("Save board").set_file_name(&name).add_filter("mapcro board", &["mapcro.json"]);
+        if let Some(w) = app.get_webview_window(WINDOW) {
+            dialog = dialog.set_parent(&w);
+        }
+        let Some(path) = dialog.blocking_save_file().and_then(|p| p.into_path().ok()) else {
+            return Ok("cancelled");
+        };
+        if std::fs::write(&path, contents.as_bytes()).is_err() {
+            eprintln!("mapcro: board file not saved");
+            return Err("failed".to_string());
+        }
+        Ok("saved")
+    })
+    .await
+    .map_err(|_| "failed".to_string())?
+}
+
 /// A newer version the feed offers, as the page gets it: `{version, kind}`, `kind` being
 /// `install` (the page shows Install) or `link` (portable: a link to the new zip).
 #[derive(serde::Serialize)]
@@ -340,7 +425,7 @@ fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Arc::clone(&shared))
-        .invoke_handler(tauri::generate_handler![replays_list, replay_read, replay_timeline, replay_preview, replays_choose_folder, app_update, app_update_install])
+        .invoke_handler(tauri::generate_handler![replays_list, replay_read, replay_timeline, replay_preview, replays_choose_folder, app_update, app_update_install, board_file_save])
         .setup(move |app| {
             let handle = app.handle().clone();
             if site.as_str().trim_end_matches('/') != SITE {
@@ -363,7 +448,7 @@ fn run() {
         .expect("mapcro failed to start");
 }
 
-/// A debug build pointed at a dev server: the same seven commands for its origin.
+/// A debug build pointed at a dev server: the same eight commands for its origin.
 fn dev_capability(app: &AppHandle, site: &Url) -> tauri::Result<()> {
     let mut origin = site.clone();
     origin.set_path("/*");
@@ -451,6 +536,43 @@ mod tests {
     fn merges_disable_features() {
         let merged = super::merge_browser_args("--disable-features=a,b --x", "--y --disable-features=b,c --remote-debugging-port=0");
         assert_eq!(merged, "--disable-features=a,b,c --x --y --remote-debugging-port=0");
+    }
+
+    #[test]
+    fn board_names_are_made_safe() {
+        use super::safe_board_name as name;
+        // The web's `fileName` output passes through unchanged.
+        assert_eq!(name("Scrim prep.mapcro.json"), "Scrim prep.mapcro.json");
+        // A bare title gets the suffix; so does a name in another case.
+        assert_eq!(name("Scrim prep"), "Scrim prep.mapcro.json");
+        assert_eq!(name("Scrim prep.MAPCRO.JSON"), "Scrim prep.mapcro.json");
+        // Path separators and what a file system refuses never reach a path.
+        assert_eq!(name("a/b\\c:d*e?f\"g<h>i|j"), "a_b_c_d_e_f_g_h_i_j.mapcro.json");
+        assert_eq!(name("../../etc/passwd"), "_.._etc_passwd.mapcro.json");
+        assert_eq!(name("  ...  "), "board.mapcro.json");
+        assert_eq!(name(""), "board.mapcro.json");
+        // Windows' device names, alone or before a dot, in any case.
+        for t in ["CON", "nul", "Com1", "LPT9", "aux.notes", "com\u{b9}"] {
+            assert_eq!(name(t), format!("_{t}.mapcro.json"));
+        }
+        assert_eq!(name("Console"), "Console.mapcro.json");
+        // Bidi overrides would show "json.exe" as something else; C1 controls are controls.
+        assert_eq!(name("evil\u{202e}nosj.exe"), "evilnosj.exe.mapcro.json");
+        assert_eq!(name("a\u{2066}b\u{2069}c\u{200f}d"), "abcd.mapcro.json");
+        assert_eq!(name("a\u{85}b\u{9f}c"), "a_b_c.mapcro.json");
+        // Cut by character, never inside one, and a cut ending on a space is trimmed again.
+        let long = name(&"\u{1F600}".repeat(100));
+        assert_eq!(long, format!("{}.mapcro.json", "\u{1F600}".repeat(80)));
+        assert_eq!(name(&format!("{} y", "x".repeat(79))), format!("{}.mapcro.json", "x".repeat(79)));
+    }
+
+    #[test]
+    fn board_files_are_capped_at_eight_mib() {
+        use super::{MAX_BOARD_BYTES, too_large};
+        assert_eq!(MAX_BOARD_BYTES, 8 * 1024 * 1024);
+        assert!(!too_large(0));
+        assert!(!too_large(MAX_BOARD_BYTES));
+        assert!(too_large(MAX_BOARD_BYTES + 1));
     }
 }
 

@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { fileName, isBoardFile, isJsonFile, refusalTag } from "../src/core/boardfile";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { downloadBoard, fileName, isBoardFile, isJsonFile, refusalTag } from "../src/core/boardfile";
+import type { Invoke } from "../src/player/desktop";
 
 describe("board files", () => {
   it("are named after the board, safely", () => {
@@ -46,5 +47,59 @@ describe("board files", () => {
     expect(refusalTag(408, "timeout")).toBe("Try later");
     expect(refusalTag(507)).toBe("Server full");
     expect(refusalTag(500)).toBe("Failed");
+  });
+});
+
+describe("Download", () => {
+  const exported = JSON.stringify({ version: 1, title: "Scrim prep", matches: [] });
+  const serving = () => vi.stubGlobal("fetch", vi.fn(async () => new Response(exported, { status: 200, headers: { "content-type": "application/json" } })));
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("in the app saves through the Save as dialog, with the safe name and the board's text", async () => {
+    serving();
+    const calls: [string, Record<string, unknown> | undefined][] = [];
+    const invoke: Invoke = async (cmd, args) => {
+      calls.push([cmd, args]);
+      return "saved";
+    };
+    expect(await downloadBoard("b1", "tok", "Scrim prep", undefined, invoke)).toBeUndefined();
+    // The page names the file and passes no path; the app's dialog decides where it goes.
+    expect(calls).toEqual([["board_file_save", { name: fileName("Scrim prep"), contents: exported }]]);
+  });
+
+  it("in the app, cancelled and saved are quiet; a failure or a too-large board is a tag", async () => {
+    serving();
+    expect(await downloadBoard("b", "t", "x", undefined, async () => "cancelled")).toBeUndefined();
+    expect(await downloadBoard("b", "t", "x", undefined, async () => "saved")).toBeUndefined();
+    const rejects = (why: unknown): Invoke => async () => Promise.reject(why);
+    expect(await downloadBoard("b", "t", "x", undefined, rejects("failed"))).toBe("Failed");
+    expect(await downloadBoard("b", "t", "x", undefined, rejects("too_large"))).toBe("Too large");
+    // Nothing from the app is shown raw.
+    expect(await downloadBoard("b", "t", "x", undefined, rejects("C:\\Users\\someone"))).toBe("Failed");
+    expect(await downloadBoard("b", "t", "x", undefined, async () => "weird")).toBe("Failed");
+  });
+
+  it("in a browser still saves a blob the browser way, and asks the app for nothing", async () => {
+    serving();
+    vi.useFakeTimers();
+    const create = vi.fn((_b: Blob) => "blob:board");
+    const revoke = vi.fn();
+    vi.stubGlobal("URL", { createObjectURL: create, revokeObjectURL: revoke });
+    const a = { href: "", download: "", click: vi.fn(), remove: vi.fn() };
+    vi.stubGlobal("document", { createElement: vi.fn(() => a), body: { append: vi.fn() } });
+
+    expect(await downloadBoard("b", "t", "Scrim prep")).toBeUndefined();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0]![0].size).toBe(exported.length);
+    expect(a.href).toBe("blob:board");
+    expect(a.download).toBe("Scrim prep.mapcro.json");
+    expect(a.click).toHaveBeenCalledTimes(1);
+    expect(a.remove).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(60_000);
+    expect(revoke).toHaveBeenCalledWith("blob:board");
   });
 });

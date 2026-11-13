@@ -54,10 +54,10 @@ app's cache folder and deletes it afterwards.
 
 ## IPC allow-list
 
-The page reaches the native side only through these seven commands. `capabilities/site.json`
+The page reaches the native side only through these eight commands. `capabilities/site.json`
 grants them to `https://mapcro.dmgdeadlock.com/*` only, in the `main` window. No plugin command
-is granted to the page; the folder chooser (`tauri-plugin-dialog`) and the updater are driven
-from Rust.
+is granted to the page; the folder chooser and the Save as dialog (`tauri-plugin-dialog`) and the
+updater are driven from Rust.
 
 | Command | Takes | Gives |
 |---|---|---|
@@ -68,11 +68,14 @@ from Rust.
 | `replays_choose_folder` | nothing | `chosen` or `cancelled` (the system's folder chooser; the path stays in the app) |
 | `app_update` | nothing | the newer version the update feed offers and how the page offers it, `{version, kind}` (`install` or `link`), or `null` (up to date, a .deb, updates off). It asks the feed once per run and never downloads (Updates, below) |
 | `app_update_install` | `version` (the one `app_update` gave) | downloads, verifies and installs it, then restarts the app; any other version is `no_update`, a second call while one runs `busy`, a failure `failed`. Only where `app_update` offered `install` |
+| `board_file_save` | `name` (the suggested file name), `contents` (the board's text, ≤ 8 MiB) | the system's Save as dialog, the name pre-filled and a `.mapcro.json` filter; writes the text where the user chose and gives `saved` or `cancelled`; `failed`, or `too_large` over the cap (before any dialog). The page passes no path (feedback #47) |
 
 `replays_list` looks the folder up on each call (the picker calls it on open, on focus and every
 5 s while open); with none it answers `not_found`.
 
-The page never passes a path. An id that isn't plain digits is refused (`bad_id`). The window
+The page never passes a path. An id that isn't plain digits is refused (`bad_id`). A board's
+suggested file name is made safe again in Rust (the web's `fileName` rules: no path separators,
+no device names, 80 characters), and only the dialog's answer decides where it goes. The window
 only navigates within the site's origin; any other link opens in the system browser (Links off
 the site, below). On the web side, `web/src/player/desktop.ts` feature-detects `window.__TAURI_INTERNALS__.invoke`. In a
 browser it isn't there and nothing changes.
@@ -109,7 +112,7 @@ unhandled new-window request. The opener stays the app's: no opener command is g
 page.
 
 **A debug build only** takes `MAPCRO_URL` (for example `http://127.0.0.1:5173/`, `just dev`) and
-grants the same seven commands to that origin at run time (`dev_capability`). A release build
+grants the same eight commands to that origin at run time (`dev_capability`). A release build
 ignores the variable, as it does `MAPCRO_UPDATE_FEED` (the update feed's URL instead of the
 configured one: the smoke test's local `latest.json`).
 
@@ -301,6 +304,8 @@ from `crates/server/src/main.rs`), points a debug build at it with `MAPCRO_URL`,
 
 - the page loads, and the IPC bridge (`__TAURI_INTERNALS__.invoke`) is there;
 - `replay_read` refuses an id that isn't digits;
+- `board_file_save` refuses a board over 8 MiB with `too_large`, before the Save as dialog would
+  open (the dialog itself isn't driven, as for the folder chooser);
 - updates, against a local feed offering 9.9.9 (`MAPCRO_UPDATE_FEED`): nothing is downloaded at
   start; `app_update` offers it with `install`, asking the feed once; nothing is downloaded until
   `app_update_install` names that version (another, or none, is refused); then the download's

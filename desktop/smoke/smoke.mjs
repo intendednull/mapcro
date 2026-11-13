@@ -4,7 +4,9 @@
 // It checks that the page loads, that the IPC bridge is there and answers our commands, that the
 // page can't reach any plugin, and (with --fake-steam) that the app finds a fake Steam install's
 // replays folder and lists its replays, as the replay picker asks for them (`replays_list`).
-// It never calls `replays_choose_folder`: that opens the native folder dialog.
+// It never calls `replays_choose_folder`: that opens the native folder dialog. Nor does it save a
+// board through `board_file_save` (that opens the native Save as dialog); a board over the cap is
+// refused before the dialog would open.
 // Updates (desktop/README.md, Updates; issue #43): the app's feed is a local `latest.json` this
 // script serves (`MAPCRO_UPDATE_FEED`, debug builds only) offering 9.9.9. `app_update` offers it
 // with Install, and nothing is downloaded until `app_update_install` is called with that version;
@@ -217,6 +219,10 @@ try {
   const call = (cmd, args = {}) => exec(`return await window.__TAURI_INTERNALS__.invoke(${JSON.stringify(cmd)}, ${JSON.stringify(args)})`);
   const bad = await call("replay_read", { id: "../1" });
   check("replay_read refuses an id that isn't digits", bad.e === "bad_id", JSON.stringify(bad));
+  // A board over the cap is refused before the Save as dialog would open (so this stays headless);
+  // the dialog itself, like the folder chooser, is never opened here.
+  const huge = await call("board_file_save", { name: "Board", contents: "x".repeat(8 * 1024 * 1024 + 1) });
+  check("board_file_save refuses a board over 8 MiB, before any dialog", huge.e === "too_large", JSON.stringify(huge));
   // Updates: nothing is fetched at start, the feed's offer is the page's to show (Install), and
   // nothing downloads or installs until Install names the offered version.
   await new Promise((r) => setTimeout(r, 3000));

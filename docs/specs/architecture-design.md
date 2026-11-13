@@ -1388,9 +1388,10 @@ makes a board with that match attached and lands in Player; **New board** is tod
     - **Upload:** the pick sends only the parsed timeline (gzip) to `POST …/replays/{id}/timeline`
       (§6a, Timelines parsed on the user's machine). Against a server without that route (a 404
       with no `{error}`), it sends the `.dem` as before.
-    - **IPC:** seven commands (list, read one, preview one, parse one, change the folder, whether
-      an update is out, and install the one offered), by match id (Install by the offered
-      version), granted to the site's origin only.
+    - **IPC:** eight commands (list, read one, preview one, parse one, change the folder, save a
+      board where the user says, whether an update is out, and install the one offered), granted
+      to the site's origin only: replays by match id, Install by the offered version, a board save
+      by its suggested name and text, never a path.
     - **Installer or portable (operator, 2026-11-11; desktop/README.md):** the release carries the
       per-user installer and a portable zip (`--features portable`, fixed at build time). Portable
       registers `mapcro://` for the current user itself, and doesn't install updates: when the

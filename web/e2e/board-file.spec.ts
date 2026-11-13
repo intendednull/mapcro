@@ -90,6 +90,25 @@ async function page(browser: Browser, url: string) {
   return p;
 }
 
+/** A context in the app's window (the IPC stubbed, as Tauri injects it): `board_file_save` says
+ * `saved` and records its name and contents; `app_update` has nothing to offer. */
+async function inApp(browser: Browser) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await ctx.addInitScript(() => {
+    const w = window as unknown as { __TAURI_INTERNALS__: unknown; __calls: { cmd: string; args: Record<string, unknown> | undefined }[] };
+    w.__calls = [];
+    w.__TAURI_INTERNALS__ = {
+      invoke: async (cmd: string, args?: Record<string, unknown>) => {
+        w.__calls.push({ cmd, args });
+        if (cmd === "board_file_save") return "saved";
+        if (cmd === "app_update") return null;
+        return Promise.reject("unknown_command");
+      },
+    };
+  });
+  return ctx;
+}
+
 async function joinAs(p: Page) {
   await p.locator("#join-name").fill("Coach");
   await p.keyboard.press("Enter");
@@ -152,6 +171,31 @@ test("Download, then Import board: the same board, new and yours, and the origin
   await expect(scenes(a)).toHaveCount(2);
   await b.goto(`${server.url}/`);
   await expect(b.getByTestId("known-title")).toHaveText(["Old scrim"]);
+});
+
+test("in the app, Download opens the app's Save as dialog: the same name and text, no blob link", async ({ browser }) => {
+  const original = await seed(boardFile());
+  const ctx = await inApp(browser);
+  const a = await ctx.newPage();
+  await a.goto(original);
+  await joinAs(a);
+  let downloads = 0;
+  a.on("download", () => downloads++);
+
+  await a.getByTestId("download").click();
+  const calls = async () =>
+    (await a.evaluate(() => (window as unknown as { __calls: { cmd: string; args: Record<string, unknown> | undefined }[] }).__calls)).filter(
+      (c) => c.cmd === "board_file_save",
+    );
+  await expect.poll(async () => (await calls()).length).toBe(1);
+  const [call] = await calls();
+  expect(call!.args?.name).toBe("Old scrim.mapcro.json");
+  const text = call!.args?.contents as string;
+  expect(JSON.parse(text).format).toBe("mapcro-board");
+  // No token of the board's in the file, and nothing went to the browser's downloads.
+  expect(text).not.toContain(original.split("#")[1]!);
+  expect(downloads).toBe(0);
+  await ctx.close();
 });
 
 test("a match board's import opens on the match again, with Valve's replay", async ({ browser }) => {
