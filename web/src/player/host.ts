@@ -2,6 +2,7 @@
 // replay job, the playback clock, the mode (Player or Sandbox) and the jump highlight. The
 // board creates one; Player renders it; following reads and writes its playback.
 
+import type { Via } from "../gen/Via";
 import { batch, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js";
 import { type CampAt, type MatchEvent, type PowerupAt, type RiftAt, type Timeline, tierOf, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, riftAt, shopsClosed, sitesAt, urnAt } from "../match/timeline";
 import { movementAt } from "./movement";
@@ -56,8 +57,8 @@ export interface PlaybackPresence {
   hero_panels?: HeroPanel[];
 }
 
-export function createPlayerHost(board: string, token: string) {
-  const api = new Api(board, token);
+export function createPlayerHost(board: string, token: string, via?: Via) {
+  const api = new Api(board, token, via);
   const [matches, setMatches] = createSignal<number[]>([]);
   const [mode, setModeRaw] = createSignal<Mode>("sandbox");
   /**
