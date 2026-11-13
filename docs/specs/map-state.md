@@ -182,7 +182,7 @@ told from edits (the copy rounded, clamped and merged values; a coach may have m
 to where it was), and the match layer would add things the scene never showed: health, timers,
 the urn, skulls, the lane gap. That is a visible change to saved work nobody asked for.
 
-Offered instead, per scene and by hand (phase 8): an action on an old scene with a `source`
+Offered instead, per scene and by hand (phase 9): an action on an old scene with a `source`
 whose match loads and whose clock is still `source.t`. In one transaction it recomputes what
 Save as scene wrote for that moment (`matchSceneOps` is deterministic), deletes each record or
 field that still equals it, writes the `MatchCopy`, and sets `layer`. What's left is what the
@@ -302,3 +302,87 @@ This is TD-50's fix made structural, not one more guarded reader.
   checked with the presenter in Player and with the presenter on a match scene.
 - **Editing while following** doesn't stop the follow, as drawing doesn't today: an edit changes
   the document, not what you look at.
+
+## 6. Phases
+
+Each phase ships alone, leaves every board working, and ends with the QA walkthrough. A feature
+moves by getting its row in the source and losing its `inPlayer()` guard; from then on it is in
+both.
+
+| # | What is built | What the user gets |
+|---|---|---|
+| 0 | Characterisation tests (§7). `mapstate/` with rows for what both modes draw now: tokens, the bar's souls/ult/alive/respawn, marker status, lanes. Player reads it (`host.preview` becomes a thin adapter, then goes); `sec()` clock. | Nothing visible. Player no slower; TD-50 closed. |
+| 1 | Schema 3.2, reading only. Scenes read the same source over the no-match base; `mapstate/edit.ts` takes over the writes. | Nothing visible. Old scenes proven unchanged. |
+| 2 | Save as scene writes layered scenes (`layer`, `MatchCopy`, no copied records). Timeline by `source.match_id`. Reset. Retime by the clock. File version +1. | A new saved scene is the match at that moment: lane colours with their gap, the right names even from another match, a hero's place where it really was. Edits on top; Reset takes one back. Changing the clock moves the moment and keeps the edits. |
+| 3 | Rows: hero panel, build, items, All builds. | Hero panels and build dropdowns work in a scene (#49), and hold-Tab All builds. |
+| 4 | One `TopBar`: health cards, critical, respawn countdown, level, kills, the Rejuvenator; the scene's in-place editing kept as edits. `PlayerTopBar` deleted. | The scene's bar shows everything Player's does, and is still editable. |
+| 5 | Rows: troopers, skulls, recaps. | Troopers, death skulls and their recaps on a scene. |
+| 6 | Rows: objective health and stage, camp and mid-boss state and timers, powerup buffs and spawns, shops, rifts, the urn. | Objectives, camps and powerups read as in Player, hover text included; rift rings and the urn show. A status edit still wins. |
+| 7 | Vision and last seen applied after the edits (§2.4); the scene's per-hero seen mark as an edit over it. | Pick a team's view on a scene; ghosts where the match had them. |
+| 8 | Events list on a scene, at its moment; picking an event goes to Player there. Pings stay with a live clock. Movement, status, heals and crates layers. | The events around a scene's moment; one click from a scene into the match. |
+| 9 | Token, objective and lane edits in Player over the live clock, on the live scene. Resume a scene (backlog). The upgrade action for old scenes (3.3). The last `inPlayer()` draw branches go. | Move heroes while the match plays and save that as a scene. Play on from a scene. Bring an old scene up to the new kind. |
+
+Phases 3 to 8 are independent of each other once 2 is in, and can be reordered or run in
+parallel worktrees. If the usage budget is short, 0 to 3 is the smallest set that answers #49
+without building it twice.
+
+## 7. Test plan
+
+**Characterisation first (phase 0, before any code moves).** State and sync change here, so the
+project's rule applies: characterisation tests, mutation testing on the diff, adversarial
+review before each merge.
+
+- **Old scenes look the same.** Fixtures of real-shaped old boards: a blank board; a board of
+  hand-made scenes; a scene saved from a replay-tier match, one from the metadata tier, one
+  from another match than the open one, one edited after saving (moved, killed, souls and ult
+  typed, objectives toggled, a wave dragged, a hero unseen), nested scenes, an old document
+  with none of the `serde(default)` fields. For each, the composed `MapState` and the DOM of
+  the map and bar are recorded on the release candidate and must be identical after every
+  phase. No player names or ids in fixtures; standard 6v6 only; game art not committed.
+- **Player looks the same.** The composed state at a spread of times of the reference replay
+  equals what `host.preview`, `playersAt` and `buildAt` gave, per feature, until each is retired.
+
+**The property: in the source means in both.**
+
+- For every row, with no edits: `MapState` in Player paused at `t` deep-equals a layered scene
+  with clock `t`. A row can't be added without passing, because the test iterates the rows.
+- For every row with an edit kind: edit, read the edit back; Reset, read the base back.
+- The import rule of §4.1 as a lint test, and a count of `inPlayer()` in `Board.tsx` that may
+  only go down.
+- One e2e per phase: the feature's test id is present on a scene saved from the reference replay.
+
+**Storage, sync, undo.**
+
+- Schema (Rust): old records round-trip byte for byte; absent fields validate; `MatchCopy`
+  duplicate refused; a bare field value decodes as `Some`; import of an older file; a newer file
+  refused. Property test: `apply_tx_with_inverse` restores the document for every new op shape,
+  absent included.
+- Two replicas: concurrent first edits of one hero (both kept, §3.4); edit against Reset;
+  retime against edit; Save as scene while another client draws on the live scene.
+- Undo and redo of: a first edit, a later edit, Reset, a retime, Save as scene, the upgrade.
+- Timeline missing, late, and arriving mid-view: the copy draws, then the base swaps in, with
+  no edit lost and no flash of defaults.
+- Clone and file round trip of a layered scene, with and without the timeline on the target.
+
+**Follow.** The matrix's second column (§5); a follower of a presenter who flips Player → scene
+→ another match's scene; view-state ledger lines for the new derived signals.
+
+**Performance.** The memo-run budget of §4.2, and the two existing churn specs, on every phase.
+
+## 8. Open questions for the operator
+
+1. **Does changing a match scene's clock move the match under it?** Recommended: yes (retime),
+   edits stay on top. The alternative, a clock that is only a label, lets the number disagree
+   with the map.
+2. **Old scenes: leave them, with a per-scene action to upgrade?** Recommended: yes, and no bulk
+   or automatic upgrade. They look exactly as now for ever unless someone asks.
+3. **Keep a small copy of the moment in each saved scene (`MatchCopy`), or make the server keep
+   every timeline a scene points to?** Recommended: the copy. It also makes board files and
+   clones work with no timeline, and costs one record.
+4. **A typed name beats the match's name, everywhere?** Recommended: yes; it's an edit. (Closes
+   the scene-names question in the backlog.)
+5. **In a scene with a match, is the hero fixed to the match's?** Recommended: yes; Change hero
+   is offered only on scenes with no match.
+6. **Editing in Player (phase 9): a moved hero stays put while the match plays, until Reset?**
+   Recommended: yes, with a mark on edited heroes, and Save as scene carries the moves. The
+   alternative, edits that clear on seek, loses work on a mis-click of the bar.
