@@ -2,7 +2,7 @@
 // panel. The map is the interface: edits happen on it directly.
 
 import { rosterTeamName, teamName } from "../map/model";
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
+import { type JSX, For, Match, Show, Switch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
 import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe, takeRename } from "../core/device";
@@ -619,12 +619,21 @@ export function Board(p: { board: string; token: string; art: Art }) {
   // ---- the phone layout (design/v1-board/phone-following.html) below 700 px ----
   const mq = window.matchMedia("(max-width: 700px), (max-height: 500px) and (pointer: coarse)");
   const [phoneEdit, setPhoneEdit] = createSignal(false);
-  const [phoneEvents, setPhoneEvents] = createSignal(false);
+  /** The phone's one open sheet besides a build (a build is the host's, and follows). */
+  const [phoneSheet, setPhoneSheet] = createSignal<"events" | "layers" | "more">();
+  const phoneEvents = () => phoneSheet() === "events";
+  const openSheet = (k: "events" | "layers" | "more") => {
+    if (phoneSheet() === k) return setPhoneSheet(undefined);
+    setPhoneSheet(k);
+    if (player.openBuild()) player.setOpenBuild(undefined);
+  };
+  // A build opened (a portrait, a token, or following) closes the other sheet: one at a time.
+  createEffect(on(() => player.openBuild(), (b) => b && setPhoneSheet(undefined), { defer: true }));
   const [phone, setPhone] = createSignal(mq.matches);
   const onMq = () => setPhone(mq.matches);
   mq.addEventListener("change", onMq);
   onCleanup(() => mq.removeEventListener("change", onMq));
-  // Sheets sit on the transport, which wraps to one or two rows by width: its height, live.
+  // Sheets sit on the transport (one row or two, by orientation) and stop at the roster: live.
   let phoneEl: HTMLDivElement | undefined;
   createEffect(() => {
     if (!phone() || !(inPlayer() || player.matchId())) return;
@@ -633,8 +642,14 @@ export function Board(p: { board: string; token: string; art: Art }) {
       const bar = phoneEl?.querySelector<HTMLElement>(".pl-bar");
       if (!bar || !phoneEl) return;
       const root = phoneEl;
-      ro = new ResizeObserver(() => root.style.setProperty("--transport-h", `${bar.offsetHeight}px`));
+      // The sheets stop at the roster's foot, so a second portrait swaps the hero in place.
+      const roster = root.querySelector<HTMLElement>(".phone-roster");
+      ro = new ResizeObserver(() => {
+        root.style.setProperty("--transport-h", `${bar.offsetHeight}px`);
+        if (roster) root.style.setProperty("--sheet-top", `${Math.round(roster.getBoundingClientRect().bottom)}px`);
+      });
       ro.observe(bar);
+      if (roster) ro.observe(roster);
     });
     onCleanup(() => { cancelAnimationFrame(frame); ro?.disconnect(); });
   });
@@ -703,50 +718,121 @@ export function Board(p: { board: string; token: string; art: Art }) {
     window.addEventListener("pointerup", up);
   };
 
+  const followChip = () => (
+      <Show
+      when={followed()}
+      fallback={
+        <Show when={presenterList()[0]}>
+          {(lead) => (
+            <div class="p-follow off" data-testid="follow-chip">
+              <span>
+                <b>{lead().peer.state?.name || "Someone"}</b> is presenting
+              </span>
+              <span class="where">{sceneLabel(lead().peer.state?.scene)}</span>
+              <button class="go" data-testid="follow-presenter" onClick={() => follow(lead().peer.peer)}>
+                Follow
+              </button>
+            </div>
+          )}
+        </Show>
+      }
+    >
+      {(f) => (
+        <div class="p-follow" data-testid="follow-chip">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" innerHTML={'<path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>'} />
+          <span>
+            <b>Following {f().state?.name || "them"}</b>
+          </span>
+          <span class="where">{sceneLabel(f().state?.scene)}</span>
+          <button data-testid="stop-following" onClick={() => stopFollowing()}>
+            Stop
+          </button>
+        </div>
+      )}
+    </Show>
+  );
+  /** Player's phone transport, row 2's end: Events, Map layers, More; or the tool rail. */
+  const rail = () => phoneEdit() || tool() === "laser";
+  const phoneTail = () => (
+    <Show when={!rail()} fallback={
+      <div class="p-rail" role="toolbar" aria-label="Tools">
+        <button class={cx("btn ghost", tool() === "select" && "on")} data-testid="tool-select" onClick={() => setTool("select")}>Look</button>
+        <button class={cx("btn ghost", tool() === "laser" && "on")} data-testid="tool-laser" onClick={() => setTool("laser")}>Laser</button>
+        <Show when={state.canEdit() && phoneEdit()}>
+          <For each={["draw", "arrow", "erase"] as const}>{t =>
+            <button class={cx("btn ghost", tool() === t && "on")} data-testid={`tool-${t}`} onClick={() => setTool(t)}>{t === "draw" ? "Draw" : t === "arrow" ? "Arrow" : "Erase"}</button>
+          }</For>
+          <button class="btn ghost" data-testid="phone-undo" onClick={() => state.undo()}>Undo</button>
+          <button class="btn ghost" data-testid="phone-redo" onClick={() => state.redo()}>Redo</button>
+          <Palette value={ink()} set={setInk} />
+        </Show>
+        <button class="btn ghost" data-testid="phone-done" onClick={() => { setPhoneEdit(false); setTool("select"); }}>Done</button>
+      </div>
+    }>
+      <div class="p-tail">
+        <button class="btn ghost" data-testid="phone-events" aria-expanded={phoneSheet() === "events"} onClick={() => openSheet("events")}>Events</button>
+        <button class="btn ghost" data-testid="phone-layers" aria-expanded={phoneSheet() === "layers"} onClick={() => openSheet("layers")}>Map layers</button>
+        <button class="btn ghost" data-testid="phone-more" aria-label="More" aria-expanded={phoneSheet() === "more"} onClick={() => openSheet("more")}>⋯</button>
+      </div>
+    </Show>
+  );
+  /** A phone sheet: edge to edge on the transport, a title and a close. */
+  const PhoneSheet = (q: { title: string; testid: string; children: JSX.Element }) => (
+    <section class="p-sheet" data-testid={q.testid} aria-label={q.title}>
+      <header class="p-sheet-head">
+        <b>{q.title}</b>
+        <button class="btn ghost" data-testid="p-sheet-close" aria-label="Close" onClick={() => setPhoneSheet(undefined)}>×</button>
+      </header>
+      <div class="p-sheet-body">{q.children}</div>
+    </section>
+  );
+  const PlayerSheets = () => (
+    <>
+      <Show when={phoneSheet() === "events"}>
+        <PhoneSheet title="Events" testid="phone-events-sheet">
+          <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={savedScene} onUserPlayback={() => stopFollowing("changed the playback")} />
+        </PhoneSheet>
+      </Show>
+      <Show when={phoneSheet() === "layers"}>
+        <PhoneSheet title="Map layers" testid="phone-layers-sheet">{mapControls()}</PhoneSheet>
+      </Show>
+      <Show when={phoneSheet() === "more"}>
+        <PhoneSheet title="More" testid="phone-more-sheet">
+          <div class="p-more">
+            <span class="viewonly" data-testid="role-chip">
+              {state.canEdit() ? "Can edit" : "View only"} · {teamName(viewpoint() === "sapphire" ? "sapphire" : "amber")} side
+            </span>
+            <button class="btn ghost" data-testid="phone-match" onClick={() => { setPhoneSheet(undefined); const d = phoneEl?.querySelector<HTMLDetailsElement>(".pl-source"); if (d) d.open = true; }}>Match</button>
+            <button class="btn ghost" data-testid="scene-drawer" onClick={() => { setPhoneSheet(undefined); setSceneDrawer(true); }}>Scenes</button>
+            <button class="btn ghost" data-testid="phone-laser" onClick={() => { setPhoneSheet(undefined); setTool("laser"); }}>Laser</button>
+            <Show when={state.canEdit()}>
+              <button class="btn ghost" data-testid="phone-edit" aria-pressed={phoneEdit()} onClick={() => { setPhoneSheet(undefined); setPhoneEdit(true); }}>Edit</button>
+            </Show>
+            <FeedbackButton variant="bar" match={feedbackMatch} />
+          </div>
+        </PhoneSheet>
+      </Show>
+    </>
+  );
+
   const PhoneBoard = () => (
     <div class="phone" ref={phoneEl} classList={{ "phone-player": inPlayer(), "phone-editing": phoneEdit() }} data-testid="board" data-board={p.board} data-layout="phone">
       <header class="p-top">
         <Wordmark />
-        <span class="viewonly" data-testid="role-chip">
-          {state.canEdit() ? "Can edit" : "View only"} · {teamName(viewpoint() === "sapphire" ? "sapphire" : "amber")} side
-        </span>
+        <Show when={!inPlayer()}>
+          <span class="viewonly" data-testid="role-chip">
+            {state.canEdit() ? "Can edit" : "View only"} · {teamName(viewpoint() === "sapphire" ? "sapphire" : "amber")} side
+          </span>
+        </Show>
         {/* The tier left the Player bar for the header (prototype): the phone's header too. */}
         <Show when={player.matchId()}><TierChip host={player} /></Show>
+        {/* Player: the status strip holds the follow pill; the rest is in More. */}
+        <Show when={inPlayer()}>{followChip()}</Show>
         <div class="spacer" />
         <SaveStatus state={state} rejected={rejected()} dismiss={() => setSeenProblems(state.problems().length)} />
-        <FeedbackButton variant="bar" match={feedbackMatch} />
+        <Show when={!inPlayer()}><FeedbackButton variant="bar" match={feedbackMatch} /></Show>
       </header>
-      <Show
-        when={followed()}
-        fallback={
-          <Show when={presenterList()[0]}>
-            {(lead) => (
-              <div class="p-follow off" data-testid="follow-chip">
-                <span>
-                  <b>{lead().peer.state?.name || "Someone"}</b> is presenting
-                </span>
-                <span class="where">{sceneLabel(lead().peer.state?.scene)}</span>
-                <button class="go" data-testid="follow-presenter" onClick={() => follow(lead().peer.peer)}>
-                  Follow
-                </button>
-              </div>
-            )}
-          </Show>
-        }
-      >
-        {(f) => (
-          <div class="p-follow" data-testid="follow-chip">
-            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" innerHTML={'<path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>'} />
-            <span>
-              <b>Following {f().state?.name || "them"}</b>
-            </span>
-            <span class="where">{sceneLabel(f().state?.scene)}</span>
-            <button data-testid="stop-following" onClick={() => stopFollowing()}>
-              Stop
-            </button>
-          </div>
-        )}
-      </Show>
+      <Show when={!inPlayer()}>{followChip()}</Show>
       <Show when={!inPlayer()}><div class="p-title" onPointerDown={swipe}>
         <div class="ord">
           Scene {sceneIndex() + 1} of {state.scenes().length} · {state.title()}
@@ -763,13 +849,13 @@ export function Board(p: { board: string; token: string; art: Art }) {
         <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact readOnly onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
       </Show>
       <div class="p-map-wrap">
-        {mapControls()}
+        <Show when={!inPlayer()}>{mapControls()}</Show>
         {mapBox(true)}
         {/* Not over the join card (it would take the focus from your name). */}
         <Show when={joined()}>
           <ReplayPrompt host={player} art={p.art} />
         </Show>
-        <div class="p-tools" role="toolbar" aria-label="Tools">
+        <Show when={!inPlayer()}><div class="p-tools" role="toolbar" aria-label="Tools">
           <button class={cx("tb", tool() === "select" && "on")} data-testid="tool-select" onClick={() => setTool("select")}>
             <span>{state.canEdit() && phoneEdit() ? "Select" : "Look"}</span>
           </button>
@@ -787,10 +873,9 @@ export function Board(p: { board: string; token: string; art: Art }) {
             </Show>
           </Show>
           <Palette value={ink()} set={setInk} />
-
-        </div>
+        </div></Show>
       </div>
-      <Show when={calloutList().length > 0}>
+      <Show when={!inPlayer() && calloutList().length > 0}>
         <ol class="p-callouts" data-testid="callout-list">
           <For each={calloutList()}>
             {(c, i) => (
@@ -802,21 +887,14 @@ export function Board(p: { board: string; token: string; art: Art }) {
           </For>
         </ol>
       </Show>
-      <Show when={note()?.text}>
+      <Show when={!inPlayer() && note()?.text}>
         <p class="p-note" data-testid="scene-note">
           {note()!.text}
         </p>
       </Show>
-      {playerBar()}
-      <Show when={inPlayer()}>
-        <button class="btn p-events-toggle" data-testid="phone-events" aria-expanded={phoneEvents()} onClick={() => setPhoneEvents(!phoneEvents())}>Events</button>
-        <Show when={phoneEvents()}>
-          <section class="p-events-sheet" aria-label="Events">
-            <button class="btn" data-testid="phone-events-close" onClick={() => setPhoneEvents(false)}>Close</button>
-            <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={savedScene} onUserPlayback={() => stopFollowing("changed the playback")} />
-          </section>
-        </Show>
-      </Show>
+      {playerBar(phoneTail())}
+      <Show when={inPlayer()}><PlayerSheets /></Show>
+      <Show when={!inPlayer()}>
       <nav class="p-nav" onPointerDown={swipe}>
         <div class="row">
           <button class="btn" data-testid="p-prev" disabled={sceneIndex() <= 0} onClick={() => flipBy(-1)}>
@@ -833,6 +911,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           Scenes
         </button>
       </nav>
+      </Show>
       <Show when={sceneDrawer()}>
         <div class="drawer-scrim" onClick={() => setSceneDrawer(false)} />
         <SceneTree state={state} art={p.art} vp={viewpoint()} board={p.board} current={scene()?.id} onFlip={pickScene} chip={sceneChip} keys={() => !inPlayer()} drawer onClose={() => setSceneDrawer(false)} />
@@ -876,7 +955,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
   /** Player's transport (desktop and phone), or the way back to it from Sandbox. */
   // On a board with a match the bar never goes: it watches the match, or says which scene is
   // shown and how to get back (spec §6b).
-  const playerBar = () => (
+  const playerBar = (tail?: JSX.Element) => (
     <Show when={inPlayer() || player.matchId()} fallback={<PlayerSwitch host={player} state={state} onSwitch={() => stopFollowing("switched to Player")} />}>
       <Player
         host={player}
@@ -891,6 +970,7 @@ export function Board(p: { board: string; token: string; art: Art }) {
           pickScene(id);
         }}
         onUserPlayback={() => stopFollowing("changed the playback")}
+        tail={tail}
       />
     </Show>
   );

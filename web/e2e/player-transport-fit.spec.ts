@@ -76,7 +76,8 @@ const misfits = (p: Page) =>
     return { out, n: controls.length };
   });
 
-for (const [w, h] of [[390, 844], [1280, 768], [1440, 900], [1920, 1080]] as const) {
+// The phone's transport (no Save scene, no marks) has its own checks: phone-layout.ts.
+for (const [w, h] of [[1280, 768], [1440, 900], [1920, 1080]] as const) {
   test(`at ${w}×${h} every transport control fits, paused, at 8× playing, and on a scene`, async ({ browser }) => {
     const a = await (await browser.newContext({ viewport: { width: w, height: h } })).newPage();
     await a.goto(await newBoardUrl(server, "Transport"));

@@ -31,7 +31,11 @@ test.afterAll(() => {
 const answered = new Set<string>();
 async function open(p: Page, id: string) {
   await p.getByTestId("mode-player").click();
-  await revealControls(p, "match-id");
+  if (await p.locator(".phone-player").count()) {
+    // The phone: the match source is in More.
+    await p.getByTestId("phone-more").tap();
+    await p.getByTestId("phone-match").tap();
+  } else await revealControls(p, "match-id");
   await p.getByTestId("match-id").fill(id);
   await p.getByTestId("match-load").click();
   await p.getByTestId("match-file").setInputFiles({ name: `${id}.dem`, mimeType: "application/octet-stream", buffer: Buffer.concat([Buffer.from("PBDEMS2\0", "binary"), Buffer.alloc(4096)]) });
@@ -59,7 +63,7 @@ const float = (p: Page) => p.getByTestId("game-tooltip-float");
 
 import { checkPhoneLayout, touchDrag } from "./phone-layout";
 
-for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }, { width: 844, height: 390 }]) {
+for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }, { width: 390, height: 664 }, { width: 844, height: 390 }]) {
   test(`phone Player at ${viewport.width}×${viewport.height}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true });
     const phone = await ctx.newPage();
@@ -88,25 +92,32 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     await expect(float(phone)).toBeVisible();
     await column(phone).locator(`[data-ability-id="${ABILITY}"]`).tap();
     await expect(float(phone).getByTestId("game-tooltip")).toHaveAttribute("data-kind", "ability");
-    await phone.locator(".p-build-close").tap();
-    await expect(column(phone)).toHaveCount(0);
+    // One sheet at a time: a second portrait swaps the hero in place; Events replaces the build.
+    await phone.locator('.tb-player[data-slot="Sapphire-0"] [data-testid=focus-hero]').tap();
+    await expect(phone.locator(".phone-build-sheet")).toHaveCount(1);
+    await expect(phone.locator('.tb-player[data-slot="Sapphire-0"] [data-testid=focus-hero]')).toHaveAttribute("aria-expanded", "true");
     await phone.getByTestId("phone-events").tap();
+    await expect(phone.locator(".phone-build-sheet")).toHaveCount(0);
     await expect(phone.getByTestId("player-side")).toBeVisible();
     await phone.getByTestId("events-lead").fill("0");
     await phone.getByTestId("event-jump").first().tap();
     await expect(phone.getByTestId("match-clock")).toContainText("0:30 /");
     await checkPhoneLayout(phone);
-    await phone.getByTestId("phone-events-close").tap();
+    await phone.getByTestId("p-sheet-close").tap();
     await expect(phone.getByTestId("player-side")).toHaveCount(0);
-    await phone.getByTestId("map-layers-toggle").tap();
+    // Map layers and Vision: a sheet from the transport.
+    await phone.getByTestId("phone-layers").tap();
     await expect(phone.getByTestId("vision-select")).toBeVisible();
     await phone.getByTestId("vision-select").selectOption("amber");
     await expect(phone.getByTestId("vision-mark")).toHaveAttribute("data-team", "amber");
     await phone.getByTestId("troopers-toggle").tap();
     await expect(phone.getByTestId("trooper")).toHaveCount(0);
     await phone.getByTestId("troopers-toggle").tap();
+    await expect(phone.getByTestId("trooper")).toHaveCount(1);
     await checkPhoneLayout(phone);
-    await phone.getByTestId("map-layers-toggle").tap();
+    // More: Feedback, Scenes, Laser and Edit.
+    await phone.getByTestId("phone-more").tap();
+    await expect(phone.getByTestId("phone-layers-sheet")).toHaveCount(0);
     await checkPhoneLayout(phone);
     await phone.getByTestId("feedback-open").tap();
     await expect(phone.getByTestId("feedback-title")).toBeVisible();

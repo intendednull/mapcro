@@ -88,8 +88,8 @@ const meets = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.
 test("All builds clears the Rejuvenator's timer and marks at every width", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Rejuvenator and All builds"), "Coach");
   await open(a);
-  // The widths the bar is drawn at: phone (≤ 700 px, the compact bar) to a wide desktop.
-  for (const width of [320, 390, 700, 701, 960, 1280, 1440, 1920, 2560]) {
+  // A phone draws its own roster with no All builds (spec §6b, Phone): from 701 px up.
+  for (const width of [701, 960, 1280, 1440, 1920, 2560]) {
     await a.setViewportSize({ width, height: width <= 700 ? 820 : 900 });
     for (const [t, n] of [[40, 1], [200, 2]] as const) {
       await scrubTo(a, t);

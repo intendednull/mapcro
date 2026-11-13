@@ -2,7 +2,7 @@
 // playback time t (the board renders the preview this produces); this draws the transport, the
 // roster with ult rings, the match source controls and the events list. Labels only.
 
-import { For, Index, Show, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
+import { type JSX, For, Index, Show, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
 import type { Art } from "../map/pack";
 import { Dynamic } from "solid-js/web";
 import { cx } from "../ui/cx";
@@ -52,6 +52,8 @@ export function Player(p: {
   onSaved: (id: RecordId) => void;
   /** You changed the playback yourself (following stops). */
   onUserPlayback: () => void;
+  /** The phone's own transport buttons (Events, Map layers, More, or its tool rail). */
+  tail?: JSX.Element | undefined;
 }) {
   const h = p.host;
   let idInput!: HTMLInputElement;
@@ -557,6 +559,7 @@ export function Player(p: {
             </div>
           )}
         </Show>
+        {p.tail}
       </div>
     </>
   );
