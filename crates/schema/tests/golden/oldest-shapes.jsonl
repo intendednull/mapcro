@@ -1,0 +1,7 @@
+{"Scene":{"name":"8:00 mid","order":"i","clock":null,"source":null,"live":false,"parent":null}}
+{"PlayerState":{"scene":"00000000000000000000000000000001","slot":"00000000000000000000000000000001","pos":{"x":1,"y":2},"alive":true,"placed":true,"souls":null,"ult_cooldown":null,"visible":true,"respawn":null}}
+{"Arrow":{"scene":"00000000000000000000000000000001","from":{"x":0,"y":0},"to":{"x":1,"y":1},"team":null,"color":null}}
+{"Callout":{"scene":"00000000000000000000000000000001","pos":{"x":0,"y":0},"text":"x","color":null}}
+{"Stroke":{"scene":"00000000000000000000000000000001","points":[{"x":0,"y":0},{"x":1,"y":1}],"color":1,"width":20,"offset":{"x":0,"y":0}}}
+{"ObjectiveState":{"scene":"00000000000000000000000000000001","key":"walker:amber:lane1:1","status":"Destroyed"}}
+{"Wave":{"scene":"00000000000000000000000000000001","lane":"lane1","t":500}}
