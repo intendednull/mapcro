@@ -79,6 +79,8 @@ export async function checkPhoneLayout(page: Page) {
       transport: transport && { h: r1(transport.height), top: r1(transport.top) },
       rosterBottom: roster ? r1(roster.bottom) : 0, rosterLeft: roster ? r1(roster.left) : 0,
       sheets: sheets.map(r => ({ left: r1(r.left), right: r1(r.right), top: r1(r.top), bottom: r1(r.bottom) })),
+      portraits: [...document.querySelectorAll(".phone-player .phone-roster .tb-player")].map(e => { const r = e.getBoundingClientRect(); return { top: r1(r.top), w: r.width }; }),
+      play: (() => { const b = document.querySelector(".phone-player [data-testid=match-play]"); return !!b && visible(b); })(),
       scrubShare: transport ? (document.querySelector(".phone-player .match-range")?.getBoundingClientRect().width ?? 0) / innerWidth : 1,
     };
   });
@@ -98,10 +100,25 @@ export async function checkPhoneLayout(page: Page) {
   expect(Math.abs(report.map.artW - report.map.artH)).toBeLessThanOrEqual(1);
   expect(Math.abs(report.map.w - report.map.h)).toBeLessThanOrEqual(1);
   const t = report.transport!;
+  // A tablet: the shell's other side over 500 px (tablet direction).
+  const tablet = Math.min(report.width, report.height) > 500;
+  expect(report.portraits.length).toBe(12);
+  expect(report.play).toBe(true);
   if (report.landscape) {
     expect(t.h).toBeLessThanOrEqual(60);
-    expect(report.map.h).toBeGreaterThanOrEqual(report.height - 60);
+    expect(report.map.h).toBeGreaterThanOrEqual(report.height - (tablet ? 64 : 60));
     expect(report.rosterLeft).toBeGreaterThanOrEqual(report.map.right - 1);
+    if (tablet) {
+      expect(report.width - report.map.right).toBeGreaterThanOrEqual(300);
+      expect(report.scrubShare).toBeGreaterThanOrEqual(.4);
+    }
+  } else if (tablet) {
+    // Tablet portrait: the roster is one row of 12; sheets take at most half the height.
+    expect(t.h).toBeLessThanOrEqual(104);
+    expect(new Set(report.portraits.map(q => q.top)).size).toBe(1);
+    for (const q of report.portraits) expect(q.w).toBeGreaterThanOrEqual(44);
+    for (const sh of report.sheets) expect(sh.bottom - sh.top).toBeLessThanOrEqual(report.height / 2 + 1);
+    if (report.height - t.h - report.rosterBottom >= report.width) expect(report.map.w).toBeGreaterThanOrEqual(report.width - 1);
   } else {
     expect(t.h).toBeLessThanOrEqual(104);
     expect(report.scrubShare).toBeGreaterThanOrEqual(.6);

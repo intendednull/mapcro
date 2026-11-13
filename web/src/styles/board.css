@@ -1137,7 +1137,7 @@ kbd {
 .p-more > .btn { justify-content: flex-start; font-size: 14px; }
 .p-more .viewonly { align-self: flex-start; font-size: 12px; }
 
-@media (max-height: 500px) and (pointer: coarse) {
+@media (orientation: landscape) {
   .phone .p-map > .mm-host { height: 65dvh; }
   .phone .tb-host, .phone-roster { width: min(560px, calc(100% - 16px)); align-self: center; }
   /* Landscape: two panes over a one-row transport. */
@@ -1150,7 +1150,9 @@ kbd {
   .phone-player .pl-bar {
     grid-template-columns: auto auto minmax(0, 1fr) auto auto; grid-template-areas: "play speed scrub clock tail";
   }
-  .phone-player .p-rail { grid-column: 3 / -1; grid-row: 1; }
+  /* The rail shares the row: Play, the scrubber (at least 40%), then the rail, which scrolls. */
+  .phone-player .pl-bar:has(.p-rail) { grid-template-columns: auto minmax(40%, 1fr) minmax(0, max-content); }
+  .phone-player .p-rail { grid-column: 3 / 4; grid-row: 1; }
   .phone-player .pl-bar:has(.p-rail) .pl-transport .pl-scrub { grid-column: 2 / 3; }
   .phone .p-sheet, .phone-player .phone-build-sheet {
     left: calc(100dvh - var(--transport-h, 52px)); top: var(--sheet-top, 152px); max-height: none; border-radius: 16px 0 0 0;
@@ -1178,3 +1180,10 @@ html:has(.phone) :is(input:not([type=range], [type=checkbox], [type=radio]), tex
 .phone-player .pl-scrub { touch-action: none; }
 .phone .p-sheet-body, .phone .phone-build-content { touch-action: pan-y; }
 .phone-player .p-rail { touch-action: pan-x; }
+
+/* Tablet portrait: the roster is one row of 12, the two teams side by side. */
+@media (orientation: portrait) and (min-width: 701px) {
+  .phone-player > .phone-roster { grid-template-columns: 1fr 1fr; column-gap: 16px; }
+  /* Sheets stop at half the height, so most of the map stays in view. */
+  .phone .p-sheet, .phone-player .phone-build-sheet { max-height: min(50dvh, calc(100dvh - var(--transport-h, 104px) - var(--sheet-top, 152px))); }
+}

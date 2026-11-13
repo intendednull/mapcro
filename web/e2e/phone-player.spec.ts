@@ -92,7 +92,9 @@ async function checkBuildSheet(p: Page) {
 
 import { checkPhoneLayout, touchDrag } from "./phone-layout";
 
-for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }, { width: 390, height: 664 }, { width: 844, height: 390 }]) {
+const PHONES = [{ width: 390, height: 844 }, { width: 360, height: 800 }, { width: 390, height: 664 }, { width: 844, height: 390 }];
+const TABLETS = [{ width: 768, height: 1024 }, { width: 820, height: 1180 }, { width: 1024, height: 768 }, { width: 1180, height: 820 }, { width: 1366, height: 1024 }];
+for (const viewport of [...PHONES, ...TABLETS]) {
   test(`phone Player at ${viewport.width}×${viewport.height}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true });
     const phone = await ctx.newPage();
@@ -119,8 +121,11 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     await touchDrag(phone, [{ x: range.x + range.width / 2, y }, { x: range.x + range.width * .8, y }, { x: range.x + range.width - 1, y }]);
     await expect(phone.getByTestId("match-clock")).toContainText("0:40 /");
     await scrubTo(phone, 20);
+    const mapBefore = await phone.locator(".p-map").boundingBox();
     await phone.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').tap();
     await expect(column(phone)).toBeVisible();
+    // Landscape: the build docks beside the map, which keeps its rect and stays uncovered.
+    if (viewport.width > viewport.height) expect(await phone.locator(".p-map").boundingBox()).toEqual(mapBefore);
     await checkPhoneLayout(phone);
     await checkBuildSheet(phone);
     await column(phone).locator(`.tb-build-item[data-item-id="${INFUSER}"]`).tap();
@@ -199,3 +204,15 @@ test("phone follows the presenter's replay time", async ({ browser }) => {
   await expect(phone.getByTestId("match-clock")).toContainText("0:20 /");
   await checkPhoneLayout(phone);
 });
+
+// Mouse-first screens keep the desktop layout, tablet-sized or not.
+for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }]) {
+  test(`no touch at ${viewport.width}×${viewport.height} is the desktop layout`, async ({ browser }) => {
+    const page = await (await browser.newContext({ viewport })).newPage();
+    await page.goto(await newBoardUrl(server, "Desktop"));
+    await page.locator("#join-name").fill("Coach");
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("board")).toBeVisible();
+    await expect(page.locator(".phone")).toHaveCount(0);
+  });
+}

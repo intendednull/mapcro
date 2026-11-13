@@ -1478,8 +1478,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
 
 ### Phone
 
-The phone layout applies below 700 CSS px wide, and on short touch screens (under 500 px high,
-coarse pointer), so a phone in landscape gets it too. It never scrolls sideways. Desktop layout
+The phone layout applies below 700 CSS px wide, and on touch-first screens up to 1400 px wide
+(`(max-width: 700px), (pointer: coarse) and (max-width: 1400px)`), so a phone in landscape and a
+tablet get it too; a mouse-first screen keeps the desktop layout at any size. It never scrolls sideways. Desktop layout
 is unchanged. The design direction is the lead's phone, tablet and touch notes of 2026-11-12;
 what is built so far is below.
 
@@ -1525,6 +1526,15 @@ and the roster.
 module-state ledger. The open build is the host's existing build row and follows. Playback,
 layers, Vision and event filters keep their registry rows, so a phone following a presenter
 follows their replay time.
+
+### Tablet
+
+A tablet is the same shell (no third layout). Landscape (any size) is two panes: the square map
+on the left, at least 300 px of roster and dock on the right, a one-row transport whose scrubber
+keeps at least 40% of the width (with the tool rail open too: Play, scrubber, rail). Portrait over
+700 px wide: the roster is one row of 12 (the teams side by side), and sheets stop at half the
+height. Checks: `phone-layout.ts` at 768 × 1024, 820 × 1180, 1024 × 768, 1180 × 820 and
+1366 × 1024 (`phone-player.spec.ts`), and 1440 × 900 and 1024 × 768 without touch stay desktop.
 
 ### Touch
 

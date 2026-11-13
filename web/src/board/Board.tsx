@@ -617,7 +617,8 @@ export function Board(p: { board: string; token: string; art: Art }) {
   const sceneIndex = () => state.scenes().findIndex((s) => s.id === scene()?.id);
 
   // ---- the phone layout (design/v1-board/phone-following.html) below 700 px ----
-  const mq = window.matchMedia("(max-width: 700px), (max-height: 500px) and (pointer: coarse)");
+  // Phones, and touch-first tablets up to 1400 px; mouse-first screens keep the desktop layout.
+  const mq = window.matchMedia("(max-width: 700px), (pointer: coarse) and (max-width: 1400px)");
   const [phoneEdit, setPhoneEdit] = createSignal(false);
   /** The phone's one open sheet besides a build (a build is the host's, and follows). */
   const [phoneSheet, setPhoneSheet] = createSignal<"events" | "layers" | "more">();
