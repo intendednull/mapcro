@@ -389,13 +389,13 @@ export function PlayerTopBar(p: {
       <Show when={openBuild() || allBuilds() || tabHeld()}>
         <section class="phone-build-sheet" aria-label="Builds">
           <button class="btn p-build-close" onClick={closeBuilds}>Close</button>
-          <For each={p.host.tl()?.players.filter(q => expanded(slotKey(q.team, q.slot))) ?? []}>{pl =>
+          <div class="phone-build-content"><For each={p.host.tl()?.players.filter(q => expanded(slotKey(q.team, q.slot))) ?? []}>{pl =>
             <BuildColumn inspect={!allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek}
               player={pl} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={p.art.heroes.get(pl.hero_id)}
               name={p.host.playerName(pl.team, pl.slot)} id={`phone-build-${slotKey(pl.team, pl.slot)}`}
               stats={current(statTable(), tableKeyFor(p.art.stats, build()))}
               ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />
-          }</For>
+          }</For></div>
         </section>
       </Show>
     </div>

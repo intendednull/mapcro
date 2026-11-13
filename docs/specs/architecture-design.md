@@ -1476,6 +1476,26 @@ makes a board with that match attached and lands in Player; **New board** is tod
   stores its source (match id, t, tier), so a later "resume from here" can open Player at that
   moment.
 
+### Phone
+
+Phone viewing uses two rows of six hero portraits, each with a touch target of at least
+44 CSS pixels. The map pane keeps at least half the viewport height. Short landscape touch
+screens use the same phone layout; the page may scroll vertically. Desktop layout is unchanged.
+
+The replay transport stays at the bottom edge with play/pause, seeking, speed and the match
+clock. The header retains the tier and adds Feedback. Map layers and Vision share the existing
+compact menu. Selecting a portrait opens its build and stats in a bounded bottom sheet above
+the transport; items and abilities use the shared tap tooltips. Close dismisses the build.
+Events has its own bounded scrolling panel below the map, with the existing filters and
+event jumps. Scene navigation and presenter following remain available.
+
+Viewing disables map edits even for an editor. Edit reveals drawing, arrows, erase and
+undo/redo and enables scene token dragging. Replay hero positions remain replay-controlled.
+The editing toggle and events panel disclosure are personal layout/tool state, recorded in the
+module-state ledger; playback, builds, layers, Vision and event filters retain their existing
+registry and following behavior. Small scrubber event/scene markers are omitted on phones:
+Events and Scenes provide the larger touch targets for those jumps.
+
 ## 7. Per-user undo
 
 Undo covers only your own transactions, in the order you made them. Each history entry records the

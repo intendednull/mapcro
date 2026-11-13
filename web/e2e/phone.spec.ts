@@ -2,7 +2,8 @@
 // following a presenter on a desktop, against the real server.
 
 import { devices, expect, test } from "./fixtures";
-import { gesture, joinNew, mapPoint, revealControls, viewLink } from "./helpers";
+import { joinNew, mapPoint, revealControls, viewLink } from "./helpers";
+import { checkPhoneLayout, touchDrag, touchMapGesture } from "./phone-layout";
 import { Server, newBoardUrl } from "./server";
 
 let server: Server;
@@ -67,9 +68,46 @@ test("a phone viewer follows, reads the callouts and note, flips on its own, and
 
   // The laser works from the phone too.
   await phone.getByTestId("tool-laser").tap();
-  await gesture(phone, [[0.3, 0.3], [0.6, 0.6]]);
+  await touchMapGesture(phone, [[0.3, 0.3], [0.6, 0.6]]);
   await expect(a.locator('.laser[data-laser="Guest"]')).toHaveCount(1);
   // Nothing on the page is wider than the phone.
   expect(await phone.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await phone.screenshot({ path: "shots/slice7-phone-following.png", fullPage: true });
+  await checkPhoneLayout(phone);
 });
+
+for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }, { width: 844, height: 390 }]) {
+  test(`phone layout and editing at ${viewport.width}×${viewport.height}`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true });
+    const phone = await ctx.newPage();
+    await phone.goto(await newBoardUrl(server, "Phone"));
+    await phone.locator("#join-name").fill("Coach");
+    await phone.keyboard.press("Enter");
+    await expect(phone.getByTestId("board")).toHaveAttribute("data-layout", "phone");
+    await checkPhoneLayout(phone);
+    await phone.getByTestId("phone-edit").tap();
+    await phone.getByTestId("tool-select").tap();
+    await phone.getByTestId("map").scrollIntoViewIfNeeded();
+    const token = phone.locator(".p-map .tok").first();
+    const before = await token.getAttribute("transform");
+    const box = (await token.boundingBox())!;
+    const dest = await mapPoint(phone, .5, .5);
+    await touchDrag(phone, [{ x: box.x + box.width / 2, y: box.y + box.height / 2 }, dest]);
+    await expect(token).not.toHaveAttribute("transform", before!);
+    await phone.getByTestId("tool-draw").tap();
+    await touchMapGesture(phone, [[.3, .3], [.6, .6]]);
+    await expect(phone.locator(".p-map [data-stroke]")).toHaveCount(1);
+    await phone.getByTestId("phone-undo").tap();
+    await expect(phone.locator(".p-map [data-stroke]")).toHaveCount(0);
+    await phone.getByTestId("phone-redo").tap();
+    await expect(phone.locator(".p-map [data-stroke]")).toHaveCount(1);
+    await phone.getByTestId("tool-arrow").tap();
+    await touchMapGesture(phone, [[.2, .4], [.7, .4]]);
+    await expect(phone.locator(".p-map [data-arrow]")).toHaveCount(1);
+    await phone.getByTestId("tool-erase").tap();
+    await phone.locator(".p-map [data-stroke]").first().tap();
+    await expect(phone.locator(".p-map [data-stroke]")).toHaveCount(0);
+    await phone.getByTestId("phone-edit").tap();
+    await expect(phone.getByTestId("tool-draw")).toHaveCount(0);
+    await checkPhoneLayout(phone);
+  });
+}
