@@ -1,0 +1,1242 @@
+<div class="tb-host pl-topbar all-builds" data-mode="player" data-testid="topbar" style="--u: 0.7px;">
+  <div class="tb-bar">
+    <div class="tb-team friend amber">
+      <div class="tb-player amber friend build-open" data-alive="true" data-hero="1" data-seen="true" data-slot="Amber-0" title="King 1">
+        <button aria-controls="build-Amber-0" aria-expanded="true" aria-label="King 1 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="2500" data-testid="souls"> 2.5
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K1
+        <button aria-controls="build-Amber-0" aria-expanded="true" aria-label="Inspect King 1" class="tb-focus" data-testid="focus-hero" title="Inspect King 1">
+        <div aria-label="King 1 health, 100%" class="tb-health" data-health="100" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 100%;">
+          <i class="tb-health-border">
+        <span class="tb-level" data-testid="tb-level" title="Hero level"> 3
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="King 1 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <section aria-label="Hero build" class="tb-build-column" data-testid="hero-build" id="build-Amber-0">
+          <div class="tb-build-hero"> Hero
+          <div aria-label="Kills, deaths, assists" class="tb-build-kda">
+            <span class="gt-anchor" data-testid="kda-kills">
+              <div>
+                <small> K
+                <b> —
+            <span class="gt-anchor" data-testid="kda-deaths">
+              <div>
+                <small> D
+                <b> 0
+            <span class="gt-anchor" data-testid="kda-assists">
+              <div>
+                <small> A
+                <b> —
+          <div class="tb-build-investment">
+            <span class="gt-anchor">
+              <span aria-label="Weapon invest, 0" class="weapon" data-fill="0" data-testid="invest-weapon" role="img" title="Weapon invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Spirit invest, 0" class="spirit" data-fill="0" data-testid="invest-spirit" role="img" title="Spirit invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Vitality invest, 0" class="vitality" data-fill="0" data-testid="invest-vitality" role="img" title="Vitality invest">
+                <i style="height: 0%;">
+          <div class="tb-build-vitals" data-testid="build-stats">
+            <span class="gt-anchor">
+              <div data-testid="stat-max-health" title="Not recorded">
+                <span aria-hidden="true"> ♥
+                <span class="tb-stat-v"> —
+              <div class="tb-build-resists">
+                <span aria-hidden="true"> ⛨
+                <b data-testid="stat-bullet-resist" title="Not recorded"> —
+                <b class="spirit" data-testid="stat-spirit-resist" title="Not recorded"> —
+            <div class="tb-build-power">
+              <span class="gt-anchor">
+                <b class="weapon" data-testid="stat-weapon-damage" title="Not recorded"> —
+              <span class="gt-anchor">
+                <b class="spirit" data-testid="stat-spirit-power" title="Not recorded"> —
+          <div aria-label="Abilities" class="tb-build-abilities">
+            <span class="gt-anchor">
+              <div aria-label="Ability 1, Tier 1" class="tb-build-ability" data-ability-id="9000" data-level="2" role="img" title="Ability 1">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i class="on">
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 1
+            <span class="gt-anchor">
+              <div aria-label="Ability 2, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 2">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 2
+            <span class="gt-anchor">
+              <div aria-label="Ability 3, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 3">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 3
+            <span class="gt-anchor">
+              <div aria-label="Ability 4, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 4">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 4
+          <div aria-label="Equipped items" class="tb-build-items">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="715762406" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="1009965641" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+      <div class="tb-player amber friend dead build-open" data-alive="false" data-hero="2" data-seen="true" data-slot="Amber-1" title="King 2">
+        <button aria-controls="build-Amber-1" aria-expanded="true" aria-label="King 2 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="2800" data-testid="souls"> 2.8
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K2
+        <button aria-controls="build-Amber-1" aria-expanded="true" aria-label="Inspect King 2" class="tb-focus" data-testid="focus-hero" title="Inspect King 2">
+        <span aria-label="King 2 respawn, 5 s" class="tb-respawn" data-respawn="5" data-testid="tb-respawn"> 5
+        <span class="tb-level" data-testid="tb-level" title="Hero level"> 4
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="King 2 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <section aria-label="Hero build" class="tb-build-column" data-testid="hero-build" id="build-Amber-1">
+          <div class="tb-build-hero"> Hero
+          <div aria-label="Kills, deaths, assists" class="tb-build-kda">
+            <span class="gt-anchor" data-testid="kda-kills">
+              <div>
+                <small> K
+                <b> —
+            <span class="gt-anchor" data-testid="kda-deaths">
+              <div>
+                <small> D
+                <b> 1
+            <span class="gt-anchor" data-testid="kda-assists">
+              <div>
+                <small> A
+                <b> —
+          <div class="tb-build-investment">
+            <span class="gt-anchor">
+              <span aria-label="Weapon invest, 0" class="weapon" data-fill="0" data-testid="invest-weapon" role="img" title="Weapon invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Spirit invest, 0" class="spirit" data-fill="0" data-testid="invest-spirit" role="img" title="Spirit invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Vitality invest, 0" class="vitality" data-fill="0" data-testid="invest-vitality" role="img" title="Vitality invest">
+                <i style="height: 0%;">
+          <div class="tb-build-vitals" data-testid="build-stats">
+            <span class="gt-anchor">
+              <div data-testid="stat-max-health" title="Not recorded">
+                <span aria-hidden="true"> ♥
+                <span class="tb-stat-v"> —
+              <div class="tb-build-resists">
+                <span aria-hidden="true"> ⛨
+                <b data-testid="stat-bullet-resist" title="Not recorded"> —
+                <b class="spirit" data-testid="stat-spirit-resist" title="Not recorded"> —
+            <div class="tb-build-power">
+              <span class="gt-anchor">
+                <b class="weapon" data-testid="stat-weapon-damage" title="Not recorded"> —
+              <span class="gt-anchor">
+                <b class="spirit" data-testid="stat-spirit-power" title="Not recorded"> —
+          <div aria-label="Abilities" class="tb-build-abilities">
+            <span class="gt-anchor">
+              <div aria-label="Ability 1, Tier 1" class="tb-build-ability" data-ability-id="9001" data-level="2" role="img" title="Ability 1">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i class="on">
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 1
+            <span class="gt-anchor">
+              <div aria-label="Ability 2, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 2">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 2
+            <span class="gt-anchor">
+              <div aria-label="Ability 3, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 3">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 3
+            <span class="gt-anchor">
+              <div aria-label="Ability 4, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 4">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 4
+          <div aria-label="Equipped items" class="tb-build-items">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="715762406" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="1009965641" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+      <div class="tb-player amber friend build-open" data-alive="true" data-hero="3" data-seen="true" data-slot="Amber-2" title="King 3">
+        <button aria-controls="build-Amber-2" aria-expanded="true" aria-label="King 3 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="3100" data-testid="souls"> 3.1
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K3
+        <button aria-controls="build-Amber-2" aria-expanded="true" aria-label="Inspect King 3" class="tb-focus" data-testid="focus-hero" title="Inspect King 3">
+        <div aria-label="King 3 health, 76%" class="tb-health" data-health="76" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 76%;">
+          <i class="tb-health-border">
+        <span class="tb-level" data-testid="tb-level" title="Hero level"> 5
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="King 3 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <section aria-label="Hero build" class="tb-build-column" data-testid="hero-build" id="build-Amber-2">
+          <div class="tb-build-hero"> Hero
+          <div aria-label="Kills, deaths, assists" class="tb-build-kda">
+            <span class="gt-anchor" data-testid="kda-kills">
+              <div>
+                <small> K
+                <b> —
+            <span class="gt-anchor" data-testid="kda-deaths">
+              <div>
+                <small> D
+                <b> 0
+            <span class="gt-anchor" data-testid="kda-assists">
+              <div>
+                <small> A
+                <b> —
+          <div class="tb-build-investment">
+            <span class="gt-anchor">
+              <span aria-label="Weapon invest, 0" class="weapon" data-fill="0" data-testid="invest-weapon" role="img" title="Weapon invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Spirit invest, 0" class="spirit" data-fill="0" data-testid="invest-spirit" role="img" title="Spirit invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Vitality invest, 0" class="vitality" data-fill="0" data-testid="invest-vitality" role="img" title="Vitality invest">
+                <i style="height: 0%;">
+          <div class="tb-build-vitals" data-testid="build-stats">
+            <span class="gt-anchor">
+              <div data-testid="stat-max-health" title="Not recorded">
+                <span aria-hidden="true"> ♥
+                <span class="tb-stat-v"> —
+              <div class="tb-build-resists">
+                <span aria-hidden="true"> ⛨
+                <b data-testid="stat-bullet-resist" title="Not recorded"> —
+                <b class="spirit" data-testid="stat-spirit-resist" title="Not recorded"> —
+            <div class="tb-build-power">
+              <span class="gt-anchor">
+                <b class="weapon" data-testid="stat-weapon-damage" title="Not recorded"> —
+              <span class="gt-anchor">
+                <b class="spirit" data-testid="stat-spirit-power" title="Not recorded"> —
+          <div aria-label="Abilities" class="tb-build-abilities">
+            <span class="gt-anchor">
+              <div aria-label="Ability 1, Tier 1" class="tb-build-ability" data-ability-id="9002" data-level="2" role="img" title="Ability 1">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i class="on">
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 1
+            <span class="gt-anchor">
+              <div aria-label="Ability 2, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 2">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 2
+            <span class="gt-anchor">
+              <div aria-label="Ability 3, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 3">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 3
+            <span class="gt-anchor">
+              <div aria-label="Ability 4, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 4">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 4
+          <div aria-label="Equipped items" class="tb-build-items">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="715762406" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="1009965641" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+      <div class="tb-player amber friend build-open" data-alive="true" data-hero="4" data-seen="true" data-slot="Amber-3" title="King 4">
+        <button aria-controls="build-Amber-3" aria-expanded="true" aria-label="King 4 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="3400" data-testid="souls"> 3.4
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K4
+        <button aria-controls="build-Amber-3" aria-expanded="true" aria-label="Inspect King 4" class="tb-focus" data-testid="focus-hero" title="Inspect King 4">
+        <div aria-label="King 4 health, 64%" class="tb-health" data-health="64" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 64%;">
+          <i class="tb-health-border">
+        <span class="tb-level" data-testid="tb-level" title="Hero level"> 6
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="King 4 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <section aria-label="Hero build" class="tb-build-column" data-testid="hero-build" id="build-Amber-3">
+          <div class="tb-build-hero"> Hero
+          <div aria-label="Kills, deaths, assists" class="tb-build-kda">
+            <span class="gt-anchor" data-testid="kda-kills">
+              <div>
+                <small> K
+                <b> —
+            <span class="gt-anchor" data-testid="kda-deaths">
+              <div>
+                <small> D
+                <b> 0
+            <span class="gt-anchor" data-testid="kda-assists">
+              <div>
+                <small> A
+                <b> —
+          <div class="tb-build-investment">
+            <span class="gt-anchor">
+              <span aria-label="Weapon invest, 0" class="weapon" data-fill="0" data-testid="invest-weapon" role="img" title="Weapon invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Spirit invest, 0" class="spirit" data-fill="0" data-testid="invest-spirit" role="img" title="Spirit invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Vitality invest, 0" class="vitality" data-fill="0" data-testid="invest-vitality" role="img" title="Vitality invest">
+                <i style="height: 0%;">
+          <div class="tb-build-vitals" data-testid="build-stats">
+            <span class="gt-anchor">
+              <div data-testid="stat-max-health" title="Not recorded">
+                <span aria-hidden="true"> ♥
+                <span class="tb-stat-v"> —
+              <div class="tb-build-resists">
+                <span aria-hidden="true"> ⛨
+                <b data-testid="stat-bullet-resist" title="Not recorded"> —
+                <b class="spirit" data-testid="stat-spirit-resist" title="Not recorded"> —
+            <div class="tb-build-power">
+              <span class="gt-anchor">
+                <b class="weapon" data-testid="stat-weapon-damage" title="Not recorded"> —
+              <span class="gt-anchor">
+                <b class="spirit" data-testid="stat-spirit-power" title="Not recorded"> —
+          <div aria-label="Abilities" class="tb-build-abilities">
+            <span class="gt-anchor">
+              <div aria-label="Ability 1, Tier 1" class="tb-build-ability" data-ability-id="9003" data-level="2" role="img" title="Ability 1">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i class="on">
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 1
+            <span class="gt-anchor">
+              <div aria-label="Ability 2, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 2">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 2
+            <span class="gt-anchor">
+              <div aria-label="Ability 3, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 3">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 3
+            <span class="gt-anchor">
+              <div aria-label="Ability 4, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 4">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 4
+          <div aria-label="Equipped items" class="tb-build-items">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="715762406" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="1009965641" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+      <div class="tb-player amber friend build-open" data-alive="true" data-hero="5" data-seen="true" data-slot="Amber-4" title="King 5">
+        <button aria-controls="build-Amber-4" aria-expanded="true" aria-label="King 5 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="3700" data-testid="souls"> 3.7
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K5
+        <button aria-controls="build-Amber-4" aria-expanded="true" aria-label="Inspect King 5" class="tb-focus" data-testid="focus-hero" title="Inspect King 5">
+        <div aria-label="King 5 health, 52%" class="tb-health" data-health="52" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 52%;">
+          <i class="tb-health-border">
+        <span class="tb-level" data-testid="tb-level" title="Hero level"> 7
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="King 5 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <section aria-label="Hero build" class="tb-build-column" data-testid="hero-build" id="build-Amber-4">
+          <div class="tb-build-hero"> Hero
+          <div aria-label="Kills, deaths, assists" class="tb-build-kda">
+            <span class="gt-anchor" data-testid="kda-kills">
+              <div>
+                <small> K
+                <b> —
+            <span class="gt-anchor" data-testid="kda-deaths">
+              <div>
+                <small> D
+                <b> 0
+            <span class="gt-anchor" data-testid="kda-assists">
+              <div>
+                <small> A
+                <b> —
+          <div class="tb-build-investment">
+            <span class="gt-anchor">
+              <span aria-label="Weapon invest, 0" class="weapon" data-fill="0" data-testid="invest-weapon" role="img" title="Weapon invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Spirit invest, 0" class="spirit" data-fill="0" data-testid="invest-spirit" role="img" title="Spirit invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Vitality invest, 0" class="vitality" data-fill="0" data-testid="invest-vitality" role="img" title="Vitality invest">
+                <i style="height: 0%;">
+          <div class="tb-build-vitals" data-testid="build-stats">
+            <span class="gt-anchor">
+              <div data-testid="stat-max-health" title="Not recorded">
+                <span aria-hidden="true"> ♥
+                <span class="tb-stat-v"> —
+              <div class="tb-build-resists">
+                <span aria-hidden="true"> ⛨
+                <b data-testid="stat-bullet-resist" title="Not recorded"> —
+                <b class="spirit" data-testid="stat-spirit-resist" title="Not recorded"> —
+            <div class="tb-build-power">
+              <span class="gt-anchor">
+                <b class="weapon" data-testid="stat-weapon-damage" title="Not recorded"> —
+              <span class="gt-anchor">
+                <b class="spirit" data-testid="stat-spirit-power" title="Not recorded"> —
+          <div aria-label="Abilities" class="tb-build-abilities">
+            <span class="gt-anchor">
+              <div aria-label="Ability 1, Tier 1" class="tb-build-ability" data-ability-id="9004" data-level="2" role="img" title="Ability 1">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i class="on">
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 1
+            <span class="gt-anchor">
+              <div aria-label="Ability 2, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 2">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 2
+            <span class="gt-anchor">
+              <div aria-label="Ability 3, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 3">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 3
+            <span class="gt-anchor">
+              <div aria-label="Ability 4, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 4">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 4
+          <div aria-label="Equipped items" class="tb-build-items">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="715762406" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="1009965641" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+      <div class="tb-player amber friend build-open" data-alive="true" data-hero="6" data-seen="true" data-slot="Amber-5" title="King 6">
+        <button aria-controls="build-Amber-5" aria-expanded="true" aria-label="King 6 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="4000" data-testid="souls"> 4.0
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K6
+        <button aria-controls="build-Amber-5" aria-expanded="true" aria-label="Inspect King 6" class="tb-focus" data-testid="focus-hero" title="Inspect King 6">
+        <div aria-label="King 6 health, 40%" class="tb-health" data-health="40" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 40%;">
+          <i class="tb-health-border">
+        <span class="tb-level" data-testid="tb-level" title="Hero level"> 8
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="King 6 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <section aria-label="Hero build" class="tb-build-column" data-testid="hero-build" id="build-Amber-5">
+          <div class="tb-build-hero"> Hero
+          <div aria-label="Kills, deaths, assists" class="tb-build-kda">
+            <span class="gt-anchor" data-testid="kda-kills">
+              <div>
+                <small> K
+                <b> —
+            <span class="gt-anchor" data-testid="kda-deaths">
+              <div>
+                <small> D
+                <b> 0
+            <span class="gt-anchor" data-testid="kda-assists">
+              <div>
+                <small> A
+                <b> —
+          <div class="tb-build-investment">
+            <span class="gt-anchor">
+              <span aria-label="Weapon invest, 0" class="weapon" data-fill="0" data-testid="invest-weapon" role="img" title="Weapon invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Spirit invest, 0" class="spirit" data-fill="0" data-testid="invest-spirit" role="img" title="Spirit invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Vitality invest, 0" class="vitality" data-fill="0" data-testid="invest-vitality" role="img" title="Vitality invest">
+                <i style="height: 0%;">
+          <div class="tb-build-vitals" data-testid="build-stats">
+            <span class="gt-anchor">
+              <div data-testid="stat-max-health" title="Not recorded">
+                <span aria-hidden="true"> ♥
+                <span class="tb-stat-v"> —
+              <div class="tb-build-resists">
+                <span aria-hidden="true"> ⛨
+                <b data-testid="stat-bullet-resist" title="Not recorded"> —
+                <b class="spirit" data-testid="stat-spirit-resist" title="Not recorded"> —
+            <div class="tb-build-power">
+              <span class="gt-anchor">
+                <b class="weapon" data-testid="stat-weapon-damage" title="Not recorded"> —
+              <span class="gt-anchor">
+                <b class="spirit" data-testid="stat-spirit-power" title="Not recorded"> —
+          <div aria-label="Abilities" class="tb-build-abilities">
+            <span class="gt-anchor">
+              <div aria-label="Ability 1, Tier 1" class="tb-build-ability" data-ability-id="9005" data-level="2" role="img" title="Ability 1">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i class="on">
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 1
+            <span class="gt-anchor">
+              <div aria-label="Ability 2, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 2">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 2
+            <span class="gt-anchor">
+              <div aria-label="Ability 3, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 3">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 3
+            <span class="gt-anchor">
+              <div aria-label="Ability 4, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 4">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 4
+          <div aria-label="Equipped items" class="tb-build-items">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="715762406" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="1009965641" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+    <div class="tb-team enemy sapphire">
+      <div class="tb-player sapphire enemy build-open" data-alive="true" data-hero="1" data-seen="true" data-slot="Sapphire-0" title="Archmother 1">
+        <button aria-controls="build-Sapphire-0" aria-expanded="true" aria-label="Archmother 1 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="2500" data-testid="souls"> 2.5
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A1
+        <button aria-controls="build-Sapphire-0" aria-expanded="true" aria-label="Inspect Archmother 1" class="tb-focus" data-testid="focus-hero" title="Inspect Archmother 1">
+        <div aria-label="Archmother 1 health, 100%" class="tb-health" data-health="100" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 100%;">
+          <i class="tb-health-border">
+        <span class="tb-level" data-testid="tb-level" title="Hero level"> 3
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Archmother 1 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <section aria-label="Hero build" class="tb-build-column" data-testid="hero-build" id="build-Sapphire-0">
+          <div class="tb-build-hero"> Hero
+          <div aria-label="Kills, deaths, assists" class="tb-build-kda">
+            <span class="gt-anchor" data-testid="kda-kills">
+              <div>
+                <small> K
+                <b> —
+            <span class="gt-anchor" data-testid="kda-deaths">
+              <div>
+                <small> D
+                <b> 0
+            <span class="gt-anchor" data-testid="kda-assists">
+              <div>
+                <small> A
+                <b> —
+          <div class="tb-build-investment">
+            <span class="gt-anchor">
+              <span aria-label="Weapon invest, 0" class="weapon" data-fill="0" data-testid="invest-weapon" role="img" title="Weapon invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Spirit invest, 0" class="spirit" data-fill="0" data-testid="invest-spirit" role="img" title="Spirit invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Vitality invest, 0" class="vitality" data-fill="0" data-testid="invest-vitality" role="img" title="Vitality invest">
+                <i style="height: 0%;">
+          <div class="tb-build-vitals" data-testid="build-stats">
+            <span class="gt-anchor">
+              <div data-testid="stat-max-health" title="Not recorded">
+                <span aria-hidden="true"> ♥
+                <span class="tb-stat-v"> —
+              <div class="tb-build-resists">
+                <span aria-hidden="true"> ⛨
+                <b data-testid="stat-bullet-resist" title="Not recorded"> —
+                <b class="spirit" data-testid="stat-spirit-resist" title="Not recorded"> —
+            <div class="tb-build-power">
+              <span class="gt-anchor">
+                <b class="weapon" data-testid="stat-weapon-damage" title="Not recorded"> —
+              <span class="gt-anchor">
+                <b class="spirit" data-testid="stat-spirit-power" title="Not recorded"> —
+          <div aria-label="Abilities" class="tb-build-abilities">
+            <span class="gt-anchor">
+              <div aria-label="Ability 1, Tier 1" class="tb-build-ability" data-ability-id="9000" data-level="2" role="img" title="Ability 1">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i class="on">
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 1
+            <span class="gt-anchor">
+              <div aria-label="Ability 2, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 2">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 2
+            <span class="gt-anchor">
+              <div aria-label="Ability 3, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 3">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 3
+            <span class="gt-anchor">
+              <div aria-label="Ability 4, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 4">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 4
+          <div aria-label="Equipped items" class="tb-build-items">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="715762406" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="1009965641" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+      <div class="tb-player sapphire enemy build-open" data-alive="true" data-hero="2" data-seen="true" data-slot="Sapphire-1" title="Archmother 2">
+        <button aria-controls="build-Sapphire-1" aria-expanded="true" aria-label="Archmother 2 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="2800" data-testid="souls"> 2.8
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A2
+        <button aria-controls="build-Sapphire-1" aria-expanded="true" aria-label="Inspect Archmother 2" class="tb-focus" data-testid="focus-hero" title="Inspect Archmother 2">
+        <div aria-label="Archmother 2 health, 88%" class="tb-health" data-health="88" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 88%;">
+          <i class="tb-health-border">
+        <span class="tb-level" data-testid="tb-level" title="Hero level"> 4
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Archmother 2 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <section aria-label="Hero build" class="tb-build-column" data-testid="hero-build" id="build-Sapphire-1">
+          <div class="tb-build-hero"> Hero
+          <div aria-label="Kills, deaths, assists" class="tb-build-kda">
+            <span class="gt-anchor" data-testid="kda-kills">
+              <div>
+                <small> K
+                <b> —
+            <span class="gt-anchor" data-testid="kda-deaths">
+              <div>
+                <small> D
+                <b> 0
+            <span class="gt-anchor" data-testid="kda-assists">
+              <div>
+                <small> A
+                <b> —
+          <div class="tb-build-investment">
+            <span class="gt-anchor">
+              <span aria-label="Weapon invest, 0" class="weapon" data-fill="0" data-testid="invest-weapon" role="img" title="Weapon invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Spirit invest, 0" class="spirit" data-fill="0" data-testid="invest-spirit" role="img" title="Spirit invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Vitality invest, 0" class="vitality" data-fill="0" data-testid="invest-vitality" role="img" title="Vitality invest">
+                <i style="height: 0%;">
+          <div class="tb-build-vitals" data-testid="build-stats">
+            <span class="gt-anchor">
+              <div data-testid="stat-max-health" title="Not recorded">
+                <span aria-hidden="true"> ♥
+                <span class="tb-stat-v"> —
+              <div class="tb-build-resists">
+                <span aria-hidden="true"> ⛨
+                <b data-testid="stat-bullet-resist" title="Not recorded"> —
+                <b class="spirit" data-testid="stat-spirit-resist" title="Not recorded"> —
+            <div class="tb-build-power">
+              <span class="gt-anchor">
+                <b class="weapon" data-testid="stat-weapon-damage" title="Not recorded"> —
+              <span class="gt-anchor">
+                <b class="spirit" data-testid="stat-spirit-power" title="Not recorded"> —
+          <div aria-label="Abilities" class="tb-build-abilities">
+            <span class="gt-anchor">
+              <div aria-label="Ability 1, Tier 1" class="tb-build-ability" data-ability-id="9001" data-level="2" role="img" title="Ability 1">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i class="on">
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 1
+            <span class="gt-anchor">
+              <div aria-label="Ability 2, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 2">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 2
+            <span class="gt-anchor">
+              <div aria-label="Ability 3, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 3">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 3
+            <span class="gt-anchor">
+              <div aria-label="Ability 4, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 4">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 4
+          <div aria-label="Equipped items" class="tb-build-items">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="715762406" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="1009965641" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+      <div class="tb-player sapphire enemy build-open" data-alive="true" data-hero="3" data-seen="true" data-slot="Sapphire-2" title="Archmother 3">
+        <button aria-controls="build-Sapphire-2" aria-expanded="true" aria-label="Archmother 3 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="3100" data-testid="souls"> 3.1
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A3
+        <button aria-controls="build-Sapphire-2" aria-expanded="true" aria-label="Inspect Archmother 3" class="tb-focus" data-testid="focus-hero" title="Inspect Archmother 3">
+        <div aria-label="Archmother 3 health, 76%" class="tb-health" data-health="76" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 76%;">
+          <i class="tb-health-border">
+        <span class="tb-level" data-testid="tb-level" title="Hero level"> 5
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Archmother 3 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <section aria-label="Hero build" class="tb-build-column" data-testid="hero-build" id="build-Sapphire-2">
+          <div class="tb-build-hero"> Hero
+          <div aria-label="Kills, deaths, assists" class="tb-build-kda">
+            <span class="gt-anchor" data-testid="kda-kills">
+              <div>
+                <small> K
+                <b> —
+            <span class="gt-anchor" data-testid="kda-deaths">
+              <div>
+                <small> D
+                <b> 0
+            <span class="gt-anchor" data-testid="kda-assists">
+              <div>
+                <small> A
+                <b> —
+          <div class="tb-build-investment">
+            <span class="gt-anchor">
+              <span aria-label="Weapon invest, 0" class="weapon" data-fill="0" data-testid="invest-weapon" role="img" title="Weapon invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Spirit invest, 0" class="spirit" data-fill="0" data-testid="invest-spirit" role="img" title="Spirit invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Vitality invest, 0" class="vitality" data-fill="0" data-testid="invest-vitality" role="img" title="Vitality invest">
+                <i style="height: 0%;">
+          <div class="tb-build-vitals" data-testid="build-stats">
+            <span class="gt-anchor">
+              <div data-testid="stat-max-health" title="Not recorded">
+                <span aria-hidden="true"> ♥
+                <span class="tb-stat-v"> —
+              <div class="tb-build-resists">
+                <span aria-hidden="true"> ⛨
+                <b data-testid="stat-bullet-resist" title="Not recorded"> —
+                <b class="spirit" data-testid="stat-spirit-resist" title="Not recorded"> —
+            <div class="tb-build-power">
+              <span class="gt-anchor">
+                <b class="weapon" data-testid="stat-weapon-damage" title="Not recorded"> —
+              <span class="gt-anchor">
+                <b class="spirit" data-testid="stat-spirit-power" title="Not recorded"> —
+          <div aria-label="Abilities" class="tb-build-abilities">
+            <span class="gt-anchor">
+              <div aria-label="Ability 1, Tier 1" class="tb-build-ability" data-ability-id="9002" data-level="2" role="img" title="Ability 1">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i class="on">
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 1
+            <span class="gt-anchor">
+              <div aria-label="Ability 2, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 2">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 2
+            <span class="gt-anchor">
+              <div aria-label="Ability 3, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 3">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 3
+            <span class="gt-anchor">
+              <div aria-label="Ability 4, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 4">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 4
+          <div aria-label="Equipped items" class="tb-build-items">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="715762406" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="1009965641" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+      <div class="tb-player sapphire enemy build-open" data-alive="true" data-hero="4" data-seen="true" data-slot="Sapphire-3" title="Archmother 4">
+        <button aria-controls="build-Sapphire-3" aria-expanded="true" aria-label="Archmother 4 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="3400" data-testid="souls"> 3.4
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A4
+        <button aria-controls="build-Sapphire-3" aria-expanded="true" aria-label="Inspect Archmother 4" class="tb-focus" data-testid="focus-hero" title="Inspect Archmother 4">
+        <div aria-label="Archmother 4 health, 64%" class="tb-health" data-health="64" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 64%;">
+          <i class="tb-health-border">
+        <span class="tb-level" data-testid="tb-level" title="Hero level"> 6
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Archmother 4 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <section aria-label="Hero build" class="tb-build-column" data-testid="hero-build" id="build-Sapphire-3">
+          <div class="tb-build-hero"> Hero
+          <div aria-label="Kills, deaths, assists" class="tb-build-kda">
+            <span class="gt-anchor" data-testid="kda-kills">
+              <div>
+                <small> K
+                <b> —
+            <span class="gt-anchor" data-testid="kda-deaths">
+              <div>
+                <small> D
+                <b> 0
+            <span class="gt-anchor" data-testid="kda-assists">
+              <div>
+                <small> A
+                <b> —
+          <div class="tb-build-investment">
+            <span class="gt-anchor">
+              <span aria-label="Weapon invest, 0" class="weapon" data-fill="0" data-testid="invest-weapon" role="img" title="Weapon invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Spirit invest, 0" class="spirit" data-fill="0" data-testid="invest-spirit" role="img" title="Spirit invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Vitality invest, 0" class="vitality" data-fill="0" data-testid="invest-vitality" role="img" title="Vitality invest">
+                <i style="height: 0%;">
+          <div class="tb-build-vitals" data-testid="build-stats">
+            <span class="gt-anchor">
+              <div data-testid="stat-max-health" title="Not recorded">
+                <span aria-hidden="true"> ♥
+                <span class="tb-stat-v"> —
+              <div class="tb-build-resists">
+                <span aria-hidden="true"> ⛨
+                <b data-testid="stat-bullet-resist" title="Not recorded"> —
+                <b class="spirit" data-testid="stat-spirit-resist" title="Not recorded"> —
+            <div class="tb-build-power">
+              <span class="gt-anchor">
+                <b class="weapon" data-testid="stat-weapon-damage" title="Not recorded"> —
+              <span class="gt-anchor">
+                <b class="spirit" data-testid="stat-spirit-power" title="Not recorded"> —
+          <div aria-label="Abilities" class="tb-build-abilities">
+            <span class="gt-anchor">
+              <div aria-label="Ability 1, Tier 1" class="tb-build-ability" data-ability-id="9003" data-level="2" role="img" title="Ability 1">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i class="on">
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 1
+            <span class="gt-anchor">
+              <div aria-label="Ability 2, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 2">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 2
+            <span class="gt-anchor">
+              <div aria-label="Ability 3, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 3">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 3
+            <span class="gt-anchor">
+              <div aria-label="Ability 4, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 4">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 4
+          <div aria-label="Equipped items" class="tb-build-items">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="715762406" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="1009965641" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+      <div class="tb-player sapphire enemy build-open" data-alive="true" data-hero="5" data-seen="true" data-slot="Sapphire-4" title="Archmother 5">
+        <button aria-controls="build-Sapphire-4" aria-expanded="true" aria-label="Archmother 5 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="3700" data-testid="souls"> 3.7
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A5
+        <button aria-controls="build-Sapphire-4" aria-expanded="true" aria-label="Inspect Archmother 5" class="tb-focus" data-testid="focus-hero" title="Inspect Archmother 5">
+        <div aria-label="Archmother 5 health, 52%" class="tb-health" data-health="52" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 52%;">
+          <i class="tb-health-border">
+        <span class="tb-level" data-testid="tb-level" title="Hero level"> 7
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Archmother 5 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <section aria-label="Hero build" class="tb-build-column" data-testid="hero-build" id="build-Sapphire-4">
+          <div class="tb-build-hero"> Hero
+          <div aria-label="Kills, deaths, assists" class="tb-build-kda">
+            <span class="gt-anchor" data-testid="kda-kills">
+              <div>
+                <small> K
+                <b> —
+            <span class="gt-anchor" data-testid="kda-deaths">
+              <div>
+                <small> D
+                <b> 0
+            <span class="gt-anchor" data-testid="kda-assists">
+              <div>
+                <small> A
+                <b> —
+          <div class="tb-build-investment">
+            <span class="gt-anchor">
+              <span aria-label="Weapon invest, 0" class="weapon" data-fill="0" data-testid="invest-weapon" role="img" title="Weapon invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Spirit invest, 0" class="spirit" data-fill="0" data-testid="invest-spirit" role="img" title="Spirit invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Vitality invest, 0" class="vitality" data-fill="0" data-testid="invest-vitality" role="img" title="Vitality invest">
+                <i style="height: 0%;">
+          <div class="tb-build-vitals" data-testid="build-stats">
+            <span class="gt-anchor">
+              <div data-testid="stat-max-health" title="Not recorded">
+                <span aria-hidden="true"> ♥
+                <span class="tb-stat-v"> —
+              <div class="tb-build-resists">
+                <span aria-hidden="true"> ⛨
+                <b data-testid="stat-bullet-resist" title="Not recorded"> —
+                <b class="spirit" data-testid="stat-spirit-resist" title="Not recorded"> —
+            <div class="tb-build-power">
+              <span class="gt-anchor">
+                <b class="weapon" data-testid="stat-weapon-damage" title="Not recorded"> —
+              <span class="gt-anchor">
+                <b class="spirit" data-testid="stat-spirit-power" title="Not recorded"> —
+          <div aria-label="Abilities" class="tb-build-abilities">
+            <span class="gt-anchor">
+              <div aria-label="Ability 1, Tier 1" class="tb-build-ability" data-ability-id="9004" data-level="2" role="img" title="Ability 1">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i class="on">
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 1
+            <span class="gt-anchor">
+              <div aria-label="Ability 2, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 2">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 2
+            <span class="gt-anchor">
+              <div aria-label="Ability 3, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 3">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 3
+            <span class="gt-anchor">
+              <div aria-label="Ability 4, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 4">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 4
+          <div aria-label="Equipped items" class="tb-build-items">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="715762406" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="1009965641" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+      <div class="tb-player sapphire enemy build-open" data-alive="true" data-hero="6" data-seen="true" data-slot="Sapphire-5" title="Archmother 6">
+        <button aria-controls="build-Sapphire-5" aria-expanded="true" aria-label="Archmother 6 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="4000" data-testid="souls"> 4.0
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A6
+        <button aria-controls="build-Sapphire-5" aria-expanded="true" aria-label="Inspect Archmother 6" class="tb-focus" data-testid="focus-hero" title="Inspect Archmother 6">
+        <div aria-label="Archmother 6 health, 40%" class="tb-health" data-health="40" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 40%;">
+          <i class="tb-health-border">
+        <span class="tb-level" data-testid="tb-level" title="Hero level"> 8
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Archmother 6 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <section aria-label="Hero build" class="tb-build-column" data-testid="hero-build" id="build-Sapphire-5">
+          <div class="tb-build-hero"> Hero
+          <div aria-label="Kills, deaths, assists" class="tb-build-kda">
+            <span class="gt-anchor" data-testid="kda-kills">
+              <div>
+                <small> K
+                <b> —
+            <span class="gt-anchor" data-testid="kda-deaths">
+              <div>
+                <small> D
+                <b> 0
+            <span class="gt-anchor" data-testid="kda-assists">
+              <div>
+                <small> A
+                <b> —
+          <div class="tb-build-investment">
+            <span class="gt-anchor">
+              <span aria-label="Weapon invest, 0" class="weapon" data-fill="0" data-testid="invest-weapon" role="img" title="Weapon invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Spirit invest, 0" class="spirit" data-fill="0" data-testid="invest-spirit" role="img" title="Spirit invest">
+                <i style="height: 0%;">
+            <span class="gt-anchor">
+              <span aria-label="Vitality invest, 0" class="vitality" data-fill="0" data-testid="invest-vitality" role="img" title="Vitality invest">
+                <i style="height: 0%;">
+          <div class="tb-build-vitals" data-testid="build-stats">
+            <span class="gt-anchor">
+              <div data-testid="stat-max-health" title="Not recorded">
+                <span aria-hidden="true"> ♥
+                <span class="tb-stat-v"> —
+              <div class="tb-build-resists">
+                <span aria-hidden="true"> ⛨
+                <b data-testid="stat-bullet-resist" title="Not recorded"> —
+                <b class="spirit" data-testid="stat-spirit-resist" title="Not recorded"> —
+            <div class="tb-build-power">
+              <span class="gt-anchor">
+                <b class="weapon" data-testid="stat-weapon-damage" title="Not recorded"> —
+              <span class="gt-anchor">
+                <b class="spirit" data-testid="stat-spirit-power" title="Not recorded"> —
+          <div aria-label="Abilities" class="tb-build-abilities">
+            <span class="gt-anchor">
+              <div aria-label="Ability 1, Tier 1" class="tb-build-ability" data-ability-id="9005" data-level="2" role="img" title="Ability 1">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i class="on">
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 1
+            <span class="gt-anchor">
+              <div aria-label="Ability 2, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 2">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 2
+            <span class="gt-anchor">
+              <div aria-label="Ability 3, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 3">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 3
+            <span class="gt-anchor">
+              <div aria-label="Ability 4, Not recorded" class="tb-build-ability" data-level="unknown" role="img" title="Ability 4">
+                <div aria-hidden="true" class="tb-build-levels">
+                  <i>
+                  <i>
+                  <i>
+                <div class="tb-build-circle">
+                  <span class="tb-build-fallback"> 4
+          <div aria-label="Equipped items" class="tb-build-items">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="715762406" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+            <span class="gt-anchor">
+              <div aria-label="Unknown item" class="tb-build-item" data-item-id="1009965641" role="img" title="Unknown item">
+                <span class="tb-build-fallback"> ?
+                <span aria-hidden="true" class="tb-build-tier">
+    <div class="tb-center">
+      <div class="tb-clock">
+        <span class="tb-clock-label" data-testid="tb-clock"> 0:25
+      <button aria-expanded="true" class="tb-all-builds" title="All builds" type="button"> ▴ All builds
+        <kbd> Hold Tab
+      <div class="tb-build-team-kills">
+        <b> —
+        <span> Kills
+        <b> —
+      <div class="tb-scores">
+        <div class="tb-score amber" data-souls="19500" data-testid="total-Amber">
+          <i class="tb-score-bg">
+          <div class="tb-score-row">
+            <span class="tb-score-label"> 19
+              <span class="demote"> k
+            <i class="tb-team-icon">
+        <div class="tb-score sapphire right" data-souls="19500" data-testid="total-Sapphire">
+          <i class="tb-score-bg">
+          <div class="tb-score-row">
+            <i class="tb-team-icon">
+            <span class="tb-score-label"> 19
+              <span class="demote"> k
+      <div class="pl-rejuv friend amber" data-left="0" data-team="amber" data-testid="tb-rejuv">
+        <img alt="" class="pl-rejuv-icons" data-n="1" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+        <img alt="" class="pl-rejuv-icons" data-n="2" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(58.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+        <img alt="" class="pl-rejuv-icons" data-n="3" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(43.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(73.5%2010)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+        <img alt="" class="pl-rejuv-icons" data-n="4" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(28.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(58.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(88.5%2010)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+      <div class="pl-rejuv enemy sapphire" data-left="0" data-team="sapphire" data-testid="tb-rejuv">
+        <img alt="" class="pl-rejuv-icons" data-n="1" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+        <img alt="" class="pl-rejuv-icons" data-n="2" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(58.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+        <img alt="" class="pl-rejuv-icons" data-n="3" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(43.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(73.5%2010)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+        <img alt="" class="pl-rejuv-icons" data-n="4" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(28.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(58.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(88.5%2010)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+      <span class="gt-anchor">
+        <div aria-hidden="true" class="pl-rejuv-timer friend amber" data-frac="0" data-team="amber" data-testid="tb-rejuv-timer">
+          <svg viewBox="0 0 30 30">
+            <circle class="pl-rejuv-disc" cx="15" cy="15" r="13.5">
+            <path class="pl-rejuv-mark" d="M10 0a2 2 0 1 1 0 4a2 2 0 1 1 0-4ZM0 5.5h5c1 2.2 3 3.4 5 3.4s4-1.2 5-3.4h5c0 1.6-1 2.6-3 2.6c-2 2.2-3.6 3.4-5 4l-1.4 8.4h-1.2L9 12.1c-1.4-.6-3-1.8-5-4c-2 0-3-1-3-2.6Z" transform="translate(6 6.5) scale(0.9)">
+            <circle class="pl-rejuv-track" cx="15" cy="15" r="13.5">
+            <circle class="pl-rejuv-ring" cx="15" cy="15" pathLength="100" r="13.5" style="stroke-dasharray: 0, 100;" transform="rotate(-90 15 15)">
+      <span class="gt-anchor">
+        <div aria-hidden="true" class="pl-rejuv-timer enemy sapphire" data-frac="0" data-team="sapphire" data-testid="tb-rejuv-timer">
+          <svg viewBox="0 0 30 30">
+            <circle class="pl-rejuv-disc" cx="15" cy="15" r="13.5">
+            <path class="pl-rejuv-mark" d="M10 0a2 2 0 1 1 0 4a2 2 0 1 1 0-4ZM0 5.5h5c1 2.2 3 3.4 5 3.4s4-1.2 5-3.4h5c0 1.6-1 2.6-3 2.6c-2 2.2-3.6 3.4-5 4l-1.4 8.4h-1.2L9 12.1c-1.4-.6-3-1.8-5-4c-2 0-3-1-3-2.6Z" transform="translate(6 6.5) scale(0.9)">
+            <circle class="pl-rejuv-track" cx="15" cy="15" r="13.5">
+            <circle class="pl-rejuv-ring" cx="15" cy="15" pathLength="100" r="13.5" style="stroke-dasharray: 0, 100;" transform="rotate(-90 15 15)">
+      <span class="gt-anchor">
+        <div aria-hidden="true" class="pl-rejuv-timer pl-respawn-timer" data-testid="tb-respawn-timer">
+          <svg viewBox="0 0 30 30">
+            <circle class="pl-rejuv-disc" cx="15" cy="15" r="13.5">
+            <path class="pl-rejuv-mark" d="M10 0a2 2 0 1 1 0 4a2 2 0 1 1 0-4ZM0 5.5h5c1 2.2 3 3.4 5 3.4s4-1.2 5-3.4h5c0 1.6-1 2.6-3 2.6c-2 2.2-3.6 3.4-5 4l-1.4 8.4h-1.2L9 12.1c-1.4-.6-3-1.8-5-4c-2 0-3-1-3-2.6Z" transform="translate(6 6.5) scale(0.9)">
+            <circle class="pl-rejuv-track" cx="15" cy="15" r="13.5">
+          <span class="pl-respawn-label" data-testid="tb-respawn-label">

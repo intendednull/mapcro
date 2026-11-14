@@ -52,8 +52,8 @@ function boardFile() {
     const state = { scene, slot: r[0], pos: { x: -4000 + i * 700, y: i < 6 ? -2500 : 2500 }, alive: i !== 2 && i !== 9, placed: i !== 5, souls: 3000 + 450 * i, ult_cooldown: i % 4 === 0 ? 0 : 20 * (i % 5), visible: i !== 7 };
     f.records.push([hex(0xb00 + i), { PlayerState: state }]);
   });
-  f.records.push([hex(0xc00), { ObjectiveState: { scene, key: "guardian_amber_lane1", status: "Destroyed" } }]);
-  f.records.push([hex(0xc01), { ObjectiveState: { scene, key: "guardian_sapphire_lane4", status: "Destroyed" } }]);
+  f.records.push([hex(0xc00), { ObjectiveState: { scene, key: "guardian:amber:lane1:1", status: "Destroyed" } }]);
+  f.records.push([hex(0xc01), { ObjectiveState: { scene, key: "guardian:sapphire:lane4:1", status: "Destroyed" } }]);
   f.records.push([hex(0xc02), { Wave: { scene, lane: "lane1", t: 620 } }]);
   f.records.push([hex(0xc03), { Wave: { scene, lane: "lane4", t: 380 } }]);
   return f;
@@ -68,8 +68,8 @@ async function seed(file: unknown): Promise<string> {
 
 /**
  * An element as text, a line each, attributes in name order. Left out: what differs from run to
- * run and isn't what the pin is for. Record ids minted in the page become `#n` in the order
- * met; an inline image becomes its length.
+ * run and isn't what the pin is for (a person's own colour, the order of the hero tokens).
+ * Record ids minted in the page become `#n` in the order met; an inline image becomes its length.
  */
 async function outline(p: Page, testid: string): Promise<string> {
   // Nothing hovered, and every transition done.
@@ -80,6 +80,8 @@ async function outline(p: Page, testid: string): Promise<string> {
     const tidy = (v: string) =>
       v
         .replace(/data:[a-z/+-]+[;,][^"')\s]*/g, (m) => `data:(${m.length})`)
+        // This person's own colour, drawn at random when they join.
+        .replace(/--me: #[0-9a-f]{6};\s*/g, "")
         .replace(/\b[0-9a-f]{32}\b/g, (m) => ids.get(m) ?? (ids.set(m, `#${ids.size + 1}`), ids.get(m)!))
         .replace(/-?\d+\.\d{2,}/g, (m) => String(Math.round(Number(m) * 10) / 10));
     const lines: string[] = [];
@@ -91,7 +93,15 @@ async function outline(p: Page, testid: string): Promise<string> {
         .join("");
       const text = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent!.trim()).filter(Boolean).join(" ");
       lines.push(`${"  ".repeat(depth)}<${el.tagName.toLowerCase()}${attrs}>${text ? ` ${tidy(text)}` : ""}`);
-      for (const c of el.children) walk(c, depth + 1);
+      // What is drawn per hero record comes in record-id order, and a board's ids are minted at
+      // random when it is imported: in a fixed order here, so the pin holds each and not their order.
+      const kids = [...el.children];
+      // The element that names its hero record: `c`, or the one child of a bare wrapper.
+      const hero = (c: Element) => (c.hasAttribute("data-player") ? c : c.attributes.length === 0 && c.children.length === 1 && c.children[0]!.hasAttribute("data-player") ? c.children[0]! : undefined);
+      // A token by its slot; what hangs off one elsewhere (a respawn badge) by where it is.
+      const place = (c: Element) => hero(c)!.getAttribute("data-slot") ?? hero(c)!.getAttribute("transform") ?? "";
+      const tokens = kids.filter(hero).sort((a, b) => (place(a) < place(b) ? -1 : 1));
+      for (const c of kids) walk(hero(c) ? tokens.shift()! : c, depth + 1);
     };
     walk(root, 0);
     return lines.join("\n") + "\n";
@@ -121,12 +131,12 @@ function timeline() {
           seen: a1 ? [[100, 198]] : [],
           level: [[0, 1], [10, 3 + slot]],
           items: [[50, 715_762_406, 0], [120, 1_009_965_641, 0]],
-          abilities: [[30, 9_000 + slot, 1], [140, 9_000 + slot, 2]], casts: [], charges: [], cc: [], effects: [],
+          abilities: [[3, 9_000 + slot, 1], [14, 9_000 + slot, 2]], casts: [], charges: [], cc: [], effects: [],
           recaps: [],
         };
       }),
     ),
-    objectives: [{ key: "guardian_amber_lane1", t: 10 }], mid_boss: [], rifts: [], powerups: [],
+    objectives: [{ key: "guardian:amber:lane1:1", kind: "guardian", team: "amber", lane: 1, destroyed_s: 10 }], mid_boss: [], rifts: [], powerups: [],
     events: [{ t: 20, kind: "death", team: "amber", slot: 1, hero_id: 2, x: -2500, y: -3000 }],
   };
 }
