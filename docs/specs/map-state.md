@@ -152,13 +152,16 @@ a server without the reader would drop `more` silently. So:
 - **A rule that lets more in is gated the same way.** A `SetIf` on a registry value that the
   record has no room for (an undo, after others filled the room it left) is skipped, not
   refused, with the rest of its transaction applied. The reader deployed as v8 refuses such a
-  transaction on replay, so the build that first skips it still refuses it at admission
-  (`UNFIT_UNDO`, asked by `apply_tx_admitted`); the release after admits it.
+  transaction on replay, so the build that first skips it (store v9) still refuses it at
+  admission (`UNFIT_UNDO`, asked by `apply_tx_admitted`); the release after (store v10) admits
+  it.
 - **Rows go live in order.** The client's capture writes the rows before the first `Ahead` one,
   and that count is the snapshot's watermark (§4.5).
-- **The store version moves twice.** v8 (additive, no SQL) ships with the reader, so a v7 server
-  still opens the database while nothing is written. v9 ships with the writer and sets the floor to
-  8, so a server older than the reader refuses to start.
+- **The store version moves with each step.** v8 (additive, no SQL) ships with the reader, so a
+  v7 server still opens the database while nothing is written. v9 ships with the writer and sets
+  the floor to 8, so a server older than the reader refuses to start. v10 writes `kills`,
+  `deaths`, `assists` and `max_health` and admits the unfit undo, both read by v9 (deployed as
+  `1dcbd31`): its floor is 9.
 - **Board files:** the reader accepts file version 2 (version 1 plus a `rows` header) and still
   writes version 1. The writer writes version 2. `rows` is the number of rows the exporting
   build writes: the index of its first `Ahead` row (`written_rows`), the same watermark a
@@ -338,7 +341,7 @@ Each ships alone and leaves every board working.
 |---|---|---|
 | 0 | Characterisation tests and measurements (§9). | Nothing. |
 | 1 | Server and schema reader only: `more`, `SceneState`, `FieldValue::More`, the registry with the tracer's rows as `Ahead`, limits, the heap estimate, the simulation, store v8, file version 2 read. | Nothing; the reader is ahead. |
-| 2 | Builds end to end as the tracer: components read a build interface in Player; Save captures; the scene shows it; the writer (store v9, rows `Live`, file version 2); Retake for scenes whose match is open; panel follow on scenes. | #49, for old and new scenes. |
+| 2 | Builds end to end as the tracer: components read a build interface in Player; Save captures; the scene shows it; the writer (store v9, rows `Live`, file version 2; then store v10 for the K/D/A and max health rows and the unfit undo); Retake for scenes whose match is open; panel follow on scenes. | #49, for old and new scenes. |
 | 3 | Player producers for the rest, feature by feature, with the clocks. | TD-50. |
 | 4 | One map and bar renderer, with decisions D1–D5 and D13. | Decided changes only. |
 | 5 | The remaining rows, each a release behind its reader; the marker baseline. | Per feature. |

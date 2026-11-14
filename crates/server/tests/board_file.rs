@@ -149,7 +149,7 @@ fn an_export_imports_as_the_same_board_under_fresh_ids() {
     assert_eq!(first["version"], 2, "the writer: version 1 plus the `rows` header");
     // The rows this build writes, not the ones it only reads: the reader release takes it.
     assert_eq!(first["rows"], json!(mapcro_schema::written_rows()));
-    assert!(mapcro_schema::written_rows() < mapcro_schema::ROWS.len(), "four rows are still ahead in this build");
+    assert_eq!(mapcro_schema::written_rows(), mapcro_schema::ROWS.len(), "no row is still ahead in this build");
     assert!(first["build"].as_str().is_some_and(|b| b.len() == 16), "the server's build");
     assert!(first["exported_at"].as_i64().is_some_and(|t| t > 1_700_000_000));
     assert_eq!(first["matches"], json!([130816395]), "the match comes back by its id");

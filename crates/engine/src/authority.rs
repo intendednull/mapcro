@@ -567,8 +567,8 @@ mod admission_tests {
 
     /// Review F4, at the door (map-state spec §4.3). An undo whose list no longer fits its
     /// record is skipped wherever a log is read, and refused where it is submitted until the
-    /// build that reads it that way is deployed: the reader out today (store v8) refuses such
-    /// a transaction on replay, so logging one would break the board on a rollback to it.
+    /// build that reads it that way is deployed: the store v8 reader refuses such a
+    /// transaction on replay, so logging one would break the board on a rollback to it.
     #[test]
     fn an_undo_that_no_longer_fits_is_refused_at_the_door_until_admitted_and_always_replays() {
         let doc = board();
@@ -590,14 +590,18 @@ mod admission_tests {
         let Some(Record::PlayerState(state)) = a.doc().live(p) else { panic!("player") };
         assert_eq!((state.souls, state.more.get(row("build_order"))), (Some(7), None));
         // A log holding it loads on a build that doesn't admit it yet.
-        let mut cold = Authority::new(doc);
+        let mut cold = Authority::new(doc.clone());
         cold.set_admit(rows_live);
         cold.replay(&fill, 0).expect("fill");
         cold.replay(&undo(2), 0).expect("a logged unfit undo replays");
         assert_eq!(cold.doc(), a.doc());
-        // This build's own server refuses it (flip `UNFIT_UNDO` only once this build is the
-        // deployed floor: see its doc).
-        assert_eq!(Admit::DEPLOYED.unfit_undo, Status::Ahead);
+        // This build's own server admits it: the build that skips it on replay is deployed
+        // (store v9), and this one's store step sets the floor there (`UNFIT_UNDO`'s doc).
+        assert_eq!(Admit::DEPLOYED.unfit_undo, Status::Live);
+        let mut built = serving(Authority::new(doc));
+        logged(&mut built, fill);
+        logged(&mut built, undo(1));
+        assert_eq!(built.doc(), a.doc());
     }
 
     #[test]
