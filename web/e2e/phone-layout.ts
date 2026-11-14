@@ -56,6 +56,18 @@ export async function checkPhoneLayout(page: Page) {
       if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
           Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1) overlaps.push(tag(controls[i]!) + " / " + tag(controls[j]!));
     }
+    // Readouts (the clock, the team totals) are not controls, but nothing may sit on them: the
+    // clock ran under Events on a 344 px phone. Their boxes, and the text inside the clock's.
+    const hits = (a: { left: number; top: number; right: number; bottom: number }, b: typeof a) =>
+      Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+    const readouts = [...document.querySelectorAll(".phone-player .match-clock, .phone-player .match-clock > span, .phone-player .phone-total")].filter(visible);
+    const readoutFaults: string[] = [];
+    for (const e of readouts) {
+      const r = e.getBoundingClientRect();
+      if (r.left < -1 || r.top < -1 || r.right > innerWidth + 1 || r.bottom > innerHeight + 1) readoutFaults.push(tag(e) + " off screen");
+      if (e.scrollWidth > e.clientWidth + 1 && e.clientWidth > 0) readoutFaults.push(tag(e) + " overflows");
+      controls.forEach((c, i) => { if (!c.contains(e) && hits(r, rects[i]!)) readoutFaults.push(tag(e) + " / " + tag(c)); });
+    }
     const smallText = [...document.querySelectorAll(".phone *")].filter(e =>
       visible(e) && [...e.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent?.trim()) &&
       parseFloat(getComputedStyle(e).fontSize) < 12).map(e => tag(e) + " in " + tag(e.parentElement!));
@@ -73,9 +85,10 @@ export async function checkPhoneLayout(page: Page) {
       // Every control of the shell is on screen (Feedback was clipped off the right edge).
       offscreen: shell ? all.filter(e => shown(e) && !scrolls(e)).filter(e => { const r = e.getBoundingClientRect(); return r.left < -1 || r.top < -1 || r.right > innerWidth + 1 || r.bottom > innerHeight + 1; }).map(tag) : [],
       smallControls: controls.filter(e => { const r = e.getBoundingClientRect(); return r.width < 43.9 || r.height < 43.9; }).map(tag),
-      overlaps, smallText,
+      overlaps, smallText, readoutFaults,
       // The pane is full-bleed; the art inside it (inset by the map's frame) is what must be square.
       map: { w: r1(pane.width), h: r1(pane.height), top: r1(pane.top), right: r1(pane.right), artW: r1(art.width), artH: r1(art.height) },
+      zoneBottom: r1(document.querySelector(".phone-player > .p-map-wrap")?.getBoundingClientRect().bottom ?? 0),
       transport: transport && { h: r1(transport.height), top: r1(transport.top) },
       rosterBottom: roster ? r1(roster.bottom) : 0, rosterLeft: roster ? r1(roster.left) : 0,
       sheets: sheets.map(r => ({ left: r1(r.left), right: r1(r.right), top: r1(r.top), bottom: r1(r.bottom) })),
@@ -88,9 +101,13 @@ export async function checkPhoneLayout(page: Page) {
   expect(report.smallControls).toEqual([]);
   expect(report.overlaps).toEqual([]);
   expect(report.smallText).toEqual([]);
+  expect(report.readoutFaults).toEqual([]);
   if (!report.shell) {
-    // The board (not Player) still scrolls: the map is at least half the height.
-    expect(report.map.h).toBeGreaterThanOrEqual(report.height / 2);
+    // The board (not Player) still scrolls. Its map is square too (a 50dvh pane stretched the
+    // art, 3:1 in landscape): the full width, or at least half the height where that is less.
+    expect(Math.abs(report.map.artW - report.map.artH)).toBeLessThanOrEqual(1);
+    expect(Math.abs(report.map.w - report.map.h)).toBeLessThanOrEqual(1);
+    expect(report.map.h).toBeGreaterThanOrEqual(Math.min(report.width - 16, report.height / 2) - 1);
     return;
   }
   expect(report.pageScroll).toBe(false);
@@ -102,6 +119,8 @@ export async function checkPhoneLayout(page: Page) {
   const t = report.transport!;
   // A tablet: the shell's other side over 500 px (tablet direction).
   const tablet = Math.min(report.width, report.height) > 500;
+  // The map's zone ends on the transport: no dead strip between them (6 px of one, under 700 px wide).
+  expect(Math.abs(report.zoneBottom - t.top)).toBeLessThanOrEqual(1);
   expect(report.portraits.length).toBe(12);
   expect(report.play).toBe(true);
   if (report.landscape) {

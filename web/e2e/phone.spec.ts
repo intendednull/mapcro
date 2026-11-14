@@ -75,7 +75,7 @@ test("a phone viewer follows, reads the callouts and note, flips on its own, and
   await checkPhoneLayout(phone);
 });
 
-for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }, { width: 844, height: 390 }]) {
+for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }, { width: 344, height: 615 }, { width: 844, height: 390 }, { width: 768, height: 1024 }, { width: 1024, height: 768 }]) {
   test(`phone layout and editing at ${viewport.width}×${viewport.height}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true });
     const phone = await ctx.newPage();

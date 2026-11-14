@@ -277,18 +277,20 @@ export function artCss(art: Art): string {
   const mask = (u: string) => `-webkit-mask-image: ${u}; mask-image: ${u};`;
   // The top bar's own images (pack schema 3), independent of the map's.
   if (img("tb-mask")) {
-    css.push(".tb-host.pack-art { --tb-display: block; --tb-fb-display: none; }");
-    css.push(`.tb-host.pack-art .tb-img { ${mask(img("tb-mask")!)} }`);
+    // The bar, and the phone shell's roster (PlayerTopBar's compact form), which is not a `.tb-host`.
+    const TB = ":is(.tb-host, .phone-roster).pack-art";
+    css.push(`${TB} { --tb-display: block; --tb-fb-display: none; }`);
+    css.push(`${TB} .tb-img { ${mask(img("tb-mask")!)} }`);
     const rules: Array<[string, string]> = [
       [".tb-ult.ready .tb-ult-icon", "tb-ult"],
       [".tb-ult.cooldown .tb-ult-icon", "tb-ult-off"],
       [".tb-score.amber .tb-team-icon", "tb-team1"],
       [".tb-score.sapphire .tb-team-icon", "tb-team2"],
     ];
-    for (const [sel, name] of rules) if (img(name)) css.push(`.tb-host.pack-art ${sel} { background-image: ${img(name)}; }`);
-    if (img("tb-dust")) css.push(`.tb-host.pack-art .tb-score-bg { ${mask(img("tb-dust")!)} }`);
-    if (img("tb-hb-mask")) css.push(`.tb-host.pack-art .tb-health-back, .tb-host.pack-art .tb-health-fill { ${mask(img("tb-hb-mask")!)} }`);
-    if (img("tb-hb-border")) css.push(`.tb-host.pack-art .tb-health-border { ${mask(img("tb-hb-border")!)} }`);
+    for (const [sel, name] of rules) if (img(name)) css.push(`${TB} ${sel} { background-image: ${img(name)}; }`);
+    if (img("tb-dust")) css.push(`${TB} .tb-score-bg { ${mask(img("tb-dust")!)} }`);
+    if (img("tb-hb-mask")) css.push(`${TB} .tb-health-back, ${TB} .tb-health-fill { ${mask(img("tb-hb-mask")!)} }`);
+    if (img("tb-hb-border")) css.push(`${TB} .tb-health-border { ${mask(img("tb-hb-border")!)} }`);
   }
   if (!art.images.has("terrain-mid")) return css.join("\n");
   css.push(".mm-host.pack-art { --pa-display: block; --pa-fb-display: none; }");
