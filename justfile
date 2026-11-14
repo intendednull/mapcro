@@ -61,6 +61,25 @@ ts:
     rm -rf web/src/gen
     cargo test -q -p mapcro-schema -p mapcro-engine --features ts export_bindings
 
+# Record the map-state rows this build has as deployed (crates/schema/rows.lock). Run at each
+# deploy, after it is live, on the deployed commit, and commit the file: a row may be written
+# only once it is in here (docs/specs/map-state.md §4.3; the schema's test enforces it). It
+# refuses a tree with uncommitted changes (what is locked must be what was deployed) and a build
+# that breaks the rows already locked (reordered, removed, narrowed): the lock is then untouched.
+rows-lock:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+      echo "rows-lock: uncommitted changes; lock the deployed commit, with nothing else in the tree" >&2
+      git status --short --untracked-files=no >&2
+      exit 1
+    fi
+    out=$(MAPCRO_ROWS_LOCK=1 cargo test -q -p mapcro-schema --lib -- --exact map_state::tests::rows_are_append_only_and_read_a_release_before_they_are_written 2>&1) || { echo "$out" >&2; exit 1; }
+    # A renamed test would match nothing and lock nothing: say so rather than pass.
+    grep -q "test result: ok. 1 passed" <<<"$out" || { echo "$out" >&2; echo "rows-lock: the lock test did not run" >&2; exit 1; }
+    git --no-pager diff --stat -- crates/schema/rows.lock
+    echo "rows-lock: crates/schema/rows.lock lists $(grep -cv '^#' crates/schema/rows.lock) rows; commit it"
+
 # Build the browser replica (WASM) into web/src/wasm.
 wasm:
     cargo build -q --release -p mapcro-wasm --target wasm32-unknown-unknown

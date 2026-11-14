@@ -3,6 +3,7 @@
 
 use crate::doc::{Doc, DocKind};
 use crate::ids::RecordId;
+use crate::map_state::Entity;
 use crate::records::{FieldValue, Record, RecordKind, SLOTS_PER_TEAM, WorldPos};
 use crate::{Op, OpOutcome};
 use serde::{Deserialize, Serialize};
@@ -29,17 +30,30 @@ pub struct Limits {
     /// "no hard limit" in practice, and a bound on what one edit link can make the server hold
     /// (sessions spec §2.2, decided §12).
     pub max_tabs: usize,
+    /// One record's `more` (its registry values, `map_state.rs`) as JSON, in bytes. Under a
+    /// full stroke's 12.8 KB, so the largest document as JSON is still 5,000 strokes (what the
+    /// store's decode limit and the snapshot cap are sized by). A scene is created with its
+    /// twelve heroes and its `SceneState` in one transaction, so what binds a full save is
+    /// `max_tx_bytes`; this bounds one record (map-state spec §4.4).
+    pub max_more_bytes: usize,
+    /// The list entries one record's `more` can hold: each entity's `Ints` rows, all full, sum
+    /// to at most this (a test on the registry). It bounds a record's heap, 8 bytes an entry,
+    /// which a room's memory budget counts (`Doc::approx_heap_bytes`).
+    pub max_more_ints: usize,
 }
 
 impl Limits {
     /// An upper bound on one op's JSON encoding, from the other limits: the worst case is a
-    /// `SetIf` on a note's text, which carries the text twice, each char up to 4 bytes of UTF-8.
-    /// (A full stroke is smaller: 512 points of at most 25 bytes.) The 512 covers the op's
-    /// framing, ids and field names. A test builds these ops and checks the bound holds.
+    /// `SetIf` that carries its value twice, on a note's text (each char up to 4 bytes of UTF-8)
+    /// or on a registry value (each at most a whole `more`). (A full stroke is smaller: 512
+    /// points of at most 25 bytes; so is a record created with a full `more`.) The 512 covers
+    /// the op's framing, ids and field names. A test builds these ops and checks the bound holds.
     pub const fn max_op_bytes(&self) -> usize {
         let text = 2 * 4 * self.max_note;
         let stroke = self.max_stroke_points * 25;
-        (if text > stroke { text } else { stroke }) + 512
+        let more = 2 * self.max_more_bytes;
+        let largest = if text > stroke { text } else { stroke };
+        (if largest > more { largest } else { more }) + 512
     }
 }
 
@@ -56,10 +70,15 @@ pub const LIMITS: Limits = Limits {
     max_coord: 16384,
     max_tx_bytes: 64 * 1024,
     max_tabs: 2000,
+    max_more_bytes: 8 * 1024,
+    max_more_ints: 1280,
 };
 
 // Every legal op fits in a transaction on its own.
 const _: () = assert!(LIMITS.max_op_bytes() <= LIMITS.max_tx_bytes);
+// A record with a full `more` is smaller than a full stroke, so the largest document as JSON is
+// still one of strokes: the store's decode limit and the snapshot cap are sized by it.
+const _: () = assert!(LIMITS.max_more_bytes + 512 < LIMITS.max_stroke_points * 25);
 
 impl Limits {
     /// These limits as a TypeScript module, `web/src/gen/limits.ts` (`just ts` writes it), so
@@ -78,6 +97,8 @@ impl Limits {
             ("max_stroke_points", self.max_stroke_points),
             ("max_tx_bytes", self.max_tx_bytes),
             ("max_tabs", self.max_tabs),
+            ("max_more_bytes", self.max_more_bytes),
+            ("max_more_ints", self.max_more_ints),
         ];
         let mut out = String::from("// Generated from crates/schema/src/validate.rs `LIMITS` by `just ts`. Do not edit.\n\n/** The schema's limits, in characters (Unicode scalar values) where they're text. */\nexport const LIMITS = {\n");
         for (k, v) in fields {
@@ -195,7 +216,7 @@ pub(crate) fn check_line(s: &str, max: usize) -> Result<(), Reject> {
     Ok(())
 }
 
-fn check_pos(p: WorldPos) -> Result<(), Reject> {
+pub(crate) fn check_pos(p: WorldPos) -> Result<(), Reject> {
     let m = LIMITS.max_coord;
     if (-m..=m).contains(&p.x) && (-m..=m).contains(&p.y) { Ok(()) } else { Err(Reject::OutOfBounds) }
 }
@@ -226,6 +247,8 @@ fn check_value(v: &FieldValue) -> Result<(), Reject> {
         // A respawn timer up to ten minutes.
         V::PlayerRespawn(s) => if s.is_none_or(|s| s <= 600) { Ok(()) } else { Err(Reject::OutOfBounds) },
         // A scene's parent is checked against the board (`check_parent`).
+        // A registry value is checked against its row; clearing one needs no check.
+        V::More { key, value } => value.as_ref().map_or(Ok(()), |v| v.check(key.row())),
         V::RosterHero(_) | V::PlayerAlive(_) | V::PlayerPlaced(_) | V::PlayerVisible(_) | V::ObjectiveStatus(_) | V::ArrowTeam(_) | V::SceneParent(_) => Ok(()),
     }
 }
@@ -278,13 +301,21 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
             check_value(&FieldValue::PlayerSouls(p.souls))?;
             check_value(&FieldValue::PlayerUltCooldown(p.ult_cooldown))?;
             check_value(&FieldValue::PlayerRespawn(p.respawn))?;
+            p.more.check(Entity::Hero)?;
             check_pos(p.pos)
         }
         Record::ObjectiveState(o) => {
             if !live_scene(o.scene) {
                 return Err(Reject::NoSuchScene);
             }
+            o.more.check(Entity::Marker)?;
             if o.key.is_valid() { Ok(()) } else { Err(Reject::BadObjectiveKey) }
+        }
+        Record::SceneState(s) => {
+            if !live_scene(s.scene) {
+                return Err(Reject::NoSuchScene);
+            }
+            s.more.check(Entity::Scene)
         }
         Record::Arrow(a) => {
             if !live_scene(a.scene) {
@@ -307,6 +338,7 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
                 return Err(Reject::NoSuchScene);
             }
             check_value(&FieldValue::WavePos(w.t))?;
+            w.more.check(Entity::Lane)?;
             if w.lane.is_valid() { Ok(()) } else { Err(Reject::BadObjectiveKey) }
         }
         Record::Note(n) => {
@@ -356,6 +388,17 @@ fn check_parent(doc: &Doc, id: RecordId, value: &FieldValue) -> Result<(), Rejec
     Ok(())
 }
 
+/// A registry value about to be written to `record`: the record's `more` must still be within
+/// `max_more_bytes` with it. (The value itself is already checked against its row.) Counted on
+/// a copy, before anything is written; clearing a key can only shrink the map.
+fn check_more_fits(record: &Record, value: &FieldValue) -> Result<(), Reject> {
+    let FieldValue::More { key, value: Some(v) } = value else { return Ok(()) };
+    let Some((_, more)) = record.more() else { return Ok(()) };
+    let mut with = more.clone();
+    with.put(*key, Some(v.clone()));
+    with.check_size()
+}
+
 pub(crate) fn apply_op(doc: &mut Doc, op: &Op) -> Result<OpOutcome, Reject> {
     match op {
         Op::Create { id, record } => {
@@ -379,6 +422,7 @@ pub(crate) fn apply_op(doc: &mut Doc, op: &Op) -> Result<OpOutcome, Reject> {
             if entry.deleted {
                 return Ok(OpOutcome::Skipped);
             }
+            check_more_fits(&entry.record, value)?;
             entry.record.set(value.clone());
             Ok(OpOutcome::Applied)
         }
@@ -396,6 +440,7 @@ pub(crate) fn apply_op(doc: &mut Doc, op: &Op) -> Result<OpOutcome, Reject> {
             }
             check_parent(doc, *id, value)?;
             let entry = doc.entry_mut(*id).ok_or(Reject::NoSuchRecord)?;
+            check_more_fits(&entry.record, value)?;
             entry.record.set(value.clone());
             Ok(OpOutcome::Applied)
         }
@@ -461,11 +506,12 @@ pub(crate) fn check_invariants(doc: &Doc) -> Result<(), Reject> {
         return Err(Reject::TooManyScenes);
     }
     // Each live scene: exactly one player state per slot, at most one note, at most one state
-    // per objective key.
+    // per objective key, one wave per lane, and one scene state.
     let mut players: BTreeMap<RecordId, BTreeSet<RecordId>> = BTreeMap::new();
     let mut notes = BTreeSet::new();
     let mut objectives = BTreeSet::new();
     let mut waves = BTreeSet::new();
+    let mut states = BTreeSet::new();
     for (_, entry) in doc.iter() {
         let Some(scene) = entry.record.scene() else { continue };
         // Children of a deleted scene are hidden with it, but keep their structure for Restore.
@@ -487,6 +533,11 @@ pub(crate) fn check_invariants(doc: &Doc) -> Result<(), Reject> {
             }
             Record::Wave(w) if !entry.deleted => {
                 if !waves.insert((scene, w.lane.clone())) {
+                    return Err(Reject::Duplicate);
+                }
+            }
+            Record::SceneState(_) if !entry.deleted => {
+                if !states.insert(scene) {
                     return Err(Reject::Duplicate);
                 }
             }

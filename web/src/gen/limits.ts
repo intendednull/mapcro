@@ -13,5 +13,7 @@ export const LIMITS = {
   max_stroke_points: 512,
   max_tx_bytes: 65536,
   max_tabs: 2000,
+  max_more_bytes: 8192,
+  max_more_ints: 1280,
   max_coord: 16384,
 } as const;

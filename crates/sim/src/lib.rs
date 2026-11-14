@@ -13,7 +13,7 @@ mod checks;
 
 use behaviour::Behaviour;
 use mapcro_engine::{Authority, ClientMsg, ConnId, Effect, Outgoing, Replica, Role, ServerMsg};
-use mapcro_schema::{ClientId, Doc, RecordId, Reject, Tx, genesis};
+use mapcro_schema::{Admit, ClientId, Doc, RecordId, Reject, Tx, genesis};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::collections::VecDeque;
@@ -30,11 +30,15 @@ pub struct Config {
     pub steps: usize,
     /// Percent chance per step of a connection fault on some client.
     pub fault_rate: u32,
+    /// What the authority admits (map-state spec §4.3). By default everything it reads, as the
+    /// writer release will, so the registry's rows are synced and undone here before any build
+    /// may write them. `Admit::DEPLOYED` is the server as built: it refuses the rows still ahead.
+    pub admit: Admit,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { editors: 6, viewers: 1, attackers: 2, steps: 400, fault_rate: 4 }
+        Config { editors: 6, viewers: 1, attackers: 2, steps: 400, fault_rate: 4, admit: Admit::READS }
     }
 }
 
@@ -95,6 +99,7 @@ pub struct World {
     pub(crate) seed: u64,
     pub(crate) rng: ChaCha8Rng,
     pub(crate) authority: Authority,
+    pub(crate) admit: Admit,
     pub(crate) clients: Vec<SimClient>,
     pub(crate) next_conn: u64,
     pub(crate) step: usize,
@@ -113,6 +118,14 @@ pub struct World {
     pub(crate) stored_base: (Doc, u64),
     pub(crate) stored_floor: u64,
     pub(crate) stored_client_seqs: Vec<(ClientId, u64)>,
+}
+
+/// The server's authority on a stored board, as it is built at the start and again after every
+/// restart: one place, so a restart can't come back admitting something else.
+fn serve(base: Doc, base_seq: u64, admit: Admit) -> Authority {
+    let mut authority = Authority::from_snapshot(base, base_seq, mapcro_engine::Quota::default());
+    authority.set_admit(admit);
+    authority
 }
 
 pub fn run(seed: u64, config: &Config) -> Result<Stats, Failure> {
@@ -175,6 +188,7 @@ impl World {
                 down: VecDeque::new(),
             });
         }
+        let authority = serve(doc.clone(), 0, config.admit);
         let mut world = World {
             seed,
             rng,
@@ -186,7 +200,8 @@ impl World {
             stored_base: (doc.clone(), 0),
             stored_floor: 0,
             stored_client_seqs: Vec::new(),
-            authority: Authority::new(doc),
+            authority,
+            admit: config.admit,
             clients,
             next_conn: 0,
             step: 0,
@@ -260,7 +275,7 @@ impl World {
     /// rebuilt from storage alone (genesis, the log, stored rejections), as the real server does.
     fn restart_server(&mut self) {
         let (base, base_seq) = self.stored_base.clone();
-        let mut fresh = Authority::from_snapshot(base, base_seq, mapcro_engine::Quota::default());
+        let mut fresh = serve(base, base_seq, self.admit);
         for (client, h) in self.stored_clients.clone() {
             fresh.replay_client(client, h);
         }
@@ -529,5 +544,44 @@ fn describe_server_msg(m: &ServerMsg) -> String {
         ServerMsg::Rejected { cseq, reason } => format!("rejected #{cseq}: {reason}"),
         ServerMsg::Fatal(w) => format!("fatal: {w}"),
         ServerMsg::Rebase { seq, decided_below, .. } => format!("rebase to the board at {seq}, decided below #{decided_below}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What a server from before the map-state reader can't load (docs/specs/map-state.md
+    /// §4.3): a `More` field value, a `SceneState`, a record's `more`. As JSON keys, so this
+    /// reads the stored bytes and not the engine's own idea of what it admitted.
+    fn ahead_of_the_old_reader(tx: &Tx) -> bool {
+        let json = serde_json::to_string(tx).expect("json");
+        ["\"More\":", "\"SceneState\":", "\"more\":"].iter().any(|key| json.contains(key))
+    }
+
+    /// The server as built, under every behaviour and attacker: the simulation's properties
+    /// hold with the rows refused, and nothing ahead of the old reader reaches the log, so a
+    /// rollback still loads every board. (The same seeds do write them once admitted: the
+    /// refusal is what keeps them out, not the behaviours.)
+    #[test]
+    fn the_server_as_built_logs_nothing_a_rollback_could_not_load() {
+        let seeds = 0..12;
+        let run_with = |admit: Admit| -> (usize, usize) {
+            let config = Config { admit, ..Config::default() };
+            seeds.clone().fold((0, 0), |(ahead, rejected), seed| {
+                let (stats, _, log) = run_logged(seed, &config).unwrap_or_else(|f| panic!("{f}"));
+                (ahead + log.iter().filter(|tx| ahead_of_the_old_reader(tx)).count(), rejected + stats.rejected)
+            })
+        };
+        let (written, rejected_when_admitted) = run_with(Admit::READS);
+        assert!(written > 100, "the behaviours write registry values when they are admitted: {written}");
+        let ahead = mapcro_schema::RowId::all().any(|r| r.row().status == mapcro_schema::Status::Ahead);
+        let (logged, rejected) = run_with(Admit::DEPLOYED);
+        if ahead {
+            assert!(rejected > rejected_when_admitted, "{rejected} against {rejected_when_admitted}");
+        }
+        if mapcro_schema::RowId::all().all(|r| r.row().status == mapcro_schema::Status::Ahead) && mapcro_schema::SCENE_STATE == mapcro_schema::Status::Ahead {
+            assert_eq!(logged, 0, "with every row and SceneState ahead, none is logged");
+        }
     }
 }

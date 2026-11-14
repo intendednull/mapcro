@@ -112,7 +112,7 @@ pub(crate) fn check_undo_did_not_clobber(before: &Doc, after: &Doc, tx: &Tx, log
     let mut checked = 0;
     for (id, entry) in after.iter() {
         let Some(prev) = before.get(id) else { continue };
-        for field in Field::ALL {
+        for field in Field::all() {
             let (Some(old), Some(new)) = (prev.record.get(field), entry.record.get(field)) else { continue };
             if old == new {
                 continue;

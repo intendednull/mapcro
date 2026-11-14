@@ -3,6 +3,20 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Map state: one shape, computed by Player, stored by a scene (2026-11-13, operator; building)
+
+Spec: `docs/specs/map-state.md` (third revision: the independent review in
+`docs/specs/map-state-review.md` folded in; decisions in its §2). One `MapState` shape for
+everything Player shows at a frame: Player computes it, Save as scene stores all of it, the scene
+viewer draws and edits it with Player's components. A field registry makes a new feature a row, a
+producer and a draw, with storage, sync, undo, clone and board files following. Rows are
+append-only and readable one release before they are written. Phases 0 to 7 (its §8); building on
+branch `scene-state`, state in `docs/journal/2026-11-13-map-state-build.md`. It **supersedes the
+narrow fix for feedback #49** (build dropdowns in a scene): that lands as phase 2, the tracer, for
+old scenes too (Retake). When built it also settles the scene-names entry "A scene saved from
+another match shows no names" (2026-11-09), "Resume a scene" (2026-11-08), TD-50, and replaces
+the quick right-click of #53 (phase 6).
+
 ## The hero menu on a phone, and the token menu with the scene-state rework (2026-11-13, from fb-hero-feedback)
 
 Feedback #53 put the portrait's hero menu (Kill/Revive, vision, Rename…, Change hero…) on a right

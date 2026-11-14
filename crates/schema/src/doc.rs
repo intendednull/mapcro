@@ -126,13 +126,15 @@ fn record_heap_bytes(r: &Record) -> usize {
         Record::BoardMeta(m) => m.title.capacity(),
         Record::RosterSlot(s) => s.name.capacity(),
         Record::Scene(s) => s.name.capacity() + s.order.0.capacity(),
-        Record::ObjectiveState(o) => o.key.0.capacity(),
-        Record::Wave(w) => w.lane.0.capacity(),
+        Record::ObjectiveState(o) => o.key.0.capacity() + o.more.heap_bytes(),
+        Record::Wave(w) => w.lane.0.capacity() + w.more.heap_bytes(),
+        Record::PlayerState(p) => p.more.heap_bytes(),
+        Record::SceneState(s) => s.more.heap_bytes(),
         Record::Callout(c) => c.text.capacity(),
         Record::Note(n) => n.text.capacity(),
         Record::Stroke(s) => s.points.capacity() * std::mem::size_of::<WorldPos>(),
         Record::SessionMeta(m) => m.title.capacity(),
         Record::Tab(t) => t.board.0.capacity() + t.grant.0.capacity() + t.name.capacity() + t.order.0.capacity(),
-        Record::PlayerState(_) | Record::Arrow(_) => 0,
+        Record::Arrow(_) => 0,
     }
 }

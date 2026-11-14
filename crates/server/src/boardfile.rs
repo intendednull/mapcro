@@ -14,6 +14,11 @@
 //! (an unknown key is refused: a foreign or hand-damaged file), the records are lenient on
 //! unknown keys (dropped, never stored: the board is re-serialised from its types), as stored
 //! boards and ops always were. Refusals are fixed codes, so no part of a file is ever echoed.
+//!
+//! **A file brings in nothing an edit couldn't.** A map-state row, or a scene's state, whose
+//! reader is still being deployed is refused in a file as it is in a transaction (`Admit`,
+//! docs/specs/map-state.md §4.3), at any file version: a server rolled back to before the reader
+//! couldn't load the board.
 
 use crate::api::{Created, client_ip, err, internal, now, require_link, server_full};
 use crate::{AppState, links};
@@ -22,7 +27,7 @@ use axum::body::Body;
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use mapcro_schema::{BUILD_ID, Doc, LIMITS, Record, RecordId};
+use mapcro_schema::{Admit, BUILD_ID, Doc, LIMITS, Record, RecordId};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -33,6 +38,12 @@ pub const FORMAT: &str = "mapcro-board";
 /// build's file can't be read into by serde defaults alone, bumps it and adds a step to
 /// [`upgrade`]: a pure function from the old version's shape to the next.
 pub const VERSION: u64 = 1;
+/// The newest version this build reads. Version 2 is version 1 with a `rows` header: how many
+/// map-state rows the build that wrote the file knew (docs/specs/map-state.md §4.3). This build
+/// reads it and still writes version 1, since it writes no row; the build that first writes
+/// them writes version 2, so a build from before this reader says "Newer file" rather than
+/// dropping the values, which its lenient record parsing would.
+pub const READS: u64 = 2;
 /// The largest file, either way. A board this size as JSON is the largest the server sends as
 /// one snapshot (`room::SNAPSHOT_MAX_BYTES`); real boards are kilobytes to a few hundred. The
 /// schema's own limits allow ~64 MB, which would never fit the room memory budget as a body.
@@ -62,6 +73,10 @@ pub struct BoardFile {
     pub records: Vec<(RecordId, Record)>,
     #[serde(default)]
     pub matches: Vec<u64>,
+    /// Version 2: the map-state rows its writer knew. A file with more than this build has holds
+    /// keys it can't read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows: Option<u64>,
 }
 
 /// Why a file wasn't imported. Codes, not text: nothing from the file reaches the answer.
@@ -105,6 +120,7 @@ fn file(doc: &Doc, matches: Vec<u64>, exported_at: i64) -> BoardFile {
         exported_at,
         records: mapcro_schema::export_records(doc),
         matches,
+        rows: None,
     }
 }
 
@@ -151,21 +167,25 @@ fn too_deep(bytes: &[u8], max: usize) -> bool {
 struct Head {
     format: String,
     version: u64,
+    #[serde(default)]
+    rows: Option<u64>,
 }
 
 /// A file of any version this build reads, as the current one. Version 1 is the first; an
 /// older version's step goes here (`2 => from_v1(serde_json::from_slice::<V1>(bytes)?)`).
 fn upgrade(version: u64, bytes: &[u8]) -> Result<BoardFile, Refusal> {
     match version {
-        VERSION => serde_json::from_slice::<BoardFile>(bytes).map_err(|_| Refusal::NotABoard),
-        v if v > VERSION => Err(Refusal::Newer),
+        // Version 2 only adds a header this build reads, so both parse as the current shape.
+        1..=READS => serde_json::from_slice::<BoardFile>(bytes).map_err(|_| Refusal::NotABoard),
+        v if v > READS => Err(Refusal::Newer),
         _ => Err(Refusal::NotABoard),
     }
 }
 
 /// A new board's document and match list from a file, under fresh ids from `next_id`.
-/// Titled "Imported board" if the file's title is blank.
-pub fn read(bytes: &[u8], next_id: impl FnMut() -> RecordId) -> Result<(Doc, Vec<u64>), Refusal> {
+/// Titled "Imported board" if the file's title is blank. `admit` is what a record may carry
+/// now (the route's is `Admit::DEPLOYED`); a record it refuses makes the file invalid.
+pub fn read(bytes: &[u8], next_id: impl FnMut() -> RecordId, admit: &Admit) -> Result<(Doc, Vec<u64>), Refusal> {
     if bytes.len() > MAX_BYTES {
         return Err(Refusal::TooLarge);
     }
@@ -177,11 +197,16 @@ pub fn read(bytes: &[u8], next_id: impl FnMut() -> RecordId) -> Result<(Doc, Vec
     if head.format != FORMAT {
         return Err(Refusal::NotABoard);
     }
+    // A file from a build with more map-state rows than this one: its records may name keys
+    // this build can't hold. Said before the records are parsed, where it would read as damage.
+    if head.rows.is_some_and(|n| n > mapcro_schema::ROWS.len() as u64) {
+        return Err(Refusal::Newer);
+    }
     let file = upgrade(head.version, bytes)?;
     if file.matches.len() > crate::replays::ATTACHED_MAX {
         return Err(Refusal::Invalid);
     }
-    let doc = mapcro_schema::import_records(file.records, next_id).map_err(|_| Refusal::Invalid)?;
+    let doc = mapcro_schema::import_records(file.records, next_id, admit).map_err(|_| Refusal::Invalid)?;
     // The board as the server holds it, not the file's bytes: a file can be shorter than its
     // board (a point as `[0,0]`). Past the cap, the board couldn't be sent as one snapshot nor
     // downloaded again.
@@ -319,7 +344,7 @@ pub async fn import(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<
         Ok(Err(_)) => return refuse(Refusal::TooLarge),
         Err(_) => return err(StatusCode::REQUEST_TIMEOUT, "timeout"),
     };
-    let read = tokio::task::spawn_blocking(move || read(&body, random_id)).await;
+    let read = tokio::task::spawn_blocking(move || read(&body, random_id, &Admit::DEPLOYED)).await;
     let (doc, matches) = match read {
         Ok(Ok(x)) => x,
         Ok(Err(r)) => {
@@ -375,5 +400,102 @@ mod tests {
         assert!(!too_deep(&bytes, 6), "a board without strokes is shallower");
         let deepest = br#"{"records":[["0",{"Stroke":{"points":[{"x":0}]}}]]}"#;
         assert!(!too_deep(deepest, 7) && too_deep(deepest, 6));
+    }
+
+    fn ids(start: u128) -> impl FnMut() -> RecordId {
+        let mut n = start;
+        move || {
+            n += 1;
+            RecordId(n)
+        }
+    }
+
+    /// A board's file as JSON, changed by `f`.
+    fn file_with(f: impl FnOnce(&mut serde_json::Value)) -> Vec<u8> {
+        let doc = mapcro_schema::genesis(ids(0), "Scrim");
+        let mut v: serde_json::Value = serde_json::from_slice(&write(&doc, Vec::new(), 0, 0)).expect("json");
+        f(&mut v);
+        serde_json::to_vec(&v).expect("json")
+    }
+
+    fn records(v: &mut serde_json::Value) -> &mut Vec<serde_json::Value> {
+        v["records"].as_array_mut().expect("records")
+    }
+
+    /// The first record of `kind`: `(its id, its body)`.
+    fn first<'a>(v: &'a mut serde_json::Value, kind: &str) -> (serde_json::Value, &'a mut serde_json::Value) {
+        let r = records(v).iter_mut().find(|r| r[1].get(kind).is_some()).unwrap_or_else(|| panic!("no {kind}"));
+        (r[0].clone(), &mut r[1][kind])
+    }
+
+    const STATE_ID: &str = "00000000000000000000000000005000";
+
+    /// A snapshot as the writer release will save it: registry values on a hero, a scene's
+    /// state, and a marker and a lane with none.
+    fn snapshot(v: &mut serde_json::Value, version: u64) {
+        use serde_json::json;
+        let scene = first(v, "Scene").0;
+        first(v, "PlayerState").1["more"] = json!({ "hero": 13, "name": "Solo", "items": [9000, -1, 4294967295u64], "level": 12, "health": 55 });
+        records(v).push(json!([STATE_ID, { "SceneState": { "scene": scene, "more": { "rows": mapcro_schema::ROWS.len(), "has_builds": true, "build": 6839 } } }]));
+        records(v).push(json!(["00000000000000000000000000005001", { "ObjectiveState": { "scene": scene, "key": "walker:amber:lane1:1", "status": "Destroyed", "more": {} } }]));
+        records(v).push(json!(["00000000000000000000000000005002", { "Wave": { "scene": scene, "lane": "lane1", "t": 400 } }]));
+        v["version"] = json!(version);
+        if version >= 2 {
+            v["rows"] = json!(mapcro_schema::ROWS.len());
+        }
+    }
+
+    /// While a row or the scene's state is `Ahead`, a file holding it makes no board, whatever
+    /// version it says it is: a version-1 header doesn't get a version-2 body past admission.
+    #[test]
+    fn a_file_holding_a_row_or_kind_still_ahead_is_refused_at_either_version() {
+        use mapcro_schema::Status;
+        let ahead = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead };
+        read(&file_with(|_| {}), ids(1000), &ahead).expect("a board with neither imports");
+        for version in [1, 2] {
+            assert_eq!(read(&file_with(|v| snapshot(v, version)), ids(1000), &ahead).err(), Some(Refusal::Invalid), "version {version}");
+            let hero_only = file_with(|v| {
+                first(v, "PlayerState").1["more"] = serde_json::json!({ "level": 3 });
+                v["version"] = serde_json::json!(version);
+            });
+            assert_eq!(read(&hero_only, ids(1000), &ahead).err(), Some(Refusal::Invalid), "version {version}");
+            let state_only = file_with(|v| {
+                let scene = first(v, "Scene").0;
+                records(v).push(serde_json::json!([STATE_ID, { "SceneState": { "scene": scene } }]));
+                v["version"] = serde_json::json!(version);
+            });
+            assert_eq!(read(&state_only, ids(1000), &ahead).err(), Some(Refusal::Invalid), "version {version}");
+            // The rows live and the kind not: the hero's values alone are not enough.
+            let rows_live = Admit { row: |_| Status::Live, scene_state: Status::Ahead };
+            assert_eq!(read(&state_only, ids(1000), &rows_live).err(), Some(Refusal::Invalid), "version {version}");
+            read(&hero_only, ids(1000), &rows_live).expect("the row is live");
+        }
+    }
+
+    /// Once they are written (the writer release), a version-2 file holding a snapshot imports,
+    /// and the board's own file holds every value (map-state spec §4.3, §9).
+    #[test]
+    fn a_snapshot_imports_once_its_rows_are_live_and_exports_the_same_values() {
+        use serde_json::json;
+        let bytes = file_with(|v| snapshot(v, 2));
+        let (doc, _) = read(&bytes, ids(1000), &Admit::READS).expect("imports");
+        let mut out: serde_json::Value = serde_json::from_slice(&write(&doc, Vec::new(), 0, 0)).expect("json");
+        assert_eq!(out["version"], 1, "this build writes no row, so it still writes version 1");
+        assert!(out.get("rows").is_none());
+        let find = |v: &mut serde_json::Value, kind: &str| -> Vec<serde_json::Value> { records(v).iter().filter_map(|r| r[1].get(kind).cloned()).collect() };
+        let states = find(&mut out, "SceneState");
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0]["more"], json!({ "rows": mapcro_schema::ROWS.len(), "has_builds": true, "build": 6839 }));
+        let heroes: Vec<_> = find(&mut out, "PlayerState").into_iter().filter(|p| p.get("more").is_some()).collect();
+        assert_eq!(heroes.len(), 1, "an empty `more` is not written");
+        assert_eq!(heroes[0]["more"], json!({ "hero": 13, "name": "Solo", "items": [9000, -1, 4294967295u64], "level": 12, "health": 55 }));
+        assert!(find(&mut out, "ObjectiveState")[0].get("more").is_none());
+        // And a second scene state for the same scene is refused, as on the board.
+        let twice = file_with(|v| {
+            snapshot(v, 2);
+            let scene = first(v, "Scene").0;
+            records(v).push(json!(["00000000000000000000000000005003", { "SceneState": { "scene": scene } }]));
+        });
+        assert_eq!(read(&twice, ids(1000), &Admit::READS).err(), Some(Refusal::Invalid));
     }
 }

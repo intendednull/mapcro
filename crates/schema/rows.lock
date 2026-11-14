@@ -1,0 +1,2 @@
+# The map-state rows of the last deployed build (docs/specs/map-state.md §4.3).
+# Written by `just rows-lock` at each deploy; never by hand.

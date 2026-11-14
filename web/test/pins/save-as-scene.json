@@ -1,0 +1,1139 @@
+{
+ "replay_2": {
+  "id": "id0",
+  "ops": [
+   {
+    "Create": {
+     "id": "id0",
+     "record": {
+      "Scene": {
+       "name": "Match moment",
+       "order": "i",
+       "clock": 2,
+       "source": {
+        "match_id": 9,
+        "tier": "replay",
+        "t": 2
+       }
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id1",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-0",
+       "pos": {
+        "x": -700,
+        "y": -160
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1250,
+       "ult_cooldown": 50,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id2",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-1",
+       "pos": {
+        "x": -1400,
+        "y": 140
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1350,
+       "ult_cooldown": 51,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id3",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-2",
+       "pos": {
+        "x": -2100,
+        "y": 440
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1450,
+       "ult_cooldown": 52,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id4",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-3",
+       "pos": {
+        "x": -2800,
+        "y": 740
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1550,
+       "ult_cooldown": 53,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id5",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-4",
+       "pos": {
+        "x": -3500,
+        "y": 1040
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1650,
+       "ult_cooldown": 54,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id6",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-5",
+       "pos": {
+        "x": -4200,
+        "y": 1340
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1750,
+       "ult_cooldown": 55,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id7",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-6",
+       "pos": {
+        "x": 1300,
+        "y": -160
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1850,
+       "ult_cooldown": 56,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id8",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-7",
+       "pos": {
+        "x": 2000,
+        "y": 140
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1950,
+       "ult_cooldown": 57,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id9",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-8",
+       "pos": {
+        "x": 0,
+        "y": 0
+       },
+       "alive": false,
+       "placed": false,
+       "souls": 2050,
+       "ult_cooldown": 58,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id10",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-9",
+       "pos": {
+        "x": 3400,
+        "y": 740
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 2150,
+       "ult_cooldown": 59,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id11",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-10",
+       "pos": {
+        "x": 4100,
+        "y": 1040
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 2250,
+       "ult_cooldown": 60,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id12",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-11",
+       "pos": {
+        "x": 4800,
+        "y": 1340
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 2350,
+       "ult_cooldown": 61,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id13",
+     "record": {
+      "ObjectiveState": {
+       "scene": "id0",
+       "key": "walker:amber:lane1:1",
+       "status": "Destroyed"
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id14",
+     "record": {
+      "ObjectiveState": {
+       "scene": "id0",
+       "key": "guardian:sapphire:lane4:1",
+       "status": "Destroyed"
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id15",
+     "record": {
+      "ObjectiveState": {
+       "scene": "id0",
+       "key": "rift:neutral:lane6:1",
+       "status": "Active"
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id16",
+     "record": {
+      "ObjectiveState": {
+       "scene": "id0",
+       "key": "camp:neutral:lane0:3",
+       "status": "Destroyed"
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id17",
+     "record": {
+      "Wave": {
+       "scene": "id0",
+       "lane": "lane1",
+       "t": 500
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id18",
+     "record": {
+      "Wave": {
+       "scene": "id0",
+       "lane": "lane4",
+       "t": 500
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id19",
+     "record": {
+      "Wave": {
+       "scene": "id0",
+       "lane": "lane6",
+       "t": 500
+      }
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-6",
+     "value": {
+      "RosterHero": 16
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-7",
+     "value": {
+      "RosterHero": 17
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-8",
+     "value": {
+      "RosterHero": 18
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-9",
+     "value": {
+      "RosterHero": 19
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-10",
+     "value": {
+      "RosterHero": 20
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-11",
+     "value": {
+      "RosterHero": 21
+     }
+    }
+   }
+  ],
+  "order": "i"
+ },
+ "replay_3_9": {
+  "id": "id0",
+  "ops": [
+   {
+    "Create": {
+     "id": "id0",
+     "record": {
+      "Scene": {
+       "name": "Match moment",
+       "order": "i",
+       "clock": 3,
+       "source": {
+        "match_id": 9,
+        "tier": "replay",
+        "t": 3
+       }
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id1",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-0",
+       "pos": {
+        "x": -550,
+        "y": -240
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1250,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id2",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-1",
+       "pos": {
+        "x": -1250,
+        "y": 60
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1350,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id3",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-2",
+       "pos": {
+        "x": -1950,
+        "y": 360
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1450,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id4",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-3",
+       "pos": {
+        "x": -2800,
+        "y": 740
+       },
+       "alive": false,
+       "placed": true,
+       "souls": 1550,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id5",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-4",
+       "pos": {
+        "x": -3350,
+        "y": 960
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1650,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id6",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-5",
+       "pos": {
+        "x": -4050,
+        "y": 1260
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1750,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id7",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-6",
+       "pos": {
+        "x": 1450,
+        "y": -240
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1850,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id8",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-7",
+       "pos": {
+        "x": 2150,
+        "y": 60
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1950,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id9",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-8",
+       "pos": {
+        "x": 0,
+        "y": 0
+       },
+       "alive": false,
+       "placed": false,
+       "souls": 2050,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id10",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-9",
+       "pos": {
+        "x": 3550,
+        "y": 660
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 2150,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id11",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-10",
+       "pos": {
+        "x": 4250,
+        "y": 960
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 2250,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id12",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-11",
+       "pos": {
+        "x": 4950,
+        "y": 1260
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 2350,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id13",
+     "record": {
+      "ObjectiveState": {
+       "scene": "id0",
+       "key": "walker:amber:lane1:1",
+       "status": "Destroyed"
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id14",
+     "record": {
+      "ObjectiveState": {
+       "scene": "id0",
+       "key": "guardian:sapphire:lane4:1",
+       "status": "Destroyed"
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id15",
+     "record": {
+      "ObjectiveState": {
+       "scene": "id0",
+       "key": "mid_boss:neutral:lane0:1",
+       "status": "Destroyed"
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id16",
+     "record": {
+      "ObjectiveState": {
+       "scene": "id0",
+       "key": "powerup:neutral:lane1:1",
+       "status": "Destroyed"
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id17",
+     "record": {
+      "ObjectiveState": {
+       "scene": "id0",
+       "key": "camp:neutral:lane0:3",
+       "status": "Destroyed"
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id18",
+     "record": {
+      "Wave": {
+       "scene": "id0",
+       "lane": "lane1",
+       "t": 500
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id19",
+     "record": {
+      "Wave": {
+       "scene": "id0",
+       "lane": "lane4",
+       "t": 500
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id20",
+     "record": {
+      "Wave": {
+       "scene": "id0",
+       "lane": "lane6",
+       "t": 670
+      }
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-6",
+     "value": {
+      "RosterHero": 16
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-7",
+     "value": {
+      "RosterHero": 17
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-8",
+     "value": {
+      "RosterHero": 18
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-9",
+     "value": {
+      "RosterHero": 19
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-10",
+     "value": {
+      "RosterHero": 20
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-11",
+     "value": {
+      "RosterHero": 21
+     }
+    }
+   }
+  ],
+  "order": "i"
+ },
+ "metadata_3": {
+  "id": "id0",
+  "ops": [
+   {
+    "Create": {
+     "id": "id0",
+     "record": {
+      "Scene": {
+       "name": "Match moment",
+       "order": "i",
+       "clock": 3,
+       "source": {
+        "match_id": 9,
+        "tier": "metadata",
+        "t": 3
+       }
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id1",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-0",
+       "pos": {
+        "x": -550,
+        "y": -240
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1250,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id2",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-1",
+       "pos": {
+        "x": -1250,
+        "y": 60
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1350,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id3",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-2",
+       "pos": {
+        "x": -1950,
+        "y": 360
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1450,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id4",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-3",
+       "pos": {
+        "x": -2800,
+        "y": 740
+       },
+       "alive": false,
+       "placed": true,
+       "souls": 1550,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id5",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-4",
+       "pos": {
+        "x": -3350,
+        "y": 960
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1650,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id6",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-5",
+       "pos": {
+        "x": -4050,
+        "y": 1260
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1750,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id7",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-6",
+       "pos": {
+        "x": 1450,
+        "y": -240
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1850,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id8",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-7",
+       "pos": {
+        "x": 2150,
+        "y": 60
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 1950,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id9",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-8",
+       "pos": {
+        "x": 0,
+        "y": 0
+       },
+       "alive": false,
+       "placed": false,
+       "souls": 2050,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id10",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-9",
+       "pos": {
+        "x": 3550,
+        "y": 660
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 2150,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id11",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-10",
+       "pos": {
+        "x": 4250,
+        "y": 960
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 2250,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id12",
+     "record": {
+      "PlayerState": {
+       "scene": "id0",
+       "slot": "slot-11",
+       "pos": {
+        "x": 4950,
+        "y": 1260
+       },
+       "alive": true,
+       "placed": true,
+       "souls": 2350,
+       "ult_cooldown": 25,
+       "visible": true
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id13",
+     "record": {
+      "ObjectiveState": {
+       "scene": "id0",
+       "key": "walker:amber:lane1:1",
+       "status": "Destroyed"
+      }
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id14",
+     "record": {
+      "ObjectiveState": {
+       "scene": "id0",
+       "key": "guardian:sapphire:lane4:1",
+       "status": "Destroyed"
+      }
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-6",
+     "value": {
+      "RosterHero": 16
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-7",
+     "value": {
+      "RosterHero": 17
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-8",
+     "value": {
+      "RosterHero": 18
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-9",
+     "value": {
+      "RosterHero": 19
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-10",
+     "value": {
+      "RosterHero": 20
+     }
+    }
+   },
+   {
+    "Set": {
+     "id": "slot-11",
+     "value": {
+      "RosterHero": 21
+     }
+    }
+   }
+  ],
+  "order": "i"
+ }
+}

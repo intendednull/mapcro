@@ -7,12 +7,14 @@
 //! deleted scene, is history (undo's), not content, and someone who deleted it expects it gone.
 //!
 //! An import is untrusted. Every record goes through the same checks an edit's `Create` does,
-//! plus the checks genesis makes true for the records no edit creates (the board's title and
-//! the roster), and then the whole-board invariants. Every id is replaced by a fresh one, so a
-//! file chooses none of the new board's ids.
+//! admission included (`Admit`: a file brings in nothing a transaction couldn't), plus the
+//! checks genesis makes true for the records no edit creates (the board's title and the
+//! roster), and then the whole-board invariants. Every id is replaced by a fresh one, so a file
+//! chooses none of the new board's ids.
 
 use crate::doc::Doc;
 use crate::ids::RecordId;
+use crate::map_state::Admit;
 use crate::records::{Record, SLOTS_PER_TEAM};
 use crate::validate::{self, LIMITS, Reject};
 use crate::Op;
@@ -53,11 +55,13 @@ fn live_ancestor(doc: &Doc, parent: Option<RecordId>) -> Option<RecordId> {
 }
 
 /// Build a new board from a file's records, under fresh ids from `next_id`, or say why not.
-/// Nothing partial: the board is whole and valid, or there is no board.
-pub fn import_records(records: Vec<(RecordId, Record)>, mut next_id: impl FnMut() -> RecordId) -> Result<Doc, Reject> {
+/// Nothing partial: the board is whole and valid, or there is no board. `admit` is what may
+/// come in now (the server's is `Admit::DEPLOYED`): a record it refuses refuses the file.
+pub fn import_records(records: Vec<(RecordId, Record)>, mut next_id: impl FnMut() -> RecordId, admit: &Admit) -> Result<Doc, Reject> {
     if records.len() > LIMITS.max_records {
         return Err(Reject::TooManyRecords);
     }
+    records.iter().try_for_each(|(_, r)| admit.record(r))?;
     if records.iter().filter(|(_, r)| matches!(r, Record::Scene(_))).count() > LIMITS.max_scenes {
         return Err(Reject::TooManyScenes);
     }
@@ -224,7 +228,7 @@ mod tests {
             },
         ]);
         let file = export_records(&doc);
-        let imported = import_records(file.clone(), counter(10_000)).expect("imports");
+        let imported = import_records(file.clone(), counter(10_000), &Admit::DEPLOYED).expect("imports");
         // Fresh ids are handed out in the file's order.
         let map: BTreeMap<_, _> = file.iter().enumerate().map(|(i, (id, _))| (*id, RecordId(10_001 + i as u128))).collect();
         assert_eq!(export_records(&imported), renamed(&file, &map));
@@ -248,7 +252,7 @@ mod tests {
         assert!(file.iter().all(|(id, _)| ![RecordId(500), RecordId(502), RecordId(503)].contains(id)), "{file:?}");
         // The scene under the deleted one moves up to where the board shows it.
         assert!(file.iter().any(|(id, r)| *id == RecordId(501) && matches!(r, Record::Scene(sc) if sc.parent == Some(s))));
-        import_records(file, counter(10_000)).expect("still a whole board");
+        import_records(file, counter(10_000), &Admit::DEPLOYED).expect("still a whole board");
     }
 
     /// A title is one line on every path: an edit can't make it two (security review F5: a
@@ -266,7 +270,7 @@ mod tests {
         let stored = crate::retitle(board(), "two\nlines");
         let mut file = export_records(&stored);
         assert_eq!(title_of(&mut file), "two lines");
-        import_records(file, counter(10_000)).expect("its download imports");
+        import_records(file, counter(10_000), &Admit::DEPLOYED).expect("its download imports");
     }
 
     fn with(mut file: Vec<(RecordId, Record)>, f: impl FnOnce(&mut Vec<(RecordId, Record)>)) -> Vec<(RecordId, Record)> {
@@ -287,7 +291,7 @@ mod tests {
     fn bad_files_are_refused_whole() {
         let file = export_records(&board());
         let s = scene_of(&board());
-        let refuse = |f: Vec<(RecordId, Record)>| import_records(f, counter(10_000)).expect_err("refused");
+        let refuse = |f: Vec<(RecordId, Record)>| import_records(f, counter(10_000), &Admit::DEPLOYED).expect_err("refused");
         let note = |id: u128, scene: RecordId, text: String| (RecordId(id), Record::Note(Note { scene, text }));
 
         assert_eq!(refuse(with(file.clone(), |f| *title_of(f) = "x".repeat(LIMITS.max_title + 1))), Reject::TextTooLong);
@@ -343,5 +347,34 @@ mod tests {
         assert_eq!(refuse(with(file.clone(), |f| f.extend(scenes))), Reject::TooManyScenes);
         // A record no file may make twice per scene.
         assert_eq!(refuse(with(file, |f| f.extend([note(900, s, "a".into()), note(901, s, "b".into())]))), Reject::Duplicate);
+    }
+
+    /// A file can't bring in what a transaction can't (map-state spec §4.3): a registry row or
+    /// a scene's state whose reader is still being deployed. The same file imports once they
+    /// are written.
+    #[test]
+    fn a_file_carrying_an_ahead_row_or_kind_is_refused_until_it_is_live() {
+        use crate::map_state::{More, MoreValue, RowId, Status};
+        use crate::records::SceneState;
+        let file = export_records(&board());
+        let s = scene_of(&board());
+        let hero = RowId::of("hero").expect("row");
+        let with_hero = with(file.clone(), |f| {
+            let p = f.iter_mut().find_map(|(_, r)| if let Record::PlayerState(p) = r { Some(p) } else { None }).expect("player");
+            p.more = [(hero, MoreValue::Int(13))].into_iter().collect();
+        });
+        let with_state = with(file.clone(), |f| f.push((RecordId(900), Record::SceneState(SceneState { scene: s, more: More::default() }))));
+        let ahead = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead };
+        assert_eq!(import_records(with_hero.clone(), counter(10_000), &ahead).expect_err("refused"), Reject::WrongField);
+        assert_eq!(import_records(with_state.clone(), counter(10_000), &ahead).expect_err("refused"), Reject::Immutable);
+        import_records(file, counter(10_000), &ahead).expect("a board with neither imports");
+        // The row live, the kind still ahead: the hero's value comes in, the scene's state doesn't.
+        let row_live = Admit { row: |_| Status::Live, scene_state: Status::Ahead };
+        let doc = import_records(with_hero, counter(10_000), &row_live).expect("imports");
+        let held = doc.iter_live().filter_map(|(_, r)| r.more()).filter_map(|(_, m)| m.get(hero).cloned()).collect::<Vec<_>>();
+        assert_eq!(held, [MoreValue::Int(13)]);
+        assert_eq!(import_records(with_state.clone(), counter(10_000), &row_live).expect_err("refused"), Reject::Immutable);
+        let doc = import_records(with_state, counter(10_000), &Admit::READS).expect("imports");
+        assert_eq!(doc.iter_live().filter(|(_, r)| matches!(r, Record::SceneState(_))).count(), 1);
     }
 }

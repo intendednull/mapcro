@@ -540,6 +540,43 @@ async fn rejections_survive_a_restart() {
     b.until_saved().await; // the next cseq is accepted, not treated as a gap
 }
 
+/// A client can't write what this build only reads (docs/specs/map-state.md §4.3): a registry
+/// row or a scene's state still `Ahead`. The honest client never sends one; this is a hand-made
+/// frame. It is rejected, nothing of it is stored, and the board loads after a restart: so it
+/// would on a server rolled back to before the reader, which can't parse either.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_cannot_write_a_map_state_row_or_kind_that_is_still_ahead() {
+    use mapcro_schema::{More, MoreValue, RowId, SceneState, Status};
+    assert!(mapcro_schema::ROWS.iter().all(|r| r.status == Status::Ahead) && mapcro_schema::SCENE_STATE == Status::Ahead, "the writer release: these become edits that save");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = Server::start(dir.path(), None);
+    let (board, owner) = server.create_board();
+    let mut a = Client::new(0x4a);
+    a.connect(server.port, &board, &owner).await.expect("a");
+    let (scene, player) = (scene_of(a.replica()), players(a.replica())[0]);
+    let hero = |value| FieldValue::More { key: RowId::of("hero").expect("row"), value };
+    let hostile: Vec<Vec<Op>> = vec![
+        vec![Op::Set { id: player, value: hero(Some(MoreValue::Int(13))) }],
+        vec![Op::Set { id: player, value: hero(None) }],
+        vec![Op::Create { id: mapcro_schema::RecordId(0x5000), record: Record::SceneState(SceneState { scene, more: More::default() }) }],
+        // Beside a valid edit: the whole transaction goes.
+        vec![Op::Set { id: player, value: FieldValue::PlayerPos(WorldPos { x: 900, y: 900 }) }, Op::Set { id: player, value: hero(Some(MoreValue::Int(13))) }],
+    ];
+    let rejected = edits_until_decided(&mut a, hostile.len(), |_, i| hostile[i].clone()).await;
+    assert_eq!(rejected, [Reject::WrongField, Reject::WrongField, Reject::Immutable, Reject::WrongField]);
+    // What a board holds today still saves, after them.
+    let moved = vec![Op::Set { id: player, value: FieldValue::PlayerPos(WorldPos { x: 77, y: -77 }) }];
+    assert_eq!(edits_until_decided(&mut a, 1, |_, _| moved.clone()).await, []);
+
+    let (d, port) = server.kill9();
+    let server = Server::start(&d, Some(port));
+    let fresh = fresh_catch_up(server.port, &board, &owner, 0x4b, 1).await;
+    assert_eq!(fresh.replica().last_seq(), 1, "one transaction was logged");
+    let view = fresh.replica().view();
+    assert!(view.iter().all(|(_, e)| !matches!(e.record, Record::SceneState(_)) && e.record.more().is_none_or(|(_, m)| m.is_empty())), "nothing ahead is stored");
+    assert!(matches!(view.live(player), Some(Record::PlayerState(p)) if p.pos == WorldPos { x: 77, y: -77 }));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn bad_credentials_and_hostile_frames_are_refused() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -1952,7 +1989,7 @@ async fn a_real_v4_database_migrates_and_its_board_compacts_and_rebases() {
     {
         let c = rusqlite::Connection::open(&path).expect("open");
         let v: String = c.query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("version");
-        assert_eq!(v, "7", "migrated to the current schema");
+        assert_eq!(v, "8", "migrated to the current schema");
         let codecs: i64 = c.query_row("SELECT COUNT(*) FROM ops WHERE codec = 'zstd-v1'", [], |r| r.get(0)).expect("ops");
         assert_eq!(codecs as u64, entries, "the v4 rows are untouched");
     }
@@ -2085,7 +2122,7 @@ async fn a_migration_interrupted_by_a_crash_still_boots() {
     let fresh = fresh_catch_up(server.port, &board, &owner, 0x3f3, fx["entries"].as_u64().expect("entries")).await;
     assert!(fresh.replica().view().live(mapcro_schema::RecordId(0xa0a0)).is_some());
     let v: String = rusqlite::Connection::open(&path).expect("open").query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("v");
-    assert_eq!(v, "7", "migrated to the current schema");
+    assert_eq!(v, "8", "migrated to the current schema");
 }
 
 #[tokio::test(flavor = "multi_thread")]

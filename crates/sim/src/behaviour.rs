@@ -4,8 +4,8 @@
 use crate::{Driver, World};
 use mapcro_engine::{ClientMsg, Replica, UndoError};
 use mapcro_schema::{
-    Arrow, Callout, FieldValue, HeroId, Note, ObjectiveKey, ObjectiveState, ObjectiveStatus, Op, OrderKey,
-    PlayerState, Record, RecordId, Scene, Team, Tx, TxKind, WorldPos,
+    Arrow, Callout, Entity, FieldValue, HeroId, Kind, More, MoreValue, Note, ObjectiveKey, ObjectiveState, ObjectiveStatus, Op, OrderKey,
+    PlayerState, Record, RecordId, RowId, Scene, SceneState, Team, Tx, TxKind, WorldPos,
 };
 use rand::Rng;
 use rand::seq::IndexedRandom;
@@ -111,6 +111,30 @@ fn text(rng: &mut ChaCha8Rng, max: usize) -> String {
     s.join(" ").chars().take(max).collect()
 }
 
+/// A legal value for a registry row, or `None` to clear it (one time in four).
+fn more_value(rng: &mut ChaCha8Rng, key: RowId) -> Option<MoreValue> {
+    if rng.random_range(0..4) == 0 {
+        return None;
+    }
+    Some(match key.row().kind {
+        Kind::Bool => MoreValue::Bool(rng.random()),
+        Kind::Int { min, max } => MoreValue::Int(rng.random_range(min..=max.min(min + 60))),
+        Kind::Text { max } => MoreValue::Text(text(rng, max).into()),
+        Kind::Pos => MoreValue::Pos(pos(rng)),
+        Kind::Ints { len, min, max } => {
+            let n = rng.random_range(0..=len.min(24));
+            MoreValue::Ints((0..n).map(|_| rng.random_range(min..=max.min(min + 9_000))).collect())
+        }
+    })
+}
+
+/// A write to one registry row of `entity`: a field like any other (map-state spec §4.2).
+fn more_write(rng: &mut ChaCha8Rng, entity: Entity) -> Option<FieldValue> {
+    let rows: Vec<RowId> = RowId::all().filter(|r| r.row().entity == entity).collect();
+    let key = *rows.choose(rng)?;
+    Some(FieldValue::More { key, value: more_value(rng, key) })
+}
+
 fn live_ids(r: &Replica, pred: impl Fn(&Record) -> bool) -> Vec<RecordId> {
     r.view().iter_live().filter(|(_, rec)| pred(rec)).map(|(id, _)| id).collect()
 }
@@ -125,9 +149,14 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
     let Some(scene) = pick(rng, &scenes) else { return vec![] };
     let new_id = RecordId(rng.random());
     let choice = match b {
-        Behaviour::Dragger | Behaviour::Undoer => rng.random_range(0..3),
-        Behaviour::Editor => rng.random_range(0..12).max(if rng.random_range(0..6) == 0 { 15 } else { 0 }),
-        Behaviour::SceneShuffler => [12, 13, 14, 16, 17, 18, 0].choose(rng).copied().unwrap_or(0),
+        // 19: a hero's registry values, written as often as its typed fields.
+        Behaviour::Dragger | Behaviour::Undoer => [0, 1, 2, 19][rng.random_range(0..4)],
+        Behaviour::Editor => match rng.random_range(0..6) {
+            0 => 15,
+            1 => [19, 20][rng.random_range(0..2)],
+            _ => rng.random_range(0..12),
+        },
+        Behaviour::SceneShuffler => [12, 13, 14, 16, 17, 18, 20, 0].choose(rng).copied().unwrap_or(0),
     };
     let set = |id: Option<RecordId>, value: FieldValue| id.map(|id| vec![Op::Set { id, value }]).unwrap_or_default();
     match choice {
@@ -177,7 +206,7 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
                 .unwrap_or(&ObjectiveStatus::Active);
             match existing {
                 Some(id) => vec![Op::Set { id, value: FieldValue::ObjectiveStatus(status) }],
-                None => vec![Op::Create { id: new_id, record: Record::ObjectiveState(ObjectiveState { scene, key, status }) }],
+                None => vec![Op::Create { id: new_id, record: Record::ObjectiveState(ObjectiveState { scene, key, status, more: More::default() }) }],
             }
         }
         6 if rng.random() => vec![Op::Create {
@@ -195,13 +224,13 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
             });
             match existing {
                 Some(id) => vec![Op::Set { id, value: FieldValue::WavePos(t) }],
-                None => vec![Op::Create { id: new_id, record: Record::Wave(mapcro_schema::Wave { scene, lane, t }) }],
+                None => vec![Op::Create { id: new_id, record: Record::Wave(mapcro_schema::Wave { scene, lane, t, more: More::default() }) }],
             }
         }
         7 => vec![Op::Create { id: new_id, record: Record::Callout(Callout { scene, pos: pos(rng), text: text(rng, 80), color: None }) }],
         8 => {
             let deletable =
-                live_ids(r, |x| matches!(x, Record::Arrow(_) | Record::Callout(_) | Record::ObjectiveState(_) | Record::Stroke(_) | Record::Wave(_)));
+                live_ids(r, |x| matches!(x, Record::Arrow(_) | Record::Callout(_) | Record::ObjectiveState(_) | Record::Stroke(_) | Record::Wave(_) | Record::SceneState(_)));
             pick(rng, &deletable).map(|id| vec![Op::Delete { id }]).unwrap_or_default()
         }
         9 => {
@@ -239,7 +268,29 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
                     });
                 }
             }
+            // Half of them are snapshots: the scene's state comes with it, as Save as scene sends.
+            if rng.random() {
+                let more: More = RowId::all().filter(|k| k.row().entity == Entity::Scene).filter_map(|k| Some((k, more_value(rng, k)?))).collect();
+                ops.push(Op::Create { id: RecordId(rng.random()), record: Record::SceneState(SceneState { scene: id, more }) });
+            }
             ops
+        }
+        // A hero's registry value: set or cleared, one key at a time.
+        19 => {
+            let p = pick(rng, &players);
+            more_write(rng, Entity::Hero).map(|v| set(p, v)).unwrap_or_default()
+        }
+        // The scene's state: made on first use (two editors at once is a Duplicate conflict, as
+        // for objectives), then written key by key.
+        20 => {
+            let existing = r.view().iter_live().find_map(|(id, rec)| match rec {
+                Record::SceneState(s) if s.scene == scene => Some(id),
+                _ => None,
+            });
+            match existing {
+                Some(id) => more_write(rng, Entity::Scene).map(|v| vec![Op::Set { id, value: v }]).unwrap_or_default(),
+                None => vec![Op::Create { id: new_id, record: Record::SceneState(SceneState { scene, more: More::default() }) }],
+            }
         }
         13 => vec![Op::Delete { id: scene }],
         // Re-parent a scene: under another (a cycle is refused, as it should be) or to the top.
@@ -307,7 +358,14 @@ fn first_order(r: &Replica) -> Option<OrderKey> {
 fn attack(rng: &mut ChaCha8Rng, client: mapcro_schema::ClientId, cseq: u64) -> (Tx, &'static str) {
     let id = RecordId(rng.random());
     let scene = RecordId(rng.random());
-    let (ops, what) = match rng.random_range(0..10) {
+    let (ops, what) = match rng.random_range(0..12) {
+        10 => {
+            // A registry value outside its row's bounds, or of another kind.
+            let key = RowId::all().next();
+            let value = if rng.random() { MoreValue::Int(-5) } else { MoreValue::Text("x".into()) };
+            (key.map(|key| vec![Op::Set { id, value: FieldValue::More { key, value: Some(value) } }]).unwrap_or_default(), "bad registry value")
+        }
+        11 => (vec![Op::Create { id, record: Record::SceneState(SceneState { scene, more: More::default() }) }], "scene state for no scene"),
         0 => (vec![Op::Set { id, value: FieldValue::PlayerPos(WorldPos { x: i32::MAX, y: 0 }) }], "out-of-bounds write"),
         1 => (vec![Op::Create { id, record: Record::Callout(Callout { scene, pos: WorldPos { x: 0, y: 0 }, text: "x".repeat(500), color: None }) }], "huge text"),
         2 => (vec![Op::Create { id, record: Record::Scene(Scene { name: "bad\u{7}".into(), order: OrderKey::first(), clock: None, source: None, live: false, parent: None }) }], "control chars / incomplete scene"),
