@@ -90,7 +90,9 @@ it saw and skips the field. Corrected against the old code first (`41adf30`), th
   schema: 49 mutants, 34 caught, 8 unviable, 7 missed. The 7: four in `Replica::next_undo` /
   `next_redo`, which only the wasm tests hold and the tool doesn't run for an engine mutant
   (all four fail `changed_tests` by hand; TD-88); three in `written_rows`, which only the
-  server's file tests held (a schema test now kills all three). By hand, one at a time, all
+  server's file tests held (a schema test now kills all three). `mapcro-server` (unit
+  tests, `board_file`, `admission_gate`; TD-81's flake skipped): 5 mutants, 3 caught, 2
+  unviable, 0 missed. By hand, one at a time, all
   caught: 6 on the replica and the wasm diff (the ack check dropped, `pending.is_empty()`
   dropped, vanished records missing from `changed`, a receive without the pending ops'
   targets, a rejection without them, a created record missing); 7 on the flip (`UNFIT_UNDO`
@@ -98,6 +100,14 @@ it saw and skips the field. Corrected against the old code first (`41adf30`), th
   step 9 additive, step 9 unknown); 8 on `build.ts` (the pickup scale twice, each list cap,
   the cut direction); 5 on `addSceneOps`; 3 on the save's `builds` flag; 2 on `statOf`; 3 on
   `host.ts`'s follow code, run through the e2e.
+
+### For the lead at the deploy
+
+- `SCHEMA_VERSION` moved (9 → 10): back the database up first. The rollback target is
+  `1dcbd31` and nothing older (floor 9).
+- After it is live: `just rows-lock` (the lock already lists all 15 rows, so no change is
+  expected) and set the justfile's `reader` to the deployed commit: what is stored changed.
+- Check the served client's build id changed (docs/deploy.md, the `UNFIT_UNDO` note).
 
 ### Left for later (backlog and register)
 
