@@ -105,20 +105,26 @@ it("sets the scene's hero and clears the old hero's build for everyone, in one u
   [a, b].forEach((s) => s.stop());
 });
 
-it("nothing stores that a scene holds its heroes while the row is ahead: the server refuses it", async () => {
-  expect(ROWS.has_heroes.status).toBe("ahead");
+it("the server takes the row that says a scene holds its heroes only once it is live: ahead of its writer, nothing stores it", async () => {
   const { a, b, scene } = await board();
   const state = newRecordId();
-  // A state as this build's save writes it is taken.
+  const more = () => (s: BoardSession) => (s.records.get(state)!.record as { SceneState: { more?: More } }).SceneState.more;
+  // A state as a save from before the row writes it is taken.
   expect(a.edit([{ Create: { id: state, record: { SceneState: { scene, more: { rows: ROWS.has_heroes.index, has_builds: true } } } } }])).toBe(true);
   expect(await settled(a, b)).toBe(true);
   expect(await until(() => b.records.has(state))).toBe(true);
-  // The flag on it is not: refused by the server, and gone from the one who tried.
   const before = a.problems.length;
   a.edit([{ Set: { id: state, value: { More: { key: "has_heroes", value: true } } } }]);
-  expect(await until(() => a.problems.length > before)).toBe(true);
-  expect(a.problems.slice(before).join(" ")).toMatch(/WrongField/);
-  expect(await settled(a, b)).toBe(true);
-  for (const s of [a, b]) expect((s.records.get(state)!.record as { SceneState: { more?: More } }).SceneState.more).toEqual({ rows: ROWS.has_heroes.index, has_builds: true });
+  if (ROWS.has_heroes.status === "ahead") {
+    // Refused by the server, and gone from the one who tried.
+    expect(await until(() => a.problems.length > before)).toBe(true);
+    expect(a.problems.slice(before).join(" ")).toMatch(/WrongField/);
+    expect(await settled(a, b)).toBe(true);
+    for (const s of [a, b]) expect(more()(s)).toEqual({ rows: ROWS.has_heroes.index, has_builds: true });
+  } else {
+    expect(await settled(a, b)).toBe(true);
+    expect(await until(() => more()(b)?.has_heroes === true)).toBe(true);
+    expect(a.problems.slice(before)).toEqual([]);
+  }
   [a, b].forEach((s) => s.stop());
 });

@@ -90,8 +90,10 @@ export function matchSceneOps(
   // builds (Retake can add them later, in transactions of its own). `builds` tells the caller,
   // which says so ("Saved without builds"): never silent.
   let stored = false;
+  let stateId: RecordId | undefined;
   if (opts.builds !== false && ops.length < LIMITS.max_ops_per_tx) {
-    const state: Op = { Create: { id: mint(), record: { SceneState: { scene: id, more: captureScene(tl, { written }) } } } };
+    stateId = mint();
+    const state: Op = { Create: { id: stateId, record: { SceneState: { scene: id, more: captureScene(tl, { written }) } } } };
     const room = LIMITS.max_tx_bytes - TX_SLACK - opsBytes([...ops, state]);
     const builds = sceneBuilds(roster, tl, second, room);
     if (builds) {
@@ -104,14 +106,19 @@ export function matchSceneOps(
     }
   }
   // Without the builds the scene still holds its heroes: each record its match's hero, and a
-  // state that says so.
+  // state that says so. Both or neither: a save with no room even for that (its own records
+  // fill the transaction) is a scene that draws the board roster's heroes.
   if (!stored && own && ops.length < LIMITS.max_ops_per_tx) {
     const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
-    roster.forEach((s, i) => {
-      const p = players.get(slotKey(s.slot.team, s.slot.slot));
-      if (p) heroes[i]!.PlayerState.more = { hero: p.hero_id };
-    });
-    ops.push({ Create: { id: mint(), record: { SceneState: { scene: id, more: captureScene(tl, { builds: false, written }) } } } });
+    const mine = roster.map((s) => players.get(slotKey(s.slot.team, s.slot.slot))?.hero_id);
+    const state: Op = { Create: { id: stateId ?? mint(), record: { SceneState: { scene: id, more: captureScene(tl, { builds: false, written }) } } } };
+    const bytes = mine.reduce((n: number, hero) => n + (hero == null ? 0 : MORE_KEY + moreBytes({ hero })), 0);
+    if (opsBytes([...ops, state]) + bytes <= LIMITS.max_tx_bytes - TX_SLACK) {
+      mine.forEach((hero, i) => {
+        if (hero != null) heroes[i]!.PlayerState.more = { hero };
+      });
+      ops.push(state);
+    }
   }
   return { id, ops, order, builds: stored };
 }

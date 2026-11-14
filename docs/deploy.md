@@ -268,8 +268,13 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
   and `reader` in the justfile set to the reader's commit. From that deploy Save leaves the
   roster alone and a saved scene draws its own heroes; `web/e2e/scene-hero.spec.ts` switches
   from the test of Save setting the roster to the test of a scene's own heroes by the row's
-  status, and `web/test/scene-heroes.test.ts` "the row is not written by this build" and the
-  Save pin (`web/test/pins/save-as-scene.json`) change on purpose.
+  status, and so does the server's refusal in `web/test/scene-hero-pick.test.ts`. Four tests
+  say what this build does and change on purpose with the flip: `scene-heroes.test.ts` "is not
+  written by this build", the two Save pins in `map-state-pins.test.ts` (with
+  `web/test/pins/save-as-scene.json`), and on the server `board_file.rs` "`has_heroes` is the
+  only row still ahead" and `store.rs` "the v11 reader stores nothing new". The writer was
+  rehearsed on the reader's branch with the row flipped in the tree only: everything built,
+  and the own-heroes e2e passed.
 - **`just reader-check`** (in `just test`) loads what this build's server stores on the reader
   release's own code. Its reader is `reader` in the justfile: **set it to the deployed commit
   at each deploy that changes what is stored**, with `just rows-lock`.

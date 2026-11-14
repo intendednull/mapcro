@@ -21,11 +21,13 @@ import { BUILD_KEYS, WRITTEN, captureBuild, captureScene, captured, heroBuildAt,
 import { holdsBuild } from "../src/mapstate/buildView";
 import { pickHeroOps } from "../src/mapstate/edit";
 import { fromScene } from "../src/mapstate/scene";
-import { canRetake, matchSceneOps, matchScenesOps, retakeOps, sourceOf } from "../src/match/save";
+import { LIMITS } from "../src/gen/limits";
+import { canRetake, matchSceneOps, matchScenesOps, opsBytes, retakeOps, sourceOf } from "../src/match/save";
 import { markers, replay } from "./support/synthetic-match";
 
-/** The rows a build writes once `has_heroes` is live. */
+/** The rows a build writes once `has_heroes` is live, and those of a build from before it. */
 const LATER = ROWS.has_heroes.index + 1;
+const BEFORE = ROWS.has_heroes.index;
 const tl = replay();
 /** A board whose roster holds other heroes than the match's (and one slot none). */
 const roster = () => tl.players.map((p, i) => ({ id: `slot-${i}`, slot: { team: p.team === "amber" ? ("Amber" as const) : ("Sapphire" as const), slot: p.slot, hero: i === 5 ? null : 100 + i, name: "" } }));
@@ -33,7 +35,8 @@ const minter = () => {
   let n = 0;
   return () => `id${n++}`;
 };
-const save = (opts: object = {}, t = 4) => matchSceneOps(roster() as never, [], undefined, tl, t, markers, minter(), [], { source: sourceOf(tl), ...opts });
+/** A save by a build from before the row, unless `written` says otherwise. */
+const save = (opts: object = {}, t = 4) => matchSceneOps(roster() as never, [], undefined, tl, t, markers, minter(), [], { source: sourceOf(tl), written: BEFORE, ...opts });
 const made = <T,>(ops: Op[], kind: string): Array<{ id: string; r: T }> => ops.flatMap((o) => ("Create" in o && kind in o.Create.record ? [{ id: o.Create.id, r: (o.Create.record as unknown as Record<string, T>)[kind]! }] : []));
 const rosterWrites = (ops: Op[]) => ops.filter((o) => "Set" in o && "RosterHero" in o.Set.value);
 /** A saved scene as `fromScene` reads it, on `slots`. */
@@ -47,16 +50,21 @@ const read = (ops: Op[], slots = roster()) => ({
 const SLOTS = tl.players.map((p) => `${p.team}-${p.slot}`);
 
 describe("the row", () => {
-  it("is not written by this build: the save is as it was", () => {
+  // The one test here that says what this build does: it changes on purpose with the release
+  // that makes the row `live` (docs/deploy.md).
+  it("is not written by this build: its save is the save from before", () => {
     expect(ROWS.has_heroes).toMatchObject({ entity: "scene", kind: "bool", status: "ahead" });
-    expect(WRITTEN).toBe(ROWS.has_heroes.index);
+    expect(WRITTEN).toBe(BEFORE);
     expect(writesHeroes()).toBe(false);
-    expect([writesHeroes(LATER), writesHeroes(LATER - 1)]).toEqual([true, false]);
     expect("has_heroes" in captureScene(tl)).toBe(false);
-    // The save sets the roster to the match's heroes, and says nothing of the scene's own.
+    expect(matchSceneOps(roster() as never, [], undefined, tl, 4, markers, minter(), [], { source: sourceOf(tl) }).ops).toEqual(save().ops);
+  });
+
+  it("a save from before sets the roster to the match's heroes, and says nothing of the scene's own", () => {
+    expect([writesHeroes(LATER), writesHeroes(BEFORE)]).toEqual([true, false]);
     const { ops } = save();
     expect(rosterWrites(ops)).toHaveLength(12);
-    expect(captured(made<{ more?: More }>(ops, "SceneState")[0]!.r.more)).toMatchObject({ builds: true, heroes: false, rows: WRITTEN });
+    expect(captured(made<{ more?: More }>(ops, "SceneState")[0]!.r.more)).toMatchObject({ builds: true, heroes: false, rows: BEFORE });
   });
 
   it("is read under the watermark: said, and known when the snapshot was taken", () => {
@@ -74,7 +82,8 @@ describe("the row", () => {
     expect(captureScene(tl, { written: LATER })).toEqual({ rows: LATER, has_builds: true, build: 6839, has_heroes: true });
     expect(captureScene(tl, { written: LATER, builds: false })).toEqual({ rows: LATER, has_heroes: true });
     expect(captureScene(tl, { written: LATER, heroes: false })).toEqual({ rows: LATER, has_builds: true, build: 6839 });
-    expect(captureScene(tl, { builds: false })).toEqual({ rows: WRITTEN });
+    expect(captureScene(tl, { written: BEFORE, builds: false })).toEqual({ rows: BEFORE });
+    expect(captureScene(tl, { written: BEFORE })).toEqual({ rows: BEFORE, has_builds: true, build: 6839 });
   });
 });
 
@@ -178,10 +187,53 @@ describe("Save, once it writes the row", () => {
     expect(made<HeroRecord>(eleven, "PlayerState").map((h) => h.r.more?.hero)).toEqual([...tl.players.slice(0, 11).map((p) => p.hero_id), undefined]);
   });
 
-  it("many scenes at once: none of them writes the roster", () => {
-    // Today the first of them does (the row is not written).
+  it("many scenes at once: none of them writes the roster (before the row: the first does, once)", () => {
     const now = matchScenesOps(roster() as never, [], undefined, tl, [{ t: 2, name: "a" }, { t: 6, name: "b" }], markers, minter());
-    expect(now.groups.map((g) => rosterWrites(g).length)).toEqual([12, 0]);
+    expect(now.groups.map((g) => rosterWrites(g).length)).toEqual(writesHeroes() ? [0, 0] : [12, 0]);
+    expect(now.groups.map((g) => captured(made<{ more?: More }>(g, "SceneState")[0]?.r.more).heroes)).toEqual([writesHeroes(), writesHeroes()]);
+  });
+
+  it("with no room even for the heroes, stores neither them nor a state that says so", () => {
+    // One objective down whose key fills the transaction to within `spare` bytes of its cap.
+    const filled = (spare: number, written: number, builds = false) => {
+      const at = (pad: number) => {
+        const key = `walker:amber:lane1:1:${"k".repeat(pad)}`;
+        const full = { ...tl, objectives: [{ key, kind: "walker", team: "amber", lane: 1, destroyed_s: 0 }] } as never;
+        const mk = [{ key, kind: "walker", team: "amber", lane: "yellow", at: { x: 0, y: 0 } }] as never[];
+        return matchSceneOps(roster() as never, [], undefined, full, 4, mk, minter(), [], { source: sourceOf(tl), builds: pad > 0 && builds, written });
+      };
+      const bare = opsBytes(at(0).ops.filter((o) => !("Create" in o && "SceneState" in o.Create.record)).map((o) => JSON.parse(JSON.stringify(o, (k, v) => (k === "more" ? undefined : v)))));
+      return at(LIMITS.max_tx_bytes - 1024 - bare - spare).ops;
+    };
+    // Room for them: every record its hero, and the state.
+    const roomy = filled(2000, LATER);
+    expect(made<HeroRecord>(roomy, "PlayerState").every((h) => typeof h.r.more?.hero === "number")).toBe(true);
+    expect(made<{ more?: More }>(roomy, "SceneState").map((s) => s.r.more)).toEqual([{ rows: LATER, has_heroes: true }]);
+    expect(opsBytes(roomy)).toBeLessThanOrEqual(LIMITS.max_tx_bytes - 1024);
+    // None: the save is whole and within the cap, and the scene draws the roster's heroes.
+    const tight = filled(40, LATER);
+    expect(made<HeroRecord>(tight, "PlayerState").every((h) => h.r.more === undefined)).toBe(true);
+    expect(made(tight, "SceneState")).toEqual([]);
+    expect(opsBytes(tight)).toBeLessThanOrEqual(LIMITS.max_tx_bytes - 1024);
+    expect(rosterWrites(tight)).toEqual([]);
+    // To the byte: exactly what the heroes and the state add fits; one less does not.
+    const strip = (ops: Op[]) => ops.filter((o) => !("Create" in o && "SceneState" in o.Create.record)).map((o) => JSON.parse(JSON.stringify(o, (k, v) => (k === "more" ? undefined : v))));
+    const need = opsBytes(roomy) - opsBytes(strip(roomy));
+    expect(need).toBeGreaterThan(12 * 19);
+    expect(made(filled(need, LATER), "SceneState")).toHaveLength(1);
+    expect(opsBytes(filled(need, LATER))).toBe(LIMITS.max_tx_bytes - 1024);
+    const short = filled(need - 1, LATER);
+    expect([made(short, "SceneState").length, made<HeroRecord>(short, "PlayerState").filter((h) => h.r.more !== undefined).length]).toEqual([0, 0]);
+    // A build from before stores neither either way.
+    expect(made(filled(2000, BEFORE), "SceneState")).toEqual([]);
+    // Room for the heroes but not for their builds: the same save as one asked for without
+    // builds, record for record and id for id.
+    const spare = [300, 400, 500, 600, 700, 800].find((n) => {
+      const ops = filled(n, LATER, true);
+      return made(ops, "SceneState").length === 1 && made<HeroRecord>(ops, "PlayerState").every((h) => Object.keys(h.r.more ?? {}).join() === "hero");
+    });
+    expect(spare).toBeDefined();
+    expect(filled(spare!, LATER, true)).toEqual(filled(spare!, LATER, false));
   });
 });
 
@@ -244,16 +296,17 @@ describe("Retake and the scene's heroes", () => {
 
   it("is not offered just because the row came to be written", () => {
     const src = { source: { match_id: tl.match_id, t: 4, tier: "replay" } };
-    const saved = captureScene(tl);
-    expect(retakeRows()).toBe(WRITTEN);
-    expect(retakeRows(LATER)).toBe(WRITTEN);
+    const saved = captureScene(tl, { written: BEFORE });
+    expect(retakeRows(BEFORE)).toBe(BEFORE);
+    expect(retakeRows(LATER)).toBe(BEFORE);
     // (A row after it that Retake gives would move it past: there is none yet.)
-    expect(retakeRows(LATER + 1)).toBe(WRITTEN);
+    expect(retakeRows(LATER + 1)).toBe(BEFORE);
+    expect(retakeRows()).toBe(BEFORE);
     expect(retakeRows(0)).toBe(0);
     expect(canRetake(src, saved, tl)).toBe(false);
     // The build that writes the row: a scene saved today has nothing to retake.
     expect(canRetake(src, saved, tl, LATER)).toBe(false);
-    expect(canRetake(src, { ...saved, rows: WRITTEN - 1 }, tl, LATER)).toBe(true);
+    expect(canRetake(src, { ...saved, rows: BEFORE - 1 }, tl, LATER)).toBe(true);
     expect(canRetake(src, undefined, tl, LATER)).toBe(true);
   });
 
