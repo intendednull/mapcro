@@ -67,7 +67,10 @@ No blocker. What each item got; the runs are at the end of this section.
   clears); a session left in the page is the same visit; a board left in the page is the
   same visit; what was made, and what was entered, before the board was left still counts.
 - The rows touched (`session-isolation`, `caddy-timeline`, `board-unmount`, `player`,
-  `player-review`): RUNS_PLACEHOLDER
+  `player-review`): **36 passed, twice**, on bdc6a24
+  (batch 11). In batch 10, before the spec's server was given its creations, 35 passed and the
+  one row above failed, twice. Through the rewriting Caddy the client made 10 timeline
+  requests each run: one 200, nine 304s.
 - Not run by this implementer: the full e2e and `just test`. The lead runs the gate.
 
 ## After the adversarial review (2026-11-14): its fixes
