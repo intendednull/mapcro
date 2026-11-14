@@ -164,6 +164,59 @@ test("a scene saved from Player shows each hero's build as Player did (#49)", as
   expect(await shown(p, "Amber-3")).toEqual(inPlayer);
 });
 
+test("a hero dead at the frame is a dark token with its respawn time in the saved scene (D4)", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Scene respawn");
+  const p = await joinNew(browser, url, "Coach");
+  // Amber 1 died at 20 and is back at 30: saved at 25, five seconds are left.
+  await savedScene(p);
+  await expect(p.locator('[data-testid=map] .tok.dead')).toHaveCount(1);
+  await expect(p.locator('[data-testid=map] .tok[data-slot="Amber-1"]')).toHaveClass(/\bdead\b/);
+  const label = p.locator("[data-testid=map] [data-testid=respawn]");
+  await expect(label).toHaveCount(1);
+  await expect(label.locator(".respawn-label")).not.toHaveClass(/\bunset\b/);
+  await expect(label).toHaveText("respawn 0:05");
+  // It is the scene's own: a second person reads the same.
+  const q = await joinNew(browser, url, "Player");
+  await expect(q.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  await q.getByTestId("scene-card").nth(1).click();
+  await expect(q.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
+  await expect(q.locator("[data-testid=map] [data-testid=respawn]")).toHaveText("respawn 0:05");
+});
+
+test("a copy of a scene saved from the match, and a new scene from it, keep its moment: the ▶ chip", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Copy source");
+  const p = await joinNew(browser, url, "Coach");
+  const inPlayer = await savedScene(p);
+  const cards = p.getByTestId("scene-card");
+  await expect(cards).toHaveCount(2);
+  await expect(p.getByTestId("scene-chip")).toHaveCount(1);
+  // Duplicate: the copy is of that moment of the match too.
+  await cards.nth(1).hover();
+  await cards.nth(1).getByTestId("scene-clone").click();
+  await expect(cards).toHaveCount(3);
+  await expect(cards.nth(2)).toHaveAttribute("aria-current", "true");
+  await expect(cards.nth(2).getByTestId("scene-chip")).toHaveCount(1);
+  // Add scene: the play's next frame starts from the same snapshot.
+  await p.getByTestId("scene-add").click();
+  await expect(cards).toHaveCount(4);
+  await expect(p.getByTestId("scene-chip")).toHaveCount(3);
+  // The first scene was never the match's.
+  await expect(cards.nth(0).getByTestId("scene-chip")).toHaveCount(0);
+  // For a second person, after a reload of the board: stored, not this page's.
+  const b = await joinNew(browser, url, "Viewer");
+  await expect(b.getByTestId("scene-card")).toHaveCount(4);
+  await expect(b.getByTestId("scene-chip")).toHaveCount(3);
+  // The copy's chip plays the match from the scene's moment.
+  await cards.nth(2).getByTestId("scene-chip").click();
+  await expect(p.getByTestId("topbar")).toHaveAttribute("data-mode", "player");
+  await expect(p.getByTestId("match-clock")).toContainText("0:25 /");
+  // And the copy still holds the builds.
+  await cards.nth(2).click();
+  await expect(p.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
+  await portrait(p, "Amber-3").getByTestId("focus-hero").click();
+  expect(await shown(p, "Amber-3")).toEqual(inPlayer);
+});
+
 type Rec = [string, Record<string, Record<string, unknown>>];
 const hex = (n: number) => n.toString(16).padStart(32, "0");
 

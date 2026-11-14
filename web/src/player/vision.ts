@@ -44,18 +44,30 @@ export type SeenAt =
    * its last-seen spot no longer says anything; or dead when last seen): not drawn. */
   | null;
 
-export function seenAt(p: Pick<TimelinePlayer, "x" | "y" | "deaths" | "seen">, t: number): SeenAt {
-  const ds = t * 10;
+/** The scan of `seen` for one tenth of a second: in sight (`true`), or the tenth the last
+ * sight before it ended (`null`: none yet). It changes only with the tenth (`Math.floor(t * 10)`),
+ * so Player asks once a tenth, not once a frame (mapstate/frame.ts). */
+export function sightAt(p: Pick<TimelinePlayer, "seen">, ds: number): true | number | null {
   // `[start, end)` tenths, in order.
   let last: number | null = null;
   for (const [a, b] of p.seen ?? []) {
     if (ds < a) break;
-    if (ds < b) return { seen: true };
+    if (ds < b) return true;
     last = b;
   }
-  if (last === null) return null;
-  const when = last / 10;
+  return last;
+}
+
+/** `seenAt` from a tenth's `sightAt`: what is left changes with the frame (how long ago). */
+export function seenFrom(p: Pick<TimelinePlayer, "x" | "y" | "deaths">, t: number, sight: true | number | null): SeenAt {
+  if (sight === true) return { seen: true };
+  if (sight === null) return null;
+  const when = sight / 10;
   if (p.deaths.some((d) => d > when && d <= t)) return null;
   const at = positionAt(p, when);
   return at ? { seen: false, at, ago: t - when } : null;
+}
+
+export function seenAt(p: Pick<TimelinePlayer, "x" | "y" | "deaths" | "seen">, t: number): SeenAt {
+  return seenFrom(p, t, sightAt(p, t * 10));
 }

@@ -1098,12 +1098,17 @@ kbd {
 .phone .tb-build-column [data-item-id], .phone .tb-build-column [data-ability-id] { min-width: 44px; min-height: 44px; }
 .phone .tb-build-investment { height: 44px; }
 .phone .tb-build-investment > span { min-width: 44px; }
-.phone-build-content { min-height: 0; overflow: auto; }
+.phone-build-content { min-height: 0; overflow: auto; container-type: inline-size; }
 .phone .p-build-close { flex: none; display: block; margin-left: auto; }
 /* The build sheet reads items, abilities, then stats; the hero's name is the sheet's title. */
 .phone .phone-build-sheet .tb-build-column { display: flex; flex-direction: column; gap: 8px; padding: 0 0 8px; }
 .phone .phone-build-sheet .tb-build-column > * { margin: 0; }
 .phone .phone-build-sheet .tb-build-items { order: 1; grid-template-columns: repeat(6, 52px); gap: 6px; padding: 0; justify-content: start; }
+/* Six across in a sheet narrower than six 52 px cells (344 px phones, a 4:3 tablet's dock): the
+   sixth was cut. */
+@container (width < 342px) {
+  .phone .phone-build-sheet .tb-build-items { grid-template-columns: repeat(6, minmax(44px, 1fr)); gap: 6px 4px; }
+}
 .phone .phone-build-sheet .tb-build-abilities { order: 2; grid-template-columns: repeat(4, 52px); gap: 8px; padding-bottom: 4px; justify-content: start; }
 .phone .phone-build-sheet .tb-build-investment { order: 3; justify-content: flex-start; }
 .phone .phone-build-sheet .tb-build-vitals { order: 4; justify-content: flex-start; }
@@ -1223,7 +1228,6 @@ kbd {
 .p-sheet .pl-side * { font-size: 12px; }
 .p-sheet .map-controls { position: static; display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin: 0; }
 .p-sheet .map-layers > summary { display: none; }
-.p-sheet .map-layers::details-content { content-visibility: visible; display: contents; }
 .p-sheet .map-layers-pop { position: static; display: flex; flex-direction: column; max-height: none; max-width: none; box-shadow: none; border: 0; background: transparent; padding: 0; }
 .p-sheet .map-layers-pop .btn, .p-sheet .map-controls > .btn { justify-content: flex-start; font-size: 14px; }
 .p-more { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
@@ -1314,15 +1318,80 @@ html:has(.phone) :is(input:not([type=range], [type=checkbox], [type=radio]), tex
   .phone-player .phone-build-sheet .p-sheet-head, .phone-player [data-testid=phone-events-sheet] .p-sheet-head { display: none; }
   .phone-player .phone-build-sheet, .phone-player [data-testid=phone-events-sheet] { padding-top: 8px; }
 }
+/* A phone in landscape has no strip row: the status sits at the tab row's end, so the dock gets
+   its 44 px (at 615 × 344 the dock was about 65 px: one event row, or a build's items without
+   its abilities). The tabs keep at least 176 px and scroll sideways if the status needs more. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .phone.phone-player {
+    grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "map roster roster" "map dock top" "bar bar bar";
+  }
+  .phone-player > .p-top {
+    align-self: start; height: 44px; margin-right: 8px; padding: 0; background: transparent;
+    max-width: calc(100vw - 100dvh + var(--transport-h, 52px) - 192px);
+  }
+  .phone-player > .p-top .spacer { display: none; }
+  .phone-player > .p-dock-tabs { margin-right: 0; }
+  .phone-player > .p-top .pl-tier-wrap { min-width: 0; flex: 0 1 auto; }
+  .phone-player > .p-top .pl-tier { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .phone-player > .p-top .pl-tier-why { left: auto; right: 0; }
+}
+/* A narrow one (the operator's phone turned, 615 × 344: a 323 px pane) has no room for the whole
+   status: no wordmark; the save state is its glyph while all is well; the follow pill is its
+   button; a long tier ("Queued · 3 ahead · ~1 min") is cut. */
+@media (orientation: landscape) and (max-height: 500px) and (max-width: 700px) {
+  .phone-player > .p-top { gap: 4px; }
+  .phone-player > .p-top .wordmark { display: none; }
+  .phone-player .p-dock-tabs > .btn { padding: 0 8px; }
+  .phone-player > .p-top .save:is(.saved, .syncing) { max-width: 22px; padding: 0 4px; overflow: hidden; }
+  .phone-player > .p-top .p-follow { gap: 4px; padding: 0; border: 0; background: transparent; }
+  .phone-player > .p-top .p-follow > :not(button, .ico) { display: none; }
+  /* The roster: 4 px a side and 3 px between cells, so six cells and the total fit one row from
+     312 px (the operator's phone turned is 315) and the totals don't take a line each. */
+  .phone-player > .phone-roster { margin: 2px 4px; }
+  @container (width >= 312px) {
+    .phone-player .phone-team { grid-template-columns: repeat(6, minmax(44px, 1fr)) auto; gap: 3px; }
+    .phone-player .phone-total { grid-column: auto; grid-row: auto; text-align: right; line-height: normal; }
+  }
+}
+/* A short dock (under about 400 px tall): 44 px cells and the level pips in one line, so a
+   twelve-item build shows with its abilities; the Events search row scrolls away with the list
+   and a row is one line, which leaves three rows or more. */
+@media (orientation: landscape) and (max-height: 400px) {
+  .phone-player .phone-build-sheet, .phone-player [data-testid=phone-events-sheet] { padding-top: 4px; }
+  .phone .phone-build-sheet .tb-build-column { row-gap: 4px; }
+  .phone .phone-build-sheet .tb-build-items { grid-template-columns: repeat(6, 44px); gap: 4px; }
+  .phone .phone-build-sheet .tb-build-abilities { grid-template-columns: repeat(4, 44px); }
+  .phone .phone-build-sheet .tb-build-levels { flex-direction: row; height: 3px; margin-bottom: 2px; }
+  .phone .phone-build-sheet .tb-build-levels i { flex: 1; width: auto; }
+  .phone .p-sheet .pl-events > :is(.pl-events-head, .pl-chips) { position: static; }
+  .phone .p-sheet .pl-ev { scroll-margin-top: 0; }
+  /* A death's closed recap shares its row's line (two short lines at the row's end), so a row
+     is 44 px, not 88; open, it takes the full width under the row as everywhere. */
+  .phone .p-sheet .pl-ev-go { flex: 1 1 120px; }
+  .phone .p-sheet .death-recap:not([open]) { flex: 0 0 96px; }
+  .phone .p-sheet .death-recap:not([open]) > summary { display: flex; align-items: center; padding: 0 4px; line-height: 14px; }
+}
 .phone-build-list { display: flex; flex-direction: column; }
 .phone-build-row {
   display: grid; grid-template-columns: 44px 7em 5em minmax(0, 1fr); align-items: center; gap: 8px;
-  min-height: 48px; padding: 2px 4px; text-align: left; font-size: 14px; font-variant-numeric: tabular-nums;
+  flex: none; min-height: 48px; padding: 2px 4px; text-align: left; font-size: 14px; font-variant-numeric: tabular-nums;   /* its own height: the list scrolls, the rows don't squeeze */
   background: transparent; border: 0; border-bottom: 1px solid var(--line); color: var(--text);
 }
 .phone-build-row .tb-player { position: relative; display: block; width: 44px; height: 44px; overflow: hidden; border-radius: 8px; }
 .phone-build-row.amber .tb-player { border-bottom: 2px solid #d4860b; }
 .phone-build-row.sapphire .tb-player { border-bottom: 2px solid #4d75c3; }
 .phone-build-head { position: sticky; top: 0; z-index: 1; min-height: 24px; background: var(--panel); color: var(--muted); font-size: 12px; }
-.phone-row-items { display: flex; gap: 2px; overflow: hidden; }
+/* Items wrap, never clip. Where the row has no room for twelve in the last column (a tablet in
+   landscape: the dock is 309 px at 1024 × 768, three items showed), they take a second line
+   under K/D/A and souls, beside the portrait. */
+.phone-row-items { display: flex; flex-wrap: wrap; gap: 2px; min-width: 0; }
 .phone-row-items img { width: 24px; height: 24px; object-fit: contain; }
+@container (width < 560px) {
+  .phone-build-row { row-gap: 2px; }
+  .phone-build-row:not(.phone-build-head) > .tb-player { grid-row: 1 / span 2; }
+  .phone-build-row > .phone-row-kda { grid-column: 2; }
+  .phone-build-row > .phone-row-souls { grid-column: 3 / -1; }
+  .phone-build-row > .phone-row-items { grid-column: 2 / -1; grid-row: 2; }
+  .phone-build-row > .phone-row-items:empty { display: none; }
+}

@@ -23,6 +23,7 @@ import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type FollowTarget, type ViewRect, clampView, fromViewport, locate, presenters, sideOf, startFollow, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
+import { fromTimeline, markerFrame, playerFrame } from "../mapstate/state";
 import type { MatchPreview } from "../match/preview";
 import { EventPings, Highlight, MapControls, Player, PlayerSide, PlayerSwitch, TierChip, TrooperDots } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
@@ -46,6 +47,7 @@ import { WINDOWS_APP_PORTABLE_URL, appUpdate, desktopAppLinks } from "../player/
 import { downloadBoard } from "../core/boardfile";
 import { Layers, calloutOrder } from "./Layers";
 import { FRESH_BOARD, randomRosterOps, sceneMatchName } from "./roster";
+import { fromScene, sceneRecords } from "../mapstate/scene";
 import { HeroPicker } from "./HeroPicker";
 import { defaultSplit, project } from "../map/lanes";
 import { FIT_VIEW, worldToMap, worldToView } from "../map/transform";
@@ -192,7 +194,13 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   /** The match open in Player, for the feedback form (spec §11a); none in sandbox. */
   const feedbackMatch = () => feedbackMatchOf(inPlayer(), player.matchId(), player.tl(), player.t());
   // Player draws the match alone, an empty map while there's no timeline (review finding 7).
-  const matchPreview = createMemo<MatchPreview | undefined>(() => (inPlayer() ? player.preview(p.art.model.markers) : undefined));
+  // Player's state, on its three clocks (mapstate/state.ts; TD-50), and the frame the map's
+  // older readers take from it.
+  const matchSource = { tl: player.tl, t: player.t, markers: () => p.art.model.markers };
+  const matchState = fromTimeline(matchSource);
+  const frame = playerFrame({ ...matchSource, shown: player.shown, fade: player.continuous }, matchState);
+  const markerPreview = markerFrame(matchState, player.showHealth);
+  const matchPreview = createMemo<MatchPreview | undefined>(() => (inPlayer() ? frame() : undefined));
   const liveScene = liveLayer(state, player, p.board, inPlayer);
   /** Where annotation goes: the scene, or in Player the match's live layer, never a fallback. */
   const annScene = () => (inPlayer() ? liveScene() : scene()?.id);
@@ -468,6 +476,13 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const hasRecap = (slot: string, t: number) => !!recapOf(player.tl()?.players.find((q) => slotKey(q.team, q.slot) === slot), t);
   /** In a scene, the open match's in-game name for a slot (spec §6b "Names"); a typed one wins. */
   const matchName = (team: string, n: number) => sceneMatchName(player.tl(), scene()?.scene.source, player.playerName, team, n);
+  // The scene's state behind the interface Player's has (mapstate/scene.ts; map-state phase 4).
+  const sceneState = fromScene(
+    sceneRecords(state, () => scene()?.id, () => (slot) => {
+      const [team, n] = slot.split("-");
+      return matchName(team!, Number(n));
+    }),
+  );
   const presenterList = createMemo(() => presenters(state.peerList(), state.myPeer(), followingHere()));
   const followersOf = (peer: number | undefined) =>
     peer === undefined ? 0 : state.peerList().filter((x) => x.state?.following === peer).length;
@@ -654,8 +669,10 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const laneEdges = createMemo(() => {
     const m = new Map<string, () => { amber: number; sapphire: number } | undefined>();
     for (const l of p.art.model.lanes) {
-      const amber = easedNumber(() => matchPreview()?.lanes.get(l.key)?.amber);
-      const sapphire = easedNumber(() => matchPreview()?.lanes.get(l.key)?.sapphire);
+      // The lane's own field: it changes when the colours move, not each frame.
+      const edges = () => (inPlayer() ? matchState.lane(l.key).edges() : undefined);
+      const amber = easedNumber(() => edges()?.amber);
+      const sapphire = easedNumber(() => edges()?.sapphire);
       m.set(l.key, () => {
         const a = amber();
         const s = sapphire();
@@ -670,10 +687,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     const lane = p.art.model.lanes.find((l) => l.key === key);
     // Player shows only the match's lanes (replay tier: the zipline colours, drawn by `laneEdges`;
     // this is their gap's middle), never the scene's (spec §6b).
-    const pv = matchPreview();
-    const edges = pv?.lanes.get(key);
-    if (pv) return edges ? (edges.amber + edges.sapphire) / 2 : lane ? defaultSplit(lane.line) : 500;
-    return remoteSmooth().get(key)?.() ?? waves().get(key)?.t ?? (lane ? defaultSplit(lane.line) : 500);
+    const split = inPlayer() ? matchState.lane(key).split() : (remoteSmooth().get(key)?.() ?? sceneState.lane(key).split());
+    return split ?? (lane ? defaultSplit(lane.line) : 500);
   };
 
   // ---- a board this device just made gets twelve random heroes, once ----
@@ -974,7 +989,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         </h1>
       </div>
       </Show>
-      <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} compact onFocus={focusHero} onSeek={seekMatch} />}>
+      <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} ms={matchState} art={p.art} vp={viewpoint()} compact onFocus={focusHero} onSeek={seekMatch} />}>
         <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} compact readOnly onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
       </Show>
       <div class="p-map-wrap">
@@ -1122,7 +1137,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   // Each marker's status, health, camp and buff at t: changing when one does, not with every
   // frame's preview (#39).
   const markerKeys = createMemo(() => p.art.model.markers.map((m) => m.key));
-  const marks = markerStates(matchPreview, markerKeys, (k) => objectives().get(k)?.status);
+  // The markers' part of the frame is new once a second, so these run then, not each frame.
+  const marks = markerStates(() => (inPlayer() ? markerPreview() : undefined), markerKeys, (k) => sceneState.marker(k).status());
   const markerStatus = marks.status;
   const mapControls = () => (<MapControls host={player} heals={heals()} crates={crates()}
               toggleHeals={() => player.setShowHeals(!heals())}
@@ -1145,6 +1161,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                     timeline={player.tl()!}
                     t={player.t()}
                     vision={player.vision()}
+                    ms={matchState}
                     art={p.art}
                     name={player.playerName}
                     onSeek={seekMatch}
@@ -1432,7 +1449,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               </h1>
             </div>
           </div>
-          <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} onFocus={focusHero} onSeek={seekMatch} />}>
+          <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} ms={matchState} art={p.art} vp={viewpoint()} onFocus={focusHero} onSeek={seekMatch} />}>
             <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} bindMenu={(f) => (heroMenu = f)} />
           </Show>
           {/* The map takes all the room left, as the largest square that fits. */}

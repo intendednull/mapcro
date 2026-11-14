@@ -7,7 +7,7 @@ import { type Page, expect, test } from "./fixtures";
 import { joinNew, revealControls } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
-import { pack, timeline, INFUSER, ABILITY } from "./tooltip-fixture";
+import { pack, timeline, INFUSER, ABILITY, EXTRA_ITEM } from "./tooltip-fixture";
 const queue = mkdtempSync(join(tmpdir(), "mapcro-e2e-tooltips-"));
 let upstream: ReturnType<typeof createServer>;
 let server: Server;
@@ -20,7 +20,7 @@ test.beforeAll(async () => {
   await new Promise<void>((ok) => upstream.listen(0, "127.0.0.1", ok));
   const port = (upstream.address() as { port: number }).port;
   writeFileSync(join(queue, "feedback-token"), "synthetic-test-only", { mode: 0o600 });
-  server = new Server(pack({ cards: true }), { FEEDBACK_GITHUB_TOKEN_FILE: join(queue, "feedback-token"), FEEDBACK_GITHUB_API: `http://127.0.0.1:${port}`, MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "20" });
+  server = new Server(pack({ cards: true, items: 12 }), { FEEDBACK_GITHUB_TOKEN_FILE: join(queue, "feedback-token"), FEEDBACK_GITHUB_API: `http://127.0.0.1:${port}`, MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "20" });
   await server.start();
 });
 test.afterAll(() => {
@@ -54,8 +54,11 @@ async function open(p: Page, id: string) {
   let job = "";
   await expect.poll(() => (job = readdirSync(join(queue, "inbox")).find((f) => f.startsWith(`${id}-`) && f.endsWith(".dem") && !answered.has(f)) ?? "")).not.toBe("");
   answered.add(job);
+  const tl = timeline(id);
   writeFileSync(join(queue, "outbox", job.replace(/\.dem$/, ".json")), JSON.stringify({
-    ...timeline(id),
+    ...tl,
+    // Sapphire 5 holds a late game's twelve items; the rest keep their one.
+    players: tl.players.map((q) => (q.team === "sapphire" && q.slot === 5 ? { ...q, items: Array.from({ length: 12 }, (_, i) => [50, EXTRA_ITEM + i, 0]), casts: [] } : q)),
     // Several events, so the Events sheet's density can be judged.
     events: [30, 32, 34, 36, 38, 39].map((t, i) => ({ t, kind: "death", team: i % 2 ? "sapphire" : "amber", slot: i ? 2 + (i % 3) : 1, hero_id: i ? 3 + (i % 3) : 2, x: -2500, y: -3000 })),
     troopers: { every_s: 1, amber: Array(41).fill(Buffer.from([1, 0, 0, 0, 0, 0]).toString("base64")), sapphire: Array(41).fill("") },
@@ -119,6 +122,26 @@ async function checkBuildSheet(p: Page) {
   await expect(sheet).toHaveCount(1);
 }
 
+/** A late game's build (Sapphire 5: twelve items) shows every item and all four abilities in the
+ *  sheet without scrolling: at 615 × 344 the dock had 65 px, the items alone. Then back to Amber 0. */
+async function checkFullBuild(p: Page) {
+  await p.locator('.tb-player[data-slot="Sapphire-5"] [data-testid=focus-hero]').tap();
+  const sheet = p.locator(".phone-build-sheet");
+  await expect(sheet.locator(".tb-build-item")).toHaveCount(12);
+  await expect(sheet.locator(".tb-build-ability")).toHaveCount(4);
+  const cut = await sheet.evaluate((el) => {
+    const view = el.getBoundingClientRect();
+    return [...el.querySelectorAll(".tb-build-item, .tb-build-ability")].filter((e) => {
+      const r = e.getBoundingClientRect();
+      return r.width < 43.9 || r.height < 43.9 || r.top < view.top - 1 || r.bottom > view.bottom + 1 || r.left < view.left - 1 || r.right > view.right + 1;
+    }).length;
+  });
+  expect(cut).toBe(0);
+  await checkPhoneLayout(p);
+  await p.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').tap();
+  await expect(sheet.locator(".tb-build-item")).toHaveCount(1);
+}
+
 /** The roster reads like the HUD's bar: souls under each portrait, the team totals, and the
  *  dead greyed with their respawn seconds; cells stay 44 × 44. Counts and numbers only. */
 async function checkRoster(p: Page) {
@@ -144,7 +167,7 @@ async function checkRoster(p: Page) {
   await expect(cells).toHaveCount(12);
   for (let i = 0; i < 12; i++) {
     const b = (await cells.nth(i).boundingBox())!;
-    expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(44);
+    expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(43.9);   // 43.99999 at a fractional pixel ratio
   }
   await checkPhoneLayout(p);
   await scrubTo(p, 20);
@@ -193,20 +216,38 @@ async function checkEvents(p: Page) {
   const top = Math.min(head.y, chips.y), bottom = Math.max(head.y + head.height, chips.y + chips.height);
   expect(bottom - top).toBeLessThanOrEqual(48);
   const list = (await side.locator(".pl-list").boundingBox())!;
-  const pane = (await side.boundingBox())!;
-  const floor = Math.min(list.y + list.height, pane.y + pane.height);
+  // What shows: the sheet's scroller cuts the list (615 × 344 showed one row of it).
+  const body = p.locator("[data-testid=phone-events-sheet] .p-sheet-body");
+  const pane = (await body.boundingBox())!;
+  const vp = p.viewportSize()!;
+  // A short phone in landscape: the search row scrolls away with the list, for the rows' sake.
+  const short = vp.width > vp.height && vp.height <= 400;
   const rows = side.getByTestId("event");
   await expect(rows).toHaveCount(6);
-  let inView = 0;
-  for (let i = 0; i < 6; i++) { const r = (await rows.nth(i).boundingBox())!; if (r.y >= list.y - 1 && r.y + r.height <= floor + 1) inView++; }
-  expect(inView).toBeGreaterThanOrEqual(4);
+  const count = async () => {
+    const floor = Math.min(list.y + list.height, pane.y + pane.height);
+    let n = 0;
+    for (let i = 0; i < 6; i++) { const r = (await rows.nth(i).boundingBox())!; if (r.y >= Math.max(list.y, pane.y) - 1 && r.y + r.height <= floor + 1) n++; }
+    return n;
+  };
+  if (short) {
+    await body.evaluate((e) => e.scrollTo(0, 0));
+    expect(await count()).toBeGreaterThanOrEqual(1);
+    await expect(side.locator('[data-testid=event][aria-current="true"]')).toHaveAttribute("data-t", "30");
+    await side.locator('[data-testid=event][aria-current="true"]').evaluate((e) => e.scrollIntoView({ block: "start" }));
+    list.y = (await side.locator(".pl-list").boundingBox())!.y;
+    expect(await count()).toBeGreaterThanOrEqual(3);
+    await expect(side.getByTestId("match-credit")).toBeHidden();
+    await body.evaluate((e) => e.scrollTo(0, 0));
+    return;
+  }
+  expect(await count()).toBeGreaterThanOrEqual(4);
   await expect(side.locator('[data-testid=event][aria-current="true"]')).toHaveAttribute("data-t", "30");
   await expect(side.getByTestId("match-credit")).toBeHidden();
   // The search and chips stay at the sheet's head however far the list is scrolled (it opens at
   // the current event, which late in a match left them thousands of px above).
   const now = (await side.locator('[data-testid=event][aria-current="true"]').boundingBox())!;
   expect(now.y).toBeGreaterThanOrEqual(bottom - 1);
-  const body = p.locator("[data-testid=phone-events-sheet] .p-sheet-body");
   await body.evaluate((e) => e.scrollTo(0, e.scrollHeight));
   const view = (await body.boundingBox())!;
   for (const sel of [".pl-events-head", ".pl-chips"]) {
@@ -225,7 +266,7 @@ async function checkDock(p: Page) {
   await p.screenshot({ path: `/tmp/mapcro-dock-${vp.width}-${vp.height}.png` });
   for (const id of ["events", "build", "scenes"]) {
     await expect(tab(id)).toBeVisible();
-    expect((await tab(id).boundingBox())!.height, id).toBeGreaterThanOrEqual(44);
+    expect((await tab(id).boundingBox())!.height, id).toBeGreaterThanOrEqual(43.9);
   }
   await expect(tab("build")).toHaveAttribute("aria-selected", "true");
   await expect(tab("events")).toHaveAttribute("aria-selected", "false");
@@ -235,7 +276,8 @@ async function checkDock(p: Page) {
   }
   // A pane too narrow for the totals' column (a 4:3 tablet) heads each row with its total.
   const roster = (await p.locator(".phone-roster").boundingBox())!;
-  expect(roster.height).toBeLessThanOrEqual(roster.width >= 320 ? 96 : 132);
+  // A narrow phone turned tightens the cells, so the totals keep their column from 312 px.
+  expect(roster.height).toBeLessThanOrEqual(roster.width >= (vp.height <= 500 && vp.width <= 700 ? 312 : 320) ? 96 : 132);
   await tab("events").tap();
   await expect(tab("events")).toHaveAttribute("aria-selected", "true");
   await expect(p.locator(".phone-build-sheet")).toHaveCount(0);
@@ -246,15 +288,16 @@ async function checkDock(p: Page) {
   await checkPhoneLayout(p);
 }
 
-import { checkPhoneLayout, touchDrag } from "./phone-layout";
+import { checkPhoneLayout, hasCdp, phoneContext, touchDrag } from "./phone-layout";
 
 // 344 × 615 is the operator's phone (a 1440 × 3120 screen at display zoom, the browser's bars
 // taken off): narrower and shorter than the rest.
-const PHONES = [{ width: 390, height: 844 }, { width: 360, height: 800 }, { width: 390, height: 664 }, { width: 344, height: 615 }, { width: 844, height: 390 }];
+// Turned, it is 615 × 344: with 667 × 375, the short landscape phones (the dock under the roster).
+const PHONES = [{ width: 390, height: 844 }, { width: 360, height: 800 }, { width: 390, height: 664 }, { width: 344, height: 615 }, { width: 844, height: 390 }, { width: 615, height: 344 }, { width: 667, height: 375 }];
 const TABLETS = [{ width: 768, height: 1024 }, { width: 820, height: 1180 }, { width: 1024, height: 768 }, { width: 1180, height: 820 }, { width: 1366, height: 1024 }];
 for (const viewport of [...PHONES, ...TABLETS]) {
   test(`phone Player at ${viewport.width}×${viewport.height}`, async ({ browser }) => {
-    const ctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true });
+    const ctx = await phoneContext(browser, viewport);
     const phone = await ctx.newPage();
     await phone.goto(await newBoardUrl(server, "Phone Player"));
     await phone.locator("#join-name").fill("Coach");
@@ -274,11 +317,14 @@ for (const viewport of [...PHONES, ...TABLETS]) {
     await phone.getByTestId("match-play").tap();
     await expect(phone.getByTestId("match-play")).toHaveText("Pause");
     await phone.getByTestId("match-play").tap();
-    // A finger along the scrubber seeks: the far end is the match's last second.
-    const range = (await phone.getByTestId("match-time").boundingBox())!;
-    const y = range.y + range.height / 2;
-    await touchDrag(phone, [{ x: range.x + range.width / 2, y }, { x: range.x + range.width * .8, y }, { x: range.x + range.width - 1, y }]);
-    await expect(phone.getByTestId("match-clock")).toContainText("0:40 /");
+    // A finger along the scrubber seeks: the far end is the match's last second. (CDP touch:
+    // Chromium only.)
+    if (hasCdp(browser)) {
+      const range = (await phone.getByTestId("match-time").boundingBox())!;
+      const y = range.y + range.height / 2;
+      await touchDrag(phone, [{ x: range.x + range.width / 2, y }, { x: range.x + range.width * .8, y }, { x: range.x + range.width - 1, y }]);
+      await expect(phone.getByTestId("match-clock")).toContainText("0:40 /");
+    }
     await scrubTo(phone, 20);
     const mapBefore = await phone.locator(".p-map").boundingBox();
     await phone.locator('.tb-player[data-slot="Amber-0"] [data-testid=focus-hero]').tap();
@@ -287,6 +333,7 @@ for (const viewport of [...PHONES, ...TABLETS]) {
     if (viewport.width > viewport.height) expect(await phone.locator(".p-map").boundingBox()).toEqual(mapBefore);
     await checkPhoneLayout(phone);
     await checkBuildSheet(phone);
+    await checkFullBuild(phone);
     if (viewport.width > viewport.height) await checkDock(phone);
     await column(phone).locator(`.tb-build-item[data-item-id="${INFUSER}"]`).tap();
     await expect(float(phone)).toBeVisible();
@@ -307,7 +354,7 @@ for (const viewport of [...PHONES, ...TABLETS]) {
       const all = phone.locator("[data-testid=phone-all-builds]:visible, [data-testid=dock-all-builds]:visible");
       await expect(all).toHaveCount(1);
       const b = (await all.boundingBox())!;
-      expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(44);
+      expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(43.9);
       await all.tap();
       await expect(all).toHaveAttribute("aria-pressed", "true");
       await expect(phone.locator(".phone-build-sheet .p-sheet-head b")).toHaveText("All builds");
@@ -317,6 +364,20 @@ for (const viewport of [...PHONES, ...TABLETS]) {
       await expect(heads).toHaveCount(1);
       await expect(heads).toBeVisible();
       await expect(heads.locator("span")).toHaveText(["", "K / D / A", "Souls", ""]);
+      // Every item shows in its row, wrapped where the row is narrow: twelve for Sapphire 5, one
+      // for the rest (a tablet in landscape showed three and clipped the others).
+      const icons = await phone.getByTestId("all-builds-list").evaluate((list) => {
+        const view = list.getBoundingClientRect();
+        return [...list.querySelectorAll("[data-testid=all-builds-row]")].map((row) => {
+          const box = row.getBoundingClientRect(), cell = row.querySelector(".phone-row-items")!.getBoundingClientRect();
+          const imgs = [...row.querySelectorAll(".phone-row-items img")].map((e) => e.getBoundingClientRect());
+          const inside = (r: DOMRect, o: DOMRect) => r.left >= o.left - 1 && r.right <= o.right + 1 && r.top >= o.top - 1 && r.bottom <= o.bottom + 1;
+          return { n: imgs.length, shown: imgs.filter((r) => r.width >= 24 && inside(r, cell) && inside(r, box) && r.left >= view.left - 1 && r.right <= view.right + 1).length, lines: new Set(imgs.map((r) => Math.round(r.top))).size, h: Math.round(box.height) };
+        });
+      });
+      expect(icons.map((r) => r.n)).toEqual([...Array(11).fill(1), 12]);
+      expect(icons.map((r) => r.shown)).toEqual(icons.map((r) => r.n));
+      for (const r of icons) expect(r.h).toBeGreaterThanOrEqual(48);
       await checkPhoneLayout(phone);
       await phone.getByTestId("all-builds-row").first().tap();
       await expect(phone.getByTestId("all-builds-list")).toHaveCount(0);
@@ -381,10 +442,10 @@ for (const viewport of [...PHONES, ...TABLETS]) {
 
 // Other common sizes, both ways up, at a phone's pixel ratio: the layout only. The synthetic match
 // is 40 s long, so the clock is also checked holding what a real match puts in it.
-const SIZES = [{ width: 320, height: 568 }, { width: 360, height: 640 }, { width: 360, height: 780 }, { width: 375, height: 667 }, { width: 412, height: 915 }, { width: 430, height: 932 }, { width: 615, height: 344 }, { width: 932, height: 430 }];
+const SIZES = [{ width: 320, height: 568 }, { width: 360, height: 640 }, { width: 360, height: 780 }, { width: 375, height: 667 }, { width: 412, height: 915 }, { width: 430, height: 932 }, { width: 932, height: 430 }];
 for (const viewport of SIZES) {
   test(`phone Player layout at ${viewport.width}×${viewport.height}`, async ({ browser }) => {
-    const ctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, deviceScaleFactor: 3 });
+    const ctx = await phoneContext(browser, viewport, { deviceScaleFactor: 3 });
     const phone = await ctx.newPage();
     await phone.goto(await newBoardUrl(server, "Phone sizes"));
     await phone.locator("#join-name").fill("Coach");
@@ -420,7 +481,7 @@ test("phone follows the presenter's replay time", async ({ browser }) => {
   await open(lead, "129001999");
   const witness = await joinNew(browser, url, "Guest");
   await witness.getByTestId("follow-Coach").click();
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const ctx = await phoneContext(browser, { width: 390, height: 844 });
   const phone = await ctx.newPage();
   await phone.goto(url);
   await phone.locator("#join-name").fill("Viewer");
@@ -434,6 +495,8 @@ test("phone follows the presenter's replay time", async ({ browser }) => {
 // Mouse-first screens keep the desktop layout, tablet-sized or not.
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }]) {
   test(`no touch at ${viewport.width}×${viewport.height} is the desktop layout`, async ({ browser }) => {
+    // The Firefox project's pointer is coarse by pref, whatever the context.
+    test.skip(!hasCdp(browser), "the Firefox project is touch-first throughout");
     const page = await (await browser.newContext({ viewport })).newPage();
     await page.goto(await newBoardUrl(server, "Desktop"));
     await page.locator("#join-name").fill("Coach");

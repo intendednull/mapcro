@@ -1538,14 +1538,28 @@ in two rows of six, the map, and the transport. Landscape: two panes, the map on
 square of the height over the transport; strip, roster and sheets on the right; a one-row
 transport.
 
+**A phone in landscape has no strip row** (under 500 px tall; operator, 2026-11-13, for phones
+under about 380 px tall, built for every phone turned because 390 and 430 px had the same
+shortage). The roster heads the right pane and the status sits at the end of the dock's tab row:
+the tier chip, the follow pill, the save state. The tabs keep at least 176 px and scroll sideways
+if the status needs more. Where the screen is under 700 px wide (615 × 344: a 323 px pane) the
+status is cut to fit: no wordmark, the save state is its glyph while all is well (a problem is
+the full pill), the follow pill is its button (Follow, or the eye and Stop), a long tier is cut
+with an ellipsis; the roster's cells sit 3 px apart with 4 px at the sides, so the totals keep
+their column from 312 px. Under 400 px tall the dock is compact: item and ability cells are 44 px
+with the level pips in one line, so a twelve-item build shows with its four abilities; the Events
+search row scrolls away with the list (it is not pinned) and a death's closed recap shares its
+row's line, so a row is 44 px. Measured: the dock is 150 px at 615 × 344 (it was about 65) and
+181 px at 667 × 375: three event rows, or twelve items and four abilities, without scrolling.
+
 **The map is square** (the terrain art is drawn at 100% × 100%, so a non-square pane distorts it
 and moves the art off the tokens), full width in portrait and aligned to the top of its zone.
 
 **The transport** holds the chrome. Portrait row 1: Play and the scrubber (at least 60% of the
 width). Row 2: speed, the clock, then Events, Map layers and More (⋯). The tabs keep their width
 and the clock takes what is left: the time and the match's length (smaller, muted) on one line
-where that fits, else the time over the length (under about 390 px), so nothing sits on the
-clock at any width from 320 px. More holds Match (the source
+where that fits, else the time over the length (under about 390 px; kept as built, operator
+2026-11-13), so nothing sits on the clock at any width from 320 px. More holds Match (the source
 menu, opened as a sheet), Scenes, Laser, Edit, Feedback, and the role. Laser or Edit swaps row 2
 for a tool rail: the tools scroll sideways (Look, Laser, Draw, Arrow, Erase, Undo, Redo), and the
 ink swatch and Done are pinned at its right end, outside the scroll, so they are always on screen;
@@ -1575,7 +1589,8 @@ credit ("Replay: uploaded", "Match data: deadlock-api.com") is in the Match shee
 the events.
 
 **The build sheet** is titled with the hero's name (several builds open: "Builds") and reads items
-(6 across), abilities (4), then one row of the investment bars, the vitals (left-aligned) and
+(6 across; in a sheet narrower than six 52 px cells, a 344 px phone or a 4:3 tablet's dock, the
+cells share the width, at least 44 px each), abilities (4), then one row of the investment bars, the vitals (left-aligned) and
 K/D/A, then Effects and Build order side by side, 8 px between rows; items and abilities are in
 view without scrolling, in landscape too. In portrait on a phone it is at most 320 px tall
 (about 308 at 390 × 844), so at least 70% of the map shows above it. In landscape the right pane's dock is
@@ -1590,16 +1605,34 @@ toggle in its tool row (P2 of the direction moves it into the shell). Its map is
 full width, or 70% of the height where that is less (landscape: 65%), centred.
 
 **Checks.** `web/e2e/phone-layout.ts` runs at 390 × 844, 360 × 800, 390 × 664, 344 × 615 (the
-operator's phone: a 1440 × 3120 screen at display zoom, less the browser's bars) and 844 × 390,
-and its layout checks alone at 320 × 568, 360 × 640, 360 × 780, 375 × 667, 412 × 915, 430 × 932,
-615 × 344 and 932 × 430 at a pixel ratio of 3: no
+operator's phone: a 1440 × 3120 screen at display zoom, less the browser's bars), 844 × 390, and
+the short landscape phones 615 × 344 and 667 × 375,
+and its layout checks alone at 320 × 568, 360 × 640, 360 × 780, 375 × 667, 412 × 915, 430 × 932
+and 932 × 430 at a pixel ratio of 3: no
 sideways scroll; Player has no page scroll and every control is on screen; controls at least
 44 × 44 px; no overlapping controls (each cut by its scrollers; content under a sheet or an open
 menu counts as out of reach); text at least 12 px; the map pane and its art square; the
 transport's height (portrait ≤ 104 px, landscape ≤ 60 px); sheets' edges against the transport
 and the roster; nothing on the clock or the team totals, and a long match's clock (59:59, and
 1:59:59 from 344 px) inside its place; with a pack that has hero cards, every cell's art drawn
-with at least 28 px of it over the souls.
+with at least 28 px of it over the souls; a phone in landscape has no strip row, its tabs all
+show and its dock is at least 140 px; a twelve-item build shows every item and all four
+abilities in the sheet at every size; the Events rows are counted in what the sheet shows (three
+or more in a short dock, four elsewhere).
+
+**Firefox.** The operator's browser is Firefox for Android (about 344 × 615 CSS px at a pixel
+ratio near 4.2). `just e2e-firefox` runs the phone specs (`phone.spec.ts`,
+`phone-player.spec.ts`) in nix's Playwright Firefox. Playwright's Firefox has no `isMobile`, so
+a phone there is the viewport and `hasTouch` (`phoneContext`), and the project sets Firefox's
+prefs: the pointer is coarse (`ui.primaryPointerCapabilities`, `ui.allPointerCapabilities`), as
+Android's is, so the tablet sizes get the touch layout too, and pages are drawn at 4.2 device px
+per CSS px (`layout.css.devPixelsPerPx`; Playwright's `deviceScaleFactor` is dropped in Firefox
+on a page served with COOP, as ours are). It is desktop Gecko, not Fenix: no dynamic toolbar, no real
+touch input (steps that drag by CDP touch run in Chromium only; taps run). It is opt-in, not in
+`just check` (about twice the Chromium phone run's time, at that pixel ratio): the lead runs it
+before a deploy that touches the phone or tablet layout. Its first run found the Map layers sheet
+cut short in Firefox (a closed `<details>` shown by CSS alone, which Firefox ignores); the sheet
+now opens it.
 
 **State.** The open sheet, Edit and the rail are personal layout and tool state, in the
 module-state ledger. The open build is the host's existing build row and follows. Playback,
@@ -1615,7 +1648,10 @@ keeps at least 40% of the width (with the tool rail open too: Play, scrubber, ra
 height. Tab has no key on a tablet: an `All builds` toggle (44 px; at the roster's end in portrait, at
 the dock's tab row's end in landscape) drives the
 host's existing all-builds state (so followers get it) and lists twelve 48 px rows (portrait,
-K/D/A, souls, items) under one sticky header row (K / D / A, Souls); a row opens that hero's build. A phone has no room for it. Checks:
+K/D/A, souls, items) under one sticky header row (K / D / A, Souls); a row opens that hero's build.
+Items never clip: where the row has no room for twelve in its last column (under 560 px: a
+tablet in landscape) they take a second line under K/D/A and souls, beside the portrait, and wrap
+there (1024 × 768: eight and four; operator, 2026-11-13). A phone has no room for it. Checks:
 `phone-layout.ts` at 768 × 1024, 820 × 1180, 1024 × 768, 1180 × 820 and
 1366 × 1024 (`phone-player.spec.ts`), and 1440 × 900 and 1024 × 768 without touch stay desktop.
 

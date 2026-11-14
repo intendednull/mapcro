@@ -124,15 +124,21 @@ test("each team's view shows its own heroes and the enemies in its sight; Show l
   // Last seen means nothing in All: not offered.
   const lastSeen = a.getByTestId("last-seen-toggle");
   await expect(lastSeen).toHaveCount(0);
+  // In All nobody is out of sight on the bar either.
+  expect(await a.locator('.tb-player[data-slot="Sapphire-0"]').locator("xpath=descendant-or-self::*[@data-seen]").first().getAttribute("data-seen")).toBe("true");
 
   // The King's view.
   await pick.selectOption("amber");
   await expect(lastSeen).toHaveAttribute("aria-pressed", "false");
   const kingOwn = { "Amber-0": "shown", "Amber-1": "shown", "Amber-2": "shown", "Amber-3": "shown", "Amber-4": "shown", "Amber-5": "shown" };
+  // The top bar says the same of each hero: its own in sight, an enemy only while seen.
+  const barSeen = (slot: string) => a.locator(`.tb-player[data-slot="${slot}"]`).locator("xpath=descendant-or-self::*[@data-seen]").first().getAttribute("data-seen");
   await scrubTo(a, 5);
   expect(await drawn(a)).toEqual(kingOwn);
+  expect([await barSeen("Amber-0"), await barSeen("Sapphire-0")]).toEqual(["true", "false"]);
   await scrubTo(a, 15);
   expect(await drawn(a)).toEqual({ ...kingOwn, "Sapphire-0": "shown" });
+  expect([await barSeen("Amber-0"), await barSeen("Sapphire-0")]).toEqual(["true", "true"]);
   expect(await at(a, "Sapphire-0")).toEqual(all[15]!.s0);
   // Out of sight at 20: not drawn, by default.
   await scrubTo(a, 30);

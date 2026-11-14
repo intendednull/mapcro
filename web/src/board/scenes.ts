@@ -36,8 +36,8 @@ function treeOf(state: BoardState) {
 /**
  * A new scene after `from` (its next sibling) or as its last child, starting from its positions,
  * objectives and lane splits (the next frame of a play usually starts where the last one
- * ended). Ink, arrows, callouts and the note stay, unless `ink`: a copy of the scene takes
- * them too (#54).
+ * ended), and with where it was saved from (`source`). Ink, arrows, callouts and the note stay,
+ * unless `ink`: a copy of the scene takes them too (#54).
  *
  * `ops` is the copy as one transaction; `txs` is what to send. They are the same unless the
  * copy is over a transaction's caps (twelve builds near a record's 8 KiB are 96 KiB). Then the
@@ -68,7 +68,9 @@ export function addSceneOps(
   const scene: Op = {
     Create: {
       id,
-      record: { Scene: { name, order: keyBetween(lo, hi), clock: from?.scene.clock ?? null, ...(parent ? { parent } : {}) } },
+      // The match and moment the snapshot was taken at go with it (`source`): the copy's ▶
+      // chip, Retake, and the names read from that match (map-state spec D1).
+      record: { Scene: { name, order: keyBetween(lo, hi), clock: from?.scene.clock ?? null, ...(from?.scene.source ? { source: { ...from.scene.source } } : {}), ...(parent ? { parent } : {}) } },
     },
   };
   const src = from?.id;

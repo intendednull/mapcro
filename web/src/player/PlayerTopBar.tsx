@@ -6,13 +6,14 @@
 // Only what the match's tier has is shown: no ult data (the metadata tier) reads as untracked,
 // never as ready.
 
-import { hasVision, seenAt } from "./vision";
+
 import { killsAt } from "../match/builds";
 import { HeroBadge } from "../board/HeroBadge";
 import { BuildColumn } from "./BuildColumn";
 import { GameTip, Hover, TagTip, useTooltips } from "./GameTooltip";
 import { centreTimer, rejuvTip, respawnTip } from "./Camps";
 import { buildAt } from "../match/builds";
+import { tenthOf } from "./buildState";
 
 import { For, Show, createMemo, createResource } from "solid-js";
 import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
@@ -20,6 +21,8 @@ import { cx } from "../ui/cx";
 import { buildPanels } from "../board/buildPanels";
 import { playerBuildView } from "../mapstate/buildView";
 import { teamTotal } from "../core/souls";
+import { heroesAt } from "../mapstate/frame";
+import type { MapState } from "../mapstate/state";
 import { campAt, clockLabel, playersAt, scoreboardValueAt, rejuvAt, type PlayerAt, type RejuvNow } from "../match/timeline";
 import { slotKey } from "../match/save";
 import type { Art } from "../map/pack";
@@ -136,6 +139,8 @@ function RespawnTimer(p: { at: () => number | undefined; t: () => number; art: A
 export function PlayerTopBar(p: {
   host: PlayerHost;
   state: BoardState;
+  /** The match's state at t (mapstate/state.ts). */
+  ms: MapState;
   art: Art;
   vp: Viewpoint;
   compact?: boolean;
@@ -159,9 +164,15 @@ export function PlayerTopBar(p: {
   const [ladderTable] = createResource(() => ladderKeyFor(p.art.stats, build()) ?? false, key => loadStatTable(p.art.stats, key || null));
   const friend = () => (p.vp === "sapphire" ? "Sapphire" : "Amber");
   const enemy = () => (friend() === "Amber" ? "Sapphire" : "Amber");
-  const at = createMemo(() => {
+  // The heroes' samples (souls, ults, health) once a second; their places and respawn times,
+  // counted from t, each frame (mapstate/frame.ts; TD-50).
+  const samples = createMemo(() => {
     const m = p.host.tl();
-    return m ? new Map(playersAt(m, p.host.t()).map((x) => [slotKey(x.team, x.slot), x])) : new Map<string, PlayerAt>();
+    return m ? { m, heroes: playersAt(m, p.host.second()) } : undefined;
+  });
+  const at = createMemo(() => {
+    const s = samples();
+    return s ? new Map(heroesAt(s.m, p.host.t(), s.heroes).map((x) => [slotKey(x.team, x.slot), x])) : new Map<string, PlayerAt>();
   });
   // Rows by the roster's slots, so the order and names are the board's; the hero is the match's.
   const team = (t: "Amber" | "Sapphire") => p.state.roster().filter((s) => s.slot.team === t);
@@ -169,7 +180,7 @@ export function PlayerTopBar(p: {
   const known = (t: "Amber" | "Sapphire") => team(t).some((s) => at().get(slotKey(t, s.slot.slot))?.souls != null);
   const rejuv = createMemo(() => {
     const m = p.host.tl();
-    return m ? rejuvAt(m, p.host.t()) : [];
+    return m ? rejuvAt(m, p.host.second()) : [];
   });
   const held = (t: "Amber" | "Sapphire") => rejuv().find((r) => r.team === t.toLowerCase());
   // When the held one was taken: its timer drains from there.
@@ -200,11 +211,11 @@ export function PlayerTopBar(p: {
           // As the scene's bar and the tokens: the match's name, else the one typed into the slot.
           const label = () => slotName(nameOf() ?? "", s.slot.name) || slotPlaceholder(t, s.slot.slot);
           const dead = () => !!x()?.dead;
+          // In one team's view, an enemy out of its sight: the hero's own field, the tenth's.
+          const sight = p.ms.hero(slotKey(t, s.slot.slot)).inSight;
           const unseen = createMemo(() => {
-            const tl = p.host.tl(), view = p.host.vision();
-            if (!tl || view === "all" || view === t.toLowerCase() || !hasVision(tl)) return false;
-            const player = tl.players.find(q => q.team === t.toLowerCase() && q.slot === s.slot.slot);
-            return !!player && !seenAt(player, p.host.t())?.seen;
+            const view = p.host.vision();
+            return view !== "all" && view !== t.toLowerCase() && !sight();
           });
           /** Health to draw: replay tier, Health on, alive (.Dead #HealthBar collapses). */
           const hp = () => (p.host.showHealth() && !dead() && x()?.health != null ? Math.max(0, Math.min(100, x()!.health!)) : null);
@@ -274,7 +285,7 @@ export function PlayerTopBar(p: {
                 </span>
               </Show>
               {/* As the Tab scoreboard: the hero level in a ringed disc on the portrait's lower edge. */}
-              <Show when={expanded(key) && scoreboardValueAt(player()?.level, p.host.t())}>
+              <Show when={expanded(key) && scoreboardValueAt(player()?.level, p.host.second())}>
                 {lv => <span class="tb-level" data-testid="tb-level" title="Hero level">{lv()}</span>}
               </Show>
               {(() => {
@@ -388,7 +399,9 @@ export function PlayerTopBar(p: {
                     const a = scoreboardValueAt(q.assists, now());
                     return `${k ?? "—"} / ${q.deaths.filter(d => d <= now()).length} / ${a ?? "—"}`;
                   };
-                  const items = () => { const q = pl(); return q ? buildAt(q, now()).items ?? [] : []; };
+                  // Items move on tenths: asked once a tenth, not each frame (TD-50).
+                  const tenth = createMemo(() => tenthOf(now()));
+                  const items = createMemo(() => { const q = pl(); return q ? buildAt(q, tenth()).items ?? [] : []; });
                   const souls = () => at().get(key)?.souls;
                   return <button class={`phone-build-row ${t.toLowerCase()}`} data-testid="all-builds-row" aria-label={`${hero()?.name ?? "Hero"} build`} onClick={() => { onlyBuild(key); p.onFocus?.(t, s.slot.slot); }}>
                     <span class="tb-player"><HeroBadge art={p.art} slot={s.slot} hero={hero()} /></span>
