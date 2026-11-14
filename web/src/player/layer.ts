@@ -12,6 +12,13 @@ import type { PlayerHost } from "./host";
 const SETTLE_MS = 1500;
 
 /**
+ * The matches whose Player this page has entered, by board. The page's, not a mount's: a tab
+ * switched away from and back is the same visit (the lead, 2026-11-14; sessions.md §4.1), so
+ * coming back doesn't clear ink as a new visit would. A reload starts over.
+ */
+const entered = new Map<string, Set<number>>();
+
+/**
  * Whether this copy may make the live layer now. Live, only once it is current: a fresh copy
  * may start from an older snapshot, and would make a layer someone already made (refused
  * `IdTaken`; backlog 2026-11-11). Offline, yes: the layer is made locally and sent on
@@ -36,13 +43,14 @@ export function liveLayer(state: BoardState, h: PlayerHost, board: string, inPla
     if (ops.length) state.ensure(ops);
   });
   const alone = () => !state.peerList().some((x) => x.peer !== state.myPeer() && x.state?.playback?.player);
-  // Only the first entry into a match's Player in this session clears stale ink: coming back
-  // to it (Back, Play from here) keeps what's there.
-  const entered = new Set<number>();
+  // Only the first entry into a match's Player in this page clears stale ink: coming back to
+  // it (Back, Play from here, a tab switched back to) keeps what's there.
+  const here = entered.get(board) ?? new Set<number>();
+  entered.set(board, here);
   createEffect(
     on([inPlayer, match], ([inside, m]) => {
-      if (!inside || m === undefined || entered.has(m)) return;
-      entered.add(m);
+      if (!inside || m === undefined || here.has(m)) return;
+      here.add(m);
       const timer = setTimeout(() => {
         if (!inPlayer() || match() !== m || !state.canEdit() || !alone()) return;
         // Alone in Player: last session's ink goes, and so do other matches' layers (each would

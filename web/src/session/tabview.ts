@@ -128,6 +128,15 @@ export function withScenes(view: TabView, live: (id: RecordId) => boolean): TabV
 }
 
 /**
+ * Whether the board should open cold in place of a remembered scene: the scene is gone
+ * (`withScenes`), and it's still the one the tab is on. A scene the user picked since the tab
+ * opened (`on` is no longer the remembered one) is theirs, and stays with its viewport.
+ */
+export function sceneGone(view: TabView, live: (id: RecordId) => boolean, on: RecordId | undefined): boolean {
+  return withScenes(view, live) !== view && on === view.scene;
+}
+
+/**
  * The Player part of a view, once the board's matches are known: a match no longer attached
  * takes its playback and the mode with it, and the board opens as it would cold (on its newest
  * match, if it has one).

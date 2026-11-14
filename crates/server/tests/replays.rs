@@ -461,9 +461,17 @@ fn an_unreadable_cached_replay_is_logged_by_its_tier() {
     for id in [uploaded, fetched] {
         let _ = server.call("GET", &format!("/api/boards/{board}/matches/{id}"), &owner);
     }
-    std::thread::sleep(Duration::from_millis(100)); // let the lines reach the pipe
-    let log = log.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let line = |id: &str| log.lines().find(|l| l.contains("cached replay unreadable") && l.contains(id)).unwrap_or_else(|| panic!("no line for {id}: {log}")).to_owned();
+    // Both lines, once they have reached the pipe.
+    let said = |log: &str, id: &str| log.lines().find(|l| l.contains("cached replay unreadable") && l.contains(id)).map(str::to_owned);
+    let started = Instant::now();
+    let log = loop {
+        let log = log.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if (said(&log, uploaded).is_some() && said(&log, fetched).is_some()) || started.elapsed() > Duration::from_secs(10) {
+            break log;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let line = |id: &str| said(&log, id).unwrap_or_else(|| panic!("no line for {id}: {log}"));
     assert!(line(uploaded).contains("\"upload\"") && !line(uploaded).contains("\"cdn\""), "the board's upload is named as one: {log}");
     assert!(line(fetched).contains("\"cdn\"") && !line(fetched).contains("\"upload\""), "the fetched replay is named as one: {log}");
     assert!(!log.contains(&scope(&board)), "no path, which would carry the board's id: {log}");
@@ -1704,17 +1712,25 @@ fn a_client_timeline_of_a_match_refused_for_its_mode_is_refused() {
 }
 
 /// One `GET /api/boards/{board}/matches/{id}` with a raw authorization and, perhaps, the
-/// validators the caller holds: the status, the answer's `ETag` and its body.
+/// validators the caller holds, as the client sends them (`X-Mapcro-Held`): the status, the
+/// answer's validator (`X-Mapcro-Timeline`) and its body.
 fn timeline_get(server: &Server, board: &str, id: &str, auth: &str, held: Option<&str>) -> (u16, Option<String>, Vec<u8>) {
+    timeline_get_by(server, board, id, auth, "x-mapcro-held", held)
+}
+
+/// The same, the validators held sent in the header named (ours, or `If-None-Match`).
+fn timeline_get_by(server: &Server, board: &str, id: &str, auth: &str, header: &str, held: Option<&str>) -> (u16, Option<String>, Vec<u8>) {
     let mut r = agent().get(&server.url(&format!("/api/boards/{board}/matches/{id}"))).header("authorization", auth);
     if let Some(held) = held {
-        r = r.header("if-none-match", held);
+        r = r.header(header, held);
     }
     let mut r = r.call().expect("request");
     if matches!(r.status().as_u16(), 200 | 304) {
         assert_eq!(r.headers().get("cache-control").and_then(|v| v.to_str().ok()), Some("no-store"), "never a browser's to keep");
     }
-    let tag = r.headers().get("etag").and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let named = |h: &str| r.headers().get(h).and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let tag = named("x-mapcro-timeline");
+    assert_eq!(named("etag"), tag, "the validator is the answer's ETag too");
     (r.status().as_u16(), tag, r.body_mut().read_to_vec().expect("body"))
 }
 
@@ -1739,19 +1755,34 @@ fn a_cached_timeline_has_a_validator_and_its_holder_is_told_it_is_the_same() {
     assert_eq!((code, &body), (200, &fetched));
     let cdn = tag.expect("a cached replay has a validator");
     assert!(cdn.starts_with("\"cdn-") && cdn.ends_with('"'), "the fetched replay says so: {cdn}");
+    // Opaque past that: 16 hex digits, not the file's length or when it was written.
+    let opaque = |tag: &str, prefix: &str| tag.len() == prefix.len() + 17 && tag[prefix.len()..tag.len() - 1].chars().all(|c| c.is_ascii_hexdigit());
+    assert!(opaque(&cdn, "\"cdn-") && !cdn.contains(&fetched.len().to_string()), "{cdn}");
     assert_eq!(timeline_get(&server, &board, id, &bearer(&owner), None).1.as_deref(), Some(cdn.as_str()));
     assert_eq!(timeline_get(&server, &other, id, &bearer(&other_owner), None).1.as_deref(), Some(cdn.as_str()));
 
-    // Held: 304, no body, the validator again. Alone, weak, or one of a list.
-    for held in [cdn.clone(), format!("W/{cdn}"), format!("\"up-0-0-0\", {cdn}"), format!("{cdn},\"x\"")] {
-        let (code, tag, body) = timeline_get(&server, &board, id, &bearer(&view), Some(&held));
-        assert_eq!((code, tag.as_deref(), body.len()), (304, Some(cdn.as_str()), 0), "held as {held}");
+    // Held: 304, no body, the validator again. Alone, weak, or one of a list, first or last; in
+    // the client's own header or in `If-None-Match`.
+    for header in ["x-mapcro-held", "if-none-match"] {
+        for held in [cdn.clone(), format!("W/{cdn}"), format!("\"up-0\", {cdn}"), format!("{cdn},\"x\"")] {
+            let (code, tag, body) = timeline_get_by(&server, &board, id, &bearer(&view), header, Some(&held));
+            assert_eq!((code, tag.as_deref(), body.len()), (304, Some(cdn.as_str()), 0), "held as {held} in {header}");
+        }
+        // Not held: another validator, a part of this one, or this one without its quotes.
+        for held in ["\"cdn-1\"".to_owned(), cdn[..cdn.len() - 2].to_owned() + "\"", cdn.trim_matches('"').to_owned(), "*".to_owned()] {
+            let (code, tag, body) = timeline_get_by(&server, &board, id, &bearer(&view), header, Some(&held));
+            assert_eq!((code, tag.as_deref(), &body), (200, Some(cdn.as_str()), &fetched), "not held as {held} in {header}");
+        }
     }
-    // Not held: another validator, a part of this one, or this one without its quotes.
-    for held in ["\"cdn-1-1\"".to_owned(), cdn[..cdn.len() - 2].to_owned() + "\"", cdn.trim_matches('"').to_owned(), "*".to_owned()] {
-        let (code, tag, body) = timeline_get(&server, &board, id, &bearer(&view), Some(&held));
-        assert_eq!((code, tag.as_deref(), &body), (200, Some(cdn.as_str()), &fetched), "not held as {held}");
-    }
+    // Held in one header and not in the other (a proxy rewrote `If-None-Match`): held.
+    let r = agent()
+        .get(&server.url(&format!("/api/boards/{board}/matches/{id}")))
+        .header("authorization", &bearer(&view))
+        .header("x-mapcro-held", &cdn)
+        .header("if-none-match", "\"cdn-other\"")
+        .call()
+        .expect("request");
+    assert_eq!(r.status().as_u16(), 304);
     // The checks come first: holding the validator opens nothing without a link to this board.
     assert_eq!(timeline_get(&server, &board, id, &bearer(&other_owner), Some(&cdn)).0, 403);
     assert_eq!(timeline_get(&server, &board, id, "Bearer nope", Some(&cdn)).0, 401);
@@ -1765,7 +1796,8 @@ fn a_cached_timeline_has_a_validator_and_its_holder_is_told_it_is_the_same() {
     let (code, tag, body) = timeline_get(&server, &board, id, &bearer(&view), Some(&cdn));
     assert_eq!((code, &body), (200, &mine), "the upload is richer than the fetched one held");
     let up_tag = tag.expect("validator");
-    assert!(up_tag.starts_with(&format!("\"up-{}-", scope(&board))), "the upload names its board's scope: {up_tag}");
+    assert!(opaque(&up_tag, "\"up-"), "the upload says it is one, and no more: {up_tag}");
+    assert!(!up_tag.contains(&scope(&board)) && !up_tag.contains(&mine.len().to_string()), "{up_tag}");
     assert_eq!(timeline_get(&server, &board, id, &bearer(&view), Some(&up_tag)).0, 304);
     // The other board still has the fetched one only: the upload's validator means nothing there.
     let (code, tag, body) = timeline_get(&server, &other, id, &bearer(&other_owner), Some(&up_tag));
@@ -1783,6 +1815,95 @@ fn a_cached_timeline_has_a_validator_and_its_holder_is_told_it_is_the_same() {
     // The metadata summary has none: it's never held.
     let (code, tag, _) = timeline_get(&server, &board, "77", &bearer(&view), Some(&cdn));
     assert_eq!((code, tag), (404, None));
+
+    // Held, but no longer readable: not "the same". It falls through to the next tier, as it
+    // would for a caller holding nothing (here the fetched replay, sent whole).
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let upload = dir.join(format!("{id}-{}.json", scope(&board)));
+        std::fs::set_permissions(&upload, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+        // (Root reads it all the same: nothing to see then.)
+        if std::fs::read(&upload).is_err() {
+            let (code, tag, body) = timeline_get(&server, &board, id, &bearer(&view), Some(&up_tag));
+            assert_eq!((code, &body), (200, &newer), "the fetched replay, not a 304 for the upload");
+            assert_ne!(tag.as_deref(), Some(up_tag.as_str()));
+        }
+        std::fs::set_permissions(&upload, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+        assert_eq!(timeline_get(&server, &board, id, &bearer(&view), Some(&up_tag)).0, 304);
+    }
+}
+
+/// Through a compressing proxy (Caddy's `encode`, as deployed: docs/deploy.md): the validator in
+/// our own header reaches the client as sent, and a list of them held reaches the server, in
+/// either order. (`encode` rewrites the `ETag` it passes on, and of an `If-None-Match` list sent
+/// back it restores only the last: why the client's cache doesn't use those.) Needs `caddy` on
+/// the PATH: the dev shell has it.
+#[test]
+fn the_validator_passes_a_compressing_proxy_both_ways() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[]);
+    let (board, owner, _) = server.board();
+    let id = "130816395";
+    let dir = server.data.path().join("replays");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    // Large enough for `encode` to compress it.
+    let mut long = timeline(130816395);
+    long.players[0].name = Some("n".repeat(4096));
+    std::fs::write(dir.join(format!("{id}-cdn.json")), serde_json::to_vec(&long).expect("json")).expect("cache");
+
+    let home = tempfile::tempdir().expect("caddy home");
+    let port = support::dead_port();
+    let config = home.path().join("Caddyfile");
+    std::fs::write(&config, format!("{{\n\tadmin off\n\tauto_https off\n}}\nhttp://127.0.0.1:{port} {{\n\tencode zstd gzip\n\treverse_proxy 127.0.0.1:{}\n}}\n", server.port)).expect("Caddyfile");
+    struct Proxy(Child);
+    impl Drop for Proxy {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let _caddy = Proxy(
+        std::process::Command::new("caddy")
+            .args(["run", "--adapter", "caddyfile", "--config"])
+            .arg(&config)
+            .env("HOME", home.path())
+            .env("XDG_DATA_HOME", home.path().join("data"))
+            .env("XDG_CONFIG_HOME", home.path().join("config"))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("caddy on the PATH (run inside `nix develop`)"),
+    );
+    let url = format!("http://127.0.0.1:{port}/api/boards/{board}/matches/{id}");
+    let ask = |held: Option<(&str, &str)>| {
+        let mut r = agent().get(&url).header("authorization", &format!("Bearer {owner}")).header("accept-encoding", "zstd");
+        if let Some((ours, standard)) = held {
+            r = r.header("x-mapcro-held", ours).header("if-none-match", standard);
+        }
+        r.call()
+    };
+    let started = Instant::now();
+    let first = loop {
+        match ask(None) {
+            Ok(r) if r.status().as_u16() == 200 => break r,
+            _ if started.elapsed() > Duration::from_secs(20) => panic!("caddy never answered"),
+            _ => std::thread::sleep(Duration::from_millis(50)),
+        }
+    };
+    let named = |r: &ureq::http::Response<ureq::Body>, h: &str| r.headers().get(h).and_then(|v| v.to_str().ok()).map(str::to_owned);
+    assert_eq!(named(&first, "content-encoding").as_deref(), Some("zstd"), "the proxy compressed it: the case that matters");
+    let direct = timeline_get(&server, &board, id, &format!("Bearer {owner}"), None).1.expect("validator");
+    assert_eq!(named(&first, "x-mapcro-timeline").as_deref(), Some(direct.as_str()), "as the server sent it");
+    // What a client holds, as it sends it back: its own upload's validator and the fetched one,
+    // in either order, with the `ETag` as the proxy handed it over in `If-None-Match`.
+    let etag = named(&first, "etag").expect("etag");
+    for held in [format!("\"up-0000000000000000\", {direct}"), format!("{direct}, \"up-0000000000000000\"")] {
+        let r = ask(Some((&held, &etag))).expect("request");
+        assert_eq!((r.status().as_u16(), named(&r, "x-mapcro-timeline").as_deref()), (304, Some(direct.as_str())), "held as {held}");
+    }
+    // One it doesn't hold: sent whole again, compressed.
+    let r = ask(Some(("\"cdn-0000000000000000\"", "\"cdn-0000000000000000\""))).expect("request");
+    assert_eq!((r.status().as_u16(), named(&r, "content-encoding").as_deref()), (200, Some("zstd")));
 }
 
 /// The same through a session's grant (sessions.md §3.4): the validator, and 304 only while the

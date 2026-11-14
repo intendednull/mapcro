@@ -3,9 +3,10 @@
 // e2e/session-isolation.spec.ts.
 
 import { describe, expect, it } from "vitest";
-import { MAX_TAB_VIEWS, TAB_LAYERS, type TabView, loadTabView, parseTabView, playerPart, saveTabView, tabOwn, tabViewKey, withMatches, withOwn, withScenes } from "../src/session/tabview";
+import { MAX_TAB_VIEWS, TAB_LAYERS, type TabView, loadTabView, parseTabView, playerPart, saveTabView, sceneGone, tabOwn, tabViewKey, withMatches, withOwn, withScenes } from "../src/session/tabview";
 import { DECODED_PER_CHAR, TimelineCache, freezeDeep, isFetched } from "../src/player/timelineCache";
 import type { Timeline } from "../src/match/timeline";
+import { VIEW_STATE } from "../src/gen/viewState";
 
 const A = "AAAAAAAAAAAAAAAAAAAAAA";
 const B = "BBBBBBBBBBBBBBBBBBBBBB";
@@ -133,6 +134,35 @@ describe("what a tab remembers (TabView)", () => {
     expect(tabOwn(loadTabView(s, S, A))).toEqual(own);
   });
 
+  it("holds every map layer and Vision key the view-state registry has", () => {
+    // A layer added to the registry (crates/engine/src/view_state.rs) is added here too, or it
+    // would silently be this browser's on every tab while its neighbours are the tab's own.
+    const keys = Object.keys(VIEW_STATE);
+    expect(keys.filter((k) => k.startsWith("layer.")).map((k) => k.slice("layer.".length)).sort()).toEqual([...TAB_LAYERS].sort());
+    const tabs = keys.filter((k) => k.startsWith("layer.") || k.startsWith("vision."));
+    expect(tabs.length).toBe(TAB_LAYERS.length + 2);
+    for (const k of tabs) {
+      const row = VIEW_STATE[k as keyof typeof VIEW_STATE] as { kind: string; options?: readonly string[] };
+      const value = row.kind === "bool" ? true : row.options![1];
+      expect(withOwn({}, k, value), k).not.toEqual({});
+      expect(tabOwn(withOwn({}, k, value)), k).toEqual(withOwn({}, k, value));
+    }
+  });
+
+  it("opens cold in place of a remembered scene that's gone, unless another was picked meanwhile", () => {
+    const gone = () => false;
+    const there = (id: string) => id === rid(7);
+    // Gone, and the tab is still on it: cold.
+    expect(sceneGone(full, gone, rid(7))).toBe(true);
+    // Still there: as left.
+    expect(sceneGone(full, there, rid(7))).toBe(false);
+    // Gone, but the user picked another scene since the tab opened (or none is picked): theirs.
+    expect(sceneGone(full, gone, rid(8))).toBe(false);
+    expect(sceneGone(full, gone, undefined)).toBe(false);
+    // No scene remembered: nothing to be gone.
+    expect(sceneGone({ board: A, at: 1 }, gone, undefined)).toBe(false);
+  });
+
   it("keeps at most 200, dropping the oldest, and leaves other keys alone", () => {
     const s = storage();
     s.setItem("mapcro.me", "x");
@@ -182,6 +212,31 @@ describe("the page's timeline cache", () => {
     expect(c.candidates(A, "7").map((h) => h.tl)).toEqual([mine, fetched]);
     expect(c.candidates(B, "7").map((h) => h.tl)).toEqual([fetched]);
     expect(c.size().n).toBe(2);
+  });
+
+  it("forgets the fetched replay too when the server has no replay of the match; a dead link drops the board's own, every match's", () => {
+    const c = new TimelineCache();
+    const fetched7 = c.put(A, "7", CDN, tl(7), 100);
+    c.put(A, "7", UP_A, tl(7), 100);
+    const fetched8 = c.put(A, "8", '"cdn-8"', tl(8), 100);
+    const b7 = c.put(B, "7", '"up-bbbb"', tl(7), 100);
+    // The summary for A's match 7: its upload and the fetched replay of 7 go; nothing else.
+    c.forget(A, "7");
+    expect(c.candidates(A, "7")).toEqual([]);
+    expect(c.candidates(B, "7").map((h) => h.tl)).toEqual([b7]);
+    expect(c.candidates(A, "8").map((h) => h.tl)).toEqual([fetched8]);
+    expect(c.size()).toEqual({ bytes: Math.ceil(100 * DECODED_PER_CHAR) * 2, n: 2 });
+    // A dead link on A: A's own uploads of every match, never B's, never a fetched replay.
+    c.put(A, "7", CDN, tl(7), 100);
+    c.put(A, "7", UP_A, tl(7), 100);
+    c.put(A, "9", '"up-aaaa-9"', tl(9), 100);
+    c.dropBoard(A);
+    expect(c.candidates(A, "7").map((h) => h.etag)).toEqual([CDN]);
+    expect(c.candidates(A, "9")).toEqual([]);
+    expect(c.candidates(A, "8").map((h) => h.tl)).toEqual([fetched8]);
+    expect(c.candidates(B, "7").map((h) => h.etag)).toEqual(['"up-bbbb"', CDN]);
+    expect(c.size().n).toBe(3);
+    void fetched7;
   });
 
   it("gives back only the one the server named", () => {

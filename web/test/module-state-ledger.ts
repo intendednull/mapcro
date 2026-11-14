@@ -53,7 +53,11 @@ export const MODULE_STATE: Record<string, Entries> = {
   "match/timeline.ts": { resolved: ["immutable-cache", "markerKey's answers by marker list: a pack's markers never change once loaded"] },
   "match/builds.ts": { INDEX: ["immutable-cache", "a per-array index cache keyed by immutable timeline arrays (WeakMap; holds nothing past the timeline)"] },
   "match/stats.ts": { loaded: ["immutable-cache", "stat tables by pack and file"] },
-  "board/state.ts": { wasm: ["immutable-cache", "the WASM module's init, once a page; every replica is the session's own"] },
+  "board/state.ts": {
+    wasm: ["immutable-cache", "the WASM module's init, once a page; every replica is the session's own"],
+    madeBy: ["keyed-by-board", "the records this page's user created, by board id: a tab opened again still knows its own ink (never stale: player/layer.ts)"],
+  },
+  "player/layer.ts": { entered: ["keyed-by-board", "the matches whose Player this page entered, by board id: the stale-ink clear runs once a page for each, not once a mount"] },
   "board/fade.ts": { fades: ["owner-cleared", "a WeakMap keyed by element: goes with it"] },
   "core/session.ts": { ending: ["keyed-by-board", "an ended session's last writes by board id, which that board's next load waits for; each entry is removed as it settles"] },
   "map/MapView.tsx": {

@@ -413,6 +413,169 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
 });
 
+async function scrubTo(p: Page, t: number) {
+  await p.getByTestId("match-time").evaluate((el, t) => {
+    (el as HTMLInputElement).value = String(t);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }, t);
+}
+
+test("ink drawn over a match stays when its tab is left and opened again: a switch is not a new visit", async ({ browser }) => {
+  const { me, a, go } = await twoTabs(browser);
+  await load(me, "51021", 0);
+  await me.keyboard.press("e");
+  await gesture(me, [[0.3, 0.3], [0.4, 0.35], [0.5, 0.3]]);
+  await expect(strokes(me)).toHaveCount(1);
+  const drawn = await strokes(me).getAttribute("data-stroke");
+  await saved(me);
+  await go(1);
+  await expect(strokes(me)).toHaveCount(0);
+  await go(0);
+  await expect(me.getByTestId("player")).toHaveAttribute("data-state", "match");
+  await expect(me.locator(`[data-stroke="${drawn}"]`)).toHaveCount(1);
+  await saved(me);
+  // Someone else's ink too: drawn by a peer who has left since, it isn't this page's own, and
+  // it stays all the same when the tab is opened again (no clear runs: not a new visit).
+  const peer = await joinNew(browser, a, "Peer");
+  await expect(peer.getByTestId("match-tier")).toHaveText("Full replay");
+  await peer.keyboard.press("e");
+  await gesture(peer, [[0.6, 0.6], [0.65, 0.62]]);
+  await expect(strokes(me)).toHaveCount(2);
+  await saved(peer);
+  await peer.context().close();
+  await expect(me.locator(".people")).not.toContainText("Peer");
+  await go(1);
+  await go(0);
+  await expect(strokes(me)).toHaveCount(2);
+  // Alone in Player on a first visit, old ink goes after 1.5 s (player/layer.ts). This isn't one.
+  await me.waitForTimeout(3000);
+  await expect(strokes(me)).toHaveCount(2);
+  await expect(me.locator(`[data-stroke="${drawn}"]`)).toHaveCount(1);
+});
+
+test("following: a switch ends it; a presenter's layers are never the tab's own, but what the follower's own change kept is", async ({ browser }) => {
+  const { me, a, go } = await twoTabs(browser);
+  await load(me, "51031", 0);
+  const peer = await joinNew(browser, a, "Peer"); // the presenter, on A by A's own link
+  await expect(peer.getByTestId("match-tier")).toHaveText("Full replay");
+  await revealControls(peer, "heals-toggle");
+  await peer.getByTestId("heals-toggle").click();
+  await expect(peer.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  const heals = async (on: boolean) => {
+    await revealControls(me, "heals-toggle");
+    await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", String(on));
+  };
+  await heals(false);
+  await me.getByTestId("follow-Peer").click();
+  await expect(me.getByTestId("stop-following")).toHaveCount(1);
+  await heals(true); // the presenter's, while following
+  // Leaving the tab ends the follow (§6.2). Back on it: this browser's Heals, not the presenter's.
+  await go(1);
+  await go(0);
+  await expect(me.getByTestId("match-tier")).toHaveText("Full replay");
+  await expect(me.getByTestId("stop-following")).toHaveCount(0);
+  await heals(false);
+  // Following again, the follower's own change (Troopers off) stops it and keeps what it saw:
+  // that is set on this tab, Heals with it.
+  await me.getByTestId("follow-Peer").click();
+  await expect(me.getByTestId("stop-following")).toHaveCount(1);
+  await heals(true);
+  await revealControls(me, "troopers-toggle");
+  await me.getByTestId("troopers-toggle").click();
+  await expect(me.getByTestId("stop-following")).toHaveCount(0);
+  await expect(me.getByTestId("troopers-toggle")).toHaveAttribute("aria-pressed", "false");
+  await heals(true);
+  // This browser's Heals is turned off on another tab (C, with a match of its own: a board
+  // without one shows no layers). A keeps what was kept there.
+  const c = await newBoardUrl(server, "Board C");
+  await me.getByTestId("add-game").click();
+  await me.getByTestId("add-paste").fill(c);
+  await me.getByTestId("add-paste-go").click();
+  await expect(tabs(me)).toHaveCount(3);
+  await expect.poll(() => mounted(me)).toBe(boardOf(c));
+  await saved(me);
+  await load(me, "51032", 0);
+  await heals(true); // this browser's, kept from the follow
+  await me.getByTestId("heals-toggle").click();
+  await heals(false);
+  await go(0);
+  await expect(me.getByTestId("match-tier")).toHaveText("Full replay");
+  await heals(true);
+  await expect(me.getByTestId("troopers-toggle")).toHaveAttribute("aria-pressed", "false");
+});
+
+test("what is done while a tab's match is still on its way is the tab's: a scene picked, a seek", async ({ browser }) => {
+  const { me, a, b, go } = await twoTabs(browser);
+  await load(me, "51041", 0);
+  await scrubTo(me, 20);
+  await expect(me.getByTestId("match-clock")).toHaveText("0:20 / 2:00");
+  await go(1);
+  /** Hold the answers to GET `path` until the function returned is called. */
+  const hold = async (path: string) => {
+    let answer!: () => void;
+    const held = new Promise<void>((ok) => (answer = ok));
+    const at = (url: URL) => url.pathname === path;
+    await me.route(at, async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await held;
+      await route.continue().catch(() => {});
+    });
+    return async () => {
+      answer();
+      await me.unroute(at);
+    };
+  };
+  const leaveForB = async (release: () => Promise<void>) => {
+    await tabs(me).nth(1).click();
+    await expect.poll(() => mounted(me)).toBe(boardOf(b));
+    await release();
+    await saved(me);
+  };
+  const onScene = () => expect(me.getByTestId("player")).not.toHaveAttribute("data-state", "match");
+
+  // Drawn from this page's copy, the server's answer held: a seek, then a scene picked, and
+  // the tab left before the answer.
+  let release = await hold(`/api/boards/${boardOf(a)}/matches/51041`);
+  await go(0);
+  await expect(me.getByTestId("match-clock")).toHaveText("0:20 / 2:00");
+  await scrubTo(me, 50);
+  await expect(me.getByTestId("match-clock")).toHaveText("0:50 / 2:00");
+  await sceneCards(me).first().click();
+  await onScene();
+  await leaveForB(release);
+  // Back: on the scene, the match held at the seek.
+  await go(0);
+  await onScene();
+  await me.getByTestId("mode-player").first().click();
+  await expect(me.getByTestId("match-clock")).toHaveText("0:50 / 2:00");
+  await expect(me.getByTestId("player")).toHaveAttribute("data-state", "match");
+
+  // Left in Player now. Next time, the board's matches aren't known yet when a scene is picked:
+  // the match that opens behind it doesn't take the tab to Player.
+  await go(1);
+  release = await hold(`/api/boards/${boardOf(a)}/matches`);
+  await go(0);
+  await expect(me.getByTestId("match-clock")).toHaveCount(0);
+  await sceneCards(me).first().click();
+  await leaveForB(release);
+  await go(0);
+  await onScene();
+  await me.getByTestId("mode-player").first().click();
+  await expect(me.getByTestId("match-clock")).toHaveText("0:50 / 2:00");
+
+  // And when the answer comes while the tab is still open: it stays on the scene picked.
+  await go(1);
+  release = await hold(`/api/boards/${boardOf(a)}/matches`);
+  await go(0);
+  await sceneCards(me).first().click();
+  const opened = me.waitForResponse((r) => new URL(r.url()).pathname === `/api/boards/${boardOf(a)}/matches/51041` && r.request().method() === "GET");
+  await release();
+  await opened;
+  await onScene();
+  await me.getByTestId("mode-player").first().click();
+  await expect(me.getByTestId("match-clock")).toHaveText("0:50 / 2:00");
+});
+
 // ---- what a tab remembers (§4.2) ----
 
 test("a tab comes back as it was left: scene, viewport and side, the sidebar tab; a scene gone meanwhile opens cold", async ({ browser }) => {

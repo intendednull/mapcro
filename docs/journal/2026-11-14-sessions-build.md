@@ -4,6 +4,73 @@ Branch `sessions-p3` (worktree `mapcro.worktrees/sessions-p3`), off main a0774c5
 `docs/specs/sessions.md`; what phase 3 built is written into its §4.1, §4.2, §4.3, §5 and §10.
 Newest state at the top.
 
+## After the adversarial review (2026-11-14): its fixes
+
+The review (a fresh Fable) said ship after fixes; the security review was clean with three
+optional items. What each finding got. The checks' results are under "The runs" below.
+
+- **B1 (blocker): the validator never matched behind Caddy.** `encode` appends the encoding to
+  the `ETag` on the 200 and takes it off only the last validator of an `If-None-Match` list
+  sent back, so `held.includes(etag)` failed and every open asked again, plainly: four
+  requests and two whole timelines a tab switch on the deployed stack. Now the validator
+  travels in headers of our own: the server answers `X-Mapcro-Timeline` (and still the
+  `ETag`), the client reads only that and sends what it holds in `X-Mapcro-Held`, beside
+  `If-None-Match` (so its request stays a conditional one and the 304 an answer to it); the
+  server takes either. Chosen over trimming the suffix on both sides: that would have tied the
+  client to one proxy's rewriting. Tests: `crates/server/tests/replays.rs`
+  `the_validator_passes_a_compressing_proxy_both_ways` (a real Caddy with `encode zstd gzip`,
+  both orders of a held list) and `web/e2e/caddy-timeline.spec.ts` (the real client through
+  it: sent once, compressed, then 304s). Caddy is in the dev shell (`flake.nix`; 2.11.7 from
+  this flake's nixpkgs, the review's run was 2.11.4). `docs/deploy.md` is corrected.
+- **L1 (with B1):** the validator is `"cdn-<hash>"` or `"up-<hash>"`, 16 hex digits of the
+  SHA-256 of scope, length and time written. A view link no longer reads the upload's size and
+  its write time.
+- **N5 (with B1):** a held validator answers 304 only if the file's first byte can still be
+  read; one that can't falls through to the next tier, as a 200 would.
+- **S1 (the lead's decision): a tab switch is not a new visit for stale ink.** `entered`
+  (`player/layer.ts`) and `made` (`board/state.ts`, now `madeBy`) are the page's, by board,
+  not the mount's: `keyed-by-board` in the module-state ledger. Row: "ink drawn over a match
+  stays when its tab is left and opened again" (the user's own, and a peer's who left).
+  With `entered` the page's, no clear runs on a return at all, so `madeBy` being the page's
+  changes nothing that can be seen today: a mutant putting it back per mount survives. It is
+  kept as asked, and as its comment always said ("this page load").
+- **S2:** `web/test/timeline-load.test.ts`: `Api.timeline`'s validators and 304s (6 tests),
+  each branch of `loadTimeline` against the page's cache (7), a tab as its board opens (5),
+  on Solid's server build with a stub server. The follow row, written to §6.2 as it stands
+  (the lead confirmed: no change to following in phase 3): the switch ends the follow; back on
+  the tab the follower shows its own layers; what its own change kept before the stop is the
+  tab's own. **`adopt()` keeps only the keys that differed, and that is intended** (spec §4.2):
+  one that was the same was already this browser's choice and stays that, so it still follows
+  a later change on another tab.
+- **S3:** a non-OK `/matches` (502, 429) is "not known", as no answer: `Api.matches` returns
+  `undefined`, and the tab keeps what it remembered.
+- **S4: what the user does while the tab is opening is kept.** Both ways the review offered:
+  the tab is settled when its match is first drawn (from this page's copy, before the
+  server's answer), so a seek, Play or a speed from then on is remembered; and a mode chosen
+  before that stands (`chose`: the match that opens behind a picked scene doesn't take the tab
+  to Player, and the scene is remembered). Board's `pickScene` tells the host of the choice
+  also when not in Player. Row: "what is done while a tab's match is still on its way is the
+  tab's" (the answer held: a seek and a scene picked, the tab left; the matches held: a scene
+  picked, the tab left; and the same with the answer coming while the tab is open). This
+  changes a board opened alone too: a scene picked while its match is loading stays.
+- **S5:** TD-101 reworded as the review asked; the strip mark for a left tab with unsent work
+  is in the spec's §10 item 4.
+- **N1:** answered with the summary, the page forgets the fetched replay it held for the match
+  (`TimelineCache.forget`). **N2:** a tab left on a scene with no match drawn comes back on the
+  scene, the newest match behind it. **N3:** the scene-gone check runs against the held copy
+  and again at catch-up, and spares a scene picked meanwhile (`sceneGone`). **N4:** a unit
+  guard: the registry's `layer.*` keys are exactly `TAB_LAYERS`, and every `layer.*` and
+  `vision.*` key is taken by `withOwn`. **N6:** the log test polls for its lines. **N7:** item
+  4 below now says the `tier` line was on the base. **N8 (splitting the long Player row): not
+  done**; three new rows are tests of their own.
+- **L2:** when the board's link is refused for good, the page drops the board's own cached
+  timelines (`TimelineCache.dropBoard`, from an effect in `Board.tsx`). The helper is
+  unit-tested; the effect has no browser row. **L3: nothing to bound.** Every cached file
+  passed `timeline::validate`, a typed `serde_json` parse with its default depth limit of 128
+  (no `Value` field, no `disable_recursion_limit`), far under what `freezeDeep` can recurse.
+- Hand mutants: 21 over `api.ts` and `host.ts` against `timeline-load.test.ts`, all killed
+  (`/tmp/sp3-unit-mutants2.py`; a twenty-second added after). The browser rows' script has 13.
+
 ## State when the third implementer finished (2026-11-14): phase 3 is ready for review
 
 **Every check of phase 3 has run and is green on the branch's code (aae0a05; the commits after
@@ -41,8 +108,10 @@ this note is in.
    its match confirmed, the mode and playback are what it remembered before, and a layer set
    meanwhile is kept (it was lost). Spec §4.1, §4.2, §9.1, §10 and §12 item 7.
 4. **The missed server mutant** (`replays.rs:727`, `scope == "cdn"` to `!=` in `let tier`):
-   not equivalent. The tier reaches the debug line "cached replay unreadable", which is what
-   the lead reads to learn why a board got the summary. The test
+   not equivalent. The line was on the base already (main, before phase 3: context in the
+   diff, not a change of it); only its test is new. The tier reaches the debug line "cached
+   replay unreadable", which is what the lead reads to learn why a board got the summary. The
+   test
    `an_unreadable_cached_replay_is_logged_by_its_tier` puts a directory where each cached file
    would be and reads the server's log. cargo-mutants again on the route's diff: **10 mutants,
    9 caught, 1 unviable, 0 missed.**

@@ -96,6 +96,10 @@ export function jobLabel(j: JobState | undefined, progress: number | undefined):
   }
 }
 
+/** The timeline route's validator headers (crates/server/src/replays.rs `TIMELINE_HEADER`, `HELD_HEADER`). */
+const TIMELINE_HEADER = "x-mapcro-timeline";
+const HELD_HEADER = "x-mapcro-held";
+
 export class Api {
   constructor(
     readonly board: string,
@@ -108,10 +112,13 @@ export class Api {
     return { authorization: authHeader(this.token, this.via) };
   }
 
-  /** The matches this board has opened, newest first. */
-  async matches(): Promise<number[]> {
+  /**
+   * The matches this board has opened, newest first; `undefined` when the server didn't say (a
+   * 502 from the proxy, a 429): not known, as with no answer at all, and never "none".
+   */
+  async matches(): Promise<number[] | undefined> {
     const r = await fetch(`/api/boards/${this.board}/matches`, { headers: this.auth });
-    if (!r.ok) return [];
+    if (!r.ok) return undefined;
     return ((await r.json()) as { matches?: number[] }).matches ?? [];
   }
 
@@ -125,10 +132,16 @@ export class Api {
    * the timelines this page holds for it (player/timelineCache.ts); the server answers `same`
    * with the one that's still current (304, after its usual checks), else sends the timeline,
    * with its validator when it has one and its JSON's length.
+   *
+   * The validator travels in headers of our own (`X-Mapcro-Timeline`, and `X-Mapcro-Held` back),
+   * never read from `ETag`: a compressing proxy rewrites that one (Caddy's `encode` adds
+   * `-zstd`), and of an `If-None-Match` list it restores only the last (docs/deploy.md).
+   * `If-None-Match` is sent too, so the request is a conditional one and its 304 an answer to it.
    */
   async timeline(id: string, held: string[] = []): Promise<{ tl: Timeline; etag?: string; chars: number } | { same: string } | { error: string }> {
-    const r = await fetch(`/api/boards/${this.board}/matches/${id}`, { headers: held.length ? { ...this.auth, "if-none-match": held.join(", ") } : this.auth });
-    const etag = r.headers.get("etag") ?? undefined;
+    const list = held.join(", ");
+    const r = await fetch(`/api/boards/${this.board}/matches/${id}`, { headers: held.length ? { ...this.auth, [HELD_HEADER]: list, "if-none-match": list } : this.auth });
+    const etag = r.headers.get(TIMELINE_HEADER) ?? undefined;
     if (r.status === 304) {
       if (etag !== undefined && held.includes(etag)) return { same: etag };
       // "The same" as something this page doesn't hold: asked again, plainly.

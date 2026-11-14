@@ -42,7 +42,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Limits, from the environment, read once (spec §11 lists them with their defaults).
 pub struct Settings {
@@ -672,20 +672,31 @@ struct Found {
     bytes: Option<Vec<u8>>,
 }
 
+/// The answer's header that names the cached timeline sent (its validator), and the request's
+/// that lists the ones the caller holds: what the client's timeline cache reads and sends
+/// (web/src/player/api.ts). Names of our own beside `ETag` and `If-None-Match`, because a proxy
+/// that compresses rewrites those two: Caddy's `encode` adds `-zstd` to the `ETag` it passes on
+/// and takes it off only the last of a list sent back (docs/deploy.md).
+const TIMELINE_HEADER: &str = "x-mapcro-timeline";
+const HELD_HEADER: &str = "x-mapcro-held";
+
 /// A cached timeline's validator (sessions.md §4.3, the client's timeline cache): which file it
-/// is (`cdn`, the same for every board, or a board's own upload by its scope), its length and
-/// when it was written. A file written again gets another, so a client that sends the one it
-/// holds is told "the same" (304) without the file being read or sent.
+/// is, `cdn` (the same for every board) or a board's own upload, and a hash of its scope, its
+/// length and when it was written. A file written again gets another, so a client that sends the
+/// one it holds is told "the same" (304) without the file being sent. Opaque past the prefix: a
+/// view link reads it, and learns neither the file's size nor when it was written.
 fn timeline_etag(scope: &str, meta: &std::fs::Metadata) -> Option<String> {
     let written = meta.modified().ok()?.duration_since(SystemTime::UNIX_EPOCH).ok()?.as_nanos();
-    Some(if scope == "cdn" { format!("\"cdn-{}-{written}\"", meta.len()) } else { format!("\"up-{scope}-{}-{written}\"", meta.len()) })
+    let file = &links::hash(&format!("{scope}-{}-{written}", meta.len()))[..16];
+    Some(if scope == "cdn" { format!("\"cdn-{file}\"") } else { format!("\"up-{file}\"") })
 }
 
-/// Whether the request's `If-None-Match` names `etag`: any of a list, weak or strong.
+/// Whether the request names `etag` among the validators it holds: in our own header or in
+/// `If-None-Match`, any of a list, weak or strong.
 fn holds(headers: &HeaderMap, etag: &str) -> bool {
-    headers
-        .get_all(header::IF_NONE_MATCH)
-        .iter()
+    [HELD_HEADER, header::IF_NONE_MATCH.as_str()]
+        .into_iter()
+        .flat_map(|name| headers.get_all(name))
         .filter_map(|v| v.to_str().ok())
         .flat_map(|v| v.split(','))
         .any(|t| t.trim().trim_start_matches("W/") == etag)
@@ -695,15 +706,19 @@ fn holds(headers: &HeaderMap, etag: &str) -> bool {
 async fn read_unless_held(path: &FsPath, scope: &str, headers: &HeaderMap) -> std::io::Result<Found> {
     let etag = tokio::fs::metadata(path).await.ok().and_then(|m| timeline_etag(scope, &m));
     if etag.as_deref().is_some_and(|t| holds(headers, t)) {
+        // Held, and still readable (its first byte): one that isn't falls through to the next
+        // tier, as it would for a caller that holds nothing.
+        tokio::fs::File::open(path).await?.read(&mut [0u8; 1]).await?;
         return Ok(Found { etag, bytes: None });
     }
     Ok(Found { etag, bytes: Some(tokio::fs::read(path).await?) })
 }
 
 /// `GET /api/boards/{board}/matches/{id}`: the richest timeline there is for this board: its
-/// uploaded replay, else a fetched one, else the match metadata (v1). A cached replay carries an
-/// `ETag`; asked with `If-None-Match` naming it, the answer is 304 with no body, after the same
-/// checks and with the same effects as a 200.
+/// uploaded replay, else a fetched one, else the match metadata (v1). A cached replay carries
+/// its validator (`X-Mapcro-Timeline`, and as its `ETag`); asked with it among the ones held
+/// (`X-Mapcro-Held`, or `If-None-Match`), the answer is 304 with no body, after the same checks
+/// and with the same effects as a 200.
 pub async fn timeline(
     State(app): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -744,6 +759,7 @@ pub async fn timeline(
                     };
                     r.headers_mut().insert(header::CACHE_CONTROL, axum::http::HeaderValue::from_static("no-store"));
                     if let Some(tag) = found.etag.and_then(|t| axum::http::HeaderValue::from_str(&t).ok()) {
+                        r.headers_mut().insert(TIMELINE_HEADER, tag.clone());
                         r.headers_mut().insert(header::ETAG, tag);
                     }
                     return r;

@@ -1,0 +1,406 @@
+// How Player asks for a match's timeline and what it does with the answer (sessions.md §4.3):
+// `Api.timeline`'s validators and its 304s, and each branch of the host's `loadTimeline` against
+// the page's cache. The server is a stub here; the real one is in crates/server/tests/replays.rs
+// (through a compressing proxy too) and in e2e/session-isolation.spec.ts.
+//
+// Solid's server build runs these (no effects, memos computed once), so they read signals only:
+// the timeline shown, the mode, the problem. Playback is the browser rows'.
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createRoot } from "solid-js";
+import { Api } from "../src/player/api";
+import { createPlayerHost } from "../src/player/host";
+import { timelines } from "../src/player/timelineCache";
+import type { Timeline } from "../src/match/timeline";
+
+const BOARD = "AAAAAAAAAAAAAAAAAAAAAA";
+const OTHER = "BBBBBBBBBBBBBBBBBBBBBB";
+const ID = "129738985";
+const CDN = '"cdn-0123456789abcdef"';
+const CDN_2 = '"cdn-fedcba9876543210"';
+const UP = '"up-00112233445566ff"';
+
+class MemStorage {
+  private m = new Map<string, string>();
+  get length() {
+    return this.m.size;
+  }
+  key = (i: number) => [...this.m.keys()][i] ?? null;
+  getItem = (k: string) => this.m.get(k) ?? null;
+  setItem = (k: string, v: string) => void this.m.set(k, v);
+  removeItem = (k: string) => void this.m.delete(k);
+  clear = () => this.m.clear();
+}
+
+const timeline = (extra: Record<string, unknown> = {}) => ({ match_id: Number(ID), duration_s: 1200, tier: "replay", players: [], events: [], ...extra });
+const sent = (tag: string | undefined, body: unknown = timeline(), more: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json", ...(tag ? { "x-mapcro-timeline": tag, etag: tag } : {}), ...more } });
+const same = (tag: string | undefined, more: Record<string, string> = {}) => new Response(null, { status: 304, headers: { ...(tag ? { "x-mapcro-timeline": tag, etag: tag } : {}), ...more } });
+const refused = (status: number, error: string) => new Response(JSON.stringify({ error }), { status, headers: { "content-type": "application/json" } });
+
+interface Asked {
+  path: string;
+  held: string | null;
+  inm: string | null;
+}
+/** Every timeline request made, and the answers to give them, in order. */
+let asked: Asked[];
+let answers: Array<Response | Promise<Response> | (() => Response | Promise<Response>)>;
+let matches: number[] | Response;
+
+beforeEach(() => {
+  asked = [];
+  answers = [];
+  matches = [Number(ID)];
+  timelines.clear();
+  vi.stubGlobal("localStorage", new MemStorage());
+  vi.stubGlobal("sessionStorage", new MemStorage());
+  // The host's frame clock: not run here (no effects), only cancelled on cleanup.
+  vi.stubGlobal("requestAnimationFrame", () => 0);
+  vi.stubGlobal("cancelAnimationFrame", () => {});
+  vi.stubGlobal("fetch", async (path: string, init?: { headers?: Record<string, string>; method?: string }) => {
+    if (/\/matches$/.test(path)) return matches instanceof Response ? matches : new Response(JSON.stringify({ matches }), { status: 200 });
+    if (/\/matches\/\d+$/.test(path) && (init?.method ?? "GET") === "GET") {
+      asked.push({ path, held: init?.headers?.["x-mapcro-held"] ?? null, inm: init?.headers?.["if-none-match"] ?? null });
+      const next = answers.shift();
+      if (!next) throw new Error(`no answer left for ${path}`);
+      return typeof next === "function" ? next() : next;
+    }
+    // The replay job, an attach: nothing.
+    return new Response("{}", { status: 404 });
+  });
+});
+afterEach(() => vi.unstubAllGlobals());
+
+describe("Api.timeline: the validator, and a 304", () => {
+  const api = () => new Api(BOARD, "token");
+
+  it("asks plainly with nothing held, and takes the validator from its own header", async () => {
+    answers.push(sent(CDN));
+    const r = await api().timeline(ID);
+    expect(asked).toEqual([{ path: `/api/boards/${BOARD}/matches/${ID}`, held: null, inm: null }]);
+    expect(r).toEqual({ tl: timeline(), etag: CDN, chars: JSON.stringify(timeline()).length });
+  });
+
+  it("sends what is held in both headers, and a 304 naming one of them is the same", async () => {
+    answers.push(same(CDN));
+    expect(await api().timeline(ID, [UP, CDN])).toEqual({ same: CDN });
+    expect(asked).toEqual([{ path: `/api/boards/${BOARD}/matches/${ID}`, held: `${UP}, ${CDN}`, inm: `${UP}, ${CDN}` }]);
+    answers.push(same(UP));
+    expect(await api().timeline(ID, [UP, CDN])).toEqual({ same: UP });
+  });
+
+  it("never reads the ETag: a compressing proxy rewrites it on the 200 and not on the 304", async () => {
+    // As Caddy's `encode` hands them over (docs/deploy.md): `-zstd` on the 200's ETag only.
+    answers.push(sent(CDN, timeline(), { etag: '"cdn-0123456789abcdef-zstd"' }));
+    const first = await api().timeline(ID);
+    expect("etag" in first && first.etag).toBe(CDN);
+    answers.push(same(CDN, { etag: CDN }));
+    expect(await api().timeline(ID, [CDN])).toEqual({ same: CDN });
+    expect(asked.length).toBe(2);
+    // An ETag alone names nothing (an older server, a proxy that drops our header): no validator.
+    answers.push(new Response(JSON.stringify(timeline()), { status: 200, headers: { etag: CDN } }));
+    expect(await api().timeline(ID)).toEqual({ tl: timeline(), chars: JSON.stringify(timeline()).length });
+  });
+
+  it("asks again, plainly, when a 304 names nothing this page holds", async () => {
+    // Another validator, then none at all (only an ETag): each is asked again with nothing held.
+    for (const strange of [same(CDN_2), same(undefined, { etag: CDN })]) {
+      asked = [];
+      answers.push(strange, sent(CDN_2));
+      const r = await api().timeline(ID, [CDN]);
+      expect(asked.map((a) => a.held)).toEqual([CDN, null]);
+      expect(asked.map((a) => a.inm)).toEqual([CDN, null]);
+      expect("etag" in r && r.etag).toBe(CDN_2);
+    }
+    // A 304 to a plain ask is no answer.
+    answers.push(same(CDN));
+    expect(await api().timeline(ID)).toEqual({ error: "failed" });
+    answers.push(same(CDN_2), same(CDN_2));
+    expect(await api().timeline(ID, [CDN])).toEqual({ error: "failed" });
+  });
+
+  it("gives the summary no validator, and a refusal its code", async () => {
+    answers.push(sent(undefined, timeline({ tier: "summary" })));
+    expect(await api().timeline(ID, [])).toEqual({ tl: timeline({ tier: "summary" }), chars: JSON.stringify(timeline({ tier: "summary" })).length });
+    answers.push(refused(422, "brawl"));
+    expect(await api().timeline(ID)).toEqual({ error: "brawl" });
+    answers.push(new Response("<html>Bad Gateway</html>", { status: 502 }));
+    expect(await api().timeline(ID)).toEqual({ error: "failed" });
+    answers.push(new Response("not json", { status: 200, headers: { "x-mapcro-timeline": CDN } }));
+    expect(await api().timeline(ID)).toEqual({ error: "failed" });
+  });
+
+  it("says the matches aren't known when the server doesn't say", async () => {
+    expect(await api().matches()).toEqual([Number(ID)]);
+    matches = new Response(JSON.stringify({}), { status: 200 });
+    expect(await api().matches()).toEqual([]);
+    for (const status of [502, 429, 500]) {
+      matches = new Response("no", { status });
+      expect(await api().matches()).toBeUndefined();
+    }
+  });
+});
+
+/** A host for `board`, in a root of its own; `end` disposes it. */
+function host(board = BOARD, remembered?: Parameters<typeof createPlayerHost>[3]) {
+  return createRoot((end) => ({ h: createPlayerHost(board, "token", undefined, remembered), end }));
+}
+const deferred = () => {
+  let answer!: (r: Response) => void;
+  let fail!: (e: unknown) => void;
+  const promise = new Promise<Response>((ok, no) => ((answer = ok), (fail = no)));
+  return { promise, answer, fail };
+};
+/** Let the host's awaits run. */
+const tick = async (n = 20) => {
+  for (let i = 0; i < n; i++) await Promise.resolve();
+};
+const cached = (board = BOARD) => timelines.candidates(board, ID).map((x) => x.etag);
+
+describe("the host's loadTimeline, against the page's cache", () => {
+  it("shows and keeps a timeline sent with a validator, frozen; the next open draws it before the answer and keeps it on a 304", async () => {
+    answers.push(sent(CDN));
+    const a = host();
+    await a.h.open(ID);
+    const first = a.h.tl();
+    expect(first?.duration_s).toBe(1200);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(cached()).toEqual([CDN]);
+    expect(asked.map((x) => x.held)).toEqual([null]);
+    a.end();
+
+    // Another mount (a tab switched back to), and another board with the same fetched match.
+    for (const board of [BOARD, OTHER]) {
+      asked = [];
+      const d = deferred();
+      answers.push(d.promise);
+      const b = host(board);
+      const opening = b.h.open(ID);
+      await tick();
+      // Drawn from the page's copy, the server not yet heard from.
+      expect(b.h.tl()).toBe(first);
+      expect(asked.map((x) => x.held)).toEqual([CDN]);
+      d.answer(same(CDN));
+      await opening;
+      expect(b.h.tl()).toBe(first);
+      expect(b.h.problem()).toBeUndefined();
+      expect(asked.length).toBe(1);
+      b.end();
+    }
+  });
+
+  it("swaps in the timeline the server sends in place of the one held", async () => {
+    answers.push(sent(CDN));
+    const a = host();
+    await a.h.open(ID);
+    const old = a.h.tl();
+    a.end();
+    const d = deferred();
+    answers.push(d.promise);
+    const b = host();
+    const opening = b.h.open(ID);
+    await tick();
+    expect(b.h.tl()).toBe(old);
+    d.answer(sent(CDN_2, timeline({ duration_s: 1300 })));
+    await opening;
+    expect(b.h.tl()?.duration_s).toBe(1300);
+    expect(Object.isFrozen(b.h.tl())).toBe(true);
+    expect(cached()).toEqual([CDN_2]);
+    b.end();
+  });
+
+  it("takes down what it drew early when the server refuses, and drops the board's own copy", async () => {
+    answers.push(sent(UP));
+    const a = host();
+    await a.h.open(ID);
+    expect(cached()).toEqual([UP]);
+    a.end();
+    const d = deferred();
+    answers.push(d.promise);
+    const b = host();
+    const opening = b.h.open(ID);
+    await tick();
+    expect(b.h.tl()).toBeDefined();
+    d.answer(refused(403, "forbidden"));
+    await opening;
+    expect(b.h.tl()).toBeUndefined();
+    expect(b.h.problem()).toEqual({ code: "forbidden", step: "load" });
+    expect(cached()).toEqual([]);
+    b.end();
+  });
+
+  it("keeps what it drew when there is no answer at all", async () => {
+    answers.push(sent(CDN));
+    const a = host();
+    await a.h.open(ID);
+    const first = a.h.tl();
+    a.end();
+    const d = deferred();
+    answers.push(d.promise);
+    const b = host();
+    const opening = b.h.open(ID);
+    await tick();
+    d.fail(new TypeError("offline"));
+    await opening;
+    expect(b.h.tl()).toBe(first);
+    expect(b.h.status()).toBe("Offline");
+    expect(cached()).toEqual([CDN]);
+    b.end();
+  });
+
+  it("shows the summary frozen and unkept, and forgets the fetched replay it held for the match", async () => {
+    answers.push(sent(CDN));
+    const a = host();
+    await a.h.open(ID);
+    a.end();
+    answers.push(sent(undefined, timeline({ tier: "summary", duration_s: 900 })));
+    const b = host();
+    await b.h.open(ID);
+    expect(b.h.tl()?.duration_s).toBe(900);
+    expect(Object.isFrozen(b.h.tl())).toBe(true);
+    // Nothing held now: the next open draws nothing early, and asks plainly.
+    expect(cached()).toEqual([]);
+    expect(cached(OTHER)).toEqual([]);
+    b.end();
+    asked = [];
+    const d = deferred();
+    answers.push(d.promise);
+    const c = host();
+    const opening = c.h.open(ID);
+    await tick();
+    expect(c.h.tl()).toBeUndefined();
+    expect(asked.map((x) => x.held)).toEqual([null]);
+    d.answer(sent(undefined, timeline({ tier: "summary", duration_s: 900 })));
+    await opening;
+    c.end();
+  });
+
+  it("drops the board's own upload when the server answers with the fetched replay", async () => {
+    answers.push(sent(UP, timeline({ duration_s: 1250 })));
+    const a = host();
+    await a.h.open(ID);
+    a.end();
+    answers.push(sent(CDN));
+    const b = host();
+    await b.h.open(ID);
+    expect(asked.map((x) => x.held)).toEqual([null, UP]);
+    expect(b.h.tl()?.duration_s).toBe(1200);
+    expect(cached()).toEqual([CDN]);
+    b.end();
+  });
+
+  it("asks again, plainly, when the one named the same was dropped meanwhile", async () => {
+    answers.push(sent(CDN));
+    const a = host();
+    await a.h.open(ID);
+    a.end();
+    asked = [];
+    // The cache made room between the question and the answer.
+    answers.push(() => (timelines.clear(), same(CDN)), sent(CDN, timeline({ duration_s: 1210 })));
+    const b = host();
+    await b.h.open(ID);
+    expect(asked.map((x) => x.held)).toEqual([CDN, null]);
+    expect(b.h.tl()?.duration_s).toBe(1210);
+    expect(cached()).toEqual([CDN]);
+    b.end();
+  });
+});
+
+describe("a tab as its board opens (sessions.md §4.2)", () => {
+  const left = { mode: "player", match: ID, t: 50, playing: false, speed: 2 } as const;
+
+  it("opens in Player on the match it was left on, and on its scene when it was left on one", async () => {
+    answers.push(sent(CDN), sent(CDN));
+    const a = host(BOARD, left);
+    await a.h.init();
+    expect([a.h.mode(), a.h.matchId()]).toEqual(["player", ID]);
+    a.end();
+    timelines.clear();
+    const b = host(BOARD, { ...left, mode: "sandbox" });
+    await b.h.init();
+    expect([b.h.mode(), b.h.matchId()]).toEqual(["sandbox", ID]);
+    b.end();
+  });
+
+  it("keeps a scene picked while its match is on its way, before the match is drawn and after", async () => {
+    // Before: the matches aren't known yet when the user picks a scene.
+    const d = deferred();
+    answers.push(d.promise);
+    const a = host(BOARD, left);
+    const opening = a.h.init();
+    a.h.setMode("sandbox");
+    expect(a.h.remember()).toEqual({ ...left, mode: "sandbox" });
+    // A layer set meanwhile is the tab's own already.
+    a.h.setShowHeals(true);
+    expect(a.h.remember()).toEqual({ ...left, mode: "sandbox", layers: { heals: true } });
+    d.answer(sent(CDN));
+    await opening;
+    expect([a.h.mode(), a.h.matchId()]).toEqual(["sandbox", ID]);
+    expect(a.h.remember().mode).toBe("sandbox");
+    a.end();
+
+    // After: drawn from the page's copy, the server's answer still out.
+    const e = deferred();
+    answers.push(e.promise);
+    const b = host(BOARD, left);
+    const again = b.h.init();
+    await tick();
+    expect([b.h.mode(), !!b.h.tl()]).toEqual(["player", true]);
+    b.h.setMode("sandbox");
+    expect(b.h.remember()).toMatchObject({ mode: "sandbox", match: ID, speed: 2 });
+    // Drawn: what is done from here is the tab's, though the server hasn't answered.
+    b.h.control.speed(4);
+    expect(b.h.remember()).toMatchObject({ mode: "sandbox", match: ID, speed: 4 });
+    e.answer(same(CDN));
+    await again;
+    expect(b.h.mode()).toBe("sandbox");
+    b.end();
+  });
+
+  it("goes to Player when the user asks for it while a tab left on a scene opens", async () => {
+    const d = deferred();
+    answers.push(d.promise);
+    const a = host(BOARD, { ...left, mode: "sandbox" });
+    const opening = a.h.init();
+    a.h.setMode("player");
+    d.answer(sent(CDN));
+    await opening;
+    expect(a.h.mode()).toBe("player");
+    expect(a.h.remember().mode).toBe("player");
+    a.end();
+  });
+
+  it("stays on the scene when it was left on one with no match drawn; a match gone opens as cold", async () => {
+    answers.push(sent(CDN), sent(CDN));
+    const a = host(BOARD, { mode: "sandbox" });
+    await a.h.init();
+    expect([a.h.mode(), a.h.matchId()]).toEqual(["sandbox", ID]);
+    a.end();
+    // Left on a scene behind a match that is no longer attached: the newest, in Player.
+    timelines.clear();
+    const b = host(BOARD, { mode: "sandbox", match: "7", t: 3 });
+    await b.h.init();
+    expect([b.h.mode(), b.h.matchId()]).toEqual(["player", ID]);
+    b.end();
+  });
+
+  it("remembers what it did before while the matches aren't known: no answer, a 502, a 429", async () => {
+    for (const unknown of [new Response("Bad Gateway", { status: 502 }), new Response("slow down", { status: 429 })]) {
+      matches = unknown;
+      const a = host(BOARD, { ...left, layers: { heals: true } });
+      await a.h.init();
+      expect(a.h.matchId()).toBeUndefined();
+      expect(a.h.matches()).toEqual([]);
+      // As a tab that got no answer: not "this board has no match".
+      expect(a.h.remember()).toEqual({ ...left, layers: { heals: true } });
+      a.end();
+    }
+    // Known, and none: the match it was on is gone.
+    matches = [];
+    const b = host(BOARD, left);
+    await b.h.init();
+    expect(b.h.remember().match).toBeUndefined();
+    b.end();
+  });
+});

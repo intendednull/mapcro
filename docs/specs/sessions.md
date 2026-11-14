@@ -406,6 +406,13 @@ memory survives into another board's mount unless it is either:
   `pointerup`, a swipe) removes its own listener on its next pointerup. But it runs against the
   disposed board, whose session takes no edit. The "switch waits for the gesture" rule below
   covers it.
+- **A tab switch is not a new visit** (the lead, 2026-11-14; review S1). Entering a match's
+  Player alone clears last visit's ink from its live layer, 1.5 s in, sparing what this user
+  drew (`player/layer.ts`). Which matches were entered and which records the user made are
+  kept by the page per board (`entered`, `madeBy`: `keyed-by-board` in the ledger), not by the
+  mount: ink drawn over a match is still there when its tab is opened again. Since phase 2's
+  keyed remount a switch back had counted as a new visit and deleted it, with no undo step. A
+  reload is still a new visit.
 - **Device settings:** Player names stay device-wide, as on a board today (localStorage, every
   board). Vision, Show last seen and the map layers are **a tab's own once set there**
   (decided, §12 item 7; built in phase 3 with §4.2): a tab opens with each one as it was last
@@ -455,7 +462,25 @@ cleanup and on `pagehide`, so a reload keeps it).
   opens on its first scene, fitted). A match no longer attached drops the match, its playback
   and the mode (the board opens on its newest match, as cold). The rest stays.
 - A tab left before its board loaded, or before its matches were known, keeps what it
-  remembered before: nothing half-loaded is written over it.
+  remembered before: nothing half-loaded is written over it. "Not known" includes an answer
+  that isn't one (a 502 from the proxy, a 429): only a list from the server says a board has
+  no match (review S3).
+- **What the user does while the tab is still opening is kept** (review S4). The tab counts as
+  opened once its match is drawn, from this page's copy or from the server, not when the
+  server's answer comes: a seek, Play or a speed from then on is remembered. A mode chosen
+  before that (a scene picked, or Back to the replay) stands: the match that opens behind a
+  picked scene doesn't take the tab to Player, and the tab remembers the scene. This holds for
+  a board opened alone too.
+- A tab left on a scene with no match drawn (the board had none, or its match never loaded)
+  comes back on the scene, the board's newest match behind it (review N2). A match no longer
+  attached still opens as cold.
+- The scene-gone check runs against the board as this device holds it and again, last, when
+  it has caught up, and leaves alone a scene the user picked meanwhile (review N3).
+- **`adopt` keeps only what differed, on purpose.** When a follower's own change stops the
+  follow, the presenter's values that differed from the follower's become the follower's, are
+  written to this browser and are the tab's own. One that was the same was already this
+  browser's choice and stays that: it isn't pinned to the tab, so it still follows a later
+  change made on another tab, as on a tab only passed through.
 - A board opened alone (`/b/`) remembers nothing: this is the session's.
 
 ### 4.3 Memory budgets
@@ -471,21 +496,36 @@ cleanup and on `pagehide`, so a reload keeps it).
 
 **The timeline cache, as built in phase 3** (`web/src/player/timelineCache.ts`, the page's;
 `player/host.ts` `loadTimeline`). The server decides, every time:
-- `GET /api/boards/{board}/matches/{id}` answers a cached replay with an `ETag`: `"cdn-<length>-<written>"`
-  for the fetched replay, `"up-<scope>-<length>-<written>"` for the board's upload. Asked with
-  `If-None-Match` naming it, the answer is 304 with no body, after the same access check and
-  with the same effects (the open is counted, a stale fetched timeline is refreshed) as a 200.
-  The metadata summary has no validator and isn't kept.
+- `GET /api/boards/{board}/matches/{id}` answers a cached replay with a validator, in
+  `X-Mapcro-Timeline` (and as its `ETag`): `"cdn-<hash>"` for the fetched replay, `"up-<hash>"`
+  for the board's upload, the hash of the file's scope, length and time written. It is opaque
+  past the prefix: a view link reads it, and learns neither the file's size nor when it was
+  written (security review L1). Asked with it among the validators held, in `X-Mapcro-Held`,
+  the answer is 304 with no body, after the same access check and with the same effects (the
+  open is counted, a stale fetched timeline is refreshed) as a 200, and only for a file that
+  can still be read (its first byte: one that can't falls through to the next tier, as for a
+  caller holding nothing). The metadata summary has no validator and isn't kept.
+- **Why headers of our own** (review B1, 2026-11-14): the deployed proxy compresses, and
+  Caddy's `encode` rewrites the `ETag` on the 200 and restores only the last validator of an
+  `If-None-Match` list (docs/deploy.md). The client reads `X-Mapcro-Timeline` and never the
+  `ETag`. It sends `If-None-Match` beside `X-Mapcro-Held`, so that its request is a conditional
+  one and the 304 an answer to it; the server takes either. Tested through a real Caddy:
+  `crates/server/tests/replays.rs` and `e2e/caddy-timeline.spec.ts`.
 - The client draws what it holds for the board and match at once, asks with the validators it
   holds, and then keeps what's drawn (304), or draws the timeline sent in its place, or, refused
   (403, 404, a mode refusal), takes it down and drops the board's own entry. With no answer
-  (offline) what's drawn stays.
+  (offline) what's drawn stays. Answered with the summary (no replay of the match any more),
+  it forgets the fetched replay it held too, so the next open doesn't draw it first. When the
+  board's link is refused for good (revoked), the board's own entries go, every match's
+  (security review L2).
 - So the cache never shows a timeline the server wouldn't send again, past the moment before
   its answer; and an upload is never read by another board (its key is its board).
 - Opening a match used to fetch its timeline twice (once to open, once when its job said
   `done`): the second is a 304 now.
-- An older server sends no `ETag`: nothing is kept, and it works as before. An older client
-  never sends `If-None-Match`. Neither order of deploy breaks the other.
+- An older server sends no `X-Mapcro-Timeline`: nothing is kept, and it works as before. An
+  older client never sends `X-Mapcro-Held`. Neither order of deploy breaks the other.
+- A timeline can't be nested deeply enough to break the freeze (security review L3): every
+  cached file passed `timeline::validate`, a typed `serde_json` parse, which stops at 128 levels.
 
 ## 5. Keeping recent boards warm (internal, not user-facing)
 
@@ -1039,12 +1079,16 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      runs. The 49-scene rows are 11 ms over what they were before phase 3, in that noise (one
      switch took 448 ms).
    - **Tests:** `web/test/sessions-speed.test.ts` (TabView's shape and its two drops; the cache's
-     keys, LRU and freeze), `crates/server/tests/replays.rs` (the validator: 304 only for the file
-     held and only after the access check, through a link and through a grant; a cached replay
-     that can't be read is logged by its tier), and in
+     keys, LRU and freeze), `web/test/timeline-load.test.ts` (`Api.timeline`'s validators and
+     304s; each branch of `loadTimeline`; a tab as its board opens),
+     `crates/server/tests/replays.rs` (the validator: 304 only for the file held, in either
+     header, and only after the access check, through a link and through a grant; through a
+     real Caddy with `encode`; a held file that can't be read; a cached replay that can't be
+     read is logged by its tier), `e2e/caddy-timeline.spec.ts` (the real client through Caddy:
+     sent once, then 304s), and in
      `e2e/session-isolation.spec.ts` (§9.1): a tab as it was left, from sessionStorage after a
      reload, a scene gone meanwhile (checked once the board has caught up); a layer a tab's own
-     once set there (also when set before the tab's match was confirmed), this browser's on a tab never opened and on one only passed through; a left board holds nothing open; the
+     once set there (also when set before the tab's match was confirmed), this browser's on a tab never opened and on one only passed through; ink over a match kept through a switch; a follow ended by a switch, the presenter's layers never the tab's own; a scene picked and a seek made while the match is on its way; a left board holds nothing open; the
      timeline cache sent once and confirmed on every open for each board, a file written again,
      a refusal, no answer. `e2e/fixtures.ts` fails any test whose page writes to a frozen object
      (every timeline Player shows is frozen, cached or not), proved by `frozen-write-guard.spec.ts`.
@@ -1062,9 +1106,14 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      tab kept what it showed. Confirm that is wanted once a follow crosses tabs (the scene and
      the playback are still kept as shown: `Keep`), and give it a row in §9.3.
    - A layer set before a tab's matches are known, or before its match is confirmed, is the
-     tab's own (`remember`'s unsettled path). Covered since phase 3 by the end of the Player row
-     in `e2e/session-isolation.spec.ts` (the timeline's answer held, Heals set, the tab left).
+     tab's own. Covered since phase 3: before the match is drawn, by `test/timeline-load.test.ts`
+     (`remember` while opening); drawn and not yet confirmed, by the end of the Player row in
+     `e2e/session-isolation.spec.ts` (the timeline's answer held, Heals set, the tab left).
      Check it still holds when a follow moves a person off a tab at that moment.
+   - **A left tab with unsent work** (TD-101): an edit made as a tab is left goes out within 2 s
+     or stays pending in this browser until that board is opened here again. The strip should
+     mark such a tab (as the save status does on the board), so the user knows collaborators
+     don't have it yet.
 5. **Polish.** Strip details (match, winner, tier, job status), Load a game and New board from
    the strip, the overflow list, the phone Games sheet, and the mapcro:// session links.
 6. **Later.** Adding a tab from another session (a grant of a grant), cloning a session (open question 11), a series scoreline, and

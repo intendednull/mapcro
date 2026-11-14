@@ -1,7 +1,7 @@
 // The page's timeline cache (sessions.md §4.3): decoded timelines, frozen, kept by where they
 // came from, so a board opened again in this page (a tab switched back to, §5) draws its match
 // at once. The server still decides: each open asks it for the timeline with the validators held
-// (`If-None-Match`), after the same access check as ever, and answers "the same" or sends the
+// (`X-Mapcro-Held`), after the same access check as ever, and answers "the same" or sends the
 // one that replaced it. So nothing here is ever shown that the server wouldn't send again, past
 // the moment before its answer.
 //
@@ -94,6 +94,20 @@ export class TimelineCache {
    */
   drop(board: string, match: string): void {
     this.remove(`${board}\u0000${match}`);
+  }
+
+  /**
+   * The server answered `board` with no replay of this match (the summary): none it sends any
+   * board, so the fetched one held goes with the board's own.
+   */
+  forget(board: string, match: string): void {
+    this.drop(board, match);
+    this.remove(`\u0000${match}`);
+  }
+
+  /** The board's link was refused for good (revoked): its own uploads go, every match's. */
+  dropBoard(board: string): void {
+    for (const key of [...this.held.keys()]) if (key.startsWith(`${board}\u0000`)) this.remove(key);
   }
 
   private remove(key: string): void {

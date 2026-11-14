@@ -61,12 +61,20 @@ export interface BoardStateOptions {
   onEdit?: () => void;
 }
 
+/**
+ * The records this page's user created, by board. The page's, not a mount's: what was drawn on
+ * a tab before it was left is still the user's own when the tab is opened again (never stale
+ * ink: player/layer.ts; sessions.md §4.1).
+ */
+const madeBy = new Map<string, Set<RecordId>>();
+
 export function createBoardState(board: string, token: string, opts: BoardStateOptions = {}) {
   // Records live in a store keyed by id, updated only where the replica says something changed
   // (perf report 2026-11-07, findings 1 and 2): a new stroke touches one key, not the board.
   const [records, setRecords] = createStore<Record<RecordId, Entry>>({});
-  /** Records this tab's user created (through `edit`, this page load). */
-  const made = new Set<RecordId>();
+  /** Records this tab's user created (through `edit`, this page load: `madeBy`). */
+  const made = madeBy.get(board) ?? new Set<RecordId>();
+  madeBy.set(board, made);
   const [peers, setPeers] = createStore<Record<string, PeerPresence>>({});
   const [status, setStatus] = createSignal<SaveStatus>({ kind: "saved" });
   const [connection, setConnection] = createSignal<Connection>({ kind: "connecting", attempt: 0 });

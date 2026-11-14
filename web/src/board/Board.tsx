@@ -67,7 +67,8 @@ import type { Tool } from "./tools";
 import { LIMITS } from "../gen/limits";
 import type { Via } from "../gen/Via";
 import type { UndoHistory } from "../session/history";
-import { loadTabView, playerPart, saveTabView, withScenes } from "../session/tabview";
+import { loadTabView, playerPart, saveTabView, sceneGone } from "../session/tabview";
+import { timelines } from "../player/timelineCache";
 import { AddGameOnBoard } from "../session/AddGame";
 
 /** The page's title, as index.html has it: what the tab says with no board open. */
@@ -207,6 +208,11 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     }),
   );
   onMount(() => void player.init(documentDrawn));
+  // The link refused for good (revoked, withdrawn): nothing this page holds of the board's own
+  // replays is drawn for it again. (The fetched replay is every board's, by match.)
+  createEffect(() => {
+    if (state.connection().kind === "closed") timelines.dropBoard(p.board);
+  });
   const inPlayer = () => player.mode() === "player";
   /** The match open in Player, for the feedback form (spec §11a); none in sandbox. */
   const feedbackMatch = () => feedbackMatchOf(inPlayer(), player.matchId(), player.tl(), player.t());
@@ -245,14 +251,17 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const [view, setView] = createSignal<ViewRect>(remembered?.view ? clampView(remembered.view) : FIT);
   if (inSession) {
     // A remembered scene that's gone takes its viewport and side with it: the board opens on
-    // its first scene, fitted, as it would cold (§4.2). Checked once, when the board has caught
-    // up with the server: its stored copy may still hold a scene deleted since. Offline, what this device holds stands.
+    // its first scene, fitted, as it would cold (§4.2). Checked against the board as this device
+    // holds it, and again, for the last time, when it has caught up with the server: its stored
+    // copy may still hold a scene deleted since. Offline, what this device holds stands. A
+    // scene the user picked meanwhile is left alone, with its viewport.
     let checked = remembered?.scene === undefined;
     createEffect(() => {
       const all = state.scenes();
-      if (checked || !all.length || !state.current()) return;
+      if (checked || !all.length) return;
+      if (state.current()) checked = true;
+      if (!sceneGone(remembered!, (id) => all.some((x) => x.id === id), untrack(sceneId))) return;
       checked = true;
-      if (withScenes(remembered!, (id) => all.some((x) => x.id === id)) === remembered) return;
       batch(() => {
         setSceneId(undefined);
         setView(FIT);
@@ -394,7 +403,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   /** Picking a scene shows it: in Player that means Sandbox, on that scene (review: scenes
    * picked in Player never showed). Followers follow, as they follow the mode. */
   const pickScene = (id: RecordId) => {
-    if (inPlayer()) player.setMode("sandbox");
+    // Also when not in Player: picked while the tab's match is still on its way, the scene stays.
+    player.setMode("sandbox");
     userFlip(id);
   };
   /** A scene saved from the replay: shown (its drawings moved into it), with a toast to go back. */
