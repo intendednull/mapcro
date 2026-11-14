@@ -313,9 +313,25 @@ selects; the build opens from the portrait's build control in both. The phone la
 - **The bound is on consumers:** a component reruns only when a value it reads changes. Each
   entity's fields are memos keyed by slot or marker with an equality check.
 - **A scene is static:** its `MapState` changes only when a record does.
-- **Edit cost:** the replica clones the whole document on every edit and receive. Phase 0 measures
-  a 64-scene board before and after `more` (§9); the numbers decide whether the clone must go
-  before the writer ships.
+- **Edit cost:** the replica cloned the whole document on every edit and receive, twice (the
+  engine's view, and the WASM wrapper's copy to diff for `changed`). Measured in Chromium on a
+  64-scene board (3,869 records, 768 heroes; `just edit-cost`, 300 runs, medians in ms), by the
+  bytes of `more` on each hero (a real build is about 3,000; the cap is 8,192):
+
+  | `more` a hero | Board JSON | A drag frame (edit + its ack) | A peer's entry, nothing pending | A peer's entry under a pending edit | Whole-state save |
+  |---|---|---|---|---|---|
+  | 0 | 748 KiB | 1.88 → 0.02 | 0.94 → 0.01 | 0.94 → 0.26 | 5.3 → 5.5 |
+  | 3,000 | 2,993 KiB | 5.09 → 0.05 | 2.96 → 0.03 | 3.18 → 1.11 | 12.3 → 14.2 |
+  | 8,000 | 6,331 KiB | 18.35 → 0.06 | 9.06 → 0.05 | 6.10 → 2.31 | 20.1 → 20.0 |
+
+  **Decided: both clones go from the edit path** (before → after above; 18 ms a drag frame is
+  over a frame's budget). An edit and an undo apply in place (`apply_tx_with_inverse` rolls a
+  refusal back); an ack of the oldest pending transaction as sent, and a peer's entry with
+  nothing pending, leave or change the view directly; `changed` compares only the records the
+  call can touch. **What still copies the board:** a peer's entry while this replica has
+  pending work and a rejection (the view is rebuilt from the confirmed state), a `Rebase`, and
+  the whole-state save, which is unchanged and debounced. The simulation checks at every step
+  that the view is the confirmed state with the pending work applied.
 
 ## 7. Follow on scenes (H5)
 
@@ -381,5 +397,5 @@ review before each merge.
 ## 10. Still open
 
 - The operator may override any "decided (default)" row in §2.
-- Whether the replica's whole-document clone per edit must be fixed before the writer ships: by
-  the phase 0 and phase 1 numbers (§6).
+- ~~Whether the replica's whole-document clone per edit must be fixed before the writer
+  ships.~~ Measured and removed in phase 2 (§6).

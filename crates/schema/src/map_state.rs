@@ -194,7 +194,11 @@ impl Admit {
 /// Not `ROWS.len()`, which counts rows this build only reads: the reader release a rollback
 /// goes to has fewer, and would refuse every file as newer (review of 6a0d391, F1).
 pub fn written_rows() -> usize {
-    ROWS.iter().position(|r| r.status == Status::Ahead).unwrap_or(ROWS.len())
+    written_of(ROWS)
+}
+
+fn written_of(rows: &[Row]) -> usize {
+    rows.iter().position(|r| r.status == Status::Ahead).unwrap_or(rows.len())
 }
 
 pub fn rows_ts() -> String {
@@ -571,6 +575,17 @@ mod tests {
     fn git_head() -> Option<String> {
         let out = std::process::Command::new("git").args(["rev-parse", "HEAD"]).current_dir(env!("CARGO_MANIFEST_DIR")).output().ok()?;
         out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned()).filter(|h| !h.is_empty())
+    }
+
+    /// What a board file's header and a snapshot's watermark say this build writes.
+    #[test]
+    fn the_rows_written_stop_at_the_first_one_still_ahead() {
+        let r = |status| Row { key: "k", entity: Entity::Hero, kind: Kind::Bool, status };
+        assert_eq!(written_of(&[r(Status::Live), r(Status::Retired), r(Status::Ahead), r(Status::Ahead)]), 2);
+        assert_eq!(written_of(&[r(Status::Live), r(Status::Live), r(Status::Live)]), 3);
+        assert_eq!(written_of(&[r(Status::Ahead), r(Status::Ahead)]), 0);
+        assert_eq!(written_rows(), written_of(ROWS));
+        assert!(written_rows() >= 11, "the rows deployed as written are still written");
     }
 
     #[test]

@@ -4,7 +4,8 @@
 //   order lists the buys up to the frame; souls stay an edit and the right click the hero menu;
 // - a scene saved from the match before it could hold builds offers Retake, which fills them
 //   in from the scene's own moment, and nothing a person set since is overwritten;
-// - a follower sees the builds its presenter opens on a scene, with and without the match.
+// - a follower sees the builds its presenter opens on a scene, with the match and on a board
+//   that has none (a scene that came in a file).
 
 import { createServer } from "node:http";
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -244,4 +245,48 @@ test("a follower sees the builds its presenter opens on a scene", async ({ brows
   await portrait(a, "Amber-5").getByTestId("focus-hero").click();
   await expect(portrait(b, "Amber-5").locator("[data-testid=hero-build]:not([hidden])")).toHaveCount(1);
   await expect(builds(b)).toHaveCount(1);
+});
+
+test("with no match on the board, a scene from a file shows its builds and a follower sees them opened", async ({ browser }) => {
+  // A scene saved with its builds, exported, and imported as a board that has no match.
+  const from = await newBoardUrl(server, "Scene export");
+  const maker = await joinNew(browser, from, "Coach");
+  const inPlayer = await savedScene(maker);
+  const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(from)!;
+  const file = (await (await fetch(`${server.url}/api/boards/${board}/export`, { headers: { authorization: `Bearer ${token}` } })).json()) as { version: number; rows: number; matches: number[] };
+  expect(file.version).toBe(2);
+  expect(file.matches).toEqual([Number(ID)]);
+  file.matches = [];
+  await maker.close();
+  const url = await seed(file);
+  const a = await joinNew(browser, url, "Coach");
+  await expect(a.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
+  await a.getByTestId("scene-card").nth(1).click();
+  // The snapshot is the scene's own: its builds show with no replay anywhere, and there is
+  // nothing to retake from.
+  await expect(a.getByTestId("all-builds")).toBeVisible();
+  await expect(a.getByTestId("retake")).toHaveCount(0);
+  await portrait(a, "Amber-3").getByTestId("focus-hero").click();
+  expect(await shown(a, "Amber-3")).toEqual(inPlayer);
+  await a.keyboard.press("Escape");
+  await expect(builds(a)).toHaveCount(0);
+  // A follower: one build, its popover, all, none, and one closed again.
+  const b = await joinNew(browser, url, "Viewer");
+  await b.getByTestId("follow-Coach").click();
+  await expect(b.getByTestId("stop-following")).toHaveCount(1);
+  await expect(b.getByTestId("all-builds")).toBeVisible();
+  await portrait(a, "Amber-2").getByTestId("focus-hero").click();
+  await expect(portrait(b, "Amber-2").locator("[data-testid=hero-build]:not([hidden])")).toHaveCount(1);
+  await a.getByTestId("build-order").locator("summary").click();
+  await expect(b.getByTestId("build-order")).toHaveAttribute("open", "");
+  await a.getByTestId("all-builds").click();
+  await expect(builds(b)).toHaveCount(12);
+  await a.getByTestId("all-builds").click();
+  await expect(builds(b)).toHaveCount(0);
+  await portrait(a, "Sapphire-4").getByTestId("focus-hero").click();
+  await expect(portrait(b, "Sapphire-4").locator("[data-testid=hero-build]:not([hidden])")).toHaveCount(1);
+  await a.keyboard.press("Escape");
+  await expect(builds(a)).toHaveCount(0);
+  await expect(builds(b)).toHaveCount(0);
+  await expect(b.getByTestId("stop-following")).toHaveCount(1);
 });
