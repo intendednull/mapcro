@@ -78,9 +78,12 @@ and 159 did not run: it says nothing about the change. Build the server again be
    needs work (or goes: revert its three lines in `Board.tsx` to
    `createEffect(() => state.metaId() !== undefined && ok())`, which the first full run covered)
    or the pool goes back in (revert d7ab947).
-3. **cargo-mutants on the route's diff** was running to `/tmp/sp3-batch4.log` (`cargo mutants
-   -j 1 --in-diff <(git diff a0774c5 -- crates/server/src) -p mapcro-server -- --test replays`):
-   read its table, or run it again.
+3. **cargo-mutants on the route's diff: done** (`cargo mutants -j 1 --in-diff <(git diff a0774c5
+   -- crates/server/src) -p mapcro-server -- --test replays`): 10 mutants, 8 caught, 1 unviable,
+   1 missed. The missed one is `replays.rs:727`, `scope == "cdn"` to `!=` in `let tier = …`, a
+   line phase 3 didn't change (it's context in the diff): no replays test reads `tier`. Clippy
+   and the wasm tests passed after. (`mutants.out/` got into 68a8b4f by `git add -A` while the
+   run was writing it; the next commit takes it out. It isn't ignored: worth a `.gitignore` line.)
 4. **One browser-row mutant is unrun** (`host.ts`: `api.timeline(id, held.map(...))` to
    `api.timeline(id)`; the "timeline cache" rows must fail). The other four were killed before
    the paint-first change; `/tmp/sp3-e2e-mutants.py <worktree>` runs all five (it edits source
