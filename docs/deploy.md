@@ -259,6 +259,17 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
   rows `kills`, `deaths`, `assists`, `max_health`, and the unfit undo below): the same kind of
   step, floor 9, so **the rollback target from v10 is the v9 build (`1dcbd31`) and nothing
   older**.
+- **`has_heroes`** (map-state D2: a scene that holds its own heroes) follows the same two steps.
+  Its reader adds the row as `Ahead` with an additive store step (written as v10 → v11 on its
+  branch; the number is assigned at merge): nothing is stored differently and the build before
+  it stays a rollback target. Its writer is the release after: `ahead("has_heroes", ...)`
+  becomes `row(...)` in `crates/schema/src/map_state.rs`, the store gets a `Step::NeedsReader`
+  step whose floor is the reader's version, then `just ts`, `just rows-lock` after the deploy,
+  and `reader` in the justfile set to the reader's commit. From that deploy Save leaves the
+  roster alone and a saved scene draws its own heroes; `web/e2e/scene-hero.spec.ts` switches
+  from the test of Save setting the roster to the test of a scene's own heroes by the row's
+  status, and `web/test/scene-heroes.test.ts` "the row is not written by this build" and the
+  Save pin (`web/test/pins/save-as-scene.json`) change on purpose.
 - **`just reader-check`** (in `just test`) loads what this build's server stores on the reader
   release's own code. Its reader is `reader` in the justfile: **set it to the deployed commit
   at each deploy that changes what is stored**, with `just rows-lock`.
