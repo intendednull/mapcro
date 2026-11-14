@@ -24,6 +24,10 @@ fn main() {
         assert_eq!(serde_json::to_string(&doc).expect("json"), last, "seed {seed}: the reader reads another board");
         let base: Doc = serde_json::from_str(&last).expect("the board as a base parses");
         validate_doc(&base).expect("the board as a base is valid");
+        // A board file exported by that build: the reader refuses one whose `rows` is above
+        // its own registry as "Newer file" (boardfile.rs `read`), whatever its records hold.
+        let rows: usize = read("file-rows").trim().parse().expect("rows");
+        assert!(rows <= mapcro_schema::ROWS.len(), "seed {seed}: a board file says rows {rows}, the reader has {} and refuses it as newer", mapcro_schema::ROWS.len());
         boards += 1;
     }
     println!("the reader loaded {boards} boards, {txs} logged transactions, byte for byte");

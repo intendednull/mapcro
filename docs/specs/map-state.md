@@ -159,9 +159,13 @@ a server without the reader would drop `more` silently. So:
 - **The store version moves twice.** v8 (additive, no SQL) ships with the reader, so a v7 server
   still opens the database while nothing is written. v9 ships with the writer and sets the floor to
   8, so a server older than the reader refuses to start.
-- **Board files:** the reader accepts file version 2 (version 1 plus a `rows` header: the registry
-  length at export) and still writes version 1. The writer writes version 2. A file whose `rows`
-  is above this build's is refused as "Newer file".
+- **Board files:** the reader accepts file version 2 (version 1 plus a `rows` header) and still
+  writes version 1. The writer writes version 2. `rows` is the number of rows the exporting
+  build writes: the index of its first `Ahead` row (`written_rows`), the same watermark a
+  snapshot stores. Not the registry's length, which counts rows the build only reads: the
+  reader release has fewer, and would refuse every export made after the writer's deploy. A
+  file whose `rows` is above the importing build's registry is refused as "Newer file".
+  `just reader-check` holds that the reader takes this build's `rows`.
 
 A new field therefore costs: the row (as `Ahead`), its producer in Player, its draw; then one
 release later the row goes `Live` and Save writes it. Lists (`Ints`) also need a hand-written
