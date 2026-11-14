@@ -71,7 +71,7 @@ passed it and found two things to fix before the deploy; both are fixed (step 1 
   - `mapcro-schema`: 12 mutants, 12 caught.
   - `mapcro-engine`: 4 mutants, 2 caught, 2 unviable.
   - `mapcro-server`: 4 mutants, 4 caught (run against the unit tests and `board_file`, with
-    TD-72's flaky test skipped: it failed the first baseline).
+    TD-81's flaky test skipped: it failed the first baseline).
 - **Mutation testing, by hand:** the tool makes no mutant for a dropped `else if`, a constant or
   test-module code, so 15 were written and run one at a time; all 15 are caught. They are: the
   admission branch dropped from `submit`; `SetIf` checking only its value, only its expectation;
@@ -167,7 +167,7 @@ Save writes it. A row that turns out unused is retired, never removed.
 
 ## Gotchas
 
-- `an_import_is_refused_before_its_body_is_read` is flaky under load (TD-72): 2 of 4 `just test`
+- `an_import_is_refused_before_its_body_is_read` is flaky under load (TD-81): 2 of 4 `just test`
   runs failed on it, 0 of 11 alone. Not from this branch.
 - `rustc` crashed once (SIGSEGV in LLVM) during `just test`; a rerun was clean.
 - The worktree's `web/node_modules` is a link to the main checkout's, as other worktrees do.
