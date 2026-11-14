@@ -7,6 +7,26 @@ Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `
 
 Off main `a0774c5` (prod `e878c30`, store v10). Newest first.
 
+### D4's review fixes and the merge of main (2026-11-14, 09:00)
+
+The D4 review (a fresh reviewer) found no blocker. On this branch since:
+
+- **S2, fixed (`2063827`):** a field of Player's state is made on its first read. Before, every
+  field's memo was made with its entity and ran each frame for nobody (the bar asks only
+  `inSight`): 4,463 reads of the frame's series over 59 frames, now none
+  (`frame-clocks.test.ts` holds the upper bound).
+- **S3:** TD-97's trigger is "before `Tokens.tsx` reads `heroDraw`"; the lead accepted the gap
+  for D4.
+- **N2, N3 fixed (`95cf802`):** Save reads `savedPart` (the four things it stores), which the
+  second's part is built on; the read-back expects literal respawn values. **N1, N4:** TD-99,
+  TD-100. **N5** (old scenes' dead heroes keep the unset "respawn"; a team-wipe save shows up
+  to six labels): no action.
+- **S1** (a scene drawing the faded hero and its ghost reads as a second difference from
+  Player): with the operator; the lead's earlier call stands until then.
+- **Main `91e81c2` merged** (release 2 as cherry-picks of this branch, mobile defaults).
+  Conflicts resolved as ours, with main's TD-92 row kept: main's copies of the conflicted
+  files are this branch's own history.
+
 ### After the restart (2026-11-14, 06:35): the two reruns are in; this branch is the D4 release candidate
 
 - **`npm test` whole at `59efdec`:** 72 files, 713 passed, 1 skipped; `tsc` clean. With the
