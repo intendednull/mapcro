@@ -282,3 +282,11 @@ watch-install:
 desktop-smoke:
     cd desktop/app && cargo build
     xvfb-run -a dbus-run-session -- node desktop/smoke/smoke.mjs desktop/app/target/debug/mapcro-desktop --fake-steam
+
+# What one edit costs in the browser on a 64-scene board of full snapshots (map-state spec §6):
+# the engine's `scene_cost` dumps the board, and the real WASM replica is timed in Chromium on
+# the calls a drag makes each frame. `just edit-cost 0` for today's records, `8000` for the cap.
+edit-cost more="3000" runs="300": wasm
+    mkdir -p target/edit-cost
+    cargo run -q --release -p mapcro-engine --example scene_cost -- --more {{more}} --dump target/edit-cost/base.json
+    cd web && node perf/edit-cost.mjs ../target/edit-cost/base.json {{runs}}

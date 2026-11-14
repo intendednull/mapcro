@@ -279,6 +279,17 @@ impl Replica {
         }
     }
 
+    /// Whether the view is what it is defined to be: the confirmed state with each pending
+    /// transaction applied on top. Edits and most entries change the view in place instead of
+    /// rebuilding it, so the simulation asks this at every step.
+    pub fn view_is_rebuilt(&self) -> bool {
+        let mut view = self.confirmed.clone();
+        for tx in &self.pending {
+            let _ = apply_tx(&mut view, tx);
+        }
+        view == self.view
+    }
+
     /// Recompute the view: confirmed state with each pending transaction re-applied. One that no
     /// longer applies is left out of the view; the server will reject it and say why.
     fn rebase(&mut self) {
@@ -364,5 +375,149 @@ mod silent_tests {
         let (ra, rb) = (a.redo().map(|_| ()), b.redo().map(|_| ()));
         assert_eq!(ra.is_ok(), rb.is_ok());
         assert_eq!(text(&a, 100), text(&b, 100));
+    }
+}
+
+/// The view against its definition (the confirmed state with each pending transaction on top),
+/// through every path that changes it without rebuilding it (map-state spec §6, "Edit cost").
+#[cfg(test)]
+mod view_tests {
+    use super::*;
+    use mapcro_schema::{Callout, FieldValue, Record, RecordId, WorldPos, genesis};
+
+    const SCENE: RecordId = RecordId(14);
+
+    fn replica(client: u128) -> Replica {
+        let mut n = 0u128;
+        let doc = genesis(
+            || {
+                n += 1;
+                RecordId(n)
+            },
+            "t",
+        );
+        Replica::new(ClientId(client), "secret".into(), doc, 0)
+    }
+
+    fn note(id: u128, text: &str) -> Op {
+        Op::Create { id: RecordId(id), record: Record::Callout(Callout { scene: SCENE, pos: WorldPos { x: 0, y: 0 }, text: text.into(), color: None }) }
+    }
+
+    fn text(id: u128, text: &str) -> Op {
+        Op::Set { id: RecordId(id), value: FieldValue::CalloutText(text.into()) }
+    }
+
+    /// The view as its definition gives it.
+    fn rebuilt(r: &Replica) -> Doc {
+        let mut view = r.confirmed.clone();
+        for tx in &r.pending {
+            let _ = apply_tx(&mut view, tx);
+        }
+        view
+    }
+
+    fn sent(msg: Option<ClientMsg>) -> Tx {
+        match msg {
+            Some(ClientMsg::Submit(tx)) => tx,
+            other => panic!("expected a submit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_refused_edit_changes_nothing() {
+        let mut r = replica(7);
+        r.connect();
+        r.edit(vec![note(100, "kept")]).expect("edit");
+        let (view, pending, cseq) = (r.view().clone(), r.pending.clone(), r.next_cseq());
+        // The first op is valid and applies before the second is refused: it must be rolled back.
+        let bad = vec![text(100, "changed"), note(100, "an id already taken")];
+        assert!(r.edit(bad.clone()).is_err());
+        assert!(r.edit_silent(bad).is_err());
+        assert_eq!(r.view(), &view);
+        assert_eq!(r.pending, pending);
+        assert_eq!(r.next_cseq(), cseq);
+        assert_eq!(r.undo.len(), 1, "no undo entry for an edit that was refused");
+        assert!(r.view_is_rebuilt());
+    }
+
+    #[test]
+    fn local_edits_undo_and_redo_keep_the_view_rebuilt() {
+        let mut r = replica(7);
+        r.edit(vec![note(100, "a")]).expect("create");
+        r.edit_silent(vec![note(101, "b")]).expect("silent");
+        r.edit(vec![text(100, "c"), text(101, "d")]).expect("set");
+        r.undo().expect("undo");
+        r.redo().expect("redo");
+        r.undo().expect("undo");
+        assert_eq!(r.view(), &rebuilt(&r));
+        assert!(r.view_is_rebuilt());
+    }
+
+    #[test]
+    fn an_ack_of_the_oldest_pending_edit_leaves_the_view_as_it_was() {
+        let mut r = replica(7);
+        r.connect();
+        let first = sent(r.edit(vec![note(100, "a")]).expect("first"));
+        let second = sent(r.edit(vec![text(100, "b")]).expect("second"));
+        let view = r.view().clone();
+        r.receive(ServerMsg::Entry { seq: 1, tx: first }).expect("ack");
+        assert_eq!(r.view(), &view);
+        assert_eq!(r.view(), &rebuilt(&r));
+        assert_ne!(r.view(), r.confirmed(), "the second edit is still only pending");
+        r.receive(ServerMsg::Entry { seq: 2, tx: second }).expect("ack");
+        assert_eq!(r.view(), &view);
+        assert_eq!(r.view(), r.confirmed());
+        assert_eq!(r.status(), SaveStatus::Saved);
+    }
+
+    #[test]
+    fn an_ack_that_is_not_the_edit_as_sent_rebuilds_the_view_from_the_servers() {
+        // A server never rewrites a transaction; if one did, its copy is the truth.
+        let mut r = replica(7);
+        r.connect();
+        let mut tx = sent(r.edit(vec![note(100, "mine")]).expect("edit"));
+        tx.ops = vec![note(100, "the server's")];
+        r.receive(ServerMsg::Entry { seq: 1, tx }).expect("ack");
+        assert_eq!(r.view(), r.confirmed());
+        assert!(matches!(r.view().live(RecordId(100)), Some(Record::Callout(c)) if c.text == "the server's"));
+    }
+
+    #[test]
+    fn a_peers_entry_reaches_the_view_with_and_without_pending_work() {
+        let peer = |cseq: u64, ops: Vec<Op>| Tx { client: ClientId(9), cseq, kind: TxKind::Edit, ops };
+        let mut r = replica(7);
+        r.connect();
+        // Nothing pending: the view is the confirmed state.
+        r.receive(ServerMsg::Entry { seq: 1, tx: peer(0, vec![note(200, "theirs")]) }).expect("entry");
+        assert_eq!(r.view(), r.confirmed());
+        assert!(r.view().live(RecordId(200)).is_some());
+        // Pending work on top: the peer's write is under it, and the pending edit wins the view.
+        r.edit(vec![text(200, "mine, pending")]).expect("edit");
+        r.receive(ServerMsg::Entry { seq: 2, tx: peer(1, vec![text(200, "theirs again"), note(201, "new")]) }).expect("entry");
+        assert_eq!(r.view(), &rebuilt(&r));
+        assert!(matches!(r.view().live(RecordId(200)), Some(Record::Callout(c)) if c.text == "mine, pending"));
+        assert!(r.view().live(RecordId(201)).is_some());
+        assert!(matches!(r.confirmed().live(RecordId(200)), Some(Record::Callout(c)) if c.text == "theirs again"));
+    }
+
+    #[test]
+    fn a_peers_delete_under_a_pending_edit_drops_that_edit_from_the_view() {
+        let mut r = replica(7);
+        r.connect();
+        r.receive(ServerMsg::Entry { seq: 1, tx: Tx { client: ClientId(9), cseq: 0, kind: TxKind::Edit, ops: vec![note(200, "theirs")] } }).expect("entry");
+        r.edit(vec![note(300, "mine"), text(200, "mine")]).expect("edit");
+        r.receive(ServerMsg::Entry { seq: 2, tx: Tx { client: ClientId(9), cseq: 1, kind: TxKind::Edit, ops: vec![Op::Delete { id: RecordId(200) }] } }).expect("entry");
+        assert_eq!(r.view(), &rebuilt(&r));
+        assert!(r.view().live(RecordId(200)).is_none());
+        assert!(r.view_is_rebuilt());
+    }
+
+    #[test]
+    fn the_rebuilt_check_tells_a_view_that_drifted() {
+        let mut r = replica(7);
+        r.edit(vec![note(100, "a")]).expect("edit");
+        assert!(r.view_is_rebuilt());
+        r.pending.clear();
+        assert!(!r.view_is_rebuilt());
     }
 }
