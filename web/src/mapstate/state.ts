@@ -11,6 +11,7 @@
 // renderers read `MapState` themselves (phase 4, with `fromScene` giving the same interface).
 
 import { type Accessor, createMemo, getOwner, runWithOwner } from "solid-js";
+import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { MatchPreview } from "../match/preview";
 import { type CampAt, type PowerupAt, type RejuvNow, type RiftAt, type Timeline, type UrnNow, markerKey, positionAt, respawnAt, riftAt, slotKey, urnAt } from "../match/timeline";
 import type { CrowdControl } from "../player/cc";
@@ -51,6 +52,9 @@ export interface HeroState {
 
 /** A marker at the frame, by the board's marker key. */
 export interface MarkerState {
+  /** The status a scene stores for the marker; it wins over the detail below (spec §5).
+   * `undefined`: none stored (always so in Player, whose state is computed). */
+  status: Accessor<ObjectiveStatus | undefined>;
   /** An objective that is down. */
   down: Accessor<boolean>;
   /** A rift or powerup site: up or not (`undefined`: the frame doesn't say). */
@@ -66,6 +70,9 @@ export interface MarkerState {
 
 /** A lane at the frame, by lane key. */
 export interface LaneState {
+  /** Where the lane's waves meet (`Wave.t`'s scale): the middle of the colours' gap in Player,
+   * the stored split in a scene. `undefined`: the frame doesn't hold it. */
+  split: Accessor<number | undefined>;
   /** The zipline colours' edges (`Wave.t`'s scale); `undefined`: the frame doesn't hold them. */
   edges: Accessor<{ amber: number; sapphire: number } | undefined>;
 }
@@ -216,6 +223,7 @@ export function fromTimeline(src: StateSource): PlayerState {
   const markers = new Map<string, MarkerState>();
   const marker = (key: string): MarkerState =>
     kept(markers, key, () => ({
+      status: () => undefined,
       down: memo(() => sec()?.down.has(key) ?? false),
       site: memo(() => sec()?.sites.get(key)),
       shopClosed: memo(() => sec()?.shops.has(key) ?? false),
@@ -229,7 +237,11 @@ export function fromTimeline(src: StateSource): PlayerState {
     }));
 
   const lanes = new Map<string, LaneState>();
-  const lane = (key: string): LaneState => kept(lanes, key, () => ({ edges: memo(() => sec()?.lanes.get(key), sameValue) }));
+  const lane = (key: string): LaneState =>
+    kept(lanes, key, () => {
+      const edges = memo(() => sec()?.lanes.get(key), sameValue);
+      return { edges, split: memo(() => (edges() ? (edges()!.amber + edges()!.sapphire) / 2 : undefined)) };
+    });
 
   const facts: SceneFacts = {
     urn: memo(() => {
