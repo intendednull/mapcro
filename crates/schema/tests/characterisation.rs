@@ -282,7 +282,7 @@ fn a_board_file_holds_the_same_records() {
     let stored = std::fs::read_to_string(golden("board-export.json")).expect("golden export");
     let read: Vec<(RecordId, Record)> = serde_json::from_str(&stored).expect("a file's records parse");
     assert_eq!(serde_json::to_string(&read).expect("json"), stored);
-    let imported = mapcro_schema::import_records(read.clone(), ids(1 << 64)).expect("and import");
+    let imported = mapcro_schema::import_records(read.clone(), ids(1 << 64), &mapcro_schema::Admit::DEPLOYED).expect("and import");
     assert_eq!(imported.iter_live().count(), read.len());
 }
 

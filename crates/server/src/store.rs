@@ -1340,6 +1340,58 @@ mod tests {
         assert_eq!(loaded.authority.doc(), &head);
     }
 
+    /// Admission is not loading (docs/specs/map-state.md §4.3). The server refuses a submitted
+    /// transaction or an imported file that carries a map-state row still `Ahead`, but a board
+    /// whose base and log already hold registry values and a scene's state loads as it is: a
+    /// stored board is never refused for what was once let in.
+    #[tokio::test]
+    async fn a_base_and_a_log_already_holding_map_state_still_load() {
+        use mapcro_schema::{FieldValue, More, MoreValue, Op, Record, RecordId, RowId, SceneState, TxKind};
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        let mut n = 0u128;
+        let mut base = mapcro_schema::genesis(
+            || {
+                n += 1;
+                RecordId(n)
+            },
+            "Scrim",
+        );
+        let player = base.iter_live().find(|(_, r)| matches!(r, Record::PlayerState(_))).map(|(id, _)| id).expect("player");
+        let scene = base.iter_live().find(|(_, r)| matches!(r, Record::Scene(_))).map(|(id, _)| id).expect("scene");
+        let row = |key: &str| RowId::of(key).expect("row");
+        let hero = |n: i64| Op::Set { id: player, value: FieldValue::More { key: row("hero"), value: Some(MoreValue::Int(n)) } };
+        let state = |id: u128, more: More| Op::Create { id: RecordId(id), record: Record::SceneState(SceneState { scene, more }) };
+        let tx = |cseq: u64, ops: Vec<Op>| Tx { client: ClientId(7), cseq, kind: TxKind::Edit, ops };
+        // The base holds a hero's value and a scene's state; the log sets, clears and replaces them.
+        mapcro_schema::apply_tx(&mut base, &tx(0, vec![hero(13), state(900, [(row("rows"), MoreValue::Int(11))].into_iter().collect())])).expect("valid");
+        assert!(mapcro_schema::Admit::DEPLOYED.tx(&tx(0, vec![hero(13)])).is_err() == (row("hero").row().status == mapcro_schema::Status::Ahead));
+        let log = [
+            tx(1, vec![hero(14), Op::Set { id: player, value: FieldValue::More { key: row("name"), value: Some(MoreValue::Text("Solo".into())) } }]),
+            tx(2, vec![Op::Set { id: player, value: FieldValue::More { key: row("name"), value: None } }]),
+            tx(3, vec![Op::Delete { id: RecordId(900) }, state(901, More::default())]),
+        ];
+        let mut head = base.clone();
+        let mut writes = Vec::new();
+        for (i, t) in log.iter().enumerate() {
+            mapcro_schema::apply_tx(&mut head, t).expect("valid");
+            let (codec, stored) = codec::encode(&serde_json::to_vec(t).expect("json"));
+            writes.push(Write::Op { seq: i as u64 + 1, codec, stored });
+        }
+        {
+            let store = Store::open(&path).expect("open");
+            assert!(store.create_room(RoomKind::Board, "b".into(), base, crate::links::hash("o"), 1, 10, u64::MAX, None).await.expect("create") == GrantWrite::Written);
+            store.commit("b".into(), writes).await.expect("log");
+        }
+        let store = Store::open(&path).expect("reopen");
+        let caps = LoadCaps { ops: 1000, bytes: 1 << 20, clients: 10, rejections: 10 };
+        let loaded = store.load_board("b".into(), caps, Quota::default()).await.expect("load").expect("the board");
+        assert_eq!(loaded.authority.doc(), &head, "the board reads as it was stored, registry values and all");
+        assert_eq!(loaded.authority.log_len(), 3);
+        assert!(matches!(head.live(player), Some(Record::PlayerState(p)) if p.more.get(row("hero")) == Some(&MoreValue::Int(14)) && p.more.get(row("name")).is_none()));
+        assert!(head.live(RecordId(901)).is_some() && head.live(RecordId(900)).is_none());
+    }
+
     /// A session's listed links say they're a session's, as `link` does (security review of
     /// sessions phase 1, finding 6).
     #[tokio::test]

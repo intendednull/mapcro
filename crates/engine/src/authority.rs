@@ -1,5 +1,5 @@
 use crate::protocol::{ClientMsg, Hello, ServerMsg};
-use mapcro_schema::{ClientId, Doc, LIMITS, Reject, Tx, apply_tx};
+use mapcro_schema::{Admit, ClientId, Doc, LIMITS, Reject, Tx, apply_tx};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -84,6 +84,9 @@ pub struct Authority {
     /// Set by the host when storage as a whole is full: valid edits are refused with
     /// [`Reject::ServerFull`].
     storage_full: bool,
+    /// What a submitted transaction may carry (map-state spec §4.3). Only `submit` asks: a
+    /// replayed log holds what was once admitted and must load.
+    admit: Admit,
 }
 
 /// One thing to send on a connection, in order.
@@ -142,7 +145,14 @@ impl Authority {
             conns: BTreeMap::new(),
             quota,
             storage_full: false,
+            admit: Admit::DEPLOYED,
         }
+    }
+
+    /// Admit by `admit`, not this build's own statuses (`Admit::DEPLOYED`, the default and the
+    /// server's): for the simulation and tests, which write rows before a build may.
+    pub fn set_admit(&mut self, admit: Admit) {
+        self.admit = admit;
     }
 
     /// Rebuild from storage: a snapshot of the board at log position `seq` (the stored base),
@@ -370,11 +380,15 @@ impl Authority {
         if tx.cseq > rec.next_cseq {
             return (self.fatal(conn, "transaction sequence gap"), Vec::new());
         }
-        // Admission before validity: size, then the board's and the server's room for it.
+        // Admission before validity: size, what it may carry yet (a row or record kind whose
+        // reader is still being deployed is refused here and nowhere else, so a stored log
+        // always replays), then the board's and the server's room for it.
         let json_len = encoded_len(&tx);
         let size = stored_len.unwrap_or(json_len);
         let result = if json_len > LIMITS.max_tx_bytes {
             Err(Reject::TxTooLarge)
+        } else if let Err(ahead) = self.admit.tx(&tx) {
+            Err(ahead)
         } else if self.log_len - self.floor >= self.quota.max_log_ops as u64 || self.log_bytes.saturating_add(size) > self.quota.max_log_bytes {
             Err(Reject::BoardFull)
         } else if self.storage_full {
@@ -406,5 +420,165 @@ impl Authority {
                 (vec![(conn, Outgoing::Msg(ServerMsg::Rejected { cseq: tx.cseq, reason }))], vec![effect])
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    //! What a client may submit while a map-state row or record kind is `Ahead` (map-state spec
+    //! §4.3). The rest of the authority is covered by the simulation and the server's tests.
+    use super::*;
+    use mapcro_schema::{FieldValue, More, MoreValue, Op, Record, RecordId, RowId, SceneState, Status, TxKind, WorldPos, genesis};
+
+    const CLIENT: ClientId = ClientId(7);
+    const CONN: ConnId = ConnId(1);
+    /// The reader release: every row and `SceneState` ahead.
+    const AHEAD: Admit = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead };
+
+    fn board() -> Doc {
+        let mut n = 0u128;
+        genesis(
+            || {
+                n += 1;
+                RecordId(n)
+            },
+            "Scrim",
+        )
+    }
+
+    fn player(doc: &Doc) -> RecordId {
+        doc.iter_live().find(|(_, r)| matches!(r, Record::PlayerState(_))).map(|(id, _)| id).expect("player")
+    }
+
+    fn scene(doc: &Doc) -> RecordId {
+        doc.iter_live().find(|(_, r)| matches!(r, Record::Scene(_))).map(|(id, _)| id).expect("scene")
+    }
+
+    fn row(key: &str) -> RowId {
+        RowId::of(key).expect("row")
+    }
+
+    fn hero(n: i64) -> FieldValue {
+        FieldValue::More { key: row("hero"), value: Some(MoreValue::Int(n)) }
+    }
+
+    fn tx(cseq: u64, ops: Vec<Op>) -> Tx {
+        Tx { client: CLIENT, cseq, kind: TxKind::Edit, ops }
+    }
+
+    /// An authority on `doc` with one editor connected and greeted.
+    fn serving(mut a: Authority) -> Authority {
+        a.connect(CONN, Role::Edit);
+        let hello = Hello { client: CLIENT, secret: "s".into(), last_seq: a.log_len(), pending_from: a.next_cseq(CLIENT) };
+        let (out, _) = a.handle(CONN, ClientMsg::Hello(hello));
+        assert!(!out.iter().any(|(_, m)| matches!(m, Outgoing::Msg(ServerMsg::Fatal(_)))), "{out:?}");
+        a
+    }
+
+    /// Submit, expecting a refusal that is stored and told, and nothing logged.
+    fn refused(a: &mut Authority, tx: Tx) -> Reject {
+        let (doc, len, cseq) = (a.doc().clone(), a.log_len(), tx.cseq);
+        let (out, effects) = a.handle(CONN, ClientMsg::Submit(tx));
+        assert_eq!((a.doc(), a.log_len()), (&doc, len), "a refused transaction changes nothing");
+        let [Effect::Rejected { client: CLIENT, cseq: stored, reason }] = effects.as_slice() else { panic!("{effects:?}") };
+        assert_eq!(*stored, cseq);
+        assert_eq!(out, vec![(CONN, Outgoing::Msg(ServerMsg::Rejected { cseq, reason: reason.clone() }))]);
+        reason.clone()
+    }
+
+    /// Submit, expecting it logged.
+    fn logged(a: &mut Authority, tx: Tx) {
+        let (_, effects) = a.handle(CONN, ClientMsg::Submit(tx.clone()));
+        assert_eq!(effects, vec![Effect::Logged { seq: a.log_len(), tx }]);
+    }
+
+    #[test]
+    fn a_submitted_ahead_row_or_kind_is_rejected_and_never_logged() {
+        let doc = board();
+        let (p, s) = (player(&doc), scene(&doc));
+        let mut a = Authority::new(doc);
+        a.set_admit(AHEAD);
+        let mut a = serving(a);
+        assert_eq!(refused(&mut a, tx(0, vec![Op::Set { id: p, value: hero(13) }])), Reject::WrongField);
+        let clear = FieldValue::More { key: row("hero"), value: None };
+        assert_eq!(refused(&mut a, tx(1, vec![Op::SetIf { id: p, expect: clear.clone(), value: hero(13) }])), Reject::WrongField);
+        let state = |more: More| Op::Create { id: RecordId(900), record: Record::SceneState(SceneState { scene: s, more }) };
+        assert_eq!(refused(&mut a, tx(2, vec![state(More::default())])), Reject::Immutable);
+        // Beside a valid edit, the whole transaction is refused.
+        let moved = Op::Set { id: p, value: FieldValue::PlayerPos(WorldPos { x: 5, y: 5 }) };
+        assert_eq!(refused(&mut a, tx(3, vec![moved.clone(), Op::Set { id: p, value: clear }])), Reject::WrongField);
+        // The client's sequence moved on, and what a board holds today still goes in.
+        logged(&mut a, tx(4, vec![moved]));
+        assert_eq!(a.rejections_len(), 4);
+    }
+
+    /// A new authority asks this build's own statuses: no row or kind that is `Ahead` here can
+    /// be submitted to the server.
+    #[test]
+    fn by_default_a_row_is_admitted_by_its_own_status() {
+        let doc = board();
+        let (p, s) = (player(&doc), scene(&doc));
+        let mut a = serving(Authority::new(doc));
+        let mut cseq = 0;
+        for r in RowId::all().filter(|r| r.row().entity == mapcro_schema::Entity::Hero) {
+            let write = tx(cseq, vec![Op::Set { id: p, value: FieldValue::More { key: r, value: None } }]);
+            cseq += 1;
+            if r.row().status == Status::Ahead {
+                assert_eq!(refused(&mut a, write), Reject::WrongField, "{r:?}");
+            } else {
+                logged(&mut a, write);
+            }
+        }
+        let state = tx(cseq, vec![Op::Create { id: RecordId(900), record: Record::SceneState(SceneState { scene: s, more: More::default() }) }]);
+        if mapcro_schema::SCENE_STATE == Status::Ahead {
+            assert_eq!(refused(&mut a, state), Reject::Immutable);
+        } else {
+            logged(&mut a, state);
+        }
+    }
+
+    /// Admission is `submit`'s alone: a base and a log that already hold a row or a scene's
+    /// state load, whatever is admitted now, and the board then takes today's edits.
+    #[test]
+    fn a_base_and_a_log_already_holding_them_still_load() {
+        let mut base = board();
+        let (p, s) = (player(&base), scene(&base));
+        let state = Op::Create { id: RecordId(900), record: Record::SceneState(SceneState { scene: s, more: [(row("rows"), MoreValue::Int(11))].into_iter().collect() }) };
+        apply_tx(&mut base, &tx(0, vec![Op::Set { id: p, value: hero(13) }, state])).expect("valid");
+        let mut a = Authority::from_snapshot(base, 1, Quota::default());
+        a.set_admit(AHEAD);
+        let logged_before = [
+            tx(1, vec![Op::Set { id: p, value: hero(14) }]),
+            tx(2, vec![Op::Delete { id: RecordId(900) }]),
+            tx(3, vec![Op::Create { id: RecordId(901), record: Record::SceneState(SceneState { scene: s, more: More::default() }) }]),
+        ];
+        for t in &logged_before {
+            a.replay(t, encoded_len(t)).expect("a logged transaction replays");
+        }
+        assert_eq!(a.log_len(), 4);
+        let held = |a: &Authority| a.doc().live(p).and_then(|r| r.get(mapcro_schema::Field::More(row("hero"))));
+        assert_eq!(held(&a), Some(hero(14)));
+        assert!(a.doc().live(RecordId(901)).is_some());
+        let mut a = serving(a);
+        assert_eq!(refused(&mut a, tx(4, vec![Op::Set { id: p, value: hero(15) }])), Reject::WrongField);
+        logged(&mut a, tx(5, vec![Op::Set { id: p, value: FieldValue::PlayerPos(WorldPos { x: 1, y: 2 }) }]));
+        assert_eq!(held(&a), Some(hero(14)));
+    }
+
+    #[test]
+    fn a_row_made_live_is_admitted_and_logged() {
+        let doc = board();
+        let (p, s) = (player(&doc), scene(&doc));
+        let mut a = Authority::new(doc);
+        a.set_admit(Admit { row: |r| if r.key() == "hero" { Status::Live } else { Status::Ahead }, scene_state: Status::Ahead });
+        let mut a = serving(a);
+        logged(&mut a, tx(0, vec![Op::Set { id: p, value: hero(13) }]));
+        assert_eq!(a.doc().live(p).and_then(|r| r.get(mapcro_schema::Field::More(row("hero")))), Some(hero(13)));
+        let level = FieldValue::More { key: row("level"), value: Some(MoreValue::Int(3)) };
+        assert_eq!(refused(&mut a, tx(1, vec![Op::Set { id: p, value: level }])), Reject::WrongField);
+        let state = || Op::Create { id: RecordId(900), record: Record::SceneState(SceneState { scene: s, more: More::default() }) };
+        assert_eq!(refused(&mut a, tx(2, vec![state()])), Reject::Immutable);
+        a.set_admit(Admit::READS);
+        logged(&mut a, tx(3, vec![state()]));
     }
 }

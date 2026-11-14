@@ -138,7 +138,17 @@ a server without the reader would drop `more` silently. So:
 - **A row is readable one release before anything writes it.** A new row lands as `Ahead`.
   `crates/schema/rows.lock` lists the rows of the last deployed build (`just rows-lock` at each
   deploy, `docs/deploy.md`). A test refuses: a locked row that changed or narrowed; a row that is
-  not `Ahead` and not in the lock.
+  not `Ahead` and not in the lock. `just rows-lock` makes the same check against the lock already
+  there before it rewrites it.
+- **`Ahead` is enforced at admission, not only by convention.** While a row is `Ahead` the server
+  refuses anything from outside that carries it: a submitted transaction with a `More` naming
+  the row (a clear included) or creating a record with it, and an imported file holding it, at
+  either file version (`Reject::WrongField`). `SceneState` is gated the same way by one constant,
+  `SCENE_STATE`, which the writer release flips (`Reject::Immutable` until then). The check is
+  `Admit` (`map_state.rs`), asked by `Authority::submit` and `import_records` only: a stored base
+  and a replayed log are never asked, so a board always loads. Until a row is `Live`, storage
+  therefore holds nothing a server from before the reader can't parse, and the reader release
+  can be rolled back. A `Retired` row is not refused.
 - **The store version moves twice.** v8 (additive, no SQL) ships with the reader, so a v7 server
   still opens the database while nothing is written. v9 ships with the writer and sets the floor to
   8, so a server older than the reader refuses to start.
@@ -316,6 +326,9 @@ review before each merge.
   `apply_tx_with_inverse` restores the document for `More`, cleared included; a second
   `SceneState` refused; `max_more_bytes`; the largest legal ops fit a transaction; the heap
   estimate; the lock file.
+- **Admission:** a transaction and a file carrying an `Ahead` row or a `SceneState` are refused;
+  a base and a log already holding them load; a row made `Live` is admitted; the simulation as
+  built logs none. `just rows-lock` refuses a reordered or narrowed row.
 - **Store:** a v7 database in use opens on v8 unchanged; a v7 server opens a v8 database.
 - **Sync and undo, two replicas (the simulation):** `More` writes by every honest behaviour, with
   the no-clobber check over every row.

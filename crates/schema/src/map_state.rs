@@ -11,9 +11,16 @@
 //! [`Status::Retired`]. A new row lands as [`Status::Ahead`], so the build that reads it is
 //! deployed before any build writes it. `rows.lock` (the rows of the last deployed build) and
 //! the test below enforce both.
+//!
+//! **Reading and writing are checked apart.** Validation (`validate.rs`) reads every row there
+//! has ever been, because a stored base and its log must always load. [`Admit`] is what a build
+//! lets in from outside: a client's transaction or a board file that carries an `Ahead` row, or
+//! a `SceneState` while that kind is `Ahead`, is refused there, so nothing reaches storage that
+//! the build before this reader could not load after a rollback.
 
-use crate::records::WorldPos;
+use crate::records::{FieldValue, Record, WorldPos};
 use crate::validate::{LIMITS, Reject, check_line, check_pos};
+use crate::{Op, Tx};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -91,6 +98,65 @@ pub const ROWS: &[Row] = &[
     row("health", Entity::Hero, Kind::Int { min: 0, max: 100 }),
     row("pickups", Entity::Hero, Kind::Ints { len: 16, min: -1_000_000_000, max: 1_000_000_000 }),
 ];
+
+/// `SceneState`'s own status: the record kind is gated as a row is. Its reader ships a release
+/// before anything creates one; the writer release makes it `Live` (spec §4.3). A test holds it
+/// `Ahead` until `rows.lock` shows a deployed build that reads it.
+pub const SCENE_STATE: Status = Status::Ahead;
+
+/// What may come in from outside, as opposed to what is read (spec §4.3): the check at
+/// admission, on a client's transaction (`Authority::submit`) and on a board file's records
+/// (`import_records`). Never on a stored base or a log being replayed, which hold whatever was
+/// once admitted and must load.
+///
+/// While a row is [`Status::Ahead`], nothing that carries it is let in: a `FieldValue::More`
+/// naming it (a clear included: the value is in the log either way) or a record created with it
+/// in its `more`. Nor is a `SceneState` while [`SCENE_STATE`] is `Ahead`. A build from before the
+/// reader can't parse either, and drops a `more` it doesn't know, so storing one would break the
+/// board on a rollback.
+#[derive(Clone, Copy, Debug)]
+pub struct Admit {
+    /// A row's status.
+    pub row: fn(RowId) -> Status,
+    /// `SceneState`'s.
+    pub scene_state: Status,
+}
+
+impl Admit {
+    /// This build's: each row by its own status, and [`SCENE_STATE`]. What the server uses.
+    pub const DEPLOYED: Admit = Admit { row: |r| r.row().status, scene_state: SCENE_STATE };
+    /// Everything this build reads, as the writer release will admit it. For the simulation and
+    /// tests, which exercise sync and undo of the rows before anything may write them.
+    pub const READS: Admit = Admit { row: |_| Status::Live, scene_state: Status::Live };
+
+    fn value(&self, v: &FieldValue) -> Result<(), Reject> {
+        match v {
+            FieldValue::More { key, .. } if (self.row)(*key) == Status::Ahead => Err(Reject::WrongField),
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether `record` may be created or imported now.
+    pub fn record(&self, record: &Record) -> Result<(), Reject> {
+        if matches!(record, Record::SceneState(_)) && self.scene_state == Status::Ahead {
+            return Err(Reject::Immutable);
+        }
+        match record.more() {
+            Some((_, more)) if more.iter().any(|(key, _)| (self.row)(key) == Status::Ahead) => Err(Reject::WrongField),
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether `tx` may be submitted now. Says nothing about whether it is valid.
+    pub fn tx(&self, tx: &Tx) -> Result<(), Reject> {
+        tx.ops.iter().try_for_each(|op| match op {
+            Op::Create { record, .. } => self.record(record),
+            Op::Set { value, .. } => self.value(value),
+            Op::SetIf { expect, value, .. } => self.value(expect).and_then(|()| self.value(value)),
+            Op::Delete { .. } | Op::Restore { .. } => Ok(()),
+        })
+    }
+}
 
 /// A row, by its place in [`ROWS`]. Only made from a key that exists, so holding one means the
 /// row is known: an unknown key cannot be represented, and fails to parse.
@@ -275,6 +341,8 @@ impl FromIterator<(RowId, MoreValue)> for More {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::records::{Callout, ObjectiveState, ObjectiveStatus, PlayerState, SceneState, Team, Wave};
+    use crate::{ClientId, LaneKey, ObjectiveKey, RecordId, TxKind};
     use std::collections::BTreeSet;
 
     const LOCK: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/rows.lock");
@@ -309,8 +377,8 @@ mod tests {
     }
 
     /// The registry as `rows.lock` holds it: one line per row, `key entity kind bounds…`.
-    fn lock_lines() -> String {
-        ROWS.iter()
+    fn lock_lines(rows: &[Row]) -> String {
+        rows.iter()
             .map(|r| {
                 let kind = match r.kind {
                     Kind::Bool => "bool".to_owned(),
@@ -378,14 +446,89 @@ mod tests {
         out
     }
 
+    const LOCK_HEAD: &str = "# The map-state rows of the last deployed build (docs/specs/map-state.md §4.3).\n# Written by `just rows-lock` at each deploy; never by hand.\n";
+
+    /// `just rows-lock`: record `rows` as deployed in the lock at `path`. The lock already
+    /// there is the last deploy's, so `rows` must keep every promise it holds: checked first,
+    /// and nothing is written if one is broken. (Writing first and checking the result against
+    /// itself would bless a reordered or narrowed row: review of phase 1, F2.)
+    fn relock(path: &std::path::Path, rows: &[Row]) -> Result<(), Vec<String>> {
+        let deployed = std::fs::read_to_string(path).map_err(|e| vec![format!("{}: {e}", path.display())])?;
+        let broken = broken(&deployed, rows);
+        if !broken.is_empty() {
+            return Err(broken);
+        }
+        std::fs::write(path, format!("{LOCK_HEAD}{}", lock_lines(rows))).map_err(|e| vec![format!("{}: {e}", path.display())])
+    }
+
+    /// Whether a deployed build reads `SceneState`, by its lock: one that knows a row of the
+    /// scene's does (the record and its first rows shipped in one build).
+    fn reads_scene_state(lock: &str) -> bool {
+        lock.lines().filter(|l| !l.starts_with('#') && !l.is_empty()).any(|l| parse(l).1 == Entity::Scene)
+    }
+
     #[test]
     fn rows_are_append_only_and_read_a_release_before_they_are_written() {
         if std::env::var_os("MAPCRO_ROWS_LOCK").is_some() {
-            let head = "# The map-state rows of the last deployed build (docs/specs/map-state.md §4.3).\n# Written by `just rows-lock` at each deploy; never by hand.\n";
-            std::fs::write(LOCK, format!("{head}{}", lock_lines())).expect("write rows.lock");
+            relock(std::path::Path::new(LOCK), ROWS).unwrap_or_else(|broken| panic!("rows.lock is not rewritten: this build breaks the last deployed one's rows: {broken:#?}"));
         }
         let lock = std::fs::read_to_string(LOCK).expect("crates/schema/rows.lock");
         assert_eq!(broken(&lock, ROWS), Vec::<String>::new(), "see map_state.rs: rows are append-only, and a new row is Ahead until `just rows-lock` has run at a deploy");
+        assert!(SCENE_STATE == Status::Ahead || reads_scene_state(&lock), "SceneState's reader is not deployed yet (no row of the scene's is in rows.lock), so it must be Ahead");
+    }
+
+    /// A lock file of its own, holding `text`: `relock` is tried on it, never on the real one.
+    fn scratch_lock(name: &str, text: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!("mapcro-rows-lock-{}-{name}", std::process::id()));
+        std::fs::write(&path, text).expect("scratch lock");
+        path
+    }
+
+    #[test]
+    fn locking_refuses_a_build_that_breaks_the_deployed_rows_and_leaves_the_lock_alone() {
+        let rows = [
+            Row { key: "a", entity: Entity::Hero, kind: Kind::Int { min: 0, max: 10 }, status: Status::Live },
+            Row { key: "b", entity: Entity::Scene, kind: Kind::Ints { len: 4, min: -1, max: 9 }, status: Status::Ahead },
+        ];
+        let deployed = format!("{LOCK_HEAD}a hero int 0 10\nb scene ints 4 -1 9\n");
+        let try_lock = |name: &str, rows: &[Row]| {
+            let path = scratch_lock(name, &deployed);
+            let result = relock(&path, rows);
+            let after = std::fs::read_to_string(&path).expect("lock");
+            std::fs::remove_file(&path).expect("remove");
+            (result, after)
+        };
+        // Reordered, narrowed, removed, or another kind: refused, and the file is as it was.
+        let reordered = [rows[1], rows[0]];
+        assert_eq!(try_lock("reordered", &reordered), (Err(vec!["a: moved or renamed (row 0 is b)".to_owned(), "b: moved or renamed (row 1 is a)".to_owned()]), deployed.clone()));
+        let mut narrowed = rows;
+        narrowed[0].kind = Kind::Int { min: 0, max: 9 };
+        assert_eq!(try_lock("narrowed", &narrowed), (Err(vec!["a: kind changed or bounds narrowed".to_owned()]), deployed.clone()));
+        narrowed = rows;
+        narrowed[1].kind = Kind::Ints { len: 3, min: -1, max: 9 };
+        assert_eq!(try_lock("shorter", &narrowed), (Err(vec!["b: kind changed or bounds narrowed".to_owned()]), deployed.clone()));
+        assert_eq!(try_lock("removed", &rows[..1]), (Err(vec!["b: removed".to_owned()]), deployed.clone()));
+        // A row that was never deployed as Ahead can't be locked in as written.
+        let mut skipped = rows.to_vec();
+        skipped.push(Row { key: "c", entity: Entity::Hero, kind: Kind::Bool, status: Status::Live });
+        assert_eq!(try_lock("skipped", &skipped), (Err(vec!["c: not deployed yet, so it must be Ahead".to_owned()]), deployed.clone()));
+        // The same rows, widened rows and new Ahead rows lock: the file is rewritten to them.
+        assert_eq!(try_lock("same", &rows), (Ok(()), deployed.clone()));
+        let mut grown = rows.to_vec();
+        grown[0].kind = Kind::Int { min: -1, max: 11 };
+        grown.push(Row { key: "c", entity: Entity::Hero, kind: Kind::Bool, status: Status::Ahead });
+        assert_eq!(try_lock("grown", &grown), (Ok(()), format!("{LOCK_HEAD}a hero int -1 11\nb scene ints 4 -1 9\nc hero bool\n")));
+        // No lock to check against is not a licence: nothing is written.
+        let missing = std::env::temp_dir().join(format!("mapcro-rows-lock-{}-missing", std::process::id()));
+        assert!(relock(&missing, &rows).is_err());
+        assert!(!missing.exists());
+    }
+
+    #[test]
+    fn a_lock_shows_whether_scene_state_is_read() {
+        assert!(!reads_scene_state(LOCK_HEAD));
+        assert!(!reads_scene_state("# header\na hero int 0 10\nd marker bool\ne lane pos\n"));
+        assert!(reads_scene_state("# header\na hero int 0 10\nb scene ints 4 -1 9\n"));
     }
 
     #[test]
@@ -440,12 +583,12 @@ mod tests {
                        items hero ints 128 -1 4294967295\nabilities hero ints 48 -1 4294967295\nbuild_order hero ints 600 -1 4294967295\n\
                        level hero int 0 1000\nhealth hero int 0 100\npickups hero ints 16 -1000000000 1000000000\n";
         assert_eq!(broken(shipped, ROWS), Vec::<String>::new());
-        assert!(lock_lines().starts_with(shipped), "{}", lock_lines());
+        assert!(lock_lines(ROWS).starts_with(shipped), "{}", lock_lines(ROWS));
     }
 
     #[test]
     fn the_lock_file_format_round_trips_every_row() {
-        let lines = lock_lines();
+        let lines = lock_lines(ROWS);
         assert_eq!(lines.lines().count(), ROWS.len());
         for (line, r) in lines.lines().zip(ROWS) {
             assert_eq!(parse(line), (r.key.to_owned(), r.entity, r.kind));
@@ -581,5 +724,126 @@ mod tests {
         let many: More = hero.iter().map(|r| (*r, MoreValue::Int(0))).collect();
         assert_eq!(many.heap_bytes(), hero.len().div_ceil(11) * node);
         assert_eq!(More(BTreeMap::from_iter((0..12).map(|i| (RowId(i), MoreValue::Int(0))))).heap_bytes(), 2 * node, "twelve entries: two nodes");
+    }
+
+    // ---- admission (`Admit`) ----
+
+    fn tx(ops: Vec<Op>) -> Tx {
+        Tx { client: ClientId(1), cseq: 0, kind: TxKind::Edit, ops }
+    }
+
+    fn more(key: &str, value: Option<MoreValue>) -> FieldValue {
+        FieldValue::More { key: id(key), value }
+    }
+
+    fn set(value: FieldValue) -> Op {
+        Op::Set { id: RecordId(5), value }
+    }
+
+    fn create(record: Record) -> Op {
+        Op::Create { id: RecordId(9), record }
+    }
+
+    fn holding(keys: &[&str]) -> More {
+        keys.iter().map(|k| (id(k), MoreValue::Int(1))).collect()
+    }
+
+    fn hero(more: More) -> Record {
+        let mut p = PlayerState::starting(RecordId(1), RecordId(2), Team::Amber, 0);
+        p.more = more;
+        Record::PlayerState(p)
+    }
+
+    fn scene_state(more: More) -> Record {
+        Record::SceneState(SceneState { scene: RecordId(1), more })
+    }
+
+    /// Every row and `SceneState` still ahead: the reader release.
+    const AHEAD: Admit = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead };
+    /// `hero` written, the rest and `SceneState` still ahead.
+    const HERO_LIVE: Admit = Admit { row: |r| if r.key() == "hero" { Status::Live } else { Status::Ahead }, scene_state: Status::Ahead };
+
+    #[test]
+    fn nothing_that_carries_an_ahead_row_or_kind_is_admitted() {
+        let refused = |op: Op| AHEAD.tx(&tx(vec![op])).expect_err("refused");
+        // A write of the row, a clear of it, and either side of a conditional write.
+        assert_eq!(refused(set(more("hero", Some(MoreValue::Int(7))))), Reject::WrongField);
+        assert_eq!(refused(set(more("hero", None))), Reject::WrongField);
+        let pos = FieldValue::PlayerPos(WorldPos::default());
+        assert_eq!(refused(Op::SetIf { id: RecordId(5), expect: more("hero", None), value: pos.clone() }), Reject::WrongField);
+        assert_eq!(refused(Op::SetIf { id: RecordId(5), expect: pos.clone(), value: more("hero", None) }), Reject::WrongField);
+        // A record created with it, whichever kind holds it.
+        assert_eq!(refused(create(hero(holding(&["hero"])))), Reject::WrongField);
+        let marker = ObjectiveState { scene: RecordId(1), key: ObjectiveKey("walker:amber:lane1:1".into()), status: ObjectiveStatus::Destroyed, more: holding(&["hero"]) };
+        assert_eq!(refused(create(Record::ObjectiveState(marker.clone()))), Reject::WrongField);
+        let lane = Wave { scene: RecordId(1), lane: LaneKey("lane1".into()), t: 0, more: holding(&["level"]) };
+        assert_eq!(refused(create(Record::Wave(lane.clone()))), Reject::WrongField);
+        // A scene's state at all, empty or not.
+        assert_eq!(refused(create(scene_state(More::default()))), Reject::Immutable);
+        assert_eq!(refused(create(scene_state(holding(&["rows"])))), Reject::Immutable);
+        // Anywhere in the transaction.
+        let fine = set(pos.clone());
+        assert_eq!(AHEAD.tx(&tx(vec![fine.clone(), set(more("name", None))])), Err(Reject::WrongField));
+        assert_eq!(AHEAD.tx(&tx(vec![set(more("name", None)), fine.clone()])), Err(Reject::WrongField));
+        assert_eq!(AHEAD.tx(&tx(vec![fine.clone(), create(scene_state(More::default())), fine.clone()])), Err(Reject::Immutable));
+        // Everything a board holds today comes in: typed fields, records with no registry
+        // values, deletes and restores. (Whether it is valid is not admission's question.)
+        let callout = Record::Callout(Callout { scene: RecordId(1), pos: WorldPos::default(), text: "x".into(), color: None });
+        let today = vec![
+            fine,
+            Op::SetIf { id: RecordId(5), expect: pos.clone(), value: pos },
+            create(hero(More::default())),
+            create(Record::ObjectiveState(ObjectiveState { more: More::default(), ..marker })),
+            create(Record::Wave(Wave { more: More::default(), ..lane })),
+            create(callout),
+            Op::Delete { id: RecordId(5) },
+            Op::Restore { id: RecordId(5) },
+        ];
+        assert_eq!(AHEAD.tx(&tx(today)), Ok(()));
+        assert_eq!(AHEAD.tx(&tx(vec![])), Ok(()));
+    }
+
+    #[test]
+    fn a_live_row_is_admitted_and_the_rows_still_ahead_are_not() {
+        let hero_is = |n: i64| more("hero", Some(MoreValue::Int(n)));
+        assert_eq!(HERO_LIVE.tx(&tx(vec![set(hero_is(7)), set(more("hero", None))])), Ok(()));
+        assert_eq!(HERO_LIVE.tx(&tx(vec![Op::SetIf { id: RecordId(5), expect: hero_is(7), value: hero_is(8) }])), Ok(()));
+        assert_eq!(HERO_LIVE.tx(&tx(vec![create(hero(holding(&["hero"])))])), Ok(()));
+        // Another row is still refused, alone or beside the live one.
+        assert_eq!(HERO_LIVE.tx(&tx(vec![set(more("name", None))])), Err(Reject::WrongField));
+        assert_eq!(HERO_LIVE.tx(&tx(vec![set(hero_is(7)), set(more("level", Some(MoreValue::Int(3))))])), Err(Reject::WrongField));
+        assert_eq!(HERO_LIVE.tx(&tx(vec![Op::SetIf { id: RecordId(5), expect: hero_is(7), value: more("name", None) }])), Err(Reject::WrongField));
+        assert_eq!(HERO_LIVE.tx(&tx(vec![Op::SetIf { id: RecordId(5), expect: more("name", None), value: hero_is(7) }])), Err(Reject::WrongField));
+        assert_eq!(HERO_LIVE.tx(&tx(vec![create(hero(holding(&["hero", "level"])))])), Err(Reject::WrongField));
+        assert_eq!(HERO_LIVE.tx(&tx(vec![create(hero(holding(&["level", "health"])))])), Err(Reject::WrongField));
+        // And a live row does not make the scene's state live.
+        assert_eq!(HERO_LIVE.tx(&tx(vec![create(scene_state(More::default()))])), Err(Reject::Immutable));
+        // A retired row is no longer written by a client, but is not refused: boards hold it.
+        let retired = Admit { row: |_| Status::Retired, scene_state: Status::Retired };
+        assert_eq!(retired.tx(&tx(vec![set(more("name", None)), create(scene_state(holding(&["rows"])))])), Ok(()));
+    }
+
+    #[test]
+    fn a_live_kind_is_admitted_with_only_its_live_rows() {
+        let kind_live = Admit { row: |r| if r.key() == "rows" { Status::Live } else { Status::Ahead }, scene_state: Status::Live };
+        assert_eq!(kind_live.record(&scene_state(More::default())), Ok(()));
+        assert_eq!(kind_live.record(&scene_state(holding(&["rows"]))), Ok(()));
+        assert_eq!(kind_live.record(&scene_state(holding(&["rows", "build"]))), Err(Reject::WrongField));
+        assert_eq!(kind_live.record(&hero(holding(&["hero"]))), Err(Reject::WrongField));
+    }
+
+    /// The two gates a build is given: its own statuses, and everything it reads.
+    #[test]
+    fn the_deployed_gate_follows_each_row_s_status_and_the_reads_gate_admits_every_row() {
+        assert!(Admit::DEPLOYED.scene_state == SCENE_STATE);
+        assert_eq!(Admit::DEPLOYED.record(&scene_state(More::default())).is_err(), SCENE_STATE == Status::Ahead);
+        for r in RowId::all() {
+            let write = tx(vec![set(FieldValue::More { key: r, value: None })]);
+            assert_eq!((Admit::DEPLOYED.row)(r), r.row().status, "{r:?}");
+            assert_eq!(Admit::DEPLOYED.tx(&write).is_err(), r.row().status == Status::Ahead, "{r:?}");
+            assert_eq!(Admit::READS.tx(&write), Ok(()), "{r:?}");
+        }
+        let all: More = RowId::all().filter(|r| r.row().entity == Entity::Scene).map(|r| (r, MoreValue::Int(1))).collect();
+        assert_eq!(Admit::READS.record(&scene_state(all)), Ok(()));
     }
 }

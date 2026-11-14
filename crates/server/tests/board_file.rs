@@ -209,43 +209,59 @@ fn an_export_holds_no_secret() {
     assert_eq!(server.export(&other, "not-a-token").0, 401);
 }
 
-/// `file`, changed by `f`.
-/// A version-2 file (map-state spec §4.3) holding a snapshot: registry values on a hero, a
-/// marker, a lane and the scene's own state. It imports, and the board holds every value.
+/// A file holding a map-state snapshot (registry values on a hero, the scene's own state) makes
+/// no board while this build only reads them (map-state spec §4.3): a server rolled back to
+/// before the reader couldn't load it. At version 2, and at version 1, whose header promises
+/// nothing about its records. (That the same file imports once the rows are written, and
+/// exports the same values, is `boardfile`'s own test: the server as built can't be told to.)
 #[test]
-fn a_version_2_file_with_map_state_imports_and_exports_the_same_values() {
-    let server = Server::start(&[]);
-    let mut file = rich_file();
-    let scene = records(&mut file).iter().find(|r| r[1].get("Scene").is_some_and(|s| s["name"] == "8:40 rotate")).expect("scene")[0].clone();
-    let hero = json!({ "hero": 13, "name": "Solo", "items": [9000, -1, 4294967295u64], "level": 12, "health": 55 });
-    let state = json!({ "rows": mapcro_schema::ROWS.len(), "has_builds": true, "build": 6839 });
-    {
-        let p = records(&mut file).iter_mut().find(|r| r[1].get("PlayerState").is_some_and(|p| p["scene"] == scene)).expect("player");
-        p[1]["PlayerState"]["more"] = hero.clone();
+fn a_file_with_map_state_makes_no_board_while_its_rows_are_ahead() {
+    assert!(mapcro_schema::ROWS.iter().all(|r| r.status == mapcro_schema::Status::Ahead) && mapcro_schema::SCENE_STATE == mapcro_schema::Status::Ahead, "the writer release: this test is the reader's; the import below then succeeds");
+    // One board at most: a refusal that made a board would leave no room for the last import.
+    let server = Server::start(&[("CREATE_PER_HOUR", "1000"), ("CREATE_GLOBAL_PER_HOUR", "1000"), ("MAX_BOARDS", "1")]);
+    let scene_of = |file: &mut Value| records(file).iter().find(|r| r[1].get("Scene").is_some_and(|s| s["name"] == "8:40 rotate")).expect("scene")[0].clone();
+    let hero = |file: &mut Value, more: Value| {
+        let scene = scene_of(file);
+        let p = records(file).iter_mut().find(|r| r[1].get("PlayerState").is_some_and(|p| p["scene"] == scene)).expect("player");
+        p[1]["PlayerState"]["more"] = more;
+    };
+    let state = |file: &mut Value, more: Value| {
+        let scene = scene_of(file);
+        records(file).push(json!(["00000000000000000000000000005000", { "SceneState": { "scene": scene, "more": more } }]));
+    };
+    let send = |file: &Value| {
+        let (status, body) = server.import(file.to_string().as_bytes());
+        (status, error_of(&body))
+    };
+    for version in [1, 2] {
+        let versioned = |f: &dyn Fn(&mut Value)| {
+            with(|v| {
+                f(v);
+                v["version"] = json!(version);
+                if version == 2 {
+                    v["rows"] = json!(mapcro_schema::ROWS.len());
+                }
+            })
+        };
+        // The whole snapshot; a hero's value alone; a scene's state alone, even an empty one.
+        let snapshot = versioned(&|v| {
+            hero(v, json!({ "hero": 13, "name": "Solo", "items": [9000, -1, 4294967295u64], "level": 12, "health": 55 }));
+            state(v, json!({ "rows": mapcro_schema::ROWS.len(), "has_builds": true, "build": 6839 }));
+        });
+        assert_eq!(send(&snapshot), (422, "invalid".into()), "version {version}");
+        assert_eq!(send(&versioned(&|v| hero(v, json!({ "level": 12 })))), (422, "invalid".into()), "version {version}");
+        assert_eq!(send(&versioned(&|v| state(v, json!({})))), (422, "invalid".into()), "version {version}");
+        // An empty `more` is no value at all: it comes in, and is not written back.
+        let empty = versioned(&|v| hero(v, json!({})));
+        if version == 2 {
+            let (board, owner, _) = server.import_ok(&empty);
+            let mut out = server.export_json(&board, &owner);
+            assert!(records(&mut out).iter().all(|r| r[1].get("SceneState").is_none() && r[1].as_object().is_some_and(|o| o.values().all(|body| body.get("more").is_none()))));
+        }
     }
-    records(&mut file).push(json!(["00000000000000000000000000005000", { "SceneState": { "scene": scene, "more": state } }]));
-    records(&mut file).push(json!(["00000000000000000000000000005001", { "ObjectiveState": { "scene": scene, "key": "walker:amber:lane1:1", "status": "Destroyed", "more": {} } }]));
-    records(&mut file).push(json!(["00000000000000000000000000005002", { "Wave": { "scene": scene, "lane": "lane1", "t": 400 } }]));
-    file["version"] = json!(2);
-    file["rows"] = json!(mapcro_schema::ROWS.len());
-    let (board, owner, _) = server.import_ok(&file);
-    let mut out = server.export_json(&board, &owner);
-    assert_eq!(out["version"], 1, "this build writes no row, so it still writes version 1");
-    assert!(out.get("rows").is_none());
-    let find = |v: &mut Value, kind: &str| -> Vec<Value> { records(v).iter().filter_map(|r| r[1].get(kind).cloned()).collect() };
-    let states = find(&mut out, "SceneState");
-    assert_eq!(states.len(), 1);
-    assert_eq!(states[0]["more"], state);
-    let heroes: Vec<Value> = find(&mut out, "PlayerState").into_iter().filter(|p| p.get("more").is_some()).collect();
-    assert_eq!(heroes.len(), 1, "an empty `more` is not written");
-    assert_eq!(heroes[0]["more"], hero);
-    assert!(find(&mut out, "ObjectiveState")[0].get("more").is_none());
-    // And a second scene state for the same scene is refused, as on the board.
-    records(&mut file).push(json!(["00000000000000000000000000005003", { "SceneState": { "scene": scene } }]));
-    let (status, body) = server.import(file.to_string().as_bytes());
-    assert_eq!((status, error_of(&body)), (422, "invalid".into()));
 }
 
+/// `rich_file`, changed by `f`.
 fn with(f: impl FnOnce(&mut Value)) -> Value {
     let mut v = rich_file();
     f(&mut v);
