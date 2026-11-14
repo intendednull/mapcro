@@ -220,7 +220,12 @@ its life today.
   can add them, in transactions of its own).
 - **New scene and Duplicate** copy the snapshot with the scene. One transaction when it fits;
   over the byte or op cap (twelve builds near a record's 8 KiB are 96 KiB) it is sent in
-  several, the scene first and its `SceneState` last, and is then more than one undo step.
+  several, and is then more than one undo step. The first makes the scene and all twelve
+  heroes without their `more` (a scene with fewer is refused whole, `IncompleteScene`); each
+  hero's `more` follows as `Set More`, then the other records, and the `SceneState` last. If
+  the first is refused nothing is made and the view stays where it was.
+- **Duplicate also copies what is drawn on the scene** (arrows, callouts, ink, the note: #54).
+  New scene doesn't: it is the play's next frame.
 - **Saving many scenes** sends one transaction per scene, chunked by bytes, not op count.
 - **Retake** writes with `SetIf` on an absent value, so it never overwrites; it may take more than
   one transaction and is then more than one undo step.

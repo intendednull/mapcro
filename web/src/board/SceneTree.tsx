@@ -16,7 +16,7 @@ import { type Viewpoint, worldToView } from "../map/transform";
 import { InlineEdit } from "../ui/InlineEdit";
 import { boardKeys } from "../core/keys";
 import { cx } from "../ui/cx";
-import { addSceneOps, deleteSceneOps, isUnnamed, moveSceneOps } from "./scenes";
+import { addSceneOps, deleteSceneOps, isUnnamed, moveSceneOps, sendScene } from "./scenes";
 import type { BoardState } from "./state";
 import { visibleRows } from "./tree";
 import { LIMITS } from "../gen/limits";
@@ -88,21 +88,19 @@ export function SceneTree(p: {
   };
   /** An editor may add a scene: one slot stays free for Player's live layer (max_scenes 64). */
   const canAdd = () => p.state.canEdit() && order().length < 63;
-  /** A new scene's transactions, in order: one unless the copied snapshot is over a transaction
-   * (then more than one undo step); a refused one stops the rest. */
-  const send = (txs: Op[][]) => txs.every((tx) => p.state.edit(tx));
+  const send = (txs: Op[][]) => sendScene(txs, p.state.edit);
   const add = (asChild: boolean) => {
     const cur = order()[index()];
     const { id, txs } = addSceneOps(p.state, cur, asChild);
-    send(txs);
+    if (!send(txs)) return;
     if (asChild && cur && collapsed().has(cur.id)) toggle(cur.id);
     p.onFlip(id);
   };
-  /** A copy of `row`'s scene (its heroes, objectives and splits), right after it, as its sibling. */
+  /** A copy of `row`'s scene (its heroes, objectives, splits and everything drawn on it: #54),
+   * right after it, as its sibling. */
   const clone = (row: { id: RecordId; scene: Scene }) => {
-    const { id, txs } = addSceneOps(p.state, row, false, undefined, isUnnamed(row.scene.name) ? "" : `${row.scene.name} copy`);
-    send(txs);
-    p.onFlip(id);
+    const { id, txs } = addSceneOps(p.state, row, false, undefined, isUnnamed(row.scene.name) ? "" : `${row.scene.name} copy`, true);
+    if (send(txs)) p.onFlip(id);
   };
   const remove = (id: RecordId) => {
     const ops = deleteSceneOps(p.state, id);

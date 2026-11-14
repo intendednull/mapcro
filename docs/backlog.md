@@ -7,13 +7,6 @@ what it is, and what it depends on.
 ## Map-state phase 2 leftovers from its review (2026-11-14, lead)
 
 From the adversarial review of e878c30 (scene builds, #49); none blocked the deploy.
-- **A big scene can't be duplicated (F1).** `addSceneOps` (`web/src/board/scenes.ts:71`) splits an
-  over-size copy into single-op transactions, and the first holds the scene with fewer than twelve
-  heroes, which the board refuses (`IncompleteScene`). Nothing is created, silently, and the board
-  flips to an id that doesn't exist. Reached after Retake on a late-game scene (Retake writes each
-  build up to 8 KiB). Fix: the scene and all twelve heroes in the first transaction without
-  `more`, then `Set More` per hero, `SceneState` last; test through the real replica; don't flip
-  when the first edit is refused. Spec §4.4's "sent in several" is untrue until then.
 - **Follow with a no-match presenter (F4).** `host.ts` `presence()` sends `{player:false,
   match_id:0}` only while a build is open, so a follower in Player is set to sandbox on open and
   left there on close; `mirror` applies an empty panel group once on start. Either always send

@@ -1,7 +1,7 @@
 // Scene transactions: reorder is one key between the new neighbours; add copies the scene's
 // players and objectives, and nothing else.
 import { describe, expect, it } from "vitest";
-import { addSceneOps, deleteSceneOps, moveSceneOps, reorderOp, type SceneRow } from "../src/board/scenes";
+import { addSceneOps, deleteSceneOps, moveSceneOps, reorderOp, sendScene, type SceneRow } from "../src/board/scenes";
 import { flatten } from "../src/board/tree";
 import type { BoardState } from "../src/board/state";
 import type { Entry } from "../src/gen/Entry";
@@ -56,6 +56,57 @@ describe("add scene", () => {
   });
 });
 
+describe("a copy of a scene (#54)", () => {
+  const records: Record<string, Entry> = {
+    p1: { deleted: false, record: { PlayerState: { scene: "b", slot: "s1", pos: { x: 5, y: 6 }, alive: true, placed: true, souls: null, ult_cooldown: null, visible: true } } },
+    ar: { deleted: false, record: { Arrow: { scene: "b", from: { x: 1, y: 2 }, to: { x: 3, y: 4 }, team: "Amber", color: 3 } } },
+    co: { deleted: false, record: { Callout: { scene: "b", pos: { x: 7, y: 8 }, text: "rotate", color: null } } },
+    st: { deleted: false, record: { Stroke: { scene: "b", points: [{ x: 0, y: 0 }, { x: 9, y: 9 }], color: 1, width: 30, offset: { x: 2, y: 2 } } } },
+    no: { deleted: false, record: { Note: { scene: "b", text: "the plan" } } },
+    // Not this scene's, and erased ink: neither is copied.
+    other: { deleted: false, record: { Arrow: { scene: "a", from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, team: null } } },
+    erased: { deleted: true, record: { Callout: { scene: "b", pos: { x: 0, y: 0 }, text: "old" } } },
+  };
+  const made = (ops: Op[]) => ops.map((o) => ("Create" in o ? o.Create.record : undefined));
+
+  it("takes everything drawn on it: arrows, callouts, ink and the note", () => {
+    let n = 0;
+    const { id, ops, txs } = addSceneOps(fake(list, records), list[1], false, () => `new${n++}`, "b copy", true);
+    expect(made(ops).slice(1)).toEqual([
+      { PlayerState: { ...(records.p1!.record as { PlayerState: object }).PlayerState, scene: id } },
+      { Arrow: { scene: id, from: { x: 1, y: 2 }, to: { x: 3, y: 4 }, team: "Amber", color: 3 } },
+      { Callout: { scene: id, pos: { x: 7, y: 8 }, text: "rotate", color: null } },
+      { Stroke: { scene: id, points: [{ x: 0, y: 0 }, { x: 9, y: 9 }], color: 1, width: 30, offset: { x: 2, y: 2 } } },
+      { Note: { scene: id, text: "the plan" } },
+    ]);
+    // Each a record of its own, and all one undo step.
+    expect(new Set(ops.map((o) => ("Create" in o ? o.Create.id : ""))).size).toBe(ops.length);
+    expect(txs).toEqual([ops]);
+  });
+
+  it("a new scene (not a copy) still starts without them", () => {
+    const { ops } = addSceneOps(fake(list, records), list[1], false, () => "n");
+    expect(made(ops).map((r) => Object.keys(r!)[0])).toEqual(["Scene", "PlayerState"]);
+  });
+});
+
+describe("sending a new scene", () => {
+  const txs: Op[][] = [[{ Delete: { id: "a" } }], [{ Delete: { id: "b" } }], [{ Delete: { id: "c" } }]];
+  it("stops at a refused transaction, and says whether the scene was made", () => {
+    const sent: Op[][] = [];
+    expect(sendScene(txs, (tx) => (sent.push(tx), true))).toBe(true);
+    expect(sent).toEqual(txs);
+    // The first refused: nothing was made, and nothing more is sent.
+    sent.length = 0;
+    expect(sendScene(txs, (tx) => (sent.push(tx), false))).toBe(false);
+    expect(sent).toEqual([txs[0]]);
+    // A later one refused: the scene exists; the rest is not sent.
+    sent.length = 0;
+    expect(sendScene(txs, (tx) => (sent.push(tx), sent.length < 2))).toBe(true);
+    expect(sent).toEqual([txs[0], txs[1]]);
+  });
+});
+
 describe("a copied snapshot", () => {
   const hero = (n: number, more?: Record<string, unknown>): Entry => ({ deleted: false, record: { PlayerState: { scene: "b", slot: `s${n}`, pos: { x: n, y: n }, alive: true, placed: true, souls: null, ult_cooldown: null, visible: true, ...(more ? { more } : {}) } } } as Entry);
   const state = (scene: string, more: Record<string, unknown>): Entry => ({ deleted: false, record: { SceneState: { scene, more } } } as Entry);
@@ -88,17 +139,41 @@ describe("a copied snapshot", () => {
     const big = { build_order: Array.from({ length: 600 }, (_, i) => 4_000_000_000 + i) };
     expect(JSON.stringify(big).length).toBeGreaterThan(6000);
     expect(JSON.stringify(big).length).toBeLessThanOrEqual(LIMITS.max_more_bytes);
-    const records: Record<string, Entry> = { st: state("b", { rows: 11, has_builds: true }) };
+    // The state first in the document, with a split and an arrow after it: still sent last.
+    const records: Record<string, Entry> = {
+      st: state("b", { rows: 11, has_builds: true }),
+      w1: { deleted: false, record: { Wave: { scene: "b", lane: "lane4", t: 640 } } },
+      ar: { deleted: false, record: { Arrow: { scene: "b", from: { x: 1, y: 2 }, to: { x: 3, y: 4 }, team: null } } },
+    };
     for (let n = 0; n < 12; n++) records[`p${n}`] = hero(n, big);
-    const { id, ops, txs } = addSceneOps(fake(list, records), list[1], false, mint());
+    const { id, ops, txs } = addSceneOps(fake(list, records), list[1], false, mint(), "", true);
+    expect(created(ops).at(-1)).toEqual({ SceneState: { scene: id, more: { rows: 11, has_builds: true } } });
     expect(opsBytes(ops)).toBeGreaterThan(LIMITS.max_tx_bytes);
     expect(txs.length).toBeGreaterThan(1);
-    expect(txs.flat()).toEqual(ops);
     // What wraps the ops on the wire (client, cseq) is well under the slack left.
     for (const tx of txs) expect(opsBytes(tx) + 512).toBeLessThanOrEqual(LIMITS.max_tx_bytes);
-    // The scene is made before anything in it, and says it holds builds only after them.
-    expect(created(txs[0]!)[0]).toMatchObject({ Scene: {} });
+    // The first makes the scene and all twelve heroes, bare: fewer is refused whole
+    // (`IncompleteScene`, review F1), and their `more` is what doesn't fit.
+    const first = created(txs[0]!.slice(0, 13));
+    expect(first.map((r) => Object.keys(r!)[0])).toEqual(["Scene", ...Array.from({ length: 12 }, () => "PlayerState")]);
+    expect(first.slice(1).every((r) => !("more" in (r as { PlayerState: object }).PlayerState))).toBe(true);
+    // Sent in order, the transactions leave the records the one transaction would.
+    const apply = (all: Op[]) => {
+      const out = new Map<string, unknown>();
+      for (const o of all) {
+        if ("Create" in o) out.set(o.Create.id, structuredClone(o.Create.record));
+        else if ("Set" in o && "More" in o.Set.value) {
+          const hero = (out.get(o.Set.id) as { PlayerState: { more?: Record<string, unknown> } }).PlayerState;
+          hero.more = { ...hero.more, [o.Set.value.More.key]: o.Set.value.More.value };
+        } else throw new Error("an op the copy doesn't make");
+      }
+      return out;
+    };
+    expect(apply(txs.flat())).toEqual(apply(ops));
+    expect(txs.flat().filter((o) => "Set" in o)).toHaveLength(12);
+    // The scene says it holds builds only after them.
     expect(created(txs.at(-1)!).at(-1)).toEqual({ SceneState: { scene: id, more: { rows: 11, has_builds: true } } });
+    expect(txs.slice(0, -1).flat().some((o) => "Create" in o && "SceneState" in o.Create.record)).toBe(false);
     // Many small records: within the op cap too.
     const many: Record<string, Entry> = {};
     for (let n = 0; n < 300; n++) many[`o${n}`] = { deleted: false, record: { ObjectiveState: { scene: "b", key: `camp:${n}`, status: "Destroyed" } } } as Entry;
