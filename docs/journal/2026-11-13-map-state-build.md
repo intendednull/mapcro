@@ -9,16 +9,94 @@ Off main `a0774c5` (prod `e878c30`, store v10). Newest first.
 
 ### Handoff, seventh implementer (2026-11-14): phase 3 is built; phase 4 is next
 
-Three commits wait for the lead, in this order (none changes what is stored):
+What waits for the lead, in this order (none changes what is stored):
 
-| Commit | What | A coach sees |
-|---|---|---|
-| `b3c9223` | Phase 3 step 1: the frame on three clocks | Nothing |
-| `17c6c67` | A copy and a new scene carry the scene's `source` (the lead's answer 1) | The copy's ▶ chip; Retake on a copy |
-| `cda86fb` | Phase 3, the rest: `MapState` for Player, build columns and sight on the clocks | Nothing |
+| Commit | Branch | What | A coach sees |
+|---|---|---|---|
+| `4fa5f37` | `map-state-rc1` (off `dd00764`) | RC1 review F1: a copy the board has no room for makes nothing | "Board full", and no partial copy |
+| `b3c9223` | `map-state-p3` | Phase 3 step 1: the frame on three clocks | Nothing |
+| `17c6c67` | `map-state-p3` | A copy and a new scene carry the scene's `source` (the lead's answer 1) | The copy's ▶ chip; Retake on a copy |
+| `cda86fb` | `map-state-p3` | Phase 3, the rest: `MapState` for Player, build columns and sight on the clocks | Nothing |
+| `1e4508b` | `map-state-p3` | `4fa5f37` cherry-picked (three conflicts, both sides kept) | |
+| `ffa74a9` | `map-state-p3` | e2e: Player's top bar says who is out of sight | |
 
-RC1 (`dd00764`) ships alone first; these are the release after. The heavy runs' numbers are
-in "Run on it" below each.
+RC1 is `dd00764` + `4fa5f37` and ships alone first, from `map-state-rc1` (its worktree is
+`mapcro.worktrees/map-state-rc1`; `target` and `web/node_modules` there are symlinks). The
+rest is the release after.
+
+**`4fa5f37`, RC1 review F1.** The reviewer's case: a copy sent in several transactions on a
+board with room for the first but not for all was left partial, and the page flipped to it.
+`addSceneOps` now counts the board's records (deleted ones too) plus the new scene's; over
+`max_records` it gives no transactions (`full`), `sendScene` makes nothing of none, the view
+stays and the page toasts "Board full" (`SceneTree` `onFull`). Tests: `scenes.test.ts` (at
+the cap and one over, tombstones counted), `scene-copy.test.ts` through the real replica and
+server (a board 60 short of the cap with 40 tombstones, a 313-record copy: nothing sent; then
+what it prevents, the first transaction taken and a later one refused, 40 of 300 strokes for
+the other session), e2e `scene-clone.spec.ts` (the toast). Hand mutants 8 of 8 through
+vitest, 1 of 1 through the e2e. Heavy run on `map-state-rc1`: vitest 17 of 17, `tsc` clean,
+e2e `scene-clone scenes scene-builds scene-tree` 13 passed. Logged from the review: TD-89 (a
+chunked copy is several undo steps), TD-90 (a peer's delete and undo mid flight), TD-91 (the
+server's own refusals mid chain); spec §4.4 says what a partial undo shows.
+
+**Heavy runs for phase 3** (a checkout of its own, `/tmp/ms-p3-perf`, so the worktree could
+change while they waited; scripts in `/tmp/ms-p3-qa/`, not committed):
+
+- **E2e, two workers.** At `17c6c67`: `scene-builds scene-clone scenes scene-tree
+  palette-player player-handoff board-file scene-names`, 28 passed. At `cda86fb`: 28 specs
+  (Player's vision, inspect, tooltips, lanes, rifts, health, shops, objectives, troopers,
+  top bar, events cost, skulls, tier, ease, urn, stats; `topbar map-state-dom-pins
+  follow-matrix phone-player scene-builds scene-clone map-furniture objectives player
+  palette-player player-handoff scenes`), 229 passed, 3 skipped, 0 failed (12.9 min). At
+  `ffa74a9`: `player-vision scene-builds scene-clone scenes scene-tree`, 28 passed. The full
+  suite and the cargo tests were not run (no Rust changed).
+- **E2e mutants of the wiring, 13:** 8 caught (the hero panel's sight; the markers outside
+  Player; Health off; the bar's sight twice, after `player-vision.spec.ts` got its bar check:
+  both were missed before it; the bar's level 30 s early; the full board's toast). **Missed,
+  4, all gaps the specs had before:** the lanes' colours ungated from Player
+  (`laneEdges`), `splitOf` ignoring the match's edges in Player, the bar's level 30 s late (the
+  fixtures' levels don't change after 10 s), and the phone's all-builds rows asked at 0 s
+  (`phone-player.spec.ts` doesn't read a row's items). The values behind them are held by
+  vitest (`lane(key).edges`, `tenthOf`); what draws them in the page is not.
+- **`just perf-player`, one run each, the box at load 2 to 8.** While playing, late in the
+  match (t = 1735), JS % of the main thread, then fps:
+
+  | Match, CPU | Before (`a4c3517`) | Step 1 (`b3c9223`) | The rest (`cda86fb`) |
+  |---|---|---|---|
+  | 134623152, 1x | 9.6 %, 60 | 8.5 %, 60 | 12.4 %, 54 |
+  | 134623152, 4x | 29.1 %, 45 | 24.8 %, 35 | 24.7 %, 36 |
+  | 129738985, 1x | 10.7 %, 60 | 9.5 %, 60 | 11.5 %, 60 |
+  | 129738985, 4x | 22.8 %, 33 | 21.0 %, 31 | 21.1 %, 26 |
+
+  Step 1 takes one to four points off the script time; fps, Tab, hover and scrub latency are
+  within the runs' spread (Tab 32 → 32 ms and hover 38 → 35 ms at 1x on 134623152; scrub 20 →
+  19 ms). The rest of phase 3 shows no gain here (no build column is open in this run), and
+  its 1x rows are worse in this one run, at a higher load (5.5 to 6.4 against 4.0 to 4.7).
+  **Not settled:** whether that is the load or the change. At 4x the script time is the same
+  as step 1's (24.7 against 24.8 %, 21.1 against 21.0 %), which points at the load. An
+  interleaved repeat (`/tmp/ms-p3-qa/perf2.sh`: step 1 and the rest, twice each) was queued
+  and failed to start its server (below). Run it before `cda86fb` ships.
+- **Browser check, Chromium, the real pack and server, match 129738985** (a Playwright walk,
+  hashes and counts only): 15 times from 0:45 to 40:00 under five settings (All; All with
+  Health, CC, movement and troopers; the King's view; the King's with Last seen; the
+  Archmother's with Last seen), 75 paused frames, then five seconds of play.
+  - On each of the three builds (before, step 1, the rest): the match loads on the replay
+    tier, play advances 5 s, 11 of 11 tokens move, 0 page errors.
+  - Between the builds: the top bar's DOM is identical on 75 of 75 frames; the tokens drawn
+    (778 over the frames) and the ghosts (94) are the same count on 75 of 75.
+  - **Not settled: the map's DOM.** Its hash differs on 75 of 75 frames between every pair of
+    runs, step 1 against the rest included, with the same number of elements each time. That
+    reads as something in the map that differs from run to run (the walk hashes, so it can't
+    say what), not as a change; but it is not shown. The walk now leaves the server's port
+    and the board's id out and hashes the hero tokens on their own, and runs the same build
+    twice as a control (`/tmp/ms-p3-qa/walk.sh before:a4c3517 again:a4c3517 after:b3c9223
+    rest:ffa74a9`). That run failed to start its server (below). What holds the frames
+    equal meanwhile is vitest on this match's timeline: 14,272 frames and 2,379 states, 0
+    differ.
+- **`target/` of this worktree was gone** when the last two runs started (between about
+  02:45 and 03:15 on 2026-11-14; nothing in this session removes it). The measuring
+  checkout and `map-state-rc1` link to it, so neither has a server binary now: a
+  `cargo build -p mapcro-server` and `just wasm` come first for whoever runs anything here.
+  `web/src/wasm` is still there.
 
 **`17c6c67`, the copy's `source`.** `addSceneOps` puts the scene's `source` (match, moment,
 tier) on the new scene, for Duplicate and for Add scene: both copy the snapshot, and the
@@ -52,8 +130,8 @@ person; the copy's chip plays the match from the moment). Hand mutants: 6 of 6 c
 - **`(k / 10) * 10` is `k` for every whole k up to 2,000,000** (measured in node), so the
   tenth's middle is a margin against rounding, not a fix for a case that was seen. Step 1's
   note above says otherwise.
-- **Tests:** `frame-clocks.test.ts`: every field against its definition at 2,900 times on
-  four matches (replay; a death unseen; metadata; metadata carrying CC and movement rows);
+- **Tests:** `frame-clocks.test.ts`: every field against its definition at 809 times on each
+  of four matches (replay; a death unseen; metadata; metadata carrying CC and movement rows);
   absent entities and no timeline; `has` feature by feature; a reader of one field reruns
   when its value changes (120 frames: souls once, ult twice, place every frame); the markers'
   part; capture's part. `late-perf.test.ts`: the tenth's build is the frame's as shown at
