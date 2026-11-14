@@ -125,7 +125,7 @@ export async function noSecondary(page: Page) {
 }
 
 /** Open the desktop board header's More menu (spec §4b, The board header), where Clone (for an
- * editor), Download, Open in app, Get the app, Feedback and Update available live. Safe to call
+ * editor), Download, Open in app, Get the app and Update available live. Safe to call
  * when it is open. */
 export async function openMore(page: Page) {
   const more = page.getByTestId("more");

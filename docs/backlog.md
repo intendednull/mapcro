@@ -17,6 +17,20 @@ old scenes too (Retake). When built it also settles the scene-names entry "A sce
 another match shows no names" (2026-11-09), "Resume a scene" (2026-11-08), TD-50, and replaces
 the quick right-click of #53 (phase 6).
 
+## The hero menu on a phone, and the token menu with the scene-state rework (2026-11-13, from fb-hero-feedback)
+
+Feedback #53 put the portrait's hero menu (Kill/Revive, vision, Rename…, Change hero…) on a right
+click of the hero's token in a scene (desktop only; `Layers.tsx` `onHeroMenu` → `TopBar.tsx`
+`bindMenu`). Left for later:
+- **The phone has no way in.** Its top bar is read-only and a touch has no right click; in phone
+  Edit, a long press on a token could open the same menu. Not built: phone scene editing is
+  thin today, and the `scene-state` map-state redesign will rework scene editing.
+- **Fold into `scene-state`.** The menu is opened from the map through a callback the top bar
+  binds; when `scene-state` reworks scene editing, give the menu its own home (one component both
+  the portrait and the token call) rather than keeping the bind.
+- **Keyboard:** tokens aren't focusable, so no key opens a token's menu; the portrait (focusable)
+  still opens it with the menu key or Shift+F10.
+
 ## Profiling on a Fly Sprite: parked (2026-11-12)
 
 Branch `perf-sprite` (`just perf-sprite`, tools/perf-sprite/): runs `just perf-player` on one Fly Sprite

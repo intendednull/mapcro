@@ -2,9 +2,10 @@
 // portraits, souls with team totals, the scene clock and each player's ult ring. Everything is
 // edited in place: click souls or the clock to type; drag around a ring or scroll on it to set
 // the cooldown, click it for ready. No health: the board doesn't track it. An editor's right
-// click on a portrait opens its hero's menu: kill or revive, vision, change hero, rename. The
-// player's name (the one typed into the slot, else the open match's in-game name; spec §6b
-// "Names") leads the portrait's hover label, as in Player; never under the bar (TopBarParts.tsx).
+// click on a portrait (or its token on the map, feedback #53) opens its hero's menu: kill or
+// revive, vision, change hero, rename. The player's name (the one typed into the slot, else the
+// open match's in-game name; spec §6b "Names") leads the portrait's hover label, as in Player;
+// never under the bar (TopBarParts.tsx).
 // "Rename…" opens its editor in place, under the portrait, while it is open.
 
 import { rosterTeamName } from "../map/model";
@@ -101,6 +102,9 @@ export function TopBar(p: {
   onFocus?: (team: string, slot: number) => void;
   /** The open match's in-game name for a slot, if any (Board's `sceneMatchName`). */
   matchName?: (team: string, slot: number) => string | undefined;
+  /** Hands the board the hero menu, to open from a token's right click on the map (feedback
+   * #53); `undefined` once this bar is gone. */
+  bindMenu?: (open: ((player: RecordId, at: { x: number; y: number }) => void) | undefined) => void;
 }) {
   const friend = () => (p.vp === "sapphire" ? "Sapphire" : "Amber");
   const enemy = () => (friend() === "Amber" ? "Sapphire" : "Amber");
@@ -143,6 +147,19 @@ export function TopBar(p: {
     const at = e.clientX === 0 && e.clientY === 0 ? { x: r.left + 4, y: r.bottom - 4 } : { x: e.clientX, y: e.clientY };
     setMenu({ slot, player, label, at });
   };
+  // The same menu from a hero's token on the map: its player in this scene, editors only.
+  if (p.bindMenu) {
+    const bind = p.bindMenu;
+    bind((id, at) => {
+      if (!editable()) return;
+      const player = [...players().values()].find((pl) => pl.id === id);
+      const slot = player && p.state.roster().find((s) => s.id === player.state.slot);
+      if (!player || !slot) return;
+      const hero = slot.slot.hero != null ? p.art.heroes.get(slot.slot.hero) : undefined;
+      setMenu({ slot, player, label: portraitTitle(nameOf(slot) || slotPlaceholder(slot.slot.team, slot.slot.slot), hero), at });
+    });
+    onCleanup(() => bind(undefined));
+  }
   // The hero the menu is for, as it is now; gone (a scene flip, a removed slot): the menu closes.
   const menuPlayer = () => {
     const m = menu();
