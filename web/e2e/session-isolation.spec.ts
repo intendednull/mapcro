@@ -4,7 +4,7 @@
 //   1. sets the state on A (with a peer on A where it's presence);
 //   2. switches to B and checks B shows its own value or the default, and nothing of A's;
 //   3. switches back and checks A: its document state is there, and its local view is as it was
-//      left where §4.2 remembers it (the scene, the viewport and side, the sidebar tab, Player's
+//      left where §4.2 remembers it (the scene, the viewport and side, Player's
 //      match and playback, Vision and the map layers), and the default otherwise;
 //   4. reloads (on `?tab=`) and checks the same, from sessionStorage.
 // Vision and the map layers are per tab once a tab was left (operator decision 7); a tab never
@@ -16,7 +16,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Browser, type Page, expect, test } from "./fixtures";
-import { dragToken, gesture, joinNew, mapPoint, revealControls, tokenAt, viewOf } from "./helpers";
+import { dragToken, gesture, joinNew, mapPoint, revealControls, setSpeed, tokenAt, viewOf } from "./helpers";
 import { Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 
 const queue = mkdtempSync(join(tmpdir(), "mapcro-e2e-session-iso-"));
@@ -111,7 +111,7 @@ test("strokes, and the scene note", async ({ browser }) => {
   await expect(strokes(me)).toHaveCount(1);
   await revealControls(me, "scene-note-edit");
   await me.getByTestId("scene-note-edit").fill("Rotate mid");
-  await me.locator("#events-tab").click(); // blur commits
+  await me.getByTestId("scene-note-edit").blur(); // blur commits
   await saved(me);
   await go(1);
   await expect(strokes(me)).toHaveCount(0);
@@ -315,7 +315,7 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
   await me.getByTestId("heals-toggle").click();
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
-  await me.getByTestId("match-speed").selectOption("2");
+  await setSpeed(me, "2");
   await go(0);
   // A opens as it was left (§4.2): its own match, still playing from where it was, at its own
   // speed, with the layers set there (Heals on, though B turned it off since).
@@ -323,7 +323,7 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   await expect(me.getByTestId("player")).toHaveAttribute("data-state", "match");
   await expect(me.getByTestId("match-play")).toHaveText("Pause");
   await expect(me.getByTestId("match-clock")).not.toHaveText("2:00 / 2:00");
-  await expect(me.getByTestId("match-speed")).toHaveValue("1");
+  await expect(me.getByTestId("match-speed")).toHaveAttribute("data-speed", "1");
   await revealControls(me, "heals-toggle");
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
   // Paused somewhere, and left for a scene: back on A, it's on the scene, the match held where it was.
@@ -336,7 +336,7 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   await go(1);
   // B as it was left: paused at its own place, at 2x, Heals off.
   await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
-  await expect(me.getByTestId("match-speed")).toHaveValue("2");
+  await expect(me.getByTestId("match-speed")).toHaveAttribute("data-speed", "2");
   await revealControls(me, "heals-toggle");
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
   await go(0);
@@ -617,7 +617,7 @@ test("last visit's ink is cleared on the visit's first stay in Player: not lost 
 
 // ---- what a tab remembers (§4.2) ----
 
-test("a tab comes back as it was left: scene, viewport and side, the sidebar tab; a scene gone meanwhile opens cold", async ({ browser }) => {
+test("a tab comes back as it was left: scene, viewport and side; a scene gone meanwhile opens cold", async ({ browser }) => {
   const { me, a, go } = await twoTabs(browser);
   const fit = await viewOf(me);
   await me.getByTestId("scene-add").click();
@@ -630,20 +630,16 @@ test("a tab comes back as it was left: scene, viewport and side, the sidebar tab
   await me.getByTestId("viewpoint-flip").click();
   await expect(me.locator(".mapbox .mm-host")).toHaveClass(/vp-sapphire/);
   const flipped = await viewOf(me);
-  await me.locator("#notes-tab").click();
-  await expect(me.locator("#notes-tab")).toHaveAttribute("aria-selected", "true");
   await saved(me);
   await go(1);
-  // B is its own: first scene, fitted, Amber side, Events.
+  // B is its own: first scene, fitted, Amber side.
   await expect(ord(me)).toHaveText("Scene 1 of 1");
   expect(await viewOf(me)).toEqual(fit);
   await expect(me.locator(".mapbox .mm-host")).not.toHaveClass(/vp-sapphire/);
-  await expect(me.locator("#events-tab")).toHaveAttribute("aria-selected", "true");
   const asLeft = async () => {
     await expect(ord(me)).toHaveText("Scene 2 of 2");
     await expect(me.locator(".mapbox .mm-host")).toHaveClass(/vp-sapphire/);
     expect(await viewOf(me)).toEqual(flipped);
-    await expect(me.locator("#notes-tab")).toHaveAttribute("aria-selected", "true");
   };
   await go(0);
   await asLeft();
@@ -666,7 +662,6 @@ test("a tab comes back as it was left: scene, viewport and side, the sidebar tab
   await expect(ord(me)).toHaveText("Scene 1 of 1");
   expect(await viewOf(me)).toEqual(fit);
   await expect(me.locator(".mapbox .mm-host")).not.toHaveClass(/vp-sapphire/);
-  await expect(me.locator("#notes-tab")).toHaveAttribute("aria-selected", "true"); // the sidebar isn't the scene's
   void zoomed;
 });
 

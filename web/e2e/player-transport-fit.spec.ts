@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
 import { Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
-import { revealControls } from "./helpers";
+import { revealControls, setSpeed } from "./helpers";
 
 const ID = "129000011";
 const N = 2640;
@@ -109,7 +109,7 @@ for (const [w, h] of [[1280, 768], [1440, 900], [1920, 1080]] as const) {
       await a.screenshot({ path: `shots/transport-${state}-${w}x${h}.png` });
     };
     await check("paused");
-    await a.getByTestId("match-speed").selectOption("8");
+    await setSpeed(a, "8");
     await a.getByTestId("match-play").click();
     await expect(a.getByTestId("match-play")).toHaveText("Pause");
     await check("playing-8x");

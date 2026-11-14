@@ -315,7 +315,7 @@ mod changed_tests {
     }
 
     fn note(id: u128, text: &str) -> Op {
-        Op::Create { id: RecordId(id), record: Record::Callout(Callout { scene: SCENE, pos: WorldPos { x: 0, y: 0 }, text: text.into(), color: None }) }
+        Op::Create { id: RecordId(id), record: Record::Callout(Callout { scene: SCENE, pos: WorldPos { x: 0, y: 0 }, text: text.into(), color: None, side: Default::default() }) }
     }
 
     fn text(id: u128, text: &str) -> Op {

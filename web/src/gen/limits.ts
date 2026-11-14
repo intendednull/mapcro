@@ -6,6 +6,7 @@ export const LIMITS = {
   max_records: 5000,
   max_scenes: 64,
   max_name: 24,
+  max_scene_name: 48,
   max_title: 80,
   max_callout: 80,
   max_note: 4000,

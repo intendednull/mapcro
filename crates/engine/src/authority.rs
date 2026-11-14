@@ -433,7 +433,7 @@ mod admission_tests {
     const CLIENT: ClientId = ClientId(7);
     const CONN: ConnId = ConnId(1);
     /// The reader release: every row and `SceneState` ahead.
-    const AHEAD: Admit = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
+    const AHEAD: Admit = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead, unfit_undo: Status::Ahead, ..Admit::AHEAD };
 
     fn board() -> Doc {
         let mut n = 0u128;
@@ -609,7 +609,7 @@ mod admission_tests {
         let doc = board();
         let (p, s) = (player(&doc), scene(&doc));
         let mut a = Authority::new(doc);
-        a.set_admit(Admit { row: |r| if r.key() == "hero" { Status::Live } else { Status::Ahead }, scene_state: Status::Ahead, unfit_undo: Status::Ahead });
+        a.set_admit(Admit { row: |r| if r.key() == "hero" { Status::Live } else { Status::Ahead }, scene_state: Status::Ahead, unfit_undo: Status::Ahead, ..Admit::AHEAD });
         let mut a = serving(a);
         logged(&mut a, tx(0, vec![Op::Set { id: p, value: hero(13) }]));
         assert_eq!(a.doc().live(p).and_then(|r| r.get(mapcro_schema::Field::More(row("hero")))), Some(hero(13)));

@@ -1,4 +1,4 @@
-import { revealControls } from "./helpers";
+import { revealControls, setSpeed } from "./helpers";
 // Event pings during playback (spec §6b): each event the playback passes while it plays gets a
 // short ring at its place, for the presenter and a follower alike; events a seek skips, events
 // the list's filters hide, and everything with Pings off get none. A synthetic replay timeline
@@ -135,7 +135,7 @@ test("events ping at their place as playback passes them, for a follower too; ne
   await recordPings(b);
 
   // Play across three events at 2×.
-  await a.getByTestId("match-speed").selectOption("2");
+  await setSpeed(a, "2");
   await a.getByTestId("match-play").click();
   await expect.poll(() => clock(a), { timeout: 10_000 }).toBeGreaterThanOrEqual(19);
   // Seek just past the death at 22 s, still playing, and run on a little.

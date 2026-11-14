@@ -8,7 +8,7 @@ import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew, revealControls } from "./helpers";
+import { joinNew, revealControls, setSpeed } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 
 const src = process.env.MAPCRO_SHOT_REPLAY;
@@ -81,7 +81,7 @@ test("8× on a real replay: frame time for the presenter and a follower", async 
     (el as HTMLInputElement).value = String(t);
     el.dispatchEvent(new Event("input", { bubbles: true }));
   }, FROM);
-  await a.getByTestId("match-speed").selectOption("8");
+  await setSpeed(a, "8");
   await a.getByTestId("match-play").click();
   await a.waitForTimeout(1000);
   const troopers = await a.locator("[data-testid=trooper]").count();

@@ -34,7 +34,6 @@ const full: TabView = {
   scene: rid(7),
   view: { x: 10, y: 20, w: 50 },
   viewpoint: "sapphire",
-  side: "notes",
   mode: "player",
   match: "129738985",
   t: 812.5,
@@ -65,8 +64,12 @@ describe("what a tab remembers (TabView)", () => {
     expect(parseTabView(JSON.stringify({ ...full, board: undefined }), A)).toBeUndefined();
   });
 
+  it("reads one stored before the sidebar lost its tabs, without the tab (feedback #57)", () => {
+    expect(parseTabView(JSON.stringify({ ...full, side: "notes" }), A)).toEqual(full);
+  });
+
   it("takes each field only in its own shape", () => {
-    const bad = { board: A, at: "soon", scene: "nope", view: { x: 1, y: "2", w: 3 }, viewpoint: "top", side: 3, mode: "replay", match: "12x", t: 5, playing: true, speed: 2, layers: { troopers: "yes", heals: true, extra: true }, vision: "team", lastSeen: 1 };
+    const bad = { board: A, at: "soon", scene: "nope", view: { x: 1, y: "2", w: 3 }, viewpoint: "top", mode: "replay", match: "12x", t: 5, playing: true, speed: 2, layers: { troopers: "yes", heals: true, extra: true }, vision: "team", lastSeen: 1 };
     expect(parseTabView(JSON.stringify(bad), A)).toEqual({ board: A, at: 0, layers: { heals: true } });
     // Playback hangs on its match: without one, none of it.
     expect(parseTabView(JSON.stringify({ board: A, at: 1, t: 5, playing: true, speed: 2 }), A)).toEqual({ board: A, at: 1 });

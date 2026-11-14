@@ -4,6 +4,38 @@ Ideas the operator wants kept but not built yet. Newest first. Each entry record
 what it is, and what it depends on.
 
 
+## Speed on a phone held upright is still the list (2026-11-14, from feedback-56-60; for mobile-defaults)
+
+Feedback #58 made speed two buttons, − and +, around the current speed. A phone 480 px wide or
+less keeps the list (`.pl-speed-list` in `Player.tsx`, shown by a media query in `app.css`):
+
+- Under 390 px the buttons don't fit the transport's second row beside the clock and the tabs:
+  two 44 px targets and the readout need 122 px, where the list had 58 (the lead agreed,
+  2026-11-14).
+- From 390 px they fit, but Play and the speed share the transport grid's first column, so they
+  widen it and take 58 px from the scrubber (`player-dock.spec.ts` holds it over 250 px on an
+  iPhone 13; it came to 244).
+
+A phone on its side, a tablet and the desktop have the buttons. Whoever next lays out the phone
+transport decides whether upright phones get them too: a column of its own for the speed, a
+third row, or a single button that cycles.
+
+## A scene change under someone typing the scene note drops what they typed (2026-11-14, found in the feedback-56-60 review)
+
+`Board.tsx` clears the note's draft when the scene changes (`createEffect(on(() => scene()?.id, …))`).
+The field keeps the focus, so no blur saved it first: a follower typing the note when their
+presenter flips the scene loses the text (the same for ← → pressed elsewhere while the draft is
+unsaved). Feedback #57 fixed the case where the field leaves the page (Player opens); this one is
+older. Save the draft to the scene it was typed on before clearing it.
+
+## The scrubber is 36 px wide in a window just over 800 px (2026-11-14, found by feedback-56-60)
+
+In the desktop layout the transport is one row down to 800 px, where the scrubber gets a row of
+its own (`app.css`, `@media (max-width: 800px)`). Just above that, the row has no room left: at
+820 px the scrubber is at its minimum, 36 px of track (measured in a browser, 2026-11-14; the same
+with the old speed list, which was 14 px narrower than the buttons). Raise the breakpoint to
+where the scrubber still has a usable width, or let it wrap when it falls under one.
+
 ## Map-state phase 2 leftovers from its review (2026-11-14, lead)
 
 From the adversarial review of e878c30 (scene builds, #49); none blocked the deploy.

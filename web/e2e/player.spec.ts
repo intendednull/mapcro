@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { gesture, joinNew, revealControls, useSummary } from "./helpers";
+import { gesture, joinNew, revealControls, setSpeed, useSummary } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -164,12 +164,12 @@ test("a follower mirrors the presenter's playback and mode; its own scrub stops 
   // Paused: the same moment.
   await expect(b.getByTestId("match-clock")).toHaveText("5:00 / 21:40");
   // Playing at 8×: the follower runs along, within a second or two.
-  await a.getByTestId("match-speed").selectOption("8");
+  await setSpeed(a, "8");
   await a.getByTestId("match-play").click();
   await a.waitForTimeout(1500);
   await expect.poll(async () => Math.abs((await clock(a)) - (await clock(b)))).toBeLessThan(3);
   expect(await clock(b)).toBeGreaterThan(305);
-  await expect(b.getByTestId("match-speed")).toHaveValue("8");
+  await expect(b.getByTestId("match-speed")).toHaveAttribute("data-speed", "8");
   await a.getByTestId("match-play").click();
   const stopped = await clock(a);
   await expect.poll(() => clock(b)).toBe(stopped);
@@ -329,16 +329,15 @@ test("Escape, or a press on the map, leaves the events search so the board's key
   const map = (await a.getByTestId("map").boundingBox())!;
   await a.mouse.click(map.x + map.width * 0.5, map.y + map.height * 0.9);
   expect(await focused()).toBe(false);
-  // Any control, not only text: the speed list gives the keys back once a speed is picked, and
-  // Escape or a press on the map takes them back from it.
-  const speed = a.getByTestId("match-speed");
-  const speedFocused = () => speed.evaluate((el) => el === document.activeElement);
-  await speed.selectOption("2");
-  expect(await speedFocused()).toBe(false);
-  await speed.focus();
+  // Any control, not only text: Escape or a press on the map takes the keys back from a focused
+  // speed button.
+  await setSpeed(a, "2");
+  const faster = a.getByTestId("speed-up");
+  const speedFocused = () => faster.evaluate((el) => el === document.activeElement);
+  await faster.focus();
   await a.keyboard.press("Escape");
   expect(await speedFocused()).toBe(false);
-  await speed.focus();
+  await faster.focus();
   await a.mouse.click(map.x + map.width * 0.5, map.y + map.height * 0.9);
   expect(await speedFocused()).toBe(false);
 });

@@ -1,5 +1,5 @@
 // What a tab's board showed when it was left (sessions.md §4.2): the scene, the viewport and
-// side, Player or Sandbox, the match and where it was, the sidebar tab, and what its user set
+// side, Player or Sandbox, the match and where it was, and what its user set
 // there of Vision and the map layers (operator decision 7: per tab). Kept per browser tab in sessionStorage, under
 // `mapcro.tabview.<session>.<board>`, so it outlasts a reload and is never synced: §4a's local
 // view. It's restored only into the board it names, and only what the board still has: a scene
@@ -21,7 +21,6 @@ export interface TabView {
   /** The viewport, as the map's view rectangle, and the side it's seen from. */
   view?: { x: number; y: number; w: number };
   viewpoint?: "amber" | "sapphire" | "neutral";
-  side?: "events" | "notes";
   mode?: "player" | "sandbox";
   /** The open match, and its playback as the screen showed it. */
   match?: string;
@@ -63,7 +62,6 @@ export function parseTabView(raw: string | null, board: string): TabView | undef
   const r = v.view as Record<string, unknown> | null | undefined;
   if (r && typeof r === "object" && num(r.x) && num(r.y) && num(r.w) && r.w > 0) out.view = { x: r.x, y: r.y, w: r.w };
   if (oneOf(v.viewpoint, ["amber", "sapphire", "neutral"] as const)) out.viewpoint = v.viewpoint;
-  if (oneOf(v.side, ["events", "notes"] as const)) out.side = v.side;
   if (oneOf(v.mode, ["player", "sandbox"] as const)) out.mode = v.mode;
   if (typeof v.match === "string" && /^[1-9]\d{0,11}$/.test(v.match)) {
     out.match = v.match;
@@ -177,6 +175,6 @@ export function withOwn(own: TabOwn, key: string, value: unknown): TabOwn {
 /** The Player part of a view, as the Player host takes it (player/host.ts `PlayerRemembered`). */
 export function playerPart(view: TabView | undefined): Pick<TabView, "mode" | "match" | "t" | "playing" | "speed" | "layers" | "vision" | "lastSeen"> {
   if (!view) return {};
-  const { board: _board, at: _at, scene: _scene, view: _view, viewpoint: _viewpoint, side: _side, ...player } = view;
+  const { board: _board, at: _at, scene: _scene, view: _view, viewpoint: _viewpoint, ...player } = view;
   return player;
 }

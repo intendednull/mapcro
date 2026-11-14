@@ -3,6 +3,12 @@
 
 export const SPEEDS = [0.5, 1, 2, 4, 8] as const;
 
+/** The next speed down from `speed`, or `undefined` at the slowest. A speed that isn't one of
+ * `SPEEDS` (a presenter on another build) steps to its neighbours. */
+export const slower = (speed: number): number | undefined => [...SPEEDS].reverse().find((s) => s < speed);
+/** The next speed up from `speed`, or `undefined` at the fastest. */
+export const faster = (speed: number): number | undefined => SPEEDS.find((s) => s > speed);
+
 export interface Playback {
   /** Match seconds at `at`. */
   t: number;

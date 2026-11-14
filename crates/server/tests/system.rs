@@ -1634,7 +1634,7 @@ async fn a_fresh_client_loads_the_board_not_its_history() {
     let log: Vec<mapcro_schema::Tx> = (0..N)
         .map(|i| {
             let ops = if i + 1 == N {
-                let callout = mapcro_schema::Callout { scene, pos: WorldPos { x: 1, y: 2 }, text: "last".into(), color: None };
+                let callout = mapcro_schema::Callout { scene, pos: WorldPos { x: 1, y: 2 }, text: "last".into(), color: None, side: Default::default() };
                 vec![Op::Create { id: mapcro_schema::RecordId(0xca11), record: Record::Callout(callout) }]
             } else {
                 vec![Op::Set { id: player, value: FieldValue::PlayerPos(WorldPos { x: (i % 2000) as i32, y: 0 }) }]
@@ -1700,7 +1700,7 @@ async fn a_shared_snapshot_keeps_its_own_position() {
     w.connect(server.port, &board, &owner).await.expect("first joiner");
     assert_eq!(w.replica().last_seq(), 90, "a fresh snapshot of the board now");
     assert!(edits_until_decided(&mut w, 4, move_op).await.is_empty());
-    let callout = mapcro_schema::Callout { scene, pos: WorldPos { x: 3, y: 4 }, text: "new".into(), color: None };
+    let callout = mapcro_schema::Callout { scene, pos: WorldPos { x: 3, y: 4 }, text: "new".into(), color: None, side: Default::default() };
     let create = vec![Op::Create { id: mapcro_schema::RecordId(0xe0ca), record: Record::Callout(callout) }];
     assert!(edits_until_decided(&mut w, 1, |_, _| create.clone()).await.is_empty());
 
@@ -1997,7 +1997,7 @@ async fn a_real_v4_database_migrates_and_its_board_compacts_and_rebases() {
     {
         let c = rusqlite::Connection::open(&path).expect("open");
         let v: String = c.query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("version");
-        assert_eq!(v, "10", "migrated to the current schema");
+        assert_eq!(v, "11", "migrated to the current schema");
         let codecs: i64 = c.query_row("SELECT COUNT(*) FROM ops WHERE codec = 'zstd-v1'", [], |r| r.get(0)).expect("ops");
         assert_eq!(codecs as u64, entries, "the v4 rows are untouched");
     }
@@ -2130,7 +2130,7 @@ async fn a_migration_interrupted_by_a_crash_still_boots() {
     let fresh = fresh_catch_up(server.port, &board, &owner, 0x3f3, fx["entries"].as_u64().expect("entries")).await;
     assert!(fresh.replica().view().live(mapcro_schema::RecordId(0xa0a0)).is_some());
     let v: String = rusqlite::Connection::open(&path).expect("open").query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |r| r.get(0)).expect("v");
-    assert_eq!(v, "10", "migrated to the current schema");
+    assert_eq!(v, "11", "migrated to the current schema");
 }
 
 #[tokio::test(flavor = "multi_thread")]

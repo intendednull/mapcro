@@ -14,7 +14,7 @@
 
 use mapcro_schema::{
     Arrow, BoardId, Callout, ClientId, Doc, Field, FieldValue, GrantId, HeroId, LaneKey, More, Note, ObjectiveKey, ObjectiveState,
-    ObjectiveStatus, Op, OpOutcome, OrderKey, PlayerState, Record, RecordId, Scene, SceneSource, Stroke, Tab, Team, Tx, TxKind, Wave,
+    ObjectiveStatus, Op, OpOutcome, OrderKey, PlayerState, Record, RecordId, Scene, SceneSource, Side, Stroke, Tab, Team, Tx, TxKind, Wave,
     WorldPos, apply_tx, apply_tx_with_inverse, export_records, genesis, session_genesis, validate_doc,
 };
 use std::collections::BTreeSet;
@@ -124,8 +124,8 @@ fn board_log() -> (Doc, Vec<Tx>) {
         wave(111, first, "lane4", 0),
         Op::Create { id: id(120), record: Record::Arrow(Arrow { scene: first, from: pos(0, 0), to: pos(900, -900), team: Some(Team::Amber), color: Some(3) }) },
         Op::Create { id: id(121), record: Record::Arrow(Arrow { scene: first, from: pos(5, 5), to: pos(6, 6), team: None, color: None }) },
-        Op::Create { id: id(122), record: Record::Callout(Callout { scene: first, pos: pos(100, 200), text: "smoke".into(), color: Some(15) }) },
-        Op::Create { id: id(123), record: Record::Callout(Callout { scene: first, pos: pos(-1, -2), text: "push → mid".into(), color: None }) },
+        Op::Create { id: id(122), record: Record::Callout(Callout { scene: first, pos: pos(100, 200), text: "smoke".into(), color: Some(15), side: Default::default() }) },
+        Op::Create { id: id(123), record: Record::Callout(Callout { scene: first, pos: pos(-1, -2), text: "push → mid".into(), color: None, side: Default::default() }) },
         Op::Create { id: id(124), record: Record::Note(Note { scene: first, text: "Rotate after the walker.\nThen urn.".into() }) },
         Op::Create {
             id: id(125),
@@ -241,9 +241,13 @@ fn the_fixture_log_holds_every_op_and_every_typed_field() {
         }
     }
     assert_eq!(ops.len(), 5, "every op: {ops:?}");
-    // A board's typed fields: every one but a session's three (pinned by the session fixture).
-    let board: BTreeSet<String> =
-        Field::TYPED.iter().filter(|f| !matches!(f, Field::SessionTitle | Field::TabName | Field::TabOrder)).map(|f| format!("{f:?}")).collect();
+    // A board's typed fields: every one but a session's three (pinned by the session fixture)
+    // and the two added since, which this fixture is from before (pinned by the fixture below).
+    let board: BTreeSet<String> = Field::TYPED
+        .iter()
+        .filter(|f| !matches!(f, Field::SessionTitle | Field::TabName | Field::TabOrder | Field::CalloutSide | Field::StrokeColor))
+        .map(|f| format!("{f:?}"))
+        .collect();
     assert_eq!(fields, board);
     assert_eq!(kinds.len(), 8, "every kind an edit creates in a board: {kinds:?}");
     assert!(log.iter().any(|t| matches!(t.kind, TxKind::Undo { .. })) && log.iter().any(|t| matches!(t.kind, TxKind::Redo { .. })));
@@ -284,6 +288,67 @@ fn a_board_file_holds_the_same_records() {
     assert_eq!(serde_json::to_string(&read).expect("json"), stored);
     let imported = mapcro_schema::import_records(read.clone(), ids(1 << 64), &mapcro_schema::Admit::DEPLOYED).expect("and import");
     assert_eq!(imported.iter_live().count(), read.len());
+}
+
+/// What the writer after store v11 stores (feedback #56, #59, #60), pinned while nothing may
+/// write it: a scene name of 48 characters, a comment's side (set, undone, and at creation) and
+/// a stroke's colour as a field. The reader release (v11) reads exactly these bytes, so the
+/// writer must store these and no others: a change here needs a new reader first.
+#[test]
+fn the_reader_reads_the_long_names_sides_and_colours_the_next_writer_stores() {
+    let start = genesis(ids(0), "Scrim prep");
+    let first = id(14);
+    let comment = |side| Record::Callout(Callout { scene: first, pos: pos(100, 200), text: "smoke".into(), color: Some(15), side });
+    let stroke = Stroke { scene: first, points: vec![pos(1, 2), pos(30, 40)], color: 7, width: 20, offset: WorldPos::default() };
+    let side = |n: u128, side| set(id(n), FieldValue::CalloutSide(side));
+    let mut doc = start.clone();
+    let mut log = Vec::new();
+    let mut send = |doc: &mut Doc, kind: TxKind, ops: Vec<Op>| -> Vec<Op> {
+        let tx = Tx { client: ClientId(0xa11ce), cseq: log.len() as u64, kind, ops };
+        let (outcomes, inverse) = apply_tx_with_inverse(doc, &tx).unwrap_or_else(|r| panic!("tx #{} refused: {r}", tx.cseq));
+        assert!(outcomes.iter().all(|o| *o == OpOutcome::Applied), "tx #{}: {outcomes:?}", tx.cseq);
+        log.push(tx);
+        inverse
+    };
+    send(&mut doc, TxKind::Edit, vec![
+        set(first, FieldValue::SceneName("12:40 Walker fight, mid: they collapse on us".into())),
+        Op::Create { id: id(500), record: comment(Side::Above) },
+        Op::Create { id: id(501), record: comment(Side::Left) },
+        Op::Create { id: id(502), record: Record::Stroke(stroke) },
+    ]);
+    send(&mut doc, TxKind::Edit, vec![side(500, Side::Below), side(500, Side::Right), side(501, Side::Above)]);
+    let undo = send(&mut doc, TxKind::Edit, vec![side(500, Side::Left), set(id(502), FieldValue::StrokeColor(3)), set(first, FieldValue::SceneName("é".repeat(48)))]);
+    assert!(undo.iter().all(|op| matches!(op, Op::SetIf { .. })), "{undo:?}");
+    send(&mut doc, TxKind::Undo { of: 2 }, undo);
+    send(&mut doc, TxKind::Edit, vec![set(id(502), FieldValue::StrokeColor(0)), set(first, FieldValue::SceneName("n".repeat(48)))]);
+
+    pinned("sides-colours-log.jsonl", &lines(&log));
+    let stored = std::fs::read_to_string(golden("sides-colours-log.jsonl")).expect("golden log");
+    let read: Vec<Tx> = stored.lines().map(|l| serde_json::from_str(l).expect("a logged transaction parses")).collect();
+    assert_eq!(lines(&read), stored);
+    assert_eq!(read, log);
+    // It replays, as a cold load does, to the stored board, which reads and writes back the same.
+    pinned("sides-colours-board.json", &serde_json::to_string(&replay(&start, &read)).expect("json"));
+    let stored = std::fs::read_to_string(golden("sides-colours-board.json")).expect("golden board");
+    let board: Doc = serde_json::from_str(&stored).expect("a stored board parses");
+    validate_doc(&board).expect("and is valid");
+    assert_eq!(serde_json::to_string(&board).expect("json"), stored);
+    assert_eq!(board, doc);
+    // The log holds each new thing, in both ops that carry a field value.
+    let fields: BTreeSet<String> = log
+        .iter()
+        .flat_map(|t| &t.ops)
+        .filter_map(|op| match op {
+            Op::Set { value, .. } => Some(format!("set {:?}", value.field())),
+            Op::SetIf { value, .. } => Some(format!("set_if {:?}", value.field())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(fields.into_iter().collect::<Vec<_>>(), ["set CalloutSide", "set SceneName", "set StrokeColor", "set_if CalloutSide", "set_if SceneName", "set_if StrokeColor"]);
+    // And a file of it imports once its fields are admitted, and not before.
+    let file = export_records(&board);
+    assert_eq!(mapcro_schema::import_records(file.clone(), ids(1 << 64), &mapcro_schema::Admit::AHEAD).err(), Some(mapcro_schema::Reject::TextTooLong));
+    mapcro_schema::import_records(file, ids(1 << 64), &mapcro_schema::Admit::READS).expect("imports");
 }
 
 #[test]
