@@ -347,16 +347,18 @@ mod changed_tests {
             seq += 1;
             assert!(step(&mut r, "own ack", |r| r.receive(&entry(seq, tx))).0.is_empty());
         }
-        // A peer's entry under the pending redo: its write to 100 is hidden by the redo, its
-        // new record shows.
+        // A peer's entry under the pending redo: its new record shows, and so does its write
+        // to 100, which the redo no longer covers (a redo is `SetIf` on the value it saw, so it
+        // skips a field someone changed since). A record the entry doesn't name changed in the
+        // view: the pending work's records are part of what a receive can touch.
         seq += 1;
         let (ids, _) = step(&mut r, "peer under pending", |r| r.receive(&entry(seq, peer(0, vec![text(100, "theirs"), note(200, "theirs")]))));
-        assert_eq!(ids, vec![RecordId(200)]);
-        // The redo is refused: what it wrote goes, and the peer's write to 100 shows.
+        assert_eq!(ids, vec![RecordId(100), RecordId(200)]);
+        // The redo is refused: what it still wrote (101) goes.
         let cseq = redo[0].cseq;
         let rejected = serde_json::to_string(&WireOut::Msg { msg: ServerMsg::Rejected { cseq, reason: mapcro_schema::Reject::Immutable } }).expect("frame");
         let (ids, _) = step(&mut r, "rejected", |r| r.receive(&rejected));
-        assert_eq!(ids, vec![RecordId(100), RecordId(101)]);
+        assert_eq!(ids, vec![RecordId(101)]);
         assert!(step(&mut r, "rejected again", |r| r.receive(&rejected)).0.is_empty());
 
         // A peer's entry with nothing pending, and one that deletes.
