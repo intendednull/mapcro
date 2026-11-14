@@ -5,7 +5,7 @@
 // no menu. The map tokens show the state (dead, unseen) but carry no eye or skull button.
 
 import { type Page, expect, test } from "./fixtures";
-import { joinNew, pickHero, viewLink } from "./helpers";
+import { joinNew, mapPoint, pickHero, viewLink, viewOf } from "./helpers";
 import { Server, newBoardUrl } from "./server";
 import { heroPack } from "./synthetic";
 
@@ -153,4 +153,81 @@ test("a viewer gets no menu and no token buttons, but sees dead and unseen", asy
   await expect(v.locator(".mapbox .tok [data-testid=vision], .mapbox .tok [data-testid=life]")).toHaveCount(0);
   await v.mouse.move(5, 450);
   await v.locator("[data-testid=map]").screenshot({ path: "shots/portrait-menu-viewer-map.png" });
+});
+
+// Feedback #53: in a scene, a hero's token on the map opens the same menu, at the pointer, for
+// an editor; a right drag from it still pans; a viewer gets nothing.
+test("right-click a hero's token: the portrait's menu, kill and revive, vision; a right drag pans", async ({ browser }) => {
+  const url = await newBoardUrl(server, "token menu");
+  const a = await joinNew(browser, url, "Coach");
+  const b = await joinNew(browser, url, "Marrow");
+  await pickHero(a, "Amber-1", "Testhero A");
+  const centre = async (slot: string) => {
+    const r = (await tok(a, slot).boundingBox())!;
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  };
+
+  // The same items as the portrait's, at the pointer.
+  const at = await centre("Amber-1");
+  await tok(a, "Amber-1").click({ button: "right" });
+  await expect(menu(a)).toBeVisible();
+  await expect(menu(a).getByRole("menuitem")).toHaveText(["Kill", "Mark not seen", "Rename…", "Change hero…"]);
+  const mb = (await menu(a).boundingBox())!;
+  expect(Math.abs(mb.x - at.x)).toBeLessThan(4);
+  expect(Math.abs(mb.y - at.y)).toBeLessThan(4);
+  await expect(a.locator("[data-testid=hero-menu-life]")).toBeFocused();
+  await menu(a).getByRole("menuitem", { name: "Kill" }).click();
+  await expect(menu(a)).toHaveCount(0);
+  await expect(tok(a, "Amber-1")).toHaveClass(/dead/);
+  await expect(tok(b, "Amber-1")).toHaveClass(/dead/);
+  await expect(portrait(b, "Amber-1")).toHaveClass(/dead/);
+
+  // The dead token: Revive.
+  await tok(a, "Amber-1").click({ button: "right" });
+  await expect(menu(a).getByRole("menuitem").first()).toHaveText("Revive");
+  await menu(a).getByRole("menuitem", { name: "Revive" }).click();
+  await expect(tok(a, "Amber-1")).not.toHaveClass(/dead/);
+  await expect(tok(b, "Amber-1")).not.toHaveClass(/dead/);
+
+  // Vision, from a hero with none picked, and back.
+  await tok(a, "Sapphire-2").click({ button: "right" });
+  await expect(menu(a).getByRole("menuitem")).toHaveText(["Kill", "Mark not seen", "Show on the map", "Rename…", "Pick hero…"]);
+  await menu(a).getByRole("menuitem", { name: "Mark not seen" }).click();
+  await expect(tok(b, "Sapphire-2")).toHaveAttribute("data-visible", "false");
+  await tok(a, "Sapphire-2").click({ button: "right" });
+  await menu(a).getByRole("menuitem", { name: "Mark in vision" }).click();
+  await expect(tok(b, "Sapphire-2")).toHaveAttribute("data-visible", "true");
+
+  // A right drag that starts on a token pans the map and opens no menu. Zoomed in, so the view
+  // can pan: the hero is dragged to the middle first, to stay in sight.
+  const slot = "Amber-1";
+  const mid = await mapPoint(a, 0.5, 0.5);
+  const start = await centre(slot);
+  await a.mouse.move(start.x, start.y);
+  await a.mouse.down();
+  await a.mouse.move(mid.x, mid.y, { steps: 8 });
+  await a.mouse.up();
+  await a.mouse.wheel(0, -400);
+  await expect.poll(async () => (await viewOf(a))[2]).toBeLessThan(700);
+  const from = await centre(slot);
+  const before = await a.getByTestId("map").getAttribute("data-view");
+  await a.mouse.move(from.x, from.y);
+  await a.mouse.down({ button: "right" });
+  await a.mouse.move(from.x + 80, from.y + 40, { steps: 8 });
+  await a.mouse.up({ button: "right" });
+  await expect(a.getByTestId("map")).not.toHaveAttribute("data-view", before!);
+  await a.waitForTimeout(200);
+  await expect(menu(a)).toHaveCount(0);
+  await expect(tok(b, slot)).not.toHaveClass(/dead/);
+});
+
+test("a viewer's right click on a token: no menu, and the browser's stays shut", async ({ browser }) => {
+  const url = await newBoardUrl(server, "token viewer");
+  await joinNew(browser, url, "Coach");
+  const v = await joinNew(browser, await viewLink(server.url, url), "Guest");
+  const shut = v.evaluate(() => new Promise<boolean>((ok) => window.addEventListener("contextmenu", (e) => setTimeout(() => ok(e.defaultPrevented)), { once: true })));
+  await tok(v, "Amber-0").click({ button: "right" });
+  expect(await shut).toBe(true);
+  await v.waitForTimeout(300);
+  await expect(menu(v)).toHaveCount(0);
 });

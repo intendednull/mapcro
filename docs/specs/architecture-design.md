@@ -215,20 +215,23 @@ One line, 56 px, that fits every role from 1920 down to 1180 px (header redesign
 `web/e2e/header.spec.ts`). The phone and tablet shell has its own header (§6b, Phone).
 
 ```
-[wordmark] | Title  1 scene  ✓  [+ Add game] [tier]   ( Presenting / Follow chip )   (avatars) [Share] [⋯]
+[wordmark] | Title  1 scene  ✓  [+ Add game] [tier]   ( Presenting / Follow chip )   (avatars) [Feedback] [Share] [⋯]
 ```
 
 - **Order** is DOM order and tab order: wordmark, title, save state, Add game (a plain board; in a
   session it is the game strip's), the tier chip (with a match), then between two spacers the
-  Presenting pill or Follow chip, then the avatars, the main action and More.
+  Presenting pill or Follow chip, then the avatars, Feedback, the main action and More.
 - **Only the title shrinks**, with an ellipsis, never under 96 px; its full text is its hover.
   Every other child keeps its size on one line, and `.app`'s one column is `minmax(0, 1fr)`, so
   the header never widens the page (TD-61).
 - **The main action** is the one filled control: Share for anyone who can edit (the session's
   Share in a session), Clone (ghost) for a view-only link.
+- **Feedback** (ghost, its icon and word; when the form is on, §11a) sits just before the main
+  action in every mode, Player included, and is no row of More (operator, 2026-11-13, feedback
+  #52: "next to the share button still, nice and visible"). It keeps its word at every width.
 - **More** ("⋯", `aria-label` "More") opens a menu under it, in groups: Update available (the
   portable app with an update; More then carries a brass dot), Clone (unless it is the main
-  action) and Download, Open in app and Get the app (as their own rules say), Feedback. Rows have
+  action) and Download, Open in app and Get the app (as their own rules say). Rows have
   no hover text. Keys as for a context menu: Enter, Space or Down opens it on its first row; Up,
   Down, Home and End move; Enter or Space runs a row; Escape gives focus back to More, as does a
   dialog opened from it; Tab moves on. Its open flag is local, not followed.
@@ -1062,7 +1065,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
     hands focus back; a press outside, a resize or a lost window focus closes it. The labels
     follow edits made while it's open. Viewers get no menu. The tokens' eye and skull buttons
     are gone; K still kills or revives the hero under the pointer, and the top bar's eye toggle
-    stays. Player has none.
+    stays. The same menu opens from a right click on the hero's token on the map, at the
+    pointer (operator, 2026-11-13, feedback #53); a right drag from a token still pans, and
+    opens nothing. Player has none.
   - **No side roster** (operator, 2026-11-09: "the roster in the top right is back, I don't
     think we need it there either"): neither Player (since 0a1948b) nor Scenes lists the roster
     in the side panel. The top bar has what it had: names and heroes, focus (a portrait click,
@@ -2145,8 +2150,8 @@ the right trade-off. A dedicated security review gates public exposure.
 Operator, 2026-11-09: "a feedback button … asks for a title and a description and … creates an
 issue in the Github repo." Code: `crates/server/src/feedback.rs`, `web/src/ui/Feedback.tsx`.
 
-- **Where.** A "Feedback" row, last in the board top bar's More menu (§4b), and a "Feedback"
-  link in the landing's footer. Both are hidden unless `GET /api/feedback` answers
+- **Where.** A "Feedback" button in the board header, just before Share (§4b), on the phone in
+  its header (Player: in More's sheet), and a "Feedback" link in the landing's footer. Both are hidden unless `GET /api/feedback` answers
   `{"enabled": true}`, which it does only when the server has a token.
 - **The dialog.** Title (required, 120 characters) and description (required, 5,000 characters,
   counted from 80%), the notice "This creates a public issue on GitHub (intendednull/mapcro).
