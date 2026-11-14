@@ -1020,30 +1020,39 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      |---|---|---|---|---|
      | run 1 | 29 | 66 (54–94) | 156 | 172 |
      | run 2 | 37 | 80 (55–179) | 177 | 209 |
+     | run 3 (the box at its busiest) | 55 | 112 (57–194) | 231 | 233 |
+     | run 4 (the box quiet) | 26 | 55 (50–80) | 131 | 146 |
      | HTTP at 40 ms and 20 Mbit/s, run 1 | 35 | 71 (48–152) | 189 | 232 |
      | the same, run 2 | 27 | 55 (49–82) | 149 | 186 |
+     | the same, run 3 | 32 | 70 (53–109) | 191 | 239 |
+     | the same, run 4 | 24 | 51 (38–59) | 139 | 169 |
      | boards of 49 scenes | 35 | 93 (69–186) | 186 | 235 |
      | 49 scenes, the same link | 38 | 122 (66–448) | 348 | 405 |
 
      `drawn` was 120 without the pool before this change, 33 with the pool, 59 before phase 3
      (49 scenes: 129, 44, 82).
    - **The decision (the lead, 2026-11-14): the pool stays removed.** The bar was a median
-     `drawn` of at most about 80 ms on this box without it: 66 and 80 (fastest 54 and 55), and
-     55 to 71 over the link. The 49-scene rows are 11 ms over what they were before phase 3,
-     in the box's noise (one switch took 448 ms). Two more runs were queued and not run
-     (journal, "Resume after restart").
+     `drawn` of at most about 80 ms on this box without it. Four runs: 55, 66, 80 and 112, the
+     median of the four 73; each run's fastest switch 50 to 57; 51 to 71 over the link. The
+     runs follow the box's load: 55 with it quiet (under the 59 from before phase 3), 112 at
+     its busiest, when a board never opened took 222 to draw against 74 to 134 in the other
+     runs. The 49-scene rows are 11 ms over what they were before phase 3, in that noise (one
+     switch took 448 ms).
    - **Tests:** `web/test/sessions-speed.test.ts` (TabView's shape and its two drops; the cache's
      keys, LRU and freeze), `crates/server/tests/replays.rs` (the validator: 304 only for the file
-     held and only after the access check, through a link and through a grant), and in
+     held and only after the access check, through a link and through a grant; a cached replay
+     that can't be read is logged by its tier), and in
      `e2e/session-isolation.spec.ts` (§9.1): a tab as it was left, from sessionStorage after a
      reload, a scene gone meanwhile (checked once the board has caught up); a layer a tab's own
      once set there (also when set before the tab's match was confirmed), this browser's on a tab never opened and on one only passed through; a left board holds nothing open; the
      timeline cache sent once and confirmed on every open for each board, a file written again,
      a refusal, no answer. `e2e/fixtures.ts` fails any test whose page writes to a frozen object
      (every timeline Player shows is frozen, cached or not), proved by `frozen-write-guard.spec.ts`.
-   - **Mutation:** 20 hand mutants over `tabview.ts` and `timelineCache.ts`, all killed by the
-     unit file; 5 over `host.ts`, `api.ts` and `Board.tsx` that only the browser rows can fail
-     (journal). cargo-mutants on the route's diff: in the journal.
+   - **Mutation:** 34 hand mutants over `tabview.ts` and `timelineCache.ts` (14 of them over
+     the layers a tab holds), all killed by the unit file; 9 over `host.ts`, `api.ts` and
+     `Board.tsx` that only the browser rows can fail, all killed (4 of them the layers'). The
+     list is in the journal. cargo-mutants on the route's diff: 10 mutants, 9 caught, 1
+     unviable, none missed (the one missed at first, the tier in a debug line, has its test).
    - **Debt:** TD-93 to TD-96.
 4. **Follow across tabs.** `seat`, `tab` and `session_role`, the `session.tab` registry row and
    the `Id` kind, the follow chip's "No access", and §9.3.
