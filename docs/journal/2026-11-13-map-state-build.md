@@ -7,6 +7,30 @@ Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `
 
 Off main `a0774c5` (prod `e878c30`, store v10). Newest first.
 
+### After the restart (2026-11-14, 06:35): the two reruns are in; this branch is the D4 release candidate
+
+- **`npm test` whole at `59efdec`:** 72 files, 713 passed, 1 skipped; `tsc` clean. With the
+  e2e at `a12eabe` (311 passed; after it only a local array in `scene.ts` and docs changed),
+  **`map-state-p3` is the D4 release candidate**: client only, no row, no store version.
+- **The `cda86fb` perf verdict: no worse than `b3c9223`.** Fifteen more runs, each started only
+  with the load under 10. With the first job's, the runs at load under 13 are three to six a
+  build in every cell (late in the match, playing; median, then the range):
+
+  | Match, CPU | Step 1 (`b3c9223`): JS % | fps | The rest (`cda86fb`): JS % | fps |
+  |---|---|---|---|---|
+  | 134623152, 1x | 9.3 (9.2 to 11.8), n 5 | 60 | 9.1 (8.7 to 9.9), n 4 | 60 |
+  | 134623152, 4x | 25.3 (22.0 to 26.9), n 6 | 43 (16 to 47) | 25.3 (24.7 to 25.9), n 5 | 47 (42 to 48) |
+  | 129738985, 1x | 10.1 (9.5 to 11.0), n 4 | 60 | 10.7 (9.4 to 11.7), n 5 | 60 |
+  | 129738985, 4x | 20.5 (19.3 to 20.9), n 5 | 31 (26 to 33) | 20.9 (20.6 to 24.3), n 3 | 29 (13 to 29) |
+
+  Tab, hover and scrub medians are within each other's ranges too (playing at 1x: Tab 35 and
+  39 ms against 37 and 36; hover 40 and 45 against 41 and 46; paused scrub 19.5 and 20.6
+  against 19.0 and 21.4). Each build has one slow 4x run (16 fps at load 11.8 for step 1,
+  13 fps at load 7.1 for the rest). The 12.4 %, 54 fps that read as worse was the load.
+  `cda86fb` need not be held.
+- **D2 is on its own branch, `map-state-d2`** (worktree `mapcro.worktrees/map-state-d2`, off
+  `59efdec`), so this one stays the candidate. Its notes are at the top of this file there.
+
 ### Resume after restart (2026-11-14, 05:45; the seventh implementer stopped for a daemon restart)
 
 Everything is committed on `map-state-p3`. No heavy job of this stream is queued or running.
