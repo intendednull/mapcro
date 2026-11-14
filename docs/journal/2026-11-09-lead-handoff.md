@@ -3,6 +3,29 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## State (2026-11-14 ~06:00 UTC, lead 9eb2516b)
+
+- **Prod:** `web` runs **e878c30** (infra 0deb3a3), **schema v10, floor 9**: map-state phase 2.
+  Scenes keep every hero's build, and the scene viewer's build dropdowns, All builds and hold-Tab
+  work as in Player. **#49 is closed.**
+  - Old scenes get builds with Retake while their match is open.
+  - There are no whole-board copies on the edit path any more (drag 5.09 → 0.05 ms at 3 KB per hero).
+  - The pre-v10 backup is `/var/lib/mapcro/mapcro.sqlite.pre-v10`. The rollback target is 1dcbd31 only.
+  - Checks:
+    - an adversarial review said safe, with four can-follow findings, now in the backlog;
+    - the gate (464/0), `reader-check`, the VM test;
+    - a dev database copy (91 boards) on v10 and on 1dcbd31;
+    - the lead's browser walk, locally and on prod: 12/12 builds match Player, also after a reload.
+  - After the deploy: `rows.lock` is unchanged (15 rows), `reader` is e878c30, and reader-check
+    builds per rev (433f6c9).
+- **Map-state next:** phases 3+ (Player producers for the rest, one renderer, editing) when the
+  operator wants them. The backlog has the review leftovers: duplicating a big scene after Retake
+  fails silently (F1), follow with a no-match presenter (F4), phone scene builds.
+- **Waiting on the operator:** the four mobile questions (defaults: fold the status strip on short
+  landscape, keep the clock, add a Firefox e2e run, wrap All builds on a tablet).
+- **Privacy:** a QA agent once printed two player names into its own transcript (build-column text
+  holds names). The lead scrubbed them to `[name]`. Briefs now warn about it.
+
 ## State (2026-11-14 ~03:40 UTC, lead 9eb2516b)
 
 - **Sharing the box with Adora (operator, 2026-11-14):** "just take turns, share the box, or do
