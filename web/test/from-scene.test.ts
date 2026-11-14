@@ -20,7 +20,7 @@ import { clampToMap } from "../src/map/transform";
 import { WRITTEN } from "../src/mapstate/build";
 import { type SceneRecords, fromScene, sceneRecords } from "../src/mapstate/scene";
 import { FEATURES, type MapState, fromTimeline } from "../src/mapstate/state";
-import { matchSceneOps, sourceOf } from "../src/match/save";
+import { MAX_RESPAWN, matchSceneOps, sourceOf } from "../src/match/save";
 import type { Timeline } from "../src/match/timeline";
 import { N, markers, metadata, model, replay } from "./support/synthetic-match";
 
@@ -86,8 +86,11 @@ describe("a scene's MapState", () => {
     named[1]!.slot.name = "typed";
     named[1]!.slot.hero = null;
     named[0]!.slot.name = "board";
+    // A name of spaces is no name (as board/roster.ts `slotName` has it).
+    named[2]!.slot.name = "  ";
     s.setRoster(named);
     expect([s.ms.hero("amber-1").hero(), s.ms.hero("amber-1").name()]).toEqual([null, "typed"]);
+    expect(s.ms.hero("amber-2").name()).toBe("match amber-2");
     expect(s.ms.hero("amber-0").name()).toBe("own");
     // The match not loaded: no name; a slot the match doesn't name: none either.
     s.setNames(undefined);
@@ -225,7 +228,7 @@ describe("Save as scene, read back", () => {
   for (const [name, tl] of cases) {
     it(`is Player's frame at the save's whole second, after capture's rounding (${name} tier)`, () => {
       const replayTier = tl.tier === "replay";
-      const seen = { dead: 0, alive: 0, down: 0, on: 0, lanes: 0, moved: new Set<string>() };
+      const seen = { dead: 0, alive: 0, down: 0, on: 0, lanes: 0, moved: new Set<string>(), respawns: new Set<number>() };
       for (const t of [0, 0.4, 1, 2.5, 3, 4.99, 5, 5.5, 6, 7.2, 8, 9, 10.7, 11, N]) {
         createRoot((dispose) => {
           const player = fromTimeline({ tl: () => tl, t: () => Math.floor(t), markers: () => markers });
@@ -236,6 +239,9 @@ describe("Save as scene, read back", () => {
             expect({ present: s.present(), hero: s.hero(), alive: s.alive(), souls: s.souls(), ult: s.ult() }, `${slot} at ${t}`).toEqual({ present: true, hero: p.hero(), alive: p.alive(), souls: p.souls(), ult: p.ult() });
             expect(s.pos() ?? s.last(), `${slot} at ${t}`).toEqual(where ? clampToMap(where) : null);
             expect(s.pos() === null, `${slot} at ${t}`).toBe(p.pos() === null);
+            // A dead hero's respawn time, in whole seconds rounded up (D4).
+            expect(s.respawn(), `${slot} at ${t}`).toBe(p.respawn() == null ? null : Math.ceil(p.respawn()!));
+            if (s.respawn() != null) seen.respawns.add(s.respawn()!);
             // Health is the replay tier's (the metadata tier's is below).
             if (replayTier) expect(s.health(), `${slot} at ${t}`).toBe(p.health());
             p.alive() ? seen.alive++ : seen.dead++;
@@ -265,9 +271,32 @@ describe("Save as scene, read back", () => {
       expect(seen.alive).toBeGreaterThan(100);
       expect(seen.down).toBeGreaterThan(0);
       expect(seen.moved.size).toBeGreaterThan(100);
+      // 2.5 s left at 5 is stored as 3, 1.5 at 6 as 2, 0.5 at 7 as 1.
+      expect([...seen.respawns].sort()).toEqual([1, 2, 3]);
       if (replayTier) expect([seen.on > 0, seen.lanes > 0]).toEqual([true, true]);
     });
   }
+
+  it("a respawn time is at most what the record holds; a death the match gives no time for has none", () => {
+    // The schema's bound on `PlayerRespawn` (crates/schema/src/validate.rs): over it a save is refused.
+    expect(MAX_RESPAWN).toBe(600);
+    const far = replay();
+    far.players[3]!.respawn = [[5, 5 + MAX_RESPAWN + 30.2]];
+    far.players[9]!.respawn = [];
+    createRoot((dispose) => {
+      const scene = fromScene(saved(far, 6));
+      expect([scene.hero("amber-3").alive(), scene.hero("amber-3").respawn()]).toEqual([false, MAX_RESPAWN]);
+      expect([scene.hero("sapphire-3").alive(), scene.hero("sapphire-3").respawn()]).toEqual([false, null]);
+      // Under the cap: itself, rounded up (598.2 s left).
+      far.players[3]!.respawn = [[5, 6 + MAX_RESPAWN - 1.8]];
+      expect(fromScene(saved(far, 6)).hero("amber-3").respawn()).toBe(MAX_RESPAWN - 1);
+      // A living hero's record holds none, whatever the match's rows say.
+      far.players[0]!.respawn = [[0, 50]];
+      const records = saved(far, 6).heroes();
+      expect(records.filter((r) => r.state.respawn !== undefined).map((r) => r.state.slot)).toEqual(["slot-3"]);
+      dispose();
+    });
+  });
 
   it("what a scene can't hold yet differs from Player's, and the state says so: sight, CC, movement, the colours' gap, camps, powerups, rifts, the urn, the Rejuvenator", () => {
     const tl = replay();

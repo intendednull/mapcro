@@ -33,6 +33,9 @@ export function rosterChanges(roster: Slot[], tl: Timeline): Array<{ id: RecordI
   });
 }
 
+/** The longest respawn time a hero record holds, in seconds (the schema's bound on `PlayerRespawn`). */
+export const MAX_RESPAWN = 600;
+
 export function matchSceneOps(
   roster: Slot[],
   scenes: SceneRow[],
@@ -60,7 +63,10 @@ export function matchSceneOps(
     const p = at.get(slotKey(s.slot.team, s.slot.slot));
     const where = p?.pos ?? p?.last;
     const pos = where ? clampToMap({ x: where.x, y: where.y }) : { x: 0, y: 0 };
-    const record = { PlayerState: { scene: id, slot: s.id, pos, alive: p ? p.pos !== null : true, placed: !!where, souls: p?.souls ?? null, ult_cooldown: p?.ult ?? null, visible: true } as PlayerState };
+    // A dead hero keeps its respawn time (map-state spec D4), in whole seconds rounded up, as
+    // Player's bar counts it down.
+    const respawn = p && p.pos === null && p.respawn != null ? Math.min(MAX_RESPAWN, Math.ceil(p.respawn)) : null;
+    const record = { PlayerState: { scene: id, slot: s.id, pos, alive: p ? p.pos !== null : true, placed: !!where, souls: p?.souls ?? null, ult_cooldown: p?.ult ?? null, visible: true, ...(respawn != null ? { respawn } : {}) } as PlayerState };
     heroes.push(record);
     ops.push({ Create: { id: mint(), record } });
   }
