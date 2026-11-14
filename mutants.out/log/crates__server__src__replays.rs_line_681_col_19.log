@@ -1,0 +1,377 @@
+
+*** crates/server/src/replays.rs:681:19: replace == with != in timeline_etag
+
+*** mutation diff:
+--- crates/server/src/replays.rs
++++ replace == with != in timeline_etag
+@@ -673,17 +673,17 @@
+ }
+ 
+ /// A cached timeline's validator (sessions.md §4.3, the client's timeline cache): which file it
+ /// is (`cdn`, the same for every board, or a board's own upload by its scope), its length and
+ /// when it was written. A file written again gets another, so a client that sends the one it
+ /// holds is told "the same" (304) without the file being read or sent.
+ fn timeline_etag(scope: &str, meta: &std::fs::Metadata) -> Option<String> {
+     let written = meta.modified().ok()?.duration_since(SystemTime::UNIX_EPOCH).ok()?.as_nanos();
+-    Some(if scope == "cdn" { format!("\"cdn-{}-{written}\"", meta.len()) } else { format!("\"up-{scope}-{}-{written}\"", meta.len()) })
++    Some(if scope != /* ~ changed by cargo-mutants ~ */ "cdn" { format!("\"cdn-{}-{written}\"", meta.len()) } else { format!("\"up-{scope}-{}-{written}\"", meta.len()) })
+ }
+ 
+ /// Whether the request's `If-None-Match` names `etag`: any of a list, weak or strong.
+ fn holds(headers: &HeaderMap, etag: &str) -> bool {
+     headers
+         .get_all(header::IF_NONE_MATCH)
+         .iter()
+         .filter_map(|v| v.to_str().ok())
+
+
+*** /nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo test --no-run --verbose --package=mapcro-server@0.0.0
+       Fresh unicode-ident v1.0.27
+       Fresh cfg-if v1.0.5
+       Fresh find-msvc-tools v0.1.15
+       Fresh shlex v2.0.1
+       Fresh itoa v1.0.18
+       Fresh bytes v1.12.1
+       Fresh pin-project-lite v0.2.17
+       Fresh version_check v0.9.5
+       Fresh log v0.4.35
+       Fresh pkg-config v0.3.34
+       Fresh typenum v1.20.1
+       Fresh futures-core v0.3.34
+       Fresh libc v0.2.191
+       Fresh http v1.5.0
+       Fresh once_cell v1.21.4
+       Fresh memchr v2.8.3
+       Fresh cpufeatures v0.2.17
+       Fresh futures-sink v0.3.34
+       Fresh proc-macro2 v1.0.107
+       Fresh jobserver v0.1.34
+       Fresh errno v0.3.14
+       Fresh mio v1.2.4
+       Fresh socket2 v0.6.5
+       Fresh serde_core v1.0.229
+       Fresh httparse v1.10.1
+       Fresh http-body v1.1.0
+       Fresh tracing-core v0.1.36
+       Fresh quote v1.0.47
+       Fresh cc v1.11.1
+       Fresh generic-array v0.14.7
+       Fresh signal-hook-registry v1.4.8
+       Fresh getrandom v0.3.4
+       Fresh zerocopy v0.8.63
+       Fresh zmij v1.0.23
+       Fresh slab v0.4.12
+       Fresh simd-adler32 v0.3.10
+       Fresh adler2 v2.0.1
+       Fresh futures-task v0.3.34
+       Fresh zeroize v1.9.1
+       Fresh data-encoding v2.11.1
+       Fresh smallvec v1.16.5
+       Fresh tower-service v0.3.3
+       Fresh syn v3.0.9
+       Fresh crypto-common v0.1.7
+       Fresh block-buffer v0.10.4
+       Fresh rand_core v0.9.5
+       Fresh ppv-lite86 v0.2.21
+       Fresh syn v2.0.119
+       Fresh miniz_oxide v0.9.1
+       Fresh serde_json v1.0.154
+       Fresh crc32fast v1.5.4
+       Fresh percent-encoding v2.3.2
+       Fresh rustls-pki-types v1.15.1
+       Fresh getrandom v0.2.17
+       Fresh vcpkg v0.2.15
+       Fresh tower-layer v0.3.3
+       Fresh mime v0.3.18
+       Fresh tokio-macros v2.7.2
+       Fresh thiserror-impl v2.0.21
+       Fresh digest v0.10.7
+       Fresh serde_derive v1.0.229
+       Fresh futures-macro v0.3.34
+       Fresh rand_chacha v0.9.0
+       Fresh tracing-attributes v0.1.31
+       Fresh flate2 v1.1.11
+       Fresh untrusted v0.9.0
+       Fresh httpdate v1.0.3
+       Fresh unicase v2.10.0
+       Fresh bitflags v2.13.2
+       Fresh http-body-util v0.1.5
+       Fresh tokio v1.54.1
+       Fresh thiserror v2.0.21
+       Fresh serde v1.0.229
+       Fresh zstd-sys v2.0.15+zstd.1.5.7
+       Fresh rand v0.9.5
+       Fresh futures-util v0.3.34
+       Fresh sha1 v0.10.7
+       Fresh tracing v0.1.44
+       Fresh ring v0.17.14
+       Fresh atomic-waker v1.1.2
+       Fresh foldhash v0.1.5
+       Fresh sync_wrapper v1.0.2
+       Fresh regex-syntax v0.8.11
+       Fresh zstd-safe v7.2.4
+       Fresh compression-core v0.4.33
+       Fresh tungstenite v0.29.0
+       Fresh hyper v1.12.0
+       Fresh regex-automata v0.4.18
+       Fresh hashbrown v0.15.5
+       Fresh rustls-webpki v0.103.16
+       Fresh form_urlencoded v1.2.2
+       Fresh lazy_static v1.5.1
+       Fresh base64 v0.22.1
+       Fresh linux-raw-sys v0.12.1
+       Fresh zstd v0.13.3
+       Fresh subtle v2.6.1
+       Fresh base64 v0.23.1
+       Fresh ryu v1.0.23
+       Fresh sharded-slab v0.1.7
+       Fresh matchers v0.2.0
+       Fresh hyper-util v0.1.21
+       Fresh rustix v1.1.6
+       Fresh mapcro-schema v0.0.0 (/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/crates/schema)
+       Fresh mime_guess v2.0.5
+       Fresh hashlink v0.10.0
+       Fresh tokio-tungstenite v0.29.0
+       Fresh libsqlite3-sys v0.35.0
+       Fresh tower v0.5.3
+       Fresh tokio-util v0.7.20
+       Fresh axum-core v0.5.6
+       Fresh compression-codecs v0.4.39
+       Fresh serde_urlencoded v0.7.1
+       Fresh ureq-proto v0.7.1
+       Fresh rustls v0.23.46
+       Fresh sha2 v0.10.9
+       Fresh webpki-roots v1.0.11
+       Fresh serde_path_to_error v0.1.20
+       Fresh tracing-log v0.2.0
+       Fresh thread_local v1.1.10
+       Fresh nu-ansi-term v0.50.3
+       Fresh utf8-zero v0.8.1
+       Fresh utf-8 v0.7.6
+       Fresh fallible-streaming-iterator v0.1.9
+       Fresh fallible-iterator v0.3.0
+       Fresh matchit v0.8.4
+       Fresh http-range-header v0.4.2
+       Fresh getrandom v0.4.3
+       Fresh async-compression v0.4.44
+       Fresh rusqlite v0.37.0
+       Fresh axum v0.8.9
+       Fresh ureq v3.5.1
+       Fresh tracing-subscriber v0.3.23
+       Fresh tungstenite v0.27.0
+       Fresh mapcro-engine v0.0.0 (/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/crates/engine)
+       Fresh mapcro-replay v0.0.0 (/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/crates/replay)
+       Fresh fastrand v2.5.0
+       Fresh libbz2-rs-sys v0.2.6
+       Fresh tower-http v0.6.11
+       Fresh bzip2 v0.6.1
+       Fresh tokio-tungstenite v0.27.0
+       Fresh tempfile v3.27.0
+       Dirty mapcro-server v0.0.0 (/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/crates/server): the file `crates/server/src/replays.rs` has changed (1794655116.121018869s, 12s after last build at 1794655104.553088184s)
+   Compiling mapcro-server v0.0.0 (/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/crates/server)
+     Running `rustc --crate-name mapcro_server --edition=2024 crates/server/src/main.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 '--warn=clippy::unwrap_used' --forbid=unsafe_code --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("failpoints"))' -C metadata=1721eef029b1e389 -C extra-filename=-f39e432c1b0d8a3e --out-dir /tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps -C incremental=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/incremental -L dependency=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps --extern axum=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libaxum-4e7406e941da49ea.rlib --extern base64=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libbase64-eb29adb484d8f6a7.rlib --extern bzip2=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libbzip2-c1bc9ce8b5b7b4b2.rlib --extern flate2=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libflate2-cc5a91c7a2af4c2a.rlib --extern futures_util=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libfutures_util-57c136140ba72bdf.rlib --extern getrandom=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libgetrandom-fbc3fa3f4fe43ab1.rlib --extern libc=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/liblibc-ca95d298963f410e.rlib --extern mapcro_engine=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libmapcro_engine-8bf334c9c8800cd1.rlib --extern mapcro_replay=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libmapcro_replay-ba47d732b1eeac9a.rlib --extern mapcro_schema=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libmapcro_schema-9aa533fea8e54a6c.rlib --extern rusqlite=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/librusqlite-18de647295821f92.rlib --extern rustix=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/librustix-aa44a51b58ba0847.rlib --extern serde=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libserde-e0e743118f94870c.rlib --extern serde_json=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libserde_json-8764a2b9b4807da7.rlib --extern sha2=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libsha2-381948c786df0976.rlib --extern tempfile=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libtempfile-da0753e6895a9964.rlib --extern thiserror=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libthiserror-2022cf67b28d349c.rlib --extern tokio=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libtokio-4f07f42973cb11ac.rlib --extern tokio_tungstenite=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libtokio_tungstenite-c7e98e823566c85f.rlib --extern tower=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libtower-1b333643ca16ce93.rlib --extern tower_http=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libtower_http-214b914ae41687a8.rlib --extern tracing=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libtracing-d8aaac9326853d2e.rlib --extern tracing_subscriber=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libtracing_subscriber-fbec6d2305a1e4be.rlib --extern ureq=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libureq-e3d944a28eccacc6.rlib --extern zstd=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libzstd-582b807c1b79f79a.rlib -L native=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/build/libsqlite3-sys-67c9548a96067fd5/out -L native=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/build/zstd-sys-90ae8e5282a3920b/out -L native=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/build/ring-635e434440009487/out`
+     Running `rustc --crate-name mapcro_server --edition=2024 crates/server/src/main.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type bin --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 '--warn=clippy::unwrap_used' --forbid=unsafe_code --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("failpoints"))' -C metadata=deb1a29a43c6310e -C extra-filename=-3c446d24fb95c9ef --out-dir /tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps -C incremental=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/incremental -L dependency=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps --extern axum=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libaxum-4e7406e941da49ea.rlib --extern base64=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libbase64-eb29adb484d8f6a7.rlib --extern flate2=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libflate2-cc5a91c7a2af4c2a.rlib --extern futures_util=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libfutures_util-57c136140ba72bdf.rlib --extern getrandom=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libgetrandom-fbc3fa3f4fe43ab1.rlib --extern libc=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/liblibc-ca95d298963f410e.rlib --extern mapcro_engine=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libmapcro_engine-8bf334c9c8800cd1.rlib --extern mapcro_replay=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libmapcro_replay-ba47d732b1eeac9a.rlib --extern mapcro_schema=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libmapcro_schema-9aa533fea8e54a6c.rlib --extern rusqlite=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/librusqlite-18de647295821f92.rlib --extern rustix=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/librustix-aa44a51b58ba0847.rlib --extern serde=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libserde-e0e743118f94870c.rlib --extern serde_json=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libserde_json-8764a2b9b4807da7.rlib --extern sha2=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libsha2-381948c786df0976.rlib --extern thiserror=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libthiserror-2022cf67b28d349c.rlib --extern tokio=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libtokio-4f07f42973cb11ac.rlib --extern tower=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libtower-1b333643ca16ce93.rlib --extern tower_http=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libtower_http-214b914ae41687a8.rlib --extern tracing=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libtracing-d8aaac9326853d2e.rlib --extern tracing_subscriber=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libtracing_subscriber-fbec6d2305a1e4be.rlib --extern ureq=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libureq-e3d944a28eccacc6.rlib --extern zstd=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/libzstd-582b807c1b79f79a.rlib -L native=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/build/libsqlite3-sys-67c9548a96067fd5/out -L native=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/build/zstd-sys-90ae8e5282a3920b/out -L native=/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/build/ring-635e434440009487/out`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.67s
+  Executable `/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/mapcro_server-f39e432c1b0d8a3e`
+  Executable `/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/admission_gate-52c4b805f8080506`
+  Executable `/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/board_file-4183ec66e22fa3b8`
+  Executable `/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/feedback-5a2211529ee39c19`
+  Executable `/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/matches-260cf849d96dfe30`
+  Executable `/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/observability-f34c63d784fcef62`
+  Executable `/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/replays-c7a95cc2e66965b1`
+  Executable `/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/sessions-ee1432cfef34216f`
+  Executable `/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/system-c07af7fcc5b7137e`
+
+*** result: Success
+
+*** /nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo test --verbose --package=mapcro-server@0.0.0 --test replays
+       Fresh unicode-ident v1.0.27
+       Fresh cfg-if v1.0.5
+       Fresh find-msvc-tools v0.1.15
+       Fresh shlex v2.0.1
+       Fresh itoa v1.0.18
+       Fresh bytes v1.12.1
+       Fresh pin-project-lite v0.2.17
+       Fresh version_check v0.9.5
+       Fresh pkg-config v0.3.34
+       Fresh log v0.4.35
+       Fresh typenum v1.20.1
+       Fresh futures-core v0.3.34
+       Fresh libc v0.2.191
+       Fresh http v1.5.0
+       Fresh once_cell v1.21.4
+       Fresh memchr v2.8.3
+       Fresh cpufeatures v0.2.17
+       Fresh futures-sink v0.3.34
+       Fresh proc-macro2 v1.0.107
+       Fresh jobserver v0.1.34
+       Fresh errno v0.3.14
+       Fresh mio v1.2.4
+       Fresh socket2 v0.6.5
+       Fresh serde_core v1.0.229
+       Fresh httparse v1.10.1
+       Fresh http-body v1.1.0
+       Fresh tracing-core v0.1.36
+       Fresh quote v1.0.47
+       Fresh cc v1.11.1
+       Fresh generic-array v0.14.7
+       Fresh signal-hook-registry v1.4.8
+       Fresh getrandom v0.3.4
+       Fresh zerocopy v0.8.63
+       Fresh zmij v1.0.23
+       Fresh slab v0.4.12
+       Fresh simd-adler32 v0.3.10
+       Fresh adler2 v2.0.1
+       Fresh futures-task v0.3.34
+       Fresh crc32fast v1.5.4
+       Fresh data-encoding v2.11.1
+       Fresh zeroize v1.9.1
+       Fresh tower-service v0.3.3
+       Fresh syn v3.0.9
+       Fresh block-buffer v0.10.4
+       Fresh crypto-common v0.1.7
+       Fresh rand_core v0.9.5
+       Fresh ppv-lite86 v0.2.21
+       Fresh syn v2.0.119
+       Fresh serde_json v1.0.154
+       Fresh miniz_oxide v0.9.1
+       Fresh smallvec v1.16.5
+       Fresh percent-encoding v2.3.2
+       Fresh rustls-pki-types v1.15.1
+       Fresh getrandom v0.2.17
+       Fresh untrusted v0.9.0
+       Fresh mime v0.3.18
+       Fresh bitflags v2.13.2
+       Fresh tokio-macros v2.7.2
+       Fresh thiserror-impl v2.0.21
+       Fresh digest v0.10.7
+       Fresh serde_derive v1.0.229
+       Fresh rand_chacha v0.9.0
+       Fresh futures-macro v0.3.34
+       Fresh tracing-attributes v0.1.31
+       Fresh flate2 v1.1.11
+       Fresh unicase v2.10.0
+       Fresh httpdate v1.0.3
+       Fresh vcpkg v0.2.15
+       Fresh tower-layer v0.3.3
+       Fresh http-body-util v0.1.5
+       Fresh sync_wrapper v1.0.2
+       Fresh regex-syntax v0.8.11
+       Fresh tokio v1.54.1
+       Fresh thiserror v2.0.21
+       Fresh serde v1.0.229
+       Fresh rand v0.9.5
+       Fresh zstd-sys v2.0.15+zstd.1.5.7
+       Fresh futures-util v0.3.34
+       Fresh sha1 v0.10.7
+       Fresh tracing v0.1.44
+       Fresh ring v0.17.14
+       Fresh atomic-waker v1.1.2
+       Fresh compression-core v0.4.33
+       Fresh foldhash v0.1.5
+       Fresh zstd-safe v7.2.4
+       Fresh hyper v1.12.0
+       Fresh hashbrown v0.15.5
+       Fresh tungstenite v0.29.0
+       Fresh rustls-webpki v0.103.16
+       Fresh regex-automata v0.4.18
+       Fresh form_urlencoded v1.2.2
+       Fresh lazy_static v1.5.1
+       Fresh linux-raw-sys v0.12.1
+       Fresh base64 v0.22.1
+       Fresh ryu v1.0.23
+       Fresh zstd v0.13.3
+       Fresh subtle v2.6.1
+       Fresh base64 v0.23.1
+       Fresh sharded-slab v0.1.7
+       Fresh matchers v0.2.0
+       Fresh mapcro-schema v0.0.0 (/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/crates/schema)
+       Fresh tokio-tungstenite v0.29.0
+       Fresh hashlink v0.10.0
+       Fresh mime_guess v2.0.5
+       Fresh hyper-util v0.1.21
+       Fresh libsqlite3-sys v0.35.0
+       Fresh serde_urlencoded v0.7.1
+       Fresh tokio-util v0.7.20
+       Fresh axum-core v0.5.6
+       Fresh tower v0.5.3
+       Fresh compression-codecs v0.4.39
+       Fresh rustix v1.1.6
+       Fresh ureq-proto v0.7.1
+       Fresh rustls v0.23.46
+       Fresh sha2 v0.10.9
+       Fresh webpki-roots v1.0.11
+       Fresh serde_path_to_error v0.1.20
+       Fresh tracing-log v0.2.0
+       Fresh thread_local v1.1.10
+       Fresh nu-ansi-term v0.50.3
+       Fresh utf8-zero v0.8.1
+       Fresh fallible-streaming-iterator v0.1.9
+       Fresh http-range-header v0.4.2
+       Fresh fallible-iterator v0.3.0
+       Fresh matchit v0.8.4
+       Fresh utf-8 v0.7.6
+       Fresh getrandom v0.4.3
+       Fresh async-compression v0.4.44
+       Fresh rusqlite v0.37.0
+       Fresh axum v0.8.9
+       Fresh tungstenite v0.27.0
+       Fresh mapcro-engine v0.0.0 (/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/crates/engine)
+       Fresh tracing-subscriber v0.3.23
+       Fresh ureq v3.5.1
+       Fresh mapcro-replay v0.0.0 (/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/crates/replay)
+       Fresh libbz2-rs-sys v0.2.6
+       Fresh fastrand v2.5.0
+       Fresh tower-http v0.6.11
+       Fresh tempfile v3.27.0
+       Fresh tokio-tungstenite v0.27.0
+       Fresh bzip2 v0.6.1
+       Fresh mapcro-server v0.0.0 (/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/crates/server)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running `/tmp/nix-shell.lsfE9R/cargo-mutants-sessions-p3-Q9EczW.tmp/target/debug/deps/replays-c7a95cc2e66965b1`
+
+running 45 tests
+test a_client_timeline_of_a_match_refused_for_its_mode_is_refused ... ok
+test a_dropped_upload_frees_its_slot_and_leaves_nothing ... ok
+test a_client_timeline_for_another_match_or_not_a_timeline_is_refused ... ok
+test a_brawl_match_cached_before_the_refusal_is_refused_not_served ... ok
+test a_client_timeline_from_another_parser_version_is_refused_with_an_update_hint ... ok
+test a_cached_timeline_has_a_validator_and_its_holder_is_told_it_is_the_same ... FAILED
+test a_client_parsed_timeline_is_checked_and_cached_for_its_board_alone ... ok
+test a_fall_through_to_the_summary_says_why ... ok
+test a_board_keeps_the_matches_it_opened ... ok
+test a_planted_link_in_the_inbox_is_never_followed ... ok
+test a_non_standard_mode_is_refused_and_never_attached ... ok
+test a_client_timeline_is_capped_as_sent_and_decoded ... ok
+test a_tab_revalidates_its_timeline_through_its_grant ... ok
+test client_timelines_have_an_hourly_cap_per_client ... ok
+test a_stale_fetched_timeline_past_the_three_weeks_is_kept ... ok
+test fetches_waiting_are_capped_per_client_and_in_all ... ok
+test a_fetch_that_cant_work_is_remembered_and_old_matches_arent_tried ... ok
+test reservations_cancel_dedupe_and_have_a_last_resort ... ok
+test a_fetch_waits_in_line_for_room_beside_uploads ... ok
+test fetches_have_no_hourly_cap_of_ours ... ok
+test the_api_key_is_sent_only_when_configured ... ok
+test a_stale_upload_is_served_and_offered_for_upload_not_fetched ... ok
+test the_free_400_for_a_match_with_metadata_is_no_replay ... ok
+test a_stale_fetched_timeline_is_fetched_again_once_and_replaced ... ok
+test fetches_take_salts_then_the_cdn_under_caps ... ok
+test a_stale_fetched_timeline_whose_refetch_fails_stays ... ok
+test the_status_says_when_a_fetch_cant_come_expired_or_skipped_for_caps ... ok
+test turns_given_hold_their_room ... ok
+test a_429_backs_off_steam_lookups_only_and_says_why ... ok
+test opening_a_match_fetches_its_replay_once_for_every_board ... ok
+test uploads_need_an_editor_link_a_demo_and_room ... ok
+test a_clone_keeps_the_matches_and_the_uploaded_replay ... ok
+test a_jobs_stats_are_collected_with_its_result_not_as_stray_output ... ok
+test the_lookup_lists_every_timeline_of_a_match_by_source_board_and_link ... ok
+test a_fresh_match_is_read_for_free_and_tried_again_at_the_salts_pass ... ok
+test a_turn_unused_lapses_however_often_it_is_asked_about_and_counts_for_the_hour ... ok
+test results_for_unqueued_jobs_are_dropped ... ok
+test stale_jobs_and_partial_uploads_are_cleaned_up ... ok
+test the_parse_order_takes_turns_across_clients ... ok
+test uploads_are_rate_limited_and_the_queue_is_capped ... ok
+test a_job_runs_to_a_cached_timeline_that_only_its_board_sees ... ok
+test two_parse_at_once_and_the_rest_count_them_ahead ... ok
+test uploads_wait_for_room_in_line_and_a_lapsed_reservation_frees_its_place ... ok
+test a_parse_under_way_is_not_swept_for_its_wait ... ok

@@ -61,17 +61,33 @@ phases 4 and 5 are not started.** Commits on `sessions-p3` after ddac12b: 9a59cb
 
 ### Left to do for phase 3
 
-1. **Read three results that were still running** (the box's queue): `/tmp/sp3-batch4.log`
-   (a second full e2e, this one with the paint-first change in; then cargo-mutants on the
-   route's diff, `-p mapcro-server -- --test replays`; clippy; the wasm tests) and
-   `/tmp/sp3-batch5.log` (the switch measured with the paint-first change, three runs; the five
-   browser-row mutants again). If the logs are gone, run them again through `tools/heavy.sh`.
-2. **Decide on the paint-first numbers.** Expected: `drawn` near 60 ms without the pool on this
-   box (it was 120 before the change, 59 before phase 3). If it is still far over 80, either the
-   change needs work or the pool goes back in (revert d7ab947).
-3. **Browser walkthrough** of switching tabs (counts and DOM only): not done. The debug server
+**The worktree's `target/` directory disappeared at about 03:10 on 2026-11-14, during the second
+full e2e run** (not by this implementer; perhaps a disk clean-up). That run, the first with the
+paint-first change in, passed 249 tests, then failed about 70 once the server binary was gone,
+and 159 did not run: it says nothing about the change. Build the server again before any e2e
+(`cargo build -q -p mapcro-server`, through `tools/heavy.sh`).
+
+1. **The paint-first change (44f2fd5, `Board.tsx` `documentDrawn`) is unmeasured and has no
+   full e2e run.** `/tmp/sp3-batch5.sh` does both (server build, client build, the switch
+   measured three times with `MAPCRO_SHOT_REPLAY` and `MAPCRO_PERF_LABEL`, then
+   `just e2e --workers 2`); it was queued to `/tmp/sp3-batch5.log` when this was written. If the
+   log isn't there, run it again through `tools/heavy.sh nix develop -c bash /tmp/sp3-batch5.sh`,
+   or the commands by hand.
+2. **Decide on its numbers.** Expected: `drawn` near 60 ms without the pool on this box (it was
+   120 before the change, 59 before phase 3). If it is still far over 80, either the change
+   needs work (or goes: revert its three lines in `Board.tsx` to
+   `createEffect(() => state.metaId() !== undefined && ok())`, which the first full run covered)
+   or the pool goes back in (revert d7ab947).
+3. **cargo-mutants on the route's diff** was running to `/tmp/sp3-batch4.log` (`cargo mutants
+   -j 1 --in-diff <(git diff a0774c5 -- crates/server/src) -p mapcro-server -- --test replays`):
+   read its table, or run it again.
+4. **One browser-row mutant is unrun** (`host.ts`: `api.timeline(id, held.map(...))` to
+   `api.timeline(id)`; the "timeline cache" rows must fail). The other four were killed before
+   the paint-first change; `/tmp/sp3-e2e-mutants.py <worktree>` runs all five (it edits source
+   in place: alone, through `tools/heavy.sh`, and `git status` after).
+5. **Browser walkthrough** of switching tabs (counts and DOM only): not done. The debug server
    serving `web/dist` is enough; `just dev` isn't needed.
-4. Put the paint-first row and the cargo-mutants table into the spec's §10 phase 3.
+6. Put the paint-first row and the cargo-mutants table into the spec's §10 phase 3.
 
 ## State when the first implementer stopped (2026-11-13, context budget)
 
