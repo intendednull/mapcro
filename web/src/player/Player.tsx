@@ -605,7 +605,12 @@ export function MapControls(p: {
 }) {
   const h = p.host;
   let layers: HTMLDetailsElement | undefined;
-  onMount(() => dismissDisclosure(() => layers ?? null));
+  onMount(() => {
+    // In a phone sheet the list is the sheet's body: open for as long as the sheet is. (CSS alone
+    // showed a closed one's content in Chromium; Firefox kept it hidden and the sheet cut short.)
+    if (layers?.closest(".p-sheet")) layers.open = true;
+    else dismissDisclosure(() => layers ?? null);
+  });
   // A change to what the map draws is your own: the view-state store stops following, and you
   // keep what you were seeing with that one change (spec §8). Player names are this browser's
   // alone, never followed.
