@@ -3,6 +3,18 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Working rule: let agents finish (operator, 2026-11-14)
+
+- **No context cutoff for implementers.** The operator: "I don't think we need to be cutting off
+  sessions early ... let them complete their tasks before we handoff to a new agent ... we'll have
+  to re-read a lot of the tokens anyway ... we control how big that context gets by just giving
+  them reasonable tasks."
+- **Scope each brief to one reviewable unit with a clear stop** (one release, or one phase up to
+  its release boundary), and let the agent run to it. Hand off only when the task is done, or the
+  agent truly can't continue.
+- **Why:** on 2026-11-14 several agents stopped at ~250k mid-verification. Each fresh agent re-read
+  the same context, and work was left half-checked.
+
 ## State (2026-11-14 ~06:00 UTC, lead 9eb2516b)
 
 - **Prod:** `web` runs **e878c30** (infra 0deb3a3), **schema v10, floor 9**: map-state phase 2.
