@@ -3,10 +3,12 @@
 Branch `scene-state`, worktree `mapcro.worktrees/scene-state`. Spec: `docs/specs/map-state.md`
 (third revision). Review: `docs/specs/map-state-review.md`. Newest state at the top.
 
-## State: phases 0 and 1 done; stopped for the lead's gate and deploy
+## State: phase 1 and its review fixes done; stopped for the lead's gate and deploy
 
 Phase 1 is the reader only. Nothing writes `more` or a `SceneState` yet, and no client code
-changed (the generated types and limits did). Phase 2 must not start until the lead says so.
+changed (the generated types and limits did). The independent review of phase 1 (8d6ce9b..5e29a65)
+passed it and found two things to fix before the deploy; both are fixed (step 1 below). **Phase 2
+(step 2) must not start until the lead says so.**
 
 | Commit | What |
 |---|---|
@@ -14,14 +16,89 @@ changed (the generated types and limits did). Phase 2 must not start until the l
 | `d010875` | Phase 0: characterisation tests and the 64-scene edit cost |
 | `8d6ce9b` | Phase 1: `more`, `SceneState`, `FieldValue::More`, the registry, limits, store v8, file v2 read |
 | `8235002` | Tests that kill the mutation survivors |
+| `cdcbd15` | Review F1 (admission) and F2 (`just rows-lock`), with their tests and docs |
+
+## Step 1: the review's F1 and F2 (2026-11-13, second implementer)
+
+**F1: a client could write `more` and `SceneState`, and that board broke on a v7 rollback.**
+`Status::Ahead` had no runtime meaning: `Authority::submit` and a file import took a `More` or a
+`SceneState`, which main's v7 schema can't parse (the log) or drops silently (a record's `more`).
+
+- **Fix: `Admit` (`crates/schema/src/map_state.rs`), asked at admission only.**
+  - It refuses a transaction or a record that carries an `Ahead` row: a `FieldValue::More`
+    naming it (in a `Set`, either side of a `SetIf`, a clear included) or a created record with
+    it in its `more`. `Reject::WrongField`.
+  - It refuses a `SceneState` while `SCENE_STATE` (a constant beside `ROWS`) is `Ahead`.
+    `Reject::Immutable`. Both are existing variants: no new status text, and a stored rejection
+    still parses on v7.
+  - **Asked by** `Authority::submit` (before validity, with the size and quota checks) and
+    `import_records` (so `boardfile::read`, at file version 1 and 2). **Never by** log replay
+    (`Authority::replay`) or base load (`validate_doc`): a stored board always loads.
+  - `Admit::DEPLOYED` is each row's own status and the server's default. `Admit::READS` admits
+    everything read; the simulation uses it (`Config.admit`) so rows are still synced and undone
+    there, and tests pass their own gate to flip a row.
+- **Phase 2 flips it by:** a row's `status` to `Live` (in `ROWS`, after `just rows-lock`), and
+  `SCENE_STATE` to `Live`. The lock test refuses `SCENE_STATE` being written before a lock lists
+  a row of the scene's. Two tests name themselves the reader's and fail then on purpose:
+  `a_file_with_map_state_makes_no_board_while_its_rows_are_ahead` (board_file.rs) and
+  `a_client_cannot_write_a_map_state_row_or_kind_that_is_still_ahead` (system.rs); replace them
+  with the writer's.
+- **Tests added:** refusal of each carrier, by transaction and by file (schema, engine, the
+  server's `boardfile`, the HTTP import, a WebSocket client with a restart); a base and a log
+  already holding them still load (`Authority::replay`, `Store::load_board`); a row or the kind
+  made `Live` is admitted; the simulation as built (`Admit::DEPLOYED`, 12 seeds) logs no JSON
+  with a `More`, `SceneState` or `more` key, and the same seeds log them when admitted.
+- **Not done, logged:** a `Retired` row is not refused (TD-79); no test runs main's real v7
+  types against a v8-written database (TD-80). The replica does not ask `Admit` for its own
+  optimistic edit: a refused one is rolled back by the rejection, as any other.
+
+**F2: `just rows-lock` blessed anything.** Lock mode wrote the lock from `ROWS` and then checked
+`ROWS` against what it had just written.
+
+- **Fix:** lock mode (`relock`) reads the lock already there, runs `broken(old, ROWS)`, and
+  writes only if nothing is broken; a missing lock is refused too. The recipe refuses a tree
+  with uncommitted changes (tracked files) and a run in which the lock test didn't run.
+- **Test:** `locking_refuses_a_build_that_breaks_the_deployed_rows_and_leaves_the_lock_alone`
+  (reordered, narrowed, shortened, removed, a never-`Ahead` row; the file untouched each time;
+  same, widened and new `Ahead` rows lock).
+
+**Step 1 numbers** (commit `cdcbd15`):
+
+- **Tests:** `just clippy` clean. `just test`: 505 passed, 0 failed (485 before; 20 new), and the
+  simulation's 1,000 seeds pass with the same 7,934 undo field checks (it runs `Admit::READS`,
+  so its behaviour did not move). `just web-test`: 66 files, 646 tests, `tsc` clean, and `just ts` left the generated types as they were. E2e (`board`, `scenes`, `board-file`, `scene-clone`, `match` on the rebuilt client): 15 passed.
+- **Mutation testing, the tool** (cargo-mutants, `--in-diff` on the step 1 diff):
+  - `mapcro-schema`: 12 mutants, 12 caught.
+  - `mapcro-engine`: 4 mutants, 2 caught, 2 unviable.
+  - `mapcro-server`: 4 mutants, 4 caught (run against the unit tests and `board_file`, with
+    TD-72's flaky test skipped: it failed the first baseline).
+- **Mutation testing, by hand:** the tool makes no mutant for a dropped `else if`, a constant or
+  test-module code, so 15 were written and run one at a time; all 15 are caught. They are: the
+  admission branch dropped from `submit`; `SetIf` checking only its value, only its expectation;
+  `Create` not checked; `DEPLOYED` admitting every row, admitting `SceneState`; the authority
+  defaulting to `READS`; `import_records` not asking; `boardfile::read` ignoring its gate; the
+  import route passing `READS`; `relock` writing without checking, checking without writing,
+  writing the real rows; `SCENE_STATE` `Live` with no lock; the simulation's restart forgetting
+  its gate. The last was missed at first: the simulation now builds its authority in one place
+  (`serve`), at the start and after each restart.
+- **`just rows-lock`, run in a throwaway clone** (never in this worktree: the real lock is the
+  lead's to write after the deploy): a clean tree locks 11 rows; a second run before the lock is
+  committed is refused (uncommitted changes); a relock with nothing changed passes; with
+  `health` narrowed to 0–99 and committed it fails ("health: kind changed or bounds narrowed")
+  and leaves the lock as it was.
+- **A masked check, until the rows are `Live`:** `bad_files_are_refused_with_a_code_and_make_no_board`
+  sends `health: 101` and `has_builds` on a hero and expects `invalid`. Admission now refuses
+  those first, with the same code, so that HTTP test no longer shows the bounds check; the
+  schema's own tests still do.
 
 ## What the lead does at the phase 1 deploy
 
 1. Gate and deploy as usual. The store migrates v7 → v8 with no SQL; a v7 server still opens the
-   database, so a rollback is safe.
-2. **After the deploy is live, run `just rows-lock` and commit `crates/schema/rows.lock`.** Until
-   it lists a row, the schema's test refuses that row being written (`Live`). Phase 2 can't flip
-   its rows without this.
+   database, and with F1 nothing a v7 server can't parse is stored, so a rollback is safe.
+2. **After the deploy is live, on the deployed commit with a clean tree, run `just rows-lock`
+   and commit `crates/schema/rows.lock`** (it should list 11 rows). Until it lists a row, the
+   schema's test refuses that row being written (`Live`). Phase 2 can't flip its rows without
+   this. If the recipe refuses, don't edit the file by hand: see `docs/deploy.md`.
 
 ## Decided while building (the operator should know)
 
@@ -106,3 +183,22 @@ Save writes it. A row that turns out unused is retired, never removed.
    `SceneState`; Save stops rewriting the roster (D2).
 4. The writer release: rows `Live` (after `just rows-lock`), store v9 with floor 8, file version 2.
 5. Retake for scenes whose match is open; panel follow on scenes (spec §7).
+
+From the review of phase 1, folded into phase 2 (step 2):
+
+- **F3. `compat_floor` can't express the writer's step.** `crates/server/src/store.rs`
+  (`compat_floor`, `additive_step`) only keeps the floor or raises it to `from + 1`, so a
+  non-additive 8 → 9 gives floor 9 and refuses the v8 reader as a rollback target. Item 4 needs
+  a step that raises the floor to `from` (8), with a test.
+- **F4. An undo can be refused for its size.** A clears `build_order`, B fills `items` and
+  `abilities`, A undoes: the `SetIf`'s expectation holds, `check_more_fits` fails, and the whole
+  undo is `Err(TxTooLarge)`, against the rule at `validate.rs` `apply_op` (an undo isn't refused
+  for what it would have written). Return `Skipped` for a `SetIf` on `More` that doesn't fit, or
+  justify the reject in the spec. The simulation needs a behaviour that fills lists to their
+  caps: its lists are at most 24 entries today, so it never meets this.
+- **Measure before the writer ships:** edit cost in the browser on a 64-scene board with full
+  snapshots (the open point under Numbers), and decide whether the replica's whole-document
+  clone must change.
+- **Flip admission with the rows:** each written row's `status` and `SCENE_STATE` to `Live`,
+  after `just rows-lock` has run on the deployed reader; replace the two reader-only tests
+  (step 1 above); decide TD-79 if a row is retired.
