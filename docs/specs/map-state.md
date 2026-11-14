@@ -357,6 +357,33 @@ selects; the build opens from the portrait's build control in both. The phone la
     once a second. Deaths and kills counted from events stay the frame's.
   - **Save as scene captures from the same producer:** `secondPart` at the frame's whole
     second (`match/save.ts`), the unfiltered facts Player computes (D9).
+  - **A scene's state (phase 4, step 1, `web/src/mapstate/scene.ts`):** `fromScene(records)`
+    gives the same interface from a scene's records (`sceneRecords(board, sceneId)` takes them
+    out of the board's state). Nothing draws from it yet.
+
+    | Field | In a scene |
+    |---|---|
+    | `hero`, `name` | The scene's own (`more.hero`, `more.name`, D2); then the roster's hero, the name typed on the board, and the source match's name while that match is loaded (D1) |
+    | `alive`, `pos`, `last`, `respawn` | The record's. Dead: `pos` is null, `last` is where it stands, `respawn` its time (D4). Not placed: nowhere |
+    | `souls`, `ult` | The record's |
+    | `health` | The build's `health` row when the snapshot holds it (by the watermark). Dead: 0. Alive with none stored (dead at the frame, revived since): 100 (§5) |
+    | `inSight` | The record's `visible` (one flag, not each team's sight: `has("sight")` is false, the legacy meaning) |
+    | `marker(key).status` | The stored status; it wins over the detail (§5). Always absent in Player |
+    | `lane(key).split` | `Wave.t`. In Player: the middle of the colours' gap |
+    | The rest (`lastSeen`, CC, movement, `edges`, camps, powerups, rifts, the urn, the Rejuvenator, deaths) | Not captured: empty, and `has` says no, until phase 5's rows (one line each in `CAPTURED`, which doesn't compile without a line per feature) |
+
+    The property (§9) holds for what is stored today: Save's capture of Player's frame reads
+    back as that frame at the save's whole second (`web/test/from-scene.test.ts`: heroes,
+    each marker's shown status, lanes; both tiers). **One difference, open:** on the metadata
+    tier Save stores the path's coarse health with the build, which Player's state doesn't hold
+    (it isn't drawn on the map there). Whoever draws a token's health from a scene's state
+    decides: capture stops writing it, or the reader asks the source's tier.
+  - **The viewer's Vision (`web/src/mapstate/shown.ts`, D3):** `heroDraw(hero, viewer, sight,
+    stored)` is Player's Vision logic for both producers: seen; a ghost where last seen, or
+    not drawn (Player); faded where it stands, with the last seen place when that is shown (a
+    scene). A scene with no sight data keeps the legacy meaning (D5). **Open:** with Show last
+    seen location on, a scene draws the faded hero and may draw its ghost too; the rule gives
+    both and the renderer decides.
 - **The bound is on consumers:** a component reruns only when a value it reads changes. Each
   entity's fields are memos keyed by slot or marker with an equality check.
 - **A scene is static:** its `MapState` changes only when a record does.
