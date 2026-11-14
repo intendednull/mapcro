@@ -341,11 +341,11 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-head .spacer { flex: 1; }
 .pl-head .pl-id { width: 130px; height: 28px; }
 .pl-match { font: 600 12px var(--ui); color: var(--faint); }
-/* Speed: − and + around the current speed, which is as wide for "0.5×" as for "8×". */
-.pl-speed { display: inline-flex; align-items: center; gap: 2px; flex: none; }
-.pl-speed .btn { min-width: 26px; padding: 0 6px; justify-content: center; }
+/* Speed: − and + around the current speed, which is as wide for "0.5×" as for "8×". Kept
+   narrow (78 px against the old list's 64): what it takes, the scrubber beside it loses. */
+.pl-speed { display: inline-flex; align-items: center; flex: none; }
+.pl-speed .btn { min-width: 24px; padding: 0 4px; justify-content: center; }
 .phone .pl-speed .btn { min-width: 44px; }   /* a touch target, as every phone button is */
-.phone .pl-speed { gap: 0; }
 /* The list stands in for the buttons on a phone held upright: its transport has Play and the
    speed in one column, so the buttons (two touch targets and the readout, 122 px) would take
    58 px from the scrubber, and under 390 px they don't fit beside the clock and the tabs. */
@@ -355,7 +355,7 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
   .phone-player .pl-speed-list { display: block; grid-area: speed; }
   .phone-player .pl-bar:has(.p-rail) .pl-speed-list { display: none; }
 }
-.pl-speed-now { min-width: 34px; text-align: center; font: 600 12px var(--ui); font-variant-numeric: tabular-nums; color: var(--text); }
+.pl-speed-now { min-width: 30px; text-align: center; font: 600 12px var(--ui); font-variant-numeric: tabular-nums; color: var(--text); }
 .pl-vision { width: auto; height: 28px; padding: 0 4px; }
 /* The scene marks and event ticks sit in the scrubber's own top padding, inside its row, so they
    never reach the row above (QA 2026-11-08: marks drew over the tier chip). */
