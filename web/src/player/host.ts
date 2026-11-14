@@ -398,6 +398,9 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
       jumped();
       setPinned(undefined);
       setPlayback({ t: Math.min(next.duration_s, 600), playing: false, speed: playback().speed, at: performance.now() });
+      // On a scene already (picked while this was on its way): the match waits behind it at its
+      // place, not where the empty Player was left (0:00).
+      if (mode() === "sandbox") setHeld({ t: Math.min(next.duration_s, 600), playing: false });
       placed?.();
     };
     const held = timelines.candidates(board, id);
@@ -416,6 +419,10 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
     const r = await asked;
     if (gone || matchId() !== id) return;
     if ("error" in r) {
+      // No answer of the server's (a 502 from the proxy mid-deploy, a 429): as none at all.
+      // What's drawn stays, and what this page holds. With nothing drawn there was nothing
+      // held to draw either, and the problem shows.
+      if (r.unknown && tl()) return;
       // Refused: nothing this page held of it is shown, or kept for this board.
       timelines.drop(board, id);
       if (early && tl() === early.tl) setTl(undefined);
@@ -825,9 +832,19 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
     const out: PlayerRemembered = { mode: untrack(mode), ...own };
     const id = untrack(matchId);
     if (id === undefined) return out;
-    // A match that isn't drawn (it didn't load): the tab is still on it, with no playback to
-    // keep. Left on a scene, it comes back on the scene, the match behind it.
-    if (!untrack(tl)) return { ...out, match: id };
+    // A match that isn't drawn (it didn't load, or the server gave no answer): the tab is still
+    // on it. Left on a scene, it comes back on the scene, the match behind it; and if it is the
+    // match the tab was left on before, at the playback it had then.
+    if (!untrack(tl)) {
+      const was = remembered?.match === id ? remembered : undefined;
+      return {
+        ...out,
+        match: id,
+        ...(was?.t !== undefined ? { t: was.t } : {}),
+        ...(was?.playing !== undefined ? { playing: was.playing } : {}),
+        ...(was?.speed !== undefined ? { speed: was.speed } : {}),
+      };
+    }
     const h = untrack(held);
     const pb = untrack(playback);
     return { ...out, match: id, t: h && out.mode === "sandbox" ? h.t : untrack(t), playing: h && out.mode === "sandbox" ? h.playing : pb.playing, speed: pb.speed };

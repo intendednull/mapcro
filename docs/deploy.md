@@ -193,6 +193,17 @@ the Caddy in infra's nixpkgs (2.11.3):
   too), and they reconnect. Later mapcro-only deploys don't change the Caddyfile and don't reload
   Caddy.
 
+### Test proxies left behind
+
+The two tests that go through a real Caddy start one of their own (`caddy run --adapter
+caddyfile --config <temp dir>/Caddyfile`, `admin off`, on free loopback ports) and kill it when
+they end: `crates/server/tests/replays.rs` and `web/e2e/caddy-timeline.spec.ts`. A run killed
+hard (a gate cancelled, a restart mid-test) can leave one running. It holds one or two loopback
+ports and nothing else. List them with `pgrep -af 'caddy run --adapter caddyfile'`, check that
+the command line names a Caddyfile under a temp directory, and kill those by pid. Their temp
+directories (`/tmp/mapcro-e2e-caddy-*`, and the cargo test's own) can go with them. Each writes
+what Caddy said to `caddy.log` beside its Caddyfile, and shows it if Caddy never answers.
+
 ## First deploy (operator)
 
 From the infra repo, on the branch that adds mapcro:

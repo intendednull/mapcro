@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot } from "solid-js";
-import { Api } from "../src/player/api";
+import { Api, notAnAnswer } from "../src/player/api";
 import { createPlayerHost } from "../src/player/host";
 import { timelines } from "../src/player/timelineCache";
 import type { Timeline } from "../src/match/timeline";
@@ -100,8 +100,19 @@ describe("Api.timeline: the validator, and a 304", () => {
     expect(await api().timeline(ID, [CDN])).toEqual({ same: CDN });
     expect(asked.length).toBe(2);
     // An ETag alone names nothing (an older server, a proxy that drops our header): no validator.
+    // The page says so, once (this is the file's first replay without one), however many come.
+    const said = vi.spyOn(console, "warn").mockImplementation(() => {});
+    answers.push(sent(undefined, timeline({ tier: "summary" }))); // the summary has none by design: nothing to say
+    await api().timeline(ID);
+    expect(said).not.toHaveBeenCalled();
     answers.push(new Response(JSON.stringify(timeline()), { status: 200, headers: { etag: CDN } }));
     expect(await api().timeline(ID)).toEqual({ tl: timeline(), chars: JSON.stringify(timeline()).length });
+    answers.push(sent(undefined), sent(undefined));
+    await api().timeline(ID);
+    await new Api(OTHER, "token").timeline(ID);
+    expect(said).toHaveBeenCalledTimes(1);
+    expect(String(said.mock.calls[0]![0])).toContain("X-Mapcro-Timeline");
+    said.mockRestore();
   });
 
   it("asks again, plainly, when a 304 names nothing this page holds", async () => {
@@ -116,20 +127,26 @@ describe("Api.timeline: the validator, and a 304", () => {
     }
     // A 304 to a plain ask is no answer.
     answers.push(same(CDN));
-    expect(await api().timeline(ID)).toEqual({ error: "failed" });
+    expect(await api().timeline(ID)).toEqual({ error: "failed", unknown: true });
     answers.push(same(CDN_2), same(CDN_2));
-    expect(await api().timeline(ID, [CDN])).toEqual({ error: "failed" });
+    expect(await api().timeline(ID, [CDN])).toEqual({ error: "failed", unknown: true });
   });
 
-  it("gives the summary no validator, and a refusal its code", async () => {
+  it("gives the summary no validator, a refusal its code, and tells no answer from a refusal", async () => {
     answers.push(sent(undefined, timeline({ tier: "summary" })));
     expect(await api().timeline(ID, [])).toEqual({ tl: timeline({ tier: "summary" }), chars: JSON.stringify(timeline({ tier: "summary" })).length });
-    answers.push(refused(422, "brawl"));
-    expect(await api().timeline(ID)).toEqual({ error: "brawl" });
-    answers.push(new Response("<html>Bad Gateway</html>", { status: 502 }));
-    expect(await api().timeline(ID)).toEqual({ error: "failed" });
-    answers.push(new Response("not json", { status: 200, headers: { "x-mapcro-timeline": CDN } }));
-    expect(await api().timeline(ID)).toEqual({ error: "failed" });
+    // The server's own refusals: a code, and no more.
+    for (const [status, code] of [[422, "brawl"], [403, "forbidden"], [404, "not_found"], [401, "unauthorized"], [400, "bad_id"]] as const) {
+      answers.push(refused(status, code));
+      expect(await api().timeline(ID), String(status)).toEqual({ error: code });
+    }
+    // Not the server's answer: the proxy's page while it restarts, a 429, a timeout, a body that isn't its JSON.
+    for (const none of [new Response("<html>Bad Gateway</html>", { status: 502 }), refused(503, "busy"), refused(504, "late"), refused(500, "failed"), refused(429, "slow_down"), new Response("", { status: 408 }), new Response("not json", { status: 200, headers: { "x-mapcro-timeline": CDN } })]) {
+      answers.push(none);
+      expect(await api().timeline(ID)).toMatchObject({ unknown: true });
+    }
+    for (const status of [400, 401, 403, 404, 410, 422, 499]) expect(notAnAnswer(status), String(status)).toBe(false);
+    for (const status of [408, 425, 429, 500, 502, 503, 504]) expect(notAnAnswer(status), String(status)).toBe(true);
   });
 
   it("says the matches aren't known when the server doesn't say", async () => {
@@ -229,6 +246,36 @@ describe("the host's loadTimeline, against the page's cache", () => {
     expect(b.h.problem()).toEqual({ code: "forbidden", step: "load" });
     expect(cached()).toEqual([]);
     b.end();
+  });
+
+  it("keeps what it drew, and what the page holds, when the answer is the proxy's and not the server's: a 502, a 429", async () => {
+    answers.push(sent(UP));
+    const a = host();
+    await a.h.open(ID);
+    const first = a.h.tl();
+    a.end();
+    for (const none of [new Response("<html>Bad Gateway</html>", { status: 502 }), refused(429, "slow_down"), refused(503, "busy")]) {
+      const d = deferred();
+      answers.push(d.promise);
+      const b = host();
+      const opening = b.h.open(ID);
+      await tick();
+      expect(b.h.tl()).toBe(first);
+      d.answer(none);
+      await opening;
+      // As no answer: drawn still, held still, and nothing said to be wrong with the match.
+      expect(b.h.tl()).toBe(first);
+      expect(b.h.problem()).toBeUndefined();
+      expect(cached()).toEqual([UP]);
+      b.end();
+    }
+    // With nothing to draw, the problem shows; a later open still asks with what is held.
+    timelines.clear();
+    answers.push(new Response("<html>Bad Gateway</html>", { status: 502 }));
+    const c = host();
+    await c.h.open(ID);
+    expect([c.h.tl(), c.h.problem()]).toEqual([undefined, { code: "failed", step: "load" }]);
+    c.end();
   });
 
   it("keeps what it drew when there is no answer at all", async () => {
@@ -359,6 +406,22 @@ describe("a tab as its board opens (sessions.md §4.2)", () => {
     b.end();
   });
 
+  it("holds a cold match at its default place behind a scene picked before it drew, not at 0:00", async () => {
+    const d = deferred();
+    answers.push(d.promise);
+    const a = host();
+    const opening = a.h.init();
+    await tick();
+    expect([a.h.mode(), a.h.matchId(), a.h.tl()]).toEqual(["player", ID, undefined]);
+    a.h.setMode("sandbox"); // a scene picked: the empty Player is left at 0:00
+    d.answer(sent(CDN));
+    await opening;
+    expect(a.h.mode()).toBe("sandbox");
+    a.h.setMode("player"); // Back to replay
+    expect(a.h.playback().t).toBe(600);
+    a.end();
+  });
+
   it("goes to Player when the user asks for it while a tab left on a scene opens", async () => {
     const d = deferred();
     answers.push(d.promise);
@@ -394,9 +457,17 @@ describe("a tab as its board opens (sessions.md §4.2)", () => {
     await a.h.init();
     expect([a.h.matchId(), a.h.tl(), a.h.problem()?.code]).toEqual([ID, undefined, "failed"]);
     a.h.setMode("sandbox");
-    expect(a.h.remember()).toEqual({ mode: "sandbox", match: ID });
-    const was = a.h.remember();
+    // The match it was left on, so the playback it had then stays (a 500 mid-deploy loses nothing).
+    expect(a.h.remember()).toEqual({ ...left, mode: "sandbox" });
     a.end();
+    // Another match than the one remembered, not drawn either: the match alone.
+    answers.push(refused(500, "failed"));
+    const other = host(BOARD, { ...left, match: "7" });
+    await other.h.init();
+    other.h.setMode("sandbox");
+    expect(other.h.remember()).toEqual({ mode: "sandbox", match: ID });
+    const was = other.h.remember();
+    other.end();
     // Back: on the scene, the match (loading this time) behind it.
     answers.push(sent(CDN));
     const b = host(BOARD, was);

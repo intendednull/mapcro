@@ -8,6 +8,7 @@ import { ShareIcon } from "../ui/ShareIcon";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { Board, type InSession } from "../board/Board";
+import { resetVisit } from "../board/reset";
 import { ShareDialog } from "../board/ShareDialog";
 import { addGrant, sessionUrl, withdrawGrant } from "../core/api";
 import { knownBoards, rememberBoard } from "../core/device";
@@ -31,6 +32,8 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   const s = createSessionState(p.session, p.token, history);
   onMount(() => void s.start());
   onCleanup(() => s.stop());
+  // The session is left: its boards' visits are over (a tab switch alone keeps them).
+  onCleanup(() => resetVisit());
   const loaded = () => s.settled();
   const [active, setActive] = createSignal<RecordId | undefined>(p.tab);
   const [adding, setAdding] = createSignal(takeAddOnOpen(p.session));

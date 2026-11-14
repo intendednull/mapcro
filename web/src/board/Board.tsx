@@ -18,7 +18,7 @@ import { JoinCard } from "./JoinCard";
 import { SceneTree } from "./SceneTree";
 import { TopBar } from "./TopBar";
 import { createBoardState } from "./state";
-import { resetBoardModules } from "./reset";
+import { resetBoardModules, resetVisit } from "./reset";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type FollowTarget, type ViewRect, clampView, fromViewport, locate, presenters, sideOf, startFollow, toViewport, zoomAt } from "./follow";
@@ -211,7 +211,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   // The link refused for good (revoked, withdrawn): nothing this page holds of the board's own
   // replays is drawn for it again. (The fetched replay is every board's, by match.)
   createEffect(() => {
-    if (state.connection().kind === "closed") timelines.dropBoard(p.board);
+    if (state.connection().kind !== "closed") return;
+    timelines.dropBoard(p.board);
+    resetVisit(p.board);
   });
   const inPlayer = () => player.mode() === "player";
   /** The match open in Player, for the feedback form (spec §11a); none in sandbox. */
@@ -251,17 +253,17 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const [view, setView] = createSignal<ViewRect>(remembered?.view ? clampView(remembered.view) : FIT);
   if (inSession) {
     // A remembered scene that's gone takes its viewport and side with it: the board opens on
-    // its first scene, fitted, as it would cold (§4.2). Checked against the board as this device
-    // holds it, and again, for the last time, when it has caught up with the server: its stored
-    // copy may still hold a scene deleted since. Offline, what this device holds stands. A
-    // scene the user picked meanwhile is left alone, with its viewport.
+    // its first scene, fitted, as it would cold (§4.2). Checked once, when the board has caught
+    // up with the server, never against its stored copy: that may still hold a scene deleted
+    // since, and may not yet hold one made just before the page was left (it is saved lazily).
+    // Offline, what this device holds stands. A scene the user picked meanwhile is left alone,
+    // with its viewport.
     let checked = remembered?.scene === undefined;
     createEffect(() => {
       const all = state.scenes();
-      if (checked || !all.length) return;
-      if (state.current()) checked = true;
-      if (!sceneGone(remembered!, (id) => all.some((x) => x.id === id), untrack(sceneId))) return;
+      if (checked || !all.length || !state.current()) return;
       checked = true;
+      if (!sceneGone(remembered!, (id) => all.some((x) => x.id === id), untrack(sceneId))) return;
       batch(() => {
         setSceneId(undefined);
         setView(FIT);
@@ -562,6 +564,11 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   onCleanup(() => state.stop());
   // Unmounted (another board, or back to the landing): module state goes back to its defaults.
   onCleanup(resetBoardModules);
+  // A board alone that is left is left for good: its next opening is a new visit. A session's
+  // tab is only switched away from; the session ends its boards' visits when it is left.
+  onCleanup(() => {
+    if (!inSession) resetVisit(p.board);
+  });
 
   createEffect(() => {
     // In Player, presence is on the live layer, so cursors, lasers, pings and ink in progress

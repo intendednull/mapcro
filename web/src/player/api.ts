@@ -100,6 +100,16 @@ export function jobLabel(j: JobState | undefined, progress: number | undefined):
 const TIMELINE_HEADER = "x-mapcro-timeline";
 const HELD_HEADER = "x-mapcro-held";
 
+/**
+ * Whether a status that isn't OK is no answer at all, where a refusal is one: the proxy's 502
+ * to 504 while the server restarts (every deploy), a 429, a timeout. What the page holds and
+ * shows stays, as with no answer; a refusal (401, 403, 404, 422) takes it down.
+ */
+export const notAnAnswer = (status: number) => status >= 500 || status === 429 || status === 408 || status === 425;
+
+/** Said once a page: a replay came without its validator, so some proxy on the way strips it. */
+let warned = false;
+
 export class Api {
   constructor(
     readonly board: string,
@@ -140,14 +150,14 @@ export class Api {
    * doesn't hang on that (docs/deploy.md). `If-None-Match` is sent too, so the request is a
    * conditional one and its 304 an answer to it.
    */
-  async timeline(id: string, held: string[] = []): Promise<{ tl: Timeline; etag?: string; chars: number } | { same: string } | { error: string }> {
+  async timeline(id: string, held: string[] = []): Promise<{ tl: Timeline; etag?: string; chars: number } | { same: string } | { error: string; unknown?: true }> {
     const list = held.join(", ");
     const r = await fetch(`/api/boards/${this.board}/matches/${id}`, { headers: held.length ? { ...this.auth, [HELD_HEADER]: list, "if-none-match": list } : this.auth });
     const etag = r.headers.get(TIMELINE_HEADER) ?? undefined;
     if (r.status === 304) {
       if (etag !== undefined && held.includes(etag)) return { same: etag };
       // "The same" as something this page doesn't hold: asked again, plainly.
-      return held.length ? this.timeline(id) : { error: "failed" };
+      return held.length ? this.timeline(id) : { error: "failed", unknown: true };
     }
     const text = await r.text();
     let body: (Timeline & { error?: string }) | undefined;
@@ -156,7 +166,12 @@ export class Api {
     } catch {
       body = undefined;
     }
-    if (!r.ok || !body) return { error: body?.error ?? "failed" };
+    // No answer of the server's (`unknown`): a status that is none, or a body that isn't its JSON.
+    if (!r.ok || !body) return notAnAnswer(r.status) || r.ok ? { error: body?.error ?? "failed", unknown: true } : { error: body?.error ?? "failed" };
+    if (etag === undefined && body.tier === "replay" && !warned) {
+      warned = true;
+      console.warn("mapcro: a replay's timeline came without X-Mapcro-Timeline (a proxy that drops it?); it is fetched whole on every open");
+    }
     return etag !== undefined ? { tl: body, etag, chars: text.length } : { tl: body, chars: text.length };
   }
 

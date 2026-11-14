@@ -1755,9 +1755,9 @@ fn a_cached_timeline_has_a_validator_and_its_holder_is_told_it_is_the_same() {
     assert_eq!((code, &body), (200, &fetched));
     let cdn = tag.expect("a cached replay has a validator");
     assert!(cdn.starts_with("\"cdn-") && cdn.ends_with('"'), "the fetched replay says so: {cdn}");
-    // Opaque past that: 16 hex digits, not the file's length or when it was written.
+    // Past that, 16 hex digits and no more: not `<length>-<written>`, as it first was.
     let opaque = |tag: &str, prefix: &str| tag.len() == prefix.len() + 17 && tag[prefix.len()..tag.len() - 1].chars().all(|c| c.is_ascii_hexdigit());
-    assert!(opaque(&cdn, "\"cdn-") && !cdn.contains(&fetched.len().to_string()), "{cdn}");
+    assert!(opaque(&cdn, "\"cdn-"), "{cdn}");
     assert_eq!(timeline_get(&server, &board, id, &bearer(&owner), None).1.as_deref(), Some(cdn.as_str()));
     assert_eq!(timeline_get(&server, &other, id, &bearer(&other_owner), None).1.as_deref(), Some(cdn.as_str()));
 
@@ -1796,8 +1796,8 @@ fn a_cached_timeline_has_a_validator_and_its_holder_is_told_it_is_the_same() {
     let (code, tag, body) = timeline_get(&server, &board, id, &bearer(&view), Some(&cdn));
     assert_eq!((code, &body), (200, &mine), "the upload is richer than the fetched one held");
     let up_tag = tag.expect("validator");
-    assert!(opaque(&up_tag, "\"up-"), "the upload says it is one, and no more: {up_tag}");
-    assert!(!up_tag.contains(&scope(&board)) && !up_tag.contains(&mine.len().to_string()), "{up_tag}");
+    assert!(opaque(&up_tag, "\"up-"), "the upload says it is one, and no more (not its board's scope, 16 hex digits too): {up_tag}");
+    assert_ne!(up_tag["\"up-".len()..up_tag.len() - 1], scope(&board), "{up_tag}");
     assert_eq!(timeline_get(&server, &board, id, &bearer(&view), Some(&up_tag)).0, 304);
     // The other board still has the fetched one only: the upload's validator means nothing there.
     let (code, tag, body) = timeline_get(&server, &other, id, &bearer(&other_owner), Some(&up_tag));
@@ -1855,8 +1855,13 @@ fn the_validator_passes_a_compressing_proxy_both_ways() {
     std::fs::write(dir.join(format!("{id}-cdn.json")), serde_json::to_vec(&long).expect("json")).expect("cache");
 
     let home = tempfile::tempdir().expect("caddy home");
-    let (deployed, proxy_compresses) = (support::dead_port(), support::dead_port());
+    // Two ports of Caddy's own: both listeners held until both are chosen, so they differ.
+    let (deployed, proxy_compresses) = {
+        let (a, b) = (TcpListener::bind("127.0.0.1:0").expect("port"), TcpListener::bind("127.0.0.1:0").expect("port"));
+        (a.local_addr().expect("addr").port(), b.local_addr().expect("addr").port())
+    };
     let config = home.path().join("Caddyfile");
+    let said = home.path().join("caddy.log");
     let site = |port: u16, up: &str| format!("http://127.0.0.1:{port} {{\n\tencode zstd gzip\n\treverse_proxy 127.0.0.1:{} {up}\n}}\n", server.port);
     std::fs::write(&config, format!("{{\n\tadmin off\n\tauto_https off\n}}\n{}{}", site(deployed, ""), site(proxy_compresses, "{\n\t\theader_up -Accept-Encoding\n\t}"))).expect("Caddyfile");
     struct Proxy(Child);
@@ -1874,7 +1879,7 @@ fn the_validator_passes_a_compressing_proxy_both_ways() {
             .env("XDG_DATA_HOME", home.path().join("data"))
             .env("XDG_CONFIG_HOME", home.path().join("config"))
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(std::fs::File::create(&said).expect("caddy.log"))
             .spawn()
             .expect("caddy on the PATH (run inside `nix develop`)"),
     );
@@ -1893,7 +1898,7 @@ fn the_validator_passes_a_compressing_proxy_both_ways() {
         let first = loop {
             match ask(None) {
                 Ok(r) if r.status().as_u16() == 200 => break r,
-                _ if started.elapsed() > Duration::from_secs(20) => panic!("caddy never answered"),
+                _ if started.elapsed() > Duration::from_secs(20) => panic!("caddy never answered on {port}; it said:\n{}", std::fs::read_to_string(&said).unwrap_or_default()),
                 _ => std::thread::sleep(Duration::from_millis(50)),
             }
         };

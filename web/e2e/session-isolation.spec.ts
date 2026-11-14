@@ -576,6 +576,43 @@ test("what is done while a tab's match is still on its way is the tab's: a scene
   await expect(me.getByTestId("match-clock")).toHaveText("0:50 / 2:00");
 });
 
+test("last visit's ink is cleared on the visit's first stay in Player: not lost to a quick switch away, and again after the session was left", async ({ browser }) => {
+  const { me, a, b, go } = await twoTabs(browser);
+  await load(me, "51051", 0);
+  await me.keyboard.press("e");
+  await gesture(me, [[0.3, 0.3], [0.4, 0.35]]);
+  await expect(strokes(me)).toHaveCount(1);
+  await saved(me);
+  await go(1);
+  // A new visit (a reload), on B: A's ink is last visit's now.
+  await reloadOn(me, boardOf(b));
+  // A opened and left at once, before the settle (1.5 s) has run: nothing is decided yet.
+  await tabs(me).nth(0).click();
+  await expect(me.getByTestId("player")).toHaveAttribute("data-state", "match");
+  await tabs(me).nth(1).click();
+  await expect.poll(() => mounted(me)).toBe(boardOf(b));
+  await saved(me);
+  // Back on A, and staying: alone in Player, the old ink goes.
+  await go(0);
+  await expect(strokes(me)).toHaveCount(0, { timeout: 10_000 });
+  // Ink of this visit stays through a switch (the row above). The session left in the page and
+  // opened again is a new visit: that ink is last visit's then, and goes.
+  await me.keyboard.press("e");
+  await gesture(me, [[0.5, 0.5], [0.6, 0.55]]);
+  await expect(strokes(me)).toHaveCount(1);
+  await saved(me);
+  await me.evaluate(() => {
+    history.pushState(null, "", "/");
+    history.pushState(null, "", "/");
+    history.back();
+  });
+  await expect(me.getByTestId("open-match")).toBeVisible();
+  await me.evaluate(() => history.back());
+  await expect.poll(() => mounted(me)).toBe(boardOf(a));
+  await expect(me.getByTestId("player")).toHaveAttribute("data-state", "match");
+  await expect(strokes(me)).toHaveCount(0, { timeout: 10_000 });
+});
+
 // ---- what a tab remembers (§4.2) ----
 
 test("a tab comes back as it was left: scene, viewport and side, the sidebar tab; a scene gone meanwhile opens cold", async ({ browser }) => {
@@ -632,6 +669,31 @@ test("a tab comes back as it was left: scene, viewport and side, the sidebar tab
 });
 
 /** IndexedDB connections open in the page: the session's and the mounted board's. */
+test("a scene made just before the tab was left, not yet in this device's stored copy, is still the tab's scene", async ({ browser }) => {
+  const { me, a, go } = await twoTabs(browser);
+  await go(1); // A's stored copy on this device: one scene
+  const peer = await joinNew(browser, a, "Peer");
+  await peer.getByTestId("scene-add").click();
+  await expect(sceneCards(peer)).toHaveCount(2);
+  await saved(peer);
+  const made = await sceneCards(peer).nth(1).getAttribute("data-scene");
+  expect(made).toMatch(/^[0-9a-f]{32}$/);
+  // As if this tab had flipped to the peer's new scene and the page was left before the board's
+  // lazy save: the tab remembers the scene, and the stored copy doesn't hold it yet.
+  await me.evaluate(
+    ({ board, scene }) => {
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const k = sessionStorage.key(i)!;
+        if (k.startsWith("mapcro.tabview.") && k.endsWith(`.${board}`)) sessionStorage.setItem(k, JSON.stringify({ ...JSON.parse(sessionStorage.getItem(k)!), scene }));
+      }
+    },
+    { board: boardOf(a), scene: made },
+  );
+  await go(0);
+  await expect(sceneCards(me)).toHaveCount(2);
+  await expect(ord(me)).toHaveText("Scene 2 of 2");
+});
+
 const countIdb = (p: Page) =>
   p.addInitScript(() => {
     const w = window as unknown as { __idb: number };

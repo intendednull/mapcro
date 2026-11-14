@@ -4,6 +4,48 @@ Branch `sessions-p3` (worktree `mapcro.worktrees/sessions-p3`), off main a0774c5
 `docs/specs/sessions.md`; what phase 3 built is written into its §4.1, §4.2, §4.3, §5 and §10.
 Newest state at the top.
 
+## After the second review (2026-11-14, of f5c0a1e..01912db): its fixes
+
+No blocker. What each item got; the runs are at the end of this section.
+
+1. **Stale ink was never cleared if the tab was left within 1.5 s of first entering Player**
+   (mine, from S1: the match was marked entered when the effect ran, and the clear's timer is
+   cancelled on cleanup). A match is entered once the settle has run and the choice was made,
+   alone or not; the effect also waits for `canEdit`, so a copy whose role came late decides
+   then. Row: "last visit's ink is cleared on the visit's first stay in Player" (a reload on
+   B, A opened and left at once, then A again: the old ink goes).
+2. **`entered` and `madeBy` follow `nav.ts`'s rule** (the lead's call): a tab switch keeps
+   them; a board alone left in the page, a session left in the page and a dead link end the
+   visit (`board/reset.ts` `resetVisit`, from Board's and SessionView's cleanup and from the
+   dead-link effect). Rows: `board-unmount.spec.ts` "a board left in the page and opened again
+   is a new visit" (Back and Forward), and the second half of the row above (the session left
+   and opened again). The dead-link reset has no browser row. With this, `madeBy` being the
+   visit's is no longer unobservable: the board-alone row fails without `forgetMade`.
+3. **The validator tests' `!contains(length)` checks are gone** (a 16-hex hash contains a
+   short number about 0.7% of the time). The shape check stays; the upload's tag is checked
+   not to be its board's scope.
+4. **The scene-gone check is back to catch-up only**, never the stored copy (it is saved
+   lazily: a scene a peer made, flipped to, and a reload before the save, reset the tab for
+   good). The scene picked meanwhile is still spared. So the offline half of N3 is undone on
+   purpose. Row: "a scene made just before the tab was left, not yet in this device's stored
+   copy" (the remembered scene is put into sessionStorage by the test, which stands in for
+   the reload before the lazy save; a peer makes the scene while this device is on B).
+5. **A 502, 503, 504, 500, 429 or 408 on the timeline request is no answer, not a refusal**
+   (`api.ts` `notAnAnswer`; so is a body that isn't JSON, and a 304 to a plain ask). What is
+   drawn and held stays, no problem shows over it, and a match that isn't drawn is remembered
+   with the playback the tab had for it. `timeline-load.test.ts` has the 502, 429 and 503
+   over a drawn timeline, the 502 with nothing drawn, and each status's class.
+- **6:** the validator's comment and the spec say what the hash is: unsalted, so not a secret.
+  **9:** `console.warn`, once a page, when a `tier: "replay"` 200 comes without
+  `X-Mapcro-Timeline` (`warned`: `page` in the ledger). **11:** the Caddy tests hold their
+  ports until all are chosen (the e2e holds Caddy's while the server takes its own), write
+  Caddy's stderr to `caddy.log` and show it if Caddy never answers; `docs/deploy.md` "Test
+  proxies left behind". **12:** a match that draws behind a scene picked meanwhile is held at
+  its default place, not 0:00. **7, 8, 10:** no action, as the review said.
+- Simplified on the way: with no answer and nothing drawn, nothing is held for the board
+  either, so the refusal's drop needs no guard (a mutant on the guard survived, which showed
+  it was dead).
+
 ## After the adversarial review (2026-11-14): its fixes
 
 The review (a fresh Fable) said ship after fixes; the security review was clean with three

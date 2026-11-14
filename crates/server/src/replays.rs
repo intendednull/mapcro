@@ -685,8 +685,10 @@ const HELD_HEADER: &str = "x-mapcro-held";
 /// A cached timeline's validator (sessions.md §4.3, the client's timeline cache): which file it
 /// is, `cdn` (the same for every board) or a board's own upload, and a hash of its scope, its
 /// length and when it was written. A file written again gets another, so a client that sends the
-/// one it holds is told "the same" (304) without the file being sent. Opaque past the prefix: a
-/// view link reads it, and learns neither the file's size nor when it was written.
+/// one it holds is told "the same" (304) without the file being sent. Past the prefix it no
+/// longer spells out the file's size and when it was written, which a view link would read.
+/// It isn't a secret: the hash is unsalted, so someone who knows or guesses the size can search
+/// the write time offline. Nothing here needs more than that.
 fn timeline_etag(scope: &str, meta: &std::fs::Metadata) -> Option<String> {
     let written = meta.modified().ok()?.duration_since(SystemTime::UNIX_EPOCH).ok()?.as_nanos();
     let file = &links::hash(&format!("{scope}-{}-{written}", meta.len()))[..16];

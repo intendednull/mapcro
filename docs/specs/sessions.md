@@ -409,10 +409,17 @@ memory survives into another board's mount unless it is either:
 - **A tab switch is not a new visit** (the lead, 2026-11-14; review S1). Entering a match's
   Player alone clears last visit's ink from its live layer, 1.5 s in, sparing what this user
   drew (`player/layer.ts`). Which matches were entered and which records the user made are
-  kept by the page per board (`entered`, `madeBy`: `keyed-by-board` in the ledger), not by the
+  kept by the visit per board (`entered`, `madeBy`: `keyed-by-board` in the ledger), not by the
   mount: ink drawn over a match is still there when its tab is opened again. Since phase 2's
-  keyed remount a switch back had counted as a new visit and deleted it, with no undo step. A
-  reload is still a new visit.
+  keyed remount a switch back had counted as a new visit and deleted it, with no undo step.
+  - A match counts as entered once the settle has run and the choice was made, alone or not.
+    A tab left before that (a quick switch), or opened before this copy could edit, has
+    decided nothing: the clear runs at its next stay.
+  - **The visit ends as `core/nav.ts` says a left board's state does** (the lead,
+    2026-11-14): a reload; a board alone left in the page (Back to the landing and Forward, a
+    board carried into a session); a session left in the page; a link refused for good.
+    `board/reset.ts` `resetVisit` forgets both for the board, or for every board when a
+    session is left. The next opening is a new visit: ink from before is last visit's.
 - **Device settings:** Player names stay device-wide, as on a board today (localStorage, every
   board). Vision, Show last seen and the map layers are **a tab's own once set there**
   (decided, §12 item 7; built in phase 3 with §4.2): a tab opens with each one as it was last
@@ -470,13 +477,25 @@ cleanup and on `pagehide`, so a reload keeps it).
   server's answer comes: a seek, Play or a speed from then on is remembered. A mode chosen
   before that (a scene picked, or Back to the replay) stands: the match that opens behind a
   picked scene doesn't take the tab to Player, and the tab remembers the scene. This holds for
-  a board opened alone too.
+  a board opened alone too. A match that draws behind a scene picked meanwhile waits at its
+  default place (10:00, or its end), not at the 0:00 of the empty Player.
 - A tab left on a scene whose match was attached and didn't load (a load error) remembers
   the match with no playback, and comes back on the scene with the match behind it (review
   N2). A match no longer attached, or one refused for its mode (never attached), still opens
   as cold; so does a board that had no match when the tab was left and has one now: in Player.
-- The scene-gone check runs against the board as this device holds it and again, last, when
-  it has caught up, and leaves alone a scene the user picked meanwhile (review N3).
+- The scene-gone check runs once, when the board has caught up with the server, and leaves
+  alone a scene the user picked meanwhile (review N3). Never against the stored copy: that is
+  saved lazily, so it may not hold yet a scene made just before the page was left (a peer's
+  scene, flipped to, then a reload), and a tab reset on its say would not come back at
+  catch-up (second review, 4). Offline, what this device holds stands, a gone scene's viewport
+  with it.
+- **No answer is not a refusal** (second review, 5). The timeline request tells the server's
+  refusals (400, 401, 403, 404, 422: what the page held is taken down and the board's own
+  entry dropped) from what isn't the server's answer: the proxy's 502 to 504 while it
+  restarts at a deploy, a 429, a 408, a body that isn't its JSON. Those are as no answer at
+  all: what's drawn stays, what the page holds stays, and the tab keeps its playback (a match
+  it was left on that isn't drawn is remembered with the playback it had). With nothing to
+  draw, the load's problem shows.
 - **`adopt` keeps only what differed, on purpose.** When a follower's own change stops the
   follow, the presenter's values that differed from the follower's become the follower's, are
   written to this browser and are the tab's own. One that was the same was already this
@@ -499,9 +518,10 @@ cleanup and on `pagehide`, so a reload keeps it).
 `player/host.ts` `loadTimeline`). The server decides, every time:
 - `GET /api/boards/{board}/matches/{id}` answers a cached replay with a validator, in
   `X-Mapcro-Timeline` (and as its `ETag`): `"cdn-<hash>"` for the fetched replay, `"up-<hash>"`
-  for the board's upload, the hash of the file's scope, length and time written. It is opaque
-  past the prefix: a view link reads it, and learns neither the file's size nor when it was
-  written (security review L1). Asked with it among the validators held, in `X-Mapcro-Held`,
+  for the board's upload, 16 hex digits of the SHA-256 of the file's scope, length and time
+  written. Past the prefix it no longer spells out the file's size and write time, which a
+  view link would read (security review L1). It isn't a secret: the hash is unsalted, so the
+  write time can be searched offline by someone who knows the size. Asked with it among the validators held, in `X-Mapcro-Held`,
   the answer is 304 with no body, after the same access check and with the same effects (the
   open is counted, a stale fetched timeline is refreshed) as a 200, and only for a file that
   can still be read (its first byte: one that can't falls through to the next tier, as for a
@@ -528,7 +548,9 @@ cleanup and on `pagehide`, so a reload keeps it).
 - Opening a match used to fetch its timeline twice (once to open, once when its job said
   `done`): the second is a 304 now.
 - An older server sends no `X-Mapcro-Timeline`: nothing is kept, and it works as before. An
-  older client never sends `X-Mapcro-Held`. Neither order of deploy breaks the other.
+  older client never sends `X-Mapcro-Held`. Neither order of deploy breaks the other. A replay
+  that arrives without the header is said once a page in the console (`console.warn`), so a
+  proxy that strips it is visible: the cost is every timeline fetched whole on every open.
 - A timeline can't be nested deeply enough to break the freeze (security review L3): every
   cached file passed `timeline::validate`, a typed `serde_json` parse, which stops at 128 levels.
 

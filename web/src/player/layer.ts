@@ -12,11 +12,18 @@ import type { PlayerHost } from "./host";
 const SETTLE_MS = 1500;
 
 /**
- * The matches whose Player this page has entered, by board. The page's, not a mount's: a tab
- * switched away from and back is the same visit (the lead, 2026-11-14; sessions.md §4.1), so
- * coming back doesn't clear ink as a new visit would. A reload starts over.
+ * The matches whose Player this visit has entered, and decided about the ink of, by board. The
+ * visit's, not a mount's: a tab switched away from and back is the same visit (the lead,
+ * 2026-11-14; sessions.md §4.1), so coming back doesn't clear ink as a new visit would. A
+ * reload starts over, and so does leaving the board in the page (`forgetEntered`).
  */
 const entered = new Map<string, Set<number>>();
+
+/** The board was left for good (not a tab switch), or every board was: its next opening is a new visit. */
+export function forgetEntered(board?: string) {
+  if (board === undefined) entered.clear();
+  else entered.delete(board);
+}
 
 /**
  * Whether this copy may make the live layer now. Live, only once it is current: a fresh copy
@@ -43,16 +50,18 @@ export function liveLayer(state: BoardState, h: PlayerHost, board: string, inPla
     if (ops.length) state.ensure(ops);
   });
   const alone = () => !state.peerList().some((x) => x.peer !== state.myPeer() && x.state?.playback?.player);
-  // Only the first entry into a match's Player in this page clears stale ink: coming back to
-  // it (Back, Play from here, a tab switched back to) keeps what's there.
-  const here = entered.get(board) ?? new Set<number>();
-  entered.set(board, here);
+  // Only the first entry into a match's Player in this visit clears stale ink: coming back to
+  // it (Back, Play from here, a tab switched back to) keeps what's there. The entry counts once
+  // the settle has run and the choice was made, alone or not: left before that (a quick switch
+  // of tab), or before this copy could edit, it is still to come.
+  const here = () => entered.get(board) ?? entered.set(board, new Set()).get(board)!;
   createEffect(
-    on([inPlayer, match], ([inside, m]) => {
-      if (!inside || m === undefined || here.has(m)) return;
-      here.add(m);
+    on([inPlayer, match, () => state.canEdit()], ([inside, m, edits]) => {
+      if (!inside || m === undefined || !edits || here().has(m)) return;
       const timer = setTimeout(() => {
-        if (!inPlayer() || match() !== m || !state.canEdit() || !alone()) return;
+        if (!inPlayer() || match() !== m || !state.canEdit()) return;
+        here().add(m);
+        if (!alone()) return;
         // Alone in Player: last session's ink goes, and so do other matches' layers (each would
         // hold a scene slot for good). Not what this tab drew meanwhile: drawing straight away,
         // the first stroke can land before the settle ends (e2e flake, 2026-11-08).

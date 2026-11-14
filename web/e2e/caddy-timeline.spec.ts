@@ -7,9 +7,10 @@
 // alone (docs/deploy.md; crates/server/tests/replays.rs runs both). The validator travels in
 // headers of our own so the cache doesn't hang on that; this drives the real client through
 // the rewriting proxy and counts what is sent. Needs `caddy` on the PATH (the dev shell has it).
+// A run killed hard can leave its Caddy behind: docs/deploy.md, "Test proxies left behind".
 
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,13 +36,11 @@ const timeline = () => ({
   troopers: { every_s: 1, amber: range(() => ""), sapphire: range(() => "") },
 });
 
-const freePort = () =>
-  new Promise<number>((ok) => {
+/** A free port, held until `release`: the server picks its own meanwhile, so it can't take this one. */
+const holdPort = () =>
+  new Promise<{ port: number; release: () => Promise<void> }>((ok) => {
     const s = createServer();
-    s.listen(0, "127.0.0.1", () => {
-      const port = (s.address() as { port: number }).port;
-      s.close(() => ok(port));
-    });
+    s.listen(0, "127.0.0.1", () => ok({ port: (s.address() as { port: number }).port, release: () => new Promise<void>((done) => s.close(() => done())) }));
   });
 
 let server: Server;
@@ -50,8 +49,8 @@ let proxy = "";
 
 test.beforeAll(async () => {
   if (spawnSync("caddy", ["version"]).error) throw new Error("caddy isn't on the PATH: run inside `nix develop`");
-  const port = await freePort();
-  proxy = `http://127.0.0.1:${port}`;
+  const held = await holdPort();
+  proxy = `http://127.0.0.1:${held.port}`;
   // The pages come from the proxy, so that is the origin the server expects.
   server = new Server(undefined, { MATCH_API_BASE: "http://127.0.0.1:9", REPLAY_DIR: mkdtempSync(join(tmpdir(), "mapcro-e2e-caddy-q-")), REPLAY_PER_CLIENT_PER_HOUR: "200", PUBLIC_ORIGIN: proxy });
   mkdirSync(join(server.dataDir, "replays"), { recursive: true });
@@ -60,8 +59,17 @@ test.beforeAll(async () => {
   const home = mkdtempSync(join(tmpdir(), "mapcro-e2e-caddy-"));
   const config = join(home, "Caddyfile");
   writeFileSync(config, `{\n\tadmin off\n\tauto_https off\n}\n${proxy} {\n\tencode zstd gzip\n\treverse_proxy 127.0.0.1:${server.port} {\n\t\theader_up -Accept-Encoding\n\t}\n}\n`);
-  caddy = spawn("caddy", ["run", "--adapter", "caddyfile", "--config", config], { env: { ...process.env, HOME: home, XDG_DATA_HOME: join(home, "data"), XDG_CONFIG_HOME: join(home, "config") }, stdio: "ignore" });
-  await expect.poll(() => fetch(`${proxy}/`).then((r) => r.ok, () => false), { timeout: 20_000 }).toBe(true);
+  await held.release();
+  // What Caddy says goes to a file, shown if it never answers.
+  const said = join(home, "caddy.log");
+  const log = openSync(said, "w");
+  caddy = spawn("caddy", ["run", "--adapter", "caddyfile", "--config", config], { env: { ...process.env, HOME: home, XDG_DATA_HOME: join(home, "data"), XDG_CONFIG_HOME: join(home, "config") }, stdio: ["ignore", "ignore", log] });
+  closeSync(log);
+  try {
+    await expect.poll(() => fetch(`${proxy}/`).then((r) => r.ok, () => false), { timeout: 20_000 }).toBe(true);
+  } catch {
+    throw new Error(`caddy never answered on ${proxy}; it said:\n${readFileSync(said, "utf8")}`);
+  }
 });
 test.afterAll(() => {
   caddy?.kill("SIGKILL");

@@ -44,7 +44,10 @@ export const MODULE_STATE: Record<string, Entries> = {
     cache: ["immutable-cache", "a WeakMap keyed by the timeline object: goes with it"],
     pairCache: ["immutable-cache", "a WeakMap keyed by the timeline object: goes with it"],
   },
-  "player/api.ts": { MODE_CODES: ["constant", "the codes of a mode with no board"] },
+  "player/api.ts": {
+    MODE_CODES: ["constant", "the codes of a mode with no board"],
+    warned: ["page", "whether this page has said that a replay came without its validator: once a page, whatever the board"],
+  },
   "player/timelineCache.ts": {
     timelines: ["immutable-cache", "decoded timelines, frozen, by where they came from: the fetched replay by match, a board's upload by board and match; every open still asks the server, which says \"the same\" or sends another (sessions.md §4.3)"],
   },
@@ -55,9 +58,9 @@ export const MODULE_STATE: Record<string, Entries> = {
   "match/stats.ts": { loaded: ["immutable-cache", "stat tables by pack and file"] },
   "board/state.ts": {
     wasm: ["immutable-cache", "the WASM module's init, once a page; every replica is the session's own"],
-    madeBy: ["keyed-by-board", "the records this page's user created, by board id: a tab opened again still knows its own ink (never stale: player/layer.ts)"],
+    madeBy: ["keyed-by-board", "the records this visit's user created, by board id: a tab opened again still knows its own ink (never stale: player/layer.ts). Cleared when the board is left in the page other than by a tab switch, when its session is, and on a dead link (board/reset.ts resetVisit)"],
   },
-  "player/layer.ts": { entered: ["keyed-by-board", "the matches whose Player this page entered, by board id: the stale-ink clear runs once a page for each, not once a mount"] },
+  "player/layer.ts": { entered: ["keyed-by-board", "the matches whose Player this visit entered and decided the ink of, by board id: once a visit for each, not once a mount. Cleared with madeBy (board/reset.ts resetVisit)"] },
   "board/fade.ts": { fades: ["owner-cleared", "a WeakMap keyed by element: goes with it"] },
   "core/session.ts": { ending: ["keyed-by-board", "an ended session's last writes by board id, which that board's next load waits for; each entry is removed as it settles"] },
   "map/MapView.tsx": {
