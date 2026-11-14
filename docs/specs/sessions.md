@@ -1098,10 +1098,14 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      a refusal, no answer. `e2e/fixtures.ts` fails any test whose page writes to a frozen object
      (every timeline Player shows is frozen, cached or not), proved by `frozen-write-guard.spec.ts`.
    - **Mutation:** 34 hand mutants over `tabview.ts` and `timelineCache.ts` (14 of them over
-     the layers a tab holds), all killed by the unit file; 9 over `host.ts`, `api.ts` and
-     `Board.tsx` that only the browser rows can fail, all killed (4 of them the layers'). The
-     list is in the journal. cargo-mutants on the route's diff: 10 mutants, 9 caught, 1
-     unviable, none missed (the one missed at first, the tier in a debug line, has its test).
+     the layers a tab holds), all killed by `sessions-speed.test.ts`; 22 over `api.ts` and
+     `host.ts` (the request, `loadTimeline`, a tab as it opens), all killed by
+     `timeline-load.test.ts`; 13 over `host.ts`, `api.ts`, `Board.tsx` and `layer.ts` that only
+     the browser rows can fail, all killed (one of them the client reading the `ETag`, through
+     the rewriting Caddy). The lists are in the journal. cargo-mutants on the route's diff, after
+     the review's changes: 10 mutants, 9 caught, 1 unviable, none missed (the one missed at
+     first, the tier in a debug line, has its test). One equivalent mutant is known and kept:
+     `madeBy` put back per mount (journal, S1).
    - **Debt:** TD-93 to TD-96.
 4. **Follow across tabs.** `seat`, `tab` and `session_role`, the `session.tab` registry row and
    the `Id` kind, the follow chip's "No access", and §9.3.

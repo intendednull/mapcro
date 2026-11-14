@@ -82,8 +82,50 @@ optional items. What each finding got. The checks' results are under "The runs" 
   unit-tested; the effect has no browser row. **L3: nothing to bound.** Every cached file
   passed `timeline::validate`, a typed `serde_json` parse with its default depth limit of 128
   (no `Value` field, no `disable_recursion_limit`), far under what `freezeDeep` can recurse.
-- Hand mutants: 21 over `api.ts` and `host.ts` against `timeline-load.test.ts`, all killed
-  (`/tmp/sp3-unit-mutants2.py`; a twenty-second added after). The browser rows' script has 13.
+- **N2 and the cache rows; clippy.** The first batch after these changes (batch 8) stopped at
+  two red rows ("the timeline cache…": a tab left on a board with no match stayed on its
+  scene when the board got one) and a clippy error (`unused_io_amount` on the read-check).
+  Both fixed in a02022a; N2 is narrowed as above.
+
+### The runs after the review's fixes (batch 9, on a02022a, through `tools/heavy.sh`)
+
+- `cargo test -p mapcro-server --test replays`: **47 passed** (the Caddy test both ways, the
+  `ETag` asserted untouched as deployed and rewritten with the proxy compressing); the bin's
+  replays unit tests: 6 passed. `just clippy`: clean.
+- cargo-mutants on the route's diff: **10 mutants, 9 caught, 1 unviable, 0 missed.**
+- `just web-test`: **70 files, 704 tests passed, `tsc` clean.**
+- Hand mutants, unit: **22 of 22** over `api.ts` and `host.ts` against
+  `timeline-load.test.ts` (`/tmp/sp3-unit-mutants2.py`); **14 of 14** over `tabOwn`/`withOwn`.
+- The new and changed rows alone (`session-isolation`, `caddy-timeline`, `player`,
+  `player-review`): 29 passed, twice. Through the rewriting Caddy the real client made 10
+  timeline requests over a reload and four switches: one 200, nine 304s.
+- The walkthrough again: the same as before, line for line (9 of 9 switches as left; A 14
+  requests, 2 sent; B 12, 1 sent; C 10, none sent; 0 page errors, 0 console errors).
+- Full e2e, 2 workers, `MAPCRO_SHOT_REPLAY` set: **481 passed, 0 failed, 8 skipped** (21.3 min).
+  (The two `frozen-write-guard` tests print as ✘ and count as passed: they are expected to fail.)
+- Browser-row mutants: **13 of 13 killed**; `git status` clean after.
+
+  | Mutant | Rows | Result |
+  |---|---|---|
+  | refused: what was drawn early stays | the timeline cache | killed |
+  | the validators held are never sent | the timeline cache | killed |
+  | nothing drawn before the server answers | the timeline cache | killed |
+  | a 304 is asked again, plainly | the timeline cache | killed |
+  | a remembered scene checked against the stored copy alone | a tab comes back as it was left | killed |
+  | a layer set on a tab is never its own | Player: … map layers | killed |
+  | a tab only passed through pins the Heals it showed | Player: … map layers | killed |
+  | what a tab held before is dropped at its next leaving | Player: … map layers | killed |
+  | a presenter's Heals pinned to the tab the follower leaves | following: a switch ends it | killed |
+  | a tab opened again is a new visit: stale ink cleared | ink drawn over a match | killed |
+  | a scene picked before the match opened is not the user's choice of mode | what is done while a tab's match is on its way | killed |
+  | a seek made before the server's answer is not remembered | what is done while a tab's match is on its way | killed |
+  | the validator read from the ETag (review B1) | caddy-timeline: through Caddy | killed |
+
+- Not run by this implementer: the whole `just test` (the workspace's tests and sims). The
+  server's source change is in `replays.rs` alone; its tests, the bin's and clippy ran.
+- The scratch scripts are `/tmp/sp3-batch9.sh`, `/tmp/sp3-unit-mutants*.py`,
+  `/tmp/sp3-e2e-mutants.py` and `/tmp/sp3-edit/zz-walkthrough.spec.ts`, copied to
+  `~/.cache/mapcro-sp3-scratch/`. None is in the repo.
 
 ## State when the third implementer finished (2026-11-14): phase 3 is ready for review
 
