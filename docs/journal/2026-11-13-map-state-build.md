@@ -7,6 +7,55 @@ Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `
 
 Off main `a0774c5` (prod `e878c30`, store v10). Newest first.
 
+### Handoff to the next implementer (2026-11-14, 09:30; the seventh stops here, context full)
+
+Read this, then the D2 section below it, then `docs/deploy.md` ("`has_heroes`").
+
+**Where things are**
+
+| Branch | Tip | What | State |
+|---|---|---|---|
+| `map-state-p3` | `1694b2a` | D4 (a dead hero's respawn time in a new scene) with its review's fixes, main `91e81c2` merged in | Its `just web-test` and e2e run on the merged tip is `/tmp/ms-p4/jobJ.sh`; the result is in `/tmp/ms-p4/summaryJ` and, if it was in before this was written, in the line below. The lead merges and deploys it |
+| `map-state-d2` | this branch | D2's reader (`has_heroes` `Ahead`, the writer dormant), **rebased onto `map-state-p3` at `1694b2a`** | Before the rebase everything passed (the D2 section). On the rebased tip `46d3327`: `tsc` clean and nine map-state vitest files pass; the whole (`just test`, `just web-test`, e2e with the phone specs) is `/tmp/ms-d2/jobK.sh`, result in `/tmp/ms-d2/summaryK` |
+| `map-state-d2-pre-rebase` | `4733ffe` | D2 as it was before the rebase | A backup ref: delete it once the rebased branch is accepted |
+
+The rebase's conflicts: `save.ts` (an import: D4's `savedPart` with D2's two helpers), the
+register (TD-98 between TD-97 and TD-99), this journal.
+
+**What is left, in order**
+
+1. **Read the two runs** above. Anything red on the D4 tip is the lead's blocker; on D2 fix it
+   here.
+2. **Renumber D2's reader to store v12**, once `feedback-56-60`'s v11 reader is on main (the
+   lead says when; don't rebase onto feedback's branch before). After rebasing onto that main:
+   in `crates/server/src/store.rs`, `SCHEMA_VERSION` 12; the step's arm moves from `10` to `11`
+   (`5..=7 | 10 | 11 => Step::Additive` with feedback's `10`); the migrate arm `11 => {}` with
+   this branch's comment; the test `the_v11_reader_stores_nothing_new...` renamed and
+   renumbered (v12, floor still 9, older servers `[9, 10, 11]` open it); the floor test's
+   numbers (it uses "a version this build doesn't know": one above the newest) and the two
+   `"11"` in `crates/server/tests/system.rs` to `"12"`. The wording "v10 → v11" in
+   `docs/specs/map-state.md` §4.3, `docs/deploy.md` and `b4c9f86`'s successor's comments
+   follows. Then `just test` (it runs `reader-check`) and `just web-test`.
+3. **D2's reader release:** the lead's gate and adversarial review. It changes nothing a coach
+   sees and nothing stored.
+4. **The writer flip, its own release** (the lead expects store v14, to be confirmed): the
+   steps and the five tests that change on purpose are in `docs/deploy.md`. It was rehearsed
+   twice here with the row flipped in the tree only; the own-heroes e2e passed both times.
+5. **Then phase 4 goes on:** `Tokens.tsx` reading a token's view from `MapState` and
+   `heroDraw` in both modes, with TD-97's four small specs landing in the same work (the
+   lead's condition). The steps are in "Handoff, eighth implementer" below, from its step 3.
+
+**Open with the lead or the operator**
+
+- **S1 (D4 review):** whether a scene drawing both the faded hero and its ghost under Show last
+  seen is a second difference from Player. With the operator; the lead's call (draw both)
+  stands until then. `heroDraw` gives both, nothing draws from it yet.
+- **TD-98:** a Retake racing a pick. **TD-99, TD-100:** from the D4 review.
+
+**Scratch:** `/tmp/ms-p4` and `/tmp/ms-d2` hold only logs and job scripts now (under 1 MB);
+delete them once the two runs are read. The measuring checkouts and the perf builds are gone.
+Every tree has its own `target/`; never link one across trees.
+
 ### D2, a scene's own heroes: the reader, on branch `map-state-d2` (2026-11-14, seventh implementer)
 
 Branch `map-state-d2`, worktree `mapcro.worktrees/map-state-d2`, off `map-state-p3` at
