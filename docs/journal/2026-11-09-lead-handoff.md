@@ -3,6 +3,22 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Resumed after the Paseo restart (2026-11-14 ~13:50 UTC, lead 9eb2516b)
+
+- **Lead gate** rerun on 5e966b0, detached via `/tmp/lead-gate-run.sh` (logs `/tmp/lead-gate.log`,
+  `/tmp/lead-ff.log`; "ALL DONE" at the end).
+- **tools/box-busy.sh** now asks `box-state` first (c22b731); exit 0 means busy.
+- **Implementers resumed** (same sessions) with heavy jobs detached through heavy.sh.
+- **Lead calls on their questions:**
+  - *Feedback:* narrow phones keep the speed list (backlog follow-up); the tick test change is
+    OK; the justfile `reader` stays e878c30 until v11 deploys; v11 and v12 belong to feedback.
+  - *Map-state:* D2 goes into phase 4 with its edit (the picker writes the scene's state, and
+    Save stops rewriting the roster); capture stops writing health Player doesn't hold;
+    a scene draws the faded hero and its ghost; source-less scenes keep the open match's names
+    (D1 note).
+  - *Sessions:* its two questions become phase 4 checks.
+  - The operator may override any of these.
+
 ## Paused for the Paseo daemon restart (2026-11-14 ~13:45 UTC, lead 9eb2516b)
 
 The concierge asked for a safe checkpoint: the restart ends every agent process and background
