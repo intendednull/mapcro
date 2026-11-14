@@ -219,6 +219,10 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
   skips an undo whose list no longer fits when it replays a log, and still refuses it from a
   client. The release after this one is deployed makes it `Live`, with a store step that sets
   the floor to this build's version.
+  **When it goes `Live`, every client must be on a build that skips it too**: a replica that
+  still refused the entry would call the board diverged. The build id hashes the schema
+  sources, so flipping the constant closes older clients as `Outdated` and they reload; check
+  after that deploy that the served client's build id changed.
 
 **Rolling back after a schema bump.** `meta` holds two numbers: `schema_version` and
 `compat_floor`, the oldest server schema version that can still use the database. An additive
