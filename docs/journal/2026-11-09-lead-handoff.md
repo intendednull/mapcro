@@ -3,6 +3,23 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## In flight (2026-11-14 ~17:45 UTC, lead 9eb2516b)
+
+- **D4 gate:** `/tmp/lead-gate` at 44aa4a3 = main 6d36aee + map-state-p3 1694b2a (D4: a new scene's
+  dead hero keeps its respawn time). Client only. Reviewed by a fresh Fable: S2/S3/N2/N3 fixed, N1
+  and N4 are TD-99 and TD-100. Then QA (a dead hero's "respawn 0:05" in a new scene), deploy.
+- **D2** (`map-state-d2` 1860187, the `has_heroes` reader, writer dormant): the old implementer
+  stopped at ~590k context. Handoff is at the top of the map-state journal on that branch; the
+  rebased full run's result is in `/tmp/ms-d2/summaryK`. Store **v12** (after feedback's v11);
+  the writer flip is probably v14. A fresh Fable high implementer takes it once v11 is on main.
+  Delete the backup ref `map-state-d2-pre-rebase` once the rebased branch is accepted.
+- **Sessions p3:** the adversarial review's B1 blocker (Caddy `encode` rewrites the ETag, so 304s
+  never match) is being fixed with X-Mapcro validator headers and a real-Caddy test. S1 (lead):
+  a tab switch is not a new session for stale ink. Follow row is written to spec §6.2 as it stands.
+- **Feedback release 1:** checks queued (full e2e, mutation run, walkthrough).
+- **Operator question open:** under Show last seen, should a scene draw both the faded hero and
+  its ghost? The lead's call (both) stands until answered.
+
 ## Deployed 91e81c2 (2026-11-14 17:11 UTC, lead 9eb2516b)
 
 - **Prod `web` runs 91e81c2** (infra 8985bca). The release is mobile defaults (ad60722) and
