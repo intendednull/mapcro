@@ -450,7 +450,7 @@ mod tests {
     #[test]
     fn a_file_holding_a_row_or_kind_still_ahead_is_refused_at_either_version() {
         use mapcro_schema::Status;
-        let ahead = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead };
+        let ahead = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
         read(&file_with(|_| {}), ids(1000), &ahead).expect("a board with neither imports");
         for version in [1, 2] {
             assert_eq!(read(&file_with(|v| snapshot(v, version)), ids(1000), &ahead).err(), Some(Refusal::Invalid), "version {version}");
@@ -466,7 +466,7 @@ mod tests {
             });
             assert_eq!(read(&state_only, ids(1000), &ahead).err(), Some(Refusal::Invalid), "version {version}");
             // The rows live and the kind not: the hero's values alone are not enough.
-            let rows_live = Admit { row: |_| Status::Live, scene_state: Status::Ahead };
+            let rows_live = Admit { row: |_| Status::Live, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
             assert_eq!(read(&state_only, ids(1000), &rows_live).err(), Some(Refusal::Invalid), "version {version}");
             read(&hero_only, ids(1000), &rows_live).expect("the row is live");
         }

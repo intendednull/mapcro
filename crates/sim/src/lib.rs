@@ -38,7 +38,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { editors: 6, viewers: 1, attackers: 2, steps: 400, fault_rate: 4, admit: Admit::READS }
+        Config { editors: 8, viewers: 1, attackers: 2, steps: 400, fault_rate: 4, admit: Admit::READS }
     }
 }
 
@@ -414,8 +414,18 @@ impl World {
             match effect {
                 Effect::Rejected { client, cseq, reason } => self.stored_rejections.push((client, cseq, reason)),
                 Effect::ClientRegistered { client, secret_hash } => self.stored_clients.push((client, secret_hash)),
+                // As the room stores it (`Write::PruneRejections`): the rejections go, and the
+                // client's next cseq is kept in their place. Without it a client whose every
+                // transaction so far was rejected would restart at 0 after a server restart,
+                // and its next one would be a sequence gap (found by running the server as
+                // built, which refuses a Filler's every write while its rows are ahead).
                 Effect::RejectionsResolved { client, below } => {
                     self.stored_rejections.retain(|(c, k, _)| *c != client || *k >= below);
+                    let next = self.authority.next_cseq(client);
+                    match self.stored_client_seqs.iter_mut().find(|(c, _)| *c == client) {
+                        Some((_, n)) => *n = (*n).max(next),
+                        None => self.stored_client_seqs.push((client, next)),
+                    }
                 }
                 Effect::Logged { seq, tx } => {
                     if seq != self.stored_log.len() as u64 + 1 {
@@ -557,6 +567,37 @@ mod tests {
     fn ahead_of_the_old_reader(tx: &Tx) -> bool {
         let json = serde_json::to_string(tx).expect("json");
         ["\"More\":", "\"SceneState\":", "\"more\":"].iter().any(|key| json.contains(key))
+    }
+
+    /// How many logged transactions the deployed reader (store v8) would refuse on replay: an
+    /// undo whose list no longer fits its record (review F4), which this build skips and that
+    /// one refuses whole.
+    fn unfit_undos(genesis: &Doc, log: &[Tx]) -> usize {
+        let old_reader = Admit { unfit_undo: mapcro_schema::Status::Ahead, ..Admit::READS };
+        let mut doc = genesis.clone();
+        log.iter()
+            .filter(|tx| {
+                let refused = mapcro_schema::apply_tx_admitted(&mut doc.clone(), tx, &old_reader) == Err(Reject::TxTooLarge);
+                mapcro_schema::apply_tx(&mut doc, tx).expect("a logged transaction replays");
+                refused
+            })
+            .count()
+    }
+
+    /// The behaviours fill a hero's lists to the record's cap, so an undo meets a record with
+    /// no room for what it puts back. Admitted, such undos are logged (skipped, with every
+    /// property holding); the server as built logs none, so its log still loads on the reader
+    /// deployed before it.
+    #[test]
+    fn an_undo_that_no_longer_fits_is_met_and_the_server_as_built_logs_none() {
+        let count = |admit: Admit| -> usize {
+            (0..40).fold(0, |n, seed| {
+                let (_, genesis, log) = run_logged(seed, &Config { admit, ..Config::default() }).unwrap_or_else(|f| panic!("{f}"));
+                n + unfit_undos(&genesis, &log)
+            })
+        };
+        assert!(count(Admit::READS) > 0, "no seed met an undo that no longer fits: the behaviours don't reach F4");
+        assert_eq!(count(Admit::DEPLOYED), 0, "the server as built logged an undo the deployed reader refuses");
     }
 
     /// The server as built, under every behaviour and attacker: the simulation's properties

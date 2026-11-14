@@ -129,7 +129,7 @@ pub fn import_records(records: Vec<(RecordId, Record)>, mut next_id: impl FnMut(
                 _ => true,
             };
             if ready {
-                validate::apply_op(&mut doc, &Op::Create { id, record: r })?;
+                validate::apply_op(&mut doc, &Op::Create { id, record: r }, true)?;
             } else {
                 waiting.push((id, r));
             }
@@ -140,7 +140,7 @@ pub fn import_records(records: Vec<(RecordId, Record)>, mut next_id: impl FnMut(
         scenes = waiting;
     }
     for (id, r) in rest {
-        validate::apply_op(&mut doc, &Op::Create { id, record: r })?;
+        validate::apply_op(&mut doc, &Op::Create { id, record: r }, true)?;
     }
     validate::check_invariants(&doc)?;
     Ok(doc)
@@ -364,12 +364,12 @@ mod tests {
             p.more = [(hero, MoreValue::Int(13))].into_iter().collect();
         });
         let with_state = with(file.clone(), |f| f.push((RecordId(900), Record::SceneState(SceneState { scene: s, more: More::default() }))));
-        let ahead = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead };
+        let ahead = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
         assert_eq!(import_records(with_hero.clone(), counter(10_000), &ahead).expect_err("refused"), Reject::WrongField);
         assert_eq!(import_records(with_state.clone(), counter(10_000), &ahead).expect_err("refused"), Reject::Immutable);
         import_records(file, counter(10_000), &ahead).expect("a board with neither imports");
         // The row live, the kind still ahead: the hero's value comes in, the scene's state doesn't.
-        let row_live = Admit { row: |_| Status::Live, scene_state: Status::Ahead };
+        let row_live = Admit { row: |_| Status::Live, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
         let doc = import_records(with_hero, counter(10_000), &row_live).expect("imports");
         let held = doc.iter_live().filter_map(|(_, r)| r.more()).filter_map(|(_, m)| m.get(hero).cloned()).collect::<Vec<_>>();
         assert_eq!(held, [MoreValue::Int(13)]);

@@ -21,11 +21,15 @@ pub enum Behaviour {
     SceneShuffler,
     /// Edits a little, undoes and redoes a lot.
     Undoer,
+    /// Fills one hero's registry lists to their caps and clears them, undoing and redoing a
+    /// lot: two of them keep one record at its byte cap (`max_more_bytes`).
+    Filler,
 }
 
 impl Behaviour {
     pub fn for_index(i: usize) -> Self {
-        [Behaviour::Dragger, Behaviour::Undoer, Behaviour::Editor, Behaviour::SceneShuffler][i % 4]
+        use Behaviour::{Dragger, Editor, Filler, SceneShuffler, Undoer};
+        [Dragger, Undoer, Editor, SceneShuffler, Filler, Filler][i % 6]
     }
 }
 
@@ -39,7 +43,7 @@ pub(crate) fn act(world: &mut World, i: usize) -> Result<(), String> {
         Driver::Replica { .. } if c.role == mapcro_engine::Role::View => return Ok(()),
         Driver::Replica { replica, behaviour } => {
             let undo_bias = match behaviour {
-                Behaviour::Undoer => 50,
+                Behaviour::Undoer | Behaviour::Filler => 50,
                 _ => 8,
             };
             let roll = rng.random_range(0..100);
@@ -151,6 +155,7 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
     let choice = match b {
         // 19: a hero's registry values, written as often as its typed fields.
         Behaviour::Dragger | Behaviour::Undoer => [0, 1, 2, 19][rng.random_range(0..4)],
+        Behaviour::Filler => 21,
         Behaviour::Editor => match rng.random_range(0..6) {
             0 => 15,
             1 => [19, 20][rng.random_range(0..2)],
@@ -279,6 +284,17 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
         19 => {
             let p = pick(rng, &players);
             more_write(rng, Entity::Hero).map(|v| set(p, v)).unwrap_or_default()
+        }
+        // One hero's lists, each filled to its cap with the row's widest value, or cleared.
+        // All full, they pass the record's byte cap (`max_more_bytes`), and everyone writes the
+        // same hero: a write is refused for room, and an undo finds the room it left taken
+        // (review F4: it is skipped, not refused).
+        21 => {
+            let lists: Vec<RowId> = RowId::all().filter(|k| k.row().entity == Entity::Hero && matches!(k.row().kind, Kind::Ints { .. })).collect();
+            let Some(&key) = lists.choose(rng) else { return vec![] };
+            let Kind::Ints { len, max, .. } = key.row().kind else { return vec![] };
+            let value = (rng.random_range(0..3) != 0).then(|| MoreValue::Ints(vec![max; len].into()));
+            set(players.first().copied(), FieldValue::More { key, value })
         }
         // The scene's state: made on first use (two editors at once is a Duplicate conflict, as
         // for objectives), then written key by key.

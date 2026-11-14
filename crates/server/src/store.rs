@@ -195,22 +195,42 @@ pub struct Store {
 /// Database schema version. Each step in `migrate` takes the database one version forward.
 const SCHEMA_VERSION: i64 = 8;
 
-/// Whether the step from `from` to `from + 1` is additive: it only adds tables (or other things
-/// an older server never reads), so a server that predates it still uses the database correctly.
-/// An additive step keeps the database's compatibility floor; any other step raises it to the
-/// new version (spec §9, docs/deploy.md "Rollbacks").
-///
+/// What the step from `from` to `from + 1` asks of an older server (spec §9, docs/deploy.md
+/// "Rollbacks").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Step {
+    /// It only adds tables (or other things an older server never reads), so a server that
+    /// predates it still uses the database correctly: the floor stays.
+    Additive,
+    /// Only a server that knows the step uses the database correctly: the floor is the new
+    /// version.
+    Breaking,
+    /// No SQL changes, but from here the database may hold what only a server of version `from`
+    /// or later reads: the floor is `from`. The map-state writer's step (v8 → v9): the v8
+    /// reader loads everything the writer stores, and a server older than that reader would
+    /// drop it without a word (docs/specs/map-state.md §4.3).
+    NeedsReader,
+}
+
 /// Steps before v6 predate the floor and count as breaking: servers of those versions refuse a
 /// newer database whatever it says.
-fn additive_step(from: i64) -> bool {
-    matches!(from, 5..=7)
+fn step(from: i64) -> Step {
+    match from {
+        5..=7 => Step::Additive,
+        8 => Step::NeedsReader,
+        _ => Step::Breaking,
+    }
 }
 
 /// The oldest server version that can safely open a database at schema `version`: the floor
-/// each migration since v1 left. Stored in `meta` as `compat_floor`, for older servers, which
-/// can't work it out because they don't know the newer steps.
+/// each migration since v1 left (a floor never goes down). Stored in `meta` as `compat_floor`,
+/// for older servers, which can't work it out because they don't know the newer steps.
 fn compat_floor(version: i64) -> i64 {
-    (1..version).fold(1, |floor, from| if additive_step(from) { floor } else { from + 1 })
+    (1..version).fold(1, |floor, from| match step(from) {
+        Step::Additive => floor,
+        Step::Breaking => floor.max(from + 1),
+        Step::NeedsReader => floor.max(from),
+    })
 }
 
 /// v1 → v2: links remember which link minted them (editors can share; revocation cascades).
@@ -1187,6 +1207,12 @@ mod tests {
     #[test]
     fn the_floor_persists_across_migrations() {
         assert_eq!((1..=8).map(compat_floor).collect::<Vec<_>>(), [1, 2, 3, 4, 5, 5, 5, 5], "v6, v7 and v8 are additive; earlier steps are not");
+        // The writer's step (review F3): not additive, and not "only this version" either. The
+        // floor is the reader's version, so the reader is still a rollback target and nothing
+        // older is.
+        assert_eq!(step(8), Step::NeedsReader);
+        assert_eq!(compat_floor(9), 8, "v9 opens on the v8 reader, and on nothing older");
+        assert_eq!(compat_floor(10), 10, "a step this build doesn't know counts as breaking");
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
         // A database a pre-floor v5 server wrote: no compat_floor row.

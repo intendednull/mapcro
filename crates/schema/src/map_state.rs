@@ -104,6 +104,14 @@ pub const ROWS: &[Row] = &[
 /// `Ahead` until `rows.lock` shows a deployed build that reads it.
 pub const SCENE_STATE: Status = Status::Ahead;
 
+/// Whether a submitted `SetIf` on a registry value that the record has no room for is admitted
+/// (and skipped: review F4) or refused (`Ahead`). Gated like a row, because it is one more
+/// thing a log may hold: the reader deployed as store v8 refuses such a transaction when it
+/// replays a log, so the board would not load after a rollback to it. This build reads it
+/// (skips it on replay, `apply_tx`); the release after this one is deployed may make it `Live`,
+/// with a store step that sets the floor to this build's version (docs/deploy.md).
+pub const UNFIT_UNDO: Status = Status::Ahead;
+
 /// What may come in from outside, as opposed to what is read (spec §4.3): the check at
 /// admission, on a client's transaction (`Authority::submit`) and on a board file's records
 /// (`import_records`). Never on a stored base or a log being replayed, which hold whatever was
@@ -120,14 +128,17 @@ pub struct Admit {
     pub row: fn(RowId) -> Status,
     /// `SceneState`'s.
     pub scene_state: Status,
+    /// [`UNFIT_UNDO`]'s: asked by `apply_tx_admitted`, not by [`Admit::tx`] (whether the value
+    /// fits depends on the board).
+    pub unfit_undo: Status,
 }
 
 impl Admit {
     /// This build's: each row by its own status, and [`SCENE_STATE`]. What the server uses.
-    pub const DEPLOYED: Admit = Admit { row: |r| r.row().status, scene_state: SCENE_STATE };
+    pub const DEPLOYED: Admit = Admit { row: |r| r.row().status, scene_state: SCENE_STATE, unfit_undo: UNFIT_UNDO };
     /// Everything this build reads, as the writer release will admit it. For the simulation and
     /// tests, which exercise sync and undo of the rows before anything may write them.
-    pub const READS: Admit = Admit { row: |_| Status::Live, scene_state: Status::Live };
+    pub const READS: Admit = Admit { row: |_| Status::Live, scene_state: Status::Live, unfit_undo: Status::Live };
 
     fn value(&self, v: &FieldValue) -> Result<(), Reject> {
         match v {
@@ -467,9 +478,45 @@ mod tests {
         lock.lines().filter(|l| !l.starts_with('#') && !l.is_empty()).any(|l| parse(l).1 == Entity::Scene)
     }
 
+    /// Whether this run is `just rows-lock`'s, which rewrites the lock. The flag alone is not
+    /// enough (a stray `MAPCRO_ROWS_LOCK=1 cargo test` would bless whatever tree it ran in):
+    /// the recipe also names the commit it checked was clean, and that must be the commit this
+    /// test finds checked out (`head`).
+    fn lock_mode(flag: Option<&str>, commit: Option<&str>, head: impl FnOnce() -> Option<String>) -> Result<bool, String> {
+        if flag.is_none() {
+            return Ok(false);
+        }
+        let commit = commit.filter(|c| !c.is_empty()).ok_or("MAPCRO_ROWS_LOCK is set without MAPCRO_ROWS_LOCK_COMMIT: the lock is written by `just rows-lock` only")?;
+        match head() {
+            Some(head) if head == commit => Ok(true),
+            Some(head) => Err(format!("MAPCRO_ROWS_LOCK_COMMIT is {commit}, and the tree is at {head}: run `just rows-lock`")),
+            None => Err("can't read the checked-out commit (git rev-parse HEAD): run `just rows-lock` in the repository".into()),
+        }
+    }
+
+    fn git_head() -> Option<String> {
+        let out = std::process::Command::new("git").args(["rev-parse", "HEAD"]).current_dir(env!("CARGO_MANIFEST_DIR")).output().ok()?;
+        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned()).filter(|h| !h.is_empty())
+    }
+
+    #[test]
+    fn the_lock_is_rewritten_only_for_the_commit_the_recipe_checked() {
+        let head = || Some("abc123".to_owned());
+        assert_eq!(lock_mode(None, None, head), Ok(false));
+        assert_eq!(lock_mode(None, Some("abc123"), head), Ok(false), "the commit alone asks for nothing");
+        assert!(lock_mode(Some("1"), None, head).is_err(), "the flag alone is refused");
+        assert!(lock_mode(Some("1"), Some(""), head).is_err());
+        assert!(lock_mode(Some("1"), Some("def456"), head).is_err(), "another commit's token");
+        assert!(lock_mode(Some("1"), Some("abc123"), || None).is_err(), "no repository to check it against");
+        assert_eq!(lock_mode(Some("1"), Some("abc123"), head), Ok(true));
+        assert!(git_head().is_some_and(|h| h.len() >= 40 && h.chars().all(|c| c.is_ascii_hexdigit())), "this test runs in the repository");
+    }
+
     #[test]
     fn rows_are_append_only_and_read_a_release_before_they_are_written() {
-        if std::env::var_os("MAPCRO_ROWS_LOCK").is_some() {
+        let var = |name: &str| std::env::var(name).ok();
+        let locking = lock_mode(var("MAPCRO_ROWS_LOCK").as_deref(), var("MAPCRO_ROWS_LOCK_COMMIT").as_deref(), git_head).unwrap_or_else(|why| panic!("rows.lock is not rewritten: {why}"));
+        if locking {
             relock(std::path::Path::new(LOCK), ROWS).unwrap_or_else(|broken| panic!("rows.lock is not rewritten: this build breaks the last deployed one's rows: {broken:#?}"));
         }
         let lock = std::fs::read_to_string(LOCK).expect("crates/schema/rows.lock");
@@ -759,9 +806,9 @@ mod tests {
     }
 
     /// Every row and `SceneState` still ahead: the reader release.
-    const AHEAD: Admit = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead };
+    const AHEAD: Admit = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
     /// `hero` written, the rest and `SceneState` still ahead.
-    const HERO_LIVE: Admit = Admit { row: |r| if r.key() == "hero" { Status::Live } else { Status::Ahead }, scene_state: Status::Ahead };
+    const HERO_LIVE: Admit = Admit { row: |r| if r.key() == "hero" { Status::Live } else { Status::Ahead }, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
 
     #[test]
     fn nothing_that_carries_an_ahead_row_or_kind_is_admitted() {
@@ -819,13 +866,13 @@ mod tests {
         // And a live row does not make the scene's state live.
         assert_eq!(HERO_LIVE.tx(&tx(vec![create(scene_state(More::default()))])), Err(Reject::Immutable));
         // A retired row is no longer written by a client, but is not refused: boards hold it.
-        let retired = Admit { row: |_| Status::Retired, scene_state: Status::Retired };
+        let retired = Admit { row: |_| Status::Retired, scene_state: Status::Retired, unfit_undo: Status::Ahead };
         assert_eq!(retired.tx(&tx(vec![set(more("name", None)), create(scene_state(holding(&["rows"])))])), Ok(()));
     }
 
     #[test]
     fn a_live_kind_is_admitted_with_only_its_live_rows() {
-        let kind_live = Admit { row: |r| if r.key() == "rows" { Status::Live } else { Status::Ahead }, scene_state: Status::Live };
+        let kind_live = Admit { row: |r| if r.key() == "rows" { Status::Live } else { Status::Ahead }, scene_state: Status::Live, unfit_undo: Status::Ahead };
         assert_eq!(kind_live.record(&scene_state(More::default())), Ok(()));
         assert_eq!(kind_live.record(&scene_state(holding(&["rows"]))), Ok(()));
         assert_eq!(kind_live.record(&scene_state(holding(&["rows", "build"]))), Err(Reject::WrongField));

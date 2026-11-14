@@ -1,5 +1,5 @@
 use crate::protocol::{ClientMsg, Hello, ServerMsg};
-use mapcro_schema::{Admit, ClientId, Doc, LIMITS, Reject, Tx, apply_tx};
+use mapcro_schema::{Admit, ClientId, Doc, LIMITS, Reject, Tx, apply_tx, apply_tx_admitted};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -394,7 +394,7 @@ impl Authority {
         } else if self.storage_full {
             Err(Reject::ServerFull)
         } else {
-            apply_tx(&mut self.doc, &tx).map(|_| ())
+            apply_tx_admitted(&mut self.doc, &tx, &self.admit).map(|_| ())
         };
         if result.is_err() && (rec.rejected.len() >= MAX_REJECTIONS_PER_CLIENT || self.rejections >= self.quota.max_rejections) {
             return (self.fatal(conn, "too many rejected transactions"), Vec::new());
@@ -433,7 +433,7 @@ mod admission_tests {
     const CLIENT: ClientId = ClientId(7);
     const CONN: ConnId = ConnId(1);
     /// The reader release: every row and `SceneState` ahead.
-    const AHEAD: Admit = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead };
+    const AHEAD: Admit = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
 
     fn board() -> Doc {
         let mut n = 0u128;
@@ -565,12 +565,47 @@ mod admission_tests {
         assert_eq!(held(&a), Some(hero(14)));
     }
 
+    /// Review F4, at the door (map-state spec §4.3). An undo whose list no longer fits its
+    /// record is skipped wherever a log is read, and refused where it is submitted until the
+    /// build that reads it that way is deployed: the reader out today (store v8) refuses such
+    /// a transaction on replay, so logging one would break the board on a rollback to it.
+    #[test]
+    fn an_undo_that_no_longer_fits_is_refused_at_the_door_until_admitted_and_always_replays() {
+        let doc = board();
+        let p = player(&doc);
+        let list = |k: &str, n: usize| FieldValue::More { key: row(k), value: Some(MoreValue::ints(vec![4_294_967_295; n])) };
+        let clear = FieldValue::More { key: row("build_order"), value: None };
+        // The order is cleared (A), the room filled (B); A's undo puts the order back if it is still clear.
+        let fill = tx(0, vec![Op::Set { id: p, value: list("items", 128) }, Op::Set { id: p, value: list("abilities", 48) }]);
+        let undo = |cseq| tx(cseq, vec![Op::Set { id: p, value: FieldValue::PlayerSouls(Some(7)) }, Op::SetIf { id: p, expect: clear.clone(), value: list("build_order", 600) }]);
+        let rows_live = Admit { unfit_undo: Status::Ahead, ..Admit::READS };
+        let mut a = Authority::new(doc.clone());
+        a.set_admit(rows_live);
+        let mut a = serving(a);
+        logged(&mut a, fill.clone());
+        assert_eq!(refused(&mut a, undo(1)), Reject::TxTooLarge);
+        // Admitted, it is logged, with the op that doesn't fit skipped and the rest applied.
+        a.set_admit(Admit::READS);
+        logged(&mut a, undo(2));
+        let Some(Record::PlayerState(state)) = a.doc().live(p) else { panic!("player") };
+        assert_eq!((state.souls, state.more.get(row("build_order"))), (Some(7), None));
+        // A log holding it loads on a build that doesn't admit it yet.
+        let mut cold = Authority::new(doc);
+        cold.set_admit(rows_live);
+        cold.replay(&fill, 0).expect("fill");
+        cold.replay(&undo(2), 0).expect("a logged unfit undo replays");
+        assert_eq!(cold.doc(), a.doc());
+        // This build's own server refuses it (flip `UNFIT_UNDO` only once this build is the
+        // deployed floor: see its doc).
+        assert_eq!(Admit::DEPLOYED.unfit_undo, Status::Ahead);
+    }
+
     #[test]
     fn a_row_made_live_is_admitted_and_logged() {
         let doc = board();
         let (p, s) = (player(&doc), scene(&doc));
         let mut a = Authority::new(doc);
-        a.set_admit(Admit { row: |r| if r.key() == "hero" { Status::Live } else { Status::Ahead }, scene_state: Status::Ahead });
+        a.set_admit(Admit { row: |r| if r.key() == "hero" { Status::Live } else { Status::Ahead }, scene_state: Status::Ahead, unfit_undo: Status::Ahead });
         let mut a = serving(a);
         logged(&mut a, tx(0, vec![Op::Set { id: p, value: hero(13) }]));
         assert_eq!(a.doc().live(p).and_then(|r| r.get(mapcro_schema::Field::More(row("hero")))), Some(hero(13)));

@@ -37,6 +37,32 @@ test:
     # Crash points between a commit and its acks (test-only feature; never in a release build).
     cargo test -q -p mapcro-server --features failpoints --test system -- a_crash_between transactions_arriving
     cargo run -q --release -p mapcro-sim -- --seeds 1000
+    # The same seeds against the server as built: what it admits today (map-state spec §4.3).
+    cargo run -q --release -p mapcro-sim -- --seeds 1000 --admit deployed
+    just reader-check
+
+# The reader release: the deployed build a rollback goes to (docs/deploy.md "Rollbacks"). Set
+# it to the deployed commit at each deploy that changes what is stored, with `just rows-lock`.
+reader := "13d2fd1"
+
+# The rollback check (TD-80): what this build's server stores still loads on the reader
+# release's own code. The simulation's boards, run against the server as built, are dumped as
+# stored JSON; `load_stored` is built in a checkout of `reader` (its schema and engine, in
+# target/reader) and must load every board and log byte for byte.
+reader-check rev=reader seeds="40":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root=$(pwd)
+    out="$root/target/reader/stored"
+    src="$root/target/reader/src"
+    rm -rf "$out" "$src"
+    mkdir -p "$out" "$src"
+    cargo run -q --release -p mapcro-sim --example dump_stored -- "$out" {{seeds}}
+    git archive {{rev}} Cargo.toml Cargo.lock crates/schema crates/engine crates/sim | tar -x -C "$src"
+    # The reader's workspace names every crate and patches vendored ones; keep the three this needs.
+    sed -i -e 's|^members = .*|members = ["crates/schema", "crates/engine", "crates/sim"]|' -e '/^\[patch.crates-io\]/,/^$/d' "$src/Cargo.toml"
+    cp crates/sim/examples/load_stored.rs "$src/crates/sim/examples/load_stored.rs"
+    (cd "$src" && CARGO_TARGET_DIR="$root/target/reader/build" cargo run -q --release --offline -p mapcro-sim --example load_stored -- "$out" {{seeds}})
 
 # Lints, warnings as errors (gated: just check, CI; docs/tech-debt.md rule 4).
 clippy:
@@ -74,7 +100,9 @@ rows-lock:
       git status --short --untracked-files=no >&2
       exit 1
     fi
-    out=$(MAPCRO_ROWS_LOCK=1 cargo test -q -p mapcro-schema --lib -- --exact map_state::tests::rows_are_append_only_and_read_a_release_before_they_are_written 2>&1) || { echo "$out" >&2; exit 1; }
+    # The test rewrites the lock only for the commit named here, which it checks is the one
+    # checked out: the flag alone locks nothing.
+    out=$(MAPCRO_ROWS_LOCK=1 MAPCRO_ROWS_LOCK_COMMIT="$(git rev-parse HEAD)" cargo test -q -p mapcro-schema --lib -- --exact map_state::tests::rows_are_append_only_and_read_a_release_before_they_are_written 2>&1) || { echo "$out" >&2; exit 1; }
     # A renamed test would match nothing and lock nothing: say so rather than pass.
     grep -q "test result: ok. 1 passed" <<<"$out" || { echo "$out" >&2; echo "rows-lock: the lock test did not run" >&2; exit 1; }
     git --no-pager diff --stat -- crates/schema/rows.lock
