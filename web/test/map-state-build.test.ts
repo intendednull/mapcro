@@ -19,7 +19,8 @@ const hero = (team: "amber" | "sapphire", slot: number): TimelinePlayer => {
     souls: [[0, 400]], ult: [null, 100, 50, 25, 0],
     level: [[0, 1], [2, 4 + i]], max_health: [[0, 700], [3, 925 + i]],
     kills: [[0, 0], [2, i]], assists: [[0, 0], [3, 2]],
-    pickups: [[1, [20, 1, 2, 3, 4]], [3, [45, 2, 4, 6, 8]]],
+    // Fractional, as a real match's are (f32; the resists move in quarters).
+    pickups: [[1, [20, 1.5, 2, 3.25, 4.75]], [3, [45, 2.5, 4.4, 6.75 + i / 4, 8.5]]],
     items: [[5, 9000 + i, 0], [15, 9100 + i, 0], [25, 9000 + i, 2], [25, 9200 + i, 0], [35, 9100 + i, 1]],
     abilities: [[0, 7000 + i, 1], [2, 7000 + i, 3], [3, 7100 + i, 1]],
     casts: [[18, 7000 + i, 43], [22, 9200 + i, 0]], charges: [[10, 9100 + i, 2]], stacks: [[20, 9100 + i, 3]],
@@ -94,6 +95,38 @@ describe("a hero's build through a scene", () => {
     expect(order.length % 3).toBe(0);
     expect(order.length).toBeGreaterThan(0);
     expect(order.slice(-3)).toEqual([8990, 4_000_000_899, 3]);
+  });
+
+  it("a hero dead at the frame and revived in the scene counts as full health, as a dead one does", () => {
+    const dead = tl.players[3]!; // dies at 3
+    const stored = readBuild(captureBuild(heroBuildAt(tl, dead, 3)), WRITTEN, dead.hero_id);
+    expect(stored.health).toBeNull();
+    expect(statOf(stored, false)!.health_pct).toBe(100);
+    expect(statOf(stored, true)!.health_pct).toBe(100);
+    // Alive at the frame: the health it had, dead or alive in the scene now.
+    const alive = readBuild(captureBuild(heroBuildAt(tl, dead, 2)), WRITTEN, dead.hero_id);
+    expect(statOf(alive, true)!.health_pct).toBe(60);
+    expect(statOf(alive, false)!.health_pct).toBe(100);
+  });
+
+  it("cuts each list at its row's length: the first 32 items and 9 abilities, the latest 200 buys", () => {
+    const entry = (id: number) => ({ id, cooldown: null, charges: null, stacks: null });
+    const build: HeroBuild = {
+      ...heroBuildAt(tl, tl.players[0]!, 2),
+      items: Array.from({ length: 40 }, (_, i) => entry(100 + i)),
+      abilities: Array.from({ length: 12 }, (_, i) => ({ ...entry(200 + i), level: 1 })),
+      order: Array.from({ length: 250 }, (_, i) => [i, 300 + i, 0] as [number, number, number]),
+    };
+    const more = captureBuild(build);
+    // The server refuses a list over its row's length, and a record's whole `more` with it.
+    for (const key of ["items", "abilities", "build_order"] as const) expect((more[key] as number[]).length).toBeLessThanOrEqual(ROWS[key].len);
+    const back = readBuild(JSON.parse(JSON.stringify(more)), WRITTEN, build.hero);
+    expect(back.items).toEqual(build.items!.slice(0, 32));
+    expect(back.abilities).toEqual(build.abilities!.slice(0, 9));
+    expect(back.order).toEqual(build.order!.slice(-200));
+    // At the cap exactly, nothing is cut.
+    const full = { ...build, items: build.items!.slice(0, 32), abilities: build.abilities!.slice(0, 9), order: build.order!.slice(0, 200) };
+    expect(readBuild(captureBuild(full), WRITTEN, build.hero)).toMatchObject({ items: full.items, abilities: full.abilities, order: full.order });
   });
 
   it("reads a row at or above the snapshot's watermark, or a damaged list, as not captured", () => {

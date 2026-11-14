@@ -81,6 +81,8 @@ const fn row(key: &'static str, entity: Entity, kind: Kind) -> Row {
 }
 
 /// A new row: read by this build, written by none until this build is deployed and locked.
+// Unused while every row is live: a new row lands with it (spec §4.3).
+#[allow(dead_code)]
 const fn ahead(key: &'static str, entity: Entity, kind: Kind) -> Row {
     Row { key, entity, kind, status: Status::Ahead }
 }
@@ -104,12 +106,13 @@ pub const ROWS: &[Row] = &[
     row("health", Entity::Hero, Kind::Int { min: 0, max: 100 }),
     row("pickups", Entity::Hero, Kind::Ints { len: 16, min: -1_000_000_000, max: 1_000_000_000 }),
     // The rest of the build column (phase 2 designed it after the rows above shipped): the
-    // scoreboard's kills, deaths and assists, and the recorded max health. Ahead: this build
-    // is their reader; a scene's column shows "—" for them until the next release writes them.
-    ahead("kills", Entity::Hero, Kind::Int { min: 0, max: 100_000 }),
-    ahead("deaths", Entity::Hero, Kind::Int { min: 0, max: 100_000 }),
-    ahead("assists", Entity::Hero, Kind::Int { min: 0, max: 100_000 }),
-    ahead("max_health", Entity::Hero, Kind::Int { min: 0, max: 10_000_000 }),
+    // scoreboard's kills, deaths and assists, and the recorded max health. Their reader was
+    // deployed as 1dcbd31 (store v9); written from store v10. A scene saved between the two
+    // shows "—" for them until Retake.
+    row("kills", Entity::Hero, Kind::Int { min: 0, max: 100_000 }),
+    row("deaths", Entity::Hero, Kind::Int { min: 0, max: 100_000 }),
+    row("assists", Entity::Hero, Kind::Int { min: 0, max: 100_000 }),
+    row("max_health", Entity::Hero, Kind::Int { min: 0, max: 10_000_000 }),
 ];
 
 /// `SceneState`'s own status: the record kind is gated as a row is. Its reader ships a release
@@ -120,10 +123,10 @@ pub const SCENE_STATE: Status = Status::Live;
 /// Whether a submitted `SetIf` on a registry value that the record has no room for is admitted
 /// (and skipped: review F4) or refused (`Ahead`). Gated like a row, because it is one more
 /// thing a log may hold: the reader deployed as store v8 refuses such a transaction when it
-/// replays a log, so the board would not load after a rollback to it. This build reads it
-/// (skips it on replay, `apply_tx`); the release after this one is deployed may make it `Live`,
-/// with a store step that sets the floor to this build's version (docs/deploy.md).
-pub const UNFIT_UNDO: Status = Status::Ahead;
+/// replays a log, so the board would not load after a rollback to it. The build deployed as
+/// store v9 (1dcbd31) reads it (skips it on replay, `apply_tx`), so it is `Live` from store
+/// v10, whose step sets the floor to 9 (docs/deploy.md).
+pub const UNFIT_UNDO: Status = Status::Live;
 
 /// What may come in from outside, as opposed to what is read (spec §4.3): the check at
 /// admission, on a client's transaction (`Authority::submit`) and on a board file's records
@@ -191,10 +194,18 @@ impl Admit {
 /// Not `ROWS.len()`, which counts rows this build only reads: the reader release a rollback
 /// goes to has fewer, and would refuse every file as newer (review of 6a0d391, F1).
 pub fn written_rows() -> usize {
-    ROWS.iter().position(|r| r.status == Status::Ahead).unwrap_or(ROWS.len())
+    written_of(ROWS)
+}
+
+fn written_of(rows: &[Row]) -> usize {
+    rows.iter().position(|r| r.status == Status::Ahead).unwrap_or(rows.len())
 }
 
 pub fn rows_ts() -> String {
+    rows_ts_of(ROWS)
+}
+
+fn rows_ts_of(rows: &[Row]) -> String {
     use std::fmt::Write as _;
     let status = |s: Status| match s {
         Status::Ahead => "ahead",
@@ -204,7 +215,7 @@ pub fn rows_ts() -> String {
     let mut out = String::from(
         "// Generated from crates/schema/src/map_state.rs `ROWS` by `just ts`. Do not edit.\n\n/** A row is read by every build that knows it; `ahead`: nothing writes it yet. */\nexport type RowStatus = \"ahead\" | \"live\" | \"retired\";\n\n/** Every map-state row, in registry order (`index`): what it belongs to, its kind and bounds. */\nexport const ROWS = {\n",
     );
-    for (index, r) in ROWS.iter().enumerate() {
+    for (index, r) in rows.iter().enumerate() {
         let entity = match r.entity {
             Entity::Hero => "hero",
             Entity::Marker => "marker",
@@ -566,6 +577,17 @@ mod tests {
         out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned()).filter(|h| !h.is_empty())
     }
 
+    /// What a board file's header and a snapshot's watermark say this build writes.
+    #[test]
+    fn the_rows_written_stop_at_the_first_one_still_ahead() {
+        let r = |status| Row { key: "k", entity: Entity::Hero, kind: Kind::Bool, status };
+        assert_eq!(written_of(&[r(Status::Live), r(Status::Retired), r(Status::Ahead), r(Status::Ahead)]), 2);
+        assert_eq!(written_of(&[r(Status::Live), r(Status::Live), r(Status::Live)]), 3);
+        assert_eq!(written_of(&[r(Status::Ahead), r(Status::Ahead)]), 0);
+        assert_eq!(written_rows(), written_of(ROWS));
+        assert!(written_rows() >= 11, "the rows deployed as written are still written");
+    }
+
     #[test]
     fn the_clients_row_table_is_up_to_date_and_says_each_rows_status() {
         let ts = rows_ts();
@@ -574,7 +596,12 @@ mod tests {
         assert!(ts.contains("  items: { index: 5, entity: \"hero\", kind: \"ints\", len: 128, min: -1, max: 4294967295, status: \"live\" as RowStatus },"));
         assert!(ts.contains("  name: { index: 1, entity: \"hero\", kind: \"text\", max: 24, status: \"live\" as RowStatus },"));
         assert!(ts.contains("  has_builds: { index: 3, entity: \"scene\", kind: \"bool\", status: \"live\" as RowStatus },"));
-        assert!(ts.contains("  kills: { index: 11, entity: \"hero\", kind: \"int\", min: 0, max: 100000, status: \"ahead\" as RowStatus },"));
+        assert!(ts.contains("  kills: { index: 11, entity: \"hero\", kind: \"int\", min: 0, max: 100000, status: \"live\" as RowStatus },"));
+        // A row still ahead, or retired, says so: the client's capture stops at the first ahead one.
+        let later = [Row { key: "a", entity: Entity::Lane, kind: Kind::Pos, status: Status::Ahead }, Row { key: "b", entity: Entity::Marker, kind: Kind::Bool, status: Status::Retired }];
+        let ts_later = rows_ts_of(&later);
+        assert!(ts_later.contains("  a: { index: 0, entity: \"lane\", kind: \"pos\", status: \"ahead\" as RowStatus },"), "{ts_later}");
+        assert!(ts_later.contains("  b: { index: 1, entity: \"marker\", kind: \"bool\", status: \"retired\" as RowStatus },"), "{ts_later}");
         assert!(ts.ends_with("export const SCENE_STATE: RowStatus = \"live\";\n"));
         assert_eq!(ts.matches(" index: ").count(), ROWS.len());
         // Rows go live in order: the client's watermark is the first row still ahead, so a
@@ -708,14 +735,14 @@ mod tests {
         assert_eq!(broken(lock, &more), ["f: not deployed yet, so it must be Ahead"]);
     }
 
-    /// The rows as first shipped (phase 1), spelled out: until a deploy has locked them, this is
-    /// what holds their keys, order and bounds still. Later rows are the lock file's to hold.
+    /// The rows as first shipped (phase 1), spelled out, apart from the lock file: their keys,
+    /// order and bounds. Later rows are the lock file's to hold.
     #[test]
     fn the_first_rows_are_as_they_shipped() {
         let shipped = "hero hero int 0 4294967295\nname hero text 24\nrows scene int 0 65535\nhas_builds scene bool\nbuild scene int 0 4294967295\n\
                        items hero ints 128 -1 4294967295\nabilities hero ints 48 -1 4294967295\nbuild_order hero ints 600 -1 4294967295\n\
                        level hero int 0 1000\nhealth hero int 0 100\npickups hero ints 16 -1000000000 1000000000\n";
-        assert_eq!(broken(shipped, ROWS), Vec::<String>::new());
+        assert_eq!(broken(shipped, &ROWS[..11]), Vec::<String>::new());
         assert!(lock_lines(ROWS).starts_with(shipped), "{}", lock_lines(ROWS));
     }
 

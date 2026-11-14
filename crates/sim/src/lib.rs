@@ -557,6 +557,21 @@ fn describe_server_msg(m: &ServerMsg) -> String {
     }
 }
 
+/// How many logged transactions a server that doesn't skip the unfit undo (the store v8
+/// reader) would refuse on replay: an undo whose list no longer fits its record (review F4),
+/// which a build from store v9 on skips and that one refuses whole.
+pub fn unfit_undos(genesis: &Doc, log: &[Tx]) -> usize {
+    let old_reader = Admit { unfit_undo: mapcro_schema::Status::Ahead, ..Admit::READS };
+    let mut doc = genesis.clone();
+    log.iter()
+        .filter(|tx| {
+            let refused = mapcro_schema::apply_tx_admitted(&mut doc.clone(), tx, &old_reader) == Err(Reject::TxTooLarge);
+            mapcro_schema::apply_tx(&mut doc, tx).expect("a logged transaction replays");
+            refused
+        })
+        .count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -569,27 +584,14 @@ mod tests {
         ["\"More\":", "\"SceneState\":", "\"more\":"].iter().any(|key| json.contains(key))
     }
 
-    /// How many logged transactions the deployed reader (store v8) would refuse on replay: an
-    /// undo whose list no longer fits its record (review F4), which this build skips and that
-    /// one refuses whole.
-    fn unfit_undos(genesis: &Doc, log: &[Tx]) -> usize {
-        let old_reader = Admit { unfit_undo: mapcro_schema::Status::Ahead, ..Admit::READS };
-        let mut doc = genesis.clone();
-        log.iter()
-            .filter(|tx| {
-                let refused = mapcro_schema::apply_tx_admitted(&mut doc.clone(), tx, &old_reader) == Err(Reject::TxTooLarge);
-                mapcro_schema::apply_tx(&mut doc, tx).expect("a logged transaction replays");
-                refused
-            })
-            .count()
-    }
 
     /// The behaviours fill a hero's lists to the record's cap, so an undo meets a record with
     /// no room for what it puts back. Admitted, such undos are logged (skipped, with every
-    /// property holding); the server as built logs none, so its log still loads on the reader
-    /// deployed before it.
+    /// property holding), and the server as built admits them: the build deployed before it
+    /// (store v9) skips them on replay (`just reader-check` loads such a log on it). A server
+    /// that doesn't admit them logs none.
     #[test]
-    fn an_undo_that_no_longer_fits_is_met_and_the_server_as_built_logs_none() {
+    fn an_undo_that_no_longer_fits_is_met_and_logged_only_where_admitted() {
         let count = |admit: Admit| -> usize {
             (0..40).fold(0, |n, seed| {
                 let (_, genesis, log) = run_logged(seed, &Config { admit, ..Config::default() }).unwrap_or_else(|f| panic!("{f}"));
@@ -597,7 +599,8 @@ mod tests {
             })
         };
         assert!(count(Admit::READS) > 0, "no seed met an undo that no longer fits: the behaviours don't reach F4");
-        assert_eq!(count(Admit::DEPLOYED), 0, "the server as built logged an undo the deployed reader refuses");
+        assert!(count(Admit::DEPLOYED) > 0, "the server as built admits them (`UNFIT_UNDO` is live)");
+        assert_eq!(count(Admit { unfit_undo: mapcro_schema::Status::Ahead, ..Admit::READS }), 0, "a server that refuses them logged one");
     }
 
     /// A reader release, where every registry write is refused: a Filler's every transaction is

@@ -52,6 +52,11 @@ impl World {
             if replica.confirmed() != expected {
                 return Err(format!("{}: confirmed state is not the log prefix at {}", c.name, replica.last_seq()));
             }
+            // The view is the confirmed state with the pending work on top, however it got
+            // there (edits and most entries change it in place).
+            if !replica.view_is_rebuilt() {
+                return Err(format!("{}: view is not its confirmed state with its pending work applied", c.name));
+            }
             // Every view the UI could render satisfies the board invariants.
             validate_doc(replica.view()).map_err(|r| format!("{}: view breaks an invariant: {r}", c.name))?;
             // noLostEdits: every transaction this client made is pending, logged, or rejected.

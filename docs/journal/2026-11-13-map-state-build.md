@@ -3,6 +3,279 @@
 Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `docs/specs/map-state.md`
 (third revision). Review: `docs/specs/map-state-review.md`. Newest state at the top.
 
+## State: phase 2 done and run in a browser; #49 fixed on the desktop layout (fifth implementer)
+
+Branch `map-state-p2`, with main merged at `61de6cb` (the writer deployed as `1dcbd31`, its lock
+and reader). Fifth implementer, 2026-11-13 night. Everything is committed. **This branch is the
+next release: store v10, floor 9.** The lead's gate, adversarial review, merge and deploy are next.
+
+**#49 is fixed for the desktop layout, verified in Chromium on a real match.** On the phone's
+compact bar a scene still shows no builds (backlog).
+
+| Commit | What |
+|---|---|
+| `327b043` | F2: pickups stored in hundredths. F4: the list caps tested; the packing table in spec §4.3 |
+| `2eef5d8` | F3: `addSceneOps` gives transactions chunked by bytes, the state last; a save with no room for its snapshot toasts "Saved without builds" |
+| `6ffe8b7` | The `UNFIT_UNDO` deploy note |
+| `41adf30` | The wasm `changed` pin corrected (it was written blind and wrong on the old code too) |
+| `55a1475` | Step 1: the edit and its ack no longer clone the board |
+| `d7c093e` | The four rows and `UNFIT_UNDO` `Live`; store v10 (`NeedsReader`, floor 9) |
+| `f9cfd30` | The DOM pins' snapshots, from the rendering before `76dbad5` (see below) |
+| `582b387`, `6b3bf74` | `scene-builds.spec.ts` takes a match the server accepts, and checks the scene after a reload; `statOf` for a revived hero |
+| `2afd7d1` | `written_rows`' test; the no-match follow e2e; the edit-cost table in spec §6; TD-86 to TD-88 |
+
+(`git log --oneline cd968ba..` has the exact list.)
+
+### What was verified, and how
+
+- **QA in real Chromium on match 134623152 at 25:00** (the real asset pack, the real server; a
+  Playwright walk kept in `/tmp/qa-p2/`, not committed; it prints counts only). Player's twelve
+  build columns were read (All builds, then each alone with its level badge and build order),
+  the frame saved, and the scene's columns compared as text and ids:
+  - the saved scene: 12 of 12 identical in All builds, 12 of 12 alone, 12 of 12 levels, 12 of 12
+    build orders up to the frame; hold-Tab opens 12 and releases to 0; no "—" in any column
+    (K/D/A, max health and the calculated stats are all there);
+  - the same after a reload (12 of 12 each);
+  - a follower sees one build, All builds and none as the presenter opens them;
+  - an old scene of that match (no `SceneState`, nothing more on its heroes), after **Retake**:
+    12 of 12 each; no page errors.
+  The toast after the save read "Saved scene 2".
+- **Found by it, fixed:** (1) a hero the match has dead at the scene's moment but the scene has
+  alive read as unknown health, so a health-threshold item left its bonus out (116% against
+  Player's 138%). `statOf` now counts it as full health, as the spec's §5 rule says. (2) A board
+  with a match reopens in Player after a reload, so the e2e's "survives a reload" check was
+  reading Player's column. It goes to the scene first now.
+- **F2 on the real match:** capture → read → `statOf` equals Player's `statBuild` at all 30,576
+  hero-seconds (0 differ), and K/D/A and max health read back equal at all of them. Stored whole
+  (the old code), 15,508 differed, largest error 0.5.
+- **DOM pins:** taken with `web/src` as it was at `acb6d62` plus main, nine runs in a row
+  there; then on this branch's rendering **Player's four pins and the two old scenes' pass
+  unchanged**. The spec as written never loaded its match (an objective without its fields,
+  abilities in tenths instead of seconds: the server refused the timeline), and its outline
+  held a person's random colour and tokens in record-id order; both fixed before the pins
+  were taken.
+- **Rollback check:** `just reader-check` against `1dcbd31`: 40 boards, 11,392 logged
+  transactions, 4,801 holding registry values or a scene's state, 20 an undo that no longer
+  fits, loaded byte for byte. The dump now refuses to run without such an undo in it.
+
+### Step 1, the edit cost: measured, both clones removed from the edit path
+
+Chromium, the real WASM replica, a 64-scene board (3,869 records, 768 heroes), 300 runs,
+medians in ms, before → after (`just edit-cost`; the table is also in spec §6):
+
+| `more` a hero | Board JSON | Local edit | Its ack | A drag frame | Peer's entry, nothing pending | Peer's entry under a pending edit | Whole-state save |
+|---|---|---|---|---|---|---|---|
+| 0 | 748 KiB | 0.94 → 0.01 | 0.94 → 0.01 | 1.88 → 0.02 | 0.94 → 0.01 | 0.94 → 0.26 | 5.33 → 5.48 |
+| 3,000 | 2,993 KiB | 2.44 → 0.03 | 2.65 → 0.02 | 5.09 → 0.05 | 2.96 → 0.03 | 3.18 → 1.11 | 12.32 → 14.19 |
+| 8,000 | 6,331 KiB | 9.05 → 0.04 | 9.30 → 0.02 | 18.35 → 0.06 | 9.06 → 0.05 | 6.10 → 2.31 | 20.06 → 19.98 |
+
+**Decision: both clones are gone from the edit path** (the engine's copy of the view per edit,
+and the WASM wrapper's copy to diff). What still copies the board: a peer's entry while this
+replica has pending work, a rejection, a `Rebase`, and the whole-state save (TD-87).
+
+The characterisation test of `acb6d62` for `changed` failed on the new code **and on the old**:
+it expected a peer's write to be hidden under a pending redo, but a redo is `SetIf` on the value
+it saw and skips the field. Corrected against the old code first (`41adf30`), then the change.
+
+### Numbers
+
+- `cargo test --workspace --no-fail-fast` on the v10 flip: every crate passes but TD-81's known
+  flake (`an_import_is_refused_before_its_body_is_read`, 3 of 3 alone). `just clippy` clean.
+  Simulation, 1,000 seeds × 400 steps, both admissions: 77,010 entries, 10,772 undo checks.
+- `just web-test`: 68 files, 668 tests, `tsc` clean.
+- E2e: `scene-builds` 4, `map-state-dom-pins` 2; the related set (`portrait-menu topbar
+  topbar-rejuv-builds player-inspect player-keys follow-matrix phone-player scenes`) 146 passed
+  before the last small changes; the full suite at `c6566f0`: 464 passed, 14 skipped, 0 failed (18.7 min at two workers).
+- **Mutation testing.** cargo-mutants `--in-diff` against `6a0d391`, `-j 1`, engine + wasm +
+  schema: 49 mutants, 34 caught, 8 unviable, 7 missed. The 7: four in `Replica::next_undo` /
+  `next_redo`, which only the wasm tests hold and the tool doesn't run for an engine mutant
+  (all four fail `changed_tests` by hand; TD-88); three in `written_rows`, which only the
+  server's file tests held (a schema test now kills all three). `mapcro-server` (unit
+  tests, `board_file`, `admission_gate`; TD-81's flake skipped): 5 mutants, 3 caught, 2
+  unviable, 0 missed. By hand, one at a time, all
+  caught: 6 on the replica and the wasm diff (the ack check dropped, `pending.is_empty()`
+  dropped, vanished records missing from `changed`, a receive without the pending ops'
+  targets, a rejection without them, a created record missing); 7 on the flip (`UNFIT_UNDO`
+  back to `Ahead`, a row back to `Ahead` twice, the table's "ahead" word, `SCHEMA_VERSION` 9,
+  step 9 additive, step 9 unknown); 8 on `build.ts` (the pickup scale twice, each list cap,
+  the cut direction); 5 on `addSceneOps`; 3 on the save's `builds` flag; 2 on `statOf`; 3 on
+  `host.ts`'s follow code, run through the e2e.
+
+### For the lead at the deploy
+
+- `SCHEMA_VERSION` moved (9 → 10): back the database up first. The rollback target is
+  `1dcbd31` and nothing older (floor 9).
+- After it is live: `just rows-lock` (the lock already lists all 15 rows, so no change is
+  expected) and set the justfile's `reader` to the deployed commit: what is stored changed.
+- Check the served client's build id changed (docs/deploy.md, the `UNFIT_UNDO` note).
+
+### Left for later (backlog and register)
+
+Scene builds on the phone; the follow matrix's scene column; an e2e for a changed hero hiding
+its build; the last view after a reload; TD-86 (where `chunkByBytes` lives), TD-87 (the
+whole-state save), TD-88 (cargo-mutants and the wasm tests).
+
+### Gotchas (this session)
+
+- A hand-written e2e timeline the server refuses loads as "API summary" with no error in the
+  page: `abilities` are `[second, id, level]`, `items` `[tenths, id, kind]`, an objective needs
+  `key, kind, team, lane, destroyed_s`.
+- **A build column's text holds the player's name.** A QA script that diffed two columns
+  printed two in-game names to the session's output once (never to a file or commit). Compare
+  and count; never print a column's text.
+- A board with a match reopens in Player: after `page.reload()` click the scene before
+  asserting on it.
+- `/tmp/mapcro-p2-heavy.sh '<cmd>'` still serialises heavy jobs for this worktree.
+
+## Earlier state: phase 2 client written and type-checked; NOT yet run in a browser (handoff, fourth implementer)
+
+Branch `map-state-p2`, on top of `6a0d391`. Fourth implementer, 2026-11-13 evening. The lead's
+gate held the box for the whole session (`/tmp/lead-gate.log`, e2e at two workers), so **no
+cargo, wasm or e2e job of this work has finished yet**; only `tsc` and single vitest files ran.
+Stopped at the context limit. Everything is committed except the engine change of step 1, which
+a queued job applies (below).
+
+**#49 is not verified fixed.** The code for it is written and type-checks; no browser has run it.
+
+| Commit | What | Verified by |
+|---|---|---|
+| `acb6d62` | Characterisation before the changes: the replica's view against its definition (`replica.rs` `view_tests`, `Replica::view_is_rebuilt`); `Update.changed` against a whole-document diff (`crates/wasm` `changed_tests`); the DOM pin spec (`web/e2e/map-state-dom-pins.spec.ts`, **no snapshots yet**); `just edit-cost` (`web/perf/edit-cost.mjs`, `scene_cost --dump`) | nothing run |
+| `95c6aad` | Save stores the builds and a `SceneState`; Retake's ops; `chunkByBytes`; the build interface `mapstate/buildView.ts`; the Save pin moved by decision | `tsc`; `map-state-save` 9 tests, `map-state-build` 8, `map-state-pins` 5 |
+| `76dbad5` | `BuildColumn`, `BuildOrder`, `HeroCard`, both bars on `BuildView`; the scene bar's builds, All builds, hold-Tab; the Retake button; panel follow on scenes (`host.ts`); `web/e2e/scene-builds.spec.ts` | `tsc` only |
+
+### The review of `6a0d391`: F1 done, F2 to F4 NOT started (do F2 before anything else ships)
+
+The lead relayed an adversarial review of the server-side release late in the session.
+
+- **F1, done: `408a7bb` and `ec88816`, branch `map-state-f1` on top of `6a0d391`** (merged here). A board
+  file's `rows` was `ROWS.len()` (15); the reader `13d2fd1` refuses a file above its 11 as
+  Newer, so no export made after the writer's deploy imported after a rollback. Now
+  `mapcro_schema::written_rows()` (the first `Ahead` row's index). A server test holds the
+  header; `just reader-check` holds that the reader's registry covers it. Run on `ec88816`: schema 61 + 6, server `boardfile` 5, `board_file` 14, `just reader-check` (40 boards, 10,808 transactions), clippy on schema, server and sim, all pass; a full `just test` is the lead's gate. **`408a7bb` alone fails three tests that pinned the old header.** Committed before
+  its tests could run** (the gate held the box); `/tmp/mapcro-p2-f1.log` has the run if it
+  finished. It does not run the reader's own `boardfile::read` (the server has no library
+  target).
+- **F2, not started, must precede any release that calls `captureBuild`** (Save calls it since
+  `95c6aad`; the layout is permanent once written). `mapstate/build.ts` stores `pickups` with
+  `Math.round(n)`, but the timeline's pickups are f32 and the resists move in quarters: on match
+  134623152, 15,508 frames differ from Player's `statBuild`, the largest error 0.5. **Store
+  hundredths** (`Math.round(n * 100)` in `put`, `/ 100` in `get`; within the row's ±1e9 bound),
+  give `map-state-build.test.ts`'s fixture fractional pickups, and say so in the spec's packing
+  note. `statOf` then gives Player's exact input.
+- **F3, not started:** no test covers `addSceneOps` copying `SceneState` (deleting the line in
+  `board/scenes.ts` passes everything). Duplicate is one transaction with no byte check: twelve
+  heroes near the 8 KiB cap exceed `max_tx_bytes`. Add the test; chunk with
+  `match/save.ts` `chunkByBytes` (the scene and its heroes first, the state last) or note why not.
+- **F4, not started:** the list caps in `build.ts` are untested (removing the 32-item cap passes
+  the 8 tests). `abilities` holds 9 entries and the match maximum is 7: thin headroom, to note
+  in the spec. `map-state-save.test.ts` does assert `items!.slice(0, 32)` on a save, which is a
+  start, not the cap's own test.
+- **Deploy note for the next release:** when `UNFIT_UNDO` goes `Live`, clients must be on a
+  build that skips it (the build id forces the reload). Add the line to `docs/deploy.md`.
+
+### The lead's decisions this follows
+
+Release plan (the server side to `6a0d391` ships first; this client work ships in the release
+that flips `kills`, `deaths`, `assists`, `max_health` and `UNFIT_UNDO` to `Live`, store v10 floor
+9; **don't flip them until the lead confirms the lock lists them**). Save keeps the roster
+rewrite and also writes the scene's `hero` row; a build draws only while the slot holds that
+hero. A left click on a portrait opens its build, souls stay an edit, the right click keeps the
+hero menu (#53). The view-state store stays in `player/` until phase 4.
+
+### Step 1, the edit cost: written, queued, not measured
+
+- **The change** (`/tmp/mapcro-p2-step1.keep.py`, applied by the queued job; if `/tmp` is gone,
+  it is described here in full):
+  - `replica.rs` `submit` and `edit_silent` apply in place (`apply_tx_with_inverse` rolls a
+    refusal back itself). No clone of the view per edit.
+  - `replica.rs` `receive`: an ack of the oldest pending transaction **as sent** (`pending.pop_front() == Some(&tx)`)
+    leaves the view alone, since it applied to the confirmed state exactly as it had under the
+    view; a peer's entry with nothing pending is applied to the view directly; anything else
+    rebuilds as before. `next_undo()` / `next_redo()` give the ops the next undo would submit.
+  - `crates/wasm` `Held`: before a call, the entries of the records the call can touch (the
+    ops' targets; for `receive`, the entry's and every pending transaction's); after it, the
+    ones that differ are `changed`. Exact, not a superset. Only `ServerMsg::Rebase` still
+    clones the view and diffs it whole. `connect` and `disconnect` report nothing changed.
+  - `mapcro_schema::op_target` is public. The simulation's step check asks `view_is_rebuilt`.
+- **The queued job** (`/tmp/mapcro-p2-job2.sh`, log `/tmp/mapcro-p2-job2.log`; it waits for the
+  gate and a load under 12): measures BEFORE with the wasm already in `web/src/wasm` (built
+  before the change: **don't run `just wasm` first**), applies the change, runs the schema,
+  engine, wasm and sim tests, the 1,000 seeds, clippy, then `just wasm` and measures AFTER, for
+  `more` of 0, 3,000 and 8,000 bytes a hero.
+- **To do with its log:** commit the change if green (`perf(engine): an edit and its ack cost
+  what they touch`); put the before and after table in spec §6 and here; state the decision
+  (expected: both clones removed, the remaining whole clone is a peer's entry under pending work
+  and a rebase). Then mutation testing: `cargo mutants -j 1 --in-diff` against `6a0d391` for
+  `mapcro-engine` and `mapcro-wasm` (the wasm tests are native: `changed_tests`), plus by hand:
+  the `!= Some(&tx)` check dropped; `pending.is_empty()` dropped; `Held::changed` missing the
+  vanished records; `receive` not adding the pending ops' targets.
+- If the change is rejected for any reason, the characterisation tests of `acb6d62` pass on the
+  old code too (they were written against it), so they stay.
+
+### Step 2, DOM pins: the spec is committed, the snapshots are not taken
+
+`map-state-dom-pins.spec.ts` outlines the bar and the map (an element a line, ids as `#n`,
+inline images as their length) on two old scenes from a board file and on Player at a paused
+frame (plain, one build open, all builds). **Its snapshots must come from the rendering before
+`76dbad5`:**
+
+1. With a clean tree, check out the old rendering into it: `git checkout acb6d62 -- web/src`
+   (`git status` then shows the reverse of the two client commits; nothing is lost).
+2. `just e2e map-state-dom-pins --update-snapshots`, run it a second time without the flag (it
+   must pass twice: the outline may still hold something that differs from run to run; add it to
+   `outline`'s left-out list if so), commit the `*-snapshots/` files alone.
+3. `git checkout HEAD -- web/src`, `just e2e map-state-dom-pins`: **Player's four pins and the
+   two old scenes' must pass unchanged.** Expected differences, to decide and then re-bless
+   with a line in the commit: none in Player; in an old scene none (no `SceneState`: no All
+   builds button, the portrait's title still "Show …").
+
+### Steps 3 to 6: what was built, and what to check in the browser
+
+- **The interface** (`mapstate/buildView.ts`): `BuildView` has `hero`, `build`, `statInput`,
+  `kills`, `deaths`, `assists`, `level`, `maxHealth`, `patch`, `time`, `order(components)` and,
+  in Player only, `live` (the timeline's hero, for Effects). `playerBuildView` wraps
+  `buildState`'s memos (a hidden column still reads nothing per frame: the same `visible`
+  accessor goes to the view and the column). `sceneBuildView` reads `readBuild` and `statOf`.
+  **A view is made once, outside JSX** (a call in a prop would run on every read).
+- **Not behind the interface yet:** the level badge and the ult tooltip's tiers in
+  `PlayerTopBar`, and the phone's all-builds list, still read the timeline. Phase 4's bar.
+- **K/D/A and max health in a scene read "—"** until their rows are `Live` (`WRITTEN` stops at
+  the first `Ahead` row). Deaths can now be "—" in the column.
+- **The scene bar** (`board/TopBar.tsx`): `hasBuilds` is the snapshot's `has_builds` with a
+  watermark; a slot shows a build when its record's stored `hero` is the roster's
+  (`holdsBuild`). Stat tables load by the snapshot's `build` row. **Not on the phone's compact
+  bar** (`!p.compact`): logged in the backlog.
+- **`board/buildPanels.ts`** is `PlayerTopBar`'s old listeners, shared. One addition: Tab held is
+  released when the bar unmounts (a flip between Player and a scene while holding Tab).
+- **Retake** (`match/save.ts` `canRetake`, `retakeOps`): offered to an editor on a scene whose
+  `source.match_id` is the loaded match and whose snapshot has no builds or an older
+  watermark. The button is where All builds is, or under it when the scene has both.
+  Check in the browser that a `SetIf` expecting `{ More: { key, value: null } }` applies on an
+  absent key (the e2e's Retake test is the check).
+- **Follow** (`host.ts`): with no match, `presence()` sends a playback of match 0, `player:
+  false`, only while a build key is set; `mirror()` reads no playback as "no builds open", and
+  mirrors the panel group when the presenter is in sandbox. No registry row changed, so no
+  ledger line. `PlayerSwitch`'s `peerMatch` skips match 0. **Not done: the follow matrix's new
+  column** (`follow-matrix.spec.ts`); `scene-builds.spec.ts` has one follow test with the match
+  open. A no-match follow test needs a board file holding a snapshot (file version 2).
+  **Run the whole `follow-matrix` spec:** a follower now mirrors panels from a presenter in
+  sandbox, which an existing row may contradict.
+- **E2e to run:** `just e2e scene-builds map-state-dom-pins portrait-menu topbar
+  topbar-rejuv-builds player-inspect player-keys follow-matrix phone-player --workers 2`.
+  `scene-builds.spec.ts` was written blind: expect to fix selectors (the hero menu's right
+  click position, the souls input, `tb-level` when the level is absent).
+- **Then QA in a real browser** (the lead's rule): a new save, an old scene with Retake, a
+  follower; and the spec's §8 table and `docs/backlog.md` (phone scene builds; the follow
+  matrix column; the no-match follow test; health on a scene's bar).
+
+### Gotchas (this session)
+
+- `/tmp/mapcro-p2-heavy.sh '<cmd>'` runs one heavy job in this worktree inside `nix develop`
+  under `nice`, after the lead's gate and with the load under 12, serialised by a lock.
+- A single vitest file and `npx tsc --noEmit` are light enough to run beside the gate.
+- `web/test/map-state-save.test.ts` builds its over-a-transaction case from 200 buys at six-digit
+  tenths and seventy objectives down: with real row caps twelve builds alone stay under 64 KiB.
+
 ## State: phase 2, server side of the writer and the stored layout done; the interface is next
 
 Branch `map-state-p2`, worktree `mapcro.worktrees/map-state-p2`, off main `6b9b4d1` (phase 1

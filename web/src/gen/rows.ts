@@ -16,10 +16,10 @@ export const ROWS = {
   level: { index: 8, entity: "hero", kind: "int", min: 0, max: 1000, status: "live" as RowStatus },
   health: { index: 9, entity: "hero", kind: "int", min: 0, max: 100, status: "live" as RowStatus },
   pickups: { index: 10, entity: "hero", kind: "ints", len: 16, min: -1000000000, max: 1000000000, status: "live" as RowStatus },
-  kills: { index: 11, entity: "hero", kind: "int", min: 0, max: 100000, status: "ahead" as RowStatus },
-  deaths: { index: 12, entity: "hero", kind: "int", min: 0, max: 100000, status: "ahead" as RowStatus },
-  assists: { index: 13, entity: "hero", kind: "int", min: 0, max: 100000, status: "ahead" as RowStatus },
-  max_health: { index: 14, entity: "hero", kind: "int", min: 0, max: 10000000, status: "ahead" as RowStatus },
+  kills: { index: 11, entity: "hero", kind: "int", min: 0, max: 100000, status: "live" as RowStatus },
+  deaths: { index: 12, entity: "hero", kind: "int", min: 0, max: 100000, status: "live" as RowStatus },
+  assists: { index: 13, entity: "hero", kind: "int", min: 0, max: 100000, status: "live" as RowStatus },
+  max_health: { index: 14, entity: "hero", kind: "int", min: 0, max: 10000000, status: "live" as RowStatus },
 } as const;
 
 export type RowKey = keyof typeof ROWS;

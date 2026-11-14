@@ -193,7 +193,7 @@ pub struct Store {
 }
 
 /// Database schema version. Each step in `migrate` takes the database one version forward.
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 /// What the step from `from` to `from + 1` asks of an older server (spec §9, docs/deploy.md
 /// "Rollbacks").
@@ -206,9 +206,10 @@ enum Step {
     /// version.
     Breaking,
     /// No SQL changes, but from here the database may hold what only a server of version `from`
-    /// or later reads: the floor is `from`. The map-state writer's step (v8 → v9): the v8
-    /// reader loads everything the writer stores, and a server older than that reader would
-    /// drop it without a word (docs/specs/map-state.md §4.3).
+    /// or later reads: the floor is `from`. The map-state writer's steps: v8 → v9 (the v8
+    /// reader loads everything that writer stores, and a server older than that reader would
+    /// drop it without a word) and v9 → v10 (four more rows and the unfit undo, which v9
+    /// reads; docs/specs/map-state.md §4.3).
     NeedsReader,
 }
 
@@ -217,7 +218,7 @@ enum Step {
 fn step(from: i64) -> Step {
     match from {
         5..=7 => Step::Additive,
-        8 => Step::NeedsReader,
+        8 | 9 => Step::NeedsReader,
         _ => Step::Breaking,
     }
 }
@@ -309,6 +310,11 @@ fn migrate(conn: &Connection, from: i64, to: i64) -> Result<(), StoreError> {
             // `SceneState`), which the v8 reader loads and nothing older does: `Step::NeedsReader`
             // sets the floor to 8, so a server from before the reader refuses to start.
             8 => {}
+            // v9 → v10: no SQL. From here the server writes the rows `kills`, `deaths`,
+            // `assists` and `max_health`, and admits an undo whose list no longer fits (it is
+            // logged and skipped: `UNFIT_UNDO`). The v9 server reads both and nothing older
+            // does (v8 refuses that undo on replay): the floor is 9.
+            9 => {}
             other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
         }
         v += 1;
@@ -1174,10 +1180,9 @@ mod tests {
     /// would drop the registry's values without a word, is refused.
     #[test]
     fn only_the_reader_opens_the_writers_database() {
-        assert_eq!(SCHEMA_VERSION, 9);
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
-        Store::open(&path).expect("create at v9");
+        Store::open_at(&path, 9).expect("create at v9");
         assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("9"), Some("8")));
         let c = Connection::open(&path).expect("open");
         reconcile(&c, 8).expect("the v8 reader opens a v9 database");
@@ -1190,8 +1195,34 @@ mod tests {
         let old = dir.path().join("old.sqlite");
         Store::open_at(&old, 8).expect("create at v8");
         assert_eq!(meta(&old, "compat_floor").as_deref(), Some("5"));
-        Store::open(&old).expect("migrates");
+        Store::open_at(&old, 9).expect("migrates");
         assert_eq!((meta(&old, "schema_version").as_deref(), meta(&old, "compat_floor").as_deref()), (Some("9"), Some("8")));
+    }
+
+    /// The second writer's database (v10: `kills`, `deaths`, `assists` and `max_health` are
+    /// `Live`, and an undo that no longer fits is admitted and logged). The v9 server reads
+    /// both, so it is the rollback target; the v8 reader refuses that undo on replay, so it and
+    /// everything older is refused.
+    #[test]
+    fn only_the_v9_server_opens_the_v10_database() {
+        assert_eq!(SCHEMA_VERSION, 10);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        Store::open(&path).expect("create at v10");
+        assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("10"), Some("9")));
+        let c = Connection::open(&path).expect("open");
+        reconcile(&c, 9).expect("the v9 server opens a v10 database");
+        for older in [5, 6, 7, 8] {
+            assert!(matches!(reconcile(&c, older), Err(StoreError::Corrupt(_))), "v{older} can't read what v10 stores");
+        }
+        drop(c);
+        assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("10"), Some("9")), "left as it was");
+        // A v9 database in use migrates to it: the floor goes from 8 to 9.
+        let old = dir.path().join("old.sqlite");
+        Store::open_at(&old, 9).expect("create at v9");
+        assert_eq!(meta(&old, "compat_floor").as_deref(), Some("8"));
+        Store::open(&old).expect("migrates");
+        assert_eq!((meta(&old, "schema_version").as_deref(), meta(&old, "compat_floor").as_deref()), (Some("10"), Some("9")));
     }
 
     #[test]
@@ -1219,17 +1250,17 @@ mod tests {
         Store::open(&path).expect("create");
         Connection::open(&path)
             .expect("open")
-            .execute_batch("UPDATE meta SET value = '11' WHERE key = 'schema_version'; UPDATE meta SET value = '10' WHERE key = 'compat_floor';")
-            .expect("a v11 database that a v10 migration broke for older servers");
+            .execute_batch("UPDATE meta SET value = '12' WHERE key = 'schema_version'; UPDATE meta SET value = '11' WHERE key = 'compat_floor';")
+            .expect("a v12 database that a v11 migration broke for older servers");
         assert!(matches!(Store::open(&path), Err(StoreError::Corrupt(_))));
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("11"), "left as it was");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("12"), "left as it was");
         // The same database with a floor this server meets opens.
-        Connection::open(&path).expect("open").execute("UPDATE meta SET value = '9' WHERE key = 'compat_floor'", []).expect("floor");
+        Connection::open(&path).expect("open").execute("UPDATE meta SET value = '10' WHERE key = 'compat_floor'", []).expect("floor");
         Store::open(&path).expect("floor at this server's version: opens");
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("11"), "still not migrated backwards");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("12"), "still not migrated backwards");
         // And a server a version older is below that floor.
         let c = Connection::open(&path).expect("open");
-        assert!(matches!(reconcile(&c, 8), Err(StoreError::Corrupt(_))));
+        assert!(matches!(reconcile(&c, 9), Err(StoreError::Corrupt(_))));
     }
 
     #[test]
@@ -1240,7 +1271,11 @@ mod tests {
         // older is.
         assert_eq!(step(8), Step::NeedsReader);
         assert_eq!(compat_floor(9), 8, "v9 opens on the v8 reader, and on nothing older");
-        assert_eq!(compat_floor(10), 10, "a step this build doesn't know counts as breaking");
+        // The second writer's step, the same way: the floor is the v9 server, which reads the
+        // four rows and the unfit undo that v10 stores.
+        assert_eq!(step(9), Step::NeedsReader);
+        assert_eq!(compat_floor(10), 9, "v10 opens on the v9 server, and on nothing older");
+        assert_eq!(compat_floor(11), 11, "a step this build doesn't know counts as breaking");
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
         // A database a pre-floor v5 server wrote: no compat_floor row.
@@ -1311,8 +1346,8 @@ mod tests {
             v6.commit("b".into(), writes).await.expect("log");
         }
         let store = Store::open(&path).expect("migrates");
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("9"));
-        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("8"), "through the writer's step: the v8 reader still opens it");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("10"));
+        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("9"), "through the writers' steps: the v9 server still opens it");
         for (hash, role, label, revoked, parent) in [
             (&owner, LinkRole::Owner, "owner", false, None),
             (&edit, LinkRole::Edit, "coach", false, Some(&owner)),
@@ -1334,7 +1369,7 @@ mod tests {
         drop((c, store));
         // A second open is a no-op.
         Store::open(&path).expect("idempotent");
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("9"));
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("10"));
     }
 
     /// A v7 database in use opens on v8 with its board as it was, and a v7 server (a rollback)
@@ -1395,7 +1430,7 @@ mod tests {
         drop(v7);
         // The writer (v9) opens it the same way, and from then only the reader may go back to it.
         {
-            let v9 = Store::open(&path).expect("migrates");
+            let v9 = Store::open_at(&path, 9).expect("migrates");
             assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("9"), Some("8")));
             let loaded = v9.load_board("b".into(), caps(), Quota::default()).await.expect("load").expect("the board");
             assert_eq!(loaded.authority.doc(), &head);

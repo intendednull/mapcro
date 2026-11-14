@@ -1,0 +1,249 @@
+<div class="tb-host editable" data-testid="topbar" style="--u: 0.7px;">
+  <div class="tb-bar">
+    <div class="tb-team friend amber">
+      <div class="tb-player amber friend" data-slot="Amber-0" title="Player 1">
+        <div class="tb-souls" data-testid="souls-banner">
+          <span class="ie tb-souls-value editable" data-testid="souls" role="button" tabindex="0"> 3.0
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> P1
+        <button aria-label="Show Player 1" class="tb-focus" data-testid="focus-hero" title="Show Player 1">
+        <button aria-label="Change hero" class="tb-pick swap" data-testid="pick-hero" title="Change hero">
+          <svg aria-hidden="true" viewBox="0 0 16 16">
+            <path d="M3 6h9l-2.5-2.5M13 10H4l2.5 2.5">
+        <button aria-label="Player 1, In vision" aria-pressed="false" class="tb-vis" data-testid="tb-vision" title="In vision">
+          <svg aria-hidden="true" viewBox="-8 -8 16 16">
+            <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z">
+            <circle r="1.8">
+        <div aria-label="Player 1 ult cooldown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="0" class="tb-ult ready" data-testid="ult" data-ult="0" role="slider" title="Ult ready">
+          <i class="tb-ult-bg">
+          <i class="tb-ult-icon">
+          <i class="tb-ult-sweep">
+          <i class="tb-ult-fb">
+        <span class="ie pl-tb-name editable" data-testid="tb-name" role="button" tabindex="0"> Player 1
+      <div class="tb-player amber friend" data-slot="Amber-1" title="King 2">
+        <div class="tb-souls" data-testid="souls-banner">
+          <span class="ie tb-souls-value editable" data-testid="souls" role="button" tabindex="0"> 3.4
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K2
+        <button aria-label="Show King 2" class="tb-focus" data-testid="focus-hero" title="Show King 2">
+        <button aria-label="Change hero" class="tb-pick swap" data-testid="pick-hero" title="Change hero">
+          <svg aria-hidden="true" viewBox="0 0 16 16">
+            <path d="M3 6h9l-2.5-2.5M13 10H4l2.5 2.5">
+        <button aria-label="King 2, In vision" aria-pressed="false" class="tb-vis" data-testid="tb-vision" title="In vision">
+          <svg aria-hidden="true" viewBox="-8 -8 16 16">
+            <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z">
+            <circle r="1.8">
+        <div aria-label="King 2 ult cooldown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="20" class="tb-ult cooldown" data-testid="ult" data-ult="20" role="slider" style="--left: 20%;" title="Ult 20%">
+          <i class="tb-ult-bg">
+          <i class="tb-ult-icon">
+          <i class="tb-ult-sweep">
+          <i class="tb-ult-fb">
+      <div class="tb-player amber friend dead" data-slot="Amber-2" title="King 3">
+        <div class="tb-souls" data-testid="souls-banner">
+          <span class="ie tb-souls-value editable" data-testid="souls" role="button" tabindex="0"> 3.9
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K3
+        <button aria-label="Show King 3" class="tb-focus" data-testid="focus-hero" title="Show King 3">
+        <button aria-label="Change hero" class="tb-pick swap" data-testid="pick-hero" title="Change hero">
+          <svg aria-hidden="true" viewBox="0 0 16 16">
+            <path d="M3 6h9l-2.5-2.5M13 10H4l2.5 2.5">
+        <button aria-label="King 3, In vision" aria-pressed="false" class="tb-vis" data-testid="tb-vision" title="In vision">
+          <svg aria-hidden="true" viewBox="-8 -8 16 16">
+            <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z">
+            <circle r="1.8">
+        <div aria-label="King 3 ult cooldown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="40" class="tb-ult cooldown" data-testid="ult" data-ult="40" role="slider" style="--left: 40%;" title="Ult 40%">
+          <i class="tb-ult-bg">
+          <i class="tb-ult-icon">
+          <i class="tb-ult-sweep">
+          <i class="tb-ult-fb">
+      <div class="tb-player amber friend" data-slot="Amber-3" title="King 4">
+        <div class="tb-souls" data-testid="souls-banner">
+          <span class="ie tb-souls-value editable" data-testid="souls" role="button" tabindex="0"> 4.3
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K4
+        <button aria-label="Show King 4" class="tb-focus" data-testid="focus-hero" title="Show King 4">
+        <button aria-label="Change hero" class="tb-pick swap" data-testid="pick-hero" title="Change hero">
+          <svg aria-hidden="true" viewBox="0 0 16 16">
+            <path d="M3 6h9l-2.5-2.5M13 10H4l2.5 2.5">
+        <button aria-label="King 4, In vision" aria-pressed="false" class="tb-vis" data-testid="tb-vision" title="In vision">
+          <svg aria-hidden="true" viewBox="-8 -8 16 16">
+            <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z">
+            <circle r="1.8">
+        <div aria-label="King 4 ult cooldown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="60" class="tb-ult cooldown" data-testid="ult" data-ult="60" role="slider" style="--left: 60%;" title="Ult 60%">
+          <i class="tb-ult-bg">
+          <i class="tb-ult-icon">
+          <i class="tb-ult-sweep">
+          <i class="tb-ult-fb">
+      <div class="tb-player amber friend" data-slot="Amber-4" title="King 5">
+        <div class="tb-souls" data-testid="souls-banner">
+          <span class="ie tb-souls-value editable" data-testid="souls" role="button" tabindex="0"> 4.8
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K5
+        <button aria-label="Show King 5" class="tb-focus" data-testid="focus-hero" title="Show King 5">
+        <button aria-label="Change hero" class="tb-pick swap" data-testid="pick-hero" title="Change hero">
+          <svg aria-hidden="true" viewBox="0 0 16 16">
+            <path d="M3 6h9l-2.5-2.5M13 10H4l2.5 2.5">
+        <button aria-label="King 5, In vision" aria-pressed="false" class="tb-vis" data-testid="tb-vision" title="In vision">
+          <svg aria-hidden="true" viewBox="-8 -8 16 16">
+            <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z">
+            <circle r="1.8">
+        <div aria-label="King 5 ult cooldown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="0" class="tb-ult ready" data-testid="ult" data-ult="0" role="slider" title="Ult ready">
+          <i class="tb-ult-bg">
+          <i class="tb-ult-icon">
+          <i class="tb-ult-sweep">
+          <i class="tb-ult-fb">
+      <div class="tb-player amber friend" data-slot="Amber-5" title="King 6">
+        <div class="tb-souls" data-testid="souls-banner">
+          <span class="ie tb-souls-value editable" data-testid="souls" role="button" tabindex="0"> 5.2
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K6
+        <button aria-label="Show King 6" class="tb-focus" data-testid="focus-hero" title="Show King 6">
+        <button aria-label="Change hero" class="tb-pick swap" data-testid="pick-hero" title="Change hero">
+          <svg aria-hidden="true" viewBox="0 0 16 16">
+            <path d="M3 6h9l-2.5-2.5M13 10H4l2.5 2.5">
+        <button aria-label="King 6, In vision" aria-pressed="false" class="tb-vis" data-testid="tb-vision" title="In vision">
+          <svg aria-hidden="true" viewBox="-8 -8 16 16">
+            <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z">
+            <circle r="1.8">
+        <div aria-label="King 6 ult cooldown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="0" class="tb-ult ready" data-testid="ult" data-ult="0" role="slider" title="Ult ready">
+          <i class="tb-ult-bg">
+          <i class="tb-ult-icon">
+          <i class="tb-ult-sweep">
+          <i class="tb-ult-fb">
+    <div class="tb-team enemy sapphire">
+      <div class="tb-player sapphire enemy" data-slot="Sapphire-0" title="Archmother 1">
+        <div class="tb-souls" data-testid="souls-banner">
+          <span class="ie tb-souls-value editable" data-testid="souls" role="button" tabindex="0"> 5.7
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A1
+        <button aria-label="Show Archmother 1" class="tb-focus" data-testid="focus-hero" title="Show Archmother 1">
+        <button aria-label="Change hero" class="tb-pick swap" data-testid="pick-hero" title="Change hero">
+          <svg aria-hidden="true" viewBox="0 0 16 16">
+            <path d="M3 6h9l-2.5-2.5M13 10H4l2.5 2.5">
+        <button aria-label="Archmother 1, In vision" aria-pressed="false" class="tb-vis" data-testid="tb-vision" title="In vision">
+          <svg aria-hidden="true" viewBox="-8 -8 16 16">
+            <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z">
+            <circle r="1.8">
+        <div aria-label="Archmother 1 ult cooldown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="20" class="tb-ult cooldown" data-testid="ult" data-ult="20" role="slider" style="--left: 20%;" title="Ult 20%">
+          <i class="tb-ult-bg">
+          <i class="tb-ult-icon">
+          <i class="tb-ult-sweep">
+          <i class="tb-ult-fb">
+      <div class="tb-player sapphire enemy unseen" data-slot="Sapphire-1" title="Archmother 2">
+        <div class="tb-souls" data-testid="souls-banner">
+          <span class="ie tb-souls-value editable" data-testid="souls" role="button" tabindex="0"> 6.1
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A2
+        <button aria-label="Show Archmother 2" class="tb-focus" data-testid="focus-hero" title="Show Archmother 2">
+        <button aria-label="Change hero" class="tb-pick swap" data-testid="pick-hero" title="Change hero">
+          <svg aria-hidden="true" viewBox="0 0 16 16">
+            <path d="M3 6h9l-2.5-2.5M13 10H4l2.5 2.5">
+        <button aria-label="Archmother 2, Not seen" aria-pressed="true" class="tb-vis off" data-testid="tb-vision" title="Not seen">
+          <svg aria-hidden="true" viewBox="-8 -8 16 16">
+            <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z">
+            <path d="M-6 6L6 -6">
+        <div aria-label="Archmother 2 ult cooldown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="40" class="tb-ult cooldown" data-testid="ult" data-ult="40" role="slider" style="--left: 40%;" title="Ult 40%">
+          <i class="tb-ult-bg">
+          <i class="tb-ult-icon">
+          <i class="tb-ult-sweep">
+          <i class="tb-ult-fb">
+      <div class="tb-player sapphire enemy" data-slot="Sapphire-2" title="Archmother 3">
+        <div class="tb-souls" data-testid="souls-banner">
+          <span class="ie tb-souls-value editable" data-testid="souls" role="button" tabindex="0"> 6.6
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A3
+        <button aria-label="Show Archmother 3" class="tb-focus" data-testid="focus-hero" title="Show Archmother 3">
+        <button aria-label="Change hero" class="tb-pick swap" data-testid="pick-hero" title="Change hero">
+          <svg aria-hidden="true" viewBox="0 0 16 16">
+            <path d="M3 6h9l-2.5-2.5M13 10H4l2.5 2.5">
+        <button aria-label="Archmother 3, In vision" aria-pressed="false" class="tb-vis" data-testid="tb-vision" title="In vision">
+          <svg aria-hidden="true" viewBox="-8 -8 16 16">
+            <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z">
+            <circle r="1.8">
+        <div aria-label="Archmother 3 ult cooldown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="0" class="tb-ult ready" data-testid="ult" data-ult="0" role="slider" title="Ult ready">
+          <i class="tb-ult-bg">
+          <i class="tb-ult-icon">
+          <i class="tb-ult-sweep">
+          <i class="tb-ult-fb">
+      <div class="tb-player sapphire enemy dead" data-slot="Sapphire-3" title="Archmother 4">
+        <div class="tb-souls" data-testid="souls-banner">
+          <span class="ie tb-souls-value editable" data-testid="souls" role="button" tabindex="0"> 7.0
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A4
+        <button aria-label="Show Archmother 4" class="tb-focus" data-testid="focus-hero" title="Show Archmother 4">
+        <button aria-label="Change hero" class="tb-pick swap" data-testid="pick-hero" title="Change hero">
+          <svg aria-hidden="true" viewBox="0 0 16 16">
+            <path d="M3 6h9l-2.5-2.5M13 10H4l2.5 2.5">
+        <button aria-label="Archmother 4, In vision" aria-pressed="false" class="tb-vis" data-testid="tb-vision" title="In vision">
+          <svg aria-hidden="true" viewBox="-8 -8 16 16">
+            <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z">
+            <circle r="1.8">
+        <div aria-label="Archmother 4 ult cooldown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="80" class="tb-ult cooldown" data-testid="ult" data-ult="80" role="slider" style="--left: 80%;" title="Ult 80%">
+          <i class="tb-ult-bg">
+          <i class="tb-ult-icon">
+          <i class="tb-ult-sweep">
+          <i class="tb-ult-fb">
+      <div class="tb-player sapphire enemy" data-slot="Sapphire-4" title="Archmother 5">
+        <div class="tb-souls" data-testid="souls-banner">
+          <span class="ie tb-souls-value editable" data-testid="souls" role="button" tabindex="0"> 7.5
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A5
+        <button aria-label="Show Archmother 5" class="tb-focus" data-testid="focus-hero" title="Show Archmother 5">
+        <button aria-label="Change hero" class="tb-pick swap" data-testid="pick-hero" title="Change hero">
+          <svg aria-hidden="true" viewBox="0 0 16 16">
+            <path d="M3 6h9l-2.5-2.5M13 10H4l2.5 2.5">
+        <button aria-label="Archmother 5, In vision" aria-pressed="false" class="tb-vis" data-testid="tb-vision" title="In vision">
+          <svg aria-hidden="true" viewBox="-8 -8 16 16">
+            <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z">
+            <circle r="1.8">
+        <div aria-label="Archmother 5 ult cooldown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="0" class="tb-ult ready" data-testid="ult" data-ult="0" role="slider" title="Ult ready">
+          <i class="tb-ult-bg">
+          <i class="tb-ult-icon">
+          <i class="tb-ult-sweep">
+          <i class="tb-ult-fb">
+      <div class="tb-player sapphire enemy" data-slot="Sapphire-5" title="Archmother 6">
+        <div class="tb-souls" data-testid="souls-banner">
+          <span class="ie tb-souls-value editable" data-testid="souls" role="button" tabindex="0"> 7.9
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A6
+        <button aria-label="Show Archmother 6" class="tb-focus" data-testid="focus-hero" title="Show Archmother 6">
+        <button aria-label="Change hero" class="tb-pick swap" data-testid="pick-hero" title="Change hero">
+          <svg aria-hidden="true" viewBox="0 0 16 16">
+            <path d="M3 6h9l-2.5-2.5M13 10H4l2.5 2.5">
+        <button aria-label="Archmother 6, In vision" aria-pressed="false" class="tb-vis" data-testid="tb-vision" title="In vision">
+          <svg aria-hidden="true" viewBox="-8 -8 16 16">
+            <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z">
+            <circle r="1.8">
+        <div aria-label="Archmother 6 ult cooldown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="20" class="tb-ult cooldown" data-testid="ult" data-ult="20" role="slider" style="--left: 20%;" title="Ult 20%">
+          <i class="tb-ult-bg">
+          <i class="tb-ult-icon">
+          <i class="tb-ult-sweep">
+          <i class="tb-ult-fb">
+    <div class="tb-center">
+      <div class="tb-clock">
+        <span class="ie tb-clock-label editable" data-testid="tb-clock" role="button" tabindex="0"> 12:34
+      <div class="tb-scores">
+        <div class="tb-score amber" data-testid="total-Amber">
+          <i class="tb-score-bg">
+          <div class="tb-score-row">
+            <span class="ie tb-score-label editable" data-testid="total-edit-Amber" role="button" tabindex="0"> 24
+              <span class="demote"> k
+            <i class="tb-team-icon">
+        <div class="tb-score sapphire right" data-testid="total-Sapphire">
+          <i class="tb-score-bg">
+          <div class="tb-score-row">
+            <i class="tb-team-icon">
+            <span class="ie tb-score-label editable" data-testid="total-edit-Sapphire" role="button" tabindex="0"> 40
+              <span class="demote"> k

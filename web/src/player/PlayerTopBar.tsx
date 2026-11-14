@@ -14,11 +14,11 @@ import { GameTip, Hover, TagTip, useTooltips } from "./GameTooltip";
 import { centreTimer, rejuvTip, respawnTip } from "./Camps";
 import { buildAt } from "../match/builds";
 
-import { For, Show, batch, createMemo, createResource, onCleanup, onMount } from "solid-js";
+import { For, Show, createMemo, createResource } from "solid-js";
 import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
 import { cx } from "../ui/cx";
-import { boardKeys } from "../core/keys";
-import { modalOpen } from "../ui/modal";
+import { buildPanels } from "../board/buildPanels";
+import { playerBuildView } from "../mapstate/buildView";
 import { teamTotal } from "../core/souls";
 import { campAt, clockLabel, playersAt, scoreboardValueAt, rejuvAt, type PlayerAt, type RejuvNow } from "../match/timeline";
 import { slotKey } from "../match/save";
@@ -145,21 +145,10 @@ export function PlayerTopBar(p: {
   onSeek?: (t: number) => void;
 }) {
   let el!: HTMLDivElement;
-  // The host's, so a follower opens the builds its presenter opens (spec §8).
-  const { openBuild, setOpenBuild, allBuilds, setAllBuilds, tabHeld, setTabHeld } = p.host;
-  const popover = { open: p.host.buildPopover, set: p.host.setBuildPopover };
-  const expanded = (key: string) => tabHeld() || allBuilds() || openBuild() === key;
-  // A build opens with neither popover open, as a fresh one did when the popovers were the DOM's.
-  const closeBuilds = () => batch(() => { setOpenBuild(undefined); setAllBuilds(false); p.host.setBuildPopover("none"); });
-  const toggleAll = () => batch(() => { setOpenBuild(undefined); setAllBuilds(v => !v); p.host.setBuildPopover("none"); });
-  const toggleBuild = (key: string) => {
-    const wasOpen = expanded(key);
-    batch(() => {
-      setAllBuilds(false);
-      setOpenBuild(wasOpen ? undefined : key);
-      p.host.setBuildPopover("none");
-    });
-  };
+  // The host's, so a follower opens the builds its presenter opens (spec §8); the keys and
+  // clicks are the scene bar's too (board/buildPanels.ts).
+  const { openBuild, allBuilds, tabHeld } = p.host;
+  const { popover, expanded, close: closeBuilds, toggleAll, toggle: toggleBuild, only: onlyBuild } = buildPanels(p.host, () => el);
   // The replay build's stat table (calculated stats) and the investment ladder's (match/stats.ts).
   const build = () => p.host.tl()?.build;
   const [statTable] = createResource(() => tableKeyFor(p.art.stats, build()) ?? false, key => loadStatTable(p.art.stats, key || null));
@@ -168,43 +157,6 @@ export function PlayerTopBar(p: {
   // The ult indicator's hover: the hero's ultimate's tooltip (feedback #9), its tiers at t.
   const tips = useTooltips(() => p.art, build);
   const [ladderTable] = createResource(() => ladderKeyFor(p.art.stats, build()) ?? false, key => loadStatTable(p.art.stats, key || null));
-  onMount(() => {
-    const outside = (event: PointerEvent) => {
-      if (!el.contains(event.target as Node) && !(event.target as Element).closest(".pl-bar")) closeBuilds();
-    };
-    const key = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], dialog')) return;
-      if (event.key === "Escape" && (allBuilds() || openBuild())) {
-        closeBuilds();
-        event.preventDefault();
-      }
-    };
-    // Like the game's scoreboard: holding Tab reveals every build, wherever the focus is (#24, as
-    // Space in Player.tsx): a focused button, list or the scrubber doesn't move focus on. A text
-    // field, an open dialog or menu keeps its Tab. Shift+Tab still moves focus back, so the
-    // keyboard can reach the controls. Captured, so no control's own handler sees it first.
-    const tabDown = (event: KeyboardEvent) => {
-      if (event.key !== "Tab" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.defaultPrevented) return;
-      if (modalOpen() || !boardKeys(event.target as Element | null)) return;
-      event.preventDefault();
-      setTabHeld(true);
-    };
-    const release = (event: KeyboardEvent) => { if (event.key === "Tab") setTabHeld(false); };
-    const blur = () => setTabHeld(false);
-    document.addEventListener("pointerdown", outside);
-    window.addEventListener("keyup", release);
-    window.addEventListener("blur", blur);
-    window.addEventListener("keydown", key);
-    window.addEventListener("keydown", tabDown, true);
-    onCleanup(() => {
-      window.removeEventListener("keydown", tabDown, true);
-      document.removeEventListener("pointerdown", outside);
-      window.removeEventListener("keydown", key);
-      window.removeEventListener("keyup", release);
-      window.removeEventListener("blur", blur);
-    });
-  });
   const friend = () => (p.vp === "sapphire" ? "Sapphire" : "Amber");
   const enemy = () => (friend() === "Amber" ? "Sapphire" : "Amber");
   const at = createMemo(() => {
@@ -340,7 +292,11 @@ export function PlayerTopBar(p: {
                 );
               })()}
               <Show when={(allShown() || expanded(key)) && player()}>
-                {pl => <BuildColumn visible={() => expanded(key)} inspect={expanded(key) && !allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek} player={pl()} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} stats={current(statTable(), tableKeyFor(p.art.stats, build()))} ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />}
+                {pl => {
+                  // Player's producer of the build interface: computed at t, held still while hidden.
+                  const view = playerBuildView(pl, p.host.tl, p.host.t, () => expanded(key));
+                  return <BuildColumn visible={() => expanded(key)} inspect={expanded(key) && !allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek} view={view} art={p.art} hero={hero()} name={nameOf()} id={`build-${t}-${s.slot.slot}`} stats={current(statTable(), tableKeyFor(p.art.stats, build()))} ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />;
+                }}
               </Show>
               {/* Never under the bar (styles/topbar.css): the name is the portrait's hover label's,
                   and the expanded column's. */}
@@ -408,13 +364,14 @@ export function PlayerTopBar(p: {
             <b>{allBuilds() || tabHeld() ? "All builds" : p.art.heroes.get(shownBuilds()[0]?.hero_id ?? 0)?.name ?? "Hero"}</b>
             <button class="btn ghost p-build-close" aria-label="Close" onClick={closeBuilds}>×</button>
           </header>
-          <Show when={allBuilds() || tabHeld()} fallback={<div class="phone-build-content"><For each={shownBuilds()}>{pl =>
-            <BuildColumn inspect={!allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek}
-              player={pl} timeline={p.host.tl()} t={p.host.t()} art={p.art} hero={p.art.heroes.get(pl.hero_id)}
+          <Show when={allBuilds() || tabHeld()} fallback={<div class="phone-build-content"><For each={shownBuilds()}>{pl => {
+            const view = playerBuildView(() => pl, p.host.tl, p.host.t);
+            return <BuildColumn inspect={!allBuilds() && !tabHeld()} popover={popover} onSeek={p.onSeek}
+              view={view} art={p.art} hero={p.art.heroes.get(pl.hero_id)}
               name={p.host.playerName(pl.team, pl.slot)} id={`phone-build-${slotKey(pl.team, pl.slot)}`}
               stats={current(statTable(), tableKeyFor(p.art.stats, build()))}
-              ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />
-          }</For></div>}>
+              ladder={current(ladderTable(), ladderKeyFor(p.art.stats, build()))} />;
+          }}</For></div>}>
             {/* Twelve rows: portrait, K/D/A, souls, items. A row opens that hero's build. */}
             <div class="phone-build-content phone-build-list" data-testid="all-builds-list">
               <div class="phone-build-row phone-build-head" data-testid="all-builds-head"><span /><span>K / D / A</span><span>Souls</span><span /></div>
@@ -433,7 +390,7 @@ export function PlayerTopBar(p: {
                   };
                   const items = () => { const q = pl(); return q ? buildAt(q, now()).items ?? [] : []; };
                   const souls = () => at().get(key)?.souls;
-                  return <button class={`phone-build-row ${t.toLowerCase()}`} data-testid="all-builds-row" aria-label={`${hero()?.name ?? "Hero"} build`} onClick={() => { batch(() => { setAllBuilds(false); setOpenBuild(key); p.host.setBuildPopover("none"); }); p.onFocus?.(t, s.slot.slot); }}>
+                  return <button class={`phone-build-row ${t.toLowerCase()}`} data-testid="all-builds-row" aria-label={`${hero()?.name ?? "Hero"} build`} onClick={() => { onlyBuild(key); p.onFocus?.(t, s.slot.slot); }}>
                     <span class="tb-player"><HeroBadge art={p.art} slot={s.slot} hero={hero()} /></span>
                     <span class="phone-row-kda">{kda()}</span>
                     <span class="phone-row-souls">{souls() != null ? souls()!.toLocaleString("en-US") : "—"}</span>

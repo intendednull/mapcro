@@ -209,16 +209,24 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
   safe. That guarantee ends when a row goes `Live`.
 - Schema v8 is the reader (additive: a v7 server still opens the database). v9 is the first
   writer: its step adds no SQL and sets the floor to 8 (`Step::NeedsReader` in `store.rs`), so
-  the v8 reader is the rollback target and nothing older starts.
+  the v8 reader is the rollback target and nothing older starts. v10 is the second writer (the
+  rows `kills`, `deaths`, `assists`, `max_health`, and the unfit undo below): the same kind of
+  step, floor 9, so **the rollback target from v10 is the v9 build (`1dcbd31`) and nothing
+  older**.
 - **`just reader-check`** (in `just test`) loads what this build's server stores on the reader
   release's own code. Its reader is `reader` in the justfile: **set it to the deployed commit
   at each deploy that changes what is stored**, with `just rows-lock`.
 - **`just rows-lock` is the only way to write the lock.** The test rewrites it only when the
   recipe names the commit it checked (`MAPCRO_ROWS_LOCK_COMMIT`); the flag alone fails.
-- **A looser validation rule is gated like a row.** `UNFIT_UNDO` (`map_state.rs`): this build
+- **A looser validation rule is gated like a row.** `UNFIT_UNDO` (`map_state.rs`): the v9 build
   skips an undo whose list no longer fits when it replays a log, and still refuses it from a
-  client. The release after this one is deployed makes it `Live`, with a store step that sets
-  the floor to this build's version.
+  client. v10 makes it `Live` (admitted, logged, skipped), with the store step that sets the
+  floor to 9.
+  **Deploy note for v10:** every client must be on a build that skips such an entry, or its
+  replica would call the board diverged. Clients of the v9 build (`1dcbd31`) do, and this
+  deploy closes every older tab as `Outdated` (the build id hashes the schema sources, which
+  the flip changes), so they reload. After the deploy, check that the served client's build
+  id changed.
 
 **Rolling back after a schema bump.** `meta` holds two numbers: `schema_version` and
 `compat_floor`, the oldest server schema version that can still use the database. An additive

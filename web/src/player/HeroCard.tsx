@@ -16,6 +16,7 @@ import { slotKey } from "../match/save";
 import { ladderKeyFor, loadStatTable, tableKeyFor } from "../match/stats";
 import type { Timeline } from "../match/timeline";
 import { BuildColumn } from "./BuildColumn";
+import { playerBuildView } from "../mapstate/buildView";
 import { Hover, TagTip } from "./GameTooltip";
 import { type Place, type Spot, movable } from "./panelPlace";
 import { type Vision, hasVision, seenAt } from "./vision";
@@ -68,7 +69,10 @@ export function HeroCard(p: {
   };
   return (
     <Show when={player()}>
-      {(pl) => (
+      {(pl) => {
+        // Made once for the panel: the view's memos follow the hero and t.
+        const view = playerBuildView(pl, () => p.timeline, () => p.t);
+        return (
         <section
           ref={(el) => movable(el, { place: () => p.place, home: () => p.home, onPlace: (at) => p.onPlace(at), onPress: () => p.onPress(), handle: ".hero-panel-head" })}
           class="hero-panel"
@@ -85,9 +89,10 @@ export function HeroCard(p: {
             <span />
             <Hover tip={() => <TagTip text="Close (Esc)" />}><button type="button" class="btn small" data-testid="hero-card-close" aria-label="Close" onClick={() => p.onClose()}>×</button></Hover>
           </div>
-          <BuildColumn limited={limited()} player={pl()} timeline={p.timeline} t={p.t} art={p.art} hero={hero()} name={name()} id={`hero-card-${pl().team}-${pl().slot}`} stats={stats.latest} ladder={ladder.latest} onSeek={p.onSeek} />
+          <BuildColumn limited={limited()} view={view} art={p.art} hero={hero()} name={name()} id={`hero-card-${pl().team}-${pl().slot}`} stats={stats.latest} ladder={ladder.latest} onSeek={p.onSeek} />
         </section>
-      )}
+        );
+      }}
     </Show>
   );
 }

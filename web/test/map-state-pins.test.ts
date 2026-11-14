@@ -72,7 +72,9 @@ const roster = replay.players.map((p, i) => ({ id: `slot-${i}`, slot: { team: p.
 /** Save as scene's ops at `t`, with ids minted in order. */
 const saved = (tl: Timeline, t: number) => {
   let n = 0;
-  return matchSceneOps(roster as never, [], undefined, tl, t, markers, () => `id${n++}`, lanes, { source: sourceOf(tl) });
+  // `builds` (whether the snapshot fitted) is the caller's to report, not a stored value.
+  const { builds: _fitted, ...ops } = matchSceneOps(roster as never, [], undefined, tl, t, markers, () => `id${n++}`, lanes, { source: sourceOf(tl) });
+  return ops;
 };
 
 describe("map state, as it is before MapState (phase 0 pins)", () => {
@@ -90,7 +92,7 @@ describe("map state, as it is before MapState (phase 0 pins)", () => {
     await expect(JSON.stringify([0, 2, 3.9].map((t) => frame(metadata, t)), null, 1)).toMatchFileSnapshot("./pins/player-frames-metadata.json");
   });
 
-  it("Save as scene's records, from each tier", async () => {
+  it("Save as scene's records, from each tier (moved by phase 2: each hero's build and the scene's state)", async () => {
     await expect(JSON.stringify({ replay_2: saved(replay, 2), replay_3_9: saved(replay, 3.9), metadata_3: saved(metadata, 3) }, null, 1)).toMatchFileSnapshot("./pins/save-as-scene.json");
   });
 
@@ -104,8 +106,13 @@ describe("map state, as it is before MapState (phase 0 pins)", () => {
     expect(players.every((p) => p.visible === true && p.respawn === undefined)).toBe(true);
     // Six slots had no hero: Save sets the board's roster to the match's.
     expect(ops.filter((o) => "Set" in o && "RosterHero" in o.Set.value)).toHaveLength(6);
-    // Nothing else of the frame is stored: no health, build, timer or sight.
+    // Phase 2 (spec §8): the frame's builds are stored too, on the heroes' records, with one
+    // state for the scene that says so. Health on the bar, timers and sight are later phases.
     const kinds = new Set(ops.flatMap((o) => ("Create" in o ? Object.keys(o.Create.record) : [])));
-    expect([...kinds].sort()).toEqual(["ObjectiveState", "PlayerState", "Scene", "Wave"]);
+    expect([...kinds].sort()).toEqual(["ObjectiveState", "PlayerState", "Scene", "SceneState", "Wave"]);
+    // Without the snapshot it is the save as it was before phase 2, record for record.
+    const bare = matchSceneOps(roster as never, [], undefined, replay, 3, markers, (() => { let n = 0; return () => `id${n++}`; })(), lanes, { source: sourceOf(replay), builds: false }).ops;
+    expect(new Set(bare.flatMap((o) => ("Create" in o ? Object.keys(o.Create.record) : [])))).toEqual(new Set(["ObjectiveState", "PlayerState", "Scene", "Wave"]));
+    expect(bare.every((o) => !("Create" in o && "PlayerState" in o.Create.record && o.Create.record.PlayerState.more))).toBe(true);
   });
 });

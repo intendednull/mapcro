@@ -88,17 +88,20 @@ export function SceneTree(p: {
   };
   /** An editor may add a scene: one slot stays free for Player's live layer (max_scenes 64). */
   const canAdd = () => p.state.canEdit() && order().length < 63;
+  /** A new scene's transactions, in order: one unless the copied snapshot is over a transaction
+   * (then more than one undo step); a refused one stops the rest. */
+  const send = (txs: Op[][]) => txs.every((tx) => p.state.edit(tx));
   const add = (asChild: boolean) => {
     const cur = order()[index()];
-    const { id, ops } = addSceneOps(p.state, cur, asChild);
-    p.state.edit(ops);
+    const { id, txs } = addSceneOps(p.state, cur, asChild);
+    send(txs);
     if (asChild && cur && collapsed().has(cur.id)) toggle(cur.id);
     p.onFlip(id);
   };
   /** A copy of `row`'s scene (its heroes, objectives and splits), right after it, as its sibling. */
   const clone = (row: { id: RecordId; scene: Scene }) => {
-    const { id, ops } = addSceneOps(p.state, row, false, undefined, isUnnamed(row.scene.name) ? "" : `${row.scene.name} copy`);
-    p.state.edit(ops);
+    const { id, txs } = addSceneOps(p.state, row, false, undefined, isUnnamed(row.scene.name) ? "" : `${row.scene.name} copy`);
+    send(txs);
     p.onFlip(id);
   };
   const remove = (id: RecordId) => {

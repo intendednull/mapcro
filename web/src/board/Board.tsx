@@ -343,10 +343,10 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     userFlip(id);
   };
   /** A scene saved from the replay: shown (its drawings moved into it), with a toast to go back. */
-  const savedScene = (id: RecordId) => {
+  const savedScene = (id: RecordId, bare?: boolean) => {
     pickScene(id);
     const n = state.scenes().findIndex((s) => s.id === id) + 1;
-    say(n ? `Saved scene ${n}` : "Scene saved", {
+    say(bare ? "Saved without builds" : n ? `Saved scene ${n}` : "Scene saved", {
       label: "Back to replay",
       run: () => {
         stopFollowing("changed the playback");
@@ -976,7 +976,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       </div>
       </Show>
       <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} compact onFocus={focusHero} onSeek={seekMatch} />}>
-        <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} compact readOnly onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
+        <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} compact readOnly onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
       </Show>
       <div class="p-map-wrap">
         <Show when={!inPlayer()}>{mapControls()}</Show>
@@ -1434,7 +1434,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             </div>
           </div>
           <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} art={p.art} vp={viewpoint()} onFocus={focusHero} onSeek={seekMatch} />}>
-            <TopBar state={state} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} bindMenu={(f) => (heroMenu = f)} />
+            <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} bindMenu={(f) => (heroMenu = f)} />
           </Show>
           {/* The map takes all the room left, as the largest square that fits. */}
           <div class="mapfit" ref={measureBoard} data-testid="board-area">

@@ -3,6 +3,33 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Map state phase 2, left over (2026-11-13, fourth implementer)
+
+Found while building the scene's builds (`docs/journal/2026-11-13-map-state-build.md`); none is
+needed for #49 on the desktop.
+
+- **Scene builds on the phone.** The scene's compact bar shows no builds (`TopBar.tsx`
+  `hasBuilds` is off when `compact`): Player's phone layout is a sheet of its own
+  (`PlayerTopBar` `phone-build-sheet`). `mobile-qa` is merged now; build it on that sheet.
+  #49 doesn't say which layout it was reported on; it is fixed on the desktop layout, and on a
+  phone a scene still shows no builds.
+- **The follow matrix's scene column.** `follow-matrix.spec.ts` pins each key against a presenter
+  in Player only. The panel keys now follow on a scene (`host.ts` `mirror`); `scene-builds.spec.ts`
+  has two tests of it (with the match open, and on a board with no match, from a file), each
+  checked by mutating `host.ts`. Still to add: the matrix's column for the panel group (the
+  follower's own change, Stop following, a late joiner, a server restart, on a scene).
+- **A scene's build after its slot's hero changes shows nothing, in a browser.** `holdsBuild` is
+  unit-tested; no e2e changes a hero on a scene with a snapshot and checks the column goes.
+- **A board with a match reopens in Player after a reload**, not on the scene that was shown
+  (seen in phase 2's QA; as before this work). A coach who saved a scene and reloads has to pick
+  it again. Decide whether the last view should be kept per device.
+- **Health, level badge and ult tiers behind the build interface.** `PlayerTopBar` still reads the
+  level badge and the ult tooltip's tiers from the timeline, and the phone's all-builds list its
+  K/D/A and items. They move with phase 4's one bar.
+- **Retake when the roster's hero differs.** Retake stores the match's hero for a slot; a slot
+  whose hero was changed since shows no build, with nothing saying why. Phase 6's per-scene hero
+  is the fix.
+
 ## Phone and tablet layout: left from the mobile QA pass (2026-11-13, from mobile-qa)
 
 The pass fixed the roster's portraits, the clock under Events, the stretched board map and a few

@@ -1,11 +1,14 @@
 //! What one edit costs on a board full of saved scenes (map-state spec §6, review M5).
 //!
-//! The replica clones the whole document on every local edit (`Replica::submit`), and the
-//! browser's wrapper clones it once more to diff (`crates/wasm`). This builds a board of 64
+//! The replica used to clone the whole document on every local edit and every received entry,
+//! and the browser's wrapper once more to diff; both now cost what they touch where they can
+//! (the spec's "Edit cost" table has the before and after). This builds a board of 64
 //! scenes shaped like Save as scene's, and times the clone, a local edit, a received entry and
 //! the document's JSON, so a change to what a scene holds can be compared with today.
 //!
 //! `cargo run --release -p mapcro-engine --example scene_cost -- [--objectives N] [--more BYTES]`
+//! `--dump PATH` also writes the board as a `Base` (what a joining client is sent), which
+//! `just edit-cost` loads into the real WASM replica in Chromium (web/perf/edit-cost.mjs).
 //! `--objectives`: `ObjectiveState` records per scene (default 45: with 12 players and 3 waves,
 //! the review's median of ~60 records). `--more`: bytes of packed lists in each hero's `more`
 //! (default 0: today's records).
@@ -103,6 +106,11 @@ fn main() {
     let json = serde_json::to_string(&doc).expect("json");
     let scenes = doc.iter_live().filter(|(_, r)| matches!(r, Record::Scene(_))).count();
     let player = doc.iter_live().find(|(_, r)| matches!(r, Record::PlayerState(_))).map(|(id, _)| id).expect("player");
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(path) = args.iter().position(|a| a == "--dump").and_then(|i| args.get(i + 1)) {
+        let base = mapcro_engine::wire::Base { doc: doc.clone(), seq: 0 };
+        std::fs::write(path, serde_json::to_string(&base).expect("json")).expect("write the dump");
+    }
     println!("scenes {scenes}  records {}  json {} KiB  heap estimate {} KiB", doc.len(), json.len() / 1024, doc.approx_heap_bytes() / 1024);
 
     let clone = time(200, || {
@@ -128,5 +136,4 @@ fn main() {
         peer.receive(ServerMsg::Entry { seq, tx }).expect("in order");
     });
     println!("clone {clone:.0} us  local edit {edit:.0} us  received entry {receive:.0} us  to JSON {to_json:.0} us");
-    println!("(the browser's wrapper clones once more per edit and per receive, to diff)");
 }

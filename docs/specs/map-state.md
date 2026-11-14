@@ -152,13 +152,16 @@ a server without the reader would drop `more` silently. So:
 - **A rule that lets more in is gated the same way.** A `SetIf` on a registry value that the
   record has no room for (an undo, after others filled the room it left) is skipped, not
   refused, with the rest of its transaction applied. The reader deployed as v8 refuses such a
-  transaction on replay, so the build that first skips it still refuses it at admission
-  (`UNFIT_UNDO`, asked by `apply_tx_admitted`); the release after admits it.
+  transaction on replay, so the build that first skips it (store v9) still refuses it at
+  admission (`UNFIT_UNDO`, asked by `apply_tx_admitted`); the release after (store v10) admits
+  it.
 - **Rows go live in order.** The client's capture writes the rows before the first `Ahead` one,
   and that count is the snapshot's watermark (§4.5).
-- **The store version moves twice.** v8 (additive, no SQL) ships with the reader, so a v7 server
-  still opens the database while nothing is written. v9 ships with the writer and sets the floor to
-  8, so a server older than the reader refuses to start.
+- **The store version moves with each step.** v8 (additive, no SQL) ships with the reader, so a
+  v7 server still opens the database while nothing is written. v9 ships with the writer and sets
+  the floor to 8, so a server older than the reader refuses to start. v10 writes `kills`,
+  `deaths`, `assists` and `max_health` and admits the unfit undo, both read by v9 (deployed as
+  `1dcbd31`): its floor is 9.
 - **Board files:** the reader accepts file version 2 (version 1 plus a `rows` header) and still
   writes version 1. The writer writes version 2. `rows` is the number of rows the exporting
   build writes: the index of its first `Ahead` row (`written_rows`), the same watermark a
@@ -170,6 +173,26 @@ a server without the reader would drop `more` silently. So:
 A new field therefore costs: the row (as `Ahead`), its producer in Player, its draw; then one
 release later the row goes `Live` and Save writes it. Lists (`Ints`) also need a hand-written
 pack, unpack and defensive decoder each, since the server checks only length and range.
+
+**The lists' packing** (`web/src/mapstate/build.ts`; permanent once a release writes it, since
+stored scenes hold it):
+
+| Row | An entry | Holds | Cut when over |
+|---|---|---|---|
+| `items` | 4: id, cooldown in tenths, charges, stacks (-1: none) | 32 | the first 32 kept |
+| `abilities` | 5: id, level, then as an item | 9 (48 integers; 3 unused) | the first 9 kept |
+| `build_order` | 3: tenths of a second, id, kind | 200 | the latest 200 kept; the oldest also go first when the record or the save is over its bytes |
+| `pickups` | the five statue values, **in hundredths** | 1 | |
+
+- **Pickups are hundredths, not whole numbers.** The timeline's are f32 and the resists move in
+  quarters: on match 134623152 bullet resist is fractional in 71 of its 103 pickup rows. Stored
+  whole, 15,508 of its 30,576 hero-seconds gave the calculator a different input than Player
+  (the largest error 0.5). In hundredths every one of them is exact, and the largest value is
+  far inside the row's ±1e9.
+- **Abilities have thin headroom:** 9 entries against a match maximum of 7 measured. A hero
+  with more than 9 loses the rest in a scene; the row's `len` can only widen (48 → more), one
+  release ahead of its writer.
+- The caps and the cut order are tested in `web/test/map-state-build.test.ts`.
 
 ### 4.4 The record and byte budget (H2, M7)
 
@@ -192,6 +215,12 @@ its life today.
   must be created together. It fits: the fullest frame measured 47 KB and 189 ops against 64 KiB
   and 256. The client checks the encoded size before sending and drops whole features in a fixed
   order when over (effects first), clearing their captured flag.
+  Builds: the build orders lose their oldest rows first; if the builds still don't fit, the
+  scene is saved without a snapshot and the save's toast says "Saved without builds" (Retake
+  can add them, in transactions of its own).
+- **New scene and Duplicate** copy the snapshot with the scene. One transaction when it fits;
+  over the byte or op cap (twelve builds near a record's 8 KiB are 96 KiB) it is sent in
+  several, the scene first and its `SceneState` last, and is then more than one undo step.
 - **Saving many scenes** sends one transaction per scene, chunked by bytes, not op count.
 - **Retake** writes with `SetIf` on an absent value, so it never overwrites; it may take more than
   one transaction and is then more than one undo step.
@@ -284,9 +313,25 @@ selects; the build opens from the portrait's build control in both. The phone la
 - **The bound is on consumers:** a component reruns only when a value it reads changes. Each
   entity's fields are memos keyed by slot or marker with an equality check.
 - **A scene is static:** its `MapState` changes only when a record does.
-- **Edit cost:** the replica clones the whole document on every edit and receive. Phase 0 measures
-  a 64-scene board before and after `more` (§9); the numbers decide whether the clone must go
-  before the writer ships.
+- **Edit cost:** the replica cloned the whole document on every edit and receive, twice (the
+  engine's view, and the WASM wrapper's copy to diff for `changed`). Measured in Chromium on a
+  64-scene board (3,869 records, 768 heroes; `just edit-cost`, 300 runs, medians in ms), by the
+  bytes of `more` on each hero (a real build is about 3,000; the cap is 8,192):
+
+  | `more` a hero | Board JSON | A drag frame (edit + its ack) | A peer's entry, nothing pending | A peer's entry under a pending edit | Whole-state save |
+  |---|---|---|---|---|---|
+  | 0 | 748 KiB | 1.88 → 0.02 | 0.94 → 0.01 | 0.94 → 0.26 | 5.3 → 5.5 |
+  | 3,000 | 2,993 KiB | 5.09 → 0.05 | 2.96 → 0.03 | 3.18 → 1.11 | 12.3 → 14.2 |
+  | 8,000 | 6,331 KiB | 18.35 → 0.06 | 9.06 → 0.05 | 6.10 → 2.31 | 20.1 → 20.0 |
+
+  **Decided: both clones go from the edit path** (before → after above; 18 ms a drag frame is
+  over a frame's budget). An edit and an undo apply in place (`apply_tx_with_inverse` rolls a
+  refusal back); an ack of the oldest pending transaction as sent, and a peer's entry with
+  nothing pending, leave or change the view directly; `changed` compares only the records the
+  call can touch. **What still copies the board:** a peer's entry while this replica has
+  pending work and a rejection (the view is rebuilt from the confirmed state), a `Rebase`, and
+  the whole-state save, which is unchanged and debounced. The simulation checks at every step
+  that the view is the confirmed state with the pending work applied.
 
 ## 7. Follow on scenes (H5)
 
@@ -312,7 +357,7 @@ Each ships alone and leaves every board working.
 |---|---|---|
 | 0 | Characterisation tests and measurements (§9). | Nothing. |
 | 1 | Server and schema reader only: `more`, `SceneState`, `FieldValue::More`, the registry with the tracer's rows as `Ahead`, limits, the heap estimate, the simulation, store v8, file version 2 read. | Nothing; the reader is ahead. |
-| 2 | Builds end to end as the tracer: components read a build interface in Player; Save captures; the scene shows it; the writer (store v9, rows `Live`, file version 2); Retake for scenes whose match is open; panel follow on scenes. | #49, for old and new scenes. |
+| 2 | Builds end to end as the tracer: components read a build interface in Player; Save captures; the scene shows it; the writer (store v9, rows `Live`, file version 2; then store v10 for the K/D/A and max health rows and the unfit undo); Retake for scenes whose match is open; panel follow on scenes. | #49, for old and new scenes. |
 | 3 | Player producers for the rest, feature by feature, with the clocks. | TD-50. |
 | 4 | One map and bar renderer, with decisions D1–D5 and D13. | Decided changes only. |
 | 5 | The remaining rows, each a release behind its reader; the marker baseline. | Per feature. |
@@ -352,5 +397,5 @@ review before each merge.
 ## 10. Still open
 
 - The operator may override any "decided (default)" row in §2.
-- Whether the replica's whole-document clone per edit must be fixed before the writer ships: by
-  the phase 0 and phase 1 numbers (§6).
+- ~~Whether the replica's whole-document clone per edit must be fixed before the writer
+  ships.~~ Measured and removed in phase 2 (§6).

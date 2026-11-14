@@ -55,6 +55,7 @@ export const WRITTEN: number = (() => {
 const ITEM = 4; // id, cooldown (tenths; -1 none), charges (-1 none), stacks (-1 none)
 const ABILITY = 5; // id, level, then as an item
 const ORDER = 3; // tenths of a second, id, kind
+const PICKUP = 100; // a pickup value is stored in hundredths
 
 const lenOf = (key: RowKey) => { const r = ROWS[key]; return r.kind === "ints" ? r.len : 0; };
 const or = (n: number | null) => (n == null ? -1 : n);
@@ -90,7 +91,12 @@ const HERO: { [K in HeroKey]-?: { put: (b: HeroBuild) => MoreValue | undefined; 
   build_order: { put: (b) => b.order?.slice(-lenOf("build_order") / ORDER).flat(), get: (b, v) => { b.order = (strides(v, ORDER) as OrderRow[] | null) ?? null; } },
   level: { put: (b) => (inRow("level", b.level) ? b.level : undefined), get: (b, v) => { b.level = int(v); } },
   health: { put: (b) => (b.health == null ? undefined : Math.max(0, Math.min(100, Math.round(b.health)))), get: (b, v) => { b.health = int(v); } },
-  pickups: { put: (b) => b.pickups?.map((n) => Math.round(n)), get: (b, v) => { const p = strides(v, 5); b.pickups = p?.length === 1 ? (p[0] as Pickups) : null; } },
+  // Hundredths: the timeline's values are f32 and the resists move in quarters (a whole number
+  // lost up to 0.5 on most frames). Permanent once written, like every packing here.
+  pickups: {
+    put: (b) => b.pickups?.map((n) => Math.round(n * PICKUP)),
+    get: (b, v) => { const p = strides(v, 5); b.pickups = p?.length === 1 ? (p[0]!.map((n) => n / PICKUP) as Pickups) : null; },
+  },
   kills: { put: (b) => (inRow("kills", b.kills) ? b.kills : undefined), get: (b, v) => { b.kills = int(v); } },
   deaths: { put: (b) => (inRow("deaths", b.deaths) ? b.deaths : undefined), get: (b, v) => { b.deaths = int(v); } },
   assists: { put: (b) => (inRow("assists", b.assists) ? b.assists : undefined), get: (b, v) => { b.assists = int(v); } },
@@ -119,17 +125,21 @@ export function heroBuildAt(tl: Pick<Timeline, "events" | "players" | "format">,
 }
 
 const jsonLen = (more: More) => new TextEncoder().encode(JSON.stringify(more)).length;
+/** A `more`'s size as the server counts it against `max_more_bytes`: its JSON, in bytes. */
+export const moreBytes = jsonLen;
 
-/** A build as the hero record's `more`: the rows this build writes, within one record's cap
- * (`max_more_bytes`). Over it, the build order loses its oldest rows first. */
-export function captureBuild(build: HeroBuild): More {
+/** A build as the hero record's `more`: the rows this build writes, within `budget` bytes of
+ * JSON (at most one record's cap, `max_more_bytes`; less when a save's twelve must share one
+ * transaction). Over it, the build order loses its oldest rows first; what is left may still be
+ * over a small budget, which the caller checks (`moreBytes`). */
+export function captureBuild(build: HeroBuild, budget: number = LIMITS.max_more_bytes): More {
   const more: More = {};
   for (const key of Object.keys(HERO) as HeroKey[]) {
     if (ROWS[key].index >= WRITTEN) continue;
     const v = HERO[key].put(build);
     if (v !== undefined) more[key] = v;
   }
-  while (jsonLen(more) > LIMITS.max_more_bytes) {
+  while (jsonLen(more) > Math.min(budget, LIMITS.max_more_bytes)) {
     const order = more.build_order as number[] | undefined;
     if (!order?.length) { delete more.build_order; break; }
     more.build_order = order.slice(Math.ceil(order.length / ORDER / 2) * ORDER);
@@ -163,7 +173,9 @@ export function readBuild(more: More | undefined, rows: number, hero: number): H
 }
 
 /** The calculator's input from a build (match/stats.ts `statBuild`, which Player uses): null
- * without the level, the items or the pickups. A dead hero counts as full health. */
+ * without the level, the items or the pickups. A dead hero counts as full health, and so does
+ * one alive in the scene whose health the frame doesn't hold (it was dead there, and revived
+ * since: spec §5). */
 export function statOf(b: HeroBuild, alive: boolean): StatBuild | null {
   if (b.level == null || b.items == null || b.pickups == null) return null;
   const [max_health, spirit_power, weapon_damage, bullet_resist, spirit_resist] = b.pickups;
@@ -173,6 +185,6 @@ export function statOf(b: HeroBuild, alive: boolean): StatBuild | null {
     items: b.items.map((i) => i.id),
     ability_tiers: (b.abilities ?? []).filter((a) => a.level >= 2).map((a) => [a.id, a.level - 1]),
     pickups: { max_health, spirit_power, weapon_damage, bullet_resist, spirit_resist },
-    health_pct: alive ? b.health : 100,
+    health_pct: alive ? (b.health ?? 100) : 100,
   };
 }
