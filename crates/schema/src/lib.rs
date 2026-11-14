@@ -16,7 +16,7 @@ pub use file::{export_records, import_records};
 #[cfg(feature = "ts")]
 pub use doc::DocPair;
 pub use ids::{BoardId, ClientId, GrantId, HeroId, LaneKey, ObjectiveKey, OrderKey, RecordId, is_id22};
-pub use map_state::{Admit, Entity, Kind, MAX_SAFE_INT, More, MoreValue, ROWS, Row, RowId, SCENE_STATE, Status, UNFIT_UNDO};
+pub use map_state::{Admit, Entity, Kind, MAX_SAFE_INT, More, MoreValue, ROWS, Row, RowId, SCENE_STATE, Status, UNFIT_UNDO, rows_ts};
 pub use records::{
     Arrow, BoardMeta, Callout, Field, FieldValue, Note, ObjectiveState, ObjectiveStatus, PlayerState,
     Record, RecordKind, RosterSlot, Scene, SceneSource, SceneState, SessionMeta, Stroke, Tab, Team, WAVE_T_MAX, Wave, WorldPos,

@@ -149,6 +149,13 @@ a server without the reader would drop `more` silently. So:
   and a replayed log are never asked, so a board always loads. Until a row is `Live`, storage
   therefore holds nothing a server from before the reader can't parse, and the reader release
   can be rolled back. A `Retired` row is not refused.
+- **A rule that lets more in is gated the same way.** A `SetIf` on a registry value that the
+  record has no room for (an undo, after others filled the room it left) is skipped, not
+  refused, with the rest of its transaction applied. The reader deployed as v8 refuses such a
+  transaction on replay, so the build that first skips it still refuses it at admission
+  (`UNFIT_UNDO`, asked by `apply_tx_admitted`); the release after admits it.
+- **Rows go live in order.** The client's capture writes the rows before the first `Ahead` one,
+  and that count is the snapshot's watermark (§4.5).
 - **The store version moves twice.** v8 (additive, no SQL) ships with the reader, so a v7 server
   still opens the database while nothing is written. v9 ships with the writer and sets the floor to
   8, so a server older than the reader refuses to start.

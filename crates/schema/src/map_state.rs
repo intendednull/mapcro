@@ -75,7 +75,13 @@ pub const MAX_SAFE_INT: i64 = (1 << 53) - 1;
 
 const ID: i64 = u32::MAX as i64;
 
+/// A row whose reader is deployed (it is in `rows.lock`) and that this build writes.
 const fn row(key: &'static str, entity: Entity, kind: Kind) -> Row {
+    Row { key, entity, kind, status: Status::Live }
+}
+
+/// A new row: read by this build, written by none until this build is deployed and locked.
+const fn ahead(key: &'static str, entity: Entity, kind: Kind) -> Row {
     Row { key, entity, kind, status: Status::Ahead }
 }
 
@@ -97,12 +103,19 @@ pub const ROWS: &[Row] = &[
     row("level", Entity::Hero, Kind::Int { min: 0, max: 1000 }),
     row("health", Entity::Hero, Kind::Int { min: 0, max: 100 }),
     row("pickups", Entity::Hero, Kind::Ints { len: 16, min: -1_000_000_000, max: 1_000_000_000 }),
+    // The rest of the build column (phase 2 designed it after the rows above shipped): the
+    // scoreboard's kills, deaths and assists, and the recorded max health. Ahead: this build
+    // is their reader; a scene's column shows "—" for them until the next release writes them.
+    ahead("kills", Entity::Hero, Kind::Int { min: 0, max: 100_000 }),
+    ahead("deaths", Entity::Hero, Kind::Int { min: 0, max: 100_000 }),
+    ahead("assists", Entity::Hero, Kind::Int { min: 0, max: 100_000 }),
+    ahead("max_health", Entity::Hero, Kind::Int { min: 0, max: 10_000_000 }),
 ];
 
 /// `SceneState`'s own status: the record kind is gated as a row is. Its reader ships a release
 /// before anything creates one; the writer release makes it `Live` (spec §4.3). A test holds it
 /// `Ahead` until `rows.lock` shows a deployed build that reads it.
-pub const SCENE_STATE: Status = Status::Ahead;
+pub const SCENE_STATE: Status = Status::Live;
 
 /// Whether a submitted `SetIf` on a registry value that the record has no room for is admitted
 /// (and skipped: review F4) or refused (`Ahead`). Gated like a row, because it is one more
@@ -166,6 +179,51 @@ impl Admit {
             Op::SetIf { expect, value, .. } => self.value(expect).and_then(|()| self.value(value)),
             Op::Delete { .. } | Op::Restore { .. } => Ok(()),
         })
+    }
+}
+
+/// The registry as a TypeScript module, `web/src/gen/rows.ts` (`just ts` writes it): the
+/// client's row table (spec §4.2). Capture writes the rows that are not `ahead`; the readers
+/// and the round-trip property iterate it.
+pub fn rows_ts() -> String {
+    use std::fmt::Write as _;
+    let status = |s: Status| match s {
+        Status::Ahead => "ahead",
+        Status::Live => "live",
+        Status::Retired => "retired",
+    };
+    let mut out = String::from(
+        "// Generated from crates/schema/src/map_state.rs `ROWS` by `just ts`. Do not edit.\n\n/** A row is read by every build that knows it; `ahead`: nothing writes it yet. */\nexport type RowStatus = \"ahead\" | \"live\" | \"retired\";\n\n/** Every map-state row, in registry order (`index`): what it belongs to, its kind and bounds. */\nexport const ROWS = {\n",
+    );
+    for (index, r) in ROWS.iter().enumerate() {
+        let entity = match r.entity {
+            Entity::Hero => "hero",
+            Entity::Marker => "marker",
+            Entity::Lane => "lane",
+            Entity::Scene => "scene",
+        };
+        let kind = match r.kind {
+            Kind::Bool => "kind: \"bool\"".to_owned(),
+            Kind::Int { min, max } => format!("kind: \"int\", min: {min}, max: {max}"),
+            Kind::Text { max } => format!("kind: \"text\", max: {max}"),
+            Kind::Pos => "kind: \"pos\"".to_owned(),
+            Kind::Ints { len, min, max } => format!("kind: \"ints\", len: {len}, min: {min}, max: {max}"),
+        };
+        let _ = writeln!(out, "  {}: {{ index: {index}, entity: \"{entity}\", {kind}, status: \"{}\" as RowStatus }},", r.key, status(r.status));
+    }
+    let _ = write!(out, "}} as const;\n\nexport type RowKey = keyof typeof ROWS;\n\n/** Whether a scene's state (`SceneState`) may be created yet. */\nexport const SCENE_STATE: RowStatus = \"{}\";\n", status(SCENE_STATE));
+    out
+}
+
+#[cfg(all(test, feature = "ts"))]
+mod rows_ts {
+    use super::*;
+
+    const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../web/src/gen/rows.ts");
+
+    #[test]
+    fn export_bindings_rows() {
+        std::fs::write(PATH, rows_ts()).expect("write rows.ts");
     }
 }
 
@@ -497,6 +555,23 @@ mod tests {
     fn git_head() -> Option<String> {
         let out = std::process::Command::new("git").args(["rev-parse", "HEAD"]).current_dir(env!("CARGO_MANIFEST_DIR")).output().ok()?;
         out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned()).filter(|h| !h.is_empty())
+    }
+
+    #[test]
+    fn the_clients_row_table_is_up_to_date_and_says_each_rows_status() {
+        let ts = rows_ts();
+        assert_eq!(std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../web/src/gen/rows.ts")).expect("web/src/gen/rows.ts"), ts, "stale: run `just ts`");
+        assert!(ts.contains("  hero: { index: 0, entity: \"hero\", kind: \"int\", min: 0, max: 4294967295, status: \"live\" as RowStatus },"), "{ts}");
+        assert!(ts.contains("  items: { index: 5, entity: \"hero\", kind: \"ints\", len: 128, min: -1, max: 4294967295, status: \"live\" as RowStatus },"));
+        assert!(ts.contains("  name: { index: 1, entity: \"hero\", kind: \"text\", max: 24, status: \"live\" as RowStatus },"));
+        assert!(ts.contains("  has_builds: { index: 3, entity: \"scene\", kind: \"bool\", status: \"live\" as RowStatus },"));
+        assert!(ts.contains("  kills: { index: 11, entity: \"hero\", kind: \"int\", min: 0, max: 100000, status: \"ahead\" as RowStatus },"));
+        assert!(ts.ends_with("export const SCENE_STATE: RowStatus = \"live\";\n"));
+        assert_eq!(ts.matches(" index: ").count(), ROWS.len());
+        // Rows go live in order: the client's watermark is the first row still ahead, so a
+        // written row after an ahead one would be captured and never read.
+        let first_ahead = ROWS.iter().position(|r| r.status == Status::Ahead).unwrap_or(ROWS.len());
+        assert!(ROWS[first_ahead..].iter().all(|r| r.status == Status::Ahead), "a row is written after one still ahead");
     }
 
     #[test]

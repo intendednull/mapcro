@@ -193,7 +193,7 @@ pub struct Store {
 }
 
 /// Database schema version. Each step in `migrate` takes the database one version forward.
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 /// What the step from `from` to `from + 1` asks of an older server (spec §9, docs/deploy.md
 /// "Rollbacks").
@@ -305,6 +305,10 @@ fn migrate(conn: &Connection, from: i64, to: i64) -> Result<(), StoreError> {
             // one, which ships with the first writer, can set the floor to 8: a server older
             // than this reader would drop those values without a word.
             7 => {}
+            // v8 → v9: no SQL. From here the server writes the map-state registry (rows `Live`,
+            // `SceneState`), which the v8 reader loads and nothing older does: `Step::NeedsReader`
+            // sets the floor to 8, so a server from before the reader refuses to start.
+            8 => {}
             other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
         }
         v += 1;
@@ -1165,11 +1169,36 @@ mod tests {
         Connection::open(path).expect("open").query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0)).optional().expect("meta")
     }
 
+    /// The writer's database (v9: rows `Live`, review F3): the v8 reader opens it and leaves it
+    /// as it is, so the reader is the rollback target; a server from before the reader, which
+    /// would drop the registry's values without a word, is refused.
+    #[test]
+    fn only_the_reader_opens_the_writers_database() {
+        assert_eq!(SCHEMA_VERSION, 9);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        Store::open(&path).expect("create at v9");
+        assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("9"), Some("8")));
+        let c = Connection::open(&path).expect("open");
+        reconcile(&c, 8).expect("the v8 reader opens a v9 database");
+        for older in [5, 6, 7] {
+            assert!(matches!(reconcile(&c, older), Err(StoreError::Corrupt(_))), "v{older} is from before the reader");
+        }
+        drop(c);
+        assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("9"), Some("8")), "left as it was");
+        // A v8 database in use migrates to it: the floor goes from 5 to 8.
+        let old = dir.path().join("old.sqlite");
+        Store::open_at(&old, 8).expect("create at v8");
+        assert_eq!(meta(&old, "compat_floor").as_deref(), Some("5"));
+        Store::open(&old).expect("migrates");
+        assert_eq!((meta(&old, "schema_version").as_deref(), meta(&old, "compat_floor").as_deref()), (Some("9"), Some("8")));
+    }
+
     #[test]
     fn v5_to_v7_servers_open_a_v8_database_without_touching_it() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
-        Store::open(&path).expect("create at v8");
+        Store::open_at(&path, 8).expect("create at v8");
         // What an older server's open does with it: v6, v7 and v8 only added, so they may.
         for older in [5, 6, 7] {
             let c = Connection::open(&path).expect("open");
@@ -1190,18 +1219,17 @@ mod tests {
         Store::open(&path).expect("create");
         Connection::open(&path)
             .expect("open")
-            .execute_batch("UPDATE meta SET value = '10' WHERE key = 'schema_version'; UPDATE meta SET value = '9' WHERE key = 'compat_floor';")
-            .expect("a v10 database that a v9 migration broke for older servers");
+            .execute_batch("UPDATE meta SET value = '11' WHERE key = 'schema_version'; UPDATE meta SET value = '10' WHERE key = 'compat_floor';")
+            .expect("a v11 database that a v10 migration broke for older servers");
         assert!(matches!(Store::open(&path), Err(StoreError::Corrupt(_))));
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("10"), "left as it was");
-        // The same database with a floor this server meets opens: the map-state writer's v9
-        // sets its floor to 8, this reader's version (docs/specs/map-state.md §4.3).
-        Connection::open(&path).expect("open").execute("UPDATE meta SET value = '8' WHERE key = 'compat_floor'", []).expect("floor");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("11"), "left as it was");
+        // The same database with a floor this server meets opens.
+        Connection::open(&path).expect("open").execute("UPDATE meta SET value = '9' WHERE key = 'compat_floor'", []).expect("floor");
         Store::open(&path).expect("floor at this server's version: opens");
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("10"), "still not migrated backwards");
-        // And a v7 server, from before the reader, is below that floor.
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("11"), "still not migrated backwards");
+        // And a server a version older is below that floor.
         let c = Connection::open(&path).expect("open");
-        assert!(matches!(reconcile(&c, 7), Err(StoreError::Corrupt(_))));
+        assert!(matches!(reconcile(&c, 8), Err(StoreError::Corrupt(_))));
     }
 
     #[test]
@@ -1220,12 +1248,12 @@ mod tests {
         Store::open(&path).expect("create");
         c.execute_batch("UPDATE meta SET value = '5' WHERE key = 'schema_version'; DELETE FROM meta WHERE key = 'compat_floor';").expect("v5");
         drop(c);
-        Store::open(&path).expect("migrates to v8");
+        Store::open_at(&path, 8).expect("migrates to v8");
         assert_eq!(meta(&path, "schema_version").as_deref(), Some("8"));
-        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("5"), "the additive step kept v5's floor");
+        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("5"), "the additive steps kept v5's floor");
         // A database migrated before the floor existed gets it on open.
         Connection::open(&path).expect("open").execute("DELETE FROM meta WHERE key = 'compat_floor'", []).expect("drop floor");
-        Store::open(&path).expect("reopen");
+        Store::open_at(&path, 8).expect("reopen");
         assert_eq!(meta(&path, "compat_floor").as_deref(), Some("5"));
     }
 
@@ -1283,8 +1311,8 @@ mod tests {
             v6.commit("b".into(), writes).await.expect("log");
         }
         let store = Store::open(&path).expect("migrates");
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("8"));
-        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("5"), "additive: a v5 or v6 server still opens it");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("9"));
+        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("8"), "through the writer's step: the v8 reader still opens it");
         for (hash, role, label, revoked, parent) in [
             (&owner, LinkRole::Owner, "owner", false, None),
             (&edit, LinkRole::Edit, "coach", false, Some(&owner)),
@@ -1306,7 +1334,7 @@ mod tests {
         drop((c, store));
         // A second open is a no-op.
         Store::open(&path).expect("idempotent");
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("8"));
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("9"));
     }
 
     /// A v7 database in use opens on v8 with its board as it was, and a v7 server (a rollback)
@@ -1351,7 +1379,7 @@ mod tests {
         let before = stored(&path);
         assert_eq!(before.len(), 5);
         {
-            let v8 = Store::open(&path).expect("migrates");
+            let v8 = Store::open_at(&path, 8).expect("migrates");
             assert_eq!(meta(&path, "schema_version").as_deref(), Some("8"));
             assert_eq!(meta(&path, "compat_floor").as_deref(), Some("5"), "additive: a v7 server still opens it");
             let loaded = v8.load_board("b".into(), caps(), Quota::default()).await.expect("load").expect("the board");
@@ -1364,6 +1392,19 @@ mod tests {
         assert_eq!(meta(&path, "schema_version").as_deref(), Some("8"), "not migrated backwards");
         let loaded = v7.load_board("b".into(), caps(), Quota::default()).await.expect("load").expect("the board");
         assert_eq!(loaded.authority.doc(), &head);
+        drop(v7);
+        // The writer (v9) opens it the same way, and from then only the reader may go back to it.
+        {
+            let v9 = Store::open(&path).expect("migrates");
+            assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("9"), Some("8")));
+            let loaded = v9.load_board("b".into(), caps(), Quota::default()).await.expect("load").expect("the board");
+            assert_eq!(loaded.authority.doc(), &head);
+        }
+        assert_eq!(stored(&path), before, "not a stored byte moved");
+        let v8 = Store::open_at(&path, 8).expect("the v8 reader opens a v9 database");
+        assert_eq!(v8.load_board("b".into(), caps(), Quota::default()).await.expect("load").expect("the board").authority.doc(), &head);
+        drop(v8);
+        assert!(matches!(Store::open_at(&path, 7), Err(StoreError::Corrupt(_))), "a v7 server is from before the reader");
     }
 
     /// Admission is not loading (docs/specs/map-state.md §4.3). The server refuses a submitted

@@ -146,7 +146,8 @@ fn an_export_imports_as_the_same_board_under_fresh_ids() {
     assert_eq!(answer["matches"], json!([130816395]));
     let first = server.export_json(&a, &a_owner);
     assert_eq!(first["format"], "mapcro-board");
-    assert_eq!(first["version"], 1);
+    assert_eq!(first["version"], 2, "the writer: version 1 plus the `rows` header");
+    assert_eq!(first["rows"], json!(mapcro_schema::ROWS.len()));
     assert!(first["build"].as_str().is_some_and(|b| b.len() == 16), "the server's build");
     assert!(first["exported_at"].as_i64().is_some_and(|t| t > 1_700_000_000));
     assert_eq!(first["matches"], json!([130816395]), "the match comes back by its id");
@@ -209,16 +210,15 @@ fn an_export_holds_no_secret() {
     assert_eq!(server.export(&other, "not-a-token").0, 401);
 }
 
-/// A file holding a map-state snapshot (registry values on a hero, the scene's own state) makes
-/// no board while this build only reads them (map-state spec §4.3): a server rolled back to
-/// before the reader couldn't load it. At version 2, and at version 1, whose header promises
-/// nothing about its records. (That the same file imports once the rows are written, and
-/// exports the same values, is `boardfile`'s own test: the server as built can't be told to.)
+/// A file holding a map-state snapshot (registry values on a hero, the scene's own state)
+/// imports now that its rows are written (map-state spec §4.3), at version 2 and at version 1,
+/// and exports the same values in a version-2 file. A row still ahead (its reader is this
+/// build) makes no board: a server rolled back to the build before couldn't load it.
 #[test]
-fn a_file_with_map_state_makes_no_board_while_its_rows_are_ahead() {
-    assert!(mapcro_schema::ROWS.iter().all(|r| r.status == mapcro_schema::Status::Ahead) && mapcro_schema::SCENE_STATE == mapcro_schema::Status::Ahead, "the writer release: this test is the reader's; the import below then succeeds");
-    // One board at most: a refusal that made a board would leave no room for the last import.
-    let server = Server::start(&[("CREATE_PER_HOUR", "1000"), ("CREATE_GLOBAL_PER_HOUR", "1000"), ("MAX_BOARDS", "1")]);
+fn a_file_with_map_state_imports_and_a_row_still_ahead_makes_no_board() {
+    use mapcro_schema::{ROWS, SCENE_STATE, Status};
+    assert!(SCENE_STATE == Status::Live && ROWS.iter().any(|r| r.key == "hero" && r.status == Status::Live), "the writer release");
+    let server = Server::start(&[("CREATE_PER_HOUR", "1000"), ("CREATE_GLOBAL_PER_HOUR", "1000")]);
     let scene_of = |file: &mut Value| records(file).iter().find(|r| r[1].get("Scene").is_some_and(|s| s["name"] == "8:40 rotate")).expect("scene")[0].clone();
     let hero = |file: &mut Value, more: Value| {
         let scene = scene_of(file);
@@ -229,36 +229,44 @@ fn a_file_with_map_state_makes_no_board_while_its_rows_are_ahead() {
         let scene = scene_of(file);
         records(file).push(json!(["00000000000000000000000000005000", { "SceneState": { "scene": scene, "more": more } }]));
     };
-    let send = |file: &Value| {
-        let (status, body) = server.import(file.to_string().as_bytes());
-        (status, error_of(&body))
-    };
+    let build = json!({ "hero": 13, "name": "Solo", "items": [9000, -1, 4294967295u64, -1], "level": 12, "health": 55 });
+    let scene_rows = json!({ "rows": 11, "has_builds": true, "build": 6839 });
     for version in [1, 2] {
         let versioned = |f: &dyn Fn(&mut Value)| {
             with(|v| {
                 f(v);
                 v["version"] = json!(version);
                 if version == 2 {
-                    v["rows"] = json!(mapcro_schema::ROWS.len());
+                    v["rows"] = json!(ROWS.len());
                 }
             })
         };
-        // The whole snapshot; a hero's value alone; a scene's state alone, even an empty one.
         let snapshot = versioned(&|v| {
-            hero(v, json!({ "hero": 13, "name": "Solo", "items": [9000, -1, 4294967295u64], "level": 12, "health": 55 }));
-            state(v, json!({ "rows": mapcro_schema::ROWS.len(), "has_builds": true, "build": 6839 }));
+            hero(v, build.clone());
+            state(v, scene_rows.clone());
         });
-        assert_eq!(send(&snapshot), (422, "invalid".into()), "version {version}");
-        assert_eq!(send(&versioned(&|v| hero(v, json!({ "level": 12 })))), (422, "invalid".into()), "version {version}");
-        assert_eq!(send(&versioned(&|v| state(v, json!({})))), (422, "invalid".into()), "version {version}");
-        // An empty `more` is no value at all: it comes in, and is not written back.
-        let empty = versioned(&|v| hero(v, json!({})));
-        if version == 2 {
-            let (board, owner, _) = server.import_ok(&empty);
-            let mut out = server.export_json(&board, &owner);
-            assert!(records(&mut out).iter().all(|r| r[1].get("SceneState").is_none() && r[1].as_object().is_some_and(|o| o.values().all(|body| body.get("more").is_none()))));
+        let (board, owner, _) = server.import_ok(&snapshot);
+        let mut out = server.export_json(&board, &owner);
+        assert_eq!((&out["version"], &out["rows"]), (&json!(2), &json!(ROWS.len())), "a file with rows says so");
+        let mores: Vec<Value> = records(&mut out).iter().filter_map(|r| r[1].as_object()?.values().next()?.get("more").cloned()).collect();
+        assert_eq!(mores.len(), 2, "the hero's and the scene's, and no empty one written: {mores:?}");
+        assert!(mores.contains(&build) && mores.contains(&scene_rows), "{mores:?}");
+        // What was exported imports again.
+        server.import_ok(&out);
+        // A row whose reader is this build is still refused, alone or beside written ones.
+        for ahead in ROWS.iter().filter(|r| r.status == Status::Ahead) {
+            let (status, body) = server.import(versioned(&|v| hero(v, json!({ "level": 12, ahead.key: 3 }))).to_string().as_bytes());
+            assert_eq!((status, error_of(&body)), (422, "invalid".into()), "{} at version {version}", ahead.key);
         }
     }
+    // A second state for one scene is not a board.
+    let twice = with(|v| {
+        state(v, json!({}));
+        let scene = scene_of(v);
+        records(v).push(json!(["00000000000000000000000000005001", { "SceneState": { "scene": scene } }]));
+    });
+    let (status, body) = server.import(twice.to_string().as_bytes());
+    assert_eq!((status, error_of(&body)), (422, "invalid".into()));
 }
 
 /// `rich_file`, changed by `f`.

@@ -59,6 +59,9 @@ export function addSceneOps(state: BoardState, from: SceneRow | undefined, asChi
     if ("Wave" in r && r.Wave.scene === src) ops.push({ Create: { id: mint(), record: { Wave: { ...r.Wave, scene: id } } } });
     if ("ObjectiveState" in r && r.ObjectiveState.scene === src)
       ops.push({ Create: { id: mint(), record: { ObjectiveState: { ...r.ObjectiveState, scene: id } } } });
+    // The snapshot goes with the scene (map-state spec §4.5): its state, and each record's
+    // `more` above. Without it the copied values would be stored and never drawn.
+    if ("SceneState" in r && r.SceneState.scene === src) ops.push({ Create: { id: mint(), record: { SceneState: { ...r.SceneState, scene: id } } } });
   }
   return { id, ops };
 }
