@@ -10,7 +10,7 @@ compaction). The newest state is at the top; the history is in git and the other
   - Before any heavy job (gates, Playwright, VM tests, cargo test, deploys), read the process list
     and wait while Adora runs `cargo xtask verify`/`android`, `land_unit.sh` or `adora-deploy`
     here. A `delegate.sh --where sprite` that only names them runs on Fly.
-  - The lead's `/tmp/mapcro-busy.sh` checks this (its pattern is in the runbook memory).
+  - `tools/box-busy.sh` checks this (exit 0 = busy). Briefs run it before every heavy job.
   - Prefer the `mapcro-perf` Sprite for heavy checks, destroyed after each session. A dedicated Fly
     Machine needs the concierge's OK.
 
