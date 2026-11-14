@@ -3,7 +3,38 @@
 Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `docs/specs/map-state.md`
 (third revision). Review: `docs/specs/map-state-review.md`. Newest state at the top.
 
-## State: phase 2 done and run in a browser; #49 fixed on the desktop layout (fifth implementer)
+## State: phases 3 onward, branch `map-state-p3` (sixth implementer, 2026-11-13 late)
+
+Off main `a0774c5` (prod `e878c30`, store v10). Newest first.
+
+### Release candidate 1: a scene's copy (#54, review F1), `dd00764`. No store change, no new rows
+
+- **#54:** Duplicate (the row's copy button) now takes what is drawn on the scene: arrows,
+  callouts, ink and the note, as new records in the copy. Add scene (the +, T) still starts
+  without them. `addSceneOps(…, ink)`, `SceneTree.tsx` `clone`.
+- **F1:** a copy over one transaction's caps is sent as: the scene and all twelve heroes without
+  `more`; each hero's `more` as `Set More`; the other records; the `SceneState` last
+  (`chunkByBytes` packs them, so the first transaction may also hold the first heroes' sets).
+  One transaction, as before, when it fits. `sendScene` stops at a refused transaction and says
+  whether the first was taken; `SceneTree` flips only then.
+- **Tests:** `web/test/scenes.test.ts` (the split, the ink, `sendScene`); `scene-copy.test.ts`
+  through the real replica and server (two sessions; the old first transaction is refused, the
+  new ones are all taken, the copy equals the scene); e2e `scene-clone.spec.ts` (ink and note
+  copied, for a second person too; a full board refuses the copy and the page stays on its
+  scene) and `scene-builds.spec.ts` (a scene with twelve 600-integer build orders, 79 KB, is
+  duplicated whole and survives a reload).
+- **Mutants, by hand:** 21 on `scenes.ts` and `save.ts` through vitest, all caught (one, the
+  state not last, was missed until the test got a split and an arrow after the state); 4
+  through the e2e (the copy without ink, the old one-op split, a flip after a refused copy and
+  after a refused Add scene), all caught. No Rust changed, so no cargo-mutants run.
+- **Gotchas:** a flip to a scene id that doesn't exist falls back to the first scene
+  (`Board.tsx` `scene`), so an e2e of "no flip" must stand on the second scene. A file's
+  heroes need about 5.5 KB of `more` each before twelve are over a transaction: build-order
+  rows with small ids stay under it.
+- **Not copied by a copy, as before:** the scene's `source` (so its ▶ chip, and phase 4's names
+  from the source match). Decide in phase 4.
+
+## Earlier state: phase 2 done and run in a browser; #49 fixed on the desktop layout (fifth implementer)
 
 Branch `map-state-p2`, with main merged at `61de6cb` (the writer deployed as `1dcbd31`, its lock
 and reader). Fifth implementer, 2026-11-13 night. Everything is committed. **This branch is the
