@@ -94,6 +94,7 @@ test("a copy the board refuses makes nothing and leaves the scene shown (review 
   await expect(rows.nth(1)).toHaveAttribute("aria-current", "true");
   // Duplicate, then Add scene: nothing is made, and the page still shows the scene it was on.
   await rows.nth(1).getByTestId("scene-clone").click();
+  await expect(a.getByTestId("toast")).toHaveText("Board full");
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(1)).toHaveAttribute("aria-current", "true");
   await a.getByTestId("scene-add").click();
