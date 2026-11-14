@@ -143,3 +143,34 @@ it("a copy over one transaction makes the scene with all its heroes first, then 
   expect(copy).toEqual(inScene(b, scene));
   [a, b].forEach((s) => s.stop());
 });
+
+it("a copy of a scene saved from a match keeps where it was saved from", async () => {
+  const { a, b, row } = await board(false);
+  // The scene as Save as scene makes it: with its match, moment and tier.
+  const source = { match_id: 129000149, t: 754, tier: "replay" };
+  const saved = addSceneOps(stateOf(a), row, false, undefined, "", true);
+  const first = saved.ops[0]!;
+  if (!("Create" in first) || !("Scene" in first.Create.record)) throw new Error("the scene is not first");
+  first.Create.record.Scene = { ...first.Create.record.Scene, clock: 754, source };
+  expect(sendScene(saved.txs, (tx) => a.edit(tx))).toBe(true);
+  expect(await settled(a)).toBe(true);
+  const from = { id: saved.id, scene: (a.records.get(saved.id)!.record as { Scene: SceneRow["scene"] }).Scene };
+  expect(from.scene.source).toEqual(source);
+  // The copy and a new scene from it: the server takes both, and the other session reads them.
+  const sceneOf = (s: BoardSession, id: RecordId) => (s.records.get(id)?.record as { Scene: SceneRow["scene"] } | undefined)?.Scene;
+  for (const ink of [true, false]) {
+    const { id, txs } = addSceneOps(stateOf(a), from, false, undefined, "", ink);
+    expect(sendScene(txs, (tx) => a.edit(tx))).toBe(true);
+    expect(await settled(a)).toBe(true);
+    expect(await until(() => b.records.has(id))).toBe(true);
+    expect(sceneOf(b, id)).toMatchObject({ clock: 754, source });
+    expect(inScene(b, id).PlayerState).toEqual(inScene(b, saved.id).PlayerState);
+  }
+  // A copy of a scene with none still has none.
+  const plain = addSceneOps(stateOf(a), row, false, undefined, "", true);
+  expect(sendScene(plain.txs, (tx) => a.edit(tx))).toBe(true);
+  expect(await settled(a)).toBe(true);
+  expect(await until(() => b.records.has(plain.id))).toBe(true);
+  expect(sceneOf(b, plain.id)!.source ?? null).toBeNull();
+  [a, b].forEach((s) => s.stop());
+});

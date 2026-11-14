@@ -224,6 +224,8 @@ its life today.
   heroes without their `more` (a scene with fewer is refused whole, `IncompleteScene`); each
   hero's `more` follows as `Set More`, then the other records, and the `SceneState` last. If
   the first is refused nothing is made and the view stays where it was.
+- **Both carry the scene's `source`** (the match, moment and tier the snapshot was taken at): the
+  copy has its ▶ chip, can be retaken, and reads its names from that match (D1).
 - **Duplicate also copies what is drawn on the scene** (arrows, callouts, ink, the note: #54).
   New scene doesn't: it is the play's next frame.
 - **Saving many scenes** sends one transaction per scene, chunked by bytes, not op count.
