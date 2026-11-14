@@ -20,6 +20,7 @@ import { cx } from "../ui/cx";
 import { buildPanels } from "../board/buildPanels";
 import { playerBuildView } from "../mapstate/buildView";
 import { teamTotal } from "../core/souls";
+import { heroesAt } from "../mapstate/frame";
 import { campAt, clockLabel, playersAt, scoreboardValueAt, rejuvAt, type PlayerAt, type RejuvNow } from "../match/timeline";
 import { slotKey } from "../match/save";
 import type { Art } from "../map/pack";
@@ -159,9 +160,15 @@ export function PlayerTopBar(p: {
   const [ladderTable] = createResource(() => ladderKeyFor(p.art.stats, build()) ?? false, key => loadStatTable(p.art.stats, key || null));
   const friend = () => (p.vp === "sapphire" ? "Sapphire" : "Amber");
   const enemy = () => (friend() === "Amber" ? "Sapphire" : "Amber");
-  const at = createMemo(() => {
+  // The heroes' samples (souls, ults, health) once a second; their places and respawn times,
+  // counted from t, each frame (mapstate/frame.ts; TD-50).
+  const samples = createMemo(() => {
     const m = p.host.tl();
-    return m ? new Map(playersAt(m, p.host.t()).map((x) => [slotKey(x.team, x.slot), x])) : new Map<string, PlayerAt>();
+    return m ? { m, heroes: playersAt(m, p.host.second()) } : undefined;
+  });
+  const at = createMemo(() => {
+    const s = samples();
+    return s ? new Map(heroesAt(s.m, p.host.t(), s.heroes).map((x) => [slotKey(x.team, x.slot), x])) : new Map<string, PlayerAt>();
   });
   // Rows by the roster's slots, so the order and names are the board's; the hero is the match's.
   const team = (t: "Amber" | "Sapphire") => p.state.roster().filter((s) => s.slot.team === t);
@@ -169,7 +176,7 @@ export function PlayerTopBar(p: {
   const known = (t: "Amber" | "Sapphire") => team(t).some((s) => at().get(slotKey(t, s.slot.slot))?.souls != null);
   const rejuv = createMemo(() => {
     const m = p.host.tl();
-    return m ? rejuvAt(m, p.host.t()) : [];
+    return m ? rejuvAt(m, p.host.second()) : [];
   });
   const held = (t: "Amber" | "Sapphire") => rejuv().find((r) => r.team === t.toLowerCase());
   // When the held one was taken: its timer drains from there.
