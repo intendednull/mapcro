@@ -235,13 +235,14 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
   id changed.
 
 - **Typed fields are gated the same way.** Feedback #56, #59 and #60 added three things a log
-  may hold that the v10 build (`e878c30`) can't load: a scene name over 24 characters (up to 48),
+  may hold that the v10 build can't load (prod is `3423072`; its schema, engine and store are
+  `e878c30`'s, the commit `just reader-check` reads): a scene name over 24 characters (up to 48),
   a comment's side (`Callout::side`, `FieldValue::CalloutSide`) and a stroke's colour as a field
   (`FieldValue::StrokeColor`). Each has a status in `map_state.rs` (`LONG_SCENE_NAME`,
   `CALLOUT_SIDE`, `STROKE_COLOR`) that `Admit` asks, as it asks a row's.
   - **v11 is their reader**: all three `Ahead`. Its step adds no SQL and is additive (floor 9):
     it stores nothing new, so **the rollback targets from v11 are still the v10 build
-    (`e878c30`) and the v9 build**. A test in `store.rs` holds the three `Ahead` while v11 is
+    (prod, `3423072`) and the v9 build**. A test in `store.rs` holds the three `Ahead` while v11 is
     the newest version.
   - **Their writer is the next store step** (`Step::NeedsReader`, floor 11): it makes the three
     `Live`, and from it the rollback target is the v11 build and nothing older. Before it

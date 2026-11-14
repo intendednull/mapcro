@@ -145,12 +145,15 @@ export function Player(p: {
       h.setMode("player"); h.control.seek(t); h.control.play(true);
     } else h.control.play(!h.playback().playing);
   });
-  /** One step slower or faster. At the end the button disables: it gives up the focus first, so
-   * the keys stay the board's (← → seek, Space plays). */
+  /** One step slower or faster. At the end the button disables, and a disabled button can't
+   * hold the focus: it goes to the other speed button, so a keyboard user keeps their place
+   * (Space still plays there, and ← → seek). */
   const stepSpeed = (next: (speed: number) => number | undefined, button: HTMLButtonElement) => {
     const s = next(h.playback().speed);
     if (s === undefined) return;
-    if (next(s) === undefined) button.blur();
+    if (next(s) === undefined && document.activeElement === button) {
+      button.parentElement?.querySelector<HTMLButtonElement>(`button:not([data-testid="${button.dataset.testid}"])`)?.focus();
+    }
     user(() => h.control.speed(s));
   };
   let ticksRow: HTMLDivElement | undefined;

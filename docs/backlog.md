@@ -20,6 +20,14 @@ A phone on its side, a tablet and the desktop have the buttons. Whoever next lay
 transport decides whether upright phones get them too: a column of its own for the speed, a
 third row, or a single button that cycles.
 
+## A scene change under someone typing the scene note drops what they typed (2026-11-14, found in the feedback-56-60 review)
+
+`Board.tsx` clears the note's draft when the scene changes (`createEffect(on(() => scene()?.id, …))`).
+The field keeps the focus, so no blur saved it first: a follower typing the note when their
+presenter flips the scene loses the text (the same for ← → pressed elsewhere while the draft is
+unsaved). Feedback #57 fixed the case where the field leaves the page (Player opens); this one is
+older. Save the draft to the scene it was typed on before clearing it.
+
 ## The scrubber is 36 px wide in a window just over 800 px (2026-11-14, found by feedback-56-60)
 
 In the desktop layout the transport is one row down to 800 px, where the scrubber gets a row of

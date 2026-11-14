@@ -422,7 +422,8 @@ memory survives into another board's mount unless it is either:
 
 - On leaving a tab, the client stores `TabView` in `sessionStorage` under
   `mapcro.tabview.<session>.<board>`: scene, viewport, viewpoint, floor, Player or Sandbox, the
-  match, t, playing, speed, the sidebar tab. It holds what the screen showed, so a follower who
+  match, t, playing, speed. (The sidebar has no tab to remember: it shows the events list in
+  Player and the scene's note on a scene, feedback #57.) It holds what the screen showed, so a follower who
   is moved off keeps what it saw: `Keep`, as for scene. Mounting that board in that session
   restores it.
 - It is restored **only into the same board id**: the type carries the board id, and restore
@@ -606,7 +607,7 @@ each board has its own scenes. Its sub-line reads "Sandbox".
 | tab × | Remove (§7.2) |
 | follower's eye on a tab | the presenter's tab carries the presenter's avatar dot; each tab shows the dots of the people on it (session presence) |
 | left list: replay card, scenes | **unchanged**: the active board's own scene tree and replay card. No filter |
-| right panel: Events, Scene Notes, People here | unchanged per board; the people list adds a "Session" group: who is in the session and which tab each is on |
+| right panel: the events list in Player or the scene's note on a scene, and People here | unchanged per board; the people list adds a "Session" group: who is in the session and which tab each is on |
 | transport, Save scene | unchanged per board |
 
 - **Strip details load lazily.** A tab's sub-line needs that board's match list and preview,

@@ -822,6 +822,15 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     if (n) state.edit([{ Set: { id: n.id, value: { NoteText: text } } }]);
     else if (text.trim()) state.edit([{ Create: { id: newRecordId(), record: { Note: { scene: s.id, text } } } }]);
   };
+  /** Whether this person is in the note's field: set on focus, cleared when they leave it. */
+  let inNote = false;
+  /** Leaving the note's field: what was typed is saved, and presence stops saying "editing". */
+  const leaveNote = (text: string) => {
+    inNote = false;
+    state.presence({ focus: null });
+    saveNote(text);
+    setNoteDraft(undefined);
+  };
   const calloutList = createMemo(() => calloutOrder(state.rowsIn<Callout>("Callout", scene()?.id)));
 
   const [sceneDrawer, setSceneDrawer] = createSignal(false);
@@ -1549,13 +1558,17 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 aria-label="Scene note"
                 maxLength={LIMITS.max_note}
                 value={noteDraft() ?? note()?.text ?? ""}
-                onFocus={() => state.presence({ focus: noteFocus() })}
-                onInput={(e) => setNoteDraft(e.currentTarget.value)}
-                onBlur={(e) => {
-                  state.presence({ focus: null });
-                  saveNote(e.currentTarget.value);
-                  setNoteDraft(undefined);
+                // The field leaves the page when Player opens (feedback #57), and a field removed
+                // while it has the focus gets no blur: a follower typing here when their
+                // presenter enters Player would lose the text and stay "editing" for everyone.
+                // So leaving the page is leaving the field.
+                ref={(el) => onCleanup(() => inNote && leaveNote(el.value))}
+                onFocus={() => {
+                  inNote = true;
+                  state.presence({ focus: noteFocus() });
                 }}
+                onInput={(e) => setNoteDraft(e.currentTarget.value)}
+                onBlur={(e) => leaveNote(e.currentTarget.value)}
               />
             </Show>
           </section>
