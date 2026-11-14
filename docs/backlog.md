@@ -11,8 +11,8 @@ needed for #49 on the desktop.
 - **Scene builds on the phone.** The scene's compact bar shows no builds (`TopBar.tsx`
   `hasBuilds` is off when `compact`): Player's phone layout is a sheet of its own
   (`PlayerTopBar` `phone-build-sheet`). `mobile-qa` is merged now; build it on that sheet.
-  #49 was reported from the desktop layout, so it is fixed there; on a phone a scene still
-  shows no builds.
+  #49 doesn't say which layout it was reported on; it is fixed on the desktop layout, and on a
+  phone a scene still shows no builds.
 - **The follow matrix's scene column.** `follow-matrix.spec.ts` pins each key against a presenter
   in Player only. The panel keys now follow on a scene (`host.ts` `mirror`); `scene-builds.spec.ts`
   has two tests of it (with the match open, and on a board with no match, from a file), each
