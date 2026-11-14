@@ -23,6 +23,7 @@ import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type FollowTarget, type ViewRect, clampView, fromViewport, locate, presenters, sideOf, startFollow, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
+import { playerFrame } from "../mapstate/frame";
 import type { MatchPreview } from "../match/preview";
 import { EventPings, Highlight, MapControls, Player, PlayerSide, PlayerSwitch, TierChip, TrooperDots } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
@@ -193,7 +194,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   /** The match open in Player, for the feedback form (spec §11a); none in sandbox. */
   const feedbackMatch = () => feedbackMatchOf(inPlayer(), player.matchId(), player.tl(), player.t());
   // Player draws the match alone, an empty map while there's no timeline (review finding 7).
-  const matchPreview = createMemo<MatchPreview | undefined>(() => (inPlayer() ? player.preview(p.art.model.markers) : undefined));
+  // Player's frame, on its three clocks (mapstate/frame.ts; TD-50).
+  const frame = playerFrame({ tl: player.tl, t: player.t, markers: () => p.art.model.markers, shown: player.shown, fade: player.continuous });
+  const matchPreview = createMemo<MatchPreview | undefined>(() => (inPlayer() ? frame() : undefined));
   const liveScene = liveLayer(state, player, p.board, inPlayer);
   /** Where annotation goes: the scene, or in Player the match's live layer, never a fallback. */
   const annScene = () => (inPlayer() ? liveScene() : scene()?.id);

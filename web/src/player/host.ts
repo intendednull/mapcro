@@ -4,9 +4,8 @@
 
 import type { Via } from "../gen/Via";
 import { batch, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js";
-import { type CampAt, type MatchEvent, type PowerupAt, type RiftAt, type Timeline, tierOf, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, riftAt, shopsClosed, sitesAt, urnAt } from "../match/timeline";
-import { movementAt } from "./movement";
-import type { MatchPreview } from "../match/preview";
+import { type MatchEvent, type Timeline, tierOf, playersAt } from "../match/timeline";
+import type { Shown } from "../mapstate/frame";
 import { slotKey } from "../match/save";
 import type { Marker } from "../map/model";
 import { Api, type JobState, MODE_CODES, busy } from "./api";
@@ -18,9 +17,7 @@ import { type Playback, clampT, follow, rebase, tAt } from "./clock";
 import { type Pt, worldToMap } from "../map/transform";
 import { type EventGroup, GROUPS, eventKey } from "./events";
 import { mapCratesShown, mapHealsShown, setMapCratesShown, setMapHealsShown, chooseSummary, markOpened, openedHere, playerLastSeenShown, playerNamesShown, playerVision, setPlayerLastSeenShown, setPlayerNamesShown, setPlayerVision, summaryChosen } from "../core/device";
-import { type Vision, hasVision, seenAt } from "./vision";
-import { skullsAt } from "./skulls";
-import { crowdControlAt } from "./cc";
+import { type Vision, hasVision } from "./vision";
 import type { PlayerVision } from "../gen/PlayerVision";
 import type { DeathRef } from "../gen/DeathRef";
 import type { SlotRef } from "../gen/SlotRef";
@@ -259,6 +256,10 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
     const pb = playback();
     return tAt(pb, Math.max(now(), pb.at), duration());
   });
+  /** The whole second t is in: the clock for what the timeline holds per second (souls, ults,
+   * objectives; TD-50). A reader of samples asks at `second()`, never at `t()`, so it runs once
+   * a second while a replay plays, not once a frame. */
+  const second = createMemo(() => Math.floor(t()));
 
   // One frame clock while playing; it stops itself at the end.
   let raf = 0;
@@ -992,60 +993,12 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
     setEventSearch,
     eventSearchHeard,
     eventSearchByName,
-    /** The match at playback time t as the board draws it; empty with no timeline (finding 7). */
-    preview: (markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane" | "at">>): MatchPreview => {
-      const m = tl();
-      if (!m) return { players: new Map(), down: new Set(), sites: new Map(), lanes: new Map(), camps: new Map(), rifts: new Map(), powerups: new Map() };
-      const at = t();
-      const health = showHealth() && m.tier === "replay";
-      // One team's view: its enemies as it saw them. Out of sight: not drawn, or, with Show last
-      // seen location, a ghost where last seen; one not seen since it came into the match,
-      // never drawn.
-      const view = vision() !== "all" && hasVision(m) ? vision() : null;
-      const ghosts = showLastSeen();
-      const players = new Map(
-        playersAt(m, at).map((x, i) => {
-          const shown = { hero: x.hero_id, name: showNames() ? x.name : null, pos: x.pos, health: health ? x.health : null, respawn: x.respawn };
-          const s = view && x.team !== view ? seenAt(m.players[i]!, at) : { seen: true as const };
-          // Only living heroes currently in sight receive live status. Never attach it to
-          // last-seen ghosts: that would reveal a new effect applied outside the team's view.
-          if (s?.seen) return [slotKey(x.team, x.slot), { ...shown, ...(showMovement() && m.tier === "replay" && x.pos ? movementAt(m.players[i]!, at) : {}), ...(showCC() && m.tier === "replay" && x.pos ? { cc: crowdControlAt(m.players[i]!, at) } : {}) }];
-          return [slotKey(x.team, x.slot), ghosts && s ? { ...shown, pos: s.at, health: null, ghost: s.ago } : { ...shown, pos: null, health: null, ghost: null, unseen: true }];
-        }),
-      );
-      // Everything by the board's marker keys: a pack can key a site differently from the
-      // timeline (match/timeline.ts `markerKey`).
-      const byMarker = <V,>(src: Map<string, V>) => {
-        const out = new Map<string, V>();
-        for (const [k, v] of src) {
-          const key = markerKey(k, markers);
-          if (key) out.set(key, v);
-        }
-        return out;
-      };
-      const camps: Map<string, CampAt> = byMarker(campsAt(m, at));
-      const u = urnAt(m, at);
-      const site = (k: string | null | undefined) => (k ? (markerKey(k, markers) ?? null) : null);
-      // In one team's view, an urn carried by an enemy out of its sight isn't drawn: where it
-      // is would give the carrier away (operator 2026-11-09), ghost or undrawn alike: the urn
-      // never follows a ghost.
-      // `at: null` draws nothing and can't be hovered (Urn.tsx, Camps.tsx).
-      const carrier = u?.state === "carried" && view && u.team !== view ? m.players.findIndex((q) => q.team === u.team && q.slot === u.slot) : -1;
-      const unseen = carrier >= 0 && !seenAt(m.players[carrier]!, at)?.seen;
-      const urn = u ? { ...u, ...(unseen ? { at: null, unseen: true } : {}), delivery: site(u.delivery), next: u.next ? { t: u.next.t, key: site(u.next.key) ?? u.next.key } : null } : undefined;
-      const rifts = new Map<string, RiftAt>();
-      if (m.rifts) for (const mk of markers) if (mk.kind === "koth") rifts.set(mk.key, riftAt(m, mk.key, at, markers)!);
-      const powerups = new Map<string, PowerupAt>();
-      for (const p of m.powerups ?? []) {
-        const v = powerupAt(p, at);
-        const key = markerKey(p.key, markers);
-        if (v && key) powerups.set(key, v);
-      }
-      const down = downAt(m, at, markers);
-      // A death the view saw: a skull fading where it fell (spec §6b "Death skulls").
-      const skulls = skullsAt(m.players, at, view);
-      return { fade: continuous(), skulls, players, down, shops: shopsClosed(down, markers), sites: sitesAt(m, at, markers), lanes: lanesAt(m, at), camps, rifts, powerups, ...(health ? { health: byMarker(objectiveHealthAt(m, at)) } : {}), ...(urn ? { urn } : {}), ...(m.rejuv ? { rejuv: rejuvAt(m, at) } : {}) };
-    },
+    second,
+    /** The viewer's choices the frame is drawn under (mapstate/frame.ts `playerFrame`, which
+     * gives the match at t as the board draws it). */
+    shown: (): Shown => ({ health: showHealth(), names: showNames(), vision: vision(), lastSeen: showLastSeen(), movement: showMovement(), cc: showCC() }),
+    /** Whether this moment continues the last in playback (`MatchPreview.fade`). */
+    continuous,
   };
 }
 

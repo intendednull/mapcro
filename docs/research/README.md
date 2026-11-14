@@ -393,6 +393,14 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   costs more Layerize than it saves. The map's waste was icons rebuilt every frame
   ([player-render-cost](player-render-cost.md)).
 - **Heavy probes** (`timer_audit` took 754 s) run alone under the load gate: the box is shared.
+- **Which timeline series move on whole seconds, which on tenths.** On 134623152 and 129738985
+  (format 10), every time in `souls`, `level`, `kills`, `assists`, `max_health`, `pickups`,
+  `abilities`, `height`, `zipline`, `respawn`, `deaths`, objectives' `destroyed_s`, `rejuv`,
+  `camps` and the urn's states is a whole second (0 fractional of about 15,000 a match).
+  Tenths: `seen`, `cc`, `effects`, `casts`, `charges`, `stacks`, `items` and a rift's `capture`.
+  Player's frame rests on it (`web/src/mapstate/frame.ts`: the second's part is asked once a
+  second); `web/test/frame-clocks.test.ts` holds it, and on a real timeline with
+  `MAPCRO_TIMELINE=<file>` (it prints counts only).
 
 ## Keeping this current
 

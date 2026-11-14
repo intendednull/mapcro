@@ -7,6 +7,68 @@ Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `
 
 Off main `a0774c5` (prod `e878c30`, store v10). Newest first.
 
+### Phase 3, first step: Player's frame on three clocks (TD-50). No stored change, nothing a coach sees
+
+- **`web/src/mapstate/frame.ts`.** `previewAt(m, t, markers, shown, fade)` is the frame's
+  definition (what `host.preview` was, with the viewer's choices passed in as `Shown`).
+  `secondPart` and `tenthPart` are the unfiltered parts the timeline holds per second and per
+  tenth; `playerFrame` holds them in memos on `floor(t)` and `floor(t * 10)` and builds the
+  frame from them each frame. `Board.tsx` `matchPreview` reads `playerFrame`; `host.preview` is
+  gone, `host.shown()`, `host.continuous` and `host.second` are new.
+- **`vision.ts`:** `seenAt` = `seenFrom(p, t, sightAt(p, t * 10))`. The scan of `seen` is the
+  tenth's; the death check, the last-seen place and "how long ago" are the frame's.
+- **A tenth's part is asked at the middle of the tenth** (`(ds + 0.5) / 10`), because
+  `k / 10 * 10` is not always `k` in floating point and the readers compare `t * 10` with whole
+  tenths.
+- **The top bar** (`PlayerTopBar.tsx`): the heroes' samples once a second (`playersAt` at
+  `host.second()`), their place and respawn time each frame (`heroesAt`); the Rejuvenator at
+  `host.second()`.
+- **Tests, `web/test/frame-clocks.test.ts`:** `host.preview` as it was at `a0774c5` is kept
+  there as the oracle (`before`). On a synthetic match with sight, CC, movement, an urn, two
+  rifts with capture, a Rejuvenator and deaths: the definition and the clocked frame equal the
+  oracle at 2,900 times (on, just before and after every tenth, and between), under four view
+  settings, on both tiers. The clocks hold: over 120 frames of two seconds, one hero's `souls`
+  is read twice and its `seen` scan runs twenty times.
+- **On real timelines** (`MAPCRO_TIMELINE=<file> npx vitest run test/frame-clocks.test.ts -t
+  "real match"`, counts only): 134623152, 13,768 frames at 0.37 s steps, 0 differ; 129738985,
+  24,790 frames at 0.213 s steps, 0 differ (the frame, `heroesAt`, `rejuvAt`). Every time in
+  the per-second series of both is a whole second (research map, Gotchas).
+- **Cost** (node, late in the match, the map's frame plus the bar's heroes): 0.69 → 0.04 ms a
+  frame on 134623152, 1.04 → 0.07 on 129738985.
+- **Mutants, by hand:** 28 on `frame.ts` and `vision.ts`, 25 caught at first; the three missed
+  (Health on the metadata tier twice, Vision on a timeline with no sight) are caught since the
+  metadata fixture lost its sight and the test checks `health` is absent.
+
+- **Run on it:** `just web-test` 70 files, 678 tests pass (1 skipped: the real-match check,
+  which needs `MAPCRO_TIMELINE`), `tsc` clean. E2e at two workers, `player topbar
+  map-state-dom-pins follow-matrix phone-player vision scene-builds map-furniture`: 258
+  passed, 3 skipped, 0 failed (14.3 min). **Not done:** a walk in a real browser on a real
+  match, `just perf-player` before and after, the full e2e suite and the cargo tests (no Rust
+  changed).
+- **The heavy queue is slow with four implementers:** this session's two runs each waited 30
+  to 45 minutes for the lock. Start a run with `run_in_background` and a two-hour timeout, and
+  change nothing under `web/` until it ends (commit or stash first: the queued job builds the
+  tree as it is when its turn comes).
+
+### What is next (for whoever continues; nothing below is started)
+
+The order the spec gives, with what this session learned:
+
+1. **Phase 3, the rest.** `MapState` as the spec's §6 interface (`hero(slot)`, `marker(key)`,
+   `lane(key)`, `scene()`, `has(feature)`), each field a memo. Build it on `secondPart` and
+   `tenthPart`: they are already unfiltered (D9), so they are also what capture should read.
+   `previewAt` then becomes the adapter the old readers use until phase 4. Still each frame: an
+   open build column's `buildAt`, `HeroCard`'s `seenAt` (move both to `sightAt` on the tenth).
+2. **Phase 4.** `fromScene` giving the same interface; `Tokens.tsx`, `MapView`'s markers and
+   both bars read `MapState`. D3 (an unseen hero faded, not gone, in a scene) is the one
+   place the two renderers differ. A copy of a scene doesn't carry `source` (above): names
+   from the source match (D1) need it.
+3. **Phase 5.** New rows land `Ahead` and stop for a reader release. Candidates, from what
+   `secondPart` and `tenthPart` hold and a scene doesn't: hero `seen_amber`/`seen_sapphire`,
+   `last_seen` (Pos), `cc`, `height`, `zipline`; lane `gap`; scene `urn`, `rejuv`; the
+   marker baseline as `Ints` on `SceneState` (D7).
+4. **Phase 6, 7** and the backlog's F4, F5 and the phone's scene builds: not started.
+
 ### Release candidate 1: a scene's copy (#54, review F1), `dd00764`. No store change, no new rows
 
 - **#54:** Duplicate (the row's copy button) now takes what is drawn on the scene: arrows,
