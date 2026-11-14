@@ -1,6 +1,6 @@
 // What a tab's board showed when it was left (sessions.md §4.2): the scene, the viewport and
-// side, Player or Sandbox, the match and where it was, the sidebar tab, and Vision and the map
-// layers (operator decision 7: per tab). Kept per browser tab in sessionStorage, under
+// side, Player or Sandbox, the match and where it was, the sidebar tab, and what its user set
+// there of Vision and the map layers (operator decision 7: per tab). Kept per browser tab in sessionStorage, under
 // `mapcro.tabview.<session>.<board>`, so it outlasts a reload and is never synced: §4a's local
 // view. It's restored only into the board it names, and only what the board still has: a scene
 // that's gone or a match no longer attached is dropped with what hung on it, and the board opens
@@ -28,6 +28,8 @@ export interface TabView {
   t?: number;
   playing?: boolean;
   speed?: number;
+  /** Of the map layers, Vision and Show last seen, only what the user set on this tab
+   * (`withOwn`); the rest show this browser's choice, as on a board alone. */
   layers?: Partial<Record<TabLayer, boolean>>;
   vision?: "all" | "amber" | "sapphire";
   lastSeen?: boolean;
@@ -134,6 +136,33 @@ export function withMatches(view: TabView, attached: readonly number[]): TabView
   if (view.match === undefined || attached.includes(Number(view.match))) return view;
   const { match: _match, t: _t, playing: _playing, speed: _speed, mode: _mode, ...rest } = view;
   return rest;
+}
+
+/** A tab's own of the map layers, Vision and Show last seen: what its user set there. */
+export type TabOwn = Pick<TabView, "layers" | "vision" | "lastSeen">;
+
+/** What a remembered view holds of them: the tab's own so far. */
+export function tabOwn(view: TabOwn | undefined): TabOwn {
+  const out: TabOwn = {};
+  if (view?.layers && Object.keys(view.layers).length) out.layers = { ...view.layers };
+  if (view?.vision !== undefined) out.vision = view.vision;
+  if (view?.lastSeen !== undefined) out.lastSeen = view.lastSeen;
+  return out;
+}
+
+/**
+ * `own` after the user's own change to a view-state key on this tab (player/viewstate.ts
+ * `onOwn`): a map layer, Vision or Show last seen set here is the tab's own from then on, and
+ * comes back with the tab. One never set here isn't held, so the tab shows this browser's
+ * choice of it, as a board alone does (§4.2; operator decision 7 as the lead read it,
+ * 2026-11-14: a tab only passed through pins nothing).
+ */
+export function withOwn(own: TabOwn, key: string, value: unknown): TabOwn {
+  if (key === "vision.team") return oneOf(value, ["all", "amber", "sapphire"] as const) ? { ...own, vision: value } : own;
+  if (key === "vision.last_seen") return typeof value === "boolean" ? { ...own, lastSeen: value } : own;
+  const layer = key.startsWith("layer.") ? key.slice("layer.".length) : undefined;
+  if (!oneOf(layer, TAB_LAYERS) || typeof value !== "boolean") return own;
+  return { ...own, layers: { ...own.layers, [layer]: value } };
 }
 
 /** The Player part of a view, as the Player host takes it (player/host.ts `PlayerRemembered`). */

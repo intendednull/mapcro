@@ -289,7 +289,7 @@ async function load(p: Page, id: string, shift: number) {
   await expect(p.getByTestId("match-clock")).toBeVisible();
 }
 
-test("Player: the match, t and playing, Sandbox; map layers are a tab's own once it was left", async ({ browser }) => {
+test("Player: the match, t and playing, Sandbox; map layers are a tab's own once set there", async ({ browser }) => {
   const { me, a, go } = await twoTabs(browser);
   await load(me, "51001", 0);
   await me.getByTestId("match-play").click();
@@ -307,13 +307,16 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   // B's own match at its own default place (a match opens at 10:00, or its end), paused; A's was
   // playing from the start.
   await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
-  // B was left once already (before A turned Heals on): its map layers are its own.
+  // B was opened and left before A turned Heals on, with no layer set there: it shows this
+  // browser's choice (§4.2). Turned off here, Heals is B's own.
   await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  await me.getByTestId("heals-toggle").click();
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
   await me.getByTestId("match-speed").selectOption("2");
   await go(0);
   // A opens as it was left (§4.2): its own match, still playing from where it was, at its own
-  // speed, with its own layers (B's Heals are off).
+  // speed, with the layers set there (Heals on, though B turned it off since).
   await expect(me.getByTestId("match-tier")).toHaveText("Full replay");
   await expect(me.getByTestId("player")).toHaveAttribute("data-state", "match");
   await expect(me.getByTestId("match-play")).toHaveText("Pause");
@@ -346,7 +349,12 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   await expect(me.getByTestId("match-play")).toHaveText("Play");
   await revealControls(me, "heals-toggle");
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
-  // A tab never opened takes this browser's last choice (Heals on, from A), not B's own.
+  // Off and on again on A: this browser's last choice is on. A tab never opened takes that,
+  // not B's own.
+  await me.getByTestId("heals-toggle").click();
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
+  await me.getByTestId("heals-toggle").click();
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
   const c = await newBoardUrl(server, "Board C");
   await me.getByTestId("add-game").click();
   await me.getByTestId("add-paste").fill(c);
@@ -357,6 +365,22 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   await load(me, "51003", 0);
   await revealControls(me, "heals-toggle");
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  // C is left with nothing set there. B keeps what was set on B, whatever this browser's is.
+  await go(1);
+  await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
+  // Heals off on A: C, only passed through, shows that and not what it showed when it was left.
+  await go(0);
+  await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  await me.getByTestId("heals-toggle").click();
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
+  await tabs(me).nth(2).click();
+  await expect.poll(() => mounted(me)).toBe(boardOf(c));
+  await saved(me);
+  await expect(me.getByTestId("match-tier")).toHaveText("Full replay");
+  await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
 });
 
 // ---- what a tab remembers (§4.2) ----

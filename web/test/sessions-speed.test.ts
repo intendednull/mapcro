@@ -3,7 +3,7 @@
 // e2e/session-isolation.spec.ts.
 
 import { describe, expect, it } from "vitest";
-import { MAX_TAB_VIEWS, type TabView, loadTabView, parseTabView, playerPart, saveTabView, tabViewKey, withMatches, withScenes } from "../src/session/tabview";
+import { MAX_TAB_VIEWS, TAB_LAYERS, type TabView, loadTabView, parseTabView, playerPart, saveTabView, tabOwn, tabViewKey, withMatches, withOwn, withScenes } from "../src/session/tabview";
 import { DECODED_PER_CHAR, TimelineCache, freezeDeep, isFetched } from "../src/player/timelineCache";
 import type { Timeline } from "../src/match/timeline";
 
@@ -97,6 +97,40 @@ describe("what a tab remembers (TabView)", () => {
   it("hands Player its part alone", () => {
     expect(playerPart(undefined)).toEqual({});
     expect(playerPart(full)).toEqual({ mode: "player", match: "129738985", t: 812.5, playing: true, speed: 4, layers: full.layers, vision: "amber", lastSeen: true });
+  });
+
+  it("holds of Vision and the map layers only what was set on the tab", () => {
+    // A tab only passed through holds none of them: it shows this browser's choice.
+    expect(tabOwn(undefined)).toEqual({});
+    expect(tabOwn({ board: A, at: 1, mode: "player", layers: {} } as TabView)).toEqual({});
+    // What it remembered before is its own still, and nothing else of the view is.
+    expect(tabOwn(full)).toEqual({ layers: full.layers, vision: "amber", lastSeen: true });
+    expect(tabOwn({ lastSeen: false })).toEqual({ lastSeen: false });
+    expect(tabOwn({ vision: "all" })).toEqual({ vision: "all" });
+    // Each key set becomes the tab's own, alone: the others stay unheld.
+    let own = withOwn({}, "layer.heals", true);
+    expect(own).toEqual({ layers: { heals: true } });
+    own = withOwn(own, "layer.troopers", false);
+    expect(own).toEqual({ layers: { heals: true, troopers: false } });
+    own = withOwn(own, "layer.heals", false);
+    expect(own).toEqual({ layers: { heals: false, troopers: false } });
+    own = withOwn(own, "vision.team", "sapphire");
+    own = withOwn(own, "vision.last_seen", false);
+    expect(own).toEqual({ layers: { heals: false, troopers: false }, vision: "sapphire", lastSeen: false });
+    // A layer set after them keeps them.
+    expect(withOwn(own, "layer.cc", true)).toEqual({ layers: { heals: false, troopers: false, cc: true }, vision: "sapphire", lastSeen: false });
+    for (const k of TAB_LAYERS) expect(withOwn({}, `layer.${k}`, true)).toEqual({ layers: { [k]: true } });
+    // Never the value handed in: the host keeps the one before for a tab left unsettled.
+    const before = { layers: { cc: true } };
+    expect(withOwn(before, "layer.movement", true)).toEqual({ layers: { cc: true, movement: true } });
+    expect(before).toEqual({ layers: { cc: true } });
+    // Any other key, or a value out of shape, is not a tab's: names, panels, the events filters.
+    for (const [k, v] of [["names", true], ["builds.all", true], ["events.filter.death", true], ["layer.fog", true], ["layers", true], ["heals", true], ["other.heals", true], ["layer.heals", "on"], ["vision.team", "top"], ["vision.team", true], ["vision.last_seen", "yes"], ["vision", "amber"]] as const)
+      expect(withOwn(own, k, v)).toBe(own);
+    // Stored and read back, a tab's own is only what was set.
+    const s = storage();
+    saveTabView(s, S, { board: A, at: 1, ...own });
+    expect(tabOwn(loadTabView(s, S, A))).toEqual(own);
   });
 
   it("keeps at most 200, dropping the oldest, and leaves other keys alone", () => {

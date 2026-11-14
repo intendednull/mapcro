@@ -407,10 +407,11 @@ memory survives into another board's mount unless it is either:
   disposed board, whose session takes no edit. The "switch waits for the gesture" rule below
   covers it.
 - **Device settings:** Player names stay device-wide, as on a board today (localStorage, every
-  board). Vision, Show last seen and the map layers are **a tab's own once it was left**
-  (decided, §12 item 7; built in phase 3 with §4.2): a tab opens with what it showed when it was
-  left, and a tab never opened, like a board alone, with this browser's last choice (Heals,
-  Heavy boxes, Vision and Show last seen are still written there on every change). The ink
+  board). Vision, Show last seen and the map layers are **a tab's own once set there**
+  (decided, §12 item 7; built in phase 3 with §4.2): a tab opens with each one as it was last
+  set on that tab. One never set there shows this browser's last choice, as on a board alone
+  and on a tab never opened, so a tab only opened and left pins nothing (Heals, Heavy boxes,
+  Vision and Show last seen are still written to this browser on every change). The ink
   colour is per board already (`mapcro.colour.<board>`). Comments open is per board. The tool
   resets to Move on a new mount.
 - **An edit in flight at a switch lands on its own board.** A drag dropped, a stroke released or
@@ -439,10 +440,16 @@ memory survives into another board's mount unless it is either:
 **Built in phase 3** (`web/src/session/tabview.ts`; Board reads it at mount and writes it on
 cleanup and on `pagehide`, so a reload keeps it).
 - It holds: the scene, the viewport and the side it's seen from, the sidebar tab, Player or
-  Sandbox, the match, t, playing and speed, and Vision, Show last seen and the seven map layers
-  (§12 item 7). Each is what the screen showed, a presenter's value while following. **Not
-  floor:** the client has no floor state yet (presence sends a constant). Left on a scene with a
+  Sandbox, the match, t, playing and speed: each is what the screen showed, a presenter's
+  value while following. **Not floor:** the client has no floor state yet (presence sends a constant). Left on a scene with a
   match behind it, the tab comes back on the scene with the match held where it was.
+- Of Vision, Show last seen and the seven map layers (§12 item 7) it holds **only what the
+  user set on that tab**, each from the change on (`withOwn`, from the view-state store's
+  `onOwn`). The rest aren't stored, so they show this browser's choice at each mount. A
+  presenter's values while following are not the user's: they aren't held, unless the user's
+  own change stops the follow and keeps them (§8), which sets them. (Changed 2026-11-14, the
+  lead's reading of item 7. As first built, leaving a tab stored all nine as shown, so a tab
+  only passed through kept Heals off after another tab turned it on.)
 - A stored entry is read field by field, each only in its own shape, and only if it names the
   board being mounted. A scene that's gone drops the scene, the viewport and the side (the board
   opens on its first scene, fitted). A match no longer attached drops the match, its playback
@@ -695,8 +702,8 @@ state. Each row:
 
 Rows (each one at least): scenes and the current scene; strokes, arrows, comments and notes;
 roster and heroes; objectives; Player or Sandbox; the match; t, playing and speed; jump pin;
-Vision and Last seen (device-wide, so the *same* on B by design: the row asserts that); the
-seven layers (device-wide, the same); open skull recap, events recap, inspect, All builds; Effects
+Vision, Last seen and the seven layers (a tab's own once set there, else this browser's and so
+the *same* on B: §4.1; the row asserts both); open skull recap, events recap, inspect, All builds; Effects
 or Build order; events filters and search; hover label (local and remote); open game tooltip;
 selection and picked objectives; the tool; ink colour (per board); comments open (per board);
 peers' cursors, laser, drag previews, live ink and pings from A (never on B); people list; save
@@ -1009,8 +1016,8 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      keys, LRU and freeze), `crates/server/tests/replays.rs` (the validator: 304 only for the file
      held and only after the access check, through a link and through a grant), and in
      `e2e/session-isolation.spec.ts` (§9.1): a tab as it was left, from sessionStorage after a
-     reload, a scene gone meanwhile (checked once the board has caught up); layers a tab's own
-     once left, this browser's on a tab never opened; a left board holds nothing open; the
+     reload, a scene gone meanwhile (checked once the board has caught up); a layer a tab's own
+     once set there, this browser's on a tab never opened and on one only passed through; a left board holds nothing open; the
      timeline cache sent once and confirmed on every open for each board, a file written again,
      a refusal, no answer. `e2e/fixtures.ts` fails any test whose page writes to a frozen object
      (every timeline Player shows is frozen, cached or not), proved by `frozen-write-guard.spec.ts`.
@@ -1060,7 +1067,8 @@ All as proposed except 10 and 11:
 4. The internal cap of 2,000 tab records is fine as "no hard limit".
 5. Session editors can be followed on a view-only tab.
 6. Session viewers see who is on which tab.
-7. Vision and map layers are remembered per tab.
+7. Vision and map layers are remembered per tab. Read by the lead (2026-11-14) as: a tab
+   remembers what was set on it; a tab only opened and left follows this browser's choice (§4.2).
 8. Session grants appear in the board owner's Share list, revocable there.
 9. No Whiteboard tab, no "scenes per game" filter.
 10. **Changed: one undo**, not two (§7.2). Two undos would confuse: people press the undo button to

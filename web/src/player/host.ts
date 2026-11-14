@@ -31,6 +31,7 @@ import type { PanelPlace } from "../gen/PanelPlace";
 import { type Death, type HeroPanelOpen, type Place, deathKey } from "./layers";
 import { type ValueOf, clipText, createViewState } from "./viewstate";
 import { VIEW_STATE, type ViewKey } from "../gen/viewState";
+import { type TabOwn, tabOwn, withOwn } from "../session/tabview";
 
 export type Mode = "player" | "sandbox";
 
@@ -60,7 +61,8 @@ export interface PlaybackPresence {
 
 /**
  * What a session's tab remembers of Player (sessions.md §4.2, session/tabview.ts): the match and
- * its playback as the screen showed them, the mode, and Vision and the map layers (per tab).
+ * its playback as the screen showed them, the mode, and what its user set there of Vision and
+ * the map layers (the rest are this browser's).
  */
 export interface PlayerRemembered {
   mode?: Mode;
@@ -120,6 +122,12 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
   };
   /** Your own change that stops following: Board says how (`onStop`). */
   let stopFollow: (() => void) | undefined;
+  /**
+   * The map layers, Vision and Show last seen set on this tab, here or before it was left: the
+   * tab's own (sessions.md §4.2). A presenter's values are never among them, unless your own
+   * change keeps them (`onOwn` is called for those too).
+   */
+  let own: TabOwn = tabOwn(remembered);
   const viewState = createViewState(
     {
       // A tab's own, where it remembers them (sessions.md §4.2); else this browser's.
@@ -152,7 +160,13 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
       "events.search": "",
       "events.search.names": playerNamesShown() ? "on" : "off",
     },
-    { onOwn: (k, v) => REMEMBER[k]?.(v as never), onStop: () => stopFollow?.() },
+    {
+      onOwn: (k, v) => {
+        REMEMBER[k]?.(v as never);
+        own = withOwn(own, k, v);
+      },
+      onStop: () => stopFollow?.(),
+    },
   );
   /** A key's value, and your own choice of it. */
   const showing = <K extends ViewKey>(k: K) => () => viewState.get(k);
@@ -780,22 +794,15 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
   };
 
   /**
-   * What this tab would remember of Player now (sessions.md §4.2): what the screen shows, a
-   * presenter's values too while following. Nothing until the board's matches are known and its
-   * match opened: a tab left before that keeps what it remembered before.
+   * What this tab would remember of Player now (sessions.md §4.2): the mode and the playback
+   * the screen shows (a presenter's too while following), and the map layers, Vision and Show
+   * last seen set on this tab (`own`). Until the board's matches are known and its match
+   * opened, the mode and playback are what it remembered before.
    */
   let settled = false;
-  const remember = (): PlayerRemembered | undefined => {
-    if (!settled) return undefined;
-    const out: PlayerRemembered = {
-      mode: untrack(mode),
-      layers: {
-        troopers: untrack(showTroopers), health: untrack(showHealth), pings: untrack(showPings), cc: untrack(showCC),
-        movement: untrack(showMovement), heals: untrack(showHeals), crates: untrack(showCrates),
-      },
-      vision: untrack(vision),
-      lastSeen: untrack(showLastSeen),
-    };
+  const remember = (): PlayerRemembered => {
+    if (!settled) return { ...remembered, ...own };
+    const out: PlayerRemembered = { mode: untrack(mode), ...own };
     const id = untrack(matchId);
     if (id === undefined || !untrack(tl)) return out;
     const h = untrack(held);

@@ -265,7 +265,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       const at = untrack(scene)?.id;
       if (at === undefined) return;
       saveTabView(sessionStorage, inSession.id, {
-        ...(player.remember() ?? playerPart(remembered)),
+        ...player.remember(),
         board: p.board,
         at: Date.now(),
         scene: at,
