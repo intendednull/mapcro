@@ -26,8 +26,8 @@ import type { BuildPopover } from "../gen/BuildPopover";
 import type { HeroPanel } from "../gen/HeroPanel";
 import type { PanelPlace } from "../gen/PanelPlace";
 import { type Death, type HeroPanelOpen, type Place, deathKey } from "./layers";
-import { type ValueOf, clipText, createViewState } from "./viewstate";
-import { VIEW_STATE, type ViewKey } from "../gen/viewState";
+import { type BoardKey as ViewKey, type ValueOf, clipText, createViewState } from "./viewstate";
+import { VIEW_STATE } from "../gen/viewState";
 import { type TabOwn, tabOwn, withOwn } from "../session/tabview";
 
 export type Mode = "player" | "sandbox";

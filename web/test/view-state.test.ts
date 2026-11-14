@@ -3,8 +3,8 @@
 // signal is added to Player or the board without saying what following does with it.
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { VIEW_STATE, type ViewKey } from "../src/gen/viewState";
-import { type ValueOf, type Values, VIEW_KEYS, clipText, createViewState } from "../src/player/viewstate";
+import { VIEW_STATE } from "../src/gen/viewState";
+import { type BoardKey as ViewKey, type ValueOf, type Values, VIEW_KEYS, clipText, createViewState } from "../src/player/viewstate";
 import { GROUPS } from "../src/player/events";
 import { DISCLOSURES, SCANNED, SIGNALS } from "./view-state-ledger";
 

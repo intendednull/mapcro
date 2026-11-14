@@ -4,7 +4,8 @@
 //! follower's own change does. The web client's store (`web/src/player/viewstate.ts`) is built
 //! from the generated copy (`web/src/gen/viewState.ts`), so a new key is one row here and one
 //! value in the store: the wire bits, the follower's apply and restore, and the tests come from
-//! the row. Plan: docs/plans/2026-11-11-view-state-sync.md.
+//! the row. A key is a board's room's or a session's own (`Room`): each has its store, built
+//! the same way. Plan: docs/plans/2026-11-11-view-state-sync.md.
 
 use crate::wire::{LAYER_CC, LAYER_CRATES, LAYER_HEALS, LAYER_HEALTH, LAYER_MOVEMENT, LAYER_PINGS, LAYER_TROOPERS, MAX_EVENT_SEARCH, MAX_HERO_PANELS, PLACE_SCALE};
 
@@ -15,6 +16,16 @@ pub enum Sync {
     Shared,
     /// Each browser's own on purpose, never on the wire (say why in `note`).
     Personal,
+}
+
+/// Whose presence carries a key, and which of the client's stores holds it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Room {
+    /// A board's room: the store of the board that is open (`web/src/player/host.ts`).
+    Board,
+    /// A session's own room (sessions.md §6): the store of the session, which outlives the
+    /// board mounted for a tab (`web/src/session/follow.ts`).
+    Session,
 }
 
 /// What a key's value is. Each kind has one codec in the client's store and one bound here
@@ -42,6 +53,10 @@ pub enum Kind {
     /// The hero panels open, back to front, each with its place (`HeroPanel`; at most
     /// `MAX_HERO_PANELS`, each slot once).
     HeroPanels { max: usize },
+    /// A record of the room's document, or none: its id as written (32 lowercase hex digits;
+    /// anything else reads as none, `wire::lenient_id`). The follower resolves it against its
+    /// own copy of the document: one it doesn't have, or can't open, leaves it where it is.
+    Id,
 }
 
 /// Where presence carries a key.
@@ -85,6 +100,7 @@ pub enum Override {
 #[derive(Clone, Copy, Debug)]
 pub struct ViewKey {
     pub key: &'static str,
+    pub room: Room,
     pub sync: Sync,
     pub kind: Kind,
     pub wire: Wire,
@@ -103,6 +119,7 @@ pub struct ViewKey {
 const fn layer(key: &'static str, mask: u8) -> ViewKey {
     ViewKey {
         key,
+        room: Room::Board,
         sync: Sync::Shared,
         kind: Kind::Bool,
         wire: Wire::Bit { field: "layers", mask: mask as u32, omit_zero: false },
@@ -117,7 +134,7 @@ const fn layer(key: &'static str, mask: u8) -> ViewKey {
 /// A panel (spec §8): open and closed with the presenter; a follower's own until the
 /// presenter's next panel change; stopping leaves it; gone with the match.
 const fn panel(key: &'static str, kind: Kind, field: &'static str, note: &'static str) -> ViewKey {
-    ViewKey { key, sync: Sync::Shared, kind, wire: Wire::Optional { field }, unfollow: Unfollow::Keep, on_override: Override::Local, group: Some("panels"), reset_on_match: true, note }
+    ViewKey { key, room: Room::Board, sync: Sync::Shared, kind, wire: Wire::Optional { field }, unfollow: Unfollow::Keep, on_override: Override::Local, group: Some("panels"), reset_on_match: true, note }
 }
 
 /// The events list's filter chips, in the order of `events.ts` `GROUPS`; chip `i` is bit `i` of
@@ -127,6 +144,7 @@ pub const EVENT_GROUPS: [&str; 9] = ["death", "ult", "objective", "mid_boss", "r
 const fn filter(key: &'static str, bit: u32) -> ViewKey {
     ViewKey {
         key,
+        room: Room::Board,
         sync: Sync::Shared,
         kind: Kind::Bool,
         wire: Wire::Bit { field: "playback.event_filters", mask: 1 << bit, omit_zero: true },
@@ -159,6 +177,7 @@ pub const VIEW_STATE: &[ViewKey] = &[
     panel("builds.all", Kind::Bool, "playback.all_builds", "All builds open (the button; Tab held is sent as the same flag)"),
     ViewKey {
         key: "names",
+        room: Room::Board,
         sync: Sync::Personal,
         kind: Kind::Bool,
         wire: Wire::None,
@@ -170,6 +189,7 @@ pub const VIEW_STATE: &[ViewKey] = &[
     },
     ViewKey {
         key: "vision.team",
+        room: Room::Board,
         sync: Sync::Shared,
         kind: Kind::Choice(VISIONS),
         wire: Wire::Value { field: "playback.vision.team" },
@@ -181,6 +201,7 @@ pub const VIEW_STATE: &[ViewKey] = &[
     },
     ViewKey {
         key: "vision.last_seen",
+        room: Room::Board,
         sync: Sync::Shared,
         kind: Kind::Bool,
         wire: Wire::Value { field: "playback.vision.last_seen" },
@@ -212,6 +233,7 @@ pub const VIEW_STATE: &[ViewKey] = &[
     filter("events.filter.purchase", 8),
     ViewKey {
         key: "events.search",
+        room: Room::Board,
         sync: Sync::Shared,
         kind: Kind::Text { max: MAX_EVENT_SEARCH },
         wire: Wire::Optional { field: "playback.event_search" },
@@ -223,6 +245,7 @@ pub const VIEW_STATE: &[ViewKey] = &[
     },
     ViewKey {
         key: "events.search.names",
+        room: Room::Board,
         sync: Sync::Shared,
         kind: Kind::Choice(SEARCH_NAMES),
         wire: Wire::Optional { field: "playback.event_search_names" },
@@ -231,6 +254,21 @@ pub const VIEW_STATE: &[ViewKey] = &[
         group: Some("events"),
         reset_on_match: false,
         note: "Whether the search finds by player name: the presenter's Names, so a follower's list is theirs (review 2026-11-11)",
+    },
+    // The one key of a session's room (sessions.md §6.2). Switching your own tab stops
+    // following, as flipping a scene does; stopping, or the presenter leaving, leaves you on
+    // the tab you are on.
+    ViewKey {
+        key: "session.tab",
+        room: Room::Session,
+        sync: Sync::Shared,
+        kind: Kind::Id,
+        wire: Wire::Value { field: "tab" },
+        unfollow: Unfollow::Keep,
+        on_override: Override::Stop,
+        group: None,
+        reset_on_match: false,
+        note: "The presenter's open tab: a follower switches with it, then follows inside the board",
     },
 ];
 
@@ -283,7 +321,8 @@ pub const OUTSIDE: &[(&str, Outside)] = &[
 pub fn to_ts() -> String {
     let mut out = String::from(
         "// Generated from crates/engine/src/view_state.rs `VIEW_STATE` by `just ts`. Do not edit.\n\n\
-         /** Every view-state key: who sees it, its kind (`options` and how presence `wires` each, for\n \
+         /** Every view-state key: the room whose presence carries it (a board's, or a session's own),\n \
+         * who sees it, its kind (`options` and how presence `wires` each, for\n \
          * a choice), where presence carries it (`field`, with `mask` for one bit of an integer; `omit`:\n \
          * left out when the default), what stopping a follow does, what a follower's own change does,\n \
          * the group a presenter's change applies as, and whether another match resets it. */\n\
@@ -310,6 +349,11 @@ pub fn to_ts() -> String {
             Kind::Text { max } => format!("kind: \"text\", max: {max}"),
             Kind::Place => format!("kind: \"place\", scale: {PLACE_SCALE}"),
             Kind::HeroPanels { max } => format!("kind: \"heroes\", max: {max}, scale: {PLACE_SCALE}"),
+            Kind::Id => "kind: \"id\"".to_owned(),
+        };
+        let room = match k.room {
+            Room::Board => "board",
+            Room::Session => "session",
         };
         let sync = match k.sync {
             Sync::Shared => "shared",
@@ -325,7 +369,7 @@ pub fn to_ts() -> String {
         };
         let group = k.group.map_or("null".to_owned(), q);
         out.push_str(&format!(
-            "  \"{}\": {{ sync: \"{sync}\", {kind}, field: {field}, mask: {mask}, omit: {omit}, unfollow: \"{unfollow}\", override: \"{over}\", group: {group}, reset: {} }},\n",
+            "  \"{}\": {{ room: \"{room}\", sync: \"{sync}\", {kind}, field: {field}, mask: {mask}, omit: {omit}, unfollow: \"{unfollow}\", override: \"{over}\", group: {group}, reset: {} }},\n",
             k.key, k.reset_on_match
         ));
     }
@@ -376,6 +420,7 @@ mod tests {
             focus: Some(mapcro_schema::RecordId(7)),
             following: Some(1),
             seat: Some(1),
+            tab: Some(mapcro_schema::RecordId(9)),
             ink: Some(LiveInk { color: 1, points: vec![at] }),
             ping: Some(Ping { at, n: 1 }),
             laser_color: Some(1),
@@ -490,6 +535,21 @@ mod tests {
             "playback.event_filters" => u16::BITS,
             other => panic!("{other}: not a bit field of Presence"),
         }
+    }
+
+    #[test]
+    fn a_sessions_room_carries_the_open_tab_and_nothing_else() {
+        let session: Vec<&ViewKey> = VIEW_STATE.iter().filter(|k| k.room == Room::Session).collect();
+        assert_eq!(session.iter().map(|k| k.key).collect::<Vec<_>>(), ["session.tab"]);
+        let tab = session[0];
+        // sessions.md §6.2's row: switching with the presenter, staying put when the follow
+        // ends, and stopping it by picking a tab.
+        assert_eq!((tab.sync, tab.kind, tab.wire, tab.unfollow, tab.on_override, tab.group), (Sync::Shared, Kind::Id, Wire::Value { field: "tab" }, Unfollow::Keep, Override::Stop, None));
+        let ts = to_ts();
+        assert!(ts.contains(r#"  "session.tab": { room: "session", sync: "shared", kind: "id", field: "tab", mask: null, omit: false, unfollow: "keep", override: "stop", group: null, reset: false },"#), "{ts}");
+        // Every other key is a board's, and says so to the client's stores.
+        assert_eq!(ts.matches(r#"room: "board""#).count(), VIEW_STATE.len() - 1);
+        assert_eq!(ts.matches(r#"room: "session""#).count(), 1);
     }
 
     #[test]

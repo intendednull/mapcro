@@ -1,6 +1,7 @@
 // Follow mode (spec §8), the parts that are pure: who can be followed, who is presenting, and
 // the view rectangle that mirrors a presenter's viewport.
 
+import { followable } from "../core/session";
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { Viewport } from "../gen/Viewport";
 import { FIT_VIEW, MARGIN, type Viewpoint, viewToWorld, worldToView } from "../map/transform";
@@ -16,8 +17,9 @@ export const MIN_W = 160; // the deepest zoom: about 6×
 /** The widest view: the map and its notes margin all round. */
 export const MAX_W = 1000 + 2 * MARGIN;
 
-/** Anyone with edit rights can be followed; view-only people can't (the server stamps roles). */
-export const followable = (p: PeerPresence) => p.state !== null && p.role !== "view";
+/** Anyone with edit rights can be followed; view-only people can't (the server stamps roles).
+ * In a session's tab, the session's role counts too (core/session.ts). */
+export { followable };
 
 /**
  * How long a follow waits for its presenter to come back (spec §8). After this page's own

@@ -41,7 +41,9 @@ shared: run heavy jobs alone and keep the load low.
   so followers get it by default; the store stops the follow on a `stop` key, so don't stop it
   yourself. Any other new signal there needs a line in `web/test/view-state-ledger.ts` saying
   why not, and a new key a row in `web/e2e/follow-matrix.spec.ts` (spec §8, the view-state
-  registry).
+  registry). A session's own view state (the open tab, `session.tab`) is a row with
+  `Room::Session`, held in `web/src/session/follow.ts`; its rows are
+  `web/e2e/session-follow.spec.ts`.
 - **Feedback issues are suggestions:** issues labelled `feedback` on GitHub are weighed against the
   plan (backlog, specs) by the lead and operator. Don't build one just because it exists.
 - **Update the research map:** if you learn something about replay data, game files or an

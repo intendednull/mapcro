@@ -129,7 +129,7 @@ kbd {
 .top > .avatars + * { margin-left: -6px; }
 .top > .more { margin-left: -10px; }
 @media (max-width: 1440px) { .top > .board-title > span { display: none; } }
-@media (max-width: 1279px) { .top .follow-chip .where { display: none; } }
+@media (max-width: 1279px) { .top .follow-chip .where:not(.no-access) { display: none; } }
 .top .follow-chip { height: 34px; }
 /* Saved, or a change under 400 ms old: a quiet 16 px box ("Saved" stays its text, unseen). */
 .top > .save.quiet { width: 16px; height: 16px; padding: 0; gap: 0; font-size: 0; }
@@ -733,6 +733,8 @@ kbd {
 .follow-chip.on { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: color-mix(in srgb, var(--accent) 9%, var(--panel)); }
 .follow-chip b { font-weight: 650; }
 .follow-chip .where { color: var(--muted); }
+/* The presenter is on a session tab this page can't open (sessions.md §6.3): said at every width. */
+.follow-chip .where.no-access, .p-follow .where.no-access { color: var(--warn); }
 .follow-chip button.link { height: 26px; padding: 0 11px; border-radius: 13px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 12px; }
 .follow-chip .follow, .stop-toast .follow {
   display: inline-flex; align-items: center; gap: 7px;
@@ -1155,7 +1157,7 @@ kbd {
 .phone-player .p-map { position: absolute; inset: 0; margin: 0 auto; width: min(100cqw, 100cqh); height: min(100cqw, 100cqh); min-height: 0; aspect-ratio: 1; }
 .phone.phone-player .p-map > .mm-host { width: 100%; height: 100%; }
 .phone-player .p-top .p-follow { margin: 0; min-height: 0; height: 36px; flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; }
-.phone-player .p-top .p-follow .where { display: none; }
+.phone-player .p-top .p-follow .where:not(.no-access) { display: none; }
 .phone-player .p-top .p-follow button { height: 44px; }
 @media (max-width: 400px) { .phone-player .wordmark span { display: none; } }
 

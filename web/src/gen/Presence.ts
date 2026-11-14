@@ -65,6 +65,15 @@ following: number | null,
  */
 seat?: number, 
 /**
+ * The session tab this person has open (sessions.md §6.1), by its `Tab` record. Carried in
+ * a session's room, where a follower switches with its presenter (the registry's
+ * `session.tab`); a board's room relays none (§3.3: a board's own people see nothing of
+ * the session). The reader resolves it against its own copy of the session document.
+ * Anything but 32 lowercase hex digits (a newer client's shape) reads as none, and the
+ * frame still parses. Absent: no tab open, a board's room, or an older client.
+ */
+tab?: RecordId | null, 
+/**
  * A stroke being drawn right now, so others see it as it's drawn. It becomes a Stroke
  * record on release. Optional in TypeScript, like `picked`.
  */

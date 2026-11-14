@@ -9,6 +9,8 @@
 //   - for someone who joins the board later and follows;
 //   - after the server restarts mid-follow (everyone reconnects).
 // A new key is one row. docs/plans/2026-11-11-view-state-sync.md has the registry this checks.
+// These are a board's keys. The session's own key, `session.tab` (the open tab), needs a
+// session of several boards: its rows are session-follow.spec.ts (sessions.md §9.3).
 
 import { createServer } from "node:http";
 import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";

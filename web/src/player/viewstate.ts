@@ -3,6 +3,10 @@
 // to it read from the key's row, not written per feature. A key has your own value and, while
 // you follow, maybe the presenter's; `get` is what the screen shows.
 //
+// A store holds one room's keys (view_state.rs `Room`): the open board's (host.ts), or the
+// session's own, which outlives the board mounted for a tab (session/follow.ts). It holds the
+// keys it is given first values for.
+//
 // To add view state: add a row to the registry, run `just ts`, give it a first value where the
 // store is made (host.ts), and read and write it with `get` and `set`. Presence, the follower's
 // mirror, the restore on stopping, stopping the follow on your own change, and the tests
@@ -12,9 +16,19 @@ import { type Accessor, type Setter, batch, createSignal, untrack } from "solid-
 import { VIEW_STATE, type ViewKey } from "../gen/viewState";
 import { type Death, type HeroPanelOpen, type Place, deathFromWire, deathKey, deathToWire, heroPanelsFromWire, heroPanelsToWire, placeFromWire, placeToWire, slotFromWire, slotToWire } from "./layers";
 
-export const VIEW_KEYS = Object.keys(VIEW_STATE) as ViewKey[];
 type Rows = typeof VIEW_STATE;
 type Row = Rows[ViewKey];
+type RoomName = Row["room"];
+/** The keys one room's presence carries (view_state.rs `Room`). */
+export type KeyOf<R extends RoomName> = { [K in ViewKey]: Rows[K] extends { room: R } ? K : never }[ViewKey];
+/** A board's keys: the map layers, Vision, the panels, the events filters. */
+export type BoardKey = KeyOf<"board">;
+/** A session's own: the open tab (sessions.md §6.2). */
+export type SessionKey = KeyOf<"session">;
+const keysOf = <R extends RoomName>(room: R) => (Object.keys(VIEW_STATE) as ViewKey[]).filter((k) => VIEW_STATE[k].room === room) as KeyOf<R>[];
+/** The board's keys, in the registry's order. */
+export const VIEW_KEYS = keysOf("board");
+export const SESSION_KEYS = keysOf("session");
 
 /** What a key holds, by its kind (view_state.rs `Kind`). */
 type KindValue<R> = R extends { kind: "bool" }
@@ -33,9 +47,12 @@ type KindValue<R> = R extends { kind: "bool" }
               ? Place | undefined
               : R extends { kind: "heroes" }
                 ? HeroPanelOpen[]
-                : never;
+                : R extends { kind: "id" }
+                  ? string | undefined
+                  : never;
 export type ValueOf<K extends ViewKey> = KindValue<Rows[K]>;
-export type Values = { [K in ViewKey]: ValueOf<K> };
+/** A store's values: a board's keys unless said (`Values<SessionKey>`). */
+export type Values<K extends ViewKey = BoardKey> = { [P in K]: ValueOf<P> };
 
 /** A presence, as far as the registry reads and writes it (fields by dotted path). */
 export type Wire = Record<string, unknown>;
@@ -102,6 +119,8 @@ function toWire(r: Row, v: unknown): unknown {
       const list = heroPanelsToWire(v as HeroPanelOpen[], extra(r).max!);
       return r.omit && !list.length ? undefined : list;
     }
+    case "id":
+      return (v as string | undefined) ?? null;
   }
 }
 /** A value presence carried (its parent is there: a missing value is the default). */
@@ -126,8 +145,13 @@ function fromWire(r: Row, w: unknown): unknown {
       // Always sent with playback (`[]` for none): left out is an older presenter's, which
       // leaves the follower's own (review 2026-11-11).
       return Array.isArray(w) ? heroPanelsFromWire(w, extra(r).max!) : ABSENT;
+    case "id":
+      // A record id as written (wire.rs `lenient_id`). None, or anything else, says nothing:
+      // the follower stays where it is.
+      return typeof w === "string" && ID.test(w) ? w : ABSENT;
   }
 }
+const ID = /^[0-9a-f]{32}$/;
 
 /** A heard value of a group's key, to tell a change. */
 function heardAs(r: Row, w: unknown): string {
@@ -161,21 +185,27 @@ function place(out: Wire, path: string): [Wire, string] {
   return [at, parts.at(-1)!];
 }
 
-export interface ViewState {
+export interface ViewState<K extends ViewKey = BoardKey> {
   /** What the screen shows: the presenter's while you follow one who sends it, else your own. */
-  get<K extends ViewKey>(k: K): ValueOf<K>;
+  get<P extends K>(k: P): ValueOf<P>;
   /**
    * Your own choice. A `stop` key is a change to what you see: you keep everything the screen
    * shows now (a presenter's, while following) with this one change, and following stops
    * (`onStop`). A `local` key is yours until the presenter's next change to its group.
    */
-  set<K extends ViewKey>(k: K, v: ValueOf<K>): void;
+  set<P extends K>(k: P, v: ValueOf<P>): void;
+  /**
+   * A value the app gives, not a choice of yours (the tab you were on was removed, so you are
+   * on its neighbour): your own from now on, and no change to what you chose to see, so
+   * following goes on.
+   */
+  put<P extends K>(k: P, v: ValueOf<P>): void;
   /**
    * Whether what `get` shows came from a presenter: heard while following, and still so once
    * stopping keeps it, until your own change or another match's reset (a follower with Player
    * names off doesn't see a presenter's search, spec §8).
    */
-  heard(k: ViewKey): boolean;
+  heard(k: K): boolean;
   /** What presence carries for the shared keys, at their fields' paths: the shown values.
    * `under`: only the keys in that top-level field (`layers`, `playback`). */
   wire(under?: string): Wire;
@@ -199,18 +229,23 @@ export interface ViewState {
   reset(): void;
 }
 
-export interface Options {
+export interface Options<K extends ViewKey = BoardKey> {
   /** Your own value of a key changed (to remember it); not called for a presenter's. */
-  onOwn?: (k: ViewKey, v: unknown) => void;
+  onOwn?: (k: K, v: unknown) => void;
   /** Your own change to a `stop` key: stop following (spec §8). */
   onStop?: () => void;
 }
 
-/** `first`: each key's value to start with (a default, or what this browser remembers). */
-export function createViewState(first: Values, o: Options = {}): ViewState {
+/** `first`: each key's value to start with (a default, or what this browser remembers). The
+ * store holds those keys: one room's, all of them. */
+export function createViewState<K extends ViewKey = BoardKey>(first: Values<K>, o: Options<K> = {}): ViewState<K> {
   type Cell = { own: Accessor<unknown>; setOwn: Setter<unknown>; theirs: Accessor<unknown>; setTheirs: Setter<unknown>; heard: Accessor<boolean>; setHeard: Setter<boolean> };
-  const cells = {} as Record<ViewKey, Cell>;
-  for (const k of VIEW_KEYS) {
+  const KEYS = (Object.keys(VIEW_STATE) as ViewKey[]).filter((k) => k in first) as K[];
+  const room = KEYS[0] && row(KEYS[0]).room;
+  if (!KEYS.length || KEYS.length !== (Object.keys(VIEW_STATE) as ViewKey[]).filter((k) => row(k).room === room).length || KEYS.some((k) => row(k).room !== room))
+    throw new Error("a view-state store holds one room's keys, all of them");
+  const cells = {} as Record<K, Cell>;
+  for (const k of KEYS) {
     const equals = (a: unknown, b: unknown) => (a === ABSENT || b === ABSENT ? a === b : same(row(k), a, b));
     const [own, setOwn] = createSignal<unknown>(first[k], { equals });
     const [theirs, setTheirs] = createSignal<unknown>(ABSENT, { equals });
@@ -218,18 +253,18 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
     const [heard, setHeard] = createSignal(false);
     cells[k] = { own, setOwn, theirs, setTheirs, heard, setHeard };
   }
-  const get = (k: ViewKey) => {
+  const get = (k: K) => {
     const t = cells[k].theirs();
     return t === ABSENT ? cells[k].own() : t;
   };
-  const setOwn = (k: ViewKey, v: unknown) => {
+  const setOwn = (k: K, v: unknown) => {
     if (same(row(k), untrack(cells[k].own), v)) return;
     cells[k].setOwn(() => v);
     o.onOwn?.(k, v);
   };
   /** Each `restore` key showing a presenter's value takes it as your own (and remembers it). */
   const adopt = () =>
-    VIEW_KEYS.forEach((k) => {
+    KEYS.forEach((k) => {
       const t = untrack(cells[k].theirs);
       if (t === ABSENT) return;
       setOwn(k, t);
@@ -240,8 +275,8 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
    * the group), and each key's whole value (a change to where a panel sits moves it alone). */
   let heard: Record<string, { opens: string; each: string[] }> = {};
   /** The death a `deaths` key last heard: the presenter's next change closes it. */
-  let lastDeath: Partial<Record<ViewKey, Death | undefined>> = {};
-  const apply = (k: ViewKey, w: unknown) => {
+  let lastDeath: Partial<Record<K, Death | undefined>> = {};
+  const apply = (k: K, w: unknown) => {
     const r = row(k);
     if (r.unfollow === "restore") return cells[k].setTheirs(() => w);
     if (w === ABSENT) return;
@@ -261,7 +296,7 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
    * are also the presenter's take its places and order; nothing opens or closes (lead
    * 2026-11-11: a drag, at pointer rate, mustn't undo the follower's own panels).
    */
-  const arrange = (k: ViewKey, w: unknown) => {
+  const arrange = (k: K, w: unknown) => {
     const r = row(k);
     if (w === ABSENT || r.kind !== "heroes") return apply(k, w);
     const theirs = w as HeroPanelOpen[];
@@ -270,9 +305,9 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
     let i = 0;
     cells[k].setOwn(() => own.map((o) => (both.some((t) => t.slot === o.slot) ? both[i++]! : o)));
   };
-  const shared = (group: string | undefined) => VIEW_KEYS.filter((k) => row(k).sync === "shared" && (row(k).group ?? undefined) === group);
+  const shared = (group: string | undefined) => KEYS.filter((k) => row(k).sync === "shared" && (row(k).group ?? undefined) === group);
   return {
-    get: get as ViewState["get"],
+    get: get as ViewState<K>["get"],
     heard: (k) => cells[k].theirs() !== ABSENT || cells[k].heard(),
     set: (k, v) =>
       batch(() => {
@@ -282,9 +317,14 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
         cells[k].setHeard(false);
         if (stop) o.onStop?.();
       }),
+    put: (k, v) =>
+      batch(() => {
+        setOwn(k, v);
+        cells[k].setHeard(false);
+      }),
     wire: (under) => {
       const out: Wire = {};
-      for (const k of VIEW_KEYS) {
+      for (const k of KEYS) {
         const r = row(k);
         if (r.sync !== "shared" || !r.field || (under !== undefined && r.field.split(".")[0] !== under)) continue;
         const [at, leaf] = place(out, r.field);
@@ -325,14 +365,14 @@ export function createViewState(first: Values, o: Options = {}): ViewState {
         heard = {};
         lastDeath = {};
         if (how === "keep") adopt();
-        else VIEW_KEYS.forEach((k) => cells[k].setTheirs(() => ABSENT));
+        else KEYS.forEach((k) => cells[k].setTheirs(() => ABSENT));
       }),
     reset: () =>
       batch(() => {
         // Only what goes back to its first value is heard afresh: a group with no such key
         // (the events filters and search) keeps the follower's own until the presenter's next
         // change to it (review 2026-11-11).
-        for (const k of VIEW_KEYS) {
+        for (const k of KEYS) {
           const r = row(k);
           if (!r.reset) continue;
           if (r.group !== null) delete heard[r.group];

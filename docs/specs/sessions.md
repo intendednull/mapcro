@@ -614,6 +614,28 @@ Board-room presence is unchanged, plus `seat`. The server stamps role per room f
 For a connection that arrived through a session, it also stamps `session_role` in the board
 room's presence, so a follower can check followability (§6.3) without trusting the client.
 
+**As built (phase 4, 2026-11-14):**
+
+- **`tab`** is `Presence.tab`, left out when none. The client sends it in the session's room
+  only, and a board's room drops one sent there (`room.rs`), so a board's own people learn
+  nothing of the session (§3.3). It is read leniently, as a newer client's panels are: anything
+  but 32 lowercase hex digits is none, and the frame is still relayed (`wire.rs` `lenient_id`).
+  A strict read would close the socket as abuse on a shape a later build might send.
+- **`session_role` is not a field of `Presence`: it is on `PeerPresence`, beside `role`,** which
+  only the server writes. A field of `Presence` would be the client's to send, and safe only as
+  long as the server remembered to overwrite it. It is stamped **per reader**: a peer's
+  session role is in the copy sent to someone who opened the board through the same session,
+  and in no other. A board's own people, and the members of another session that has the same
+  board as a tab, get `role` alone, byte for byte what they got before. The room tells sessions
+  apart by id (`auth::Via.session`), not by link, so the session's owner, editors and viewers
+  see each other's.
+- **The session's presence** is sent by `SessionView`: name and colour once the join card has
+  them (empty before), `tab`, and `following` (the followed person's session peer id, or null).
+  `seat` is the page's, as in every room.
+- **Not stamped:** someone who opens a tab with a board link of their own (§3.4) joins the
+  board's room without the session's credential, so they are neither stamped nor told others'
+  session roles there (TD-103).
+
 ### 6.2 The registry row
 
 By decision 1 of the view-state plan, new view state is a registry row:
@@ -625,7 +647,20 @@ By decision 1 of the view-state plan, new view state is a registry row:
 - It needs one new value kind beside the plan's §3 list: **`Id`**, a `RecordId`. It is checked
   for shape in `Presence::is_valid` and resolved by the follower against its own copy of the
   session document. The plan says to keep the kinds list short, and this is one more entry.
-- `seat` and `session_role` are `Outside::Core`.
+  (As built: the shape is checked where the frame is read, `lenient_id`, so `is_valid` has
+  nothing left to check; see §6.1.)
+- `seat` and `session_role` are `Outside::Core`. (As built: `seat` is; `session_role` is not a
+  `Presence` field, §6.1, so the registry's field check doesn't see it.)
+- **A row says which room carries it** (`Room::Board` or `Room::Session`, `room` in the
+  generated copy), and a store holds one room's keys: the board's store is the Player host's,
+  per mount; the session's is `web/src/session/follow.ts`, which outlives the board mounted
+  for a tab. `createViewState` takes the keys it is given first values for and refuses a set
+  that isn't exactly one room's. The open tab is no longer a signal of `SessionView`'s: it is
+  the store's `session.tab`.
+- **`put`**, beside `set`: a value the app gives rather than the user picks (the session's
+  first tab; the neighbour of a removed one). It is the follower's own from then on and stops
+  nothing. Without it the store's `stop` rule would end a follow when a tab is removed under
+  both people.
 - **Apply.** When the followed presenter's `tab` changes, the follower switches (§4.1). The new
   board mounts, the follower finds the presenter in that room by `seat`, and it follows there as
   today: scene, viewport, playback, Vision, layers, panels. Everything inside a board is the
@@ -634,6 +669,33 @@ By decision 1 of the view-state plan, new view state is a registry row:
 - **Stop**: the follower picking a tab, from the strip, a key or a deep link, stops following
   and keeps the tab it picked. By the plan's decision 2 it keeps everything it saw plus that one
   change. Inside the board, the board's own Stop rules apply as today.
+
+**As built (phase 4):**
+
+- **Who holds the follow.** A board's follow is the board's, as before, and ends with its
+  mount. The session holds the presenter's **seat** across the switch (`SessionFollow`): a
+  board that begins a follow tells the session the seat, the session finds that person in its
+  own room (the newest person there with the seat whom the server says can be followed, never
+  this page), moves this page when their `tab` changes, and the next board's mount follows the
+  seat at once (`locate`, by seat). Someone with no seat (an older page) is followed on their
+  board only.
+- **While the presenter is in the session's room, the board never says "Presenter left".** It
+  holds the follow, showing what they last showed there: they are on another tab (this page is
+  on its way, or can't open it) or on their way into this one. Once the session's room loses
+  them too, the board's usual wait starts from that moment (5 s for their reconnect, 20 s after
+  this page's own).
+- **A pick stops through the store.** `follow.pick` sets `session.tab`, a `stop` key, and the
+  store calls `onStop`; nothing else stops it. Picking the tab already open is no change. A
+  game added by the follower is its own pick. A link to another tab of the same session opened
+  in the page (the address changes without a load) is a pick too; a `?tab=` that isn't a tab
+  puts the address back.
+- **"Follow again."** The pick's toast ("Stopped following <name>") offers it when the person
+  is in the session, as a board's own toast does: the page goes to their tab and follows.
+- **Who a late joiner can follow.** The board's follow chip (and the F key) also offers the
+  session's presenters on other tabs: people the server says can be followed, whom someone in
+  the session follows, with a seat and a tab. **Someone on another tab whom nobody follows yet
+  can't be followed from here**: the "Session" people group and the avatar dots of §8 are in
+  neither phase 4's list nor phase 5's (docs/backlog.md).
 
 ### 6.3 Who can be followed, and lacking access
 
@@ -647,6 +709,15 @@ By decision 1 of the view-state plan, new view state is a registry row:
   an expired board, a junk tab. The follower stays on its tab and stays following, and the
   follow chip says **"No access"**. When the presenter moves to an available tab, the follower
   follows again. If the follower holds a stronger own link to that board, it uses it (§3.4).
+  **As built:** the page learns whether a tab opens in two ways. A board that was mounted here
+  said so (live, or refused for good); and before a follow moves the page to a tab it hasn't
+  opened, it asks once, `GET /api/boards/<id>/matches` with the credential it would open the
+  tab with (`canOpen`: 401, 403 and 404 are a refusal; no answer is not, and the page goes).
+  So a follower never lands on a dead tab it could have known about, at the cost of one round
+  trip the first time a follow takes it to each tab. A refusal is asked about again each time
+  the presenter is heard on that tab, because what was refused can open later (a removed tab
+  put back by undo). "No access" takes the place of the scene name in the chip, in the save
+  status's warning colour, and shows at every width (the scene name hides under 1280 px).
 - A presenter on a removed tab (a peer removed it under them) is moved, like everyone, to the
   tab to its left, and the follower follows that.
 - **Several presenters at once** work as today: each person follows one.
@@ -824,6 +895,17 @@ own board, and drops a dead scene or match.
 - After a server restart mid-follow, the follower re-finds the presenter by `seat`.
 - **Two presenters on different tabs, each with followers**: no follower's board shows the
   other presenter's state.
+- **A follower moved off a tab keeps none of the presenter's layers there** (carried from
+  phase 3, and confirmed as wanted): back on that tab by itself, it shows its own Heals and
+  the Troopers it set there, and the playback where the presenter left it (`Keep`).
+- **A layer set while a tab's match is drawn but not yet confirmed is the tab's own**, also
+  when a follow moves the person off the tab at that moment (carried from phase 3).
+- **The strip marks a tab left with changes not sent** (TD-101), until that board is opened
+  here again and they go; a move made as a tab is left, which goes out, marks nothing.
+
+All in `web/e2e/session-follow.spec.ts`, with one more written first, on the build before the
+change: inside one tab, people who came through the session follow each other as on a board
+alone.
 
 ## 10. Build plan
 

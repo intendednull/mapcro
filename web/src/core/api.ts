@@ -123,6 +123,18 @@ export async function withdrawGrant(session: string, token: string, grant: strin
   if (r.status !== 204) throw new ApiError(r.status, "");
 }
 
+/**
+ * Whether a board opens with this credential (its own link, or a session's tab through its
+ * grant): asked before a follow moves this page to a tab (sessions.md §6.3), on a route every
+ * role may read. False when the server refuses it; `undefined` when it gave no answer (offline,
+ * a server error): not known.
+ */
+export async function canOpen(board: string, token: string, via?: Via): Promise<boolean | undefined> {
+  const r = await fetch(`/api/boards/${board}/matches`, { headers: { authorization: authHeader(token, via) } }).catch(() => undefined);
+  if (r?.ok) return true;
+  return r && (r.status === 401 || r.status === 403 || r.status === 404) ? false : undefined;
+}
+
 /** Session links: `https://host/s/<session>?tab=<tab>#<token>` (§3.1, §7.1). */
 export function sessionUrl(origin: string, session: string, token: string, tab?: string) {
   return `${origin}/s/${session}${tab ? `?tab=${tab}` : ""}#${token}`;

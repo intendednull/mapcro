@@ -1,6 +1,7 @@
 // A session's own connection (sessions.md §4.1): a BoardSession on the session document, which
 // must be a session (`expect: "session"`, §3.6), mirrored into signals for the strip. Its edits
-// are marks in the page's one undo history (§7.2).
+// are marks in the page's one undo history (§7.2). Its room's presence says who is in the
+// session and on which tab (§6.1).
 
 import { createMemo, createSignal } from "solid-js";
 import { buildId } from "../wasm/mapcro_wasm.js";
@@ -10,6 +11,8 @@ import type { Persist } from "../core/persist";
 import type { Entry } from "../gen/Entry";
 import type { LinkRole } from "../gen/LinkRole";
 import type { Op } from "../gen/Op";
+import type { PeerPresence } from "../gen/PeerPresence";
+import type { Presence } from "../gen/Presence";
 import type { RecordId } from "../gen/RecordId";
 import { loadWasm, persistence } from "../board/state";
 import type { UndoHistory } from "./history";
@@ -33,6 +36,10 @@ export function createSessionState(id: string, token: string, history: UndoHisto
   const [undoable, setUndoable] = createSignal({ undo: false, redo: false });
   const [problems, setProblems] = createSignal<string[]>([]);
   const [current, setCurrent] = createSignal(false);
+  // Everyone else in the session's room, by peer id (a new map on every change), and this
+  // connection's own id there.
+  const [peers, setPeers] = createSignal<ReadonlyMap<number, PeerPresence>>(new Map());
+  const [myPeer, setMyPeer] = createSignal<number | undefined>();
   const proto = typeof location !== "undefined" && location.protocol === "https:" ? "wss:" : "ws:";
   const session = new BoardSession({
     wsUrl: o.wsUrl ?? `${proto}//${location.host}/ws`,
@@ -47,6 +54,14 @@ export function createSessionState(id: string, token: string, history: UndoHisto
       if (typeof sessionStorage !== "undefined" && outdatedAction(buildId(), sessionStorage) === "reload") location.reload();
     },
     onRecords: () => setRecords(session.records),
+    onPeers: (changed, reset) => {
+      const next = new Map(reset ? [] : peers());
+      for (const p of changed) {
+        if (p.state) next.set(p.peer, p);
+        else next.delete(p.peer);
+      }
+      setPeers(next);
+    },
     onChange: (s) => {
       const c = s.connection;
       if (JSON.stringify(c) !== JSON.stringify(connection())) setConnection({ ...c } as Connection);
@@ -55,6 +70,7 @@ export function createSessionState(id: string, token: string, history: UndoHisto
       if (s.canUndo !== undoable().undo || s.canRedo !== undoable().redo) setUndoable({ undo: s.canUndo, redo: s.canRedo });
       if (s.problems.length !== problems().length) setProblems([...s.problems]);
       setCurrent(s.current());
+      setMyPeer(s.myPeer);
     },
   });
   const tabs = createMemo<TabRow[]>(() => liveTabs(records()), [], {
@@ -79,6 +95,11 @@ export function createSessionState(id: string, token: string, history: UndoHisto
     title: () => meta()?.title ?? "",
     metaId: () => meta()?.id,
     problems,
+    /** The others in the session's room who have said who they are. */
+    peers: createMemo(() => [...peers().values()]),
+    myPeer,
+    /** What the session's room is told of this person: who, and the tab they have open. */
+    presence: (p: Partial<Presence>) => session.setPresence(p),
     /**
      * The tab list can be trusted to pick from: this copy has everything logged before it
      * connected (a fresh one gets a snapshot, then the entries after it), or it's offline on what

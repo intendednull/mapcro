@@ -1730,7 +1730,10 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   - **Presenters can't force or nudge anyone;** getting back in is just as easy.
   - **Anyone can follow anyone who holds edit rights** (owner or edit link), so there can be several
     presenters at once. View-only people can follow but can't be followed. Presence carries each
-    person's role, and the server stamps it from their link, so it can't be forged.
+    person's role, and the server stamps it from their link, so it can't be forged. In a
+    session's tab the session's role counts as well: the server stamps it too, in the copies
+    it sends the same session's people only, so a session's editor on a view-only tab can be
+    followed by them and by nobody else (sessions.md §6.3).
   - **Map layers** (operator bug, 2026-11-11: "the follower doesn't see the same map layers"):
     presence's `layers` is one byte, a bit per "Map layers" toggle (wire.rs `LAYER_*`, each a
     registry row: lane
@@ -1809,7 +1812,11 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
     in Player, has no declared policy (`web/test/view-state-ledger.ts` lists the ones that
     aren't registry keys, with why); `web/e2e/follow-matrix.spec.ts` pins, per key, what a
     follower sees on following, after its own change, Stop following, the presenter leaving, a
-    late join and a server restart (every key keeps following, by seat, below).
+    late join and a server restart (every key keeps following, by seat, below). A row also
+    says which room's presence carries it: every key above is a board's; a session's own room
+    has one, `session.tab` (the open tab: a follower switches with its presenter), held in a
+    store of the session's that outlives the board mounted for a tab (sessions.md §6;
+    `web/e2e/session-follow.spec.ts` is its matrix).
   - **Presence bytes are measured** (operator 2026-11-11): the server records each valid
     presence frame's size (`presence_bytes`, in `stats summary`), to decide from production
     numbers whether to send slow state (name, scene, playback, view state) apart from fast

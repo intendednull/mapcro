@@ -2,6 +2,7 @@
 //! so the engine needs no locking. Every acknowledgement or rejection is written to SQLite
 //! before anyone hears about it (spec §9, "durable before ack").
 
+use crate::auth::Via;
 use crate::codec;
 use crate::store::{LoadCaps, Store, StoreError, Write};
 use mapcro_engine::wire::{CloseReason, LinkRole, PeerPresence, Presence, WireOut};
@@ -48,8 +49,8 @@ pub const SNAPSHOT_MAX_BYTES: usize = 8 * 1024 * 1024;
 pub enum RoomCmd {
     Join {
         link_hash: String,
-        /// The session link this peer came through, for a board opened as a session's tab.
-        via_hash: Option<String>,
+        /// The session this peer came through, for a board opened as a session's tab.
+        via: Option<Via>,
         role: LinkRole,
         /// The client holds no copy: send it the board as it is now (spec §5, fresh join).
         want_base: bool,
@@ -157,9 +158,19 @@ fn frame(out: &WireOut) -> Arc<str> {
     serde_json::to_string(out).unwrap_or_default().into()
 }
 
+/// What `reader` is told of a peer's role in the session the peer opened this board through
+/// (`PeerPresence::session_role`, sessions spec §6.1): its role there, if the reader came
+/// through the same session; nothing otherwise (§3.3).
+fn session_role_for(peer: Option<&Via>, reader: Option<&Via>) -> Option<LinkRole> {
+    match (peer, reader) {
+        (Some(p), Some(r)) if p.session == r.session => Some(p.session_role),
+        _ => None,
+    }
+}
+
 struct Peer {
     link_hash: String,
-    via_hash: Option<String>,
+    via: Option<Via>,
     role: LinkRole,
     out: mpsc::Sender<Out>,
     /// Bytes of frames queued in `out`; the socket task subtracts what it takes.
@@ -468,14 +479,14 @@ impl Rooms {
         &self,
         board: &str,
         link_hash: String,
-        via_hash: Option<String>,
+        via: Option<Via>,
         role: LinkRole,
         want_base: bool,
     ) -> Result<(mpsc::Sender<RoomCmd>, Result<Joined, CloseReason>), RoomError> {
         for _ in 0..3 {
             let room = self.get(board).await?;
             let (reply, joined) = oneshot::channel();
-            let cmd = RoomCmd::Join { link_hash: link_hash.clone(), via_hash: via_hash.clone(), role, want_base, reply };
+            let cmd = RoomCmd::Join { link_hash: link_hash.clone(), via: via.clone(), role, want_base, reply };
             if room.send(cmd).await.is_ok()
                 && let Ok(j) = joined.await
             {
@@ -642,8 +653,8 @@ impl Room {
 
     async fn dispatch_one(&mut self, cmd: RoomCmd) -> Result<(), StoreError> {
         let result = match cmd {
-            RoomCmd::Join { link_hash, via_hash, role, want_base, reply } => {
-                self.join(link_hash, via_hash, role, want_base, reply);
+            RoomCmd::Join { link_hash, via, role, want_base, reply } => {
+                self.join(link_hash, via, role, want_base, reply);
                 Ok(())
             }
             RoomCmd::Msg { .. } => Ok(()), // engine messages go through `batch` (see `dispatch`)
@@ -654,6 +665,11 @@ impl Room {
                         // ink to preview. (Its laser and pings are relayed: everyone gets those.)
                         state.drag = None;
                         state.ink = None;
+                    }
+                    // The open tab is a session's room's to carry (sessions spec §6.1): a
+                    // board's own people see nothing of the session (§3.3).
+                    if self.authority.doc().kind() != mapcro_schema::DocKind::Session {
+                        state.tab = None;
                     }
                     peer.presence = Some(*state);
                     let role = peer.role;
@@ -687,7 +703,7 @@ impl Room {
                 let gone: Vec<ConnId> = self
                     .peers
                     .iter()
-                    .filter(|(_, p)| p.link_hash == link_hash || p.via_hash.as_deref() == Some(link_hash.as_str()))
+                    .filter(|(_, p)| p.link_hash == link_hash || p.via.as_ref().is_some_and(|v| v.session_hash == link_hash))
                     .map(|(c, _)| *c)
                     .collect();
                 for conn in gone {
@@ -748,9 +764,11 @@ impl Room {
             .iter()
             .map(|(id, role)| {
                 let state = self.peers.get(&ConnId(*id)).and_then(|p| p.presence.clone());
-                (*id, PeerPresence { peer: *id, role: *role, state })
+                (*id, PeerPresence { peer: *id, role: *role, session_role: None, state })
             })
             .collect();
+        // The session each of them came through, and its role there: stamped per reader.
+        let through: HashMap<u64, Via> = owed.iter().filter_map(|(id, _)| Some((*id, self.peers.get(&ConnId(*id))?.via.clone()?))).collect();
         // Everyone gets the batch minus their own entry, plus anything they missed.
         let mut slow = Vec::new();
         let mut retry = false;
@@ -769,7 +787,12 @@ impl Room {
             ids.extend(p.missed.drain(..).map(|(id, _)| id));
             ids.sort_unstable();
             ids.dedup();
-            let mine: Vec<PeerPresence> = ids.iter().filter(|id| **id != c.0).filter_map(|id| entries.get(id).cloned()).collect();
+            let mine: Vec<PeerPresence> = ids
+                .iter()
+                .filter(|id| **id != c.0)
+                .filter_map(|id| entries.get(id).cloned())
+                .map(|e| PeerPresence { session_role: session_role_for(through.get(&e.peer), p.via.as_ref()), ..e })
+                .collect();
             if !mine.is_empty() && !p.offer(Out::Frame(frame(&WireOut::Presence { peers: mine }))) {
                 slow.push(*c);
             }
@@ -786,7 +809,7 @@ impl Room {
     fn join(
         &mut self,
         link_hash: String,
-        via_hash: Option<String>,
+        via: Option<Via>,
         role: LinkRole,
         want_base: bool,
         reply: oneshot::Sender<Result<Joined, CloseReason>>,
@@ -800,13 +823,13 @@ impl Room {
         let conn = ConnId(self.next_conn);
         self.next_conn += 1;
         let (out, rx) = mpsc::channel(OUTBOX_DEPTH);
-        let peer = Peer { link_hash, via_hash, role: link_role, out, queued: Arc::default(), presence: None, missed: Vec::new() };
+        let peer = Peer { link_hash, via, role: link_role, out, queued: Arc::default(), presence: None, missed: Vec::new() };
         self.authority.connect(conn, role);
         // Everyone already here, so the newcomer sees the room at once.
         let here: Vec<PeerPresence> = self
             .peers
             .iter()
-            .filter_map(|(c, p)| p.presence.clone().map(|s| PeerPresence { peer: c.0, role: p.role, state: Some(s) }))
+            .filter_map(|(c, p)| p.presence.clone().map(|s| PeerPresence { peer: c.0, role: p.role, session_role: session_role_for(p.via.as_ref(), peer.via.as_ref()), state: Some(s) }))
             .collect();
         if !here.is_empty() {
             peer.offer(Out::Frame(frame(&WireOut::Presence { peers: here })));

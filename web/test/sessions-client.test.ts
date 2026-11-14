@@ -19,6 +19,7 @@ import { Api } from "../src/core/api";
 import { IdbPersist, MemoryPersist, type Persist } from "../src/core/persist";
 import { BoardSession, type SocketLike, docKind } from "../src/core/session";
 import { authHeader } from "../src/core/cred";
+import { pageSeat } from "../src/core/seat";
 import type { Entry } from "../src/gen/Entry";
 import type { RecordId } from "../src/gen/RecordId";
 import type { KnownBoard } from "../src/core/device";
@@ -340,8 +341,8 @@ describe("the session connection against the real server", () => {
     );
     return { ...s, board: b.board, boardToken: b.owner_token };
   };
-  const open = (board: string, token: string, o: { expect?: "board" | "session"; via?: { session: string; grant: string }; persist?: MemoryPersist } = {}) =>
-    new BoardSession({ wsUrl: server.ws, board, token, persist: o.persist ?? new MemoryPersist(), openSocket, minDelayMs: 50, maxDelayMs: 400, ...(o.expect ? { expect: o.expect } : {}), ...(o.via ? { via: o.via } : {}) });
+  const open = (board: string, token: string, o: { expect?: "board" | "session"; via?: { session: string; grant: string }; persist?: Persist; onEnded?: (unsent: number) => void; openSocket?: (url: string) => SocketLike } = {}) =>
+    new BoardSession({ wsUrl: server.ws, board, token, persist: o.persist ?? new MemoryPersist(), openSocket: o.openSocket ?? openSocket, minDelayMs: 50, maxDelayMs: 400, ...(o.expect ? { expect: o.expect } : {}), ...(o.via ? { via: o.via } : {}), ...(o.onEnded ? { onEnded: o.onEnded } : {}) });
 
   it("a session's room, opened by a page that expects a board, is left at once and nothing of it kept", async () => {
     const s = await makeSession("wrong kind");
@@ -595,5 +596,239 @@ describe("the session connection against the real server", () => {
     await until(() => xOf(observer, p0!) === 33, "the held edit lands through the edit grant");
     again.end();
     observer.end();
+  });
+
+  // ---- follow across tabs (sessions.md §6, §10 phase 4) ----
+
+  it("the session's room says who is on which tab, with the session's role (§6.1)", async () => {
+    const s = await makeSession("who is where");
+    const view = await post<{ token: string }>(`/api/sessions/${s.session}/links`, { role: "view", label: "" }, s.owner_token);
+    const coach = open(s.session, s.owner_token, { expect: "session" });
+    const fan = open(s.session, view.token, { expect: "session" });
+    await coach.start();
+    await fan.start();
+    await until(() => coach.connection.kind === "live" && fan.connection.kind === "live", "both in the session");
+    coach.setPresence({ name: "Coach", color: 3, tab: s.tab, following: null });
+    fan.setPresence({ name: "Fan", tab: s.tab, following: coach.myPeer ?? null });
+    await until(() => [...fan.peers.values()].some((p) => p.state?.name === "Coach") && [...coach.peers.values()].some((p) => p.state?.name === "Fan"), "each sees the other");
+    const seenCoach = [...fan.peers.values()].find((p) => p.state?.name === "Coach")!;
+    expect(seenCoach.role).toBe("owner");
+    expect(seenCoach.session_role).toBeUndefined();
+    expect(seenCoach.state?.tab).toBe(s.tab);
+    expect(seenCoach.state?.seat).toBe(pageSeat());
+    const seenFan = [...coach.peers.values()].find((p) => p.state?.name === "Fan")!;
+    expect(seenFan.role).toBe("view");
+    expect(seenFan.state?.tab).toBe(s.tab);
+    expect(seenFan.state?.following).toBe(coach.myPeer);
+    // In the session's room a viewer follows and is never followed, as in a board's.
+    expect(fan.followable().map((p) => p.state?.name)).toEqual(["Coach"]);
+    expect(coach.followable()).toEqual([]);
+    // No tab open: said as none.
+    coach.setPresence({ name: "Coach2", tab: null });
+    await until(() => [...fan.peers.values()].some((p) => p.state?.name === "Coach2"), "the change");
+    expect([...fan.peers.values()].find((p) => p.state?.name === "Coach2")!.state?.tab ?? null).toBeNull();
+    coach.end();
+    fan.end();
+  });
+
+  it("on a view-only tab a session's editor can be followed by the session's people, and by nobody else (§6.3)", async () => {
+    const s = await makeSession("view-only tab");
+    const vg = await post<{ grant_id: string }>(`/api/sessions/${s.session}/grants`, { board: s.board, board_token: s.boardToken, role: "view" }, s.owner_token);
+    const strip = open(s.session, s.owner_token, { expect: "session" });
+    await strip.start();
+    await until(() => strip.connection.kind === "live" && strip.current(), "strip live");
+    expect(strip.edit(addTabOps(newRecordId(), liveTabs(strip.records), s.board, vg.grant_id, "Can view"))).toBe(true);
+    await until(() => strip.status.kind === "saved", "tab added");
+    strip.end();
+    const sView = await post<{ token: string }>(`/api/sessions/${s.session}/links`, { role: "view", label: "" }, s.owner_token);
+    const bView = await post<{ token: string }>(`/api/boards/${s.board}/links`, { role: "view", label: "" }, s.boardToken);
+    const via = { session: s.session, grant: vg.grant_id };
+    const coach = open(s.board, s.owner_token, { via });
+    const member = open(s.board, sView.token, { via });
+    const guest = open(s.board, bView.token);
+    const boardOwner = open(s.board, s.boardToken);
+    for (const x of [coach, member, guest, boardOwner]) await x.start();
+    await until(() => [coach, member, guest, boardOwner].every((x) => x.connection.kind === "live"), "all on the board");
+    // Everyone through the session is a viewer on this board.
+    expect(coach.connection).toEqual({ kind: "live", role: "view" });
+    expect(member.connection).toEqual({ kind: "live", role: "view" });
+    coach.setPresence({ name: "Coach" });
+    member.setPresence({ name: "Member" });
+    guest.setPresence({ name: "Guest" });
+    boardOwner.setPresence({ name: "Owner" });
+    const names = (x: BoardSession) => [...x.peers.values()].map((p) => p.state?.name).sort();
+    await until(() => [coach, member, guest, boardOwner].every((x) => names(x).length === 3), "everyone sees everyone");
+    const who = (x: BoardSession) => x.followable().map((p) => p.state?.name).sort();
+    // The session's people can follow its owner here; the board's own people can't.
+    expect(who(member)).toEqual(["Coach", "Owner"]);
+    expect(who(coach)).toEqual(["Owner"]); // Member is a viewer in the session too
+    expect(who(guest)).toEqual(["Owner"]);
+    expect(who(boardOwner)).toEqual([]);
+    const coachSeenBy = (x: BoardSession) => [...x.peers.values()].find((p) => p.state?.name === "Coach")!;
+    expect([coachSeenBy(member).role, coachSeenBy(member).session_role]).toEqual(["view", "owner"]);
+    expect([coachSeenBy(guest).role, coachSeenBy(guest).session_role]).toEqual(["view", undefined]);
+    expect([coachSeenBy(boardOwner).role, coachSeenBy(boardOwner).session_role]).toEqual(["view", undefined]);
+    for (const x of [coach, member, guest, boardOwner]) x.end();
+  });
+
+  it("an ended session says how many changes never went out (TD-101)", async () => {
+    const b = await api.createBoard("unsent");
+    const persist = new MemoryPersist();
+    const ended: number[] = [];
+    const onEnded = (n: number) => void ended.push(n);
+    const observer = open(b.board, b.owner_token);
+    await observer.start();
+    await until(() => observer.connection.kind === "live", "observer live");
+    // Nothing done: none.
+    const idle = open(b.board, b.owner_token, { persist, onEnded });
+    await idle.start();
+    await until(() => idle.connection.kind === "live" && idle.status.kind === "saved", "live");
+    const [p0] = players(idle);
+    idle.end();
+    await until(() => ended.length === 1, "ended");
+    expect(ended).toEqual([0]);
+    // An edit made as the board is left goes out before the socket closes: none unsent, though
+    // its acknowledgement never came back.
+    const live = open(b.board, b.owner_token, { persist, onEnded });
+    await live.start();
+    await until(() => live.connection.kind === "live" && live.status.kind === "saved", "live");
+    expect(live.edit(move(p0!, 11))).toBe(true);
+    live.end();
+    await until(() => ended.length === 2, "ended");
+    expect(ended[1]).toBe(0);
+    await until(() => xOf(observer, p0!) === 11, "it arrived");
+    // Edits made offline: all of them wait in this browser.
+    const off = open(b.board, b.owner_token, { persist, onEnded });
+    await off.start();
+    await until(() => off.connection.kind === "live" && off.status.kind === "saved", "live");
+    off.stop();
+    expect(off.edit(move(p0!, 22))).toBe(true);
+    expect(off.edit(move(p0!, 23))).toBe(true);
+    await sleep(50);
+    off.end();
+    await until(() => ended.length === 3, "ended");
+    expect(ended[2]).toBe(2);
+    await sleep(200);
+    expect(xOf(observer, p0!)).toBe(11);
+    // The board opened here again sends them, and left after that it has none.
+    const back = open(b.board, b.owner_token, { persist, onEnded });
+    await back.start();
+    await until(() => xOf(observer, p0!) === 23, "the offline edits land");
+    await until(() => back.status.kind === "saved", "acknowledged");
+    back.end();
+    await until(() => ended.length === 4, "ended");
+    expect(ended[3]).toBe(0);
+    // A socket that takes nothing more (a stalled link): an edit made just before leaving
+    // waits out the two seconds and is counted.
+    let stall = false;
+    const stalled = open(b.board, b.owner_token, {
+      persist: { load: (k) => persist.load(k), save: (k, v) => (stall ? new Promise<void>(() => {}) : persist.save(k, v)) },
+      onEnded,
+    });
+    await stalled.start();
+    await until(() => stalled.connection.kind === "live" && stalled.status.kind === "saved", "live");
+    stall = true; // the local write never ends, so the edit is never handed to the socket
+    expect(stalled.edit(move(p0!, 31))).toBe(true);
+    const t0 = Date.now();
+    stalled.end();
+    await until(() => ended.length === 5, "ended");
+    expect(ended[4]).toBe(1);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(1900);
+    observer.end();
+  });
+
+  it("a change handed to a socket that then dropped counts as not sent; one handed to this connection's doesn't", async () => {
+    const b = await api.createBoard("unsent, dropped");
+    // Sockets whose sends can be swallowed from some moment (a link that stalls), and dropped.
+    const stalled = new Set<WebSocket>();
+    const socks: WebSocket[] = [];
+    const stalling = (url: string): SocketLike => {
+      const ws = new WebSocket(url, { origin: ORIGIN });
+      socks.push(ws);
+      const send = ws.send.bind(ws);
+      ws.send = ((data: string) => {
+        if (!stalled.has(ws)) send(data);
+      }) as typeof ws.send;
+      return ws as unknown as SocketLike;
+    };
+    const stall = () => void stalled.add(socks.at(-1)!);
+    const ended: number[] = [];
+    // Handed to the socket, never acknowledged, the session ended while still connected: the
+    // socket had it, so it isn't counted.
+    const a = open(b.board, b.owner_token, { openSocket: stalling, onEnded: (n) => void ended.push(n) });
+    await a.start();
+    await until(() => a.connection.kind === "live" && a.status.kind === "saved", "live");
+    const [p0] = players(a);
+    stall();
+    expect(a.edit(move(p0!, 41))).toBe(true);
+    await until(() => a.status.kind === "syncing", "pending");
+    await sleep(100);
+    a.end();
+    await until(() => ended.length === 1, "ended");
+    expect(ended[0]).toBe(0);
+    // The same, but the connection drops before the session ends: nothing says it arrived.
+    const c = open(b.board, b.owner_token, { openSocket: stalling, onEnded: (n) => void ended.push(n) });
+    await c.start();
+    await until(() => c.connection.kind === "live" && c.status.kind === "saved", "live");
+    stall();
+    expect(c.edit(move(p0!, 42))).toBe(true);
+    await until(() => c.status.kind === "syncing", "pending");
+    await sleep(100);
+    c.stop();
+    c.end();
+    await until(() => ended.length === 2, "ended");
+    expect(ended[1]).toBe(1);
+    // And one handed to an earlier connection's socket, the session ended the moment the next
+    // connection is up, before anything is sent on it: still not sent.
+    let was = "";
+    let joins = 0;
+    const d: BoardSession = new BoardSession({
+      wsUrl: server.ws, board: b.board, token: b.owner_token, persist: new MemoryPersist(), openSocket: stalling, minDelayMs: 20, maxDelayMs: 50,
+      onEnded: (n) => void ended.push(n),
+      onChange: (x) => {
+        const kind = x.connection.kind;
+        // The second time it goes live: ended at once, before its resend has left.
+        if (kind === "live" && was !== "live" && ++joins === 2) queueMicrotask(() => d.end());
+        was = kind;
+      },
+    });
+    await d.start();
+    await until(() => d.connection.kind === "live" && d.status.kind === "saved", "live");
+    expect(joins).toBe(1);
+    stall();
+    expect(d.edit(move(p0!, 43))).toBe(true);
+    await until(() => d.status.kind === "syncing", "pending");
+    await sleep(100);
+    socks.at(-1)!.close(); // the link drops; the session reconnects on a socket that works
+    await until(() => ended.length === 3, "ended on the next connection");
+    expect(ended[2]).toBe(1);
+  });
+
+  it("changes held through a view grant count as not sent", async () => {
+    const s = await makeSession("view hold, counted");
+    const vg = await post<{ grant_id: string }>(`/api/sessions/${s.session}/grants`, { board: s.board, board_token: s.boardToken, role: "view" }, s.owner_token);
+    const strip = open(s.session, s.owner_token, { expect: "session" });
+    await strip.start();
+    await until(() => strip.connection.kind === "live" && strip.current(), "strip live");
+    expect(strip.edit(addTabOps(newRecordId(), liveTabs(strip.records), s.board, vg.grant_id, "Can view"))).toBe(true);
+    await until(() => strip.status.kind === "saved", "tab added");
+    strip.end();
+    const persist = new MemoryPersist();
+    const ended: number[] = [];
+    const ed = open(s.board, s.owner_token, { via: { session: s.session, grant: s.grant.grant_id }, persist });
+    await ed.start();
+    await until(() => ed.connection.kind === "live" && ed.status.kind === "saved", "edit grant live");
+    const [p0] = players(ed);
+    ed.stop();
+    expect(ed.edit(move(p0!, 33))).toBe(true);
+    await sleep(50);
+    ed.end();
+    const vw = open(s.board, s.owner_token, { via: { session: s.session, grant: vg.grant_id }, persist, onEnded: (n) => void ended.push(n) });
+    await vw.start();
+    await until(() => vw.connection.kind === "live" && vw.problems.includes("edits not sent: this link is view-only"), "held");
+    await sleep(100);
+    vw.end();
+    await until(() => ended.length === 1, "ended");
+    expect(ended).toEqual([1]);
   });
 });

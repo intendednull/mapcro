@@ -68,6 +68,7 @@ import { easedNumber, smoothed } from "./smooth";
 import type { Tool } from "./tools";
 import { LIMITS } from "../gen/limits";
 import type { Via } from "../gen/Via";
+import type { SessionFollow } from "../session/follow";
 import type { UndoHistory } from "../session/history";
 import { loadTabView, playerPart, saveTabView, sceneGone } from "../session/tabview";
 import { timelines } from "../player/timelineCache";
@@ -128,6 +129,10 @@ const heroCardSlot = (key: string): HeroCardSlot => {
   const [team, n] = key.split("-");
   return { team: team!, slot: Number(n) };
 };
+/** The peer id a follow has for someone not in this board's room (a session's presenter on
+ * another tab, or one just followed onto this tab): no room gives it out, so they are found by
+ * seat (follow.ts `locate`). */
+const FAR_PEER = -1;
 /** Where a hero panel sits until it is placed: the pane's top left (one opened from a token is
  * always placed: beside the token on a desktop, panelPlace.ts `beside`; a step from the last on a phone, `cascade`). */
 const HERO_HOME = { left: 12, top: 44 };
@@ -156,6 +161,15 @@ export interface InSession {
   strip: () => JSX.Element;
   /** The session's role: Share (its own) is the main action, else Clone (spec §4b). */
   canEdit: () => boolean;
+  /** Whom this page follows across tabs (sessions.md §6, session/follow.ts). */
+  follow: SessionFollow;
+  /** Who this person is, as the join card just took it: the session's room is told too
+   * (§6.1; someone who joined before is known to the session from the device). */
+  me: (m: Me) => void;
+  /** This tab's board answered: it opened, or the server refused it for good (§6.3). */
+  opened: (ok: boolean) => void;
+  /** This board was left with `unsent` changes not sent (TD-101: the strip marks the tab). */
+  left: (board: string, unsent: number) => void;
 }
 
 export function Board(p: { board: string; token: string; art: Art; session?: InSession }) {
@@ -166,7 +180,10 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const state = createBoardState(p.board, p.token, {
     ...(via ? { via } : {}),
     ...(history ? { onEdit: () => history.edited(p.board) } : {}),
+    ...(inSession ? { onLeft: (unsent: number) => inSession.left(p.board, unsent) } : {}),
   });
+  /** The session's follow, in a session: it outlives this mount (sessions.md §6). */
+  const across = inSession?.follow;
   if (history) onCleanup(history.attach(p.board, { canUndo: () => state.canUndo(), canRedo: () => state.canRedo(), undo: () => state.undo(), redo: () => state.redo() }));
   const undo = () => (history ? void history.undo() : state.undo());
   const redo = () => (history ? void history.redo() : state.redo());
@@ -333,6 +350,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     // Not `peer` if that id is someone else now: the effect below says whom, once found.
     tell(begun.seen ? peer : null);
     setToast(undefined);
+    // In a session the follow crosses tabs, by seat (someone without one is followed here only).
+    across?.begin(begun.target.seat, begun.seen ?? was);
   };
   /** `why`: your own change stopped it, and you keep what you were seeing with it (operator
    * 2026-11-11); none (the Stop button): your own layers and Vision come back. */
@@ -343,19 +362,43 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     setFollowing(undefined);
     player.forget(why ? "keep" : "restore");
     tell(null);
+    across?.end();
     if (why && was) say(`Stopped following ${nameOfPeer(was)}`, { label: "Follow again", run: () => follow(was.peer, was.state?.seat, was) });
   };
+  // The session follows someone who is in it (the follow crossed to this tab with them, or
+  // "Follow again" after a tab was picked): this board follows them here, found in its room by
+  // seat. A follow on someone who isn't in the session ends with the board's mount, as it
+  // always did.
+  if (across)
+    createEffect(() => {
+      const seat = across.seat();
+      if (seat !== undefined && across.holds() && untrack(following) === undefined) untrack(() => follow(FAR_PEER, seat, across.was()));
+    });
   createEffect(() => {
     recheck();
     const f = following();
     if (f === undefined || !target) return;
     const now = Date.now();
     const at = locate(target, state.peerList(), state.myPeer(), state.joined(), now);
+    if (at.kind !== "here" && across?.holds()) {
+      // Not in this board's room, but in the session's: on another tab (the session moves this
+      // page there, or the chip says No access), or on their way into this one. The follow
+      // holds, showing what they showed here; once the session loses them too, the wait for a
+      // reconnect starts from then.
+      target = { peer: FAR_PEER, seat: target.seat, joins: state.joined().n, lostAt: now };
+      clearTimeout(recheckTimer);
+      tell(null);
+      // Who they are, as the session's room has them; nothing of what their pointer was on.
+      const seen = across.was();
+      if (seen) setFollowedNow(seen);
+      return;
+    }
     if (at.kind === "gone") {
       target = undefined;
       setFollowing(undefined);
       player.forget("restore");
       tell(null);
+      across?.end();
       say("Presenter left");
       return;
     }
@@ -551,7 +594,19 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       return matchName(team!, Number(n));
     }),
   );
-  const presenterList = createMemo(() => presenters(state.peerList(), state.myPeer(), followingHere()));
+  /** The presenters in this board's room; and with them the session's on other tabs, whom the
+   * chip offers too (sessions.md §9.3: a late joiner follows, and lands on the presenter's tab). */
+  const presentersHere = createMemo(() => presenters(state.peerList(), state.myPeer(), followingHere()));
+  const presenterList = createMemo(() => {
+    const here = presentersHere();
+    if (!across) return here;
+    const seats = new Set(state.peerList().map((x) => x.state?.seat));
+    return [...here, ...across.far().filter((x) => !seats.has(x.peer.state?.seat))];
+  });
+  /** Follow someone the chip offers: a session's presenter on another tab by seat. */
+  const followPresenter = (x: PeerPresence) => (x.peer < 0 ? follow(x.peer, x.state?.seat, x) : follow(x.peer));
+  /** The followed presenter is on a tab this page can't open (sessions.md §6.3). */
+  const noAccess = () => following() !== undefined && !!across?.noAccess();
   const followersOf = (peer: number | undefined) =>
     peer === undefined ? 0 : state.peerList().filter((x) => x.state?.following === peer).length;
   const sceneLabel = (id: RecordId | null | undefined) => {
@@ -564,7 +619,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
       if (e.key.toLowerCase() === "f" && !e.ctrlKey && !e.metaKey && !e.altKey && following() === undefined) {
         const lead = presenterList()[0];
-        if (lead) follow(lead.peer.peer);
+        if (lead) followPresenter(lead.peer);
       }
     };
     window.addEventListener("keydown", key);
@@ -576,6 +631,13 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     if (m && joined()) state.presence({ name: m.name, color: m.color });
     void state.start();
   });
+  // The session learns whether this tab's board opens for this page (sessions.md §6.3).
+  if (inSession)
+    createEffect(() => {
+      const c = state.connection();
+      if (c.kind === "live") inSession.opened(true);
+      else if (c.kind === "closed" && c.reason !== "outdated") inSession.opened(false);
+    });
   onCleanup(() => state.stop());
   // Unmounted (another board, or back to the landing): module state goes back to its defaults.
   onCleanup(resetBoardModules);
@@ -624,6 +686,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     setMe(m);
     setJoined(true);
     state.presence({ name: m.name, color: m.color });
+    inSession?.me(m);
   };
 
   const people = () => state.peerList();
@@ -929,7 +992,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 <b>{lead().peer.state?.name || "Someone"}</b> is presenting
               </span>
               <span class="where">{sceneLabel(lead().peer.state?.scene)}</span>
-              <button class="go" data-testid="follow-presenter" onClick={() => follow(lead().peer.peer)}>
+              <button class="go" data-testid="follow-presenter" onClick={() => followPresenter(lead().peer)}>
                 Follow
               </button>
             </div>
@@ -943,7 +1006,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
           <span>
             <b>Following {f().state?.name || "them"}</b>
           </span>
-          <span class="where">{sceneLabel(f().state?.scene)}</span>
+          <span class="where" classList={{ "no-access": noAccess() }} data-testid="follow-where">{noAccess() ? "No access" : sceneLabel(f().state?.scene)}</span>
           <button data-testid="stop-following" onClick={() => stopFollowing()}>
             Stop
           </button>
@@ -1447,7 +1510,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         <Show when={player.matchId()}><TierChip host={player} /></Show>
         <div class="spacer" />
         <PresentingPill followers={followersOf(state.myPeer())} />
-        <FollowChip following={followed()} presenters={presenterList()} sceneLabel={sceneLabel} follow={follow} stop={() => stopFollowing()} />
+        <FollowChip following={followed()} presenters={presenterList()} noAccess={noAccess()} sceneLabel={sceneLabel} follow={followPresenter} stop={() => stopFollowing()} />
         <div class="spacer" />
         <div class="avatars" data-testid="avatars">
           <Show when={me() && joined()}>
@@ -1597,7 +1660,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
           </div>
           <section class="people-section">
             <h2>
-              People here <small>{people().length + (joined() ? 1 : 0)} online{presenterList().length ? ` · ${presenterList().length} presenting` : ""}</small>
+              People here <small>{people().length + (joined() ? 1 : 0)} online{presentersHere().length ? ` · ${presentersHere().length} presenting` : ""}</small>
             </h2>
             <PeopleList
               me={joined() ? me() : undefined}
@@ -1605,6 +1668,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               myPeer={state.myPeer()}
               peers={people()}
               following={followingHere()}
+              followingName={followed()?.state?.name}
               followersOf={followersOf}
               sceneLabel={sceneLabel}
               follow={follow}

@@ -176,8 +176,7 @@ async fn session(app: AppState, mut socket: WebSocket) -> Option<CloseReason> {
     let role = access.role;
 
     // 2. Join the room.
-    let via_hash = access.via.as_ref().map(|v| v.session_hash.clone());
-    let (room, joined) = match app.rooms.join(&board, access.link_hash.clone(), via_hash, role, known_seq.is_none()).await {
+    let (room, joined) = match app.rooms.join(&board, access.link_hash.clone(), access.via.clone(), role, known_seq.is_none()).await {
         Ok(j) => j,
         Err(crate::room::RoomError::Busy) => return send_closed(&mut socket, CloseReason::Busy).await,
         Err(e) => {

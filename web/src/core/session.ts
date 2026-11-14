@@ -70,6 +70,13 @@ export interface SessionOptions {
   maxDelayMs?: number;
   /** The seat sent in presence (default: this page's, `pageSeat()`). */
   seat?: number;
+  /**
+   * The session ended (`end`: its board was left) with this many changes never handed to the
+   * socket: made offline, held through a view link, or still on their way when the wait for
+   * them lapsed. They stay pending in this browser's storage until the board is opened here
+   * again (docs/tech-debt.md TD-101). Zero when everything went out.
+   */
+  onEnded?: (unsent: number) => void;
 }
 
 const FINAL: CloseReason[] = ["unauthorized", "revoked"];
@@ -122,6 +129,14 @@ const ending = new Map<string, Promise<unknown>>();
 
 const isSubmit = (f: WireIn) => f.t === "msg" && "Submit" in f.msg;
 
+/**
+ * Who can be followed (spec §8, sessions.md §6.3): anyone with edit rights on the board; and,
+ * among the people who opened it through one session, anyone with edit rights in that session
+ * (a session's editor on a view-only tab). The server stamps both roles, the session's only
+ * in the copy it sends the same session's people.
+ */
+export const followable = (p: PeerPresence) => p.state !== null && (p.role !== "view" || (p.session_role != null && p.session_role !== "view"));
+
 export class BoardSession {
   readonly records = new Map<RecordId, Entry>();
   status: SaveStatus = { kind: "saved" };
@@ -142,6 +157,8 @@ export class BoardSession {
   private presenceSentAt = 0;
   /** The last presence was held back as one the server would refuse (`send`). */
   private presenceRefused = false;
+  /** The cseqs of the transactions handed to the socket on this connection. */
+  private readonly sent = new Set<number>();
 
   private replica: BoardReplica | undefined;
   /**
@@ -263,8 +280,11 @@ export class BoardSession {
     // its way through the save chain: it goes out on this socket, to this board, before the
     // socket closes. Bounded, so a stuck write never holds the socket open.
     const close = () => {
+      // Counted before the socket goes: what was never handed to it.
+      const unsent = this.unsent();
       this.dropSocket();
       this.markOffline();
+      this.o.onEnded?.(unsent);
     };
     let flushed: Promise<unknown> = Promise.resolve();
     if (this.live && this.sending > 0) {
@@ -281,6 +301,23 @@ export class BoardSession {
         this.replica?.free();
         this.replica = undefined;
       });
+  }
+
+  /**
+   * The pending transactions never handed to this connection's socket: all of them while not
+   * connected. Pending ones are the newest cseqs, with no gap (the server answers in order).
+   * One handed to the socket and not yet acknowledged isn't counted: the socket sends what it
+   * was given before it closes.
+   */
+  private unsent(): number {
+    const r = this.replica;
+    const pending = "pending" in this.status ? this.status.pending : 0;
+    if (!r || !pending) return 0;
+    if (!this.live) return pending;
+    const next = r.nextCseq();
+    let n = 0;
+    for (let c = next - pending; c < next; c++) if (!this.sent.has(c)) n += 1;
+    return n;
   }
 
   /** Apply an edit; false if it was refused locally (the server may still refuse it later). */
@@ -335,9 +372,9 @@ export class BoardSession {
     }, wait);
   }
 
-  /** People this session may follow: anyone with edit rights (spec §8). */
+  /** People this session may follow (spec §8; `followable`). */
   followable(): PeerPresence[] {
-    return [...this.peers.values()].filter((p) => p.state !== null && p.role !== "view");
+    return [...this.peers.values()].filter(followable);
   }
 
   undo(): void {
@@ -451,6 +488,7 @@ export class BoardSession {
       this.presenceRefused = false;
     }
     this.socket.send(json);
+    if (frame.t === "msg" && "Submit" in frame.msg) this.sent.add(frame.msg.Submit.cseq);
   }
 
   private open() {
@@ -542,6 +580,7 @@ export class BoardSession {
             if (sock === this.socket) this.retry();
           });
         this.live = true;
+        this.sent.clear();
         this.head = frame.head;
         this.readOnly = frame.role === "view";
         this.peers.clear(); // the room sends everyone present right after Ready

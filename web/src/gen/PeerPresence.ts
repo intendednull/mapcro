@@ -6,4 +6,12 @@ import type { Presence } from "./Presence";
  * One peer in a presence batch. `peer` is per connection (not the client id), and `role` is
  * stamped by the server from the peer's link, so nobody can pose as an editor to be followed.
  */
-export type PeerPresence = { peer: number, role: LinkRole, state: Presence | null, };
+export type PeerPresence = { peer: number, role: LinkRole, 
+/**
+ * The peer's role in the session it opened this board through (sessions.md §6.1, §6.3),
+ * stamped by the server like `role`, and only in the copy sent to someone who opened the
+ * board through the same session: a session's editor on a view-only tab can be followed
+ * by the session's members, and a board's own people are told nothing of the session
+ * (§3.3). Absent: not through a session, or not the reader's, or an older server.
+ */
+session_role?: LinkRole, state: Presence | null, };

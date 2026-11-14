@@ -59,6 +59,8 @@ export interface BoardStateOptions {
   via?: Via;
   /** You made an undoable edit (the page's one history, session/history.ts). */
   onEdit?: () => void;
+  /** The board was left with this many changes not sent (session.ts `onEnded`). */
+  onLeft?: (unsent: number) => void;
 }
 
 /**
@@ -158,6 +160,7 @@ export function createBoardState(board: string, token: string, opts: BoardStateO
     board,
     token,
     ...(opts.via ? { via: opts.via } : {}),
+    ...(opts.onLeft ? { onEnded: opts.onLeft } : {}),
     persist: persistence(),
     // A deploy happened under this tab: reload once to the new build (edits are kept in
     // storage); if that didn't help, the board offers the reload.

@@ -793,6 +793,8 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 .game-tab .game-name { overflow: hidden; text-overflow: ellipsis; }
 .game-tab .game-x { background: none; border: 0; color: var(--muted); font-size: 14px; line-height: 1; padding: 2px 4px; border-radius: 4px; opacity: 0.6; }
 .game-tab .game-x:hover, .game-tab .game-x:focus-visible { opacity: 1; color: var(--text); background: var(--raised); }
+/* A tab left with changes not sent (TD-101): the save status's offline colour, as a dot. */
+.game-tab .game-unsent { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
 .game-strip .add-game { align-self: center; white-space: nowrap; }
 /* Under 1280 px the board header's "+ Add game" is its "+" alone (hover: Add game). */
 @media (max-width: 1279px) { .top > .add-game .add-label { display: none; } }

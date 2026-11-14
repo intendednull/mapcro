@@ -63,6 +63,10 @@ impl Credential {
 pub struct Via {
     /// The session link it came through, so revoking that link closes this access too (§3.7).
     pub session_hash: String,
+    /// The session, and the role its link gives there: the board's room tells the people who
+    /// came through the same session (§6.1, §6.3: who can be followed on a view-only tab).
+    pub session: String,
+    pub session_role: LinkRole,
 }
 
 /// What a resolved credential may do in its room.
@@ -190,7 +194,7 @@ pub async fn resolve(
             Ok(Access {
                 role,
                 link_hash: g.link_hash,
-                via: Some(Via { session_hash }),
+                via: Some(Via { session_hash, session: session.clone(), session_role: s.role }),
                 kind: RoomKind::Board,
             })
         }

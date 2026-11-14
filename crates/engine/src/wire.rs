@@ -181,6 +181,15 @@ pub struct Presence {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub seat: Option<u64>,
+    /// The session tab this person has open (sessions.md §6.1), by its `Tab` record. Carried in
+    /// a session's room, where a follower switches with its presenter (the registry's
+    /// `session.tab`); a board's room relays none (§3.3: a board's own people see nothing of
+    /// the session). The reader resolves it against its own copy of the session document.
+    /// Anything but 32 lowercase hex digits (a newer client's shape) reads as none, and the
+    /// frame still parses. Absent: no tab open, a board's room, or an older client.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_id")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    pub tab: Option<RecordId>,
     /// A stroke being drawn right now, so others see it as it's drawn. It becomes a Stroke
     /// record on release. Optional in TypeScript, like `picked`.
     #[serde(default)]
@@ -396,6 +405,14 @@ fn lenient_panels<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Vec<H
     })
 }
 
+/// `tab`: 32 lowercase hex digits, as a `RecordId` is written; anything else is none.
+fn lenient_id<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<RecordId>, D::Error> {
+    Ok(match Option::<Lenient<String>>::deserialize(d)? {
+        Some(Lenient::Known(s)) if s.len() == 32 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) => u128::from_str_radix(&s, 16).ok().map(RecordId),
+        _ => None,
+    })
+}
+
 fn is_zero(n: &u16) -> bool {
     *n == 0
 }
@@ -571,6 +588,14 @@ pub enum ArrowEnd {
 pub struct PeerPresence {
     pub peer: u64,
     pub role: LinkRole,
+    /// The peer's role in the session it opened this board through (sessions.md §6.1, §6.3),
+    /// stamped by the server like `role`, and only in the copy sent to someone who opened the
+    /// board through the same session: a session's editor on a view-only tab can be followed
+    /// by the session's members, and a board's own people are told nothing of the session
+    /// (§3.3). Absent: not through a session, or not the reader's, or an older server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub session_role: Option<LinkRole>,
     pub state: Option<Presence>,
 }
 
@@ -660,6 +685,55 @@ mod tests {
         assert_eq!(MAX_SEAT, 9_007_199_254_740_991, "Number.MAX_SAFE_INTEGER; web/src/core/seat.ts says the same");
         let back: Presence = serde_json::from_str(&serde_json::to_string(&with(MAX_SEAT)).expect("json")).expect("parse");
         assert_eq!(back.seat, Some(MAX_SEAT));
+    }
+
+    #[test]
+    fn a_tab_is_optional_and_only_an_id_as_written() {
+        // An older client, or a board's room: none, and left out again.
+        let plain = serde_json::to_string(&Presence::default()).expect("json");
+        let old: Presence = serde_json::from_str(&plain).expect("old");
+        assert_eq!(old.tab, None);
+        assert!(!plain.contains("tab"), "{plain}");
+        // As a record id is written: 32 lowercase hex digits.
+        let id = RecordId(0x00ab_0000_0000_0000_0000_0000_0000_0c01);
+        let json = serde_json::to_string(&Presence { tab: Some(id), ..Presence::default() }).expect("json");
+        assert!(json.contains(r#""tab":"00ab0000000000000000000000000c01""#), "{json}");
+        assert_eq!(serde_json::from_str::<Presence>(&json).expect("parses").tab, Some(id));
+        // Anything else (a newer client's shape, a damaged frame) is none, and the presence
+        // is still read and relayed: the socket isn't closed for it.
+        let read = |tab: &str| serde_json::from_str::<Presence>(&plain.replacen('{', &format!(r#"{{"tab":{tab},"#), 1)).unwrap_or_else(|e| panic!("{tab}: {e}"));
+        assert_eq!(read(r#""00ab0000000000000000000000000c01""#).tab, Some(id));
+        let hex31 = "a".repeat(31);
+        let odd = [
+            "null".to_owned(),
+            "7".to_owned(),
+            r#""""#.to_owned(),
+            r#""abc""#.to_owned(),
+            format!(r#""{hex31}""#),
+            format!(r#""{hex31}aa""#),
+            format!(r#""{hex31}A""#),
+            format!(r#""+{hex31}""#),
+            format!(r#""{hex31}g""#),
+            r#"{"id":"00ab0000000000000000000000000c01"}"#.to_owned(),
+            "[]".to_owned(),
+        ];
+        for v in &odd {
+            let p = read(v);
+            assert_eq!(p.tab, None, "{v}");
+            assert!(p.is_valid(), "{v}");
+        }
+    }
+
+    #[test]
+    fn a_session_role_is_stamped_beside_the_role_or_left_out() {
+        let plain = PeerPresence { peer: 1, role: LinkRole::View, session_role: None, state: None };
+        // As before sessions, byte for byte: an older client reads it as it always did.
+        assert_eq!(serde_json::to_string(&plain).expect("json"), r#"{"peer":1,"role":"view","state":null}"#);
+        let member = PeerPresence { session_role: Some(LinkRole::Edit), ..plain.clone() };
+        assert_eq!(serde_json::to_string(&member).expect("json"), r#"{"peer":1,"role":"view","session_role":"edit","state":null}"#);
+        // An older server's entry has none.
+        assert_eq!(serde_json::from_str::<PeerPresence>(r#"{"peer":1,"role":"view","state":null}"#).expect("parses"), plain);
+        assert_eq!(serde_json::from_str::<PeerPresence>(r#"{"peer":1,"role":"view","session_role":"edit","state":null}"#).expect("parses"), member);
     }
 
     #[test]

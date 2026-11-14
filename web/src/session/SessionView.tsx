@@ -2,17 +2,19 @@
 // tab strip, and the open tab's board, mounted afresh for each tab (keyed by board and
 // credential: nothing of one board's mount reaches another's). A switch is a cold open, from
 // IndexedDB where the board is stored (the pool of §5 was measured and not kept); what's kept
-// across it is what the tab showed (§4.2) and the page's timeline cache (§4.3).
+// across it is what the tab showed (§4.2) and the page's timeline cache (§4.3). The open tab is
+// the session's view state (`session.tab`, session/follow.ts): a follower switches with its
+// presenter (§6), and the session's room is told who is here and on which tab.
 
 import { ShareIcon } from "../ui/ShareIcon";
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { Board, type InSession } from "../board/Board";
 import { resetVisit } from "../board/reset";
 import { ShareDialog } from "../board/ShareDialog";
-import { addGrant, sessionUrl, withdrawGrant } from "../core/api";
-import { knownBoards, rememberBoard } from "../core/device";
-import { replace } from "../core/nav";
+import { addGrant, canOpen, parseSessionUrl, sessionUrl, withdrawGrant } from "../core/api";
+import { type Me, hasJoined, knownBoards, loadMe, rememberBoard } from "../core/device";
+import { href, replace } from "../core/nav";
 import { LIMITS } from "../gen/limits";
 import type { RecordId } from "../gen/RecordId";
 import type { Art } from "../map/pack";
@@ -21,9 +23,11 @@ import { DeadLink } from "../ui/DeadLink";
 import { InlineEdit } from "../ui/InlineEdit";
 import { Wordmark } from "../ui/Wordmark";
 import { type AddChoice, AddMenu, refusal, takeAddOnOpen } from "./AddGame";
+import { createSessionFollow } from "./follow";
 import { UndoHistory } from "./history";
 import { SESSION_SIDE, createSessionState } from "./state";
 import { type TabRow, addTabOps, credentialFor, linkDead, moveOps, neighbourOf, pickTab, removeOps, renameOps } from "./tabs";
+import { loadUnsent, saveUnsent, withUnsent } from "./unsent";
 
 const editable = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || (t instanceof HTMLElement && t.isContentEditable);
 
@@ -35,7 +39,50 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   // The session is left: its boards' visits are over (a tab switch alone keeps them).
   onCleanup(() => resetVisit());
   const loaded = () => s.settled();
-  const [active, setActive] = createSignal<RecordId | undefined>(p.tab);
+  // ---- what this page may open (§6.3), as far as it knows: a tab's board answered when it
+  // was opened here, or was asked about for a follow. By board and the credential it opens
+  // through; a refusal is asked about again each time it matters. ----
+  const [openable, setOpenable] = createSignal<ReadonlyMap<string, boolean>>(new Map());
+  const credential = (t: TabRow) => credentialFor(t, p.session, p.token, knownBoards());
+  const openKey = (board: string, grant: string | undefined) => `${board}\u0000${grant ?? ""}`;
+  const noteOpen = (key: string, ok: boolean) => setOpenable((m) => (m.get(key) === ok ? m : new Map(m).set(key, ok)));
+  const asking = new Set<string>();
+  const follow = createSessionFollow({
+    first: p.tab,
+    peers: s.peers,
+    myPeer: s.myPeer,
+    tabs: s.tabs,
+    access: (t) => openable().get(openKey(t.board, credential(t).via?.grant)),
+    ask: (t) => {
+      const c = credential(t);
+      const key = openKey(t.board, c.via?.grant);
+      if (asking.has(key)) return;
+      asking.add(key);
+      // No answer (offline, a server error) is not a refusal: the board says when it opens.
+      void canOpen(t.board, c.token, c.via).then((ok) => {
+        asking.delete(key);
+        noteOpen(key, ok ?? true);
+      });
+    },
+    onPicked: (was, seat) => say(`Stopped following ${was?.state?.name || "them"}`, seat === undefined ? {} : { again: () => follow.again(seat, was) }),
+  });
+  const active = follow.tab;
+  // Who this person is, for the session's room (§6.1): the name and colour the boards show,
+  // once given (the join card asks once per session).
+  const [me, setMe] = createSignal<Me | undefined>(hasJoined(p.session) ? loadMe() : undefined);
+  createEffect(() => {
+    const m = me();
+    s.presence({ name: m?.name ?? "", color: m?.color ?? 0, ...follow.wire(), following: follow.presenter()?.peer ?? null });
+  });
+  // ---- tabs left with changes not sent (TD-101): marked on the strip until that board is
+  // opened here again and they go. Kept for this browser tab, as what a tab showed is. ----
+  const [unsent, setUnsent] = createSignal<ReadonlySet<string>>(loadUnsent(sessionStorage, p.session));
+  const left = (board: string, n: number) => {
+    const next = withUnsent(unsent(), board, n);
+    if (next === unsent()) return;
+    setUnsent(next);
+    saveUnsent(sessionStorage, p.session, next);
+  };
   const [adding, setAdding] = createSignal(takeAddOnOpen(p.session));
   const [sharing, setSharing] = createSignal(false);
   const [menu, setMenu] = createSignal<{ at: { x: number; y: number }; tab: TabRow }>();
@@ -53,7 +100,8 @@ export function SessionView(p: { session: string; token: string; tab: string | u
     const live = cur !== undefined && tabs.some((t) => t.id === cur);
     const next = live ? cur : cur !== undefined && before.includes(cur) ? neighbourOf(before, cur, tabs) : pickTab(tabs, cur);
     before = tabs.map((t) => t.id);
-    if (next !== cur) setActive(next);
+    // The session's doing, not the user's: a follow goes on (§6.3: both move left).
+    if (next !== cur) follow.place(next);
   });
   // The address names the tab being looked at, without adding history (§7.1).
   createEffect(() => {
@@ -61,6 +109,20 @@ export function SessionView(p: { session: string; token: string; tab: string | u
     const want = sessionUrl(location.origin, p.session, p.token, active());
     if (location.href !== want) replace(want);
   });
+  // The address was changed to another tab of this session (a link opened in the page): the
+  // user's pick, as from the strip (§6.2). One that isn't a tab leaves the address as it was.
+  createEffect(
+    on(
+      href,
+      (h) => {
+        const u = parseSessionUrl(h);
+        if (!loaded() || u?.session !== p.session || u.token !== p.token || u.tab === untrack(active)) return;
+        if (u.tab !== undefined && s.tabs().some((t) => t.id === u.tab)) pick(u.tab);
+        else replace(sessionUrl(location.origin, p.session, p.token, untrack(active)));
+      },
+      { defer: true },
+    ),
+  );
   // Your boards keeps this session (§7.3): its title and how many games.
   createEffect(() => {
     const t = s.title();
@@ -87,10 +149,12 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   // ---- the toast (§7.2: "Removed <name>", Undo) ----
   // Its Undo is for the step it names: it keeps where the history was just after that step, and
   // goes once anything else is edited, undone or redone (review 2026-11-12, finding 3).
-  const [toast, setToast] = createSignal<{ text: string; undo?: number }>();
+  // A follow that the user's own pick of a tab stopped offers the way back (`again`), as a
+  // board's own toast does.
+  const [toast, setToast] = createSignal<{ text: string; undo?: number; again?: () => void }>();
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
-  const say = (text: string, undo?: number) => {
-    setToast(undo === undefined ? { text } : { text, undo });
+  const say = (text: string, more: { undo?: number; again?: () => void } = {}) => {
+    setToast({ text, ...more });
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => setToast(undefined), 6000);
   };
@@ -112,7 +176,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       const q = queued;
       queued = undefined;
       // After the board's own pointerup handlers have run.
-      if (q !== undefined) queuedTimer = setTimeout(() => setActive(q), 0);
+      if (q !== undefined) queuedTimer = setTimeout(() => follow.pick(q), 0);
     };
     const move = (e: PointerEvent) => pressed && e.buttons === 0 && up();
     window.addEventListener("pointerdown", down, true);
@@ -135,11 +199,11 @@ export function SessionView(p: { session: string; token: string; tab: string | u
     // A switch picked now wins over one held for a press that just ended.
     queued = undefined;
     clearTimeout(queuedTimer);
-    setActive(id);
+    follow.pick(id);
   };
   const remove = (t: TabRow) => {
     setMenu(undefined);
-    if (s.edit(removeOps(t.id))) say(`Removed ${t.name}`, history.at());
+    if (s.edit(removeOps(t.id))) say(`Removed ${t.name}`, { undo: history.at() });
   };
   // Remove and revoke (§3.7): the grant is withdrawn first, and the tab removed only once that's
   // done (204). The removal is no step in the history: undo would bring back a tab whose grant is
@@ -174,7 +238,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       const g = await addGrant(p.session, p.token, c.board, c.token, c.view ? "view" : undefined);
       const id = newRecordId();
       if (!s.edit(addTabOps(id, s.tabs(), g.board, g.grant_id, c.title ?? `Game ${s.tabs().length + 1}`))) return "Failed";
-      setActive(id);
+      follow.pick(id);
       return undefined;
     } catch (e) {
       return refusal(e);
@@ -296,6 +360,9 @@ export function SessionView(p: { session: string; token: string; tab: string | u
                 onEditing={(on) => !on && setRenaming(undefined)}
                 onCommit={(text) => rename(t, text)}
               />
+              <Show when={unsent().has(t.board) && t.id !== active()}>
+                <span class="game-unsent" role="img" data-testid="tab-unsent" title="Not sent" aria-label="Not sent" />
+              </Show>
               <Show when={s.canEdit()}>
                 <button
                   class="game-x"
@@ -321,7 +388,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       </Show>
     </nav>
   );
-  const inSession = (): Omit<InSession, "via"> => ({ id: p.session, history, joinKey: p.session, title, share, strip, canEdit: () => s.canEdit() });
+  const inSession = (): Omit<InSession, "via" | "opened"> => ({ id: p.session, history, joinKey: p.session, title, share, strip, canEdit: () => s.canEdit(), follow: follow.board, me: setMe, left });
   // A dead link, not an outdated build: that one reloads, or says Update available, as a board does.
   const closed = () => linkDead(s.connection());
   const outdated = () => {
@@ -353,7 +420,12 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       >
         {(m) => (
           <div class="session-board" data-testid="session" data-session={p.session}>
-            <Board board={m.board} token={m.token} art={p.art} session={{ ...inSession(), ...(m.via ? { via: m.via } : {}) }} />
+            <Board
+              board={m.board}
+              token={m.token}
+              art={p.art}
+              session={{ ...inSession(), ...(m.via ? { via: m.via } : {}), opened: (ok) => noteOpen(openKey(m.board, m.via?.grant), ok) }}
+            />
           </div>
         )}
       </Show>
@@ -392,6 +464,20 @@ export function SessionView(p: { session: string; token: string; tab: string | u
               >
                 Undo
               </button>
+            </Show>
+            <Show when={t().again}>
+              {(again) => (
+                <button
+                  class="link"
+                  data-testid="session-follow-again"
+                  onClick={() => {
+                    again()();
+                    setToast(undefined);
+                  }}
+                >
+                  Follow again
+                </button>
+              )}
             </Show>
           </div>
         )}

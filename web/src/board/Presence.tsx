@@ -53,8 +53,10 @@ export function Cursors(p: { peers: PeerPresence[]; scene: RecordId | undefined;
 export function FollowChip(p: {
   following: PeerPresence | undefined;
   presenters: Array<{ peer: PeerPresence; followers: number }>;
+  /** The followed presenter is on a session tab this page can't open (sessions.md §6.3). */
+  noAccess?: boolean;
   sceneLabel: (scene: RecordId | null | undefined) => string;
-  follow: (peer: number) => void;
+  follow: (peer: PeerPresence) => void;
   stop: () => void;
 }) {
   const others = () => p.presenters.filter((x) => x.peer.peer !== p.following?.peer);
@@ -72,7 +74,7 @@ export function FollowChip(p: {
                 <b>{nameOf(lead()!.peer)}</b> is presenting
               </span>
               <span class="where">{p.sceneLabel(lead()!.peer.state?.scene)}</span>
-              <button class="follow" data-testid="follow-presenter" onClick={() => p.follow(lead()!.peer.peer)}>
+              <button class="follow" data-testid="follow-presenter" onClick={() => p.follow(lead()!.peer)}>
                 <Ico d={EYE} />
                 Follow <kbd>F</kbd>
               </button>
@@ -86,7 +88,7 @@ export function FollowChip(p: {
               <span>
                 <b>Following {nameOf(f())}</b>
               </span>
-              <span class="where">{p.sceneLabel(f().state?.scene)}</span>
+              <span class={cx("where", p.noAccess && "no-access")} data-testid="follow-where">{p.noAccess ? "No access" : p.sceneLabel(f().state?.scene)}</span>
               <button class="link" data-testid="stop-following" onClick={() => p.stop()}>
                 Stop
               </button>
@@ -98,7 +100,7 @@ export function FollowChip(p: {
           <span class="also">Also presenting</span>
           <For each={also()}>
             {(x) => (
-              <button class="switch" onClick={() => p.follow(x.peer.peer)}>
+              <button class="switch" onClick={() => p.follow(x.peer)}>
                 <Avatar name={nameOf(x.peer)} color={x.peer.state!.color} sm />
                 {nameOf(x.peer)}
               </button>
@@ -128,6 +130,9 @@ export function PeopleList(p: {
   myPeer: number | undefined;
   peers: PeerPresence[];
   following: number | undefined;
+  /** The followed person's name, for when they aren't in this board's room (a session's
+   * presenter on another tab, sessions.md §6.3). */
+  followingName?: string | undefined;
   followersOf: (peer: number | undefined) => number;
   sceneLabel: (scene: RecordId | null | undefined) => string;
   follow: (peer: number) => void;
@@ -149,7 +154,7 @@ export function PeopleList(p: {
   const myState = () => {
     const n = p.followersOf(p.myPeer);
     if (n > 0) return "presenting";
-    if (p.following !== undefined) return `following ${nameById(p.following)}`;
+    if (p.following !== undefined) return `following ${p.peers.some((x) => x.peer === p.following) ? nameById(p.following) : p.followingName || "someone"}`;
     return "";
   };
   return (

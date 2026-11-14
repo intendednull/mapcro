@@ -120,6 +120,34 @@ export const SIGNALS: Record<string, Entries> = {
     sceneDrawer: ["local", "the phone's drawer"],
     mapPx: ["local", "the layout"],
   },
+  // A session's own (sessions.md §6): the open tab is the registry's `session.tab`, held in the
+  // session's store (session/follow.ts); the rest is listed here.
+  "session/follow.ts": {
+    seat: ["wired", "following: whom this page follows from tab to tab, by seat"],
+    was: ["wired", "following: that person as last seen in the session's room, shown while they're looked for"],
+    noAccess: ["local", "a follower's side of session.tab: the presenter's tab can't be opened here"],
+  },
+  "session/SessionView.tsx": {
+    openable: ["local", "which tabs this page may open, as it learned (a follow asks before it moves)"],
+    me: ["local", "name and colour: presence says who you are"],
+    unsent: ["local", "the tabs this browser tab left with changes not sent"],
+    adding: ["local", "a dialog"],
+    sharing: ["local", "a dialog"],
+    menu: ["local", "a tab's menu"],
+    renaming: ["local", "a tab's name being typed"],
+    dragging: ["local", "a gesture in progress"],
+    toast: ["local", "a message"],
+  },
+  "session/state.ts": {
+    records: ["local", "data"],
+    connection: ["local", "data"],
+    role: ["local", "data"],
+    undoable: ["local", "data"],
+    problems: ["local", "messages"],
+    current: ["local", "data"],
+    peers: ["local", "the session's room: who is in it, and on which tab (tab, seat, following)"],
+    myPeer: ["local", "this connection's id in the session's room"],
+  },
 };
 
 /** `<details>` elements (their open state lives in the DOM), by file and class. */
@@ -131,6 +159,6 @@ export const DISCLOSURES: Record<string, Entries> = {
   "player/Player.tsx": { "pl-source": ["local", "the replay source"], "map-layers": ["personal", "the Map layers popover being open: layout (operator 2026-11-11)"] },
 };
 
-/** The files the guard reads: Player, the board's root and the map's hover. A new file under
- * player/ is covered without a change here. */
-export const SCANNED = { dirs: ["player"], files: ["board/Board.tsx", "map/HoverLabel.tsx"] };
+/** The files the guard reads: Player, the board's root, the map's hover, and the session's view
+ * and follow. A new file under player/ is covered without a change here. */
+export const SCANNED = { dirs: ["player"], files: ["board/Board.tsx", "map/HoverLabel.tsx", "session/SessionView.tsx", "session/follow.ts", "session/state.ts"] };
