@@ -19,7 +19,7 @@ import { type Timeline, clockLabel, slotKey } from "./timeline";
 import { LIMITS } from "../gen/limits";
 import type { More } from "../gen/More";
 import { WRITTEN, captureBuild, captureScene, captured, heroBuildAt, moreBytes } from "../mapstate/build";
-import { secondPart } from "../mapstate/frame";
+import { savedPart } from "../mapstate/frame";
 import type { Player } from "../board/state";
 
 export { slotKey };
@@ -54,9 +54,9 @@ export function matchSceneOps(
   const name = opts.name ?? "Match moment";
   const scene = { name: sceneName(name, second), order, clock: second, ...(opts.source ? { source: { ...opts.source, t: second } } : {}) };
   const ops: Op[] = [{ Create: { id, record: { Scene: scene } } }];
-  // The frame's facts, unfiltered (map-state spec D9): the second's part, as Player computes it
+  // The frame's facts, unfiltered (map-state spec D9): what Player's second's part is built on
   // (mapstate/frame.ts). At a whole second a hero's place and respawn time are its sample's.
-  const frame = secondPart(tl, second, markers);
+  const frame = savedPart(tl, second, markers);
   const at = new Map(frame.heroes.map((p) => [slotKey(p.team, p.slot), p]));
   const heroes: Array<{ PlayerState: PlayerState }> = [];
   for (const s of roster) {

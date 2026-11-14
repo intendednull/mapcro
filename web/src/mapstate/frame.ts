@@ -65,6 +65,14 @@ function byMarker<V>(src: Map<string, V>, markers: FrameMarkers): Map<string, V>
   return out;
 }
 
+/** What Save as scene captures of the second's part (match/save.ts): the heroes' samples, what
+ * is down, the sites and the lanes. The second's part is built on it, so the two can't differ;
+ * a save computes no more than it stores. */
+export type SavedPart = Pick<SecondPart, "heroes" | "down" | "sites" | "lanes">;
+export function savedPart(m: Timeline, t: number, markers: FrameMarkers): SavedPart {
+  return { heroes: playersAt(m, t), down: downAt(m, t, markers), sites: sitesAt(m, t, markers), lanes: lanesAt(m, t) };
+}
+
 /** The second's part at `t` (any t of the second gives the same). */
 export function secondPart(m: Timeline, t: number, markers: FrameMarkers): SecondPart {
   const replay = m.tier === "replay";
@@ -74,14 +82,11 @@ export function secondPart(m: Timeline, t: number, markers: FrameMarkers): Secon
     const key = markerKey(p.key, markers);
     if (v && key) powerups.set(key, v);
   }
-  const down = downAt(m, t, markers);
+  const saved = savedPart(m, t, markers);
   return {
-    heroes: playersAt(m, t),
+    ...saved,
     movement: m.players.map((p) => (replay ? movementAt(p, t) : undefined)),
-    down,
-    shops: shopsClosed(down, markers),
-    sites: sitesAt(m, t, markers),
-    lanes: lanesAt(m, t),
+    shops: shopsClosed(saved.down, markers),
     camps: byMarker(campsAt(m, t), markers),
     powerups,
     health: replay ? byMarker(objectiveHealthAt(m, t), markers) : undefined,

@@ -15,13 +15,13 @@ vi.mock("solid-js", async () => await import(/* @vite-ignore */ "solid-js/dist/"
 
 import { readFileSync } from "node:fs";
 import { createComputed, createRoot, createSignal } from "solid-js";
-import { type FrameMarkers, type Shown, heroesAt, previewAt, secondPart, tenthPart } from "../src/mapstate/frame";
+import { type FrameMarkers, type Shown, heroesAt, previewAt, savedPart, secondPart, tenthPart } from "../src/mapstate/frame";
 import { FEATURES, type PlayerState, featuresOf, fromTimeline, markerFrame, playerFrame, sameValue, urnOf } from "../src/mapstate/state";
 import { buildAt } from "../src/match/builds";
 import { statBuild } from "../src/match/stats";
 import { sameBuild, sameStatBuild, tenthOf } from "../src/player/buildState";
 import type { MatchPreview } from "../src/match/preview";
-import { slotKey } from "../src/match/save";
+import { matchSceneOps, slotKey } from "../src/match/save";
 import { type CampAt, type PowerupAt, type RiftAt, type Timeline, type TimelinePlayer, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, riftAt, scoreboardValueAt, shopsClosed, sitesAt, urnAt } from "../src/match/timeline";
 import { crowdControlAt } from "../src/player/cc";
 import { movementAt } from "../src/player/movement";
@@ -462,9 +462,34 @@ describe("Player's frame", () => {
       expect(part.down).toEqual(downAt(m, s, markers));
       expect(part.sites).toEqual(sitesAt(m, s, markers));
       expect(part.lanes).toEqual(lanesAt(m, s));
+      // What a save reads is those four of it, the same values, and nothing else of the part.
+      expect(savedPart(m, s, markers)).toEqual({ heroes: part.heroes, down: part.down, sites: part.sites, lanes: part.lanes });
       // The tenth's part at the second: each hero's sight as its enemies have it there.
       expect(tenthPart(m, s).sight.map((x) => x === true)).toEqual(m.players.map((p) => seenAt(p, s)?.seen === true));
     }
+  });
+
+  it("a save computes no more than it stores: no camp, powerup, objective's health, movement or Rejuvenator is read (review N2)", () => {
+    const m = replay();
+    const reads: Record<string, number> = {};
+    for (const k of ["camps", "powerups", "objective_health", "rejuv", "urn", "rifts"] as const) {
+      const v = m[k];
+      Object.defineProperty(m, k, { get: () => ((reads[k] = (reads[k] ?? 0) + 1), v) });
+    }
+    for (const p of m.players) for (const k of ["height", "zipline", "cc", "seen"] as const) {
+      const v = p[k];
+      Object.defineProperty(p, k, { get: () => ((reads[k] = (reads[k] ?? 0) + 1), v) });
+    }
+    const roster = m.players.map((p, i) => ({ id: `slot-${i}`, slot: { team: p.team === "amber" ? "Amber" : "Sapphire", slot: p.slot, hero: p.hero_id, name: "" } }));
+    let n = 0;
+    matchSceneOps(roster as never, [], undefined, m, 6, markers, () => `id${n++}`, [], { builds: false });
+    // `sitesAt` asks which of rifts, powerups, camps and the urn the match has, and reads the
+    // sites' own series; nothing reads a hero's movement, CC or sight, objectives' health or
+    // the Rejuvenator.
+    expect(Object.keys(reads).filter((k) => ["height", "zipline", "cc", "seen", "objective_health", "rejuv"].includes(k))).toEqual([]);
+    // The second's part reads them all.
+    secondPart(m, 6, markers);
+    expect(["height", "zipline", "objective_health", "rejuv"].every((k) => (reads[k] ?? 0) > 0)).toBe(true);
   });
 
   it("sameValue compares plain values through and through", () => {

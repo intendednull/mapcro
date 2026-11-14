@@ -239,8 +239,12 @@ describe("Save as scene, read back", () => {
             expect({ present: s.present(), hero: s.hero(), alive: s.alive(), souls: s.souls(), ult: s.ult() }, `${slot} at ${t}`).toEqual({ present: true, hero: p.hero(), alive: p.alive(), souls: p.souls(), ult: p.ult() });
             expect(s.pos() ?? s.last(), `${slot} at ${t}`).toEqual(where ? clampToMap(where) : null);
             expect(s.pos() === null, `${slot} at ${t}`).toBe(p.pos() === null);
-            // A dead hero's respawn time, in whole seconds rounded up (D4).
-            expect(s.respawn(), `${slot} at ${t}`).toBe(p.respawn() == null ? null : Math.ceil(p.respawn()!));
+            // A dead hero's respawn time, in whole seconds rounded up (D4): the two who die at
+            // 5 are back at 7.5, so 2.5 s left at 5 is stored as 3, 1.5 at 6 as 2, 0.5 at 7 as 1.
+            const left = slot === "amber-3" || slot === "sapphire-3" ? ({ 5: 3, 6: 2, 7: 1 } as Record<number, number>)[Math.floor(t)] ?? null : null;
+            expect(s.respawn(), `${slot} at ${t}`).toBe(left);
+            // And Player's own count at that second is what was rounded.
+            expect(p.respawn() == null ? null : p.respawn()! > left! - 1 && p.respawn()! <= left!, `${slot} at ${t}`).toBe(left == null ? null : true);
             if (s.respawn() != null) seen.respawns.add(s.respawn()!);
             // Health is the replay tier's (the metadata tier's is below).
             if (replayTier) expect(s.health(), `${slot} at ${t}`).toBe(p.health());
