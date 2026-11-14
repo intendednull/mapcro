@@ -47,6 +47,7 @@ import { WINDOWS_APP_PORTABLE_URL, appUpdate, desktopAppLinks } from "../player/
 import { downloadBoard } from "../core/boardfile";
 import { Layers, calloutOrder } from "./Layers";
 import { FRESH_BOARD, randomRosterOps, sceneMatchName } from "./roster";
+import { fromScene, sceneRecords } from "../mapstate/scene";
 import { HeroPicker } from "./HeroPicker";
 import { defaultSplit, project } from "../map/lanes";
 import { FIT_VIEW, worldToMap, worldToView } from "../map/transform";
@@ -476,6 +477,13 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const hasRecap = (slot: string, t: number) => !!recapOf(player.tl()?.players.find((q) => slotKey(q.team, q.slot) === slot), t);
   /** In a scene, the open match's in-game name for a slot (spec §6b "Names"); a typed one wins. */
   const matchName = (team: string, n: number) => sceneMatchName(player.tl(), scene()?.scene.source, player.playerName, team, n);
+  // The scene's state behind the interface Player's has (mapstate/scene.ts; map-state phase 4).
+  const sceneState = fromScene(
+    sceneRecords(state, () => scene()?.id, () => (slot) => {
+      const [team, n] = slot.split("-");
+      return matchName(team!, Number(n));
+    }),
+  );
   const presenterList = createMemo(() => presenters(state.peerList(), state.myPeer(), followingHere()));
   const followersOf = (peer: number | undefined) =>
     peer === undefined ? 0 : state.peerList().filter((x) => x.state?.following === peer).length;
@@ -680,11 +688,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     const lane = p.art.model.lanes.find((l) => l.key === key);
     // Player shows only the match's lanes (replay tier: the zipline colours, drawn by `laneEdges`;
     // this is their gap's middle), never the scene's (spec §6b).
-    if (inPlayer()) {
-      const edges = matchState.lane(key).edges();
-      return edges ? (edges.amber + edges.sapphire) / 2 : lane ? defaultSplit(lane.line) : 500;
-    }
-    return remoteSmooth().get(key)?.() ?? waves().get(key)?.t ?? (lane ? defaultSplit(lane.line) : 500);
+    const split = inPlayer() ? matchState.lane(key).split() : (remoteSmooth().get(key)?.() ?? sceneState.lane(key).split());
+    return split ?? (lane ? defaultSplit(lane.line) : 500);
   };
 
   // ---- a board this device just made gets twelve random heroes, once ----
@@ -1134,7 +1139,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   // frame's preview (#39).
   const markerKeys = createMemo(() => p.art.model.markers.map((m) => m.key));
   // The markers' part of the frame is new once a second, so these run then, not each frame.
-  const marks = markerStates(() => (inPlayer() ? markerPreview() : undefined), markerKeys, (k) => objectives().get(k)?.status);
+  const marks = markerStates(() => (inPlayer() ? markerPreview() : undefined), markerKeys, (k) => sceneState.marker(k).status());
   const markerStatus = marks.status;
   const mapControls = () => (<MapControls host={player} heals={heals()} crates={crates()}
               toggleHeals={() => player.setShowHeals(!heals())}

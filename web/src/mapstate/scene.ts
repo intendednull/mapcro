@@ -107,7 +107,7 @@ export function fromScene(src: SceneRecords): MapState {
         name: memo(() => {
           if (!rec()) return null;
           const own = more("name");
-          return (typeof own === "string" && own) || slot()?.name || src.names?.()?.(key) || null;
+          return (typeof own === "string" && own) || slot()?.name.trim() || src.names?.()?.(key) || null;
         }),
         alive,
         pos: memo(() => (alive() ? place() : null), sameValue),
