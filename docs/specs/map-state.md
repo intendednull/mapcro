@@ -346,7 +346,10 @@ selects; the build opens from the portrait's build control in both. The phone la
     of one field reruns when that value changes. It holds facts only: every hero's sight
     (`inSight`, `lastSeen`) whichever Vision is picked, objectives' health whether or not Health
     is on, every death with whether its enemies saw it. `has(feature)` says what the timeline
-    holds. `playerFrame` is the old readers' adapter (the state's parts under the viewer's
+    holds. A field's memo is made when
+    the field is first read, not with its entity (a memo runs whenever what it reads changes,
+    read or not): the top bar asking only who is in sight computes no place, respawn time, urn
+    or death (`frame-clocks.test.ts`: no read of those series over 59 frames). `playerFrame` is the old readers' adapter (the state's parts under the viewer's
     choices, as one `MatchPreview`); `markerFrame` is the markers' part of it, new once a second.
   - **Who reads it today:** the lanes' colours (`lane(key).edges`), the top bar's and the hero
     panel's "out of sight" (`hero(slot).inSight`, the tenth's), the map's markers (the second's
