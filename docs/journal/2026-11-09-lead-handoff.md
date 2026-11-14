@@ -3,6 +3,29 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Paused for the Paseo daemon restart (2026-11-14 ~13:45 UTC, lead 9eb2516b)
+
+The concierge asked for a safe checkpoint: the restart ends every agent process and background
+job. Nothing is deployed or half-deployed. Prod is still **baddb20** (store v10).
+
+- **Lead gate stopped mid-e2e.** `/tmp/lead-gate` at 5e966b0 (main + ad60722 mobile defaults +
+  e1d7796 map-state release 2) passed clippy, test and web-test. It was stopped during `just e2e`
+  with load ~53, mostly Adora's selftest e2e (`adora-scratch-*/selftest-A`, which `box-busy.sh`
+  doesn't match yet). **Rerun the whole gate** (`bash /tmp/lead-gate.sh`), then the Firefox run,
+  then browser QA, merge and deploy, as in the section below.
+- **Queued heavy jobs cancelled** (none had started): feedback's full e2e (`/tmp/fb5660-e2e3.sh`)
+  and then its mutation run; sessions' `/tmp/sp3-batch6.sh` (it grabbed the lock as the gate
+  released it and was killed in its first seconds); map-state's vitest rerun
+  (`/tmp/ms-p3-qa/jobB2.sh`) and calm-box perf rounds (`/tmp/ms-p4/jobE.sh`). Each implementer
+  was told to commit (WIP is fine) and write a "Resume after restart" section in its branch
+  journal. Branch tips at pause: map-state-p3 674fca5, sessions-p3 5656abb, feedback-56-60
+  eba7cc4 (they may move with the checkpoint commits).
+- **Resume order:** (1) the lead gate on 5e966b0, then QA, merge and deploy; (2) a fresh Fable high
+  implementer per stream, briefed with its branch journal's resume section; each reruns its
+  cancelled jobs through `tools/heavy.sh`.
+- **Box-busy gap:** add Adora's selftest e2e to `tools/box-busy.sh` (or rely on the load ≥12 check,
+  which caught it here only because load was high).
+
 ## State (2026-11-14 ~12:30 UTC, lead 9eb2516b, before compacting)
 
 - **Prod:** `web` runs **baddb20** (infra a1a28bb), store v10. That's #54 (a scene copy keeps its
