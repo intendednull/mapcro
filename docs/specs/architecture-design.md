@@ -1540,7 +1540,10 @@ transport.
 and moves the art off the tokens), full width in portrait and aligned to the top of its zone.
 
 **The transport** holds the chrome. Portrait row 1: Play and the scrubber (at least 60% of the
-width). Row 2: speed, the clock, then Events, Map layers and More (⋯). More holds Match (the source
+width). Row 2: speed, the clock, then Events, Map layers and More (⋯). The tabs keep their width
+and the clock takes what is left: the time and the match's length (smaller, muted) on one line
+where that fits, else the time over the length (under about 390 px), so nothing sits on the
+clock at any width from 320 px. More holds Match (the source
 menu, opened as a sheet), Scenes, Laser, Edit, Feedback, and the role. Laser or Edit swaps row 2
 for a tool rail: the tools scroll sideways (Look, Laser, Draw, Arrow, Erase, Undo, Redo), and the
 ink swatch and Done are pinned at its right end, outside the scroll, so they are always on screen;
@@ -1549,8 +1552,12 @@ are not on the phone: Events and Scenes are the larger targets for those jumps.
 
 **The roster reads like the HUD's bar.** Each 44 px cell is a portrait (a tap opens the build),
 its souls along the foot (12 px), and while dead the portrait greys with the respawn seconds on
-top. Each team's row ends with its souls total; where the pane is too narrow for that column (a
-4:3 tablet in landscape) the total heads the row instead.
+top. The portrait is the HUD's hero badge (the pack's hero card over its team disc), cut at the
+cell's foot so the head shows over the souls; the roster takes the pack's top-bar art as the
+desktop bar does (`artCss`, `.phone-roster.pack-art`). A hero the pack doesn't have keeps its
+letters at the disc's top, clear of the souls. Each team's row ends with its souls total; where
+the pane is too narrow for that column (under 320 px: a 4:3 tablet in landscape, a 320 px phone)
+the total heads the row instead.
 
 **One sheet at a time.** Events, Map layers, More and a hero's build are sheets: edge to edge on
 the transport (landscape: the right pane), at most up to the roster's foot, so the roster stays
@@ -1560,7 +1567,8 @@ jumps there and the sheet stays. Items and abilities open the game tooltip on ta
 the roster's foot and the transport's top; a tap outside closes it.
 
 **Events** puts the search (96 px), the lead and the filter chips in one row of at most 48 px,
-the chips scrolling sideways; the event at the current time carries `aria-current`. The source
+the chips scrolling sideways; that row stays at the sheet's head while the list scrolls (the
+list opens at the current event); the event at the current time carries `aria-current`. The source
 credit ("Replay: uploaded", "Match data: deadlock-api.com") is in the Match sheet, not under
 the events.
 
@@ -1576,14 +1584,20 @@ layout state), Scenes opens the scene list, and a portrait tap selects Build. Th
 its two rows (at most 96 px where the totals have their column).
 
 **Board (not Player)** still scrolls, with its own header, follow row, scene nav and the Edit
-toggle in its tool row (P2 of the direction moves it into the shell).
+toggle in its tool row (P2 of the direction moves it into the shell). Its map is square too: the
+full width, or 70% of the height where that is less (landscape: 65%), centred.
 
-**Checks.** `web/e2e/phone-layout.ts` runs at 390 × 844, 360 × 800, 390 × 664 and 844 × 390: no
+**Checks.** `web/e2e/phone-layout.ts` runs at 390 × 844, 360 × 800, 390 × 664, 344 × 615 (the
+operator's phone: a 1440 × 3120 screen at display zoom, less the browser's bars) and 844 × 390,
+and its layout checks alone at 320 × 568, 360 × 640, 360 × 780, 375 × 667, 412 × 915, 430 × 932,
+615 × 344 and 932 × 430 at a pixel ratio of 3: no
 sideways scroll; Player has no page scroll and every control is on screen; controls at least
 44 × 44 px; no overlapping controls (each cut by its scrollers; content under a sheet or an open
 menu counts as out of reach); text at least 12 px; the map pane and its art square; the
 transport's height (portrait ≤ 104 px, landscape ≤ 60 px); sheets' edges against the transport
-and the roster.
+and the roster; nothing on the clock or the team totals, and a long match's clock (59:59, and
+1:59:59 from 344 px) inside its place; with a pack that has hero cards, every cell's art drawn
+with at least 28 px of it over the souls.
 
 **State.** The open sheet, Edit and the rail are personal layout and tool state, in the
 module-state ledger. The open build is the host's existing build row and follows. Playback,

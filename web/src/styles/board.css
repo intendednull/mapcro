@@ -1039,8 +1039,10 @@ kbd {
 .phone .p-callouts b, .phone .map-layers-pop h3, .phone .pl-tier { font-size: 12px; }
 .phone .p-top { height: auto; min-height: 52px; gap: 6px; padding: 4px 8px; }
 .phone .p-top .viewonly, .phone .p-top .save, .phone .ord, .phone .where { font-size: 12px; }
-.phone .p-map { min-height: 50dvh; aspect-ratio: auto; }
-.phone .p-map > .mm-host { width: 100%; height: 50dvh; }
+/* The board's map is square, as everywhere (the art is drawn at 100% x 100%: a 50dvh-tall pane
+   stretched it, 3:1 in landscape): the full width, or most of the height where that is less. */
+.phone:not(.phone-player) .p-map { width: min(100%, 70dvh); margin-inline: auto; }
+.phone .p-map > .mm-host { width: 100%; height: 100%; }
 .phone .p-tools, .phone .palette, .phone .ink-palette { flex-wrap: wrap; max-width: 100%; }
 .phone .map-layers-pop { max-width: calc(100vw - 24px); max-height: 45dvh; overflow-y: auto; }
 
@@ -1056,18 +1058,25 @@ kbd {
 .phone .tb-host .tb-disc, .phone-roster .tb-disc { top: 0; left: 50%; transform: translateX(-50%); font-size: 12px; }
 .phone .tb-host .tb-img, .phone-roster .tb-img { top: -20px; left: 50%; transform: translateX(-50%); }
 .phone .tb-host .tb-respawn { font-size: 12px; }
+/* The roster's cell with the pack's hero card: the HUD's badge (card over its disc, topbar.css)
+   cut at the cell's foot, so the head shows over the souls. A hero whose art is missing keeps its
+   letters, at the disc's top, clear of the souls. */
+.phone-roster .tb-badge.card-badge .tb-disc { top: 9px; place-items: start center; line-height: 20px; }
+.phone-roster .tb-img.hero-card { top: -6px; }
 
 /* Two teams, six equal targets each. Build selection remains the host's shared state. */
-.phone-roster { margin: 6px 8px; display: grid; gap: 4px; --u: .6px; }
+.phone-roster { margin: 6px 8px; display: grid; gap: 4px; --u: .6px; --t1: #D4860B; --t1fg: #201500; --t2: #4D75C3; --t2fg: #FFFFFF; }   /* the bar's team colours (.tb-host) */
 .phone-team { display: grid; grid-template-columns: repeat(6, minmax(44px, 1fr)) auto; gap: 4px; }
 /* The bar's readout in each cell: souls along the foot; the dead greyed, their respawn on top. */
 .phone-souls { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 0 2px; background: #000a; color: #ded6c4; font: 600 12px/14px var(--ui); text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
 .phone-team .tb-player.dead .tb-badge { filter: grayscale(1) brightness(.45); }
+/* One grey for the whole badge: not the bar's darker portrait under it as well. */
+.phone-team .tb-player.dead .tb-badge :is(.tb-img, .tb-disc) { filter: none; }
 .phone-respawn { position: absolute; left: 0; right: 0; top: 4px; z-index: 2; color: #f0e6d2; font: 700 14px/16px var(--ui); text-align: center; text-shadow: 0 1px 2px #000; pointer-events: none; }
 .phone-roster .demote { font-size: 12px; }
 /* A narrow pane (a 4:3 tablet in landscape) has no room for the totals' column: they head the rows. */
 .phone-player > .phone-roster { container-type: inline-size; }
-@container (width < 336px) {
+@container (width < 320px) {
   .phone-team { grid-template-columns: repeat(6, minmax(44px, 1fr)); }
   .phone-total { grid-column: 1 / -1; grid-row: 1; text-align: left; line-height: 14px; }
 }
@@ -1148,8 +1157,8 @@ kbd {
 /* The transport, in the shell's last row: Play beside the scrubber, then speed, the clock, and
    Events, Map layers, More (or the tool rail, which takes the whole second row). */
 .phone-player .pl-bar {
-  grid-area: bar; position: relative; z-index: 55; display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr); grid-template-areas: "play scrub scrub" "speed clock tail";
+  grid-area: bar; position: relative; z-index: 55; display: grid; margin: 0;   /* not the narrow desktop bar's 6 px above it */
+  grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "play scrub scrub" "speed clock tail";
   align-items: center; gap: 4px 8px; padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line); background: var(--bg-deep);
 }
@@ -1169,19 +1178,28 @@ kbd {
 .phone .pl-events > .pl-list { grid-row: 3; align-self: stretch; }
 .phone .pl-events > .pl-events-foot { grid-row: 4; }
 .phone .pl-chips > * { flex: none; }
+/* That row stays at the sheet's head: the list opens at the current event, thousands of px down. */
+.phone .p-sheet .pl-ev { scroll-margin-top: 52px; }   /* the current event is brought in under that row, not behind it */
+.phone .p-sheet .pl-events > :is(.pl-events-head, .pl-chips) { position: sticky; top: 0; z-index: 2; align-self: stretch; align-items: center; background: var(--panel); }
+.phone .p-sheet .pl-events > .pl-events-head { box-shadow: 8px 0 var(--panel); }   /* the column gap, too */
 .phone .pl-events-head .input { flex: none; width: 96px; }
 .phone .pl-side .match-credit { display: none; }
 .p-credit { display: none; }
 .phone-player .pl-source[open] .p-credit { display: block; margin-top: 8px; font-size: 12px; }
 .phone-player .pl-source[open] .pl-head { position: static; width: auto; max-width: none; box-shadow: none; border: 0; padding: 0; background: transparent; }
+/* A match id is 9 digits (soon 10) at the fields' 16 px: all of it shows. */
+.phone-player .pl-source[open] .pl-id { flex: 1 1 8em; width: auto; min-width: 8em; max-width: 12em; }
 .phone-player .pl-play { grid-area: play; min-width: 64px; background: var(--raised); }
 .phone-player .pl-speed { grid-area: speed; }
 .phone-player .pl-transport .pl-scrub { grid-area: scrub; order: 0; flex: none; }
 .phone-player [data-testid=match-save] { display: none; }
-.phone-player .pl-tail { grid-area: clock; margin: 0; }
-.phone-player .pl-tail .match-clock { font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.phone-player .pl-tail { grid-area: clock; margin: 0; min-width: 0; }
+/* The clock takes what the tabs leave: one line where it fits, else the time over the length. */
+.phone-player .pl-tail .match-clock { flex: 0 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: .25em; text-align: left; font-size: 14px; line-height: 16px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.phone-player .match-clock .clock-of { font-size: 12px; line-height: 14px; color: var(--muted); }
 .phone-player .p-tail { grid-area: tail; justify-self: end; display: flex; gap: 0; }
 .phone-player .p-tail .btn, .phone-player .p-rail .btn { border: 0; background: transparent; color: var(--muted); font-size: 14px; padding: 0 8px; }
+@media (max-width: 340px) { .phone-player .p-tail .btn { padding: 0 4px; } }
 .phone-player .p-tail .btn[aria-expanded=true], .phone-player .p-rail .btn.on { color: var(--text); box-shadow: inset 0 -2px var(--brass); }
 .phone-player .pl-bar:has(.p-rail) .pl-speed, .phone-player .pl-bar:has(.p-rail) .pl-tail { display: none; }
 .phone-player .p-rail { grid-column: 1 / -1; grid-row: 2; display: flex; align-items: center; gap: 0; min-width: 0; }
@@ -1213,7 +1231,7 @@ kbd {
 .p-more .viewonly { align-self: flex-start; font-size: 12px; }
 
 @media (orientation: landscape) {
-  .phone .p-map > .mm-host { height: 65dvh; }
+  .phone:not(.phone-player) .p-map { width: min(100%, 65dvh); }
   .phone .tb-host, .phone-roster { width: min(560px, calc(100% - 16px)); align-self: center; }
   /* Landscape: two panes over a one-row transport. */
   .phone.phone-player {
@@ -1225,6 +1243,8 @@ kbd {
   .phone-player .pl-bar {
     grid-template-columns: auto auto minmax(0, 1fr) auto auto; grid-template-areas: "play speed scrub clock tail";
   }
+  /* The match source keeps to the map's side: the dock is never empty, and covered its right end. */
+  .phone-player .pl-source[open] { right: auto; width: calc(100dvh - var(--transport-h, 52px)); box-sizing: border-box; border-radius: 0 16px 0 0; }
   /* The rail shares the row: Play, the scrubber (at least 40%), then the rail, which scrolls. */
   .phone-player .pl-bar:has(.p-rail) { grid-template-columns: auto minmax(40%, 1fr) minmax(0, max-content); }
   .phone-player .p-rail { grid-column: 3 / 4; grid-row: 1; }
@@ -1250,6 +1270,16 @@ html:has(.phone), html:has(.phone) body { overscroll-behavior: none; }
 .phone :is(input, textarea, [contenteditable]) { user-select: text; -webkit-user-select: text; }
 :where(.phone) :where(button, summary, select, a[href], [role=button], [role=tab]) { touch-action: manipulation; }
 html:has(.phone) :is(input:not([type=range], [type=checkbox], [type=radio]), textarea, select) { font-size: 16px !important; }
+/* A tick box is a 44 px target with a 20 px box drawn in it (the browser's own, stretched to the
+   target, is a grey slab). Backgrounds only: Firefox draws no pseudo-elements on inputs. */
+.phone input[type=checkbox] {
+  appearance: none; -webkit-appearance: none; flex: none; width: 44px; height: 44px; margin: 0;
+  border: 12px solid transparent; border-radius: 16px; background: transparent padding-box; box-shadow: inset 0 0 0 1.5px var(--muted);
+}
+.phone input[type=checkbox]:checked {
+  box-shadow: none; background: var(--brass) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5 10.5l3.5 3.5L15 7' fill='none' stroke='%23111' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 20px 20px no-repeat padding-box;
+}
+.phone input[type=checkbox]:focus-visible { outline: 2px solid var(--brass); outline-offset: -10px; }
 /* touch-action per surface: the shell never scrolls, so the scrubber takes every direction; a
    sheet's body scrolls up and down, the tool rail sideways. */
 .phone-player .pl-scrub { touch-action: none; }

@@ -9,7 +9,9 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 export const INFUSER = 101, LIFESTEAL = 102, ABILITY = 201, ULT = 204;
 const LADDER = [[800, 9, 7], [1600, 12, 7], [2400, 15, 8], [3200, 18, 8], [4800, 46, 9], [6400, 54, 9], [8000, 62, 10], [11200, 74, 10], [16000, 86, 10], [22400, 100, 11], [28800, 115, 11]];
 
-export function pack(): string {
+/** `cards`: the top bar's art as a real pack has it (the hero badge's mask and a hero card each),
+ *  and hero 6 left out, as a hero newer than the pack is: its badge keeps its letters. */
+export function pack(opts: { cards?: boolean } = {}): string {
   const root = mkdtempSync(join(tmpdir(), "mapcro-packs-tooltips-"));
   const dir = join(root, "synthetic");
   const blobs: Record<string, unknown> = {};
@@ -68,7 +70,8 @@ export function pack(): string {
   });
   // 6837's values differ: what a 6839 replay shows.
   json("data/tooltips/boon-6837", { format: 1, client_version: 6837, records: { [INFUSER]: { props: { TechResist: "12" } } } });
-  const heroes = [1, 2, 3, 4, 5, 6].map((id) => ({ hero_id: id, class_name: `hero_t${id}`, name: `Testhero ${id}`, minimap_blob: png(`heroes/${id}`), topbar_blob: png(`topbar/heroes/${id}`), abilities: [ABILITY, 202, 203, ULT] }));
+  if (opts.cards) png("topbar/hero_image_mask_psd");
+  const heroes = (opts.cards ? [1, 2, 3, 4, 5] : [1, 2, 3, 4, 5, 6]).map((id) => ({ hero_id: id, class_name: `hero_t${id}`, name: `Testhero ${id}`, minimap_blob: png(`heroes/${id}`), topbar_blob: png(`topbar/heroes/${id}`), ...(opts.cards ? { card_blob: png(`cards/heroes/${id}`) } : {}), abilities: [ABILITY, 202, 203, ULT] }));
   const manifest = {
     schema: 4, game: { client_version: 6860, source_revision: 1, date: "Nov 05 2026" }, blobs, heroes, entities: [],
     abilities: { blob: "data/abilities" },

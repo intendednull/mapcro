@@ -237,7 +237,7 @@
 .tb-badge.card-badge .tb-disc { top: calc(25.1 * var(--u)); }
 .tb-player.amber .tb-badge.card-badge .tb-disc { background: var(--t1); color: var(--t1fg); }
 .tb-player.sapphire .tb-badge.card-badge .tb-disc { background: var(--t2); color: var(--t2fg); }
-.tb-host.pack-art .tb-badge.has-card .tb-disc { color: transparent; }   /* the card covers it; no letters through its gaps */
+:is(.tb-host, .phone-roster).pack-art .tb-badge.has-card .tb-disc { color: transparent; }   /* the card covers it; no letters through its gaps */
 .tb-img.hero-card { top: 0; height: calc(95.5 * var(--u)); }
 .tb-player.dead .tb-badge.card-badge .tb-img { filter: grayscale(1) brightness(0.2); }
 .tb-player.dead .tb-badge.card-badge .tb-disc { background: #10130Dee; }
