@@ -65,8 +65,8 @@ inline images as their length) on two old scenes from a board file and on Player
 frame (plain, one build open, all builds). **Its snapshots must come from the rendering before
 `76dbad5`:**
 
-1. `git stash -u` nothing needed; check out the old rendering into the tree:
-   `git checkout acb6d62 -- web/src` (then `git status` shows the reverse of the two client commits).
+1. With a clean tree, check out the old rendering into it: `git checkout acb6d62 -- web/src`
+   (`git status` then shows the reverse of the two client commits; nothing is lost).
 2. `just e2e map-state-dom-pins --update-snapshots`, run it a second time without the flag (it
    must pass twice: the outline may still hold something that differs from run to run; add it to
    `outline`'s left-out list if so), commit the `*-snapshots/` files alone.
