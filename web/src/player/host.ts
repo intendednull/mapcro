@@ -11,7 +11,7 @@ import { slotKey } from "../match/save";
 import type { Marker } from "../map/model";
 import { Api, type JobState, MODE_CODES, busy } from "./api";
 import { markOutdated } from "./reparse";
-import { isFetched, timelines } from "./timelineCache";
+import { freezeDeep, isFetched, timelines } from "./timelineCache";
 import { type Notice, type Step, type Unavailable, idFromName, isDem, looksLikeDemo, noticeFor, unavailableFor } from "./notice";
 import { NOT_DEM } from "./ReplayHelp";
 import { type Handoff, takeHandoff } from "./handoff";
@@ -393,7 +393,9 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
     // The answer isn't this board's own upload: one held for it is no longer what it has.
     const etag = "same" in r ? r.same : r.etag;
     if (etag === undefined || isFetched(etag)) timelines.drop(board, id);
-    const next = "same" in r ? timelines.confirm(board, id, r.same)?.tl : r.etag !== undefined ? timelines.put(board, id, r.etag, r.tl, r.chars) : r.tl;
+    // Every timeline shown is frozen, kept or not (the metadata summary has no validator): a
+    // write to one throws wherever it came from, in the tests as in a page that holds it.
+    const next = "same" in r ? timelines.confirm(board, id, r.same)?.tl : r.etag !== undefined ? timelines.put(board, id, r.etag, r.tl, r.chars) : freezeDeep(r.tl);
     // "The same" as one dropped meanwhile (the cache made room): asked again, plainly.
     if (!next) return loadTimeline(id, keep || !!early, placed);
     if (next !== tl()) return show(next, keep || !!early);

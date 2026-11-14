@@ -159,6 +159,14 @@ the Caddy in infra's nixpkgs (2.11.3):
   (`request_buffers` off), so nothing at the edge stops them. The server enforces its own caps.
   Checked against infra's `lib/mkApp.nix` and `hosts/web`; confirm once after the first deploy
   with a real 400–500 MB upload.
+- **The timeline route's validator passes through.** `GET /api/boards/{board}/matches/{id}`
+  answers a cached replay with an `ETag`, which the client holds and sends back as
+  `If-None-Match` (sessions.md §4.3). `encode` compresses the answer (1.50 MiB to 0.50 MiB with
+  zstd on the reference replay) and leaves the `ETag` as the server sent it, on the 200 and on
+  the 304, with one validator sent or a list (checked 2026-11-13 with 2.11.3 and 2.11.4, a debug
+  server behind `encode zstd gzip` + `reverse_proxy`). A proxy that rewrote or weakened it would
+  cost every open of a match a second request: the client asks again, plainly, when a 304 names a
+  validator it doesn't hold.
 - **A Caddy reload drops open WebSockets on every vhost.** `stream_close_delay` is 0, so the
   deploy that adds this vhost disconnects live sockets once (paseo-relay and willow-relay clients
   too), and they reconnect. Later mapcro-only deploys don't change the Caddyfile and don't reload

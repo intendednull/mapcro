@@ -11,7 +11,7 @@
 // opened takes this browser's. The parked rows (§5) are at the end.
 // Rows not here, and why, are in docs/specs/sessions.md §10 phase 2.
 
-import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -257,9 +257,9 @@ test("a drag released during a switch lands on A, and the switch waits for it", 
 
 const N = 120;
 const range = <T,>(f: (s: number) => T) => Array.from({ length: N + 1 }, (_, s) => f(s));
-function timeline(id: string, shift: number) {
+function timeline(id: string, shift: number, duration = N) {
   return {
-    match_id: Number(id), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6839, reanchored: 0, format: TIMELINE_FORMAT,
+    match_id: Number(id), start_time: 0, duration_s: duration, source: "replay", tier: "replay", build: 6839, reanchored: 0, format: TIMELINE_FORMAT,
     players: (["amber", "sapphire"] as const).flatMap((team) =>
       [0, 1, 2, 3, 4, 5].map((slot) => ({
         team, slot, hero_id: 1 + slot, name: `${team === "amber" ? "A" : "S"}${slot}`,
@@ -307,14 +307,13 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   // B's own match at its own default place (a match opens at 10:00, or its end), paused; A's was
   // playing from the start.
   await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
-  // A tab never opened takes this browser's map layers: as A left them.
+  // B was left once already (before A turned Heals on): its map layers are its own.
   await revealControls(me, "heals-toggle");
-  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
-  await me.getByTestId("heals-toggle").click();
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
   await me.getByTestId("match-speed").selectOption("2");
   await go(0);
   // A opens as it was left (§4.2): its own match, still playing from where it was, at its own
-  // speed, with its own layers (B turned Heals off since, for itself).
+  // speed, with its own layers (B's Heals are off).
   await expect(me.getByTestId("match-tier")).toHaveText("Full replay");
   await expect(me.getByTestId("player")).toHaveAttribute("data-state", "match");
   await expect(me.getByTestId("match-play")).toHaveText("Pause");
@@ -346,6 +345,17 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   await expect(me.getByTestId("match-tier")).toHaveText("Full replay");
   await expect(me.getByTestId("match-clock")).toHaveText(at);
   await expect(me.getByTestId("match-play")).toHaveText("Play");
+  await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  // A tab never opened takes this browser's last choice (Heals on, from A), not B's own.
+  const c = await newBoardUrl(server, "Board C");
+  await me.getByTestId("add-game").click();
+  await me.getByTestId("add-paste").fill(c);
+  await me.getByTestId("add-paste-go").click();
+  await expect(tabs(me)).toHaveCount(3);
+  await expect.poll(() => mounted(me)).toBe(boardOf(c));
+  await saved(me);
+  await load(me, "51003", 0);
   await revealControls(me, "heals-toggle");
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
 });
@@ -534,4 +544,81 @@ test("a parked A dropped from the pool (three boards left since) reopens cold, c
   await me.goto(`${server.url}/`);
   await expect.poll(() => idb(me)).toBe(0);
   void home;
+});
+
+// ---- the page's timeline cache (§4.3): the server decides on every open ----
+
+/**
+ * A and B, each with the same fetched replay attached (one file for every board), on A after a
+ * reload: the page's cache starts empty. `gets` is every answer to a timeline request since, as
+ * `<board> <status>`.
+ */
+async function sameFetchedMatch(browser: Browser, id: string) {
+  const ctx = await twoTabs(browser);
+  mkdirSync(join(server.dataDir, "replays"), { recursive: true });
+  const file = join(server.dataDir, "replays", `${id}-cdn.json`);
+  writeFileSync(file, JSON.stringify(timeline(id, 0)));
+  for (const url of [ctx.a, ctx.b]) {
+    const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(url)!;
+    const r = await fetch(`${server.url}/api/boards/${board}/matches/${id}`, { method: "PUT", headers: { authorization: `Bearer ${token}` } });
+    expect(r.ok).toBe(true);
+  }
+  const gets: string[] = [];
+  ctx.me.on("response", (r) => {
+    const m = new RegExp(`/api/boards/([^/]+)/matches/${id}$`).exec(new URL(r.url()).pathname);
+    if (m && r.request().method() === "GET") gets.push(`${m[1] === boardOf(ctx.a) ? "A" : m[1] === boardOf(ctx.b) ? "B" : "?"} ${r.status()}`);
+  });
+  await reloadOn(ctx.me, boardOf(ctx.a));
+  await expect(ctx.me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  return { ...ctx, gets, file };
+}
+
+test("the timeline cache: a match is sent once, then confirmed by the server on every open, for each board; a file written again is sent again", async ({ browser }) => {
+  const id = "52001";
+  const { me, go, gets, file } = await sameFetchedMatch(browser, id);
+  // Sent once, to A. Whatever A asks after is answered "the same".
+  expect(gets[0]).toBe("A 200");
+  await go(1);
+  await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  await go(0);
+  await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  await go(1);
+  await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  // B asked too, each time it opened (the server's checks ran for it), and was sent nothing.
+  await expect.poll(() => gets.filter((g) => g === "B 304").length).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => gets.filter((g) => g === "A 304").length).toBeGreaterThanOrEqual(1);
+  expect(gets.filter((g) => !g.endsWith(" 304"))).toEqual(["A 200"]);
+  // A newer parse of the replay: the validator held names the old file, so the new one is sent.
+  writeFileSync(file, JSON.stringify(timeline(id, 0, 180)));
+  await go(0);
+  await expect(me.getByTestId("match-clock")).toHaveText(/ \/ 3:00$/);
+  expect(gets.filter((g) => !g.endsWith(" 304"))).toEqual(["A 200", "A 200"]);
+  // And it's the one held now, for B as well.
+  await go(1);
+  await expect(me.getByTestId("match-clock")).toHaveText(/ \/ 3:00$/);
+  expect(gets.filter((g) => !g.endsWith(" 304"))).toEqual(["A 200", "A 200"]);
+});
+
+test("the timeline cache: refused by the server, what the page held isn't shown; with no answer, it stays", async ({ browser }) => {
+  const id = "52002";
+  const { me, a, go, gets } = await sameFetchedMatch(browser, id);
+  await go(1);
+  await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  // The server refuses A the match from here on (as it would a link that no longer opens it).
+  const route = `**/api/boards/${boardOf(a)}/matches/${id}`;
+  const refuse = (r: import("@playwright/test").Route) => (r.request().method() === "GET" ? r.fulfill({ status: 403, contentType: "application/json", body: '{"error":"forbidden"}' }) : r.continue());
+  await me.route(route, refuse);
+  await go(0);
+  await expect.poll(() => gets.filter((g) => g === "A 403").length).toBeGreaterThanOrEqual(1);
+  await expect(me.getByTestId("match-clock")).toHaveCount(0);
+  // B is asked for itself and keeps its own.
+  await go(1);
+  await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  // No answer at all (offline): what the page holds stays drawn.
+  await me.unroute(route, refuse);
+  await me.route(route, (r) => (r.request().method() === "GET" ? r.abort() : r.continue()));
+  await go(0);
+  await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  await me.waitForTimeout(500);
+  await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
 });

@@ -240,11 +240,13 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const [view, setView] = createSignal<ViewRect>(remembered?.view ? clampView(remembered.view) : FIT);
   if (inSession) {
     // A remembered scene that's gone takes its viewport and side with it: the board opens on
-    // its first scene, fitted, as it would cold (§4.2). Checked once, when the scenes are known.
+    // its first scene, fitted, as it would cold (§4.2). Checked once, when the board has caught
+    // up with the server: its stored copy, like its parked session, may still hold a scene
+    // deleted since. Offline, what this device holds stands.
     let checked = remembered?.scene === undefined;
     createEffect(() => {
       const all = state.scenes();
-      if (checked || !all.length) return;
+      if (checked || !all.length || !state.current()) return;
       checked = true;
       if (withScenes(remembered!, (id) => all.some((x) => x.id === id)) === remembered) return;
       batch(() => {
