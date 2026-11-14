@@ -13,7 +13,7 @@ fn other_gates(source: &str) -> Vec<&'static str> {
     let code = source.split("#[cfg(test)]").next().unwrap_or(source);
     // Comments may name them: they explain the rule.
     let code: String = code.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
-    ["set_admit", "Admit::READS", "Admit {", "unfit_undo", "apply_tx_admitted"].into_iter().filter(|name| code.contains(name)).collect()
+    ["set_admit", "Admit::READS", "Admit::AHEAD", "Admit {", "unfit_undo", "apply_tx_admitted"].into_iter().filter(|name| code.contains(name)).collect()
 }
 
 fn sources(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
@@ -45,6 +45,7 @@ fn the_server_names_no_gate_but_the_deployed_one() {
 fn the_check_finds_each_way_to_another_gate_and_leaves_tests_and_comments_alone() {
     assert_eq!(other_gates("fn f(a: &mut Authority) { a.set_admit(x) }"), ["set_admit"]);
     assert_eq!(other_gates("let r = read(&b, ids, &Admit::READS);"), ["Admit::READS"]);
+    assert_eq!(other_gates("let none = read(&b, ids, &Admit::AHEAD);"), ["Admit::AHEAD"]);
     assert_eq!(other_gates("let own = Admit { row: |_| Status::Live, ..Admit::DEPLOYED };"), ["Admit {"]);
     assert_eq!(other_gates("let own = Admit::DEPLOYED; own.unfit_undo;"), ["unfit_undo"]);
     assert_eq!(other_gates("apply_tx_admitted(&mut doc, &tx, &gate)"), ["apply_tx_admitted"]);

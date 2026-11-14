@@ -216,6 +216,24 @@ pub struct Arrow {
     pub color: Option<u8>,
 }
 
+/// Which side of its spot a comment sits on (feedback #59). `Above` is where every comment sat
+/// before sides, and is never written: a comment from before them is stored byte for byte.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Side {
+    #[default]
+    Above,
+    Below,
+    Left,
+    Right,
+}
+
+impl Side {
+    pub fn is_above(&self) -> bool {
+        *self == Side::Above
+    }
+}
+
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Callout {
@@ -226,6 +244,10 @@ pub struct Callout {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub color: Option<u8>,
+    /// Gated at admission until its reader is deployed (`CALLOUT_SIDE`, `map_state.rs`).
+    #[serde(default, skip_serializing_if = "Side::is_above")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Side>", optional))]
+    pub side: Side,
 }
 
 /// Freehand ink (the Draw tool). Drawn once and erased whole; never edited point by point, but
@@ -333,6 +355,11 @@ pub enum FieldValue {
     SessionTitle(String),
     TabName(String),
     TabOrder(OrderKey),
+    /// Gated at admission until its reader is deployed (`CALLOUT_SIDE`, `map_state.rs`).
+    CalloutSide(Side),
+    /// A placed stroke recoloured (feedback #60): a palette index, as at its creation. Gated
+    /// like `CalloutSide` (`STROKE_COLOR`).
+    StrokeColor(u8),
     /// One registry value of a hero, marker, lane or scene (`map_state.rs`): `None` clears it.
     More { key: RowId, value: Option<MoreValue> },
 }
@@ -368,6 +395,8 @@ pub enum Field {
     SessionTitle,
     TabName,
     TabOrder,
+    CalloutSide,
+    StrokeColor,
     /// A registry row: each is its own field, for conflicts and undo.
     More(RowId),
 }
@@ -379,7 +408,7 @@ impl Field {
     }
 
     /// The fields that are struct members. Not every field: see [`Field::all`].
-    pub const TYPED: [Field; 28] = [
+    pub const TYPED: [Field; 30] = [
         Field::Title,
         Field::RosterName,
         Field::RosterHero,
@@ -408,6 +437,8 @@ impl Field {
         Field::SessionTitle,
         Field::TabName,
         Field::TabOrder,
+        Field::CalloutSide,
+        Field::StrokeColor,
     ];
 }
 
@@ -442,6 +473,8 @@ impl FieldValue {
             FieldValue::SessionTitle(_) => Field::SessionTitle,
             FieldValue::TabName(_) => Field::TabName,
             FieldValue::TabOrder(_) => Field::TabOrder,
+            FieldValue::CalloutSide(_) => Field::CalloutSide,
+            FieldValue::StrokeColor(_) => Field::StrokeColor,
             FieldValue::More { key, .. } => Field::More(*key),
         }
     }
@@ -557,6 +590,8 @@ impl Record {
             (Record::SessionMeta(r), Field::SessionTitle) => V::SessionTitle(r.title.clone()),
             (Record::Tab(r), Field::TabName) => V::TabName(r.name.clone()),
             (Record::Tab(r), Field::TabOrder) => V::TabOrder(r.order.clone()),
+            (Record::Callout(r), Field::CalloutSide) => V::CalloutSide(r.side),
+            (Record::Stroke(r), Field::StrokeColor) => V::StrokeColor(r.color),
             _ => return None,
         })
     }
@@ -597,6 +632,8 @@ impl Record {
             (Record::SessionMeta(r), V::SessionTitle(v)) => r.title = v,
             (Record::Tab(r), V::TabName(v)) => r.name = v,
             (Record::Tab(r), V::TabOrder(v)) => r.order = v,
+            (Record::Callout(r), V::CalloutSide(v)) => r.side = v,
+            (Record::Stroke(r), V::StrokeColor(v)) => r.color = v,
             _ => return false,
         }
         true

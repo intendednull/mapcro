@@ -5,6 +5,7 @@ import type { ObjectiveStatus } from "./ObjectiveStatus";
 import type { OrderKey } from "./OrderKey";
 import type { RecordId } from "./RecordId";
 import type { RowId } from "./RowId";
+import type { Side } from "./Side";
 import type { Team } from "./Team";
 import type { WorldPos } from "./WorldPos";
 
@@ -13,4 +14,4 @@ import type { WorldPos } from "./WorldPos";
  * field of the wrong type. Identity fields (a player state's scene and slot, a record's kind)
  * have no variant: they are immutable by construction.
  */
-export type FieldValue = { "Title": string } | { "RosterName": string } | { "RosterHero": HeroId | null } | { "SceneName": string } | { "SceneOrder": OrderKey } | { "SceneClock": number | null } | { "SceneParent": RecordId | null } | { "PlayerPos": WorldPos } | { "PlayerAlive": boolean } | { "PlayerPlaced": boolean } | { "PlayerSouls": number | null } | { "PlayerUltCooldown": number | null } | { "PlayerVisible": boolean } | { "PlayerRespawn": number | null } | { "ObjectiveStatus": ObjectiveStatus } | { "ArrowFrom": WorldPos } | { "ArrowTo": WorldPos } | { "ArrowTeam": Team | null } | { "CalloutPos": WorldPos } | { "CalloutText": string } | { "NoteText": string } | { "WavePos": number } | { "StrokeOffset": WorldPos } | { "ArrowColor": number | null } | { "CalloutColor": number | null } | { "SessionTitle": string } | { "TabName": string } | { "TabOrder": OrderKey } | { "More": { key: RowId, value: MoreValue | null, } };
+export type FieldValue = { "Title": string } | { "RosterName": string } | { "RosterHero": HeroId | null } | { "SceneName": string } | { "SceneOrder": OrderKey } | { "SceneClock": number | null } | { "SceneParent": RecordId | null } | { "PlayerPos": WorldPos } | { "PlayerAlive": boolean } | { "PlayerPlaced": boolean } | { "PlayerSouls": number | null } | { "PlayerUltCooldown": number | null } | { "PlayerVisible": boolean } | { "PlayerRespawn": number | null } | { "ObjectiveStatus": ObjectiveStatus } | { "ArrowFrom": WorldPos } | { "ArrowTo": WorldPos } | { "ArrowTeam": Team | null } | { "CalloutPos": WorldPos } | { "CalloutText": string } | { "NoteText": string } | { "WavePos": number } | { "StrokeOffset": WorldPos } | { "ArrowColor": number | null } | { "CalloutColor": number | null } | { "SessionTitle": string } | { "TabName": string } | { "TabOrder": OrderKey } | { "CalloutSide": Side } | { "StrokeColor": number } | { "More": { key: RowId, value: MoreValue | null, } };

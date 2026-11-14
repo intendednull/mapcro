@@ -16,10 +16,13 @@ pub use file::{export_records, import_records};
 #[cfg(feature = "ts")]
 pub use doc::DocPair;
 pub use ids::{BoardId, ClientId, GrantId, HeroId, LaneKey, ObjectiveKey, OrderKey, RecordId, is_id22};
-pub use map_state::{Admit, Entity, Kind, MAX_SAFE_INT, More, MoreValue, ROWS, Row, RowId, SCENE_STATE, Status, UNFIT_UNDO, rows_ts, written_rows};
+pub use map_state::{
+    Admit, CALLOUT_SIDE, Entity, Kind, LONG_SCENE_NAME, MAX_SAFE_INT, More, MoreValue, ROWS, Row, RowId, SCENE_STATE, STROKE_COLOR, Status,
+    UNFIT_UNDO, rows_ts, written_rows,
+};
 pub use records::{
     Arrow, BoardMeta, Callout, Field, FieldValue, Note, ObjectiveState, ObjectiveStatus, PlayerState,
-    Record, RecordKind, RosterSlot, Scene, SceneSource, SceneState, SessionMeta, Stroke, Tab, Team, WAVE_T_MAX, Wave, WorldPos,
+    Record, RecordKind, RosterSlot, Scene, SceneSource, SceneState, SessionMeta, Side, Stroke, Tab, Team, WAVE_T_MAX, Wave, WorldPos,
 };
 pub use validate::{Limits, Reject, LIMITS};
 
@@ -395,7 +398,7 @@ mod tests {
             id: RecordId(id),
             record: Record::Arrow(Arrow { scene, from: WorldPos { x: 0, y: 0 }, to: WorldPos { x: 9, y: 9 }, team: None, color }),
         };
-        let callout = |id: u128, color| Op::Create { id: RecordId(id), record: Record::Callout(Callout { scene, pos: WorldPos::default(), text: "x".into(), color }) };
+        let callout = |id: u128, color| Op::Create { id: RecordId(id), record: Record::Callout(Callout { scene, pos: WorldPos::default(), text: "x".into(), color, side: Default::default() }) };
         assert_eq!(apply_tx(&mut doc, &tx(vec![arrow(5000, Some(15)), callout(5001, Some(3))])).map(|_| ()), Ok(()));
         assert_eq!(apply_tx(&mut doc, &tx(vec![arrow(5002, Some(16))])), Err(Reject::OutOfBounds));
         assert_eq!(apply_tx(&mut doc, &tx(vec![callout(5003, Some(200))])), Err(Reject::OutOfBounds));
@@ -406,13 +409,105 @@ mod tests {
         assert!(matches!(old, Record::Arrow(Arrow { color: None, .. })));
     }
 
+    /// Feedback #56: a scene's name takes 48 characters; a roster slot's keeps 24.
+    #[test]
+    fn a_scene_name_takes_48_characters_and_a_roster_name_24() {
+        let (mut doc, scene, _) = board();
+        let slot = doc.iter_live().find(|(_, r)| matches!(r, Record::RosterSlot(_))).map(|(id, _)| id).expect("slot");
+        assert_eq!((LIMITS.max_name, LIMITS.max_scene_name), (24, 48));
+        let name = |n: usize| Op::Set { id: scene, value: FieldValue::SceneName("é".repeat(n)) };
+        assert_eq!(apply_tx(&mut doc, &tx(vec![name(48)])).map(|_| ()), Ok(()));
+        assert_eq!(apply_tx(&mut doc, &tx(vec![name(49)])), Err(Reject::TextTooLong));
+        let roster = |n: usize| Op::Set { id: slot, value: FieldValue::RosterName("é".repeat(n)) };
+        assert_eq!(apply_tx(&mut doc, &tx(vec![roster(24)])).map(|_| ()), Ok(()));
+        assert_eq!(apply_tx(&mut doc, &tx(vec![roster(25)])), Err(Reject::TextTooLong));
+        // A scene created with its name: the same bound (48 passes the name and fails on its
+        // missing heroes; 49 fails on the name).
+        let new = |n: usize| Op::Create {
+            id: RecordId(7000),
+            record: Record::Scene(Scene { name: "n".repeat(n), order: OrderKey::first(), clock: None, source: None, live: false, parent: None }),
+        };
+        assert_eq!(apply_tx(&mut doc, &tx(vec![new(48)])), Err(Reject::IncompleteScene));
+        assert_eq!(apply_tx(&mut doc, &tx(vec![new(49)])), Err(Reject::TextTooLong));
+        // The generated client limits say both.
+        let ts = LIMITS.to_ts();
+        assert!(ts.contains("  max_name: 24,\n  max_scene_name: 48,\n"), "{ts}");
+    }
+
+    /// Feedback #59: a comment's side is a field like its colour. `Above` is never written, so
+    /// a comment from before sides is stored byte for byte.
+    #[test]
+    fn a_comment_has_a_side_and_above_is_never_written() {
+        let (mut doc, scene, player) = board();
+        let c = RecordId(7100);
+        let comment = Callout { scene, pos: WorldPos { x: 1, y: 2 }, text: "smoke".into(), color: None, side: Side::Above };
+        let old = r#"{"Callout":{"scene":"00000000000000000000000000000001","pos":{"x":1,"y":2},"text":"smoke","color":null}}"#;
+        let json = |r: &Record| serde_json::to_string(r).expect("json");
+        assert_eq!(json(&Record::Callout(Callout { scene: RecordId(1), ..comment.clone() })), old);
+        assert_eq!(serde_json::from_str::<Record>(old).expect("an old comment"), Record::Callout(Callout { scene: RecordId(1), ..comment.clone() }));
+        apply_tx(&mut doc, &tx(vec![Op::Create { id: c, record: Record::Callout(comment) }])).expect("create");
+        let side_of = |doc: &Doc| match doc.live(c) {
+            Some(Record::Callout(x)) => x.side,
+            _ => panic!("comment"),
+        };
+        let before = doc.clone();
+        for side in [Side::Below, Side::Left, Side::Right, Side::Above] {
+            let was = side_of(&doc);
+            let (_, inverse) = apply_tx_with_inverse(&mut doc, &tx(vec![Op::Set { id: c, value: FieldValue::CalloutSide(side) }])).expect("set");
+            assert_eq!(side_of(&doc), side);
+            assert_eq!(doc.live(c).and_then(|r| r.get(Field::CalloutSide)), Some(FieldValue::CalloutSide(side)));
+            // Undo is a conditional write back to what it was.
+            assert_eq!(inverse, vec![Op::SetIf { id: c, expect: FieldValue::CalloutSide(side), value: FieldValue::CalloutSide(was) }]);
+            let stored = json(doc.live(c).expect("comment"));
+            assert_eq!(stored.contains("\"side\""), side != Side::Above, "{stored}");
+            assert_eq!(serde_json::from_str::<Record>(&stored).expect("reads back"), *doc.live(c).expect("comment"));
+        }
+        assert_eq!(doc, before, "back above, it is the comment it was");
+        assert_eq!(json(&Record::Callout(Callout { scene: RecordId(1), pos: WorldPos::default(), text: "x".into(), color: Some(2), side: Side::Left })), r#"{"Callout":{"scene":"00000000000000000000000000000001","pos":{"x":0,"y":0},"text":"x","color":2,"side":"Left"}}"#);
+        assert_eq!(serde_json::to_string(&FieldValue::CalloutSide(Side::Right)).expect("json"), r#"{"CalloutSide":"Right"}"#);
+        // Only a comment has one.
+        assert_eq!(apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: FieldValue::CalloutSide(Side::Left) }])), Err(Reject::WrongField));
+        // A side written to a deleted comment is skipped, and the comment comes back as it was.
+        apply_tx(&mut doc, &tx(vec![Op::Delete { id: c }])).expect("delete");
+        assert_eq!(apply_tx(&mut doc, &tx(vec![Op::Set { id: c, value: FieldValue::CalloutSide(Side::Left) }])), Ok(vec![OpOutcome::Skipped]));
+        apply_tx(&mut doc, &tx(vec![Op::Restore { id: c }])).expect("restore");
+        assert_eq!(side_of(&doc), Side::Above);
+    }
+
+    /// Feedback #60: a placed stroke is recoloured by a field write, in the palette's range.
+    #[test]
+    fn a_stroke_is_recoloured_by_a_field_write() {
+        let (mut doc, scene, player) = board();
+        let s = RecordId(7200);
+        let stroke = Stroke { scene, points: vec![WorldPos { x: 1, y: 1 }, WorldPos { x: 9, y: 9 }], color: 7, width: 20, offset: WorldPos::default() };
+        apply_tx(&mut doc, &tx(vec![Op::Create { id: s, record: Record::Stroke(stroke.clone()) }])).expect("create");
+        let before = doc.clone();
+        let (_, inverse) = apply_tx_with_inverse(&mut doc, &tx(vec![Op::Set { id: s, value: FieldValue::StrokeColor(15) }])).expect("recolour");
+        assert_eq!(doc.live(s), Some(&Record::Stroke(Stroke { color: 15, ..stroke.clone() })), "only the colour moved");
+        assert_eq!(doc.live(s).and_then(|r| r.get(Field::StrokeColor)), Some(FieldValue::StrokeColor(15)));
+        assert_eq!(inverse, vec![Op::SetIf { id: s, expect: FieldValue::StrokeColor(15), value: FieldValue::StrokeColor(7) }]);
+        // Someone recoloured it since: the undo is skipped, not applied over theirs.
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: s, value: FieldValue::StrokeColor(0) }])).expect("recolour");
+        assert_eq!(apply_tx(&mut doc, &tx(inverse.clone())), Ok(vec![OpOutcome::Skipped]));
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: s, value: FieldValue::StrokeColor(15) }])).expect("recolour");
+        assert_eq!(apply_tx(&mut doc, &tx(inverse)), Ok(vec![OpOutcome::Applied]));
+        assert_eq!(doc, before);
+        // The palette has 16 colours, as at a stroke's creation.
+        assert_eq!(apply_tx(&mut doc, &tx(vec![Op::Set { id: s, value: FieldValue::StrokeColor(16) }])), Err(Reject::OutOfBounds));
+        assert_eq!(apply_tx(&mut doc, &tx(vec![Op::SetIf { id: s, expect: FieldValue::StrokeColor(7), value: FieldValue::StrokeColor(255) }])), Err(Reject::OutOfBounds));
+        assert_eq!(doc, before);
+        // Only a stroke has one written this way.
+        assert_eq!(apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: FieldValue::StrokeColor(3) }])), Err(Reject::WrongField));
+        assert_eq!(serde_json::to_string(&FieldValue::StrokeColor(3)).expect("json"), r#"{"StrokeColor":3}"#);
+    }
+
     #[test]
     fn inverse_undoes_exactly() {
         let (mut doc, scene, player) = board();
         let before = doc.clone();
         let ops = vec![
             mv(player, 42),
-            Op::Create { id: RecordId(2000), record: Record::Callout(Callout { scene, pos: WorldPos { x: 1, y: 2 }, text: "smoke".into(), color: None }) },
+            Op::Create { id: RecordId(2000), record: Record::Callout(Callout { scene, pos: WorldPos { x: 1, y: 2 }, text: "smoke".into(), color: None, side: Default::default() }) },
         ];
         let (_, inverse) = apply_tx_with_inverse(&mut doc, &tx(ops)).expect("valid");
         apply_tx(&mut doc, &tx(inverse)).expect("inverse applies");

@@ -13,7 +13,11 @@ pub struct Limits {
     pub max_ops_per_tx: usize,
     pub max_records: usize,
     pub max_scenes: usize,
+    /// A player's, a roster slot's and a session tab's name.
     pub max_name: usize,
+    /// A scene's name (feedback #56: 24 was short for one). Over `max_name` it is gated at
+    /// admission until its reader is deployed (`LONG_SCENE_NAME`, `map_state.rs`).
+    pub max_scene_name: usize,
     pub max_title: usize,
     pub max_callout: usize,
     pub max_note: usize,
@@ -62,6 +66,7 @@ pub const LIMITS: Limits = Limits {
     max_records: 5000,
     max_scenes: 64,
     max_name: 24,
+    max_scene_name: 48,
     max_title: 80,
     max_callout: 80,
     max_note: 4000,
@@ -90,6 +95,7 @@ impl Limits {
             ("max_records", self.max_records),
             ("max_scenes", self.max_scenes),
             ("max_name", self.max_name),
+            ("max_scene_name", self.max_scene_name),
             ("max_title", self.max_title),
             ("max_callout", self.max_callout),
             ("max_note", self.max_note),
@@ -227,13 +233,15 @@ fn check_value(v: &FieldValue) -> Result<(), Reject> {
         V::Title(s) | V::SessionTitle(s) => check_line(s, LIMITS.max_title),
         V::TabName(s) => check_line(s, LIMITS.max_name),
         V::TabOrder(k) => if k.is_valid() { Ok(()) } else { Err(Reject::BadOrderKey) },
-        V::RosterName(s) | V::SceneName(s) => check_text(s, LIMITS.max_name),
+        V::RosterName(s) => check_text(s, LIMITS.max_name),
+        V::SceneName(s) => check_text(s, LIMITS.max_scene_name),
         V::CalloutText(s) => check_text(s, LIMITS.max_callout),
         V::NoteText(s) => check_text(s, LIMITS.max_note),
         V::SceneOrder(k) => if k.is_valid() { Ok(()) } else { Err(Reject::BadOrderKey) },
         V::PlayerPos(p) | V::ArrowFrom(p) | V::ArrowTo(p) | V::CalloutPos(p) => check_pos(*p),
         // A palette index, like a stroke's colour.
         V::ArrowColor(c) | V::CalloutColor(c) => if c.is_none_or(|c| c < 16) { Ok(()) } else { Err(Reject::OutOfBounds) },
+        V::StrokeColor(c) => if *c < 16 { Ok(()) } else { Err(Reject::OutOfBounds) },
         // A shift, not a place: at most the board's width either way.
         V::StrokeOffset(d) => {
             let m = 2 * LIMITS.max_coord;
@@ -249,7 +257,7 @@ fn check_value(v: &FieldValue) -> Result<(), Reject> {
         // A scene's parent is checked against the board (`check_parent`).
         // A registry value is checked against its row; clearing one needs no check.
         V::More { key, value } => value.as_ref().map_or(Ok(()), |v| v.check(key.row())),
-        V::RosterHero(_) | V::PlayerAlive(_) | V::PlayerPlaced(_) | V::PlayerVisible(_) | V::ObjectiveStatus(_) | V::ArrowTeam(_) | V::SceneParent(_) => Ok(()),
+        V::RosterHero(_) | V::PlayerAlive(_) | V::PlayerPlaced(_) | V::PlayerVisible(_) | V::ObjectiveStatus(_) | V::ArrowTeam(_) | V::SceneParent(_) | V::CalloutSide(_) => Ok(()),
     }
 }
 
@@ -277,7 +285,7 @@ fn check_record(doc: &Doc, r: &Record) -> Result<(), Reject> {
             if t.order.is_valid() { Ok(()) } else { Err(Reject::BadOrderKey) }
         }
         Record::Scene(s) => {
-            check_text(&s.name, LIMITS.max_name)?;
+            check_text(&s.name, LIMITS.max_scene_name)?;
             check_value(&FieldValue::SceneClock(s.clock))?;
             if let Some(src) = &s.source
                 && (src.match_id == 0 || src.match_id >= 1_000_000_000_000 || src.t > 86_400 || !(src.tier == "replay" || src.tier == "metadata"))

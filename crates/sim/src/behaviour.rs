@@ -5,7 +5,7 @@ use crate::{Driver, World};
 use mapcro_engine::{ClientMsg, Replica, UndoError};
 use mapcro_schema::{
     Arrow, Callout, Entity, FieldValue, HeroId, Kind, More, MoreValue, Note, ObjectiveKey, ObjectiveState, ObjectiveStatus, Op, OrderKey,
-    PlayerState, Record, RecordId, RowId, Scene, SceneState, Team, Tx, TxKind, WorldPos,
+    PlayerState, Record, RecordId, RowId, Scene, SceneState, Side, Team, Tx, TxKind, WorldPos,
 };
 use rand::Rng;
 use rand::seq::IndexedRandom;
@@ -115,6 +115,17 @@ fn text(rng: &mut ChaCha8Rng, max: usize) -> String {
     s.join(" ").chars().take(max).collect()
 }
 
+/// A scene's name: up to `max_scene_name` characters, over a roster name's 24 about half the
+/// time (feedback #56).
+fn scene_name(rng: &mut ChaCha8Rng) -> String {
+    const WORDS: &[&str] = &["12:40", "walker", "fight", "mid", "they", "collapse", "ünder", "→", "bridge", "retake"];
+    let n = rng.random_range(0..=9);
+    let s: Vec<&str> = (0..n).map(|_| *WORDS.choose(rng).unwrap_or(&"x")).collect();
+    s.join(" ").chars().take(mapcro_schema::LIMITS.max_scene_name).collect()
+}
+
+const SIDES: [Side; 4] = [Side::Above, Side::Below, Side::Left, Side::Right];
+
 /// A legal value for a registry row, or `None` to clear it (one time in four).
 fn more_value(rng: &mut ChaCha8Rng, key: RowId) -> Option<MoreValue> {
     if rng.random_range(0..4) == 0 {
@@ -153,15 +164,17 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
     let Some(scene) = pick(rng, &scenes) else { return vec![] };
     let new_id = RecordId(rng.random());
     let choice = match b {
-        // 19: a hero's registry values, written as often as its typed fields.
-        Behaviour::Dragger | Behaviour::Undoer => [0, 1, 2, 19][rng.random_range(0..4)],
+        // 19: a hero's registry values, written as often as its typed fields. 22: a placed
+        // thing's look, which several people change and undo at once.
+        Behaviour::Dragger | Behaviour::Undoer => [0, 1, 2, 19, 22][rng.random_range(0..5)],
         Behaviour::Filler => 21,
-        Behaviour::Editor => match rng.random_range(0..6) {
+        Behaviour::Editor => match rng.random_range(0..7) {
             0 => 15,
             1 => [19, 20][rng.random_range(0..2)],
+            2 => 22,
             _ => rng.random_range(0..12),
         },
-        Behaviour::SceneShuffler => [12, 13, 14, 16, 17, 18, 20, 0].choose(rng).copied().unwrap_or(0),
+        Behaviour::SceneShuffler => [12, 13, 14, 16, 17, 18, 20, 23, 0].choose(rng).copied().unwrap_or(0),
     };
     let set = |id: Option<RecordId>, value: FieldValue| id.map(|id| vec![Op::Set { id, value }]).unwrap_or_default();
     match choice {
@@ -232,7 +245,11 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
                 None => vec![Op::Create { id: new_id, record: Record::Wave(mapcro_schema::Wave { scene, lane, t, more: More::default() }) }],
             }
         }
-        7 => vec![Op::Create { id: new_id, record: Record::Callout(Callout { scene, pos: pos(rng), text: text(rng, 80), color: None }) }],
+        // A comment, half of them placed on a side of its own (feedback #59).
+        7 => {
+            let side = if rng.random() { *SIDES.choose(rng).unwrap_or(&Side::Above) } else { Side::Above };
+            vec![Op::Create { id: new_id, record: Record::Callout(Callout { scene, pos: pos(rng), text: text(rng, 80), color: None, side }) }]
+        }
         8 => {
             let deletable =
                 live_ids(r, |x| matches!(x, Record::Arrow(_) | Record::Callout(_) | Record::ObjectiveState(_) | Record::Stroke(_) | Record::Wave(_) | Record::SceneState(_)));
@@ -263,7 +280,7 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
             let parent = if rng.random() { Some(scene) } else { None };
             let mut ops = vec![Op::Create {
                 id,
-                record: Record::Scene(Scene { name: text(rng, 24), order: OrderKey::between(last_order(r).as_ref(), None), clock: Some(rng.random_range(0..3600)), source: None, live: false, parent }),
+                record: Record::Scene(Scene { name: scene_name(rng), order: OrderKey::between(last_order(r).as_ref(), None), clock: Some(rng.random_range(0..3600)), source: None, live: false, parent }),
             }];
             for (slot, rec) in r.view().iter_live() {
                 if let Record::RosterSlot(s) = rec {
@@ -308,6 +325,29 @@ fn edit_ops(rng: &mut ChaCha8Rng, r: &Replica, b: Behaviour) -> Vec<Op> {
                 None => vec![Op::Create { id: new_id, record: Record::SceneState(SceneState { scene, more: More::default() }) }],
             }
         }
+        // A placed thing's look, changed after it is placed (feedback #59, #60): a comment's
+        // side, or the colour of a comment, an arrow or a stroke. One small last-writer-wins
+        // write, skipped if someone deleted the thing meanwhile.
+        22 => {
+            // A kind first, then one of that kind: strokes outnumber comments ten to one.
+            let kinds = [
+                live_ids(r, |x| matches!(x, Record::Callout(_))),
+                live_ids(r, |x| matches!(x, Record::Arrow(_))),
+                live_ids(r, |x| matches!(x, Record::Stroke(_))),
+            ];
+            let placed: Vec<&Vec<RecordId>> = kinds.iter().filter(|ids| !ids.is_empty()).collect();
+            let Some(id) = placed.choose(rng).and_then(|ids| pick(rng, ids)) else { return vec![] };
+            let colour: u8 = rng.random_range(0..16);
+            let value = match r.view().live(id) {
+                Some(Record::Callout(_)) if rng.random() => FieldValue::CalloutSide(*SIDES.choose(rng).unwrap_or(&Side::Above)),
+                Some(Record::Callout(_)) => FieldValue::CalloutColor((colour != 0).then_some(colour)),
+                Some(Record::Arrow(_)) => FieldValue::ArrowColor((colour != 0).then_some(colour)),
+                _ => FieldValue::StrokeColor(colour),
+            };
+            vec![Op::Set { id, value }]
+        }
+        // Rename a scene (feedback #56).
+        23 => set(Some(scene), FieldValue::SceneName(scene_name(rng))),
         13 => vec![Op::Delete { id: scene }],
         // Re-parent a scene: under another (a cycle is refused, as it should be) or to the top.
         17 => {
@@ -383,7 +423,7 @@ fn attack(rng: &mut ChaCha8Rng, client: mapcro_schema::ClientId, cseq: u64) -> (
         }
         11 => (vec![Op::Create { id, record: Record::SceneState(SceneState { scene, more: More::default() }) }], "scene state for no scene"),
         0 => (vec![Op::Set { id, value: FieldValue::PlayerPos(WorldPos { x: i32::MAX, y: 0 }) }], "out-of-bounds write"),
-        1 => (vec![Op::Create { id, record: Record::Callout(Callout { scene, pos: WorldPos { x: 0, y: 0 }, text: "x".repeat(500), color: None }) }], "huge text"),
+        1 => (vec![Op::Create { id, record: Record::Callout(Callout { scene, pos: WorldPos { x: 0, y: 0 }, text: "x".repeat(500), color: None, side: Default::default() }) }], "huge text"),
         2 => (vec![Op::Create { id, record: Record::Scene(Scene { name: "bad\u{7}".into(), order: OrderKey::first(), clock: None, source: None, live: false, parent: None }) }], "control chars / incomplete scene"),
         3 => (vec![Op::SetIf { id, expect: FieldValue::Title("a".into()), value: FieldValue::NoteText("b".into()) }], "mismatched set_if"),
         4 => (vec![Op::Delete { id }], "delete unknown"),

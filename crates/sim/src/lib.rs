@@ -603,13 +603,67 @@ mod tests {
         assert_eq!(count(Admit { unfit_undo: mapcro_schema::Status::Ahead, ..Admit::READS }), 0, "a server that refuses them logged one");
     }
 
+    /// What the store v10 server can't load of feedback #56, #59 and #60: a comment's side, a
+    /// stroke's colour as a field, a scene name over 24 characters. The first two as JSON
+    /// keys, so this reads the stored bytes and not the engine's own idea of what it admitted.
+    fn ahead_of_v10(tx: &Tx) -> [bool; 3] {
+        use mapcro_schema::{FieldValue, Op, Record};
+        let json = serde_json::to_string(tx).expect("json");
+        let long = |name: &str| name.chars().count() > mapcro_schema::LIMITS.max_name;
+        let long_name = tx.ops.iter().any(|op| match op {
+            Op::Set { value: FieldValue::SceneName(n), .. } => long(n),
+            Op::SetIf { expect: FieldValue::SceneName(e), value: FieldValue::SceneName(n), .. } => long(e) || long(n),
+            Op::Create { record: Record::Scene(s), .. } => long(&s.name),
+            _ => false,
+        });
+        [long_name, json.contains("\"CalloutSide\":") || json.contains("\"side\":"), json.contains("\"StrokeColor\":")]
+    }
+
+    /// The gated typed fields under every behaviour and attacker: admitted, each is written
+    /// (and undone: an Undoer's conditional write carries it too) with every property holding;
+    /// by the server as built, none that is still `Ahead` reaches the log, so a rollback to
+    /// store v10 loads every board.
+    #[test]
+    fn the_gated_typed_fields_are_written_when_admitted_and_never_logged_while_ahead() {
+        let count = |admit: Admit| -> [usize; 3] {
+            (0..12).fold([0; 3], |mut n, seed| {
+                let (_, _, log) = run_logged(seed, &Config { admit, ..Config::default() }).unwrap_or_else(|f| panic!("{f}"));
+                for tx in &log {
+                    for (total, hit) in n.iter_mut().zip(ahead_of_v10(tx)) {
+                        *total += usize::from(hit);
+                    }
+                }
+                n
+            })
+        };
+        let written = count(Admit::READS);
+        assert!(written.iter().all(|n| *n >= 3), "the behaviours write each gated field when it is admitted: {written:?}");
+        // Rarer: someone's last edit was one of them, and they undid it. The first seed that
+        // does is enough.
+        let undone = (0..300).any(|seed| {
+            let (_, _, log) = run_logged(seed, &Config { admit: Admit::READS, ..Config::default() }).unwrap_or_else(|f| panic!("{f}"));
+            log.iter().any(|tx| matches!(tx.kind, mapcro_schema::TxKind::Undo { .. }) && ahead_of_v10(tx).iter().any(|hit| *hit))
+        });
+        assert!(undone, "no seed undid a write of a gated field");
+        let logged = count(Admit::DEPLOYED);
+        let statuses = [mapcro_schema::LONG_SCENE_NAME, mapcro_schema::CALLOUT_SIDE, mapcro_schema::STROKE_COLOR];
+        for ((field, logged), status) in ["a long scene name", "a comment's side", "a stroke's colour"].iter().zip(logged).zip(statuses) {
+            if status == mapcro_schema::Status::Ahead {
+                assert_eq!(logged, 0, "{field} is ahead, and the server as built logged it");
+            } else {
+                assert!(logged > 0, "{field} is live, and the server as built logged none");
+            }
+        }
+        assert_eq!(count(Admit::AHEAD), [0; 3]);
+    }
+
     /// A reader release, where every registry write is refused: a Filler's every transaction is
     /// a rejection, so nothing in the log shows its next cseq. The room keeps it when the
     /// rejections are resolved (`Write::PruneRejections`), and so must the simulation's
     /// storage, or the client restarts at 0 after a server restart (seed 0x29 found it).
     #[test]
     fn a_client_whose_every_write_was_refused_keeps_its_place_across_a_restart() {
-        let reader = Admit { row: |_| mapcro_schema::Status::Ahead, scene_state: mapcro_schema::Status::Ahead, unfit_undo: mapcro_schema::Status::Ahead };
+        let reader = Admit { row: |_| mapcro_schema::Status::Ahead, scene_state: mapcro_schema::Status::Ahead, unfit_undo: mapcro_schema::Status::Ahead, ..Admit::AHEAD };
         for seed in 0..60 {
             run(seed, &Config { admit: reader, ..Config::default() }).unwrap_or_else(|f| panic!("{f}"));
         }
