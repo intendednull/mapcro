@@ -11,7 +11,9 @@ const LADDER = [[800, 9, 7], [1600, 12, 7], [2400, 15, 8], [3200, 18, 8], [4800,
 
 /** `cards`: the top bar's art as a real pack has it (the hero badge's mask and a hero card each),
  *  and hero 6 left out, as a hero newer than the pack is: its badge keeps its letters. */
-export function pack(opts: { cards?: boolean } = {}): string {
+/** `items`: that many more items (ids from `EXTRA_ITEM`), each with an icon, for a late-game build. */
+export const EXTRA_ITEM = 110;
+export function pack(opts: { cards?: boolean; items?: number } = {}): string {
   const root = mkdtempSync(join(tmpdir(), "mapcro-packs-tooltips-"));
   const dir = join(root, "synthetic");
   const blobs: Record<string, unknown> = {};
@@ -24,16 +26,21 @@ export function pack(opts: { cards?: boolean } = {}): string {
   };
   const json = (key: string, v: unknown) => write(key, Buffer.from(JSON.stringify(v)), "json", "application/json");
   const png = (key: string) => write(key, PNG, "png", "image/png");
+  const extra = Array.from({ length: opts.items ?? 0 }, (_, i) => i);
   const table = (version: number) => ({
     format: 1, client_version: version, source: "test",
     heroes: Object.fromEntries([1, 2, 3, 4, 5, 6].map((id) => [id, { max_health: 700, per_boon: { max_health: 50, spirit_power: 2 }, boon_levels: [2, 3, 4, 5], cost_bonuses: [LADDER, LADDER, LADDER], bullet_resist: 0, spirit_resist: 0, bullet_resist_per_spirit: 0, spirit_resist_per_spirit: 0 }])),
-    items: { [INFUSER]: { slot: 0, price: 6400, passive: [["spirit_resist", 10], ["spirit_power", 8]] }, [LIFESTEAL]: { slot: 1, price: 1600, passive: [] } },
+    items: {
+      [INFUSER]: { slot: 0, price: 6400, passive: [["spirit_resist", 10], ["spirit_power", 8]] }, [LIFESTEAL]: { slot: 1, price: 1600, passive: [] },
+      ...Object.fromEntries(extra.map((i) => [EXTRA_ITEM + i, { slot: i % 3, price: 800, passive: [] }])),
+    },
   });
   json("data/stats/boon-6837", table(6837));
   json("data/stats/vdata-6860", table(6860));
   const records = {
     [INFUSER]: { name: "upgrade_test_infuser", kind: "item", label: "Test Infuser", label_from: "localisation", ability_type: "item", slot: "vitality", tier: 4, cost: 6400, components: [LIFESTEAL], icon: png("abilities/items/infuser") },
     [LIFESTEAL]: { name: "upgrade_test_lifesteal", kind: "item", label: "Test Lifesteal", label_from: "localisation", ability_type: "item", slot: "spirit", tier: 2, cost: 1600, icon: png("abilities/items/lifesteal") },
+    ...Object.fromEntries(extra.map((i) => [EXTRA_ITEM + i, { name: `upgrade_test_extra_${i}`, kind: "item", label: `Test Extra ${i}`, label_from: "localisation", ability_type: "item", slot: ["weapon", "vitality", "spirit"][i % 3], tier: 1, cost: 800, icon: png(`abilities/items/extra_${i}`) }])),
     [ABILITY]: { name: "ability_test_mark", kind: "ability", label: "Test Mark", label_from: "localisation", ability_type: "signature", icon: png("abilities/hud/mark") },
     202: { name: "ability_test_2", kind: "ability", label: "Test Two", label_from: "localisation", ability_type: "signature" },
     203: { name: "ability_test_3", kind: "ability", label: "Test Three", label_from: "localisation", ability_type: "signature" },
