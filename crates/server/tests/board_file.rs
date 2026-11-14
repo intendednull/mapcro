@@ -147,7 +147,9 @@ fn an_export_imports_as_the_same_board_under_fresh_ids() {
     let first = server.export_json(&a, &a_owner);
     assert_eq!(first["format"], "mapcro-board");
     assert_eq!(first["version"], 2, "the writer: version 1 plus the `rows` header");
-    assert_eq!(first["rows"], json!(mapcro_schema::ROWS.len()));
+    // The rows this build writes, not the ones it only reads: the reader release takes it.
+    assert_eq!(first["rows"], json!(mapcro_schema::written_rows()));
+    assert!(mapcro_schema::written_rows() < mapcro_schema::ROWS.len(), "four rows are still ahead in this build");
     assert!(first["build"].as_str().is_some_and(|b| b.len() == 16), "the server's build");
     assert!(first["exported_at"].as_i64().is_some_and(|t| t > 1_700_000_000));
     assert_eq!(first["matches"], json!([130816395]), "the match comes back by its id");
@@ -247,7 +249,7 @@ fn a_file_with_map_state_imports_and_a_row_still_ahead_makes_no_board() {
         });
         let (board, owner, _) = server.import_ok(&snapshot);
         let mut out = server.export_json(&board, &owner);
-        assert_eq!((&out["version"], &out["rows"]), (&json!(2), &json!(ROWS.len())), "a file with rows says so");
+        assert_eq!((&out["version"], &out["rows"]), (&json!(2), &json!(mapcro_schema::written_rows())), "a file with rows says so");
         let mores: Vec<Value> = records(&mut out).iter().filter_map(|r| r[1].as_object()?.values().next()?.get("more").cloned()).collect();
         assert_eq!(mores.len(), 2, "the hero's and the scene's, and no empty one written: {mores:?}");
         assert!(mores.contains(&build) && mores.contains(&scene_rows), "{mores:?}");
