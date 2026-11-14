@@ -224,6 +224,8 @@ its life today.
   heroes without their `more` (a scene with fewer is refused whole, `IncompleteScene`); each
   hero's `more` follows as `Set More`, then the other records, and the `SceneState` last. If
   the first is refused nothing is made and the view stays where it was.
+- **Both carry the scene's `source`** (the match, moment and tier the snapshot was taken at): the
+  copy has its ▶ chip, can be retaken, and reads its names from that match (D1).
 - **A board with no room for the whole new scene gets none of it.** The client counts the
   board's records (deleted ones too) plus the copy's before sending: over `max_records`,
   nothing is sent, the view stays, and the page says "Board full". Without it a copy in
