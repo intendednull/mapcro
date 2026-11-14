@@ -156,6 +156,13 @@ export function featuresOf(m: Timeline): Record<Feature, boolean> {
 export function fromTimeline(src: StateSource): PlayerState {
   const owner = getOwner();
   const memo = <T,>(f: () => T, equals?: (a: T, b: T) => boolean): Accessor<T> => runWithOwner(owner, () => createMemo(f, undefined, equals ? { equals } : undefined))!;
+  // A field's memo is made when the field is first read, not with its entity: a memo runs
+  // whenever what it reads changes, read or not, so one made for nobody would compute a place
+  // every frame for a reader that only asks who is in sight (review S2).
+  const field = <T,>(f: () => T, equals?: (a: T, b: T) => boolean): Accessor<T> => {
+    let made: Accessor<T> | undefined;
+    return () => (made ??= memo(f, equals))();
+  };
   const kept = <T,>(by: Map<string, T>, key: string, make: () => T): T => {
     let v = by.get(key);
     if (!v) by.set(key, (v = make()));
@@ -188,33 +195,33 @@ export function fromTimeline(src: StateSource): PlayerState {
       const player = () => src.tl()?.players[i()];
       const sight = memo(() => ten()?.sight[i()]);
       return {
-        present: memo(() => i() >= 0),
-        hero: memo(() => sample()?.hero_id ?? null),
-        name: memo(() => sample()?.name ?? null),
-        alive: memo(() => !!sample()?.pos),
-        pos: memo(() => {
+        present: field(() => i() >= 0),
+        hero: field(() => sample()?.hero_id ?? null),
+        name: field(() => sample()?.name ?? null),
+        alive: field(() => !!sample()?.pos),
+        pos: field(() => {
           const p = player();
           return p ? positionAt(p, src.t()) : null;
         }, sameValue),
-        last: memo(() => sample()?.last ?? null, sameValue),
-        respawn: memo(() => {
+        last: field(() => sample()?.last ?? null, sameValue),
+        respawn: field(() => {
           const p = player();
           return p ? respawnAt(p, src.t()) : null;
         }),
-        souls: memo(() => sample()?.souls ?? null),
-        ult: memo(() => sample()?.ult ?? null),
-        health: memo(() => sample()?.health ?? null),
-        inSight: memo(() => !sighted() || sight() === undefined || sight() === true),
-        lastSeen: memo(() => {
+        souls: field(() => sample()?.souls ?? null),
+        ult: field(() => sample()?.ult ?? null),
+        health: field(() => sample()?.health ?? null),
+        inSight: field(() => !sighted() || sight() === undefined || sight() === true),
+        lastSeen: field(() => {
           const p = player(), s = sight();
           // Without sight data there is no last sight either (`s` is null).
           if (!p || s === undefined || s === true) return null;
           const seen = seenFrom(p, src.t(), s);
           return seen && !seen.seen ? { at: seen.at, ago: seen.ago } : null;
         }, sameValue),
-        cc: memo(() => (replay() ? ten()?.cc[i()] : undefined), sameValue),
-        height: memo(() => sec()?.movement[i()]?.height),
-        zipline: memo(() => sec()?.movement[i()]?.zipline ?? false),
+        cc: field(() => (replay() ? ten()?.cc[i()] : undefined), sameValue),
+        height: field(() => sec()?.movement[i()]?.height),
+        zipline: field(() => sec()?.movement[i()]?.zipline ?? false),
       };
     });
 
@@ -224,13 +231,13 @@ export function fromTimeline(src: StateSource): PlayerState {
   const marker = (key: string): MarkerState =>
     kept(markers, key, () => ({
       status: () => undefined,
-      down: memo(() => sec()?.down.has(key) ?? false),
-      site: memo(() => sec()?.sites.get(key)),
-      shopClosed: memo(() => sec()?.shops.has(key) ?? false),
-      camp: memo(() => sec()?.camps.get(key), sameValue),
-      powerup: memo(() => sec()?.powerups.get(key), sameValue),
-      health: memo(() => sec()?.health?.get(key), sameValue),
-      rift: memo(() => {
+      down: field(() => sec()?.down.has(key) ?? false),
+      site: field(() => sec()?.sites.get(key)),
+      shopClosed: field(() => sec()?.shops.has(key) ?? false),
+      camp: field(() => sec()?.camps.get(key), sameValue),
+      powerup: field(() => sec()?.powerups.get(key), sameValue),
+      health: field(() => sec()?.health?.get(key), sameValue),
+      rift: field(() => {
         const m = src.tl();
         return m?.rifts && riftSites().has(key) ? riftAt(m, key, src.t(), src.markers()) : undefined;
       }, sameValue),
@@ -239,17 +246,17 @@ export function fromTimeline(src: StateSource): PlayerState {
   const lanes = new Map<string, LaneState>();
   const lane = (key: string): LaneState =>
     kept(lanes, key, () => {
-      const edges = memo(() => sec()?.lanes.get(key), sameValue);
-      return { edges, split: memo(() => (edges() ? (edges()!.amber + edges()!.sapphire) / 2 : undefined)) };
+      const edges = field(() => sec()?.lanes.get(key), sameValue);
+      return { edges, split: field(() => (edges() ? (edges()!.amber + edges()!.sapphire) / 2 : undefined)) };
     });
 
   const facts: SceneFacts = {
-    urn: memo(() => {
+    urn: field(() => {
       const m = src.tl();
       return m && urnOf(m, src.t(), src.markers());
     }, sameValue),
-    rejuv: memo(() => sec()?.rejuv, sameValue),
-    deaths: memo(() => {
+    rejuv: field(() => sec()?.rejuv, sameValue),
+    deaths: field(() => {
       const m = src.tl();
       if (!m) return [];
       const by = index();

@@ -372,6 +372,50 @@ describe("Player's frame", () => {
     dispose();
   });
 
+  it("MapState: a field nobody reads is never computed: asking who is in sight costs no place, respawn time, urn or death a frame (review S2)", () => {
+    const m = replay();
+    // Reads of what only the frame's fields read: each hero's places, respawn times and
+    // deaths, and the urn.
+    const x = m.players.map(() => 0);
+    const reads = { respawn: 0, deaths: 0, urn: 0 };
+    m.players.forEach((p, i) => {
+      const [px, respawn, deaths] = [p.x, p.respawn, p.deaths];
+      Object.defineProperty(p, "x", { get: () => (x[i]!++, px) });
+      Object.defineProperty(p, "respawn", { get: () => (reads.respawn++, respawn) });
+      Object.defineProperty(p, "deaths", { get: () => (reads.deaths++, deaths) });
+    });
+    const urn = m.urn;
+    Object.defineProperty(m, "urn", { get: () => (reads.urn++, urn) });
+    const { state, setT, dispose } = stateOf(m, 1);
+    createRoot((stop) => {
+      // As Player's top bar asks: every hero, and only whether its enemies see it. The entities
+      // and the scene's facts are all made; no other field is read.
+      for (const slot of SLOTS) createComputed(() => state.hero(slot).inSight());
+      for (const mk of markers) state.marker(mk.key);
+      state.scene();
+      const total = () => x.reduce((a, b) => a + b, 0) + reads.respawn + reads.deaths + reads.urn;
+      // 59 more frames of the same second, across six tenths: nothing of the frame's is read.
+      const settled = total();
+      for (let f = 1; f < 60; f++) setT(1 + f / 60);
+      expect(total() - settled).toBe(0);
+      // One hero's place read: its series alone, once a frame or so; nobody else's.
+      createComputed(() => state.hero("sapphire-1").pos());
+      const [mine, others] = [x[7]!, total() - x[7]!];
+      for (let f = 1; f < 60; f++) setT(1 + (f + 0.5) / 60);
+      expect(x[7]! - mine).toBeGreaterThanOrEqual(59);
+      expect(x[7]! - mine).toBeLessThanOrEqual(59 * 4);
+      expect(total() - x[7]! - others).toBe(0);
+      // The urn read: the urn, and still no other hero's place.
+      createComputed(() => state.scene().urn());
+      const at = { urn: reads.urn, rest: total() - reads.urn - x[7]! };
+      for (let f = 1; f < 60; f++) setT(1 + f / 60);
+      expect(reads.urn - at.urn).toBeGreaterThanOrEqual(59);
+      expect(total() - reads.urn - x[7]! - at.rest).toBe(0);
+      stop();
+    });
+    dispose();
+  });
+
   it("the markers' part of the frame is new once a second and with Health, and is the frame's", () => {
     const m = replay();
     createRoot((dispose) => {
