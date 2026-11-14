@@ -7,6 +7,84 @@ Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `
 
 Off main `a0774c5` (prod `e878c30`, store v10). Newest first.
 
+### Handoff, seventh implementer (2026-11-14): phase 3 is built; phase 4 is next
+
+Three commits wait for the lead, in this order (none changes what is stored):
+
+| Commit | What | A coach sees |
+|---|---|---|
+| `b3c9223` | Phase 3 step 1: the frame on three clocks | Nothing |
+| `17c6c67` | A copy and a new scene carry the scene's `source` (the lead's answer 1) | The copy's ▶ chip; Retake on a copy |
+| `cda86fb` | Phase 3, the rest: `MapState` for Player, build columns and sight on the clocks | Nothing |
+
+RC1 (`dd00764`) ships alone first; these are the release after. The heavy runs' numbers are
+in "Run on it" below each.
+
+**`17c6c67`, the copy's `source`.** `addSceneOps` puts the scene's `source` (match, moment,
+tier) on the new scene, for Duplicate and for Add scene: both copy the snapshot, and the
+source is where the snapshot was taken. A scene with none makes a record with no `source`.
+What follows from it: the copy has its ▶ chip and a mark on the scrubber, Retake works on it,
+and with another match open it shows no names from that match (before, a new scene from a
+saved one had no source and so took the open match's names, whichever match that was).
+Tests: `scenes.test.ts` (copy, new scene, child; none stays none), `scene-copy.test.ts`
+through the real server (two sessions), e2e in `scene-builds.spec.ts` (the chips for a second
+person; the copy's chip plays the match from the moment). Hand mutants: 6 of 6 caught.
+
+**`cda86fb`, phase 3, the rest.**
+
+- **`web/src/mapstate/state.ts`.** `fromTimeline({ tl, t, markers })` gives the spec's §6
+  interface: `hero(slot)`, `marker(key)`, `lane(key)`, `scene()`, `has(feature)`. An entity is
+  made when first asked for and kept; each field is a memo over the second's part, the tenth's
+  part or t (made under the owner `fromTimeline` was called in, so a reader's rerun doesn't
+  dispose them). Facts only: `inSight` and `lastSeen` for every hero, objectives' health on the
+  replay tier, every death with `seen`. `playerFrame(src, state)` is the adapter the old
+  readers use (it moved here from `frame.ts`, which now holds only the pure parts and the
+  definition); `markerFrame(state, health)` is the markers' part, new once a second.
+- **Readers moved:** the lanes (`Board.tsx` `laneEdges`, `splitOf`), the top bar's and the
+  hero panel's "out of sight" (`inSight`; `PlayerTopBar` and `HeroCard` take `ms`), the map's
+  markers (`markerStates` takes the second's part).
+- **A build column on the clocks:** `buildState` asks `buildAt` at `tenthOf(t)` (the tenth's
+  middle) and `statBuild` at `floor(t)`; `playerBuildView`'s kills, assists, level and max
+  health at the second. The phone's all-builds rows ask once a tenth.
+- **Capture:** `matchSceneOps` reads `secondPart` (heroes, down, sites, lanes), the producer
+  Player draws from. `slotKey` lives in `match/timeline.ts` now (`save.ts` re-exports it), so
+  `frame.ts` no longer imports `save.ts` and there is no import cycle.
+- **`(k / 10) * 10` is `k` for every whole k up to 2,000,000** (measured in node), so the
+  tenth's middle is a margin against rounding, not a fix for a case that was seen. Step 1's
+  note above says otherwise.
+- **Tests:** `frame-clocks.test.ts`: every field against its definition at 2,900 times on
+  four matches (replay; a death unseen; metadata; metadata carrying CC and movement rows);
+  absent entities and no timeline; `has` feature by feature; a reader of one field reruns
+  when its value changes (120 frames: souls once, ult twice, place every frame); the markers'
+  part; capture's part. `late-perf.test.ts`: the tenth's build is the frame's as shown at
+  1,547 times; over 120 frames `items` is read 19 times and `assists` once.
+- **On real timelines** (counts only): 134623152, 13,768 frames and 2,295 states, 27,540
+  hero builds, 0 differ; 129738985, 14,272 frames, 2,379 states, 28,548 hero builds, 0 differ.
+- **Mutants, by hand, through vitest:** `state.ts` 38 (30 caught at first; 3 caught after a
+  test was added: CC on the metadata tier, the urn's sites under a pack's keys twice; 2
+  equivalent: the tenth asked at its start, since `tenthPart` floors again, and
+  `seen && !seen.seen`, which the guard above already holds; 1 was redundant code, removed);
+  `buildState.ts` 7 of 7; `buildView.ts` 7 (5 at first, 2 after the test ran through every
+  change of the scoreboard's values); `save.ts` 6 of 6. Nine more on the wiring run through
+  the e2e (see the heavy run).
+- **Run on it:** `npm test` 70 files, 694 passed, 1 skipped; `tsc` clean. No Rust changed.
+
+### What is next (for whoever continues)
+
+1. **Phase 4.** `fromScene(state, sceneId)` giving the same interface, by the registry; then
+   `Tokens.tsx`, `MapView`'s markers and both bars take a `MapState`. What phase 3 leaves for
+   it: the tokens read `matchPreview` (the adapter) for places, ghosts, health, CC and
+   movement; `RiftRings`, `UrnMark`, `DeathSkulls` and `MarkerTips` take the preview too. The
+   viewer's choices (`Shown`) then apply in the renderer: `inSight` with Vision gives seen,
+   ghost (`lastSeen`) or not drawn in Player, and faded in a scene (D3). D1: names from the
+   scene's `source` match (every copy carries it now). D2, D4, D5, D13 as the table says.
+2. **Phase 5.** Rows land `Ahead` and stop for a reader release. `HeroState`,
+   `MarkerState`, `LaneState` and `SceneFacts` in `state.ts` are the candidates' list:
+   hero `in_sight`, `last_seen` (Pos, and its age), `cc`, `height`, `zipline`, `health`,
+   `respawn` already typed; lane `gap`; scene `urn`, `rejuv`; the marker baseline as `Ints`
+   on `SceneState` (D7). `FEATURES` are the `has_<feature>` rows to add.
+3. **Phases 6 and 7, and the backlog's F4, F5 and the phone's scene builds:** not started.
+
 ### Phase 3, first step: Player's frame on three clocks (TD-50). No stored change, nothing a coach sees
 
 - **`web/src/mapstate/frame.ts`.** `previewAt(m, t, markers, shown, fade)` is the frame's
