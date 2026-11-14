@@ -72,9 +72,6 @@ export interface SessionOptions {
   seat?: number;
 }
 
-/** What a session calls into: its mount's stores. A parked session (`park`) has none. */
-export type SessionCallbacks = Pick<SessionOptions, "onChange" | "onRecords" | "onPeers" | "onOutdated">;
-
 const FINAL: CloseReason[] = ["unauthorized", "revoked"];
 
 /** How long an ended session waits for its edits in flight to go out before it closes. */
@@ -161,15 +158,6 @@ export class BoardSession {
   private stopped = false;
   /** `end` was called: the session is over for good. */
   private ended = false;
-  /**
-   * Parked (sessions.md §5): its board was left, and it's kept for a while in case the board is
-   * opened again. It calls into no mount, sends no presence, and holds no socket once its
-   * pending edits are acked.
-   */
-  private parked = false;
-  /** Parked with nothing left to send: its socket is closed until `resume`. */
-  private resting = false;
-  private restTimer: ReturnType<typeof setTimeout> | undefined;
   /** `start` under way or done. */
   private starting: Promise<void> = Promise.resolve();
   /** Saves and sends run in order through this chain, so frames leave in cseq order. */
@@ -255,7 +243,6 @@ export class BoardSession {
   end(): void {
     if (this.ended) return;
     this.ended = true;
-    clearTimeout(this.restTimer);
     clearTimeout(this.presenceTimer);
     clearTimeout(this.saveSoon);
     this.saveSoon = undefined;
@@ -294,100 +281,6 @@ export class BoardSession {
         this.replica?.free();
         this.replica = undefined;
       });
-  }
-
-  /**
-   * Park the session (sessions.md §5): its board was left and may be opened again soon. What's
-   * kept is the replica, with its pending edits and undo stack, and its storage. The mount's
-   * callbacks are let go, no presence is sent from here on, and a lazy save due is made now (the
-   * page may close while it's parked). A parked session holds no socket, except while it still
-   * has pending edits: those are flushed, on the socket it has for up to `FLUSH_MS` and after
-   * that on quiet reconnects (a peer that sends no presence is on nobody's people list), and
-   * then it closes. `resume` hands it to the board's next mount; `end` ends it.
-   */
-  park(): void {
-    if (this.ended || this.parked) return;
-    this.parked = true;
-    this.resting = false;
-    const { onChange: _c, onRecords: _r, onPeers: _p, onOutdated: _o, ...rest } = this.o;
-    this.o = rest;
-    clearTimeout(this.presenceTimer);
-    this.presenceTimer = undefined;
-    clearTimeout(this.saveSoon);
-    this.saveSoon = undefined;
-    if (this.dirtySince !== undefined) this.saveState().catch(() => {});
-    // What the last mount was told is not the next one's news.
-    this.problems.length = 0;
-    // The link was refused for good: nothing to flush on it.
-    if (this.connection.kind === "closed") return this.rest();
-    // Still on its socket: acks usually land within a round trip. Past the wait, the socket goes
-    // (its presence with it) and the rest is flushed on a quiet reconnect.
-    if (this.live) this.restTimer = setTimeout(() => this.parked && !this.resting && this.retry(), FLUSH_MS);
-    this.restIfFlushed();
-  }
-
-  /** A parked session with nothing left to send lets its socket go. */
-  private restIfFlushed(): void {
-    if (!this.parked || this.resting || this.sending > 0) return;
-    // Not loaded yet, or nothing pending: nothing to flush. (Pending while the socket is down is
-    // flushed by the reconnect under way.)
-    if (this.replica && this.status.kind !== "saved" && this.status.pending > 0) return;
-    this.rest();
-  }
-
-  private rest(): void {
-    if (this.resting) return;
-    this.resting = true;
-    clearTimeout(this.restTimer);
-    this.stopped = true;
-    clearTimeout(this.timer);
-    this.dropSocket();
-    this.markOffline();
-    this.peers.clear();
-    this.myPeer = undefined;
-    // Not connected, and not refused for good either: the next mount starts from "connecting".
-    if (this.connection.kind !== "closed") this.connection = { kind: "connecting", attempt: 0 };
-  }
-
-  /**
-   * A parked session's board is mounted again: it calls into the new mount, which draws at once
-   * from the replica as it stands, and reconnects (the server decides again whether this link
-   * opens the board, and sends what the replica missed).
-   */
-  resume(cb: SessionCallbacks): void {
-    if (!this.parked || this.ended) throw new Error("resume: the session isn't parked");
-    this.parked = false;
-    clearTimeout(this.restTimer);
-    this.o = { ...this.o, ...cb };
-    this.o.onRecords?.([...this.records], true);
-    if (this.live) {
-      // Still on its socket (left a moment ago, flushing): it carries on, seen again.
-      this.resting = false;
-      this.o.onPeers?.([...this.peers.values()], true);
-      this.o.onChange?.(this);
-      this.setPresence({});
-      return;
-    }
-    this.o.onChange?.(this);
-    // After a load still under way (parked before it finished), never beside it.
-    void this.starting.then(() => {
-      if (this.parked || this.ended || this.socket) return;
-      this.resting = false;
-      this.stopped = false;
-      clearTimeout(this.timer);
-      this.attempt = 0;
-      this.open();
-    });
-  }
-
-  /** Whether it's parked (kept for its board's next mount). */
-  isParked(): boolean {
-    return this.parked;
-  }
-
-  /** About how many bytes its replica holds (the WASM's estimate of its documents). */
-  approxBytes(): number {
-    return this.replica?.approxHeapBytes() ?? 0;
   }
 
   /** Apply an edit; false if it was refused locally (the server may still refuse it later). */
@@ -438,7 +331,7 @@ export class BoardSession {
     this.presenceTimer = setTimeout(() => {
       this.presenceTimer = undefined;
       this.presenceSentAt = Date.now();
-      if (this.live && !this.parked) this.send({ t: "presence", state: this.presence });
+      if (this.live) this.send({ t: "presence", state: this.presence });
     }, wait);
   }
 
@@ -458,7 +351,7 @@ export class BoardSession {
   private local(call: (r: BoardReplica) => string): boolean {
     const r = this.replica;
     if (!r) return false; // not loaded yet: the UI is read-only until the first Ready
-    if (this.ended || this.parked) return false;
+    if (this.ended) return false;
     if (this.readOnly) {
       // View links never edit; the server would treat it as abuse and drop the connection.
       this.problems.push("this link is view-only");
@@ -501,10 +394,7 @@ export class BoardSession {
         this.problems.push(`could not save locally, reconnecting: ${e}`);
         if (sock === this.socket) this.retry();
       })
-      .finally(() => {
-        this.sending -= 1;
-        this.restIfFlushed();
-      });
+      .finally(() => (this.sending -= 1));
     return !u.refused;
   }
 
@@ -537,7 +427,6 @@ export class BoardSession {
     this.canUndo = u.canUndo;
     this.canRedo = u.canRedo;
     this.o.onChange?.(this);
-    if (this.parked) this.restIfFlushed();
     return u;
   }
 
@@ -645,8 +534,7 @@ export class BoardSession {
               if (i >= RESEND_BURST) await new Promise((r) => setTimeout(r, 1000 / RESEND_PER_SEC));
               if (sock !== this.socket) return;
               this.send(frames[i]!);
-              // Parked: flushing only, on nobody's people list.
-              if (i === 0 && !this.parked) this.send({ t: "presence", state: this.presence });
+              if (i === 0) this.send({ t: "presence", state: this.presence });
             }
           })
           .catch((e) => {

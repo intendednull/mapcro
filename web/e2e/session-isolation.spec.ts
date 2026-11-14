@@ -8,7 +8,7 @@
 //      match and playback, Vision and the map layers), and the default otherwise;
 //   4. reloads (on `?tab=`) and checks the same, from sessionStorage.
 // Vision and the map layers are per tab once a tab was left (operator decision 7); a tab never
-// opened takes this browser's. The parked rows (§5) are at the end.
+// opened takes this browser's. A left board keeps nothing open (the pool of §5 wasn't kept).
 // Rows not here, and why, are in docs/specs/sessions.md §10 phase 2.
 
 import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
@@ -359,7 +359,7 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
 });
 
-// ---- what a tab remembers (§4.2), and parked boards (§5) ----
+// ---- what a tab remembers (§4.2) ----
 
 test("a tab comes back as it was left: scene, viewport and side, the sidebar tab; a scene gone meanwhile opens cold", async ({ browser }) => {
   const { me, a, go } = await twoTabs(browser);
@@ -414,7 +414,7 @@ test("a tab comes back as it was left: scene, viewport and side, the sidebar tab
   void zoomed;
 });
 
-/** IndexedDB connections open in the page: the session's, the mounted board's, and each parked board's. */
+/** IndexedDB connections open in the page: the session's and the mounted board's. */
 const countIdb = (p: Page) =>
   p.addInitScript(() => {
     const w = window as unknown as { __idb: number };
@@ -436,80 +436,16 @@ const countIdb = (p: Page) =>
       return req;
     };
   });
-/** "People here": how many are online on the board. */
-const online = (p: Page) => p.locator(".people-section h2 small");
 const idb = (p: Page) => p.evaluate(() => (window as unknown as { __idb: number }).__idb);
 
-test("a parked A: off A's people list at once; an edit made offline on A flushes to A from B, unseen; back on A, undo still takes it", async ({ browser }) => {
-  const a0 = await newBoardUrl(server, "Board A");
-  const b0 = await newBoardUrl(server, "Board B");
-  const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(a0)!;
-  const r = await fetch(`${server.url}/api/sessions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Parked", board, board_token: token }) });
-  const s = (await r.json()) as { session: string; owner_token: string };
-  const me = await joinNew(browser, `${server.url}/s/${s.session}#${s.owner_token}`, "Coach", (p) => void countIdb(p));
-  await me.getByTestId("add-game").click();
-  await me.getByTestId("add-paste").fill(b0);
-  await me.getByTestId("add-paste-go").click();
-  await expect(tabs(me)).toHaveCount(2);
-  await expect.poll(() => mounted(me)).toBe(boardOf(b0));
-  await saved(me);
-  // On B, with A parked: the session's storage, B's, and A's kept open.
-  await expect.poll(() => idb(me)).toBe(3);
-  const peerA = await joinNew(browser, a0, "PeerA");
-  const peerB = await joinNew(browser, b0, "PeerB");
-  await expect(online(peerA)).toContainText("1 online"); // PeerA alone: Coach is on B
-  await tabs(me).nth(0).click();
-  await expect.poll(() => mounted(me)).toBe(boardOf(a0));
-  await saved(me);
-  await expect(online(peerA)).toContainText("2 online");
-  const home = await tokenAt(me, "Amber-0");
-
-  // Offline on A: a move waits on this device. Then to B, and the server comes back.
-  await server.kill();
-  await expect(me.getByTestId("save-status")).toHaveAttribute("data-state", "offline");
-  await dragToken(me, "Amber-0", 0.6, 0.6);
-  const offline = await tokenAt(me, "Amber-0");
-  await tabs(me).nth(1).click();
-  await expect.poll(() => mounted(me)).toBe(boardOf(b0));
-  await server.start();
-  await saved(me);
-  // The parked A flushes its move to A, while this tab stays on B and never shows on A's list.
-  await expect.poll(() => tokenAt(peerA, "Amber-0"), { timeout: 20_000 }).toEqual(offline);
-  expect(await mounted(me)).toBe(boardOf(b0));
-  expect(await tokenAt(me, "Amber-0")).toEqual(home);
-  await expect(peerB.getByTestId("save-status")).toHaveAttribute("data-state", "saved", { timeout: 20_000 });
-  expect(await tokenAt(peerB, "Amber-0")).toEqual(home);
-  await expect(online(peerA)).toContainText("1 online");
-  await peerA.waitForTimeout(500);
-  await expect(online(peerA)).toContainText("1 online");
-  // PeerA moves another hero meanwhile.
-  const other = await tokenAt(peerA, "Amber-1");
-  await dragToken(peerA, "Amber-1", 0.2, 0.7);
-  await saved(peerA);
-  // Back on A: both moves are there, and Undo takes back this tab's own (its stack was kept).
-  await tabs(me).nth(0).click();
-  await expect.poll(() => mounted(me)).toBe(boardOf(a0));
-  await saved(me);
-  expect(await tokenAt(me, "Amber-0")).toEqual(offline);
-  await expect.poll(() => tokenAt(me, "Amber-1")).not.toEqual(other);
-  await expect(online(peerA)).toContainText("2 online");
-  await me.keyboard.press("Control+z");
-  await expect.poll(() => tokenAt(peerA, "Amber-0")).toEqual(home);
-  expect(await tokenAt(peerA, "Amber-1")).not.toEqual(other);
-});
-
-test("a parked A dropped from the pool (three boards left since) reopens cold, correct; nothing piles up", async ({ browser }) => {
+test("a left board holds nothing open: the session's storage and the open board's, however many tabs were left; none after the session", async ({ browser }) => {
   const urls: string[] = [];
-  for (const t of ["A", "B", "C", "D", "E"]) urls.push(await newBoardUrl(server, `Board ${t}`));
+  for (const t of ["A", "B", "C"]) urls.push(await newBoardUrl(server, `Board ${t}`));
   const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(urls[0]!)!;
   const r = await fetch(`${server.url}/api/sessions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Many", board, board_token: token }) });
   const s = (await r.json()) as { session: string; owner_token: string };
   const me = await joinNew(browser, `${server.url}/s/${s.session}#${s.owner_token}`, "Coach", (p) => void countIdb(p));
-  // A move on A, to find again (and to undo) after A was dropped.
-  const home = await tokenAt(me, "Amber-0");
-  await dragToken(me, "Amber-0", 0.3, 0.3);
   await saved(me);
-  const moved = await tokenAt(me, "Amber-0");
   await expect.poll(() => idb(me)).toBe(2);
   for (const [i, url] of urls.slice(1).entries()) {
     await me.getByTestId("add-game").click();
@@ -518,31 +454,18 @@ test("a parked A dropped from the pool (three boards left since) reopens cold, c
     await expect(tabs(me)).toHaveCount(2 + i);
     await expect.poll(() => mounted(me)).toBe(boardOf(url));
     await saved(me);
-    // The session's, the open board's, and at most three parked (§4.3): A goes when D is left.
-    await expect.poll(() => idb(me)).toBe(Math.min(3 + i, 5));
+    await expect.poll(() => idb(me)).toBe(2);
   }
-  // A peer changes A while it's neither open nor parked here.
-  const peerA = await joinNew(browser, urls[0]!, "PeerA");
-  const other = await tokenAt(peerA, "Amber-1");
-  await dragToken(peerA, "Amber-1", 0.2, 0.7);
-  await saved(peerA);
-  await tabs(me).nth(0).click();
-  await expect.poll(() => mounted(me)).toBe(boardOf(urls[0]!));
-  await saved(me);
-  expect(await tokenAt(me, "Amber-0")).toEqual(moved);
-  await expect.poll(() => tokenAt(me, "Amber-1")).not.toEqual(other);
-  await expect.poll(() => idb(me)).toBe(5);
   // Round and round: the count holds.
-  for (const i of [1, 2, 3, 4, 0, 2]) {
+  for (const i of [0, 1, 2, 0, 2, 1]) {
     await tabs(me).nth(i).click();
     await expect.poll(() => mounted(me)).toBe(boardOf(urls[i]!));
     await saved(me);
   }
-  await expect.poll(() => idb(me)).toBe(5);
-  // Leaving the session ends them all.
+  await expect.poll(() => idb(me)).toBe(2);
+  // Leaving the session closes them.
   await me.goto(`${server.url}/`);
   await expect.poll(() => idb(me)).toBe(0);
-  void home;
 });
 
 // ---- the page's timeline cache (§4.3): the server decides on every open ----

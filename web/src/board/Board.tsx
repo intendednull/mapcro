@@ -68,8 +68,6 @@ import { LIMITS } from "../gen/limits";
 import type { Via } from "../gen/Via";
 import type { UndoHistory } from "../session/history";
 import { loadTabView, playerPart, saveTabView, withScenes } from "../session/tabview";
-import type { RoomPool } from "../session/pool";
-import type { BoardSession } from "../core/session";
 import { AddGameOnBoard } from "../session/AddGame";
 
 /** The page's title, as index.html has it: what the tab says with no board open. */
@@ -146,8 +144,6 @@ interface ToastAction {
 export interface InSession {
   /** The session's id: what a tab remembers of its board is kept under it (§4.2). */
   id: string;
-  /** Where a left tab's board session waits for its next mount (§5). */
-  pool: RoomPool<BoardSession>;
   via?: Via;
   history: UndoHistory;
   /** The join card shows once per session, not once per tab. */
@@ -167,7 +163,6 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const state = createBoardState(p.board, p.token, {
     ...(via ? { via } : {}),
     ...(history ? { onEdit: () => history.edited(p.board) } : {}),
-    ...(inSession ? { pool: inSession.pool } : {}),
   });
   if (history) onCleanup(history.attach(p.board, { canUndo: () => state.canUndo(), canRedo: () => state.canRedo(), undo: () => state.undo(), redo: () => state.redo() }));
   const undo = () => (history ? void history.undo() : state.undo());
@@ -243,8 +238,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   if (inSession) {
     // A remembered scene that's gone takes its viewport and side with it: the board opens on
     // its first scene, fitted, as it would cold (§4.2). Checked once, when the board has caught
-    // up with the server: its stored copy, like its parked session, may still hold a scene
-    // deleted since. Offline, what this device holds stands.
+    // up with the server: its stored copy may still hold a scene deleted since. Offline, what this device holds stands.
     let checked = remembered?.scene === undefined;
     createEffect(() => {
       const all = state.scenes();

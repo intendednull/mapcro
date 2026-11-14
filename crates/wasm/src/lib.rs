@@ -122,14 +122,6 @@ impl BoardReplica {
         serde_json::to_string(self.inner.view()).map_err(js_err)
     }
 
-    /// About how many bytes this replica's two documents (the confirmed one and the view) hold
-    /// on the heap, by the schema's estimate (`Doc::approx_heap_bytes`): what a parked board
-    /// counts against the client's budget (sessions.md §4.3).
-    #[wasm_bindgen(js_name = approxHeapBytes)]
-    pub fn approx_heap_bytes(&self) -> f64 {
-        (self.inner.view().approx_heap_bytes() + self.inner.confirmed().approx_heap_bytes()) as f64
-    }
-
     #[wasm_bindgen(js_name = lastSeq)]
     pub fn last_seq(&self) -> f64 {
         self.inner.last_seq() as f64

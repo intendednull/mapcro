@@ -1,7 +1,8 @@
 // `/s/<session>?tab=<tab>#<token>` (sessions.md §4.1, §7, §8): the session's own connection, its
 // tab strip, and the open tab's board, mounted afresh for each tab (keyed by board and
-// credential: nothing of one board's mount reaches another's). What's kept across a switch is
-// the left board's sync session, parked (§5, session/pool.ts), and what its tab showed (§4.2).
+// credential: nothing of one board's mount reaches another's). A switch is a cold open, from
+// IndexedDB where the board is stored (the pool of §5 was measured and not kept); what's kept
+// across it is what the tab showed (§4.2) and the page's timeline cache (§4.3).
 
 import { ShareIcon } from "../ui/ShareIcon";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
@@ -20,8 +21,6 @@ import { InlineEdit } from "../ui/InlineEdit";
 import { Wordmark } from "../ui/Wordmark";
 import { type AddChoice, AddMenu, refusal, takeAddOnOpen } from "./AddGame";
 import { UndoHistory } from "./history";
-import { RoomPool } from "./pool";
-import type { BoardSession } from "../core/session";
 import { SESSION_SIDE, createSessionState } from "./state";
 import { type TabRow, addTabOps, credentialFor, linkDead, moveOps, neighbourOf, pickTab, removeOps, renameOps } from "./tabs";
 
@@ -32,9 +31,6 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   const s = createSessionState(p.session, p.token, history);
   onMount(() => void s.start());
   onCleanup(() => s.stop());
-  // Boards left a moment ago stay warm for a switch back (§5); they end with this view.
-  const pool = new RoomPool<BoardSession>();
-  onCleanup(() => pool.close());
   const loaded = () => s.settled();
   const [active, setActive] = createSignal<RecordId | undefined>(p.tab);
   const [adding, setAdding] = createSignal(takeAddOnOpen(p.session));
@@ -322,7 +318,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       </Show>
     </nav>
   );
-  const inSession = (): Omit<InSession, "via"> => ({ id: p.session, pool, history, joinKey: p.session, title, share, strip, canEdit: () => s.canEdit() });
+  const inSession = (): Omit<InSession, "via"> => ({ id: p.session, history, joinKey: p.session, title, share, strip, canEdit: () => s.canEdit() });
   // A dead link, not an outdated build: that one reloads, or says Update available, as a board does.
   const closed = () => linkDead(s.connection());
   const outdated = () => {
