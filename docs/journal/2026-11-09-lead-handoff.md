@@ -3,6 +3,27 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## State (2026-11-14 ~03:40 UTC, lead 9eb2516b)
+
+- **Prod:** `web` runs **1dcbd31** (infra c486ee6), **schema v9, floor 8**: the map-state writer
+  on the server. The 11 rows and `SceneState` are live; kills, deaths, assists and max health are
+  `Ahead`. No client writes them yet. The pre-v9 backup is `/var/lib/mapcro/mapcro.sqlite.pre-v9`.
+  - The gate passed (458/0), with `reader-check` and the VM test.
+  - A dev database copy (91 boards) loaded on v9, and on the v8 reader after the migration.
+  - Review fix F1 is in: exported files say the rows this build writes (11), so the v8 reader
+    reads them.
+  - `rows.lock` has 15 rows, and the justfile's `reader` is 1dcbd31 (61de6cb).
+- **Also deployed:** e9f9801 (the phone fixes from the operator's screenshot: portraits, the clock
+  over Events, a square board map, the Events filters). The operator's phone is about 344×615 CSS
+  px.
+  - Four mobile design questions wait on the operator, with defaults: fold the status strip on
+    short landscape; keep the clock; add a Firefox e2e run; wrap All builds on a tablet.
+- **Running:** phase 2 client (Fable, high) on `map-state-p2`. It does F2 (pickups in hundredths)
+  first, then F3/F4, the edit cost and browser verification. Its release flips the 4 rows and
+  `UNFIT_UNDO` live (store v10, floor 9) and fixes #49.
+- **Gate note:** the QA header script's `share=false` is a timing artifact. Share appears after
+  the board syncs; wait for it.
+
 ## State (2026-11-14 ~01:30 UTC, lead 9eb2516b)
 
 - **Prod:** `web` runs **13d2fd1** (infra 630daec), **schema v8**: the map-state reader (phase 1).
