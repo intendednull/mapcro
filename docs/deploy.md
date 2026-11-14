@@ -189,6 +189,12 @@ Without a pack, boards render on the built-in placeholder map.
 The database is `/var/lib/mapcro/mapcro.sqlite` (WAL mode). A server migrates it forwards on start
 when its schema is older, and never backwards (spec §9, §10).
 
+**Rolled back to the previous release, new board files may be refused.** A rollback reads every
+stored board, but the older build admits rows by its own statuses: a board file exported by the
+newer build, a copy of one of its scenes (Duplicate, New scene), or a pending edit a reloaded tab
+resends can carry a row the older build still holds `Ahead`, and is refused whole (`WrongField`).
+For v10 → v9 (1dcbd31): kills, deaths, assists and max health. Roll forward to import them.
+
 **Map-state rows: lock them at each deploy.** After a deploy is live, check out the deployed
 commit with nothing else in the tree, run `just rows-lock`, and commit `crates/schema/rows.lock`.
 It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` §4.3).

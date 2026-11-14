@@ -43,7 +43,7 @@ test:
 
 # The reader release: the deployed build a rollback goes to (docs/deploy.md "Rollbacks"). Set
 # it to the deployed commit at each deploy that changes what is stored, with `just rows-lock`.
-reader := "1dcbd31"
+reader := "e878c30"
 
 # The rollback check (TD-80): what this build's server stores still loads on the reader
 # release's own code. The simulation's boards, run against the server as built, are dumped as
@@ -58,11 +58,13 @@ reader-check rev=reader seeds="40":
     rm -rf "$out" "$src"
     mkdir -p "$out" "$src"
     cargo run -q --release -p mapcro-sim --example dump_stored -- "$out" {{seeds}}
+    # Each reader builds in its own target dir: `git archive` stamps files with the commit time, so a
+    # shared dir could keep an older reader's binary (map-state phase 2 review, F2).
     git archive {{rev}} Cargo.toml Cargo.lock crates/schema crates/engine crates/sim | tar -x -C "$src"
     # The reader's workspace names every crate and patches vendored ones; keep the three this needs.
     sed -i -e 's|^members = .*|members = ["crates/schema", "crates/engine", "crates/sim"]|' -e '/^\[patch.crates-io\]/,/^$/d' "$src/Cargo.toml"
     cp crates/sim/examples/load_stored.rs "$src/crates/sim/examples/load_stored.rs"
-    (cd "$src" && CARGO_TARGET_DIR="$root/target/reader/build" cargo run -q --release --offline -p mapcro-sim --example load_stored -- "$out" {{seeds}})
+    (cd "$src" && CARGO_TARGET_DIR="$root/target/reader/build-$(git rev-parse --short {{rev}})" cargo run -q --release --offline -p mapcro-sim --example load_stored -- "$out" {{seeds}})
 
 # Lints, warnings as errors (gated: just check, CI; docs/tech-debt.md rule 4).
 clippy:

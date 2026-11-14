@@ -3,6 +3,30 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+
+## Map-state phase 2 leftovers from its review (2026-11-14, lead)
+
+From the adversarial review of e878c30 (scene builds, #49); none blocked the deploy.
+- **A big scene can't be duplicated (F1).** `addSceneOps` (`web/src/board/scenes.ts:71`) splits an
+  over-size copy into single-op transactions, and the first holds the scene with fewer than twelve
+  heroes, which the board refuses (`IncompleteScene`). Nothing is created, silently, and the board
+  flips to an id that doesn't exist. Reached after Retake on a late-game scene (Retake writes each
+  build up to 8 KiB). Fix: the scene and all twelve heroes in the first transaction without
+  `more`, then `Set More` per hero, `SceneState` last; test through the real replica; don't flip
+  when the first edit is refused. Spec §4.4's "sent in several" is untrue until then.
+- **Follow with a no-match presenter (F4).** `host.ts` `presence()` sends `{player:false,
+  match_id:0}` only while a build is open, so a follower in Player is set to sandbox on open and
+  left there on close; `mirror` applies an empty panel group once on start. Either always send
+  the mode for a no-match presenter, or don't `setMode` on that playback.
+- **Stats for an alive hero with no stored health (F5).** `statOf` (`web/src/mapstate/build.ts`
+  ~179) gives 100 where Player's `statBuild` gives `null` (skipping life-threshold items); stored
+  health is rounded and clamped. Not expected in replay data.
+- **Fuzz the wasm `changed` diff.** The simulation never touches the wasm `Held` diff; the
+  reviewer's 3,000-seed fuzz (module `rv_fuzz`) found nothing and is worth adopting as a test.
+  The lead keeps a copy at `~/.local/share/mapcro-lead/scratch/map-state-p2c-rv-fuzz.rs` (append
+  it to `crates/wasm/src/lib.rs`).
+- **Scene builds on the phone** and the follow matrix's scene column (from the implementer).
+
 ## Map state phase 2, left over (2026-11-13, fourth implementer)
 
 Found while building the scene's builds (`docs/journal/2026-11-13-map-state-build.md`); none is
