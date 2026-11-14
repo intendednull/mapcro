@@ -15,13 +15,14 @@ import type { Marker } from "../map/model";
 import type { Slot } from "../board/state";
 import type { SceneRow } from "../board/scenes";
 import { clampToMap } from "../map/transform";
-import { type Timeline, clockLabel, downAt, lanesAt, playersAt, sitesAt } from "./timeline";
+import { type Timeline, clockLabel, slotKey } from "./timeline";
 import { LIMITS } from "../gen/limits";
 import type { More } from "../gen/More";
 import { WRITTEN, captureBuild, captureScene, captured, heroBuildAt, moreBytes } from "../mapstate/build";
+import { secondPart } from "../mapstate/frame";
 import type { Player } from "../board/state";
 
-export const slotKey = (team: string, slot: number) => `${team === "Amber" || team === "amber" ? "amber" : "sapphire"}-${slot}`;
+export { slotKey };
 
 /** Roster slots whose hero differs from the match's (the "Roster → match heroes" change). */
 export function rosterChanges(roster: Slot[], tl: Timeline): Array<{ id: RecordId; hero: number }> {
@@ -50,7 +51,10 @@ export function matchSceneOps(
   const name = opts.name ?? "Match moment";
   const scene = { name: sceneName(name, second), order, clock: second, ...(opts.source ? { source: { ...opts.source, t: second } } : {}) };
   const ops: Op[] = [{ Create: { id, record: { Scene: scene } } }];
-  const at = new Map(playersAt(tl, second).map((p) => [slotKey(p.team, p.slot), p]));
+  // The frame's facts, unfiltered (map-state spec D9): the second's part, as Player computes it
+  // (mapstate/frame.ts). At a whole second a hero's place and respawn time are its sample's.
+  const frame = secondPart(tl, second, markers);
+  const at = new Map(frame.heroes.map((p) => [slotKey(p.team, p.slot), p]));
   const heroes: Array<{ PlayerState: PlayerState }> = [];
   for (const s of roster) {
     const p = at.get(slotKey(s.slot.team, s.slot.slot));
@@ -60,15 +64,15 @@ export function matchSceneOps(
     heroes.push(record);
     ops.push({ Create: { id: mint(), record } });
   }
-  for (const key of downAt(tl, second, markers)) ops.push({ Create: { id: mint(), record: { ObjectiveState: { scene: id, key, status: "Destroyed" } } } });
+  for (const key of frame.down) ops.push({ Create: { id: mint(), record: { ObjectiveState: { scene: id, key, status: "Destroyed" } } } });
   // Only what differs from a new scene's defaults: the rift that's up and the open urn point
   // (both default off), and taken powerups (they default available).
-  for (const [key, status] of sitesAt(tl, second, markers)) {
+  for (const [key, status] of frame.sites) {
     const off = key.startsWith("rift:") || key.startsWith("urn:");
     if ((off && status === "Active") || (!off && status === "Destroyed")) ops.push({ Create: { id: mint(), record: { ObjectiveState: { scene: id, key, status } } } });
   }
   // A scene has one split per lane: the middle of the zipline colours' gap (spec §6b).
-  for (const [lane, w] of lanesAt(tl, second)) if (lanes.length === 0 || lanes.includes(lane)) ops.push({ Create: { id: mint(), record: { Wave: { scene: id, lane, t: Math.round((w.amber + w.sapphire) / 2) } } } });
+  for (const [lane, w] of frame.lanes) if (lanes.length === 0 || lanes.includes(lane)) ops.push({ Create: { id: mint(), record: { Wave: { scene: id, lane, t: Math.round((w.amber + w.sapphire) / 2) } } } });
   if (opts.roster !== false) for (const c of rosterChanges(roster, tl)) ops.push({ Set: { id: c.id, value: { RosterHero: c.hero } } });
   // The snapshot (map-state spec §4.4): every hero's build and the scene's state, if the whole
   // save still fits one transaction; else the scene is saved without it, and says nothing of

@@ -1,18 +1,18 @@
 // Player's frame: the match at playback time t as the board draws it (map-state spec §6).
 //
-// `previewAt` is the definition: everything computed at t. `playerFrame` gives the same value
-// from three clocks (TD-50): what the timeline holds per second is computed once a second, what
-// it holds per tenth once a tenth, and only places and what is counted from t on every frame.
-// A new feature goes on the slowest clock its data allows; `frame-clocks.test.ts` holds that
-// the clocked frame equals the definition at every t it tries.
+// `previewAt` is the definition: everything computed at t. Player's state (state.ts
+// `fromTimeline`, and `playerFrame` from it) gives the same from three clocks (TD-50): what the
+// timeline holds per second is computed once a second, what it holds per tenth once a tenth,
+// and only places and what is counted from t on every frame. `secondPart` and `tenthPart` are
+// those parts, unfiltered: Save as scene captures from them too. A new feature goes on the
+// slowest clock its data allows; `frame-clocks.test.ts` holds that the clocked frame equals the
+// definition at every t it tries.
 
-import { type Accessor, createMemo } from "solid-js";
 import type { Marker } from "../map/model";
 import type { MatchPreview } from "../match/preview";
-import { slotKey } from "../match/save";
 import {
   type CampAt, type PlayerAt, type PowerupAt, type RejuvNow, type RiftAt, type Timeline,
-  campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, positionAt, powerupAt, rejuvAt, respawnAt, riftAt, shopsClosed, sitesAt, urnAt,
+  campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, positionAt, powerupAt, rejuvAt, respawnAt, riftAt, shopsClosed, sitesAt, slotKey, urnAt,
 } from "../match/timeline";
 import { type CrowdControl, crowdControlAt } from "../player/cc";
 import { movementAt } from "../player/movement";
@@ -103,11 +103,9 @@ export function heroesAt(m: Timeline, t: number, samples: PlayerAt[]): PlayerAt[
   return samples.map((x, i) => ({ ...x, pos: positionAt(m.players[i]!, t), respawn: respawnAt(m.players[i]!, t) }));
 }
 
-const EMPTY = (): MatchPreview => ({ players: new Map(), down: new Set(), sites: new Map(), lanes: new Map(), camps: new Map(), rifts: new Map(), powerups: new Map() });
-
 /**
  * The match at `at` as the board draws it under the viewer's choices. `sec` and `tenth`: the
- * parts for at's second and tenth, when the caller holds them (`playerFrame`); computed here
+ * parts for at's second and tenth, when the caller holds them (state.ts `playerFrame`); computed here
  * otherwise, which is the definition.
  */
 export function previewAt(m: Timeline, at: number, markers: FrameMarkers, shown: Shown, fade: boolean, sec: SecondPart = secondPart(m, at, markers), tenth: TenthPart = tenthPart(m, at)): MatchPreview {
@@ -145,37 +143,5 @@ export function previewAt(m: Timeline, at: number, markers: FrameMarkers, shown:
   return {
     fade, skulls, players, down: sec.down, shops: sec.shops, sites: sec.sites, lanes: sec.lanes, camps: sec.camps, rifts, powerups: sec.powerups,
     ...(health ? { health: sec.health! } : {}), ...(urn ? { urn } : {}), ...(sec.rejuv ? { rejuv: sec.rejuv } : {}),
-  };
-}
-
-export interface FrameSource {
-  tl: Accessor<Timeline | undefined>;
-  t: Accessor<number>;
-  markers: Accessor<FrameMarkers>;
-  shown: Accessor<Shown>;
-  /** Whether this moment continues the last in playback (`MatchPreview.fade`). */
-  fade: Accessor<boolean>;
-}
-
-/**
- * Player's frame on three clocks: the second's part is computed when t enters a new second, the
- * tenth's when it enters a new tenth, the rest every frame. Empty with no timeline. Call inside
- * a component or root.
- */
-export function playerFrame(src: FrameSource): Accessor<MatchPreview> {
-  const second = createMemo(() => Math.floor(src.t()));
-  const tenth = createMemo(() => Math.floor(src.t() * 10));
-  const sec = createMemo(() => {
-    const m = src.tl();
-    return m && secondPart(m, second(), src.markers());
-  });
-  const ten = createMemo(() => {
-    const m = src.tl();
-    return m && tenthPart(m, (tenth() + 0.5) / 10);
-  });
-  return () => {
-    const m = src.tl();
-    const [s, d] = [sec(), ten()];
-    return m && s && d ? previewAt(m, src.t(), src.markers(), src.shown(), src.fade(), s, d) : EMPTY();
   };
 }

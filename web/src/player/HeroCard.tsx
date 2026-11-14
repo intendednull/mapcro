@@ -17,9 +17,10 @@ import { ladderKeyFor, loadStatTable, tableKeyFor } from "../match/stats";
 import type { Timeline } from "../match/timeline";
 import { BuildColumn } from "./BuildColumn";
 import { playerBuildView } from "../mapstate/buildView";
+import type { MapState } from "../mapstate/state";
 import { Hover, TagTip } from "./GameTooltip";
 import { type Place, type Spot, movable } from "./panelPlace";
-import { type Vision, hasVision, seenAt } from "./vision";
+import { type Vision, hasVision } from "./vision";
 
 export interface HeroCardSlot { team: string; slot: number }
 
@@ -28,6 +29,8 @@ export function HeroCard(p: {
   timeline: Timeline;
   t: number;
   vision: Vision;
+  /** The match's state at t: whether the hero is in its enemies' sight. */
+  ms: MapState;
   art: Art;
   name?: ((team: string, slot: number) => string | undefined) | undefined;
   onSeek?: ((t: number) => void) | undefined;
@@ -44,9 +47,10 @@ export function HeroCard(p: {
   const player = createMemo(() => p.timeline.players.find((q) => q.team === p.open.team && q.slot === p.open.slot));
   const hero = () => p.art.heroes.get(player()?.hero_id ?? -1);
   const view = () => (p.vision !== "all" && hasVision(p.timeline) ? p.vision : null);
+  // The hero's sight is the tenth's (mapstate/state.ts): asked once a tenth, not each frame.
   const limited = () => {
     const pl = player();
-    return !!pl && view() != null && pl.team !== view() && !seenAt(pl, p.t)?.seen;
+    return !!pl && view() != null && pl.team !== view() && !p.ms.hero(slotKey(pl.team, pl.slot)).inSight();
   };
   const build = () => p.timeline.build;
   const [stats] = createResource(() => tableKeyFor(p.art.stats, build()) ?? false, (key) => loadStatTable(p.art.stats, key || null));

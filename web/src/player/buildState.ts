@@ -3,6 +3,10 @@
 // every frame, while a build changes with a buy, an upgrade, a cast or a cooldown's next second:
 // without this, every open column (twelve on Tab) redrew all its items and recalculated its stats
 // on every frame (#39).
+//
+// They are computed on the frame's clocks (mapstate/frame.ts, TD-50): the build once a tenth
+// (items, casts, charges and stacks are tenth-of-a-second series), the stats' input once a
+// second (level, pickups and health are per second), not once a frame.
 
 import { createMemo } from "solid-js";
 import { type BuildAt, type BuildEntry, buildAt } from "../match/builds";
@@ -51,13 +55,22 @@ export function shownTime(visible: () => boolean, t: () => number) {
   });
 }
 
+/** The middle of t's tenth: `buildAt` there is `buildAt` at every t of the tenth, as the column
+ * shows it (a cooldown is shown in whole seconds, rounded up, and its end is a whole tenth). The
+ * middle, not the start: no rounding of `t * 10` can then fall on the wrong side of a row's
+ * whole tenth. */
+export const tenthOf = (t: number) => (Math.floor(t * 10) + 0.5) / 10;
+
 /** The build at t and the stats' input from it, as memos that change only with what's shown.
  * While `visible` is false the time holds still (Tab's columns stay mounted, hidden), so a hidden
- * column does no per-frame work; showing it reads t at once.
+ * column does no per-frame work; showing it reads t at once. `second` is the whole second of
+ * that time: the clock for what the timeline holds per second (level, kills, max health).
  * Call inside a component or root. */
 export function buildState(player: () => TimelinePlayer, t: () => number, visible: () => boolean = () => true) {
   const time = shownTime(visible, t);
-  const build = createMemo(() => buildAt(player(), time()), undefined, { equals: sameBuild });
-  const statInput = createMemo(() => statBuild(player(), time(), build()), undefined, { equals: sameStatBuild });
-  return { build, statInput, time };
+  const tenth = createMemo(() => tenthOf(time()));
+  const second = createMemo(() => Math.floor(time()));
+  const build = createMemo(() => buildAt(player(), tenth()), undefined, { equals: sameBuild });
+  const statInput = createMemo(() => statBuild(player(), second(), build()), undefined, { equals: sameStatBuild });
+  return { build, statInput, time, second };
 }

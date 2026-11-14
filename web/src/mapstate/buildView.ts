@@ -40,9 +40,14 @@ export interface BuildView {
 /** Player's: the hero's build at `t`. While `visible` is false the time holds still, so a hidden
  * column reads nothing per frame (buildState.ts). Call inside a component or root. */
 export function playerBuildView(player: Accessor<TimelinePlayer>, tl: Accessor<Timeline | undefined>, t: Accessor<number>, visible: Accessor<boolean> = () => true): BuildView {
-  const { build, statInput, time } = buildState(player, t, visible);
-  const kills = createMemo(() => (player().kills != null ? scoreboardValueAt(player().kills, time()) : killsAt(tl(), time(), player().team, player().slot)));
+  const { build, statInput, time, second } = buildState(player, t, visible);
+  // The scoreboard's series move on whole seconds (research map, Gotchas): asked once a second.
+  // Kills counted from the events (older timelines) and deaths stay the frame's.
+  const kills = createMemo(() => (player().kills != null ? scoreboardValueAt(player().kills, second()) : killsAt(tl(), time(), player().team, player().slot)));
   const deaths = createMemo(() => player().deaths.filter((d) => d <= time()).length);
+  const assists = createMemo(() => scoreboardValueAt(player().assists, second()));
+  const level = createMemo(() => scoreboardValueAt(player().level, second()));
+  const maxHealth = createMemo(() => scoreboardValueAt(player().max_health, second()));
   return {
     hero: () => player().hero_id,
     build,
@@ -50,9 +55,9 @@ export function playerBuildView(player: Accessor<TimelinePlayer>, tl: Accessor<T
     statInput: () => ((tl()?.format ?? 0) >= PICKUPS_FORMAT ? statInput() : null),
     kills,
     deaths,
-    assists: () => scoreboardValueAt(player().assists, time()),
-    level: () => scoreboardValueAt(player().level, time()),
-    maxHealth: () => scoreboardValueAt(player().max_health, time()),
+    assists,
+    level,
+    maxHealth,
     patch: () => tl()?.build,
     time,
     order: (components) => buildOrder(player(), components),

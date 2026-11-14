@@ -4,8 +4,7 @@
 // window shows it part faded, one elsewhere shows none, and a follower at the presenter's t
 // draws the same. Pure.
 
-import { type TimelinePlayer, lastSeen } from "../match/timeline";
-import { slotKey } from "../match/save";
+import { type TimelinePlayer, lastSeen, slotKey } from "../match/timeline";
 import type { Vision } from "./vision";
 
 /** How long a skull shows, in match seconds: ~2.5 s at 1×, ~0.6 s at 4×; scrubbing, a window

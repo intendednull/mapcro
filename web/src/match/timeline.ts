@@ -186,6 +186,9 @@ export interface MatchEvent {
 
 export const tierOf = (tl: Timeline): "replay" | "metadata" => (tl.tier === "replay" ? "replay" : "metadata");
 
+/** A hero's slot as a key: "amber-0" … "sapphire-5", from either spelling of the team. */
+export const slotKey = (team: string, slot: number) => `${team === "Amber" || team === "amber" ? "amber" : "sapphire"}-${slot}`;
+
 export interface PlayerAt {
   team: "amber" | "sapphire";
   slot: number;

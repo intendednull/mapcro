@@ -332,8 +332,23 @@ selects; the build opens from the portrait's build control in both. The phone la
     tries (and on a real timeline given by `MAPCRO_TIMELINE`). Measured on two real matches,
     computing the map's frame and the bar's heroes late in the match went from 0.69 and 1.04 ms
     a frame to 0.04 and 0.07 (node, unthrottled).
-  - **Not on a clock yet:** an open build column's `buildAt` (cooldowns are tenths; its equality
-    memos stop the redraw, not the computation), and the hero panel's sight check.
+  - **`MapState` for Player (phase 3, `web/src/mapstate/state.ts`):** `fromTimeline` gives the
+    interface above over those clocks. An entity's fields are memos made when the entity is
+    first asked for and kept; a field reads the second's or the tenth's part, or t, so a reader
+    of one field reruns when that value changes. It holds facts only: every hero's sight
+    (`inSight`, `lastSeen`) whichever Vision is picked, objectives' health whether or not Health
+    is on, every death with whether its enemies saw it. `has(feature)` says what the timeline
+    holds. `playerFrame` is the old readers' adapter (the state's parts under the viewer's
+    choices, as one `MatchPreview`); `markerFrame` is the markers' part of it, new once a second.
+  - **Who reads it today:** the lanes' colours (`lane(key).edges`), the top bar's and the hero
+    panel's "out of sight" (`hero(slot).inSight`, the tenth's), the map's markers (the second's
+    part). The rest still read the adapter's frame until phase 4.
+  - **A build column** is on the clocks too (`player/buildState.ts`): `buildAt` once a tenth
+    (asked at the tenth's middle; a cooldown is shown in whole seconds and ends on a whole
+    tenth, so every t of a tenth shows the same), the stats' input, level, K/A and max health
+    once a second. Deaths and kills counted from events stay the frame's.
+  - **Save as scene captures from the same producer:** `secondPart` at the frame's whole
+    second (`match/save.ts`), the unfiltered facts Player computes (D9).
 - **The bound is on consumers:** a component reruns only when a value it reads changes. Each
   entity's fields are memos keyed by slot or marker with an equality check.
 - **A scene is static:** its `MapState` changes only when a record does.
