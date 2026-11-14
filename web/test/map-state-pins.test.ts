@@ -72,7 +72,9 @@ const roster = replay.players.map((p, i) => ({ id: `slot-${i}`, slot: { team: p.
 /** Save as scene's ops at `t`, with ids minted in order. */
 const saved = (tl: Timeline, t: number) => {
   let n = 0;
-  return matchSceneOps(roster as never, [], undefined, tl, t, markers, () => `id${n++}`, lanes, { source: sourceOf(tl) });
+  // `builds` (whether the snapshot fitted) is the caller's to report, not a stored value.
+  const { builds: _fitted, ...ops } = matchSceneOps(roster as never, [], undefined, tl, t, markers, () => `id${n++}`, lanes, { source: sourceOf(tl) });
+  return ops;
 };
 
 describe("map state, as it is before MapState (phase 0 pins)", () => {

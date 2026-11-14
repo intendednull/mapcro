@@ -49,7 +49,8 @@ export function Player(p: {
   onView: (id: RecordId) => void;
   mint: () => RecordId;
   /** A saved scene to show (the first, for several). */
-  onSaved: (id: RecordId) => void;
+  /** `bare`: a scene was saved without its builds (they were over a transaction). */
+  onSaved: (id: RecordId, bare?: boolean) => void;
   /** You changed the playback yourself (following stops). */
   onUserPlayback: () => void;
   /** The phone's own transport buttons (Events, Map layers, More, or its tool rail). */
@@ -111,7 +112,7 @@ export function Player(p: {
   const saveOne = () => {
     const m = h.tl();
     if (!m) return;
-    const { id, ops } = matchSceneOps(p.state.roster(), p.state.scenes(), p.scene, m, h.t(), markers(), p.mint, lanes(), { source: sourceOf(m) });
+    const { id, ops, builds } = matchSceneOps(p.state.roster(), p.state.scenes(), p.scene, m, h.t(), markers(), p.mint, lanes(), { source: sourceOf(m) });
     if (!p.state.edit(ops)) return h.setStatus("Not saved");
     const live = p.state.liveScene(h.tl()?.match_id);
     if (live) {
@@ -122,7 +123,7 @@ export function Player(p: {
       const kept = txs.filter((tx) => p.state.edit(tx)).length;
       if (kept < txs.length) h.setStatus("Some ink not moved");
     }
-    p.onSaved(id);
+    p.onSaved(id, !builds);
   };
   const watching = () => h.mode() === "player";
   /** The viewed scene's moment in this match, if it has one. */
@@ -895,7 +896,8 @@ type Props = {
   art: Art;
   scene: SceneRow | undefined;
   mint: () => RecordId;
-  onSaved: (id: RecordId) => void;
+  /** `bare`: a scene was saved without its builds (they were over a transaction). */
+  onSaved: (id: RecordId, bare?: boolean) => void;
   onUserPlayback: () => void;
 };
 
@@ -927,10 +929,11 @@ export function PlayerSide(p: Props) {
     if (!m || !n || !events.length) return saved;
     const sorted = [...events].sort((a, b) => a.t - b.t);
     const moments = sorted.map((e) => ({ t: jumpTarget(m, e, lead), name: shortLabel(e, n) }));
-    const { ids, groups } = matchScenesOps(p.state.roster(), p.state.scenes(), p.scene, m, moments, markers(), p.mint, lanes());
+    const { ids, groups, builds } = matchScenesOps(p.state.roster(), p.state.scenes(), p.scene, m, moments, markers(), p.mint, lanes());
     // Chunk whole scenes, remembering which events each transaction carries.
     let i = 0;
     let first: RecordId | undefined;
+    let bare = false;
     // By bytes as well as ops: a scene with its snapshot is most of a transaction (map-state §4.4).
     for (const tx of chunkByBytes(groups)) {
       const inTx: number[] = [];
@@ -942,10 +945,11 @@ export function PlayerSide(p: Props) {
       if (p.state.edit(tx)) {
         for (const k of inTx) saved.add(eventKey(sorted[k]!));
         first ??= ids[inTx[0] ?? 0];
+        bare ||= inTx.some((k) => !builds[k]);
       }
     }
     if (saved.size < events.length) h.setStatus(`Saved ${saved.size} of ${events.length}`);
-    if (first) p.onSaved(first);
+    if (first) p.onSaved(first, bare);
     return saved;
   };
   const jump = (e: MatchEvent, lead: number) => {

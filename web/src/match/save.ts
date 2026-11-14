@@ -42,7 +42,7 @@ export function matchSceneOps(
   mint: () => RecordId,
   lanes: string[] = [],
   opts: SceneOpts = {},
-): { id: RecordId; ops: Op[]; order: string } {
+): { id: RecordId; ops: Op[]; order: string; builds: boolean } {
   const i = current ? scenes.findIndex((s) => s.id === current.id) : scenes.length - 1;
   const id = mint();
   const second = Math.floor(t);
@@ -72,7 +72,9 @@ export function matchSceneOps(
   if (opts.roster !== false) for (const c of rosterChanges(roster, tl)) ops.push({ Set: { id: c.id, value: { RosterHero: c.hero } } });
   // The snapshot (map-state spec §4.4): every hero's build and the scene's state, if the whole
   // save still fits one transaction; else the scene is saved without it, and says nothing of
-  // builds (Retake can add them later, in transactions of its own).
+  // builds (Retake can add them later, in transactions of its own). `builds` tells the caller,
+  // which says so ("Saved without builds"): never silent.
+  let stored = false;
   if (opts.builds !== false && ops.length < LIMITS.max_ops_per_tx) {
     const state: Op = { Create: { id: mint(), record: { SceneState: { scene: id, more: captureScene(tl) } } } };
     const room = LIMITS.max_tx_bytes - TX_SLACK - opsBytes([...ops, state]);
@@ -83,9 +85,10 @@ export function matchSceneOps(
         if (more) heroes[i]!.PlayerState.more = more;
       });
       ops.push(state);
+      stored = true;
     }
   }
-  return { id, ops, order };
+  return { id, ops, order, builds: stored };
 }
 
 /** Bytes kept free in a transaction for what wraps its ops on the wire (the client's id, the
@@ -229,17 +232,19 @@ export function matchScenesOps(
   markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane" | "at">>,
   mint: () => RecordId,
   lanes: string[] = [],
-): { ids: RecordId[]; ops: Op[]; groups: Op[][] } {
+): { ids: RecordId[]; ops: Op[]; groups: Op[][]; builds: boolean[] } {
+  const builds: boolean[] = [];
   const ids: RecordId[] = [];
   const groups: Op[][] = [];
   let after: string | undefined;
   moments.forEach((m, n) => {
     const r = matchSceneOps(roster, scenes, current, tl, m.t, markers, mint, lanes, { name: m.name, ...(after ? { after } : {}), roster: n === 0, source: sourceOf(tl) });
     ids.push(r.id);
+    builds.push(r.builds);
     groups.push(r.ops);
     after = r.order;
   });
-  return { ids, ops: groups.flat(), groups };
+  return { ids, ops: groups.flat(), groups, builds };
 }
 
 /** A timeline's scene source (spec §6b). */

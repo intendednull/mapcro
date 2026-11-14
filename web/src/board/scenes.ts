@@ -4,6 +4,7 @@ import { keyBetween } from "../core/order";
 import type { Op } from "../gen/Op";
 import type { RecordId } from "../gen/RecordId";
 import type { Scene } from "../gen/Scene";
+import { chunkByBytes } from "../match/save";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { canNest } from "./tree";
 import type { BoardState } from "./state";
@@ -35,7 +36,7 @@ function treeOf(state: BoardState) {
  * objectives and lane splits (the next frame of a play usually starts where the last one
  * ended). Ink, arrows and callouts stay.
  */
-export function addSceneOps(state: BoardState, from: SceneRow | undefined, asChild = false, mint = newRecordId, name = ""): { id: RecordId; ops: Op[] } {
+export function addSceneOps(state: BoardState, from: SceneRow | undefined, asChild = false, mint = newRecordId, name = ""): { id: RecordId; ops: Op[]; txs: Op[][] } {
   const { parentOf, kids } = treeOf(state);
   const parent = from ? (asChild ? from.id : (parentOf.get(from.id) ?? null)) : null;
   const sibs = kids(parent);
@@ -52,6 +53,7 @@ export function addSceneOps(state: BoardState, from: SceneRow | undefined, asChi
     },
   ];
   const src = from?.id;
+  const states: Op[] = [];
   for (const [, e] of Object.entries(state.records)) {
     if (e.deleted) continue;
     const r = e.record;
@@ -61,9 +63,12 @@ export function addSceneOps(state: BoardState, from: SceneRow | undefined, asChi
       ops.push({ Create: { id: mint(), record: { ObjectiveState: { ...r.ObjectiveState, scene: id } } } });
     // The snapshot goes with the scene (map-state spec §4.5): its state, and each record's
     // `more` above. Without it the copied values would be stored and never drawn.
-    if ("SceneState" in r && r.SceneState.scene === src) ops.push({ Create: { id: mint(), record: { SceneState: { ...r.SceneState, scene: id } } } });
+    if ("SceneState" in r && r.SceneState.scene === src) states.push({ Create: { id: mint(), record: { SceneState: { ...r.SceneState, scene: id } } } });
   }
-  return { id, ops };
+  // The state last: if the copy takes more than one transaction (twelve builds near a record's
+  // cap are over `max_tx_bytes`), a scene never says it holds builds that aren't written yet.
+  ops.push(...states);
+  return { id, ops, txs: chunkByBytes(ops.map((op) => [op])) };
 }
 
 /**

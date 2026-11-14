@@ -112,6 +112,23 @@ describe("Save as scene's snapshot", () => {
     }
   });
 
+  it("says when the snapshot has no room in the transaction, and saves the scene without it", () => {
+    expect(save(tl).builds).toBe(true);
+    expect(save(tl, { builds: false }).builds).toBe(false);
+    // The save's own records nearly fill a transaction: 230 objectives down, with long keys.
+    const keys = Array.from({ length: 230 }, (_, k) => `walker:amber:lane1:${k}:${"k".repeat(120)}`);
+    const full = { ...match(200), objectives: keys.map((key) => ({ key, kind: "walker", team: "amber", lane: 1, destroyed_s: 5 })) } as unknown as Timeline;
+    const markers = keys.map((key) => ({ key, kind: "walker", team: "amber", lane: "yellow", at: { x: 0, y: 0 } })) as never[];
+    const bare = save(full, {}, LATE_T, markers);
+    expect(bare.builds).toBe(false);
+    expect(bare.ops).toEqual(save(full, { builds: false }, LATE_T, markers).ops);
+    expect(stateOf(bare.ops)).toHaveLength(0);
+    expect(heroesOf(bare.ops).every((h) => h.state.more === undefined)).toBe(true);
+    expect(opsBytes(bare.ops)).toBeLessThanOrEqual(LIMITS.max_tx_bytes - 1024);
+    // Many scenes: each says for itself.
+    expect(matchScenesOps(roster as never, [], undefined, full, [{ t: 1, name: "a" }, { t: LATE_T, name: "b" }], markers, minter(), []).builds).toEqual([true, false]);
+  });
+
   it("many scenes are chunked by bytes, a scene never split", () => {
     const long = match(150);
     const moments = [1, 2, 3, 4].map((t) => ({ t: LATE_T + t, name: `m${t}` }));

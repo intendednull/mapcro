@@ -5,6 +5,9 @@ import { addSceneOps, deleteSceneOps, moveSceneOps, reorderOp, type SceneRow } f
 import { flatten } from "../src/board/tree";
 import type { BoardState } from "../src/board/state";
 import type { Entry } from "../src/gen/Entry";
+import { LIMITS } from "../src/gen/limits";
+import type { Op } from "../src/gen/Op";
+import { opsBytes } from "../src/match/save";
 
 const row = (id: string, order: string, clock: number | null = null, parent: string | null = null): SceneRow => ({ id, scene: { name: id, order, clock, parent } });
 /** Just enough of the board state for scene edits: records and the scene tree. */
@@ -50,6 +53,58 @@ describe("add scene", () => {
     expect(w && "Create" in w && "Wave" in w.Create.record && w.Create.record.Wave).toEqual({ scene: "new0", lane: "lane4", t: 640 });
     const p = rest.find((o) => "Create" in o && "PlayerState" in o.Create.record);
     expect(p && "Create" in p && "PlayerState" in p.Create.record && p.Create.record.PlayerState).toMatchObject({ scene: "new0", pos: { x: 5, y: 6 }, alive: false, souls: 900 });
+  });
+});
+
+describe("a copied snapshot", () => {
+  const hero = (n: number, more?: Record<string, unknown>): Entry => ({ deleted: false, record: { PlayerState: { scene: "b", slot: `s${n}`, pos: { x: n, y: n }, alive: true, placed: true, souls: null, ult_cooldown: null, visible: true, ...(more ? { more } : {}) } } } as Entry);
+  const state = (scene: string, more: Record<string, unknown>): Entry => ({ deleted: false, record: { SceneState: { scene, more } } } as Entry);
+  const mint = () => { let n = 0; return () => `new${n++}`; };
+  const created = (ops: Op[]) => ops.map((o) => ("Create" in o ? o.Create.record : undefined));
+
+  it("copies the scene's state and each hero's `more`, the state last", () => {
+    const records: Record<string, Entry> = {
+      // The state first in the document: it is still the copy's last op.
+      st: state("b", { rows: 11, has_builds: true, build: 6839 }),
+      other: state("a", { rows: 3 }),
+      gone: { ...state("b", { rows: 1 }), deleted: true },
+      p1: hero(1, { hero: 13, items: [1, -1, -1, -1], level: 7 }),
+      p2: hero(2),
+    };
+    const { id, ops, txs } = addSceneOps(fake(list, records), list[1], false, mint());
+    const recs = created(ops);
+    expect(recs.map((r) => Object.keys(r!)[0])).toEqual(["Scene", "PlayerState", "PlayerState", "SceneState"]);
+    expect(recs[3]).toEqual({ SceneState: { scene: id, more: { rows: 11, has_builds: true, build: 6839 } } });
+    expect(recs[1]).toMatchObject({ PlayerState: { scene: id, slot: "s1", more: { hero: 13, items: [1, -1, -1, -1], level: 7 } } });
+    expect("more" in (recs[2] as { PlayerState: object }).PlayerState).toBe(false);
+    // Small: one transaction, one undo step.
+    expect(txs).toEqual([ops]);
+    // A scene with no state copies none.
+    expect(created(addSceneOps(fake(list, records), list[2], false, mint()).ops).map((r) => Object.keys(r!)[0])).toEqual(["Scene"]);
+  });
+
+  it("is sent in transactions within the byte cap when twelve builds are over one", () => {
+    // Each hero's `more` near the record's 8 KiB: twelve are over a transaction's 64 KiB.
+    const big = { build_order: Array.from({ length: 600 }, (_, i) => 4_000_000_000 + i) };
+    expect(JSON.stringify(big).length).toBeGreaterThan(6000);
+    expect(JSON.stringify(big).length).toBeLessThanOrEqual(LIMITS.max_more_bytes);
+    const records: Record<string, Entry> = { st: state("b", { rows: 11, has_builds: true }) };
+    for (let n = 0; n < 12; n++) records[`p${n}`] = hero(n, big);
+    const { id, ops, txs } = addSceneOps(fake(list, records), list[1], false, mint());
+    expect(opsBytes(ops)).toBeGreaterThan(LIMITS.max_tx_bytes);
+    expect(txs.length).toBeGreaterThan(1);
+    expect(txs.flat()).toEqual(ops);
+    // What wraps the ops on the wire (client, cseq) is well under the slack left.
+    for (const tx of txs) expect(opsBytes(tx) + 512).toBeLessThanOrEqual(LIMITS.max_tx_bytes);
+    // The scene is made before anything in it, and says it holds builds only after them.
+    expect(created(txs[0]!)[0]).toMatchObject({ Scene: {} });
+    expect(created(txs.at(-1)!).at(-1)).toEqual({ SceneState: { scene: id, more: { rows: 11, has_builds: true } } });
+    // Many small records: within the op cap too.
+    const many: Record<string, Entry> = {};
+    for (let n = 0; n < 300; n++) many[`o${n}`] = { deleted: false, record: { ObjectiveState: { scene: "b", key: `camp:${n}`, status: "Destroyed" } } } as Entry;
+    const wide = addSceneOps(fake(list, many), list[1], false, mint());
+    expect(wide.txs.length).toBe(2);
+    expect(wide.txs.every((tx) => tx.length <= LIMITS.max_ops_per_tx)).toBe(true);
   });
 });
 

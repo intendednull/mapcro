@@ -343,10 +343,10 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     userFlip(id);
   };
   /** A scene saved from the replay: shown (its drawings moved into it), with a toast to go back. */
-  const savedScene = (id: RecordId) => {
+  const savedScene = (id: RecordId, bare?: boolean) => {
     pickScene(id);
     const n = state.scenes().findIndex((s) => s.id === id) + 1;
-    say(n ? `Saved scene ${n}` : "Scene saved", {
+    say(bare ? "Saved without builds" : n ? `Saved scene ${n}` : "Scene saved", {
       label: "Back to replay",
       run: () => {
         stopFollowing("changed the playback");
