@@ -3,6 +3,26 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## State (2026-11-14 ~01:30 UTC, lead 9eb2516b)
+
+- **Prod:** `web` runs **13d2fd1** (infra 630daec), **schema v8**: the map-state reader (phase 1).
+  Nothing writes the new data yet: 11 rows are `Ahead`, and admission refuses them and
+  `SceneState`. The pre-v8 backup is `/var/lib/mapcro/mapcro.sqlite.pre-v8`.
+  - Two independent Fable reviews passed it.
+  - Before the deploy, a dev database copy (88 boards) loaded on v8, and again on the v7 server
+    after the migration.
+  - `rows.lock` (11 rows) is committed (6b9b4d1), so phase 2 may flip them `Live`.
+- **Also deployed earlier:** 3d30bb8 (#52 Feedback beside Share, #53 right-click a token for its hero
+  menu); both issues closed. Desktop 0.2.3 is published; #47 is closed.
+- **Running:**
+  - Phase 2 (Fable, high; the operator's exception for map state) in worktree `map-state-p2`.
+    It builds builds end to end and fixes #49, plus review items F3, F4, TD-80 and the browser edit
+    cost.
+  - Mobile QA (Fable, medium) in worktree `mobile-qa`, from the operator's phone screenshot:
+    empty roster portraits, names over souls, the clock over Events.
+- **Copying the prod database off the box is blocked** (user data). Check against a dev database
+  copy instead.
+
 ## State (2026-11-13 ~22:40 UTC, new lead 9eb2516b)
 
 - **Prod:** `web` runs **0bb907d** (infra 8700e14), the former `ready-to-deploy` branch, now
