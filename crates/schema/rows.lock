@@ -11,3 +11,7 @@ build_order hero ints 600 -1 4294967295
 level hero int 0 1000
 health hero int 0 100
 pickups hero ints 16 -1000000000 1000000000
+kills hero int 0 100000
+deaths hero int 0 100000
+assists hero int 0 100000
+max_health hero int 0 10000000
