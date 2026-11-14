@@ -16,7 +16,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Browser, type Page, expect, test } from "./fixtures";
-import { dragToken, gesture, joinNew, mapPoint, revealControls, tokenAt, viewOf } from "./helpers";
+import { dragToken, gesture, joinNew, mapPoint, revealControls, setSpeed, tokenAt, viewOf } from "./helpers";
 import { Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 
 const queue = mkdtempSync(join(tmpdir(), "mapcro-e2e-session-iso-"));
@@ -315,7 +315,7 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
   await me.getByTestId("heals-toggle").click();
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
-  await me.getByTestId("match-speed").selectOption("2");
+  await setSpeed(me, "2");
   await go(0);
   // A opens as it was left (§4.2): its own match, still playing from where it was, at its own
   // speed, with the layers set there (Heals on, though B turned it off since).
@@ -323,7 +323,7 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   await expect(me.getByTestId("player")).toHaveAttribute("data-state", "match");
   await expect(me.getByTestId("match-play")).toHaveText("Pause");
   await expect(me.getByTestId("match-clock")).not.toHaveText("2:00 / 2:00");
-  await expect(me.getByTestId("match-speed")).toHaveValue("1");
+  await expect(me.getByTestId("match-speed")).toHaveAttribute("data-speed", "1");
   await revealControls(me, "heals-toggle");
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
   // Paused somewhere, and left for a scene: back on A, it's on the scene, the match held where it was.
@@ -336,7 +336,7 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   await go(1);
   // B as it was left: paused at its own place, at 2x, Heals off.
   await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
-  await expect(me.getByTestId("match-speed")).toHaveValue("2");
+  await expect(me.getByTestId("match-speed")).toHaveAttribute("data-speed", "2");
   await revealControls(me, "heals-toggle");
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
   await go(0);

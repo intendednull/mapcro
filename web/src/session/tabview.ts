@@ -175,6 +175,6 @@ export function withOwn(own: TabOwn, key: string, value: unknown): TabOwn {
 /** The Player part of a view, as the Player host takes it (player/host.ts `PlayerRemembered`). */
 export function playerPart(view: TabView | undefined): Pick<TabView, "mode" | "match" | "t" | "playing" | "speed" | "layers" | "vision" | "lastSeen"> {
   if (!view) return {};
-  const { board: _board, at: _at, scene: _scene, view: _view, viewpoint: _viewpoint, side: _side, ...player } = view;
+  const { board: _board, at: _at, scene: _scene, view: _view, viewpoint: _viewpoint, ...player } = view;
   return player;
 }
