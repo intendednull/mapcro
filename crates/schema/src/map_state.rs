@@ -584,7 +584,9 @@ mod tests {
         assert!(lock_mode(Some("1"), Some("def456"), head).is_err(), "another commit's token");
         assert!(lock_mode(Some("1"), Some("abc123"), || None).is_err(), "no repository to check it against");
         assert_eq!(lock_mode(Some("1"), Some("abc123"), head), Ok(true));
-        assert!(git_head().is_some_and(|h| h.len() >= 40 && h.chars().all(|c| c.is_ascii_hexdigit())), "this test runs in the repository");
+        // Outside a checkout (a copied tree, a tarball) there is no commit to name: nothing
+        // locks there, and the tests still run.
+        assert!(git_head().is_none_or(|h| h.len() >= 40 && h.chars().all(|c| c.is_ascii_hexdigit())));
     }
 
     #[test]
