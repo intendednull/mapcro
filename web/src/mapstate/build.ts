@@ -119,17 +119,21 @@ export function heroBuildAt(tl: Pick<Timeline, "events" | "players" | "format">,
 }
 
 const jsonLen = (more: More) => new TextEncoder().encode(JSON.stringify(more)).length;
+/** A `more`'s size as the server counts it against `max_more_bytes`: its JSON, in bytes. */
+export const moreBytes = jsonLen;
 
-/** A build as the hero record's `more`: the rows this build writes, within one record's cap
- * (`max_more_bytes`). Over it, the build order loses its oldest rows first. */
-export function captureBuild(build: HeroBuild): More {
+/** A build as the hero record's `more`: the rows this build writes, within `budget` bytes of
+ * JSON (at most one record's cap, `max_more_bytes`; less when a save's twelve must share one
+ * transaction). Over it, the build order loses its oldest rows first; what is left may still be
+ * over a small budget, which the caller checks (`moreBytes`). */
+export function captureBuild(build: HeroBuild, budget: number = LIMITS.max_more_bytes): More {
   const more: More = {};
   for (const key of Object.keys(HERO) as HeroKey[]) {
     if (ROWS[key].index >= WRITTEN) continue;
     const v = HERO[key].put(build);
     if (v !== undefined) more[key] = v;
   }
-  while (jsonLen(more) > LIMITS.max_more_bytes) {
+  while (jsonLen(more) > Math.min(budget, LIMITS.max_more_bytes)) {
     const order = more.build_order as number[] | undefined;
     if (!order?.length) { delete more.build_order; break; }
     more.build_order = order.slice(Math.ceil(order.length / ORDER / 2) * ORDER);

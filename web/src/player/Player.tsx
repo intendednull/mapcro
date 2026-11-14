@@ -13,7 +13,7 @@ import type { RecordId } from "../gen/RecordId";
 import type { Op } from "../gen/Op";
 import { type MatchEvent, clockLabel, playersAt, tierOf } from "../match/timeline";
 import { UltRing } from "../match/preview";
-import { matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
+import { chunkByBytes, matchSceneOps, matchScenesOps, slotKey, sourceOf } from "../match/save";
 import { MAX_OPS_PER_TX, chunks, clearAnnotationsOps, copyAnnotationsOps, ensureLiveOps, liveIds, takeAnnotationsOps } from "./live";
 import { FETCH_WHY, busy, jobLabel, queueLabel, staleUpload } from "./api";
 import { PROMPT, noticeFor, sizeLabel } from "./notice";
@@ -868,7 +868,8 @@ export function EventPings(p: { host: PlayerHost; art: Art; vp: "amber" | "sapph
  * (the board learned of it after you opened it).
  */
 export function PlayerSwitch(p: { host: PlayerHost; state: BoardState; onSwitch: () => void }) {
-  const peerMatch = () => p.state.peerList().find((x) => x.state?.playback)?.state?.playback?.match_id;
+  // A peer's match, not the 0 of one with none (in Player before a match, or on a scene with a build open).
+  const peerMatch = () => p.state.peerList().find((x) => x.state?.playback?.match_id)?.state?.playback?.match_id;
   const target = () => p.host.matchId() ?? (peerMatch() !== undefined ? String(peerMatch()) : undefined);
   return (
     <Show when={target() || p.state.canEdit()}>
@@ -930,7 +931,8 @@ export function PlayerSide(p: Props) {
     // Chunk whole scenes, remembering which events each transaction carries.
     let i = 0;
     let first: RecordId | undefined;
-    for (const tx of chunks(groups, MAX_OPS_PER_TX)) {
+    // By bytes as well as ops: a scene with its snapshot is most of a transaction (map-state §4.4).
+    for (const tx of chunkByBytes(groups)) {
       const inTx: number[] = [];
       let count = 0;
       while (i < groups.length && count + groups[i]!.length <= tx.length) {

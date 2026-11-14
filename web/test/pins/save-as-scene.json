@@ -34,7 +34,36 @@
        "placed": true,
        "souls": 1250,
        "ult_cooldown": 50,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 10,
+        "items": [
+         9000,
+         -1,
+         -1,
+         -1,
+         9100,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7000,
+         2,
+         20,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9000,
+         0,
+         15,
+         9100,
+         0
+        ],
+        "health": 60
+       }
       }
      }
     }
@@ -54,7 +83,36 @@
        "placed": true,
        "souls": 1350,
        "ult_cooldown": 51,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 11,
+        "items": [
+         9001,
+         -1,
+         -1,
+         -1,
+         9101,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7001,
+         2,
+         20,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9001,
+         0,
+         15,
+         9101,
+         0
+        ],
+        "health": 60
+       }
       }
      }
     }
@@ -74,7 +132,36 @@
        "placed": true,
        "souls": 1450,
        "ult_cooldown": 52,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 12,
+        "items": [
+         9002,
+         -1,
+         -1,
+         -1,
+         9102,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7002,
+         2,
+         20,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9002,
+         0,
+         15,
+         9102,
+         0
+        ],
+        "health": 60
+       }
       }
      }
     }
@@ -94,7 +181,36 @@
        "placed": true,
        "souls": 1550,
        "ult_cooldown": 53,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 13,
+        "items": [
+         9003,
+         -1,
+         -1,
+         -1,
+         9103,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7003,
+         2,
+         20,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9003,
+         0,
+         15,
+         9103,
+         0
+        ],
+        "health": 60
+       }
       }
      }
     }
@@ -114,7 +230,36 @@
        "placed": true,
        "souls": 1650,
        "ult_cooldown": 54,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 14,
+        "items": [
+         9004,
+         -1,
+         -1,
+         -1,
+         9104,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7004,
+         2,
+         20,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9004,
+         0,
+         15,
+         9104,
+         0
+        ],
+        "health": 60
+       }
       }
      }
     }
@@ -134,7 +279,36 @@
        "placed": true,
        "souls": 1750,
        "ult_cooldown": 55,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 15,
+        "items": [
+         9005,
+         -1,
+         -1,
+         -1,
+         9105,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7005,
+         2,
+         20,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9005,
+         0,
+         15,
+         9105,
+         0
+        ],
+        "health": 60
+       }
       }
      }
     }
@@ -154,7 +328,36 @@
        "placed": true,
        "souls": 1850,
        "ult_cooldown": 56,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 16,
+        "items": [
+         9006,
+         -1,
+         -1,
+         -1,
+         9106,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7006,
+         2,
+         20,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9006,
+         0,
+         15,
+         9106,
+         0
+        ],
+        "health": 60
+       }
       }
      }
     }
@@ -174,7 +377,36 @@
        "placed": true,
        "souls": 1950,
        "ult_cooldown": 57,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 17,
+        "items": [
+         9007,
+         -1,
+         -1,
+         -1,
+         9107,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7007,
+         2,
+         20,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9007,
+         0,
+         15,
+         9107,
+         0
+        ],
+        "health": 60
+       }
       }
      }
     }
@@ -194,7 +426,35 @@
        "placed": false,
        "souls": 2050,
        "ult_cooldown": 58,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 18,
+        "items": [
+         9008,
+         -1,
+         -1,
+         -1,
+         9108,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7008,
+         2,
+         20,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9008,
+         0,
+         15,
+         9108,
+         0
+        ]
+       }
       }
      }
     }
@@ -214,7 +474,36 @@
        "placed": true,
        "souls": 2150,
        "ult_cooldown": 59,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 19,
+        "items": [
+         9009,
+         -1,
+         -1,
+         -1,
+         9109,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7009,
+         2,
+         20,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9009,
+         0,
+         15,
+         9109,
+         0
+        ],
+        "health": 60
+       }
       }
      }
     }
@@ -234,7 +523,36 @@
        "placed": true,
        "souls": 2250,
        "ult_cooldown": 60,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 20,
+        "items": [
+         9010,
+         -1,
+         -1,
+         -1,
+         9110,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7010,
+         2,
+         20,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9010,
+         0,
+         15,
+         9110,
+         0
+        ],
+        "health": 60
+       }
       }
      }
     }
@@ -254,7 +572,36 @@
        "placed": true,
        "souls": 2350,
        "ult_cooldown": 61,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 21,
+        "items": [
+         9011,
+         -1,
+         -1,
+         -1,
+         9111,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7011,
+         2,
+         20,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9011,
+         0,
+         15,
+         9111,
+         0
+        ],
+        "health": 60
+       }
       }
      }
     }
@@ -390,6 +737,21 @@
       "RosterHero": 21
      }
     }
+   },
+   {
+    "Create": {
+     "id": "id20",
+     "record": {
+      "SceneState": {
+       "scene": "id0",
+       "more": {
+        "rows": 11,
+        "has_builds": true,
+        "build": 6839
+       }
+      }
+     }
+    }
    }
   ],
   "order": "i"
@@ -429,7 +791,40 @@
        "placed": true,
        "souls": 1250,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 10,
+        "items": [
+         9100,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7000,
+         2,
+         10,
+         -1,
+         -1,
+         7100,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9000,
+         0,
+         15,
+         9100,
+         0,
+         25,
+         9000,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -449,7 +844,40 @@
        "placed": true,
        "souls": 1350,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 11,
+        "items": [
+         9101,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7001,
+         2,
+         10,
+         -1,
+         -1,
+         7101,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9001,
+         0,
+         15,
+         9101,
+         0,
+         25,
+         9001,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -469,7 +897,40 @@
        "placed": true,
        "souls": 1450,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 12,
+        "items": [
+         9102,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7002,
+         2,
+         10,
+         -1,
+         -1,
+         7102,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9002,
+         0,
+         15,
+         9102,
+         0,
+         25,
+         9002,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -489,7 +950,39 @@
        "placed": true,
        "souls": 1550,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 13,
+        "items": [
+         9103,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7003,
+         2,
+         10,
+         -1,
+         -1,
+         7103,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9003,
+         0,
+         15,
+         9103,
+         0,
+         25,
+         9003,
+         1
+        ]
+       }
       }
      }
     }
@@ -509,7 +1002,40 @@
        "placed": true,
        "souls": 1650,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 14,
+        "items": [
+         9104,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7004,
+         2,
+         10,
+         -1,
+         -1,
+         7104,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9004,
+         0,
+         15,
+         9104,
+         0,
+         25,
+         9004,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -529,7 +1055,40 @@
        "placed": true,
        "souls": 1750,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 15,
+        "items": [
+         9105,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7005,
+         2,
+         10,
+         -1,
+         -1,
+         7105,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9005,
+         0,
+         15,
+         9105,
+         0,
+         25,
+         9005,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -549,7 +1108,40 @@
        "placed": true,
        "souls": 1850,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 16,
+        "items": [
+         9106,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7006,
+         2,
+         10,
+         -1,
+         -1,
+         7106,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9006,
+         0,
+         15,
+         9106,
+         0,
+         25,
+         9006,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -569,7 +1161,40 @@
        "placed": true,
        "souls": 1950,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 17,
+        "items": [
+         9107,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7007,
+         2,
+         10,
+         -1,
+         -1,
+         7107,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9007,
+         0,
+         15,
+         9107,
+         0,
+         25,
+         9007,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -589,7 +1214,39 @@
        "placed": false,
        "souls": 2050,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 18,
+        "items": [
+         9108,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7008,
+         2,
+         10,
+         -1,
+         -1,
+         7108,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9008,
+         0,
+         15,
+         9108,
+         0,
+         25,
+         9008,
+         1
+        ]
+       }
       }
      }
     }
@@ -609,7 +1266,40 @@
        "placed": true,
        "souls": 2150,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 19,
+        "items": [
+         9109,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7009,
+         2,
+         10,
+         -1,
+         -1,
+         7109,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9009,
+         0,
+         15,
+         9109,
+         0,
+         25,
+         9009,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -629,7 +1319,40 @@
        "placed": true,
        "souls": 2250,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 20,
+        "items": [
+         9110,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7010,
+         2,
+         10,
+         -1,
+         -1,
+         7110,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9010,
+         0,
+         15,
+         9110,
+         0,
+         25,
+         9010,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -649,7 +1372,40 @@
        "placed": true,
        "souls": 2350,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 21,
+        "items": [
+         9111,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7011,
+         2,
+         10,
+         -1,
+         -1,
+         7111,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9011,
+         0,
+         15,
+         9111,
+         0,
+         25,
+         9011,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -797,6 +1553,21 @@
       "RosterHero": 21
      }
     }
+   },
+   {
+    "Create": {
+     "id": "id21",
+     "record": {
+      "SceneState": {
+       "scene": "id0",
+       "more": {
+        "rows": 11,
+        "has_builds": true,
+        "build": 6839
+       }
+      }
+     }
+    }
    }
   ],
   "order": "i"
@@ -836,7 +1607,40 @@
        "placed": true,
        "souls": 1250,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 10,
+        "items": [
+         9100,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7000,
+         2,
+         10,
+         -1,
+         -1,
+         7100,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9000,
+         0,
+         15,
+         9100,
+         0,
+         25,
+         9000,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -856,7 +1660,40 @@
        "placed": true,
        "souls": 1350,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 11,
+        "items": [
+         9101,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7001,
+         2,
+         10,
+         -1,
+         -1,
+         7101,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9001,
+         0,
+         15,
+         9101,
+         0,
+         25,
+         9001,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -876,7 +1713,40 @@
        "placed": true,
        "souls": 1450,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 12,
+        "items": [
+         9102,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7002,
+         2,
+         10,
+         -1,
+         -1,
+         7102,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9002,
+         0,
+         15,
+         9102,
+         0,
+         25,
+         9002,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -896,7 +1766,39 @@
        "placed": true,
        "souls": 1550,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 13,
+        "items": [
+         9103,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7003,
+         2,
+         10,
+         -1,
+         -1,
+         7103,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9003,
+         0,
+         15,
+         9103,
+         0,
+         25,
+         9003,
+         1
+        ]
+       }
       }
      }
     }
@@ -916,7 +1818,40 @@
        "placed": true,
        "souls": 1650,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 14,
+        "items": [
+         9104,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7004,
+         2,
+         10,
+         -1,
+         -1,
+         7104,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9004,
+         0,
+         15,
+         9104,
+         0,
+         25,
+         9004,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -936,7 +1871,40 @@
        "placed": true,
        "souls": 1750,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 15,
+        "items": [
+         9105,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7005,
+         2,
+         10,
+         -1,
+         -1,
+         7105,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9005,
+         0,
+         15,
+         9105,
+         0,
+         25,
+         9005,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -956,7 +1924,40 @@
        "placed": true,
        "souls": 1850,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 16,
+        "items": [
+         9106,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7006,
+         2,
+         10,
+         -1,
+         -1,
+         7106,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9006,
+         0,
+         15,
+         9106,
+         0,
+         25,
+         9006,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -976,7 +1977,40 @@
        "placed": true,
        "souls": 1950,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 17,
+        "items": [
+         9107,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7007,
+         2,
+         10,
+         -1,
+         -1,
+         7107,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9007,
+         0,
+         15,
+         9107,
+         0,
+         25,
+         9007,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -996,7 +2030,39 @@
        "placed": false,
        "souls": 2050,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 18,
+        "items": [
+         9108,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7008,
+         2,
+         10,
+         -1,
+         -1,
+         7108,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9008,
+         0,
+         15,
+         9108,
+         0,
+         25,
+         9008,
+         1
+        ]
+       }
       }
      }
     }
@@ -1016,7 +2082,40 @@
        "placed": true,
        "souls": 2150,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 19,
+        "items": [
+         9109,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7009,
+         2,
+         10,
+         -1,
+         -1,
+         7109,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9009,
+         0,
+         15,
+         9109,
+         0,
+         25,
+         9009,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -1036,7 +2135,40 @@
        "placed": true,
        "souls": 2250,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 20,
+        "items": [
+         9110,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7010,
+         2,
+         10,
+         -1,
+         -1,
+         7110,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9010,
+         0,
+         15,
+         9110,
+         0,
+         25,
+         9010,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -1056,7 +2188,40 @@
        "placed": true,
        "souls": 2350,
        "ult_cooldown": 25,
-       "visible": true
+       "visible": true,
+       "more": {
+        "hero": 21,
+        "items": [
+         9111,
+         -1,
+         2,
+         3
+        ],
+        "abilities": [
+         7011,
+         2,
+         10,
+         -1,
+         -1,
+         7111,
+         1,
+         -1,
+         -1,
+         -1
+        ],
+        "build_order": [
+         5,
+         9011,
+         0,
+         15,
+         9111,
+         0,
+         25,
+         9011,
+         1
+        ],
+        "health": 75
+       }
       }
      }
     }
@@ -1130,6 +2295,21 @@
      "id": "slot-11",
      "value": {
       "RosterHero": 21
+     }
+    }
+   },
+   {
+    "Create": {
+     "id": "id15",
+     "record": {
+      "SceneState": {
+       "scene": "id0",
+       "more": {
+        "rows": 11,
+        "has_builds": true,
+        "build": 6839
+       }
+      }
      }
     }
    }
