@@ -224,6 +224,8 @@ its life today.
   heroes without their `more` (a scene with fewer is refused whole, `IncompleteScene`); each
   hero's `more` follows as `Set More`, then the other records, and the `SceneState` last. If
   the first is refused nothing is made and the view stays where it was.
+- **Both carry the scene's `source`** (the match, moment and tier the snapshot was taken at): the
+  copy has its ▶ chip, can be retaken, and reads its names from that match (D1).
 - **A board with no room for the whole new scene gets none of it.** The client counts the
   board's records (deleted ones too) plus the copy's before sending: over `max_records`,
   nothing is sent, the view stays, and the page says "Board full". Without it a copy in
@@ -323,6 +325,23 @@ selects; the build opens from the portrait's build control in both. The phone la
 - **Three clocks in Player:** per frame (places, eased numbers), per tenth (sight, CC, effects,
   casts, which are tenth-of-a-second series), per second (the rest). Marker timers stay computed
   on hover.
+  - **Built (phase 3, `web/src/mapstate/frame.ts`):** `previewAt` is the frame's definition,
+    everything at t. `playerFrame` gives the same from the clocks, and `host.second` is the
+    second's clock for other readers (the top bar's heroes and Rejuvenator).
+
+    | Clock | What |
+    |---|---|
+    | Second | A hero's souls, ult, health, height and zipline; objectives down, shops, rifts' and powerups' sites, lanes, camps, powerups, objectives' health, the Rejuvenator |
+    | Tenth | Who is in the enemy's sight (the scan of `seen`), CC |
+    | Frame | Places, respawn times, how long ago a ghost was seen, the urn, a rift's capture, skulls |
+
+  - **The rule for a new feature:** the slowest clock its data allows, with a line in
+    `frame-clocks.test.ts`, which compares the clocked frame with the definition at every t it
+    tries (and on a real timeline given by `MAPCRO_TIMELINE`). Measured on two real matches,
+    computing the map's frame and the bar's heroes late in the match went from 0.69 and 1.04 ms
+    a frame to 0.04 and 0.07 (node, unthrottled).
+  - **Not on a clock yet:** an open build column's `buildAt` (cooldowns are tenths; its equality
+    memos stop the redraw, not the computation), and the hero panel's sight check.
 - **The bound is on consumers:** a component reruns only when a value it reads changes. Each
   entity's fields are memos keyed by slot or marker with an equality check.
 - **A scene is static:** its `MapState` changes only when a record does.

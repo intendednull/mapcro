@@ -90,6 +90,33 @@ describe("a copy of a scene (#54)", () => {
   });
 });
 
+describe("where a scene was saved from", () => {
+  const source = { match_id: 129000149, t: 754, tier: "replay" };
+  const from: SceneRow = { id: "b", scene: { name: "b", order: "i", clock: 760, parent: null, source } };
+  const sceneOf = (ops: Op[]) => (ops[0] && "Create" in ops[0] && "Scene" in ops[0].Create.record ? ops[0].Create.record.Scene : undefined);
+
+  it("goes with a copy and with a new scene from it: the same match, moment and tier", () => {
+    const st = fake([list[0]!, from, list[2]!]);
+    const copy = sceneOf(addSceneOps(st, from, false, () => "n", "b copy", true).ops);
+    expect(copy).toEqual({ name: "b copy", order: copy!.order, clock: 760, source });
+    // A value of its own, not the scene's object.
+    expect(copy!.source).not.toBe(source);
+    expect(sceneOf(addSceneOps(st, from, false, () => "n").ops)?.source).toEqual(source);
+    // As a child too.
+    expect(sceneOf(addSceneOps(st, from, true, () => "n").ops)).toMatchObject({ source, parent: "b" });
+  });
+
+  it("a scene with none makes a record with no `source` at all", () => {
+    for (const ink of [false, true]) {
+      const s = sceneOf(addSceneOps(fake(list), list[1], false, () => "n", "", ink).ops);
+      expect(s).toBeDefined();
+      expect("source" in s!).toBe(false);
+    }
+    // And the first scene of a board: nothing to start from.
+    expect("source" in sceneOf(addSceneOps(fake([]), undefined, false, () => "n").ops)!).toBe(false);
+  });
+});
+
 describe("a board with no room for the whole new scene", () => {
   const hero = (n: number): Entry => ({ deleted: false, record: { PlayerState: { scene: "b", slot: `s${n}`, pos: { x: n, y: n }, alive: true, placed: true, souls: null, ult_cooldown: null, visible: true } } });
   /** A board of `n` records: scene b's two heroes and a stroke, the rest filler (some deleted). */
