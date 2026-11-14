@@ -19,6 +19,36 @@ a queued job applies (below).
 | `95c6aad` | Save stores the builds and a `SceneState`; Retake's ops; `chunkByBytes`; the build interface `mapstate/buildView.ts`; the Save pin moved by decision | `tsc`; `map-state-save` 9 tests, `map-state-build` 8, `map-state-pins` 5 |
 | `76dbad5` | `BuildColumn`, `BuildOrder`, `HeroCard`, both bars on `BuildView`; the scene bar's builds, All builds, hold-Tab; the Retake button; panel follow on scenes (`host.ts`); `web/e2e/scene-builds.spec.ts` | `tsc` only |
 
+### The review of `6a0d391`: F1 done, F2 to F4 NOT started (do F2 before anything else ships)
+
+The lead relayed an adversarial review of the server-side release late in the session.
+
+- **F1, done: `408a7bb`, branch `map-state-f1` on top of `6a0d391`** (merged here). A board
+  file's `rows` was `ROWS.len()` (15); the reader `13d2fd1` refuses a file above its 11 as
+  Newer, so no export made after the writer's deploy imported after a rollback. Now
+  `mapcro_schema::written_rows()` (the first `Ahead` row's index). A server test holds the
+  header; `just reader-check` holds that the reader's registry covers it. **Committed before
+  its tests could run** (the gate held the box); `/tmp/mapcro-p2-f1.log` has the run if it
+  finished. It does not run the reader's own `boardfile::read` (the server has no library
+  target).
+- **F2, not started, must precede any release that calls `captureBuild`** (Save calls it since
+  `95c6aad`; the layout is permanent once written). `mapstate/build.ts` stores `pickups` with
+  `Math.round(n)`, but the timeline's pickups are f32 and the resists move in quarters: on match
+  134623152, 15,508 frames differ from Player's `statBuild`, the largest error 0.5. **Store
+  hundredths** (`Math.round(n * 100)` in `put`, `/ 100` in `get`; within the row's ±1e9 bound),
+  give `map-state-build.test.ts`'s fixture fractional pickups, and say so in the spec's packing
+  note. `statOf` then gives Player's exact input.
+- **F3, not started:** no test covers `addSceneOps` copying `SceneState` (deleting the line in
+  `board/scenes.ts` passes everything). Duplicate is one transaction with no byte check: twelve
+  heroes near the 8 KiB cap exceed `max_tx_bytes`. Add the test; chunk with
+  `match/save.ts` `chunkByBytes` (the scene and its heroes first, the state last) or note why not.
+- **F4, not started:** the list caps in `build.ts` are untested (removing the 32-item cap passes
+  the 8 tests). `abilities` holds 9 entries and the match maximum is 7: thin headroom, to note
+  in the spec. `map-state-save.test.ts` does assert `items!.slice(0, 32)` on a save, which is a
+  start, not the cap's own test.
+- **Deploy note for the next release:** when `UNFIT_UNDO` goes `Live`, clients must be on a
+  build that skips it (the build id forces the reload). Add the line to `docs/deploy.md`.
+
 ### The lead's decisions this follows
 
 Release plan (the server side to `6a0d391` ships first; this client work ships in the release
