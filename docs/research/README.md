@@ -400,7 +400,10 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   Tenths: `seen`, `cc`, `effects`, `casts`, `charges`, `stacks`, `items` and a rift's `capture`.
   Player's frame rests on it (`web/src/mapstate/frame.ts`: the second's part is asked once a
   second); `web/test/frame-clocks.test.ts` holds it, and on a real timeline with
-  `MAPCRO_TIMELINE=<file>` (it prints counts only).
+  `MAPCRO_TIMELINE=<file>` (it prints counts only). The same test holds a hero's build on the
+  clocks: `buildAt` at the middle of t's tenth shows what `buildAt` at t shows, and the stats'
+  input and the scoreboard's values (kills, assists, level, max health) at `floor(t)` are those
+  at t: 0 of 27,540 and 28,548 hero-frames differ on the two matches (2026-11-14).
 
 ## Keeping this current
 

@@ -103,7 +103,10 @@ describe("map state, as it is before MapState (phase 0 pins)", () => {
     expect(players).toHaveLength(12);
     expect(players[3]).toMatchObject({ alive: false, placed: true, visible: true });
     expect(players[8]).toMatchObject({ alive: false, placed: false, pos: { x: 0, y: 0 } });
-    expect(players.every((p) => p.visible === true && p.respawn === undefined)).toBe(true);
+    // D4, as built (phase 4): a dead hero keeps its respawn time when the match has one. Sight
+    // is still one flag, set for all.
+    expect(players.every((p) => p.visible === true)).toBe(true);
+    expect(players.filter((p) => p.alive).every((p) => p.respawn === undefined)).toBe(true);
     // Six slots had no hero: Save sets the board's roster to the match's.
     expect(ops.filter((o) => "Set" in o && "RosterHero" in o.Set.value)).toHaveLength(6);
     // Phase 2 (spec §8): the frame's builds are stored too, on the heroes' records, with one

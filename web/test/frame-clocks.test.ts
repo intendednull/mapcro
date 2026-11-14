@@ -14,21 +14,21 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("solid-js", async () => await import(/* @vite-ignore */ "solid-js/dist/" + "solid.js"));
 
 import { readFileSync } from "node:fs";
-import { createRoot, createSignal } from "solid-js";
-import { FALLBACK } from "../src/map/fallback-data";
-import { modelFromFallback } from "../src/map/model";
-import { type FrameMarkers, type Shown, heroesAt, playerFrame, previewAt } from "../src/mapstate/frame";
+import { createComputed, createRoot, createSignal } from "solid-js";
+import { type FrameMarkers, type Shown, heroesAt, previewAt, savedPart, secondPart, tenthPart } from "../src/mapstate/frame";
+import { FEATURES, type PlayerState, featuresOf, fromTimeline, markerFrame, playerFrame, sameValue, urnOf } from "../src/mapstate/state";
+import { buildAt } from "../src/match/builds";
+import { statBuild } from "../src/match/stats";
+import { sameBuild, sameStatBuild, tenthOf } from "../src/player/buildState";
 import type { MatchPreview } from "../src/match/preview";
-import { slotKey } from "../src/match/save";
-import { type CampAt, type PowerupAt, type RiftAt, type Timeline, type TimelinePlayer, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, riftAt, shopsClosed, sitesAt, urnAt } from "../src/match/timeline";
+import { matchSceneOps, slotKey } from "../src/match/save";
+import { type CampAt, type PowerupAt, type RiftAt, type Timeline, type TimelinePlayer, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, riftAt, scoreboardValueAt, shopsClosed, sitesAt, urnAt } from "../src/match/timeline";
 import { crowdControlAt } from "../src/player/cc";
 import { movementAt } from "../src/player/movement";
-import { skullsAt } from "../src/player/skulls";
+import { deathSeen, skullsAt } from "../src/player/skulls";
 import { hasVision, seenAt } from "../src/player/vision";
 
-const model = modelFromFallback(FALLBACK);
-const markers: FrameMarkers = model.markers;
-const keyOf = (kind: string, n = 0) => markers.filter((m) => m.kind === kind)[n]!.key;
+import { N, keyOf, markers, metadata, model, replay } from "./support/synthetic-match";
 
 /** `host.preview` as it was before the clocks (a0774c5), with the viewer's choices as `shown`. */
 function before(m: Timeline, at: number, shown: Shown, fade: boolean): MatchPreview {
@@ -70,69 +70,6 @@ function before(m: Timeline, at: number, shown: Shown, fade: boolean): MatchPrev
   return { fade, skulls, players, down, shops: shopsClosed(down, markers), sites: sitesAt(m, at, markers), lanes: lanesAt(m, at), camps, rifts, powerups, ...(health ? { health: byMarker(objectiveHealthAt(m, at)) } : {}), ...(urn ? { urn } : {}), ...(m.rejuv ? { rejuv: rejuvAt(m, at) } : {}) } as MatchPreview;
 }
 
-const N = 12; // seconds
-const hero = (team: "amber" | "sapphire", slot: number): TimelinePlayer => {
-  const i = (team === "amber" ? 0 : 6) + slot;
-  const dies = i === 3 || i === 9;
-  const at = (k: number) => (dies && k >= 5 && k < 8 ? null : (team === "amber" ? -1 : 1) * (1000 + 700 * slot) + 150 * k);
-  const secs = Array.from({ length: N + 1 }, (_, k) => k);
-  return {
-    team, slot, hero_id: 10 + i, name: "",
-    x: secs.map(at), y: secs.map((k) => (at(k) === null ? null : 300 * slot - 80 * k)),
-    health: secs.map((k) => (dies && k >= 5 && k < 8 ? 0 : 100 - 5 * k)), deaths: dies ? [5] : [],
-    respawn: dies ? [[5, 7.5]] : [],
-    souls: [[0, 400 + 10 * i], [2, 1250 + 100 * i], [9, 4000]],
-    ult: secs.map((k) => (k === 0 ? null : Math.max(0, 100 - 20 * k))),
-    // In the enemy's sight in bursts that start and end mid-second, off the tenth for one.
-    seen: i % 2 ? [[5 + i, 23], [41, 67], [88, 120]] : [[0, 14], [30 + i, 52], [95, 101]],
-    cc: [[12 + i, 19 + i, 20, 255, 0], [55, 58, 17, 255, 0], [71, 90, 14, 255, 0]],
-    height: [[0, 0], [3, 1], [6, 2], [10, 0]],
-    zipline: [[2, 4], [8, 11]],
-  } as TimelinePlayer;
-};
-
-const replay = (): Timeline =>
-  ({
-    match_id: 9, start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6839, format: 10, reanchored: 0,
-    players: (["amber", "sapphire"] as const).flatMap((team) => [0, 1, 2, 3, 4, 5].map((slot) => hero(team, slot))),
-    objectives: [
-      { key: "walker:amber:lane1:1", kind: "walker", team: "amber", lane: 1, destroyed_s: 6 },
-      { key: "guardian:sapphire:lane4", kind: "guardian", team: "sapphire", lane: 4, destroyed_s: 3 },
-    ],
-    mid_boss: [],
-    rifts: [
-      { key: keyOf("koth"), start_s: 1, live_s: 2, end_s: 5, give_up_s: 5, capture: [[20, 0, 0], [33, 40, 10], [47, 90, 35]] },
-      { key: keyOf("koth", 1), start_s: 7, live_s: 8, end_s: 11, capture: [[80, 0, 0], [105, 20, 80]] },
-    ],
-    powerups: [
-      { key: keyOf("powerup"), available: [0, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1], stale: [], spawns: [{ t: 1, buff: "gun", taken_s: 3 }, { t: 6, buff: "spirit", taken_s: 9 }, { t: 12, buff: "gun" }] },
-      { key: keyOf("powerup", 1), available: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], stale: [[2, 5]] },
-    ],
-    zips: [{ lane: "lane1", at: [[0, 500, 500]] }, { lane: "lane4", at: [[0, 425, 574], [2, 480, 520], [7, 300, 300]] }, { lane: "lane6", at: [[0, 0, 1000], [3, 640, 700]] }],
-    camps: [
-      { key: keyOf("camp", 3), first_s: 1, cleared: [[2, 4], [9, 400]] },
-      { key: keyOf("midboss"), first_s: 0, cleared: [[3, 400]] },
-    ],
-    objective_health: [
-      { key: "walker:amber:lane1:1", at: [[0, 100], [2, 80], [4, 35], [6, 0]] },
-      { key: "patron:amber", at: [[0, 100], [8, 60]], stage: [[0, 1], [10, 2]] },
-    ],
-    urn: {
-      spawns: [{ t: 1, key: keyOf("urn") }, { t: 10, key: keyOf("urn", 1) }],
-      at: [
-        { t: 1, state: "ground", x: 10, y: 20, delivery: keyOf("urn", 1) },
-        { t: 3, state: "carried", team: "sapphire", slot: 1, delivery: keyOf("urn", 1) },
-        { t: 6, state: "ground", x: 700, y: -30, team: "sapphire", slot: 1, delivery: keyOf("urn", 1) },
-        { t: 8, state: "none" },
-        { t: 10, state: "ground", x: -50, y: 60, delivery: keyOf("urn") },
-      ],
-    },
-    rejuv: [{ team: "sapphire", taken_s: 4, ends_s: 9, left: [[4, 3], [6, 2], [8, 0]] }],
-  }) as unknown as Timeline;
-
-const { tier: _t, rifts: _r, powerups: _p, zips: _z, camps: _c, objective_health: _o, urn: _u, rejuv: _j, ...rest } = replay();
-// The metadata tier: no replay fields, and no sight (so a team's Vision changes nothing).
-const metadata = { ...rest, source: "metadata", players: rest.players.map(({ seen: _s, cc: _cc, height: _h, zipline: _z, ...p }) => p) } as Timeline;
 
 /** Times that land on, just before and just after seconds and tenths, and between them. */
 const times = (duration: number, step: number) => {
@@ -252,6 +189,337 @@ describe("Player's frame", () => {
     });
   });
 
+  // ---- MapState (spec §6): the same frame as fields, unfiltered, each on its clock ----
+
+  /** Player's state driven by hand. */
+  const stateOf = (m: Timeline | undefined, at = 0) =>
+    createRoot((dispose) => {
+      const [tl, setTl] = createSignal(m);
+      const [t, setT] = createSignal(at);
+      const state: PlayerState = fromTimeline({ tl, t, markers: () => markers });
+      return { state, setT, setTl, dispose };
+    });
+  const SLOTS = (["amber", "sapphire"] as const).flatMap((team) => [0, 1, 2, 3, 4, 5].map((slot) => slotKey(team, slot)));
+  const ALL: Shown = { health: true, names: true, vision: "all", lastSeen: false, movement: true, cc: true };
+  /** Every field of the state at t, as plain values. */
+  const fieldsOf = (state: PlayerState) => ({
+    heroes: SLOTS.map((slot) => Object.fromEntries(Object.entries(state.hero(slot)).map(([k, f]) => [k, (f as () => unknown)()]))),
+    markers: markers.map((mk) => Object.fromEntries(Object.entries(state.marker(mk.key)).map(([k, f]) => [k, (f as () => unknown)()]))),
+    lanes: model.lanes.map((l) => state.lane(l.key).edges()),
+    urn: state.scene().urn(),
+    rejuv: state.scene().rejuv(),
+    deaths: state.scene().deaths(),
+  });
+  /** The same from the timeline at t: each field's definition. */
+  const definitionOf = (m: Timeline, t: number) => {
+    const replayTier = m.tier === "replay";
+    const sighted = hasVision(m);
+    const all = before(m, t, ALL, true);
+    const samples = playersAt(m, t);
+    return {
+      heroes: m.players.map((p, i) => {
+        const x = samples[i]!;
+        const s = sighted ? seenAt(p, t) : ({ seen: true } as const);
+        const move = replayTier ? movementAt(p, t) : undefined;
+        return {
+          present: true, hero: p.hero_id, name: p.name ?? null, alive: x.pos !== null, pos: x.pos, last: x.last, respawn: x.respawn,
+          souls: x.souls, ult: x.ult, health: x.health,
+          inSight: s?.seen === true,
+          lastSeen: s && !s.seen ? { at: s.at, ago: s.ago } : null,
+          cc: replayTier ? crowdControlAt(p, t) : undefined,
+          height: move?.height, zipline: move?.zipline ?? false,
+        };
+      }),
+      markers: markers.map((mk) => ({
+        down: all.down.has(mk.key), site: all.sites.get(mk.key), shopClosed: all.shops!.has(mk.key), camp: all.camps.get(mk.key), powerup: all.powerups!.get(mk.key),
+        health: all.health?.get(mk.key), rift: all.rifts!.get(mk.key),
+      })),
+      lanes: model.lanes.map((l) => all.lanes.get(l.key)),
+      urn: all.urn,
+      rejuv: all.rejuv,
+      deaths: skullsAt(m.players, t, null).map((d) => ({ ...d, seen: deathSeen(m.players.find((p) => slotKey(p.team, p.slot) === d.slot)!, d.t) })),
+    };
+  };
+
+  /** The replay with one of its two deaths out of the enemy's sight. */
+  const unseenDeath = () => {
+    const m = replay();
+    m.players[9]!.seen = [[0, 14]];
+    return m;
+  };
+  /** The metadata tier carrying the replay's hero series: they are the replay tier's alone. */
+  const metadataWithSeries = () => ({ ...metadata, players: metadata.players.map((p, i) => ({ ...p, cc: replay().players[i]!.cc, height: replay().players[i]!.height, zipline: replay().players[i]!.zipline })) }) as Timeline;
+  for (const [name, make] of [["replay", replay], ["replay, a death unseen", unseenDeath], ["metadata", () => metadata], ["metadata with CC and movement rows", metadataWithSeries]] as const)
+    it(`MapState: every field is its definition at t, whatever the viewer chose (${name} tier)`, () => {
+      const m = make();
+      const { state, setT, dispose } = stateOf(m);
+      let n = 0;
+      for (const t of times(N, 0.037)) {
+        setT(t);
+        expect(fieldsOf(state), `fields at ${t}`).toEqual(definitionOf(m, t));
+        n++;
+      }
+      expect(n).toBeGreaterThan(500);
+      dispose();
+    });
+
+  it("MapState: the synthetic match moves every field, so the comparison above holds something", () => {
+    const m = replay();
+    const all = times(N, 0.37).map((t) => definitionOf(m, t));
+    const seen = <T,>(pick: (d: (typeof all)[number]) => T[]) => new Set(all.flatMap(pick).map((v) => JSON.stringify(v ?? null))).size;
+    for (const k of ["alive", "pos", "last", "respawn", "souls", "ult", "health", "inSight", "lastSeen", "cc", "height", "zipline"] as const) expect(seen((d) => d.heroes.map((h) => h[k])), k).toBeGreaterThan(1);
+    for (const k of ["down", "site", "shopClosed", "camp", "powerup", "health", "rift"] as const) expect(seen((d) => d.markers.map((mk) => mk[k])), k).toBeGreaterThan(1);
+    expect(seen((d) => d.lanes)).toBeGreaterThan(1);
+    expect(seen((d) => [d.urn])).toBeGreaterThan(1);
+    expect(seen((d) => [d.rejuv])).toBeGreaterThan(1);
+    expect(seen((d) => [d.deaths])).toBeGreaterThan(1);
+    // A death its enemies saw, and one they didn't.
+    expect(new Set(times(N, 0.37).flatMap((t) => definitionOf(unseenDeath(), t).deaths.map((x) => `${x.slot} ${x.seen}`)))).toEqual(new Set(["amber-3 true", "sapphire-3 false"]));
+    expect(sameValue(0, -0)).toBe(false);
+    expect(sameValue(Number.NaN, Number.NaN)).toBe(true);
+  });
+
+  it("MapState: a slot, marker or lane the match doesn't have is empty; so is everything with no timeline", () => {
+    const m = replay();
+    const { state, setTl, dispose } = stateOf(m, 4.25);
+    const none = { present: false, hero: null, name: null, alive: false, pos: null, last: null, respawn: null, souls: null, ult: null, health: null, inSight: true, lastSeen: null, cc: undefined, height: undefined, zipline: false };
+    const noMarker = { down: false, site: undefined, shopClosed: false, camp: undefined, powerup: undefined, health: undefined, rift: undefined };
+    const values = (o: object) => Object.fromEntries(Object.entries(o).map(([k, f]) => [k, (f as () => unknown)()]));
+    expect(values(state.hero("amber-9"))).toEqual(none);
+    expect(values(state.marker("nothing:here"))).toEqual(noMarker);
+    expect(state.lane("lane9").edges()).toBeUndefined();
+    // The same entity each time it is asked: its memos are made once.
+    expect(state.hero("amber-0")).toBe(state.hero("amber-0"));
+    expect(state.marker(keyOf("koth"))).toBe(state.marker(keyOf("koth")));
+    expect(state.lane("lane1")).toBe(state.lane("lane1"));
+    expect(state.hero("amber-0").present()).toBe(true);
+    setTl(undefined);
+    expect(values(state.hero("amber-0"))).toEqual(none);
+    expect(values(state.marker(keyOf("koth")))).toEqual(noMarker);
+    expect(state.lane("lane1").edges()).toBeUndefined();
+    expect([state.scene().urn(), state.scene().rejuv(), state.scene().deaths()]).toEqual([undefined, undefined, []]);
+    expect(FEATURES.map((f) => state.has(f))).toEqual(FEATURES.map(() => false));
+    expect([state.second(), state.tenth()]).toEqual([undefined, undefined]);
+    // The match back: the same entities read it.
+    setTl(metadata);
+    expect(state.hero("amber-0").hero()).toBe(metadata.players[0]!.hero_id);
+    dispose();
+  });
+
+  it("MapState: says which features the match holds", () => {
+    const full = stateOf(replay());
+    expect(Object.fromEntries(FEATURES.map((f) => [f, full.state.has(f)]))).toEqual({ health: true, sight: true, cc: true, movement: true, lanes: true, camps: true, powerups: true, rifts: true, urn: true, rejuv: true });
+    full.dispose();
+    const bare = stateOf(metadata);
+    expect(FEATURES.filter((f) => bare.state.has(f))).toEqual([]);
+    bare.dispose();
+    // Each alone: a replay with only that data.
+    const only = (over: Partial<Timeline>, players?: (p: TimelinePlayer) => TimelinePlayer) => {
+      const s = stateOf({ ...metadata, tier: "replay", ...over, players: metadata.players.map((p) => (players ? players(p) : p)) } as Timeline);
+      const has = FEATURES.filter((f) => s.state.has(f));
+      s.dispose();
+      return has;
+    };
+    const full12 = replay();
+    expect(only({})).toEqual(["health"]);
+    expect(only({}, (p) => ({ ...p, seen: [[0, 5]] }) as TimelinePlayer)).toEqual(["health", "sight"]);
+    expect(only({}, (p) => ({ ...p, cc: [[1, 2, 20, 255, 0]] }) as TimelinePlayer)).toEqual(["health", "cc"]);
+    expect(only({}, (p) => ({ ...p, height: [[0, 1]] }) as TimelinePlayer)).toEqual(["health", "movement"]);
+    expect(only({}, (p) => ({ ...p, zipline: [[0, 1]] }) as TimelinePlayer)).toEqual(["health", "movement"]);
+    expect(only({ zips: full12.zips! })).toEqual(["health", "lanes"]);
+    expect(only({ camps: full12.camps! })).toEqual(["health", "camps"]);
+    expect(only({ powerups: full12.powerups! })).toEqual(["health", "powerups"]);
+    expect(only({ rifts: full12.rifts! })).toEqual(["health", "rifts"]);
+    expect(only({ urn: full12.urn! })).toEqual(["health", "urn"]);
+    expect(only({ rejuv: full12.rejuv! })).toEqual(["health", "rejuv"]);
+    // The metadata tier holds none of the tier's own, whatever its heroes carry.
+    expect(FEATURES.filter((f) => featuresOf({ ...full12, tier: undefined } as unknown as Timeline)[f])).toEqual(["sight", "lanes", "camps", "powerups", "rifts", "urn", "rejuv"]);
+  });
+
+  it("MapState: a reader of one field runs when that value changes, not each frame", () => {
+    const m = replay();
+    const { state, setT, dispose } = stateOf(m, 3);
+    createRoot((stop) => {
+      const count = (read: () => unknown) => {
+        let n = 0;
+        createComputed(() => (read(), n++));
+        return () => n;
+      };
+      const h = state.hero("sapphire-1"); // i = 7: souls move at 2 and 9, its place every frame
+      const koth = state.marker(keyOf("koth"));
+      const readers = {
+        souls: count(h.souls), ult: count(h.ult), health: count(h.health), alive: count(h.alive), hero: count(h.hero), pos: count(h.pos), inSight: count(h.inSight), cc: count(h.cc),
+        height: count(h.height), zipline: count(h.zipline),
+        down: count(state.marker("walker:amber:lane1:1").down), camp: count(state.marker(keyOf("camp", 3)).camp), rift: count(koth.rift), site: count(koth.site),
+        lane: count(state.lane("lane4").edges), rejuv: count(state.scene().rejuv), urn: count(state.scene().urn),
+      };
+      // 120 frames across two seconds (3.0 to just under 5.0).
+      for (let f = 0; f < 120; f++) setT(3 + f / 60);
+      const n = Object.fromEntries(Object.entries(readers).map(([k, r]) => [k, r()]));
+      // Unchanged over the two seconds: read once.
+      expect({ souls: n.souls, hero: n.hero, alive: n.alive, down: n.down, lane: n.lane, height: n.height }).toEqual({ souls: 1, hero: 1, alive: 1, down: 1, lane: 1, height: 1 });
+      // The second's samples that moved at 4: twice.
+      expect({ ult: n.ult, health: n.health, camp: n.camp, zipline: n.zipline, rejuv: n.rejuv }).toEqual({ ult: 2, health: 2, camp: 2, zipline: 2, rejuv: 2 });
+      // The tenth's: at most once a tenth, and only when the value moves.
+      expect(n.inSight).toBeLessThanOrEqual(3);
+      expect(n.cc).toBeLessThanOrEqual(20);
+      // The frame's: its place moves every frame; the rift's capture where it moves.
+      expect(n.pos).toBeGreaterThanOrEqual(100);
+      expect(n.rift).toBeGreaterThan(2);
+      expect(n.rift).toBeLessThan(120);
+      stop();
+    });
+    dispose();
+  });
+
+  it("MapState: a field nobody reads is never computed: asking who is in sight costs no place, respawn time, urn or death a frame (review S2)", () => {
+    const m = replay();
+    // Reads of what only the frame's fields read: each hero's places, respawn times and
+    // deaths, and the urn.
+    const x = m.players.map(() => 0);
+    const reads = { respawn: 0, deaths: 0, urn: 0 };
+    m.players.forEach((p, i) => {
+      const [px, respawn, deaths] = [p.x, p.respawn, p.deaths];
+      Object.defineProperty(p, "x", { get: () => (x[i]!++, px) });
+      Object.defineProperty(p, "respawn", { get: () => (reads.respawn++, respawn) });
+      Object.defineProperty(p, "deaths", { get: () => (reads.deaths++, deaths) });
+    });
+    const urn = m.urn;
+    Object.defineProperty(m, "urn", { get: () => (reads.urn++, urn) });
+    const { state, setT, dispose } = stateOf(m, 1);
+    createRoot((stop) => {
+      // As Player's top bar asks: every hero, and only whether its enemies see it. The entities
+      // and the scene's facts are all made; no other field is read.
+      for (const slot of SLOTS) createComputed(() => state.hero(slot).inSight());
+      for (const mk of markers) state.marker(mk.key);
+      state.scene();
+      const total = () => x.reduce((a, b) => a + b, 0) + reads.respawn + reads.deaths + reads.urn;
+      // 59 more frames of the same second, across six tenths: nothing of the frame's is read.
+      const settled = total();
+      for (let f = 1; f < 60; f++) setT(1 + f / 60);
+      expect(total() - settled).toBe(0);
+      // One hero's place read: its series alone, once a frame or so; nobody else's.
+      createComputed(() => state.hero("sapphire-1").pos());
+      const [mine, others] = [x[7]!, total() - x[7]!];
+      for (let f = 1; f < 60; f++) setT(1 + (f + 0.5) / 60);
+      expect(x[7]! - mine).toBeGreaterThanOrEqual(59);
+      expect(x[7]! - mine).toBeLessThanOrEqual(59 * 4);
+      expect(total() - x[7]! - others).toBe(0);
+      // The urn read: the urn, and still no other hero's place.
+      createComputed(() => state.scene().urn());
+      const at = { urn: reads.urn, rest: total() - reads.urn - x[7]! };
+      for (let f = 1; f < 60; f++) setT(1 + f / 60);
+      expect(reads.urn - at.urn).toBeGreaterThanOrEqual(59);
+      expect(total() - reads.urn - x[7]! - at.rest).toBe(0);
+      stop();
+    });
+    dispose();
+  });
+
+  it("the markers' part of the frame is new once a second and with Health, and is the frame's", () => {
+    const m = replay();
+    createRoot((dispose) => {
+      const [t, setT] = createSignal(3);
+      const [health, setHealth] = createSignal(true);
+      const state = fromTimeline({ tl: () => m, t, markers: () => markers });
+      const part = markerFrame(state, health);
+      const pick = (f: MatchPreview) => ({ down: f.down, shops: f.shops, sites: f.sites, camps: f.camps, powerups: f.powerups, ...(f.health ? { health: f.health } : {}) });
+      const seen = new Set<unknown>();
+      for (let f = 0; f < 120; f++) {
+        setT(3 + f / 60);
+        seen.add(part());
+        expect(part()).toEqual(pick(before(m, t(), ALL, true)));
+      }
+      expect(seen.size).toBe(2);
+      // Health off: no health in it, as in the frame.
+      setHealth(false);
+      expect("health" in part()).toBe(false);
+      expect(part()).toEqual(pick(before(m, t(), { ...ALL, health: false }, true)));
+      expect(seen.has(part())).toBe(false);
+      dispose();
+    });
+    // No timeline: empty, as the frame.
+    createRoot((dispose) => {
+      const state = fromTimeline({ tl: () => undefined, t: () => 0, markers: () => markers });
+      const part = markerFrame(state, () => true);
+      expect([part().down.size, part().sites.size, part().camps.size, "health" in part()]).toEqual([0, 0, 0, false]);
+      dispose();
+    });
+    // The metadata tier: no objectives' health, Health on or not.
+    createRoot((dispose) => {
+      const part = markerFrame(fromTimeline({ tl: () => metadata, t: () => 7, markers: () => markers }), () => true);
+      expect("health" in part()).toBe(false);
+      expect(part().down).toEqual(before(metadata, 7, ALL, true).down);
+      dispose();
+    });
+  });
+
+  it("Save as scene captures from the second's part: the frame's facts at the whole second", () => {
+    const m = replay();
+    for (const s of [0, 3, 6, 9, 12]) {
+      const part = secondPart(m, s, markers);
+      expect(part.heroes).toEqual(playersAt(m, s));
+      expect(part.down).toEqual(downAt(m, s, markers));
+      expect(part.sites).toEqual(sitesAt(m, s, markers));
+      expect(part.lanes).toEqual(lanesAt(m, s));
+      // What a save reads is those four of it, the same values, and nothing else of the part.
+      expect(savedPart(m, s, markers)).toEqual({ heroes: part.heroes, down: part.down, sites: part.sites, lanes: part.lanes });
+      // The tenth's part at the second: each hero's sight as its enemies have it there.
+      expect(tenthPart(m, s).sight.map((x) => x === true)).toEqual(m.players.map((p) => seenAt(p, s)?.seen === true));
+    }
+  });
+
+  it("a save computes no more than it stores: no camp, powerup, objective's health, movement or Rejuvenator is read (review N2)", () => {
+    const m = replay();
+    const reads: Record<string, number> = {};
+    for (const k of ["camps", "powerups", "objective_health", "rejuv", "urn", "rifts"] as const) {
+      const v = m[k];
+      Object.defineProperty(m, k, { get: () => ((reads[k] = (reads[k] ?? 0) + 1), v) });
+    }
+    for (const p of m.players) for (const k of ["height", "zipline", "cc", "seen"] as const) {
+      const v = p[k];
+      Object.defineProperty(p, k, { get: () => ((reads[k] = (reads[k] ?? 0) + 1), v) });
+    }
+    const roster = m.players.map((p, i) => ({ id: `slot-${i}`, slot: { team: p.team === "amber" ? "Amber" : "Sapphire", slot: p.slot, hero: p.hero_id, name: "" } }));
+    let n = 0;
+    matchSceneOps(roster as never, [], undefined, m, 6, markers, () => `id${n++}`, [], { builds: false });
+    // `sitesAt` asks which of rifts, powerups, camps and the urn the match has, and reads the
+    // sites' own series; nothing reads a hero's movement, CC or sight, objectives' health or
+    // the Rejuvenator.
+    expect(Object.keys(reads).filter((k) => ["height", "zipline", "cc", "seen", "objective_health", "rejuv"].includes(k))).toEqual([]);
+    // The second's part reads them all.
+    secondPart(m, 6, markers);
+    expect(["height", "zipline", "objective_health", "rejuv"].every((k) => (reads[k] ?? 0) > 0)).toBe(true);
+  });
+
+  it("sameValue compares plain values through and through", () => {
+    expect(sameValue(1, 1)).toBe(true);
+    expect(sameValue(null, null)).toBe(true);
+    expect(sameValue(undefined, undefined)).toBe(true);
+    expect(sameValue(null, undefined)).toBe(false);
+    expect(sameValue(0, null)).toBe(false);
+    expect(sameValue({ x: 1, y: 2 }, { x: 1, y: 2 })).toBe(true);
+    expect(sameValue({ x: 1, y: 2 }, { x: 1, y: 3 })).toBe(false);
+    expect(sameValue({ x: 1 }, { x: 1, y: undefined })).toBe(false);
+    expect(sameValue({ x: 1, y: undefined }, { x: 1, z: undefined })).toBe(false);
+    expect(sameValue({ a: { b: [1, { c: 2 }] } }, { a: { b: [1, { c: 2 }] } })).toBe(true);
+    expect(sameValue({ a: { b: [1, { c: 2 }] } }, { a: { b: [1, { c: 3 }] } })).toBe(false);
+    expect(sameValue([1, 2], [1, 2, 3])).toBe(false);
+    expect(sameValue([], {})).toBe(false);
+    expect(sameValue({ state: "alive" }, null)).toBe(false);
+    expect(sameValue("up", "up")).toBe(true);
+  });
+
+  it("the urn's sites are the board's marker keys", () => {
+    const m = replay();
+    for (const t of [0, 1, 3.5, 6, 8, 10.2]) expect(urnOf(m, t, markers)).toEqual(before(m, t, ALL, true).urn);
+    expect(urnOf(metadata, 3, markers)).toBeUndefined();
+    // A pack that keys the urn's sites its own way: the urn names the pack's keys.
+    const pack = markers.map((mk) => (mk.kind === markers.find((x) => x.key === keyOf("urn"))!.kind ? { ...mk, key: `pack:${mk.key}` } : mk));
+    expect(urnOf(m, 1, pack)).toMatchObject({ state: "ground", delivery: `pack:${keyOf("urn", 1)}`, next: { t: 10, key: `pack:${keyOf("urn", 1)}` } });
+    expect(urnOf(m, 10.2, pack)).toMatchObject({ delivery: `pack:${keyOf("urn")}`, next: null });
+  });
+
   // A real timeline, when one is given (it holds names: nothing of it is printed, only counts).
   it.skipIf(!process.env.MAPCRO_TIMELINE)("on a real match, the clocks give the definition at every tenth and between", () => {
     const m = JSON.parse(readFileSync(process.env.MAPCRO_TIMELINE!, "utf8")) as Timeline;
@@ -272,6 +540,31 @@ describe("Player's frame", () => {
       }
     console.log(`frames compared: ${n}, differing: ${differ}`);
     expect(differ).toBe(0);
+    // MapState's fields against their definitions, and a build on the tenth's and the second's
+    // clocks against the build and the stats' input at t.
+    const real = stateOf(m);
+    let fields = 0, fieldsDiffer = 0, builds = 0, buildsDiffer = 0;
+    for (let t = 0; t <= m.duration_s; t += step * 3) {
+      real.setT(t);
+      fields++;
+      try {
+        expect(fieldsOf(real.state)).toEqual(definitionOf(m, t));
+      } catch {
+        fieldsDiffer++;
+      }
+      for (const p of m.players) {
+        builds++;
+        const at = buildAt(p, t);
+        const tenth = buildAt(p, tenthOf(t));
+        const same = sameBuild(tenth, at) && sameStatBuild(statBuild(p, Math.floor(t), tenth), statBuild(p, t, at));
+        const board = [p.kills, p.assists, p.level, p.max_health].every((series) => scoreboardValueAt(series, Math.floor(t)) === scoreboardValueAt(series, t));
+        if (!same || !board) buildsDiffer++;
+      }
+    }
+    real.dispose();
+    console.log(`states compared: ${fields}, differing: ${fieldsDiffer}; builds compared: ${builds}, differing: ${buildsDiffer}`);
+    expect(fieldsDiffer).toBe(0);
+    expect(buildsDiffer).toBe(0);
     // What a frame costs to compute, late in the match (60 frames a second for ten seconds).
     const from = Math.max(0, m.duration_s - 120);
     const run = (f: (t: number) => unknown) => {

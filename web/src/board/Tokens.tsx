@@ -10,7 +10,7 @@ import { formatClock, parseClock } from "../core/clock";
 import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
 import type { MatchPreview } from "../match/MatchPanel";
-import { slotKey } from "../match/save";
+import { MAX_RESPAWN, slotKey } from "../match/save";
 import { colorOf } from "../core/device";
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { RecordId } from "../gen/RecordId";
@@ -253,7 +253,7 @@ export function Tokens(p: {
     setTiming(undefined);
     const v = parseClock(text);
     if (v === undefined) return;
-    const s = v === null ? null : Math.min(600, v);
+    const s = v === null ? null : Math.min(MAX_RESPAWN, v);
     if (s !== (pl.state.respawn ?? null)) p.state.edit([{ Set: { id: pl.id, value: { PlayerRespawn: s } } }]);
   };
 

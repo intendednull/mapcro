@@ -1,11 +1,11 @@
 // What the map's markers show from the match at playback time t, by marker key (Board.tsx →
-// MapView): each one's status, health, camp state and buff. The preview is new on every frame of
-// playback, while these change only when the match does: held in memos that change only when a
-// value does, so the map's markers redraw then, not on every frame (#39).
+// MapView): each one's status, health, camp state and buff. They are read from the markers' part
+// of the frame, which is new once a second (mapstate/state.ts `markerFrame`), and held in memos
+// that change only when a value does, so the map's markers redraw when the match changes (#39).
 
 import { createMemo } from "solid-js";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
-import type { MatchPreview } from "../match/preview";
+import type { MarkerPreview } from "../mapstate/state";
 
 /** Whether two maps hold the same values by the same keys. */
 export function sameEntries<K, V>(a: ReadonlyMap<K, V>, b: ReadonlyMap<K, V>): boolean {
@@ -29,7 +29,7 @@ function valuesOf<V, W>(src: ReadonlyMap<string, V> | undefined, pick: (v: V) =>
  * marker's state in the scene, which is what it shows outside Player. Call inside a component or
  * root.
  */
-export function markerStates(preview: () => MatchPreview | undefined, keys: () => readonly string[], own: (key: string) => ObjectiveStatus | undefined) {
+export function markerStates(preview: () => MarkerPreview | undefined, keys: () => readonly string[], own: (key: string) => ObjectiveStatus | undefined) {
   const statusNow = (k: string): ObjectiveStatus | undefined => {
     const pv = preview();
     // A shop is up on a board; in Player a lane shop is gone once its guardian falls.

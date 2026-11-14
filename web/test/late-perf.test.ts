@@ -13,7 +13,11 @@ import { barSlot } from "../src/player/barSlot";
 import { markerStates } from "../src/player/markerStates";
 import { openTip, closeTips, tipIsOpen } from "../src/player/GameTooltip";
 import { easedNumber } from "../src/board/smooth";
-import { buildState } from "../src/player/buildState";
+import { buildState, sameBuild, sameStatBuild, tenthOf } from "../src/player/buildState";
+import { playerBuildView } from "../src/mapstate/buildView";
+import { buildAt } from "../src/match/builds";
+import { statBuild } from "../src/match/stats";
+import { type Timeline, scoreboardValueAt } from "../src/match/timeline";
 import type { TimelinePlayer } from "../src/match/timeline";
 import type { MatchPreview } from "../src/match/preview";
 
@@ -221,6 +225,88 @@ describe("a build column", () => {
       setT(65);
       expect(build().items!.map((i) => i.id)).toEqual([11]);
       expect(statInput()).toMatchObject({ level: 9, items: [11] });
+      dispose();
+    });
+  });
+
+  // The clocks (TD-50): items, casts, charges and stacks move on tenths; levels, pickups and
+  // health on seconds. A richer hero: buys and casts off the second, charges and stacks.
+  const busy = {
+    team: "amber", slot: 2, hero_id: 7,
+    items: [[503, 11, 0], [617, 12, 0], [649, 11, 1], [700, 13, 0]],
+    abilities: [[10, 21, 1], [61, 22, 1], [63, 21, 2]],
+    casts: [[553, 21, 600], [611, 22, 687], [650, 21, 655], [689, 13, 0]],
+    charges: [[560, 22, 2], [612, 22, 1]],
+    stacks: [[575, 12, 3], [660, 12, 0]],
+    level: [[0, 1], [57, 5], [64, 9]],
+    kills: [[0, 0], [58, 1], [66, 2]], assists: [[0, 0], [62, 4]], max_health: [[0, 700], [60, 950]],
+    deaths: [59],
+    pickups: [[56, [10, 0, 0, 0.25, 0]], [65, [10, 4, 0, 0.5, 0]]],
+    x: Array.from({ length: 80 }, (_, k) => (k === 59 ? null : 0)),
+    health: Array.from({ length: 80 }, (_, k) => (k === 59 ? 0 : 100 - k)),
+  } as unknown as TimelinePlayer;
+  /** On, just before and after every tenth from 50 s to 72 s, and between. */
+  const fine = () => {
+    const out: number[] = [];
+    for (let d = 500; d <= 720; d++) out.push(d / 10, d * 0.1, d / 10 + 1e-9, d / 10 - 1e-9, d / 10 + 0.037, d / 10 + 0.05, d / 10 + 0.099);
+    return out;
+  };
+
+  it("the tenth's build is the build at every t of the tenth, as the column shows it; the second's stats too", () => {
+    let moved = 0;
+    let last: unknown;
+    for (const t of fine()) {
+      const at = buildAt(busy, t);
+      const tenth = buildAt(busy, tenthOf(t));
+      expect(sameBuild(tenth, at), `build at ${t}`).toBe(true);
+      // Everything but the cooldown's fraction is the same value, not only the same shown.
+      const whole = (b: typeof at) => ({ items: b.items!.map((e) => ({ ...e, cooldown: e.cooldown == null ? null : Math.ceil(e.cooldown) })), abilities: b.abilities!.map((e) => ({ ...e, cooldown: e.cooldown == null ? null : Math.ceil(e.cooldown) })) });
+      expect(whole(tenth), `build at ${t}`).toEqual(whole(at));
+      expect(statBuild(busy, Math.floor(t), tenth), `stats at ${t}`).toEqual(statBuild(busy, t, at));
+      const now = JSON.stringify(whole(at));
+      if (now !== last) moved++;
+      last = now;
+    }
+    // The hero's build moves through the window: the comparison holds something.
+    expect(moved).toBeGreaterThan(20);
+  });
+
+  it("is computed once a tenth, and its stats once a second, not each frame", () => {
+    createRoot((dispose) => {
+      const reads: Record<string, number> = {};
+      const counted = new Proxy(busy, { get: (o, k, r) => ((reads[String(k)] = (reads[String(k)] ?? 0) + 1), Reflect.get(o, k, r)) });
+      const [t, setT] = createSignal(61);
+      const match = { format: 99, build: 6839, duration_s: 80, events: [], players: [busy] } as unknown as Timeline;
+      const view = playerBuildView(() => counted as TimelinePlayer, () => match, t);
+      const all = () => [view.build(), view.statInput(), view.kills(), view.assists(), view.level(), view.maxHealth(), view.deaths()];
+      all();
+      for (const k of Object.keys(reads)) reads[k] = 0;
+      // 120 frames across two seconds (61.0 to just under 63.0), read as the column reads it.
+      for (let f = 1; f < 120; f++) {
+        setT(61 + f / 60);
+        all();
+        // Each frame's values are the frame's.
+        expect(sameBuild(view.build(), buildAt(busy, t()))).toBe(true);
+        expect(sameStatBuild(view.statInput(), statBuild(busy, t(), buildAt(busy, t())))).toBe(true);
+        expect([view.kills(), view.assists(), view.level(), view.maxHealth()]).toEqual([busy.kills, busy.assists, busy.level, busy.max_health].map((series) => scoreboardValueAt(series, t())));
+        expect(view.deaths()).toBe(busy.deaths.filter((d) => d <= t()).length);
+      }
+      // The build: once a tenth (19 new tenths). The stats' input and the scoreboard's values:
+      // with the second (one new second), and the stats again when the build's shown changes.
+      expect(reads.items).toBe(19);
+      expect(reads.casts).toBe(19);
+      expect(reads.assists).toBe(1);
+      expect(reads.max_health).toBe(1);
+      expect(reads.kills).toBe(2);
+      expect(reads.level).toBeLessThanOrEqual(9);
+      expect(reads.pickups).toBeLessThanOrEqual(8);
+      expect(reads.pickups).toBeGreaterThanOrEqual(1);
+      // Through every change of the scoreboard's values (56 s to 68 s): each is the frame's.
+      for (let k = 0; 56 + k / 7 <= 68; k++) {
+        setT(56 + k / 7);
+        expect([view.kills(), view.assists(), view.level(), view.maxHealth()], `at ${t()}`).toEqual([busy.kills, busy.assists, busy.level, busy.max_health].map((series) => scoreboardValueAt(series, t())));
+        expect(sameStatBuild(view.statInput(), statBuild(busy, t(), buildAt(busy, t()))), `stats at ${t()}`).toBe(true);
+      }
       dispose();
     });
   });
