@@ -13,6 +13,7 @@ changed (the generated types and limits did). Phase 2 must not start until the l
 | `42a93ba` | Spec, third revision: the review and the decisions (its §2) folded in |
 | `d010875` | Phase 0: characterisation tests and the 64-scene edit cost |
 | `8d6ce9b` | Phase 1: `more`, `SceneState`, `FieldValue::More`, the registry, limits, store v8, file v2 read |
+| `8235002` | Tests that kill the mutation survivors |
 
 ## What the lead does at the phase 1 deploy
 
@@ -75,7 +76,17 @@ Save writes it. A row that turns out unused is retired, never removed.
   decide whether the replica's whole-document clone (`replica.rs` `submit`, `crates/wasm`
   `edit`) must go, or `More` be shared (`Arc`), before the writer ships. Measure in the browser
   first; a drag sends an edit per frame.
-- **Mutation testing:** see the report at the end of this run (schema, then server).
+- **E2e** (`board`, `scenes`, `board-file`, `scene-clone`, `match` specs on the rebuilt client):
+  15 passed.
+- **Mutation testing** (cargo-mutants, scoped to the phase 1 diff):
+  - `mapcro-schema`: 130 mutants, 107 caught, 21 unviable, 2 missed. The first run missed 20;
+    `8235002` adds the tests that kill 18 (7 of them predate this branch, in the heap estimate).
+    The 2 left are `>` to `>=` in `max_op_bytes`' largest-of-three: equivalent (equal values give
+    the same result either way).
+  - `mapcro-server`: 17 mutants, 14 caught, 2 unviable, 1 missed: `v > READS` to `v >= READS` in
+    `boardfile::upgrade`, equivalent (the arm above already takes `1..=READS`).
+  - `mapcro-sim` was not mutated: it is the test harness. Its no-clobber check walks
+    `Field::all()`, and the schema's test holds that every row is in it.
 
 ## Gotchas
 
