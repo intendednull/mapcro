@@ -55,6 +55,7 @@ export const WRITTEN: number = (() => {
 const ITEM = 4; // id, cooldown (tenths; -1 none), charges (-1 none), stacks (-1 none)
 const ABILITY = 5; // id, level, then as an item
 const ORDER = 3; // tenths of a second, id, kind
+const PICKUP = 100; // a pickup value is stored in hundredths
 
 const lenOf = (key: RowKey) => { const r = ROWS[key]; return r.kind === "ints" ? r.len : 0; };
 const or = (n: number | null) => (n == null ? -1 : n);
@@ -90,7 +91,12 @@ const HERO: { [K in HeroKey]-?: { put: (b: HeroBuild) => MoreValue | undefined; 
   build_order: { put: (b) => b.order?.slice(-lenOf("build_order") / ORDER).flat(), get: (b, v) => { b.order = (strides(v, ORDER) as OrderRow[] | null) ?? null; } },
   level: { put: (b) => (inRow("level", b.level) ? b.level : undefined), get: (b, v) => { b.level = int(v); } },
   health: { put: (b) => (b.health == null ? undefined : Math.max(0, Math.min(100, Math.round(b.health)))), get: (b, v) => { b.health = int(v); } },
-  pickups: { put: (b) => b.pickups?.map((n) => Math.round(n)), get: (b, v) => { const p = strides(v, 5); b.pickups = p?.length === 1 ? (p[0] as Pickups) : null; } },
+  // Hundredths: the timeline's values are f32 and the resists move in quarters (a whole number
+  // lost up to 0.5 on most frames). Permanent once written, like every packing here.
+  pickups: {
+    put: (b) => b.pickups?.map((n) => Math.round(n * PICKUP)),
+    get: (b, v) => { const p = strides(v, 5); b.pickups = p?.length === 1 ? (p[0]!.map((n) => n / PICKUP) as Pickups) : null; },
+  },
   kills: { put: (b) => (inRow("kills", b.kills) ? b.kills : undefined), get: (b, v) => { b.kills = int(v); } },
   deaths: { put: (b) => (inRow("deaths", b.deaths) ? b.deaths : undefined), get: (b, v) => { b.deaths = int(v); } },
   assists: { put: (b) => (inRow("assists", b.assists) ? b.assists : undefined), get: (b, v) => { b.assists = int(v); } },

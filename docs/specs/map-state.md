@@ -171,6 +171,26 @@ A new field therefore costs: the row (as `Ahead`), its producer in Player, its d
 release later the row goes `Live` and Save writes it. Lists (`Ints`) also need a hand-written
 pack, unpack and defensive decoder each, since the server checks only length and range.
 
+**The lists' packing** (`web/src/mapstate/build.ts`; permanent once a release writes it, since
+stored scenes hold it):
+
+| Row | An entry | Holds | Cut when over |
+|---|---|---|---|
+| `items` | 4: id, cooldown in tenths, charges, stacks (-1: none) | 32 | the first 32 kept |
+| `abilities` | 5: id, level, then as an item | 9 (48 integers; 3 unused) | the first 9 kept |
+| `build_order` | 3: tenths of a second, id, kind | 200 | the latest 200 kept; the oldest also go first when the record or the save is over its bytes |
+| `pickups` | the five statue values, **in hundredths** | 1 | |
+
+- **Pickups are hundredths, not whole numbers.** The timeline's are f32 and the resists move in
+  quarters: on match 134623152 bullet resist is fractional in 71 of its 103 pickup rows. Stored
+  whole, 15,508 of its 30,576 hero-seconds gave the calculator a different input than Player
+  (the largest error 0.5). In hundredths every one of them is exact, and the largest value is
+  far inside the row's ±1e9.
+- **Abilities have thin headroom:** 9 entries against a match maximum of 7 measured. A hero
+  with more than 9 loses the rest in a scene; the row's `len` can only widen (48 → more), one
+  release ahead of its writer.
+- The caps and the cut order are tested in `web/test/map-state-build.test.ts`.
+
 ### 4.4 The record and byte budget (H2, M7)
 
 Measured by the review on two matches, every 5 s: today's save is 51–72 records at the median, 96
@@ -192,6 +212,12 @@ its life today.
   must be created together. It fits: the fullest frame measured 47 KB and 189 ops against 64 KiB
   and 256. The client checks the encoded size before sending and drops whole features in a fixed
   order when over (effects first), clearing their captured flag.
+  Builds: the build orders lose their oldest rows first; if the builds still don't fit, the
+  scene is saved without a snapshot and the save's toast says "Saved without builds" (Retake
+  can add them, in transactions of its own).
+- **New scene and Duplicate** copy the snapshot with the scene. One transaction when it fits;
+  over the byte or op cap (twelve builds near a record's 8 KiB are 96 KiB) it is sent in
+  several, the scene first and its `SceneState` last, and is then more than one undo step.
 - **Saving many scenes** sends one transaction per scene, chunked by bytes, not op count.
 - **Retake** writes with `SetIf` on an absent value, so it never overwrites; it may take more than
   one transaction and is then more than one undo step.
