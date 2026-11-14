@@ -3,6 +3,25 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed 3423072 (2026-11-14 ~20:40 UTC, lead 9eb2516b)
+
+- **Prod `web` runs 3423072** (infra 84debc0): map-state D4, so a new scene's dead hero keeps its
+  respawn time, and Player's state is read lazily. Client only, store v10.
+- **Checks:**
+  - Gate on 44aa4a3 green (470 e2e); Firefox 27/27.
+  - QA on the real replay, locally and on prod: dead at 6:00, the saved scene shows a dark token
+    with a timed label, not "unset"; no errors.
+  - Stats: 0 5xx, 0 failures.
+- **QA script gotchas:** a QA runner needs the replay worker too (`/tmp/qa-r3/run.sh` has it).
+  Player marks the dead in the top bar (`.tb-player.dead`), not on map tokens.
+- **Feedback release 1** (b0ee0f6): review found no blocker and the reader is rollback-safe. It
+  now merges main and fixes the phone speed test, the note unmount under a typing follower, and
+  focus at the speed ends. Then gate (server change: VM test, reader-check, backup `pre-v11`).
+- **Sessions p3:** re-review fixes in progress (quick-switch ink, nav reset, flaky opaque-tag
+  assert, stale-copy scene reset, 5xx as unknown).
+- **Store order:** feedback v11 reader → v12/v13 for D2's reader and feedback's writer, whichever
+  is ready first. Writer floors come from `Step::NeedsReader { reader }` (feedback release 2).
+
 ## In flight (2026-11-14 ~17:45 UTC, lead 9eb2516b)
 
 - **D4 gate:** `/tmp/lead-gate` at 44aa4a3 = main 6d36aee + map-state-p3 1694b2a (D4: a new scene's
