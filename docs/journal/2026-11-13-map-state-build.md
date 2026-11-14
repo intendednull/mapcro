@@ -98,15 +98,39 @@ the new rows is wanted early (see "The release boundary").
 
 ### Numbers
 
-- `just clippy` clean. `cargo test --workspace`: 509 passed at `feb95f4` (505 before).
-- Simulation, 1,000 seeds × 400 steps, 8 editors: admitting everything read, 77,017 entries,
-  10,722 undo field checks, 1,447 editor conflicts; `--admit deployed` at `feb95f4` (rows still
-  ahead) 43,896 entries, 4,761 undo checks, 34,620 refusals. Both pass.
-- `just reader-check` at `feb95f4`: 40 boards, 6,280 transactions, byte for byte.
-- `web/test/map-state-build.test.ts`: 8 tests pass (the round trip at five seconds for twelve
-  heroes, bounds, the byte cap, the watermark, damaged lists).
-- Mutation testing and the full web suite: see the final report of this session (run last).
+- `just clippy` clean. `cargo test --workspace`: 509 passed at `feb95f4` (505 before). After
+  the writer commit the crates were run one by one, not as one workspace run: schema 61 + 6,
+  engine 26, sim 3, server unit 82, `admission_gate` 2, `board_file` 14, `system` 44, all pass.
+  **A full `just test` and `just e2e` on the final commit are the lead's gate to run.**
+- `just web-test` parts at the writer commit: 67 files, 654 tests, `tsc` clean.
+  `web/test/map-state-build.test.ts`: 8 tests (the round trip at five seconds for twelve heroes,
+  bounds, the byte cap, the watermark, damaged lists). No e2e was run: no rendering changed.
+- Simulation, 1,000 seeds × 400 steps, 8 editors, rows `Live`: admitting everything read,
+  77,010 entries, 10,772 undo field checks, 1,374 editor conflicts; `--admit deployed`, 73,208
+  entries, 10,328 undo checks, 5,159 refusals (the four rows ahead and the unfit undo). Both pass.
+- `just reader-check`, rows `Live`: 40 boards, 10,808 logged transactions, 4,218 of them holding
+  registry values or a scene's state, loaded byte for byte by `13d2fd1`'s schema and engine.
+- **Mutation testing, the tool** (cargo-mutants 27.1, `--in-diff` against `6b9b4d1`):
+  - `mapcro-schema` and `mapcro-engine`: 21 mutants, 10 caught, 11 unviable, 0 missed.
+  - `mapcro-server` (unit tests, `board_file`, `admission_gate`; TD-81's flaky test skipped): 10
+    mutants, 8 caught, 2 unviable, 0 missed.
+- **Mutation testing, by hand** (the tool makes none for a constant, a dropped branch or test
+  code): 16, one at a time, all caught. The unfit `SetIf` always refused, always skipped; `submit`
+  not asking the gate; `UNFIT_UNDO` `Live`; store step 8 breaking, additive; `NeedsReader` raising
+  to `from + 1`, lowering the floor; a file without `rows`, at version 1; `SCENE_STATE` `Ahead`;
+  the lock taking any commit, the flag alone; a row written after one still ahead; the server
+  naming `Admit::READS`; the simulation's storage dropping a pruned client's cseq. The last was
+  missed at first (with the rows `Live` the 1,000 seeds no longer meet it):
+  `a_client_whose_every_write_was_refused_keeps_its_place_across_a_restart` kills it.
 - **Not measured: the browser edit cost.** See "Next".
+
+### Gotchas
+
+- A worktree needs `web/node_modules` linked to the main checkout's (`ln -s
+  /storage/projects/mapcro/web/node_modules web/node_modules`); this one has it.
+- cargo-mutants copies the tree without `.git`: a test that needs the repository fails its
+  baseline there. The server has no library target: pass `-- --bins --test … -- --skip …`.
+- `cargo mutants -j 2` beside another cargo job took the box's load past 40. Run it alone.
 
 ### Next (in order)
 
