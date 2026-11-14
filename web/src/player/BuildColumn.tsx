@@ -3,10 +3,9 @@ import { ActiveEffects } from "./ActiveEffects";
 import { BuildOrder } from "./BuildOrder";
 import { For, Index, Show, createEffect, createMemo, untrack } from "solid-js";
 import type { Art, Hero } from "../map/pack";
-import { killsAt, type BuildEntry } from "../match/builds";
-import { PICKUPS_FORMAT, SLOT, investFill, statsAt, type LoadedTable } from "../match/stats";
-import { buildState } from "./buildState";
-import { scoreboardValueAt, type Timeline, type TimelinePlayer } from "../match/timeline";
+import type { BuildEntry } from "../match/builds";
+import { SLOT, investFill, statsAt, type LoadedTable } from "../match/stats";
+import type { BuildView } from "../mapstate/buildView";
 import { cx } from "../ui/cx";
 import { LABELS } from "./labels";
 import { GameTip, Hover, TagTip, closeTipsHidden, useTooltips } from "./GameTooltip";
@@ -14,6 +13,8 @@ import { type Category, StatPanel } from "./StatPanel";
 
 
 /**
+ * - `view`: the build it draws (mapstate/buildView.ts): Player's at t, or a scene's snapshot.
+ *   The column reads nothing else of the match, so it is the same in both.
  * - `stats`: the replay build's stat table (none: the calculated values show "—").
  * - `ladder`: the investment ladder's table (the build's, else the pack's own patch).
  * - `limited`: an enemy the selected Vision's team can't see (the minimap's info panel): no live
@@ -28,14 +29,17 @@ export interface Popover {
   set: (v: "none" | "effects" | "order") => void;
 }
 
-export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefined; limited?: boolean; onSeek?: ((t: number) => void) | undefined; player: TimelinePlayer; timeline: Timeline | undefined; t: number; art: Art; hero: Hero | undefined; name: string | undefined; id: string; stats?: LoadedTable | undefined; ladder?: LoadedTable | undefined; visible?: (() => boolean) | undefined }) {
-  // Tab's columns stay mounted and hidden (PlayerTopBar): while hidden the time holds still, so
-  // the column reads nothing per frame, and reads the current t again as soon as it's shown.
+export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefined; limited?: boolean; onSeek?: ((t: number) => void) | undefined; view: BuildView; art: Art; hero: Hero | undefined; name: string | undefined; id: string; stats?: LoadedTable | undefined; ladder?: LoadedTable | undefined; visible?: (() => boolean) | undefined }) {
+  // Tab's columns stay mounted and hidden (the top bars): while hidden Player's view holds its
+  // time still (playerBuildView's `visible`, the same accessor), so the column reads nothing per
+  // frame, and reads the current t again as soon as it's shown.
   const visible = () => p.visible?.() ?? true;
   // A tooltip open in the column when it hides closes: a hidden element gets no pointerleave.
   createEffect(() => { if (!visible()) closeTipsHidden(); });
   // Changing when what the column shows does, not on every frame of playback (#39).
-  const { build, statInput, time } = buildState(() => p.player, () => p.t, visible);
+  // One view for the column's life (the bars and the hero panel make it once per hero).
+  const view = p.view;
+  const { build, statInput, time, kills, assists, deaths } = view;
   const record = (id: number) => p.art.buildCatalog?.records.get(id);
   /** One popover opened or closed. They share one disclosure name, so opening one closes
    * the other, whose toggle comes too: a close only counts for the one that is open. */
@@ -52,13 +56,10 @@ export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefine
     return { id, entry, level: id == null || build().abilities === null ? null : (entry?.level ?? 0) };
   });
   const cooldown = (entry: BuildEntry | undefined) => entry?.cooldown != null && entry.cooldown > 0 ? `${Math.ceil(entry.cooldown)}s` : undefined;
-  const kills = createMemo(() => p.player.kills != null ? scoreboardValueAt(p.player.kills, time()) : killsAt(p.timeline, time(), p.player.team, p.player.slot));
-  const assists = () => scoreboardValueAt(p.player.assists, time());
   // Calculated from the build and the replay patch's data (crates/stats); "—" without a table.
-  const calc = createMemo(() => (p.timeline?.format ?? 0) >= PICKUPS_FORMAT ? statsAt(p.stats, statInput()) : null);
+  const calc = createMemo(() => statsAt(p.stats, statInput()));
   // The recorded max health refreshes only at (re)spawn, so the calculated one replaces it.
-  const maxHealth = () => calc()?.shown.max_health ?? scoreboardValueAt(p.player.max_health, time());
-  const deaths = createMemo(() => p.player.deaths.filter(t => t <= time()).length);
+  const maxHealth = () => calc()?.shown.max_health ?? view.maxHealth();
   // Souls in owned items per category, as the game counts them for the ladder: each owned item's
   // tier price at the replay's patch (sold and used-up items don't count); without that patch's
   // table, the pack's prices.
@@ -75,14 +76,14 @@ export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefine
   const ladder = (category: keyof typeof SLOT) => {
     const heroes = p.ladder?.data.heroes;
     // Every hero has the same ladder (deadbot asserts it); any one stands in for a missing hero.
-    const own = heroes?.[String(p.player.hero_id)] ?? (heroes ? Object.values(heroes)[0] : undefined);
+    const own = heroes?.[String(view.hero())] ?? (heroes ? Object.values(heroes)[0] : undefined);
     return own?.cost_bonuses[SLOT[category]];
   };
-  const tips = useTooltips(() => p.art, () => p.timeline?.build);
+  const tips = useTooltips(() => p.art, view.patch);
   const spirit = () => calc()?.shown.spirit_power ?? null;
   const ladderOf = (category: keyof typeof SLOT) => ladder(category) as Array<[number, number, number]> | undefined;
   const panel = (category: Category) => () => (tips() || ladderOf(category)?.length) && (
-    <StatPanel category={category} stats={calc()?.shown ?? null} recordedHealth={scoreboardValueAt(p.player.max_health, time())} ladder={ladderOf(category)} souls={investment()[category]} tips={tips()} />
+    <StatPanel category={category} stats={calc()?.shown ?? null} recordedHealth={view.maxHealth()} ladder={ladderOf(category)} souls={investment()[category]} tips={tips()} />
   );
   const hasTip = (id: number | undefined) => id != null && !!tips()?.tip(id);
   const tipFor = (id: number | undefined, ctx: { owned?: boolean; tiers?: number | null; stacks?: number | null | undefined }) => () =>
@@ -97,7 +98,7 @@ export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefine
       <div class="tb-build-kda" aria-label="Kills, deaths, assists">
         {/* Their names at once on hover (#41), not the browser's delayed title. */}
         <Hover tip={() => <TagTip text={tag(LABELS.kills, kills())} />} testid="kda-kills"><div><small>K</small><b>{kills() ?? "—"}</b></div></Hover>
-        <Hover tip={() => <TagTip text={LABELS.deaths} />} testid="kda-deaths"><div><small>D</small><b>{deaths()}</b></div></Hover>
+        <Hover tip={() => <TagTip text={tag(LABELS.deaths, deaths())} />} testid="kda-deaths"><div><small>D</small><b>{deaths() ?? "—"}</b></div></Hover>
         <Hover tip={() => <TagTip text={tag(LABELS.assists, assists())} />} testid="kda-assists"><div><small>A</small><b>{assists() ?? "—"}</b></div></Hover>
       </div>
       <div class="tb-build-investment">
@@ -150,8 +151,11 @@ export function BuildColumn(p: { inspect?: boolean; popover?: Popover | undefine
       <Show when={build().abilities === null}><p class="tb-build-empty" title={LABELS.missing}>—</p></Show>
       <Show when={p.inspect && !p.limited}>
         <div class="tb-build-popovers">
-          <ActiveEffects player={p.player} t={time()} art={p.art} endDs={p.timeline ? p.timeline.duration_s * 10 : undefined} open={p.popover ? p.popover.open() === "effects" : undefined} onToggle={(o) => popped("effects", o)} />
-          <BuildOrder player={p.player} t={time()} art={p.art} build={p.timeline?.build} onSeek={p.onSeek} open={p.popover ? p.popover.open() === "order" : undefined} onToggle={(o) => popped("order", o)} />
+          {/* The effects span the match and aren't in a frame: Player's alone (map-state D8). */}
+          <Show when={view.live}>{live =>
+            <ActiveEffects player={live().player()} t={time()} art={p.art} endDs={live().endDs()} open={p.popover ? p.popover.open() === "effects" : undefined} onToggle={(o) => popped("effects", o)} />
+          }</Show>
+          <BuildOrder order={view.order} t={time()} art={p.art} build={view.patch()} onSeek={p.onSeek} open={p.popover ? p.popover.open() === "order" : undefined} onToggle={(o) => popped("order", o)} />
         </div>
       </Show>
       <div class="tb-build-items" aria-label="Equipped items">

@@ -7,9 +7,15 @@
 // open match's in-game name; spec §6b "Names") leads the portrait's hover label, as in Player;
 // never under the bar (TopBarParts.tsx).
 // "Rename…" opens its editor in place, under the portrait, while it is open.
+//
+// A scene that holds a snapshot of its frame's builds (docs/specs/map-state.md, phase 2) shows
+// them as Player does: a click on a portrait opens that hero's build, All builds and holding Tab
+// open the twelve, with the same view state, so followers see them (board/buildPanels.ts). The
+// column reads the snapshot through the build interface (mapstate/buildView.ts). A scene saved
+// from the open match before it could hold one offers Retake. Not on the phone's compact bar yet.
 
 import { rosterTeamName } from "../map/model";
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
 import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
 import { formatClock, parseClock } from "../core/clock";
@@ -25,6 +31,15 @@ import { aliveOps } from "./Tokens";
 import { slotName, slotPlaceholder } from "./roster";
 import { LIMITS } from "../gen/limits";
 import { ContextMenu, type MenuItem } from "../ui/ContextMenu";
+import type { SceneState } from "../gen/SceneState";
+import { captured } from "../mapstate/build";
+import { holdsBuild, sceneBuildView } from "../mapstate/buildView";
+import { canRetake, retakeOps, slotKey } from "../match/save";
+import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
+import { BuildColumn } from "../player/BuildColumn";
+import type { PlayerHost } from "../player/host";
+import { newRecordId } from "../wasm/mapcro_wasm.js";
+import { buildPanels } from "./buildPanels";
 
 function UltRing(p: { state: BoardState; player: Player; editable: boolean; label: string }) {
   const [preview, setPreview] = createSignal<number | null | undefined>();
@@ -91,6 +106,8 @@ function UltRing(p: { state: BoardState; player: Player; editable: boolean; labe
 
 export function TopBar(p: {
   state: BoardState;
+  /** The Player host: its view state holds which builds are open, and its match is Retake's. */
+  host: PlayerHost;
   art: Art;
   vp: Viewpoint;
   scene: RecordId | undefined;
@@ -126,6 +143,40 @@ export function TopBar(p: {
   const total = (t: "Amber" | "Sapphire") => teamTotal(team(t).map((x) => x.player.state.souls));
   const editable = () => !p.readOnly && p.state.canEdit();
   const sceneRow = () => p.state.scenes().find((s) => s.id === p.scene);
+  // The scene's snapshot (map-state spec §4.5): what it says it holds. None: a scene from before.
+  const stateRow = createMemo(() => p.state.rowsIn<SceneState>("SceneState", p.scene)[0]);
+  const snap = createMemo(() => captured(stateRow()?.r?.more), undefined, { equals: (a, b) => a.builds === b.builds && a.rows === b.rows && a.patch === b.patch });
+  const hasBuilds = () => !p.compact && snap().builds;
+  let el: HTMLDivElement | undefined;
+  const panels = buildPanels(p.host, () => el, hasBuilds);
+  // The snapshot's patch: its stat table (calculated stats) and investment ladder, as Player's.
+  const patch = () => snap().patch;
+  const [statTable] = createResource(() => (hasBuilds() && tableKeyFor(p.art.stats, patch())) || false, (key) => loadStatTable(p.art.stats, key || null));
+  const [ladderTable] = createResource(() => (hasBuilds() && ladderKeyFor(p.art.stats, patch())) || false, (key) => loadStatTable(p.art.stats, key || null));
+  // A resource keeps its last value while the next key loads: never show another patch's numbers.
+  const current = (t: LoadedTable | undefined, key: string | null) => (t && key && p.art.stats?.tables.get(key)?.clientVersion === t.data.client_version ? t : undefined);
+  /** The frame's match second: where the snapshot was taken. */
+  const frameT = () => sceneRow()?.scene.source?.t ?? sceneRow()?.scene.clock ?? 0;
+  // Retake (spec D10): what this scene didn't capture, from its own moment of the open match.
+  const retakable = () => {
+    const sc = sceneRow();
+    return editable() && !p.compact && !!sc && canRetake(sc.scene, stateRow()?.r?.more, p.host.tl());
+  };
+  const retake = () => {
+    const sc = sceneRow();
+    const tl = p.host.tl();
+    if (!sc || !tl) return;
+    const st = stateRow();
+    const txs = retakeOps(sc, st ? { id: st.id, more: st.r?.more } : undefined, p.state.playersIn(p.scene), p.state.roster(), tl, newRecordId);
+    // In order, stopping at a refusal: the scene's state is last, so it never claims builds
+    // that weren't written.
+    for (const tx of txs) if (!p.state.edit(tx)) break;
+  };
+  /** A team's kills at the frame, if every hero's were captured. */
+  const teamKills = (t: "Amber" | "Sapphire") => {
+    const each = team(t).map((x) => (holdsBuild(x.player.state.more, snap().rows, x.slot.slot.hero) ? x.player.state.more?.kills : undefined));
+    return each.length && each.every((k) => typeof k === "number") ? (each as number[]).reduce((a, b) => a + b, 0) : null;
+  };
   const focus = (id: RecordId) => (on: boolean) => p.state.presence({ focus: on ? id : null });
   const nameOf = (s: Slot) => slotName(s.slot.name, p.matchName?.(s.slot.team, s.slot.slot));
   // "Rename…" in the menu: opens the slot's name editor, in place under its portrait.
@@ -177,6 +228,13 @@ export function TopBar(p: {
           const hero = () => (slot.slot.hero != null ? p.art.heroes.get(slot.slot.hero) : undefined);
           const label = () => nameOf(slot) || slotPlaceholder(t, slot.slot.slot);
           let openSouls: (() => void) | undefined;
+          // The hero's build, if the snapshot holds one that is still this slot's hero's.
+          const key = slotKey(t, slot.slot.slot);
+          const has = () => hasBuilds() && holdsBuild(player.state.more, snap().rows, slot.slot.hero);
+          const open = () => has() && panels.expanded(key);
+          // All builds and Tab mount the twelve once: after that they stay, hidden (as Player's).
+          const allShown = createMemo((was: boolean) => was || (has() && panels.all()), false);
+          const view = sceneBuildView({ more: () => player.state.more, rows: () => snap().rows, hero: () => slot.slot.hero ?? 0, alive: () => player.state.alive, patch, time: frameT });
           return (
             <PortraitSlot
               team={t}
@@ -186,6 +244,7 @@ export function TopBar(p: {
               hero={hero()}
               dead={!player.state.alive}
               unseen={!player.state.visible}
+              class={open() && "build-open"}
               title={portraitTitle(label(), hero())}
               onContextMenu={(e) => openMenu(e, slot, player, portraitTitle(label(), hero()))}
               souls={
@@ -213,7 +272,19 @@ export function TopBar(p: {
               {/* With a hero: the portrait focuses it, and an editor changes it from the corner's
                   swap button. Without one, the portrait is the picker. */}
               <Show when={!editable() || slot.slot.hero != null}>
-                <button class="tb-focus" data-testid="focus-hero" title={`Show ${hero()?.name ?? label()}`} aria-label={`Show ${label()}${hero() ? `, ${hero()!.name}` : ""}`} onClick={() => p.onFocus?.(t, slot.slot.slot)} />
+                <button
+                  class="tb-focus"
+                  data-testid="focus-hero"
+                  title={`${has() ? "Inspect" : "Show"} ${hero()?.name ?? label()}`}
+                  aria-label={`${has() ? "Inspect" : "Show"} ${label()}${hero() ? `, ${hero()!.name}` : ""}`}
+                  aria-expanded={has() ? open() : undefined}
+                  aria-controls={has() ? `build-${t}-${slot.slot.slot}` : undefined}
+                  onClick={() => {
+                    // As Player's portrait: its build, and the hero shown on the map.
+                    if (has()) panels.toggle(key);
+                    p.onFocus?.(t, slot.slot.slot);
+                  }}
+                />
               </Show>
               <Show when={editable()}>
                 <button
@@ -243,6 +314,13 @@ export function TopBar(p: {
                 <EyeIcon off={!player.state.visible} />
               </button>
               <UltRing state={p.state} player={player} editable={editable()} label={label()} />
+              {/* As Player's bar: the hero level on the portrait while its build is open. */}
+              <Show when={open() && view.level()}>
+                {(lv) => <span class="tb-level" data-testid="tb-level" title="Hero level">{lv()}</span>}
+              </Show>
+              <Show when={has() && (allShown() || open())}>
+                <BuildColumn visible={open} inspect={open() && !panels.all()} popover={panels.popover} view={view} art={p.art} hero={hero()} name={nameOf(slot)} id={`build-${t}-${slot.slot.slot}`} stats={current(statTable(), tableKeyFor(p.art.stats, patch()))} ladder={current(ladderTable(), ladderKeyFor(p.art.stats, patch()))} />
+              </Show>
               {/* Never under the bar (styles/topbar.css); its editor, opened by "Rename…", shows
                   in place while it is open. */}
               <Show when={nameOf(slot) || renaming() === slot.id}>
@@ -349,9 +427,10 @@ export function TopBar(p: {
 
   return (
     <TopBarFrame
+      ref={(e) => (el = e)}
       art={p.art}
       compact={p.compact}
-      class={editable() && "editable"}
+      class={cx(editable() && "editable", panels.all() && "all-builds")}
       overlay={
         <Show when={menu()} keyed>
           {menuView}
@@ -377,6 +456,20 @@ export function TopBar(p: {
           }}
         />
       </BarClock>
+      <Show when={hasBuilds()}>
+        <button type="button" class="tb-all-builds" data-testid="all-builds" aria-expanded={panels.all()} onClick={panels.toggleAll} title="All builds">
+          {panels.all() ? "▴" : "▾"} All builds <kbd>Hold Tab</kbd>
+        </button>
+      </Show>
+      <Show when={panels.all()}>
+        <div class="tb-build-team-kills"><b>{teamKills(friend()) ?? "—"}</b><span>Kills</span><b>{teamKills(enemy()) ?? "—"}</b></div>
+      </Show>
+      {/* Under All builds when the scene has both (rows a later build writes); gone while the twelve are open. */}
+      <Show when={retakable() && !panels.all()}>
+        <button type="button" class={cx("tb-all-builds", "tb-retake", hasBuilds() && "second")} data-testid="retake" onClick={retake} title="Retake">
+          Retake
+        </button>
+      </Show>
       <div class="tb-scores">
         {score(friend(), false)}
         {score(enemy(), true)}

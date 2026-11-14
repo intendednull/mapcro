@@ -728,12 +728,17 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
 
   /**
    * What presence carries (spec §6b): the mode and, with a match, the playback re-sampled now.
-   * Nothing for a board without a match.
+   * For a board without a match: only the builds open on a scene (map-state spec §7: a scene's
+   * snapshot shows them with no match), and nothing while none is.
    */
   const presence = (): PlaybackPresence | undefined => {
     const id = matchId();
     // In Player with no match yet, still say so (match 0): others see you're in Player.
-    if (!id && mode() !== "player") return undefined;
+    if (!id && mode() !== "player") {
+      const w = viewWire();
+      const open: Partial<PlaybackPresence> = { ...(w.inspect ? { inspect: w.inspect } : {}), ...(w.all_builds ? { all_builds: true } : {}), ...(w.build_popover ? { build_popover: w.build_popover } : {}) };
+      return Object.keys(open).length ? { player: false, match_id: 0, t: 0, playing: false, speed: 1, ...open } : undefined;
+    }
     const pb = playback();
     const jumpedTo = pin();
     return {
@@ -766,7 +771,9 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
     // Their layers and Vision, or, from an older presenter (or one without a match), your own.
     viewState.mirror(s);
     const theirs = s.playback;
-    if (!theirs) return;
+    // No match and nothing open on their scene (see `presence`): the builds are closed. An
+    // empty playback reads as that; the keys always sent with a match read as left alone.
+    if (!theirs) return viewState.mirror({ playback: {} }, "panels");
     const v = JSON.stringify(theirs);
     if (heard?.v !== v) {
       const at = performance.now();
@@ -789,7 +796,12 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
       // didn't, so the catch-up pinged what the presenter skipped.
       heard = { v, at, pb: { ...theirs, jump: theirs.jump ? { ...theirs.jump } : null } };
     }
-    if (!theirs.player) return setMode("sandbox");
+    if (!theirs.player) {
+      setMode("sandbox");
+      // On a scene the panels follow too (map-state spec §7): a scene's snapshot shows its
+      // builds as Player does, with or without the match here.
+      return viewState.mirror(s, "panels");
+    }
     setMode("player");
     if (theirs.match_id === 0) return;
     const id = String(theirs.match_id);
