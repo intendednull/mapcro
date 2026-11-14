@@ -381,6 +381,36 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   await expect(me.getByTestId("match-tier")).toHaveText("Full replay");
   await revealControls(me, "heals-toggle");
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
+  // A layer set before the tab's match is confirmed is the tab's own too: A's match is drawn
+  // from this page's copy while the server's answer is held, Heals is turned on there, and A
+  // is left before the answer.
+  let answer!: () => void;
+  const held = new Promise<void>((ok) => (answer = ok));
+  const timelineOfA = (url: URL) => url.pathname === `/api/boards/${boardOf(a)}/matches/51001`;
+  await me.route(timelineOfA, async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await held;
+    await route.continue().catch(() => {});
+  });
+  await go(0);
+  await expect(me.getByTestId("match-clock")).toBeVisible();
+  await revealControls(me, "heals-toggle");
+  await me.getByTestId("heals-toggle").click();
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  await tabs(me).nth(2).click();
+  await expect.poll(() => mounted(me)).toBe(boardOf(c));
+  answer();
+  await me.unroute(timelineOfA);
+  await saved(me);
+  // Off on C (this browser's choice is off again): A still has what was set there.
+  await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  await me.getByTestId("heals-toggle").click();
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
+  await go(0);
+  await expect(me.getByTestId("match-tier")).toHaveText("Full replay");
+  await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
 });
 
 // ---- what a tab remembers (§4.2) ----

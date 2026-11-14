@@ -1037,7 +1037,7 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      held and only after the access check, through a link and through a grant), and in
      `e2e/session-isolation.spec.ts` (§9.1): a tab as it was left, from sessionStorage after a
      reload, a scene gone meanwhile (checked once the board has caught up); a layer a tab's own
-     once set there, this browser's on a tab never opened and on one only passed through; a left board holds nothing open; the
+     once set there (also when set before the tab's match was confirmed), this browser's on a tab never opened and on one only passed through; a left board holds nothing open; the
      timeline cache sent once and confirmed on every open for each board, a file written again,
      a refusal, no answer. `e2e/fixtures.ts` fails any test whose page writes to a frozen object
      (every timeline Player shows is frozen, cached or not), proved by `frozen-write-guard.spec.ts`.
@@ -1047,6 +1047,15 @@ Each phase is small, merges on its own, and leaves boards unchanged.
    - **Debt:** TD-93 to TD-96.
 4. **Follow across tabs.** `seat`, `tab` and `session_role`, the `session.tab` registry row and
    the `Id` kind, the follow chip's "No access", and §9.3.
+   **Checks carried from phase 3** (the layers a tab holds, §4.2):
+   - A follower moved off a tab keeps nothing of the presenter's layers, Vision or Show last
+     seen for it: only what the follower set there is the tab's own. Until phase 3's change the
+     tab kept what it showed. Confirm that is wanted once a follow crosses tabs (the scene and
+     the playback are still kept as shown: `Keep`), and give it a row in §9.3.
+   - A layer set before a tab's matches are known, or before its match is confirmed, is the
+     tab's own (`remember`'s unsettled path). Covered since phase 3 by the end of the Player row
+     in `e2e/session-isolation.spec.ts` (the timeline's answer held, Heals set, the tab left).
+     Check it still holds when a follow moves a person off a tab at that moment.
 5. **Polish.** Strip details (match, winner, tier, job status), Load a game and New board from
    the strip, the overflow list, the phone Games sheet, and the mapcro:// session links.
 6. **Later.** Adding a tab from another session (a grant of a grant), cloning a session (open question 11), a series scoreline, and
