@@ -23,11 +23,11 @@ a queued job applies (below).
 
 The lead relayed an adversarial review of the server-side release late in the session.
 
-- **F1, done: `408a7bb`, branch `map-state-f1` on top of `6a0d391`** (merged here). A board
+- **F1, done: `408a7bb` and `ec88816`, branch `map-state-f1` on top of `6a0d391`** (merged here). A board
   file's `rows` was `ROWS.len()` (15); the reader `13d2fd1` refuses a file above its 11 as
   Newer, so no export made after the writer's deploy imported after a rollback. Now
   `mapcro_schema::written_rows()` (the first `Ahead` row's index). A server test holds the
-  header; `just reader-check` holds that the reader's registry covers it. **Committed before
+  header; `just reader-check` holds that the reader's registry covers it. Run on `ec88816`: schema 61 + 6, server `boardfile` 5, `board_file` 14, `just reader-check` (40 boards, 10,808 transactions), clippy on schema, server and sim, all pass; a full `just test` is the lead's gate. **`408a7bb` alone fails three tests that pinned the old header.** Committed before
   its tests could run** (the gate held the box); `/tmp/mapcro-p2-f1.log` has the run if it
   finished. It does not run the reader's own `boardfile::read` (the server has no library
   target).
