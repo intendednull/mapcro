@@ -90,6 +90,39 @@ describe("a copy of a scene (#54)", () => {
   });
 });
 
+describe("a board with no room for the whole new scene", () => {
+  const hero = (n: number): Entry => ({ deleted: false, record: { PlayerState: { scene: "b", slot: `s${n}`, pos: { x: n, y: n }, alive: true, placed: true, souls: null, ult_cooldown: null, visible: true } } });
+  /** A board of `n` records: scene b's two heroes and a stroke, the rest filler (some deleted). */
+  const boardOf = (n: number) => {
+    const records: Record<string, Entry> = { p1: hero(1), p2: hero(2), k: { deleted: false, record: { Stroke: { scene: "b", points: [{ x: 0, y: 0 }], color: 1, width: 30 } } } };
+    for (let i = 0; Object.keys(records).length < n; i++) records[`f${i}`] = { deleted: i % 2 === 0, record: { Stroke: { scene: "a", points: [{ x: i, y: 0 }], color: 1, width: 30 } } };
+    return fake(list, records);
+  };
+
+  it("makes nothing: no transactions, and it says the board is full", () => {
+    let n = 0;
+    const mint = () => `new${n++}`;
+    // A copy is four records (the scene, two heroes, the stroke); a new scene three.
+    const fits = addSceneOps(boardOf(LIMITS.max_records - 4), list[1], false, mint, "", true);
+    expect(fits.ops).toHaveLength(4);
+    expect([fits.full, fits.txs]).toEqual([false, [fits.ops]]);
+    // One record over, deleted records counted: nothing to send.
+    const over = addSceneOps(boardOf(LIMITS.max_records - 3), list[1], false, mint, "", true);
+    expect(over.ops).toHaveLength(4);
+    expect([over.full, over.txs]).toEqual([true, []]);
+    // The same board still has room for a new scene without the ink.
+    const bare = addSceneOps(boardOf(LIMITS.max_records - 3), list[1], false, mint);
+    expect([bare.ops.length, bare.full, bare.txs.length]).toEqual([3, false, 1]);
+    expect(addSceneOps(boardOf(LIMITS.max_records - 2), list[1], false, mint).full).toBe(true);
+  });
+
+  it("nothing sent is nothing made: the page stays where it was", () => {
+    const sent: Op[][] = [];
+    expect(sendScene([], (tx) => (sent.push(tx), true))).toBe(false);
+    expect(sent).toEqual([]);
+  });
+});
+
 describe("sending a new scene", () => {
   const txs: Op[][] = [[{ Delete: { id: "a" } }], [{ Delete: { id: "b" } }], [{ Delete: { id: "c" } }]];
   it("stops at a refused transaction, and says whether the scene was made", () => {

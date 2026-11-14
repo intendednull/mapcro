@@ -1044,7 +1044,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       </Show>
       <Show when={sceneDrawer()}>
         <div class="drawer-scrim" onClick={() => setSceneDrawer(false)} />
-        <SceneTree state={state} art={p.art} vp={viewpoint()} board={p.board} current={scene()?.id} onFlip={pickScene} chip={sceneChip} keys={() => !inPlayer()} drawer onClose={() => setSceneDrawer(false)} />
+        <SceneTree state={state} art={p.art} vp={viewpoint()} board={p.board} current={scene()?.id} onFlip={pickScene} chip={sceneChip} onFull={() => say("Board full")} keys={() => !inPlayer()} drawer onClose={() => setSceneDrawer(false)} />
       </Show>
       {toastView()}
     </div>
@@ -1388,7 +1388,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
           current={inPlayer() ? undefined : scene()?.id}
           replay={player.matchId() ? { active: inPlayer(), label: `Match ${player.matchId()}`, go: () => { stopFollowing("returned to replay"); player.setMode("player"); } } : undefined}
           onFlip={pickScene}
-          chip={sceneChip}
+          chip={sceneChip} onFull={() => say("Board full")}
           keys={() => !inPlayer()}
         />
         <main class="stage">

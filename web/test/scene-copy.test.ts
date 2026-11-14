@@ -143,3 +143,43 @@ it("a copy over one transaction makes the scene with all its heroes first, then 
   expect(copy).toEqual(inScene(b, scene));
   [a, b].forEach((s) => s.stop());
 });
+
+it("a copy the board has room to start but not to finish makes nothing (review F1 of RC1)", async () => {
+  const { a, b, scene, row } = await board(false);
+  const make = (record: Rec): Op => ({ Create: { id: newRecordId(), record } });
+  const stroke = (in_: RecordId, i: number) => make({ Stroke: { scene: in_, points: [{ x: i, y: 0 }, { x: i, y: 9 }], color: 1, width: 30 } });
+  const fill = (in_: RecordId, n: number) => {
+    for (let i = 0; i < n; i += 200) expect(a.edit(Array.from({ length: Math.min(200, n - i) }, (_, k) => stroke(in_, i + k)))).toBe(true);
+  };
+  // A second scene with 300 strokes: its copy is 313 records, over one transaction's 256 ops.
+  const second = addSceneOps(stateOf(a), row, false);
+  expect(sendScene(second.txs, (tx) => a.edit(tx))).toBe(true);
+  fill(second.id, 300);
+  // The board filled to 60 records short of its cap, some of them deleted (they count).
+  const short = 60;
+  fill(scene, LIMITS.max_records - short - a.records.size);
+  const some = [...a.records].filter(([, e]) => "Stroke" in e.record && e.record.Stroke.scene === scene).slice(0, 40).map(([id]): Op => ({ Delete: { id } }));
+  expect(a.edit(some)).toBe(true);
+  expect(a.records.size).toBe(LIMITS.max_records - short);
+  expect(await settled(a)).toBe(true);
+  const from = { id: second.id, scene: (a.records.get(second.id)!.record as { Scene: SceneRow["scene"] }).Scene };
+  const copy = addSceneOps(stateOf(a), from, false, undefined, "", true);
+  expect(copy.ops).toHaveLength(313);
+  // Nothing to send, and nothing made: the caller stays on its scene.
+  expect([copy.full, copy.txs]).toEqual([true, []]);
+  const sent: Op[][] = [];
+  expect(sendScene(copy.txs, (tx) => (sent.push(tx), a.edit(tx)))).toBe(false);
+  expect(sent).toEqual([]);
+  expect(a.records.has(copy.id)).toBe(false);
+  expect(a.records.size).toBe(LIMITS.max_records - short);
+  // What it prevents: the copy's first transaction (the scene and its heroes) has room and is
+  // taken; a later one is refused, and the board is left with part of the scene.
+  expect(a.edit(copy.ops.slice(0, 13))).toBe(true);
+  expect(a.records.has(copy.id)).toBe(true);
+  expect(a.edit(copy.ops.slice(13, 13 + 40))).toBe(true);
+  expect(a.edit(copy.ops.slice(53, 53 + 40))).toBe(false);
+  expect(await settled(a)).toBe(true);
+  expect(await until(() => b.records.has(copy.id))).toBe(true);
+  expect((inScene(b, copy.id).Stroke ?? []).length).toBe(40);
+  [a, b].forEach((s) => s.stop());
+});

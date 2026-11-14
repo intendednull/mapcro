@@ -45,6 +45,10 @@ function treeOf(state: BoardState) {
  * fewer than every slot's hero is refused whole (`IncompleteScene`). Each hero's `more` follows
  * as sets, then the other records, and the scene's state last, so a scene never says it holds
  * builds that aren't written yet. That copy is more than one undo step.
+ *
+ * `full`: the board has no room for every record of the new scene (deleted records count
+ * toward its cap too). Nothing is sent then (`txs` is empty): a copy sent in several
+ * transactions would stop part way, and leave a scene with some of its ink (review F1 of RC1).
  */
 export function addSceneOps(
   state: BoardState,
@@ -53,7 +57,7 @@ export function addSceneOps(
   mint = newRecordId,
   name = "",
   ink = false,
-): { id: RecordId; ops: Op[]; txs: Op[][] } {
+): { id: RecordId; ops: Op[]; txs: Op[][]; full: boolean } {
   const { parentOf, kids } = treeOf(state);
   const parent = from ? (asChild ? from.id : (parentOf.get(from.id) ?? null)) : null;
   const sibs = kids(parent);
@@ -101,16 +105,18 @@ export function addSceneOps(
   }
   const after = [...rest, ...drawn, ...states];
   const ops = [scene, ...heroes, ...after];
-  if (ops.length <= LIMITS.max_ops_per_tx && fitsTx(ops)) return { id, ops, txs: [ops] };
-  return { id, ops, txs: chunkByBytes([[scene, ...bare], ...mores, ...after.map((op) => [op])]) };
+  // Every op here makes one record.
+  if (Object.keys(state.records).length + ops.length > LIMITS.max_records) return { id, ops, txs: [], full: true };
+  if (ops.length <= LIMITS.max_ops_per_tx && fitsTx(ops)) return { id, ops, txs: [ops], full: false };
+  return { id, ops, txs: chunkByBytes([[scene, ...bare], ...mores, ...after.map((op) => [op])]), full: false };
 }
 
 /**
  * Send a new scene's transactions in order; a refused one stops the rest. Whether the scene was
  * made (its first transaction): the caller shows the scene only then, never an id that
- * doesn't exist.
+ * doesn't exist. With nothing to send (the board is full), nothing was made.
  */
-export const sendScene = (txs: Op[][], edit: (ops: Op[]) => boolean) => txs.findIndex((tx) => !edit(tx)) !== 0;
+export const sendScene = (txs: Op[][], edit: (ops: Op[]) => boolean) => txs.length > 0 && txs.findIndex((tx) => !edit(tx)) !== 0;
 
 /**
  * A dropped scene row, as one transaction: before or after `target` (its sibling, same parent),

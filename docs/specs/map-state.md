@@ -224,6 +224,14 @@ its life today.
   heroes without their `more` (a scene with fewer is refused whole, `IncompleteScene`); each
   hero's `more` follows as `Set More`, then the other records, and the `SceneState` last. If
   the first is refused nothing is made and the view stays where it was.
+- **A board with no room for the whole new scene gets none of it.** The client counts the
+  board's records (deleted ones too) plus the copy's before sending: over `max_records`,
+  nothing is sent, the view stays, and the page says "Board full". Without it a copy in
+  several transactions stopped at the first refused one and left part of the scene.
+- **Undo after a copy in several transactions** takes one transaction at a time, newest
+  first: the scene's state goes first, then its ink and other records in the uneven groups
+  they were packed in, then each hero's `more`, and the scene with its heroes last. Every
+  step is a valid scene. One grouped undo is debt (TD-89).
 - **Duplicate also copies what is drawn on the scene** (arrows, callouts, ink, the note: #54).
   New scene doesn't: it is the play's next frame.
 - **Saving many scenes** sends one transaction per scene, chunked by bytes, not op count.
