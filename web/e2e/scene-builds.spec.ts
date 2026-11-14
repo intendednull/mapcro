@@ -164,6 +164,25 @@ test("a scene saved from Player shows each hero's build as Player did (#49)", as
   expect(await shown(p, "Amber-3")).toEqual(inPlayer);
 });
 
+test("a hero dead at the frame is a dark token with its respawn time in the saved scene (D4)", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Scene respawn");
+  const p = await joinNew(browser, url, "Coach");
+  // Amber 1 died at 20 and is back at 30: saved at 25, five seconds are left.
+  await savedScene(p);
+  await expect(p.locator('[data-testid=map] .tok.dead')).toHaveCount(1);
+  await expect(p.locator('[data-testid=map] .tok[data-slot="Amber-1"]')).toHaveClass(/\bdead\b/);
+  const label = p.locator("[data-testid=map] [data-testid=respawn]");
+  await expect(label).toHaveCount(1);
+  await expect(label.locator(".respawn-label")).not.toHaveClass(/\bunset\b/);
+  await expect(label).toHaveText("respawn 0:05");
+  // It is the scene's own: a second person reads the same.
+  const q = await joinNew(browser, url, "Player");
+  await expect(q.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  await q.getByTestId("scene-card").nth(1).click();
+  await expect(q.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
+  await expect(q.locator("[data-testid=map] [data-testid=respawn]")).toHaveText("respawn 0:05");
+});
+
 test("a copy of a scene saved from the match, and a new scene from it, keep its moment: the ▶ chip", async ({ browser }) => {
   const url = await newBoardUrl(server, "Copy source");
   const p = await joinNew(browser, url, "Coach");
