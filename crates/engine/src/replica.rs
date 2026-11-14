@@ -146,6 +146,13 @@ impl Replica {
     pub fn rejected(&self) -> &[(u64, Reject)] {
         &self.rejected
     }
+    /// The ops the next `undo` (`redo`) would submit, if there is one: the records it can touch.
+    pub fn next_undo(&self) -> Option<&[Op]> {
+        self.undo.last().map(|e| e.inverse.as_slice())
+    }
+    pub fn next_redo(&self) -> Option<&[Op]> {
+        self.redo.last().map(|e| e.inverse.as_slice())
+    }
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
@@ -177,9 +184,7 @@ impl Replica {
     /// remote peer's edit: no undo entry, and redo is kept. On the wire it's an ordinary edit.
     pub fn edit_silent(&mut self, ops: Vec<Op>) -> Result<Option<ClientMsg>, Reject> {
         let tx = Tx { client: self.client, cseq: self.next_cseq, kind: TxKind::Edit, ops };
-        let mut view = self.view.clone();
-        apply_tx_with_inverse(&mut view, &tx)?;
-        self.view = view;
+        apply_tx(&mut self.view, &tx)?;
         self.next_cseq += 1;
         let msg = self.connected.then(|| ClientMsg::Submit(tx.clone()));
         self.pending.push_back(tx);
@@ -199,9 +204,9 @@ impl Replica {
 
     fn submit(&mut self, ops: Vec<Op>, kind: TxKind) -> Result<Option<ClientMsg>, Reject> {
         let tx = Tx { client: self.client, cseq: self.next_cseq, kind, ops };
-        let mut view = self.view.clone();
-        let (_, inverse) = apply_tx_with_inverse(&mut view, &tx)?;
-        self.view = view;
+        // In place: a refused transaction is rolled back by `apply_tx_with_inverse` itself, so
+        // an edit costs what it touches, not a copy of the board (map-state spec §6).
+        let (_, inverse) = apply_tx_with_inverse(&mut self.view, &tx)?;
         self.next_cseq += 1;
         let entry = HistoryEntry { cseq: tx.cseq, inverse };
         if !entry.inverse.is_empty() {
@@ -247,10 +252,25 @@ impl Replica {
                 }
                 apply_tx(&mut self.confirmed, &tx).map_err(|reason| ProtocolError::Diverged { seq, reason })?;
                 self.last_seq = seq;
+                // The view is the confirmed state with the pending work on top. Two entries
+                // leave it that without rebuilding it from a copy of the board (map-state
+                // spec §6: a drag is an edit and its ack on every frame).
                 if tx.client == self.client {
-                    self.pending.pop_front();
+                    // Our oldest pending transaction, as we sent it: it applied to the
+                    // confirmed state just now exactly as it had under the view, so the view
+                    // holds it already. Anything else under our cseq is the server's to say.
+                    if self.pending.pop_front().as_ref() != Some(&tx) {
+                        self.rebase();
+                    }
+                } else if self.pending.is_empty() {
+                    // Nothing pending: the view was the confirmed state, and takes the same
+                    // transaction the same way.
+                    if apply_tx(&mut self.view, &tx).is_err() {
+                        self.rebase();
+                    }
+                } else {
+                    self.rebase();
                 }
-                self.rebase();
                 Ok(())
             }
             ServerMsg::Rejected { cseq, reason } => {

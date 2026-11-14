@@ -92,7 +92,9 @@ fn affects_invariants(op: &Op) -> bool {
     }
 }
 
-fn op_target(op: &Op) -> RecordId {
+/// The one record an op reads or writes. An op changes no other record, which is what lets a
+/// transaction be rolled back, and a client's view be compared, by what its ops name.
+pub fn op_target(op: &Op) -> RecordId {
     match op {
         Op::Create { id, .. } | Op::Set { id, .. } | Op::SetIf { id, .. } | Op::Delete { id } | Op::Restore { id } => *id,
     }

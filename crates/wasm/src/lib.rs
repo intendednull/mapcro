@@ -1,13 +1,14 @@
 //! The browser's handle on a board replica. Everything crosses the boundary as JSON strings
 //! whose shapes are the generated TypeScript types in `web/src/gen`, so the two sides can't
-//! drift. Edits are human-paced; a JSON round trip per call costs microseconds.
+//! drift. A JSON round trip per call costs microseconds, and a call costs what it touches: a
+//! drag makes one on every frame (map-state spec §6, "Edit cost").
 //!
 //! Every call that can change the view returns an [`Update`]: the frames to send, and the
 //! records that changed. The UI mirrors records; the core stays the source of truth.
 
 use mapcro_engine::wire::{WireIn, WireOut};
-use mapcro_engine::{Replica, ReplicaState, SaveStatus};
-use mapcro_schema::{ClientId, Doc, Entry, Op, RecordId};
+use mapcro_engine::{Replica, ReplicaState, SaveStatus, ServerMsg};
+use mapcro_schema::{ClientId, Doc, Entry, Op, RecordId, op_target};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -49,6 +50,35 @@ fn status(s: SaveStatus) -> Status {
         SaveStatus::Syncing(n) => Status::Syncing { pending: n },
         SaveStatus::Offline(n) => Status::Offline { pending: n },
     }
+}
+
+/// The records a call can change in the view, as the view holds them before it. A transaction
+/// changes only the records its ops name (`op_target`), so comparing these afterwards finds
+/// every change without a copy of the board (map-state spec §6, "Edit cost").
+struct Held(Vec<(RecordId, Option<Entry>)>);
+
+impl Held {
+    fn of<'a>(view: &Doc, ops: impl IntoIterator<Item = &'a Op>) -> Held {
+        let ids: std::collections::BTreeSet<RecordId> = ops.into_iter().map(op_target).collect();
+        Held(ids.into_iter().map(|id| (id, view.get(id).cloned())).collect())
+    }
+
+    /// Those the view now holds differently, in `diff`'s order: the ones it has, by id, then
+    /// the ones that vanished.
+    fn changed<'a>(&self, view: &'a Doc) -> Vec<(RecordId, Option<&'a Entry>)> {
+        let now = |id: &RecordId| view.get(*id);
+        let mut out: Vec<_> = self.0.iter().filter(|(id, was)| now(id).is_some() && now(id) != was.as_ref()).map(|(id, _)| (*id, now(id))).collect();
+        out.extend(self.0.iter().filter(|(id, was)| was.is_some() && now(id).is_none()).map(|(id, _)| (*id, None)));
+        out
+    }
+}
+
+/// What a call's `changed` is found against.
+enum Before {
+    /// The records the call can touch.
+    Held(Held),
+    /// The whole view: a rebase onto another board state can change anything.
+    Whole(Doc),
 }
 
 /// Records that differ between two views.
@@ -106,7 +136,7 @@ impl BoardReplica {
     /// `Op[]` as JSON, applied as one transaction (one undo step).
     pub fn edit(&mut self, ops_json: &str) -> Result<String, JsError> {
         let ops: Vec<Op> = serde_json::from_str(ops_json).map_err(js_err)?;
-        let before = self.inner.view().clone();
+        let before = Held::of(self.inner.view(), &ops);
         let result = self.inner.edit(ops);
         self.update(&before, result.as_ref().ok().cloned().flatten(), result.err().map(|e| e.to_string()))
     }
@@ -115,34 +145,32 @@ impl BoardReplica {
     /// live annotation layer): no undo step, and redo is kept.
     pub fn edit_silent(&mut self, ops_json: &str) -> Result<String, JsError> {
         let ops: Vec<Op> = serde_json::from_str(ops_json).map_err(js_err)?;
-        let before = self.inner.view().clone();
+        let before = Held::of(self.inner.view(), &ops);
         let result = self.inner.edit_silent(ops);
         self.update(&before, result.as_ref().ok().cloned().flatten(), result.err().map(|e| e.to_string()))
     }
 
     pub fn undo(&mut self) -> Result<String, JsError> {
-        let before = self.inner.view().clone();
+        let before = Held::of(self.inner.view(), self.inner.next_undo().unwrap_or_default());
         let result = self.inner.undo();
         self.update(&before, result.as_ref().ok().cloned().flatten(), result.err().map(|e| e.to_string()))
     }
 
     pub fn redo(&mut self) -> Result<String, JsError> {
-        let before = self.inner.view().clone();
+        let before = Held::of(self.inner.view(), self.inner.next_redo().unwrap_or_default());
         let result = self.inner.redo();
         self.update(&before, result.as_ref().ok().cloned().flatten(), result.err().map(|e| e.to_string()))
     }
 
     /// The socket opened and `Ready` arrived: frames to send (hello, then pending work).
     pub fn connect(&mut self) -> Result<String, JsError> {
-        let before = self.inner.view().clone();
         let frames: Vec<WireIn> = self.inner.connect().into_iter().map(|msg| WireIn::Msg { msg }).collect();
-        self.update_frames(&before, frames, None)
+        self.update_frames(&Before::Held(Held(Vec::new())), frames, None)
     }
 
     pub fn disconnect(&mut self) -> Result<String, JsError> {
-        let before = self.inner.view().clone();
         self.inner.disconnect();
-        self.update_frames(&before, Vec::new(), None)
+        self.update_frames(&Before::Held(Held(Vec::new())), Vec::new(), None)
     }
 
     /// A `WireOut` frame of kind `msg`. A protocol error means: drop the socket and reconnect;
@@ -152,28 +180,38 @@ impl BoardReplica {
         let WireOut::Msg { msg } = frame else {
             return Err(JsError::new("receive() takes only `msg` frames"));
         };
-        let before = self.inner.view().clone();
+        // The view is the confirmed state with the pending work on top: an entry or a
+        // rejection can change only the records it names and the ones pending work names
+        // (a pending transaction may start or stop applying).
+        let pending = || self.inner.pending().flat_map(|tx| tx.ops.iter());
+        let before = match &msg {
+            ServerMsg::Entry { tx, .. } => Before::Held(Held::of(self.inner.view(), tx.ops.iter().chain(pending()))),
+            ServerMsg::Rejected { .. } => Before::Held(Held::of(self.inner.view(), pending())),
+            ServerMsg::Fatal(_) => Before::Held(Held(Vec::new())),
+            ServerMsg::Rebase { .. } => Before::Whole(self.inner.view().clone()),
+        };
         self.inner.receive(msg).map_err(js_err)?;
         self.update_frames(&before, Vec::new(), None)
     }
 }
 
 impl BoardReplica {
-    fn update(&self, before: &Doc, msg: Option<mapcro_engine::ClientMsg>, refused: Option<String>) -> Result<String, JsError> {
+    fn update(&self, before: &Held, msg: Option<mapcro_engine::ClientMsg>, refused: Option<String>) -> Result<String, JsError> {
         let frames = msg.into_iter().map(|msg| WireIn::Msg { msg }).collect();
-        self.update_frames(before, frames, refused)
+        let u = self.changes(before.changed(self.inner.view()), frames, refused);
+        serde_json::to_string(&u).map_err(js_err)
     }
 
-    fn update_frames(&self, before: &Doc, frames: Vec<WireIn>, refused: Option<String>) -> Result<String, JsError> {
-        let u = Update {
-            frames,
-            changed: diff(before, self.inner.view()),
-            status: status(self.inner.status()),
-            can_undo: self.inner.can_undo(),
-            can_redo: self.inner.can_redo(),
-            refused,
+    fn update_frames(&self, before: &Before, frames: Vec<WireIn>, refused: Option<String>) -> Result<String, JsError> {
+        let changed = match before {
+            Before::Held(held) => held.changed(self.inner.view()),
+            Before::Whole(doc) => diff(doc, self.inner.view()),
         };
-        serde_json::to_string(&u).map_err(js_err)
+        serde_json::to_string(&self.changes(changed, frames, refused)).map_err(js_err)
+    }
+
+    fn changes<'a>(&'a self, changed: Vec<(RecordId, Option<&'a Entry>)>, frames: Vec<WireIn>, refused: Option<String>) -> Update<'a> {
+        Update { frames, changed, status: status(self.inner.status()), can_undo: self.inner.can_undo(), can_redo: self.inner.can_redo(), refused }
     }
 }
 
@@ -253,7 +291,7 @@ impl StatCalc {
 mod changed_tests {
     use super::*;
     use mapcro_engine::wire::Base;
-    use mapcro_engine::{ClientMsg, ServerMsg};
+    use mapcro_engine::ClientMsg;
     use mapcro_schema::{Callout, FieldValue, Record, Tx, TxKind, WorldPos, genesis};
     use serde_json::Value;
 
