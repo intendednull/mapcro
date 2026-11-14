@@ -3,6 +3,26 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed 91e81c2 (2026-11-14 17:11 UTC, lead 9eb2516b)
+
+- **Prod `web` runs 91e81c2** (infra 8985bca). The release is mobile defaults (ad60722) and
+  map-state release 2 (e1d7796): Player's frame on three clocks (phase 3, TD-50), and scene copies
+  keep their source and ▶ chip. Client only, store still v10, no backup needed.
+- **Checks:**
+  - Gate on 5e966b0 green, after one vitest load flake.
+  - Firefox phone run: 26 passed, plus one 1024×768 load flake that passed 3/3 alone (TD-92).
+  - Browser QA locally and on prod (phones, tablet, Player plays, the copy's ▶ chip, no errors).
+  - Prod stats after deploy: 0 5xx, 0 failures.
+- **Deploy gotcha:** the ssh agent no longer holds the infra key, so `just deploy web` was refused
+  (publickey). Fix: run it as
+  `nix develop -c bash -c 'export PATH=/tmp/lead-sshwrap:$PATH; just deploy web'`, where
+  `/tmp/lead-sshwrap/ssh` execs ssh with `-i ~/.ssh/id_infra_2026 -o IdentitiesOnly=yes`.
+- **Next:**
+  - D4 candidate: map-state-p3 merges main and resolves the cherry-pick conflicts.
+  - Sessions phase 3 (f5c0a1e): security review clean (L1–L3 optional); adversarial review
+    running.
+  - Feedback release 1: its checks are queued.
+
 ## Resumed after the Paseo restart (2026-11-14 ~13:50 UTC, lead 9eb2516b)
 
 - **Lead gate** rerun on 5e966b0, detached via `/tmp/lead-gate-run.sh` (logs `/tmp/lead-gate.log`,
