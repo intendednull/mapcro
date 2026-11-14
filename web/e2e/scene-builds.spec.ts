@@ -290,3 +290,53 @@ test("with no match on the board, a scene from a file shows its builds and a fol
   await expect(builds(b)).toHaveCount(0);
   await expect(b.getByTestId("stop-following")).toHaveCount(1);
 });
+
+test("a scene whose builds are over one transaction is duplicated whole (review F1)", async ({ browser }) => {
+  const from = await newBoardUrl(server, "Big scene");
+  const maker = await joinNew(browser, from, "Coach");
+  await savedScene(maker);
+  const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(from)!;
+  const file = (await (await fetch(`${server.url}/api/boards/${board}/export`, { headers: { authorization: `Bearer ${token}` } })).json()) as { records: Rec[]; matches: number[] };
+  file.matches = [];
+  await maker.close();
+  // Each hero's build order filled to the row's 600 integers with rows far past the frame, as
+  // long as real ids are: twelve heroes are then over a transaction's 64 KiB, as after Retake
+  // on a late-game scene.
+  let heroes = 0;
+  for (const [, r] of file.records) {
+    const more = (r.PlayerState as { more?: { build_order?: number[] } } | undefined)?.more;
+    if (!more) continue;
+    heroes++;
+    const order = (more.build_order ??= []);
+    for (let i = 0; order.length < 600; i++) order.push(4_000_000_000 + i, 4_100_000_000 + i, 4_200_000_000 + i);
+  }
+  expect(heroes).toBe(12);
+  // Over one transaction, whatever wraps the heroes.
+  expect(JSON.stringify(file.records.filter(([, r]) => (r.PlayerState as { more?: object } | undefined)?.more)).length).toBeGreaterThan(70_000);
+  const url = await seed(file);
+  const a = await joinNew(browser, url, "Coach");
+  const b = await joinNew(browser, url, "Viewer");
+  const cards = a.getByTestId("scene-card");
+  await expect(cards).toHaveCount(2);
+  await cards.nth(1).click();
+  await portrait(a, "Amber-3").getByTestId("focus-hero").click();
+  const before = await shown(a, "Amber-3");
+  await a.keyboard.press("Escape");
+  await cards.nth(1).hover();
+  await cards.nth(1).getByTestId("scene-clone").click();
+  // The copy exists for everyone, is the scene shown, and holds the twelve builds.
+  await expect(cards).toHaveCount(3);
+  await expect(b.getByTestId("scene-card")).toHaveCount(3);
+  await expect(cards.nth(2)).toHaveAttribute("aria-current", "true");
+  await expect(a.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  await portrait(a, "Amber-3").getByTestId("focus-hero").click();
+  expect(await shown(a, "Amber-3")).toEqual(before);
+  await a.keyboard.press("Escape");
+  await a.getByTestId("all-builds").click();
+  await expect(builds(a)).toHaveCount(12);
+  // And after a reload, from the server's copy.
+  await b.reload();
+  await b.getByTestId("scene-card").nth(2).click();
+  await b.getByTestId("all-builds").click();
+  await expect(builds(b)).toHaveCount(12);
+});

@@ -1,10 +1,12 @@
 // Scene edits as single transactions (one gesture, one undo step).
 
 import { keyBetween } from "../core/order";
+import { LIMITS } from "../gen/limits";
 import type { Op } from "../gen/Op";
+import type { Record as Rec } from "../gen/Record";
 import type { RecordId } from "../gen/RecordId";
 import type { Scene } from "../gen/Scene";
-import { chunkByBytes } from "../match/save";
+import { chunkByBytes, fitsTx } from "../match/save";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { canNest } from "./tree";
 import type { BoardState } from "./state";
@@ -34,9 +36,28 @@ function treeOf(state: BoardState) {
 /**
  * A new scene after `from` (its next sibling) or as its last child, starting from its positions,
  * objectives and lane splits (the next frame of a play usually starts where the last one
- * ended). Ink, arrows and callouts stay.
+ * ended). Ink, arrows, callouts and the note stay, unless `ink`: a copy of the scene takes
+ * them too (#54).
+ *
+ * `ops` is the copy as one transaction; `txs` is what to send. They are the same unless the
+ * copy is over a transaction's caps (twelve builds near a record's 8 KiB are 96 KiB). Then the
+ * first transaction makes the scene and all its heroes, without their `more`: a scene with
+ * fewer than every slot's hero is refused whole (`IncompleteScene`). Each hero's `more` follows
+ * as sets, then the other records, and the scene's state last, so a scene never says it holds
+ * builds that aren't written yet. That copy is more than one undo step.
+ *
+ * `full`: the board has no room for every record of the new scene (deleted records count
+ * toward its cap too). Nothing is sent then (`txs` is empty): a copy sent in several
+ * transactions would stop part way, and leave a scene with some of its ink (review F1 of RC1).
  */
-export function addSceneOps(state: BoardState, from: SceneRow | undefined, asChild = false, mint = newRecordId, name = ""): { id: RecordId; ops: Op[]; txs: Op[][] } {
+export function addSceneOps(
+  state: BoardState,
+  from: SceneRow | undefined,
+  asChild = false,
+  mint = newRecordId,
+  name = "",
+  ink = false,
+): { id: RecordId; ops: Op[]; txs: Op[][]; full: boolean } {
   const { parentOf, kids } = treeOf(state);
   const parent = from ? (asChild ? from.id : (parentOf.get(from.id) ?? null)) : null;
   const sibs = kids(parent);
@@ -44,32 +65,58 @@ export function addSceneOps(state: BoardState, from: SceneRow | undefined, asChi
   const lo = sibs[i]?.scene.order;
   const hi = sibs[i + 1]?.scene.order;
   const id = mint();
-  const ops: Op[] = [
-    {
-      Create: {
-        id,
-        record: { Scene: { name, order: keyBetween(lo, hi), clock: from?.scene.clock ?? null, ...(parent ? { parent } : {}) } },
-      },
+  const scene: Op = {
+    Create: {
+      id,
+      record: { Scene: { name, order: keyBetween(lo, hi), clock: from?.scene.clock ?? null, ...(parent ? { parent } : {}) } },
     },
-  ];
+  };
   const src = from?.id;
+  const create = (record: Rec): Op => ({ Create: { id: mint(), record } });
+  // The heroes whole (one transaction), and split: bare, then each one's `more` as sets.
+  const heroes: Op[] = [];
+  const bare: Op[] = [];
+  const mores: Op[][] = [];
+  const rest: Op[] = [];
+  const drawn: Op[] = [];
   const states: Op[] = [];
   for (const [, e] of Object.entries(state.records)) {
     if (e.deleted) continue;
     const r = e.record;
-    if ("PlayerState" in r && r.PlayerState.scene === src) ops.push({ Create: { id: mint(), record: { PlayerState: { ...r.PlayerState, scene: id } } } });
-    if ("Wave" in r && r.Wave.scene === src) ops.push({ Create: { id: mint(), record: { Wave: { ...r.Wave, scene: id } } } });
-    if ("ObjectiveState" in r && r.ObjectiveState.scene === src)
-      ops.push({ Create: { id: mint(), record: { ObjectiveState: { ...r.ObjectiveState, scene: id } } } });
+    if ("PlayerState" in r && r.PlayerState.scene === src) {
+      const { more, ...fields } = r.PlayerState;
+      const hero = mint();
+      heroes.push({ Create: { id: hero, record: { PlayerState: { ...r.PlayerState, scene: id } } } });
+      bare.push({ Create: { id: hero, record: { PlayerState: { ...fields, scene: id } } } });
+      const sets = Object.entries(more ?? {}).map(([key, value]): Op => ({ Set: { id: hero, value: { More: { key, value } } } }));
+      if (sets.length) mores.push(sets);
+    }
+    if ("Wave" in r && r.Wave.scene === src) rest.push(create({ Wave: { ...r.Wave, scene: id } }));
+    if ("ObjectiveState" in r && r.ObjectiveState.scene === src) rest.push(create({ ObjectiveState: { ...r.ObjectiveState, scene: id } }));
+    if (ink) {
+      if ("Arrow" in r && r.Arrow.scene === src) drawn.push(create({ Arrow: { ...r.Arrow, scene: id } }));
+      if ("Callout" in r && r.Callout.scene === src) drawn.push(create({ Callout: { ...r.Callout, scene: id } }));
+      if ("Stroke" in r && r.Stroke.scene === src) drawn.push(create({ Stroke: { ...r.Stroke, scene: id } }));
+      if ("Note" in r && r.Note.scene === src) drawn.push(create({ Note: { ...r.Note, scene: id } }));
+    }
     // The snapshot goes with the scene (map-state spec §4.5): its state, and each record's
     // `more` above. Without it the copied values would be stored and never drawn.
-    if ("SceneState" in r && r.SceneState.scene === src) states.push({ Create: { id: mint(), record: { SceneState: { ...r.SceneState, scene: id } } } });
+    if ("SceneState" in r && r.SceneState.scene === src) states.push(create({ SceneState: { ...r.SceneState, scene: id } }));
   }
-  // The state last: if the copy takes more than one transaction (twelve builds near a record's
-  // cap are over `max_tx_bytes`), a scene never says it holds builds that aren't written yet.
-  ops.push(...states);
-  return { id, ops, txs: chunkByBytes(ops.map((op) => [op])) };
+  const after = [...rest, ...drawn, ...states];
+  const ops = [scene, ...heroes, ...after];
+  // Every op here makes one record.
+  if (Object.keys(state.records).length + ops.length > LIMITS.max_records) return { id, ops, txs: [], full: true };
+  if (ops.length <= LIMITS.max_ops_per_tx && fitsTx(ops)) return { id, ops, txs: [ops], full: false };
+  return { id, ops, txs: chunkByBytes([[scene, ...bare], ...mores, ...after.map((op) => [op])]), full: false };
 }
+
+/**
+ * Send a new scene's transactions in order; a refused one stops the rest. Whether the scene was
+ * made (its first transaction): the caller shows the scene only then, never an id that
+ * doesn't exist. With nothing to send (the board is full), nothing was made.
+ */
+export const sendScene = (txs: Op[][], edit: (ops: Op[]) => boolean) => txs.length > 0 && txs.findIndex((tx) => !edit(tx)) !== 0;
 
 /**
  * A dropped scene row, as one transaction: before or after `target` (its sibling, same parent),
