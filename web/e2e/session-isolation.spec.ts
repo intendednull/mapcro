@@ -29,7 +29,9 @@ test.beforeAll(async () => {
   });
   await new Promise<void>((ok) => upstream.listen(0, "127.0.0.1", ok));
   const port = (upstream.address() as { port: number }).port;
-  server = new Server(undefined, { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "200" });
+  // Every row makes two boards and a session from one address, more than the server's 30 an
+  // hour for an address (CREATE_PER_HOUR): the rows after the thirtieth got a 429 for a board.
+  server = new Server(undefined, { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "200", CREATE_PER_HOUR: "1000" });
   await server.start();
 });
 test.afterAll(() => {

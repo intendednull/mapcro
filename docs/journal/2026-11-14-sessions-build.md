@@ -45,6 +45,30 @@ No blocker. What each item got; the runs are at the end of this section.
 - Simplified on the way: with no answer and nothing drawn, nothing is held for the board
   either, so the refusal's drop needs no guard (a mutant on the guard survived, which showed
   it was dead).
+- **The spec's server allows more creations now** (`CREATE_PER_HOUR: "1000"` in
+  `session-isolation.spec.ts`). The server allows an address 30 creations an hour, and every
+  row makes two boards and a session. The file got by because its sixth row restarts the
+  server, which empties the count; with two more rows the sixteenth asked for the 31st and
+  got a 429 ("the timeline cache: a match is sent once" failed at its join, twice). A spec
+  that adds rows after a restart can meet this again: raise the limit in its `Server`.
+
+### The runs after the second review's fixes (batches 10 and 11, through `tools/heavy.sh`)
+
+- `cargo test -p mapcro-server --test replays`: **47 passed**; the bin's replays tests: 6
+  passed. `just clippy`: clean.
+- `just web-test`: **70 files, 706 tests passed, `tsc` clean.**
+- Hand mutants, unit: **33 of 33** over `api.ts` and `host.ts` (`timeline-load.test.ts`),
+  **14 of 14** over `tabOwn`/`withOwn`.
+- The walkthrough: as before, line for line (9 of 9 switches as left; 0 page errors, 0
+  console errors).
+- Browser-row mutants: **19 of 19 killed**, `git status` clean after. New since the table
+  below: a remembered scene checked against the stored copy (two rows: one gone since is
+  kept; one not stored yet is dropped); entered at once (a tab left before the settle never
+  clears); a session left in the page is the same visit; a board left in the page is the
+  same visit; what was made, and what was entered, before the board was left still counts.
+- The rows touched (`session-isolation`, `caddy-timeline`, `board-unmount`, `player`,
+  `player-review`): RUNS_PLACEHOLDER
+- Not run by this implementer: the full e2e and `just test`. The lead runs the gate.
 
 ## After the adversarial review (2026-11-14): its fixes
 
