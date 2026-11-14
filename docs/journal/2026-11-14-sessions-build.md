@@ -9,19 +9,30 @@ Newest state at the top.
 The review (a fresh Fable) said ship after fixes; the security review was clean with three
 optional items. What each finding got. The checks' results are under "The runs" below.
 
-- **B1 (blocker): the validator never matched behind Caddy.** `encode` appends the encoding to
-  the `ETag` on the 200 and takes it off only the last validator of an `If-None-Match` list
-  sent back, so `held.includes(etag)` failed and every open asked again, plainly: four
-  requests and two whole timelines a tab switch on the deployed stack. Now the validator
-  travels in headers of our own: the server answers `X-Mapcro-Timeline` (and still the
-  `ETag`), the client reads only that and sends what it holds in `X-Mapcro-Held`, beside
-  `If-None-Match` (so its request stays a conditional one and the 304 an answer to it); the
-  server takes either. Chosen over trimming the suffix on both sides: that would have tied the
-  client to one proxy's rewriting. Tests: `crates/server/tests/replays.rs`
-  `the_validator_passes_a_compressing_proxy_both_ways` (a real Caddy with `encode zstd gzip`,
-  both orders of a held list) and `web/e2e/caddy-timeline.spec.ts` (the real client through
-  it: sent once, compressed, then 304s). Caddy is in the dev shell (`flake.nix`; 2.11.7 from
-  this flake's nixpkgs, the review's run was 2.11.4). `docs/deploy.md` is corrected.
+- **B1: hardening, not the production blocker it was filed as.** The review's run had a stub
+  upstream that doesn't compress. There `encode` appends the encoding to the `ETag` on the 200
+  and takes it off only the last validator of an `If-None-Match` list sent back, so
+  `held.includes(etag)` fails and every open asks again, plainly: four requests and two whole
+  timelines a tab switch. **Against the real server it doesn't happen**: the route compresses
+  its own answer (`main.rs` `compression`, on the base since 2026-11-09), and `encode` leaves
+  an encoded answer alone. Checked with curl through Caddy 2.11.4 (`encode zstd gzip` +
+  `reverse_proxy`, the debug server): the `ETag` arrives unsuffixed for `Accept-Encoding` zstd,
+  "gzip, deflate, br", all four, br, identity and none, and an `If-None-Match` list in either
+  order gets its 304. The stub upstream gets the rewrite on 2.11.3, 2.11.4 and 2.11.7. The
+  lead agreed (2026-11-14). The old `docs/deploy.md` line was right for this stack; the
+  client was one change away from the failure (the server's layer dropped, or an encoding
+  only Caddy has).
+  The change is kept, because it removes that dependency: the server answers
+  `X-Mapcro-Timeline` (and still the `ETag`), the client reads only that and sends what it
+  holds in `X-Mapcro-Held`, beside `If-None-Match` (so its request stays a conditional one
+  and the 304 an answer to it); the server takes either. Chosen over trimming the suffix on
+  both sides: that would have tied the client to one proxy's rewriting. Tests, through a real
+  Caddy (in the dev shell now, `flake.nix`: 2.11.7): `crates/server/tests/replays.rs`
+  `the_validator_passes_a_compressing_proxy_both_ways` runs the deployed stack (the `ETag`
+  asserted untouched) and a site where the proxy compresses (`header_up -Accept-Encoding`:
+  the `ETag` asserted rewritten), a held list in both orders on each;
+  `web/e2e/caddy-timeline.spec.ts` drives the real client through the rewriting site (the
+  rewrite asserted; sent once, then 304s). `docs/deploy.md` says all of this.
 - **L1 (with B1):** the validator is `"cdn-<hash>"` or `"up-<hash>"`, 16 hex digits of the
   SHA-256 of scope, length and time written. A view link no longer reads the upload's size and
   its write time.
@@ -56,8 +67,11 @@ optional items. What each finding got. The checks' results are under "The runs" 
 - **S5:** TD-101 reworded as the review asked; the strip mark for a left tab with unsent work
   is in the spec's §10 item 4.
 - **N1:** answered with the summary, the page forgets the fetched replay it held for the match
-  (`TimelineCache.forget`). **N2:** a tab left on a scene with no match drawn comes back on the
-  scene, the newest match behind it. **N3:** the scene-gone check runs against the held copy
+  (`TimelineCache.forget`). **N2:** a tab left on a scene whose match was attached and didn't
+  load remembers the match (no playback) and comes back on the scene. (First written wider,
+  "left on a scene with no match": that kept a tab on its scene when its board had got a match
+  since, and two cache rows said so. A mode refusal still opens as cold: that match was never
+  attached.) **N3:** the scene-gone check runs against the held copy
   and again at catch-up, and spares a scene picked meanwhile (`sceneGone`). **N4:** a unit
   guard: the registry's `layer.*` keys are exactly `TAB_LAYERS`, and every `layer.*` and
   `vision.*` key is taken by `withOwn`. **N6:** the log test polls for its lines. **N7:** item

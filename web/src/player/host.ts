@@ -458,7 +458,7 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
   });
 
   /** Open a match: attach it (editors), load its timeline and its replay job's state. */
-  const open = async (id: string, opts: { attach: boolean; at?: number; back?: PlayerRemembered; auto?: boolean; scene?: boolean } = { attach: false }) => {
+  const open = async (id: string, opts: { attach: boolean; at?: number; back?: PlayerRemembered; auto?: boolean } = { attach: false }) => {
     if (gone) return;
     if (!/^[1-9]\d{0,11}$/.test(id)) return setStatus("Invalid id");
     setMatchId(id);
@@ -471,7 +471,7 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
     setStatus("Loading");
     // A tab left on a scene comes back on it, its match held behind it (sessions.md §4.2). So
     // does one whose user picked a scene while the board's own match (`auto`) was on its way.
-    const onScene = opts.auto && chose ? chose === "sandbox" : opts.back?.mode === "sandbox" || opts.scene === true;
+    const onScene = opts.auto && chose ? chose === "sandbox" : opts.back?.mode === "sandbox";
     if (!onScene) enter("player");
     try {
       // The timeline first: a match refused for its mode is never attached (2026-11-08).
@@ -824,7 +824,10 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
     if (!settled) return { ...remembered, ...(chose ? { mode: chose } : {}), ...own };
     const out: PlayerRemembered = { mode: untrack(mode), ...own };
     const id = untrack(matchId);
-    if (id === undefined || !untrack(tl)) return out;
+    if (id === undefined) return out;
+    // A match that isn't drawn (it didn't load): the tab is still on it, with no playback to
+    // keep. Left on a scene, it comes back on the scene, the match behind it.
+    if (!untrack(tl)) return { ...out, match: id };
     const h = untrack(held);
     const pb = untrack(playback);
     return { ...out, match: id, t: h && out.mode === "sandbox" ? h.t : untrack(t), playing: h && out.mode === "sandbox" ? h.playing : pb.playing, speed: pb.speed };
@@ -847,11 +850,8 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
     setMatches(ms ?? []);
     // A match no longer attached is dropped with its playback, and the board opens as it would cold.
     const back = remembered?.match !== undefined && ms?.includes(Number(remembered.match)) ? remembered : undefined;
-    // Left on a scene with no match drawn (none then, or one that never loaded): the board's
-    // newest match opens behind the scene.
-    const scene = remembered?.mode === "sandbox" && remembered.match === undefined;
     if (back?.match !== undefined && !matchId()) await open(back.match, { attach: false, back, auto: true });
-    else if (ms?.length && !matchId()) await open(String(ms[0]), { attach: false, auto: true, scene });
+    else if (ms?.length && !matchId()) await open(String(ms[0]), { attach: false, auto: true });
     // The matches unknown (offline): what was remembered stays.
     if (ms) settled = true;
   };

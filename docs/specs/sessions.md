@@ -471,9 +471,10 @@ cleanup and on `pagehide`, so a reload keeps it).
   before that (a scene picked, or Back to the replay) stands: the match that opens behind a
   picked scene doesn't take the tab to Player, and the tab remembers the scene. This holds for
   a board opened alone too.
-- A tab left on a scene with no match drawn (the board had none, or its match never loaded)
-  comes back on the scene, the board's newest match behind it (review N2). A match no longer
-  attached still opens as cold.
+- A tab left on a scene whose match was attached and didn't load (a load error) remembers
+  the match with no playback, and comes back on the scene with the match behind it (review
+  N2). A match no longer attached, or one refused for its mode (never attached), still opens
+  as cold; so does a board that had no match when the tab was left and has one now: in Player.
 - The scene-gone check runs against the board as this device holds it and again, last, when
   it has caught up, and leaves alone a scene the user picked meanwhile (review N3).
 - **`adopt` keeps only what differed, on purpose.** When a follower's own change stops the
@@ -505,11 +506,15 @@ cleanup and on `pagehide`, so a reload keeps it).
   open is counted, a stale fetched timeline is refreshed) as a 200, and only for a file that
   can still be read (its first byte: one that can't falls through to the next tier, as for a
   caller holding nothing). The metadata summary has no validator and isn't kept.
-- **Why headers of our own** (review B1, 2026-11-14): the deployed proxy compresses, and
-  Caddy's `encode` rewrites the `ETag` on the 200 and restores only the last validator of an
-  `If-None-Match` list (docs/deploy.md). The client reads `X-Mapcro-Timeline` and never the
-  `ETag`. It sends `If-None-Match` beside `X-Mapcro-Held`, so that its request is a conditional
-  one and the 304 an answer to it; the server takes either. Tested through a real Caddy:
+- **Why headers of our own** (review B1, 2026-11-14; hardening, not a fix of the deployed
+  stack). When Caddy's `encode` compresses an answer, it rewrites the `ETag` on the 200 and
+  restores only the last validator of an `If-None-Match` list, and a client comparing `ETag`s
+  then fetches every timeline again on every open. As deployed that doesn't happen: the server
+  compresses this route itself, and `encode` leaves an encoded answer alone (docs/deploy.md has
+  the runs). The cache shouldn't hang on which side compresses, so the client reads
+  `X-Mapcro-Timeline` and never the `ETag`. It sends `If-None-Match` beside `X-Mapcro-Held`,
+  so that its request is a conditional one and the 304 an answer to it; the server takes
+  either. Tested through a real Caddy, as deployed and with the proxy compressing:
   `crates/server/tests/replays.rs` and `e2e/caddy-timeline.spec.ts`.
 - The client draws what it holds for the board and match at once, asks with the validators it
   holds, and then keeps what's drawn (304), or draws the timeline sent in its place, or, refused
@@ -1083,9 +1088,9 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      304s; each branch of `loadTimeline`; a tab as its board opens),
      `crates/server/tests/replays.rs` (the validator: 304 only for the file held, in either
      header, and only after the access check, through a link and through a grant; through a
-     real Caddy with `encode`; a held file that can't be read; a cached replay that can't be
-     read is logged by its tier), `e2e/caddy-timeline.spec.ts` (the real client through Caddy:
-     sent once, then 304s), and in
+     real Caddy, as deployed and with the proxy compressing; a held file that can't be read; a
+     cached replay that can't be read is logged by its tier), `e2e/caddy-timeline.spec.ts` (the
+     real client through a Caddy that rewrites the `ETag`: sent once, then 304s), and in
      `e2e/session-isolation.spec.ts` (§9.1): a tab as it was left, from sessionStorage after a
      reload, a scene gone meanwhile (checked once the board has caught up); a layer a tab's own
      once set there (also when set before the tab's match was confirmed), this browser's on a tab never opened and on one only passed through; ink over a match kept through a switch; a follow ended by a switch, the presenter's layers never the tab's own; a scene picked and a seek made while the match is on its way; a left board holds nothing open; the

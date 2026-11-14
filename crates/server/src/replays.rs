@@ -675,8 +675,10 @@ struct Found {
 /// The answer's header that names the cached timeline sent (its validator), and the request's
 /// that lists the ones the caller holds: what the client's timeline cache reads and sends
 /// (web/src/player/api.ts). Names of our own beside `ETag` and `If-None-Match`, because a proxy
-/// that compresses rewrites those two: Caddy's `encode` adds `-zstd` to the `ETag` it passes on
-/// and takes it off only the last of a list sent back (docs/deploy.md).
+/// that compresses an answer rewrites those two: Caddy's `encode` adds `-zstd` to the `ETag` it
+/// passes on and takes it off only the last of a list sent back. It leaves this route alone
+/// today only because the route compresses its own answer first (`crate::compression`), which
+/// the cache shouldn't hang on (docs/deploy.md).
 const TIMELINE_HEADER: &str = "x-mapcro-timeline";
 const HELD_HEADER: &str = "x-mapcro-held";
 
@@ -708,7 +710,7 @@ async fn read_unless_held(path: &FsPath, scope: &str, headers: &HeaderMap) -> st
     if etag.as_deref().is_some_and(|t| holds(headers, t)) {
         // Held, and still readable (its first byte): one that isn't falls through to the next
         // tier, as it would for a caller that holds nothing.
-        tokio::fs::File::open(path).await?.read(&mut [0u8; 1]).await?;
+        tokio::fs::File::open(path).await?.take(1).read_to_end(&mut Vec::with_capacity(1)).await?;
         return Ok(Found { etag, bytes: None });
     }
     Ok(Found { etag, bytes: Some(tokio::fs::read(path).await?) })

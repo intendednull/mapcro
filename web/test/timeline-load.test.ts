@@ -91,7 +91,8 @@ describe("Api.timeline: the validator, and a 304", () => {
   });
 
   it("never reads the ETag: a compressing proxy rewrites it on the 200 and not on the 304", async () => {
-    // As Caddy's `encode` hands them over (docs/deploy.md): `-zstd` on the 200's ETag only.
+    // As Caddy's `encode` hands them over when it compresses the answer itself
+    // (docs/deploy.md): `-zstd` on the 200's ETag only.
     answers.push(sent(CDN, timeline(), { etag: '"cdn-0123456789abcdef-zstd"' }));
     const first = await api().timeline(ID);
     expect("etag" in first && first.etag).toBe(CDN);
@@ -371,18 +372,51 @@ describe("a tab as its board opens (sessions.md §4.2)", () => {
     a.end();
   });
 
-  it("stays on the scene when it was left on one with no match drawn; a match gone opens as cold", async () => {
-    answers.push(sent(CDN), sent(CDN));
-    const a = host(BOARD, { mode: "sandbox" });
+  it("takes the tab to Player for a match the user loads, whatever was chosen while it opened", async () => {
+    // The matches never became known, and a scene was picked meanwhile.
+    matches = new Response("Bad Gateway", { status: 502 });
+    const a = host(BOARD, left);
     await a.h.init();
-    expect([a.h.mode(), a.h.matchId()]).toEqual(["sandbox", ID]);
+    a.h.setMode("sandbox");
+    expect(a.h.remember().mode).toBe("sandbox");
+    // Load: the user's own, not the board's match opening behind them.
+    answers.push(sent(CDN));
+    await a.h.open(ID, { attach: true });
+    expect([a.h.mode(), a.h.matchId(), !!a.h.tl()]).toEqual(["player", ID, true]);
+    expect(a.h.remember()).toMatchObject({ mode: "player", match: ID });
     a.end();
+  });
+
+  it("stays on the scene when it was left on one whose match didn't load; a board that has a match now, or lost that one, opens as cold", async () => {
+    // The match is there and its timeline isn't: the tab remembers the match, with no playback.
+    answers.push(refused(500, "failed"));
+    const a = host(BOARD, left);
+    await a.h.init();
+    expect([a.h.matchId(), a.h.tl(), a.h.problem()?.code]).toEqual([ID, undefined, "failed"]);
+    a.h.setMode("sandbox");
+    expect(a.h.remember()).toEqual({ mode: "sandbox", match: ID });
+    const was = a.h.remember();
+    a.end();
+    // Back: on the scene, the match (loading this time) behind it.
+    answers.push(sent(CDN));
+    const b = host(BOARD, was);
+    await b.h.init();
+    expect([b.h.mode(), b.h.matchId(), !!b.h.tl()]).toEqual(["sandbox", ID, true]);
+    b.end();
+    // Left on a board with no match at all, which has one now: in Player, as a board alone.
+    timelines.clear();
+    answers.push(sent(CDN));
+    const c = host(BOARD, { mode: "sandbox" });
+    await c.h.init();
+    expect([c.h.mode(), c.h.matchId()]).toEqual(["player", ID]);
+    c.end();
     // Left on a scene behind a match that is no longer attached: the newest, in Player.
     timelines.clear();
-    const b = host(BOARD, { mode: "sandbox", match: "7", t: 3 });
-    await b.h.init();
-    expect([b.h.mode(), b.h.matchId()]).toEqual(["player", ID]);
-    b.end();
+    answers.push(sent(CDN));
+    const d = host(BOARD, { mode: "sandbox", match: "7", t: 3 });
+    await d.h.init();
+    expect([d.h.mode(), d.h.matchId()]).toEqual(["player", ID]);
+    d.end();
   });
 
   it("remembers what it did before while the matches aren't known: no answer, a 502, a 429", async () => {

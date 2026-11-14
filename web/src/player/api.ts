@@ -134,9 +134,11 @@ export class Api {
    * with its validator when it has one and its JSON's length.
    *
    * The validator travels in headers of our own (`X-Mapcro-Timeline`, and `X-Mapcro-Held` back),
-   * never read from `ETag`: a compressing proxy rewrites that one (Caddy's `encode` adds
-   * `-zstd`), and of an `If-None-Match` list it restores only the last (docs/deploy.md).
-   * `If-None-Match` is sent too, so the request is a conditional one and its 304 an answer to it.
+   * never read from `ETag`: a proxy that compresses the answer rewrites that one (Caddy's
+   * `encode` adds `-zstd`), and of an `If-None-Match` list it restores only the last. As
+   * deployed the server compresses this route itself and `encode` leaves it alone; the cache
+   * doesn't hang on that (docs/deploy.md). `If-None-Match` is sent too, so the request is a
+   * conditional one and its 304 an answer to it.
    */
   async timeline(id: string, held: string[] = []): Promise<{ tl: Timeline; etag?: string; chars: number } | { same: string } | { error: string }> {
     const list = held.join(", ");

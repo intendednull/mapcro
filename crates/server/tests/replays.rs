@@ -1833,11 +1833,14 @@ fn a_cached_timeline_has_a_validator_and_its_holder_is_told_it_is_the_same() {
     }
 }
 
-/// Through a compressing proxy (Caddy's `encode`, as deployed: docs/deploy.md): the validator in
-/// our own header reaches the client as sent, and a list of them held reaches the server, in
-/// either order. (`encode` rewrites the `ETag` it passes on, and of an `If-None-Match` list sent
-/// back it restores only the last: why the client's cache doesn't use those.) Needs `caddy` on
-/// the PATH: the dev shell has it.
+/// Through Caddy, `encode zstd gzip` + `reverse_proxy` (docs/deploy.md), two ways. As deployed:
+/// the route compresses its own answer (`crate::compression`), `encode` leaves an answer that is
+/// already encoded alone, and nothing is rewritten. And with the proxy doing the compressing
+/// (the request's `Accept-Encoding` not passed up): `encode` then appends the encoding to the
+/// `ETag` and, of an `If-None-Match` list sent back, restores only the last. Either way the
+/// validator in our own header reaches the client as sent, and a list of them held reaches the
+/// server, in either order: the client's cache doesn't hang on which side compresses. Needs
+/// `caddy` on the PATH: the dev shell has it.
 #[test]
 fn the_validator_passes_a_compressing_proxy_both_ways() {
     let up = upstream(HashMap::new());
@@ -1852,9 +1855,10 @@ fn the_validator_passes_a_compressing_proxy_both_ways() {
     std::fs::write(dir.join(format!("{id}-cdn.json")), serde_json::to_vec(&long).expect("json")).expect("cache");
 
     let home = tempfile::tempdir().expect("caddy home");
-    let port = support::dead_port();
+    let (deployed, proxy_compresses) = (support::dead_port(), support::dead_port());
     let config = home.path().join("Caddyfile");
-    std::fs::write(&config, format!("{{\n\tadmin off\n\tauto_https off\n}}\nhttp://127.0.0.1:{port} {{\n\tencode zstd gzip\n\treverse_proxy 127.0.0.1:{}\n}}\n", server.port)).expect("Caddyfile");
+    let site = |port: u16, up: &str| format!("http://127.0.0.1:{port} {{\n\tencode zstd gzip\n\treverse_proxy 127.0.0.1:{} {up}\n}}\n", server.port);
+    std::fs::write(&config, format!("{{\n\tadmin off\n\tauto_https off\n}}\n{}{}", site(deployed, ""), site(proxy_compresses, "{\n\t\theader_up -Accept-Encoding\n\t}"))).expect("Caddyfile");
     struct Proxy(Child);
     impl Drop for Proxy {
         fn drop(&mut self) {
@@ -1874,36 +1878,41 @@ fn the_validator_passes_a_compressing_proxy_both_ways() {
             .spawn()
             .expect("caddy on the PATH (run inside `nix develop`)"),
     );
-    let url = format!("http://127.0.0.1:{port}/api/boards/{board}/matches/{id}");
-    let ask = |held: Option<(&str, &str)>| {
-        let mut r = agent().get(&url).header("authorization", &format!("Bearer {owner}")).header("accept-encoding", "zstd");
-        if let Some((ours, standard)) = held {
-            r = r.header("x-mapcro-held", ours).header("if-none-match", standard);
-        }
-        r.call()
-    };
-    let started = Instant::now();
-    let first = loop {
-        match ask(None) {
-            Ok(r) if r.status().as_u16() == 200 => break r,
-            _ if started.elapsed() > Duration::from_secs(20) => panic!("caddy never answered"),
-            _ => std::thread::sleep(Duration::from_millis(50)),
-        }
-    };
     let named = |r: &ureq::http::Response<ureq::Body>, h: &str| r.headers().get(h).and_then(|v| v.to_str().ok()).map(str::to_owned);
-    assert_eq!(named(&first, "content-encoding").as_deref(), Some("zstd"), "the proxy compressed it: the case that matters");
     let direct = timeline_get(&server, &board, id, &format!("Bearer {owner}"), None).1.expect("validator");
-    assert_eq!(named(&first, "x-mapcro-timeline").as_deref(), Some(direct.as_str()), "as the server sent it");
-    // What a client holds, as it sends it back: its own upload's validator and the fetched one,
-    // in either order, with the `ETag` as the proxy handed it over in `If-None-Match`.
-    let etag = named(&first, "etag").expect("etag");
-    for held in [format!("\"up-0000000000000000\", {direct}"), format!("{direct}, \"up-0000000000000000\"")] {
-        let r = ask(Some((&held, &etag))).expect("request");
-        assert_eq!((r.status().as_u16(), named(&r, "x-mapcro-timeline").as_deref()), (304, Some(direct.as_str())), "held as {held}");
+    for (port, rewrites) in [(deployed, false), (proxy_compresses, true)] {
+        let url = format!("http://127.0.0.1:{port}/api/boards/{board}/matches/{id}");
+        let ask = |held: Option<(&str, &str)>| {
+            let mut r = agent().get(&url).header("authorization", &format!("Bearer {owner}")).header("accept-encoding", "zstd");
+            if let Some((ours, standard)) = held {
+                r = r.header("x-mapcro-held", ours).header("if-none-match", standard);
+            }
+            r.call()
+        };
+        let started = Instant::now();
+        let first = loop {
+            match ask(None) {
+                Ok(r) if r.status().as_u16() == 200 => break r,
+                _ if started.elapsed() > Duration::from_secs(20) => panic!("caddy never answered"),
+                _ => std::thread::sleep(Duration::from_millis(50)),
+            }
+        };
+        assert_eq!(named(&first, "content-encoding").as_deref(), Some("zstd"), "compressed, by the server or the proxy");
+        assert_eq!(named(&first, "x-mapcro-timeline").as_deref(), Some(direct.as_str()), "as the server sent it (proxy compresses: {rewrites})");
+        // The ETag: as sent when the server compressed, rewritten when the proxy did. If this
+        // stops holding, the case below it is no longer the one it says it is.
+        let etag = named(&first, "etag").expect("etag");
+        assert_eq!(etag != direct, rewrites, "the ETag through the proxy: {etag}");
+        // What a client holds, as it sends it back: its own upload's validator and the fetched
+        // one, in either order, with the `ETag` as the proxy handed it over in `If-None-Match`.
+        for held in [format!("\"up-0000000000000000\", {direct}"), format!("{direct}, \"up-0000000000000000\"")] {
+            let r = ask(Some((&held, &etag))).expect("request");
+            assert_eq!((r.status().as_u16(), named(&r, "x-mapcro-timeline").as_deref()), (304, Some(direct.as_str())), "held as {held} (proxy compresses: {rewrites})");
+        }
+        // One it doesn't hold: sent whole again, compressed.
+        let r = ask(Some(("\"cdn-0000000000000000\"", "\"cdn-0000000000000000\""))).expect("request");
+        assert_eq!((r.status().as_u16(), named(&r, "content-encoding").as_deref()), (200, Some("zstd")));
     }
-    // One it doesn't hold: sent whole again, compressed.
-    let r = ask(Some(("\"cdn-0000000000000000\"", "\"cdn-0000000000000000\""))).expect("request");
-    assert_eq!((r.status().as_u16(), named(&r, "content-encoding").as_deref()), (200, Some("zstd")));
 }
 
 /// The same through a session's grant (sessions.md §3.4): the validator, and 304 only while the
