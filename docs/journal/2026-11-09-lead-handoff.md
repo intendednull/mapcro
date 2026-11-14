@@ -3,6 +3,16 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Working rule: models for spawns (operator via the concierge, 2026-11-14 evening)
+
+- **Opus 5.5** for implementers, designers and routine reviews and QA: medium by default, high
+  only where clearly warranted.
+- **Fable 5.2** only for genuinely hardest tasks, with a one-line reason in the brief.
+- **Design and UX** still go only to Argon, Astra, Sol (small tasks), Fable or Opus.
+- **From the next spawn.** Running sessions finish their current unit: the sessions phase 4
+  implementer (started on Fable high just before this) runs to its phase boundary. Map-state D2's
+  next implementer and sessions phase 5 go to Opus.
+
 ## Deployed ae169e6: sessions phase 3 (2026-11-14 ~22:20 UTC, lead 9eb2516b)
 
 - **Prod `web` runs ae169e6** (infra 44744b3). Sessions phase 3:
