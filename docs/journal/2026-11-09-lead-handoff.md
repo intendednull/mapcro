@@ -5,6 +5,15 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## State (2026-11-14 ~03:40 UTC, lead 9eb2516b)
 
+- **Sharing the box with Adora (operator, 2026-11-14):** "just take turns, share the box, or do
+  work on fly if possible." No shared lock.
+  - Before any heavy job (gates, Playwright, VM tests, cargo test, deploys), read the process list
+    and wait while Adora runs `cargo xtask verify`/`android`, `land_unit.sh` or `adora-deploy`
+    here. A `delegate.sh --where sprite` that only names them runs on Fly.
+  - The lead's `/tmp/mapcro-busy.sh` checks this (its pattern is in the runbook memory).
+  - Prefer the `mapcro-perf` Sprite for heavy checks, destroyed after each session. A dedicated Fly
+    Machine needs the concierge's OK.
+
 - **Prod:** `web` runs **1dcbd31** (infra c486ee6), **schema v9, floor 8**: the map-state writer
   on the server. The 11 rows and `SceneState` are live; kills, deaths, assists and max health are
   `Ahead`. No client writes them yet. The pre-v9 backup is `/var/lib/mapcro/mapcro.sqlite.pre-v9`.
