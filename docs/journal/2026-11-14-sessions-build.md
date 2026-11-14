@@ -4,6 +4,75 @@ Branch `sessions-p3` (worktree `mapcro.worktrees/sessions-p3`), off main a0774c5
 `docs/specs/sessions.md`; what phase 3 built is written into its §4.1, §4.2, §4.3, §5 and §10.
 Newest state at the top.
 
+## State when the second implementer stopped (2026-11-14, context budget)
+
+**Phase 3 is verified except for the items under "Left to do" (each small). Nothing is merged;
+phases 4 and 5 are not started.** Commits on `sessions-p3` after ddac12b: 9a59cb4 (main merged),
+4341490, e26b7a5, d7ab947, and the one this note is in.
+
+### What changed since the first handoff
+
+- **The pool is removed** (d7ab947: `RoomPool`, `BoardSession.park`/`resume`,
+  `BoardReplica.approxHeapBytes`; `core/session.ts`, `board/state.ts` and `crates/wasm` are as on
+  main). The numbers and the reasoning are in the spec's §10 phase 3. To put it back: revert
+  d7ab947 (its tests come back with it; its 26 hand mutants never ran).
+- **Every timeline Player shows is frozen**, cached or not, and `e2e/fixtures.ts` fails any test
+  whose page writes to a frozen object. No write to a timeline was found: none by reading the
+  code that takes one, none in two full e2e runs with the guard on.
+- **A remembered scene that's gone** was checked against the stored copy, which still held it:
+  it's checked once the board has caught up (`state.current()`).
+- **A held timeline draws after the board's document is on screen** (`Board.tsx`
+  `documentDrawn`, `host.ts` `loadTimeline`): its first render takes 60 to 100 ms and was
+  holding the document back.
+- `DECODED_PER_CHAR` is 1.75 (four runs measured 1.59 to 1.60).
+- The route's `ETag` passes Caddy's `encode` unchanged, 200 and 304 (2.11.3, 2.11.4, a debug
+  server behind it): `docs/deploy.md`. **No deploy order is needed**, as the first handoff said.
+- Debt rows are TD-93 to TD-96 (main took 89 to 92). TD-96 is new: a timeline's first draw.
+
+### Results
+
+- `just web-test`: 69 files, 681 tests passed, `tsc` clean (with the pool: 70 files, 694).
+- `just clippy` clean; `just test` passed (run with the pool in; the server hasn't changed since).
+- Full e2e, 2 workers, with `MAPCRO_SHOT_REPLAY` set so the perf and shots specs ran too: 477
+  passed, 0 failed (21.2 min), on d7ab947 plus the 1.75. Note: the worktree's path holds
+  "sessions", so an `e2e sessions` filter runs every spec.
+- Hand mutants, `tabview.ts` and `timelineCache.ts`: 20 killed of 20 (the script is deleted;
+  its pool and session mutants went with the pool).
+
+  | Mutant | Result |
+  |---|---|
+  | parse: another board's view restored | killed |
+  | save: the newest dropped; no cap | killed, killed |
+  | withScenes: a dead scene kept; the viewport outlives its scene | killed, killed |
+  | withMatches: never attached; playback outlives its match | killed, killed |
+  | parse: any string is a scene; a view with a bad y | killed, killed |
+  | playerPart: the map part goes to Player | killed |
+  | cache: the fetched replay kept per board; an upload kept for every board | killed, killed |
+  | confirm: another validator accepted; not marked used | killed, killed |
+  | candidates: the fetched before the board's own | killed |
+  | put: one over the cap pushes the rest out; everything else evicted; not frozen | killed ×3 |
+  | freeze: shallow; remove: bytes not given back | killed, killed |
+
+- Browser-row mutants (`/tmp/sp3-e2e-mutants.py`, not in the repo: one edit, a client build, the
+  named rows of `session-isolation.spec.ts`): refused and still drawn, nothing drawn before the
+  answer, a 304 asked again plainly, a remembered scene checked against the stored copy: 4
+  killed. The fifth (the validators held are never sent) had a stale pattern and was queued
+  again: see "Left to do".
+
+### Left to do for phase 3
+
+1. **Read three results that were still running** (the box's queue): `/tmp/sp3-batch4.log`
+   (a second full e2e, this one with the paint-first change in; then cargo-mutants on the
+   route's diff, `-p mapcro-server -- --test replays`; clippy; the wasm tests) and
+   `/tmp/sp3-batch5.log` (the switch measured with the paint-first change, three runs; the five
+   browser-row mutants again). If the logs are gone, run them again through `tools/heavy.sh`.
+2. **Decide on the paint-first numbers.** Expected: `drawn` near 60 ms without the pool on this
+   box (it was 120 before the change, 59 before phase 3). If it is still far over 80, either the
+   change needs work or the pool goes back in (revert d7ab947).
+3. **Browser walkthrough** of switching tabs (counts and DOM only): not done. The debug server
+   serving `web/dist` is enough; `just dev` isn't needed.
+4. Put the paint-first row and the cargo-mutants table into the spec's §10 phase 3.
+
 ## State when the first implementer stopped (2026-11-13, context budget)
 
 **Phase 3 (speed) is written and committed, with its unit tests passing as of the run noted
@@ -43,7 +112,7 @@ merged. Phases 4 and 5 are not started.
 - A remembered scene that's gone drops the scene, viewport and side only; a match no longer
   attached drops the match, playback and mode only.
 - Not built: prefetch of the neighbour tab's timeline (§5 "may"); floor in `TabView` (no floor
-  state exists: TD-91); TD-60 (a revoked own link hiding a granted board) and TD-63 (undo marks
+  state exists: TD-95); TD-60 (a revoked own link hiding a granted board) and TD-63 (undo marks
   after a reload) are untouched.
 
 ### Measured (dev box under load, debug server, reference replay 129738985; ms, median (min–max))

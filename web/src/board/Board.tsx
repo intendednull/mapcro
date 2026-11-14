@@ -196,8 +196,16 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const [dialog, setDialog] = createSignal<"share" | "clone">();
   // ---- Player (spec §6b): a board with a match opens on it; its preview drives the map ----
   const player = createPlayerHost(p.board, p.token, via, playerPart(remembered));
-  // Player draws a match this page already holds once the board's document is in the page.
-  const documentDrawn = new Promise<void>((ok) => createEffect(() => state.metaId() !== undefined && ok()));
+  // Player draws a match this page already holds once the board's document is on screen: in
+  // the page and a frame painted (or 100 ms on, where frames don't come: a hidden tab). In the
+  // same task the timeline's first render would hold that frame back (sessions.md §10 phase 3).
+  const documentDrawn = new Promise<void>((ok) =>
+    createEffect(() => {
+      if (state.metaId() === undefined) return;
+      requestAnimationFrame(() => setTimeout(ok));
+      setTimeout(ok, 100);
+    }),
+  );
   onMount(() => void player.init(documentDrawn));
   const inPlayer = () => player.mode() === "player";
   /** The match open in Player, for the feedback form (spec §11a); none in sandbox. */

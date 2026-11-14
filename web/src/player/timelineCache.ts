@@ -21,10 +21,10 @@ export interface HeldTimeline {
 
 /**
  * Decoded bytes per character of a timeline's JSON. Measured on the reference replay (a 44
- * minute match, 1.50 MiB of JSON): 0.99 to 1.43 of its length on the heap (sessions.md §10
+ * minute match, 1.50 MiB of JSON): 0.99 to 1.60 of its length on the heap (sessions.md §10
  * phase 3). Taken a little over, so the cap is never passed.
  */
-export const DECODED_PER_CHAR = 1.5;
+export const DECODED_PER_CHAR = 1.75;
 
 /** The cap, decoded (§4.3): about twenty long matches. */
 export const TIMELINE_CACHE_BYTES = 48 * 1024 * 1024;
