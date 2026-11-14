@@ -121,7 +121,9 @@ fn file(doc: &Doc, matches: Vec<u64>, exported_at: i64) -> BoardFile {
         exported_at,
         records: mapcro_schema::export_records(doc),
         matches,
-        rows: Some(mapcro_schema::ROWS.len() as u64),
+        // The rows this build writes, not the ones it only reads: the file must still import
+        // on the reader release a rollback goes to.
+        rows: Some(mapcro_schema::written_rows() as u64),
     }
 }
 
@@ -378,6 +380,27 @@ pub async fn import(State(app): State<AppState>, ConnectInfo(peer): ConnectInfo<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_file_says_the_rows_this_build_writes_not_the_ones_it_only_reads() {
+        use mapcro_schema::{ROWS, Status};
+        let mut n = 0u128;
+        let doc = mapcro_schema::genesis(
+            || {
+                n += 1;
+                RecordId(n)
+            },
+            "t",
+        );
+        let head: Head = serde_json::from_slice(&write(&doc, Vec::new(), 0, 0)).expect("head");
+        let rows = head.rows.expect("version 2 has rows") as usize;
+        // Every row below it is written, and it stops at the first that is only read.
+        assert!(ROWS[..rows].iter().all(|r| r.status != Status::Ahead));
+        assert!(ROWS.get(rows).is_none_or(|r| r.status == Status::Ahead));
+        assert_eq!(rows, mapcro_schema::written_rows());
+        // A reader that knows exactly those rows takes the file; `read` refuses one above its own.
+        assert!(head.rows.is_some_and(|n| n <= ROWS.len() as u64));
+    }
 
     #[test]
     fn depth_is_counted_outside_strings() {

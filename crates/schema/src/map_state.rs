@@ -185,6 +185,15 @@ impl Admit {
 /// The registry as a TypeScript module, `web/src/gen/rows.ts` (`just ts` writes it): the
 /// client's row table (spec §4.2). Capture writes the rows that are not `ahead`; the readers
 /// and the round-trip property iterate it.
+/// How many rows this build may write: the index of the first one still `Ahead` (rows go live
+/// in order, which the lock test holds). A board file says this as its `rows`, and the client's
+/// capture as a snapshot's watermark: the rows a reader must know to read what this build makes.
+/// Not `ROWS.len()`, which counts rows this build only reads: the reader release a rollback
+/// goes to has fewer, and would refuse every file as newer (review of 6a0d391, F1).
+pub fn written_rows() -> usize {
+    ROWS.iter().position(|r| r.status == Status::Ahead).unwrap_or(ROWS.len())
+}
+
 pub fn rows_ts() -> String {
     use std::fmt::Write as _;
     let status = |s: Status| match s {

@@ -28,6 +28,8 @@ fn main() {
         write("genesis.json", serde_json::to_string(&genesis).expect("json"));
         write("log.jsonl", lines);
         write("final.json", serde_json::to_string(&doc).expect("json"));
+        // What a board file exported by this build says it needs (`rows`, boardfile.rs).
+        write("file-rows", mapcro_schema::written_rows().to_string());
     }
     // Once a row is written, the check is of the registry's stored shapes: say so if none is.
     let written = mapcro_schema::RowId::all().any(|r| r.row().status != mapcro_schema::Status::Ahead);
