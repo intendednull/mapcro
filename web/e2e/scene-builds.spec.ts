@@ -58,12 +58,12 @@ function timeline() {
           seen: a1 ? [[100, 198]] : [],
           level: [[0, 1], [10, 3 + slot]],
           items: [[50, 715_762_406, 0], [120, 1_009_965_641, 0]],
-          abilities: [[30, 9_000 + slot, 1], [140, 9_000 + slot, 2]], casts: [], charges: [], cc: [], effects: [],
+          abilities: [[3, 9_000 + slot, 1], [14, 9_000 + slot, 2]], casts: [], charges: [], cc: [], effects: [],
           recaps: [],
         };
       }),
     ),
-    objectives: [{ key: "guardian_amber_lane1", t: 10 }], mid_boss: [], rifts: [], powerups: [],
+    objectives: [{ key: "guardian:amber:lane1:1", kind: "guardian", team: "amber", lane: 1, destroyed_s: 10 }], mid_boss: [], rifts: [], powerups: [],
     events: [{ t: 20, kind: "death", team: "amber", slot: 1, hero_id: 2, x: -2500, y: -3000 }],
   };
 }
