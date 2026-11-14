@@ -7,6 +7,71 @@ Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `
 
 Off main `a0774c5` (prod `e878c30`, store v10). Newest first.
 
+### Handoff, eighth implementer (2026-11-14): release 2 cut, phase 4 started (seventh implementer's notes)
+
+**Release 2 is branch `map-state-r2`** (worktree `mapcro.worktrees/map-state-r2`), off main
+`a2d69da`: `b3c9223` (phase 3 step 1, as `ca3a51e`) and `17c6c67` (a copy carries `source`, as
+`e1d7796`). Not `cda86fb`. Conflicts: this journal (theirs kept), and `17c6c67` against main's
+RC1 F1 in the spec and two tests (both sides kept, as `1e4508b` did here: the test files are
+byte for byte this branch's). Its gate, the perf comparison and the map-DOM control are
+RESULTS below.
+
+**A new rule (the lead, 2026-11-14): never link a `target/` across trees.** This worktree's
+`target/` was deleted through such a link. Each tree gets its own (no Rust differs between
+main, `b3c9223` and this branch, so a copy of the server binary serves all three; the gate
+script copies it). Never `rm -rf` a path with a trailing slash that could be a link.
+
+**TD-97** (`245696c`): the four e2e wiring mutants phase 3 missed, one row.
+
+**Phase 4, two steps, nothing drawn from them yet (no change to what a coach sees or to what
+is stored):**
+
+- **`be30918`, `fromScene`** (`web/src/mapstate/scene.ts`): a scene's records behind
+  `MapState`; `sceneRecords(board, sceneId)` takes them out of the board's state. The
+  interface gained `marker(key).status` (the stored status; none in Player) and
+  `lane(key).split` (Player: the middle of the colours' gap). The table of what each field
+  means in a scene is in the spec, §6. Tests, `web/test/from-scene.test.ts` (11): every field
+  against the records; the legacy meanings; a reader of one field reruns only when its value
+  changes; and the round trip, Save's capture of Player's frame read back, at 15 times on both
+  tiers (12 heroes, every marker's shown status, every lane). The synthetic match moved to
+  `web/test/support/synthetic-match.ts`. Hand mutants: 43; 40 caught at first, 2 after a test
+  was added (the board's name before the scene's own; `last` without its equality), 1 was a
+  redundant guard, removed.
+- **`2c860f9`, the viewer's Vision** (`web/src/mapstate/shown.ts`): `heroDraw`, one rule for
+  both producers (D3, D5). Tested against what `previewAt` drew for every living hero at 121
+  times on both tiers under six views (thousands of each of seen, ghost and not drawn). Hand
+  mutants: 13 of 13.
+- Run on both: the five map-state vitest files, 56 passed; `tsc` clean. The whole `just
+  web-test` and the e2e wait for a heavy run (nothing reads the new code).
+
+**Open, for the lead or the operator:**
+
+1. **The metadata tier's health.** Save stores the path's coarse health with the build
+   (`health` row); Player's state doesn't hold it there (not drawn on the map, operator
+   2026-11-08). `from-scene.test.ts` pins the difference ("OPEN"). Before a scene's token
+   draws health from its state: stop capturing it on that tier, or have the reader ask
+   `source.tier`.
+2. **Show last seen location in a scene (D3).** The rule gives the faded hero and its ghost
+   (`faded.ghost`); whether a scene draws both is the renderer's choice, not decided.
+3. **`down` for a rift that is off.** In a scene `marker(key).down` is "status is Destroyed",
+   which is also a rift or urn point that is off. Renderers should read `status` in a scene.
+
+**Next steps of phase 4, in the order that keeps each one small:**
+
+1. **D4, capture:** Save writes a dead hero's respawn time (`PlayerState.respawn`, the typed
+   field that exists; `Math.round(sample.respawn)`, at most 600). It changes a pin on purpose
+   (`map-state-pins.test.ts`: `p.respawn === undefined`) and is user-visible (a new scene's
+   dead hero says its time, not "respawn"): a release boundary of its own.
+2. **Board.tsx:** `const sceneState = fromScene(sceneRecords(state, () => scene()?.id, names))`
+   and one `mapState()` that picks by `inPlayer()`. First reader: `splitOf`
+   (`lane(key).split()` in both modes; TD-97's e2e gap comes first).
+3. **`Tokens.tsx`:** its fifteen `live()` branches become reads of `HeroState` plus
+   `heroDraw`; D2's hero (`heroId` reads `slot().hero` today, never `more.hero`), D1's names
+   (`names` from the source match: `player.tl()` when `scene.source.match_id` is the open
+   match). `map-state-dom-pins.spec.ts` holds old scenes' DOM.
+4. **Markers** (`markerStates` takes `marker(key)`; `status` first, then Player's detail), the
+   two bars, then `RiftRings`, `UrnMark`, `DeathSkulls`, `MarkerTips`.
+
 ### Handoff, seventh implementer (2026-11-14): phase 3 is built; phase 4 is next
 
 What waits for the lead, in this order (none changes what is stored):
