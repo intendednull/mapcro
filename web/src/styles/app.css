@@ -346,9 +346,11 @@ input.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix
 .pl-speed .btn { min-width: 26px; padding: 0 6px; justify-content: center; }
 .phone .pl-speed .btn { min-width: 44px; }   /* a touch target, as every phone button is */
 .phone .pl-speed { gap: 0; }
-/* The list stands in for the buttons where the phone's transport row has no room for them. */
+/* The list stands in for the buttons on a phone held upright: its transport has Play and the
+   speed in one column, so the buttons (two touch targets and the readout, 122 px) would take
+   58 px from the scrubber, and under 390 px they don't fit beside the clock and the tabs. */
 .pl-speed-list { display: none; width: 64px; height: 28px; padding: 0 4px; }
-@media (max-width: 389px) {
+@media (max-width: 480px) {
   .phone-player .pl-speed { display: none; }
   .phone-player .pl-speed-list { display: block; grid-area: speed; }
   .phone-player .pl-bar:has(.p-rail) .pl-speed-list { display: none; }

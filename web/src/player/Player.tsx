@@ -515,8 +515,8 @@ export function Player(p: {
                 +10
               </button>
               {/* Speed (feedback #58): − and + step through SPEEDS, the current one between them.
-                  A phone under 390 px has room for one control in that row (two touch targets
-                  don't fit beside the clock and the tabs): it keeps the list, by CSS. */}
+                  A phone held upright (480 px or less) keeps the list, by CSS: the buttons would
+                  narrow its scrubber, and under 390 px they don't fit their row at all. */}
               <select class="input pl-speed-list" data-testid="match-speed-list" aria-label="Speed" value={String(h.playback().speed)} onChange={(e) => {
                   user(() => h.control.speed(Number(e.currentTarget.value)));
                   e.currentTarget.blur();

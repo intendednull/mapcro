@@ -4,14 +4,21 @@ Ideas the operator wants kept but not built yet. Newest first. Each entry record
 what it is, and what it depends on.
 
 
-## Speed on a narrow phone is still the list (2026-11-14, from feedback-56-60; for mobile-defaults)
+## Speed on a phone held upright is still the list (2026-11-14, from feedback-56-60; for mobile-defaults)
 
-Feedback #58 made speed two buttons, − and +, around the current speed. On a phone under 390 px
-wide they don't fit the transport's second row beside the clock and the tabs: two 44 px targets
-and the readout need about 120 px, where the list had 58. So those phones keep the list
-(`.pl-speed-list` in `Player.tsx`, shown by a media query in `app.css`; the lead agreed,
-2026-11-14). Whoever next lays out the phone transport decides whether it gets the buttons too:
-a third row, the speed beside Play, or a single button that cycles.
+Feedback #58 made speed two buttons, − and +, around the current speed. A phone 480 px wide or
+less keeps the list (`.pl-speed-list` in `Player.tsx`, shown by a media query in `app.css`):
+
+- Under 390 px the buttons don't fit the transport's second row beside the clock and the tabs:
+  two 44 px targets and the readout need 122 px, where the list had 58 (the lead agreed,
+  2026-11-14).
+- From 390 px they fit, but Play and the speed share the transport grid's first column, so they
+  widen it and take 58 px from the scrubber (`player-dock.spec.ts` holds it over 250 px on an
+  iPhone 13; it came to 244).
+
+A phone on its side, a tablet and the desktop have the buttons. Whoever next lays out the phone
+transport decides whether upright phones get them too: a column of its own for the speed, a
+third row, or a single button that cycles.
 
 ## Map-state phase 2 leftovers from its review (2026-11-14, lead)
 
