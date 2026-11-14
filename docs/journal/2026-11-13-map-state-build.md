@@ -7,6 +7,77 @@ Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `
 
 Off main `a0774c5` (prod `e878c30`, store v10). Newest first.
 
+### D2, a scene's own heroes: the reader, on branch `map-state-d2` (2026-11-14, seventh implementer)
+
+Branch `map-state-d2`, worktree `mapcro.worktrees/map-state-d2`, off `map-state-p3` at
+`59efdec` (the D4 candidate before its review fixes). It rebases onto D4 once that has merged
+main; the store version is then renumbered by the lead (written here as v10 to v11, which
+`feedback-56-60` also uses).
+
+**The lead's decisions this follows (2026-11-14):**
+
+- D2 ships as reading and editing together, with **one new row, `has_heroes`** (a `Bool` on
+  the scene, §4.5's mechanism). It lands `Ahead`: this branch is the reader release, and the
+  writer is the release after (one line, `ahead` to `row`, with its store step and lock).
+- **No pick a coach made may be undone by reading.** A scene without the flag (every scene
+  saved before the writer ships, and every scene made by hand) draws the roster's hero, hides a
+  stored build whose hero differs from it, and its picker writes the roster: exactly today.
+- **Exact over inferred.** In a scene with the flag the picker sets the scene's `hero` and
+  clears that record's build rows in the same transaction (`More { key, value: null }`); "No
+  hero" is not offered there.
+- The metadata tier's health is not captured (the snapshot is the Player frame). A scene
+  draws both the faded hero and its ghost with Show last seen (pending the operator, who is
+  asked whether that is a second difference from Player). A scene with no `source` keeps
+  taking the open match's names.
+
+**Why a row at all:** once Save stops setting the roster, a new scene has `more.hero` differing
+from the roster's hero from the start, where the scene must win; an old scene whose roster was
+changed since stores the same two values, where the roster must win. Nothing a `Live` row can
+honestly say tells them apart.
+
+**Commits (after `59efdec`):**
+
+| Commit | What |
+|---|---|
+| `59e355d` | The characterisation e2e, written and run on the code before D2 (9 passed with `scene-builds`): a saved scene's slot given another hero draws it on every scene and hides the build; Save sets the roster |
+| `b4c9f86` | The row, `Ahead`; the store's additive step (v11 here) and its tests; `rows.ts` |
+| `75700aa` | The client: `sceneHero` (one rule: tokens, the scene bar, the picker, `fromScene`), `pickHeroOps`, Save and Retake; the metadata tier's health not captured, and read only from a replay source |
+| `e4a4e07` | `scene-hero.spec.ts`: the old scene from a board file that says what such a save stored; Save setting the roster (while dormant); the own-heroes test (once live) |
+| `b28c60b`, `7a59646` | Spec §4.5, §5, §6, D1; `docs/deploy.md` (the writer's steps); TD-98 (a Retake racing a pick) |
+| `0ffa018` | `board_file.rs`: the export's `rows` header with one row ahead |
+| `7b34fe5` | The heroes-only save is both or neither, to the byte, and keeps the state's id; tests name the build they mean |
+
+**Run on it** (heavy jobs, logs in `/tmp/ms-d2/`):
+
+- At `7a59646`: `just ts` leaves `web/src/gen` as committed; clippy clean; `just web-test` 74
+  files, 729 passed, 1 skipped, `tsc` clean; e2e at two workers, 57 spec files, 312 passed, 1
+  skipped (the own-heroes test, by the row's status), 0 failed; cargo-mutants on the Rust
+  diff, 3 mutants, 2 caught, 1 unviable. `just test` stopped at one test that said no row is
+  ahead (`board_file.rs`), fixed in `0ffa018`; **the whole of `just test` has not passed yet:
+  `/tmp/ms-d2/jobI.sh` reruns it** (with `just web-test`, the save's e2e and a second
+  rehearsal).
+- **The writer, rehearsed** (the row flipped to `Live` in the tree, never committed, then
+  restored): the server, wasm and client build; `tsc` clean; e2e on the save flows, 62 passed,
+  with the own-heroes test passing (the roster and the hand-made scene keep their heroes, the
+  pick is the scene's alone and drops the build, one undo brings both back, "No hero" only in
+  the hand-made scene, a second person and a reload agree). Thirteen vitest tests failed
+  there, all for stating the dormant build; after `7b34fe5` four tests state it and change on
+  purpose with the flip (listed in `docs/deploy.md`).
+- **Hand mutants (TypeScript, through vitest):** the D2 client 50 (47 at first, 2 after a test
+  was added, 1 a redundant guard removed); the save's guard and the health-tier lines 10 (8 at
+  first, 2 after the byte boundary was pinned).
+
+**Known and logged:** TD-98 (a Retake sent at the same instant as a pick can bring the old
+hero's build back). A save with no room even for twelve `hero` values (its own records fill
+the transaction: not seen on a real match) stores no heroes and draws the roster's. The old
+scenes' characterisation at `59e355d` saved through the page; the committed spec builds the
+same scene from a board file, so it holds after the writer ships too, and asks for
+`hero-clear`, a test id this branch adds.
+
+**Next:** rebase onto D4 after its merge of main (expect conflicts in `from-scene.test.ts`,
+`frame.ts`/`save.ts` (D4 review N2 renamed what Save reads to `savedPart`), `tech-debt.md`,
+this journal); the lead renumbers the store step; then the adversarial review, and the writer
+as its own release.
 ### D4's review fixes and the merge of main (2026-11-14, 09:00)
 
 The D4 review (a fresh reviewer) found no blocker. On this branch since:
