@@ -3,6 +3,125 @@
 Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `docs/specs/map-state.md`
 (third revision). Review: `docs/specs/map-state-review.md`. Newest state at the top.
 
+## State: phase 2 client written and type-checked; NOT yet run in a browser (handoff, fourth implementer)
+
+Branch `map-state-p2`, on top of `6a0d391`. Fourth implementer, 2026-11-13 evening. The lead's
+gate held the box for the whole session (`/tmp/lead-gate.log`, e2e at two workers), so **no
+cargo, wasm or e2e job of this work has finished yet**; only `tsc` and single vitest files ran.
+Stopped at the context limit. Everything is committed except the engine change of step 1, which
+a queued job applies (below).
+
+**#49 is not verified fixed.** The code for it is written and type-checks; no browser has run it.
+
+| Commit | What | Verified by |
+|---|---|---|
+| `acb6d62` | Characterisation before the changes: the replica's view against its definition (`replica.rs` `view_tests`, `Replica::view_is_rebuilt`); `Update.changed` against a whole-document diff (`crates/wasm` `changed_tests`); the DOM pin spec (`web/e2e/map-state-dom-pins.spec.ts`, **no snapshots yet**); `just edit-cost` (`web/perf/edit-cost.mjs`, `scene_cost --dump`) | nothing run |
+| `95c6aad` | Save stores the builds and a `SceneState`; Retake's ops; `chunkByBytes`; the build interface `mapstate/buildView.ts`; the Save pin moved by decision | `tsc`; `map-state-save` 9 tests, `map-state-build` 8, `map-state-pins` 5 |
+| `76dbad5` | `BuildColumn`, `BuildOrder`, `HeroCard`, both bars on `BuildView`; the scene bar's builds, All builds, hold-Tab; the Retake button; panel follow on scenes (`host.ts`); `web/e2e/scene-builds.spec.ts` | `tsc` only |
+
+### The lead's decisions this follows
+
+Release plan (the server side to `6a0d391` ships first; this client work ships in the release
+that flips `kills`, `deaths`, `assists`, `max_health` and `UNFIT_UNDO` to `Live`, store v10 floor
+9; **don't flip them until the lead confirms the lock lists them**). Save keeps the roster
+rewrite and also writes the scene's `hero` row; a build draws only while the slot holds that
+hero. A left click on a portrait opens its build, souls stay an edit, the right click keeps the
+hero menu (#53). The view-state store stays in `player/` until phase 4.
+
+### Step 1, the edit cost: written, queued, not measured
+
+- **The change** (`/tmp/mapcro-p2-step1.keep.py`, applied by the queued job; if `/tmp` is gone,
+  it is described here in full):
+  - `replica.rs` `submit` and `edit_silent` apply in place (`apply_tx_with_inverse` rolls a
+    refusal back itself). No clone of the view per edit.
+  - `replica.rs` `receive`: an ack of the oldest pending transaction **as sent** (`pending.pop_front() == Some(&tx)`)
+    leaves the view alone, since it applied to the confirmed state exactly as it had under the
+    view; a peer's entry with nothing pending is applied to the view directly; anything else
+    rebuilds as before. `next_undo()` / `next_redo()` give the ops the next undo would submit.
+  - `crates/wasm` `Held`: before a call, the entries of the records the call can touch (the
+    ops' targets; for `receive`, the entry's and every pending transaction's); after it, the
+    ones that differ are `changed`. Exact, not a superset. Only `ServerMsg::Rebase` still
+    clones the view and diffs it whole. `connect` and `disconnect` report nothing changed.
+  - `mapcro_schema::op_target` is public. The simulation's step check asks `view_is_rebuilt`.
+- **The queued job** (`/tmp/mapcro-p2-job2.sh`, log `/tmp/mapcro-p2-job2.log`; it waits for the
+  gate and a load under 12): measures BEFORE with the wasm already in `web/src/wasm` (built
+  before the change: **don't run `just wasm` first**), applies the change, runs the schema,
+  engine, wasm and sim tests, the 1,000 seeds, clippy, then `just wasm` and measures AFTER, for
+  `more` of 0, 3,000 and 8,000 bytes a hero.
+- **To do with its log:** commit the change if green (`perf(engine): an edit and its ack cost
+  what they touch`); put the before and after table in spec §6 and here; state the decision
+  (expected: both clones removed, the remaining whole clone is a peer's entry under pending work
+  and a rebase). Then mutation testing: `cargo mutants -j 1 --in-diff` against `6a0d391` for
+  `mapcro-engine` and `mapcro-wasm` (the wasm tests are native: `changed_tests`), plus by hand:
+  the `!= Some(&tx)` check dropped; `pending.is_empty()` dropped; `Held::changed` missing the
+  vanished records; `receive` not adding the pending ops' targets.
+- If the change is rejected for any reason, the characterisation tests of `acb6d62` pass on the
+  old code too (they were written against it), so they stay.
+
+### Step 2, DOM pins: the spec is committed, the snapshots are not taken
+
+`map-state-dom-pins.spec.ts` outlines the bar and the map (an element a line, ids as `#n`,
+inline images as their length) on two old scenes from a board file and on Player at a paused
+frame (plain, one build open, all builds). **Its snapshots must come from the rendering before
+`76dbad5`:**
+
+1. `git stash -u` nothing needed; check out the old rendering into the tree:
+   `git checkout acb6d62 -- web/src` (then `git status` shows the reverse of the two client commits).
+2. `just e2e map-state-dom-pins --update-snapshots`, run it a second time without the flag (it
+   must pass twice: the outline may still hold something that differs from run to run; add it to
+   `outline`'s left-out list if so), commit the `*-snapshots/` files alone.
+3. `git checkout HEAD -- web/src`, `just e2e map-state-dom-pins`: **Player's four pins and the
+   two old scenes' must pass unchanged.** Expected differences, to decide and then re-bless
+   with a line in the commit: none in Player; in an old scene none (no `SceneState`: no All
+   builds button, the portrait's title still "Show …").
+
+### Steps 3 to 6: what was built, and what to check in the browser
+
+- **The interface** (`mapstate/buildView.ts`): `BuildView` has `hero`, `build`, `statInput`,
+  `kills`, `deaths`, `assists`, `level`, `maxHealth`, `patch`, `time`, `order(components)` and,
+  in Player only, `live` (the timeline's hero, for Effects). `playerBuildView` wraps
+  `buildState`'s memos (a hidden column still reads nothing per frame: the same `visible`
+  accessor goes to the view and the column). `sceneBuildView` reads `readBuild` and `statOf`.
+  **A view is made once, outside JSX** (a call in a prop would run on every read).
+- **Not behind the interface yet:** the level badge and the ult tooltip's tiers in
+  `PlayerTopBar`, and the phone's all-builds list, still read the timeline. Phase 4's bar.
+- **K/D/A and max health in a scene read "—"** until their rows are `Live` (`WRITTEN` stops at
+  the first `Ahead` row). Deaths can now be "—" in the column.
+- **The scene bar** (`board/TopBar.tsx`): `hasBuilds` is the snapshot's `has_builds` with a
+  watermark; a slot shows a build when its record's stored `hero` is the roster's
+  (`holdsBuild`). Stat tables load by the snapshot's `build` row. **Not on the phone's compact
+  bar** (`!p.compact`): logged in the backlog.
+- **`board/buildPanels.ts`** is `PlayerTopBar`'s old listeners, shared. One addition: Tab held is
+  released when the bar unmounts (a flip between Player and a scene while holding Tab).
+- **Retake** (`match/save.ts` `canRetake`, `retakeOps`): offered to an editor on a scene whose
+  `source.match_id` is the loaded match and whose snapshot has no builds or an older
+  watermark. The button is where All builds is, or under it when the scene has both.
+  Check in the browser that a `SetIf` expecting `{ More: { key, value: null } }` applies on an
+  absent key (the e2e's Retake test is the check).
+- **Follow** (`host.ts`): with no match, `presence()` sends a playback of match 0, `player:
+  false`, only while a build key is set; `mirror()` reads no playback as "no builds open", and
+  mirrors the panel group when the presenter is in sandbox. No registry row changed, so no
+  ledger line. `PlayerSwitch`'s `peerMatch` skips match 0. **Not done: the follow matrix's new
+  column** (`follow-matrix.spec.ts`); `scene-builds.spec.ts` has one follow test with the match
+  open. A no-match follow test needs a board file holding a snapshot (file version 2).
+  **Run the whole `follow-matrix` spec:** a follower now mirrors panels from a presenter in
+  sandbox, which an existing row may contradict.
+- **E2e to run:** `just e2e scene-builds map-state-dom-pins portrait-menu topbar
+  topbar-rejuv-builds player-inspect player-keys follow-matrix phone-player --workers 2`.
+  `scene-builds.spec.ts` was written blind: expect to fix selectors (the hero menu's right
+  click position, the souls input, `tb-level` when the level is absent).
+- **Then QA in a real browser** (the lead's rule): a new save, an old scene with Retake, a
+  follower; and the spec's §8 table and `docs/backlog.md` (phone scene builds; the follow
+  matrix column; the no-match follow test; health on a scene's bar).
+
+### Gotchas (this session)
+
+- `/tmp/mapcro-p2-heavy.sh '<cmd>'` runs one heavy job in this worktree inside `nix develop`
+  under `nice`, after the lead's gate and with the load under 12, serialised by a lock.
+- A single vitest file and `npx tsc --noEmit` are light enough to run beside the gate.
+- `web/test/map-state-save.test.ts` builds its over-a-transaction case from 200 buys at six-digit
+  tenths and seventy objectives down: with real row caps twelve builds alone stay under 64 KiB.
+
 ## State: phase 2, server side of the writer and the stored layout done; the interface is next
 
 Branch `map-state-p2`, worktree `mapcro.worktrees/map-state-p2`, off main `6b9b4d1` (phase 1

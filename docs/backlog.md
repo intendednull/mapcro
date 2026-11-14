@@ -3,6 +3,26 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Map state phase 2, left over (2026-11-13, fourth implementer)
+
+Found while building the scene's builds (`docs/journal/2026-11-13-map-state-build.md`); none is
+needed for #49 on the desktop.
+
+- **Scene builds on the phone.** The scene's compact bar shows no builds (`TopBar.tsx`
+  `hasBuilds` is off when `compact`): Player's phone layout is a sheet of its own
+  (`PlayerTopBar` `phone-build-sheet`), which the mobile QA branch is changing. Build it on that
+  sheet once `mobile-qa` is merged.
+- **The follow matrix's scene column.** `follow-matrix.spec.ts` pins each key against a presenter
+  in Player only. The panel keys now follow on a scene (`host.ts` `mirror`); `scene-builds.spec.ts`
+  has one test of it. Add the column for the panel group, and a test of a presenter on a board
+  with no match (it needs a board file holding a snapshot, file version 2).
+- **Health, level badge and ult tiers behind the build interface.** `PlayerTopBar` still reads the
+  level badge and the ult tooltip's tiers from the timeline, and the phone's all-builds list its
+  K/D/A and items. They move with phase 4's one bar.
+- **Retake when the roster's hero differs.** Retake stores the match's hero for a slot; a slot
+  whose hero was changed since shows no build, with nothing saying why. Phase 6's per-scene hero
+  is the fix.
+
 ## Map state: one shape, computed by Player, stored by a scene (2026-11-13, operator; building)
 
 Spec: `docs/specs/map-state.md` (third revision: the independent review in
