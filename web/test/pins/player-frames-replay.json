@@ -1,0 +1,3869 @@
+[
+ {
+  "t": 0,
+  "players": [
+   {
+    "team": "amber",
+    "slot": 0,
+    "hero_id": 10,
+    "name": "",
+    "pos": {
+     "x": -1000,
+     "y": 0
+    },
+    "last": {
+     "x": -1000,
+     "y": 0
+    },
+    "souls": 400,
+    "ult": null,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 1,
+    "hero_id": 11,
+    "name": "",
+    "pos": {
+     "x": -1700,
+     "y": 300
+    },
+    "last": {
+     "x": -1700,
+     "y": 300
+    },
+    "souls": 410,
+    "ult": null,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 2,
+    "hero_id": 12,
+    "name": "",
+    "pos": {
+     "x": -2400,
+     "y": 600
+    },
+    "last": {
+     "x": -2400,
+     "y": 600
+    },
+    "souls": 420,
+    "ult": null,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 3,
+    "hero_id": 13,
+    "name": "",
+    "pos": {
+     "x": -3100,
+     "y": 900
+    },
+    "last": {
+     "x": -3100,
+     "y": 900
+    },
+    "souls": 430,
+    "ult": null,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 4,
+    "hero_id": 14,
+    "name": "",
+    "pos": {
+     "x": -3800,
+     "y": 1200
+    },
+    "last": {
+     "x": -3800,
+     "y": 1200
+    },
+    "souls": 440,
+    "ult": null,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 5,
+    "hero_id": 15,
+    "name": "",
+    "pos": {
+     "x": -4500,
+     "y": 1500
+    },
+    "last": {
+     "x": -4500,
+     "y": 1500
+    },
+    "souls": 450,
+    "ult": null,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 0,
+    "hero_id": 16,
+    "name": "",
+    "pos": {
+     "x": 1000,
+     "y": 0
+    },
+    "last": {
+     "x": 1000,
+     "y": 0
+    },
+    "souls": 460,
+    "ult": null,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 1,
+    "hero_id": 17,
+    "name": "",
+    "pos": {
+     "x": 1700,
+     "y": 300
+    },
+    "last": {
+     "x": 1700,
+     "y": 300
+    },
+    "souls": 470,
+    "ult": null,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 2,
+    "hero_id": 18,
+    "name": "",
+    "pos": null,
+    "last": null,
+    "souls": 480,
+    "ult": null,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 3,
+    "hero_id": 19,
+    "name": "",
+    "pos": {
+     "x": 3100,
+     "y": 900
+    },
+    "last": {
+     "x": 3100,
+     "y": 900
+    },
+    "souls": 490,
+    "ult": null,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 4,
+    "hero_id": 20,
+    "name": "",
+    "pos": {
+     "x": 3800,
+     "y": 1200
+    },
+    "last": {
+     "x": 3800,
+     "y": 1200
+    },
+    "souls": 500,
+    "ult": null,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 5,
+    "hero_id": 21,
+    "name": "",
+    "pos": {
+     "x": 4500,
+     "y": 1500
+    },
+    "last": {
+     "x": 4500,
+     "y": 1500
+    },
+    "souls": 510,
+    "ult": null,
+    "health": 100,
+    "respawn": null
+   }
+  ],
+  "builds": [
+   {
+    "items": [],
+    "abilities": [
+     {
+      "id": 7000,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [],
+    "abilities": [
+     {
+      "id": 7001,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [],
+    "abilities": [
+     {
+      "id": 7002,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [],
+    "abilities": [
+     {
+      "id": 7003,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [],
+    "abilities": [
+     {
+      "id": 7004,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [],
+    "abilities": [
+     {
+      "id": 7005,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [],
+    "abilities": [
+     {
+      "id": 7006,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [],
+    "abilities": [
+     {
+      "id": 7007,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [],
+    "abilities": [
+     {
+      "id": 7008,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [],
+    "abilities": [
+     {
+      "id": 7009,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [],
+    "abilities": [
+     {
+      "id": 7010,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [],
+    "abilities": [
+     {
+      "id": 7011,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   }
+  ],
+  "down": [],
+  "sites": [
+   [
+    "camp:neutral:lane0:3",
+    "Destroyed"
+   ],
+   [
+    "powerup:neutral:lane1:1",
+    "Destroyed"
+   ],
+   [
+    "powerup:neutral:lane6:1",
+    "Active"
+   ],
+   [
+    "rift:neutral:lane1:1",
+    "Destroyed"
+   ],
+   [
+    "rift:neutral:lane6:1",
+    "Destroyed"
+   ]
+  ],
+  "lanes": [
+   [
+    "lane1",
+    {
+     "amber": 500,
+     "sapphire": 500
+    }
+   ],
+   [
+    "lane4",
+    {
+     "amber": 425,
+     "sapphire": 574
+    }
+   ],
+   [
+    "lane6",
+    {
+     "amber": 0,
+     "sapphire": 1000
+    }
+   ]
+  ],
+  "camps": [
+   [
+    "camp:neutral:lane0:3",
+    {
+     "state": "unspawned",
+     "at": 1
+    }
+   ],
+   [
+    "mid_boss:neutral:lane0:1",
+    {
+     "state": "alive"
+    }
+   ]
+  ]
+ },
+ {
+  "t": 1,
+  "players": [
+   {
+    "team": "amber",
+    "slot": 0,
+    "hero_id": 10,
+    "name": "",
+    "pos": {
+     "x": -850,
+     "y": -80
+    },
+    "last": {
+     "x": -850,
+     "y": -80
+    },
+    "souls": 400,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 1,
+    "hero_id": 11,
+    "name": "",
+    "pos": {
+     "x": -1550,
+     "y": 220
+    },
+    "last": {
+     "x": -1550,
+     "y": 220
+    },
+    "souls": 410,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 2,
+    "hero_id": 12,
+    "name": "",
+    "pos": {
+     "x": -2250,
+     "y": 520
+    },
+    "last": {
+     "x": -2250,
+     "y": 520
+    },
+    "souls": 420,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 3,
+    "hero_id": 13,
+    "name": "",
+    "pos": {
+     "x": -2950,
+     "y": 820
+    },
+    "last": {
+     "x": -2950,
+     "y": 820
+    },
+    "souls": 430,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 4,
+    "hero_id": 14,
+    "name": "",
+    "pos": {
+     "x": -3650,
+     "y": 1120
+    },
+    "last": {
+     "x": -3650,
+     "y": 1120
+    },
+    "souls": 440,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 5,
+    "hero_id": 15,
+    "name": "",
+    "pos": {
+     "x": -4350,
+     "y": 1420
+    },
+    "last": {
+     "x": -4350,
+     "y": 1420
+    },
+    "souls": 450,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 0,
+    "hero_id": 16,
+    "name": "",
+    "pos": {
+     "x": 1150,
+     "y": -80
+    },
+    "last": {
+     "x": 1150,
+     "y": -80
+    },
+    "souls": 460,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 1,
+    "hero_id": 17,
+    "name": "",
+    "pos": {
+     "x": 1850,
+     "y": 220
+    },
+    "last": {
+     "x": 1850,
+     "y": 220
+    },
+    "souls": 470,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 2,
+    "hero_id": 18,
+    "name": "",
+    "pos": null,
+    "last": null,
+    "souls": 480,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 3,
+    "hero_id": 19,
+    "name": "",
+    "pos": {
+     "x": 3250,
+     "y": 820
+    },
+    "last": {
+     "x": 3250,
+     "y": 820
+    },
+    "souls": 490,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 4,
+    "hero_id": 20,
+    "name": "",
+    "pos": {
+     "x": 3950,
+     "y": 1120
+    },
+    "last": {
+     "x": 3950,
+     "y": 1120
+    },
+    "souls": 500,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 5,
+    "hero_id": 21,
+    "name": "",
+    "pos": {
+     "x": 4650,
+     "y": 1420
+    },
+    "last": {
+     "x": 4650,
+     "y": 1420
+    },
+    "souls": 510,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   }
+  ],
+  "builds": [
+   {
+    "items": [
+     {
+      "id": 9000,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7000,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9001,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7001,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9002,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7002,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9003,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7003,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9004,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7004,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9005,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7005,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9006,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7006,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9007,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7007,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9008,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7008,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9009,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7009,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9010,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7010,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9011,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7011,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   }
+  ],
+  "down": [
+   "guardian:sapphire:lane4:1"
+  ],
+  "sites": [
+   [
+    "camp:neutral:lane0:3",
+    "Active"
+   ],
+   [
+    "powerup:neutral:lane1:1",
+    "Active"
+   ],
+   [
+    "powerup:neutral:lane6:1",
+    "Active"
+   ],
+   [
+    "rift:neutral:lane1:1",
+    "Destroyed"
+   ],
+   [
+    "rift:neutral:lane6:1",
+    "Active"
+   ]
+  ],
+  "lanes": [
+   [
+    "lane1",
+    {
+     "amber": 500,
+     "sapphire": 500
+    }
+   ],
+   [
+    "lane4",
+    {
+     "amber": 425,
+     "sapphire": 574
+    }
+   ],
+   [
+    "lane6",
+    {
+     "amber": 0,
+     "sapphire": 1000
+    }
+   ]
+  ],
+  "camps": [
+   [
+    "camp:neutral:lane0:3",
+    {
+     "state": "alive"
+    }
+   ],
+   [
+    "mid_boss:neutral:lane0:1",
+    {
+     "state": "alive"
+    }
+   ]
+  ]
+ },
+ {
+  "t": 1.5,
+  "players": [
+   {
+    "team": "amber",
+    "slot": 0,
+    "hero_id": 10,
+    "name": "",
+    "pos": {
+     "x": -775,
+     "y": -120
+    },
+    "last": {
+     "x": -850,
+     "y": -80
+    },
+    "souls": 400,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 1,
+    "hero_id": 11,
+    "name": "",
+    "pos": {
+     "x": -1475,
+     "y": 180
+    },
+    "last": {
+     "x": -1550,
+     "y": 220
+    },
+    "souls": 410,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 2,
+    "hero_id": 12,
+    "name": "",
+    "pos": {
+     "x": -2175,
+     "y": 480
+    },
+    "last": {
+     "x": -2250,
+     "y": 520
+    },
+    "souls": 420,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 3,
+    "hero_id": 13,
+    "name": "",
+    "pos": {
+     "x": -2875,
+     "y": 780
+    },
+    "last": {
+     "x": -2950,
+     "y": 820
+    },
+    "souls": 430,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 4,
+    "hero_id": 14,
+    "name": "",
+    "pos": {
+     "x": -3575,
+     "y": 1080
+    },
+    "last": {
+     "x": -3650,
+     "y": 1120
+    },
+    "souls": 440,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 5,
+    "hero_id": 15,
+    "name": "",
+    "pos": {
+     "x": -4275,
+     "y": 1380
+    },
+    "last": {
+     "x": -4350,
+     "y": 1420
+    },
+    "souls": 450,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 0,
+    "hero_id": 16,
+    "name": "",
+    "pos": {
+     "x": 1225,
+     "y": -120
+    },
+    "last": {
+     "x": 1150,
+     "y": -80
+    },
+    "souls": 460,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 1,
+    "hero_id": 17,
+    "name": "",
+    "pos": {
+     "x": 1925,
+     "y": 180
+    },
+    "last": {
+     "x": 1850,
+     "y": 220
+    },
+    "souls": 470,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 2,
+    "hero_id": 18,
+    "name": "",
+    "pos": null,
+    "last": null,
+    "souls": 480,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 3,
+    "hero_id": 19,
+    "name": "",
+    "pos": {
+     "x": 3325,
+     "y": 780
+    },
+    "last": {
+     "x": 3250,
+     "y": 820
+    },
+    "souls": 490,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 4,
+    "hero_id": 20,
+    "name": "",
+    "pos": {
+     "x": 4025,
+     "y": 1080
+    },
+    "last": {
+     "x": 3950,
+     "y": 1120
+    },
+    "souls": 500,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 5,
+    "hero_id": 21,
+    "name": "",
+    "pos": {
+     "x": 4725,
+     "y": 1380
+    },
+    "last": {
+     "x": 4650,
+     "y": 1420
+    },
+    "souls": 510,
+    "ult": 100,
+    "health": 90,
+    "respawn": null
+   }
+  ],
+  "builds": [
+   {
+    "items": [
+     {
+      "id": 9000,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9100,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7000,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9001,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9101,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7001,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9002,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9102,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7002,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9003,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9103,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7003,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9004,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9104,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7004,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9005,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9105,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7005,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9006,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9106,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7006,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9007,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9107,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7007,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9008,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9108,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7008,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9009,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9109,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7009,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9010,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9110,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7010,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9011,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9111,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": null
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7011,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   }
+  ],
+  "down": [
+   "guardian:sapphire:lane4:1"
+  ],
+  "sites": [
+   [
+    "camp:neutral:lane0:3",
+    "Active"
+   ],
+   [
+    "powerup:neutral:lane1:1",
+    "Active"
+   ],
+   [
+    "powerup:neutral:lane6:1",
+    "Active"
+   ],
+   [
+    "rift:neutral:lane1:1",
+    "Destroyed"
+   ],
+   [
+    "rift:neutral:lane6:1",
+    "Active"
+   ]
+  ],
+  "lanes": [
+   [
+    "lane1",
+    {
+     "amber": 500,
+     "sapphire": 500
+    }
+   ],
+   [
+    "lane4",
+    {
+     "amber": 425,
+     "sapphire": 574
+    }
+   ],
+   [
+    "lane6",
+    {
+     "amber": 0,
+     "sapphire": 1000
+    }
+   ]
+  ],
+  "camps": [
+   [
+    "camp:neutral:lane0:3",
+    {
+     "state": "alive"
+    }
+   ],
+   [
+    "mid_boss:neutral:lane0:1",
+    {
+     "state": "alive"
+    }
+   ]
+  ]
+ },
+ {
+  "t": 2,
+  "players": [
+   {
+    "team": "amber",
+    "slot": 0,
+    "hero_id": 10,
+    "name": "",
+    "pos": {
+     "x": -700,
+     "y": -160
+    },
+    "last": {
+     "x": -700,
+     "y": -160
+    },
+    "souls": 1250,
+    "ult": 50,
+    "health": 60,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 1,
+    "hero_id": 11,
+    "name": "",
+    "pos": {
+     "x": -1400,
+     "y": 140
+    },
+    "last": {
+     "x": -1400,
+     "y": 140
+    },
+    "souls": 1350,
+    "ult": 51,
+    "health": 60,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 2,
+    "hero_id": 12,
+    "name": "",
+    "pos": {
+     "x": -2100,
+     "y": 440
+    },
+    "last": {
+     "x": -2100,
+     "y": 440
+    },
+    "souls": 1450,
+    "ult": 52,
+    "health": 60,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 3,
+    "hero_id": 13,
+    "name": "",
+    "pos": {
+     "x": -2800,
+     "y": 740
+    },
+    "last": {
+     "x": -2800,
+     "y": 740
+    },
+    "souls": 1550,
+    "ult": 53,
+    "health": 60,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 4,
+    "hero_id": 14,
+    "name": "",
+    "pos": {
+     "x": -3500,
+     "y": 1040
+    },
+    "last": {
+     "x": -3500,
+     "y": 1040
+    },
+    "souls": 1650,
+    "ult": 54,
+    "health": 60,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 5,
+    "hero_id": 15,
+    "name": "",
+    "pos": {
+     "x": -4200,
+     "y": 1340
+    },
+    "last": {
+     "x": -4200,
+     "y": 1340
+    },
+    "souls": 1750,
+    "ult": 55,
+    "health": 60,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 0,
+    "hero_id": 16,
+    "name": "",
+    "pos": {
+     "x": 1300,
+     "y": -160
+    },
+    "last": {
+     "x": 1300,
+     "y": -160
+    },
+    "souls": 1850,
+    "ult": 56,
+    "health": 60,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 1,
+    "hero_id": 17,
+    "name": "",
+    "pos": {
+     "x": 2000,
+     "y": 140
+    },
+    "last": {
+     "x": 2000,
+     "y": 140
+    },
+    "souls": 1950,
+    "ult": 57,
+    "health": 60,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 2,
+    "hero_id": 18,
+    "name": "",
+    "pos": null,
+    "last": null,
+    "souls": 2050,
+    "ult": 58,
+    "health": 60,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 3,
+    "hero_id": 19,
+    "name": "",
+    "pos": {
+     "x": 3400,
+     "y": 740
+    },
+    "last": {
+     "x": 3400,
+     "y": 740
+    },
+    "souls": 2150,
+    "ult": 59,
+    "health": 60,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 4,
+    "hero_id": 20,
+    "name": "",
+    "pos": {
+     "x": 4100,
+     "y": 1040
+    },
+    "last": {
+     "x": 4100,
+     "y": 1040
+    },
+    "souls": 2250,
+    "ult": 60,
+    "health": 60,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 5,
+    "hero_id": 21,
+    "name": "",
+    "pos": {
+     "x": 4800,
+     "y": 1340
+    },
+    "last": {
+     "x": 4800,
+     "y": 1340
+    },
+    "souls": 2350,
+    "ult": 61,
+    "health": 60,
+    "respawn": null
+   }
+  ],
+  "builds": [
+   {
+    "items": [
+     {
+      "id": 9000,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9100,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7000,
+      "cooldown": 2,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9001,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9101,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7001,
+      "cooldown": 2,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9002,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9102,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7002,
+      "cooldown": 2,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9003,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9103,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7003,
+      "cooldown": 2,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9004,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9104,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7004,
+      "cooldown": 2,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9005,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9105,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7005,
+      "cooldown": 2,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9006,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9106,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7006,
+      "cooldown": 2,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9007,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9107,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7007,
+      "cooldown": 2,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9008,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9108,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7008,
+      "cooldown": 2,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9009,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9109,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7009,
+      "cooldown": 2,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9010,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9110,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7010,
+      "cooldown": 2,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9011,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null
+     },
+     {
+      "id": 9111,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7011,
+      "cooldown": 2,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     }
+    ]
+   }
+  ],
+  "down": [
+   "guardian:sapphire:lane4:1",
+   "walker:amber:lane1:1"
+  ],
+  "sites": [
+   [
+    "camp:neutral:lane0:3",
+    "Destroyed"
+   ],
+   [
+    "powerup:neutral:lane1:1",
+    "Active"
+   ],
+   [
+    "powerup:neutral:lane6:1",
+    "Active"
+   ],
+   [
+    "rift:neutral:lane1:1",
+    "Destroyed"
+   ],
+   [
+    "rift:neutral:lane6:1",
+    "Active"
+   ]
+  ],
+  "lanes": [
+   [
+    "lane1",
+    {
+     "amber": 500,
+     "sapphire": 500
+    }
+   ],
+   [
+    "lane4",
+    {
+     "amber": 480,
+     "sapphire": 520
+    }
+   ],
+   [
+    "lane6",
+    {
+     "amber": 0,
+     "sapphire": 1000
+    }
+   ]
+  ],
+  "camps": [
+   [
+    "camp:neutral:lane0:3",
+    {
+     "state": "cleared",
+     "at": 4
+    }
+   ],
+   [
+    "mid_boss:neutral:lane0:1",
+    {
+     "state": "alive"
+    }
+   ]
+  ]
+ },
+ {
+  "t": 3,
+  "players": [
+   {
+    "team": "amber",
+    "slot": 0,
+    "hero_id": 10,
+    "name": "",
+    "pos": {
+     "x": -550,
+     "y": -240
+    },
+    "last": {
+     "x": -550,
+     "y": -240
+    },
+    "souls": 1250,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 1,
+    "hero_id": 11,
+    "name": "",
+    "pos": {
+     "x": -1250,
+     "y": 60
+    },
+    "last": {
+     "x": -1250,
+     "y": 60
+    },
+    "souls": 1350,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 2,
+    "hero_id": 12,
+    "name": "",
+    "pos": {
+     "x": -1950,
+     "y": 360
+    },
+    "last": {
+     "x": -1950,
+     "y": 360
+    },
+    "souls": 1450,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 3,
+    "hero_id": 13,
+    "name": "",
+    "pos": null,
+    "last": {
+     "x": -2800,
+     "y": 740
+    },
+    "souls": 1550,
+    "ult": 25,
+    "health": 0,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 4,
+    "hero_id": 14,
+    "name": "",
+    "pos": {
+     "x": -3350,
+     "y": 960
+    },
+    "last": {
+     "x": -3350,
+     "y": 960
+    },
+    "souls": 1650,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 5,
+    "hero_id": 15,
+    "name": "",
+    "pos": {
+     "x": -4050,
+     "y": 1260
+    },
+    "last": {
+     "x": -4050,
+     "y": 1260
+    },
+    "souls": 1750,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 0,
+    "hero_id": 16,
+    "name": "",
+    "pos": {
+     "x": 1450,
+     "y": -240
+    },
+    "last": {
+     "x": 1450,
+     "y": -240
+    },
+    "souls": 1850,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 1,
+    "hero_id": 17,
+    "name": "",
+    "pos": {
+     "x": 2150,
+     "y": 60
+    },
+    "last": {
+     "x": 2150,
+     "y": 60
+    },
+    "souls": 1950,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 2,
+    "hero_id": 18,
+    "name": "",
+    "pos": null,
+    "last": null,
+    "souls": 2050,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 3,
+    "hero_id": 19,
+    "name": "",
+    "pos": {
+     "x": 3550,
+     "y": 660
+    },
+    "last": {
+     "x": 3550,
+     "y": 660
+    },
+    "souls": 2150,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 4,
+    "hero_id": 20,
+    "name": "",
+    "pos": {
+     "x": 4250,
+     "y": 960
+    },
+    "last": {
+     "x": 4250,
+     "y": 960
+    },
+    "souls": 2250,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 5,
+    "hero_id": 21,
+    "name": "",
+    "pos": {
+     "x": 4950,
+     "y": 1260
+    },
+    "last": {
+     "x": 4950,
+     "y": 1260
+    },
+    "souls": 2350,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   }
+  ],
+  "builds": [
+   {
+    "items": [
+     {
+      "id": 9100,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7000,
+      "cooldown": 1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7100,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9101,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7001,
+      "cooldown": 1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7101,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9102,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7002,
+      "cooldown": 1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7102,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9103,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7003,
+      "cooldown": 1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7103,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9104,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7004,
+      "cooldown": 1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7104,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9105,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7005,
+      "cooldown": 1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7105,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9106,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7006,
+      "cooldown": 1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7106,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9107,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7007,
+      "cooldown": 1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7107,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9108,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7008,
+      "cooldown": 1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7108,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9109,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7009,
+      "cooldown": 1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7109,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9110,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7010,
+      "cooldown": 1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7110,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9111,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7011,
+      "cooldown": 1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7111,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   }
+  ],
+  "down": [
+   "guardian:sapphire:lane4:1",
+   "mid_boss:neutral:lane0:1",
+   "walker:amber:lane1:1"
+  ],
+  "sites": [
+   [
+    "camp:neutral:lane0:3",
+    "Destroyed"
+   ],
+   [
+    "powerup:neutral:lane1:1",
+    "Destroyed"
+   ],
+   [
+    "powerup:neutral:lane6:1",
+    "Active"
+   ],
+   [
+    "rift:neutral:lane1:1",
+    "Destroyed"
+   ],
+   [
+    "rift:neutral:lane6:1",
+    "Destroyed"
+   ]
+  ],
+  "lanes": [
+   [
+    "lane1",
+    {
+     "amber": 500,
+     "sapphire": 500
+    }
+   ],
+   [
+    "lane4",
+    {
+     "amber": 480,
+     "sapphire": 520
+    }
+   ],
+   [
+    "lane6",
+    {
+     "amber": 640,
+     "sapphire": 700
+    }
+   ]
+  ],
+  "camps": [
+   [
+    "camp:neutral:lane0:3",
+    {
+     "state": "cleared",
+     "at": 4
+    }
+   ],
+   [
+    "mid_boss:neutral:lane0:1",
+    {
+     "state": "cleared",
+     "at": 400
+    }
+   ]
+  ]
+ },
+ {
+  "t": 3.9,
+  "players": [
+   {
+    "team": "amber",
+    "slot": 0,
+    "hero_id": 10,
+    "name": "",
+    "pos": {
+     "x": -415,
+     "y": -312
+    },
+    "last": {
+     "x": -550,
+     "y": -240
+    },
+    "souls": 1250,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 1,
+    "hero_id": 11,
+    "name": "",
+    "pos": {
+     "x": -1115,
+     "y": -12
+    },
+    "last": {
+     "x": -1250,
+     "y": 60
+    },
+    "souls": 1350,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 2,
+    "hero_id": 12,
+    "name": "",
+    "pos": {
+     "x": -1815,
+     "y": 288
+    },
+    "last": {
+     "x": -1950,
+     "y": 360
+    },
+    "souls": 1450,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 3,
+    "hero_id": 13,
+    "name": "",
+    "pos": null,
+    "last": {
+     "x": -2800,
+     "y": 740
+    },
+    "souls": 1550,
+    "ult": 25,
+    "health": 0,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 4,
+    "hero_id": 14,
+    "name": "",
+    "pos": {
+     "x": -3215,
+     "y": 888
+    },
+    "last": {
+     "x": -3350,
+     "y": 960
+    },
+    "souls": 1650,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 5,
+    "hero_id": 15,
+    "name": "",
+    "pos": {
+     "x": -3915,
+     "y": 1188
+    },
+    "last": {
+     "x": -4050,
+     "y": 1260
+    },
+    "souls": 1750,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 0,
+    "hero_id": 16,
+    "name": "",
+    "pos": {
+     "x": 1585,
+     "y": -312
+    },
+    "last": {
+     "x": 1450,
+     "y": -240
+    },
+    "souls": 1850,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 1,
+    "hero_id": 17,
+    "name": "",
+    "pos": {
+     "x": 2285,
+     "y": -12
+    },
+    "last": {
+     "x": 2150,
+     "y": 60
+    },
+    "souls": 1950,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 2,
+    "hero_id": 18,
+    "name": "",
+    "pos": null,
+    "last": null,
+    "souls": 2050,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 3,
+    "hero_id": 19,
+    "name": "",
+    "pos": {
+     "x": 3685,
+     "y": 588
+    },
+    "last": {
+     "x": 3550,
+     "y": 660
+    },
+    "souls": 2150,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 4,
+    "hero_id": 20,
+    "name": "",
+    "pos": {
+     "x": 4385,
+     "y": 888
+    },
+    "last": {
+     "x": 4250,
+     "y": 960
+    },
+    "souls": 2250,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 5,
+    "hero_id": 21,
+    "name": "",
+    "pos": {
+     "x": 5085,
+     "y": 1188
+    },
+    "last": {
+     "x": 4950,
+     "y": 1260
+    },
+    "souls": 2350,
+    "ult": 25,
+    "health": 75,
+    "respawn": null
+   }
+  ],
+  "builds": [
+   {
+    "items": [
+     {
+      "id": 9100,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7000,
+      "cooldown": 0.1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7100,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9101,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7001,
+      "cooldown": 0.1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7101,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9102,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7002,
+      "cooldown": 0.1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7102,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9103,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7003,
+      "cooldown": 0.1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7103,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9104,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7004,
+      "cooldown": 0.1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7104,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9105,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7005,
+      "cooldown": 0.1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7105,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9106,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7006,
+      "cooldown": 0.1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7106,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9107,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7007,
+      "cooldown": 0.1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7107,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9108,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7008,
+      "cooldown": 0.1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7108,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9109,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7009,
+      "cooldown": 0.1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7109,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9110,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7010,
+      "cooldown": 0.1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7110,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9111,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7011,
+      "cooldown": 0.1,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7111,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   }
+  ],
+  "down": [
+   "guardian:sapphire:lane4:1",
+   "mid_boss:neutral:lane0:1",
+   "walker:amber:lane1:1"
+  ],
+  "sites": [
+   [
+    "camp:neutral:lane0:3",
+    "Destroyed"
+   ],
+   [
+    "powerup:neutral:lane1:1",
+    "Destroyed"
+   ],
+   [
+    "powerup:neutral:lane6:1",
+    "Active"
+   ],
+   [
+    "rift:neutral:lane1:1",
+    "Destroyed"
+   ],
+   [
+    "rift:neutral:lane6:1",
+    "Destroyed"
+   ]
+  ],
+  "lanes": [
+   [
+    "lane1",
+    {
+     "amber": 500,
+     "sapphire": 500
+    }
+   ],
+   [
+    "lane4",
+    {
+     "amber": 480,
+     "sapphire": 520
+    }
+   ],
+   [
+    "lane6",
+    {
+     "amber": 640,
+     "sapphire": 700
+    }
+   ]
+  ],
+  "camps": [
+   [
+    "camp:neutral:lane0:3",
+    {
+     "state": "cleared",
+     "at": 4
+    }
+   ],
+   [
+    "mid_boss:neutral:lane0:1",
+    {
+     "state": "cleared",
+     "at": 400
+    }
+   ]
+  ]
+ },
+ {
+  "t": 4,
+  "players": [
+   {
+    "team": "amber",
+    "slot": 0,
+    "hero_id": 10,
+    "name": "",
+    "pos": {
+     "x": -400,
+     "y": -320
+    },
+    "last": {
+     "x": -400,
+     "y": -320
+    },
+    "souls": 1250,
+    "ult": 0,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 1,
+    "hero_id": 11,
+    "name": "",
+    "pos": {
+     "x": -1100,
+     "y": -20
+    },
+    "last": {
+     "x": -1100,
+     "y": -20
+    },
+    "souls": 1350,
+    "ult": 0,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 2,
+    "hero_id": 12,
+    "name": "",
+    "pos": {
+     "x": -1800,
+     "y": 280
+    },
+    "last": {
+     "x": -1800,
+     "y": 280
+    },
+    "souls": 1450,
+    "ult": 0,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 3,
+    "hero_id": 13,
+    "name": "",
+    "pos": {
+     "x": -2500,
+     "y": 580
+    },
+    "last": {
+     "x": -2500,
+     "y": 580
+    },
+    "souls": 1550,
+    "ult": 0,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 4,
+    "hero_id": 14,
+    "name": "",
+    "pos": {
+     "x": -3200,
+     "y": 880
+    },
+    "last": {
+     "x": -3200,
+     "y": 880
+    },
+    "souls": 1650,
+    "ult": 0,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "amber",
+    "slot": 5,
+    "hero_id": 15,
+    "name": "",
+    "pos": {
+     "x": -3900,
+     "y": 1180
+    },
+    "last": {
+     "x": -3900,
+     "y": 1180
+    },
+    "souls": 1750,
+    "ult": 0,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 0,
+    "hero_id": 16,
+    "name": "",
+    "pos": {
+     "x": 1600,
+     "y": -320
+    },
+    "last": {
+     "x": 1600,
+     "y": -320
+    },
+    "souls": 1850,
+    "ult": 0,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 1,
+    "hero_id": 17,
+    "name": "",
+    "pos": {
+     "x": 2300,
+     "y": -20
+    },
+    "last": {
+     "x": 2300,
+     "y": -20
+    },
+    "souls": 1950,
+    "ult": 0,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 2,
+    "hero_id": 18,
+    "name": "",
+    "pos": null,
+    "last": null,
+    "souls": 2050,
+    "ult": 0,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 3,
+    "hero_id": 19,
+    "name": "",
+    "pos": {
+     "x": 3700,
+     "y": 580
+    },
+    "last": {
+     "x": 3700,
+     "y": 580
+    },
+    "souls": 2150,
+    "ult": 0,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 4,
+    "hero_id": 20,
+    "name": "",
+    "pos": {
+     "x": 4400,
+     "y": 880
+    },
+    "last": {
+     "x": 4400,
+     "y": 880
+    },
+    "souls": 2250,
+    "ult": 0,
+    "health": 100,
+    "respawn": null
+   },
+   {
+    "team": "sapphire",
+    "slot": 5,
+    "hero_id": 21,
+    "name": "",
+    "pos": {
+     "x": 5100,
+     "y": 1180
+    },
+    "last": {
+     "x": 5100,
+     "y": 1180
+    },
+    "souls": 2350,
+    "ult": 0,
+    "health": 100,
+    "respawn": null
+   }
+  ],
+  "builds": [
+   {
+    "items": [
+     {
+      "id": 9100,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7000,
+      "cooldown": 0,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7100,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9101,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7001,
+      "cooldown": 0,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7101,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9102,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7002,
+      "cooldown": 0,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7102,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9103,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7003,
+      "cooldown": 0,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7103,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9104,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7004,
+      "cooldown": 0,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7104,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9105,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7005,
+      "cooldown": 0,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7105,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9106,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7006,
+      "cooldown": 0,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7106,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9107,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7007,
+      "cooldown": 0,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7107,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9108,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7008,
+      "cooldown": 0,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7108,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9109,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7009,
+      "cooldown": 0,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7109,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9110,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7010,
+      "cooldown": 0,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7110,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   },
+   {
+    "items": [
+     {
+      "id": 9111,
+      "cooldown": null,
+      "charges": 2,
+      "stacks": 3
+     }
+    ],
+    "abilities": [
+     {
+      "id": 7011,
+      "cooldown": 0,
+      "charges": null,
+      "stacks": null,
+      "level": 2
+     },
+     {
+      "id": 7111,
+      "cooldown": null,
+      "charges": null,
+      "stacks": null,
+      "level": 1
+     }
+    ]
+   }
+  ],
+  "down": [
+   "guardian:sapphire:lane4:1",
+   "mid_boss:neutral:lane0:1",
+   "walker:amber:lane1:1"
+  ],
+  "sites": [
+   [
+    "camp:neutral:lane0:3",
+    "Active"
+   ],
+   [
+    "powerup:neutral:lane1:1",
+    "Destroyed"
+   ],
+   [
+    "powerup:neutral:lane6:1",
+    "Active"
+   ],
+   [
+    "rift:neutral:lane1:1",
+    "Destroyed"
+   ],
+   [
+    "rift:neutral:lane6:1",
+    "Destroyed"
+   ]
+  ],
+  "lanes": [
+   [
+    "lane1",
+    {
+     "amber": 500,
+     "sapphire": 500
+    }
+   ],
+   [
+    "lane4",
+    {
+     "amber": 300,
+     "sapphire": 300
+    }
+   ],
+   [
+    "lane6",
+    {
+     "amber": 640,
+     "sapphire": 700
+    }
+   ]
+  ],
+  "camps": [
+   [
+    "camp:neutral:lane0:3",
+    {
+     "state": "alive"
+    }
+   ],
+   [
+    "mid_boss:neutral:lane0:1",
+    {
+     "state": "cleared",
+     "at": 400
+    }
+   ]
+  ]
+ }
+]

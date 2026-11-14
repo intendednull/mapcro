@@ -924,13 +924,19 @@ makes a board with that match attached and lands in Player; **New board** is tod
   20, beside the board rather than in its document (`DATA_DIR/attached/<hash of the board id>.json`):
   `GET /api/boards/{board}/matches` (any link) lists them, `PUT /api/boards/{board}/matches/{id}`
   (owner or edit link) attaches one. A board with one opens in Player on its newest.
-- **Player draws only the timeline at t; Sandbox only the scene's records.** The map shows the match
-  at playback time t: heroes interpolated between 1 Hz samples and hidden while dead, objectives,
-  and from a replay rifts, powerups, zipline colours and camps; ult rings sit in Player's
-  top bar. No scene
-  state (alive, seen, placed, objective, rift or wave records) shows through in Player, and none of
-  Player's shows through in Sandbox. Switching modes, scenes or matches leaves nothing behind
-  (operator report 2026-11-08: heroes drawn dark where the scene had them dead).
+- **One map state, computed by Player and stored by a scene** (operator, 2026-11-13;
+  `docs/specs/map-state.md`, which replaces the 2026-11-08 rule "Player draws only the timeline
+  at t; Sandbox only the scene's records"). Player computes everything it shows at a frame;
+  Save as scene stores all of it; the scene viewer draws and edits that stored state with
+  Player's components. A scene's clock and source only record when it was taken.
+  **Until that spec's phases land, the code still follows the old rule:** the map shows
+  the match at playback time t: heroes interpolated between 1 Hz samples and hidden while dead,
+  objectives, and from a replay rifts, powerups, zipline colours and camps; ult rings sit in
+  Player's top bar. No scene state (alive, seen, placed, objective, rift or wave records) shows
+  through in Player, and none of Player's shows through in Sandbox. What stays true under the
+  new spec: switching modes, scenes or matches leaves nothing behind (operator report
+  2026-11-08: heroes drawn dark where the scene had them dead); an existing scene looks as it
+  does now (map-state §3.5).
 - **Lanes** on the replay tier take the game's zipline colours (2026-11-08): Amber's colour
   over `[0, amber_t]`, Sapphire's over `[sapphire_t, 1000]`, and the gap between drawn bare,
   as the board's own split gap (never narrower than it). The colour is captured ground: a node
@@ -1897,7 +1903,7 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
   | Editing clients per board | 1024 | `BOARD_MAX_CLIENTS` | Distinct devices that have edited. View links register nothing (§11) |
   | Stored rejections per board | 4096 | `BOARD_MAX_REJECTIONS` | Sixteen clients' worth of the 256 each may leave; past it, a refused transaction closes its sender instead of being stored |
   | Boards in memory | 256 | `MAX_OPEN_ROOMS` | Was 32. A room no longer holds its history: a board full of history costs ~1.6 MB, a small one ~0.3 MB. 256 small rooms opened at once are 87 MB |
-  | Room memory | 128 MiB of estimates | `ROOM_MEMORY_BYTES` | A room's cost is its document, up to ~20 MB at the schema's limits (5000 records of 512-point strokes), so rooms are budgeted by estimate, not only counted. Rooms of the largest documents fill it at 8 open, 183 MB peak: 29% headroom under `MemoryMax=256M` ([journal](../journal/2026-11-07-security-fixes.md)) |
+  | Room memory | 128 MiB of estimates | `ROOM_MEMORY_BYTES` | A room's cost is its document: up to ~20 MB at the schema's limits as strokes (5000 records of 512-point strokes), or ~55 MB if every record held full map-state lists (`max_more_ints`, map-state §4.4: adversarial only; a real 64-scene board is a few MB). The estimate counts both, so rooms are budgeted by estimate, not only counted, and a heavier room only takes more of the budget. Rooms of the largest stroke documents fill it at 8 open, 183 MB peak: 29% headroom under `MemoryMax=256M` ([journal](../journal/2026-11-07-security-fixes.md)) |
   | Boards stored | 5000 | `MAX_BOARDS` | Creation past it is refused with 507 |
   | Database size | 2 GiB | `MAX_STORAGE_BYTES` | Creation past it is refused with 507, and edits with `ServerFull` |
 

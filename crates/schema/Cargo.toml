@@ -9,10 +9,8 @@ description = "mapcro board records, ops, validation and apply semantics: shared
 [dependencies]
 serde.workspace = true
 thiserror.workspace = true
-ts-rs = { version = "12", optional = true }
-
-[dev-dependencies]
 serde_json = "1"
+ts-rs = { version = "12", optional = true }
 
 [features]
 # Generate TypeScript bindings for the web client (`just ts`).

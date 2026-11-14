@@ -209,7 +209,59 @@ fn an_export_holds_no_secret() {
     assert_eq!(server.export(&other, "not-a-token").0, 401);
 }
 
-/// `file`, changed by `f`.
+/// A file holding a map-state snapshot (registry values on a hero, the scene's own state) makes
+/// no board while this build only reads them (map-state spec §4.3): a server rolled back to
+/// before the reader couldn't load it. At version 2, and at version 1, whose header promises
+/// nothing about its records. (That the same file imports once the rows are written, and
+/// exports the same values, is `boardfile`'s own test: the server as built can't be told to.)
+#[test]
+fn a_file_with_map_state_makes_no_board_while_its_rows_are_ahead() {
+    assert!(mapcro_schema::ROWS.iter().all(|r| r.status == mapcro_schema::Status::Ahead) && mapcro_schema::SCENE_STATE == mapcro_schema::Status::Ahead, "the writer release: this test is the reader's; the import below then succeeds");
+    // One board at most: a refusal that made a board would leave no room for the last import.
+    let server = Server::start(&[("CREATE_PER_HOUR", "1000"), ("CREATE_GLOBAL_PER_HOUR", "1000"), ("MAX_BOARDS", "1")]);
+    let scene_of = |file: &mut Value| records(file).iter().find(|r| r[1].get("Scene").is_some_and(|s| s["name"] == "8:40 rotate")).expect("scene")[0].clone();
+    let hero = |file: &mut Value, more: Value| {
+        let scene = scene_of(file);
+        let p = records(file).iter_mut().find(|r| r[1].get("PlayerState").is_some_and(|p| p["scene"] == scene)).expect("player");
+        p[1]["PlayerState"]["more"] = more;
+    };
+    let state = |file: &mut Value, more: Value| {
+        let scene = scene_of(file);
+        records(file).push(json!(["00000000000000000000000000005000", { "SceneState": { "scene": scene, "more": more } }]));
+    };
+    let send = |file: &Value| {
+        let (status, body) = server.import(file.to_string().as_bytes());
+        (status, error_of(&body))
+    };
+    for version in [1, 2] {
+        let versioned = |f: &dyn Fn(&mut Value)| {
+            with(|v| {
+                f(v);
+                v["version"] = json!(version);
+                if version == 2 {
+                    v["rows"] = json!(mapcro_schema::ROWS.len());
+                }
+            })
+        };
+        // The whole snapshot; a hero's value alone; a scene's state alone, even an empty one.
+        let snapshot = versioned(&|v| {
+            hero(v, json!({ "hero": 13, "name": "Solo", "items": [9000, -1, 4294967295u64], "level": 12, "health": 55 }));
+            state(v, json!({ "rows": mapcro_schema::ROWS.len(), "has_builds": true, "build": 6839 }));
+        });
+        assert_eq!(send(&snapshot), (422, "invalid".into()), "version {version}");
+        assert_eq!(send(&versioned(&|v| hero(v, json!({ "level": 12 })))), (422, "invalid".into()), "version {version}");
+        assert_eq!(send(&versioned(&|v| state(v, json!({})))), (422, "invalid".into()), "version {version}");
+        // An empty `more` is no value at all: it comes in, and is not written back.
+        let empty = versioned(&|v| hero(v, json!({})));
+        if version == 2 {
+            let (board, owner, _) = server.import_ok(&empty);
+            let mut out = server.export_json(&board, &owner);
+            assert!(records(&mut out).iter().all(|r| r[1].get("SceneState").is_none() && r[1].as_object().is_some_and(|o| o.values().all(|body| body.get("more").is_none()))));
+        }
+    }
+}
+
+/// `rich_file`, changed by `f`.
 fn with(f: impl FnOnce(&mut Value)) -> Value {
     let mut v = rich_file();
     f(&mut v);
@@ -233,9 +285,20 @@ fn bad_files_are_refused_with_a_code_and_make_no_board() {
     let send = |v: &Value| code(server.import(v.to_string().as_bytes()));
     let title_at = |v: &mut Value| -> usize { records(v).iter().position(|r| r[1].get("BoardMeta").is_some()).expect("meta") };
 
-    // A newer build's file: refused whole, whatever its body.
-    assert_eq!(send(&with(|v| v["version"] = json!(2))), (422, "newer".into()));
+    // A newer build's file: refused whole, whatever its body. Version 2 is read (below); a
+    // file whose writer knew more map-state rows than this build is newer at any version.
+    let rows = mapcro_schema::ROWS.len();
+    assert_eq!(send(&with(|v| v["version"] = json!(3))), (422, "newer".into()));
     assert_eq!(send(&with(|v| { v["version"] = json!(99); v["records"] = json!(marker); })), (422, "newer".into()));
+    assert_eq!(send(&with(|v| { v["version"] = json!(2); v["rows"] = json!(rows + 1); v["records"] = json!(marker); })), (422, "newer".into()));
+    assert_eq!(send(&with(|v| v["rows"] = json!(rows + 1))), (422, "newer".into()));
+    // A map-state key this build doesn't know can't be held: the file doesn't parse.
+    assert_eq!(send(&with(|v| { let p = records(v).iter_mut().find(|r| r[1].get("PlayerState").is_some()).expect("player"); p[1]["PlayerState"]["more"] = json!({ "no_such_row": 1 }); })), (400, "not_a_board".into()));
+    // A known key with a value outside its row, or on the wrong kind of record: invalid.
+    let player_more = |more: Value| with(|v| { let p = records(v).iter_mut().find(|r| r[1].get("PlayerState").is_some()).expect("player"); p[1]["PlayerState"]["more"] = more; });
+    assert_eq!(send(&player_more(json!({ "health": 101 }))), (422, "invalid".into()));
+    assert_eq!(send(&player_more(json!({ "health": "full" }))), (422, "invalid".into()));
+    assert_eq!(send(&player_more(json!({ "has_builds": true }))), (422, "invalid".into()));
     // Not this format, not JSON, or a version that never was.
     assert_eq!(send(&with(|v| v["format"] = json!("excalidraw"))), (400, "not_a_board".into()));
     assert_eq!(code(server.import(format!("<html>{marker}</html>").as_bytes())), (400, "not_a_board".into()));

@@ -189,6 +189,27 @@ Without a pack, boards render on the built-in placeholder map.
 The database is `/var/lib/mapcro/mapcro.sqlite` (WAL mode). A server migrates it forwards on start
 when its schema is older, and never backwards (spec §9, §10).
 
+**Map-state rows: lock them at each deploy.** After a deploy is live, check out the deployed
+commit with nothing else in the tree, run `just rows-lock`, and commit `crates/schema/rows.lock`.
+It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` §4.3).
+
+- **What the lock holds still.** A row may be written only by a build that follows one that reads
+  it. The schema's test refuses a row that is written (`Live`) but not in the lock, a locked row
+  that moved, was removed or was narrowed, and `SceneState` written before a lock lists a row of
+  the scene's.
+- **`just rows-lock` checks before it writes.** It compares this build's rows with the lock
+  already there (the last deploy's) and rewrites the file only if every locked row is kept. It
+  refuses a tree with uncommitted changes, a build that breaks a locked row, and a missing lock;
+  the file is then untouched. Never edit the file by hand to get past it: a refusal means the
+  build can't read what the last one may have stored.
+- **What a reader release admits.** While a row is `Ahead`, the server reads it from a stored
+  board and refuses it from outside: a client's transaction or an imported file that carries the
+  row, or a `SceneState`, is rejected (`Admit`, `crates/schema/src/map_state.rs`). So after the
+  reader's deploy the database holds nothing the build before it can't load, and a rollback is
+  safe. That guarantee ends when a row goes `Live`.
+- Schema v8 is the reader (additive: a v7 server still opens the database); v9 will ship with the
+  first writer and set the floor to 8.
+
 **Rolling back after a schema bump.** `meta` holds two numbers: `schema_version` and
 `compat_floor`, the oldest server schema version that can still use the database. An additive
 migration (one that only adds tables or columns older servers never read) keeps the floor; any
