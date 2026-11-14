@@ -15,7 +15,7 @@ Read this, then the D2 section below it, then `docs/deploy.md` ("`has_heroes`").
 
 | Branch | Tip | What | State |
 |---|---|---|---|
-| `map-state-p3` | `1694b2a` | D4 (a dead hero's respawn time in a new scene) with its review's fixes, main `91e81c2` merged in | Its `just web-test` and e2e run on the merged tip is `/tmp/ms-p4/jobJ.sh`; the result is in `/tmp/ms-p4/summaryJ` and, if it was in before this was written, in the line below. The lead merges and deploys it |
+| `map-state-p3` | `1694b2a` | D4 (a dead hero's respawn time in a new scene) with its review's fixes, main `91e81c2` merged in | **Green on the merged tip** (09:39): `just web-test` 72 files, 715 passed, 1 skipped, `tsc` clean, the tree unchanged after; e2e at two workers, 58 spec files (every player*, scene*, topbar*, phone*, the DOM pins, board, board-file, objectives, markers, map-furniture, follow-matrix, match, palette-player, playtest, replay, tools, hero*), 312 passed, 0 failed. Sent to the lead, who merges and deploys it |
 | `map-state-d2` | this branch | D2's reader (`has_heroes` `Ahead`, the writer dormant), **rebased onto `map-state-p3` at `1694b2a`** | Before the rebase everything passed (the D2 section). On the rebased tip `46d3327`: `tsc` clean and nine map-state vitest files pass; the whole (`just test`, `just web-test`, e2e with the phone specs) is `/tmp/ms-d2/jobK.sh`, result in `/tmp/ms-d2/summaryK` |
 | `map-state-d2-pre-rebase` | `4733ffe` | D2 as it was before the rebase | A backup ref: delete it once the rebased branch is accepted |
 
