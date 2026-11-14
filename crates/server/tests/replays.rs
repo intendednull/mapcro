@@ -445,6 +445,30 @@ fn a_fall_through_to_the_summary_says_why() {
     assert!(!log.contains(&scope(&board)), "no path, which would carry the board's id: {log}");
 }
 
+/// A cached replay that is there but can't be read is passed over for the next tier, and the
+/// log says which it was, the board's upload or the fetched replay: again the match and never
+/// the path.
+#[test]
+fn an_unreadable_cached_replay_is_logged_by_its_tier() {
+    let up = upstream(HashMap::new());
+    let (server, log) = Server::start_logged(up.port, &[("RUST_LOG", "mapcro_server=debug")]);
+    let (board, owner, _) = server.board();
+    let (uploaded, fetched) = ("130816395", "130816396");
+    // A directory where the file would be: found, and not readable as a file.
+    let dir = server.data.path().join("replays");
+    std::fs::create_dir_all(dir.join(format!("{uploaded}-{}.json", scope(&board)))).expect("mkdir");
+    std::fs::create_dir_all(dir.join(format!("{fetched}-cdn.json"))).expect("mkdir");
+    for id in [uploaded, fetched] {
+        let _ = server.call("GET", &format!("/api/boards/{board}/matches/{id}"), &owner);
+    }
+    std::thread::sleep(Duration::from_millis(100)); // let the lines reach the pipe
+    let log = log.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let line = |id: &str| log.lines().find(|l| l.contains("cached replay unreadable") && l.contains(id)).unwrap_or_else(|| panic!("no line for {id}: {log}")).to_owned();
+    assert!(line(uploaded).contains("\"upload\"") && !line(uploaded).contains("\"cdn\""), "the board's upload is named as one: {log}");
+    assert!(line(fetched).contains("\"cdn\"") && !line(fetched).contains("\"upload\""), "the fetched replay is named as one: {log}");
+    assert!(!log.contains(&scope(&board)), "no path, which would carry the board's id: {log}");
+}
+
 #[test]
 fn a_jobs_stats_are_collected_with_its_result_not_as_stray_output() {
     let up = upstream(HashMap::new());
