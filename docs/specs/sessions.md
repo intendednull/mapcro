@@ -1012,6 +1012,26 @@ Each phase is small, merges on its own, and leaves boards unchanged.
        board's document is on screen (`Board.tsx` `documentDrawn`); the numbers for that are in
        the journal. The lead's bar for keeping parked sessions with pending edits was 50 ms on
        a real switch: **removed** (d7ab947, one commit, so it can be put back).
+   - **Measured again, a held timeline drawn after the document** (44f2fd5, no pool; 2026-11-14,
+     the same spec and box, busy with other jobs, so the ranges are wide; "left earlier", 14
+     switches a run, median (min–max) for `drawn`).
+
+     | Switch to a board left earlier, no pool | mounted | drawn | timeline | live |
+     |---|---|---|---|---|
+     | run 1 | 29 | 66 (54–94) | 156 | 172 |
+     | run 2 | 37 | 80 (55–179) | 177 | 209 |
+     | HTTP at 40 ms and 20 Mbit/s, run 1 | 35 | 71 (48–152) | 189 | 232 |
+     | the same, run 2 | 27 | 55 (49–82) | 149 | 186 |
+     | boards of 49 scenes | 35 | 93 (69–186) | 186 | 235 |
+     | 49 scenes, the same link | 38 | 122 (66–448) | 348 | 405 |
+
+     `drawn` was 120 without the pool before this change, 33 with the pool, 59 before phase 3
+     (49 scenes: 129, 44, 82).
+   - **The decision (the lead, 2026-11-14): the pool stays removed.** The bar was a median
+     `drawn` of at most about 80 ms on this box without it: 66 and 80 (fastest 54 and 55), and
+     55 to 71 over the link. The 49-scene rows are 11 ms over what they were before phase 3,
+     in the box's noise (one switch took 448 ms). Two more runs were queued and not run
+     (journal, "Resume after restart").
    - **Tests:** `web/test/sessions-speed.test.ts` (TabView's shape and its two drops; the cache's
      keys, LRU and freeze), `crates/server/tests/replays.rs` (the validator: 304 only for the file
      held and only after the access check, through a link and through a grant), and in
