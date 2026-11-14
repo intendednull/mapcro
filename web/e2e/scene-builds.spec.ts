@@ -152,9 +152,13 @@ test("a scene saved from Player shows each hero's build as Player did (#49)", as
   await p.keyboard.press("Escape");
   // Nothing to retake: the scene holds everything this build writes.
   await expect(p.getByTestId("retake")).toHaveCount(0);
-  // It is the scene's own: it survives a reload, with no replay loaded in this page.
+  // It is the scene's own: it survives a reload. (A board with a match opens in Player: back
+  // to the scene, where the replay stands elsewhere.)
   await p.reload();
   await expect(p.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  await p.getByTestId("scene-card").nth(1).click();
+  await expect(p.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
+  await expect(p.getByTestId("all-builds")).toBeVisible();
   await portrait(p, "Amber-3").getByTestId("focus-hero").click();
   expect(await shown(p, "Amber-3")).toEqual(inPlayer);
 });

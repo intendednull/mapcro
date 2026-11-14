@@ -173,7 +173,9 @@ export function readBuild(more: More | undefined, rows: number, hero: number): H
 }
 
 /** The calculator's input from a build (match/stats.ts `statBuild`, which Player uses): null
- * without the level, the items or the pickups. A dead hero counts as full health. */
+ * without the level, the items or the pickups. A dead hero counts as full health, and so does
+ * one alive in the scene whose health the frame doesn't hold (it was dead there, and revived
+ * since: spec §5). */
 export function statOf(b: HeroBuild, alive: boolean): StatBuild | null {
   if (b.level == null || b.items == null || b.pickups == null) return null;
   const [max_health, spirit_power, weapon_damage, bullet_resist, spirit_resist] = b.pickups;
@@ -183,6 +185,6 @@ export function statOf(b: HeroBuild, alive: boolean): StatBuild | null {
     items: b.items.map((i) => i.id),
     ability_tiers: (b.abilities ?? []).filter((a) => a.level >= 2).map((a) => [a.id, a.level - 1]),
     pickups: { max_health, spirit_power, weapon_damage, bullet_resist, spirit_resist },
-    health_pct: alive ? b.health : 100,
+    health_pct: alive ? (b.health ?? 100) : 100,
   };
 }

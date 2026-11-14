@@ -97,6 +97,18 @@ describe("a hero's build through a scene", () => {
     expect(order.slice(-3)).toEqual([8990, 4_000_000_899, 3]);
   });
 
+  it("a hero dead at the frame and revived in the scene counts as full health, as a dead one does", () => {
+    const dead = tl.players[3]!; // dies at 3
+    const stored = readBuild(captureBuild(heroBuildAt(tl, dead, 3)), WRITTEN, dead.hero_id);
+    expect(stored.health).toBeNull();
+    expect(statOf(stored, false)!.health_pct).toBe(100);
+    expect(statOf(stored, true)!.health_pct).toBe(100);
+    // Alive at the frame: the health it had, dead or alive in the scene now.
+    const alive = readBuild(captureBuild(heroBuildAt(tl, dead, 2)), WRITTEN, dead.hero_id);
+    expect(statOf(alive, true)!.health_pct).toBe(60);
+    expect(statOf(alive, false)!.health_pct).toBe(100);
+  });
+
   it("cuts each list at its row's length: the first 32 items and 9 abilities, the latest 200 buys", () => {
     const entry = (id: number) => ({ id, cooldown: null, charges: null, stacks: null });
     const build: HeroBuild = {
