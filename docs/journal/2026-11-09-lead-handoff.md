@@ -3,6 +3,43 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## State (2026-11-14 ~12:30 UTC, lead 9eb2516b, before compacting)
+
+- **Prod:** `web` runs **baddb20** (infra a1a28bb), store v10. That's #54 (a scene copy keeps its
+  ink and note; a copy too big for the board is refused whole). #49 and #54 are closed.
+- **In the gate now:** `/tmp/lead-gate` at **5e966b0**, which is main 5ed22f5 + **ad60722**
+  (mobile defaults) + **e1d7796** (map-state release 2: phase 3 step 1 and copies carry `source`).
+  Both are client-only.
+  - The full gate logs to `/tmp/lead-gate.log`; then `just e2e-firefox` logs to `/tmp/lead-ff.log`.
+    It ends with "vm exit skipped".
+  - Then: browser QA (phone 344×615, 615×344 and a 1024×768 tablet; a scene copy's ▶ chip; Player
+    plays), merge both branches to main (`mobile-defaults`, `map-state-r2`), deploy, report.
+  - No schema change, so no backup is needed.
+- **Implementers running** (harness subagents; they report to this session):
+  - **map-state** (Fable high, worktree `map-state-p3`): the interleaved perf test of the held
+    **cda86fb** (phase 3 rest), a map-DOM control walk, a TD row for 4 missed e2e mutants (TD-97+),
+    then phase 4 to its first release boundary.
+  - **sessions phase 3** (Fable high, `sessions-p3`): six items to finish phase 3.
+    - The pool stays removed if a "left earlier" switch draws in ≤ ~80 ms with the paint-first
+      change.
+    - A tab remembers layers and Vision only once you set them there.
+    - Kill the missed server mutant, run the browser mutant, the walkthrough and the full e2e.
+    - Its TD rows are TD-93..96.
+  - **feedback #56–#60** (Fable high, `feedback-56-60`): release 1 is the reader (a scene-name
+    limit of 48, the callout side, recolour) plus #57 (no events list in scenes; scene notes
+    hidden in Player) and #58 (−/+ speed). Release 2 is the writer.
+  - **Done:** mobile defaults (ad60722, in the gate).
+- **Process, all 2026-11-14:**
+  - `tools/heavy.sh` queues mapcro heavy jobs, and `tools/box-busy.sh` waits for Adora. The
+    lead's deploy builds skip the queue but wait for box-busy.
+  - Implementers run to the end of a scoped task, with no context cutoff.
+  - Fable implementers while the tokens last.
+  - The vanished `target/` dirs were the operator's one-off cleanup; rebuild them.
+  - A single rustc SIGSEGV gets one retry (ISS-013).
+- **Waiting on the operator:** whether to set up the `mapcro-perf` Fly Sprite as an off-box e2e
+  runner (the queue makes each heavy run wait 30–50 min).
+- **Answered:** the home page shows "Get the Windows/Linux app" on those systems (checked on prod).
+
 ## Working rule: let agents finish (operator, 2026-11-14)
 
 - **No context cutoff for implementers.** The operator: "I don't think we need to be cutting off
