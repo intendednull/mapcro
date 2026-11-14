@@ -16,7 +16,7 @@ import { type Viewpoint, worldToView } from "../map/transform";
 import { InlineEdit } from "../ui/InlineEdit";
 import { boardKeys } from "../core/keys";
 import { cx } from "../ui/cx";
-import { addSceneOps, deleteSceneOps, isUnnamed, moveSceneOps } from "./scenes";
+import { addSceneOps, deleteSceneOps, isUnnamed, moveSceneOps, sendScene } from "./scenes";
 import type { BoardState } from "./state";
 import { visibleRows } from "./tree";
 import { LIMITS } from "../gen/limits";
@@ -57,6 +57,8 @@ export function SceneTree(p: {
   drawer?: boolean;
   /** Player (spec §6b): a scene saved from the open match gets a "▶ m:ss" chip that jumps there. */
   chip?: (id: RecordId) => { label: string; go: () => void } | undefined;
+  /** A new scene or a copy the board has no room for: nothing was made. */
+  onFull?: () => void;
   /** Whether ← → step scenes (Player takes them for events while watching the match). */
   keys?: () => boolean;
   onClose?: () => void;
@@ -88,21 +90,24 @@ export function SceneTree(p: {
   };
   /** An editor may add a scene: one slot stays free for Player's live layer (max_scenes 64). */
   const canAdd = () => p.state.canEdit() && order().length < 63;
-  /** A new scene's transactions, in order: one unless the copied snapshot is over a transaction
-   * (then more than one undo step); a refused one stops the rest. */
-  const send = (txs: Op[][]) => txs.every((tx) => p.state.edit(tx));
+  /** Sends a new scene; a board with no room for all of it gets none of it, and says so. */
+  const send = (made: { txs: Op[][]; full: boolean }) => {
+    if (made.full) p.onFull?.();
+    return sendScene(made.txs, p.state.edit);
+  };
   const add = (asChild: boolean) => {
     const cur = order()[index()];
-    const { id, txs } = addSceneOps(p.state, cur, asChild);
-    send(txs);
+    const made = addSceneOps(p.state, cur, asChild);
+    const { id } = made;
+    if (!send(made)) return;
     if (asChild && cur && collapsed().has(cur.id)) toggle(cur.id);
     p.onFlip(id);
   };
-  /** A copy of `row`'s scene (its heroes, objectives and splits), right after it, as its sibling. */
+  /** A copy of `row`'s scene (its heroes, objectives, splits and everything drawn on it: #54),
+   * right after it, as its sibling. */
   const clone = (row: { id: RecordId; scene: Scene }) => {
-    const { id, txs } = addSceneOps(p.state, row, false, undefined, isUnnamed(row.scene.name) ? "" : `${row.scene.name} copy`);
-    send(txs);
-    p.onFlip(id);
+    const made = addSceneOps(p.state, row, false, undefined, isUnnamed(row.scene.name) ? "" : `${row.scene.name} copy`, true);
+    if (send(made)) p.onFlip(made.id);
   };
   const remove = (id: RecordId) => {
     const ops = deleteSceneOps(p.state, id);

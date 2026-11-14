@@ -3,6 +3,92 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Paused for the Paseo daemon restart (2026-11-14 ~13:45 UTC, lead 9eb2516b)
+
+The concierge asked for a safe checkpoint: the restart ends every agent process and background
+job. Nothing is deployed or half-deployed. Prod is still **baddb20** (store v10).
+
+- **Lead gate stopped mid-e2e.** `/tmp/lead-gate` at 5e966b0 (main + ad60722 mobile defaults +
+  e1d7796 map-state release 2) passed clippy, test and web-test. It was stopped during `just e2e`
+  with load ~53, mostly Adora's selftest e2e (`adora-scratch-*/selftest-A`, which `box-busy.sh`
+  doesn't match yet). **Rerun the whole gate** (`bash /tmp/lead-gate.sh`), then the Firefox run,
+  then browser QA, merge and deploy, as in the section below.
+- **Queued heavy jobs cancelled** (none had started): feedback's full e2e (`/tmp/fb5660-e2e3.sh`)
+  and then its mutation run; sessions' `/tmp/sp3-batch6.sh` (it grabbed the lock as the gate
+  released it and was killed in its first seconds); map-state's vitest rerun
+  (`/tmp/ms-p3-qa/jobB2.sh`) and calm-box perf rounds (`/tmp/ms-p4/jobE.sh`). Each implementer
+  was told to commit (WIP is fine) and write a "Resume after restart" section in its branch
+  journal. **All three checkpointed, worktrees clean, nothing queued.** Tips: map-state-p3
+  **59efdec**, map-state-r2 **e1d7796**, sessions-p3 **958638b**, feedback-56-60 **bccfa8f**,
+  mobile-defaults **ad60722**. Each branch journal's "Resume after restart" lists its reruns.
+- **Per stream, after the restart:**
+  - *map-state:* rerun `/tmp/ms-p3-qa/jobB2.sh` (cda86fb perf, still held, no worse so far)
+    and `/tmp/ms-p4/jobE.sh` (full vitest on 674fca5+). Phase 4 sits at its release boundary D4
+    (ca0b0f2, a dead hero's respawn time, no row, no store bump). Open for the operator: D2 must
+    ship with its edit (the picker writes the roster), metadata-tier health on Save, a scene's
+    last-seen ghost, and whether source-less scenes keep the open match's names.
+  - *sessions:* run `/tmp/sp3-batch6.sh` alone and detached (~50 min; copy in
+    `~/.cache/mapcro-sp3-scratch/`). Pool stays removed (66–80 ms drawn, bar ~80). Then a review
+    and a security review before release.
+  - *feedback:* release 1 (reader, store v11 floor 9, plus #57/#58) needs the full e2e, the
+    mutation run, a walkthrough and a main merge. Lead calls owed: narrow phones keep the speed
+    list under 390 px; a changed tick-hover test; v11/v12 belong to this stream, so others follow;
+    the justfile `reader` stays e878c30 (baddb20 has no store change).
+- **Resume order:** (1) the lead gate on 5e966b0, then QA, merge and deploy; (2) a fresh Fable high
+  implementer per stream, briefed with its branch journal's resume section; each reruns its
+  cancelled jobs through `tools/heavy.sh`.
+- **Box-busy gap:** add Adora's selftest e2e to `tools/box-busy.sh` (or rely on the load ≥12 check,
+  which caught it here only because load was high).
+
+## State (2026-11-14 ~12:30 UTC, lead 9eb2516b, before compacting)
+
+- **Prod:** `web` runs **baddb20** (infra a1a28bb), store v10. That's #54 (a scene copy keeps its
+  ink and note; a copy too big for the board is refused whole). #49 and #54 are closed.
+- **In the gate now:** `/tmp/lead-gate` at **5e966b0**, which is main 5ed22f5 + **ad60722**
+  (mobile defaults) + **e1d7796** (map-state release 2: phase 3 step 1 and copies carry `source`).
+  Both are client-only.
+  - The full gate logs to `/tmp/lead-gate.log`; then `just e2e-firefox` logs to `/tmp/lead-ff.log`.
+    It ends with "vm exit skipped".
+  - Then: browser QA (phone 344×615, 615×344 and a 1024×768 tablet; a scene copy's ▶ chip; Player
+    plays), merge both branches to main (`mobile-defaults`, `map-state-r2`), deploy, report.
+  - No schema change, so no backup is needed.
+- **Implementers running** (harness subagents; they report to this session):
+  - **map-state** (Fable high, worktree `map-state-p3`): the interleaved perf test of the held
+    **cda86fb** (phase 3 rest), a map-DOM control walk, a TD row for 4 missed e2e mutants (TD-97+),
+    then phase 4 to its first release boundary.
+  - **sessions phase 3** (Fable high, `sessions-p3`): six items to finish phase 3.
+    - The pool stays removed if a "left earlier" switch draws in ≤ ~80 ms with the paint-first
+      change.
+    - A tab remembers layers and Vision only once you set them there.
+    - Kill the missed server mutant, run the browser mutant, the walkthrough and the full e2e.
+    - Its TD rows are TD-93..96.
+  - **feedback #56–#60** (Fable high, `feedback-56-60`): release 1 is the reader (a scene-name
+    limit of 48, the callout side, recolour) plus #57 (no events list in scenes; scene notes
+    hidden in Player) and #58 (−/+ speed). Release 2 is the writer.
+  - **Done:** mobile defaults (ad60722, in the gate).
+- **Process, all 2026-11-14:**
+  - `tools/heavy.sh` queues mapcro heavy jobs, and `tools/box-busy.sh` waits for Adora. The
+    lead's deploy builds skip the queue but wait for box-busy.
+  - Implementers run to the end of a scoped task, with no context cutoff.
+  - Fable implementers while the tokens last.
+  - The vanished `target/` dirs were the operator's one-off cleanup; rebuild them.
+  - A single rustc SIGSEGV gets one retry (ISS-013).
+- **Waiting on the operator:** whether to set up the `mapcro-perf` Fly Sprite as an off-box e2e
+  runner (the queue makes each heavy run wait 30–50 min).
+- **Answered:** the home page shows "Get the Windows/Linux app" on those systems (checked on prod).
+
+## Working rule: let agents finish (operator, 2026-11-14)
+
+- **No context cutoff for implementers.** The operator: "I don't think we need to be cutting off
+  sessions early ... let them complete their tasks before we handoff to a new agent ... we'll have
+  to re-read a lot of the tokens anyway ... we control how big that context gets by just giving
+  them reasonable tasks."
+- **Scope each brief to one reviewable unit with a clear stop** (one release, or one phase up to
+  its release boundary), and let the agent run to it. Hand off only when the task is done, or the
+  agent truly can't continue.
+- **Why:** on 2026-11-14 several agents stopped at ~250k mid-verification. Each fresh agent re-read
+  the same context, and work was left half-checked.
+
 ## State (2026-11-14 ~06:00 UTC, lead 9eb2516b)
 
 - **Prod:** `web` runs **e878c30** (infra 0deb3a3), **schema v10, floor 9**: map-state phase 2.

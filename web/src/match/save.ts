@@ -178,6 +178,9 @@ export function retakeOps(
   return chunkByBytes(groups);
 }
 
+/** Whether ops fit one transaction's bytes, with room for what wraps them on the wire. */
+export const fitsTx = (ops: Op[]) => opsBytes(ops) <= LIMITS.max_tx_bytes - TX_SLACK;
+
 /** Groups of ops as transactions: each within the op and byte caps, a group never split
  * (a group here is one record's writes, itself within both). */
 export function chunkByBytes(groups: Op[][]): Op[][] {
