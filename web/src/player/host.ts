@@ -10,10 +10,11 @@ import { slotKey } from "../match/save";
 import type { Marker } from "../map/model";
 import { Api, type JobState, MODE_CODES, busy } from "./api";
 import { markOutdated } from "./reparse";
+import { freezeDeep, isFetched, timelines } from "./timelineCache";
 import { type Notice, type Step, type Unavailable, idFromName, isDem, looksLikeDemo, noticeFor, unavailableFor } from "./notice";
 import { NOT_DEM } from "./ReplayHelp";
 import { type Handoff, takeHandoff } from "./handoff";
-import { type Playback, clampT, follow, rebase, tAt } from "./clock";
+import { type Playback, SPEEDS, clampT, follow, rebase, tAt } from "./clock";
 import { type Pt, worldToMap } from "../map/transform";
 import { type EventGroup, GROUPS, eventKey } from "./events";
 import { mapCratesShown, mapHealsShown, setMapCratesShown, setMapHealsShown, chooseSummary, markOpened, openedHere, playerLastSeenShown, playerNamesShown, playerVision, setPlayerLastSeenShown, setPlayerNamesShown, setPlayerVision, summaryChosen } from "../core/device";
@@ -27,6 +28,7 @@ import type { PanelPlace } from "../gen/PanelPlace";
 import { type Death, type HeroPanelOpen, type Place, deathKey } from "./layers";
 import { type ValueOf, clipText, createViewState } from "./viewstate";
 import { VIEW_STATE, type ViewKey } from "../gen/viewState";
+import { type TabOwn, tabOwn, withOwn } from "../session/tabview";
 
 export type Mode = "player" | "sandbox";
 
@@ -54,7 +56,23 @@ export interface PlaybackPresence {
   hero_panels?: HeroPanel[];
 }
 
-export function createPlayerHost(board: string, token: string, via?: Via) {
+/**
+ * What a session's tab remembers of Player (sessions.md §4.2, session/tabview.ts): the match and
+ * its playback as the screen showed them, the mode, and what its user set there of Vision and
+ * the map layers (the rest are this browser's).
+ */
+export interface PlayerRemembered {
+  mode?: Mode;
+  match?: string;
+  t?: number;
+  playing?: boolean;
+  speed?: number;
+  layers?: Partial<Record<"troopers" | "health" | "pings" | "cc" | "movement" | "heals" | "crates", boolean>>;
+  vision?: Vision;
+  lastSeen?: boolean;
+}
+
+export function createPlayerHost(board: string, token: string, via?: Via, remembered?: PlayerRemembered) {
   const api = new Api(board, token, via);
   const [matches, setMatches] = createSignal<number[]>([]);
   const [mode, setModeRaw] = createSignal<Mode>("sandbox");
@@ -63,7 +81,18 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
    * holds its playback where it was, paused, and coming back resumes it as it was.
    */
   const [held, setHeld] = createSignal<{ t: number; playing: boolean }>();
+  /**
+   * The user's own choice of mode (a scene picked, Back to the replay). Made while the tab is
+   * still opening (its matches not known yet, or its match not drawn), it stands: the match that
+   * opens behind it doesn't take the tab to Player, and the tab remembers it (sessions.md §4.2).
+   */
+  let chose: Mode | undefined;
   const setMode = (m: Mode) => {
+    if (!settled) chose = m;
+    enter(m);
+  };
+  /** The mode changes: the user's (`setMode`), a match opening, or a presenter's while following. */
+  const enter = (m: Mode) => {
     if (m === mode()) return;
     jumped();
     const n = performance.now();
@@ -101,19 +130,26 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
   };
   /** Your own change that stops following: Board says how (`onStop`). */
   let stopFollow: (() => void) | undefined;
+  /**
+   * The map layers, Vision and Show last seen set on this tab, here or before it was left: the
+   * tab's own (sessions.md §4.2). A presenter's values are never among them, unless your own
+   * change keeps them (`onOwn` is called for those too).
+   */
+  let own: TabOwn = tabOwn(remembered);
   const viewState = createViewState(
     {
-      "layer.troopers": true,
-      "layer.health": true,
-      "layer.pings": true,
-      "layer.cc": false,
-      "layer.movement": false,
-      "layer.heals": mapHealsShown(),
-      "layer.crates": mapCratesShown(),
+      // A tab's own, where it remembers them (sessions.md §4.2); else this browser's.
+      "layer.troopers": remembered?.layers?.troopers ?? true,
+      "layer.health": remembered?.layers?.health ?? true,
+      "layer.pings": remembered?.layers?.pings ?? true,
+      "layer.cc": remembered?.layers?.cc ?? false,
+      "layer.movement": remembered?.layers?.movement ?? false,
+      "layer.heals": remembered?.layers?.heals ?? mapHealsShown(),
+      "layer.crates": remembered?.layers?.crates ?? mapCratesShown(),
       "builds.all": false,
       names: playerNamesShown(),
-      "vision.team": playerVision(),
-      "vision.last_seen": playerLastSeenShown(),
+      "vision.team": remembered?.vision ?? playerVision(),
+      "vision.last_seen": remembered?.lastSeen ?? playerLastSeenShown(),
       "recap.skull": undefined,
       "recap.event": [],
       "builds.inspect": undefined,
@@ -132,7 +168,13 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
       "events.search": "",
       "events.search.names": playerNamesShown() ? "on" : "off",
     },
-    { onOwn: (k, v) => REMEMBER[k]?.(v as never), onStop: () => stopFollow?.() },
+    {
+      onOwn: (k, v) => {
+        REMEMBER[k]?.(v as never);
+        own = withOwn(own, k, v);
+      },
+      onStop: () => stopFollow?.(),
+    },
   );
   /** A key's value, and your own choice of it. */
   const showing = <K extends ViewKey>(k: K) => () => viewState.get(k);
@@ -340,25 +382,70 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
     }
   };
 
-  const loadTimeline = async (id: string, keep: boolean) => {
+  /**
+   * Load the match's timeline. What this page holds of it (player/timelineCache.ts) is drawn at
+   * once, and the server is asked all the same, with the validators held: it answers "the same",
+   * or sends the timeline that replaced it, or refuses, and what was drawn early goes. `placed`
+   * runs once, when the timeline first shows and its playback is set: where to be in it.
+   */
+  const loadTimeline = async (id: string, keep: boolean, placed?: () => void) => {
     if (gone) return;
-    const r = await api.timeline(id);
+    const show = (next: Timeline, keep: boolean) => {
+      const had = !!tl();
+      setTl(next);
+      setStatus("");
+      if (problem()?.step === "load") setProblem(undefined);
+      if (keep && had) return;
+      jumped();
+      setPinned(undefined);
+      setPlayback({ t: Math.min(next.duration_s, 600), playing: false, speed: playback().speed, at: performance.now() });
+      // On a scene already (picked while this was on its way): the match waits behind it at its
+      // place, not where the empty Player was left (0:00).
+      if (mode() === "sandbox") setHeld({ t: Math.min(next.duration_s, 600), playing: false });
+      placed?.();
+    };
+    const held = timelines.candidates(board, id);
+    const asked = api.timeline(id, held.map((h) => h.etag));
+    let early = !tl() ? held[0] : undefined;
+    if (early) {
+      // After the board's document, never before it: a timeline's first draw takes far longer
+      // than the document's, and held it back (sessions.md §10 phase 3, measured).
+      asked.catch(() => {});
+      await documentDrawn;
+      if (gone || matchId() !== id) return;
+      if (tl()) early = undefined;
+      else show(early.tl, keep);
+    }
+    // No answer (offline): what's drawn stays, and the caller says so.
+    const r = await asked;
     if (gone || matchId() !== id) return;
     if ("error" in r) {
+      // No answer of the server's (a 502 from the proxy mid-deploy, a 429): as none at all.
+      // What's drawn stays, and what this page holds. With nothing drawn there was nothing
+      // held to draw either, and the problem shows.
+      if (r.unknown && tl()) return;
+      // Refused: nothing this page held of it is shown, or kept for this board.
+      timelines.drop(board, id);
+      if (early && tl() === early.tl) setTl(undefined);
       setStatus("");
       // An upload's failure says more (a handed-off upload can fail before this answers).
       if (problem()?.step !== "upload") setProblem({ code: r.error, step: "load" });
       return;
     }
-    const had = !!tl();
-    setTl(r);
+    // The answer isn't this board's own upload: one held for it is no longer what it has. The
+    // summary (no validator): the server has no replay of the match, so the fetched one held
+    // goes too, or every open would draw it and then swap to the summary.
+    const etag = "same" in r ? r.same : r.etag;
+    if (etag === undefined) timelines.forget(board, id);
+    else if (isFetched(etag)) timelines.drop(board, id);
+    // Every timeline shown is frozen, kept or not (the metadata summary has no validator): a
+    // write to one throws wherever it came from, in the tests as in a page that holds it.
+    const next = "same" in r ? timelines.confirm(board, id, r.same)?.tl : r.etag !== undefined ? timelines.put(board, id, r.etag, r.tl, r.chars) : freezeDeep(r.tl);
+    // "The same" as one dropped meanwhile (the cache made room): asked again, plainly.
+    if (!next) return loadTimeline(id, keep || !!early, placed);
+    if (next !== tl()) return show(next, keep || !!early);
     setStatus("");
     if (problem()?.step === "load") setProblem(undefined);
-    if (!(keep && had)) {
-      jumped();
-      setPinned(undefined);
-    }
-    if (!(keep && had)) setPlayback({ t: Math.min(r.duration_s, 600), playing: false, speed: playback().speed, at: performance.now() });
   };
 
   // On the API summary, keep an eye out for the replay: someone else's upload or fetch upgrades
@@ -379,7 +466,7 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
   });
 
   /** Open a match: attach it (editors), load its timeline and its replay job's state. */
-  const open = async (id: string, opts: { attach: boolean; at?: number } = { attach: false }) => {
+  const open = async (id: string, opts: { attach: boolean; at?: number; back?: PlayerRemembered; auto?: boolean } = { attach: false }) => {
     if (gone) return;
     if (!/^[1-9]\d{0,11}$/.test(id)) return setStatus("Invalid id");
     setMatchId(id);
@@ -390,10 +477,20 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
     setPrompted(false);
     setArmed(false);
     setStatus("Loading");
-    setMode("player");
+    // A tab left on a scene comes back on it, its match held behind it (sessions.md §4.2). So
+    // does one whose user picked a scene while the board's own match (`auto`) was on its way.
+    const onScene = opts.auto && chose ? chose === "sandbox" : opts.back?.mode === "sandbox";
+    if (!onScene) enter("player");
     try {
       // The timeline first: a match refused for its mode is never attached (2026-11-08).
-      await loadTimeline(id, false);
+      // A newer open() may replace this match meanwhile: it's placed only as it shows (finding 10).
+      await loadTimeline(id, false, () => {
+        if (opts.at !== undefined) control.seek(opts.at);
+        if (opts.back) comeBack(opts.back);
+        // Drawn, if only from this page's copy: what the user does from here is the tab's to
+        // remember, whenever the server's answer comes.
+        settled = true;
+      });
       if (gone) return;
       let attached = false;
       if (opts.attach && matchId() === id && !MODE_CODES.has(problem()?.code ?? "") && (await api.attach(id))) {
@@ -407,8 +504,6 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
         setOpener(id);
         setArmed(!summaryChosen(id));
       }
-      // A newer open() may have replaced this match meanwhile: don't seek it (finding 10).
-      if (opts.at !== undefined && matchId() === id) control.seek(opts.at);
       await watch(id);
     } catch {
       setStatus("Offline");
@@ -708,7 +803,7 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
     setJob(undefined);
     setProblem(undefined);
     setStatus("");
-    setMode("player");
+    enter("player");
     const opts = { attach: true, opened: h.opened };
     const up = h.local ? takeLocal(h.id, h.local.timeline, h.local.file, opts) : h.file ? upload(h.file, opts) : Promise.resolve();
     // The summary, if deadlock-api has one, to watch meanwhile.
@@ -716,15 +811,67 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
     await up;
   };
 
-  /** Load the board's matches; a board with one opens in Player. */
-  const init = async () => {
+  /** The match just opened is the one this tab was left on: its playback as it was shown. */
+  const comeBack = (back: PlayerRemembered) => {
+    if (back.speed !== undefined && (SPEEDS as readonly number[]).includes(back.speed)) control.speed(back.speed);
+    if (back.t !== undefined) control.seek(back.t);
+    // Left on a scene: the match waits behind it, where it was (`setMode`).
+    if (mode() === "sandbox") setHeld({ t: untrack(t), playing: back.playing === true });
+    else if (back.playing) control.play(true);
+  };
+
+  /**
+   * What this tab would remember of Player now (sessions.md §4.2): the mode and the playback
+   * the screen shows (a presenter's too while following), and the map layers, Vision and Show
+   * last seen set on this tab (`own`). Until its match is drawn (`open`), or its matches are
+   * known and there's none to draw, the playback is what it remembered before, with the mode
+   * the user chose meanwhile (`chose`).
+   */
+  let settled = false;
+  const remember = (): PlayerRemembered => {
+    if (!settled) return { ...remembered, ...(chose ? { mode: chose } : {}), ...own };
+    const out: PlayerRemembered = { mode: untrack(mode), ...own };
+    const id = untrack(matchId);
+    if (id === undefined) return out;
+    // A match that isn't drawn (it didn't load, or the server gave no answer): the tab is still
+    // on it. Left on a scene, it comes back on the scene, the match behind it; and if it is the
+    // match the tab was left on before, at the playback it had then.
+    if (!untrack(tl)) {
+      const was = remembered?.match === id ? remembered : undefined;
+      return {
+        ...out,
+        match: id,
+        ...(was?.t !== undefined ? { t: was.t } : {}),
+        ...(was?.playing !== undefined ? { playing: was.playing } : {}),
+        ...(was?.speed !== undefined ? { speed: was.speed } : {}),
+      };
+    }
+    const h = untrack(held);
+    const pb = untrack(playback);
+    return { ...out, match: id, t: h && out.mode === "sandbox" ? h.t : untrack(t), playing: h && out.mode === "sandbox" ? h.playing : pb.playing, speed: pb.speed };
+  };
+
+  /** The board's document is in the page (`init`): a timeline this page holds is drawn after it. */
+  let documentDrawn: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Load the board's matches; a board with one opens in Player, a tab on the match it was left
+   * on. `drawn` settles when the board's document is in the page.
+   */
+  const init = async (drawn?: Promise<unknown>) => {
     if (gone) return;
+    if (drawn) documentDrawn = drawn;
     const handed = takeHandoff(board);
-    if (handed) return startHandoff(handed);
-    const ms = await api.matches().catch(() => []);
+    if (handed) return startHandoff(handed).finally(() => (settled = true));
+    const ms = await api.matches().catch(() => undefined);
     if (gone) return;
-    setMatches(ms);
-    if (ms.length && !matchId()) await open(String(ms[0]), { attach: false });
+    setMatches(ms ?? []);
+    // A match no longer attached is dropped with its playback, and the board opens as it would cold.
+    const back = remembered?.match !== undefined && ms?.includes(Number(remembered.match)) ? remembered : undefined;
+    if (back?.match !== undefined && !matchId()) await open(back.match, { attach: false, back, auto: true });
+    else if (ms?.length && !matchId()) await open(String(ms[0]), { attach: false, auto: true });
+    // The matches unknown (offline): what was remembered stays.
+    if (ms) settled = true;
   };
 
   /**
@@ -798,12 +945,12 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
       heard = { v, at, pb: { ...theirs, jump: theirs.jump ? { ...theirs.jump } : null } };
     }
     if (!theirs.player) {
-      setMode("sandbox");
+      enter("sandbox");
       // On a scene the panels follow too (map-state spec §7): a scene's snapshot shows its
       // builds as Player does, with or without the match here.
       return viewState.mirror(s, "panels");
     }
-    setMode("player");
+    enter("player");
     if (theirs.match_id === 0) return;
     const id = String(theirs.match_id);
     if (id !== matchId()) {
@@ -898,6 +1045,7 @@ export function createPlayerHost(board: string, token: string, via?: Via) {
 
   return {
     api,
+    remember,
     matches,
     mode,
     setMode,

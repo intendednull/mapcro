@@ -96,6 +96,20 @@ export function jobLabel(j: JobState | undefined, progress: number | undefined):
   }
 }
 
+/** The timeline route's validator headers (crates/server/src/replays.rs `TIMELINE_HEADER`, `HELD_HEADER`). */
+const TIMELINE_HEADER = "x-mapcro-timeline";
+const HELD_HEADER = "x-mapcro-held";
+
+/**
+ * Whether a status that isn't OK is no answer at all, where a refusal is one: the proxy's 502
+ * to 504 while the server restarts (every deploy), a 429, a timeout. What the page holds and
+ * shows stays, as with no answer; a refusal (401, 403, 404, 422) takes it down.
+ */
+export const notAnAnswer = (status: number) => status >= 500 || status === 429 || status === 408 || status === 425;
+
+/** Said once a page: a replay came without its validator, so some proxy on the way strips it. */
+let warned = false;
+
 export class Api {
   constructor(
     readonly board: string,
@@ -108,10 +122,13 @@ export class Api {
     return { authorization: authHeader(this.token, this.via) };
   }
 
-  /** The matches this board has opened, newest first. */
-  async matches(): Promise<number[]> {
+  /**
+   * The matches this board has opened, newest first; `undefined` when the server didn't say (a
+   * 502 from the proxy, a 429): not known, as with no answer at all, and never "none".
+   */
+  async matches(): Promise<number[] | undefined> {
     const r = await fetch(`/api/boards/${this.board}/matches`, { headers: this.auth });
-    if (!r.ok) return [];
+    if (!r.ok) return undefined;
     return ((await r.json()) as { matches?: number[] }).matches ?? [];
   }
 
@@ -120,11 +137,42 @@ export class Api {
     return r.ok;
   }
 
-  /** The richest timeline the board has for a match, or its error code. */
-  async timeline(id: string): Promise<Timeline | { error: string }> {
-    const r = await fetch(`/api/boards/${this.board}/matches/${id}`, { headers: this.auth });
-    const body = (await r.json().catch(() => ({}))) as Timeline & { error?: string };
-    return r.ok ? body : { error: body.error ?? "failed" };
+  /**
+   * The richest timeline the board has for a match, or its error code. `held`: the validators of
+   * the timelines this page holds for it (player/timelineCache.ts); the server answers `same`
+   * with the one that's still current (304, after its usual checks), else sends the timeline,
+   * with its validator when it has one and its JSON's length.
+   *
+   * The validator travels in headers of our own (`X-Mapcro-Timeline`, and `X-Mapcro-Held` back),
+   * never read from `ETag`: a proxy that compresses the answer rewrites that one (Caddy's
+   * `encode` adds `-zstd`), and of an `If-None-Match` list it restores only the last. As
+   * deployed the server compresses this route itself and `encode` leaves it alone; the cache
+   * doesn't hang on that (docs/deploy.md). `If-None-Match` is sent too, so the request is a
+   * conditional one and its 304 an answer to it.
+   */
+  async timeline(id: string, held: string[] = []): Promise<{ tl: Timeline; etag?: string; chars: number } | { same: string } | { error: string; unknown?: true }> {
+    const list = held.join(", ");
+    const r = await fetch(`/api/boards/${this.board}/matches/${id}`, { headers: held.length ? { ...this.auth, [HELD_HEADER]: list, "if-none-match": list } : this.auth });
+    const etag = r.headers.get(TIMELINE_HEADER) ?? undefined;
+    if (r.status === 304) {
+      if (etag !== undefined && held.includes(etag)) return { same: etag };
+      // "The same" as something this page doesn't hold: asked again, plainly.
+      return held.length ? this.timeline(id) : { error: "failed", unknown: true };
+    }
+    const text = await r.text();
+    let body: (Timeline & { error?: string }) | undefined;
+    try {
+      body = JSON.parse(text) as Timeline & { error?: string };
+    } catch {
+      body = undefined;
+    }
+    // No answer of the server's (`unknown`): a status that is none, or a body that isn't its JSON.
+    if (!r.ok || !body) return notAnAnswer(r.status) || r.ok ? { error: body?.error ?? "failed", unknown: true } : { error: body?.error ?? "failed" };
+    if (etag === undefined && body.tier === "replay" && !warned) {
+      warned = true;
+      console.warn("mapcro: a replay's timeline came without X-Mapcro-Timeline (a proxy that drops it?); it is fetched whole on every open");
+    }
+    return etag !== undefined ? { tl: body, etag, chars: text.length } : { tl: body, chars: text.length };
   }
 
   async job(id: string): Promise<JobState | undefined> {

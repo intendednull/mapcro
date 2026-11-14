@@ -3,6 +3,29 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed ae169e6: sessions phase 3 (2026-11-14 ~22:20 UTC, lead 9eb2516b)
+
+- **Prod `web` runs ae169e6** (infra 44744b3). Sessions phase 3:
+  - Tab switches without a board pool (paint-first).
+  - Per-tab layers.
+  - Edits in flight at a switch still land.
+  - Timeline revalidation through `X-Mapcro-Timeline` / `X-Mapcro-Held`.
+  - Store unchanged (v10).
+- **Reviews:** adversarial ×2 and security. The first review's Caddy "blocker" didn't reproduce:
+  the server compresses the route itself, so `encode` skips it. The custom headers were kept as
+  hardening, with a real-Caddy test of both cases.
+- **Gate:** green apart from load flakes that passed alone (TD-92).
+  - VM test and reader-check passed.
+  - The loaded-room RSS bound was raised from 7,000 to 9,000: ~5,900 alone on main, over 7,000
+    under load (TD-102).
+- **Checks after deploy:**
+  - The walkthrough on the gate tree: 9/9 switches as left, 304s, no errors.
+  - On prod: 200 zstd with the validator, then 304 with `X-Mapcro-Held`; stats 0 5xx.
+- **Phases 4–5 go to a fresh implementer.** The phase 3 agent ended at ~540k context. Its
+  journal is `docs/journal/2026-11-14-sessions-build.md`; open phase-4 checks are in spec §10.
+- **Next:** feedback release 1 merges main (Board.tsx conflict), then gate (VM, reader-check),
+  backup `pre-v11`, deploy, then bump the justfile `reader`.
+
 ## Deployed 3423072 (2026-11-14 ~20:40 UTC, lead 9eb2516b)
 
 - **Prod `web` runs 3423072** (infra 84debc0): map-state D4, so a new scene's dead hero keeps its

@@ -3,18 +3,20 @@
 // board's link (so each tab is opened through its grant). Each row:
 //   1. sets the state on A (with a peer on A where it's presence);
 //   2. switches to B and checks B shows its own value or the default, and nothing of A's;
-//   3. switches back and checks A: its document state is there, and its local view is the
-//      default (phase 2 remembers no TabView: §4.2 is phase 3);
-//   4. reloads (on `?tab=`) and checks the same.
-// Device-wide settings (Vision, map layers) are the same on B by design; the row says so.
+//   3. switches back and checks A: its document state is there, and its local view is as it was
+//      left where §4.2 remembers it (the scene, the viewport and side, Player's
+//      match and playback, Vision and the map layers), and the default otherwise;
+//   4. reloads (on `?tab=`) and checks the same, from sessionStorage.
+// Vision and the map layers are per tab once a tab was left (operator decision 7); a tab never
+// opened takes this browser's. A left board keeps nothing open (the pool of §5 wasn't kept).
 // Rows not here, and why, are in docs/specs/sessions.md §10 phase 2.
 
-import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Browser, type Page, expect, test } from "./fixtures";
-import { dragToken, gesture, joinNew, mapPoint, revealControls, tokenAt } from "./helpers";
+import { dragToken, gesture, joinNew, mapPoint, revealControls, tokenAt, viewOf } from "./helpers";
 import { Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 
 const queue = mkdtempSync(join(tmpdir(), "mapcro-e2e-session-iso-"));
@@ -27,7 +29,9 @@ test.beforeAll(async () => {
   });
   await new Promise<void>((ok) => upstream.listen(0, "127.0.0.1", ok));
   const port = (upstream.address() as { port: number }).port;
-  server = new Server(undefined, { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "200" });
+  // Every row makes two boards and a session from one address, more than the server's 30 an
+  // hour for an address (CREATE_PER_HOUR): the rows after the thirtieth got a 429 for a board.
+  server = new Server(undefined, { MATCH_API_BASE: `http://127.0.0.1:${port}`, REPLAY_DIR: queue, REPLAY_PER_CLIENT_PER_HOUR: "200", CREATE_PER_HOUR: "1000" });
   await server.start();
 });
 test.afterAll(() => {
@@ -94,9 +98,10 @@ test("scenes and the current scene", async ({ browser }) => {
   await expect(ord(me)).toHaveText("Scene 1 of 1");
   await go(0);
   await expect(sceneCards(me)).toHaveCount(2);
-  await expect(ord(me)).toHaveText("Scene 1 of 2"); // the current scene isn't remembered yet (phase 3)
+  await expect(ord(me)).toHaveText("Scene 2 of 2"); // as it was left (§4.2)
   await reloadOn(me, boardOf(a));
   await expect(sceneCards(me)).toHaveCount(2);
+  await expect(ord(me)).toHaveText("Scene 2 of 2");
 });
 
 test("strokes, and the scene note", async ({ browser }) => {
@@ -254,9 +259,9 @@ test("a drag released during a switch lands on A, and the switch waits for it", 
 
 const N = 120;
 const range = <T,>(f: (s: number) => T) => Array.from({ length: N + 1 }, (_, s) => f(s));
-function timeline(id: string, shift: number) {
+function timeline(id: string, shift: number, duration = N) {
   return {
-    match_id: Number(id), start_time: 0, duration_s: N, source: "replay", tier: "replay", build: 6839, reanchored: 0, format: TIMELINE_FORMAT,
+    match_id: Number(id), start_time: 0, duration_s: duration, source: "replay", tier: "replay", build: 6839, reanchored: 0, format: TIMELINE_FORMAT,
     players: (["amber", "sapphire"] as const).flatMap((team) =>
       [0, 1, 2, 3, 4, 5].map((slot) => ({
         team, slot, hero_id: 1 + slot, name: `${team === "amber" ? "A" : "S"}${slot}`,
@@ -286,7 +291,7 @@ async function load(p: Page, id: string, shift: number) {
   await expect(p.getByTestId("match-clock")).toBeVisible();
 }
 
-test("Player: the match, t and playing, Sandbox; map layers are device-wide", async ({ browser }) => {
+test("Player: the match, t and playing, Sandbox; map layers are a tab's own once set there", async ({ browser }) => {
   const { me, a, go } = await twoTabs(browser);
   await load(me, "51001", 0);
   await me.getByTestId("match-play").click();
@@ -304,18 +309,514 @@ test("Player: the match, t and playing, Sandbox; map layers are device-wide", as
   // B's own match at its own default place (a match opens at 10:00, or its end), paused; A's was
   // playing from the start.
   await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
-  // Map layers are device-wide, by design: the same on B.
+  // B was opened and left before A turned Heals on, with no layer set there: it shows this
+  // browser's choice (§4.2). Turned off here, Heals is B's own.
   await revealControls(me, "heals-toggle");
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
   await me.getByTestId("heals-toggle").click();
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
+  await me.getByTestId("match-speed").selectOption("2");
   await go(0);
-  // A opens on its own match, paused at the start (no TabView yet).
+  // A opens as it was left (§4.2): its own match, still playing from where it was, at its own
+  // speed, with the layers set there (Heals on, though B turned it off since).
   await expect(me.getByTestId("match-tier")).toHaveText("Full replay");
   await expect(me.getByTestId("player")).toHaveAttribute("data-state", "match");
-  await expect(me.getByTestId("match-play")).toHaveText("Play");
+  await expect(me.getByTestId("match-play")).toHaveText("Pause");
+  await expect(me.getByTestId("match-clock")).not.toHaveText("2:00 / 2:00");
+  await expect(me.getByTestId("match-speed")).toHaveValue("1");
+  await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  // Paused somewhere, and left for a scene: back on A, it's on the scene, the match held where it was.
+  await me.getByTestId("match-play").click();
+  const at = await me.getByTestId("match-clock").innerText();
+  expect(at).not.toBe("2:00 / 2:00");
+  await revealControls(me, "mode-sandbox");
+  await me.getByTestId("mode-sandbox").first().click();
+  await expect(me.getByTestId("player")).not.toHaveAttribute("data-state", "match");
+  await go(1);
+  // B as it was left: paused at its own place, at 2x, Heals off.
   await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  await expect(me.getByTestId("match-speed")).toHaveValue("2");
   await revealControls(me, "heals-toggle");
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
+  await go(0);
+  await expect(me.getByTestId("player")).not.toHaveAttribute("data-state", "match");
+  await me.getByTestId("mode-player").first().click();
+  await expect(me.getByTestId("match-clock")).toHaveText(at);
+  await expect(me.getByTestId("match-play")).toHaveText("Play");
+  // The same after a reload, from sessionStorage.
   await reloadOn(me, boardOf(a));
   await expect(me.getByTestId("match-tier")).toHaveText("Full replay");
+  await expect(me.getByTestId("match-clock")).toHaveText(at);
+  await expect(me.getByTestId("match-play")).toHaveText("Play");
+  await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  // Off and on again on A: this browser's last choice is on. A tab never opened takes that,
+  // not B's own.
+  await me.getByTestId("heals-toggle").click();
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
+  await me.getByTestId("heals-toggle").click();
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  const c = await newBoardUrl(server, "Board C");
+  await me.getByTestId("add-game").click();
+  await me.getByTestId("add-paste").fill(c);
+  await me.getByTestId("add-paste-go").click();
+  await expect(tabs(me)).toHaveCount(3);
+  await expect.poll(() => mounted(me)).toBe(boardOf(c));
+  await saved(me);
+  await load(me, "51003", 0);
+  await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  // C is left with nothing set there. B keeps what was set on B, whatever this browser's is.
+  await go(1);
+  await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
+  // Heals off on A: C, only passed through, shows that and not what it showed when it was left.
+  await go(0);
+  await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  await me.getByTestId("heals-toggle").click();
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
+  await tabs(me).nth(2).click();
+  await expect.poll(() => mounted(me)).toBe(boardOf(c));
+  await saved(me);
+  await expect(me.getByTestId("match-tier")).toHaveText("Full replay");
+  await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
+  // A layer set before the tab's match is confirmed is the tab's own too: A's match is drawn
+  // from this page's copy while the server's answer is held, Heals is turned on there, and A
+  // is left before the answer.
+  let answer!: () => void;
+  const held = new Promise<void>((ok) => (answer = ok));
+  const timelineOfA = (url: URL) => url.pathname === `/api/boards/${boardOf(a)}/matches/51001`;
+  await me.route(timelineOfA, async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await held;
+    await route.continue().catch(() => {});
+  });
+  await go(0);
+  await expect(me.getByTestId("match-clock")).toBeVisible();
+  await revealControls(me, "heals-toggle");
+  await me.getByTestId("heals-toggle").click();
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  await tabs(me).nth(2).click();
+  await expect.poll(() => mounted(me)).toBe(boardOf(c));
+  answer();
+  await me.unroute(timelineOfA);
+  await saved(me);
+  // Off on C (this browser's choice is off again): A still has what was set there.
+  await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  await me.getByTestId("heals-toggle").click();
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
+  await go(0);
+  await expect(me.getByTestId("match-tier")).toHaveText("Full replay");
+  await revealControls(me, "heals-toggle");
+  await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+});
+
+async function scrubTo(p: Page, t: number) {
+  await p.getByTestId("match-time").evaluate((el, t) => {
+    (el as HTMLInputElement).value = String(t);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }, t);
+}
+
+test("ink drawn over a match stays when its tab is left and opened again: a switch is not a new visit", async ({ browser }) => {
+  const { me, a, go } = await twoTabs(browser);
+  await load(me, "51021", 0);
+  await me.keyboard.press("e");
+  await gesture(me, [[0.3, 0.3], [0.4, 0.35], [0.5, 0.3]]);
+  await expect(strokes(me)).toHaveCount(1);
+  const drawn = await strokes(me).getAttribute("data-stroke");
+  await saved(me);
+  await go(1);
+  await expect(strokes(me)).toHaveCount(0);
+  await go(0);
+  await expect(me.getByTestId("player")).toHaveAttribute("data-state", "match");
+  await expect(me.locator(`[data-stroke="${drawn}"]`)).toHaveCount(1);
+  await saved(me);
+  // Someone else's ink too: drawn by a peer who has left since, it isn't this page's own, and
+  // it stays all the same when the tab is opened again (no clear runs: not a new visit).
+  const peer = await joinNew(browser, a, "Peer");
+  await expect(peer.getByTestId("match-tier")).toHaveText("Full replay");
+  await peer.keyboard.press("e");
+  await gesture(peer, [[0.6, 0.6], [0.65, 0.62]]);
+  await expect(strokes(me)).toHaveCount(2);
+  await saved(peer);
+  await peer.context().close();
+  await expect(me.locator(".people")).not.toContainText("Peer");
+  await go(1);
+  await go(0);
+  await expect(strokes(me)).toHaveCount(2);
+  // Alone in Player on a first visit, old ink goes after 1.5 s (player/layer.ts). This isn't one.
+  await me.waitForTimeout(3000);
+  await expect(strokes(me)).toHaveCount(2);
+  await expect(me.locator(`[data-stroke="${drawn}"]`)).toHaveCount(1);
+});
+
+test("following: a switch ends it; a presenter's layers are never the tab's own, but what the follower's own change kept is", async ({ browser }) => {
+  const { me, a, go } = await twoTabs(browser);
+  await load(me, "51031", 0);
+  const peer = await joinNew(browser, a, "Peer"); // the presenter, on A by A's own link
+  await expect(peer.getByTestId("match-tier")).toHaveText("Full replay");
+  await revealControls(peer, "heals-toggle");
+  await peer.getByTestId("heals-toggle").click();
+  await expect(peer.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "true");
+  const heals = async (on: boolean) => {
+    await revealControls(me, "heals-toggle");
+    await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", String(on));
+  };
+  await heals(false);
+  await me.getByTestId("follow-Peer").click();
+  await expect(me.getByTestId("stop-following")).toHaveCount(1);
+  await heals(true); // the presenter's, while following
+  // Leaving the tab ends the follow (§6.2). Back on it: this browser's Heals, not the presenter's.
+  await go(1);
+  await go(0);
+  await expect(me.getByTestId("match-tier")).toHaveText("Full replay");
+  await expect(me.getByTestId("stop-following")).toHaveCount(0);
+  await heals(false);
+  // Following again, the follower's own change (Troopers off) stops it and keeps what it saw:
+  // that is set on this tab, Heals with it.
+  await me.getByTestId("follow-Peer").click();
+  await expect(me.getByTestId("stop-following")).toHaveCount(1);
+  await heals(true);
+  await revealControls(me, "troopers-toggle");
+  await me.getByTestId("troopers-toggle").click();
+  await expect(me.getByTestId("stop-following")).toHaveCount(0);
+  await expect(me.getByTestId("troopers-toggle")).toHaveAttribute("aria-pressed", "false");
+  await heals(true);
+  // This browser's Heals is turned off on another tab (C, with a match of its own: a board
+  // without one shows no layers). A keeps what was kept there.
+  const c = await newBoardUrl(server, "Board C");
+  await me.getByTestId("add-game").click();
+  await me.getByTestId("add-paste").fill(c);
+  await me.getByTestId("add-paste-go").click();
+  await expect(tabs(me)).toHaveCount(3);
+  await expect.poll(() => mounted(me)).toBe(boardOf(c));
+  await saved(me);
+  await load(me, "51032", 0);
+  await heals(true); // this browser's, kept from the follow
+  await me.getByTestId("heals-toggle").click();
+  await heals(false);
+  await go(0);
+  await expect(me.getByTestId("match-tier")).toHaveText("Full replay");
+  await heals(true);
+  await expect(me.getByTestId("troopers-toggle")).toHaveAttribute("aria-pressed", "false");
+});
+
+test("what is done while a tab's match is still on its way is the tab's: a scene picked, a seek", async ({ browser }) => {
+  const { me, a, b, go } = await twoTabs(browser);
+  await load(me, "51041", 0);
+  await scrubTo(me, 20);
+  await expect(me.getByTestId("match-clock")).toHaveText("0:20 / 2:00");
+  await go(1);
+  /** Hold the answers to GET `path` until the function returned is called. */
+  const hold = async (path: string) => {
+    let answer!: () => void;
+    const held = new Promise<void>((ok) => (answer = ok));
+    const at = (url: URL) => url.pathname === path;
+    await me.route(at, async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await held;
+      await route.continue().catch(() => {});
+    });
+    return async () => {
+      answer();
+      await me.unroute(at);
+    };
+  };
+  const leaveForB = async (release: () => Promise<void>) => {
+    await tabs(me).nth(1).click();
+    await expect.poll(() => mounted(me)).toBe(boardOf(b));
+    await release();
+    await saved(me);
+  };
+  const onScene = () => expect(me.getByTestId("player")).not.toHaveAttribute("data-state", "match");
+
+  // Drawn from this page's copy, the server's answer held: a seek, then a scene picked, and
+  // the tab left before the answer.
+  let release = await hold(`/api/boards/${boardOf(a)}/matches/51041`);
+  await go(0);
+  await expect(me.getByTestId("match-clock")).toHaveText("0:20 / 2:00");
+  await scrubTo(me, 50);
+  await expect(me.getByTestId("match-clock")).toHaveText("0:50 / 2:00");
+  await sceneCards(me).first().click();
+  await onScene();
+  await leaveForB(release);
+  // Back: on the scene, the match held at the seek.
+  await go(0);
+  await onScene();
+  await me.getByTestId("mode-player").first().click();
+  await expect(me.getByTestId("match-clock")).toHaveText("0:50 / 2:00");
+  await expect(me.getByTestId("player")).toHaveAttribute("data-state", "match");
+
+  // Left in Player now. Next time, the board's matches aren't known yet when a scene is picked:
+  // the match that opens behind it doesn't take the tab to Player.
+  await go(1);
+  release = await hold(`/api/boards/${boardOf(a)}/matches`);
+  await go(0);
+  await expect(me.getByTestId("match-clock")).toHaveCount(0);
+  await sceneCards(me).first().click();
+  await leaveForB(release);
+  await go(0);
+  await onScene();
+  await me.getByTestId("mode-player").first().click();
+  await expect(me.getByTestId("match-clock")).toHaveText("0:50 / 2:00");
+
+  // And when the answer comes while the tab is still open: it stays on the scene picked.
+  await go(1);
+  release = await hold(`/api/boards/${boardOf(a)}/matches`);
+  await go(0);
+  await sceneCards(me).first().click();
+  const opened = me.waitForResponse((r) => new URL(r.url()).pathname === `/api/boards/${boardOf(a)}/matches/51041` && r.request().method() === "GET");
+  await release();
+  await opened;
+  await onScene();
+  await me.getByTestId("mode-player").first().click();
+  await expect(me.getByTestId("match-clock")).toHaveText("0:50 / 2:00");
+});
+
+test("last visit's ink is cleared on the visit's first stay in Player: not lost to a quick switch away, and again after the session was left", async ({ browser }) => {
+  const { me, a, b, go } = await twoTabs(browser);
+  await load(me, "51051", 0);
+  await me.keyboard.press("e");
+  await gesture(me, [[0.3, 0.3], [0.4, 0.35]]);
+  await expect(strokes(me)).toHaveCount(1);
+  await saved(me);
+  await go(1);
+  // A new visit (a reload), on B: A's ink is last visit's now.
+  await reloadOn(me, boardOf(b));
+  // A opened and left at once, before the settle (1.5 s) has run: nothing is decided yet.
+  await tabs(me).nth(0).click();
+  await expect(me.getByTestId("player")).toHaveAttribute("data-state", "match");
+  await tabs(me).nth(1).click();
+  await expect.poll(() => mounted(me)).toBe(boardOf(b));
+  await saved(me);
+  // Back on A, and staying: alone in Player, the old ink goes.
+  await go(0);
+  await expect(strokes(me)).toHaveCount(0, { timeout: 10_000 });
+  // Ink of this visit stays through a switch (the row above). The session left in the page and
+  // opened again is a new visit: that ink is last visit's then, and goes.
+  await me.keyboard.press("e");
+  await gesture(me, [[0.5, 0.5], [0.6, 0.55]]);
+  await expect(strokes(me)).toHaveCount(1);
+  await saved(me);
+  await me.evaluate(() => {
+    history.pushState(null, "", "/");
+    history.pushState(null, "", "/");
+    history.back();
+  });
+  await expect(me.getByTestId("open-match")).toBeVisible();
+  await me.evaluate(() => history.back());
+  await expect.poll(() => mounted(me)).toBe(boardOf(a));
+  await expect(me.getByTestId("player")).toHaveAttribute("data-state", "match");
+  await expect(strokes(me)).toHaveCount(0, { timeout: 10_000 });
+});
+
+// ---- what a tab remembers (§4.2) ----
+
+test("a tab comes back as it was left: scene, viewport and side; a scene gone meanwhile opens cold", async ({ browser }) => {
+  const { me, a, go } = await twoTabs(browser);
+  const fit = await viewOf(me);
+  await me.getByTestId("scene-add").click();
+  await expect(ord(me)).toHaveText("Scene 2 of 2");
+  const m = await mapPoint(me, 0.4, 0.4);
+  await me.mouse.move(m.x, m.y);
+  await me.mouse.wheel(0, -300);
+  await expect.poll(() => viewOf(me)).not.toEqual(fit);
+  const zoomed = await viewOf(me);
+  await me.getByTestId("viewpoint-flip").click();
+  await expect(me.locator(".mapbox .mm-host")).toHaveClass(/vp-sapphire/);
+  const flipped = await viewOf(me);
+  await saved(me);
+  await go(1);
+  // B is its own: first scene, fitted, Amber side.
+  await expect(ord(me)).toHaveText("Scene 1 of 1");
+  expect(await viewOf(me)).toEqual(fit);
+  await expect(me.locator(".mapbox .mm-host")).not.toHaveClass(/vp-sapphire/);
+  const asLeft = async () => {
+    await expect(ord(me)).toHaveText("Scene 2 of 2");
+    await expect(me.locator(".mapbox .mm-host")).toHaveClass(/vp-sapphire/);
+    expect(await viewOf(me)).toEqual(flipped);
+  };
+  await go(0);
+  await asLeft();
+  await reloadOn(me, boardOf(a));
+  await asLeft();
+  // What's remembered is this browser tab's alone, under the session and the board.
+  const keys = await me.evaluate(() => Object.keys(sessionStorage).filter((k) => k.startsWith("mapcro.tabview.")));
+  expect(keys.length).toBe(2);
+  expect(keys.every((k) => /^mapcro\.tabview\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{22}$/.test(k))).toBe(true);
+  // A peer deletes that scene while this tab is on B: A opens on its first scene, fitted, as cold.
+  await go(1);
+  const peerA = await joinNew(browser, a, "PeerA");
+  await expect(sceneCards(peerA)).toHaveCount(2);
+  await sceneCards(peerA).nth(1).hover();
+  await sceneCards(peerA).nth(1).getByTestId("scene-delete").click();
+  await expect(sceneCards(peerA)).toHaveCount(1);
+  await saved(peerA);
+  await go(0);
+  await expect(sceneCards(me)).toHaveCount(1);
+  await expect(ord(me)).toHaveText("Scene 1 of 1");
+  expect(await viewOf(me)).toEqual(fit);
+  await expect(me.locator(".mapbox .mm-host")).not.toHaveClass(/vp-sapphire/);
+  void zoomed;
+});
+
+/** IndexedDB connections open in the page: the session's and the mounted board's. */
+test("a scene made just before the tab was left, not yet in this device's stored copy, is still the tab's scene", async ({ browser }) => {
+  const { me, a, go } = await twoTabs(browser);
+  await go(1); // A's stored copy on this device: one scene
+  const peer = await joinNew(browser, a, "Peer");
+  await peer.getByTestId("scene-add").click();
+  await expect(sceneCards(peer)).toHaveCount(2);
+  await saved(peer);
+  const made = await sceneCards(peer).nth(1).getAttribute("data-scene");
+  expect(made).toMatch(/^[0-9a-f]{32}$/);
+  // As if this tab had flipped to the peer's new scene and the page was left before the board's
+  // lazy save: the tab remembers the scene, and the stored copy doesn't hold it yet.
+  await me.evaluate(
+    ({ board, scene }) => {
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const k = sessionStorage.key(i)!;
+        if (k.startsWith("mapcro.tabview.") && k.endsWith(`.${board}`)) sessionStorage.setItem(k, JSON.stringify({ ...JSON.parse(sessionStorage.getItem(k)!), scene }));
+      }
+    },
+    { board: boardOf(a), scene: made },
+  );
+  await go(0);
+  await expect(sceneCards(me)).toHaveCount(2);
+  await expect(ord(me)).toHaveText("Scene 2 of 2");
+});
+
+const countIdb = (p: Page) =>
+  p.addInitScript(() => {
+    const w = window as unknown as { __idb: number };
+    w.__idb = 0;
+    const open = IDBFactory.prototype.open;
+    IDBFactory.prototype.open = function (this: IDBFactory, ...args: Parameters<IDBFactory["open"]>) {
+      const req = open.apply(this, args);
+      req.addEventListener("success", () => {
+        w.__idb += 1;
+        const db = req.result;
+        const close = db.close.bind(db);
+        let closed = false;
+        db.close = () => {
+          if (!closed) w.__idb -= 1;
+          closed = true;
+          close();
+        };
+      });
+      return req;
+    };
+  });
+const idb = (p: Page) => p.evaluate(() => (window as unknown as { __idb: number }).__idb);
+
+test("a left board holds nothing open: the session's storage and the open board's, however many tabs were left; none after the session", async ({ browser }) => {
+  const urls: string[] = [];
+  for (const t of ["A", "B", "C"]) urls.push(await newBoardUrl(server, `Board ${t}`));
+  const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(urls[0]!)!;
+  const r = await fetch(`${server.url}/api/sessions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Many", board, board_token: token }) });
+  const s = (await r.json()) as { session: string; owner_token: string };
+  const me = await joinNew(browser, `${server.url}/s/${s.session}#${s.owner_token}`, "Coach", (p) => void countIdb(p));
+  await saved(me);
+  await expect.poll(() => idb(me)).toBe(2);
+  for (const [i, url] of urls.slice(1).entries()) {
+    await me.getByTestId("add-game").click();
+    await me.getByTestId("add-paste").fill(url);
+    await me.getByTestId("add-paste-go").click();
+    await expect(tabs(me)).toHaveCount(2 + i);
+    await expect.poll(() => mounted(me)).toBe(boardOf(url));
+    await saved(me);
+    await expect.poll(() => idb(me)).toBe(2);
+  }
+  // Round and round: the count holds.
+  for (const i of [0, 1, 2, 0, 2, 1]) {
+    await tabs(me).nth(i).click();
+    await expect.poll(() => mounted(me)).toBe(boardOf(urls[i]!));
+    await saved(me);
+  }
+  await expect.poll(() => idb(me)).toBe(2);
+  // Leaving the session closes them.
+  await me.goto(`${server.url}/`);
+  await expect.poll(() => idb(me)).toBe(0);
+});
+
+// ---- the page's timeline cache (§4.3): the server decides on every open ----
+
+/**
+ * A and B, each with the same fetched replay attached (one file for every board), on A after a
+ * reload: the page's cache starts empty. `gets` is every answer to a timeline request since, as
+ * `<board> <status>`.
+ */
+async function sameFetchedMatch(browser: Browser, id: string) {
+  const ctx = await twoTabs(browser);
+  mkdirSync(join(server.dataDir, "replays"), { recursive: true });
+  const file = join(server.dataDir, "replays", `${id}-cdn.json`);
+  writeFileSync(file, JSON.stringify(timeline(id, 0)));
+  for (const url of [ctx.a, ctx.b]) {
+    const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(url)!;
+    const r = await fetch(`${server.url}/api/boards/${board}/matches/${id}`, { method: "PUT", headers: { authorization: `Bearer ${token}` } });
+    expect(r.ok).toBe(true);
+  }
+  const gets: string[] = [];
+  ctx.me.on("response", (r) => {
+    const m = new RegExp(`/api/boards/([^/]+)/matches/${id}$`).exec(new URL(r.url()).pathname);
+    if (m && r.request().method() === "GET") gets.push(`${m[1] === boardOf(ctx.a) ? "A" : m[1] === boardOf(ctx.b) ? "B" : "?"} ${r.status()}`);
+  });
+  await reloadOn(ctx.me, boardOf(ctx.a));
+  await expect(ctx.me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  return { ...ctx, gets, file };
+}
+
+test("the timeline cache: a match is sent once, then confirmed by the server on every open, for each board; a file written again is sent again", async ({ browser }) => {
+  const id = "52001";
+  const { me, go, gets, file } = await sameFetchedMatch(browser, id);
+  // Sent once, to A. Whatever A asks after is answered "the same".
+  expect(gets[0]).toBe("A 200");
+  await go(1);
+  await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  await go(0);
+  await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  await go(1);
+  await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  // B asked too, each time it opened (the server's checks ran for it), and was sent nothing.
+  await expect.poll(() => gets.filter((g) => g === "B 304").length).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => gets.filter((g) => g === "A 304").length).toBeGreaterThanOrEqual(1);
+  expect(gets.filter((g) => !g.endsWith(" 304"))).toEqual(["A 200"]);
+  // A newer parse of the replay: the validator held names the old file, so the new one is sent.
+  writeFileSync(file, JSON.stringify(timeline(id, 0, 180)));
+  await go(0);
+  await expect(me.getByTestId("match-clock")).toHaveText(/ \/ 3:00$/);
+  expect(gets.filter((g) => !g.endsWith(" 304"))).toEqual(["A 200", "A 200"]);
+  // And it's the one held now, for B as well.
+  await go(1);
+  await expect(me.getByTestId("match-clock")).toHaveText(/ \/ 3:00$/);
+  expect(gets.filter((g) => !g.endsWith(" 304"))).toEqual(["A 200", "A 200"]);
+});
+
+test("the timeline cache: refused by the server, what the page held isn't shown; with no answer, it stays", async ({ browser }) => {
+  const id = "52002";
+  const { me, a, go, gets } = await sameFetchedMatch(browser, id);
+  await go(1);
+  await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  // The server refuses A the match from here on (as it would a link that no longer opens it).
+  const route = `**/api/boards/${boardOf(a)}/matches/${id}`;
+  const refuse = (r: import("@playwright/test").Route) => (r.request().method() === "GET" ? r.fulfill({ status: 403, contentType: "application/json", body: '{"error":"forbidden"}' }) : r.continue());
+  await me.route(route, refuse);
+  await go(0);
+  await expect.poll(() => gets.filter((g) => g === "A 403").length).toBeGreaterThanOrEqual(1);
+  await expect(me.getByTestId("match-clock")).toHaveCount(0);
+  // B is asked for itself and keeps its own.
+  await go(1);
+  await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  // No answer at all (offline): what the page holds stays drawn.
+  await me.unroute(route, refuse);
+  await me.route(route, (r) => (r.request().method() === "GET" ? r.abort() : r.continue()));
+  await go(0);
+  await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
+  await me.waitForTimeout(500);
+  await expect(me.getByTestId("match-clock")).toHaveText("2:00 / 2:00");
 });
