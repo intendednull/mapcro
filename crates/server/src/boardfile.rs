@@ -505,7 +505,8 @@ mod tests {
         let (doc, _) = read(&bytes, ids(1000), &Admit::READS).expect("imports");
         let mut out: serde_json::Value = serde_json::from_slice(&write(&doc, Vec::new(), 0, 0)).expect("json");
         assert_eq!(out["version"], 2, "this build writes rows: version 2, which a build from before the reader refuses as newer");
-        assert_eq!(out["rows"], json!(mapcro_schema::ROWS.len()));
+        // The rows this build writes (review F1), whatever a test's gate let the board hold.
+        assert_eq!(out["rows"], json!(mapcro_schema::written_rows()));
         let find = |v: &mut serde_json::Value, kind: &str| -> Vec<serde_json::Value> { records(v).iter().filter_map(|r| r[1].get(kind).cloned()).collect() };
         let states = find(&mut out, "SceneState");
         assert_eq!(states.len(), 1);
