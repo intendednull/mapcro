@@ -154,7 +154,10 @@ test("a scrubber tick grows on hover, shows its tag, and a press jumps there (#6
   const tag = tick.locator(".pl-tick-tag");
   await expect(tag).toBeHidden();
   const before = (await tick.boundingBox())!;
-  await tick.hover();
+  // On the tick's own left edge: these events are 5 s apart, about 4 px here, and the next
+  // tick's hover pad lies over this one's right half (as on any real match's scrubber).
+  const onTick = { position: { x: 0, y: 3 } };
+  await tick.hover(onTick);
   await expect(tag).toBeVisible();
   await expect(tag).toHaveText("Walker down");
   // Readable (#26): as the map's hover label, bold and no smaller than the app's body text, and
@@ -173,13 +176,13 @@ test("a scrubber tick grows on hover, shows its tag, and a press jumps there (#6
   // The first and last ticks' tags open inward and stay on screen.
   for (const t of [EVENTS[0]!.t, EVENTS[EVENTS.length - 1]!.t]) {
     const edge = a.locator(`[data-testid=scrub-tick][data-t="${t}"]`);
-    await edge.hover();
+    await edge.hover(onTick);
     const r = (await edge.locator(".pl-tick-tag").boundingBox())!;
     const bar = (await a.locator(".pl-scrub").boundingBox())!;
     expect(r.x).toBeGreaterThanOrEqual(bar.x - 8);
     expect(r.x + r.width).toBeLessThanOrEqual(bar.x + bar.width + 8);
   }
-  await tick.click();
+  await tick.click(onTick);
   const lead = Number(await a.getByTestId("events-lead").inputValue());
   await expect.poll(() => clock(a)).toBe(Math.max(0, 30 - lead));
   await expect(a.getByTestId("event-highlight")).toBeVisible();

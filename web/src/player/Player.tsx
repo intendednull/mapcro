@@ -21,7 +21,7 @@ import { DropOverlay, ReplayHelp, createDemDrop } from "./ReplayHelp";
 import { FolderFound, FolderLink, FolderRecent, folderHas, useReplaysFolder } from "./ReplaysFolder";
 import { ReplayPicker, pickerSource } from "./ReplayPicker";
 import { REPARSE, isOutdated, reparseOffer } from "./reparse";
-import { SPEEDS } from "./clock";
+import { SPEEDS, faster, slower } from "./clock";
 import { type Dot, troopersAt } from "./troopers";
 import { hoverUnit, registerHover } from "../map/HoverLabel";
 import { svgPoint } from "../board/Tokens";
@@ -145,6 +145,14 @@ export function Player(p: {
       h.setMode("player"); h.control.seek(t); h.control.play(true);
     } else h.control.play(!h.playback().playing);
   });
+  /** One step slower or faster. At the end the button disables: it gives up the focus first, so
+   * the keys stay the board's (← → seek, Space plays). */
+  const stepSpeed = (next: (speed: number) => number | undefined, button: HTMLButtonElement) => {
+    const s = next(h.playback().speed);
+    if (s === undefined) return;
+    if (next(s) === undefined) button.blur();
+    user(() => h.control.speed(s));
+  };
   let ticksRow: HTMLDivElement | undefined;
   const scrubFromMarks = markerScrub({
     track: () => ticksRow,
@@ -506,13 +514,24 @@ export function Player(p: {
               <button class="btn small" type="button" data-testid="match-forward" aria-label="Forward 10 s" title="+10 s (→ 5 s, Shift+→ 30 s)" onClick={() => seekReplay(transportTime() + 10)}>
                 +10
               </button>
-              <select class="input pl-speed" data-testid="match-speed" aria-label="Speed" value={String(h.playback().speed)} onChange={(e) => {
+              {/* Speed (feedback #58): − and + step through SPEEDS, the current one between them.
+                  A phone under 390 px has room for one control in that row (two touch targets
+                  don't fit beside the clock and the tabs): it keeps the list, by CSS. */}
+              <select class="input pl-speed-list" data-testid="match-speed-list" aria-label="Speed" value={String(h.playback().speed)} onChange={(e) => {
                   user(() => h.control.speed(Number(e.currentTarget.value)));
-                  // Picked: hand the keys back to the board (← → seek, Space plays).
                   e.currentTarget.blur();
                 }}>
                 <For each={SPEEDS}>{(s) => <option value={String(s)}>{s}×</option>}</For>
               </select>
+              <span class="pl-speed" role="group" aria-label="Speed" data-testid="match-speed" data-speed={String(h.playback().speed)}>
+                <button class="btn small" type="button" data-testid="speed-down" aria-label="Slower" title="Slower" disabled={slower(h.playback().speed) === undefined} onClick={(e) => stepSpeed(slower, e.currentTarget)}>
+                  −
+                </button>
+                <output class="pl-speed-now" data-testid="speed-now">{h.playback().speed}×</output>
+                <button class="btn small" type="button" data-testid="speed-up" aria-label="Faster" title="Faster" disabled={faster(h.playback().speed) === undefined} onClick={(e) => stepSpeed(faster, e.currentTarget)}>
+                  +
+                </button>
+              </span>
               {/* The marker space above the bar scrubs too (#45): a press and drag there scrubs as
                   the bar does, a plain press on a marker still does the marker's thing. */}
               <div class="pl-scrub" onPointerDown={(e) => { if (!(e.target as Element).closest(".match-range")) scrubFromMarks(e); }}>

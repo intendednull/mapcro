@@ -8,7 +8,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "./fixtures";
-import { joinNew, revealControls } from "./helpers";
+import { joinNew, revealControls, setSpeed } from "./helpers";
 import { Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 import { heroPack } from "./synthetic";
 
@@ -64,7 +64,7 @@ test("playing rewrites no portrait whose hero didn't change", async ({ browser }
   await expect(a.getByTestId("match-tier")).toHaveText("Full replay");
   const badges = a.locator("[data-testid=topbar] .tb-badge");
   await expect(badges).toHaveCount(12);
-  await a.getByTestId("match-speed").selectOption("4");
+  await setSpeed(a, "4");
   await a.getByTestId("match-play").click();
   const work = await a.evaluate(async () => {
     const bar = document.querySelector("[data-testid=topbar]")!;

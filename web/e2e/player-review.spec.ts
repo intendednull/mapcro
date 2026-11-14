@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Page, devices, expect, test } from "./fixtures";
-import { gesture, joinNew, mapPoint, revealControls } from "./helpers";
+import { gesture, joinNew, mapPoint, revealControls, setSpeed } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -103,7 +103,7 @@ test("in Player others see your laser; a follower follows a presenter who pans w
   await a.keyboard.press("q");
 
   for (const speed of ["1", "8"]) {
-    await a.getByTestId("match-speed").selectOption(speed);
+    await setSpeed(a, speed);
     await a.getByTestId("match-play").click();
     // The presenter pans as it plays: each pan resends presence with the playback in it.
     const seen: number[] = [];

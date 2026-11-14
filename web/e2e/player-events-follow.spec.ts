@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "./fixtures";
-import { joinNew, revealControls } from "./helpers";
+import { joinNew, revealControls, setSpeed } from "./helpers";
 import { ROOT, Server, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -49,7 +49,7 @@ test("the current event is marked and kept in view as the match plays", async ({
   await expect(current).toHaveCount(1);
   expect(Number(await current.getAttribute("data-t"))).toBeLessThanOrEqual(500);
 
-  await a.getByTestId("match-speed").selectOption("8");
+  await setSpeed(a, "8");
   await a.getByTestId("match-play").click();
   const seen: number[] = [];
   const list = (await a.locator(".pl-list").boundingBox())!;

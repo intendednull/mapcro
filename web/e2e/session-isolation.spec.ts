@@ -106,7 +106,7 @@ test("strokes, and the scene note", async ({ browser }) => {
   await expect(strokes(me)).toHaveCount(1);
   await revealControls(me, "scene-note-edit");
   await me.getByTestId("scene-note-edit").fill("Rotate mid");
-  await me.locator("#events-tab").click(); // blur commits
+  await me.getByTestId("scene-note-edit").blur(); // blur commits
   await saved(me);
   await go(1);
   await expect(strokes(me)).toHaveCount(0);

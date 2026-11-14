@@ -168,7 +168,6 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const [joined, setJoined] = createSignal(hasJoined(joinKey) && !!loadMe());
   const [viewpoint, setViewpoint] = createSignal<Viewpoint>("amber");
   const [sceneId, setSceneId] = createSignal<RecordId | undefined>();
-  const [sideTab, setSideTab] = createSignal<"events" | "notes">("events");
   const [tool, setTool] = createSignal<Tool>("select");
   // The palette colour for Draw, Arrow, Comment and Laser: per person, per board.
   const [ink, setInkSignal] = createSignal(loadColour(p.board) ?? loadMe()?.color ?? 1);
@@ -1491,21 +1490,12 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
           {toastView()}
         </main>
         <aside class="side">
-          <div class="side-tabs" role="tablist" aria-label="Board sidebar" onKeyDown={e => {
-            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
-            e.preventDefault();
-            const tab = e.key === "Home" ? "events" : e.key === "End" ? "notes" : sideTab() === "events" ? "notes" : "events";
-            setSideTab(tab);
-            document.getElementById(`${tab}-tab`)?.focus();
-          }}>
-            <button id="events-tab" role="tab" tabIndex={sideTab() === "events" ? 0 : -1} aria-selected={sideTab() === "events"} aria-controls="events-panel" onClick={() => setSideTab("events")}>Events</button>
-            <button id="notes-tab" role="tab" tabIndex={sideTab() === "notes" ? 0 : -1} aria-selected={sideTab() === "notes"} aria-controls="notes-panel" onClick={() => setSideTab("notes")}>Scene Notes</button>
-          </div>
-          <div id="events-panel" role="tabpanel" aria-labelledby="events-tab" hidden={sideTab() !== "events"}>
+          {/* Player: the events list. A scene: its note (feedback #57). */}
+          <Show when={inPlayer()}>
           <Show when={player.tl()} fallback={<section class="side-empty">Load a match to browse its events.</section>}>
             <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={savedScene} onUserPlayback={() => stopFollowing("changed the playback")} />
           </Show>
-          </div>
+          </Show>
           <section class="people-section">
             <h2>
               People here <small>{people().length + (joined() ? 1 : 0)} online{presenterList().length ? ` · ${presenterList().length} presenting` : ""}</small>
@@ -1523,8 +1513,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               rename={() => setJoined(false)}
             />
           </section>
-          <section id="notes-panel" role="tabpanel" aria-labelledby="notes-tab" class="note-section" hidden={sideTab() !== "notes"}>
-            <Show when={inPlayer()}><p class="side-empty">Notes for {scene()?.scene.name || "the selected scene"}. Select a scene to view its plan.</p></Show>
+          <Show when={!inPlayer()}>
+          <section class="note-section">
             <h2>
               Scene note
               <For each={noteEditors()}>
@@ -1552,6 +1542,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               />
             </Show>
           </section>
+          </Show>
         </aside>
       </div>
     </div>

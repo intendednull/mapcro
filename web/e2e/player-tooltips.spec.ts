@@ -294,9 +294,9 @@ test("holding Tab shows every build wherever the focus is, but in a text field; 
   const bar = a.locator(".pl-topbar");
   const focused = () => a.evaluate(() => document.activeElement?.getAttribute("data-testid") ?? document.activeElement?.className ?? "");
   await revealControls(a, "pings-toggle");
-  // A list (Vision, speed), a button, the scrubber, a toggle and the top bar's own button: Tab
+  // A list (Vision), a speed button, a button, the scrubber, a toggle and the top bar's own button: Tab
   // shows every build while held, and the focus stays where it was.
-  const targets = [a.getByTestId("vision-select"), a.getByTestId("match-speed"), a.getByTestId("match-play"), a.getByTestId("match-time"), a.getByTestId("pings-toggle"), a.locator(".tb-all-builds")];
+  const targets = [a.getByTestId("vision-select"), a.getByTestId("speed-up"), a.getByTestId("match-play"), a.getByTestId("match-time"), a.getByTestId("pings-toggle"), a.locator(".tb-all-builds")];
   for (const target of targets) {
     await target.focus();
     const was = await focused();
