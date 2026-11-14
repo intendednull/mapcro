@@ -3,7 +3,121 @@
 Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `docs/specs/map-state.md`
 (third revision). Review: `docs/specs/map-state-review.md`. Newest state at the top.
 
-## State: phase 2 client written and type-checked; NOT yet run in a browser (handoff, fourth implementer)
+## State: phase 2 done and run in a browser; #49 fixed on the desktop layout (fifth implementer)
+
+Branch `map-state-p2`, with main merged at `61de6cb` (the writer deployed as `1dcbd31`, its lock
+and reader). Fifth implementer, 2026-11-13 night. Everything is committed. **This branch is the
+next release: store v10, floor 9.** The lead's gate, adversarial review, merge and deploy are next.
+
+**#49 is fixed for the desktop layout, verified in Chromium on a real match.** On the phone's
+compact bar a scene still shows no builds (backlog).
+
+| Commit | What |
+|---|---|
+| `327b043` | F2: pickups stored in hundredths. F4: the list caps tested; the packing table in spec §4.3 |
+| `2eef5d8` | F3: `addSceneOps` gives transactions chunked by bytes, the state last; a save with no room for its snapshot toasts "Saved without builds" |
+| `6ffe8b7` | The `UNFIT_UNDO` deploy note |
+| `41adf30` | The wasm `changed` pin corrected (it was written blind and wrong on the old code too) |
+| `55a1475` | Step 1: the edit and its ack no longer clone the board |
+| `d7c093e` | The four rows and `UNFIT_UNDO` `Live`; store v10 (`NeedsReader`, floor 9) |
+| `f9cfd30` | The DOM pins' snapshots, from the rendering before `76dbad5` (see below) |
+| `582b387`, `6b3bf74` | `scene-builds.spec.ts` takes a match the server accepts, and checks the scene after a reload; `statOf` for a revived hero |
+| `2afd7d1` | `written_rows`' test; the no-match follow e2e; the edit-cost table in spec §6; TD-86 to TD-88 |
+
+(`git log --oneline cd968ba..` has the exact list.)
+
+### What was verified, and how
+
+- **QA in real Chromium on match 134623152 at 25:00** (the real asset pack, the real server; a
+  Playwright walk kept in `/tmp/qa-p2/`, not committed; it prints counts only). Player's twelve
+  build columns were read (All builds, then each alone with its level badge and build order),
+  the frame saved, and the scene's columns compared as text and ids:
+  - the saved scene: 12 of 12 identical in All builds, 12 of 12 alone, 12 of 12 levels, 12 of 12
+    build orders up to the frame; hold-Tab opens 12 and releases to 0; no "—" in any column
+    (K/D/A, max health and the calculated stats are all there);
+  - the same after a reload (12 of 12 each);
+  - a follower sees one build, All builds and none as the presenter opens them;
+  - an old scene of that match (no `SceneState`, nothing more on its heroes), after **Retake**:
+    12 of 12 each; no page errors.
+  The toast after the save read "Saved scene 2".
+- **Found by it, fixed:** (1) a hero the match has dead at the scene's moment but the scene has
+  alive read as unknown health, so a health-threshold item left its bonus out (116% against
+  Player's 138%). `statOf` now counts it as full health, as the spec's §5 rule says. (2) A board
+  with a match reopens in Player after a reload, so the e2e's "survives a reload" check was
+  reading Player's column. It goes to the scene first now.
+- **F2 on the real match:** capture → read → `statOf` equals Player's `statBuild` at all 30,576
+  hero-seconds (0 differ), and K/D/A and max health read back equal at all of them. Stored whole
+  (the old code), 15,508 differed, largest error 0.5.
+- **DOM pins:** taken with `web/src` as it was at `acb6d62` plus main, nine runs in a row
+  there; then on this branch's rendering **Player's four pins and the two old scenes' pass
+  unchanged**. The spec as written never loaded its match (an objective without its fields,
+  abilities in tenths instead of seconds: the server refused the timeline), and its outline
+  held a person's random colour and tokens in record-id order; both fixed before the pins
+  were taken.
+- **Rollback check:** `just reader-check` against `1dcbd31`: 40 boards, 11,392 logged
+  transactions, 4,801 holding registry values or a scene's state, 20 an undo that no longer
+  fits, loaded byte for byte. The dump now refuses to run without such an undo in it.
+
+### Step 1, the edit cost: measured, both clones removed from the edit path
+
+Chromium, the real WASM replica, a 64-scene board (3,869 records, 768 heroes), 300 runs,
+medians in ms, before → after (`just edit-cost`; the table is also in spec §6):
+
+| `more` a hero | Board JSON | Local edit | Its ack | A drag frame | Peer's entry, nothing pending | Peer's entry under a pending edit | Whole-state save |
+|---|---|---|---|---|---|---|---|
+| 0 | 748 KiB | 0.94 → 0.01 | 0.94 → 0.01 | 1.88 → 0.02 | 0.94 → 0.01 | 0.94 → 0.26 | 5.33 → 5.48 |
+| 3,000 | 2,993 KiB | 2.44 → 0.03 | 2.65 → 0.02 | 5.09 → 0.05 | 2.96 → 0.03 | 3.18 → 1.11 | 12.32 → 14.19 |
+| 8,000 | 6,331 KiB | 9.05 → 0.04 | 9.30 → 0.02 | 18.35 → 0.06 | 9.06 → 0.05 | 6.10 → 2.31 | 20.06 → 19.98 |
+
+**Decision: both clones are gone from the edit path** (the engine's copy of the view per edit,
+and the WASM wrapper's copy to diff). What still copies the board: a peer's entry while this
+replica has pending work, a rejection, a `Rebase`, and the whole-state save (TD-87).
+
+The characterisation test of `acb6d62` for `changed` failed on the new code **and on the old**:
+it expected a peer's write to be hidden under a pending redo, but a redo is `SetIf` on the value
+it saw and skips the field. Corrected against the old code first (`41adf30`), then the change.
+
+### Numbers
+
+- `cargo test --workspace --no-fail-fast` on the v10 flip: every crate passes but TD-81's known
+  flake (`an_import_is_refused_before_its_body_is_read`, 3 of 3 alone). `just clippy` clean.
+  Simulation, 1,000 seeds × 400 steps, both admissions: 77,010 entries, 10,772 undo checks.
+- `just web-test`: 68 files, 668 tests, `tsc` clean.
+- E2e: `scene-builds` 4, `map-state-dom-pins` 2; the related set (`portrait-menu topbar
+  topbar-rejuv-builds player-inspect player-keys follow-matrix phone-player scenes`) 146 passed
+  before the last small changes; the full suite at `c6566f0`: 464 passed, 14 skipped, 0 failed (18.7 min at two workers).
+- **Mutation testing.** cargo-mutants `--in-diff` against `6a0d391`, `-j 1`, engine + wasm +
+  schema: 49 mutants, 34 caught, 8 unviable, 7 missed. The 7: four in `Replica::next_undo` /
+  `next_redo`, which only the wasm tests hold and the tool doesn't run for an engine mutant
+  (all four fail `changed_tests` by hand; TD-88); three in `written_rows`, which only the
+  server's file tests held (a schema test now kills all three). By hand, one at a time, all
+  caught: 6 on the replica and the wasm diff (the ack check dropped, `pending.is_empty()`
+  dropped, vanished records missing from `changed`, a receive without the pending ops'
+  targets, a rejection without them, a created record missing); 7 on the flip (`UNFIT_UNDO`
+  back to `Ahead`, a row back to `Ahead` twice, the table's "ahead" word, `SCHEMA_VERSION` 9,
+  step 9 additive, step 9 unknown); 8 on `build.ts` (the pickup scale twice, each list cap,
+  the cut direction); 5 on `addSceneOps`; 3 on the save's `builds` flag; 2 on `statOf`; 3 on
+  `host.ts`'s follow code, run through the e2e.
+
+### Left for later (backlog and register)
+
+Scene builds on the phone; the follow matrix's scene column; an e2e for a changed hero hiding
+its build; the last view after a reload; TD-86 (where `chunkByBytes` lives), TD-87 (the
+whole-state save), TD-88 (cargo-mutants and the wasm tests).
+
+### Gotchas (this session)
+
+- A hand-written e2e timeline the server refuses loads as "API summary" with no error in the
+  page: `abilities` are `[second, id, level]`, `items` `[tenths, id, kind]`, an objective needs
+  `key, kind, team, lane, destroyed_s`.
+- **A build column's text holds the player's name.** A QA script that diffed two columns
+  printed two in-game names to the session's output once (never to a file or commit). Compare
+  and count; never print a column's text.
+- A board with a match reopens in Player: after `page.reload()` click the scene before
+  asserting on it.
+- `/tmp/mapcro-p2-heavy.sh '<cmd>'` still serialises heavy jobs for this worktree.
+
+## Earlier state: phase 2 client written and type-checked; NOT yet run in a browser (handoff, fourth implementer)
 
 Branch `map-state-p2`, on top of `6a0d391`. Fourth implementer, 2026-11-13 evening. The lead's
 gate held the box for the whole session (`/tmp/lead-gate.log`, e2e at two workers), so **no
