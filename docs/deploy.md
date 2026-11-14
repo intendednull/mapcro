@@ -159,10 +159,50 @@ the Caddy in infra's nixpkgs (2.11.3):
   (`request_buffers` off), so nothing at the edge stops them. The server enforces its own caps.
   Checked against infra's `lib/mkApp.nix` and `hosts/web`; confirm once after the first deploy
   with a real 400–500 MB upload.
+- **The timeline route's validator passes through, and no longer hangs on who compresses.**
+  `GET /api/boards/{board}/matches/{id}` answers a cached replay with a validator, which the
+  client holds and sends back (sessions.md §4.3).
+  - **As deployed, `encode` doesn't touch this route.** The server compresses the timeline
+    itself (`main.rs` `compression`, gzip or zstd: 1.50 MiB to 0.50 MiB with zstd on the
+    reference replay), and `encode` leaves an answer that is already encoded alone. The `ETag`
+    arrives as the server sent it, on the 200 and on the 304, and an `If-None-Match` list reaches
+    the server whole (checked 2026-11-13 with 2.11.3 and 2.11.4, and again 2026-11-14 with
+    2.11.4 for `Accept-Encoding` zstd, gzip, both, br and none, the debug server behind
+    `encode zstd gzip` + `reverse_proxy`).
+  - **When `encode` does the compressing, it rewrites the `ETag`.** For an upstream that
+    answers plain, it appends the encoding on the 200 (`"…-zstd"`), and of an `If-None-Match`
+    list sent back it takes the suffix off the last validator only; the 304 comes back with the
+    `ETag` unsuffixed (2.11.3, 2.11.4 and 2.11.7, a stub upstream: the adversarial review's
+    run, 2026-11-14). A client comparing `ETag`s then never sees a match and asks again,
+    plainly, on every open: four requests and two whole timelines a tab switch. That is one
+    change away: dropping the server's compression layer, or `encode` gaining an encoding the
+    server lacks.
+  - **So the client's cache uses headers of our own**: the validator in `X-Mapcro-Timeline`,
+    what the client holds in `X-Mapcro-Held`. A proxy passes them through untouched whoever
+    compresses. The server still sends the validator as its `ETag` and still honours
+    `If-None-Match`; the client reads neither (it sends `If-None-Match` beside its own header,
+    so its request is a conditional one).
+  - Tested through a real Caddy (the dev shell's, 2.11.7), both ways:
+    `crates/server/tests/replays.rs` `the_validator_passes_a_compressing_proxy_both_ways` (the
+    deployed stack, and the proxy compressing: `header_up -Accept-Encoding`), and
+    `web/e2e/caddy-timeline.spec.ts` (the real client through the rewriting proxy: sent once,
+    then 304s). **Any other proxy put in front must pass `X-Mapcro-Timeline` and
+    `X-Mapcro-Held` through.**
 - **A Caddy reload drops open WebSockets on every vhost.** `stream_close_delay` is 0, so the
   deploy that adds this vhost disconnects live sockets once (paseo-relay and willow-relay clients
   too), and they reconnect. Later mapcro-only deploys don't change the Caddyfile and don't reload
   Caddy.
+
+### Test proxies left behind
+
+The two tests that go through a real Caddy start one of their own (`caddy run --adapter
+caddyfile --config <temp dir>/Caddyfile`, `admin off`, on free loopback ports) and kill it when
+they end: `crates/server/tests/replays.rs` and `web/e2e/caddy-timeline.spec.ts`. A run killed
+hard (a gate cancelled, a restart mid-test) can leave one running. It holds one or two loopback
+ports and nothing else. List them with `pgrep -af 'caddy run --adapter caddyfile'`, check that
+the command line names a Caddyfile under a temp directory, and kill those by pid. Their temp
+directories (`/tmp/mapcro-e2e-caddy-*`, and the cargo test's own) can go with them. Each writes
+what Caddy said to `caddy.log` beside its Caddyfile, and shows it if Caddy never answers.
 
 ## First deploy (operator)
 

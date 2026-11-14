@@ -2,7 +2,7 @@
 // panel. The map is the interface: edits happen on it directly.
 
 import { rosterTeamName, teamName } from "../map/model";
-import { type JSX, For, Match, Show, Switch, batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js";
+import { type JSX, For, Match, Show, Switch, batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
 import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
 import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe, takeRename } from "../core/device";
@@ -18,7 +18,7 @@ import { JoinCard } from "./JoinCard";
 import { SceneTree } from "./SceneTree";
 import { TopBar } from "./TopBar";
 import { createBoardState } from "./state";
-import { resetBoardModules } from "./reset";
+import { resetBoardModules, resetVisit } from "./reset";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type FollowTarget, type ViewRect, clampView, fromViewport, locate, presenters, sideOf, startFollow, toViewport, zoomAt } from "./follow";
@@ -69,6 +69,8 @@ import type { Tool } from "./tools";
 import { LIMITS } from "../gen/limits";
 import type { Via } from "../gen/Via";
 import type { UndoHistory } from "../session/history";
+import { loadTabView, playerPart, saveTabView, sceneGone } from "../session/tabview";
+import { timelines } from "../player/timelineCache";
 import { AddGameOnBoard } from "../session/AddGame";
 
 /** The page's title, as index.html has it: what the tab says with no board open. */
@@ -143,6 +145,8 @@ interface ToastAction {
 }
 
 export interface InSession {
+  /** The session's id: what a tab remembers of its board is kept under it (§4.2). */
+  id: string;
   via?: Via;
   history: UndoHistory;
   /** The join card shows once per session, not once per tab. */
@@ -159,18 +163,23 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const inSession = p.session;
   const via = inSession?.via;
   const history = inSession?.history;
-  const state = createBoardState(p.board, p.token, { ...(via ? { via } : {}), ...(history ? { onEdit: () => history.edited(p.board) } : {}) });
+  const state = createBoardState(p.board, p.token, {
+    ...(via ? { via } : {}),
+    ...(history ? { onEdit: () => history.edited(p.board) } : {}),
+  });
   if (history) onCleanup(history.attach(p.board, { canUndo: () => state.canUndo(), canRedo: () => state.canRedo(), undo: () => state.undo(), redo: () => state.redo() }));
   const undo = () => (history ? void history.undo() : state.undo());
   const redo = () => (history ? void history.redo() : state.redo());
   const canUndo = () => (history ? history.canUndo() : state.canUndo());
   const canRedo = () => (history ? history.canRedo() : state.canRedo());
   const joinKey = inSession?.joinKey ?? p.board;
+  // What this tab showed when it was last left (sessions.md §4.2): this board's own, or nothing.
+  const remembered = inSession ? loadTabView(sessionStorage, inSession.id, p.board) : undefined;
   const [me, setMe] = createSignal<Me | undefined>(loadMe());
   const [joined, setJoined] = createSignal(hasJoined(joinKey) && !!loadMe());
-  const [viewpoint, setViewpoint] = createSignal<Viewpoint>("amber");
-  const [sceneId, setSceneId] = createSignal<RecordId | undefined>();
-  const [sideTab, setSideTab] = createSignal<"events" | "notes">("events");
+  const [viewpoint, setViewpoint] = createSignal<Viewpoint>(remembered?.viewpoint ?? "amber");
+  const [sceneId, setSceneId] = createSignal<RecordId | undefined>(remembered?.scene);
+  const [sideTab, setSideTab] = createSignal<"events" | "notes">(remembered?.side ?? "events");
   const [tool, setTool] = createSignal<Tool>("select");
   // The palette colour for Draw, Arrow, Comment and Laser: per person, per board.
   const [ink, setInkSignal] = createSignal(loadColour(p.board) ?? loadMe()?.color ?? 1);
@@ -189,8 +198,25 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const [overlay, setOverlay] = createSignal<SVGSVGElement>();
   const [dialog, setDialog] = createSignal<"share" | "clone">();
   // ---- Player (spec §6b): a board with a match opens on it; its preview drives the map ----
-  const player = createPlayerHost(p.board, p.token, via);
-  onMount(() => void player.init());
+  const player = createPlayerHost(p.board, p.token, via, playerPart(remembered));
+  // Player draws a match this page already holds once the board's document is on screen: in
+  // the page and a frame painted (or 100 ms on, where frames don't come: a hidden tab). In the
+  // same task the timeline's first render would hold that frame back (sessions.md §10 phase 3).
+  const documentDrawn = new Promise<void>((ok) =>
+    createEffect(() => {
+      if (state.metaId() === undefined) return;
+      requestAnimationFrame(() => setTimeout(ok));
+      setTimeout(ok, 100);
+    }),
+  );
+  onMount(() => void player.init(documentDrawn));
+  // The link refused for good (revoked, withdrawn): nothing this page holds of the board's own
+  // replays is drawn for it again. (The fetched replay is every board's, by match.)
+  createEffect(() => {
+    if (state.connection().kind !== "closed") return;
+    timelines.dropBoard(p.board);
+    resetVisit(p.board);
+  });
   const inPlayer = () => player.mode() === "player";
   /** The match open in Player, for the feedback form (spec §11a); none in sandbox. */
   const feedbackMatch = () => feedbackMatchOf(inPlayer(), player.matchId(), player.tl(), player.t());
@@ -232,7 +258,47 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
 
   // ---- view and follow (spec §8): following mirrors a presenter's scene and viewport; any
   // change you make to what you see stops it, and following again is one click ----
-  const [view, setView] = createSignal<ViewRect>(FIT);
+  const [view, setView] = createSignal<ViewRect>(remembered?.view ? clampView(remembered.view) : FIT);
+  if (inSession) {
+    // A remembered scene that's gone takes its viewport and side with it: the board opens on
+    // its first scene, fitted, as it would cold (§4.2). Checked once, when the board has caught
+    // up with the server, never against its stored copy: that may still hold a scene deleted
+    // since, and may not yet hold one made just before the page was left (it is saved lazily).
+    // Offline, what this device holds stands. A scene the user picked meanwhile is left alone,
+    // with its viewport.
+    let checked = remembered?.scene === undefined;
+    createEffect(() => {
+      const all = state.scenes();
+      if (checked || !all.length || !state.current()) return;
+      checked = true;
+      if (!sceneGone(remembered!, (id) => all.some((x) => x.id === id), untrack(sceneId))) return;
+      batch(() => {
+        setSceneId(undefined);
+        setView(FIT);
+        setViewpoint("amber");
+      });
+    });
+    // Remembered as the tab is left, and as the page goes (a reload keeps it). A board left
+    // before it loaded keeps what it remembered before; Player's part likewise (`remember`).
+    const keep = () => {
+      const at = untrack(scene)?.id;
+      if (at === undefined) return;
+      saveTabView(sessionStorage, inSession.id, {
+        ...player.remember(),
+        board: p.board,
+        at: Date.now(),
+        scene: at,
+        view: untrack(view),
+        viewpoint: untrack(viewpoint),
+        side: untrack(sideTab),
+      });
+    };
+    window.addEventListener("pagehide", keep);
+    onCleanup(() => {
+      window.removeEventListener("pagehide", keep);
+      keep();
+    });
+  }
   const [following, setFollowing] = createSignal<number | undefined>();
   // Whom the follow is on, by seat as well as peer id: peer ids are per connection, so after a
   // reconnect (a server restart: every deploy) the presenter is found again by seat (spec §8).
@@ -347,7 +413,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   /** Picking a scene shows it: in Player that means Sandbox, on that scene (review: scenes
    * picked in Player never showed). Followers follow, as they follow the mode. */
   const pickScene = (id: RecordId) => {
-    if (inPlayer()) player.setMode("sandbox");
+    // Also when not in Player: picked while the tab's match is still on its way, the scene stays.
+    player.setMode("sandbox");
     userFlip(id);
   };
   /** A scene saved from the replay: shown (its drawings moved into it), with a toast to go back. */
@@ -512,6 +579,11 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   onCleanup(() => state.stop());
   // Unmounted (another board, or back to the landing): module state goes back to its defaults.
   onCleanup(resetBoardModules);
+  // A board alone that is left is left for good: its next opening is a new visit. A session's
+  // tab is only switched away from; the session ends its boards' visits when it is left.
+  onCleanup(() => {
+    if (!inSession) resetVisit(p.board);
+  });
 
   createEffect(() => {
     // In Player, presence is on the live layer, so cursors, lasers, pings and ink in progress

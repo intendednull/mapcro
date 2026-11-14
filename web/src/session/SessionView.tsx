@@ -1,12 +1,14 @@
 // `/s/<session>?tab=<tab>#<token>` (sessions.md §4.1, §7, §8): the session's own connection, its
 // tab strip, and the open tab's board, mounted afresh for each tab (keyed by board and
-// credential: nothing of one board's mount reaches another's). No pool yet (phase 3): a switch
-// is a cold open, from IndexedDB where the board is stored.
+// credential: nothing of one board's mount reaches another's). A switch is a cold open, from
+// IndexedDB where the board is stored (the pool of §5 was measured and not kept); what's kept
+// across it is what the tab showed (§4.2) and the page's timeline cache (§4.3).
 
 import { ShareIcon } from "../ui/ShareIcon";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { Board, type InSession } from "../board/Board";
+import { resetVisit } from "../board/reset";
 import { ShareDialog } from "../board/ShareDialog";
 import { addGrant, sessionUrl, withdrawGrant } from "../core/api";
 import { knownBoards, rememberBoard } from "../core/device";
@@ -30,6 +32,8 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   const s = createSessionState(p.session, p.token, history);
   onMount(() => void s.start());
   onCleanup(() => s.stop());
+  // The session is left: its boards' visits are over (a tab switch alone keeps them).
+  onCleanup(() => resetVisit());
   const loaded = () => s.settled();
   const [active, setActive] = createSignal<RecordId | undefined>(p.tab);
   const [adding, setAdding] = createSignal(takeAddOnOpen(p.session));
@@ -317,7 +321,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       </Show>
     </nav>
   );
-  const inSession = (): Omit<InSession, "via"> => ({ history, joinKey: p.session, title, share, strip, canEdit: () => s.canEdit() });
+  const inSession = (): Omit<InSession, "via"> => ({ id: p.session, history, joinKey: p.session, title, share, strip, canEdit: () => s.canEdit() });
   // A dead link, not an outdated build: that one reloads, or says Update available, as a board does.
   const closed = () => linkDead(s.connection());
   const outdated = () => {

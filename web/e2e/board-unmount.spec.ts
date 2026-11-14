@@ -643,3 +643,27 @@ test("the same board under another token: the new mount loads what the old one j
   await expect(strokes(p)).toHaveCount(2);
   expect(loads).toEqual([`${server.url}/`]);
 });
+
+test("a board left in the page and opened again is a new visit: the ink from before is last visit's, and is cleared", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Board E");
+  const p = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+  await p.goto(`${server.url}/`);
+  await expect(p.getByTestId("open-match")).toBeVisible();
+  await open(p, url);
+  await joinBoard(p);
+  await load(p, "54001", 0);
+  const strokes = (q: Page) => q.locator(".mapbox [data-stroke]");
+  await p.keyboard.press("e");
+  await gesture(p, [[0.3, 0.3], [0.4, 0.35]]);
+  await expect(strokes(p)).toHaveCount(1);
+  await expect(p.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  // Back to the landing and Forward, the page never reloaded: the board was left, so this is a
+  // new visit, as a reload would be (core/nav.ts). Alone in Player, last visit's ink goes
+  // (player/layer.ts): what was entered and made before the board was left doesn't count.
+  await p.evaluate(() => history.back());
+  await expect(p.getByTestId("open-match")).toBeVisible();
+  await p.evaluate(() => history.forward());
+  await expect.poll(() => p.url()).toBe(url);
+  await expect(p.getByTestId("player")).toHaveAttribute("data-state", "match");
+  await expect(strokes(p)).toHaveCount(0, { timeout: 10_000 });
+});

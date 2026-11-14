@@ -61,12 +61,26 @@ export interface BoardStateOptions {
   onEdit?: () => void;
 }
 
+/**
+ * The records this visit's user created, by board. The visit's, not a mount's: what was drawn
+ * on a tab before it was left is still the user's own when the tab is opened again (never
+ * stale ink: player/layer.ts; sessions.md §4.1). Leaving the board in the page ends the visit
+ * (`forgetMade`), as a reload does.
+ */
+const madeBy = new Map<string, Set<RecordId>>();
+
+/** The board was left for good (not a tab switch), or every board was: nothing made counts as this visit's. */
+export function forgetMade(board?: string) {
+  if (board === undefined) madeBy.clear();
+  else madeBy.delete(board);
+}
+
 export function createBoardState(board: string, token: string, opts: BoardStateOptions = {}) {
   // Records live in a store keyed by id, updated only where the replica says something changed
   // (perf report 2026-11-07, findings 1 and 2): a new stroke touches one key, not the board.
   const [records, setRecords] = createStore<Record<RecordId, Entry>>({});
-  /** Records this tab's user created (through `edit`, this page load). */
-  const made = new Set<RecordId>();
+  /** Records this tab's user created (through `edit`, this visit: `madeBy`). */
+  const made = () => madeBy.get(board) ?? madeBy.set(board, new Set()).get(board)!;
   const [peers, setPeers] = createStore<Record<string, PeerPresence>>({});
   const [status, setStatus] = createSignal<SaveStatus>({ kind: "saved" });
   const [connection, setConnection] = createSignal<Connection>({ kind: "connecting", attempt: 0 });
@@ -281,13 +295,13 @@ export function createBoardState(board: string, token: string, opts: BoardStateO
       return r === "owner" || r === "edit";
     },
     edit: (ops: Op[]) => {
-      for (const op of ops) if ("Create" in op) made.add(op.Create.id);
+      for (const op of ops) if ("Create" in op) made().add(op.Create.id);
       const ok = session.edit(ops);
       if (ok) opts.onEdit?.();
       return ok;
     },
     /** Whether this tab's user made the record (an `edit` this page load): never stale ink. */
-    madeHere: (id: RecordId) => made.has(id),
+    madeHere: (id: RecordId) => made().has(id),
     /** An edit that isn't the user's to undo: Player's live layer (spec §6b). */
     editSilent: (ops: Op[]) => session.editSilent(ops),
     /** A silent edit of records anyone would make the same (the live layer): losing the race

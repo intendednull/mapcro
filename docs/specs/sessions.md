@@ -1,7 +1,8 @@
 **Date:** 2026-11-11
 **Status:** draft for the operator's review. Phase 0 built (2026-11-11, §4.1 and §10). Phase 1
 (the server) built 2026-11-12 (§10), reviewed and fixed. Phase 2 (the client) built 2026-11-12
-(§10).
+(§10). Phase 3 (speed: what a tab remembers, the timeline cache; the pool of warm boards was
+measured and not kept) built 2026-11-13, verified 2026-11-14 (§10), not yet reviewed.
 **Supersedes:** the 2026-11-10 sketch "Several replays on one board, as game tabs" (docs/backlog.md,
 mockup `/home/intendednull/concierge/artifacts/mapcro-multi-replay/index.html`). The tab strip
 and the reasons stay. The model changes: there is still one board per game, not several games
@@ -46,10 +47,10 @@ one Player host. A board with no match is simply a tab whose board has no match 
   than its adder held, capped at edit. Board tokens are never stored in the session, never sent
   to its members, and never minted for them.
 - **On the client, switching a tab is a fresh mount keyed by board id**, and each board gets its
-  own room connection. The thing kept warm across a switch is the board's sync session, parked
-  (§5): its replica, pending edits and undo stack, which belong to that board only. Every Solid
-  store, every Player host and every bit of module state is rebuilt. Timelines are cached as
-  immutable data keyed by where they came from.
+  own room connection. Every Solid store, every Player host and every bit of module state is
+  rebuilt, and the board's sync session too: it draws from IndexedDB (a pool that kept left
+  boards' sessions warm was built in phase 3, measured, and not kept: §5). Timelines are cached
+  as immutable data keyed by where they came from, and what a tab showed is remembered (§4.2).
 - **Follow across tabs**: everyone's current tab travels in the *session* room's presence. It is
   one view-state registry row, `session.tab`: Shared, unfollow Keep, override Stop. A follower
   switches with the presenter and then follows inside the board as today.
@@ -405,10 +406,28 @@ memory survives into another board's mount unless it is either:
   `pointerup`, a swipe) removes its own listener on its next pointerup. But it runs against the
   disposed board, whose session takes no edit. The "switch waits for the gesture" rule below
   covers it.
-- **Device settings stay device-wide, as on a board today:** Vision, Show last seen, Player
-  names, Heals and Heavy boxes (localStorage, every board). The ink colour is per board already
-  (`mapcro.colour.<board>`). Comments open is per board. The tool resets to Move on a new
-  mount. (Decided: Vision and layers per tab, §12.)
+- **A tab switch is not a new visit** (the lead, 2026-11-14; review S1). Entering a match's
+  Player alone clears last visit's ink from its live layer, 1.5 s in, sparing what this user
+  drew (`player/layer.ts`). Which matches were entered and which records the user made are
+  kept by the visit per board (`entered`, `madeBy`: `keyed-by-board` in the ledger), not by the
+  mount: ink drawn over a match is still there when its tab is opened again. Since phase 2's
+  keyed remount a switch back had counted as a new visit and deleted it, with no undo step.
+  - A match counts as entered once the settle has run and the choice was made, alone or not.
+    A tab left before that (a quick switch), or opened before this copy could edit, has
+    decided nothing: the clear runs at its next stay.
+  - **The visit ends as `core/nav.ts` says a left board's state does** (the lead,
+    2026-11-14): a reload; a board alone left in the page (Back to the landing and Forward, a
+    board carried into a session); a session left in the page; a link refused for good.
+    `board/reset.ts` `resetVisit` forgets both for the board, or for every board when a
+    session is left. The next opening is a new visit: ink from before is last visit's.
+- **Device settings:** Player names stay device-wide, as on a board today (localStorage, every
+  board). Vision, Show last seen and the map layers are **a tab's own once set there**
+  (decided, §12 item 7; built in phase 3 with §4.2): a tab opens with each one as it was last
+  set on that tab. One never set there shows this browser's last choice, as on a board alone
+  and on a tab never opened, so a tab only opened and left pins nothing (Heals, Heavy boxes,
+  Vision and Show last seen are still written to this browser on every change). The ink
+  colour is per board already (`mapcro.colour.<board>`). Comments open is per board. The tool
+  resets to Move on a new mount.
 - **An edit in flight at a switch lands on its own board.** A drag dropped, a stroke released or
   an undo pressed while the switch happens goes to the `BoardSession` of the board it began on.
   Never to the newly mounted one: each gesture closes over its own session, and the switch waits
@@ -432,20 +451,113 @@ memory survives into another board's mount unless it is either:
   "local view".
 - At most 200 entries, oldest dropped.
 
+**Built in phase 3** (`web/src/session/tabview.ts`; Board reads it at mount and writes it on
+cleanup and on `pagehide`, so a reload keeps it).
+- It holds: the scene, the viewport and the side it's seen from, the sidebar tab, Player or
+  Sandbox, the match, t, playing and speed: each is what the screen showed, a presenter's
+  value while following. **Not floor:** the client has no floor state yet (presence sends a constant). Left on a scene with a
+  match behind it, the tab comes back on the scene with the match held where it was.
+- Of Vision, Show last seen and the seven map layers (§12 item 7) it holds **only what the
+  user set on that tab**, each from the change on (`withOwn`, from the view-state store's
+  `onOwn`). The rest aren't stored, so they show this browser's choice at each mount. A
+  presenter's values while following are not the user's: they aren't held, unless the user's
+  own change stops the follow and keeps them (§8), which sets them. (Changed 2026-11-14, the
+  lead's reading of item 7. As first built, leaving a tab stored all nine as shown, so a tab
+  only passed through kept Heals off after another tab turned it on.)
+- A stored entry is read field by field, each only in its own shape, and only if it names the
+  board being mounted. A scene that's gone drops the scene, the viewport and the side (the board
+  opens on its first scene, fitted). A match no longer attached drops the match, its playback
+  and the mode (the board opens on its newest match, as cold). The rest stays.
+- A tab left before its board loaded, or before its matches were known, keeps what it
+  remembered before: nothing half-loaded is written over it. "Not known" includes an answer
+  that isn't one (a 502 from the proxy, a 429): only a list from the server says a board has
+  no match (review S3).
+- **What the user does while the tab is still opening is kept** (review S4). The tab counts as
+  opened once its match is drawn, from this page's copy or from the server, not when the
+  server's answer comes: a seek, Play or a speed from then on is remembered. A mode chosen
+  before that (a scene picked, or Back to the replay) stands: the match that opens behind a
+  picked scene doesn't take the tab to Player, and the tab remembers the scene. This holds for
+  a board opened alone too. A match that draws behind a scene picked meanwhile waits at its
+  default place (10:00, or its end), not at the 0:00 of the empty Player.
+- A tab left on a scene whose match was attached and didn't load (a load error) remembers
+  the match with no playback, and comes back on the scene with the match behind it (review
+  N2). A match no longer attached, or one refused for its mode (never attached), still opens
+  as cold; so does a board that had no match when the tab was left and has one now: in Player.
+- The scene-gone check runs once, when the board has caught up with the server, and leaves
+  alone a scene the user picked meanwhile (review N3). Never against the stored copy: that is
+  saved lazily, so it may not hold yet a scene made just before the page was left (a peer's
+  scene, flipped to, then a reload), and a tab reset on its say would not come back at
+  catch-up (second review, 4). Offline, what this device holds stands, a gone scene's viewport
+  with it.
+- **No answer is not a refusal** (second review, 5). The timeline request tells the server's
+  refusals (400, 401, 403, 404, 422: what the page held is taken down and the board's own
+  entry dropped) from what isn't the server's answer: the proxy's 502 to 504 while it
+  restarts at a deploy, a 429, a 408, a body that isn't its JSON. Those are as no answer at
+  all: what's drawn stays, what the page holds stays, and the tab keeps its playback (a match
+  it was left on that isn't drawn is remembered with the playback it had). With nothing to
+  draw, the load's problem shows.
+- **`adopt` keeps only what differed, on purpose.** When a follower's own change stops the
+  follow, the presenter's values that differed from the follower's become the follower's, are
+  written to this browser and are the tab's own. One that was the same was already this
+  browser's choice and stays that: it isn't pinned to the tab, so it still follows a later
+  change made on another tab, as on a tab only passed through.
+- A board opened alone (`/b/`) remembers nothing: this is the session's.
+
 ### 4.3 Memory budgets
 
 | Where | Holds | Budget |
 |---|---|---|
 | Client: active board | its document (typically < 1 MB, ≤ ~20 MB at the schema's limits), Player host, one timeline | as a board today |
-| Client: parked boards (§5) | each one's replica, pending and undo | **3 boards and 40 MiB** (`Doc` estimate via the WASM's `approx_heap_bytes`), whichever comes first; LRU; also dropped after 10 min parked |
-| Client: timeline cache | decoded timelines, frozen, keyed by `(scope, match id, tier, format)`, where scope is the board for an uploaded timeline and empty for one fetched from Valve (§11, Scope) | **48 MiB decoded** (a long match is ~6 MiB on the wire; measure decoded size in phase 3 and set the cap from it), LRU |
+| Client: parked boards (§5) | nothing: the pool was measured in phase 3 and not kept (§5, §10) | was 3 boards and 40 MiB, dropped after 10 min parked |
+| Client: timeline cache | decoded timelines, frozen, keyed by where the server says they came from: the replay fetched from Valve by match alone (one file for every board), a board's own upload by board and match. Tier and format are the file's, and a file written again has another validator (below) | **48 MiB decoded**, LRU. Measured in phase 3 on the reference replay (44 min, 1.50 MiB of JSON, far under the 6 MiB guessed): 1.5 to 2.2 MiB on the heap, 0.99 to 1.43 of its length. Later runs measured 2.40 MiB (1.60 of its length), so an entry counts 1.75 bytes per character (TD-94) and the cap holds about eighteen long matches |
 | Client: session document | tabs | ≤ ~400 KB at the cap |
 | Server: session room | a room like a board's | ~64 KB base plus a tiny document; counted in `MAX_OPEN_ROOMS` and `ROOM_MEMORY_BYTES` like any room |
 | Server: board rooms | loaded by people on them, never by the strip | unchanged |
 
+**The timeline cache, as built in phase 3** (`web/src/player/timelineCache.ts`, the page's;
+`player/host.ts` `loadTimeline`). The server decides, every time:
+- `GET /api/boards/{board}/matches/{id}` answers a cached replay with a validator, in
+  `X-Mapcro-Timeline` (and as its `ETag`): `"cdn-<hash>"` for the fetched replay, `"up-<hash>"`
+  for the board's upload, 16 hex digits of the SHA-256 of the file's scope, length and time
+  written. Past the prefix it no longer spells out the file's size and write time, which a
+  view link would read (security review L1). It isn't a secret: the hash is unsalted, so the
+  write time can be searched offline by someone who knows the size. Asked with it among the validators held, in `X-Mapcro-Held`,
+  the answer is 304 with no body, after the same access check and with the same effects (the
+  open is counted, a stale fetched timeline is refreshed) as a 200, and only for a file that
+  can still be read (its first byte: one that can't falls through to the next tier, as for a
+  caller holding nothing). The metadata summary has no validator and isn't kept.
+- **Why headers of our own** (review B1, 2026-11-14; hardening, not a fix of the deployed
+  stack). When Caddy's `encode` compresses an answer, it rewrites the `ETag` on the 200 and
+  restores only the last validator of an `If-None-Match` list, and a client comparing `ETag`s
+  then fetches every timeline again on every open. As deployed that doesn't happen: the server
+  compresses this route itself, and `encode` leaves an encoded answer alone (docs/deploy.md has
+  the runs). The cache shouldn't hang on which side compresses, so the client reads
+  `X-Mapcro-Timeline` and never the `ETag`. It sends `If-None-Match` beside `X-Mapcro-Held`,
+  so that its request is a conditional one and the 304 an answer to it; the server takes
+  either. Tested through a real Caddy, as deployed and with the proxy compressing:
+  `crates/server/tests/replays.rs` and `e2e/caddy-timeline.spec.ts`.
+- The client draws what it holds for the board and match at once, asks with the validators it
+  holds, and then keeps what's drawn (304), or draws the timeline sent in its place, or, refused
+  (403, 404, a mode refusal), takes it down and drops the board's own entry. With no answer
+  (offline) what's drawn stays. Answered with the summary (no replay of the match any more),
+  it forgets the fetched replay it held too, so the next open doesn't draw it first. When the
+  board's link is refused for good (revoked), the board's own entries go, every match's
+  (security review L2).
+- So the cache never shows a timeline the server wouldn't send again, past the moment before
+  its answer; and an upload is never read by another board (its key is its board).
+- Opening a match used to fetch its timeline twice (once to open, once when its job said
+  `done`): the second is a 304 now.
+- An older server sends no `X-Mapcro-Timeline`: nothing is kept, and it works as before. An
+  older client never sends `X-Mapcro-Held`. Neither order of deploy breaks the other. A replay
+  that arrives without the header is said once a page in the console (`console.warn`), so a
+  proxy that strips it is visible: the cost is every timeline fetched whole on every open.
+- A timeline can't be nested deeply enough to break the freeze (security review L3): every
+  cached file passed `timeline::validate`, a typed `serde_json` parse, which stops at 128 levels.
+
 ## 5. Keeping recent boards warm (internal, not user-facing)
 
-**What's kept is the board's sync session, not its UI.** Phase 3 adds a `RoomPool` beside
+**Not kept: see "Built in phase 3, measured, and not kept" below.** The design as it was
+proposed: what's kept is the board's sync session, not its UI. Phase 3 adds a `RoomPool` beside
 `SessionView`:
 
 - The pool is keyed by `(board id, credential fingerprint)`. It holds the `BoardSession`: the
@@ -466,6 +578,15 @@ memory survives into another board's mount unless it is either:
   within one round trip. A cold tab draws from IndexedDB in the same time if stored, and
   otherwise waits for `base`. Phase 3 measures before tuning. If cold switches are already fast
   enough, the pool is optional.
+- **Built in phase 3, measured, and not kept (2026-11-14).** `RoomPool` and `BoardSession.park`
+  / `resume` were built as above (3 boards, 40 MiB, 10 minutes; a parked session with pending
+  edits flushed on quiet reconnects) and passed their tests. Measured against the same build
+  without it (§10 phase 3), the pool saved only the stored copy's read and the replica's rebuild:
+  under the 50 ms the lead set as the bar for keeping a parked session with pending edits, state
+  that needs care for every later change to sync. So a switch is a cold open, as in phase 2: the
+  left board's session ends (a last save, its storage closed, its socket gone), and the board
+  draws from IndexedDB when it's opened again. The code is in the branch's history (ddac12b to
+  e26b7a5) if a slower device or a much larger board changes the numbers.
 - **Prefetch:** none on the server. The client may warm the timeline cache for the tab next to
   the active one, once the active one is idle (one at a time, behind the replay lookup limits).
   It never opens a room for a tab nobody is on.
@@ -648,18 +769,17 @@ state. Each row:
 
 Rows (each one at least): scenes and the current scene; strokes, arrows, comments and notes;
 roster and heroes; objectives; Player or Sandbox; the match; t, playing and speed; jump pin;
-Vision and Last seen (device-wide, so the *same* on B by design: the row asserts that); the
-seven layers (device-wide, the same); open skull recap, events recap, inspect, All builds; Effects
+Vision, Last seen and the seven layers (a tab's own once set there, else this browser's and so
+the *same* on B: §4.1; the row asserts both); open skull recap, events recap, inspect, All builds; Effects
 or Build order; events filters and search; hover label (local and remote); open game tooltip;
 selection and picked objectives; the tool; ink colour (per board); comments open (per board);
 peers' cursors, laser, drag previews, live ink and pings from A (never on B); people list; save
 status and rejections; a pending edit made offline on A (it lands on A, never B); an upload
 handoff to A; undo on B after an edit on A (doesn't undo A's); a drag released during the switch
-(it lands on A); a parked A with pending edits (they flush to A); a parked A evicted (it reopens
-cold, correct).
+(it lands on A); a left board holds nothing open (no pool: §5); the timeline cache (sent once,
+confirmed on every open, a file written again, a refusal, no answer).
 
-Unit level: `RoomPool` keying (another board or another credential never matches; eviction by
-count, bytes and age); the module-state ledger guard (§4.1); `TabView` restores only into its
+Unit level: the module-state ledger guard (§4.1); the timeline cache's keys, LRU and freeze; `TabView` restores only into its
 own board, and drops a dead scene or match.
 
 ### 9.2 Capabilities (server, Rust)
@@ -903,8 +1023,128 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      header has no room (TD-61). Debt: TD-58 to TD-61.
 3. **Speed: remembered state and warmth.** `TabView`, the timeline cache, `RoomPool`. Measure
    switch times first. Add each piece only if it pays.
+   **Built 2026-11-13, verified and measured 2026-11-14 (branch `sessions-p3`), not yet
+   reviewed** (`docs/journal/2026-11-14-sessions-build.md`). Kept: §4.2 (`TabView`) and §4.3 (the
+   timeline cache and the route's validator). Built, measured and not kept: §5 (the pool). One
+   server change, the `ETag` on the board's timeline route; it needs no deploy order.
+   - **Measured before** (a0774c5; `web/e2e/perf-session-switch.spec.ts`: a session of two boards,
+     each with the reference replay, on a device that holds no board link; the dev box under
+     load, a debug server; ms from the click on the tab, median (min–max) of 14 switches).
+     `mounted`: the board's root is in the page. `drawn`: its document is. `timeline`: its match
+     is. `live`: its room answered.
+
+     | Switch | mounted | drawn | timeline | live |
+     |---|---|---|---|---|
+     | to a board never opened here | 32 | 120 | 325 | 108 |
+     | to a board left earlier | 25 (22–42) | 59 (51–109) | 286 (235–347) | 71 (42–98) |
+     | the same, HTTP at 40 ms and 20 Mbit/s | 27 (23–44) | 59 (47–118) | 463 (412–565) | 98 (83–145) |
+     | left earlier, boards of 49 scenes | 25 (20–28) | 82 (62–93) | 285 (269–305) | 91 (68–100) |
+     | the same, HTTP at 40 ms and 20 Mbit/s | 30 (25–54) | 72 (55–107) | 465 (424–512) | 110 (94–197) |
+
+     So before phase 3 the document already drew within §5's 100 ms from IndexedDB, and the match
+     was the slow part: 230 to 350 ms locally, over 400 ms on a modest link, fetched twice and
+     parsed twice on every switch. The timeline cache is the piece that pays most. The pool
+     removes the storage read and the replica's rebuild (about 35 to 55 ms of `drawn`) and keeps
+     the undo stack in memory (TD-58's window).
+   - **Measured after** (2026-11-14, the same spec and box; "left earlier" rows, 14 switches,
+     median). The pool build is e26b7a5; the build without it is the branch as it stands.
+
+     | Switch to a board left earlier | mounted | drawn | timeline | live |
+     |---|---|---|---|---|
+     | before phase 3 | 25 | 59 | 286 | 71 |
+     | with the pool | 33 | 33 | 136 | 129 |
+     | without the pool | 25 | 120 | 120 | 156 |
+     | before, HTTP at 40 ms and 20 Mbit/s | 27 | 59 | 463 | 98 |
+     | with the pool, the same link | 30 | 30 | 145 | 169 |
+     | without the pool, the same link | 25 | 51 | 145 | 176 |
+     | before, boards of 49 scenes | 25 | 82 | 285 | 91 |
+     | with the pool, 49 scenes | 44 | 44 | 164 | 146 |
+     | without the pool, 49 scenes | 26 | 129 | 129 | 165 |
+     | with the pool, 49 scenes, the same link | 41 | 41 | 148 | 189 |
+     | without the pool, 49 scenes, the same link | 26 | 58 | 146 | 184 |
+
+     A board the pool had dropped (four others opened since) drew at 156 to 177 ms: its last
+     save and the parked boards' storage were in its way.
+   - **What the numbers say.**
+     - **The timeline cache pays:** the match is drawn 150 ms sooner on this box and 320 ms
+       sooner over a 40 ms link, and a match already held costs one 304 (the answer a 1.50 MiB
+       file used to be).
+     - **A timeline's first draw holds the main thread 60 to 100 ms.** It used to come after
+       the network; now it comes right after the matches list. So the room's answer (`live`)
+       waits behind it, 60 to 100 ms later than before on every build (TD-96).
+     - **The pool does not pay.** Over a link with any latency it saves 17 to 21 ms of `drawn`
+       and nothing of `live`. On this box (no latency) it saves 85 to 87 ms of `drawn`, but only
+       because the board's stored copy and the held timeline arrive together and the timeline's
+       render runs before the document is painted. Player now draws a held timeline after the
+       board's document is on screen (`Board.tsx` `documentDrawn`); the numbers for that are in
+       the journal. The lead's bar for keeping parked sessions with pending edits was 50 ms on
+       a real switch: **removed** (d7ab947, one commit, so it can be put back).
+   - **Measured again, a held timeline drawn after the document** (44f2fd5, no pool; 2026-11-14,
+     the same spec and box, busy with other jobs, so the ranges are wide; "left earlier", 14
+     switches a run, median (min–max) for `drawn`).
+
+     | Switch to a board left earlier, no pool | mounted | drawn | timeline | live |
+     |---|---|---|---|---|
+     | run 1 | 29 | 66 (54–94) | 156 | 172 |
+     | run 2 | 37 | 80 (55–179) | 177 | 209 |
+     | run 3 (the box at its busiest) | 55 | 112 (57–194) | 231 | 233 |
+     | run 4 (the box quiet) | 26 | 55 (50–80) | 131 | 146 |
+     | HTTP at 40 ms and 20 Mbit/s, run 1 | 35 | 71 (48–152) | 189 | 232 |
+     | the same, run 2 | 27 | 55 (49–82) | 149 | 186 |
+     | the same, run 3 | 32 | 70 (53–109) | 191 | 239 |
+     | the same, run 4 | 24 | 51 (38–59) | 139 | 169 |
+     | boards of 49 scenes | 35 | 93 (69–186) | 186 | 235 |
+     | 49 scenes, the same link | 38 | 122 (66–448) | 348 | 405 |
+
+     `drawn` was 120 without the pool before this change, 33 with the pool, 59 before phase 3
+     (49 scenes: 129, 44, 82).
+   - **The decision (the lead, 2026-11-14): the pool stays removed.** The bar was a median
+     `drawn` of at most about 80 ms on this box without it. Four runs: 55, 66, 80 and 112, the
+     median of the four 73; each run's fastest switch 50 to 57; 51 to 71 over the link. The
+     runs follow the box's load: 55 with it quiet (under the 59 from before phase 3), 112 at
+     its busiest, when a board never opened took 222 to draw against 74 to 134 in the other
+     runs. The 49-scene rows are 11 ms over what they were before phase 3, in that noise (one
+     switch took 448 ms).
+   - **Tests:** `web/test/sessions-speed.test.ts` (TabView's shape and its two drops; the cache's
+     keys, LRU and freeze), `web/test/timeline-load.test.ts` (`Api.timeline`'s validators and
+     304s; each branch of `loadTimeline`; a tab as its board opens),
+     `crates/server/tests/replays.rs` (the validator: 304 only for the file held, in either
+     header, and only after the access check, through a link and through a grant; through a
+     real Caddy, as deployed and with the proxy compressing; a held file that can't be read; a
+     cached replay that can't be read is logged by its tier), `e2e/caddy-timeline.spec.ts` (the
+     real client through a Caddy that rewrites the `ETag`: sent once, then 304s), and in
+     `e2e/session-isolation.spec.ts` (§9.1): a tab as it was left, from sessionStorage after a
+     reload, a scene gone meanwhile (checked once the board has caught up); a layer a tab's own
+     once set there (also when set before the tab's match was confirmed), this browser's on a tab never opened and on one only passed through; ink over a match kept through a switch; a follow ended by a switch, the presenter's layers never the tab's own; a scene picked and a seek made while the match is on its way; a left board holds nothing open; the
+     timeline cache sent once and confirmed on every open for each board, a file written again,
+     a refusal, no answer. `e2e/fixtures.ts` fails any test whose page writes to a frozen object
+     (every timeline Player shows is frozen, cached or not), proved by `frozen-write-guard.spec.ts`.
+   - **Mutation:** 34 hand mutants over `tabview.ts` and `timelineCache.ts` (14 of them over
+     the layers a tab holds), all killed by `sessions-speed.test.ts`; 22 over `api.ts` and
+     `host.ts` (the request, `loadTimeline`, a tab as it opens), all killed by
+     `timeline-load.test.ts`; 13 over `host.ts`, `api.ts`, `Board.tsx` and `layer.ts` that only
+     the browser rows can fail, all killed (one of them the client reading the `ETag`, through
+     the rewriting Caddy). The lists are in the journal. cargo-mutants on the route's diff, after
+     the review's changes: 10 mutants, 9 caught, 1 unviable, none missed (the one missed at
+     first, the tier in a debug line, has its test). One equivalent mutant is known and kept:
+     `madeBy` put back per mount (journal, S1).
+   - **Debt:** TD-93 to TD-96.
 4. **Follow across tabs.** `seat`, `tab` and `session_role`, the `session.tab` registry row and
    the `Id` kind, the follow chip's "No access", and §9.3.
+   **Checks carried from phase 3** (the layers a tab holds, §4.2):
+   - A follower moved off a tab keeps nothing of the presenter's layers, Vision or Show last
+     seen for it: only what the follower set there is the tab's own. Until phase 3's change the
+     tab kept what it showed. Confirm that is wanted once a follow crosses tabs (the scene and
+     the playback are still kept as shown: `Keep`), and give it a row in §9.3.
+   - A layer set before a tab's matches are known, or before its match is confirmed, is the
+     tab's own. Covered since phase 3: before the match is drawn, by `test/timeline-load.test.ts`
+     (`remember` while opening); drawn and not yet confirmed, by the end of the Player row in
+     `e2e/session-isolation.spec.ts` (the timeline's answer held, Heals set, the tab left).
+     Check it still holds when a follow moves a person off a tab at that moment.
+   - **A left tab with unsent work** (TD-101): an edit made as a tab is left goes out within 2 s
+     or stays pending in this browser until that board is opened here again. The strip should
+     mark such a tab (as the save status does on the board), so the user knows collaborators
+     don't have it yet.
 5. **Polish.** Strip details (match, winner, tier, job status), Load a game and New board from
    the strip, the overflow list, the phone Games sheet, and the mapcro:// session links.
 6. **Later.** Adding a tab from another session (a grant of a grant), cloning a session (open question 11), a series scoreline, and
@@ -945,7 +1185,8 @@ All as proposed except 10 and 11:
 4. The internal cap of 2,000 tab records is fine as "no hard limit".
 5. Session editors can be followed on a view-only tab.
 6. Session viewers see who is on which tab.
-7. Vision and map layers are remembered per tab.
+7. Vision and map layers are remembered per tab. Read by the lead (2026-11-14) as: a tab
+   remembers what was set on it; a tab only opened and left follows this browser's choice (§4.2).
 8. Session grants appear in the board owner's Share list, revocable there.
 9. No Whiteboard tab, no "scenes per game" filter.
 10. **Changed: one undo**, not two (§7.2). Two undos would confuse: people press the undo button to

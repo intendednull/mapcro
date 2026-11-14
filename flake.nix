@@ -273,6 +273,7 @@
             nodejs_24         # Quint CLI (npm) and the web client
             jdk21_headless    # Apalache, the symbolic model checker Quint downloads on first `quint verify`
             tlaplus           # TLC, for exhaustive checks of `quint compile --target tlaplus` output
+            caddy             # the deployed proxy, for the tests that go through `encode` (docs/deploy.md)
           ];
           # Browser tests (web/e2e): Playwright's browsers come from nix; the npm
           # @playwright/test version must match playwright-driver's.
