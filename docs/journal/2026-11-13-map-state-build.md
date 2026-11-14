@@ -18,7 +18,7 @@ the new rows is wanted early (see "The release boundary").
 | Commit | What |
 |---|---|
 | `feb95f4` | Reviews' F3, F4, re-review 1, 2, 4, and TD-80 (`just reader-check`) |
-| (next) | The writer on the server: 11 rows `Live`, `SceneState` `Live`, store v9 (floor 8), file version 2 written; four new rows `Ahead`; the client's row table and the build's stored layout (`web/src/mapstate/build.ts`) with its round-trip property |
+| `4488d5c` | The writer on the server: 11 rows `Live`, `SceneState` `Live`, store v9 (floor 8), file version 2 written; four new rows `Ahead`; the client's row table and the build's stored layout (`web/src/mapstate/build.ts`) with its round-trip property |
 
 ### What was built
 
