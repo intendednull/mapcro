@@ -600,6 +600,18 @@ mod tests {
         assert_eq!(count(Admit::DEPLOYED), 0, "the server as built logged an undo the deployed reader refuses");
     }
 
+    /// A reader release, where every registry write is refused: a Filler's every transaction is
+    /// a rejection, so nothing in the log shows its next cseq. The room keeps it when the
+    /// rejections are resolved (`Write::PruneRejections`), and so must the simulation's
+    /// storage, or the client restarts at 0 after a server restart (seed 0x29 found it).
+    #[test]
+    fn a_client_whose_every_write_was_refused_keeps_its_place_across_a_restart() {
+        let reader = Admit { row: |_| mapcro_schema::Status::Ahead, scene_state: mapcro_schema::Status::Ahead, unfit_undo: mapcro_schema::Status::Ahead };
+        for seed in 0..60 {
+            run(seed, &Config { admit: reader, ..Config::default() }).unwrap_or_else(|f| panic!("{f}"));
+        }
+    }
+
     /// The server as built, under every behaviour and attacker: the simulation's properties
     /// hold with the rows refused, and nothing ahead of the old reader reaches the log, so a
     /// rollback still loads every board. (The same seeds do write them once admitted: the
