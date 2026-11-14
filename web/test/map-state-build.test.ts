@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { LIMITS } from "../src/gen/limits";
 import { ROWS, type RowKey } from "../src/gen/rows";
-import { WRITTEN, captureBuild, captureScene, captured, heroBuildAt, readBuild, statOf, type HeroBuild } from "../src/mapstate/build";
+import { WRITTEN, captureBuild, captureScene, captured, heroBuildAt, readBuild, statOf, type HeroBuild, writesHeroes } from "../src/mapstate/build";
 import { buildAt, buildOrder } from "../src/match/builds";
 import { PICKUPS_FORMAT, statBuild } from "../src/match/stats";
 import type { Timeline, TimelinePlayer } from "../src/match/timeline";
@@ -48,7 +48,8 @@ describe("a hero's build through a scene", () => {
   const tl = match(PICKUPS_FORMAT);
   it.each([0, 1, 2, 3, 4])("reads back as Player computed it at second %i, for every hero", (t) => {
     const rows = captured(captureScene(tl));
-    expect(rows).toEqual({ builds: true, heroes: false, rows: WRITTEN, patch: 6839 });
+    // Its heroes too, once this build writes that row.
+    expect(rows).toEqual({ builds: true, heroes: writesHeroes(), rows: WRITTEN, patch: 6839 });
     for (const p of tl.players) {
       const computed = heroBuildAt(tl, p, t);
       const stored = captureBuild(computed);
