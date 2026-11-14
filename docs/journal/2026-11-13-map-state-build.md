@@ -7,6 +7,107 @@ Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `
 
 Off main `a0774c5` (prod `e878c30`, store v10). Newest first.
 
+### Resume after restart (2026-11-14, 05:45; the seventh implementer stopped for a daemon restart)
+
+Everything is committed on `map-state-p3`. No heavy job of this stream is queued or running.
+Read this section first, then the handoff below it (written earlier the same night; its
+"next steps" list is still right from step 2 on).
+
+**Done and verified**
+
+- **Release 2, `map-state-r2` at `e1d7796`** (off main `a2d69da`; `b3c9223` and `17c6c67`, not
+  `cda86fb`): `just web-test` 70 files, 684 passed, 1 skipped, `tsc` clean; e2e at two workers,
+  45 spec files (player*, topbar*, scene*, map-state-dom-pins, follow-matrix, phone-player,
+  map-furniture), 267 passed, 0 failed. Reported to the lead. Not run there: cargo tests, the
+  full e2e (no Rust differs from main).
+- **The map-DOM control: settled, the map does not differ.** The walk on each build twice
+  (`b3c9223` twice, `cda86fb` twice; 75 paused frames each, 31,877 map elements, 778 hero
+  tokens). The whole-map hash differs on 75 of 75 frames between two runs of the SAME build,
+  from two things only: the order of the hero tokens in the document, and each token's
+  `data-player` (the hero record's id, new with every board). With the record id left out and
+  the order ignored, every frame holds exactly the same elements with the same attributes and
+  text, 75 of 75, in all six pairs (each build against itself, and step 1 against the rest
+  four ways). The hero-token hash (slot, place, sight, class) is identical 75 of 75 in every
+  pair, the top bar 75 of 75. So no map element differs between `b3c9223` and `cda86fb`.
+- **TD-97** (`245696c`), the four missed e2e wiring mutants.
+- **Phase 4, to its first release boundary** (commits below). At `a12eabe`: e2e at two
+  workers, 58 spec files (every player*, scene*, topbar*, map-state-dom-pins, board,
+  board-file, objectives, markers, map-furniture, follow-matrix, phone*, match, palette-player,
+  playtest, replay, tools, hero*), 311 passed, 0 failed; `tsc` clean; the DOM pins rewritten
+  with `--update-snapshots` gave no difference (old scenes and Player draw as they did).
+  E2e mutants of the new wiring, 4 of 4 caught: a scene's split not read (dom pins, playtest's
+  lane drag), a scene's marker status not read (dom pins, three objectives tests), no respawn
+  time captured, and one captured a second short (both by the new D4 test).
+
+**Not verified: rerun before anything here ships**
+
+1. **`npm test` whole, at the tip.** At `a12eabe` it was 71 of 72 files, 712 passed, 1 failed:
+   the module-state guard, on a module-level empty array in `scene.ts`. Fixed in `674fca5`
+   (the guard's file and `from-scene.test.ts` pass, `tsc` clean), but the whole suite has not
+   run since. `/tmp/ms-p4/jobE.sh` does it (through `tools/heavy.sh nix develop <this tree> -c`).
+2. **The `cda86fb` perf verdict is not final.** One interleaved job ran (4 rounds on
+   134623152, 3 on 129738985, alternating, late in the match, playing), but rounds 2 and 3
+   ran at load 30 to 67 (not this stream's jobs). The runs at load under 13, JS % of the main
+   thread then fps:
+
+   | Match, CPU | Step 1 (`b3c9223`) | The rest (`cda86fb`) |
+   |---|---|---|
+   | 134623152, 1x | 9.7 %, 60 (load 8.4); 11.8 %, 60 (7.3) | 8.7 %, 60 (9.2); 9.9 %, 60 (4.0) |
+   | 134623152, 4x | 22.0 %, 16 (11.8); 25.1 %, 40 (6.0) | 25.9 %, 47 (8.5); 25.4 %, 47 (3.5) |
+   | 129738985, 1x | 10.4 %, 60 (9.0) | 11.7 %, 60 (12.3); 10.1 %, 60 (5.4) |
+   | 129738985, 4x | 20.6 %, 26 (11.0); 20.4 %, 31 (8.8) | 20.6 %, 29 (5.5) |
+
+   **So far `cda86fb` is no worse:** at 1x both hold 60 fps with the script time inside each
+   other's range (8.7 to 11.7 % against 9.7 to 11.8 %); Tab and hover medians are within the
+   spread. At 4x on 134623152 its script share is 0.3 to 3.9 points higher while it draws
+   more frames (47 fps against 16 and 40), which is the same work per frame or less. The one
+   run that read as worse before (12.4 %, 54 fps) was load. **But that is two usable runs a
+   build, one in two cells: the brief asks for three.** `/tmp/ms-p3-qa/jobB2.sh` runs four
+   more rounds and waits for load under 10 before each (builds are in
+   `/tmp/ms-p3-qa/dist-s1` and `dist-rest`, the checkout is `/tmp/ms-p3-perf`, the binary a
+   copy in its own `target/`); `node /tmp/ms-p3-qa/perfsum.mjs 13` tabulates (add `perf4.log`
+   to its file list). Keep `cda86fb` held until those are in.
+3. **Scratch is not cleaned up**, because the reruns need it: `/tmp/ms-p3-perf` (a worktree),
+   `/tmp/ms-p3-qa`, `/tmp/ms-p4`, `/tmp/ms-r2-gate`. Remove them once the perf is settled
+   (`git worktree remove /tmp/ms-p3-perf`).
+
+**Phase 4 commits on this branch (after `912272c`)**
+
+| Commit | What | A coach sees |
+|---|---|---|
+| `be30918` | `fromScene`: a scene's records behind `MapState`; `marker.status`, `lane.split` | Nothing |
+| `2c860f9` | `heroDraw`: the viewer's Vision, one rule for Player and a scene (D3, D5) | Nothing (nothing reads it yet) |
+| `0e91064` | Spec §6: both as built | |
+| `090eb2e` | `Board.tsx`: a scene's lane splits and marker statuses read its state | Nothing |
+| `ca0b0f2` | **D4: Save writes a dead hero's respawn time** (`PlayerState.respawn`, whole seconds rounded up, at most 600) | A new scene's dead hero says "respawn 0:05", not the unset "respawn" |
+| `a12eabe` | e2e for D4 (`scene-builds.spec.ts`) | |
+| `674fca5` | The module-state guard's fix | |
+
+**The release boundary is D4** (`ca0b0f2`): user-visible, no new row, no store version (the
+field exists and every build reads it; old scenes are untouched). Hand mutants through vitest:
+`scene.ts` 43 (40 at first, 2 after a test, 1 redundant guard removed), `shown.ts` 13 of 13,
+the capture 9 (8 at first, the cap's value after a pin).
+
+**Open decisions**
+
+1. **D2 can't ship as reading alone.** `fromScene` gives the scene's own hero (`more.hero`)
+   before the roster's, as D2 says; but the hero picker writes the roster. A scene saved from
+   a match holds `more.hero`, so once tokens and bars read the state, picking another hero in
+   that scene would change nothing there. D2's reading has to ship with its edit (the picker
+   writes the scene's `hero` row; phase 6's first item) and with Save no longer rewriting the
+   roster. Until then the tokens and bars keep reading the roster's hero, which is why they
+   are not wired to `hero(slot).hero()` yet.
+2. **D1 as built keeps one thing D1's words don't cover:** a scene with no `source` still
+   takes the open match's names (`sceneMatchName`). Left as it is.
+3. **The metadata tier's health** and **Show last seen location in a scene**: see the handoff
+   below, "Open", 1 and 2.
+4. **Retake could give an old scene's dead heroes their respawn time** (a `SetIf` on an
+   absent `PlayerRespawn`). Not built.
+
+**Next step:** the two reruns above; then, with the lead's answer on D2, `Tokens.tsx` reading
+a token's view from `MapState` in both modes (the handoff's step 3; the oracle for Player is
+`previewAt`'s `players` entry, as `shown.test.ts` already uses it).
+
 ### Handoff, eighth implementer (2026-11-14): release 2 cut, phase 4 started (seventh implementer's notes)
 
 **Release 2 is branch `map-state-r2`** (worktree `mapcro.worktrees/map-state-r2`), off main
