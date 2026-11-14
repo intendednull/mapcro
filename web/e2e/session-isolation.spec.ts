@@ -336,7 +336,6 @@ test("Player: the match, t and playing, Sandbox; map layers are a tab's own once
   await expect(me.getByTestId("heals-toggle")).toHaveAttribute("aria-pressed", "false");
   await go(0);
   await expect(me.getByTestId("player")).not.toHaveAttribute("data-state", "match");
-  await revealControls(me, "mode-player");
   await me.getByTestId("mode-player").first().click();
   await expect(me.getByTestId("match-clock")).toHaveText(at);
   await expect(me.getByTestId("match-play")).toHaveText("Play");

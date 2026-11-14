@@ -201,7 +201,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const [dialog, setDialog] = createSignal<"share" | "clone">();
   // ---- Player (spec §6b): a board with a match opens on it; its preview drives the map ----
   const player = createPlayerHost(p.board, p.token, via, playerPart(remembered));
-  onMount(() => void player.init());
+  // Player draws a match this page already holds once the board's document is in the page.
+  const documentDrawn = new Promise<void>((ok) => createEffect(() => state.metaId() !== undefined && ok()));
+  onMount(() => void player.init(documentDrawn));
   const inPlayer = () => player.mode() === "player";
   /** The match open in Player, for the feedback form (spec §11a); none in sandbox. */
   const feedbackMatch = () => feedbackMatchOf(inPlayer(), player.matchId(), player.tl(), player.t());

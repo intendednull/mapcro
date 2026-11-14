@@ -376,10 +376,19 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
       placed?.();
     };
     const held = timelines.candidates(board, id);
-    const early = !tl() ? held[0] : undefined;
-    if (early) show(early.tl, keep);
+    const asked = api.timeline(id, held.map((h) => h.etag));
+    let early = !tl() ? held[0] : undefined;
+    if (early) {
+      // After the board's document, never before it: a timeline's first draw takes far longer
+      // than the document's, and held it back (sessions.md §10 phase 3, measured).
+      asked.catch(() => {});
+      await documentDrawn;
+      if (gone || matchId() !== id) return;
+      if (tl()) early = undefined;
+      else show(early.tl, keep);
+    }
     // No answer (offline): what's drawn stays, and the caller says so.
-    const r = await api.timeline(id, held.map((h) => h.etag));
+    const r = await asked;
     if (gone || matchId() !== id) return;
     if ("error" in r) {
       // Refused: nothing this page held of it is shown, or kept for this board.
@@ -794,9 +803,16 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
     return { ...out, match: id, t: h && out.mode === "sandbox" ? h.t : untrack(t), playing: h && out.mode === "sandbox" ? h.playing : pb.playing, speed: pb.speed };
   };
 
-  /** Load the board's matches; a board with one opens in Player, a tab on the match it was left on. */
-  const init = async () => {
+  /** The board's document is in the page (`init`): a timeline this page holds is drawn after it. */
+  let documentDrawn: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Load the board's matches; a board with one opens in Player, a tab on the match it was left
+   * on. `drawn` settles when the board's document is in the page.
+   */
+  const init = async (drawn?: Promise<unknown>) => {
     if (gone) return;
+    if (drawn) documentDrawn = drawn;
     const handed = takeHandoff(board);
     if (handed) return startHandoff(handed).finally(() => (settled = true));
     const ms = await api.matches().catch(() => undefined);
