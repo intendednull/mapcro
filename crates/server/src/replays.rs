@@ -665,8 +665,45 @@ pub async fn status(State(app): State<AppState>, Path((board, id)): Path<(String
     json(state_json(&cdn, "cdn"))
 }
 
+/// A cached timeline as the route answers it: its validator, and its bytes unless the caller
+/// said it holds that very file (`If-None-Match`).
+struct Found {
+    etag: Option<String>,
+    bytes: Option<Vec<u8>>,
+}
+
+/// A cached timeline's validator (sessions.md §4.3, the client's timeline cache): which file it
+/// is (`cdn`, the same for every board, or a board's own upload by its scope), its length and
+/// when it was written. A file written again gets another, so a client that sends the one it
+/// holds is told "the same" (304) without the file being read or sent.
+fn timeline_etag(scope: &str, meta: &std::fs::Metadata) -> Option<String> {
+    let written = meta.modified().ok()?.duration_since(SystemTime::UNIX_EPOCH).ok()?.as_nanos();
+    Some(if scope == "cdn" { format!("\"cdn-{}-{written}\"", meta.len()) } else { format!("\"up-{scope}-{}-{written}\"", meta.len()) })
+}
+
+/// Whether the request's `If-None-Match` names `etag`: any of a list, weak or strong.
+fn holds(headers: &HeaderMap, etag: &str) -> bool {
+    headers
+        .get_all(header::IF_NONE_MATCH)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .any(|t| t.trim().trim_start_matches("W/") == etag)
+}
+
+/// Read a cached timeline, unless the caller holds it already.
+async fn read_unless_held(path: &FsPath, scope: &str, headers: &HeaderMap) -> std::io::Result<Found> {
+    let etag = tokio::fs::metadata(path).await.ok().and_then(|m| timeline_etag(scope, &m));
+    if etag.as_deref().is_some_and(|t| holds(headers, t)) {
+        return Ok(Found { etag, bytes: None });
+    }
+    Ok(Found { etag, bytes: Some(tokio::fs::read(path).await?) })
+}
+
 /// `GET /api/boards/{board}/matches/{id}`: the richest timeline there is for this board: its
-/// uploaded replay, else a fetched one, else the match metadata (v1).
+/// uploaded replay, else a fetched one, else the match metadata (v1). A cached replay carries an
+/// `ETag`; asked with `If-None-Match` naming it, the answer is 304 with no body, after the same
+/// checks and with the same effects as a 200.
 pub async fn timeline(
     State(app): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -688,8 +725,8 @@ pub async fn timeline(
         why = "neither cached replay readable";
         for scope in [scope_of(&board), "cdn".to_owned()] {
             let tier = if scope == "cdn" { "cdn" } else { "upload" };
-            match tokio::fs::read(cached_path(&app, &job_name(&id, &scope))).await {
-                Ok(bytes) => {
+            match read_unless_held(&cached_path(&app, &job_name(&id, &scope)), &scope, &headers).await {
+                Ok(found) => {
                     let path = if scope == "cdn" { crate::metrics::MatchPath::Fetched } else { crate::metrics::MatchPath::Uploaded };
                     crate::metrics::get().matches_opened.inc((crate::metrics::Tier::Full, path));
                     // A board that already had the match (no fresh attach) still upgrades an older
@@ -699,7 +736,17 @@ pub async fn timeline(
                     if scope == "cdn" && matches!(who, LinkRole::Owner | LinkRole::Edit) {
                         auto_fetch(&app, &board, &id, client_key(client_ip(peer, &headers)).to_string()).await;
                     }
-                    return ([(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-store")], bytes).into_response();
+                    // Everything above runs for a caller that holds this timeline already, too:
+                    // it opened the match, as any other.
+                    let mut r = match found.bytes {
+                        Some(bytes) => ([(header::CONTENT_TYPE, "application/json")], bytes).into_response(),
+                        None => StatusCode::NOT_MODIFIED.into_response(),
+                    };
+                    r.headers_mut().insert(header::CACHE_CONTROL, axum::http::HeaderValue::from_static("no-store"));
+                    if let Some(tag) = found.etag.and_then(|t| axum::http::HeaderValue::from_str(&t).ok()) {
+                        r.headers_mut().insert(header::ETAG, tag);
+                    }
+                    return r;
                 }
                 Err(e) => {
                     if e.kind() != std::io::ErrorKind::NotFound {

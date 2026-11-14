@@ -26,8 +26,9 @@ const STATE = [
   /^(?:export\s+)?(?:let|var)\s+(\w+)/,
   // `const [x, setX] = createSignal(…)` (and createStore, createResource).
   /^(?:export\s+)?const\s+\[\s*(\w+)/,
-  // `const x = new Map()`, a Set, a WeakMap, an empty array or object, a store or a root.
-  /^(?:export\s+)?const\s+(\w+)\s*(?::[^=]+)?=\s*(?:new\s+(?:Map|Set|WeakMap|WeakSet|Array)\b|\[\s*\]|\{\s*\}|create(?:Signal|Store|Mutable|Root|Memo|Resource)\b)/,
+  // `const x = new Map()`, a Set, a WeakMap, an empty array or object, a store or a root; and
+  // the page's timeline cache, a class of its own (player/timelineCache.ts).
+  /^(?:export\s+)?const\s+(\w+)\s*(?::[^=]+)?=\s*(?:new\s+(?:Map|Set|WeakMap|WeakSet|Array|TimelineCache)\b|\[\s*\]|\{\s*\}|create(?:Signal|Store|Mutable|Root|Memo|Resource)\b)/,
 ];
 /** A reactive primitive made at the top of a module: each must be one the patterns name. */
 const REACTIVE = /^(?!\s|(?:export\s+)?(?:async\s+)?function\b|import\b).*\bcreate(?:Signal|Store|Mutable|Root|Memo|Effect|Resource)\s*[<(]/;
@@ -57,6 +58,7 @@ describe("no module state without a policy for a board's unmount", () => {
     expect(found["player/handoff.ts"]).toEqual(["pending"]);
     expect(found["ui/modal.ts"]).toEqual(["open", "made"]);
     expect(found["core/keys.ts"]).toEqual(["TEXT_TYPES"]);
+    expect(found["player/timelineCache.ts"]).toEqual(["timelines"]);
   });
 
   it("every piece of module state is in the ledger", () => {

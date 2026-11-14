@@ -120,11 +120,29 @@ export class Api {
     return r.ok;
   }
 
-  /** The richest timeline the board has for a match, or its error code. */
-  async timeline(id: string): Promise<Timeline | { error: string }> {
-    const r = await fetch(`/api/boards/${this.board}/matches/${id}`, { headers: this.auth });
-    const body = (await r.json().catch(() => ({}))) as Timeline & { error?: string };
-    return r.ok ? body : { error: body.error ?? "failed" };
+  /**
+   * The richest timeline the board has for a match, or its error code. `held`: the validators of
+   * the timelines this page holds for it (player/timelineCache.ts); the server answers `same`
+   * with the one that's still current (304, after its usual checks), else sends the timeline,
+   * with its validator when it has one and its JSON's length.
+   */
+  async timeline(id: string, held: string[] = []): Promise<{ tl: Timeline; etag?: string; chars: number } | { same: string } | { error: string }> {
+    const r = await fetch(`/api/boards/${this.board}/matches/${id}`, { headers: held.length ? { ...this.auth, "if-none-match": held.join(", ") } : this.auth });
+    const etag = r.headers.get("etag") ?? undefined;
+    if (r.status === 304) {
+      if (etag !== undefined && held.includes(etag)) return { same: etag };
+      // "The same" as something this page doesn't hold: asked again, plainly.
+      return held.length ? this.timeline(id) : { error: "failed" };
+    }
+    const text = await r.text();
+    let body: (Timeline & { error?: string }) | undefined;
+    try {
+      body = JSON.parse(text) as Timeline & { error?: string };
+    } catch {
+      body = undefined;
+    }
+    if (!r.ok || !body) return { error: body?.error ?? "failed" };
+    return etag !== undefined ? { tl: body, etag, chars: text.length } : { tl: body, chars: text.length };
   }
 
   async job(id: string): Promise<JobState | undefined> {

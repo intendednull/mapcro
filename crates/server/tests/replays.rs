@@ -1678,3 +1678,114 @@ fn a_client_timeline_of_a_match_refused_for_its_mode_is_refused() {
     assert_eq!(server.send_gz(&board, &owner, "77", &timeline(77)), (422, serde_json::json!({ "error": "brawl" })));
     assert_eq!(server.status(&board, &owner, "77")["state"], "none");
 }
+
+/// One `GET /api/boards/{board}/matches/{id}` with a raw authorization and, perhaps, the
+/// validators the caller holds: the status, the answer's `ETag` and its body.
+fn timeline_get(server: &Server, board: &str, id: &str, auth: &str, held: Option<&str>) -> (u16, Option<String>, Vec<u8>) {
+    let mut r = agent().get(&server.url(&format!("/api/boards/{board}/matches/{id}"))).header("authorization", auth);
+    if let Some(held) = held {
+        r = r.header("if-none-match", held);
+    }
+    let mut r = r.call().expect("request");
+    if matches!(r.status().as_u16(), 200 | 304) {
+        assert_eq!(r.headers().get("cache-control").and_then(|v| v.to_str().ok()), Some("no-store"), "never a browser's to keep");
+    }
+    let tag = r.headers().get("etag").and_then(|v| v.to_str().ok()).map(str::to_owned);
+    (r.status().as_u16(), tag, r.body_mut().read_to_vec().expect("body"))
+}
+
+/// The client's timeline cache (sessions.md §4.3): a cached replay is served with a validator, and
+/// a caller that holds that very file is told so (304, no body) only after the checks a 200 gets.
+/// The fetched replay's validator is the same for every board; a board's own upload has its own.
+#[test]
+fn a_cached_timeline_has_a_validator_and_its_holder_is_told_it_is_the_same() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[]);
+    let (board, owner, view) = server.board();
+    let (other, other_owner, _) = server.board();
+    let id = "130816395";
+    let dir = server.data.path().join("replays");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let fetched = serde_json::to_vec(&timeline(130816395)).expect("json");
+    std::fs::write(dir.join(format!("{id}-cdn.json")), &fetched).expect("cache");
+    let bearer = |t: &str| format!("Bearer {t}");
+
+    // A 200 carries the validator; any link of the board gets the same one, and so does another board.
+    let (code, tag, body) = timeline_get(&server, &board, id, &bearer(&view), None);
+    assert_eq!((code, &body), (200, &fetched));
+    let cdn = tag.expect("a cached replay has a validator");
+    assert!(cdn.starts_with("\"cdn-") && cdn.ends_with('"'), "the fetched replay says so: {cdn}");
+    assert_eq!(timeline_get(&server, &board, id, &bearer(&owner), None).1.as_deref(), Some(cdn.as_str()));
+    assert_eq!(timeline_get(&server, &other, id, &bearer(&other_owner), None).1.as_deref(), Some(cdn.as_str()));
+
+    // Held: 304, no body, the validator again. Alone, weak, or one of a list.
+    for held in [cdn.clone(), format!("W/{cdn}"), format!("\"up-0-0-0\", {cdn}"), format!("{cdn},\"x\"")] {
+        let (code, tag, body) = timeline_get(&server, &board, id, &bearer(&view), Some(&held));
+        assert_eq!((code, tag.as_deref(), body.len()), (304, Some(cdn.as_str()), 0), "held as {held}");
+    }
+    // Not held: another validator, a part of this one, or this one without its quotes.
+    for held in ["\"cdn-1-1\"".to_owned(), cdn[..cdn.len() - 2].to_owned() + "\"", cdn.trim_matches('"').to_owned(), "*".to_owned()] {
+        let (code, tag, body) = timeline_get(&server, &board, id, &bearer(&view), Some(&held));
+        assert_eq!((code, tag.as_deref(), &body), (200, Some(cdn.as_str()), &fetched), "not held as {held}");
+    }
+    // The checks come first: holding the validator opens nothing without a link to this board.
+    assert_eq!(timeline_get(&server, &board, id, &bearer(&other_owner), Some(&cdn)).0, 403);
+    assert_eq!(timeline_get(&server, &board, id, "Bearer nope", Some(&cdn)).0, 401);
+    assert_eq!(timeline_get(&server, &board, "0", &bearer(&view), Some(&cdn)).0, 400);
+
+    // The board's own upload is another file, with another validator, for this board alone.
+    let mut mine = timeline(130816395);
+    mine.duration_s += 1;
+    let mine = serde_json::to_vec(&mine).expect("json");
+    std::fs::write(dir.join(format!("{id}-{}.json", scope(&board))), &mine).expect("cache");
+    let (code, tag, body) = timeline_get(&server, &board, id, &bearer(&view), Some(&cdn));
+    assert_eq!((code, &body), (200, &mine), "the upload is richer than the fetched one held");
+    let up_tag = tag.expect("validator");
+    assert!(up_tag.starts_with(&format!("\"up-{}-", scope(&board))), "the upload names its board's scope: {up_tag}");
+    assert_eq!(timeline_get(&server, &board, id, &bearer(&view), Some(&up_tag)).0, 304);
+    // The other board still has the fetched one only: the upload's validator means nothing there.
+    let (code, tag, body) = timeline_get(&server, &other, id, &bearer(&other_owner), Some(&up_tag));
+    assert_eq!((code, tag.as_deref(), &body), (200, Some(cdn.as_str()), &fetched));
+
+    // Written again (a newer parse): another validator, and the old one gets the new file.
+    let mut newer = timeline(130816395);
+    newer.duration_s += 2;
+    let newer = serde_json::to_vec(&newer).expect("json");
+    std::fs::write(dir.join(format!("{id}-cdn.json")), &newer).expect("cache");
+    let (code, tag, body) = timeline_get(&server, &other, id, &bearer(&other_owner), Some(&cdn));
+    assert_eq!((code, &body), (200, &newer));
+    assert_ne!(tag.as_deref(), Some(cdn.as_str()));
+
+    // The metadata summary has none: it's never held.
+    let (code, tag, _) = timeline_get(&server, &board, "77", &bearer(&view), Some(&cdn));
+    assert_eq!((code, tag), (404, None));
+}
+
+/// The same through a session's grant (sessions.md §3.4): the validator, and 304 only while the
+/// grant opens the board.
+#[test]
+fn a_tab_revalidates_its_timeline_through_its_grant() {
+    let up = upstream(HashMap::new());
+    let server = Server::start(up.port, &[]);
+    let (board, owner, _) = server.board();
+    let id = "130816395";
+    let dir = server.data.path().join("replays");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    std::fs::write(dir.join(format!("{id}-cdn.json")), serde_json::to_vec(&timeline(130816395)).expect("json")).expect("cache");
+    let v: serde_json::Value = ureq::post(&server.url("/api/sessions"))
+        .send_json(serde_json::json!({ "title": "S", "board": board, "board_token": owner }))
+        .expect("create")
+        .body_mut()
+        .read_json()
+        .expect("json");
+    let (session, token, grant) = (v["session"].as_str().expect("session"), v["owner_token"].as_str().expect("token"), v["grant"]["grant_id"].as_str().expect("grant"));
+    let via = format!("Grant {session}.{grant}.{token}");
+    let (code, tag, _) = timeline_get(&server, &board, id, &via, None);
+    assert_eq!(code, 200);
+    let tag = tag.expect("validator");
+    assert_eq!(timeline_get(&server, &board, id, &via, Some(&tag)).0, 304);
+    // The grant withdrawn: the validator held opens nothing.
+    let r = agent().delete(&server.url(&format!("/api/sessions/{session}/grants/{grant}"))).header("authorization", &format!("Bearer {token}")).call().expect("withdraw");
+    assert_eq!(r.status().as_u16(), 204);
+    assert_eq!(timeline_get(&server, &board, id, &via, Some(&tag)).0, 403);
+}

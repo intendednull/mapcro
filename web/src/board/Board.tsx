@@ -2,7 +2,7 @@
 // panel. The map is the interface: edits happen on it directly.
 
 import { rosterTeamName, teamName } from "../map/model";
-import { type JSX, For, Match, Show, Switch, batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js";
+import { type JSX, For, Match, Show, Switch, batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
 import type { Callout } from "../gen/Callout";
 import { cx } from "../ui/cx";
 import { type Me, colorOf, commentsOpen, setCommentsOpen, hasJoined, inkOn, loadColour, loadMe, saveColour, markJoined, rememberBoard, saveMe, takeRename } from "../core/device";
@@ -67,6 +67,9 @@ import type { Tool } from "./tools";
 import { LIMITS } from "../gen/limits";
 import type { Via } from "../gen/Via";
 import type { UndoHistory } from "../session/history";
+import { loadTabView, playerPart, saveTabView, withScenes } from "../session/tabview";
+import type { RoomPool } from "../session/pool";
+import type { BoardSession } from "../core/session";
 import { AddGameOnBoard } from "../session/AddGame";
 
 /** The page's title, as index.html has it: what the tab says with no board open. */
@@ -141,6 +144,10 @@ interface ToastAction {
 }
 
 export interface InSession {
+  /** The session's id: what a tab remembers of its board is kept under it (§4.2). */
+  id: string;
+  /** Where a left tab's board session waits for its next mount (§5). */
+  pool: RoomPool<BoardSession>;
   via?: Via;
   history: UndoHistory;
   /** The join card shows once per session, not once per tab. */
@@ -157,18 +164,24 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const inSession = p.session;
   const via = inSession?.via;
   const history = inSession?.history;
-  const state = createBoardState(p.board, p.token, { ...(via ? { via } : {}), ...(history ? { onEdit: () => history.edited(p.board) } : {}) });
+  const state = createBoardState(p.board, p.token, {
+    ...(via ? { via } : {}),
+    ...(history ? { onEdit: () => history.edited(p.board) } : {}),
+    ...(inSession ? { pool: inSession.pool } : {}),
+  });
   if (history) onCleanup(history.attach(p.board, { canUndo: () => state.canUndo(), canRedo: () => state.canRedo(), undo: () => state.undo(), redo: () => state.redo() }));
   const undo = () => (history ? void history.undo() : state.undo());
   const redo = () => (history ? void history.redo() : state.redo());
   const canUndo = () => (history ? history.canUndo() : state.canUndo());
   const canRedo = () => (history ? history.canRedo() : state.canRedo());
   const joinKey = inSession?.joinKey ?? p.board;
+  // What this tab showed when it was last left (sessions.md §4.2): this board's own, or nothing.
+  const remembered = inSession ? loadTabView(sessionStorage, inSession.id, p.board) : undefined;
   const [me, setMe] = createSignal<Me | undefined>(loadMe());
   const [joined, setJoined] = createSignal(hasJoined(joinKey) && !!loadMe());
-  const [viewpoint, setViewpoint] = createSignal<Viewpoint>("amber");
-  const [sceneId, setSceneId] = createSignal<RecordId | undefined>();
-  const [sideTab, setSideTab] = createSignal<"events" | "notes">("events");
+  const [viewpoint, setViewpoint] = createSignal<Viewpoint>(remembered?.viewpoint ?? "amber");
+  const [sceneId, setSceneId] = createSignal<RecordId | undefined>(remembered?.scene);
+  const [sideTab, setSideTab] = createSignal<"events" | "notes">(remembered?.side ?? "events");
   const [tool, setTool] = createSignal<Tool>("select");
   // The palette colour for Draw, Arrow, Comment and Laser: per person, per board.
   const [ink, setInkSignal] = createSignal(loadColour(p.board) ?? loadMe()?.color ?? 1);
@@ -187,7 +200,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const [overlay, setOverlay] = createSignal<SVGSVGElement>();
   const [dialog, setDialog] = createSignal<"share" | "clone">();
   // ---- Player (spec §6b): a board with a match opens on it; its preview drives the map ----
-  const player = createPlayerHost(p.board, p.token, via);
+  const player = createPlayerHost(p.board, p.token, via, playerPart(remembered));
   onMount(() => void player.init());
   const inPlayer = () => player.mode() === "player";
   /** The match open in Player, for the feedback form (spec §11a); none in sandbox. */
@@ -224,7 +237,43 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
 
   // ---- view and follow (spec §8): following mirrors a presenter's scene and viewport; any
   // change you make to what you see stops it, and following again is one click ----
-  const [view, setView] = createSignal<ViewRect>(FIT);
+  const [view, setView] = createSignal<ViewRect>(remembered?.view ? clampView(remembered.view) : FIT);
+  if (inSession) {
+    // A remembered scene that's gone takes its viewport and side with it: the board opens on
+    // its first scene, fitted, as it would cold (§4.2). Checked once, when the scenes are known.
+    let checked = remembered?.scene === undefined;
+    createEffect(() => {
+      const all = state.scenes();
+      if (checked || !all.length) return;
+      checked = true;
+      if (withScenes(remembered!, (id) => all.some((x) => x.id === id)) === remembered) return;
+      batch(() => {
+        setSceneId(undefined);
+        setView(FIT);
+        setViewpoint("amber");
+      });
+    });
+    // Remembered as the tab is left, and as the page goes (a reload keeps it). A board left
+    // before it loaded keeps what it remembered before; Player's part likewise (`remember`).
+    const keep = () => {
+      const at = untrack(scene)?.id;
+      if (at === undefined) return;
+      saveTabView(sessionStorage, inSession.id, {
+        ...(player.remember() ?? playerPart(remembered)),
+        board: p.board,
+        at: Date.now(),
+        scene: at,
+        view: untrack(view),
+        viewpoint: untrack(viewpoint),
+        side: untrack(sideTab),
+      });
+    };
+    window.addEventListener("pagehide", keep);
+    onCleanup(() => {
+      window.removeEventListener("pagehide", keep);
+      keep();
+    });
+  }
   const [following, setFollowing] = createSignal<number | undefined>();
   // Whom the follow is on, by seat as well as peer id: peer ids are per connection, so after a
   // reconnect (a server restart: every deploy) the presenter is found again by seat (spec §8).

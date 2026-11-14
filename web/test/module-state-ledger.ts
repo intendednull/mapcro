@@ -45,6 +45,9 @@ export const MODULE_STATE: Record<string, Entries> = {
     pairCache: ["immutable-cache", "a WeakMap keyed by the timeline object: goes with it"],
   },
   "player/api.ts": { MODE_CODES: ["constant", "the codes of a mode with no board"] },
+  "player/timelineCache.ts": {
+    timelines: ["immutable-cache", "decoded timelines, frozen, by where they came from: the fetched replay by match, a board's upload by board and match; every open still asks the server, which says \"the same\" or sends another (sessions.md §4.3)"],
+  },
   "match/tooltips.ts": { cache: ["immutable-cache", "tooltip data by pack and file"] },
   "board/smooth.ts": { motionQuery: ["page", "the reduced-motion media query, made once; its answer follows the setting"] },
   "match/timeline.ts": { resolved: ["immutable-cache", "markerKey's answers by marker list: a pack's markers never change once loaded"] },

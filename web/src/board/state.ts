@@ -6,7 +6,8 @@ import { type Accessor, type Setter, batch, createMemo, createRoot, createSignal
 import { createStore, reconcile } from "solid-js/store";
 import init, { buildId } from "../wasm/mapcro_wasm.js";
 import { outdatedAction } from "../core/reload";
-import { BoardSession, type Connection, type SocketLike } from "../core/session";
+import { BoardSession, type Connection, type SessionCallbacks, type SocketLike } from "../core/session";
+import type { RoomPool } from "../session/pool";
 import { IdbPersist, MemoryPersist, type Persist } from "../core/persist";
 import type { SaveStatus } from "../core/update";
 import type { BoardMeta } from "../gen/BoardMeta";
@@ -59,6 +60,11 @@ export interface BoardStateOptions {
   via?: Via;
   /** You made an undoable edit (the page's one history, session/history.ts). */
   onEdit?: () => void;
+  /**
+   * Where the board's session waits between mounts (sessions.md §5, session/pool.ts): one parked
+   * there for this board and credential is taken up again, and leaving parks it, not ends it.
+   */
+  pool?: RoomPool<BoardSession>;
 }
 
 export function createBoardState(board: string, token: string, opts: BoardStateOptions = {}) {
@@ -139,18 +145,12 @@ export function createBoardState(board: string, token: string, opts: BoardStateO
     });
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const session = new BoardSession({
-    wsUrl: `${proto}//${location.host}/ws`,
-    board,
-    token,
-    ...(opts.via ? { via: opts.via } : {}),
-    persist: persistence(),
+  const callbacks: SessionCallbacks = {
     // A deploy happened under this tab: reload once to the new build (edits are kept in
     // storage); if that didn't help, the board offers the reload.
     onOutdated: () => {
       if (typeof sessionStorage !== "undefined" && outdatedAction(buildId(), sessionStorage) === "reload") location.reload();
     },
-    openSocket: (url) => new WebSocket(url) as unknown as SocketLike,
     onRecords: applyChanged,
     onPeers: (changed, reset) =>
       batch(() => {
@@ -174,7 +174,21 @@ export function createBoardState(board: string, token: string, opts: BoardStateO
       if (s.canUndo !== undoable().undo || s.canRedo !== undoable().redo) setUndoable({ undo: s.canUndo, redo: s.canRedo });
       if (s.problems.length !== problems().length) setProblems([...s.problems]);
     },
-  });
+  };
+  // This board's own session, kept warm since its tab was last left (never another board's, nor
+  // another credential's: the pool's key), or a new one.
+  const parked = opts.pool?.take(board, token, opts.via);
+  const session =
+    parked ??
+    new BoardSession({
+      wsUrl: `${proto}//${location.host}/ws`,
+      board,
+      token,
+      ...(opts.via ? { via: opts.via } : {}),
+      persist: persistence(),
+      openSocket: (url) => new WebSocket(url) as unknown as SocketLike,
+      ...callbacks,
+    });
 
   /** Live records of a kind, as stable rows (ordered by id). */
   function live<T>(kind: string): Row<T>[] {
@@ -307,11 +321,13 @@ export function createBoardState(board: string, token: string, opts: BoardStateO
     peerList: () => Object.values(peers).filter((p) => p.state !== null),
     start: async () => {
       await loadWasm();
-      await session.start();
+      if (parked) parked.resume(callbacks);
+      else await session.start();
     },
-    /** The board unmounted: its session ends for good. (The per-scene memos above read only
-     * this board's own signals, which nothing writes after: they go with it.) */
-    stop: () => session.end(),
+    /** The board unmounted: its session ends for good, or in a session's pool is parked for the
+     * board's next mount. (The per-scene memos above read only this board's own signals, which
+     * nothing writes after: they go with it.) */
+    stop: () => (opts.pool ? opts.pool.park(board, token, opts.via, session) : session.end()),
   };
 }
 
