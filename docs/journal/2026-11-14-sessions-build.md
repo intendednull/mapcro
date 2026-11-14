@@ -4,81 +4,103 @@ Branch `sessions-p3` (worktree `mapcro.worktrees/sessions-p3`), off main a0774c5
 `docs/specs/sessions.md`; what phase 3 built is written into its §4.1, §4.2, §4.3, §5 and §10.
 Newest state at the top.
 
-## Resume after restart (2026-11-14, about 05:45; the third implementer, stopped by a daemon restart)
+## State when the third implementer finished (2026-11-14): phase 3 is ready for review
 
-**Phase 3 is not ready to release: its last batch of checks never ran.** The code is done and
-committed; branch tip is the commit this note is in, on top of 5656abb. Nothing is uncommitted.
+**Every check of phase 3 has run and is green on the branch's code (aae0a05; the commits after
+it are documents). Nothing is merged; the lead reviews, gates and releases. Phase 4 is not
+started.** Commits by the third implementer: ae3fbc6 (the server test), 5656abb (layers a tab
+holds), 958638b, aae0a05 (the unsettled-layer row, phase 4's checks), b7a56f3, and the one
+this note is in.
 
-### Done and verified
+### The six items the second implementer left
 
-- **The queued job (batch 5)** ran on 68e39a3 (the paint-first change in, before the layers
-  change): `tsc` clean; the switch measured three times; full e2e, 2 workers, 28.0 min under
-  load: **474 passed, 3 failed, 8 skipped**. The three are `laser-gestures.spec.ts` (two
-  gestures as two trails; a still laser fading; a follower's two trails): exactly TD-92's
-  flakes under load. **Not yet rerun alone.**
-- **The pool decision: it stays removed.** `drawn` for "left earlier", median: 66 and 80 ms
-  (two runs of 14), 71 and 55 over the 40 ms link, 93 with 49 scenes (122 over the link, one
-  switch at 448: the box was busy). The lead's bar was about 80. In the spec, §10 phase 3.
-- **Layers and Vision (5656abb):** a tab holds only what its user set there
-  (`session/tabview.ts` `tabOwn`, `withOwn`; `player/host.ts` `own`, fed by the view-state
-  store's `onOwn`; `remember` stores those alone, and also for a tab left before its matches
-  were known). A tab only passed through shows this browser's choice. A presenter's values
-  aren't held unless the user's own change stops the follow and keeps them. Spec §4.1, §4.2,
-  §9.1, §10 and §12 item 7 say so. Verified: `tsc` clean; `test/sessions-speed.test.ts` 14
-  passed; 14 hand mutants over `tabOwn`/`withOwn`, all killed (`/tmp/sp3-unit-mutants.py`).
-- **The browser-row mutant script** (`/tmp/sp3-e2e-mutants.py`): its pattern for "the
-  validators held are never sent" already matches once (the fix was made before the handoff).
-  It was never in the repo (`git ls-files` has no mutant script). Three layers mutants were
-  added to it: a layer set on a tab is never its own; a tab only passed through pins the Heals
-  it showed; what a tab held before is dropped at its next leaving. Eight in all.
+1. **The queued job (batch 5)**, on 68e39a3: `tsc` clean; the switch measured three times;
+   full e2e 474 passed, 3 failed (TD-92's three `laser-gestures` tests, under load), 8 skipped.
+   Superseded by batch 6's full run below.
+2. **The pool stays removed** (the lead's bar: a median `drawn` of about 80 ms without it).
+   "Left earlier", no pool, the held timeline drawn after the document, four runs of 14
+   switches, median (min–max), ms:
 
-### Written, committed and NOT run (each needs the batch)
+   | Run | mounted | drawn | timeline | live |
+   |---|---|---|---|---|
+   | 1 | 29 | 66 (54–94) | 156 | 172 |
+   | 2 | 37 | 80 (55–179) | 177 | 209 |
+   | 3 (the box at its busiest) | 55 | 112 (57–194) | 231 | 233 |
+   | 4 (the box quiet) | 26 | 55 (50–80) | 131 | 146 |
+   | 1 to 4, HTTP at 40 ms and 20 Mbit/s | 24–35 | 71, 55, 70, 51 | 139–191 | 169–239 |
+   | 49 scenes (one run) | 35 | 93 (69–186) | 186 | 235 |
 
-- **The e2e row** `session-isolation.spec.ts` "Player: … map layers are a tab's own once set
-  there" (rewritten in 5656abb): never run. Nor has any e2e run on the layers change.
-- **The server test** `an_unreadable_cached_replay_is_logged_by_its_tier` (ae3fbc6,
-  `crates/server/tests/replays.rs`): **never compiled or run.** It is for the missed mutant
-  (`replays.rs:727`, `scope == "cdn"` to `!=` in `let tier`): the tier reaches only the debug
-  line "cached replay unreadable", so the test puts a directory where each cached file would
-  be and reads the server's log (`Server::start_logged`). Not equivalent, so it gets a test.
-  Then cargo-mutants again on the route's diff: 0 missed is expected.
-- **The walkthrough** (`zz-walkthrough.spec.ts`, a scratch spec, not in the repo): three boards
-  with the reference replay (C holds the same match as A), each given a scene, a time, a zoom
-  and layers of its own; nine switches, each compared with what the tab showed when left; a
-  reload; the timeline's 200s and 304s per tab; page and console errors. It prints counts,
-  booleans and field names only.
+   Before this change, without the pool: 120. With the pool: 33. Before phase 3: 59. The
+   numbers follow the box's load; the quiet run is under what it was before phase 3. In the
+   spec, §10 phase 3.
+3. **Layers and Vision: a tab holds only what its user set there** (5656abb;
+   `session/tabview.ts` `tabOwn`, `withOwn`; `player/host.ts` `own`, fed by the view-state
+   store's `onOwn`). A tab only opened and left shows this browser's choice, as a board alone
+   does. A presenter's values aren't held, unless the user's own change stops the follow and
+   keeps them. `remember` always answers now: for a tab left before its matches were known or
+   its match confirmed, the mode and playback are what it remembered before, and a layer set
+   meanwhile is kept (it was lost). Spec §4.1, §4.2, §9.1, §10 and §12 item 7.
+4. **The missed server mutant** (`replays.rs:727`, `scope == "cdn"` to `!=` in `let tier`):
+   not equivalent. The tier reaches the debug line "cached replay unreadable", which is what
+   the lead reads to learn why a board got the summary. The test
+   `an_unreadable_cached_replay_is_logged_by_its_tier` puts a directory where each cached file
+   would be and reads the server's log. cargo-mutants again on the route's diff: **10 mutants,
+   9 caught, 1 unviable, 0 missed.**
+5. **The browser-row mutants** (`/tmp/sp3-e2e-mutants.py`; never in the repo). Its pattern for
+   "the validators held are never sent" was already right. With four for the layers, nine in
+   all, **9 killed**:
 
-### The batch to run (through `tools/heavy.sh`, alone)
+   | Mutant | Rows | Result |
+   |---|---|---|
+   | refused: what was drawn early stays | the timeline cache | killed |
+   | the validators held are never sent | the timeline cache | killed |
+   | nothing drawn before the server answers | the timeline cache | killed |
+   | a 304 is asked again, plainly | the timeline cache | killed |
+   | a remembered scene checked against the stored copy | a tab comes back as it was left | killed |
+   | a layer set on a tab is never its own | Player: … map layers | killed |
+   | a tab only passed through pins the Heals it showed | Player: … map layers | killed |
+   | what a tab held before is dropped at its next leaving | Player: … map layers | killed |
+   | a layer set before the match is confirmed is lost | Player: … map layers | killed |
 
-`/tmp/sp3-batch6.sh` (the lead cancelled it at 05:41 before its first test finished; treat it
-as not run): server build; `cargo test -p mapcro-server --test replays`; `just clippy`;
-cargo-mutants on the route's diff (`-o /tmp/sp3-mutants`, so `mutants.out` stays out of the
-tree); `just web-test`; the switch measured twice more; the walkthrough (copies the scratch
-spec into `web/e2e`, runs it, removes it); `just e2e --workers 2`; `laser-gestures` and
-`session-isolation` alone; the eight browser-row mutants (they edit source in place: last,
-and `git status` after). About 50 minutes once it has the box.
+   And 14 hand mutants over `tabOwn` and `withOwn`, all killed by the unit file (the first run
+   missed one, a layer set dropping Vision: its assertion was added).
+6. **The walkthrough** (a scratch Playwright spec on the e2e server, never committed: three
+   boards with the reference replay, C holding the same match as A; counts and booleans only):
+   - each tab given its own: A a time, 2x and Heals on; B a time, Troopers off, left on a
+     second scene with its match behind it; C a time and a zoom, no layer set;
+   - **nine switches, nine came back as left** (scene, scene count, mode, clock, play, speed,
+     Heals, Troopers, Heavy boxes, viewport); A again after a reload;
+   - B's match was where it was held; B kept Troopers off; A kept its Heals; C, only passed
+     through, followed this browser's Heals both times it changed;
+   - **the timeline:** A 14 requests, 2 sent (the first open, and the reload) and 12 answered
+     304; B 12, 1 sent, 11 at 304; **C 10, none sent**, its first answer a 304 (the fetched
+     replay is one file for every board). Every 304 had no body. Each open asks twice (the
+     open, and its job's `done`), as the spec says;
+   - **0 page errors, 0 console errors**, and the frozen-timeline guard stayed quiet.
+   Its first run failed in the script, not the app: in Player no scene is current, so Add
+   scene has nothing to copy. The script picks a scene first now.
 
-    cd /storage/projects/mapcro.worktrees/sessions-p3
-    /storage/projects/mapcro/tools/heavy.sh nix develop -c bash /tmp/sp3-batch6.sh > /tmp/sp3-batch6.log 2>&1
+### The runs (batches 6 and 7, through `tools/heavy.sh`)
 
-The scripts are in `/tmp` (`sp3-batch6.sh`, `sp3-e2e-mutants.py`, `sp3-unit-mutants.py`,
-`sp3-edit/zz-walkthrough.spec.ts`), with a copy in `~/.cache/mapcro-sp3-scratch/` (the batch
-reads the walkthrough from `/tmp/sp3-edit/`: copy it back if `/tmp` was cleared). A background
-job of the harness is stopped after two hours, queue time included: start the batch detached
-(`setsid nohup`), and wait on its log.
+- `cargo test -p mapcro-server --test replays`: 46 passed. `just clippy`: clean.
+- `just web-test`: **69 files, 682 tests passed, `tsc` clean.** In batch 6 one test of
+  `sessions-client.test.ts` timed out under load ("an edit made as its board is left still
+  goes to that board"); alone it passed 23 of 23 twice, then the whole recipe passed. It isn't
+  a loss: TD-101.
+- Full e2e, 2 workers, `MAPCRO_SHOT_REPLAY` set: **477 passed, 0 failed, 8 skipped** (24.2 min),
+  with the layers change and its rows in. `laser-gestures` and `session-isolation` alone after:
+  18 passed.
+- `git status` clean after the mutants.
 
-### Open
+### For the review, and for phase 4
 
-- The first run of the new e2e row and of the walkthrough may need fixes: neither has run.
-  In the walkthrough, B is left by adding a scene from Player (expected to leave it on the
-  scene, the match held): if `scene-add` doesn't do that, pick a scene card instead.
-- A layer set before a tab's matches are known is now kept (`remember`, the unsettled path):
-  no test covers it (it needs the host with a slow matches answer).
-- A follower moved off a tab no longer keeps a presenter's layers for it: decision 7 as the
-  lead read it. Phase 4 (follow across tabs) should confirm that is wanted.
-- After the batch is green: put its numbers into the spec's §10 (two more switch runs, the
-  mutation counts, the walkthrough), mark the journal, and report to the lead. Phase 4 is not
-  started.
+- The spec's §10 item 4 carries two checks into phase 4: a follower moved off a tab keeps
+  nothing of the presenter's layers (decision 7 as read); the unsettled path when a follow
+  moves a person off a tab at that moment.
+- The scratch scripts (the batches, the mutants, the walkthrough) are in `/tmp/sp3-*` and
+  `/tmp/sp3-edit/`, with a copy in `~/.cache/mapcro-sp3-scratch/`. None is in the repo.
+- A background job of the harness is stopped after two hours, queue time included: start a
+  batch detached (`setsid nohup`), append to its log (`>>`), and wait on a done line.
 
 ## State when the second implementer stopped (2026-11-14, context budget)
 
