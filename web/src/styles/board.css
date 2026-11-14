@@ -1178,6 +1178,10 @@ kbd {
 .phone .pl-events > .pl-list { grid-row: 3; align-self: stretch; }
 .phone .pl-events > .pl-events-foot { grid-row: 4; }
 .phone .pl-chips > * { flex: none; }
+/* That row stays at the sheet's head: the list opens at the current event, thousands of px down. */
+.phone .p-sheet .pl-ev { scroll-margin-top: 52px; }   /* the current event is brought in under that row, not behind it */
+.phone .p-sheet .pl-events > :is(.pl-events-head, .pl-chips) { position: sticky; top: 0; z-index: 2; align-self: stretch; align-items: center; background: var(--panel); }
+.phone .p-sheet .pl-events > .pl-events-head { box-shadow: 8px 0 var(--panel); }   /* the column gap, too */
 .phone .pl-events-head .input { flex: none; width: 96px; }
 .phone .pl-side .match-credit { display: none; }
 .p-credit { display: none; }

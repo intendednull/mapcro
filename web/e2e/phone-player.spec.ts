@@ -202,6 +202,19 @@ async function checkEvents(p: Page) {
   expect(inView).toBeGreaterThanOrEqual(4);
   await expect(side.locator('[data-testid=event][aria-current="true"]')).toHaveAttribute("data-t", "30");
   await expect(side.getByTestId("match-credit")).toBeHidden();
+  // The search and chips stay at the sheet's head however far the list is scrolled (it opens at
+  // the current event, which late in a match left them thousands of px above).
+  const now = (await side.locator('[data-testid=event][aria-current="true"]').boundingBox())!;
+  expect(now.y).toBeGreaterThanOrEqual(bottom - 1);
+  const body = p.locator("[data-testid=phone-events-sheet] .p-sheet-body");
+  await body.evaluate((e) => e.scrollTo(0, e.scrollHeight));
+  const view = (await body.boundingBox())!;
+  for (const sel of [".pl-events-head", ".pl-chips"]) {
+    const r = (await side.locator(sel).boundingBox())!;
+    expect(r.y, sel).toBeGreaterThanOrEqual(view.y - 1);
+    expect(r.y + r.height, sel).toBeLessThanOrEqual(view.y + 49);
+  }
+  await body.evaluate((e) => e.scrollTo(0, 0));
 }
 
 /** Landscape's dock: Events, Build and Scenes tabs (and All builds on a tablet) in one row; a

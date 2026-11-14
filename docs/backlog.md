@@ -21,9 +21,6 @@ smaller things (spec §6b Phone; `web/e2e/phone-layout.ts`). Seen and not fixed:
   to twelve items, the rest clipped with no way to scroll to them (`.phone-row-items` is
   `overflow: hidden`). A row opens the hero's build, so nothing is unreachable. Options: drop the
   souls column there, wrap the items to a second line, or scroll the items sideways.
-- **Events in portrait opens at the current event,** with the search, lead and filter chips
-  scrolled out above it. They are one swipe up, but nothing says so. Pin that row to the sheet's
-  head (it is at most 48 px) if it turns out to be missed.
 - **The board (not Player) on a tablet is the phone page, scaled up:** a 70dvh square map with
   the tools and scene nav under it, and the page scrolls (1024 × 768: 1006 px tall). It works and
   nothing overlaps; it is P2 of the phone direction (move the board into the shell) that fixes it.

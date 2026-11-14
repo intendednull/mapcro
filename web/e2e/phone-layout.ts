@@ -18,8 +18,9 @@ export async function checkPhoneLayout(page: Page) {
     const visible = (e: Element) => {
       const r = e.getBoundingClientRect();
       if (!shown(e) || r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth) return false;
-      // Content under a sheet or an open menu is out of reach, not overlapped.
-      for (const cover of document.querySelectorAll(".phone-build-sheet, .p-sheet, .map-layers[open] .map-layers-pop")) {
+      // Content under a sheet, an open menu or the Events sheet's pinned search row is out of
+      // reach, not overlapped.
+      for (const cover of document.querySelectorAll(".phone-build-sheet, .p-sheet, .map-layers[open] .map-layers-pop, .p-sheet .pl-events-head, .p-sheet .pl-chips")) {
         const c = cover.getBoundingClientRect();
         if (!cover.contains(e) && !e.contains(cover) && r.left < c.right && c.left < r.right && r.top < c.bottom && c.top < r.bottom) return false;
       }
