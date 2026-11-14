@@ -372,7 +372,7 @@ export function PlayerTopBar(p: {
 
   const shownBuilds = () => p.host.tl()?.players.filter(q => expanded(slotKey(q.team, q.slot))) ?? [];
   if (p.compact) return (
-    <div class="phone-roster" data-testid="topbar" data-mode="player" ref={e => el = e}>
+    <div class={cx("phone-roster", p.art.images.has("tb-mask") && "pack-art")} data-testid="topbar" data-mode="player" ref={e => el = e}>
       <For each={[friend(), enemy()] as const}>{t =>
         <div class="phone-team">
           <For each={team(t)}>{s => {

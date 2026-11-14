@@ -562,7 +562,8 @@ export function Player(p: {
                   bar is too narrow for them beside the scrubber (QA 2026-11-08). */}
               <div class="pl-tail">
               <span class="match-clock" data-testid="match-clock">
-                {clockLabel(transportTime())} / {clockLabel(m().duration_s)}
+                {/* Two parts, so the phone shell can stack them where one line doesn't fit. */}
+                <span class="clock-now">{clockLabel(transportTime())}</span><span class="clock-of"> / {clockLabel(m().duration_s)}</span>
               </span>
               <Show when={canEdit() && watching()}>
                 <button class="btn primary small" type="button" data-testid="match-save" onClick={saveOne}>

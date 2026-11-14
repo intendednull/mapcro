@@ -3,6 +3,34 @@
 Ideas the operator wants kept but not built yet. Newest first. Each entry records when it was raised,
 what it is, and what it depends on.
 
+## Phone and tablet layout: left from the mobile QA pass (2026-11-13, from mobile-qa)
+
+The pass fixed the roster's portraits, the clock under Events, the stretched board map and a few
+smaller things (spec §6b Phone; `web/e2e/phone-layout.ts`). Seen and not fixed:
+- **A short phone in landscape has almost no dock.** At 615 × 344 (the operator's phone turned)
+  the right pane is 323 px wide and 291 px tall: the strip takes 44, the roster 132 (its pane is
+  under 320 px, so the totals head the rows), the tab row 44, and the dock gets about 65 px: one
+  event row, or a build's items with its abilities out of view (the spec says both show without
+  scrolling in landscape; that holds from about 390 px tall). More and Map layers open in the same
+  65 px and scroll. Something has to give under about 380 px tall: the strip (fold the tier chip
+  and save state into the tab row), the totals (36 px), or the two-row roster. Needs the
+  operator's call; `phone-player.spec.ts` runs the layout checks at 615 × 344 but not
+  `checkBuildSheet`.
+- **All builds on a 4:3 tablet in landscape cuts the items.** At 1024 × 768 the dock is 309 px
+  wide: a row is portrait, K/D/A (7em), souls (5em) and what is left, about 70 px: three of up
+  to twelve items, the rest clipped with no way to scroll to them (`.phone-row-items` is
+  `overflow: hidden`). A row opens the hero's build, so nothing is unreachable. Options: drop the
+  souls column there, wrap the items to a second line, or scroll the items sideways.
+- **The board (not Player) on a tablet is the phone page, scaled up:** a 70dvh square map with
+  the tools and scene nav under it, and the page scrolls (1024 × 768: 1006 px tall). It works and
+  nothing overlaps; it is P2 of the phone direction (move the board into the shell) that fixes it.
+- **Firefox for Android is the operator's browser** and e2e runs Chromium (WebKit opt-in). The
+  fixed layout was probed once in nix's Playwright Firefox at 344 × 615 and measured the same as
+  Chromium to the pixel, but nothing gates it. Playwright's Firefox has no `isMobile`, so a
+  `pointer: coarse` tablet can't be emulated there; phone widths (under 700 px) can.
+- **The selected tab's underline** (Events, Map layers, ⋯ in the transport's row 2) is an inset
+  shadow on a button with rounded corners, so its ends curl up. Cosmetic.
+
 ## Map state: one shape, computed by Player, stored by a scene (2026-11-13, operator; building)
 
 Spec: `docs/specs/map-state.md` (third revision: the independent review in
