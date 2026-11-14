@@ -1,2 +1,13 @@
 # The map-state rows of the last deployed build (docs/specs/map-state.md §4.3).
 # Written by `just rows-lock` at each deploy; never by hand.
+hero hero int 0 4294967295
+name hero text 24
+rows scene int 0 65535
+has_builds scene bool
+build scene int 0 4294967295
+items hero ints 128 -1 4294967295
+abilities hero ints 48 -1 4294967295
+build_order hero ints 600 -1 4294967295
+level hero int 0 1000
+health hero int 0 100
+pickups hero ints 16 -1000000000 1000000000
