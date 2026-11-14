@@ -3,7 +3,7 @@
 
 import { devices, expect, test } from "./fixtures";
 import { joinNew, mapPoint, revealControls, viewLink } from "./helpers";
-import { checkPhoneLayout, touchDrag, touchMapGesture } from "./phone-layout";
+import { checkPhoneLayout, hasCdp, phoneContext, touchDrag, touchMapGesture } from "./phone-layout";
 import { Server, newBoardUrl } from "./server";
 
 let server: Server;
@@ -30,7 +30,8 @@ test("a phone viewer follows, reads the callouts and note, flips on its own, and
   await a.getByTestId("scene-name").click(); // blur the note: it saves
   await a.keyboard.press("Escape");
 
-  const ctx = await browser.newContext({ ...devices["iPhone 13"], defaultBrowserType: undefined } as never);
+  const iphone = devices["iPhone 13"];
+  const ctx = await phoneContext(browser, iphone.viewport, iphone);
   const phone = await ctx.newPage();
   await phone.goto(await viewLink(server.url, url));
   await phone.locator("#join-name").fill("Guest");
@@ -66,10 +67,12 @@ test("a phone viewer follows, reads the callouts and note, flips on its own, and
   await phone.getByTestId("toast-action").tap();
   await expect(phone.locator(".p-title")).toContainText("Scene 2 of 2");
 
-  // The laser works from the phone too.
+  // The laser works from the phone too. (CDP touch: Chromium only.)
   await phone.getByTestId("tool-laser").tap();
-  await touchMapGesture(phone, [[0.3, 0.3], [0.6, 0.6]]);
-  await expect(a.locator('.laser[data-laser="Guest"]')).toHaveCount(1);
+  if (hasCdp(browser)) {
+    await touchMapGesture(phone, [[0.3, 0.3], [0.6, 0.6]]);
+    await expect(a.locator('.laser[data-laser="Guest"]')).toHaveCount(1);
+  }
   // Nothing on the page is wider than the phone.
   expect(await phone.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await checkPhoneLayout(phone);
@@ -77,7 +80,7 @@ test("a phone viewer follows, reads the callouts and note, flips on its own, and
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }, { width: 344, height: 615 }, { width: 844, height: 390 }, { width: 768, height: 1024 }, { width: 1024, height: 768 }]) {
   test(`phone layout and editing at ${viewport.width}×${viewport.height}`, async ({ browser }) => {
-    const ctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true });
+    const ctx = await phoneContext(browser, viewport);
     const phone = await ctx.newPage();
     await phone.goto(await newBoardUrl(server, "Phone"));
     await phone.locator("#join-name").fill("Coach");
@@ -87,6 +90,12 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 800 }
     await phone.getByTestId("phone-edit").tap();
     await phone.getByTestId("tool-select").tap();
     await phone.getByTestId("map").scrollIntoViewIfNeeded();
+    // The gestures are CDP touch input (Chromium only): elsewhere, the layout with Edit open.
+    if (!hasCdp(browser)) {
+      await expect(phone.getByTestId("tool-draw")).toBeVisible();
+      await checkPhoneLayout(phone);
+      return;
+    }
     const token = phone.locator(".p-map .tok").first();
     const before = await token.getAttribute("transform");
     const box = (await token.boundingBox())!;

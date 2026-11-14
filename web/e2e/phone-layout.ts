@@ -1,4 +1,15 @@
-import { expect, type Page } from "./fixtures";
+import { expect, type Browser, type BrowserContextOptions, type Page } from "./fixtures";
+
+/** Chromium: CDP touch input (`touchDrag`) and `isMobile`. Firefox has neither. */
+export const hasCdp = (browser: Browser) => browser.browserType().name() === "chromium";
+
+/** A touch-first context at a viewport. Playwright's Firefox refuses `isMobile`, so there it is
+ *  the viewport and `hasTouch`; its coarse pointer and its pixel ratio come from the project's
+ *  prefs (playwright.config.ts). */
+export function phoneContext(browser: Browser, viewport: { width: number; height: number }, opts: BrowserContextOptions = {}) {
+  const { isMobile: _, defaultBrowserType: __, ...rest } = opts as BrowserContextOptions & { defaultBrowserType?: string };
+  return browser.newContext({ ...rest, viewport, hasTouch: true, ...(browser.browserType().name() === "firefox" ? {} : { isMobile: true }) });
+}
 
 /** Geometry only: never return DOM text, titles or player names. */
 export async function checkPhoneLayout(page: Page) {
@@ -21,6 +32,8 @@ export async function checkPhoneLayout(page: Page) {
       // Content under a sheet, an open menu or the Events sheet's pinned search row is out of
       // reach, not overlapped.
       for (const cover of document.querySelectorAll(".phone-build-sheet, .p-sheet, .map-layers[open] .map-layers-pop, .p-sheet .pl-events-head, .p-sheet .pl-chips")) {
+        // In a sheet the layers list is the sheet's body (cut by its scroller), not a menu.
+        if (cover.matches(".map-layers-pop") && cover.closest(".p-sheet")) continue;
         const c = cover.getBoundingClientRect();
         if (!cover.contains(e) && !e.contains(cover) && r.left < c.right && c.left < r.right && r.top < c.bottom && c.top < r.bottom) return false;
       }
@@ -78,6 +91,10 @@ export async function checkPhoneLayout(page: Page) {
     const pane = document.querySelector(".p-map")!.getBoundingClientRect();
     const art = document.querySelector(".p-map .mm-rot")?.getBoundingClientRect() ?? pane;
     const sheets = [...document.querySelectorAll(".phone-build-sheet, .p-sheet")].map(e => e.getBoundingClientRect());
+    // Landscape's dock: the tab row, the status strip, and what is left under them.
+    const tabRow = document.querySelector(".phone-player > .p-dock-tabs")?.getBoundingClientRect();
+    const strip = document.querySelector(".phone-player > .p-top")?.getBoundingClientRect();
+    const tabsCut = tabRow ? [...document.querySelectorAll(".phone-player > .p-dock-tabs > *")].filter(shown).filter(e => { const r = e.getBoundingClientRect(); return r.left < tabRow.left - 1 || r.right > tabRow.right + 1; }).map(tag) : [];
     const r1 = (v: number) => Math.round(v);
     return {
       shell, landscape: innerWidth > innerHeight, width: innerWidth, height: innerHeight,
@@ -91,7 +108,10 @@ export async function checkPhoneLayout(page: Page) {
       map: { w: r1(pane.width), h: r1(pane.height), top: r1(pane.top), right: r1(pane.right), artW: r1(art.width), artH: r1(art.height) },
       zoneBottom: r1(document.querySelector(".phone-player > .p-map-wrap")?.getBoundingClientRect().bottom ?? 0),
       transport: transport && { h: r1(transport.height), top: r1(transport.top) },
-      rosterBottom: roster ? r1(roster.bottom) : 0, rosterLeft: roster ? r1(roster.left) : 0,
+      rosterBottom: roster ? r1(roster.bottom) : 0, rosterLeft: roster ? r1(roster.left) : 0, rosterTop: roster ? r1(roster.top) : 0,
+      tabRow: tabRow && { top: r1(tabRow.top), bottom: r1(tabRow.bottom), right: r1(tabRow.right) },
+      strip: strip && { top: r1(strip.top), bottom: r1(strip.bottom), left: r1(strip.left) },
+      tabsCut,
       sheets: sheets.map(r => ({ left: r1(r.left), right: r1(r.right), top: r1(r.top), bottom: r1(r.bottom) })),
       portraits: [...document.querySelectorAll(".phone-player .phone-team .tb-player")].map(e => { const r = e.getBoundingClientRect(); return { top: r1(r.top), w: r.width }; }),
       play: (() => { const b = document.querySelector(".phone-player [data-testid=match-play]"); return !!b && visible(b); })(),
@@ -131,6 +151,17 @@ export async function checkPhoneLayout(page: Page) {
     if (tablet) {
       expect(report.width - report.map.right).toBeGreaterThanOrEqual(300);
       expect(report.scrubShare).toBeGreaterThanOrEqual(.4);
+    }
+    else if (report.tabRow && report.strip) {
+      // A phone in landscape has no strip row (it left the dock about 65 px at 615 × 344): the
+      // roster heads the pane, the status sits at the tab row's end, the tabs all show, and the
+      // dock keeps at least 140 px (from 344 px tall, with the totals in their column).
+      expect(report.rosterTop).toBeLessThanOrEqual(4);
+      expect(report.strip.top).toBeGreaterThanOrEqual(report.rosterBottom - 1);
+      expect(report.strip.bottom).toBeLessThanOrEqual(report.tabRow.bottom + 1);
+      expect(report.strip.left).toBeGreaterThanOrEqual(report.tabRow.right - 1);
+      expect(report.tabsCut).toEqual([]);
+      if (report.height >= 344 && report.width - report.map.right >= 320) expect(t.top - report.tabRow.bottom).toBeGreaterThanOrEqual(140);
     }
   } else if (tablet) {
     // Tablet portrait: the roster is one row of 12; sheets take at most half the height.

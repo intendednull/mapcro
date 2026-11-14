@@ -134,6 +134,13 @@ e2e-webkit *args: wasm
     cargo build -q -p mapcro-server
     cd web && npx vite build --logLevel warn && MAPCRO_E2E_WEBKIT=1 npx playwright test --project webkit {{args}}
 
+# The phone specs in Firefox (from nix), for Firefox for Android (the operator's browser): the
+# phone and tablet layouts at a phone's pixel ratio. Opt-in: the lead runs it before a deploy that
+# touches the phone layout. `just e2e-firefox --workers 2`.
+e2e-firefox *args: wasm
+    cargo build -q -p mapcro-server
+    cd web && npx vite build --logLevel warn && MAPCRO_E2E_FIREFOX=1 npx playwright test --project firefox {{args}}
+
 # Many-peer soak on the real stack: the real server binary (release), real WebSockets, the
 # TypeScript session over the WASM replica, IndexedDB via fake-indexeddb; drops, reloads, offline
 # bursts and server kill -9s. Same seed, same schedule of actions. `just soak 0x2a 40 600`;
