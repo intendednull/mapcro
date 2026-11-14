@@ -1,20 +1,29 @@
 // Whose hero a saved scene draws (docs/specs/map-state.md §2, D2), on a synthetic replay with
 // a hero pack.
 //
-// Characterisation, written before D2: a scene saved before scenes held their own heroes
-// (`has_heroes`) draws the board roster's hero. Where that differs from the hero its build was
-// captured for, a coach picked another since: the pick wins, on every scene of the board, and
-// the stored build is hidden. D2 keeps exactly this for every such scene.
+// A scene saved before scenes held their own heroes (`has_heroes`) draws the board roster's
+// hero. Where that differs from the hero its build was captured for, a coach picked another
+// since: the pick wins, on every scene of the board, and the stored build is hidden. Written as
+// a characterisation before D2, which keeps exactly this for every such scene; the scene comes
+// from a board file that says what a save from before stored, so it holds whatever this build
+// writes.
+//
+// A scene that holds its heroes (saved once the row is written) draws its own: the roster and
+// the board's other scenes keep theirs, and a pick in it is that scene's alone and drops the old
+// hero's build. Those tests run once the row is `live`.
 
 import { createServer } from "node:http";
 import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew, revealControls } from "./helpers";
+import { joinNew, pickHero, revealControls } from "./helpers";
+import { ROWS } from "../src/gen/rows";
 import { Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 import { heroPack } from "./synthetic";
 
+/** Whether this build's Save gives a scene its own heroes. */
+const OWN = ROWS.has_heroes.status === "live";
 const ID = "129000152";
 const N = 60;
 const queue = mkdtempSync(join(tmpdir(), "mapcro-e2e-scene-hero-"));
@@ -108,10 +117,46 @@ async function changeHero(p: Page, slot: string, hero: string) {
   await expect(p.getByTestId("hero-picker")).toHaveCount(0);
 }
 
-test("a saved scene's slot given another hero since draws that hero and hides the stored build, on every scene; the first hero back, so is the build", async ({ browser }) => {
-  const url = await newBoardUrl(server, "Scene hero pick");
+type BoardFile = { version: number; rows?: number; matches: number[]; records: Array<[string, Record<string, { more?: Record<string, unknown>; team?: string; slot?: number; hero?: number | null }>]> };
+async function seed(file: unknown): Promise<string> {
+  const r = await fetch(`${server.url}/api/boards/import`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(file) });
+  expect(r.status).toBe(201);
+  const { board, owner_token } = (await r.json()) as { board: string; owner_token: string };
+  return `${server.url}/b/${board}#${owner_token}`;
+}
+/** A board with a scene saved from the match as a build from before `has_heroes` left it: the
+ * scene's state doesn't say it holds its heroes, and the roster holds the match's (that save
+ * set it). Without the match, so it opens on its scenes. */
+async function boardFromBefore(browser: Parameters<typeof joinNew>[0]): Promise<string> {
+  const from = await newBoardUrl(server, "Saved before");
+  const maker = await joinNew(browser, from, "Coach");
+  await savedScene(maker);
+  const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(from)!;
+  const file = (await (await fetch(`${server.url}/api/boards/${board}/export`, { headers: { authorization: `Bearer ${token}` } })).json()) as BoardFile;
+  await maker.close();
+  const before = ROWS.has_heroes.index;
+  let states = 0;
+  for (const [, rec] of file.records) {
+    const state = rec.SceneState;
+    if (state?.more) {
+      states++;
+      delete state.more.has_heroes;
+      state.more.rows = Math.min(state.more.rows as number, before);
+    }
+    const slot = rec.RosterSlot;
+    if (slot) slot.hero = (slot.team === "Amber" ? 1 : 7) + slot.slot!;
+  }
+  expect(states).toBe(1);
+  file.rows = Math.min(file.rows ?? before, before);
+  file.matches = [];
+  return seed(file);
+}
+
+test("a scene saved before scenes held their heroes: a slot given another hero since draws that hero and hides the stored build, on every scene; the first hero back, so is the build", async ({ browser }) => {
+  const url = await boardFromBefore(browser);
   const p = await joinNew(browser, url, "Coach");
-  await savedScene(p);
+  await expect(p.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
+  await p.getByTestId("scene-card").nth(1).click();
   // The match's hero in the slot (hero 4, "Testhero D"), with its build.
   await expect(img(p, "Amber-3")).toHaveAttribute("style", heroArt(4));
   await expect(token(p, "Amber-3")).toHaveAttribute("aria-label", /Testhero D/);
@@ -122,11 +167,12 @@ test("a saved scene's slot given another hero since draws that hero and hides th
   await p.keyboard.press("Escape");
   await expect(builds(p)).toHaveCount(0);
 
-  // Another hero. The other eleven are taken, by the match's heroes.
+  // Another hero. The other eleven are taken, by the roster's heroes; "No hero" is offered.
   await portrait(p, "Amber-3").click({ button: "right", position: { x: 20, y: 30 } });
   await p.getByTestId("hero-menu").getByRole("menuitem", { name: "Change hero…" }).click();
   await expect(p.locator(".hero-cell.taken")).toHaveCount(11);
   await expect(p.locator(".hero-cell.current")).toHaveAttribute("data-hero", "Testhero D");
+  await expect(p.getByTestId("hero-clear")).toHaveCount(1);
   await p.locator('.hero-cell[data-hero="Testhero M"]').click();
   await expect(p.getByTestId("hero-picker")).toHaveCount(0);
   await expect(img(p, "Amber-3")).toHaveAttribute("style", heroArt(13));
@@ -148,7 +194,6 @@ test("a saved scene's slot given another hero since draws that hero and hides th
   const q = await joinNew(browser, url, "Player");
   await expect(q.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
   await q.getByTestId("scene-card").nth(1).click();
-  await expect(q.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
   await expect(img(q, "Amber-3")).toHaveAttribute("style", heroArt(13));
   await q.getByTestId("all-builds").click();
   await expect(builds(q)).toHaveCount(11);
@@ -162,11 +207,93 @@ test("a saved scene's slot given another hero since draws that hero and hides th
   expect(await shown(p, "Amber-3")).toEqual(first);
 });
 
-test("saving a scene from a match sets the board's roster to the match's heroes: every scene draws them", async ({ browser }) => {
+test("before Save holds a scene's heroes, it sets the board's roster to the match's: every scene draws them", async ({ browser }) => {
+  test.skip(OWN, "Save leaves the roster alone once it writes `has_heroes`");
   const p = await joinNew(browser, await newBoardUrl(server, "Scene roster"), "Coach");
   await savedScene(p);
   for (const [slot, hero] of [["Amber-0", 1], ["Amber-5", 6], ["Sapphire-0", 7], ["Sapphire-5", 12]] as const) await expect(img(p, slot)).toHaveAttribute("style", heroArt(hero));
   // The board's first scene, made by hand, draws the match's heroes now too.
   await p.getByTestId("scene-card").nth(0).click();
   for (const [slot, hero] of [["Amber-0", 1], ["Amber-5", 6], ["Sapphire-0", 7], ["Sapphire-5", 12]] as const) await expect(img(p, slot)).toHaveAttribute("style", heroArt(hero));
+});
+
+test("a scene saved from a match holds its own heroes: the roster and the board's other scenes keep theirs, and a pick in it is its alone", async ({ browser }) => {
+  test.skip(!OWN, "nothing writes `has_heroes` yet: the row is ahead of its writer");
+  const url = await newBoardUrl(server, "Scene heroes");
+  const p = await joinNew(browser, url, "Coach");
+  // The board's own hero for one slot, picked by hand before any match.
+  await pickHero(p, "Amber-3", "Testhero N");
+  await expect(img(p, "Amber-3")).toHaveAttribute("style", heroArt(14));
+  await savedScene(p);
+  // The saved scene draws the match's heroes.
+  for (const [slot, hero] of [["Amber-0", 1], ["Amber-3", 4], ["Sapphire-0", 7], ["Sapphire-5", 12]] as const) await expect(img(p, slot)).toHaveAttribute("style", heroArt(hero));
+  await expect(token(p, "Amber-3")).toHaveAttribute("aria-label", /Testhero D/);
+  // The roster is as it was: the scene made by hand draws the hero picked there, and none elsewhere.
+  await p.getByTestId("scene-card").nth(0).click();
+  await expect(img(p, "Amber-3")).toHaveAttribute("style", heroArt(14));
+  await expect(img(p, "Amber-0")).toHaveCount(0);
+  await p.getByTestId("scene-card").nth(1).click();
+  await portrait(p, "Amber-3").getByTestId("focus-hero").click();
+  await expect(builds(p)).toHaveCount(1);
+  const first = await shown(p, "Amber-3");
+  expect(first.items).toEqual(["715762406", "1009965641"]);
+  await p.keyboard.press("Escape");
+
+  // The picker in the saved scene: the scene's heroes are the taken ones (so the roster's
+  // "Testhero N" is free here), and a hero can be changed but not taken away.
+  await portrait(p, "Amber-3").click({ button: "right", position: { x: 20, y: 30 } });
+  await p.getByTestId("hero-menu").getByRole("menuitem", { name: "Change hero…" }).click();
+  await expect(p.locator(".hero-cell.current")).toHaveAttribute("data-hero", "Testhero D");
+  await expect(p.locator(".hero-cell.taken")).toHaveCount(11);
+  await expect(p.locator('.hero-cell[data-hero="Testhero N"]')).toBeEnabled();
+  await expect(p.getByTestId("hero-clear")).toHaveCount(0);
+  await p.locator('.hero-cell[data-hero="Testhero M"]').click();
+  await expect(p.getByTestId("hero-picker")).toHaveCount(0);
+  // The scene's hero changed, and the old hero's build went with it.
+  await expect(img(p, "Amber-3")).toHaveAttribute("style", heroArt(13));
+  await expect(token(p, "Amber-3")).toHaveAttribute("aria-label", /Testhero M/);
+  await portrait(p, "Amber-3").getByTestId("focus-hero").click();
+  await expect(builds(p)).toHaveCount(0);
+  await p.getByTestId("all-builds").click();
+  await expect(builds(p)).toHaveCount(11);
+  await p.getByTestId("all-builds").click();
+  // That scene alone: the one made by hand still draws the roster's hero. A second person
+  // sees both.
+  await p.getByTestId("scene-card").nth(0).click();
+  await expect(img(p, "Amber-3")).toHaveAttribute("style", heroArt(14));
+  const q = await joinNew(browser, url, "Player");
+  await expect(q.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  await q.getByTestId("scene-card").nth(1).click();
+  await expect(q.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
+  await expect(img(q, "Amber-3")).toHaveAttribute("style", heroArt(13));
+  await q.getByTestId("scene-card").nth(0).click();
+  await expect(img(q, "Amber-3")).toHaveAttribute("style", heroArt(14));
+  await q.getByTestId("scene-card").nth(1).click();
+
+  // One undo brings back the hero and its build together.
+  await p.getByTestId("scene-card").nth(1).click();
+  await p.getByTestId("map").hover();
+  await p.keyboard.press("Control+z");
+  await expect(img(p, "Amber-3")).toHaveAttribute("style", heroArt(4));
+  await expect(img(q, "Amber-3")).toHaveAttribute("style", heroArt(4));
+  await portrait(p, "Amber-3").getByTestId("focus-hero").click();
+  await expect(builds(p)).toHaveCount(1);
+  expect(await shown(p, "Amber-3")).toEqual(first);
+  await p.keyboard.press("Escape");
+
+  // In the scene made by hand the pick is still the board's, and "No hero" is still offered.
+  await p.getByTestId("scene-card").nth(0).click();
+  await portrait(p, "Amber-3").click({ button: "right", position: { x: 20, y: 30 } });
+  await p.getByTestId("hero-menu").getByRole("menuitem", { name: "Change hero…" }).click();
+  await p.getByTestId("hero-clear").click();
+  await expect(p.getByTestId("hero-picker")).toHaveCount(0);
+  await expect(img(p, "Amber-3")).toHaveCount(0);
+  await p.getByTestId("scene-card").nth(1).click();
+  await expect(img(p, "Amber-3")).toHaveAttribute("style", heroArt(4));
+  // It is the scene's own: it survives a reload.
+  await p.reload();
+  await expect(p.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  await p.getByTestId("scene-card").nth(1).click();
+  await expect(p.getByTestId("topbar")).not.toHaveAttribute("data-mode", "player");
+  await expect(img(p, "Amber-3")).toHaveAttribute("style", heroArt(4));
 });
