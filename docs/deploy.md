@@ -207,8 +207,18 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
   row, or a `SceneState`, is rejected (`Admit`, `crates/schema/src/map_state.rs`). So after the
   reader's deploy the database holds nothing the build before it can't load, and a rollback is
   safe. That guarantee ends when a row goes `Live`.
-- Schema v8 is the reader (additive: a v7 server still opens the database); v9 will ship with the
-  first writer and set the floor to 8.
+- Schema v8 is the reader (additive: a v7 server still opens the database). v9 is the first
+  writer: its step adds no SQL and sets the floor to 8 (`Step::NeedsReader` in `store.rs`), so
+  the v8 reader is the rollback target and nothing older starts.
+- **`just reader-check`** (in `just test`) loads what this build's server stores on the reader
+  release's own code. Its reader is `reader` in the justfile: **set it to the deployed commit
+  at each deploy that changes what is stored**, with `just rows-lock`.
+- **`just rows-lock` is the only way to write the lock.** The test rewrites it only when the
+  recipe names the commit it checked (`MAPCRO_ROWS_LOCK_COMMIT`); the flag alone fails.
+- **A looser validation rule is gated like a row.** `UNFIT_UNDO` (`map_state.rs`): this build
+  skips an undo whose list no longer fits when it replays a log, and still refuses it from a
+  client. The release after this one is deployed makes it `Live`, with a store step that sets
+  the floor to this build's version.
 
 **Rolling back after a schema bump.** `meta` holds two numbers: `schema_version` and
 `compat_floor`, the oldest server schema version that can still use the database. An additive

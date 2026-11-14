@@ -37,12 +37,13 @@ pub const FORMAT: &str = "mapcro-board";
 /// The file format's version. A change to the file's shape, or a record change that an older
 /// build's file can't be read into by serde defaults alone, bumps it and adds a step to
 /// [`upgrade`]: a pure function from the old version's shape to the next.
-pub const VERSION: u64 = 1;
-/// The newest version this build reads. Version 2 is version 1 with a `rows` header: how many
-/// map-state rows the build that wrote the file knew (docs/specs/map-state.md §4.3). This build
-/// reads it and still writes version 1, since it writes no row; the build that first writes
-/// them writes version 2, so a build from before this reader says "Newer file" rather than
-/// dropping the values, which its lenient record parsing would.
+///
+/// Version 2 is version 1 with a `rows` header: how many map-state rows the build that wrote
+/// the file knew (docs/specs/map-state.md §4.3). The reader release read it and wrote version
+/// 1; this build writes rows, so it writes version 2: a build from before the reader says
+/// "Newer file" rather than dropping the values, which its lenient record parsing would.
+pub const VERSION: u64 = 2;
+/// The newest version this build reads.
 pub const READS: u64 = 2;
 /// The largest file, either way. A board this size as JSON is the largest the server sends as
 /// one snapshot (`room::SNAPSHOT_MAX_BYTES`); real boards are kilobytes to a few hundred. The
@@ -120,7 +121,9 @@ fn file(doc: &Doc, matches: Vec<u64>, exported_at: i64) -> BoardFile {
         exported_at,
         records: mapcro_schema::export_records(doc),
         matches,
-        rows: None,
+        // The rows this build writes, not the ones it only reads: the file must still import
+        // on the reader release a rollback goes to.
+        rows: Some(mapcro_schema::written_rows() as u64),
     }
 }
 
@@ -379,6 +382,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_file_says_the_rows_this_build_writes_not_the_ones_it_only_reads() {
+        use mapcro_schema::{ROWS, Status};
+        let mut n = 0u128;
+        let doc = mapcro_schema::genesis(
+            || {
+                n += 1;
+                RecordId(n)
+            },
+            "t",
+        );
+        let head: Head = serde_json::from_slice(&write(&doc, Vec::new(), 0, 0)).expect("head");
+        let rows = head.rows.expect("version 2 has rows") as usize;
+        // Every row below it is written, and it stops at the first that is only read.
+        assert!(ROWS[..rows].iter().all(|r| r.status != Status::Ahead));
+        assert!(ROWS.get(rows).is_none_or(|r| r.status == Status::Ahead));
+        assert_eq!(rows, mapcro_schema::written_rows());
+        // A reader that knows exactly those rows takes the file; `read` refuses one above its own.
+        assert!(head.rows.is_some_and(|n| n <= ROWS.len() as u64));
+    }
+
+    #[test]
     fn depth_is_counted_outside_strings() {
         assert!(!too_deep(br#"{"a":[[1]]}"#, 3));
         assert!(too_deep(br#"{"a":[[[1]]]}"#, 3));
@@ -450,7 +474,7 @@ mod tests {
     #[test]
     fn a_file_holding_a_row_or_kind_still_ahead_is_refused_at_either_version() {
         use mapcro_schema::Status;
-        let ahead = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead };
+        let ahead = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
         read(&file_with(|_| {}), ids(1000), &ahead).expect("a board with neither imports");
         for version in [1, 2] {
             assert_eq!(read(&file_with(|v| snapshot(v, version)), ids(1000), &ahead).err(), Some(Refusal::Invalid), "version {version}");
@@ -466,7 +490,7 @@ mod tests {
             });
             assert_eq!(read(&state_only, ids(1000), &ahead).err(), Some(Refusal::Invalid), "version {version}");
             // The rows live and the kind not: the hero's values alone are not enough.
-            let rows_live = Admit { row: |_| Status::Live, scene_state: Status::Ahead };
+            let rows_live = Admit { row: |_| Status::Live, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
             assert_eq!(read(&state_only, ids(1000), &rows_live).err(), Some(Refusal::Invalid), "version {version}");
             read(&hero_only, ids(1000), &rows_live).expect("the row is live");
         }
@@ -480,8 +504,9 @@ mod tests {
         let bytes = file_with(|v| snapshot(v, 2));
         let (doc, _) = read(&bytes, ids(1000), &Admit::READS).expect("imports");
         let mut out: serde_json::Value = serde_json::from_slice(&write(&doc, Vec::new(), 0, 0)).expect("json");
-        assert_eq!(out["version"], 1, "this build writes no row, so it still writes version 1");
-        assert!(out.get("rows").is_none());
+        assert_eq!(out["version"], 2, "this build writes rows: version 2, which a build from before the reader refuses as newer");
+        // The rows this build writes (review F1), whatever a test's gate let the board hold.
+        assert_eq!(out["rows"], json!(mapcro_schema::written_rows()));
         let find = |v: &mut serde_json::Value, kind: &str| -> Vec<serde_json::Value> { records(v).iter().filter_map(|r| r[1].get(kind).cloned()).collect() };
         let states = find(&mut out, "SceneState");
         assert_eq!(states.len(), 1);

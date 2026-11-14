@@ -1,7 +1,165 @@
 # Map-state build: state and handoff (2026-11-13)
 
-Branch `scene-state`, worktree `mapcro.worktrees/scene-state`. Spec: `docs/specs/map-state.md`
+Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `docs/specs/map-state.md`
 (third revision). Review: `docs/specs/map-state-review.md`. Newest state at the top.
+
+## State: phase 2, server side of the writer and the stored layout done; the interface is next
+
+Branch `map-state-p2`, worktree `mapcro.worktrees/map-state-p2`, off main `6b9b4d1` (phase 1
+deployed as `13d2fd1`, its 11 rows locked). Third implementer, 2026-11-13. Stopped at the context
+limit with every step below committed; **the scene's build interface, Retake, panel follow and
+the browser measurement are not started** (their plan is under "Next").
+
+**Not deployable as #49's fix yet:** nothing in the client writes or draws a snapshot. The branch
+as it stands is safe to deploy (it is the writer on the server and a reader for four new rows),
+but the lead should wait for the interface and the browser numbers unless a reader release for
+the new rows is wanted early (see "The release boundary").
+
+| Commit | What |
+|---|---|
+| `feb95f4` | Reviews' F3, F4, re-review 1, 2, 4, and TD-80 (`just reader-check`) |
+| `4488d5c` | The writer on the server: 11 rows `Live`, `SceneState` `Live`, store v9 (floor 8), file version 2 written; four new rows `Ahead`; the client's row table and the build's stored layout (`web/src/mapstate/build.ts`) with its round-trip property |
+
+### What was built
+
+- **F3.** `store.rs` `Step::{Additive, Breaking, NeedsReader}` replaces `additive_step`. The
+  writer's 8 → 9 is `NeedsReader`: the floor becomes 8. `only_the_reader_opens_the_writers_database`
+  and the v7 → v8 → v9 → v8 test hold it (a v7 server is refused; no stored byte moves).
+- **F4, with a gate the review did not ask for.** A `SetIf` on a registry value that the record
+  has no room for is now `Skipped`, with nothing to undo (`apply_op`, `apply_tx_with_inverse`).
+  **But the deployed v8 reader refuses such a transaction on replay**, so a log holding one would
+  not load after a rollback to it. So it is gated as a row is: `UNFIT_UNDO` (`map_state.rs`),
+  `Admit::unfit_undo`, asked by `apply_tx_admitted` (the authority's `submit`). This build reads
+  it (replay and replicas skip) and its own server still refuses it (`TxTooLarge`, as before).
+  **Flip `UNFIT_UNDO` to `Live` in the release after this one is deployed, with a store step
+  v9 → v10 that is `NeedsReader` (floor 9).** No honest client can meet it in this release: the
+  lists have no editor, and Save and Retake size what they write.
+- **The simulation.** A `Filler` behaviour (two of eight editors) keeps one hero's lists at the
+  record's byte cap, so the unfit undo is met (`an_undo_that_no_longer_fits_is_met_and_the_server_as_built_logs_none`).
+  `just test` runs the 1,000 seeds twice: admitting everything read, and `--admit deployed`.
+  The second run found a gap in the simulation's model of storage, not in the server: the room
+  stores a client's next cseq when its rejections are resolved (`Write::PruneRejections`), the
+  simulation didn't, so a client whose every write was refused restarted at 0 after a server
+  restart. Fixed in the simulation.
+- **Re-review 1.** `crates/server/tests/admission_gate.rs` reads the server's sources: outside
+  test modules it names no gate but `Admit::DEPLOYED` (`set_admit`, `Admit::READS`, an `Admit {`
+  literal, `unfit_undo`, `apply_tx_admitted` are refused).
+- **Re-review 4.** Lock mode needs `MAPCRO_ROWS_LOCK_COMMIT` to be the checked-out commit; the
+  flag alone panics. `just rows-lock` passes it.
+- **TD-80.** `just reader-check` (part of `just test`): `dump_stored` writes 40 simulated boards
+  as the server as built stores them; `load_stored`, built in a `git archive` of the reader
+  release (`reader := "13d2fd1"` in the justfile), loads each genesis, log and base and compares
+  the board byte for byte. With the rows `Live` the dump holds registry values, and it refuses to
+  run a check that holds none. It reads the JSON the store holds, not the SQLite file.
+- **The writer on the server.** `row()` is `Live`, `ahead()` is `Ahead`; `SCENE_STATE` `Live`;
+  `SCHEMA_VERSION` 9; a board file is version 2 with `rows`. The two reader-era tests are replaced
+  by `a_file_with_map_state_imports_and_a_row_still_ahead_makes_no_board` and
+  `a_client_writes_map_state_that_is_live_and_not_a_row_still_ahead`.
+- **Four new rows, `Ahead`:** `kills`, `deaths`, `assists`, `max_health` (hero, `Int`). The build
+  column shows them and the 11 rows had no place for them. This build is their reader.
+- **The client's row table:** `web/src/gen/rows.ts` from `just ts` (`rows_ts()`), with each
+  row's index, entity, kind, bounds and status. A schema test holds it current and that rows go
+  live in order.
+- **The build's stored layout, `web/src/mapstate/build.ts`:** `HeroBuild` (one plain value),
+  `heroBuildAt(tl, player, t)` (Player's producer), `captureBuild` / `captureScene` (the rows a
+  save writes), `captured` and `readBuild` (a scene's reader), `statOf` (the calculator's input).
+  Nothing calls them yet. The packing: `items` 4 integers an item (id, cooldown in tenths, charges,
+  stacks; -1 for none), `abilities` 5 (id, level, then the same), `build_order` 3 (tenths, id,
+  kind: the timeline's `items` rows up to the frame, the latest 200), `pickups` the five values.
+  A list that isn't whole strides reads as not captured. Capture writes only rows before the
+  first `Ahead` one, and that count is the watermark (`rows`). Over the record's 8 KiB the build
+  order loses its oldest rows.
+- **`addSceneOps` copies `SceneState`** (New scene, Duplicate).
+
+### Decided while building
+
+- **The unfit undo is gated, not shipped** (above). The alternative, justifying the reject in
+  the spec, would have kept an undo refused for what it would write.
+- **K/D/A and max health are new rows, not packed into `pickups`.** A layout hack in stored data
+  is for ever; a release behind is not. Scenes saved before those rows are written show "—" for
+  them until Retake.
+- **A scene's build is drawn only while the slot still holds the stored `hero`.** Save should
+  write the `hero` row; whether Save stops rewriting the roster (D2) needs every reader of
+  `slot.hero` to read the scene's `hero` first, which is phase 4's renderer. Not done.
+- **`health` is stored only for a living hero**; a dead one counts as full for the calculator, as
+  in Player.
+
+### The release boundary
+
+1. **This branch, once the interface is in, is the writer for the 11 locked rows** (store v9,
+   floor 8): it may ship, since `13d2fd1` reads everything it stores (`just reader-check`).
+2. **It is the reader for `kills`, `deaths`, `assists`, `max_health` and for the unfit undo.**
+   After its deploy: `just rows-lock`, commit the lock, and set `reader` in the justfile to the
+   deployed commit.
+3. **The release after it** flips those four rows and `UNFIT_UNDO` to `Live`, with store v10
+   (`NeedsReader`, floor 9). Nothing else is needed for the rows: capture writes by status.
+   The lead may instead deploy `feb95f4` plus the row commit first as a reader-only release, so
+   the writer ships with all fifteen rows.
+
+### Numbers
+
+- `just clippy` clean. `cargo test --workspace`: 509 passed at `feb95f4` (505 before). After
+  the writer commit the crates were run one by one, not as one workspace run: schema 61 + 6,
+  engine 26, sim 3, server unit 82, `admission_gate` 2, `board_file` 14, `system` 44, all pass.
+  **A full `just test` and `just e2e` on the final commit are the lead's gate to run.**
+- `just web-test` parts at the writer commit: 67 files, 654 tests, `tsc` clean.
+  `web/test/map-state-build.test.ts`: 8 tests (the round trip at five seconds for twelve heroes,
+  bounds, the byte cap, the watermark, damaged lists). No e2e was run: no rendering changed.
+- Simulation, 1,000 seeds × 400 steps, 8 editors, rows `Live`: admitting everything read,
+  77,010 entries, 10,772 undo field checks, 1,374 editor conflicts; `--admit deployed`, 73,208
+  entries, 10,328 undo checks, 5,159 refusals (the four rows ahead and the unfit undo). Both pass.
+- `just reader-check`, rows `Live`: 40 boards, 10,808 logged transactions, 4,218 of them holding
+  registry values or a scene's state, loaded byte for byte by `13d2fd1`'s schema and engine.
+- **Mutation testing, the tool** (cargo-mutants 27.1, `--in-diff` against `6b9b4d1`):
+  - `mapcro-schema` and `mapcro-engine`: 21 mutants, 10 caught, 11 unviable, 0 missed.
+  - `mapcro-server` (unit tests, `board_file`, `admission_gate`; TD-81's flaky test skipped): 10
+    mutants, 8 caught, 2 unviable, 0 missed.
+- **Mutation testing, by hand** (the tool makes none for a constant, a dropped branch or test
+  code): 16, one at a time, all caught. The unfit `SetIf` always refused, always skipped; `submit`
+  not asking the gate; `UNFIT_UNDO` `Live`; store step 8 breaking, additive; `NeedsReader` raising
+  to `from + 1`, lowering the floor; a file without `rows`, at version 1; `SCENE_STATE` `Ahead`;
+  the lock taking any commit, the flag alone; a row written after one still ahead; the server
+  naming `Admit::READS`; the simulation's storage dropping a pruned client's cseq. The last was
+  missed at first (with the rows `Live` the 1,000 seeds no longer meet it):
+  `a_client_whose_every_write_was_refused_keeps_its_place_across_a_restart` kills it.
+- **Not measured: the browser edit cost.** See "Next".
+
+### Gotchas
+
+- A worktree needs `web/node_modules` linked to the main checkout's (`ln -s
+  /storage/projects/mapcro/web/node_modules web/node_modules`); this one has it.
+- cargo-mutants copies the tree without `.git`: a test that needs the repository fails its
+  baseline there. The server has no library target: pass `-- --bins --test … -- --skip …`.
+- `cargo mutants -j 2` beside another cargo job took the box's load past 40. Run it alone.
+
+### Next (in order)
+
+1. **The browser edit cost, before the writer ships.** A 64-scene board with full snapshots
+   (`captureBuild` output, ~3 KB a hero), timing `replica.edit` in the page. Two clones are in
+   the path: `replica.rs` `submit` clones the view, which `apply_tx_with_inverse` makes
+   unnecessary (it applies in place and rolls back on a refusal), and `crates/wasm/src/lib.rs`
+   `edit` clones `before` to diff. Remove the first; measure; decide on the second.
+2. **DOM pins** of map and bar on fixture scenes (spec §9), before rendering changes.
+3. **`BuildColumn` reads a build interface**, not the timeline: in Player, accessors over the
+   existing memos (`buildState.ts`: keep them, the column must not redraw per frame); in a
+   scene, accessors over `readBuild` and `statOf`. It reads from the timeline today: `buildAt`,
+   `statBuild`, kills, deaths, assists, `max_health`, `format >= PICKUPS_FORMAT`, `build`,
+   `effectsAt`, `buildOrder`. Effects are not captured: no Effects popover in a scene. The build
+   order has no seek in a scene. `PlayerTopBar`, `HeroCard` and the phone sheet use it.
+4. **Save captures** (`match/save.ts` `matchSceneOps`): each `PlayerState` gets
+   `more: captureBuild(heroBuildAt(tl, p, second))`, and one `SceneState` with `captureScene(tl)`,
+   in the same transaction. Check the encoded size against `LIMITS.max_tx_bytes` and the op
+   count; over, drop builds whole (no `has_builds`). `matchScenesOps` chunks by bytes.
+   `test/map-state-pins.test.ts` pins Save's ops: its snapshot moves, by decision.
+5. **The scene's bar** (`board/TopBar.tsx`): when `captured(...).builds`, the portrait opens the
+   build (as Player's `focus-hero`), All builds and hold-Tab work, with the same view-state keys
+   (`builds.inspect`, `builds.all`, `builds.popover`; `tabHeld` is the host's signal).
+6. **Retake** on a scene whose `source.match_id` is the open match: `SetIf` on an absent value
+   for each row, the `SceneState` created or its keys set the same way; chunk by bytes.
+7. **Panel follow on scenes** (spec §7): `host.ts` `presence()` returns nothing without a match
+   and `mirror()` returns before the panel group when the presenter is outside Player. Carry the
+   panel keys outside both, add the follow matrix column and the ledger lines.
+8. E2e for a saved scene's builds; QA in a browser; the spec's §8 table.
 
 ## State: phase 1 and its review fixes done; stopped for the lead's gate and deploy
 

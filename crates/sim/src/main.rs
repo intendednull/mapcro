@@ -1,5 +1,8 @@
-//! `mapcro-sim [--seed N] [--seeds COUNT] [--steps N]`: run the sync simulation.
+//! `mapcro-sim [--seed N] [--seeds COUNT] [--steps N] [--admit reads|deployed]`: run the sync
+//! simulation. `--admit deployed` runs it against the server as built (`Admit::DEPLOYED`); the
+//! default admits everything this build reads.
 
+use mapcro_schema::Admit;
 use mapcro_sim::{Config, run};
 use std::process::ExitCode;
 
@@ -14,7 +17,10 @@ fn main() -> ExitCode {
     let mut i = 0;
     while i < args.len() {
         let value = args.get(i + 1).and_then(|v| parse_u64(v));
-        match (args[i].as_str(), value) {
+        match (args[i].as_str(), args.get(i + 1).map(String::as_str)) {
+            ("--admit", Some("reads")) => config.admit = Admit::READS,
+            ("--admit", Some("deployed")) => config.admit = Admit::DEPLOYED,
+            (flag, _) => match (flag, value) {
             ("--seed", Some(s)) => seeds = vec![s],
             ("--seeds", Some(n)) => {
                 let start = seeds.first().copied().unwrap_or(0);
@@ -26,9 +32,10 @@ fn main() -> ExitCode {
             }
             ("--steps", Some(n)) => config.steps = n as usize,
             _ => {
-                eprintln!("usage: mapcro-sim [--seed N | --seeds COUNT [--from N]] [--steps N]");
+                eprintln!("usage: mapcro-sim [--seed N | --seeds COUNT [--from N]] [--steps N] [--admit reads|deployed]");
                 return ExitCode::from(2);
             }
+            },
         }
         i += 2;
     }

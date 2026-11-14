@@ -399,7 +399,10 @@ fn check_more_fits(record: &Record, value: &FieldValue) -> Result<(), Reject> {
     with.check_size()
 }
 
-pub(crate) fn apply_op(doc: &mut Doc, op: &Op) -> Result<OpOutcome, Reject> {
+/// `unfit_skips`: what a `SetIf` on a registry value does when its expectation holds and the
+/// record has no room for the value. Skipped (`true`) everywhere but at admission by a build
+/// that doesn't admit it yet (`Admit::unfit_undo`), where it is refused as before.
+pub(crate) fn apply_op(doc: &mut Doc, op: &Op, unfit_skips: bool) -> Result<OpOutcome, Reject> {
     match op {
         Op::Create { id, record } => {
             if doc.get(*id).is_some() {
@@ -440,7 +443,13 @@ pub(crate) fn apply_op(doc: &mut Doc, op: &Op) -> Result<OpOutcome, Reject> {
             }
             check_parent(doc, *id, value)?;
             let entry = doc.entry_mut(*id).ok_or(Reject::NoSuchRecord)?;
-            check_more_fits(&entry.record, value)?;
+            // Nor for the room it no longer has (review F4): someone cleared a list, others
+            // filled the record's `more` since, and the undo that puts the list back is skipped
+            // like one whose expectation failed, not refused with the rest of its transaction.
+            // A plain `Set` that doesn't fit is still refused: its writer can see the record.
+            if let Err(full) = check_more_fits(&entry.record, value) {
+                return if unfit_skips { Ok(OpOutcome::Skipped) } else { Err(full) };
+            }
             entry.record.set(value.clone());
             Ok(OpOutcome::Applied)
         }

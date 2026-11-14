@@ -16,7 +16,7 @@ pub use file::{export_records, import_records};
 #[cfg(feature = "ts")]
 pub use doc::DocPair;
 pub use ids::{BoardId, ClientId, GrantId, HeroId, LaneKey, ObjectiveKey, OrderKey, RecordId, is_id22};
-pub use map_state::{Admit, Entity, Kind, MAX_SAFE_INT, More, MoreValue, ROWS, Row, RowId, SCENE_STATE, Status};
+pub use map_state::{Admit, Entity, Kind, MAX_SAFE_INT, More, MoreValue, ROWS, Row, RowId, SCENE_STATE, Status, UNFIT_UNDO, rows_ts, written_rows};
 pub use records::{
     Arrow, BoardMeta, Callout, Field, FieldValue, Note, ObjectiveState, ObjectiveStatus, PlayerState,
     Record, RecordKind, RosterSlot, Scene, SceneSource, SceneState, SessionMeta, Stroke, Tab, Team, WAVE_T_MAX, Wave, WorldPos,
@@ -110,6 +110,19 @@ pub fn validate_doc(doc: &Doc) -> Result<(), Reject> {
 /// Applies in place with a rollback log rather than cloning the board, so a transaction costs
 /// what it touches (security review 2026-11-06, M3).
 pub fn apply_tx_with_inverse(doc: &mut Doc, tx: &Tx) -> Result<(Vec<OpOutcome>, Vec<Op>), Reject> {
+    apply(doc, tx, true)
+}
+
+/// [`apply_tx`] for a transaction submitted from outside, once `admit` has let it in
+/// ([`Admit::tx`]). The same, but for one case: a `SetIf` on a registry value that the record
+/// has no room for is refused (`Reject::TxTooLarge`) while `admit.unfit_undo` is `Ahead`, and
+/// skipped once it is not (review F4; map-state spec §4.3). A replica and a replayed log always
+/// skip it ([`apply_tx`]): they hold what some server admitted.
+pub fn apply_tx_admitted(doc: &mut Doc, tx: &Tx, admit: &Admit) -> Result<Vec<OpOutcome>, Reject> {
+    apply(doc, tx, admit.unfit_undo != Status::Ahead).map(|(outcomes, _)| outcomes)
+}
+
+fn apply(doc: &mut Doc, tx: &Tx, unfit_skips: bool) -> Result<(Vec<OpOutcome>, Vec<Op>), Reject> {
     if tx.ops.is_empty() {
         return Err(Reject::EmptyTx);
     }
@@ -126,11 +139,18 @@ pub fn apply_tx_with_inverse(doc: &mut Doc, tx: &Tx) -> Result<(Vec<OpOutcome>, 
             if !undo_log.iter().any(|(i, _)| *i == id) {
                 undo_log.push((id, doc.get(id).cloned()));
             }
-            if let Some(inv) = inverse_of(doc, op) {
+            let inv = inverse_of(doc, op);
+            check |= affects_invariants(op);
+            let outcome = validate::apply_op(doc, op, unfit_skips)?;
+            // A skipped op changed nothing, so there is nothing to undo (a `SetIf` on a
+            // registry value is skipped when the record has no room for it, which `inverse_of`
+            // can't see).
+            if outcome == OpOutcome::Applied
+                && let Some(inv) = inv
+            {
                 inverse.push(inv);
             }
-            check |= affects_invariants(op);
-            outcomes.push(validate::apply_op(doc, op)?);
+            outcomes.push(outcome);
         }
         if check {
             validate::check_invariants(doc)?;
@@ -593,10 +613,18 @@ mod tests {
         let before = doc.clone();
         assert_eq!(apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: list("abilities", 48) }])), Err(Reject::TxTooLarge));
         assert_eq!(doc, before);
-        // The same through a SetIf whose expectation holds; one that doesn't hold is skipped first.
+        // A SetIf is never refused for size: with its expectation holding it is skipped, as it
+        // is when the expectation fails (review F4), and it leaves nothing to undo.
         let grow = |expect| Op::SetIf { id: player, expect, value: list("abilities", 48) };
-        assert_eq!(apply_tx(&mut doc, &tx(vec![grow(more("abilities", None))])), Err(Reject::TxTooLarge));
+        assert_eq!(apply_tx_with_inverse(&mut doc, &tx(vec![grow(more("abilities", None))])), Ok((vec![OpOutcome::Skipped], vec![])));
         assert_eq!(apply_tx(&mut doc, &tx(vec![grow(list("abilities", 1))])), Ok(vec![OpOutcome::Skipped]));
+        assert_eq!(doc, before);
+        // One that fits is applied, and undoes.
+        let small = Op::SetIf { id: player, expect: more("abilities", None), value: list("abilities", 2) };
+        let (outcomes, undo) = apply_tx_with_inverse(&mut doc, &tx(vec![small])).expect("fits");
+        assert_eq!(outcomes, vec![OpOutcome::Applied]);
+        assert_eq!(undo, vec![Op::SetIf { id: player, expect: list("abilities", 2), value: more("abilities", None) }]);
+        apply_tx(&mut doc, &tx(undo)).expect("undo");
         assert_eq!(doc, before);
         // Replacing the big list with a small one makes room; clearing always fits.
         apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: list("build_order", 10) }, Op::Set { id: player, value: list("abilities", 48) }])).expect("room now");
@@ -604,6 +632,41 @@ mod tests {
         // A write to a deleted record is skipped before it is measured, like any field's.
         let Some(Record::PlayerState(p)) = doc.live(player) else { panic!("player") };
         assert!(p.more.json_len() <= LIMITS.max_more_bytes);
+    }
+
+    /// Review F4: A clears a list, B fills the room it left, A undoes. The undo's expectation
+    /// holds (the list is still clear), but the list no longer fits. The undo is skipped, with
+    /// the rest of its transaction applied: "an undo that no longer applies must not be refused
+    /// for what it would have written" (`validate.rs` `apply_op`).
+    #[test]
+    fn an_undo_that_no_longer_fits_the_record_is_skipped_not_refused() {
+        let (mut doc, _, player) = board();
+        let list = |k: &str, n: usize| more(k, Some(MoreValue::ints(vec![4_294_967_295; n])));
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: list("build_order", 600) }, Op::Set { id: player, value: FieldValue::PlayerSouls(Some(7)) }])).expect("a full order");
+        // A clears the order and sets the souls, in one step.
+        let a = tx(vec![Op::Set { id: player, value: more("build_order", None) }, Op::Set { id: player, value: FieldValue::PlayerSouls(Some(9)) }]);
+        let (_, undo) = apply_tx_with_inverse(&mut doc, &a).expect("A's edit");
+        // B fills the room.
+        apply_tx(&mut doc, &tx(vec![Op::Set { id: player, value: list("items", 128) }, Op::Set { id: player, value: list("abilities", 48) }])).expect("B fills items and abilities");
+        let filled = doc.clone();
+        // A's undo: the souls go back; the order stays clear; nothing is refused.
+        assert_eq!(apply_tx(&mut doc, &tx(undo.clone())), Ok(vec![OpOutcome::Applied, OpOutcome::Skipped]));
+        let Some(Record::PlayerState(p)) = doc.live(player) else { panic!("player") };
+        assert_eq!(p.souls, Some(7));
+        assert_eq!(p.more.get(key("build_order")), None);
+        assert!(p.more.json_len() <= LIMITS.max_more_bytes);
+        // At admission by a build that doesn't admit the skip yet, the same undo is refused
+        // whole, as the deployed reader would refuse it on replay; a build that admits it skips.
+        let mut at_door = filled.clone();
+        let refusing = Admit { unfit_undo: Status::Ahead, ..Admit::READS };
+        assert_eq!(apply_tx_admitted(&mut at_door, &tx(undo.clone()), &refusing), Err(Reject::TxTooLarge));
+        assert_eq!(at_door, filled, "refused whole: the souls stay too");
+        assert_eq!(apply_tx_admitted(&mut at_door, &tx(undo.clone()), &Admit::READS), Ok(vec![OpOutcome::Applied, OpOutcome::Skipped]));
+        assert_eq!(at_door, doc);
+        // With room again (B's lists cleared), the same undo applies whole.
+        let mut roomy = filled;
+        apply_tx(&mut roomy, &tx(vec![Op::Set { id: player, value: more("items", None) }])).expect("B clears");
+        assert_eq!(apply_tx(&mut roomy, &tx(undo)), Ok(vec![OpOutcome::Applied, OpOutcome::Applied]));
     }
 
     #[test]

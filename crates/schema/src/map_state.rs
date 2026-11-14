@@ -75,7 +75,13 @@ pub const MAX_SAFE_INT: i64 = (1 << 53) - 1;
 
 const ID: i64 = u32::MAX as i64;
 
+/// A row whose reader is deployed (it is in `rows.lock`) and that this build writes.
 const fn row(key: &'static str, entity: Entity, kind: Kind) -> Row {
+    Row { key, entity, kind, status: Status::Live }
+}
+
+/// A new row: read by this build, written by none until this build is deployed and locked.
+const fn ahead(key: &'static str, entity: Entity, kind: Kind) -> Row {
     Row { key, entity, kind, status: Status::Ahead }
 }
 
@@ -97,12 +103,27 @@ pub const ROWS: &[Row] = &[
     row("level", Entity::Hero, Kind::Int { min: 0, max: 1000 }),
     row("health", Entity::Hero, Kind::Int { min: 0, max: 100 }),
     row("pickups", Entity::Hero, Kind::Ints { len: 16, min: -1_000_000_000, max: 1_000_000_000 }),
+    // The rest of the build column (phase 2 designed it after the rows above shipped): the
+    // scoreboard's kills, deaths and assists, and the recorded max health. Ahead: this build
+    // is their reader; a scene's column shows "—" for them until the next release writes them.
+    ahead("kills", Entity::Hero, Kind::Int { min: 0, max: 100_000 }),
+    ahead("deaths", Entity::Hero, Kind::Int { min: 0, max: 100_000 }),
+    ahead("assists", Entity::Hero, Kind::Int { min: 0, max: 100_000 }),
+    ahead("max_health", Entity::Hero, Kind::Int { min: 0, max: 10_000_000 }),
 ];
 
 /// `SceneState`'s own status: the record kind is gated as a row is. Its reader ships a release
 /// before anything creates one; the writer release makes it `Live` (spec §4.3). A test holds it
 /// `Ahead` until `rows.lock` shows a deployed build that reads it.
-pub const SCENE_STATE: Status = Status::Ahead;
+pub const SCENE_STATE: Status = Status::Live;
+
+/// Whether a submitted `SetIf` on a registry value that the record has no room for is admitted
+/// (and skipped: review F4) or refused (`Ahead`). Gated like a row, because it is one more
+/// thing a log may hold: the reader deployed as store v8 refuses such a transaction when it
+/// replays a log, so the board would not load after a rollback to it. This build reads it
+/// (skips it on replay, `apply_tx`); the release after this one is deployed may make it `Live`,
+/// with a store step that sets the floor to this build's version (docs/deploy.md).
+pub const UNFIT_UNDO: Status = Status::Ahead;
 
 /// What may come in from outside, as opposed to what is read (spec §4.3): the check at
 /// admission, on a client's transaction (`Authority::submit`) and on a board file's records
@@ -120,14 +141,17 @@ pub struct Admit {
     pub row: fn(RowId) -> Status,
     /// `SceneState`'s.
     pub scene_state: Status,
+    /// [`UNFIT_UNDO`]'s: asked by `apply_tx_admitted`, not by [`Admit::tx`] (whether the value
+    /// fits depends on the board).
+    pub unfit_undo: Status,
 }
 
 impl Admit {
     /// This build's: each row by its own status, and [`SCENE_STATE`]. What the server uses.
-    pub const DEPLOYED: Admit = Admit { row: |r| r.row().status, scene_state: SCENE_STATE };
+    pub const DEPLOYED: Admit = Admit { row: |r| r.row().status, scene_state: SCENE_STATE, unfit_undo: UNFIT_UNDO };
     /// Everything this build reads, as the writer release will admit it. For the simulation and
     /// tests, which exercise sync and undo of the rows before anything may write them.
-    pub const READS: Admit = Admit { row: |_| Status::Live, scene_state: Status::Live };
+    pub const READS: Admit = Admit { row: |_| Status::Live, scene_state: Status::Live, unfit_undo: Status::Live };
 
     fn value(&self, v: &FieldValue) -> Result<(), Reject> {
         match v {
@@ -155,6 +179,60 @@ impl Admit {
             Op::SetIf { expect, value, .. } => self.value(expect).and_then(|()| self.value(value)),
             Op::Delete { .. } | Op::Restore { .. } => Ok(()),
         })
+    }
+}
+
+/// The registry as a TypeScript module, `web/src/gen/rows.ts` (`just ts` writes it): the
+/// client's row table (spec §4.2). Capture writes the rows that are not `ahead`; the readers
+/// and the round-trip property iterate it.
+/// How many rows this build may write: the index of the first one still `Ahead` (rows go live
+/// in order, which the lock test holds). A board file says this as its `rows`, and the client's
+/// capture as a snapshot's watermark: the rows a reader must know to read what this build makes.
+/// Not `ROWS.len()`, which counts rows this build only reads: the reader release a rollback
+/// goes to has fewer, and would refuse every file as newer (review of 6a0d391, F1).
+pub fn written_rows() -> usize {
+    ROWS.iter().position(|r| r.status == Status::Ahead).unwrap_or(ROWS.len())
+}
+
+pub fn rows_ts() -> String {
+    use std::fmt::Write as _;
+    let status = |s: Status| match s {
+        Status::Ahead => "ahead",
+        Status::Live => "live",
+        Status::Retired => "retired",
+    };
+    let mut out = String::from(
+        "// Generated from crates/schema/src/map_state.rs `ROWS` by `just ts`. Do not edit.\n\n/** A row is read by every build that knows it; `ahead`: nothing writes it yet. */\nexport type RowStatus = \"ahead\" | \"live\" | \"retired\";\n\n/** Every map-state row, in registry order (`index`): what it belongs to, its kind and bounds. */\nexport const ROWS = {\n",
+    );
+    for (index, r) in ROWS.iter().enumerate() {
+        let entity = match r.entity {
+            Entity::Hero => "hero",
+            Entity::Marker => "marker",
+            Entity::Lane => "lane",
+            Entity::Scene => "scene",
+        };
+        let kind = match r.kind {
+            Kind::Bool => "kind: \"bool\"".to_owned(),
+            Kind::Int { min, max } => format!("kind: \"int\", min: {min}, max: {max}"),
+            Kind::Text { max } => format!("kind: \"text\", max: {max}"),
+            Kind::Pos => "kind: \"pos\"".to_owned(),
+            Kind::Ints { len, min, max } => format!("kind: \"ints\", len: {len}, min: {min}, max: {max}"),
+        };
+        let _ = writeln!(out, "  {}: {{ index: {index}, entity: \"{entity}\", {kind}, status: \"{}\" as RowStatus }},", r.key, status(r.status));
+    }
+    let _ = write!(out, "}} as const;\n\nexport type RowKey = keyof typeof ROWS;\n\n/** Whether a scene's state (`SceneState`) may be created yet. */\nexport const SCENE_STATE: RowStatus = \"{}\";\n", status(SCENE_STATE));
+    out
+}
+
+#[cfg(all(test, feature = "ts"))]
+mod rows_ts {
+    use super::*;
+
+    const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../web/src/gen/rows.ts");
+
+    #[test]
+    fn export_bindings_rows() {
+        std::fs::write(PATH, rows_ts()).expect("write rows.ts");
     }
 }
 
@@ -467,9 +545,64 @@ mod tests {
         lock.lines().filter(|l| !l.starts_with('#') && !l.is_empty()).any(|l| parse(l).1 == Entity::Scene)
     }
 
+    /// Whether this run is `just rows-lock`'s, which rewrites the lock. The flag alone is not
+    /// enough (a stray `MAPCRO_ROWS_LOCK=1 cargo test` would bless whatever tree it ran in):
+    /// the recipe also names the commit it checked was clean, and that must be the commit this
+    /// test finds checked out (`head`).
+    fn lock_mode(flag: Option<&str>, commit: Option<&str>, head: impl FnOnce() -> Option<String>) -> Result<bool, String> {
+        if flag.is_none() {
+            return Ok(false);
+        }
+        let commit = commit.filter(|c| !c.is_empty()).ok_or("MAPCRO_ROWS_LOCK is set without MAPCRO_ROWS_LOCK_COMMIT: the lock is written by `just rows-lock` only")?;
+        match head() {
+            Some(head) if head == commit => Ok(true),
+            Some(head) => Err(format!("MAPCRO_ROWS_LOCK_COMMIT is {commit}, and the tree is at {head}: run `just rows-lock`")),
+            None => Err("can't read the checked-out commit (git rev-parse HEAD): run `just rows-lock` in the repository".into()),
+        }
+    }
+
+    fn git_head() -> Option<String> {
+        let out = std::process::Command::new("git").args(["rev-parse", "HEAD"]).current_dir(env!("CARGO_MANIFEST_DIR")).output().ok()?;
+        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned()).filter(|h| !h.is_empty())
+    }
+
+    #[test]
+    fn the_clients_row_table_is_up_to_date_and_says_each_rows_status() {
+        let ts = rows_ts();
+        assert_eq!(std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../web/src/gen/rows.ts")).expect("web/src/gen/rows.ts"), ts, "stale: run `just ts`");
+        assert!(ts.contains("  hero: { index: 0, entity: \"hero\", kind: \"int\", min: 0, max: 4294967295, status: \"live\" as RowStatus },"), "{ts}");
+        assert!(ts.contains("  items: { index: 5, entity: \"hero\", kind: \"ints\", len: 128, min: -1, max: 4294967295, status: \"live\" as RowStatus },"));
+        assert!(ts.contains("  name: { index: 1, entity: \"hero\", kind: \"text\", max: 24, status: \"live\" as RowStatus },"));
+        assert!(ts.contains("  has_builds: { index: 3, entity: \"scene\", kind: \"bool\", status: \"live\" as RowStatus },"));
+        assert!(ts.contains("  kills: { index: 11, entity: \"hero\", kind: \"int\", min: 0, max: 100000, status: \"ahead\" as RowStatus },"));
+        assert!(ts.ends_with("export const SCENE_STATE: RowStatus = \"live\";\n"));
+        assert_eq!(ts.matches(" index: ").count(), ROWS.len());
+        // Rows go live in order: the client's watermark is the first row still ahead, so a
+        // written row after an ahead one would be captured and never read.
+        let first_ahead = ROWS.iter().position(|r| r.status == Status::Ahead).unwrap_or(ROWS.len());
+        assert!(ROWS[first_ahead..].iter().all(|r| r.status == Status::Ahead), "a row is written after one still ahead");
+    }
+
+    #[test]
+    fn the_lock_is_rewritten_only_for_the_commit_the_recipe_checked() {
+        let head = || Some("abc123".to_owned());
+        assert_eq!(lock_mode(None, None, head), Ok(false));
+        assert_eq!(lock_mode(None, Some("abc123"), head), Ok(false), "the commit alone asks for nothing");
+        assert!(lock_mode(Some("1"), None, head).is_err(), "the flag alone is refused");
+        assert!(lock_mode(Some("1"), Some(""), head).is_err());
+        assert!(lock_mode(Some("1"), Some("def456"), head).is_err(), "another commit's token");
+        assert!(lock_mode(Some("1"), Some("abc123"), || None).is_err(), "no repository to check it against");
+        assert_eq!(lock_mode(Some("1"), Some("abc123"), head), Ok(true));
+        // Outside a checkout (a copied tree, a tarball) there is no commit to name: nothing
+        // locks there, and the tests still run.
+        assert!(git_head().is_none_or(|h| h.len() >= 40 && h.chars().all(|c| c.is_ascii_hexdigit())));
+    }
+
     #[test]
     fn rows_are_append_only_and_read_a_release_before_they_are_written() {
-        if std::env::var_os("MAPCRO_ROWS_LOCK").is_some() {
+        let var = |name: &str| std::env::var(name).ok();
+        let locking = lock_mode(var("MAPCRO_ROWS_LOCK").as_deref(), var("MAPCRO_ROWS_LOCK_COMMIT").as_deref(), git_head).unwrap_or_else(|why| panic!("rows.lock is not rewritten: {why}"));
+        if locking {
             relock(std::path::Path::new(LOCK), ROWS).unwrap_or_else(|broken| panic!("rows.lock is not rewritten: this build breaks the last deployed one's rows: {broken:#?}"));
         }
         let lock = std::fs::read_to_string(LOCK).expect("crates/schema/rows.lock");
@@ -759,9 +892,9 @@ mod tests {
     }
 
     /// Every row and `SceneState` still ahead: the reader release.
-    const AHEAD: Admit = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead };
+    const AHEAD: Admit = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
     /// `hero` written, the rest and `SceneState` still ahead.
-    const HERO_LIVE: Admit = Admit { row: |r| if r.key() == "hero" { Status::Live } else { Status::Ahead }, scene_state: Status::Ahead };
+    const HERO_LIVE: Admit = Admit { row: |r| if r.key() == "hero" { Status::Live } else { Status::Ahead }, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
 
     #[test]
     fn nothing_that_carries_an_ahead_row_or_kind_is_admitted() {
@@ -819,13 +952,13 @@ mod tests {
         // And a live row does not make the scene's state live.
         assert_eq!(HERO_LIVE.tx(&tx(vec![create(scene_state(More::default()))])), Err(Reject::Immutable));
         // A retired row is no longer written by a client, but is not refused: boards hold it.
-        let retired = Admit { row: |_| Status::Retired, scene_state: Status::Retired };
+        let retired = Admit { row: |_| Status::Retired, scene_state: Status::Retired, unfit_undo: Status::Ahead };
         assert_eq!(retired.tx(&tx(vec![set(more("name", None)), create(scene_state(holding(&["rows"])))])), Ok(()));
     }
 
     #[test]
     fn a_live_kind_is_admitted_with_only_its_live_rows() {
-        let kind_live = Admit { row: |r| if r.key() == "rows" { Status::Live } else { Status::Ahead }, scene_state: Status::Live };
+        let kind_live = Admit { row: |r| if r.key() == "rows" { Status::Live } else { Status::Ahead }, scene_state: Status::Live, unfit_undo: Status::Ahead };
         assert_eq!(kind_live.record(&scene_state(More::default())), Ok(()));
         assert_eq!(kind_live.record(&scene_state(holding(&["rows"]))), Ok(()));
         assert_eq!(kind_live.record(&scene_state(holding(&["rows", "build"]))), Err(Reject::WrongField));
