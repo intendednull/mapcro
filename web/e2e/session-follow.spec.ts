@@ -24,7 +24,8 @@ const saved = (p: Page) => expect(p.getByTestId("save-status")).toHaveAttribute(
 const following = (p: Page) => p.getByTestId("stop-following");
 const scenes = (p: Page) => p.getByTestId("scene-card");
 const sceneOn = (p: Page) => scenes(p).evaluateAll((els) => els.findIndex((e) => e.getAttribute("aria-current") === "true"));
-const zoomed = async (p: Page) => (await viewOf(p))[2] < 990;
+/** The width of the map's view rectangle: smaller is zoomed in. */
+const viewWidth = async (p: Page) => (await viewOf(p))[2];
 
 interface Made {
   /** The session's address, with its owner's token. */
@@ -78,11 +79,14 @@ async function member(browser: Browser, m: Made, name: string, url = m.url) {
 
 /** Zoom in on the map's middle (a change to what you see). */
 async function zoomIn(p: Page) {
+  const was = await viewWidth(p);
   const box = (await p.locator("[data-testid=map] .mm-overlay.map").boundingBox())!;
   await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await p.mouse.wheel(0, -300);
-  await expect.poll(() => zoomed(p)).toBe(true);
+  await expect.poll(() => viewWidth(p)).toBeLessThan(was - 50);
 }
+/** `p` shows the map as `q` does (a follower's viewport is its presenter's). */
+const sameView = (p: Page, q: Page) => expect.poll(async () => Math.abs((await viewWidth(p)) - (await viewWidth(q)))).toBeLessThan(1);
 
 // Characterisation, written before the follow crossed tabs and true after it: inside one tab,
 // people who came through the session follow each other as on a board alone.
@@ -96,13 +100,15 @@ test("inside a tab, a session member follows another as on a board alone: scene 
   await scenes(b).nth(0).click();
   await expect.poll(() => sceneOn(b)).toBe(0);
   await expect.poll(() => sceneOn(a)).toBe(1);
+  const own = await viewWidth(b);
   await zoomIn(a);
-  expect(await zoomed(b)).toBe(false);
+  expect(await viewWidth(b)).toBe(own);
   await b.getByTestId("follow-Coach").click();
   await expect(following(b)).toHaveCount(1);
   await expect(b.getByTestId("follow-chip")).toContainText("Following Coach");
   await expect.poll(() => sceneOn(b)).toBe(1);
-  await expect.poll(() => zoomed(b)).toBe(true);
+  await sameView(b, a);
+  expect(await viewWidth(b)).toBeLessThan(own - 50);
   await expect(a.getByTestId("presenting")).toContainText("1 following");
   // Live: the presenter flips back.
   await scenes(a).nth(0).click();
