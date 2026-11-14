@@ -18,8 +18,22 @@ job. Nothing is deployed or half-deployed. Prod is still **baddb20** (store v10)
   released it and was killed in its first seconds); map-state's vitest rerun
   (`/tmp/ms-p3-qa/jobB2.sh`) and calm-box perf rounds (`/tmp/ms-p4/jobE.sh`). Each implementer
   was told to commit (WIP is fine) and write a "Resume after restart" section in its branch
-  journal. Branch tips at pause: map-state-p3 674fca5, sessions-p3 5656abb, feedback-56-60
-  eba7cc4 (they may move with the checkpoint commits).
+  journal. **All three checkpointed, worktrees clean, nothing queued.** Tips: map-state-p3
+  **59efdec**, map-state-r2 **e1d7796**, sessions-p3 **958638b**, feedback-56-60 **bccfa8f**,
+  mobile-defaults **ad60722**. Each branch journal's "Resume after restart" lists its reruns.
+- **Per stream, after the restart:**
+  - *map-state:* rerun `/tmp/ms-p3-qa/jobB2.sh` (cda86fb perf, still held, no worse so far)
+    and `/tmp/ms-p4/jobE.sh` (full vitest on 674fca5+). Phase 4 sits at its release boundary D4
+    (ca0b0f2, a dead hero's respawn time, no row, no store bump). Open for the operator: D2 must
+    ship with its edit (the picker writes the roster), metadata-tier health on Save, a scene's
+    last-seen ghost, and whether source-less scenes keep the open match's names.
+  - *sessions:* run `/tmp/sp3-batch6.sh` alone and detached (~50 min; copy in
+    `~/.cache/mapcro-sp3-scratch/`). Pool stays removed (66–80 ms drawn, bar ~80). Then a review
+    and a security review before release.
+  - *feedback:* release 1 (reader, store v11 floor 9, plus #57/#58) needs the full e2e, the
+    mutation run, a walkthrough and a main merge. Lead calls owed: narrow phones keep the speed
+    list under 390 px; a changed tick-hover test; v11/v12 belong to this stream, so others follow;
+    the justfile `reader` stays e878c30 (baddb20 has no store change).
 - **Resume order:** (1) the lead gate on 5e966b0, then QA, merge and deploy; (2) a fresh Fable high
   implementer per stream, briefed with its branch journal's resume section; each reruns its
   cancelled jobs through `tools/heavy.sh`.
