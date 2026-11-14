@@ -57,7 +57,6 @@ const CAPTURED: { [F in Feature]-?: (snap: Snapshot) => boolean } = {
 };
 
 const NONE = () => undefined;
-const NO_DEATHS: never[] = [];
 
 /**
  * A scene's state from its records, by the registry. A slot with no hero record, a marker with
@@ -152,7 +151,8 @@ export function fromScene(src: SceneRecords): MapState {
   const lanes = new Map<string, LaneState>();
   const lane = (key: string): LaneState => kept(lanes, key, () => ({ split: memo(() => src.waves().get(key)?.t), edges: NONE }));
 
-  const facts: SceneFacts = { urn: NONE, rejuv: NONE, deaths: () => NO_DEATHS };
+  const noDeaths: never[] = [];
+  const facts: SceneFacts = { urn: NONE, rejuv: NONE, deaths: () => noDeaths };
   return { hero, marker, lane, scene: () => facts, has: (f) => CAPTURED[f](snap()) };
 }
 
