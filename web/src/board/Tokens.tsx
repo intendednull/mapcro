@@ -21,6 +21,8 @@ import { FLIP_MS, smoothed } from "./smooth";
 import { fadeTiming, fadeTo, visionFade } from "./fade";
 import { hoverToken, hoveredToken, registerHover } from "../map/HoverLabel";
 import type { BoardState, Player, Slot } from "./state";
+import type { SceneState } from "../gen/SceneState";
+import { captured, sceneHero } from "../mapstate/build";
 
 export const TOKEN_R = 23;
 
@@ -106,6 +108,8 @@ export function Tokens(p: {
   const slots = createMemo(() => new Map(p.state.roster().map((s) => [s.id, s.slot])));
   const players = createMemo(() => p.state.playersIn(p.scene).filter((pl) => slots().has(pl.state.slot)));
   const bySlot = createMemo(() => new Map(players().map((pl) => [pl.state.slot, pl])));
+  /** Whether the scene holds its own heroes (its snapshot's state says so). */
+  const ownHeroes = createMemo(() => captured(p.state.rowsIn<SceneState>("SceneState", p.scene)[0]?.r?.more).heroes);
   const slotIds = createMemo(() => players().map((pl) => pl.state.slot), undefined, { equals: (a, b) => a.length === b.length && a.every((x, i) => x === b[i]) });
   const posOf = (id: RecordId) => {
     const e = p.state.records[id];
@@ -286,7 +290,9 @@ export function Tokens(p: {
           // In one team's Vision, an enemy out of its sight: a ghost where last seen (spec §6b).
           const ghost = () => (live() ? (pv()?.ghost ?? null) : null);
           const visible = () => (live() ? ghost() == null : pl().state.visible);
-          const heroId = () => pv()?.hero ?? slot().hero;
+          // Player: the match's hero. A scene: its own once it holds its heroes (spec D2), else
+          // the board roster's.
+          const heroId = () => pv()?.hero ?? sceneHero(ownHeroes(), pl().state.more, slot().hero);
           const hero = () => (heroId() != null ? p.art.heroes.get(heroId()!) : undefined);
           const team = () => (slot().team === "Amber" ? "amber" : "sapphire");
           const mine = () => {

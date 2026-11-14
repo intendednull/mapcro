@@ -11,7 +11,7 @@ import { type BuildAt, type BuildOrderEntry, buildOrder, killsAt } from "../matc
 import { PICKUPS_FORMAT, type StatBuild } from "../match/stats";
 import { type Timeline, type TimelinePlayer, scoreboardValueAt } from "../match/timeline";
 import { buildState, sameBuild, sameStatBuild } from "../player/buildState";
-import { type HeroBuild, readBuild, statOf } from "./build";
+import { BUILD_KEYS, type HeroBuild, readBuild, statOf } from "./build";
 
 export interface BuildView {
   /** The hero the build is of. */
@@ -100,8 +100,12 @@ export function sceneBuildView(src: SceneBuildSource): BuildView {
 }
 
 /** Whether a hero's record holds a build that is still its hero's (spec §5: a slot whose hero
- * changed since doesn't draw the old hero's build). `rows`: the snapshot's watermark. */
-export function holdsBuild(more: More | undefined, rows: number, hero: number | null | undefined): boolean {
+ * changed since doesn't draw the old hero's build). `rows`: the snapshot's watermark. `hero`:
+ * the hero the slot holds in the scene (build.ts `sceneHero`). `own`: the scene holds its own
+ * heroes (D2): there a pick of another hero dropped the build with the old hero (edit.ts), so
+ * the record must still hold some of it; in a scene from before, the roster's hero differing
+ * from the build's is what says so. */
+export function holdsBuild(more: More | undefined, rows: number, hero: number | null | undefined, own = false): boolean {
   if (rows <= 0 || hero == null || typeof more?.hero !== "number") return false;
-  return more.hero === hero;
+  return more.hero === hero && (!own || BUILD_KEYS.some((k) => more[k] !== undefined));
 }

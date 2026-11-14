@@ -48,6 +48,9 @@ import { downloadBoard } from "../core/boardfile";
 import { Layers, calloutOrder } from "./Layers";
 import { FRESH_BOARD, randomRosterOps, sceneMatchName } from "./roster";
 import { fromScene, sceneRecords } from "../mapstate/scene";
+import { pickHeroOps } from "../mapstate/edit";
+import { captured } from "../mapstate/build";
+import type { SceneState } from "../gen/SceneState";
 import { HeroPicker } from "./HeroPicker";
 import { defaultSplit, project } from "../map/lanes";
 import { FIT_VIEW, worldToMap, worldToView } from "../map/transform";
@@ -544,10 +547,15 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const matchName = (team: string, n: number) => sceneMatchName(player.tl(), scene()?.scene.source, player.playerName, team, n);
   // The scene's state behind the interface Player's has (mapstate/scene.ts; map-state phase 4).
   const sceneState = fromScene(
-    sceneRecords(state, () => scene()?.id, () => (slot) => {
-      const [team, n] = slot.split("-");
-      return matchName(team!, Number(n));
-    }),
+    sceneRecords(
+      state,
+      () => scene()?.id,
+      () => (slot) => {
+        const [team, n] = slot.split("-");
+        return matchName(team!, Number(n));
+      },
+      () => scene()?.scene.source?.tier,
+    ),
   );
   const presenterList = createMemo(() => presenters(state.peerList(), state.myPeer(), followingHere()));
   const followersOf = (peer: number | undefined) =>
@@ -772,14 +780,19 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   });
 
   const heroList = createMemo(() => [...p.art.heroes.values()].sort((a, b) => a.name.localeCompare(b.name)));
+  // Whose heroes the scene draws (map-state spec D2): its own once its snapshot holds them,
+  // else the board roster's. The picker reads and writes the same.
+  const ownHeroes = createMemo(() => captured(state.rowsIn<SceneState>("SceneState", scene()?.id)[0]?.r?.more).heroes);
+  const heroIn = (s: ReturnType<typeof state.roster>[number]) => (scene() ? sceneState.hero(slotKey(s.slot.team, s.slot.slot)).hero() : s.slot.hero);
   /** Heroes held by other slots than `slot`, with who holds them: a hero is unique in a match. */
   const takenBy = (slot: RecordId | undefined) =>
     new Map(
       state
         .roster()
-        .filter((s) => s.id !== slot && s.slot.hero != null)
-        .map((s) => [s.slot.hero!, `${rosterTeamName(s.slot.team)} ${s.slot.name || `Player ${s.slot.slot + 1}`}`] as const),
+        .filter((s) => s.id !== slot && heroIn(s) != null)
+        .map((s) => [heroIn(s)!, `${rosterTeamName(s.slot.team)} ${s.slot.name || `Player ${s.slot.slot + 1}`}`] as const),
     );
+  const pickedSlot = () => state.roster().find((x) => x.id === heroPick());
   const sceneIndex = () => state.scenes().findIndex((s) => s.id === scene()?.id);
 
   // ---- the phone layout (design/v1-board/phone-following.html) below 700 px ----
@@ -1660,12 +1673,18 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     <Show when={heroPick() && state.canEdit()}>
       <HeroPicker
         heroes={heroList().filter((h) => h.playable)}
-        slot={state.roster().find((x) => x.id === heroPick())}
+        slot={pickedSlot()}
+        current={pickedSlot() ? heroIn(pickedSlot()!) : null}
+        clearable={!ownHeroes()}
         takenBy={takenBy(heroPick())}
         onPick={(hero) => {
           const id = heroPick();
           setHeroPick(undefined);
-          if (id) state.edit([{ Set: { id, value: { RosterHero: hero } } }]);
+          if (!id) return;
+          // In a scene that holds its heroes the pick is the scene's; else the board's.
+          const pl = state.playersIn(scene()?.id).find((x) => x.state.slot === id);
+          const ops = pickHeroOps(ownHeroes(), id, pl && { id: pl.id, more: pl.state.more }, hero);
+          if (ops.length) state.edit(ops);
         }}
         onClose={() => setHeroPick(undefined)}
       />

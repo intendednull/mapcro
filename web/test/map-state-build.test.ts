@@ -48,7 +48,7 @@ describe("a hero's build through a scene", () => {
   const tl = match(PICKUPS_FORMAT);
   it.each([0, 1, 2, 3, 4])("reads back as Player computed it at second %i, for every hero", (t) => {
     const rows = captured(captureScene(tl));
-    expect(rows).toEqual({ builds: true, rows: WRITTEN, patch: 6839 });
+    expect(rows).toEqual({ builds: true, heroes: false, rows: WRITTEN, patch: 6839 });
     for (const p of tl.players) {
       const computed = heroBuildAt(tl, p, t);
       const stored = captureBuild(computed);
@@ -136,7 +136,7 @@ describe("a hero's build through a scene", () => {
     expect(readBuild(more, ROWS.items.index + 1, p.hero_id).items).not.toBeNull();
     expect(readBuild({ ...more, items: [1, 2, 3] }, WRITTEN, p.hero_id).items).toBeNull();
     expect(readBuild({ ...more, abilities: "x", level: [1], pickups: [1, 2] }, WRITTEN, p.hero_id)).toMatchObject({ abilities: null, level: null, pickups: null });
-    expect(captured(undefined)).toEqual({ builds: false, rows: 0, patch: undefined });
+    expect(captured(undefined)).toEqual({ builds: false, heroes: false, rows: 0, patch: undefined });
     expect(captured({ has_builds: true })).toMatchObject({ builds: false });
     expect(readBuild(undefined, WRITTEN, 5)).toMatchObject({ hero: 5, items: null, order: null });
   });
