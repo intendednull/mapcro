@@ -4,6 +4,15 @@ Ideas the operator wants kept but not built yet. Newest first. Each entry record
 what it is, and what it depends on.
 
 
+## A scene under Show last seen draws only the faded hero (2026-11-14, operator decision)
+
+When a saved scene's tokens start reading `heroDraw` (map-state phase 4, `Tokens.tsx`; TD-97's
+four specs land with it), a hero out of the viewer's sight is drawn faded where it stands, and
+**no last-seen marker is drawn, even with Show last seen location on**. Today `heroDraw`
+(`web/src/mapstate/shown.ts:42-48`) returns `{ as: "faded", ghost }`, and `web/test/shown.test.ts`
+pins the ghost. Drop the ghost for a scene and flip those expectations. Spec map-state.md §6
+says so.
+
 ## Speed on a phone held upright is still the list (2026-11-14, from feedback-56-60; for mobile-defaults)
 
 Feedback #58 made speed two buttons, − and +, around the current speed. A phone 480 px wide or
