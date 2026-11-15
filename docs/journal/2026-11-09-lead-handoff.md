@@ -3,6 +3,29 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed ce1ec0c: feedback release 1, store v11 (2026-11-14 ~23:58 UTC, lead 9eb2516b)
+
+- **Prod `web` runs ce1ec0c** (infra 50dbf7e). The store reads `schema_version 11`,
+  `compat_floor 9` on the box. Backup: `/var/lib/mapcro/mapcro.sqlite.pre-v11`, integrity ok.
+  - Reader for #56 (scene names up to 48), #59 (a callout's side) and #60 (stroke colour): all
+    `Ahead`, written by no client.
+  - #57: Player shows events, a scene shows its note, and the sidebar tabs are gone.
+  - #58: speed − and +; upright phones keep the list.
+  - #57 and #58 are closed.
+- **Checks:**
+  - Gate green: 484 e2e, VM, and reader-check (40 boards byte for byte).
+  - Firefox: one 412×915 timeout, then 2/2 alone.
+  - QA locally and on prod: events vs note by mode, speeds 1→8→0.5 with ends disabled, 390 list
+    and 844 landscape buttons, no errors.
+  - Stats: 0 5xx.
+- **After deploy:** `just rows-lock` is unchanged (15 rows), and the justfile `reader` is ce1ec0c
+  (d75f745).
+- **Store numbers:** map-state D2's reader is **v12**; a fresh Opus high implementer is rebasing it
+  onto main. Feedback's writer (release 2, started) is **v13**, floor 11 via
+  `Step::NeedsReader { reader: 11 }`. D2's writer comes after (probably v14, `reader: 12`).
+- **Running:** sessions phase 4 (Fable high, started before the model rule), feedback release 2
+  (same Fable session, ~470k), and D2's reader (Opus high).
+
 ## Working rule: models for spawns (operator via the concierge, 2026-11-14 evening)
 
 - **Opus 5.5** for implementers, designers and routine reviews and QA: medium by default, high
