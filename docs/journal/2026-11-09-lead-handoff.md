@@ -3,6 +3,16 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Operator decisions (2026-11-14, late, via the concierge)
+
+- **Pause mapcro after the current units land:** feedback release 2 (v13) and the sessions phase
+  4 finish, through gate, deploy and verification. Then stop the implementers, write handoffs,
+  and stay paused until the operator says resume. Don't start D2's writer or any new unit. Each
+  in-flight unit gets one independent Opus medium adversarial reviewer.
+- **Show last seen in a scene:** a saved scene draws only the faded hero, with no last-seen marker.
+  This overrides the lead's "both". Recorded in spec map-state.md §6 and in docs/backlog.md, for
+  when `Tokens.tsx` reads `heroDraw`.
+
 ## Deployed 3aa59af: map-state D2 reader, store v12 (2026-11-15 ~02:10 UTC, lead 9eb2516b)
 
 - **Prod `web` runs 3aa59af** (infra d42ebe6). The store reads `schema_version 12`,
@@ -11,7 +21,7 @@ compaction). The newest state is at the top; the history is in git and the other
   - Scenes without the flag behave as on main.
   - Metadata-tier saves store no health (TD-103: after a rollback, the stat calculator sees full
     health).
-- **Review (Opus high, since Fable was out):** no blocker. Docs corrected; the admission test now
+- **Review (Opus high):** no blocker. Docs corrected; the admission test now
   covers every entity.
 - **Must fix before D2's writer** (recorded in deploy.md's writer steps):
   - The "neither" save case: with the flag written, a save without room stores neither the
@@ -30,6 +40,9 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## Fable limit reached (2026-11-15 ~00:20 UTC, lead 9eb2516b)
 
+- **Correction (concierge):** Fable was not out. `bin/claude-sub-usage` showed its 7-day window
+  at 2% after an operator reset. Check that tool before reporting a limit. The streams stay on
+  Opus per the operator's rule.
 - Both Fable sessions stopped with a 429 ("You've reached your Fable limit"). Every stream is on
   Opus now:
   - **Feedback release 2** (writer, v12-or-v13, floor 11): fresh Opus high on `feedback-56-60`.

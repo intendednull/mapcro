@@ -412,10 +412,11 @@ selects; the build opens from the portrait's build control in both. The phone la
     while the build still stored it reads the same.
   - **The viewer's Vision (`web/src/mapstate/shown.ts`, D3):** `heroDraw(hero, viewer, sight,
     stored)` is Player's Vision logic for both producers: seen; a ghost where last seen, or
-    not drawn (Player); faded where it stands, with the last seen place when that is shown (a
-    scene). A scene with no sight data keeps the legacy meaning (D5). With Show last seen
-    location on, a scene draws both the faded hero and its ghost (the lead, 2026-11-14: the
-    only difference from Player is faded instead of gone); the rule gives both.
+    not drawn (Player); faded where it stands (a scene). A scene with no sight data keeps the
+    legacy meaning (D5). **With Show last seen location on, a scene draws only the faded hero,
+    with no last-seen marker** (operator, 2026-11-14, over the lead's earlier "both"). As
+    built, `heroDraw` still returns `{ as: "faded", ghost }`, pinned by `web/test/shown.test.ts`.
+    Change both when `Tokens.tsx` reads `heroDraw` (TD-97's trigger).
 - **The bound is on consumers:** a component reruns only when a value it reads changes. Each
   entity's fields are memos keyed by slot or marker with an equality check.
 - **A scene is static:** its `MapState` changes only when a record does.
