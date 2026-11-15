@@ -260,22 +260,30 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
   step, floor 9, so **the rollback target from v10 is the v9 build (`1dcbd31`) and nothing
   older**.
 - **`has_heroes`** (map-state D2: a scene that holds its own heroes) follows the same two steps.
-  Its reader adds the row as `Ahead` with an additive store step (written as v10 → v11 on its
-  branch; the number is assigned at merge): nothing is stored differently and the build before
-  it stays a rollback target. Its writer is the release after: `ahead("has_heroes", ...)`
-  becomes `row(...)` in `crates/schema/src/map_state.rs`, the store gets a `Step::NeedsReader`
-  step whose floor is the reader's version, then `just ts`, `just rows-lock` after the deploy,
-  and `reader` in the justfile set to the reader's commit. From that deploy Save leaves the
-  roster alone and a saved scene draws its own heroes; `web/e2e/scene-hero.spec.ts` switches
-  from the test of Save setting the roster to the test of a scene's own heroes by the row's
-  status, and so does the server's refusal in `web/test/scene-hero-pick.test.ts`. Five tests
-  say what this build does and change on purpose with the flip: `scene-heroes.test.ts` "is not
-  written by this build", the two Save pins in `map-state-pins.test.ts` (with
-  `web/test/pins/save-as-scene.json`), and on the server `board_file.rs` "`has_heroes` is the
-  only row still ahead" and `store.rs` "the v11 reader stores nothing new". The writer was
-  rehearsed twice on the reader's branch with the row flipped in the tree only: everything
-  built, the whole vitest suite failed only in those three of its tests, and the save flows'
-  e2e passed with the own-heroes test.
+  - **v12 is its reader**: the row `Ahead`, with an additive store step (v11 → v12, no SQL,
+    floor 9). Nothing is stored differently, so **the rollback targets from v12 are still the
+    v11 build (`ce1ec0c`), the v10 build and the v9 build**. A test in `store.rs` ("the v12
+    reader stores nothing new") holds the row `Ahead`, with feedback's three typed fields,
+    while v12 is the newest version.
+  - **Its writer is the next free store version** (v14 if feedback's writer takes v13; the lead
+    assigns it at merge): `ahead("has_heroes", ...)` becomes `row(...)` in
+    `crates/schema/src/map_state.rs`, and the store gets a step
+    `Step::NeedsReader { reader: 12 }` (the form feedback's release 2 introduces: the floor is
+    the reader's version, 12, whatever number the writer takes), then `just ts`, `just
+    rows-lock` after the deploy, and `reader` in the justfile set to the deployed v12 commit
+    before it merges. From that deploy the rollback target is the v12 build and nothing older
+    (a server before v12 can't parse a `more` that names the row).
+  - From the writer's deploy Save leaves the roster alone and a saved scene draws its own
+    heroes; `web/e2e/scene-hero.spec.ts` switches from the test of Save setting the roster to
+    the test of a scene's own heroes by the row's status, and so does the server's refusal in
+    `web/test/scene-hero-pick.test.ts`. Five tests say what this build does and change on
+    purpose with the flip: `scene-heroes.test.ts` "is not written by this build", the two Save
+    pins in `map-state-pins.test.ts` (with `web/test/pins/save-as-scene.json`), and on the
+    server `board_file.rs` "`has_heroes` is the only row still ahead" and `store.rs` "the v12
+    reader stores nothing new". The writer was rehearsed three times on the reader's branch
+    with the row flipped in the tree only (the third on top of v11): everything built, the
+    whole vitest suite failed only in those three of its tests, and the save flows' e2e passed
+    with the own-heroes test.
 - **`just reader-check`** (in `just test`) loads what this build's server stores on the reader
   release's own code. Its reader is `reader` in the justfile: **set it to the deployed commit
   at each deploy that changes what is stored**, with `just rows-lock`.
@@ -300,7 +308,7 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
   - **v11 is their reader**: all three `Ahead`. Its step adds no SQL and is additive (floor 9):
     it stores nothing new, so **the rollback targets from v11 are still the v10 build
     (prod, `3423072`) and the v9 build**. A test in `store.rs` holds the three `Ahead` while v11 is
-    the newest version.
+    the newest version (from v12, D2's reader, the v12 test holds them).
   - **Their writer is the next store step** (`Step::NeedsReader`, floor 11): it makes the three
     `Live`, and from it the rollback target is the v11 build and nothing older. Before it
     merges, set `reader` in the justfile to the deployed v11 commit, so `just reader-check`

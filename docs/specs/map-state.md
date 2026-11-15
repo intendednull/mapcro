@@ -161,9 +161,11 @@ a server without the reader would drop `more` silently. So:
   v7 server still opens the database while nothing is written. v9 ships with the writer and sets
   the floor to 8, so a server older than the reader refuses to start. v10 writes `kills`,
   `deaths`, `assists` and `max_health` and admits the unfit undo, both read by v9 (deployed as
-  `1dcbd31`): its floor is 9. The reader of `has_heroes` is the next additive step (written as
-  v11 on its branch; the number is assigned at merge), and its writer the step after, with the
-  floor at the reader.
+  `1dcbd31`): its floor is 9. v11 is the reader of feedback #56, #59 and #60's typed fields
+  (additive, floor 9). The reader of `has_heroes` is v12, additive too (floor 9: the v9, v10 and
+  v11 servers still open it). Its writer is the next free version after it, a
+  `Step::NeedsReader { reader: 12 }`: the floor is the reader's version, 12, whichever number
+  the writer takes.
 - **Board files:** the reader accepts file version 2 (version 1 plus a `rows` header) and still
   writes version 1. The writer writes version 2. `rows` is the number of rows the exporting
   build writes: the index of its first `Ahead` row (`written_rows`), the same watermark a
@@ -271,8 +273,8 @@ So that an absent key can be told from an unknown one, `SceneState.more` holds:
   reading. One rule gives the hero everywhere (`web/src/mapstate/build.ts` `sceneHero`; the
   pick is `edit.ts` `pickHeroOps`). The row landed `Ahead` (the reader), so this build's Save
   writes neither the flag nor anything else differently: the pins hold it byte for byte. The
-  writer is one change, `ahead(...)` to `row(...)`, with its store step and `just rows-lock`
-  (`docs/deploy.md`).
+  reader is store v12. The writer is one change, `ahead(...)` to `row(...)`, with its store
+  step (floor 12) and `just rows-lock` (`docs/deploy.md`).
 
 Reading a key that is absent:
 
