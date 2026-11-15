@@ -22,6 +22,12 @@ const COLS = 6;
 export function HeroPicker(p: {
   heroes: Hero[];
   slot: Slot | undefined;
+  /** The hero the slot holds in the scene (its own, or the roster's: mapstate/build.ts
+   * `sceneHero`). */
+  current: HeroId | null;
+  /** Whether "No hero" is offered: not in a scene that holds its own heroes, where a slot's
+   * hero can be changed but not taken away. */
+  clearable: boolean;
   takenBy: Map<HeroId, string>;
   onPick: (h: HeroId | null) => void;
   onClose: () => void;
@@ -87,7 +93,7 @@ export function HeroPicker(p: {
               <For each={shown()}>
                 {(h, i) => (
                   <button
-                    class={cx("hero-cell", i() === at() && "on", p.slot?.slot.hero === h.id && "current", p.takenBy.has(h.id) && "taken")}
+                    class={cx("hero-cell", i() === at() && "on", p.current === h.id && "current", p.takenBy.has(h.id) && "taken")}
                     role="option"
                     aria-selected={i() === at()}
                     aria-disabled={p.takenBy.has(h.id)}
@@ -116,8 +122,8 @@ export function HeroPicker(p: {
         </div>
         <footer>
           <span />
-          <Show when={p.slot?.slot.hero != null}>
-            <button class="btn ghost small" onClick={() => p.onPick(null)}>
+          <Show when={p.clearable && p.current != null}>
+            <button class="btn ghost small" data-testid="hero-clear" onClick={() => p.onPick(null)}>
               No hero
             </button>
           </Show>

@@ -7,6 +7,233 @@ Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `
 
 Off main `a0774c5` (prod `e878c30`, store v10). Newest first.
 
+### D2's reader on main, store v12 (2026-11-14, 16:40; the ninth implementer stops here)
+
+**Outcome: D2's reader is rebased onto main `62bab62` (store v11 deployed as `ce1ec0c`),
+renumbered to store v12, and green on every check. It goes to the lead's gate and adversarial
+review. The writer flip is not started.**
+
+- **Branch `map-state-d2`**, 15 commits on main `62bab62`: the 13 of D2 (rebased, new ids), the
+  renumber inside the row's commit (`b99b8e2`), and the docs. `map-state-d2-pre-rebase`
+  (`4733ffe`) is still there; delete it once this branch is accepted.
+- **The previous run** (`/tmp/ms-d2/summaryK`, on `797d4cc` over D4): `just test` 0, `just
+  web-test` 0 (74 files, 733 passed, 1 skipped), the tree unchanged, e2e on 17 spec groups 319
+  passed, 1 skipped (the own-heroes test), 0 failed. Nothing red to fix there.
+
+**The rebase** (onto `d75f745`, then again onto `62bab62`, which only added lead journal
+lines). One commit conflicted, the row's (`8fc1dbe`, now `b99b8e2`), all in
+`crates/server/src/store.rs`, because feedback's v11 and D2's old v11 were the same step:
+
+1. The `migrate` arm `10 => {}`: both comments. Kept feedback's on `10`, moved D2's to a new
+   `11 => {}` arm (v11 → v12).
+2. The test both named `the_v11_reader_stores_nothing_new…`: feedback's kept as history,
+   renamed `the_v9_and_v10_servers_open_the_v11_database` (`open_at(…, 11)`, as the v10 test
+   had become); D2's renumbered to `the_v12_reader_stores_nothing_new_so_the_v9_to_v11_servers_
+   still_open_its_database`.
+3. The floor test's comment: kept both lines, one per reader.
+
+Auto-merged without conflicts: `map_state.rs` (the row after feedback's typed fields),
+`system.rs`, `board_file.rs`, `Board.tsx`, `deploy.md`, `tech-debt.md` (TD-98 sits between
+TD-97 and TD-99; main's TD-101, TD-102 are elsewhere, no id clash), this journal.
+
+**The v12 changes** (`store.rs`, `system.rs`):
+
+- `SCHEMA_VERSION` 12; `step()` `5..=7 | 10 | 11 => Step::Additive`; `migrate` `11 => {}` with
+  D2's comment (floor 12 is for the writer).
+- The v12 test: the database at v12 has floor 9; the v9, v10 and v11 servers open it, v8 doesn't;
+  a v11 database migrates with its floor kept. It holds `has_heroes` `Ahead` in the registry and
+  in `Admit::DEPLOYED`, **and feedback's three typed fields `Ahead`** (moved from the v11 test:
+  the floor is still 9, so the v10 and v9 servers are rollback targets and can't load them).
+- The floor test: `step(11)` additive, `compat_floor(12) == 9`, `compat_floor(13) == 13` (the
+  unknown step). The "floor above this server" test one higher (a v14 database with floor 13
+  refused; floor 12 opens; v11 below it). The v6 migration test and `system.rs`'s two
+  `schema_version` checks read `"12"`.
+- Docs: `deploy.md` (the reader at v12, rollback targets v11 `ce1ec0c`, v10, v9; the writer the
+  next free version, likely v14, `Step::NeedsReader { reader: 12 }` from feedback's release 2,
+  floor 12), the spec §4.3 and §4.5.
+
+**Checks** (`/tmp/ms-d2/jobL.sh` on `b6a53a4`, through `tools/heavy.sh`, 16:04 to 16:37, load
+5 to 12.5; logs `/tmp/ms-d2/*L.log`, summary `summaryL`):
+
+| Check | Result |
+|---|---|
+| `just ts` | 0, `web/src/gen` as committed |
+| `just clippy` | 0 |
+| `just test` | 0: 541 passed, 0 failed, 20 ignored (with the 2 failpoint tests); the simulation 1000 seeds both as read and `--admit deployed`; `reader-check` on `ce1ec0c`: 40 boards, 9,675 transactions, byte for byte |
+| `just web-test` | 0: 76 files, 773 passed, 1 skipped; `tsc` clean; the tree unchanged |
+| e2e, the whole suite, 2 workers | 0: 486 passed, 16 skipped, 0 failed (the two `✘` are `frozen-write-guard`'s `test.fail()`) |
+| cargo-mutants on the Rust diff | 3 mutants: 2 caught (`step`'s `5..=7 \| 10 \| 11` arm deleted; `migrate` → `Ok(())`), 1 unviable |
+
+**The writer, rehearsed a third time** (the row `row(...)` in the tree only, then restored; the
+tree had 0 changed files after): wasm, `just ts`, the server built; `tsc` clean; vitest 3 failed,
+770 passed, exactly the three that state the dormant build (`scene-heroes.test.ts` "is not
+written by this build", the two Save pins in `map-state-pins.test.ts`); `cargo test` 3 failed:
+`board_file.rs` "`has_heroes` is the only row still ahead", `store.rs` the v12 test, and the
+schema's rows-lock test ("has_heroes: not deployed yet"), which `just rows-lock` at the
+reader's deploy clears; e2e on the save flows 46 passed, 1 skipped, with the own-heroes test
+passing. So the flip still works on top of v11.
+
+**The reader's review (2026-11-14, the lead): no blocker.** Fixed here: the three docs that
+said nothing stored changes (a metadata-tier save stores no `health`: spec §4.5, deploy.md,
+step 3 below); `by_default_a_row_is_admitted_by_its_own_status` (engine) now asks every row on
+a record of its entity, the scene's `has_heroes` too; the v12 store test says `reader-check` is
+the real proof; `scene.ts`'s header wrap.
+
+**The writer release (`docs/deploy.md`, the writer's steps), must fix before the flip:**
+
+- **The "neither" case.** With the row written, `own` is true and Save never pushes the
+  roster's sets (`save.ts`, the `!own` guard and the heroes-only fallback; asserted in
+  `scene-heroes.test.ts`, "None"). A save with no room for the heroes and the flag stores
+  neither, and draws whatever the roster holds, against §4.5 ("sets the roster to the match's
+  heroes"). Fall back to the roster's sets when they fit, or refuse the save.
+- **Retake's health tier.** Capture asks the open timeline's tier, `CAPTURED.health` the
+  scene's `source.tier`: a Retake of a metadata-sourced scene with the replay loaded writes
+  health the reader hides.
+- After the reader deploys, `just rows-lock` (16 rows); before the writer merges, the
+  justfile's `reader` set to the v12 commit.
+
+**Found while correcting the docs (for the lead):** on the metadata tier the v9 to v11 builds
+read a missing `health` as an alive hero at full health (`scene.ts`, "alive with none
+stored"), not as not captured. No scene draws a hero's health, but the stat calculator does use
+it (`statOf` health_pct): a metadata-tier scene saved by this build counts Battle Vest and
+Hollow Point (life threshold 65 %) as active, where Player at that second uses the path's
+health. Small and on one tier; not logged as debt yet, the lead's call.
+
+**Decisions for the lead**
+
+- **Merge order with feedback's writer.** The numbers assume D2's reader (v12) merges before
+  feedback's writer (v13). If feedback's lands first, the two swap and this branch renumbers.
+- **Feedback's writer touches the v12 test.** Its plan edits `the_v11_reader_stores_nothing_new…`
+  ("statuses `Ahead` while v11 is the newest"). After this merge that assertion lives in the v12
+  test; the v11 test is history only. Feedback's v13 must replace the three-status line there.
+- **After D2's reader deploys:** `just rows-lock` (16 rows with `has_heroes`), and `reader` in
+  the justfile set to the deployed v12 commit before the writer merges (`docs/deploy.md`).
+- **The backup ref** `map-state-d2-pre-rebase`: delete once this branch is accepted.
+- Still open from before: S1 (the faded hero and its ghost in a scene), TD-98.
+
+### Handoff to the next implementer (2026-11-14, 09:30; the seventh stops here, context full)
+
+Read this, then the D2 section below it, then `docs/deploy.md` ("`has_heroes`").
+
+**Where things are**
+
+| Branch | Tip | What | State |
+|---|---|---|---|
+| `map-state-p3` | `1694b2a` | D4 (a dead hero's respawn time in a new scene) with its review's fixes, main `91e81c2` merged in | **Green on the merged tip** (09:39): `just web-test` 72 files, 715 passed, 1 skipped, `tsc` clean, the tree unchanged after; e2e at two workers, 58 spec files (every player*, scene*, topbar*, phone*, the DOM pins, board, board-file, objectives, markers, map-furniture, follow-matrix, match, palette-player, playtest, replay, tools, hero*), 312 passed, 0 failed. Sent to the lead, who merges and deploys it |
+| `map-state-d2` | this branch | D2's reader (`has_heroes` `Ahead`, the writer dormant), **rebased onto `map-state-p3` at `1694b2a`** | Before the rebase everything passed (the D2 section). On the rebased tip `46d3327`: `tsc` clean and nine map-state vitest files pass; the whole (`just test`, `just web-test`, e2e with the phone specs) is `/tmp/ms-d2/jobK.sh`, result in `/tmp/ms-d2/summaryK` |
+| `map-state-d2-pre-rebase` | `4733ffe` | D2 as it was before the rebase | A backup ref: delete it once the rebased branch is accepted |
+
+The rebase's conflicts: `save.ts` (an import: D4's `savedPart` with D2's two helpers), the
+register (TD-98 between TD-97 and TD-99), this journal.
+
+**What is left, in order**
+
+1. **Read the two runs** above. Anything red on the D4 tip is the lead's blocker; on D2 fix it
+   here.
+2. **Renumber D2's reader to store v12**, once `feedback-56-60`'s v11 reader is on main (the
+   lead says when; don't rebase onto feedback's branch before). After rebasing onto that main:
+   in `crates/server/src/store.rs`, `SCHEMA_VERSION` 12; the step's arm moves from `10` to `11`
+   (`5..=7 | 10 | 11 => Step::Additive` with feedback's `10`); the migrate arm `11 => {}` with
+   this branch's comment; the test `the_v11_reader_stores_nothing_new...` renamed and
+   renumbered (v12, floor still 9, older servers `[9, 10, 11]` open it); the floor test's
+   numbers (it uses "a version this build doesn't know": one above the newest) and the two
+   `"11"` in `crates/server/tests/system.rs` to `"12"`. The wording "v10 → v11" in
+   `docs/specs/map-state.md` §4.3, `docs/deploy.md` and `b4c9f86`'s successor's comments
+   follows. Then `just test` (it runs `reader-check`) and `just web-test`.
+3. **D2's reader release:** the lead's gate and adversarial review. It stores nothing a v9
+   to v11 server can't load. It does store one thing differently: a metadata-tier save keeps
+   no `health` on a hero's record (fewer keys; v9 to v11 read the missing key as full health,
+   this build as not captured). No scene draws a hero's health; the stat calculator counts a
+   life-threshold item as active there (spec §4.5).
+4. **The writer flip, its own release** (the lead expects store v14, to be confirmed): the
+   steps and the five tests that change on purpose are in `docs/deploy.md`. It was rehearsed
+   twice here with the row flipped in the tree only; the own-heroes e2e passed both times.
+5. **Then phase 4 goes on:** `Tokens.tsx` reading a token's view from `MapState` and
+   `heroDraw` in both modes, with TD-97's four small specs landing in the same work (the
+   lead's condition). The steps are in "Handoff, eighth implementer" below, from its step 3.
+
+**Open with the lead or the operator**
+
+- **S1 (D4 review):** whether a scene drawing both the faded hero and its ghost under Show last
+  seen is a second difference from Player. With the operator; the lead's call (draw both)
+  stands until then. `heroDraw` gives both, nothing draws from it yet.
+- **TD-98:** a Retake racing a pick. **TD-99, TD-100:** from the D4 review.
+
+**Scratch:** `/tmp/ms-p4` and `/tmp/ms-d2` hold only logs and job scripts now (under 1 MB);
+delete them once the two runs are read. The measuring checkouts and the perf builds are gone.
+Every tree has its own `target/`; never link one across trees.
+
+### D2, a scene's own heroes: the reader, on branch `map-state-d2` (2026-11-14, seventh implementer)
+
+Branch `map-state-d2`, worktree `mapcro.worktrees/map-state-d2`, off `map-state-p3` at
+`59efdec` (the D4 candidate before its review fixes). It rebases onto D4 once that has merged
+main; the store version is then renumbered by the lead (written here as v10 to v11, which
+`feedback-56-60` also uses).
+
+**The lead's decisions this follows (2026-11-14):**
+
+- D2 ships as reading and editing together, with **one new row, `has_heroes`** (a `Bool` on
+  the scene, §4.5's mechanism). It lands `Ahead`: this branch is the reader release, and the
+  writer is the release after (one line, `ahead` to `row`, with its store step and lock).
+- **No pick a coach made may be undone by reading.** A scene without the flag (every scene
+  saved before the writer ships, and every scene made by hand) draws the roster's hero, hides a
+  stored build whose hero differs from it, and its picker writes the roster: exactly today.
+- **Exact over inferred.** In a scene with the flag the picker sets the scene's `hero` and
+  clears that record's build rows in the same transaction (`More { key, value: null }`); "No
+  hero" is not offered there.
+- The metadata tier's health is not captured (the snapshot is the Player frame). A scene
+  draws both the faded hero and its ghost with Show last seen (pending the operator, who is
+  asked whether that is a second difference from Player). A scene with no `source` keeps
+  taking the open match's names.
+
+**Why a row at all:** once Save stops setting the roster, a new scene has `more.hero` differing
+from the roster's hero from the start, where the scene must win; an old scene whose roster was
+changed since stores the same two values, where the roster must win. Nothing a `Live` row can
+honestly say tells them apart.
+
+**Commits (after `59efdec`):**
+
+| Commit | What |
+|---|---|
+| `59e355d` | The characterisation e2e, written and run on the code before D2 (9 passed with `scene-builds`): a saved scene's slot given another hero draws it on every scene and hides the build; Save sets the roster |
+| `b4c9f86` | The row, `Ahead`; the store's additive step (v11 here) and its tests; `rows.ts` |
+| `75700aa` | The client: `sceneHero` (one rule: tokens, the scene bar, the picker, `fromScene`), `pickHeroOps`, Save and Retake; the metadata tier's health not captured, and read only from a replay source |
+| `e4a4e07` | `scene-hero.spec.ts`: the old scene from a board file that says what such a save stored; Save setting the roster (while dormant); the own-heroes test (once live) |
+| `b28c60b`, `7a59646` | Spec §4.5, §5, §6, D1; `docs/deploy.md` (the writer's steps); TD-98 (a Retake racing a pick) |
+| `0ffa018` | `board_file.rs`: the export's `rows` header with one row ahead |
+| `7b34fe5` | The heroes-only save is both or neither, to the byte, and keeps the state's id; tests name the build they mean |
+
+**Run on it** (heavy jobs, logs in `/tmp/ms-d2/`):
+
+- At `7a59646`: `just ts` leaves `web/src/gen` as committed; clippy clean; `just web-test` 74
+  files, 729 passed, 1 skipped, `tsc` clean; e2e at two workers, 57 spec files, 312 passed, 1
+  skipped (the own-heroes test, by the row's status), 0 failed; cargo-mutants on the Rust
+  diff, 3 mutants, 2 caught, 1 unviable. `just test` stopped at one test that said no row is
+  ahead (`board_file.rs`), fixed in `0ffa018`; **the whole of `just test` has not passed yet:
+  `/tmp/ms-d2/jobI.sh` reruns it** (with `just web-test`, the save's e2e and a second
+  rehearsal).
+- **The writer, rehearsed** (the row flipped to `Live` in the tree, never committed, then
+  restored): the server, wasm and client build; `tsc` clean; e2e on the save flows, 62 passed,
+  with the own-heroes test passing (the roster and the hand-made scene keep their heroes, the
+  pick is the scene's alone and drops the build, one undo brings both back, "No hero" only in
+  the hand-made scene, a second person and a reload agree). Thirteen vitest tests failed
+  there, all for stating the dormant build; after `7b34fe5` four tests state it and change on
+  purpose with the flip (listed in `docs/deploy.md`).
+- **Hand mutants (TypeScript, through vitest):** the D2 client 50 (47 at first, 2 after a test
+  was added, 1 a redundant guard removed); the save's guard and the health-tier lines 10 (8 at
+  first, 2 after the byte boundary was pinned).
+
+**Known and logged:** TD-98 (a Retake sent at the same instant as a pick can bring the old
+hero's build back). A save with no room even for twelve `hero` values (its own records fill
+the transaction: not seen on a real match) stores no heroes and draws the roster's. The old
+scenes' characterisation at `59e355d` saved through the page; the committed spec builds the
+same scene from a board file, so it holds after the writer ships too, and asks for
+`hero-clear`, a test id this branch adds.
+
+**Next:** rebase onto D4 after its merge of main (expect conflicts in `from-scene.test.ts`,
+`frame.ts`/`save.ts` (D4 review N2 renamed what Save reads to `savedPart`), `tech-debt.md`,
+this journal); the lead renumbers the store step; then the adversarial review, and the writer
+as its own release.
 ### D4's review fixes and the merge of main (2026-11-14, 09:00)
 
 The D4 review (a fresh reviewer) found no blocker. On this branch since:

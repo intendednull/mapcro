@@ -636,7 +636,7 @@ room's presence, so a follower can check followability (§6.3) without trusting 
   `seat` is the page's, as in every room.
 - **Not stamped:** someone who opens a tab with a board link of their own (§3.4) joins the
   board's room without the session's credential, so they are neither stamped nor told others'
-  session roles there (TD-103).
+  session roles there (TD-109).
 
 ### 6.2 The registry row
 
@@ -1238,7 +1238,7 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      journal.
    - **Interop** against the deployed build (ce1ec0c): it reads this build's presence frames
      and drops `tab` and `session_role`; this build reads its frames byte for byte.
-   - **Debt:** TD-103 to TD-105.
+   - **Debt:** TD-104, TD-105 and TD-109.
    **Checks carried from phase 3** (the layers a tab holds, §4.2), each with its test:
    - A follower moved off a tab keeps nothing of the presenter's layers, Vision or Show last
      seen for it: only what the follower set there is the tab's own. Until phase 3's change the

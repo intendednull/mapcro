@@ -193,7 +193,7 @@ pub struct Store {
 }
 
 /// Database schema version. Each step in `migrate` takes the database one version forward.
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 
 /// What the step from `from` to `from + 1` asks of an older server (spec §9, docs/deploy.md
 /// "Rollbacks").
@@ -217,7 +217,7 @@ enum Step {
 /// newer database whatever it says.
 fn step(from: i64) -> Step {
     match from {
-        5..=7 | 10 => Step::Additive,
+        5..=7 | 10 | 11 => Step::Additive,
         8 | 9 => Step::NeedsReader,
         _ => Step::Breaking,
     }
@@ -323,6 +323,13 @@ fn migrate(conn: &Connection, from: i64, to: i64) -> Result<(), StoreError> {
             // writer, can set the floor to 11 (`Step::NeedsReader`): the v10 server refuses
             // such a log on a cold load.
             10 => {}
+            // v11 → v12: no SQL. This server reads the map-state row `has_heroes` (a scene
+            // that holds its own heroes: docs/specs/map-state.md §2, D2) and takes it from no
+            // client and no file (the row is `Ahead`), so the v9, v10 and v11 servers still read
+            // everything in the database: additive. The step exists so that the row's writer
+            // can set the floor to 12 (`Step::NeedsReader`): the v11 server can't parse a `more`
+            // that names the row.
+            11 => {}
             other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
         }
         v += 1;
@@ -1235,19 +1242,11 @@ mod tests {
     /// The reader of feedback #56, #59 and #60 (v11): it reads a scene name up to 48 characters,
     /// a comment's side and a stroke's colour as a field, and admits none of them, so its
     /// database holds nothing the v10 and v9 servers can't load: they stay rollback targets.
-    /// The writer's step comes with the build that makes those three `Live`.
     #[test]
-    fn the_v11_reader_stores_nothing_new_so_the_v9_and_v10_servers_still_open_its_database() {
-        use mapcro_schema::{Admit, CALLOUT_SIDE, LONG_SCENE_NAME, STROKE_COLOR, Status};
-        assert_eq!(SCHEMA_VERSION, 11, "a later version: say here what its step asks of an older server");
-        // Written only from the step that sets the floor to 11: while this is the newest
-        // version, a v10 server may be rolled back to, and it can't load them.
-        assert_eq!((LONG_SCENE_NAME, CALLOUT_SIDE, STROKE_COLOR), (Status::Ahead, Status::Ahead, Status::Ahead), "their writer needs a store step with floor 11");
-        let d = Admit::DEPLOYED;
-        assert_eq!((d.long_scene_name, d.callout_side, d.stroke_color), (Status::Ahead, Status::Ahead, Status::Ahead));
+    fn the_v9_and_v10_servers_open_the_v11_database() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
-        Store::open(&path).expect("create at v11");
+        Store::open_at(&path, 11).expect("create at v11");
         assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("11"), Some("9")));
         let c = Connection::open(&path).expect("open");
         for older in [9, 10] {
@@ -1259,8 +1258,47 @@ mod tests {
         // A v10 database in use migrates to it, and its floor stays.
         let old = dir.path().join("old.sqlite");
         Store::open_at(&old, 10).expect("create at v10");
-        Store::open(&old).expect("migrates");
+        Store::open_at(&old, 11).expect("migrates");
         assert_eq!((meta(&old, "schema_version").as_deref(), meta(&old, "compat_floor").as_deref()), (Some("11"), Some("9")));
+    }
+
+    /// The reader of the map-state row `has_heroes` (v12): it reads the row and admits it from
+    /// nobody, so its database holds nothing the v11, v10 and v9 servers can't load: they stay
+    /// rollback targets. The writer's step comes with the build that makes the row `Live`.
+    ///
+    /// The older servers here are this build's `reconcile` told an older version: what they make
+    /// of the floor, not of the boards. The proof that a v11 server loads what this one stores
+    /// is `just reader-check`, which loads the simulation's stored boards on `ce1ec0c`'s own code.
+    #[test]
+    fn the_v12_reader_stores_nothing_new_so_the_v9_to_v11_servers_still_open_its_database() {
+        use mapcro_schema::{Admit, CALLOUT_SIDE, LONG_SCENE_NAME, RowId, STROKE_COLOR, Status};
+        assert_eq!(SCHEMA_VERSION, 12, "a later version: say here what its step asks of an older server");
+        // Written only from the step that sets the floor to 12: while this is the newest
+        // version, a v11 server may be rolled back to, and it can't parse the row.
+        let row = RowId::of("has_heroes").expect("the row");
+        assert_eq!(row.row().status, Status::Ahead, "its writer needs a store step with floor 12");
+        assert_eq!((Admit::DEPLOYED.row)(row), Status::Ahead);
+        // Nor is what v11 reads written yet (feedback #56, #59, #60): the floor is still 9, and
+        // the v10 and v9 servers can't load them.
+        assert_eq!((LONG_SCENE_NAME, CALLOUT_SIDE, STROKE_COLOR), (Status::Ahead, Status::Ahead, Status::Ahead), "their writer needs a store step with floor 11");
+        let d = Admit::DEPLOYED;
+        assert_eq!((d.long_scene_name, d.callout_side, d.stroke_color), (Status::Ahead, Status::Ahead, Status::Ahead));
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        Store::open(&path).expect("create at v12");
+        assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("12"), Some("9")));
+        let c = Connection::open(&path).expect("open");
+        for older in [9, 10, 11] {
+            reconcile(&c, older).unwrap_or_else(|e| panic!("the v{older} server opens a v12 database: {e}"));
+        }
+        assert!(matches!(reconcile(&c, 8), Err(StoreError::Corrupt(_))), "v8 can't read what v10 stored");
+        drop(c);
+        assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("12"), Some("9")), "left as it was");
+        // A v11 database in use migrates to it, and its floor stays.
+        let old = dir.path().join("old.sqlite");
+        Store::open_at(&old, 11).expect("create at v11");
+        Store::open(&old).expect("migrates");
+        assert_eq!((meta(&old, "schema_version").as_deref(), meta(&old, "compat_floor").as_deref()), (Some("12"), Some("9")));
     }
 
     #[test]
@@ -1288,17 +1326,17 @@ mod tests {
         Store::open(&path).expect("create");
         Connection::open(&path)
             .expect("open")
-            .execute_batch("UPDATE meta SET value = '13' WHERE key = 'schema_version'; UPDATE meta SET value = '12' WHERE key = 'compat_floor';")
-            .expect("a v13 database that a v12 migration broke for older servers");
+            .execute_batch("UPDATE meta SET value = '14' WHERE key = 'schema_version'; UPDATE meta SET value = '13' WHERE key = 'compat_floor';")
+            .expect("a v14 database that a v13 migration broke for older servers");
         assert!(matches!(Store::open(&path), Err(StoreError::Corrupt(_))));
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("13"), "left as it was");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("14"), "left as it was");
         // The same database with a floor this server meets opens.
-        Connection::open(&path).expect("open").execute("UPDATE meta SET value = '11' WHERE key = 'compat_floor'", []).expect("floor");
+        Connection::open(&path).expect("open").execute("UPDATE meta SET value = '12' WHERE key = 'compat_floor'", []).expect("floor");
         Store::open(&path).expect("floor at this server's version: opens");
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("13"), "still not migrated backwards");
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("14"), "still not migrated backwards");
         // And a server a version older is below that floor.
         let c = Connection::open(&path).expect("open");
-        assert!(matches!(reconcile(&c, 10), Err(StoreError::Corrupt(_))));
+        assert!(matches!(reconcile(&c, 11), Err(StoreError::Corrupt(_))));
     }
 
     #[test]
@@ -1316,7 +1354,10 @@ mod tests {
         // The reader of feedback #56, #59 and #60 stores nothing new: additive.
         assert_eq!(step(10), Step::Additive);
         assert_eq!(compat_floor(11), 9, "v11 still opens on the v9 and v10 servers");
-        assert_eq!(compat_floor(12), 12, "a step this build doesn't know counts as breaking");
+        // Nor does the reader of `has_heroes`.
+        assert_eq!(step(11), Step::Additive);
+        assert_eq!(compat_floor(12), 9, "v12 still opens on the v9, v10 and v11 servers");
+        assert_eq!(compat_floor(13), 13, "a step this build doesn't know counts as breaking");
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
         // A database a pre-floor v5 server wrote: no compat_floor row.
@@ -1387,7 +1428,7 @@ mod tests {
             v6.commit("b".into(), writes).await.expect("log");
         }
         let store = Store::open(&path).expect("migrates");
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("11"));
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("12"));
         assert_eq!(meta(&path, "compat_floor").as_deref(), Some("9"), "through the writers' steps: the v9 server still opens it");
         for (hash, role, label, revoked, parent) in [
             (&owner, LinkRole::Owner, "owner", false, None),
@@ -1410,7 +1451,7 @@ mod tests {
         drop((c, store));
         // A second open is a no-op.
         Store::open(&path).expect("idempotent");
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("11"));
+        assert_eq!(meta(&path, "schema_version").as_deref(), Some("12"));
     }
 
     /// A v7 database in use opens on v8 with its board as it was, and a v7 server (a rollback)

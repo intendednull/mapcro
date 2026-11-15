@@ -103,10 +103,11 @@ joins, so "three peers" could hold with empty names (batch 5's one failure). Tes
 
 ### Debt
 
-TD-103 (a board link of one's own on a view-only tab: no session role, a follow that holds on
-nobody), TD-104 (the first follow to each tab asks whether it opens, one round trip), TD-105
-(Board's side of the hand-off has no unit seam). Ids checked free on main, `feedback-56-60` and
-`map-state-d2`. No new debt from the Opus session.
+TD-109 (a board link of one's own on a view-only tab: no session role, a follow that holds on
+nobody; Fable's TD-103, renumbered when main took 103 and `feedback-56-60` 106 to 108), TD-104
+(the first follow to each tab asks whether it opens, one round trip), TD-105 (Board's side of
+the hand-off has no unit seam). Ids checked free on main, `feedback-56-60` and `map-state-d2`.
+No new debt from the Opus session.
 
 ### Open, for the lead
 

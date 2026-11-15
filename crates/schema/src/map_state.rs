@@ -113,6 +113,11 @@ pub const ROWS: &[Row] = &[
     row("deaths", Entity::Hero, Kind::Int { min: 0, max: 100_000 }),
     row("assists", Entity::Hero, Kind::Int { min: 0, max: 100_000 }),
     row("max_health", Entity::Hero, Kind::Int { min: 0, max: 10_000_000 }),
+    // The snapshot holds its heroes (spec §2, D2): the scene's own `hero` wins over the board
+    // roster's, and a pick in the scene writes the scene. A scene without it (every scene saved
+    // before this is written) draws the roster's hero, as it always has: there a `hero` that
+    // differs from the roster's is a build whose slot was given another hero since.
+    ahead("has_heroes", Entity::Scene, Kind::Bool),
 ];
 
 /// `SceneState`'s own status: the record kind is gated as a row is. Its reader ships a release
