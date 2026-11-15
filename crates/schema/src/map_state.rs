@@ -254,7 +254,8 @@ impl Admit {
 /// says a version that build doesn't read, so it answers "Newer file", not "Bad file"
 /// (`boardfile.rs` in the server). A stroke's colour is a field write, never in a record.
 pub fn holds_typed_field(record: &Record) -> bool {
-    Admit { long_scene_name: Status::Ahead, callout_side: Status::Ahead, stroke_color: Status::Ahead, ..Admit::READS }.record(record).is_err()
+    // (`stroke_color` is not asked of a record.)
+    Admit { long_scene_name: Status::Ahead, callout_side: Status::Ahead, ..Admit::READS }.record(record).is_err()
 }
 
 /// The registry as a TypeScript module, `web/src/gen/rows.ts` (`just ts` writes it): the
