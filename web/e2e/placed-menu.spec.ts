@@ -38,6 +38,9 @@ async function spotOf(p: Page) {
 
 /** A comment, an arrow and a stroke, in the palette's first colour, apart from the heroes. */
 async function placeAll(a: Page) {
+  // In Parchment, which no recolour below picks (a person's first colour is their own).
+  await a.getByTestId("palette").click();
+  await a.getByRole("radio", { name: "Colour: Parchment" }).click();
   await a.keyboard.press("s");
   const at = await mapPoint(a, 0.5, 0.45);
   await a.mouse.click(at.x, at.y);
@@ -69,6 +72,7 @@ test("a comment's side and a placed thing's colour, from its right-click menu, f
   for (const [side, on] of [["above", "true"], ["below", "false"], ["left", "false"], ["right", "false"]]) await expect(menu(a).getByTestId(`comment-side-${side}`)).toHaveAttribute("aria-checked", on!);
   // The comment's colour (the placer's palette colour) is marked, and only it.
   await expect(menu(a).locator('.ctx-swatch[aria-checked="true"]')).toHaveCount(1);
+  await expect(menu(a).getByTestId("recolour-0")).toHaveAttribute("aria-checked", "true");
   // Left: the bubble's tail on the spot, its body to the left of it, for both. (Centres: a box
   // takes in the tail's pointed stroke, which runs past the spot.)
   const spot = await centre(comment(a).locator(".bubble-body"));
