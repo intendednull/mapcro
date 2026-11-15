@@ -196,7 +196,6 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const [joined, setJoined] = createSignal(hasJoined(joinKey) && !!loadMe());
   const [viewpoint, setViewpoint] = createSignal<Viewpoint>(remembered?.viewpoint ?? "amber");
   const [sceneId, setSceneId] = createSignal<RecordId | undefined>(remembered?.scene);
-  const [sideTab, setSideTab] = createSignal<"events" | "notes">(remembered?.side ?? "events");
   const [tool, setTool] = createSignal<Tool>("select");
   // The palette colour for Draw, Arrow, Comment and Laser: per person, per board.
   const [ink, setInkSignal] = createSignal(loadColour(p.board) ?? loadMe()?.color ?? 1);
@@ -307,7 +306,6 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         scene: at,
         view: untrack(view),
         viewpoint: untrack(viewpoint),
-        side: untrack(sideTab),
       });
     };
     window.addEventListener("pagehide", keep);
@@ -957,6 +955,15 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     if (!s || text === (n?.text ?? "")) return;
     if (n) state.edit([{ Set: { id: n.id, value: { NoteText: text } } }]);
     else if (text.trim()) state.edit([{ Create: { id: newRecordId(), record: { Note: { scene: s.id, text } } } }]);
+  };
+  /** Whether this person is in the note's field: set on focus, cleared when they leave it. */
+  let inNote = false;
+  /** Leaving the note's field: what was typed is saved, and presence stops saying "editing". */
+  const leaveNote = (text: string) => {
+    inNote = false;
+    state.presence({ focus: null });
+    saveNote(text);
+    setNoteDraft(undefined);
   };
   const calloutList = createMemo(() => calloutOrder(state.rowsIn<Callout>("Callout", scene()?.id)));
 
@@ -1643,21 +1650,12 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
           {toastView()}
         </main>
         <aside class="side">
-          <div class="side-tabs" role="tablist" aria-label="Board sidebar" onKeyDown={e => {
-            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
-            e.preventDefault();
-            const tab = e.key === "Home" ? "events" : e.key === "End" ? "notes" : sideTab() === "events" ? "notes" : "events";
-            setSideTab(tab);
-            document.getElementById(`${tab}-tab`)?.focus();
-          }}>
-            <button id="events-tab" role="tab" tabIndex={sideTab() === "events" ? 0 : -1} aria-selected={sideTab() === "events"} aria-controls="events-panel" onClick={() => setSideTab("events")}>Events</button>
-            <button id="notes-tab" role="tab" tabIndex={sideTab() === "notes" ? 0 : -1} aria-selected={sideTab() === "notes"} aria-controls="notes-panel" onClick={() => setSideTab("notes")}>Scene Notes</button>
-          </div>
-          <div id="events-panel" role="tabpanel" aria-labelledby="events-tab" hidden={sideTab() !== "events"}>
+          {/* Player: the events list. A scene: its note (feedback #57). */}
+          <Show when={inPlayer()}>
           <Show when={player.tl()} fallback={<section class="side-empty">Load a match to browse its events.</section>}>
             <PlayerSide host={player} state={state} art={p.art} scene={scene()} mint={newRecordId} onSaved={savedScene} onUserPlayback={() => stopFollowing("changed the playback")} />
           </Show>
-          </div>
+          </Show>
           <section class="people-section">
             <h2>
               People here <small>{people().length + (joined() ? 1 : 0)} online{presentersHere().length ? ` · ${presentersHere().length} presenting` : ""}</small>
@@ -1676,8 +1674,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               rename={() => setJoined(false)}
             />
           </section>
-          <section id="notes-panel" role="tabpanel" aria-labelledby="notes-tab" class="note-section" hidden={sideTab() !== "notes"}>
-            <Show when={inPlayer()}><p class="side-empty">Notes for {scene()?.scene.name || "the selected scene"}. Select a scene to view its plan.</p></Show>
+          <Show when={!inPlayer()}>
+          <section class="note-section">
             <h2>
               Scene note
               <For each={noteEditors()}>
@@ -1695,16 +1693,21 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 aria-label="Scene note"
                 maxLength={LIMITS.max_note}
                 value={noteDraft() ?? note()?.text ?? ""}
-                onFocus={() => state.presence({ focus: noteFocus() })}
-                onInput={(e) => setNoteDraft(e.currentTarget.value)}
-                onBlur={(e) => {
-                  state.presence({ focus: null });
-                  saveNote(e.currentTarget.value);
-                  setNoteDraft(undefined);
+                // The field leaves the page when Player opens (feedback #57), and a field removed
+                // while it has the focus gets no blur: a follower typing here when their
+                // presenter enters Player would lose the text and stay "editing" for everyone.
+                // So leaving the page is leaving the field.
+                ref={(el) => onCleanup(() => inNote && leaveNote(el.value))}
+                onFocus={() => {
+                  inNote = true;
+                  state.presence({ focus: noteFocus() });
                 }}
+                onInput={(e) => setNoteDraft(e.currentTarget.value)}
+                onBlur={(e) => leaveNote(e.currentTarget.value)}
               />
             </Show>
           </section>
+          </Show>
         </aside>
       </div>
     </div>

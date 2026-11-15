@@ -221,7 +221,7 @@ mod tests {
         edit(&mut doc, ops);
         edit(&mut doc, vec![
             Op::Create { id: RecordId(501), record: Record::Note(Note { scene: s, text: "push mid\nthen rotate".into() }) },
-            Op::Create { id: RecordId(502), record: Record::Callout(Callout { scene: s, pos: WorldPos { x: 10, y: -20 }, text: "here".into(), color: Some(3) }) },
+            Op::Create { id: RecordId(502), record: Record::Callout(Callout { scene: s, pos: WorldPos { x: 10, y: -20 }, text: "here".into(), color: Some(3), side: Default::default() }) },
             Op::Create {
                 id: RecordId(503),
                 record: Record::Stroke(Stroke { scene: RecordId(500), points: vec![WorldPos { x: 0, y: 0 }, WorldPos { x: 5, y: 9 }], color: 2, width: 20, offset: WorldPos { x: 1, y: 1 } }),
@@ -245,7 +245,7 @@ mod tests {
         edit(&mut doc, ops);
         edit(&mut doc, vec![
             Op::Create { id: RecordId(502), record: Record::Note(Note { scene: RecordId(500), text: "secret plan".into() }) },
-            Op::Create { id: RecordId(503), record: Record::Callout(Callout { scene: s, pos: WorldPos::default(), text: "erased".into(), color: None }) },
+            Op::Create { id: RecordId(503), record: Record::Callout(Callout { scene: s, pos: WorldPos::default(), text: "erased".into(), color: None, side: Default::default() }) },
         ]);
         edit(&mut doc, vec![Op::Delete { id: RecordId(500) }, Op::Delete { id: RecordId(503) }]);
         let file = export_records(&doc);
@@ -364,12 +364,12 @@ mod tests {
             p.more = [(hero, MoreValue::Int(13))].into_iter().collect();
         });
         let with_state = with(file.clone(), |f| f.push((RecordId(900), Record::SceneState(SceneState { scene: s, more: More::default() }))));
-        let ahead = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
+        let ahead = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead, unfit_undo: Status::Ahead, ..Admit::AHEAD };
         assert_eq!(import_records(with_hero.clone(), counter(10_000), &ahead).expect_err("refused"), Reject::WrongField);
         assert_eq!(import_records(with_state.clone(), counter(10_000), &ahead).expect_err("refused"), Reject::Immutable);
         import_records(file, counter(10_000), &ahead).expect("a board with neither imports");
         // The row live, the kind still ahead: the hero's value comes in, the scene's state doesn't.
-        let row_live = Admit { row: |_| Status::Live, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
+        let row_live = Admit { row: |_| Status::Live, scene_state: Status::Ahead, unfit_undo: Status::Ahead, ..Admit::AHEAD };
         let doc = import_records(with_hero, counter(10_000), &row_live).expect("imports");
         let held = doc.iter_live().filter_map(|(_, r)| r.more()).filter_map(|(_, m)| m.get(hero).cloned()).collect::<Vec<_>>();
         assert_eq!(held, [MoreValue::Int(13)]);

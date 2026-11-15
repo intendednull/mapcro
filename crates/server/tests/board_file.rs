@@ -103,7 +103,7 @@ fn rich_file() -> Value {
     }
     ops.push(Op::Create { id: RecordId(3000), record: Record::Stroke(mapcro_schema::Stroke { scene: second, points: vec![WorldPos { x: 0, y: 0 }, WorldPos { x: 400, y: -300 }], color: 4, width: 30, offset: WorldPos { x: 5, y: 5 } }) });
     ops.push(Op::Create { id: RecordId(3001), record: Record::Arrow(mapcro_schema::Arrow { scene: first, from: WorldPos { x: 1, y: 2 }, to: WorldPos { x: 900, y: 900 }, team: None, color: Some(2) }) });
-    ops.push(Op::Create { id: RecordId(3002), record: Record::Callout(mapcro_schema::Callout { scene: second, pos: WorldPos { x: -40, y: 40 }, text: "smoke here".into(), color: None }) });
+    ops.push(Op::Create { id: RecordId(3002), record: Record::Callout(mapcro_schema::Callout { scene: second, pos: WorldPos { x: -40, y: 40 }, text: "smoke here".into(), color: None, side: Default::default() }) });
     ops.push(Op::Create { id: RecordId(3003), record: Record::Note(mapcro_schema::Note { scene: first, text: "take mid\nthen rotate east".into() }) });
     mapcro_schema::apply_tx(&mut doc, &Tx { client: mapcro_schema::ClientId(1), cseq: 0, kind: TxKind::Edit, ops }).expect("valid edits");
     json!({ "format": "mapcro-board", "version": 1, "build": "test", "exported_at": 0, "records": mapcro_schema::export_records(&doc), "matches": [130816395] })

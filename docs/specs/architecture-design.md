@@ -1203,7 +1203,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
   - Pick-ups, drops and deliveries are events (the "Urn" filter) and ping where they happened.
   - Save scene keeps the open point. In Sandbox the points toggle like the rifts: off by
     default, one open at a time. The metadata tier has no urn.
-- **The transport:** play and pause, speed (0.5×, 1×, 2×, 4×, 8×), a scrubber with a tick per
+- **The transport:** play and pause, speed (− and + step through 0.5×, 1×, 2×, 4×, 8×, with the
+  current speed between them and each disabled at its end: feedback #58), a scrubber with a tick per
   event, ±10 s, the match clock, and the replay tier's toggles (Troopers, Health), with Pings.
   A tick hovered grows and shows its event's tag above it (the events list's short label, "Walker
   down", "Haze died"); a press jumps there as a row does (less the lead, with the ring). Ticks
@@ -1283,7 +1284,7 @@ makes a board with that match attached and lands in Player; **New board** is tod
   jump and ring), ← → seek 5 s (Shift: 30 s) and keep playing or paused, and a Space tap plays
   or pauses. A Space-drag still only pans, and nothing fires while typing. Viewing a scene, ← →
   step scenes instead. Space plays or pauses wherever the focus is (2026-11-11, feedback #11,
-  #3: a clicked button, the scrubber, the speed or Vision list, a checkbox or a disclosure no
+  #3: a clicked button, the scrubber, the Vision list, a checkbox or a disclosure no
   longer takes it), except in a text field, a dialog or a menu (`core/keys.ts` `boardKeys`).
   Keyboard-only users press a focused button with Enter; Space on it plays or pauses.
   Holding Tab shows every build (All builds, as the game's scoreboard) wherever the focus is, in
@@ -1318,7 +1319,8 @@ makes a board with that match attached and lands in Player; **New board** is tod
   cooldown, named by the game's `ImportantAbilityUsed` message, which covers every important
   ability, so it alone isn't an ult), and souls swings (the Amber-minus-Sapphire lead
   moving 5,000 within a minute and holding ten seconds on; none in the first two minutes, when
-  starting souls arrive player by player). The sidebar lists them with their tier, searchable by
+  starting souls arrive player by player). The sidebar lists them in Player (on a scene it
+  shows the scene's note instead, and Player never shows the note: feedback #57), with their tier, searchable by
   hero, player name, type, team and time, with filter chips by type. **Jump** pauses at the event
   less a lead (5 s, adjustable) and pulses a ring where it happened; the list marks the event
   jumped to (not an earlier one the lead lands after) until playback passes the next listed
@@ -1790,7 +1792,7 @@ and go out together, one frame per peer. Measured with 3 browsers, sent-to-recei
     the presenter's Names says (`event_search_names`, on or off; left out by an older client:
     the follower's own Names). Names on, or its own typing, shows the text; Names on shows a
     search kept after Stop following too, by design.
-  - **Each browser's own:** Player names, the sidebar tab (Events or Notes) and whether the Map
+  - **Each browser's own:** Player names and whether the Map
     layers popover is open (operator 2026-11-11: layout), the tool, ink colour, Comments toggle
     and jump lead. Not followed yet (docs/backlog.md): the events list's scroll and the teleporter
     pair's line.

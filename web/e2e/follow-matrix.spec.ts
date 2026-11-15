@@ -17,7 +17,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Browser, type Locator, type Page, expect, test } from "./fixtures";
-import { joinNew, revealControls, viewOf } from "./helpers";
+import { joinNew, revealControls, setSpeed, viewOf } from "./helpers";
 import { Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 
 const ID = "129000101";
@@ -318,10 +318,8 @@ const ROWS: Row[] = [
   },
   {
     key: "speed",
-    read: (p) => p.getByTestId("match-speed").inputValue(),
-    set: async (p, v) => {
-      if ((await p.getByTestId("match-speed").inputValue()) !== v) await p.getByTestId("match-speed").selectOption(v);
-    },
+    read: async (p) => (await p.getByTestId("match-speed").getAttribute("data-speed")) ?? "",
+    set: (p, v) => setSpeed(p, v),
     own: "4",
     theirs: "1",
     policy: boardStop,
@@ -557,14 +555,6 @@ const ROWS: Row[] = [
     own: "walker",
     theirs: "",
     policy: panel,
-  },
-  {
-    key: "sidebar.tab",
-    read: async (p) => ((await p.locator("#notes-tab").getAttribute("aria-selected")) === "true" ? "notes" : "events"),
-    set: async (p, v) => p.locator(v === "notes" ? "#notes-tab" : "#events-tab").click(),
-    own: "notes",
-    theirs: "events",
-    policy: personal,
   },
   {
     key: "layers.popover",

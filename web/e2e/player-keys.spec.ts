@@ -114,7 +114,7 @@ test("← → seek, ↑ ↓ step events, a Space tap plays and pauses, a Space-d
   await expect(a.getByTestId("pings-toggle")).toHaveAttribute("aria-pressed", "true");
   await a.keyboard.press("Space");
   await expect(play).toHaveText("Play");
-  // #11, #3: the scrubber, the speed list and the Map layers disclosure, focused or clicked,
+  // #11, #3: the scrubber, a speed button and the Map layers disclosure, focused or clicked,
   // don't take Space either: it plays and pauses, and the control is as it was.
   await a.getByTestId("match-time").focus();
   await a.keyboard.press("Space");
@@ -122,13 +122,13 @@ test("← → seek, ↑ ↓ step events, a Space tap plays and pauses, a Space-d
   await a.keyboard.press("Space");
   await expect(play).toHaveText("Play");
   const speed = a.getByTestId("match-speed");
-  const speedWas = await speed.inputValue();
-  await speed.focus();
+  const speedWas = (await speed.getAttribute("data-speed"))!;
+  await a.getByTestId("speed-up").focus();
   await a.keyboard.press("Space");
   await expect(play).toHaveText("Pause");
   await a.keyboard.press("Space");
   await expect(play).toHaveText("Play");
-  await expect(speed).toHaveValue(speedWas);
+  await expect(speed).toHaveAttribute("data-speed", speedWas);
   const layers = a.getByTestId("map-layers-toggle");
   const open = () => a.locator("details.map-layers").evaluate((d) => (d as HTMLDetailsElement).open);
   await layers.focus();

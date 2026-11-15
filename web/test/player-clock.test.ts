@@ -1,8 +1,16 @@
 // Player's playback clock and its follower drift correction.
 import { describe, expect, it } from "vitest";
-import { follow, rebase, tAt } from "../src/player/clock";
+import { SPEEDS, faster, follow, rebase, slower, tAt } from "../src/player/clock";
 
 describe("playback clock", () => {
+  it("steps one speed slower or faster, and stops at each end (feedback #58)", () => {
+    expect(SPEEDS.map((s) => slower(s))).toEqual([undefined, 0.5, 1, 2, 4]);
+    expect(SPEEDS.map((s) => faster(s))).toEqual([1, 2, 4, 8, undefined]);
+    // A speed between two of them (a presenter on another build) steps to its neighbours.
+    expect([slower(3), faster(3)]).toEqual([2, 4]);
+    expect([slower(0.25), faster(0.25), slower(16), faster(16)]).toEqual([undefined, 0.5, 8, undefined]);
+  });
+
   it("runs at its speed, stops at the end, and holds when paused", () => {
     const p = { t: 10, playing: true, speed: 2, at: 1000 };
     expect(tAt(p, 2000, 100)).toBe(12);

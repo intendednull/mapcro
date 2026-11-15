@@ -9,7 +9,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Page, expect, test } from "./fixtures";
-import { joinNew, revealControls } from "./helpers";
+import { joinNew, revealControls, setSpeed } from "./helpers";
 import { Server, newBoardUrl, TIMELINE_FORMAT } from "./server";
 
 const ID = "129000005";
@@ -268,7 +268,7 @@ test("urn pick-ups, drops and the delivery are listed and ping where they happen
   // From 43 s at 1x, the drop (45 s) comes after 2 s and the next pick-up (50 s) a full 4 s after
   // the 46 s pause point, so a loaded machine's late pause can't run into it (at 4x it was 1 s).
   await scrubTo(a, 43);
-  await a.getByTestId("match-speed").selectOption("1");
+  await setSpeed(a, "1");
   await a.getByTestId("match-play").click();
   await expect.poll(() => clock(a), { timeout: 15_000 }).toBeGreaterThanOrEqual(46);
   await a.getByTestId("match-play").click();

@@ -90,17 +90,17 @@ export async function pickHero(page: Page, slot: string, hero: string) {
 }
 
 /** Controls the layout keeps out of sight until asked for, by where they live: the Player bar's
- * match source disclosure, the Map layers disclosure, or the sidebar's Scene Notes tab. */
+ * match source disclosure or the Map layers disclosure. The scene note is in the sidebar
+ * whenever a scene shows, and never in Player (feedback #57). */
 const SOURCE = ["match-id", "match-load", "match-upload", "match-fetch", "match-file", "match-status", "match-job", "mode-sandbox"];
 const LAYERS = ["troopers-toggle", "health-toggle", "names-toggle", "pings-toggle", "cc-toggle", "movement-toggle", "heals-toggle", "crates-toggle"];
 const NOTES = ["scene-note-edit"];
 
 /** Reveal the control `id` as a user would: open its disclosure (each closes on a press outside
- * it) or its sidebar tab. Safe to call when it is already showing. */
+ * it). Safe to call when it is already showing. */
 export async function revealControls(page: Page, id: string) {
   if (NOTES.includes(id)) {
-    await page.locator("#notes-tab").click();
-    await expect(page.locator("#notes-panel")).toBeVisible();
+    await expect(page.getByTestId(id)).toBeVisible();
     return;
   }
   const where = SOURCE.includes(id) ? ".pl-source" : LAYERS.includes(id) ? ".map-layers" : undefined;
@@ -131,4 +131,16 @@ export async function openMore(page: Page) {
   const more = page.getByTestId("more");
   if ((await more.getAttribute("aria-expanded")) !== "true") await more.click();
   await expect(page.getByTestId("more-menu")).toBeVisible();
+}
+
+/** Step Player's speed to `speed` ("0.5", "1", "2", "4" or "8") with its − and + buttons
+ * (feedback #58). */
+export async function setSpeed(page: Page, speed: string) {
+  const group = page.getByTestId("match-speed");
+  for (let i = 0; i < 5; i++) {
+    const now = Number(await group.getAttribute("data-speed"));
+    if (now === Number(speed)) break;
+    await page.getByTestId(now < Number(speed) ? "speed-up" : "speed-down").click();
+  }
+  await expect(group).toHaveAttribute("data-speed", String(Number(speed)));
 }

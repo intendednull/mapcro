@@ -3,6 +3,51 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Fable limit reached (2026-11-15 ~00:20 UTC, lead 9eb2516b)
+
+- Both Fable sessions stopped with a 429 ("You've reached your Fable limit"). Every stream is on
+  Opus now:
+  - **Feedback release 2** (writer, v12-or-v13, floor 11): fresh Opus high on `feedback-56-60`.
+    The Fable session had only merged main; nothing was lost.
+  - **Sessions phase 4:** built by Fable (a3f5fd1). Its last batch was green: units, 24/24
+    mutants, interop against ae169e6, and the walkthrough. I committed its two uncommitted test
+    edits as WIP (0a555e9). A fresh Opus high implementer finishes it: merge main, full checks,
+    e2e mutants and the journal. Scratch is in `~/.cache/mapcro-sp4-scratch/`.
+  - **Map-state D2 reader (v12):** Opus high, unaffected.
+
+## Deployed ce1ec0c: feedback release 1, store v11 (2026-11-14 ~23:58 UTC, lead 9eb2516b)
+
+- **Prod `web` runs ce1ec0c** (infra 50dbf7e). The store reads `schema_version 11`,
+  `compat_floor 9` on the box. Backup: `/var/lib/mapcro/mapcro.sqlite.pre-v11`, integrity ok.
+  - Reader for #56 (scene names up to 48), #59 (a callout's side) and #60 (stroke colour): all
+    `Ahead`, written by no client.
+  - #57: Player shows events, a scene shows its note, and the sidebar tabs are gone.
+  - #58: speed − and +; upright phones keep the list.
+  - #57 and #58 are closed.
+- **Checks:**
+  - Gate green: 484 e2e, VM, and reader-check (40 boards byte for byte).
+  - Firefox: one 412×915 timeout, then 2/2 alone.
+  - QA locally and on prod: events vs note by mode, speeds 1→8→0.5 with ends disabled, 390 list
+    and 844 landscape buttons, no errors.
+  - Stats: 0 5xx.
+- **After deploy:** `just rows-lock` is unchanged (15 rows), and the justfile `reader` is ce1ec0c
+  (d75f745).
+- **Store numbers:** map-state D2's reader is **v12**; a fresh Opus high implementer is rebasing it
+  onto main. Feedback's writer (release 2, started) is **v13**, floor 11 via
+  `Step::NeedsReader { reader: 11 }`. D2's writer comes after (probably v14, `reader: 12`).
+- **Running:** sessions phase 4 (Fable high, started before the model rule), feedback release 2
+  (same Fable session, ~470k), and D2's reader (Opus high).
+
+## Working rule: models for spawns (operator via the concierge, 2026-11-14 evening)
+
+- **Opus 5.5** for implementers, designers and routine reviews and QA: medium by default, high
+  only where clearly warranted.
+- **Fable 5.2** only for genuinely hardest tasks, with a one-line reason in the brief.
+- **Design and UX** still go only to Argon, Astra, Sol (small tasks), Fable or Opus.
+- **From the next spawn.** Running sessions finish their current unit: the sessions phase 4
+  implementer (started on Fable high just before this) runs to its phase boundary. Map-state D2's
+  next implementer and sessions phase 5 go to Opus.
+
 ## Deployed ae169e6: sessions phase 3 (2026-11-14 ~22:20 UTC, lead 9eb2516b)
 
 - **Prod `web` runs ae169e6** (infra 44744b3). Sessions phase 3:

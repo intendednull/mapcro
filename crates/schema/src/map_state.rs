@@ -18,7 +18,7 @@
 //! a `SceneState` while that kind is `Ahead`, is refused there, so nothing reaches storage that
 //! the build before this reader could not load after a rollback.
 
-use crate::records::{FieldValue, Record, WorldPos};
+use crate::records::{FieldValue, Record, Side, WorldPos};
 use crate::validate::{LIMITS, Reject, check_line, check_pos};
 use crate::{Op, Tx};
 use serde::{Deserialize, Serialize};
@@ -128,6 +128,20 @@ pub const SCENE_STATE: Status = Status::Live;
 /// v10, whose step sets the floor to 9 (docs/deploy.md).
 pub const UNFIT_UNDO: Status = Status::Live;
 
+/// Typed fields gated like a row (feedback #56, #59, #60): each is one more thing a log may
+/// hold that the build deployed as store v10 (e878c30) can't load, so its reader ships a release
+/// before anything writes it. Store v11 is that reader: `Ahead` here. They go `Live` with the
+/// store step that sets the floor to 11 (docs/deploy.md), which a test in `store.rs` holds.
+///
+/// A scene's name over `max_name` characters, up to `max_scene_name`: v10 refuses it on replay
+/// (`TextTooLong`).
+pub const LONG_SCENE_NAME: Status = Status::Ahead;
+/// A comment's side (`Callout::side`, `FieldValue::CalloutSide`): v10 can't parse the field
+/// value, and drops the record's side without a word.
+pub const CALLOUT_SIDE: Status = Status::Ahead;
+/// A stroke's colour written as a field (`FieldValue::StrokeColor`): v10 can't parse it.
+pub const STROKE_COLOR: Status = Status::Ahead;
+
 /// What may come in from outside, as opposed to what is read (spec §4.3): the check at
 /// admission, on a client's transaction (`Authority::submit`) and on a board file's records
 /// (`import_records`). Never on a stored base or a log being replayed, which hold whatever was
@@ -137,7 +151,8 @@ pub const UNFIT_UNDO: Status = Status::Live;
 /// naming it (a clear included: the value is in the log either way) or a record created with it
 /// in its `more`. Nor is a `SceneState` while [`SCENE_STATE`] is `Ahead`. A build from before the
 /// reader can't parse either, and drops a `more` it doesn't know, so storing one would break the
-/// board on a rollback.
+/// board on a rollback. The typed fields gated the same way ([`LONG_SCENE_NAME`],
+/// [`CALLOUT_SIDE`], [`STROKE_COLOR`]) are refused here too while `Ahead`.
 #[derive(Clone, Copy, Debug)]
 pub struct Admit {
     /// A row's status.
@@ -147,26 +162,69 @@ pub struct Admit {
     /// [`UNFIT_UNDO`]'s: asked by `apply_tx_admitted`, not by [`Admit::tx`] (whether the value
     /// fits depends on the board).
     pub unfit_undo: Status,
+    /// [`LONG_SCENE_NAME`]'s.
+    pub long_scene_name: Status,
+    /// [`CALLOUT_SIDE`]'s.
+    pub callout_side: Status,
+    /// [`STROKE_COLOR`]'s.
+    pub stroke_color: Status,
 }
 
 impl Admit {
     /// This build's: each row by its own status, and [`SCENE_STATE`]. What the server uses.
-    pub const DEPLOYED: Admit = Admit { row: |r| r.row().status, scene_state: SCENE_STATE, unfit_undo: UNFIT_UNDO };
+    pub const DEPLOYED: Admit = Admit {
+        row: |r| r.row().status,
+        scene_state: SCENE_STATE,
+        unfit_undo: UNFIT_UNDO,
+        long_scene_name: LONG_SCENE_NAME,
+        callout_side: CALLOUT_SIDE,
+        stroke_color: STROKE_COLOR,
+    };
     /// Everything this build reads, as the writer release will admit it. For the simulation and
     /// tests, which exercise sync and undo of the rows before anything may write them.
-    pub const READS: Admit = Admit { row: |_| Status::Live, scene_state: Status::Live, unfit_undo: Status::Live };
+    pub const READS: Admit = Admit {
+        row: |_| Status::Live,
+        scene_state: Status::Live,
+        unfit_undo: Status::Live,
+        long_scene_name: Status::Live,
+        callout_side: Status::Live,
+        stroke_color: Status::Live,
+    };
+    /// Every gated row, kind and field `Ahead`: what a build from before every reader took. For
+    /// tests of the gate.
+    pub const AHEAD: Admit = Admit {
+        row: |_| Status::Ahead,
+        scene_state: Status::Ahead,
+        unfit_undo: Status::Ahead,
+        long_scene_name: Status::Ahead,
+        callout_side: Status::Ahead,
+        stroke_color: Status::Ahead,
+    };
+
+    /// A scene's name over the bound every build before [`LONG_SCENE_NAME`] reads.
+    fn long_name(&self, name: &str) -> bool {
+        self.long_scene_name == Status::Ahead && name.chars().count() > LIMITS.max_name
+    }
 
     fn value(&self, v: &FieldValue) -> Result<(), Reject> {
         match v {
             FieldValue::More { key, .. } if (self.row)(*key) == Status::Ahead => Err(Reject::WrongField),
+            // As the build before the reader says it.
+            FieldValue::SceneName(name) if self.long_name(name) => Err(Reject::TextTooLong),
+            FieldValue::CalloutSide(_) if self.callout_side == Status::Ahead => Err(Reject::WrongField),
+            FieldValue::StrokeColor(_) if self.stroke_color == Status::Ahead => Err(Reject::WrongField),
             _ => Ok(()),
         }
     }
 
     /// Whether `record` may be created or imported now.
     pub fn record(&self, record: &Record) -> Result<(), Reject> {
-        if matches!(record, Record::SceneState(_)) && self.scene_state == Status::Ahead {
-            return Err(Reject::Immutable);
+        match record {
+            Record::SceneState(_) if self.scene_state == Status::Ahead => return Err(Reject::Immutable),
+            Record::Scene(s) if self.long_name(&s.name) => return Err(Reject::TextTooLong),
+            // `Above` is no side at all: it is never written, so the build before reads it.
+            Record::Callout(c) if self.callout_side == Status::Ahead && c.side != Side::Above => return Err(Reject::WrongField),
+            _ => {}
         }
         match record.more() {
             Some((_, more)) if more.iter().any(|(key, _)| (self.row)(key) == Status::Ahead) => Err(Reject::WrongField),
@@ -919,9 +977,9 @@ mod tests {
     }
 
     /// Every row and `SceneState` still ahead: the reader release.
-    const AHEAD: Admit = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
+    const AHEAD: Admit = Admit { row: |_| Status::Ahead, scene_state: Status::Ahead, unfit_undo: Status::Ahead, ..Admit::AHEAD };
     /// `hero` written, the rest and `SceneState` still ahead.
-    const HERO_LIVE: Admit = Admit { row: |r| if r.key() == "hero" { Status::Live } else { Status::Ahead }, scene_state: Status::Ahead, unfit_undo: Status::Ahead };
+    const HERO_LIVE: Admit = Admit { row: |r| if r.key() == "hero" { Status::Live } else { Status::Ahead }, scene_state: Status::Ahead, unfit_undo: Status::Ahead, ..Admit::AHEAD };
 
     #[test]
     fn nothing_that_carries_an_ahead_row_or_kind_is_admitted() {
@@ -948,7 +1006,7 @@ mod tests {
         assert_eq!(AHEAD.tx(&tx(vec![fine.clone(), create(scene_state(More::default())), fine.clone()])), Err(Reject::Immutable));
         // Everything a board holds today comes in: typed fields, records with no registry
         // values, deletes and restores. (Whether it is valid is not admission's question.)
-        let callout = Record::Callout(Callout { scene: RecordId(1), pos: WorldPos::default(), text: "x".into(), color: None });
+        let callout = Record::Callout(Callout { scene: RecordId(1), pos: WorldPos::default(), text: "x".into(), color: None, side: Default::default() });
         let today = vec![
             fine,
             Op::SetIf { id: RecordId(5), expect: pos.clone(), value: pos },
@@ -979,17 +1037,83 @@ mod tests {
         // And a live row does not make the scene's state live.
         assert_eq!(HERO_LIVE.tx(&tx(vec![create(scene_state(More::default()))])), Err(Reject::Immutable));
         // A retired row is no longer written by a client, but is not refused: boards hold it.
-        let retired = Admit { row: |_| Status::Retired, scene_state: Status::Retired, unfit_undo: Status::Ahead };
+        let retired = Admit { row: |_| Status::Retired, scene_state: Status::Retired, unfit_undo: Status::Ahead, ..Admit::AHEAD };
         assert_eq!(retired.tx(&tx(vec![set(more("name", None)), create(scene_state(holding(&["rows"])))])), Ok(()));
     }
 
     #[test]
     fn a_live_kind_is_admitted_with_only_its_live_rows() {
-        let kind_live = Admit { row: |r| if r.key() == "rows" { Status::Live } else { Status::Ahead }, scene_state: Status::Live, unfit_undo: Status::Ahead };
+        let kind_live = Admit { row: |r| if r.key() == "rows" { Status::Live } else { Status::Ahead }, scene_state: Status::Live, unfit_undo: Status::Ahead, ..Admit::AHEAD };
         assert_eq!(kind_live.record(&scene_state(More::default())), Ok(()));
         assert_eq!(kind_live.record(&scene_state(holding(&["rows"]))), Ok(()));
         assert_eq!(kind_live.record(&scene_state(holding(&["rows", "build"]))), Err(Reject::WrongField));
         assert_eq!(kind_live.record(&hero(holding(&["hero"]))), Err(Reject::WrongField));
+    }
+
+    /// What carries each gated typed field (feedback #56, #59, #60): a write, either side of a
+    /// conditional write, and a record created with it.
+    fn gated_fields() -> [(&'static str, Vec<Op>, Reject); 3] {
+        use crate::records::{Scene, Stroke};
+        let both_ways = |gated: FieldValue, plain: FieldValue| {
+            vec![
+                set(gated.clone()),
+                Op::SetIf { id: RecordId(5), expect: gated.clone(), value: plain.clone() },
+                Op::SetIf { id: RecordId(5), expect: plain, value: gated },
+            ]
+        };
+        let name = |n: usize| FieldValue::SceneName("n".repeat(n));
+        let scene = |n: usize| Record::Scene(Scene { name: "é".repeat(n), order: crate::OrderKey::first(), clock: None, source: None, live: false, parent: None });
+        let comment = |side| Record::Callout(Callout { scene: RecordId(1), pos: WorldPos::default(), text: "x".into(), color: None, side });
+        let stroke = Record::Stroke(Stroke { scene: RecordId(1), points: vec![WorldPos::default(); 2], color: 3, width: 20, offset: WorldPos::default() });
+        let mut long_name = both_ways(name(LIMITS.max_name + 1), name(LIMITS.max_name));
+        long_name.extend([create(scene(LIMITS.max_name + 1)), set(name(LIMITS.max_scene_name))]);
+        let mut side = both_ways(FieldValue::CalloutSide(Side::Left), FieldValue::CalloutText("x".into()));
+        // `Above` as a field value is in the log as much as any other side.
+        side.extend([set(FieldValue::CalloutSide(Side::Above)), create(comment(Side::Below)), create(comment(Side::Left)), create(comment(Side::Right))]);
+        let colour = both_ways(FieldValue::StrokeColor(3), FieldValue::StrokeOffset(WorldPos::default()));
+        // What a board holds today is not gated, whatever the statuses: names up to `max_name`
+        // (in characters, not bytes), a comment with no side, a stroke created in a colour.
+        let today = vec![set(name(LIMITS.max_name)), create(scene(LIMITS.max_name)), create(comment(Side::Above)), create(stroke)];
+        assert_eq!(Admit::AHEAD.tx(&tx(today)), Ok(()));
+        [("long_scene_name", long_name, Reject::TextTooLong), ("callout_side", side, Reject::WrongField), ("stroke_color", colour, Reject::WrongField)]
+    }
+
+    #[test]
+    fn a_gated_typed_field_is_refused_while_ahead_and_admitted_alone_once_live() {
+        let gates = [
+            Admit { long_scene_name: Status::Live, ..Admit::AHEAD },
+            Admit { callout_side: Status::Live, ..Admit::AHEAD },
+            Admit { stroke_color: Status::Live, ..Admit::AHEAD },
+        ];
+        for (i, (field, ops, reject)) in gated_fields().into_iter().enumerate() {
+            for op in ops {
+                assert_eq!(Admit::AHEAD.tx(&tx(vec![op.clone()])), Err(reject.clone()), "{field}: {op:?}");
+                // Anywhere in the transaction.
+                let fine = set(FieldValue::PlayerPos(WorldPos::default()));
+                assert_eq!(Admit::AHEAD.tx(&tx(vec![fine.clone(), op.clone(), fine])), Err(reject.clone()), "{field}: {op:?}");
+                assert_eq!(Admit::READS.tx(&tx(vec![op.clone()])), Ok(()), "{field}: {op:?}");
+                // Each by its own status: live, it comes in, and the other two stay out.
+                for (j, gate) in gates.iter().enumerate() {
+                    assert_eq!(gate.tx(&tx(vec![op.clone()])).is_ok(), i == j, "{field} under gate {j}: {op:?}");
+                }
+            }
+        }
+        // A retired one is no longer written by a client, and is not refused: boards hold it.
+        let retired = Admit { long_scene_name: Status::Retired, callout_side: Status::Retired, stroke_color: Status::Retired, ..Admit::AHEAD };
+        for (field, ops, _) in gated_fields() {
+            assert_eq!(retired.tx(&tx(ops)), Ok(()), "{field}");
+        }
+    }
+
+    #[test]
+    fn the_deployed_gate_follows_each_gated_field_s_status() {
+        let d = Admit::DEPLOYED;
+        assert_eq!((d.long_scene_name, d.callout_side, d.stroke_color), (LONG_SCENE_NAME, CALLOUT_SIDE, STROKE_COLOR));
+        for ((field, ops, _), status) in gated_fields().into_iter().zip([LONG_SCENE_NAME, CALLOUT_SIDE, STROKE_COLOR]) {
+            for op in ops {
+                assert_eq!(d.tx(&tx(vec![op.clone()])).is_err(), status == Status::Ahead, "{field}: {op:?}");
+            }
+        }
     }
 
     /// The two gates a build is given: its own statuses, and everything it reads.
