@@ -3,6 +3,29 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed 18b41c6: sessions phase 4 (2026-11-15 ~06:40 UTC, lead 9eb2516b)
+
+- **Prod `web` runs 18b41c6** (infra f25edfc). Follow across tabs:
+  - A follower goes along tab to tab with the presenter (board mounted ~180 ms after the click).
+  - "No access" on a tab the follower can't open.
+  - Picking a tab stops the follow; "Follow again" resumes it.
+  - A "Not sent" dot on a tab left with pending edits.
+  - Store unchanged (v12).
+- **Built by:** Fable (a3f5fd1), then finished by Opus high after the 429.
+- **Review (Opus medium, adversarial and security):** the security core is sound. Three fixes:
+  - The dot no longer clears falsely (`pendingCount` from the replica).
+  - The reconnect wait for a presenter on another tab now starts at the loss.
+  - Board-only people no longer learn a session tie: the server blanks `following`
+    per reader, in `room.rs` `following_for`.
+  - Nits are logged as TD-110 to TD-112.
+- **Checks:**
+  - Gate green on 18b41c6: 502 e2e, Firefox 27/27, VM, reader-check.
+  - The lead's walkthrough: 7/7 switches followed; dead tab, pick and Follow again correct; 0
+    errors.
+  - Prod: 200 then 304 revalidation, Player and scenes fine, 0 5xx.
+- **Open for phase 5 or later:** following someone on another tab whom nobody follows yet (the
+  people list's "Session" group, spec §8). It is in neither phase's list.
+
 ## Operator decisions (2026-11-14, late, via the concierge)
 
 - **Pause mapcro after the current units land:** feedback release 2 (v13) and the sessions phase
