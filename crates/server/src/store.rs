@@ -202,7 +202,7 @@ const SIDES_READER: i64 = 11;
 /// `STROKE_COLOR` `Live`. The one place its number is written (`step`, `migrate` and the tests
 /// use this): if another branch's reader step merges first and takes this number, this moves up
 /// one, and the floor stays [`SIDES_READER`].
-const SIDES_WRITER: i64 = 12;
+const SIDES_WRITER: i64 = 13;
 
 /// What the step from `from` to `from + 1` asks of an older server (spec §9, docs/deploy.md
 /// "Rollbacks").
@@ -228,7 +228,7 @@ enum Step {
 /// newer database whatever it says.
 fn step(from: i64) -> Step {
     match from {
-        5..=7 | 10 => Step::Additive,
+        5..=7 | 10 | 11 => Step::Additive,
         8 => Step::NeedsReader { reader: 8 },
         9 => Step::NeedsReader { reader: 9 },
         f if f + 1 == SIDES_WRITER => Step::NeedsReader { reader: SIDES_READER },
@@ -341,6 +341,13 @@ fn migrate(conn: &Connection, from: i64, to: i64) -> Result<(), StoreError> {
             // writer, can set the floor to 11 (`Step::NeedsReader`): the v10 server refuses
             // such a log on a cold load.
             10 => {}
+            // v11 → v12: no SQL. This server reads the map-state row `has_heroes` (a scene
+            // that holds its own heroes: docs/specs/map-state.md §2, D2) and takes it from no
+            // client and no file (the row is `Ahead`), so the v9, v10 and v11 servers still read
+            // everything in the database: additive. The step exists so that the row's writer
+            // can set the floor to 12 (`Step::NeedsReader { reader: 12 }`): the v11 server can't parse a `more`
+            // that names the row.
+            11 => {}
             // The writer of feedback #56, #59 and #60 (`SIDES_WRITER`): no SQL. From here the
             // server takes a scene name up to 48 characters, a comment's side and a stroke's
             // colour written as a field (`LONG_SCENE_NAME`, `CALLOUT_SIDE`, `STROKE_COLOR` are
@@ -1260,11 +1267,10 @@ mod tests {
     /// a comment's side and a stroke's colour as a field, and admits none of them, so its
     /// database holds nothing the v10 and v9 servers can't load: they stay rollback targets.
     #[test]
-    fn the_v11_reader_stores_nothing_new_so_the_v9_and_v10_servers_still_open_its_database() {
-        assert_eq!(step(10), Step::Additive);
+    fn the_v9_and_v10_servers_open_the_v11_database() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
-        Store::open_at(&path, SIDES_READER).expect("create at v11");
+        Store::open_at(&path, 11).expect("create at v11");
         assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("11"), Some("9")));
         let c = Connection::open(&path).expect("open");
         for older in [9, 10] {
@@ -1276,8 +1282,44 @@ mod tests {
         // A v10 database in use migrates to it, and its floor stays.
         let old = dir.path().join("old.sqlite");
         Store::open_at(&old, 10).expect("create at v10");
-        Store::open_at(&old, SIDES_READER).expect("migrates");
+        Store::open_at(&old, 11).expect("migrates");
         assert_eq!((meta(&old, "schema_version").as_deref(), meta(&old, "compat_floor").as_deref()), (Some("11"), Some("9")));
+    }
+
+    /// The reader of the map-state row `has_heroes` (v12): it reads the row and admits it from
+    /// nobody, so a v12 database holds nothing the v11, v10 and v9 servers can't load: they stay
+    /// rollback targets. The row's writer's step comes with the build that makes it `Live`. (The
+    /// feedback writer, v13, comes after it: its floor is 11, below.)
+    ///
+    /// The older servers here are this build's `reconcile` told an older version: what they make
+    /// of the floor, not of the boards. The proof that a v11 server loads what this one stores
+    /// is `just reader-check`, which loads the simulation's stored boards on the deployed reader's own
+    /// code (`reader` in the justfile).
+    #[test]
+    fn the_v12_reader_stores_nothing_new_so_the_v9_to_v11_servers_still_open_its_database() {
+        use mapcro_schema::{Admit, RowId, Status};
+        assert_eq!(step(11), Step::Additive);
+        // Written only from a step that sets the floor to 12: until then a v11 server may be
+        // rolled back to, and it can't parse the row.
+        let row = RowId::of("has_heroes").expect("the row");
+        assert_eq!(row.row().status, Status::Ahead, "its writer needs a store step with floor 12");
+        assert_eq!((Admit::DEPLOYED.row)(row), Status::Ahead);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        Store::open_at(&path, 12).expect("create at v12");
+        assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("12"), Some("9")));
+        let c = Connection::open(&path).expect("open");
+        for older in [9, 10, 11] {
+            reconcile(&c, older).unwrap_or_else(|e| panic!("the v{older} server opens a v12 database: {e}"));
+        }
+        assert!(matches!(reconcile(&c, 8), Err(StoreError::Corrupt(_))), "v8 can't read what v10 stored");
+        drop(c);
+        assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("12"), Some("9")), "left as it was");
+        // A v11 database in use migrates to it, and its floor stays.
+        let old = dir.path().join("old.sqlite");
+        Store::open_at(&old, 11).expect("create at v11");
+        Store::open_at(&old, 12).expect("migrates");
+        assert_eq!((meta(&old, "schema_version").as_deref(), meta(&old, "compat_floor").as_deref()), (Some("12"), Some("9")));
     }
 
     /// The three are written only from their writer's version: while this build's newest step
@@ -1293,7 +1335,7 @@ mod tests {
     }
 
     /// The writer's database (feedback #56, #59, #60 `Live`): the v11 reader opens it and leaves
-    /// it as it is, so it is the rollback target; the v10 server, which refuses a long scene
+    /// it as it is, so it is the rollback target (with the v12 reader of `has_heroes` after it); the v10 server, which refuses a long scene
     /// name and can't parse a side or a stroke's colour on a cold load, is refused, and
     /// everything older.
     #[test]
@@ -1304,7 +1346,9 @@ mod tests {
         Store::open_at(&path, SIDES_WRITER).expect("create at the writer's version");
         assert_eq!((meta(&path, "schema_version"), meta(&path, "compat_floor")), (Some(v.clone()), Some(floor.clone())));
         let c = Connection::open(&path).expect("open");
-        reconcile(&c, SIDES_READER).expect("the v11 reader opens the writer's database");
+        for reader in SIDES_READER..SIDES_WRITER {
+            reconcile(&c, reader).unwrap_or_else(|e| panic!("the v{reader} server (the v11 reader, or one after it) opens the writer's database: {e}"));
+        }
         for older in 5..SIDES_READER {
             assert!(matches!(reconcile(&c, older), Err(StoreError::Corrupt(_))), "v{older} is from before the reader");
         }
@@ -1394,8 +1438,12 @@ mod tests {
         // The reader of feedback #56, #59 and #60 stores nothing new: additive.
         assert_eq!(step(10), Step::Additive);
         assert_eq!(compat_floor(11), 9, "v11 still opens on the v9 and v10 servers");
-        // Their writer: the floor is the v11 reader.
-        assert_eq!(compat_floor(SIDES_WRITER), 11, "the writer's database opens on the v11 reader, and on nothing older");
+        // Nor does the reader of `has_heroes`.
+        assert_eq!(step(11), Step::Additive);
+        assert_eq!(compat_floor(12), 9, "v12 still opens on the v9, v10 and v11 servers");
+        // The writer of feedback #56, #59 and #60, after it: the floor is the v11 reader.
+        assert_eq!(step(12), Step::NeedsReader { reader: 11 });
+        assert_eq!(compat_floor(SIDES_WRITER), 11, "the writer's database opens on the v11 reader and the v12 one, and on nothing older");
         assert_eq!(compat_floor(SCHEMA_VERSION + 1), SCHEMA_VERSION + 1, "a step this build doesn't know counts as breaking");
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");

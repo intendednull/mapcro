@@ -28,10 +28,12 @@ const SLOTS = (["amber", "sapphire"] as const).flatMap((team) => [0, 1, 2, 3, 4,
 const roster = () => replay().players.map((p, i) => ({ id: `slot-${i}`, slot: { team: p.team === "amber" ? ("Amber" as const) : ("Sapphire" as const), slot: p.slot, hero: p.hero_id as number | null, name: "" } }));
 const rec = (i: number, over: Partial<HeroRecord> = {}) => ({ state: { scene: "s", slot: `slot-${i}`, pos: { x: 100 + i, y: -40 * i }, alive: true, placed: true, souls: null, ult_cooldown: null, visible: true, ...over } as HeroRecord });
 const STATE: More = { rows: WRITTEN, has_builds: true, build: 6839 };
+/** A snapshot that holds its heroes (D2), as a build that writes `has_heroes` stores it. */
+const OWN: More = { rows: ROWS.has_heroes.index + 1, has_builds: true, has_heroes: true };
 const values = (e: object) => Object.fromEntries(Object.entries(e).map(([k, f]) => [k, (f as () => unknown)()]));
 
 /** A scene held in signals, and its state. */
-function scene(init: { heroes?: Array<{ state: HeroRecord }>; state?: More; objectives?: Array<[string, ObjectiveStatus]>; waves?: Array<[string, number]>; names?: (slot: string) => string | null | undefined } = {}) {
+function scene(init: { heroes?: Array<{ state: HeroRecord }>; state?: More; objectives?: Array<[string, ObjectiveStatus]>; waves?: Array<[string, number]>; names?: (slot: string) => string | null | undefined; tier?: string } = {}) {
   return createRoot((dispose) => {
     const [heroes, setHeroes] = createSignal(init.heroes ?? []);
     const [slots, setRoster] = createSignal(roster());
@@ -39,8 +41,9 @@ function scene(init: { heroes?: Array<{ state: HeroRecord }>; state?: More; obje
     const [waves, setWaves] = createSignal(new Map((init.waves ?? []).map(([k, t]) => [k, { t }])));
     const [state, setState] = createSignal(init.state);
     const [names, setNames] = createSignal(init.names);
-    const src: SceneRecords = { heroes, roster: slots, objectives, waves, state, names };
-    return { ms: fromScene(src), setHeroes, setRoster, setObjectives, setWaves, setState, setNames, dispose };
+    const [tier, setTier] = createSignal<string | undefined>("tier" in init ? init.tier : "replay");
+    const src: SceneRecords = { heroes, roster: slots, objectives, waves, state, names, tier };
+    return { ms: fromScene(src), setHeroes, setRoster, setObjectives, setWaves, setState, setNames, setTier, dispose };
   });
 }
 
@@ -76,9 +79,22 @@ describe("a scene's MapState", () => {
     s.dispose();
   });
 
-  it("the scene's own hero and name win over the roster's (D2); then the board's name; then the source match's (D1)", () => {
-    const s = scene({ heroes: [rec(0, { more: { hero: 77, name: "own" } }), rec(1), rec(2, { more: { name: "" } })], names: (slot) => `match ${slot}` });
+  it("the scene's own hero (when it holds its heroes) and name win over the roster's (D2); then the board's name; then the source match's (D1)", () => {
+    const s = scene({ heroes: [rec(0, { more: { hero: 77, name: "own" } }), rec(1), rec(2, { more: { name: "" } })], names: (slot) => `match ${slot}`, state: OWN });
     expect([s.ms.hero("amber-0").hero(), s.ms.hero("amber-0").name()]).toEqual([77, "own"]);
+    // A scene that doesn't say it holds its heroes (saved before, or made by hand) draws the
+    // roster's, whatever its record holds: its name is its own all the same.
+    for (const state of [undefined, STATE, { ...OWN, has_heroes: false }, { ...OWN, rows: ROWS.has_heroes.index }]) {
+      s.setState(state);
+      expect([s.ms.hero("amber-0").hero(), s.ms.hero("amber-0").name()]).toEqual([10, "own"]);
+    }
+    s.setState(OWN);
+    expect(s.ms.hero("amber-0").hero()).toBe(77);
+    // The flag alone changing is seen.
+    s.setState({ ...OWN, has_heroes: false });
+    expect(s.ms.hero("amber-0").hero()).toBe(10);
+    s.setState(OWN);
+    expect(s.ms.hero("amber-0").hero()).toBe(77);
     // None of its own: the roster's hero, and with no name typed on the board the match's.
     expect([s.ms.hero("amber-1").hero(), s.ms.hero("amber-1").name()]).toEqual([11, "match amber-1"]);
     expect(s.ms.hero("amber-2").name()).toBe("match amber-2");
@@ -116,6 +132,14 @@ describe("a scene's MapState", () => {
     }
     s.setState({ rows: ROWS.health.index + 1, has_builds: true });
     expect([s.ms.has("health"), s.ms.hero("amber-0").health()]).toEqual([true, 37]);
+    // Only a scene saved from a replay holds it: the metadata tier's is not health to draw,
+    // and a scene that doesn't say where it came from isn't taken at its word.
+    for (const tier of ["metadata", undefined]) {
+      s.setTier(tier);
+      expect([s.ms.has("health"), s.ms.hero("amber-0").health(), s.ms.hero("amber-1").health()]).toEqual([false, null, null]);
+    }
+    s.setTier("replay");
+    expect(s.ms.hero("amber-0").health()).toBe(37);
     s.dispose();
   });
 
@@ -180,7 +204,7 @@ describe("a scene's MapState", () => {
     };
     createRoot((dispose) => {
       const [id, setId] = createSignal<string | undefined>("s");
-      const src = sceneRecords(board as never, id);
+      const src = sceneRecords(board as never, id, undefined, () => "replay");
       const ms = fromScene(src);
       expect([ms.hero("amber-0").souls(), ms.marker("a").down(), ms.marker("b").status(), ms.lane("lane4").split(), ms.has("health")]).toEqual([9, true, "Stage2", 311, true]);
       expect(src.names).toBeUndefined();
@@ -193,6 +217,10 @@ describe("a scene's MapState", () => {
       }
       const names = () => (slot: string) => `n ${slot}`;
       expect(sceneRecords(board as never, () => "s", names).names).toBe(names);
+      // Where the scene came from is handed through; none given, none said (and no health held).
+      expect(src.tier?.()).toBe("replay");
+      const plain = sceneRecords(board as never, () => "s");
+      expect(["tier" in plain, fromScene(plain).has("health")]).toEqual([false, false]);
       dispose();
     });
   });
@@ -214,6 +242,7 @@ function saved(tl: Timeline, t: number): SceneRecords {
     objectives: () => new Map(made<{ key: string; status: ObjectiveStatus }>("ObjectiveState").map((o) => [o.key, { status: o.status }])),
     waves: () => new Map(made<{ lane: string; t: number }>("Wave").map((w) => [w.lane, { t: w.t }])),
     state: () => made<{ more?: More }>("SceneState")[0]?.more,
+    tier: () => made<{ source?: { tier: string } }>("Scene")[0]?.source?.tier,
   };
 }
 /** What a marker shows, from the state alone: the stored status, else the frame's site or an
@@ -246,8 +275,8 @@ describe("Save as scene, read back", () => {
             // And Player's own count at that second is what was rounded.
             expect(p.respawn() == null ? null : p.respawn()! > left! - 1 && p.respawn()! <= left!, `${slot} at ${t}`).toBe(left == null ? null : true);
             if (s.respawn() != null) seen.respawns.add(s.respawn()!);
-            // Health is the replay tier's (the metadata tier's is below).
-            if (replayTier) expect(s.health(), `${slot} at ${t}`).toBe(p.health());
+            // Health is the replay tier's; the metadata tier holds none, in Player or in a scene.
+            expect(s.health(), `${slot} at ${t}`).toBe(p.health());
             p.alive() ? seen.alive++ : seen.dead++;
             seen.moved.add(`${slot}:${JSON.stringify(where)}`);
           }
@@ -266,7 +295,7 @@ describe("Save as scene, read back", () => {
           }
           // Player's state is computed: it stores no status.
           expect(markers.every((m) => player.marker(m.key).status() === undefined)).toBe(true);
-          expect(scene.has("health")).toBe(true);
+          expect(scene.has("health")).toBe(replayTier);
           dispose();
         });
       }
@@ -316,14 +345,20 @@ describe("Save as scene, read back", () => {
     });
   });
 
-  it("OPEN: the metadata tier's coarse health is stored with the build, and Player doesn't hold it", () => {
+  it("the metadata tier's coarse health is not captured: Player doesn't hold it, and neither does the scene", () => {
     createRoot((dispose) => {
       const player = fromTimeline({ tl: () => metadata, t: () => 4, markers: () => markers });
-      const scene = fromScene(saved(metadata, 4));
-      expect(player.has("health")).toBe(false);
-      expect(player.hero("amber-0").health()).toBeNull();
-      expect(scene.has("health")).toBe(true);
-      expect(scene.hero("amber-0").health()).toBe(80);
+      const records = saved(metadata, 4);
+      const scene = fromScene(records);
+      expect([player.has("health"), player.hero("amber-0").health()]).toEqual([false, null]);
+      expect([scene.has("health"), scene.hero("amber-0").health()]).toEqual([false, null]);
+      // Nothing of it is stored; the rest of the build is.
+      expect(records.heroes().every((h) => h.state.more !== undefined && !("health" in h.state.more))).toBe(true);
+      // A scene saved before this held it: read the same, as not captured.
+      const before = { ...records, heroes: () => records.heroes().map((h) => ({ state: { ...h.state, more: { ...h.state.more, health: 80 } } })) };
+      expect([fromScene(before).has("health"), fromScene(before).hero("amber-0").health()]).toEqual([false, null]);
+      // The replay tier's is stored.
+      expect(saved(replay(), 4).heroes().every((h) => typeof h.state.more?.health === "number")).toBe(true);
       dispose();
     });
   });

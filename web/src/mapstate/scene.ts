@@ -2,9 +2,9 @@
 // spec §3, §6; phase 4). Static: a field changes only when a record does.
 //
 // What a scene stores today is its heroes (`PlayerState`: place, alive, souls, ult, sight as one
-// flag, a respawn time, and in `more` its own hero and name, and the build's health), its
-// markers' statuses (`ObjectiveState`), one split per lane (`Wave`) and what its snapshot holds
-// (`SceneState`). Everything else reads as not captured: the field is empty and `has` says no,
+// flag, a respawn time, and in `more` its own hero (D2: once the scene holds its heroes), its
+// name, and the build's health), its markers' statuses (`ObjectiveState`), one split per lane
+// (`Wave`) and what its snapshot holds (`SceneState`). Everything else reads as not captured: the field is empty and `has` says no,
 // so a renderer draws nothing for it and the legacy meaning applies (spec §4.5). The rows of
 // phase 5 fill those fields here, one line each in `CAPTURED`.
 
@@ -16,7 +16,7 @@ import type { RecordId } from "../gen/RecordId";
 import type { RosterSlot } from "../gen/RosterSlot";
 import { ROWS } from "../gen/rows";
 import { slotKey } from "../match/timeline";
-import { captured } from "./build";
+import { captured, sceneHero } from "./build";
 import { type Feature, type HeroState, type LaneState, type MapState, type MarkerState, type SceneFacts, sameValue } from "./state";
 
 /** What a scene's state is read from: its records, and what it reads from outside them. */
@@ -34,15 +34,19 @@ export interface SceneRecords {
   /** The source match's names by slot ("amber-0"), while that match is loaded (D1: a match's
    * names are read from it, never stored). */
   names?: Accessor<((slot: string) => string | null | undefined) | undefined>;
+  /** The tier of the match the scene was saved from (`Scene.source.tier`), if any. */
+  tier?: Accessor<string | undefined>;
 }
 
-type Snapshot = ReturnType<typeof captured>;
+type Snapshot = ReturnType<typeof captured> & { tier: string | undefined };
 
 /** Whether the snapshot holds each feature. Every feature has a line: one a scene can't hold
  * yet says so here, and gets its rows in phase 5. */
 const CAPTURED: { [F in Feature]-?: (snap: Snapshot) => boolean } = {
-  // A hero's health is a row of its build (`health`), written with it.
-  health: (s) => s.builds && ROWS.health.index < s.rows,
+  // A hero's health is a row of its build (`health`), written with it: the replay tier's.
+  // The metadata tier's is not held (Player doesn't hold it either), whatever a scene saved
+  // before that was settled stored.
+  health: (s) => s.builds && ROWS.health.index < s.rows && s.tier === "replay",
   // One flag a hero (`visible`), set by hand: not each team's sight of it.
   sight: () => false,
   cc: () => false,
@@ -71,7 +75,7 @@ export function fromScene(src: SceneRecords): MapState {
     if (!v) by.set(key, (v = make()));
     return v;
   };
-  const snap = memo(() => captured(src.state()), (a, b) => a.builds === b.builds && a.rows === b.rows && a.patch === b.patch);
+  const snap = memo((): Snapshot => ({ ...captured(src.state()), tier: src.tier?.() }), (a, b) => a.builds === b.builds && a.heroes === b.heroes && a.rows === b.rows && a.patch === b.patch && a.tier === b.tier);
   /** Each hero record with its roster slot, by slot key. */
   const bySlot = memo(() => {
     const slots = new Map(src.roster().map((s) => [s.id, s.slot]));
@@ -97,12 +101,9 @@ export function fromScene(src: SceneRecords): MapState {
       }, sameValue);
       return {
         present: memo(() => !!rec()),
-        // The scene's own hero and name win over the roster's (D2).
-        hero: memo(() => {
-          const own = more("hero");
-          return typeof own === "number" ? own : (slot()?.hero ?? null);
-        }),
-        // Then the name typed on the board, then the source match's (D1).
+        // The scene's own hero when it holds its heroes (D2), else the roster's.
+        hero: memo(() => sceneHero(snap().heroes, rec()?.more, slot()?.hero)),
+        // Its own name first; then the name typed on the board, then the source match's (D1).
         name: memo(() => {
           if (!rec()) return null;
           const own = more("name");
@@ -165,7 +166,7 @@ export interface SceneBoard {
 
 /** A scene's records out of the board's state, for `fromScene`. No scene: none. Call inside a
  * component or root. */
-export function sceneRecords(board: SceneBoard, scene: Accessor<RecordId | undefined>, names?: SceneRecords["names"]): SceneRecords {
+export function sceneRecords(board: SceneBoard, scene: Accessor<RecordId | undefined>, names?: SceneRecords["names"], tier?: SceneRecords["tier"]): SceneRecords {
   const of = <T,>(kind: string) => board.inScene(kind, scene()).flatMap(([, r]) => (r && typeof r === "object" && kind in r ? [(r as Record<string, T>)[kind]!] : []));
   return {
     heroes: () => board.playersIn(scene()),
@@ -174,5 +175,6 @@ export function sceneRecords(board: SceneBoard, scene: Accessor<RecordId | undef
     waves: createMemo(() => new Map(of<{ lane: string; t: number }>("Wave").map((w) => [w.lane, { t: w.t }]))),
     state: () => of<{ more?: More }>("SceneState")[0]?.more,
     ...(names ? { names } : {}),
+    ...(tier ? { tier } : {}),
   };
 }

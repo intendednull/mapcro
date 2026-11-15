@@ -7,7 +7,7 @@ import type { More } from "../src/gen/More";
 import type { PlayerState } from "../src/gen/PlayerState";
 import { LIMITS } from "../src/gen/limits";
 import { ROWS } from "../src/gen/rows";
-import { WRITTEN, captureBuild, captureScene, captured, heroBuildAt, readBuild } from "../src/mapstate/build";
+import { WRITTEN, captureBuild, captureScene, captured, heroBuildAt, readBuild, retakeRows } from "../src/mapstate/build";
 import { holdsBuild } from "../src/mapstate/buildView";
 import { canRetake, chunkByBytes, matchSceneOps, matchScenesOps, opsBytes, retakeOps, sourceOf } from "../src/match/save";
 import { PICKUPS_FORMAT } from "../src/match/stats";
@@ -35,6 +35,8 @@ const match = (buys = 3): Timeline => ({
 } as unknown as Timeline);
 
 const tl = match();
+/** The rows of a build from before a scene held its own heroes (`has_heroes`). */
+const BEFORE = ROWS.has_heroes.index;
 const roster = tl.players.map((p, i) => ({ id: `slot-${i}`, slot: { team: p.team === "amber" ? ("Amber" as const) : ("Sapphire" as const), slot: p.slot, hero: p.hero_id, name: "" } }));
 const minter = () => {
   let n = 0;
@@ -72,13 +74,13 @@ describe("Save as scene's snapshot", () => {
     expect(opsBytes(ops)).toBeLessThan(LIMITS.max_tx_bytes - 512);
   });
 
-  it("without builds is the save as it was: no `more`, no state", () => {
-    const { ops } = save(tl, { builds: false });
+  it("without builds is the save as it was: no `more`, no state (a build from before a scene held its heroes)", () => {
+    const { ops } = save(tl, { builds: false, written: BEFORE });
     expect(heroesOf(ops).every((h) => h.state.more === undefined)).toBe(true);
     expect(stateOf(ops)).toHaveLength(0);
     // And the snapshot adds to it, changing nothing else.
     const strip = (list: Op[]) => list.filter((o) => !("Create" in o && "SceneState" in o.Create.record)).map((o) => JSON.parse(JSON.stringify(o, (k, v) => (k === "more" ? undefined : v))));
-    expect(strip(save(tl).ops)).toEqual(strip(ops));
+    expect(strip(save(tl, { written: BEFORE }).ops)).toEqual(strip(ops));
   });
 
   it("a slot the match has no hero for gets no build", () => {
@@ -119,9 +121,9 @@ describe("Save as scene's snapshot", () => {
     const keys = Array.from({ length: 230 }, (_, k) => `walker:amber:lane1:${k}:${"k".repeat(120)}`);
     const full = { ...match(200), objectives: keys.map((key) => ({ key, kind: "walker", team: "amber", lane: 1, destroyed_s: 5 })) } as unknown as Timeline;
     const markers = keys.map((key) => ({ key, kind: "walker", team: "amber", lane: "yellow", at: { x: 0, y: 0 } })) as never[];
-    const bare = save(full, {}, LATE_T, markers);
+    const bare = save(full, { written: BEFORE }, LATE_T, markers);
     expect(bare.builds).toBe(false);
-    expect(bare.ops).toEqual(save(full, { builds: false }, LATE_T, markers).ops);
+    expect(bare.ops).toEqual(save(full, { builds: false, written: BEFORE }, LATE_T, markers).ops);
     expect(stateOf(bare.ops)).toHaveLength(0);
     expect(heroesOf(bare.ops).every((h) => h.state.more === undefined)).toBe(true);
     expect(opsBytes(bare.ops)).toBeLessThanOrEqual(LIMITS.max_tx_bytes - 1024);
@@ -152,13 +154,13 @@ describe("Save as scene's snapshot", () => {
 
 describe("Retake", () => {
   const scene = (t: number | null, match_id = 9) => ({ id: "scene", scene: { name: "s", order: "a", clock: t, source: t == null ? null : { match_id, t, tier: "replay" } } }) as never;
-  const old = () => heroesOf(save(tl, { builds: false }).ops);
+  const old = () => heroesOf(save(tl, { builds: false, written: BEFORE }).ops);
   const setIf = (o: Op) => ("SetIf" in o ? o.SetIf : undefined);
 
   it("is offered for a scene of the open match that holds no builds, or older rows", () => {
     expect(canRetake({ source: { match_id: 9, t: 2, tier: "replay" } }, undefined, tl)).toBe(true);
     expect(canRetake({ source: { match_id: 9, t: 2, tier: "replay" } }, captureScene(tl), tl)).toBe(false);
-    expect(canRetake({ source: { match_id: 9, t: 2, tier: "replay" } }, { ...captureScene(tl), rows: WRITTEN - 1 }, tl)).toBe(true);
+    expect(canRetake({ source: { match_id: 9, t: 2, tier: "replay" } }, { ...captureScene(tl), rows: retakeRows() - 1 }, tl)).toBe(true);
     expect(canRetake({ source: { match_id: 8, t: 2, tier: "replay" } }, undefined, tl)).toBe(false);
     expect(canRetake({}, undefined, tl)).toBe(false);
     expect(canRetake({ source: { match_id: 9, t: 2, tier: "replay" } }, undefined, undefined)).toBe(false);
@@ -169,7 +171,7 @@ describe("Retake", () => {
     const txs = retakeOps(scene(2), undefined, heroes, roster as never, tl, minter());
     const ops = txs.flat();
     const last = ops.at(-1)!;
-    expect("Create" in last && "SceneState" in last.Create.record && last.Create.record.SceneState).toEqual({ scene: "scene", more: captureScene(tl) });
+    expect("Create" in last && "SceneState" in last.Create.record && last.Create.record.SceneState).toEqual({ scene: "scene", more: captureScene(tl, { heroes: false }) });
     expect(ops.slice(0, -1).every((o) => setIf(o) && "More" in setIf(o)!.expect && (setIf(o)!.expect as { More: { value: unknown } }).More.value === null)).toBe(true);
     // What it writes for a hero is what Save would have stored.
     heroes.forEach((h, i) => {

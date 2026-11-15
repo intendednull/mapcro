@@ -234,9 +234,9 @@ stored board, but the older build admits rows by its own statuses: a board file 
 newer build, a copy of one of its scenes (Duplicate, New scene), or a pending edit a reloaded tab
 resends can carry a row the older build still holds `Ahead`, and is refused whole (`WrongField`).
 For v10 → v9 (1dcbd31): kills, deaths, assists and max health. Roll forward to import them.
-For the sides writer (v12) → v11 (ce1ec0c): a scene name over 24 characters, a comment's side
+For the sides writer (v13) → v12 (3aa59af) or v11 (ce1ec0c): a scene name over 24 characters, a comment's side
 or a stroke's colour, refused as `TextTooLong` or `WrongField`. A board file holding a long
-scene name or a side says version 3, so v11 (which reads up to 2) answers "Newer file" for it
+scene name or a side says version 3, so v12 and v11 (which read up to 2) answer "Newer file" for it
 rather than "Bad file"; any other file the writer exports is version 2 and imports there.
 
 **Map-state rows: lock them at each deploy.** After a deploy is live, check out the deployed
@@ -263,6 +263,49 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
   rows `kills`, `deaths`, `assists`, `max_health`, and the unfit undo below): the same kind of
   step, floor 9, so **the rollback target from v10 is the v9 build (`1dcbd31`) and nothing
   older**.
+- **`has_heroes`** (map-state D2: a scene that holds its own heroes) follows the same two steps.
+  - **v12 is its reader**: the row `Ahead`, with an additive store step (v11 → v12, no SQL,
+    floor 9). Nothing a v9 to v11 server can't load is stored, so **the rollback targets from
+    v12 are still the v11 build (`ce1ec0c`), the v10 build and the v9 build**. One thing is
+    stored differently: a save from the metadata tier stores no `health` on a hero's record
+    (fewer keys, nothing new). Those builds read the missing key as a hero alive at full
+    health; no scene draws a hero's health, but the stat calculator counts a life-threshold
+    item (Battle Vest, Hollow Point) as active there (`docs/specs/map-state.md` §4.5). A test in `store.rs` ("the v12
+    reader stores nothing new") holds the row `Ahead`, with feedback's three typed fields,
+    while v12 is the newest version.
+  - **Its writer is the next free store version** (v14 if feedback's writer takes v13; the lead
+    assigns it at merge): `ahead("has_heroes", ...)` becomes `row(...)` in
+    `crates/schema/src/map_state.rs`, and the store gets a step
+    `Step::NeedsReader { reader: 12 }` (the form feedback's release 2 introduces: the floor is
+    the reader's version, 12, whatever number the writer takes), then `just ts`, `just
+    rows-lock` after the deploy, and `reader` in the justfile set to the deployed v12 commit
+    before it merges. From that deploy the rollback target is the v12 build and nothing older
+    (a server before v12 can't parse a `more` that names the row).
+  - **After the reader's deploy:** `just rows-lock` (16 rows, with `has_heroes`), and before the
+    writer merges, `reader` in the justfile set to the deployed v12 commit.
+  - **Must fix before the flip** (the D2 reader's review, 2026-11-14):
+    - **The "neither" case.** With the row written, `own` is true and Save never pushes the
+      roster's sets (`web/src/match/save.ts`, the `!own` guard and the heroes-only fallback;
+      asserted in `scene-heroes.test.ts`, "None"). A save with no room for the heroes and the
+      flag then stores neither and draws whatever the roster holds, against §4.5 ("sets the
+      roster to the match's heroes"). Fall back to the roster's sets when they fit, or refuse
+      the save.
+    - **Retake's health tier.** Capture asks the open timeline's tier, while
+      `CAPTURED.health` asks the scene's `source.tier`: a Retake of a metadata-sourced scene
+      with the replay loaded writes health that the reader hides. Make the two ask the same.
+  - From the writer's deploy Save leaves the roster alone and a saved scene draws its own
+    heroes; `web/e2e/scene-hero.spec.ts` switches from the test of Save setting the roster to
+    the test of a scene's own heroes by the row's status, and so does the server's refusal in
+    `web/test/scene-hero-pick.test.ts`. Five tests say what this build does and change on
+    purpose with the flip: `scene-heroes.test.ts` "is not written by this build", the two Save
+    pins in `map-state-pins.test.ts` (with `web/test/pins/save-as-scene.json`), and on the
+    server `board_file.rs` "`has_heroes` is the only row still ahead" and `store.rs` "the v12
+    reader stores nothing new". The writer was rehearsed three times on the reader's branch
+    with the row flipped in the tree only, the third as store v12 on top of v11: everything
+    built, `tsc` was clean, the whole vitest suite failed only in those three of its tests,
+    `cargo test` only in those two and the rows-lock test (a `Live` row not in the lock: it
+    passes once `just rows-lock` has run at the reader's deploy), and the save flows' e2e
+    passed with the own-heroes test.
 - **`just reader-check`** (in `just test`) loads what this build's server stores on the reader
   release's own code. Its reader is `reader` in the justfile: **set it to the deployed commit
   at each deploy that changes what is stored**, with `just rows-lock`.
@@ -287,24 +330,24 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
   - **v11 is their reader**: all three `Ahead`. Its step adds no SQL and is additive (floor 9):
     it stores nothing new, so **the rollback targets from v11 are still the v10 build
     (prod, `3423072`) and the v9 build**. A test in `store.rs` holds the three `Ahead` while v11 is
-    the newest version.
-  - **Their writer is v12** (`SIDES_WRITER` in `store.rs`; v13 if map-state D2's reader takes
-    v12 first): its step is `Step::NeedsReader { reader: 11 }`, no SQL, and makes the three
-    `Live`. **From it the rollback target is the v11 build (`ce1ec0c`), and D2's reader if it
-    sits between, nothing older**: the floor is 11 whatever number the writer has, because a
-    writer's step names its reader rather than "the version before" (steps 8 and 9 are readers
-    8 and 9). The v10 server refuses to start on it. `just reader-check` (reader `ce1ec0c`)
-    loads every board and log this build stores, each of the three included.
+    the newest version (until the writer, v12's test held them).
+  - **Their writer is v13** (`SIDES_WRITER` in `store.rs`), after map-state D2's reader (v12,
+    `3aa59af`): its step is `Step::NeedsReader { reader: 11 }`, no SQL, and makes the three
+    `Live`. **From it the rollback targets are the v12 build (`3aa59af`) and the v11 build
+    (`ce1ec0c`), nothing older**: the floor is 11, because a writer's step names its reader
+    rather than "the version before" (steps 8 and 9 are readers 8 and 9). The v10 server
+    refuses to start on it. `just reader-check` (reader `3aa59af`, which has v11's reader
+    code) loads every board and log this build stores, each of the three included.
   - The bytes that writer stores are the ones pinned by the reader
     (`crates/schema/tests/golden/sides-colours-*`): the v11 reader reads exactly those.
   - **Board files**: a file holding a scene name over 24 characters or a comment's side says
-    version 3 (`boardfile.rs`); the v11 build reads up to version 2 and says "Newer file". Any
-    other file is still version 2. (A stroke's colour is a field write; a file holds a stroke
-    with its colour, which every build reads.)
+    version 3 (`boardfile.rs`, `holds_typed_field`); the v11 and v12 builds read up to version
+    2 and say "Newer file". Any other file is still version 2. (A stroke's colour is a field
+    write; a file holds a stroke with its colour, which every build reads.)
   - **Deploy note for the writer:** the flip changes the schema sources, so the build id
-    changes and every open tab of the v11 client closes as `Outdated` and reloads. A v11 client
-    would read the three (its replica is the reader) but draws a comment above whatever its
-    side, and its scene name inputs stop at 24.
+    changes and every open tab of the older client closes as `Outdated` and reloads. An older
+    client would read the three (its replica is the reader) but draws a comment above whatever
+    its side, and its scene name inputs stop at 24.
 
 **Rolling back after a schema bump.** `meta` holds two numbers: `schema_version` and
 `compat_floor`, the oldest server schema version that can still use the database. An additive

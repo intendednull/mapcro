@@ -149,7 +149,10 @@ fn an_export_imports_as_the_same_board_under_fresh_ids() {
     assert_eq!(first["version"], 2, "the writer: version 1 plus the `rows` header");
     // The rows this build writes, not the ones it only reads: the reader release takes it.
     assert_eq!(first["rows"], json!(mapcro_schema::written_rows()));
-    assert_eq!(mapcro_schema::written_rows(), mapcro_schema::ROWS.len(), "no row is still ahead in this build");
+    // One row is ahead of its writer in this build (`has_heroes`, the last): the export says
+    // the rows before it, so the build before this one, which doesn't know the row, takes it.
+    let ahead = mapcro_schema::ROWS.iter().position(|r| r.key == "has_heroes").expect("the row");
+    assert_eq!((mapcro_schema::written_rows(), mapcro_schema::ROWS.len()), (ahead, ahead + 1), "`has_heroes` is the only row still ahead");
     assert!(first["build"].as_str().is_some_and(|b| b.len() == 16), "the server's build");
     assert!(first["exported_at"].as_i64().is_some_and(|t| t > 1_700_000_000));
     assert_eq!(first["matches"], json!([130816395]), "the match comes back by its id");

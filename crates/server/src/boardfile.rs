@@ -43,10 +43,10 @@ pub const FORMAT: &str = "mapcro-board";
 /// 1; this build writes rows, so it writes version 2: a build from before the reader says
 /// "Newer file" rather than dropping the values, which its lenient record parsing would.
 ///
-/// Version 3 is version 2's shape holding a field the build deployed as store v11 (ce1ec0c)
-/// reads but refuses from outside: a scene name over 24 characters or a comment's side
-/// (feedback #56, #59). That build reads up to version 2, so it says "Newer file" for such a
-/// file rather than "Bad file". A board without either is still written as version 2, and
+/// Version 3 is version 2's shape holding a field the builds deployed as store v11 (ce1ec0c)
+/// and v12 (3aa59af) read but refuse from outside: a scene name over 24 characters or a
+/// comment's side (feedback #56, #59). They read up to version 2, so they say "Newer file" for
+/// such a file rather than "Bad file". A board without either is still written as version 2, and
 /// imports there. (A stroke's colour is a field write, never in a file: a file holds records.)
 pub const VERSION: u64 = 3;
 /// The newest version this build reads.

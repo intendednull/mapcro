@@ -104,7 +104,7 @@ const HERO: { [K in HeroKey]-?: { put: (b: HeroBuild) => MoreValue | undefined; 
 };
 
 /** The build at second `t` of the match, as Player's column shows it. */
-export function heroBuildAt(tl: Pick<Timeline, "events" | "players" | "format">, player: TimelinePlayer, t: number): HeroBuild {
+export function heroBuildAt(tl: Pick<Timeline, "events" | "players" | "format" | "tier">, player: TimelinePlayer, t: number): HeroBuild {
   const at: BuildAt = buildAt(player, t);
   const sec = Math.max(0, Math.floor(t));
   let pickups: Pickups | null = (tl.format ?? 0) >= PICKUPS_FORMAT ? [0, 0, 0, 0, 0] : null;
@@ -115,7 +115,9 @@ export function heroBuildAt(tl: Pick<Timeline, "events" | "players" | "format">,
     abilities: at.abilities,
     order: player.items == null ? null : [...player.items].filter(([ds]) => ds <= t * 10).sort((a, b) => a[0] - b[0]),
     level: scoreboardValueAt(player.level, t),
-    health: player.x[sec] != null ? player.health[sec] ?? null : null,
+    // The replay tier's alone: the metadata tier's is the path's, too coarse for Player to
+    // hold (mapstate/state.ts), so a snapshot doesn't either.
+    health: tl.tier === "replay" && player.x[sec] != null ? player.health[sec] ?? null : null,
     pickups,
     kills: player.kills != null ? scoreboardValueAt(player.kills, t) : killsAt(tl, t, player.team, player.slot),
     deaths: player.deaths.filter((d) => d <= t).length,
@@ -147,21 +149,66 @@ export function captureBuild(build: HeroBuild, budget: number = LIMITS.max_more_
   return more;
 }
 
-/** The scene's own rows for a snapshot that holds builds: the watermark, the flag, the patch. */
-export function captureScene(tl: Pick<Timeline, "build">): More {
-  const patch = tl.build;
-  const scene: { [K in SceneKey]-?: MoreValue | undefined } = {
-    rows: WRITTEN,
-    has_builds: true,
-    build: patch != null && inRow("build", patch) ? patch : undefined,
-  };
-  return Object.fromEntries(Object.entries(scene).filter(([k, v]) => v !== undefined && ROWS[k as SceneKey].index < WRITTEN)) as More;
+/** Which of a hero's rows are its build: what a pick of another hero in a scene that holds its
+ * heroes drops with the old hero (edit.ts), and what such a record must still hold to have a
+ * build (buildView.ts `holdsBuild`). Every hero row says which it is. */
+const IS_BUILD: { [K in HeroKey]-?: boolean } = {
+  hero: false, name: false,
+  items: true, abilities: true, build_order: true, level: true, health: true, pickups: true, kills: true, deaths: true, assists: true, max_health: true,
+};
+export const BUILD_KEYS = (Object.keys(IS_BUILD) as HeroKey[]).filter((k) => IS_BUILD[k]);
+
+/** What a snapshot's state says of the scene, by what the save stored. */
+export interface SceneCapture {
+  /** The heroes' builds are stored (default true). */
+  builds?: boolean;
+  /** The scene holds its own heroes (spec D2; default true). Retake never says so: it adds to
+   * a scene saved before, whose heroes are the board roster's. */
+  heroes?: boolean;
+  /** The rows this build writes (default `WRITTEN`; tests pass a later build's). */
+  written?: number;
 }
 
-/** What a scene's state says it holds (spec §4.5). No state, or an empty one: nothing. */
-export function captured(scene: More | undefined): { builds: boolean; rows: number; patch: number | undefined } {
+/** The scene's own rows for a snapshot: the watermark, what it holds, the patch. A row this
+ * build doesn't write yet is left out, so `has_heroes` is stored only once it is `live`. */
+export function captureScene(tl: Pick<Timeline, "build">, opts: SceneCapture = {}): More {
+  const patch = tl.build;
+  const written = opts.written ?? WRITTEN;
+  const builds = opts.builds !== false;
+  const scene: { [K in SceneKey]-?: MoreValue | undefined } = {
+    rows: written,
+    has_builds: builds ? true : undefined,
+    build: builds && patch != null && inRow("build", patch) ? patch : undefined,
+    has_heroes: opts.heroes !== false ? true : undefined,
+  };
+  return Object.fromEntries(Object.entries(scene).filter(([k, v]) => v !== undefined && ROWS[k as SceneKey].index < written)) as More;
+}
+
+/** Whether a save that writes `written` rows gives a scene its own heroes (spec D2): once
+ * `has_heroes` is a row it writes. */
+export const writesHeroes = (written: number = WRITTEN): boolean => ROWS.has_heroes.index < written;
+
+/** How many rows Retake can give a scene: every written row but `has_heroes`, which only a
+ * save sets. A scene whose watermark is below this has something to retake. */
+export function retakeRows(written: number = WRITTEN): number {
+  const mine = (Object.values(ROWS) as Row[]).filter((r) => r.index < written && r.index !== ROWS.has_heroes.index).map((r) => r.index);
+  return mine.length ? Math.max(...mine) + 1 : 0;
+}
+
+/** What a scene's state says it holds (spec §4.5). No state, or an empty one: nothing.
+ * `heroes`: the scene's own heroes win over the board roster's (D2). */
+export function captured(scene: More | undefined): { builds: boolean; heroes: boolean; rows: number; patch: number | undefined } {
   const rows = int(scene?.rows) ?? 0;
-  return { builds: scene?.has_builds === true && rows > 0, rows, patch: int(scene?.build) ?? undefined };
+  return { builds: scene?.has_builds === true && rows > 0, heroes: scene?.has_heroes === true && ROWS.has_heroes.index < rows, rows, patch: int(scene?.build) ?? undefined };
+}
+
+/** The hero a slot holds in a scene (spec D2): the scene's own (`hero` on the hero's record)
+ * when the snapshot holds its heroes, else the board roster's. In a scene saved before
+ * `has_heroes`, a `hero` that differs from the roster's is a build whose slot was given
+ * another hero since: the roster's is drawn, and the build is not (`holdsBuild`). */
+export function sceneHero(own: boolean, more: More | undefined, roster: number | null | undefined): number | null {
+  const mine = more?.hero;
+  return own && typeof mine === "number" ? mine : (roster ?? null);
 }
 
 /** The build a hero's record holds, read by a snapshot whose watermark is `rows`. A row at or
