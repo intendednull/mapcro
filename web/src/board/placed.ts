@@ -42,7 +42,7 @@ export function recolourOps(kind: Placed, id: RecordId, now: number | null | und
   if (now === i) return [];
   if (kind === "Callout") return [{ Set: { id, value: { CalloutColor: i } } }];
   if (kind === "Arrow") return [{ Set: { id, value: { ArrowColor: i } } }];
-  return [{ Set: { id, value: { StrokeColor: 0 } } }];
+  return [{ Set: { id, value: { StrokeColor: i } } }];
 }
 
 /** Move a comment to `side` of its spot: one write; none if it is there (no side is `Above`). */
