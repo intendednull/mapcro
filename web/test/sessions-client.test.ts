@@ -743,8 +743,8 @@ describe("the session connection against the real server", () => {
     const persist = new MemoryPersist();
     const ended: Array<number | undefined> = [];
     const onEnded = (n: number | undefined) => void ended.push(n);
-    // A socket that never gets as far as Ready: nothing answers there.
-    const nowhere = (): SocketLike => new WebSocket("ws://127.0.0.1:9/", { origin: ORIGIN }) as unknown as SocketLike;
+    // A socket still opening when the board is left: it never opens, nor fails.
+    const nowhere = (): SocketLike => ({ send: () => {}, close: () => {}, onopen: null, onmessage: null, onclose: null, onerror: null });
     // Left before it was started: nothing of the board was loaded here, so not known.
     const never = open(b.board, b.owner_token, { persist, onEnded });
     never.end();
@@ -774,6 +774,7 @@ describe("the session connection against the real server", () => {
     const early = open(b.board, b.owner_token, { persist, onEnded, openSocket: nowhere });
     await early.start();
     await sleep(100);
+    expect(early.connection.kind).toBe("connecting");
     expect(early.status.kind).toBe("saved");
     early.end();
     await until(() => ended.length === 4, "ended");
