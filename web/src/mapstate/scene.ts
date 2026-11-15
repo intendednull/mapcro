@@ -3,9 +3,8 @@
 //
 // What a scene stores today is its heroes (`PlayerState`: place, alive, souls, ult, sight as one
 // flag, a respawn time, and in `more` its own hero (D2: once the scene holds its heroes), its
-// name, and the build's health), its
-// markers' statuses (`ObjectiveState`), one split per lane (`Wave`) and what its snapshot holds
-// (`SceneState`). Everything else reads as not captured: the field is empty and `has` says no,
+// name, and the build's health), its markers' statuses (`ObjectiveState`), one split per lane
+// (`Wave`) and what its snapshot holds (`SceneState`). Everything else reads as not captured: the field is empty and `has` says no,
 // so a renderer draws nothing for it and the legacy meaning applies (spec §4.5). The rows of
 // phase 5 fill those fields here, one line each in `CAPTURED`.
 

@@ -261,8 +261,12 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
   older**.
 - **`has_heroes`** (map-state D2: a scene that holds its own heroes) follows the same two steps.
   - **v12 is its reader**: the row `Ahead`, with an additive store step (v11 → v12, no SQL,
-    floor 9). Nothing is stored differently, so **the rollback targets from v12 are still the
-    v11 build (`ce1ec0c`), the v10 build and the v9 build**. A test in `store.rs` ("the v12
+    floor 9). Nothing a v9 to v11 server can't load is stored, so **the rollback targets from
+    v12 are still the v11 build (`ce1ec0c`), the v10 build and the v9 build**. One thing is
+    stored differently: a save from the metadata tier stores no `health` on a hero's record
+    (fewer keys, nothing new). Those builds read the missing key as a hero alive at full
+    health; no scene draws a hero's health, but the stat calculator counts a life-threshold
+    item (Battle Vest, Hollow Point) as active there (`docs/specs/map-state.md` §4.5). A test in `store.rs` ("the v12
     reader stores nothing new") holds the row `Ahead`, with feedback's three typed fields,
     while v12 is the newest version.
   - **Its writer is the next free store version** (v14 if feedback's writer takes v13; the lead
@@ -273,6 +277,18 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
     rows-lock` after the deploy, and `reader` in the justfile set to the deployed v12 commit
     before it merges. From that deploy the rollback target is the v12 build and nothing older
     (a server before v12 can't parse a `more` that names the row).
+  - **After the reader's deploy:** `just rows-lock` (16 rows, with `has_heroes`), and before the
+    writer merges, `reader` in the justfile set to the deployed v12 commit.
+  - **Must fix before the flip** (the D2 reader's review, 2026-11-14):
+    - **The "neither" case.** With the row written, `own` is true and Save never pushes the
+      roster's sets (`web/src/match/save.ts`, the `!own` guard and the heroes-only fallback;
+      asserted in `scene-heroes.test.ts`, "None"). A save with no room for the heroes and the
+      flag then stores neither and draws whatever the roster holds, against §4.5 ("sets the
+      roster to the match's heroes"). Fall back to the roster's sets when they fit, or refuse
+      the save.
+    - **Retake's health tier.** Capture asks the open timeline's tier, while
+      `CAPTURED.health` asks the scene's `source.tier`: a Retake of a metadata-sourced scene
+      with the replay loaded writes health that the reader hides. Make the two ask the same.
   - From the writer's deploy Save leaves the roster alone and a saved scene draws its own
     heroes; `web/e2e/scene-hero.spec.ts` switches from the test of Save setting the roster to
     the test of a scene's own heroes by the row's status, and so does the server's refusal in

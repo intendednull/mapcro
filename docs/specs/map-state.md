@@ -272,7 +272,15 @@ So that an absent key can be told from an unknown one, `SceneState.more` holds:
   roster's differ there, a coach picked another hero since, and that pick is never undone by
   reading. One rule gives the hero everywhere (`web/src/mapstate/build.ts` `sceneHero`; the
   pick is `edit.ts` `pickHeroOps`). The row landed `Ahead` (the reader), so this build's Save
-  writes neither the flag nor anything else differently: the pins hold it byte for byte. The
+  writes neither the flag nor anything about heroes differently. **One thing is stored
+  differently, on the metadata tier only:** a hero's record no longer holds `health` there
+  (`build.ts` `heroBuildAt`; the save pin lost its ten metadata-tier `health` values), so such
+  a save stores fewer keys. The v9 to v11 builds read the missing key as a hero alive at full
+  health; this build reads that tier's health as not captured. No scene draws a hero's health
+  bar on any build (tokens draw health only in Player). The stat calculator does take it: in a
+  metadata-tier scene saved by this build, an item with a life threshold (Battle Vest, Hollow
+  Point: 65 %) counts at full health, where Player at that second uses the path's health. The
+  replay tier's save is byte for byte as before (the pins hold it). The
   reader is store v12. The writer is one change, `ahead(...)` to `row(...)`, with its store
   step (floor 12) and `just rows-lock` (`docs/deploy.md`).
 

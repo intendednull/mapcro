@@ -1265,6 +1265,10 @@ mod tests {
     /// The reader of the map-state row `has_heroes` (v12): it reads the row and admits it from
     /// nobody, so its database holds nothing the v11, v10 and v9 servers can't load: they stay
     /// rollback targets. The writer's step comes with the build that makes the row `Live`.
+    ///
+    /// The older servers here are this build's `reconcile` told an older version: what they make
+    /// of the floor, not of the boards. The proof that a v11 server loads what this one stores
+    /// is `just reader-check`, which loads the simulation's stored boards on `ce1ec0c`'s own code.
     #[test]
     fn the_v12_reader_stores_nothing_new_so_the_v9_to_v11_servers_still_open_its_database() {
         use mapcro_schema::{Admit, CALLOUT_SIDE, LONG_SCENE_NAME, RowId, STROKE_COLOR, Status};

@@ -73,6 +73,32 @@ schema's rows-lock test ("has_heroes: not deployed yet"), which `just rows-lock`
 reader's deploy clears; e2e on the save flows 46 passed, 1 skipped, with the own-heroes test
 passing. So the flip still works on top of v11.
 
+**The reader's review (2026-11-14, the lead): no blocker.** Fixed here: the three docs that
+said nothing stored changes (a metadata-tier save stores no `health`: spec §4.5, deploy.md,
+step 3 below); `by_default_a_row_is_admitted_by_its_own_status` (engine) now asks every row on
+a record of its entity, the scene's `has_heroes` too; the v12 store test says `reader-check` is
+the real proof; `scene.ts`'s header wrap.
+
+**The writer release (`docs/deploy.md`, the writer's steps), must fix before the flip:**
+
+- **The "neither" case.** With the row written, `own` is true and Save never pushes the
+  roster's sets (`save.ts`, the `!own` guard and the heroes-only fallback; asserted in
+  `scene-heroes.test.ts`, "None"). A save with no room for the heroes and the flag stores
+  neither, and draws whatever the roster holds, against §4.5 ("sets the roster to the match's
+  heroes"). Fall back to the roster's sets when they fit, or refuse the save.
+- **Retake's health tier.** Capture asks the open timeline's tier, `CAPTURED.health` the
+  scene's `source.tier`: a Retake of a metadata-sourced scene with the replay loaded writes
+  health the reader hides.
+- After the reader deploys, `just rows-lock` (16 rows); before the writer merges, the
+  justfile's `reader` set to the v12 commit.
+
+**Found while correcting the docs (for the lead):** on the metadata tier the v9 to v11 builds
+read a missing `health` as an alive hero at full health (`scene.ts`, "alive with none
+stored"), not as not captured. No scene draws a hero's health, but the stat calculator does use
+it (`statOf` health_pct): a metadata-tier scene saved by this build counts Battle Vest and
+Hollow Point (life threshold 65 %) as active, where Player at that second uses the path's
+health. Small and on one tier; not logged as debt yet, the lead's call.
+
 **Decisions for the lead**
 
 - **Merge order with feedback's writer.** The numbers assume D2's reader (v12) merges before
@@ -114,8 +140,11 @@ register (TD-98 between TD-97 and TD-99), this journal.
    `"11"` in `crates/server/tests/system.rs` to `"12"`. The wording "v10 → v11" in
    `docs/specs/map-state.md` §4.3, `docs/deploy.md` and `b4c9f86`'s successor's comments
    follows. Then `just test` (it runs `reader-check`) and `just web-test`.
-3. **D2's reader release:** the lead's gate and adversarial review. It changes nothing a coach
-   sees and nothing stored.
+3. **D2's reader release:** the lead's gate and adversarial review. It stores nothing a v9
+   to v11 server can't load. It does store one thing differently: a metadata-tier save keeps
+   no `health` on a hero's record (fewer keys; v9 to v11 read the missing key as full health,
+   this build as not captured). No scene draws a hero's health; the stat calculator counts a
+   life-threshold item as active there (spec §4.5).
 4. **The writer flip, its own release** (the lead expects store v14, to be confirmed): the
    steps and the five tests that change on purpose are in `docs/deploy.md`. It was rehearsed
    twice here with the row flipped in the tree only; the own-heroes e2e passed both times.
