@@ -197,7 +197,9 @@ test("a scene name takes 48 characters and fits the stage head and the scene lis
     const fits = await p.evaluate(() => {
       const head = document.querySelector(".stage-head")!.getBoundingClientRect();
       const title = document.querySelector(".stage-head h1")!;
-      return title.getBoundingClientRect().right <= head.right + 1 && title.scrollWidth > title.clientWidth;
+      // Cut where it ends, with an ellipsis, not drawn on past it.
+      const cut = getComputedStyle(title);
+      return title.getBoundingClientRect().right <= head.right + 1 && title.scrollWidth > title.clientWidth && cut.overflowX === "hidden" && cut.textOverflow === "ellipsis";
     });
     expect(fits).toBe(true);
   }
