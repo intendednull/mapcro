@@ -502,32 +502,36 @@ export function Layers(p: {
     if (stroke && strokes().some((x) => x.id === stroke)) return { kind: "Stroke", id: stroke as RecordId };
     return undefined;
   };
-  /** The menu's record as it is now (another editor may change or erase it while it's open). */
-  const menuRecord = createMemo(() => {
-    const m = menu();
-    if (!m) return undefined;
+  /** A placed thing's record as it is now (another editor may change or erase it). */
+  const placedRecord = (m: { kind: Placed; id: RecordId }): Callout | Arrow | Stroke | undefined => {
     if (m.kind === "Callout") return callouts().find((c) => c.id === m.id)?.r;
     if (m.kind === "Arrow") return arrows().find((a) => a.id === m.id)?.r;
     return strokes().find((x) => x.id === m.id)?.r;
+  };
+  const menuRecord = createMemo(() => {
+    const m = menu();
+    return m ? placedRecord(m) : undefined;
   });
   // Gone (erased, undone, another scene), or no longer this person's to edit: the menu closes.
   createEffect(() => {
     if (menu() && (!menuRecord() || !editor())) setMenu(undefined);
   });
   const menuView = (m: { kind: Placed; id: RecordId; at: { x: number; y: number } }) => {
-    const colour = () => (menuRecord() as { color?: number | null } | undefined)?.color;
+    // By the record, not the menu's: an item runs after the menu has closed (`ContextMenu`).
+    const colour = () => (placedRecord(m) as { color?: number | null } | undefined)?.color;
+    const side = () => (placedRecord(m) as Callout | undefined)?.side;
     const items: MenuItem[] = [];
     // Pins (the phone) have no side.
     if (m.kind === "Callout" && !p.compactCallouts) {
-      for (const side of SIDES)
+      for (const to of SIDES)
         items.push({
-          label: side,
-          testid: `comment-side-${side.toLowerCase()}`,
+          label: to,
+          testid: `comment-side-${to.toLowerCase()}`,
           get checked() {
-            return ((menuRecord() as Callout | undefined)?.side ?? "Above") === side;
+            return (side() ?? "Above") === to;
           },
           run: () => {
-            const ops = sideOps(m.id, (menuRecord() as Callout | undefined)?.side, side);
+            const ops = sideOps(m.id, side(), to);
             if (ops.length) st.edit(ops);
           },
         });
