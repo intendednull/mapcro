@@ -3,6 +3,18 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Fable limit reached (2026-11-15 ~00:20 UTC, lead 9eb2516b)
+
+- Both Fable sessions stopped with a 429 ("You've reached your Fable limit"). Every stream is on
+  Opus now:
+  - **Feedback release 2** (writer, v12-or-v13, floor 11): fresh Opus high on `feedback-56-60`.
+    The Fable session had only merged main; nothing was lost.
+  - **Sessions phase 4:** built by Fable (a3f5fd1). Its last batch was green: units, 24/24
+    mutants, interop against ae169e6, and the walkthrough. I committed its two uncommitted test
+    edits as WIP (0a555e9). A fresh Opus high implementer finishes it: merge main, full checks,
+    e2e mutants and the journal. Scratch is in `~/.cache/mapcro-sp4-scratch/`.
+  - **Map-state D2 reader (v12):** Opus high, unaffected.
+
 ## Deployed ce1ec0c: feedback release 1, store v11 (2026-11-14 ~23:58 UTC, lead 9eb2516b)
 
 - **Prod `web` runs ce1ec0c** (infra 50dbf7e). The store reads `schema_version 11`,
