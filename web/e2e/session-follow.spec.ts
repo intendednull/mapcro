@@ -472,6 +472,21 @@ test("the presenter's tab is removed: both move left, and the follow goes on", a
   await scenes(a).nth(1).click();
   await expect.poll(() => sceneOn(b)).toBe(1);
   await expect(a.getByTestId("presenting")).toContainText("1 following");
+  // Someone else removes the tab both are on: the follower's own copy of the session moves it
+  // (before it hears where the presenter went), and that is no pick of its own either.
+  const c = await member(browser, m, "Other");
+  await tabs(a).nth(1).click();
+  await on(a, m, 2);
+  await on(b, m, 2);
+  await expect(following(b)).toHaveCount(1);
+  await tabs(c).nth(1).getByTestId("tab-remove").click();
+  await expect(tabs(b)).toHaveCount(1);
+  await on(a, m, 0);
+  await on(b, m, 0);
+  await expect(following(b)).toHaveCount(1);
+  await expect(b.getByTestId("session-toast")).toHaveCount(0);
+  await scenes(a).nth(0).click();
+  await expect.poll(() => sceneOn(b)).toBe(0);
 });
 
 test("the presenter leaves the session: the follower stays where it is", async ({ browser }) => {
