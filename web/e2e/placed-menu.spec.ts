@@ -73,6 +73,9 @@ test("a comment's side and a placed thing's colour, from its right-click menu, f
   // The comment's colour (the placer's palette colour) is marked, and only it.
   await expect(menu(a).locator('.ctx-swatch[aria-checked="true"]')).toHaveCount(1);
   await expect(menu(a).getByTestId("recolour-0")).toHaveAttribute("aria-checked", "true");
+  // The sides a list, the colours one row of swatches after them.
+  await expect(menu(a).locator(".ctx-swatches .ctx-swatch")).toHaveCount(7);
+  await expect(menu(a).locator(".ctx-swatches [data-testid^='comment-side-']")).toHaveCount(0);
   // Left: the bubble's tail on the spot, its body to the left of it, for both. (Centres: a box
   // takes in the tail's pointed stroke, which runs past the spot.)
   const spot = await centre(comment(a).locator(".bubble-body"));
@@ -179,7 +182,8 @@ test("a scene name takes 48 characters and fits the stage head and the scene lis
   const url = await newBoardUrl(server, "long names");
   const a = await joinNew(browser, url, "Coach");
   const b = await joinNew(browser, url, "Marrow");
-  const name = "Third walker fight at 12:40, they collapse on us, again";
+  // Wide letters, so the name is wider than the head and must be cut.
+  const name = "WMWMWMWMWMWMWMWMWMWMWMWMWMWMWMWMWMWMWMWMWMWMWMWMWM";
   await a.getByTestId("scene-name").click();
   await a.getByTestId("scene-name-input").fill("");
   await a.getByTestId("scene-name-input").pressSequentially(name);
@@ -192,8 +196,8 @@ test("a scene name takes 48 characters and fits the stage head and the scene lis
     expect(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const fits = await p.evaluate(() => {
       const head = document.querySelector(".stage-head")!.getBoundingClientRect();
-      const nameBox = document.querySelector('[data-testid="scene-name"]')!.getBoundingClientRect();
-      return nameBox.right <= head.right + 1;
+      const title = document.querySelector(".stage-head h1")!;
+      return title.getBoundingClientRect().right <= head.right + 1 && title.scrollWidth > title.clientWidth;
     });
     expect(fits).toBe(true);
   }
