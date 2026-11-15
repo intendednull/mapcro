@@ -15,3 +15,4 @@ kills hero int 0 100000
 deaths hero int 0 100000
 assists hero int 0 100000
 max_health hero int 0 10000000
+has_heroes scene bool
