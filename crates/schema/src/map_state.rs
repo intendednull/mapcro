@@ -244,6 +244,14 @@ impl Admit {
     }
 }
 
+/// Whether `record` holds a gated typed field ([`LONG_SCENE_NAME`], [`CALLOUT_SIDE`]): what the
+/// build deployed as store v11 (ce1ec0c) reads but refuses in a board file. A file holding one
+/// says a version that build doesn't read, so it answers "Newer file", not "Bad file"
+/// (`boardfile.rs` in the server). A stroke's colour is a field write, never in a record.
+pub fn holds_typed_field(record: &Record) -> bool {
+    Admit { long_scene_name: Status::Ahead, callout_side: Status::Ahead, stroke_color: Status::Ahead, ..Admit::READS }.record(record).is_err()
+}
+
 /// The registry as a TypeScript module, `web/src/gen/rows.ts` (`just ts` writes it): the
 /// client's row table (spec §4.2). Capture writes the rows that are not `ahead`; the readers
 /// and the round-trip property iterate it.
@@ -1104,6 +1112,24 @@ mod tests {
         for (field, ops, _) in gated_fields() {
             assert_eq!(retired.tx(&tx(ops)), Ok(()), "{field}");
         }
+    }
+
+    #[test]
+    fn a_record_holds_a_typed_field_with_a_long_scene_name_or_a_side() {
+        use crate::records::{Scene, Stroke};
+        let scene = |n: usize| Record::Scene(Scene { name: "é".repeat(n), order: crate::OrderKey::first(), clock: None, source: None, live: false, parent: None });
+        let comment = |side| Record::Callout(Callout { scene: RecordId(1), pos: WorldPos::default(), text: "x".into(), color: Some(2), side });
+        let stroke = Record::Stroke(Stroke { scene: RecordId(1), points: vec![WorldPos::default(); 2], color: 3, width: 20, offset: WorldPos::default() });
+        assert!(!holds_typed_field(&scene(LIMITS.max_name)));
+        assert!(holds_typed_field(&scene(LIMITS.max_name + 1)));
+        assert!(holds_typed_field(&scene(LIMITS.max_scene_name)));
+        assert!(!holds_typed_field(&comment(Side::Above)));
+        for side in [Side::Below, Side::Left, Side::Right] {
+            assert!(holds_typed_field(&comment(side)), "{side:?}");
+        }
+        assert!(!holds_typed_field(&stroke));
+        // Nor a registry value or a scene's state: a file says those by its `rows`.
+        assert!(!holds_typed_field(&scene_state(holding(&["rows"]))));
     }
 
     #[test]

@@ -1285,11 +1285,11 @@ mod tests {
     #[test]
     fn the_gated_fields_are_live_only_from_their_writers_version() {
         use mapcro_schema::{Admit, CALLOUT_SIDE, LONG_SCENE_NAME, STROKE_COLOR, Status};
-        assert!(SCHEMA_VERSION >= SIDES_WRITER, "the three are live: their writer's step must be in this build");
+        const { assert!(SCHEMA_VERSION >= SIDES_WRITER, "the three are live: their writer's step must be in this build") };
         assert_eq!((LONG_SCENE_NAME, CALLOUT_SIDE, STROKE_COLOR), (Status::Live, Status::Live, Status::Live));
         let d = Admit::DEPLOYED;
         assert_eq!((d.long_scene_name, d.callout_side, d.stroke_color), (Status::Live, Status::Live, Status::Live));
-        assert!(SIDES_READER < SIDES_WRITER);
+        const { assert!(SIDES_READER < SIDES_WRITER) };
     }
 
     /// The writer's database (feedback #56, #59, #60 `Live`): the v11 reader opens it and leaves

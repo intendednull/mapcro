@@ -27,7 +27,7 @@ use axum::body::Body;
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use mapcro_schema::{Admit, BUILD_ID, Doc, LIMITS, Record, RecordId, Status};
+use mapcro_schema::{Admit, BUILD_ID, Doc, LIMITS, Record, RecordId};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -51,9 +51,6 @@ pub const FORMAT: &str = "mapcro-board";
 pub const VERSION: u64 = 3;
 /// The newest version this build reads.
 pub const READS: u64 = 3;
-/// What the v11 build admits in a file: everything this one does but the three typed fields.
-/// A file it would refuse is written as [`VERSION`]; any other as version 2.
-const V2_ADMITS: Admit = Admit { long_scene_name: Status::Ahead, callout_side: Status::Ahead, stroke_color: Status::Ahead, ..Admit::READS };
 /// The largest file, either way. A board this size as JSON is the largest the server sends as
 /// one snapshot (`room::SNAPSHOT_MAX_BYTES`); real boards are kilobytes to a few hundred. The
 /// schema's own limits allow ~64 MB, which would never fit the room memory budget as a body.
@@ -125,7 +122,7 @@ impl Refusal {
 fn file(doc: &Doc, matches: Vec<u64>, exported_at: i64) -> BoardFile {
     let records = mapcro_schema::export_records(doc);
     // The oldest version that says what the file holds: version 2 imports on the v11 build.
-    let version = if records.iter().all(|(_, r)| V2_ADMITS.record(r).is_ok()) { 2 } else { VERSION };
+    let version = if records.iter().any(|(_, r)| mapcro_schema::holds_typed_field(r)) { VERSION } else { 2 };
     BoardFile {
         format: FORMAT.to_owned(),
         version,
@@ -420,7 +417,7 @@ mod tests {
     /// and imports every other file this build writes.
     #[test]
     fn a_file_is_version_3_only_when_it_holds_what_the_v11_build_refuses() {
-        use mapcro_schema::{Callout, FieldValue, Op, Side, Tx, TxKind, WorldPos};
+        use mapcro_schema::{Callout, FieldValue, Op, Side, Status, Tx, TxKind, WorldPos};
         /// The newest file version the v11 build reads, and its gate.
         const V11_READS: u64 = 2;
         let v11 = Admit { long_scene_name: Status::Ahead, callout_side: Status::Ahead, stroke_color: Status::Ahead, ..Admit::DEPLOYED };
