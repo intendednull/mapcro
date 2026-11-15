@@ -1,8 +1,123 @@
 # Sessions build, phases 3 onward: handoff
 
-Branch `sessions-p3` (worktree `mapcro.worktrees/sessions-p3`), off main a0774c5. The spec is
-`docs/specs/sessions.md`; what phase 3 built is written into its §4.1, §4.2, §4.3, §5 and §10.
+Phase 3: branch `sessions-p3` (worktree `mapcro.worktrees/sessions-p3`), off main a0774c5.
+Phase 4: branch `sessions-p4` (worktree `mapcro.worktrees/sessions-p4`), off main 66c643d, with
+main 62bab62 merged in. The spec is `docs/specs/sessions.md`; what phase 3 built is written into
+its §4.1, §4.2, §4.3, §5 and §10, and what phase 4 built into §6.1 to §6.3, §9.3 and §10.
 Newest state at the top.
+
+## Phase 4: follow across tabs (2026-11-14), built and verified, not yet reviewed
+
+Built by a Fable session (characterisation 03fb953 and 2aeb811, then a3f5fd1), which hit its
+usage limit with its last batch green and two test edits uncommitted (0a555e9). Finished by an
+Opus session: main merged in, every check run on the merged tree, three rows added. Phase 5 is
+not started.
+
+**What a coach sees.** In a session, someone who follows the coach goes with them from tab to
+tab: the next board mounts (about 200 ms from the coach's click in the walkthrough) and follows
+there at once, scene, viewport, playback, layers and Vision, with no "Presenter left" on the
+way. If the coach opens a tab the follower can't open (a withdrawn grant, a board that's gone),
+the follower stays where it is, still following, and its chip says "No access" in the warning
+colour, at every width and on the phone's Player bar; it goes along again when the coach moves
+on. Picking a tab yourself stops the follow and keeps the tab, with "Follow again" in the toast.
+A tab removed under both moves both left, and the follow goes on. A late joiner can follow a
+coach on another tab from the chip or with F, if someone already follows them. A tab left with
+changes not sent gets a dot ("Not sent") on the strip until that board is opened here again
+and they go. A session editor on a view-only tab can be followed by the session's people, and
+the board's own people learn nothing of the session.
+
+**Main merged in** (0ba418a): one conflict, `docs/backlog.md` (both sides kept). No code
+conflict. The removed `TabView.side` and the feedback release's `Board.tsx` changes don't
+touch what phase 4 changed. `just ts` leaves `web/src/gen` as committed.
+
+**The two uncommitted edits (0a555e9), checked and kept.** `session-follow.test.ts`: a presenter
+followed by others too, on a tab this page can't open, is still not offered to their own
+follower; it is the test that kills unit mutant 40 (the followed presenter offered while
+followed), the one batch 5 missed. `sessions-client.test.ts`: the view-only-tab test waits for
+names, not for three peers: each connection sends a presence with its seat and no name as it
+joins, so "three peers" could hold with empty names (batch 5's one failure). Test-only.
+
+**Added by the Opus session:**
+
+- `timeline-load.test.ts`, "a layer set while the matches aren't known stays the tab's own when
+  a follow begins and moves the page off": the carried check's half that had no follow in it.
+  It kills a hand mutant the other host tests let through (the shown Heals taken as the tab's
+  own while it opens).
+- `session-follow.spec.ts`, "on a phone in Player, the follow chip drops the scene name but
+  says No access": the phone's side of the CSS change had no row. Kills two of the three new
+  e2e mutants; the third is equivalent (below).
+- `session-follow.spec.ts`, the removed-tab row now also has someone else remove the tab both
+  are on. When the presenter removes it, the follower can hear the presenter's new tab before
+  its own copy drops the tab, so the session's move (`place`) was never what moved it, and the
+  mutant that makes it a pick (which stops the follow) lived. With a third person removing it,
+  the follower's copy moves it first.
+
+### The checks, on the merged tree, through `tools/heavy.sh` (batches 7 to 10)
+
+- `just web-test` (0ba418a): **75 files, 796 passed, 1 skipped; `tsc` clean.**
+- `just clippy`: clean. `just test`: green (39 suites, 547 tests; the sim's 1000 seeds both
+  ways; `reader-check` with ce1ec0c: 40 boards read back byte for byte).
+- `just e2e --workers 2` (0ba418a): **498 passed, 15 skipped, none failed** (20.7 min). The two
+  `frozen-write-guard` rows show ✘ as they are meant to.
+- `just e2e-firefox --workers 2` (5ad2257, the phone specs): **27 passed, 2 skipped.**
+- The unit files (`session-follow`, `sessions-client`, `timeline-load`): **86 of 86, three
+  times** (5ad2257).
+- `session-follow.spec.ts`, 2 workers: **15 of 15** on 5ad2257 and again on 89dcac3; the phone
+  row 3 more times, the removed-tab row 3 more times: all passed.
+- **Interop against the deployed build, ce1ec0c** (scratch `interop/run.sh`: both engines built
+  from `git archive`, each reading the other's frames): this build reads its own 4 frames and
+  writes `tab` (2 frames) and `session_role` (1); ce1ec0c reads all 4, finds them valid and
+  drops both fields; this build reads what ce1ec0c wrote back, byte for byte; the build ids
+  differ, so the server closes the other build's pages as outdated. (Fable's run against
+  ae169e6: the same.)
+- **The walkthrough** (scratch, a real replay on three live tabs and one dead, a presenter and
+  a view-link follower; 5ad2257 for the full run, 9d61aa9 for a debug run of its switches):
+  the follower went along 7 of 7 switches, its clock the presenter's 7/7, still following 7/7,
+  the address naming the tab; board mounted median 199 ms (max 227), match drawn median
+  2165 ms (max 2381); no "Presenter left"; on the dead tab its chip said so, it stayed and
+  kept following, no banner of its own; back on a live tab it came; a pick stopped it and
+  kept its own Heals there, "Follow again" took it back; the presenter leaving ended the
+  follow and left it where it was; 0 page errors, 0 console errors but the dead tab's 6
+  refused requests.
+  - **The viewport, 4 of 7 at first sight, is the wire's rounding.** Fable's run said "the
+    follower's viewport the presenter's 3/7". A debug run printed each rectangle: before each
+    zoom the two matched; after it they matched to the unit, except the fully zoomed-out view,
+    which is 1500 wide for the presenter and 1499 for the follower (3 of 7, the walkthrough's
+    "within 1" was strict). Inside one tab, before any switch, the same. Nothing to fix here.
+
+### Mutation
+
+- **Unit, hand:** 64 mutants over `follow.ts` (31), `viewstate.ts` (12), `core/session.ts`
+  (12) and `unsent.ts` (9) (scratch `unit-mutants.py`): Fable's batch 5, 63 killed and number
+  40 missed; batch 6, with 0a555e9's edit, 40 to 63 all killed. **64 of 64.** Plus the one over
+  `host.ts` above.
+- **cargo-mutants** on the engine's and the server's diff (Fable's batch 5, a3f5fd1; the merge
+  changes none of those files): engine 11 (7 caught, 4 unviable), server 21 (14 caught, 7
+  unviable). **None missed.**
+- **Browser rows, hand** (scratch `e2e-mutants.py`, `git status` clean after each run): 31, of
+  which one is not run (a held switch put back as a place: no row can tell). **29 killed, 1
+  equivalent:** the phone's Player bar showing the scene name, which there is always empty (in
+  Player the presenter's scene is the live layer, which has no label). On the way, number 8
+  removed a line and left a dangling `else` (it "killed" by not building); it is a real
+  mutant now, and killed. Number 13 is the one the removed-tab row's new half kills.
+
+### Debt
+
+TD-103 (a board link of one's own on a view-only tab: no session role, a follow that holds on
+nobody), TD-104 (the first follow to each tab asks whether it opens, one round trip), TD-105
+(Board's side of the hand-off has no unit seam). Ids checked free on main, `feedback-56-60` and
+`map-state-d2`. No new debt from the Opus session.
+
+### Open, for the lead
+
+- **Reviews.** It is presence and sync work across client versions: the state-changes rule
+  wants an adversarial review, and the server's per-reader stamp of `session_role` a security
+  read, before merge.
+- **Backlog, from this phase** (`docs/backlog.md`, "Follow across tabs: what phase 4 left"):
+  someone on another tab whom nobody follows yet can't be followed from here (the people
+  list's "Session" group and the avatar dots of §8 are in neither phase 4 nor phase 5: which
+  phase?); the people list says "following <name>" while the chip says "No access"; the
+  strip's "Not sent" dot wants the lead's check against §4b.
 
 ## After the second review (2026-11-14, of f5c0a1e..01912db): its fixes
 

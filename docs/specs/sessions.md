@@ -2,7 +2,8 @@
 **Status:** draft for the operator's review. Phase 0 built (2026-11-11, §4.1 and §10). Phase 1
 (the server) built 2026-11-12 (§10), reviewed and fixed. Phase 2 (the client) built 2026-11-12
 (§10). Phase 3 (speed: what a tab remembers, the timeline cache; the pool of warm boards was
-measured and not kept) built 2026-11-13, verified 2026-11-14 (§10), not yet reviewed.
+measured and not kept) built 2026-11-13, verified 2026-11-14 (§10), not yet reviewed. Phase 4
+(follow across tabs) built and verified 2026-11-14 (§6, §9.3, §10), not yet reviewed.
 **Supersedes:** the 2026-11-10 sketch "Several replays on one board, as game tabs" (docs/backlog.md,
 mockup `/home/intendednull/concierge/artifacts/mapcro-multi-replay/index.html`). The tab strip
 and the reasons stay. The model changes: there is still one board per game, not several games
@@ -1214,20 +1215,54 @@ Each phase is small, merges on its own, and leaves boards unchanged.
    - **Debt:** TD-93 to TD-96.
 4. **Follow across tabs.** `seat`, `tab` and `session_role`, the `session.tab` registry row and
    the `Id` kind, the follow chip's "No access", and §9.3.
-   **Checks carried from phase 3** (the layers a tab holds, §4.2):
+   **Built and verified 2026-11-14 (branch `sessions-p4`, with main 62bab62 merged in), not yet
+   reviewed** (`docs/journal/2026-11-14-sessions-build.md`, "Phase 4"). What was built is
+   written into §6.1, §6.2 and §6.3 ("As built"). No store version and no map-state row:
+   `tab` is a presence field, `session_role` the server's stamp on a peer's presence, and both
+   are read leniently, so the deployed build and this one read each other's frames.
+   - **Tests:** `crates/server/tests/sessions.rs` (presence in a tab's board and in the
+     session's room, written first; `session_role` per reader; `tab` dropped in a board's room),
+     `crates/engine` (`wire.rs` `lenient_id`, the registry's `session.tab` row),
+     `web/test/session-follow.test.ts` (`createSessionFollow`: where to go, No access, who is
+     offered, a pick, Follow again), `web/test/sessions-client.test.ts` (`followable` against
+     the real server; what `onEnded` counts as not sent), `web/test/timeline-load.test.ts` (a
+     layer set while the matches aren't known, under a follow), and
+     `web/e2e/session-follow.spec.ts`: §9.3 a row each, a characterisation row written first,
+     and "No access" on the phone's Player bar.
+   - **Mutation:** 64 hand mutants over `follow.ts`, `unsent.ts`, `viewstate.ts` and
+     `core/session.ts`, all killed by the unit files; 31 over `Board.tsx`, `Presence.tsx`,
+     `SessionView.tsx` and the styles that only the browser rows can fail: 29 killed, 1
+     equivalent (the phone's Player bar showing the scene name, which is empty there: the
+     presenter's scene in Player is the live layer), 1 not run (no row can tell it). cargo-mutants on the engine's and the
+     server's diff: 32 mutants, 21 caught, 11 unviable, none missed. The lists are in the
+     journal.
+   - **Interop** against the deployed build (ce1ec0c): it reads this build's presence frames
+     and drops `tab` and `session_role`; this build reads its frames byte for byte.
+   - **Debt:** TD-103 to TD-105.
+   **Checks carried from phase 3** (the layers a tab holds, §4.2), each with its test:
    - A follower moved off a tab keeps nothing of the presenter's layers, Vision or Show last
      seen for it: only what the follower set there is the tab's own. Until phase 3's change the
      tab kept what it showed. Confirm that is wanted once a follow crosses tabs (the scene and
      the playback are still kept as shown: `Keep`), and give it a row in §9.3.
+     **Holds:** the §9.3 row "a follower moved off a tab keeps none of the presenter's layers
+     there" (back on the tab by itself, and after a reload).
    - A layer set before a tab's matches are known, or before its match is confirmed, is the
      tab's own. Covered since phase 3: before the match is drawn, by `test/timeline-load.test.ts`
      (`remember` while opening); drawn and not yet confirmed, by the end of the Player row in
      `e2e/session-isolation.spec.ts` (the timeline's answer held, Heals set, the tab left).
      Check it still holds when a follow moves a person off a tab at that moment.
+     **Holds:** drawn and not yet confirmed, the §9.3 row "a layer set before a tab's match is
+     confirmed is the tab's own" (the answer held while the follow moves the person off); the
+     matches not known yet, `timeline-load.test.ts` "a layer set while the matches aren't known
+     stays the tab's own when a follow begins and moves the page off".
    - **A left tab with unsent work** (TD-101): an edit made as a tab is left goes out within 2 s
      or stays pending in this browser until that board is opened here again. The strip should
      mark such a tab (as the save status does on the board), so the user knows collaborators
      don't have it yet.
+     **Built:** a dot with the hover "Not sent", in the save status's offline colour, on every
+     tab left so but the open one, kept through a reload (`session/unsent.ts`). The §9.3 row
+     "the strip marks a tab left with changes not sent"; what counts as not sent,
+     `sessions-client.test.ts`.
 5. **Polish.** Strip details (match, winner, tier, job status), Load a game and New board from
    the strip, the overflow list, the phone Games sheet, and the mapcro:// session links.
 6. **Later.** Adding a tab from another session (a grant of a grant), cloning a session (open question 11), a series scoreline, and
