@@ -92,7 +92,7 @@ test("a comment's side and a placed thing's colour, from its right-click menu, f
   await comment(a).locator(".bubble-body").click({ button: "right" });
   await expect(menu(a).getByTestId("comment-side-left")).toHaveAttribute("aria-checked", "true");
   await menu(a).getByTestId("recolour-3").click();
-  await a.mouse.move(5, 5); // a hovered bubble lightens
+  for (const p of [a, b]) await p.mouse.move(5, 5); // a hovered bubble lightens
   for (const p of [a, b]) await expect.poll(() => css(comment(p).locator(".bubble-body"), "fill")).toBe(LIME);
   await a.locator(`.mapbox [data-arrow="${arrow}"] .arw`).click({ button: "right" });
   await expect(menu(a)).toHaveAttribute("aria-label", "Arrow");
