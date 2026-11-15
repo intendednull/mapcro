@@ -133,6 +133,13 @@ impl BoardReplica {
         self.inner.next_cseq() as f64
     }
 
+    /// How many transactions are pending (made here, not yet acknowledged): what a save status
+    /// counts, read from the replica itself, also before any call has said a status.
+    #[wasm_bindgen(js_name = pendingCount)]
+    pub fn pending_count(&self) -> f64 {
+        self.inner.pending().count() as f64
+    }
+
     /// `Op[]` as JSON, applied as one transaction (one undo step).
     pub fn edit(&mut self, ops_json: &str) -> Result<String, JsError> {
         let ops: Vec<Op> = serde_json::from_str(ops_json).map_err(js_err)?;

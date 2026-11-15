@@ -168,6 +168,19 @@ fn session_role_for(peer: Option<&Via>, reader: Option<&Via>) -> Option<LinkRole
     }
 }
 
+/// Whom `reader` is told a peer follows (sessions spec §3.3): `following` as sent, unless the
+/// person followed has a view role on this board, so is followable here only through a session
+/// the reader isn't in (`session_role_for`): then nobody. A board's own people would otherwise
+/// see a session's tie ("following", "presenting") beside someone the board says is view only.
+/// `viewers`: this board room's view-role peers, with the session each came through.
+fn following_for(following: Option<u64>, viewers: &HashMap<u64, Option<Via>>, reader: Option<&Via>) -> Option<u64> {
+    let t = following?;
+    match viewers.get(&t) {
+        Some(via) if session_role_for(via.as_ref(), reader).is_none() => None,
+        _ => Some(t),
+    }
+}
+
 struct Peer {
     link_hash: String,
     via: Option<Via>,
@@ -769,6 +782,7 @@ impl Room {
             .collect();
         // The session each of them came through, and its role there: stamped per reader.
         let through: HashMap<u64, Via> = owed.iter().filter_map(|(id, _)| Some((*id, self.peers.get(&ConnId(*id))?.via.clone()?))).collect();
+        let viewers = self.viewers();
         // Everyone gets the batch minus their own entry, plus anything they missed.
         let mut slow = Vec::new();
         let mut retry = false;
@@ -791,7 +805,11 @@ impl Room {
                 .iter()
                 .filter(|id| **id != c.0)
                 .filter_map(|id| entries.get(id).cloned())
-                .map(|e| PeerPresence { session_role: session_role_for(through.get(&e.peer), p.via.as_ref()), ..e })
+                .map(|e| {
+                    let session_role = session_role_for(through.get(&e.peer), p.via.as_ref());
+                    let state = e.state.map(|s| Presence { following: following_for(s.following, &viewers, p.via.as_ref()), ..s });
+                    PeerPresence { session_role, state, ..e }
+                })
                 .collect();
             if !mine.is_empty() && !p.offer(Out::Frame(frame(&WireOut::Presence { peers: mine }))) {
                 slow.push(*c);
@@ -804,6 +822,15 @@ impl Room {
         if retry {
             self.flush_at = Some(tokio::time::Instant::now() + PRESENCE_BATCH);
         }
+    }
+
+    /// A board room's view-role peers, with the session each came through (`following_for`).
+    /// None in a session's room, where roles are the session's own.
+    fn viewers(&self) -> HashMap<u64, Option<Via>> {
+        if self.authority.doc().kind() == mapcro_schema::DocKind::Session {
+            return HashMap::new();
+        }
+        self.peers.iter().filter(|(_, p)| p.role == LinkRole::View).map(|(c, p)| (c.0, p.via.clone())).collect()
     }
 
     fn join(
@@ -826,10 +853,18 @@ impl Room {
         let peer = Peer { link_hash, via, role: link_role, out, queued: Arc::default(), presence: None, missed: Vec::new() };
         self.authority.connect(conn, role);
         // Everyone already here, so the newcomer sees the room at once.
+        let viewers = self.viewers();
         let here: Vec<PeerPresence> = self
             .peers
             .iter()
-            .filter_map(|(c, p)| p.presence.clone().map(|s| PeerPresence { peer: c.0, role: p.role, session_role: session_role_for(p.via.as_ref(), peer.via.as_ref()), state: Some(s) }))
+            .filter_map(|(c, p)| {
+                p.presence.clone().map(|s| PeerPresence {
+                    peer: c.0,
+                    role: p.role,
+                    session_role: session_role_for(p.via.as_ref(), peer.via.as_ref()),
+                    state: Some(Presence { following: following_for(s.following, &viewers, peer.via.as_ref()), ..s }),
+                })
+            })
             .collect();
         if !here.is_empty() {
             peer.offer(Out::Frame(frame(&WireOut::Presence { peers: here })));

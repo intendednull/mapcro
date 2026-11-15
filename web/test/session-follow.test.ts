@@ -478,6 +478,10 @@ describe("tabs left with changes not sent (TD-101)", () => {
     const two = withUnsent(one, b("B"), 1);
     expect([...two]).toEqual([b("A"), b("B")]);
     expect([...withUnsent(two, b("A"), 0)]).toEqual([b("B")]);
+    // Left where the page couldn't tell (nothing of the board loaded, or a copy that never
+    // connected and holds nothing): a mark made before stays, and none is made.
+    expect(withUnsent(two, b("A"), undefined)).toBe(two);
+    expect(withUnsent(none, b("A"), undefined)).toBe(none);
   });
   it("outlasts a reload, per session", () => {
     const s = new Mem();

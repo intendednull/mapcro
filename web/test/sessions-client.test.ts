@@ -341,7 +341,7 @@ describe("the session connection against the real server", () => {
     );
     return { ...s, board: b.board, boardToken: b.owner_token };
   };
-  const open = (board: string, token: string, o: { expect?: "board" | "session"; via?: { session: string; grant: string }; persist?: Persist; onEnded?: (unsent: number) => void; openSocket?: (url: string) => SocketLike } = {}) =>
+  const open = (board: string, token: string, o: { expect?: "board" | "session"; via?: { session: string; grant: string }; persist?: Persist; onEnded?: (unsent: number | undefined) => void; openSocket?: (url: string) => SocketLike } = {}) =>
     new BoardSession({ wsUrl: server.ws, board, token, persist: o.persist ?? new MemoryPersist(), openSocket: o.openSocket ?? openSocket, minDelayMs: 50, maxDelayMs: 400, ...(o.expect ? { expect: o.expect } : {}), ...(o.via ? { via: o.via } : {}), ...(o.onEnded ? { onEnded: o.onEnded } : {}) });
 
   it("a session's room, opened by a page that expects a board, is left at once and nothing of it kept", async () => {
@@ -675,8 +675,8 @@ describe("the session connection against the real server", () => {
   it("an ended session says how many changes never went out (TD-101)", async () => {
     const b = await api.createBoard("unsent");
     const persist = new MemoryPersist();
-    const ended: number[] = [];
-    const onEnded = (n: number) => void ended.push(n);
+    const ended: Array<number | undefined> = [];
+    const onEnded = (n: number | undefined) => void ended.push(n);
     const observer = open(b.board, b.owner_token);
     await observer.start();
     await until(() => observer.connection.kind === "live", "observer live");
@@ -738,6 +738,62 @@ describe("the session connection against the real server", () => {
     observer.end();
   });
 
+  it("a session left before it connected says what its stored copy holds, or that it can't tell (TD-101)", async () => {
+    const b = await api.createBoard("unsent, early");
+    const persist = new MemoryPersist();
+    const ended: Array<number | undefined> = [];
+    const onEnded = (n: number | undefined) => void ended.push(n);
+    // A socket that never gets as far as Ready: nothing answers there.
+    const nowhere = (): SocketLike => new WebSocket("ws://127.0.0.1:9/", { origin: ORIGIN }) as unknown as SocketLike;
+    // Left before it was started: nothing of the board was loaded here, so not known.
+    const never = open(b.board, b.owner_token, { persist, onEnded });
+    never.end();
+    await until(() => ended.length === 1, "ended");
+    expect(ended[0]).toBeUndefined();
+    // Nothing stored for the board yet, and no Ready: not known either (never "none").
+    const cold = open(b.board, b.owner_token, { persist, onEnded, openSocket: nowhere });
+    await cold.start();
+    await sleep(100);
+    cold.end();
+    await until(() => ended.length === 2, "ended");
+    expect(ended[1]).toBeUndefined();
+    // Two edits made offline wait in the stored copy.
+    const off = open(b.board, b.owner_token, { persist, onEnded });
+    await off.start();
+    await until(() => off.connection.kind === "live" && off.status.kind === "saved", "live");
+    const [p0] = players(off);
+    off.stop();
+    expect(off.edit(move(p0!, 51))).toBe(true);
+    expect(off.edit(move(p0!, 52))).toBe(true);
+    await sleep(50);
+    off.end();
+    await until(() => ended.length === 3, "ended");
+    expect(ended[2]).toBe(2);
+    // The board opened again from that copy and left before Ready: its status never left the
+    // default "saved", but the copy holds both, and says so.
+    const early = open(b.board, b.owner_token, { persist, onEnded, openSocket: nowhere });
+    await early.start();
+    await sleep(100);
+    expect(early.status.kind).toBe("saved");
+    early.end();
+    await until(() => ended.length === 4, "ended");
+    expect(ended[3]).toBe(2);
+    // Sent at last, and acknowledged: a copy with nothing pending, left before Ready, can't
+    // tell what the server has, so it says nothing.
+    const back = open(b.board, b.owner_token, { persist, onEnded });
+    await back.start();
+    await until(() => back.connection.kind === "live" && back.status.kind === "saved" && xOf(back, p0!) === 52, "sent");
+    back.end();
+    await until(() => ended.length === 5, "ended");
+    expect(ended[4]).toBe(0);
+    const quiet = open(b.board, b.owner_token, { persist, onEnded, openSocket: nowhere });
+    await quiet.start();
+    await sleep(100);
+    quiet.end();
+    await until(() => ended.length === 6, "ended");
+    expect(ended[5]).toBeUndefined();
+  });
+
   it("a change handed to a socket that then dropped counts as not sent; one handed to this connection's doesn't", async () => {
     const b = await api.createBoard("unsent, dropped");
     // Sockets whose sends can be swallowed from some moment (a link that stalls), and dropped.
@@ -753,7 +809,7 @@ describe("the session connection against the real server", () => {
       return ws as unknown as SocketLike;
     };
     const stall = () => void stalled.add(socks.at(-1)!);
-    const ended: number[] = [];
+    const ended: Array<number | undefined> = [];
     // Handed to the socket, never acknowledged, the session ended while still connected: the
     // socket had it, so it isn't counted.
     const a = open(b.board, b.owner_token, { openSocket: stalling, onEnded: (n) => void ended.push(n) });
@@ -815,7 +871,7 @@ describe("the session connection against the real server", () => {
     await until(() => strip.status.kind === "saved", "tab added");
     strip.end();
     const persist = new MemoryPersist();
-    const ended: number[] = [];
+    const ended: Array<number | undefined> = [];
     const ed = open(s.board, s.owner_token, { via: { session: s.session, grant: s.grant.grant_id }, persist });
     await ed.start();
     await until(() => ed.connection.kind === "live" && ed.status.kind === "saved", "edit grant live");

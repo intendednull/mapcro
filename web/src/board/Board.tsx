@@ -172,7 +172,7 @@ export interface InSession {
   /** This tab's board answered: it opened, or the server refused it for good (§6.3). */
   opened: (ok: boolean) => void;
   /** This board was left with `unsent` changes not sent (TD-101: the strip marks the tab). */
-  left: (board: string, unsent: number) => void;
+  left: (board: string, unsent: number | undefined) => void;
 }
 
 export function Board(p: { board: string; token: string; art: Art; session?: InSession }) {
@@ -183,7 +183,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const state = createBoardState(p.board, p.token, {
     ...(via ? { via } : {}),
     ...(history ? { onEdit: () => history.edited(p.board) } : {}),
-    ...(inSession ? { onLeft: (unsent: number) => inSession.left(p.board, unsent) } : {}),
+    ...(inSession ? { onLeft: (unsent: number | undefined) => inSession.left(p.board, unsent) } : {}),
   });
   /** The session's follow, in a session: it outlives this mount (sessions.md §6). */
   const across = inSession?.follow;
@@ -385,8 +385,10 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       // Not in this board's room, but in the session's: on another tab (the session moves this
       // page there, or the chip says No access), or on their way into this one. The follow
       // holds, showing what they showed here; once the session loses them too, the wait for a
-      // reconnect starts from then.
-      target = { peer: FAR_PEER, seat: target.seat, joins: state.joined().n, lostAt: now };
+      // reconnect starts from then: no `lostAt` while held, so the wait below stamps it at the
+      // moment `holds()` turns false (a stamp from here goes stale on a quiet board, and a blip
+      // of the presenter's connection would end the follow at once).
+      target = { peer: FAR_PEER, seat: target.seat, joins: state.joined().n };
       clearTimeout(recheckTimer);
       tell(null);
       // Who they are, as the session's room has them; nothing of what their pointer was on.

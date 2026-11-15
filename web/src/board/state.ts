@@ -60,7 +60,7 @@ export interface BoardStateOptions {
   /** You made an undoable edit (the page's one history, session/history.ts). */
   onEdit?: () => void;
   /** The board was left with this many changes not sent (session.ts `onEnded`). */
-  onLeft?: (unsent: number) => void;
+  onLeft?: (unsent: number | undefined) => void;
 }
 
 /**

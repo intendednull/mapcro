@@ -77,12 +77,14 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   // ---- tabs left with changes not sent (TD-101): marked on the strip until that board is
   // opened here again and they go. Kept for this browser tab, as what a tab showed is. ----
   const [unsent, setUnsent] = createSignal<ReadonlySet<string>>(loadUnsent(sessionStorage, p.session));
-  const left = (board: string, n: number) => {
+  const left = (board: string, n: number | undefined) => {
     const next = withUnsent(unsent(), board, n);
     if (next === unsent()) return;
     setUnsent(next);
     saveUnsent(sessionStorage, p.session, next);
   };
+  /** The open tab's board: its own save status says what it hasn't sent, on any tab of it. */
+  const openBoard = () => s.tabs().find((t) => t.id === active())?.board;
   const [adding, setAdding] = createSignal(takeAddOnOpen(p.session));
   const [sharing, setSharing] = createSignal(false);
   const [menu, setMenu] = createSignal<{ at: { x: number; y: number }; tab: TabRow }>();
@@ -360,7 +362,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
                 onEditing={(on) => !on && setRenaming(undefined)}
                 onCommit={(text) => rename(t, text)}
               />
-              <Show when={unsent().has(t.board) && t.id !== active()}>
+              <Show when={unsent().has(t.board) && t.board !== openBoard()}>
                 <span class="game-unsent" role="img" data-testid="tab-unsent" title="Not sent" aria-label="Not sent" />
               </Show>
               <Show when={s.canEdit()}>

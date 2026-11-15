@@ -1305,7 +1305,9 @@ async fn a_boards_own_people_see_a_tab_connection_by_its_board_role_and_nothing_
     assert_eq!(seen["role"], "view", "the board role: min(session owner, a view grant)");
     assert_eq!(seen["state"]["seat"], 7);
     assert_eq!(seen["state"].get("tab"), None, "a board's room carries no tab: {seen}");
-    assert!(!seen.to_string().contains(&session.id) && !seen.to_string().contains(&tab_id), "{seen}");
+    // Nothing else of what was sent is changed or added: the state is the one sent, less `tab`.
+    let want = serde_json::to_value(mapcro_engine::wire::Presence { name: "Member".into(), seat: Some(7), ..Default::default() }).expect("json");
+    assert_eq!(seen["state"], want, "{seen}");
     // And the other way: the board's owner, as the tab's connection sees it.
     send(&mut own, &presence_frame("Owner", serde_json::json!({ "seat": 8 }))).await;
     let seen = presence_of(&mut tab, "Owner").await;
@@ -1414,11 +1416,76 @@ async fn session_members_are_told_each_others_session_role_on_a_tab_and_nobody_e
     let seen = presences_of(&mut late_fan, &["Coach", "Member", "Stranger", "Owner"]).await;
     assert!(seen.iter().all(|e| e.get("session_role").is_none()), "{seen:?}");
 
-    // A session's role is never the client's to say: one sent in a presence goes nowhere.
-    send(&mut fan, &presence_frame("Poser", serde_json::json!({ "session_role": "owner", "role": "owner" }))).await;
+    // A session's role is never the client's to say: the session's viewer claims to be its
+    // owner, and its people are told what its link gives it (view); a board's own viewer
+    // claims one too, and is stamped with none.
+    let claim = |name: &str| {
+        let mut f = presence_frame(name, serde_json::json!({ "session_role": "owner", "role": "owner" }));
+        f["session_role"] = "owner".into();
+        f["role"] = "owner".into();
+        f
+    };
+    send(&mut viewer, &claim("Poser")).await;
     let seen = presence_of(&mut coach, "Poser").await;
+    assert_eq!((seen["role"].as_str(), seen["session_role"].as_str()), (Some("view"), Some("view")), "{seen}");
+    assert_eq!(seen["state"].get("session_role"), None, "{seen}");
+    send(&mut fan, &claim("Poser2")).await;
+    let seen = presence_of(&mut coach, "Poser2").await;
     assert_eq!((seen["role"].as_str(), seen.get("session_role")), (Some("view"), None), "{seen}");
-    assert!(!seen["state"].to_string().contains("session_role"), "{seen}");
+}
+
+/// §3.3 (lead, phase 4 review): whom a session's member follows on a tab is the session's to
+/// know when the person followed is followable there only through the session (a view role on
+/// the board). Its own people, and another session's, are told the follower follows nobody, so
+/// they see neither "following" nor "presenting" beside someone the board calls view only. A
+/// follow of someone the board itself lets be followed is told to everyone, as on a board alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_boards_own_people_are_not_told_of_a_follow_that_only_the_session_allows() {
+    let server = Server::start(&[]);
+    let p = server.port;
+    let session = server.create_session("One", None);
+    let (_, s_edit) = server.mint_session(&session.id, &session.owner, "edit");
+    let (_, s_view) = server.mint_session(&session.id, &session.owner, "view");
+    let mut editor = Raw::open(p, &session.id, &session.owner, 0xa1).await;
+    let a = add_board(&server, &session, &mut editor, "view").await;
+    let other = server.create_session("Two", None);
+    let mut other_editor = Raw::open(p, &other.id, &other.owner, 0xa2).await;
+    let (other_grant, _) = server.grant_ok(&other.id, &other.owner, &a.board, &a.owner, None);
+    other_editor.submit(vec![mapcro_schema::Op::Create { id: rid(), record: tab_record(&a.board, &other_grant, "Game") }]).await.expect("tab added");
+    let (_, board_view) = server.mint(&a.board, &a.owner, "view");
+    let own = |token: String| {
+        let board = a.board.clone();
+        async move { auth_frame(p, serde_json::json!({ "t": "auth", "board": board, "token": token, "known_seq": null })).await }
+    };
+    let (_, mut owner) = own(a.owner.clone()).await;
+    let (_, mut fan) = own(board_view.clone()).await;
+    let (_, mut stranger) = ws_via(p, &a.board, &other.id, &other_grant, &other.owner).await;
+    let (_, mut viewer) = ws_via(p, &a.board, &session.id, &a.grant, &s_view).await;
+    let (_, mut coach) = ws_via(p, &a.board, &session.id, &a.grant, &session.owner).await;
+    send(&mut coach, &presence_frame("Coach", serde_json::json!({ "seat": 7 }))).await;
+    send(&mut owner, &presence_frame("Owner", serde_json::json!({ "seat": 8 }))).await;
+    let (_, mut member) = ws_via(p, &a.board, &session.id, &a.grant, &s_edit).await;
+    let here = presences_of(&mut member, &["Coach", "Owner"]).await;
+    let (coach_id, owner_id) = (here[0]["peer"].as_u64().expect("id"), here[1]["peer"].as_u64().expect("id"));
+    // The session's editor follows the session's owner, a viewer on this board.
+    send(&mut member, &presence_frame("Student", serde_json::json!({ "following": coach_id }))).await;
+    for (who, ws, told) in [("coach", &mut coach, true), ("session viewer", &mut viewer, true), ("board owner", &mut owner, false), ("board viewer", &mut fan, false), ("another session", &mut stranger, false)] {
+        let seen = presence_of(ws, "Student").await;
+        let want = if told { serde_json::json!(coach_id) } else { serde_json::Value::Null };
+        assert_eq!(seen["state"]["following"], want, "{who}: {seen}");
+    }
+    // Someone who arrives later is told the same.
+    let (_, mut late) = ws_via(p, &a.board, &session.id, &a.grant, &s_view).await;
+    assert_eq!(presence_of(&mut late, "Student").await["state"]["following"], coach_id);
+    let (_, mut late_fan) = own(board_view.clone()).await;
+    assert_eq!(presence_of(&mut late_fan, "Student").await["state"]["following"], serde_json::Value::Null);
+    // A follow of the board's owner, whom the board itself lets be followed: told to everyone.
+    send(&mut member, &presence_frame("Student", serde_json::json!({ "following": owner_id }))).await;
+    for (who, ws) in [("board viewer", &mut fan), ("another session", &mut stranger), ("session viewer", &mut viewer)] {
+        assert_eq!(presence_of(ws, "Student").await["state"]["following"], owner_id, "{who}");
+    }
+    send(&mut fan, &presence_frame("Fan", serde_json::json!({ "following": owner_id }))).await;
+    assert_eq!(presence_of(&mut coach, "Fan").await["state"]["following"], owner_id);
 }
 
 /// §6.1: a session's room carries each person's open tab; a tab that isn't an id as written is

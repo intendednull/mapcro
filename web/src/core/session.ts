@@ -74,9 +74,11 @@ export interface SessionOptions {
    * The session ended (`end`: its board was left) with this many changes never handed to the
    * socket: made offline, held through a view link, or still on their way when the wait for
    * them lapsed. They stay pending in this browser's storage until the board is opened here
-   * again (docs/tech-debt.md TD-101). Zero when everything went out.
+   * again (docs/tech-debt.md TD-101). Zero when everything went out; `undefined` when this
+   * page can't say (no copy of the board loaded, or one restored that never connected and
+   * holds nothing pending), so a mark made earlier is left as it is.
    */
-  onEnded?: (unsent: number) => void;
+  onEnded?: (unsent: number | undefined) => void;
 }
 
 const FINAL: CloseReason[] = ["unauthorized", "revoked"];
@@ -157,6 +159,8 @@ export class BoardSession {
   private presenceSentAt = 0;
   /** The last presence was held back as one the server would refuse (`send`). */
   private presenceRefused = false;
+  /** A `Ready` was taken on some connection: what is pending is known against the server. */
+  private connectedOnce = false;
   /** The cseqs of the transactions handed to the socket on this connection. */
   private readonly sent = new Set<number>();
 
@@ -307,12 +311,16 @@ export class BoardSession {
    * The pending transactions never handed to this connection's socket: all of them while not
    * connected. Pending ones are the newest cseqs, with no gap (the server answers in order).
    * One handed to the socket and not yet acknowledged isn't counted: the socket sends what it
-   * was given before it closes.
+   * was given before it closes. Read from the replica, not from `status` (which is the default
+   * "saved" until a call says otherwise). `undefined`, not known: no replica, or one that has
+   * never connected and holds nothing pending.
    */
-  private unsent(): number {
+  private unsent(): number | undefined {
     const r = this.replica;
-    const pending = "pending" in this.status ? this.status.pending : 0;
-    if (!r || !pending) return 0;
+    if (!r) return undefined;
+    const pending = r.pendingCount();
+    if (!this.connectedOnce) return pending > 0 ? pending : undefined;
+    if (!pending) return 0;
     if (!this.live) return pending;
     const next = r.nextCseq();
     let n = 0;
@@ -546,6 +554,7 @@ export class BoardSession {
           this.resetRecords(JSON.parse(this.replica.view()) as Array<[RecordId, Entry]>);
         }
         const u = this.apply(this.replica.connect());
+        this.connectedOnce = true;
         this.connected(u.frames[0]);
         // Edits made through another link (an edit grant, or this board's own link) are pending
         // in the copy this one shares by board id. Through a view link the server would take

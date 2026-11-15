@@ -63,15 +63,40 @@ async function go(p: Page, m: Made, i: number) {
   await saved(p);
 }
 
+/** As `joinNew`, on a page whose sockets the test can drop (`dropSockets`): each one it opens
+ * is kept, and closed from the page's side, as a network blip closes them. */
+async function joinDroppable(browser: Browser, url: string, name: string): Promise<Page> {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await ctx.addInitScript(() => {
+    const W = window.WebSocket;
+    const all: WebSocket[] = [];
+    (window as unknown as { __dropSockets: () => void }).__dropSockets = () => all.forEach((x) => x.close());
+    window.WebSocket = class extends W {
+      constructor(...a: ConstructorParameters<typeof W>) {
+        super(...a);
+        all.push(this);
+      }
+    };
+  });
+  const page = await ctx.newPage();
+  await page.goto(url);
+  await page.locator("#join-name").fill(name);
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("join-card")).toBeHidden();
+  await expect(page.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  return page;
+}
+const dropSockets = (p: Page) => p.evaluate(() => (window as unknown as { __dropSockets: () => void }).__dropSockets());
+
 /** A session of `n` boards made by the presenter ("Coach"), who is left on its first tab. */
-async function session(browser: Browser, n: 2 | 3 = 2): Promise<Made> {
+async function session(browser: Browser, n: 2 | 3 = 2, join = joinNew): Promise<Made> {
   const links: string[] = [];
   for (let i = 0; i < n; i++) links.push(await newBoardUrl(server, `Board ${"ABC"[i]}`));
   const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(links[0]!)!;
   const r = await fetch(`${server.url}/api/sessions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Follow", board, board_token: token }) });
   const s = (await r.json()) as { session: string; owner_token: string };
   const url = `${server.url}/s/${s.session}#${s.owner_token}`;
-  const a = await joinNew(browser, url, "Coach");
+  const a = await join(browser, url, "Coach");
   for (let i = 1; i < n; i++) {
     await a.getByTestId("add-game").click();
     await a.getByTestId("add-paste").fill(links[i]!);
@@ -390,6 +415,31 @@ test("the presenter goes to a tab nobody can open: the follower stays, its chip 
   expect(await mounted(b)).toBe(m.boards[0]);
 });
 
+test("a presenter held on a tab nobody can open, whose connection blips, is waited for: the follow goes on", async ({ browser }) => {
+  const m = await session(browser, 3, joinDroppable);
+  const { a } = m;
+  const b = await member(browser, m, "Student");
+  await revokeGrant(m, 2);
+  await follow(b);
+  await tabs(a).nth(2).click();
+  await expect(a.getByTestId("no-access")).toBeVisible();
+  await expect(where(b)).toHaveText("No access");
+  // Quiet for longer than a presenter's reconnect is waited for: nothing in the follower's
+  // board changes meanwhile.
+  await b.waitForTimeout(6000);
+  // The presenter's connections drop, and come back within the wait: the follow holds.
+  await dropSockets(a);
+  await b.waitForTimeout(1500);
+  await expect(following(b)).toHaveCount(1);
+  await expect(b.getByTestId("toast")).toHaveCount(0);
+  await expect(where(b)).toHaveText("No access");
+  // And goes on: the presenter moves to a tab that opens.
+  await go(a, m, 1);
+  await on(b, m, 1);
+  await expect(following(b)).toHaveCount(1);
+  await expect(where(b)).not.toHaveText("No access");
+});
+
 test("on a phone in Player, the follow chip drops the scene name but says No access", async ({ browser }) => {
   const m = await session(browser, 3);
   const { a } = m;
@@ -565,6 +615,14 @@ test("a session editor on a view-only tab is followable by session members, and 
   await expect(g.locator('.person[data-person="Coach"] .nofollow')).toHaveText("view only");
   await expect(g.getByTestId("follow-Coach")).toHaveCount(0);
   await expect(g.getByTestId("follow-presenter")).toHaveCount(0);
+  // Nor are they told of the session's tie (§3.3): the server says the Student follows nobody,
+  // so neither "following" beside the Student nor "presenting" beside the Coach.
+  await expect(g.locator('.person[data-person="Student"]')).toHaveCount(1);
+  await expect(g.locator('.person[data-person="Student"] .state')).not.toContainText("following");
+  await expect(g.locator('.person[data-person="Coach"] .state')).not.toContainText("presenting");
+  await expect(g.locator(".person .state.following, .person .state.presenting")).toHaveCount(0);
+  // The session's own people are: the Student's row says whom it follows.
+  await expect(a.locator('.person[data-person="Student"] .state')).toContainText("following you");
   // Nor is a session's viewer followable by anyone: the session's view link.
   const sv = (await (await fetch(`${server.url}/api/sessions/${s.session}/links`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${s.owner_token}` }, body: JSON.stringify({ role: "view", label: "v" }) })).json()) as { token: string };
   const v = await member(browser, m, "Viewer", `${server.url}/s/${s.session}#${sv.token}`);

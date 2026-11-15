@@ -34,8 +34,11 @@ export function saveUnsent(store: Pick<Storage, "setItem" | "removeItem">, sessi
 }
 
 /** `boards` after `board` was left with `unsent` changes not sent: noted (newest last), or
- * no longer. The same set when nothing changes. */
-export function withUnsent(boards: ReadonlySet<string>, board: string, unsent: number): ReadonlySet<string> {
+ * no longer. The same set when nothing changes, and when the page couldn't tell (`undefined`:
+ * nothing of the board loaded, or a copy that never connected and holds nothing pending), so a
+ * mark made before stays. */
+export function withUnsent(boards: ReadonlySet<string>, board: string, unsent: number | undefined): ReadonlySet<string> {
+  if (unsent === undefined) return boards;
   const noted = unsent > 0;
   if (noted === boards.has(board)) return boards;
   const next = new Set(boards);
