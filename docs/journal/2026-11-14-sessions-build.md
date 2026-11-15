@@ -2,7 +2,7 @@
 
 Phase 3: branch `sessions-p3` (worktree `mapcro.worktrees/sessions-p3`), off main a0774c5.
 Phase 4: branch `sessions-p4` (worktree `mapcro.worktrees/sessions-p4`), off main 66c643d, with
-main 62bab62 merged in. The spec is `docs/specs/sessions.md`; what phase 3 built is written into
+main merged in twice (62bab62, then aff82f7). The spec is `docs/specs/sessions.md`; what phase 3 built is written into
 its §4.1, §4.2, §4.3, §5 and §10, and what phase 4 built into §6.1 to §6.3, §9.3 and §10.
 Newest state at the top.
 
@@ -26,9 +26,13 @@ changes not sent gets a dot ("Not sent") on the strip until that board is opened
 and they go. A session editor on a view-only tab can be followed by the session's people, and
 the board's own people learn nothing of the session.
 
-**Main merged in** (0ba418a): one conflict, `docs/backlog.md` (both sides kept). No code
-conflict. The removed `TabView.side` and the feedback release's `Board.tsx` changes don't
-touch what phase 4 changed. `just ts` leaves `web/src/gen` as committed.
+**Main merged in** (0ba418a, main 62bab62): one conflict, `docs/backlog.md` (both sides kept).
+No code conflict. The removed `TabView.side` and the feedback release's `Board.tsx` changes
+don't touch what phase 4 changed. `just ts` leaves `web/src/gen` as committed.
+**And again** (6ad61b5, main aff82f7: map-state D2's reader, store v12, prod 3aa59af): one
+conflict, `docs/tech-debt.md`. Main took TD-103 (and `feedback-56-60` has 106 to 108), so
+phase 4's TD-103 is **TD-109**. Main's `Board.tsx` change (a scene's own heroes) is outside the
+follow. Every check below was run again on 6ad61b5.
 
 **The two uncommitted edits (0a555e9), checked and kept.** `session-follow.test.ts`: a presenter
 followed by others too, on a tab this page can't open, is still not offered to their own
@@ -52,7 +56,20 @@ joins, so "three peers" could hold with empty names (batch 5's one failure). Tes
   mutant that makes it a pick (which stops the follow) lived. With a third person removing it,
   the follower's copy moves it first.
 
-### The checks, on the merged tree, through `tools/heavy.sh` (batches 7 to 10)
+### The checks, on the merged tree, through `tools/heavy.sh` (batches 7 to 13)
+
+**On 6ad61b5 (main aff82f7 in; batches 12 and 13):** `just web-test` 77 files, 815 passed, 1
+skipped, `tsc` clean, `web/src/gen` unchanged; `just clippy` clean; `just test` green (39
+suites, 548 tests; the sim both ways; `reader-check` with 3aa59af, 40 boards byte for byte);
+**interop against prod 3aa59af**: all as against ce1ec0c below; `just e2e --workers 2`: 500
+passed, 16 skipped, **1 failed**: `board-unmount.spec.ts` "A, then B, then A again in one
+page, by back and forward" ran out of its 120 s at its last step (an avatar not yet shown),
+with Adora's jobs having just pushed the load past 40. Alone on a quiet box (load 1.6) the
+spec's 5 rows passed 3 times each, 15 of 15; it opens a board alone, which phase 4 doesn't
+change. A load flake, as TD-92 has. Firefox phone specs 27 passed, 2 skipped; the walkthrough
+as below (192 ms median to the mount, 2010 ms to the match drawn); mutant 13 killed 3 times of 3.
+
+**On 0ba418a and after (main 62bab62 in; batches 7 to 11):**
 
 - `just web-test` (0ba418a): **75 files, 796 passed, 1 skipped; `tsc` clean.**
 - `just clippy`: clean. `just test`: green (39 suites, 547 tests; the sim's 1000 seeds both

@@ -1215,7 +1215,7 @@ Each phase is small, merges on its own, and leaves boards unchanged.
    - **Debt:** TD-93 to TD-96.
 4. **Follow across tabs.** `seat`, `tab` and `session_role`, the `session.tab` registry row and
    the `Id` kind, the follow chip's "No access", and §9.3.
-   **Built and verified 2026-11-14 (branch `sessions-p4`, with main 62bab62 merged in), not yet
+   **Built and verified 2026-11-14 (branch `sessions-p4`, with main aff82f7 merged in), not yet
    reviewed** (`docs/journal/2026-11-14-sessions-build.md`, "Phase 4"). What was built is
    written into §6.1, §6.2 and §6.3 ("As built"). No store version and no map-state row:
    `tab` is a presence field, `session_role` the server's stamp on a peer's presence, and both
@@ -1236,8 +1236,9 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      presenter's scene in Player is the live layer), 1 not run (no row can tell it). cargo-mutants on the engine's and the
      server's diff: 32 mutants, 21 caught, 11 unviable, none missed. The lists are in the
      journal.
-   - **Interop** against the deployed build (ce1ec0c): it reads this build's presence frames
-     and drops `tab` and `session_role`; this build reads its frames byte for byte.
+   - **Interop** against the deployed build (3aa59af, and ce1ec0c before it): it reads this
+     build's presence frames and drops `tab` and `session_role`; this build reads its frames
+     byte for byte.
    - **Debt:** TD-104, TD-105 and TD-109.
    **Checks carried from phase 3** (the layers a tab holds, §4.2), each with its test:
    - A follower moved off a tab keeps nothing of the presenter's layers, Vision or Show last
