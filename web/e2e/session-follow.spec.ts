@@ -8,8 +8,9 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Browser, type Page, expect, test } from "./fixtures";
+import { type Browser, type Page, devices, expect, test } from "./fixtures";
 import { dragToken, joinNew, revealControls, tokenAt, viewLink, viewOf } from "./helpers";
+import { phoneContext } from "./phone-layout";
 import { Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 
 const queue = mkdtempSync(join(tmpdir(), "mapcro-e2e-session-follow-"));
@@ -387,6 +388,39 @@ test("the presenter goes to a tab nobody can open: the follower stays, its chip 
   await go(a, m, 1);
   await b.waitForTimeout(500);
   expect(await mounted(b)).toBe(m.boards[0]);
+});
+
+test("on a phone in Player, the follow chip drops the scene name but says No access", async ({ browser }) => {
+  const m = await session(browser, 3);
+  const { a } = m;
+  await load(a, "52031");
+  await revokeGrant(m, 2);
+  // Someone follows Coach, so Coach is presenting and the phone offers Follow.
+  const b = await member(browser, m, "Marrow");
+  await follow(b);
+  const iphone = devices["iPhone 13"];
+  const phone = await (await phoneContext(browser, iphone.viewport, iphone)).newPage();
+  await phone.goto(m.url);
+  await phone.locator("#join-name").fill("Student");
+  await phone.keyboard.press("Enter");
+  await expect(phone.getByTestId("board")).toHaveAttribute("data-layout", "phone");
+  await expect.poll(() => mounted(phone)).toBe(m.boards[0]);
+  await expect(phone.getByTestId("match-tier")).toHaveText("Full replay");
+  await phone.getByTestId("follow-presenter").tap();
+  await expect(chip(phone)).toContainText("Following Coach");
+  await expect(where(phone)).toBeHidden(); // the scene name, under the phone's Player bar
+  // The presenter opens the dead tab: the phone stays, following, and its chip says so.
+  await tabs(a).nth(2).click();
+  await expect(a.getByTestId("no-access")).toBeVisible();
+  await expect(where(phone)).toBeVisible();
+  await expect(where(phone)).toHaveText("No access");
+  await expect(following(phone)).toHaveCount(1);
+  expect(await mounted(phone)).toBe(m.boards[0]);
+  // Back on the first tab: the chip clears.
+  await go(a, m, 0);
+  await expect(where(phone)).not.toHaveText("No access");
+  await expect(where(phone)).toBeHidden();
+  await expect(following(phone)).toHaveCount(1);
 });
 
 test("a tab that died after the follower had opened it: the follower lands there once, and not again", async ({ browser }) => {

@@ -422,6 +422,27 @@ describe("a tab as its board opens (sessions.md §4.2)", () => {
     a.end();
   });
 
+  it("a layer set while the matches aren't known stays the tab's own when a follow begins and moves the page off", async () => {
+    // sessions.md §10 phase 4, carried from phase 3: the tab opens, its matches not known yet.
+    const d = deferred();
+    answers.push(d.promise);
+    const a = host(BOARD, left);
+    const opening = a.h.init();
+    a.h.setShowHeals(true);
+    // A follow begins: the presenter's layers are drawn (Heals and Troopers off, Health and
+    // Pings on) ...
+    a.h.mirror({ layers: 2 | 4 });
+    expect([a.h.showHeals(), a.h.showTroopers()]).toEqual([false, false]);
+    // ... and it moves this page to another tab at that moment: the tab keeps what was set
+    // here, and nothing of the presenter's.
+    expect(a.h.remember()).toEqual({ ...left, layers: { heals: true } });
+    // And so it does once the matches are known.
+    d.answer(sent(CDN));
+    await opening;
+    expect(a.h.remember().layers).toEqual({ heals: true });
+    a.end();
+  });
+
   it("goes to Player when the user asks for it while a tab left on a scene opens", async () => {
     const d = deferred();
     answers.push(d.promise);
