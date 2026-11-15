@@ -31,7 +31,7 @@ const centre = async (l: Locator) => {
 async function spotOf(p: Page) {
   await comment(p).locator(".bubble-body").click();
   const at = await centre(comment(p).locator(".pin"));
-  await p.mouse.click(5, 5);
+  await p.keyboard.press("Escape");
   await expect(comment(p)).toHaveAttribute("data-open", "false");
   return at;
 }
@@ -85,7 +85,8 @@ test("a comment's side and a placed thing's colour, from its right-click menu, f
   const card = (await comment(b).locator(".card-bg").boundingBox())!;
   expect(card.x + card.width).toBeLessThan(pin.x);
   expect(Math.abs(card.y + card.height / 2 - pin.y)).toBeLessThan(3);
-  await b.mouse.click(5, 5);
+  await b.keyboard.press("Escape");
+  await expect(comment(b)).toHaveAttribute("data-open", "false");
 
   // Recolour the comment, the arrow and the stroke: one write each, seen by B.
   await comment(a).locator(".bubble-body").click({ button: "right" });
@@ -158,7 +159,8 @@ test("each side places the bubble and the card on that side of the spot; a viewe
     if (side === "Below") expect(card.y).toBeGreaterThan(tip.y);
     if (side === "Right") expect(card.x).toBeGreaterThan(tip.x);
     if (side === "Above") expect(card.y + card.height).toBeLessThan(tip.y);
-    await a.mouse.click(5, 5);
+    await a.keyboard.press("Escape");
+    await expect(comment(a)).toHaveAttribute("data-open", "false");
   }
   // Back above, the comment is stored with no side, and drawn as before.
   await expect(comment(a)).not.toHaveAttribute("data-side");
