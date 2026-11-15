@@ -474,7 +474,8 @@ test("the presenter's tab is removed: both move left, and the follow goes on", a
   await expect(a.getByTestId("presenting")).toContainText("1 following");
   // Someone else removes the tab both are on: the follower's own copy of the session moves it
   // (before it hears where the presenter went), and that is no pick of its own either.
-  const c = await member(browser, m, "Other");
+  const c = await joinNew(browser, m.url, "Other");
+  await expect(tabs(c)).toHaveCount(2);
   await tabs(a).nth(1).click();
   await on(a, m, 2);
   await on(b, m, 2);
