@@ -234,10 +234,14 @@ stored board, but the older build admits rows by its own statuses: a board file 
 newer build, a copy of one of its scenes (Duplicate, New scene), or a pending edit a reloaded tab
 resends can carry a row the older build still holds `Ahead`, and is refused whole (`WrongField`).
 For v10 → v9 (1dcbd31): kills, deaths, assists and max health. Roll forward to import them.
-For the sides writer (v13) → v12 (3aa59af) or v11 (ce1ec0c): a scene name over 24 characters, a comment's side
+For the sides writer (v13) → v12 (18b41c6, the last v12 build, with sessions phase 4; 3aa59af
+would drop that too) or v11 (ce1ec0c): a scene name over 24 characters, a comment's side
 or a stroke's colour, refused as `TextTooLong` or `WrongField`. A board file holding a long
 scene name or a side says version 3, so v12 and v11 (which read up to 2) answer "Newer file" for it
 rather than "Bad file"; any other file the writer exports is version 2 and imports there.
+**After that rollback, a board holding a long name or a side exports as version 2 from the older
+build, and that same build refuses the file as "Bad file"** (`Admit::DEPLOYED` there holds the
+three `Ahead`). Nothing is lost: v13 imports it. Roll forward to move such a board by file.
 
 **Map-state rows: lock them at each deploy.** After a deploy is live, check out the deployed
 commit with nothing else in the tree, run `just rows-lock`, and commit `crates/schema/rows.lock`.
@@ -333,7 +337,7 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
     the newest version (until the writer, v12's test held them).
   - **Their writer is v13** (`SIDES_WRITER` in `store.rs`), after map-state D2's reader (v12,
     `3aa59af`): its step is `Step::NeedsReader { reader: 11 }`, no SQL, and makes the three
-    `Live`. **From it the rollback targets are the v12 build (`3aa59af`) and the v11 build
+    `Live`. **From it the rollback targets are the v12 build (`18b41c6`, the last v12 deploy; `3aa59af` would drop sessions phase 4) and the v11 build
     (`ce1ec0c`), nothing older**: the floor is 11, because a writer's step names its reader
     rather than "the version before" (steps 8 and 9 are readers 8 and 9). The v10 server
     refuses to start on it. `just reader-check` (reader `3aa59af`, which has v11's reader
