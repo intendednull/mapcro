@@ -3,6 +3,7 @@
 
 import type { Op } from "../gen/Op";
 import type { RecordId } from "../gen/RecordId";
+import type { Side } from "../gen/Side";
 import type { Stroke } from "../gen/Stroke";
 import type { WorldPos } from "../gen/WorldPos";
 import { fitStroke } from "./geometry";
@@ -31,4 +32,20 @@ export const LIVE_INK_POINTS = 128;
 /** The live preview of a stroke being drawn, as presence carries it (view points in, world out). */
 export function liveInk(points: Array<{ x: number; y: number }>, color: number, world: (p: { x: number; y: number }) => WorldPos): { color: number; points: WorldPos[] } {
   return { color, points: fitStroke(points, LIVE_INK_POINTS).map((q) => world(q)) };
+}
+
+/** What a placed thing's menu is for (feedback #59, #60). */
+export type Placed = "Callout" | "Arrow" | "Stroke";
+
+/** Recolour a placed thing to palette colour `i`: one write; none if it has that colour. */
+export function recolourOps(kind: Placed, id: RecordId, now: number | null | undefined, i: number): Op[] {
+  if (now === i) return [];
+  if (kind === "Callout") return [{ Set: { id, value: { CalloutColor: i } } }];
+  if (kind === "Arrow") return [{ Set: { id, value: { ArrowColor: i } } }];
+  return [{ Set: { id, value: { StrokeColor: i } } }];
+}
+
+/** Move a comment to `side` of its spot: one write; none if it is there (no side is `Above`). */
+export function sideOps(id: RecordId, now: Side | undefined, side: Side): Op[] {
+  return (now ?? "Above") === side ? [] : [{ Set: { id, value: { CalloutSide: side } } }];
 }

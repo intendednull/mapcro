@@ -8,13 +8,16 @@
 //   Laser    a trail others see, fading; presence only, viewers too
 //   Erase    click or scrub over ink, arrows and callouts  → one transaction of deletes
 //
+// A right click (no drag) on a placed comment, arrow or stroke opens its menu (editors): a
+// comment's side (feedback #59) and a colour for any of the three (feedback #60).
+//
 // Layer order (design/parity/README.md, layer 10): arrows, ink and callouts, drag ghosts, hero
 // tokens, then lasers, cursors and name tags.
 
 import { For, Index, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type Signal } from "solid-js";
 import { capture } from "../ui/capture";
 import { touchGestures } from "./touchGestures";
-import { colorOf, inkOn } from "../core/device";
+import { PALETTE, colorOf, inkOn } from "../core/device";
 import type { Arrow } from "../gen/Arrow";
 import type { Callout } from "../gen/Callout";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
@@ -27,7 +30,8 @@ import { HUD_PX, type Marker, isFurniture, laneStroke } from "../map/model";
 import { pathOf, pointAt, project, splitAt } from "../map/lanes";
 import { LANE_GAP } from "../map/MapView";
 import { groupToggleOps, marqueePick, toggleOps } from "./objectives";
-import { CARD, cardBox } from "./commentLayout";
+import { CARD, SIDES, bubble, cardBox } from "./commentLayout";
+import { ContextMenu, type MenuItem } from "../ui/ContextMenu";
 import type { MatchPreview } from "../match/MatchPanel";
 import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampShift, clampToBoard, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
@@ -35,7 +39,7 @@ import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { cx } from "../ui/cx";
 import { LASER_MAX_POINTS, type Timed, addLaser, arrowHead, fitStroke, laserAlpha, laserClip, laserRuns, laserStarts, polyline, pruneLaser, shaftEnd, stampLaser } from "./geometry";
 import { PRESENCE_MS } from "../core/session";
-import { liveInk, moveStrokeOps, strokePoints } from "./placed";
+import { type Placed, liveInk, moveStrokeOps, recolourOps, sideOps, strokePoints } from "./placed";
 import { smoothed } from "./smooth";
 import type { BoardState } from "./state";
 import { type Tool, TOOLS } from "./tools";
@@ -49,9 +53,6 @@ const MAX_STROKE_POINTS = LIMITS.max_stroke_points;
 const MAX_CALLOUT = LIMITS.max_callout;
 
 type Rec<T> = { id: RecordId; r: T };
-
-/** A small speech bubble whose tail points at the comment's spot (the origin). */
-const BUBBLE = "M0 0 L-4 -8 H-11 A5 5 0 0 1 -16 -13 V-25 A5 5 0 0 1 -11 -30 H11 A5 5 0 0 1 16 -25 V-13 A5 5 0 0 1 11 -8 H4 Z";
 
 export function Layers(p: {
   state: BoardState;
@@ -485,6 +486,66 @@ export function Layers(p: {
     );
   };
 
+  // ---- a placed thing's menu: a comment's side, and a colour (feedback #59, #60) ----
+  const [menu, setMenu] = createSignal<{ kind: Placed; id: RecordId; at: { x: number; y: number } }>();
+  /** The placed thing under a right click, if this person may edit it. */
+  const placedAt = (target: Element): { kind: Placed; id: RecordId } | undefined => {
+    if (!editor() || target.closest?.(".co.editing")) return undefined;
+    const co = target.closest?.("[data-callout]")?.getAttribute("data-callout");
+    if (co && callouts().some((c) => c.id === co)) return { kind: "Callout", id: co as RecordId };
+    const arrow = target.closest?.("[data-arrow]")?.getAttribute("data-arrow");
+    if (arrow && arrows().some((a) => a.id === arrow)) return { kind: "Arrow", id: arrow as RecordId };
+    const stroke = target.closest?.("[data-stroke]")?.getAttribute("data-stroke");
+    if (stroke && strokes().some((x) => x.id === stroke)) return { kind: "Stroke", id: stroke as RecordId };
+    return undefined;
+  };
+  /** The menu's record as it is now (another editor may change or erase it while it's open). */
+  const menuRecord = createMemo(() => {
+    const m = menu();
+    if (!m) return undefined;
+    if (m.kind === "Callout") return callouts().find((c) => c.id === m.id)?.r;
+    if (m.kind === "Arrow") return arrows().find((a) => a.id === m.id)?.r;
+    return strokes().find((x) => x.id === m.id)?.r;
+  });
+  // Gone (erased, undone, another scene), or no longer this person's to edit: the menu closes.
+  createEffect(() => {
+    if (menu() && (!menuRecord() || !editor())) setMenu(undefined);
+  });
+  const menuView = (m: { kind: Placed; id: RecordId; at: { x: number; y: number } }) => {
+    const colour = () => (menuRecord() as { color?: number | null } | undefined)?.color;
+    const items: MenuItem[] = [];
+    // Pins (the phone) have no side.
+    if (m.kind === "Callout" && !p.compactCallouts) {
+      for (const side of SIDES)
+        items.push({
+          label: side,
+          testid: `comment-side-${side.toLowerCase()}`,
+          get checked() {
+            return ((menuRecord() as Callout | undefined)?.side ?? "Above") === side;
+          },
+          run: () => {
+            const ops = sideOps(m.id, (menuRecord() as Callout | undefined)?.side, side);
+            if (ops.length) st.edit(ops);
+          },
+        });
+    }
+    PALETTE.forEach((c, i) =>
+      items.push({
+        label: c.name,
+        testid: `recolour-${i}`,
+        swatch: c.hex,
+        get checked() {
+          return colour() === i;
+        },
+        run: () => {
+          const ops = recolourOps(m.kind, m.id, colour(), i);
+          if (ops.length) st.edit(ops);
+        },
+      }),
+    );
+    return <ContextMenu at={m.at} label={m.kind === "Callout" ? "Comment" : m.kind === "Arrow" ? "Arrow" : "Drawing"} testid="placed-menu" items={items} onClose={() => setMenu(undefined)} />;
+  };
+
   const down = (e: PointerEvent) => {
     const svg = p.svg();
     if (!svg) return;
@@ -497,10 +558,12 @@ export function Layers(p: {
       return;
     }
     if (e.button === 2 || (e.button === 0 && p.spaceHeld())) {
-      // A right drag pans; a right click on a hero's token opens its menu, as on its portrait.
+      // A right drag pans; a right click on a hero's token opens its menu, as on its portrait,
+      // and on a placed comment, arrow or stroke, its own.
       const tok = e.button === 2 && p.onHeroMenu ? (e.target as Element).closest?.(".tok[data-player]")?.getAttribute("data-player") : undefined;
+      const placed = e.button === 2 && !tok ? placedAt(e.target as Element) : undefined;
       const at = { x: e.clientX, y: e.clientY };
-      pan(e, tok ? () => p.onHeroMenu?.(tok as RecordId, at) : undefined);
+      pan(e, tok ? () => p.onHeroMenu?.(tok as RecordId, at) : placed ? () => setMenu({ ...placed, at }) : undefined);
       return;
     }
     if (e.button !== 0) return;
@@ -913,7 +976,8 @@ export function Layers(p: {
                 </g>
               );
             const sc = () => p.unitsPerPx();
-            const box = () => cardBox(c.r.text, pos(), sc(), p.visible());
+            const box = () => cardBox(c.r.text, pos(), sc(), p.visible(), c.r.side);
+            const shape = () => bubble(c.r.side);
             const open = () => p.isOpen(c.id) || hidden();
             const card = (cls: string) => (
               <g class={cls}>
@@ -949,12 +1013,15 @@ export function Layers(p: {
                     style={tint()}
                     data-erase={c.id}
                     data-callout={c.id}
+                    data-side={c.r.side ?? "Above"}
                     data-open="false"
                     onPointerDown={(e) => calloutDown(c, e)}
                   >
                     <g transform={`translate(${pos().x} ${pos().y}) scale(${sc() * 0.8})`}>
-                      <path class="bubble-body" d={BUBBLE} />
-                      <path class="bubble-dots" d="M-7 -19h0.01M0 -19h0.01M7 -19h0.01" />
+                      <g transform={shape().transform}>
+                        <path class="bubble-body" d={shape().body} />
+                        <path class="bubble-dots" d={shape().dots} />
+                      </g>
                     </g>
                     <g class="preview" data-testid="comment-preview">
                       {card("preview-card")}
@@ -967,6 +1034,7 @@ export function Layers(p: {
                   class={cx("co", "open", c.r.color != null && "tinted", erasing().has(c.id) && "erasing", others().length > 0 && "touched")}
                   data-erase={c.id}
                   data-callout={c.id}
+                  data-side={c.r.side ?? "Above"}
                   data-open="true"
                   style={{ ...tint(), opacity: hidden() ? 0.25 : undefined }}
                   onPointerDown={(e) => calloutDown(c, e)}
@@ -987,8 +1055,9 @@ export function Layers(p: {
           {(ed) => {
             const pos = () => view(ed().pos);
             const sc = () => p.unitsPerPx();
-            // Placed like a card with room for a full-width line.
-            const box = () => cardBox("x".repeat(26), pos(), sc(), p.visible());
+            // Placed like a card with room for a full-width line, on the comment's side.
+            const side = () => callouts().find((c) => c.id === ed().id)?.r.side;
+            const box = () => cardBox("x".repeat(26), pos(), sc(), p.visible(), side());
             return (
               <g class="co editing" data-callout={ed().id ?? "new"}>
                 <circle class="pin" cx={pos().x} cy={pos().y} r={5 * sc()} style={{ "stroke-width": `${2 * sc()}` }} />
@@ -1092,6 +1161,9 @@ export function Layers(p: {
         </For>
       </g>
       <Cursors peers={st.peerList()} scene={p.scene} vp={p.vp} k={p.k} />
+      <Show when={menu()} keyed>
+        {menuView}
+      </Show>
     </>
   );
 }

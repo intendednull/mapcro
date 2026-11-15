@@ -129,18 +129,19 @@ pub const SCENE_STATE: Status = Status::Live;
 pub const UNFIT_UNDO: Status = Status::Live;
 
 /// Typed fields gated like a row (feedback #56, #59, #60): each is one more thing a log may
-/// hold that the build deployed as store v10 (e878c30) can't load, so its reader ships a release
-/// before anything writes it. Store v11 is that reader: `Ahead` here. They go `Live` with the
-/// store step that sets the floor to 11 (docs/deploy.md), which a test in `store.rs` holds.
+/// hold that the build deployed as store v10 (e878c30) can't load, so its reader shipped a
+/// release before anything wrote it: store v11 (ce1ec0c), with all three `Ahead`. They are
+/// `Live` from their writer's store step, which sets the floor to 11 (`SIDES_WRITER` in
+/// `store.rs`, docs/deploy.md), and a test there holds it.
 ///
 /// A scene's name over `max_name` characters, up to `max_scene_name`: v10 refuses it on replay
 /// (`TextTooLong`).
-pub const LONG_SCENE_NAME: Status = Status::Ahead;
+pub const LONG_SCENE_NAME: Status = Status::Live;
 /// A comment's side (`Callout::side`, `FieldValue::CalloutSide`): v10 can't parse the field
 /// value, and drops the record's side without a word.
-pub const CALLOUT_SIDE: Status = Status::Ahead;
+pub const CALLOUT_SIDE: Status = Status::Live;
 /// A stroke's colour written as a field (`FieldValue::StrokeColor`): v10 can't parse it.
-pub const STROKE_COLOR: Status = Status::Ahead;
+pub const STROKE_COLOR: Status = Status::Live;
 
 /// What may come in from outside, as opposed to what is read (spec §4.3): the check at
 /// admission, on a client's transaction (`Authority::submit`) and on a board file's records

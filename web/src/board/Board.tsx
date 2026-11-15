@@ -1517,7 +1517,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                   editable={state.canEdit()}
                   value={isUnnamed(scene()?.scene.name ?? "") ? "" : scene()!.scene.name}
                   placeholder={`Scene ${sceneIndex() + 1}`}
-                  maxLength={LIMITS.max_name}
+                  maxLength={LIMITS.max_scene_name}
                   onEditing={(on) => state.presence({ focus: on ? (scene()?.id ?? null) : null })}
                   onCommit={(t) => {
                     const s = scene();

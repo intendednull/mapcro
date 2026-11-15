@@ -27,7 +27,7 @@ use axum::body::Body;
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use mapcro_schema::{Admit, BUILD_ID, Doc, LIMITS, Record, RecordId};
+use mapcro_schema::{Admit, BUILD_ID, Doc, LIMITS, Record, RecordId, Status};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -42,9 +42,18 @@ pub const FORMAT: &str = "mapcro-board";
 /// the file knew (docs/specs/map-state.md §4.3). The reader release read it and wrote version
 /// 1; this build writes rows, so it writes version 2: a build from before the reader says
 /// "Newer file" rather than dropping the values, which its lenient record parsing would.
-pub const VERSION: u64 = 2;
+///
+/// Version 3 is version 2's shape holding a field the build deployed as store v11 (ce1ec0c)
+/// reads but refuses from outside: a scene name over 24 characters or a comment's side
+/// (feedback #56, #59). That build reads up to version 2, so it says "Newer file" for such a
+/// file rather than "Bad file". A board without either is still written as version 2, and
+/// imports there. (A stroke's colour is a field write, never in a file: a file holds records.)
+pub const VERSION: u64 = 3;
 /// The newest version this build reads.
-pub const READS: u64 = 2;
+pub const READS: u64 = 3;
+/// What the v11 build admits in a file: everything this one does but the three typed fields.
+/// A file it would refuse is written as [`VERSION`]; any other as version 2.
+const V2_ADMITS: Admit = Admit { long_scene_name: Status::Ahead, callout_side: Status::Ahead, stroke_color: Status::Ahead, ..Admit::READS };
 /// The largest file, either way. A board this size as JSON is the largest the server sends as
 /// one snapshot (`room::SNAPSHOT_MAX_BYTES`); real boards are kilobytes to a few hundred. The
 /// schema's own limits allow ~64 MB, which would never fit the room memory budget as a body.
@@ -114,12 +123,15 @@ impl Refusal {
 }
 
 fn file(doc: &Doc, matches: Vec<u64>, exported_at: i64) -> BoardFile {
+    let records = mapcro_schema::export_records(doc);
+    // The oldest version that says what the file holds: version 2 imports on the v11 build.
+    let version = if records.iter().all(|(_, r)| V2_ADMITS.record(r).is_ok()) { 2 } else { VERSION };
     BoardFile {
         format: FORMAT.to_owned(),
-        version: VERSION,
+        version,
         build: BUILD_ID.to_owned(),
         exported_at,
-        records: mapcro_schema::export_records(doc),
+        records,
         matches,
         // The rows this build writes, not the ones it only reads: the file must still import
         // on the reader release a rollback goes to.
@@ -178,7 +190,8 @@ struct Head {
 /// older version's step goes here (`2 => from_v1(serde_json::from_slice::<V1>(bytes)?)`).
 fn upgrade(version: u64, bytes: &[u8]) -> Result<BoardFile, Refusal> {
     match version {
-        // Version 2 only adds a header this build reads, so both parse as the current shape.
+        // Versions 2 and 3 only add a header and fields this build reads, so all parse as the
+        // current shape.
         1..=READS => serde_json::from_slice::<BoardFile>(bytes).map_err(|_| Refusal::NotABoard),
         v if v > READS => Err(Refusal::Newer),
         _ => Err(Refusal::NotABoard),
@@ -400,6 +413,48 @@ mod tests {
         assert_eq!(rows, mapcro_schema::written_rows());
         // A reader that knows exactly those rows takes the file; `read` refuses one above its own.
         assert!(head.rows.is_some_and(|n| n <= ROWS.len() as u64));
+    }
+
+    /// The file says version 3 only when the v11 build would refuse what it holds (a scene
+    /// name over 24 characters, a comment's side), so that build answers "Newer file" for it,
+    /// and imports every other file this build writes.
+    #[test]
+    fn a_file_is_version_3_only_when_it_holds_what_the_v11_build_refuses() {
+        use mapcro_schema::{Callout, FieldValue, Op, Side, Tx, TxKind, WorldPos};
+        /// The newest file version the v11 build reads, and its gate.
+        const V11_READS: u64 = 2;
+        let v11 = Admit { long_scene_name: Status::Ahead, callout_side: Status::Ahead, stroke_color: Status::Ahead, ..Admit::DEPLOYED };
+        let base = mapcro_schema::genesis(ids(0), "t");
+        let scene = base.iter_live().find(|(_, r)| matches!(r, Record::Scene(_))).map(|(id, _)| id).expect("scene");
+        let with = |ops: Vec<Op>| {
+            let mut doc = base.clone();
+            if !ops.is_empty() {
+                mapcro_schema::apply_tx(&mut doc, &Tx { client: mapcro_schema::ClientId(1), cseq: 0, kind: TxKind::Edit, ops }).expect("edit");
+            }
+            write(&doc, Vec::new(), 0, 0)
+        };
+        let comment = |side| Op::Create { id: RecordId(900), record: Record::Callout(Callout { scene, pos: WorldPos::default(), text: "x".into(), color: Some(3), side }) };
+        let name = |n: usize| Op::Set { id: scene, value: FieldValue::SceneName("é".repeat(n)) };
+        for (what, ops, newer) in [
+            ("nothing new", vec![], false),
+            ("a comment above", vec![comment(Side::Above)], false),
+            ("a 24-character name", vec![name(LIMITS.max_name)], false),
+            ("a comment on its left", vec![comment(Side::Left)], true),
+            ("a 25-character name", vec![name(LIMITS.max_name + 1)], true),
+            ("both", vec![comment(Side::Below), name(LIMITS.max_scene_name)], true),
+        ] {
+            let bytes = with(ops);
+            let head: Head = serde_json::from_slice(&bytes).expect("head");
+            assert_eq!(head.version > V11_READS, newer, "{what}");
+            assert_eq!(head.version, if newer { VERSION } else { 2 }, "{what}");
+            // What v11 does with it: a version it reads, then its gate. Never "Bad file".
+            if !newer {
+                read(&bytes, ids(1000), &v11).unwrap_or_else(|e| panic!("{what}: the v11 build imports it: {e:?}"));
+            } else {
+                assert_eq!(read(&bytes, ids(1000), &v11).err(), Some(Refusal::Invalid), "{what}: as version 2 it would be a bad file");
+            }
+            read(&bytes, ids(1000), &Admit::DEPLOYED).unwrap_or_else(|e| panic!("{what}: imports here: {e:?}"));
+        }
     }
 
     #[test]

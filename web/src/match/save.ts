@@ -226,10 +226,12 @@ export interface SceneOpts {
 
 /**
  * A scene's name from a match: the event alone ("Mirage died"), the clock and the ▶ chip carry
- * the time (operator, 2026-11-08); within the schema's 24 characters.
+ * the time (operator, 2026-11-08); within the schema's 48 characters (`max_scene_name`, counted
+ * as the server counts them: characters, so a cut never splits a surrogate pair).
  */
 export function sceneName(label: string, _second?: number): string {
-  return label.length > LIMITS.max_name ? `${label.slice(0, LIMITS.max_name - 1)}…` : label;
+  const chars = [...label];
+  return chars.length > LIMITS.max_scene_name ? `${chars.slice(0, LIMITS.max_scene_name - 1).join("")}…` : label;
 }
 
 /**

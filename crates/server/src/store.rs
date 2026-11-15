@@ -193,7 +193,16 @@ pub struct Store {
 }
 
 /// Database schema version. Each step in `migrate` takes the database one version forward.
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = SIDES_WRITER;
+
+/// The reader of feedback #56, #59 and #60 (a scene name up to 48 characters, a comment's side,
+/// a stroke's colour as a field): deployed as ce1ec0c.
+const SIDES_READER: i64 = 11;
+/// Their writer: the version whose step makes `LONG_SCENE_NAME`, `CALLOUT_SIDE` and
+/// `STROKE_COLOR` `Live`. The one place its number is written (`step`, `migrate` and the tests
+/// use this): if another branch's reader step merges first and takes this number, this moves up
+/// one, and the floor stays [`SIDES_READER`].
+const SIDES_WRITER: i64 = 12;
 
 /// What the step from `from` to `from + 1` asks of an older server (spec §9, docs/deploy.md
 /// "Rollbacks").
@@ -205,12 +214,14 @@ enum Step {
     /// Only a server that knows the step uses the database correctly: the floor is the new
     /// version.
     Breaking,
-    /// No SQL changes, but from here the database may hold what only a server of version `from`
-    /// or later reads: the floor is `from`. The map-state writer's steps: v8 → v9 (the v8
-    /// reader loads everything that writer stores, and a server older than that reader would
-    /// drop it without a word) and v9 → v10 (four more rows and the unfit undo, which v9
-    /// reads; docs/specs/map-state.md §4.3).
-    NeedsReader,
+    /// No SQL changes, but from here the database may hold what only a server of version
+    /// `reader` or later reads: the floor is `reader`. A writer's step names its own reader, not
+    /// "the version before": a reader step from another branch may sit between them, and the
+    /// writer's database still opens on its reader. The map-state writers' steps: v8 → v9
+    /// (reader 8: the v8 reader loads everything that writer stores, and a server older than
+    /// that reader would drop it without a word) and v9 → v10 (reader 9: four more rows and the
+    /// unfit undo; docs/specs/map-state.md §4.3). Feedback #56, #59 and #60: reader 11.
+    NeedsReader { reader: i64 },
 }
 
 /// Steps before v6 predate the floor and count as breaking: servers of those versions refuse a
@@ -218,7 +229,9 @@ enum Step {
 fn step(from: i64) -> Step {
     match from {
         5..=7 | 10 => Step::Additive,
-        8 | 9 => Step::NeedsReader,
+        8 => Step::NeedsReader { reader: 8 },
+        9 => Step::NeedsReader { reader: 9 },
+        f if f + 1 == SIDES_WRITER => Step::NeedsReader { reader: SIDES_READER },
         _ => Step::Breaking,
     }
 }
@@ -227,10 +240,15 @@ fn step(from: i64) -> Step {
 /// each migration since v1 left (a floor never goes down). Stored in `meta` as `compat_floor`,
 /// for older servers, which can't work it out because they don't know the newer steps.
 fn compat_floor(version: i64) -> i64 {
+    floor_of(version, step)
+}
+
+/// [`compat_floor`] under the steps `step` says.
+fn floor_of(version: i64, step: impl Fn(i64) -> Step) -> i64 {
     (1..version).fold(1, |floor, from| match step(from) {
         Step::Additive => floor,
         Step::Breaking => floor.max(from + 1),
-        Step::NeedsReader => floor.max(from),
+        Step::NeedsReader { reader } => floor.max(reader),
     })
 }
 
@@ -323,6 +341,12 @@ fn migrate(conn: &Connection, from: i64, to: i64) -> Result<(), StoreError> {
             // writer, can set the floor to 11 (`Step::NeedsReader`): the v10 server refuses
             // such a log on a cold load.
             10 => {}
+            // The writer of feedback #56, #59 and #60 (`SIDES_WRITER`): no SQL. From here the
+            // server takes a scene name up to 48 characters, a comment's side and a stroke's
+            // colour written as a field (`LONG_SCENE_NAME`, `CALLOUT_SIDE`, `STROKE_COLOR` are
+            // `Live`). The v11 reader loads all three and the v10 server refuses them on a cold
+            // load: the floor is 11 (`Step::NeedsReader { reader: 11 }`).
+            f if f + 1 == SIDES_WRITER => {}
             other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
         }
         v += 1;
@@ -1235,19 +1259,12 @@ mod tests {
     /// The reader of feedback #56, #59 and #60 (v11): it reads a scene name up to 48 characters,
     /// a comment's side and a stroke's colour as a field, and admits none of them, so its
     /// database holds nothing the v10 and v9 servers can't load: they stay rollback targets.
-    /// The writer's step comes with the build that makes those three `Live`.
     #[test]
     fn the_v11_reader_stores_nothing_new_so_the_v9_and_v10_servers_still_open_its_database() {
-        use mapcro_schema::{Admit, CALLOUT_SIDE, LONG_SCENE_NAME, STROKE_COLOR, Status};
-        assert_eq!(SCHEMA_VERSION, 11, "a later version: say here what its step asks of an older server");
-        // Written only from the step that sets the floor to 11: while this is the newest
-        // version, a v10 server may be rolled back to, and it can't load them.
-        assert_eq!((LONG_SCENE_NAME, CALLOUT_SIDE, STROKE_COLOR), (Status::Ahead, Status::Ahead, Status::Ahead), "their writer needs a store step with floor 11");
-        let d = Admit::DEPLOYED;
-        assert_eq!((d.long_scene_name, d.callout_side, d.stroke_color), (Status::Ahead, Status::Ahead, Status::Ahead));
+        assert_eq!(step(10), Step::Additive);
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
-        Store::open(&path).expect("create at v11");
+        Store::open_at(&path, SIDES_READER).expect("create at v11");
         assert_eq!((meta(&path, "schema_version").as_deref(), meta(&path, "compat_floor").as_deref()), (Some("11"), Some("9")));
         let c = Connection::open(&path).expect("open");
         for older in [9, 10] {
@@ -1259,8 +1276,65 @@ mod tests {
         // A v10 database in use migrates to it, and its floor stays.
         let old = dir.path().join("old.sqlite");
         Store::open_at(&old, 10).expect("create at v10");
-        Store::open(&old).expect("migrates");
+        Store::open_at(&old, SIDES_READER).expect("migrates");
         assert_eq!((meta(&old, "schema_version").as_deref(), meta(&old, "compat_floor").as_deref()), (Some("11"), Some("9")));
+    }
+
+    /// The three are written only from their writer's version: while this build's newest step
+    /// is older, a server that can't load them may be rolled back to.
+    #[test]
+    fn the_gated_fields_are_live_only_from_their_writers_version() {
+        use mapcro_schema::{Admit, CALLOUT_SIDE, LONG_SCENE_NAME, STROKE_COLOR, Status};
+        assert!(SCHEMA_VERSION >= SIDES_WRITER, "the three are live: their writer's step must be in this build");
+        assert_eq!((LONG_SCENE_NAME, CALLOUT_SIDE, STROKE_COLOR), (Status::Live, Status::Live, Status::Live));
+        let d = Admit::DEPLOYED;
+        assert_eq!((d.long_scene_name, d.callout_side, d.stroke_color), (Status::Live, Status::Live, Status::Live));
+        assert!(SIDES_READER < SIDES_WRITER);
+    }
+
+    /// The writer's database (feedback #56, #59, #60 `Live`): the v11 reader opens it and leaves
+    /// it as it is, so it is the rollback target; the v10 server, which refuses a long scene
+    /// name and can't parse a side or a stroke's colour on a cold load, is refused, and
+    /// everything older.
+    #[test]
+    fn only_the_v11_reader_opens_the_sides_writers_database() {
+        let (v, floor) = (SIDES_WRITER.to_string(), SIDES_READER.to_string());
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        Store::open_at(&path, SIDES_WRITER).expect("create at the writer's version");
+        assert_eq!((meta(&path, "schema_version"), meta(&path, "compat_floor")), (Some(v.clone()), Some(floor.clone())));
+        let c = Connection::open(&path).expect("open");
+        reconcile(&c, SIDES_READER).expect("the v11 reader opens the writer's database");
+        for older in 5..SIDES_READER {
+            assert!(matches!(reconcile(&c, older), Err(StoreError::Corrupt(_))), "v{older} is from before the reader");
+        }
+        drop(c);
+        assert_eq!((meta(&path, "schema_version"), meta(&path, "compat_floor")), (Some(v.clone()), Some(floor.clone())), "left as it was");
+        // A v11 database in use migrates to it: the floor goes from 9 to 11.
+        let old = dir.path().join("old.sqlite");
+        Store::open_at(&old, SIDES_READER).expect("create at v11");
+        assert_eq!(meta(&old, "compat_floor").as_deref(), Some("9"));
+        Store::open_at(&old, SIDES_WRITER).expect("migrates");
+        assert_eq!((meta(&old, "schema_version"), meta(&old, "compat_floor")), (Some(v), Some(floor)));
+    }
+
+    /// The writer's floor is its reader's version, not the one before it: a reader step from
+    /// another branch (additive) between the two leaves it at 11, so the v11 build is still a
+    /// rollback target.
+    #[test]
+    fn a_reader_step_between_the_sides_reader_and_writer_leaves_the_floor_at_11() {
+        assert_eq!(step(SIDES_WRITER - 1), Step::NeedsReader { reader: SIDES_READER });
+        assert_eq!(compat_floor(SIDES_WRITER), SIDES_READER);
+        // What `compat_floor` does with the steps as they would be if the writer moved up one,
+        // an additive reader taking its number.
+        let shifted = |from: i64| match from {
+            f if f == SIDES_WRITER - 1 => Step::Additive,
+            f if f == SIDES_WRITER => Step::NeedsReader { reader: SIDES_READER },
+            f => step(f),
+        };
+        let floor = |version: i64| floor_of(version, shifted);
+        assert_eq!(floor(SIDES_WRITER), compat_floor(SIDES_WRITER - 1), "the reader step between keeps the floor");
+        assert_eq!(floor(SIDES_WRITER + 1), SIDES_READER, "the writer after it: still the v11 reader");
     }
 
     #[test]
@@ -1288,17 +1362,21 @@ mod tests {
         Store::open(&path).expect("create");
         Connection::open(&path)
             .expect("open")
-            .execute_batch("UPDATE meta SET value = '13' WHERE key = 'schema_version'; UPDATE meta SET value = '12' WHERE key = 'compat_floor';")
-            .expect("a v13 database that a v12 migration broke for older servers");
+            .execute("UPDATE meta SET value = ?1 WHERE key = 'schema_version'", [(SCHEMA_VERSION + 2).to_string()])
+            .expect("a database two versions on");
+        Connection::open(&path)
+            .expect("open")
+            .execute("UPDATE meta SET value = ?1 WHERE key = 'compat_floor'", [(SCHEMA_VERSION + 1).to_string()])
+            .expect("that the migration before it broke for older servers");
         assert!(matches!(Store::open(&path), Err(StoreError::Corrupt(_))));
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("13"), "left as it was");
+        assert_eq!(meta(&path, "schema_version"), Some((SCHEMA_VERSION + 2).to_string()), "left as it was");
         // The same database with a floor this server meets opens.
-        Connection::open(&path).expect("open").execute("UPDATE meta SET value = '11' WHERE key = 'compat_floor'", []).expect("floor");
+        Connection::open(&path).expect("open").execute("UPDATE meta SET value = ?1 WHERE key = 'compat_floor'", [SCHEMA_VERSION.to_string()]).expect("floor");
         Store::open(&path).expect("floor at this server's version: opens");
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("13"), "still not migrated backwards");
+        assert_eq!(meta(&path, "schema_version"), Some((SCHEMA_VERSION + 2).to_string()), "still not migrated backwards");
         // And a server a version older is below that floor.
         let c = Connection::open(&path).expect("open");
-        assert!(matches!(reconcile(&c, 10), Err(StoreError::Corrupt(_))));
+        assert!(matches!(reconcile(&c, SCHEMA_VERSION - 1), Err(StoreError::Corrupt(_))));
     }
 
     #[test]
@@ -1307,16 +1385,18 @@ mod tests {
         // The writer's step (review F3): not additive, and not "only this version" either. The
         // floor is the reader's version, so the reader is still a rollback target and nothing
         // older is.
-        assert_eq!(step(8), Step::NeedsReader);
+        assert_eq!(step(8), Step::NeedsReader { reader: 8 });
         assert_eq!(compat_floor(9), 8, "v9 opens on the v8 reader, and on nothing older");
         // The second writer's step, the same way: the floor is the v9 server, which reads the
         // four rows and the unfit undo that v10 stores.
-        assert_eq!(step(9), Step::NeedsReader);
+        assert_eq!(step(9), Step::NeedsReader { reader: 9 });
         assert_eq!(compat_floor(10), 9, "v10 opens on the v9 server, and on nothing older");
         // The reader of feedback #56, #59 and #60 stores nothing new: additive.
         assert_eq!(step(10), Step::Additive);
         assert_eq!(compat_floor(11), 9, "v11 still opens on the v9 and v10 servers");
-        assert_eq!(compat_floor(12), 12, "a step this build doesn't know counts as breaking");
+        // Their writer: the floor is the v11 reader.
+        assert_eq!(compat_floor(SIDES_WRITER), 11, "the writer's database opens on the v11 reader, and on nothing older");
+        assert_eq!(compat_floor(SCHEMA_VERSION + 1), SCHEMA_VERSION + 1, "a step this build doesn't know counts as breaking");
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
         // A database a pre-floor v5 server wrote: no compat_floor row.
@@ -1387,8 +1467,8 @@ mod tests {
             v6.commit("b".into(), writes).await.expect("log");
         }
         let store = Store::open(&path).expect("migrates");
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("11"));
-        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("9"), "through the writers' steps: the v9 server still opens it");
+        assert_eq!(meta(&path, "schema_version"), Some(SCHEMA_VERSION.to_string()));
+        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("11"), "through the writers' steps: the v11 reader opens it");
         for (hash, role, label, revoked, parent) in [
             (&owner, LinkRole::Owner, "owner", false, None),
             (&edit, LinkRole::Edit, "coach", false, Some(&owner)),

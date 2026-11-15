@@ -3,7 +3,7 @@
 //! and written as its genesis, its log (one transaction a line) and the board the log gives,
 //! as the JSON the store holds. `load_stored` reads them back, built from the reader release.
 use mapcro_schema::{Admit, apply_tx};
-use mapcro_sim::{Config, run_logged, unfit_undos};
+use mapcro_sim::{Config, ahead_of_v10, run_logged, unfit_undos};
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -12,6 +12,8 @@ fn main() {
     std::fs::create_dir_all(&dir).expect("dir");
     let config = Config { admit: Admit::DEPLOYED, steps: 1500, ..Config::default() };
     let (mut logged, mut registry, mut unfit) = (0, 0, 0);
+    // Transactions holding a long scene name, a comment's side, a stroke's colour as a field.
+    let mut typed = [0usize; 3];
     for seed in 0..seeds {
         let (_, genesis, log) = run_logged(seed, &config).unwrap_or_else(|f| panic!("{f}"));
         let mut doc = genesis.clone();
@@ -20,6 +22,9 @@ fn main() {
             apply_tx(&mut doc, tx).expect("replays on this build");
             let line = serde_json::to_string(tx).expect("json");
             registry += usize::from(["\"More\":", "\"SceneState\":", "\"more\":"].iter().any(|k| line.contains(k)));
+            for (n, hit) in typed.iter_mut().zip(ahead_of_v10(tx)) {
+                *n += usize::from(hit);
+            }
             lines.push_str(&line);
             lines.push('\n');
         }
@@ -39,5 +44,14 @@ fn main() {
     // no board met one (the default 40 seeds do).
     let admitted = mapcro_schema::UNFIT_UNDO != mapcro_schema::Status::Ahead;
     assert!(!admitted || unfit > 0 || seeds < 40, "the unfit undo is admitted by this build, but no dumped log holds one");
-    println!("dumped {seeds} boards: {logged} logged transactions, {registry} holding registry values or a scene's state, {unfit} an undo that no longer fits");
+    // Once feedback #56, #59 and #60 are written, the check is that the v11 reader loads each:
+    // say so if the dump holds none of one.
+    let statuses = [mapcro_schema::LONG_SCENE_NAME, mapcro_schema::CALLOUT_SIDE, mapcro_schema::STROKE_COLOR];
+    for ((what, n), status) in ["a long scene name", "a comment's side", "a stroke's colour"].iter().zip(typed).zip(statuses) {
+        assert!(status == mapcro_schema::Status::Ahead || n > 0 || seeds < 40, "{what} is written by this build, but no dumped log holds one");
+    }
+    println!(
+        "dumped {seeds} boards: {logged} logged transactions, {registry} holding registry values or a scene's state, {unfit} an undo that no longer fits, {} a long scene name, {} a comment's side, {} a stroke's colour",
+        typed[0], typed[1], typed[2]
+    );
 }

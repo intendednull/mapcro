@@ -572,6 +572,22 @@ pub fn unfit_undos(genesis: &Doc, log: &[Tx]) -> usize {
         .count()
 }
 
+/// What the store v10 server can't load of feedback #56, #59 and #60: a comment's side, a
+/// stroke's colour as a field, a scene name over 24 characters. The first two as JSON
+/// keys, so this reads the stored bytes and not the engine's own idea of what it admitted.
+pub fn ahead_of_v10(tx: &Tx) -> [bool; 3] {
+    use mapcro_schema::{FieldValue, Op, Record};
+    let json = serde_json::to_string(tx).expect("json");
+    let long = |name: &str| name.chars().count() > mapcro_schema::LIMITS.max_name;
+    let long_name = tx.ops.iter().any(|op| match op {
+        Op::Set { value: FieldValue::SceneName(n), .. } => long(n),
+        Op::SetIf { expect: FieldValue::SceneName(e), value: FieldValue::SceneName(n), .. } => long(e) || long(n),
+        Op::Create { record: Record::Scene(s), .. } => long(&s.name),
+        _ => false,
+    });
+    [long_name, json.contains("\"CalloutSide\":") || json.contains("\"side\":"), json.contains("\"StrokeColor\":")]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -601,22 +617,6 @@ mod tests {
         assert!(count(Admit::READS) > 0, "no seed met an undo that no longer fits: the behaviours don't reach F4");
         assert!(count(Admit::DEPLOYED) > 0, "the server as built admits them (`UNFIT_UNDO` is live)");
         assert_eq!(count(Admit { unfit_undo: mapcro_schema::Status::Ahead, ..Admit::READS }), 0, "a server that refuses them logged one");
-    }
-
-    /// What the store v10 server can't load of feedback #56, #59 and #60: a comment's side, a
-    /// stroke's colour as a field, a scene name over 24 characters. The first two as JSON
-    /// keys, so this reads the stored bytes and not the engine's own idea of what it admitted.
-    fn ahead_of_v10(tx: &Tx) -> [bool; 3] {
-        use mapcro_schema::{FieldValue, Op, Record};
-        let json = serde_json::to_string(tx).expect("json");
-        let long = |name: &str| name.chars().count() > mapcro_schema::LIMITS.max_name;
-        let long_name = tx.ops.iter().any(|op| match op {
-            Op::Set { value: FieldValue::SceneName(n), .. } => long(n),
-            Op::SetIf { expect: FieldValue::SceneName(e), value: FieldValue::SceneName(n), .. } => long(e) || long(n),
-            Op::Create { record: Record::Scene(s), .. } => long(&s.name),
-            _ => false,
-        });
-        [long_name, json.contains("\"CalloutSide\":") || json.contains("\"side\":"), json.contains("\"StrokeColor\":")]
     }
 
     /// The gated typed fields under every behaviour and attacker: admitted, each is written

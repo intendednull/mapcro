@@ -16,7 +16,7 @@ import { type Viewpoint, worldToView } from "../map/transform";
 import { InlineEdit } from "../ui/InlineEdit";
 import { boardKeys } from "../core/keys";
 import { cx } from "../ui/cx";
-import { addSceneOps, deleteSceneOps, isUnnamed, moveSceneOps, sendScene } from "./scenes";
+import { addSceneOps, copyName, deleteSceneOps, isUnnamed, moveSceneOps, sendScene } from "./scenes";
 import type { BoardState } from "./state";
 import { visibleRows } from "./tree";
 import { LIMITS } from "../gen/limits";
@@ -106,7 +106,7 @@ export function SceneTree(p: {
   /** A copy of `row`'s scene (its heroes, objectives, splits and everything drawn on it: #54),
    * right after it, as its sibling. */
   const clone = (row: { id: RecordId; scene: Scene }) => {
-    const made = addSceneOps(p.state, row, false, undefined, isUnnamed(row.scene.name) ? "" : `${row.scene.name} copy`, true);
+    const made = addSceneOps(p.state, row, false, undefined, copyName(row.scene.name), true);
     if (send(made)) p.onFlip(made.id);
   };
   const remove = (id: RecordId) => {
@@ -278,7 +278,7 @@ export function SceneTree(p: {
                       value={isUnnamed(s().scene.name) ? "" : s().scene.name}
                       placeholder={`Scene ${no()}`}
                       editable={p.state.canEdit() && renaming() === s().id}
-                      maxLength={LIMITS.max_name}
+                      maxLength={LIMITS.max_scene_name}
                       label="Scene name"
                       testid="scene-row-name"
                       bindOpen={(o) => (openName = o)}

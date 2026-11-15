@@ -1,7 +1,7 @@
 // Scene transactions: reorder is one key between the new neighbours; add copies the scene's
 // players and objectives, and nothing else.
 import { describe, expect, it } from "vitest";
-import { addSceneOps, deleteSceneOps, moveSceneOps, reorderOp, sendScene, type SceneRow } from "../src/board/scenes";
+import { addSceneOps, copyName, deleteSceneOps, moveSceneOps, reorderOp, sendScene, type SceneRow } from "../src/board/scenes";
 import { flatten } from "../src/board/tree";
 import type { BoardState } from "../src/board/state";
 import type { Entry } from "../src/gen/Entry";
@@ -60,7 +60,7 @@ describe("a copy of a scene (#54)", () => {
   const records: Record<string, Entry> = {
     p1: { deleted: false, record: { PlayerState: { scene: "b", slot: "s1", pos: { x: 5, y: 6 }, alive: true, placed: true, souls: null, ult_cooldown: null, visible: true } } },
     ar: { deleted: false, record: { Arrow: { scene: "b", from: { x: 1, y: 2 }, to: { x: 3, y: 4 }, team: "Amber", color: 3 } } },
-    co: { deleted: false, record: { Callout: { scene: "b", pos: { x: 7, y: 8 }, text: "rotate", color: null } } },
+    co: { deleted: false, record: { Callout: { scene: "b", pos: { x: 7, y: 8 }, text: "rotate", color: null, side: "Left" } } },
     st: { deleted: false, record: { Stroke: { scene: "b", points: [{ x: 0, y: 0 }, { x: 9, y: 9 }], color: 1, width: 30, offset: { x: 2, y: 2 } } } },
     no: { deleted: false, record: { Note: { scene: "b", text: "the plan" } } },
     // Not this scene's, and erased ink: neither is copied.
@@ -75,13 +75,23 @@ describe("a copy of a scene (#54)", () => {
     expect(made(ops).slice(1)).toEqual([
       { PlayerState: { ...(records.p1!.record as { PlayerState: object }).PlayerState, scene: id } },
       { Arrow: { scene: id, from: { x: 1, y: 2 }, to: { x: 3, y: 4 }, team: "Amber", color: 3 } },
-      { Callout: { scene: id, pos: { x: 7, y: 8 }, text: "rotate", color: null } },
+      { Callout: { scene: id, pos: { x: 7, y: 8 }, text: "rotate", color: null, side: "Left" } },
       { Stroke: { scene: id, points: [{ x: 0, y: 0 }, { x: 9, y: 9 }], color: 1, width: 30, offset: { x: 2, y: 2 } } },
       { Note: { scene: id, text: "the plan" } },
     ]);
     // Each a record of its own, and all one undo step.
     expect(new Set(ops.map((o) => ("Create" in o ? o.Create.id : ""))).size).toBe(ops.length);
     expect(txs).toEqual([ops]);
+  });
+
+  it("is named \"<name> copy\" within a scene name's 48 characters (feedback #56)", () => {
+    expect(copyName("Bridge")).toBe("Bridge copy");
+    expect(copyName("")).toBe("");
+    expect(copyName("Scene 3")).toBe("");
+    const long = "x".repeat(LIMITS.max_scene_name);
+    expect(copyName(long)).toBe(`${"x".repeat(LIMITS.max_scene_name - 5)} copy`);
+    expect([...copyName("😀".repeat(48))].length).toBe(LIMITS.max_scene_name);
+    expect(copyName(`${"x".repeat(42)} yz`)).toBe(`${"x".repeat(42)} copy`);
   });
 
   it("a new scene (not a copy) still starts without them", () => {
