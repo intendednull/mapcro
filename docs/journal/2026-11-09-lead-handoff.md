@@ -11,7 +11,7 @@ compaction). The newest state is at the top; the history is in git and the other
   - Scenes without the flag behave as on main.
   - Metadata-tier saves store no health (TD-103: after a rollback, the stat calculator sees full
     health).
-- **Review (Opus high, since Fable was out):** no blocker. Docs corrected; the admission test now
+- **Review (Opus high):** no blocker. Docs corrected; the admission test now
   covers every entity.
 - **Must fix before D2's writer** (recorded in deploy.md's writer steps):
   - The "neither" save case: with the flag written, a save without room stores neither the
@@ -30,6 +30,9 @@ compaction). The newest state is at the top; the history is in git and the other
 
 ## Fable limit reached (2026-11-15 ~00:20 UTC, lead 9eb2516b)
 
+- **Correction (concierge):** Fable was not out. `bin/claude-sub-usage` showed its 7-day window
+  at 2% after an operator reset. Check that tool before reporting a limit. The streams stay on
+  Opus per the operator's rule.
 - Both Fable sessions stopped with a 429 ("You've reached your Fable limit"). Every stream is on
   Opus now:
   - **Feedback release 2** (writer, v12-or-v13, floor 11): fresh Opus high on `feedback-56-60`.
