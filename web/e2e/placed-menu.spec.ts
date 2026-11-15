@@ -93,7 +93,7 @@ test("a comment's side and a placed thing's colour, from its right-click menu, f
   await expect(menu(a).getByTestId("comment-side-left")).toHaveAttribute("aria-checked", "true");
   await menu(a).getByTestId("recolour-3").click();
   for (const p of [a, b]) await expect.poll(() => css(comment(p).locator(".bubble-body"), "fill")).toBe(LIME);
-  await a.locator(`.mapbox [data-arrow="${arrow}"] path.hit`).click({ button: "right" });
+  await a.locator(`.mapbox [data-arrow="${arrow}"] .arw`).click({ button: "right" });
   await expect(menu(a)).toHaveAttribute("aria-label", "Arrow");
   await expect(menu(a).getByRole("menuitemradio")).toHaveCount(7);
   await menu(a).getByRole("menuitemradio", { name: "Ice" }).click();
@@ -101,7 +101,7 @@ test("a comment's side and a placed thing's colour, from its right-click menu, f
     await expect.poll(() => css(p.locator(`.mapbox [data-arrow="${arrow}"] .arw`), "stroke")).toBe(ICE);
     await expect.poll(() => css(p.locator(`.mapbox [data-arrow="${arrow}"] .head`), "fill")).toBe(ICE);
   }
-  await a.locator(`.mapbox [data-stroke="${stroke}"] path.hit`).click({ button: "right" });
+  await a.locator(`.mapbox [data-stroke="${stroke}"] path.ink`).click({ button: "right" });
   await expect(menu(a)).toHaveAttribute("aria-label", "Drawing");
   // By keyboard: Rose is the second swatch.
   await a.keyboard.press("ArrowDown");
@@ -109,7 +109,7 @@ test("a comment's side and a placed thing's colour, from its right-click menu, f
   await a.keyboard.press("Enter");
   for (const p of [a, b]) await expect.poll(() => css(p.locator(`.mapbox [data-stroke="${stroke}"] path.ink`), "stroke")).toBe(ROSE);
   // A right-drag still pans, and opens no menu.
-  const from = await centre(a.locator(`.mapbox [data-stroke="${stroke}"] path.hit`));
+  const from = await centre(a.locator(`.mapbox [data-stroke="${stroke}"] path.ink`));
   await a.mouse.move(from.x, from.y);
   await a.mouse.down({ button: "right" });
   await a.mouse.move(from.x + 60, from.y + 30, { steps: 6 });
