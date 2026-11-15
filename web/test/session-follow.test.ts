@@ -285,6 +285,10 @@ describe("the session's follow (src/session/follow.ts)", () => {
     expect(h.f.board.seat()).toBe(7);
     expect(h.f.board.holds()).toBe(true);
     expect(h.picked).toEqual([]);
+    // Followed by others too, on a tab that isn't this one: still not offered to their follower.
+    h.setPeers([h.coach(B), peer(2, "view", { following: 1, tab: B })]);
+    expect(h.f.board.far()).toEqual([]);
+    expect(h.f.board.noAccess()).toBe(true);
     // The presenter moves to a tab that opens: the follower goes, and the chip clears.
     h.setPeers([h.coach(C)]);
     expect(h.f.tab()).toBe(C);

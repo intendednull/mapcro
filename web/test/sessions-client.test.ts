@@ -656,7 +656,8 @@ describe("the session connection against the real server", () => {
     member.setPresence({ name: "Member" });
     guest.setPresence({ name: "Guest" });
     boardOwner.setPresence({ name: "Owner" });
-    const names = (x: BoardSession) => [...x.peers.values()].map((p) => p.state?.name).sort();
+    // By name: each connection says an empty presence first, as it joins.
+    const names = (x: BoardSession) => [...x.peers.values()].map((p) => p.state?.name).filter(Boolean).sort();
     await until(() => [coach, member, guest, boardOwner].every((x) => names(x).length === 3), "everyone sees everyone");
     const who = (x: BoardSession) => x.followable().map((p) => p.state?.name).sort();
     // The session's people can follow its owner here; the board's own people can't.
