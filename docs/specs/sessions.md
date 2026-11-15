@@ -3,7 +3,8 @@
 (the server) built 2026-11-12 (§10), reviewed and fixed. Phase 2 (the client) built 2026-11-12
 (§10). Phase 3 (speed: what a tab remembers, the timeline cache; the pool of warm boards was
 measured and not kept) built 2026-11-13, verified 2026-11-14 (§10), not yet reviewed. Phase 4
-(follow across tabs) built and verified 2026-11-14 (§6, §9.3, §10), not yet reviewed.
+(follow across tabs) built, verified and reviewed 2026-11-14, the review's fixes in (§6, §9.3,
+§10).
 **Supersedes:** the 2026-11-10 sketch "Several replays on one board, as game tabs" (docs/backlog.md,
 mockup `/home/intendednull/concierge/artifacts/mapcro-multi-replay/index.html`). The tab strip
 and the reasons stay. The model changes: there is still one board per game, not several games
@@ -237,7 +238,11 @@ A view-only board added to a session stays view-only for everyone, session owner
   share.
 - **A board's own people** (someone who opened B on its own with B's link) see session members
   who are on B in B's people list, exactly as they would see anyone in B's room. They see
-  nothing of the session: not its other tabs, its title, or its presence.
+  nothing of the session: not its other tabs, its title, or its presence. Nor a tie it makes
+  on B (lead, phase 4 review): a follow of someone whom only the session lets be followed on
+  B (a view role there) reaches them as a follow of nobody, so no "following" beside the
+  follower and no "presenting" beside someone B calls view only (§6.1). The cost, accepted:
+  B's own people don't count the session's followers.
 
 ### 3.4 Opening a tab's board
 
@@ -637,6 +642,11 @@ room's presence, so a follower can check followability (§6.3) without trusting 
 - **Not stamped:** someone who opens a tab with a board link of their own (§3.4) joins the
   board's room without the session's credential, so they are neither stamped nor told others'
   session roles there (TD-109).
+- **`following`, per reader too** (phase 4 review, §3.3): in a board's room, when the person
+  a peer follows has a view role on the board, a reader not in that person's session is told
+  the peer follows nobody (`room.rs` `following_for`). The client counts presenters from
+  `following`, so they see no "presenting" either. A follow of someone the board itself lets
+  be followed is told to everyone, as on a board alone. The data never reaches their socket.
 
 ### 6.2 The registry row
 
@@ -1215,8 +1225,8 @@ Each phase is small, merges on its own, and leaves boards unchanged.
    - **Debt:** TD-93 to TD-96.
 4. **Follow across tabs.** `seat`, `tab` and `session_role`, the `session.tab` registry row and
    the `Id` kind, the follow chip's "No access", and §9.3.
-   **Built and verified 2026-11-14 (branch `sessions-p4`, with main aff82f7 merged in), not yet
-   reviewed** (`docs/journal/2026-11-14-sessions-build.md`, "Phase 4"). What was built is
+   **Built, verified and reviewed 2026-11-14 (branch `sessions-p4`, with main aff82f7 merged
+   in)** (`docs/journal/2026-11-14-sessions-build.md`, "Phase 4"). What was built is
    written into §6.1, §6.2 and §6.3 ("As built"). No store version and no map-state row:
    `tab` is a presence field, `session_role` the server's stamp on a peer's presence, and both
    are read leniently, so the deployed build and this one read each other's frames.
@@ -1239,7 +1249,14 @@ Each phase is small, merges on its own, and leaves boards unchanged.
    - **Interop** against the deployed build (3aa59af, and ce1ec0c before it): it reads this
      build's presence frames and drops `tab` and `session_role`; this build reads its frames
      byte for byte.
-   - **Debt:** TD-104, TD-105 and TD-109.
+   - **The review** (Opus, adversarial and security, 2026-11-14): the security core sound, no
+     blocker. Fixed within the phase: the "Not sent" mark cleared by a board left before its
+     copy connected (the count is the replica's, and "not known" leaves the mark); a presenter
+     held on another tab whose connection blips ended the follow at once (the wait is stamped
+     when the hold ends, as §6.2 says); a board's own people could read a session's tie from
+     `following` (§3.3, now per reader on the server); the strip's dot showed on a second tab
+     of the open board. Each has its test (journal, "Phase 4: the review's fixes").
+   - **Debt:** TD-104, TD-105, TD-109 and, from the review, TD-110 to TD-112.
    **Checks carried from phase 3** (the layers a tab holds, §4.2), each with its test:
    - A follower moved off a tab keeps nothing of the presenter's layers, Vision or Show last
      seen for it: only what the follower set there is the tab's own. Until phase 3's change the

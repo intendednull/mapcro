@@ -6,7 +6,70 @@ main merged in twice (62bab62, then aff82f7). The spec is `docs/specs/sessions.m
 its §4.1, §4.2, §4.3, §5 and §10, and what phase 4 built into §6.1 to §6.3, §9.3 and §10.
 Newest state at the top.
 
-## Phase 4: follow across tabs (2026-11-14), built and verified, not yet reviewed
+## Phase 4: follow across tabs (2026-11-14), built, verified and reviewed
+
+### Phase 4: the review's fixes
+
+The review (Opus, adversarial and security) found the security core sound: the stamp per
+reader, unforgeable, `tab` dropped in a board's room. No blocker. Fixed within the phase:
+
+1. **The "Not sent" mark was cleared falsely.** `unsent()` read `status`, which stays the
+   default "saved" until the first call that says one, so a board left before its copy
+   connected (restored from IndexedDB with work pending, or never loaded) said 0 and the mark
+   went. Now the count is the replica's own (`pendingCount`, new in the WASM API), and it is
+   "not known" (`undefined`) with no copy loaded, or with a copy that never connected and
+   holds nothing; `withUnsent` leaves the mark as it was then. Test: `sessions-client.test.ts`
+   "a session left before it connected says what its stored copy holds, or that it can't
+   tell" (left unstarted; a cold copy; a copy with two edits pending, its socket still
+   opening, which says 2 where the old code said 0; a copy with nothing pending); and
+   `withUnsent` with "not known" in `session-follow.test.ts`.
+2. **A presenter held on another tab whose connection blipped ended the follow at once.** The
+   hold branch stamped `lostAt` each time it ran, so on a quiet board it went stale, and the
+   wait for a reconnect was over before it began. The hold now leaves `lostAt` unset, and the
+   board's wait stamps it when `holds()` turns false (§6.2). Row: "a presenter held on a tab
+   nobody can open, whose connection blips, is waited for" (6 s quiet, then the presenter's
+   sockets closed from its page and back within the wait: still following, no toast, and
+   the follow goes on to the next tab).
+3. **A board's own people could read a session's tie** (the lead's decision, §3.3): "Student,
+   following Coach" and "Coach, presenting" beside a Coach the board calls view only. The
+   server now writes `following` per reader in a board's room: blank when the person followed
+   has a view role there and the reader isn't in their session (`room.rs` `following_for`).
+   The client counts presenters from `following`, so "presenting" goes with it. Tests:
+   `sessions.rs` "a board's own people are not told of a follow that only the session allows"
+   (the coach and a session viewer told; the board's owner, its viewer and another session's
+   member not; the same for people who arrive later; a follow of the board's owner told to
+   everyone), and the view-only-tab row: the Guest sees neither, the Coach sees "following
+   you".
+- **Nits.** The two weak server asserts: the characterisation now compares the relayed state
+  with what was sent, less `tab` (it was checking for a session id nothing could put there);
+  the "Poser" case put `session_role` inside `state`, so it tested serde. Now the session's
+  viewer claims owner at both levels and is stamped view, and a board viewer's claim is
+  stamped with none. **The dot on a second tab of the open board:** fixed, hidden on every
+  tab of the open board. **Logged:** TD-110 (a seat copied across the session's boundary
+  takes over a follower's board), TD-111 (a dot never re-checked once the work is sent
+  elsewhere), TD-112 (`canOpen` fails open). The AGENTS.md note for `session.tab` (its rows
+  in `session-follow.spec.ts`, not the follow matrix) is approved and stays.
+
+**The runs** (batches 14 and 15, through `tools/heavy.sh`, on a58a0aa and 68044fa):
+- `just web-test`: 77 files, 816 tests; the one failure in the first run was the new test
+  itself (its socket failed fast, so the status was no longer the default; 68044fa gives it
+  a socket that is still opening, as the bug needs), then green alone. `tsc` clean;
+  `web/src/gen` unchanged. `just clippy` clean. `just test` green (549 tests; `reader-check`
+  with 3aa59af, 40 boards byte for byte).
+- cargo-mutants on the server's diff since the review: 18 mutants, 15 caught, 3 unviable,
+  none missed.
+- Interop against prod 3aa59af: as before (it reads this build's frames and drops `tab` and
+  `session_role`; this build reads its frames byte for byte).
+- `session-follow`, `session-isolation` and `follow-matrix`, 2 workers: **140 passed**; the
+  blip row and the view-only-tab row 3 more times each: 6 passed.
+- The unit files (`sessions-client`, `session-follow`, `timeline-load`) on 68044fa: 87 of 87,
+  twice; `tsc` clean (batch 15).
+- Unit hand mutants over `core/session.ts` and `unsent.ts`, the five new ones among them (the
+  count from the status, nothing loaded as none, a copy never connected as none, the connect
+  never noted, not known as none): **26 of 26 killed.**
+- Browser-row hand mutants, all again, with the lostAt one added (the wait stamped while
+  held): **30 killed, 1 equivalent** (the phone's scene name, as before), 1 not run.
+
 
 Built by a Fable session (characterisation 03fb953 and 2aeb811, then a3f5fd1), which hit its
 usage limit with its last batch green and two test edits uncommitted (0a555e9). Finished by an
