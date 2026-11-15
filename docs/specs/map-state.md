@@ -36,7 +36,7 @@ override them. "Operator" rows are the operator's own words.
 
 | # | Question | Decision | Status |
 |---|---|---|---|
-| D1 | Match names in the snapshot? | **Not stored.** Architecture §6b's rule stands: nothing writes a match's names into a board. A scene shows match names by reading them from its `source` match when that loads; a name typed on the board still works. | decided (default) |
+| D1 | Match names in the snapshot? | **Not stored.** Architecture §6b's rule stands: nothing writes a match's names into a board. A scene shows match names by reading them from its `source` match when that loads; a name typed on the board still works. A scene with no `source` (made by hand) keeps taking the open match's names, as it does today (the lead, 2026-11-14). | decided (default) |
 | D2 | Whose hero and name? | **Per scene.** A scene's own hero and name (rows `hero`, `name`) win over the board roster; editing them in a scene writes only that scene. Save as scene stores the match's hero per slot in the scene and no longer rewrites the roster. | decided (default) |
 | D3 | Sight in a scene | **Player's Vision logic.** The viewer's Vision setting decides who is seen, as in Player. The one difference: a hero Player would hide as unseen is drawn **faded** in the scene editor, not removed, so it stays visible and editable. ("The only difference in vision in the scene editor is that the token appears faded, instead of completely gone.") | decided (operator, 2026-11-13) |
 | D4 | Dead heroes in a new scene | A dark token with its respawn time, so it stays editable (Player hides it). | decided (default) |
@@ -161,7 +161,11 @@ a server without the reader would drop `more` silently. So:
   v7 server still opens the database while nothing is written. v9 ships with the writer and sets
   the floor to 8, so a server older than the reader refuses to start. v10 writes `kills`,
   `deaths`, `assists` and `max_health` and admits the unfit undo, both read by v9 (deployed as
-  `1dcbd31`): its floor is 9.
+  `1dcbd31`): its floor is 9. v11 is the reader of feedback #56, #59 and #60's typed fields
+  (additive, floor 9). The reader of `has_heroes` is v12, additive too (floor 9: the v9, v10 and
+  v11 servers still open it). Its writer is the next free version after it, a
+  `Step::NeedsReader { reader: 12 }`: the floor is the reader's version, 12, whichever number
+  the writer takes.
 - **Board files:** the reader accepts file version 2 (version 1 plus a `rows` header) and still
   writes version 1. The writer writes version 2. `rows` is the number of rows the exporting
   build writes: the index of its first `Ahead` row (`written_rows`), the same watermark a
@@ -254,6 +258,31 @@ So that an absent key can be told from an unknown one, `SceneState.more` holds:
   index at or above it was not known then, and reads as "not captured", never as its default.
 - **`has_<feature>`**, one `Bool` row per feature: the snapshot holds it. These are ordinary keys,
   so they merge per key and undo. Retake and a hand edit of an uncaptured feature set them.
+- **`has_heroes`** (D2, as built): the scene holds its own heroes. Only a save sets it, never
+  Retake.
+
+  | | A scene that says `has_heroes` | Any other scene (made by hand, or saved before the row was written) |
+  |---|---|---|
+  | The hero a slot draws | The record's own `hero`; the roster's where it has none | The board roster's |
+  | A pick in the scene | Sets the scene's `hero` and clears that record's build rows (`More { key, value: null }`) in one transaction: one undo step. "No hero" is not offered (the row can't say it) | Writes the roster, for every scene of the board |
+  | The stored build is drawn | While the record still holds some of it | While its `hero` is the roster's hero |
+  | Save from a match | Stores each slot's hero (with or without the builds) and leaves the roster alone | Sets the roster to the match's heroes |
+
+  The right-hand column is today's behaviour, kept exactly: where a stored `hero` and the
+  roster's differ there, a coach picked another hero since, and that pick is never undone by
+  reading. One rule gives the hero everywhere (`web/src/mapstate/build.ts` `sceneHero`; the
+  pick is `edit.ts` `pickHeroOps`). The row landed `Ahead` (the reader), so this build's Save
+  writes neither the flag nor anything about heroes differently. **One thing is stored
+  differently, on the metadata tier only:** a hero's record no longer holds `health` there
+  (`build.ts` `heroBuildAt`; the save pin lost its ten metadata-tier `health` values), so such
+  a save stores fewer keys. The v9 to v11 builds read the missing key as a hero alive at full
+  health; this build reads that tier's health as not captured. No scene draws a hero's health
+  bar on any build (tokens draw health only in Player). The stat calculator does take it: in a
+  metadata-tier scene saved by this build, an item with a life threshold (Battle Vest, Hollow
+  Point: 65 %) counts at full health, where Player at that second uses the path's health. The
+  replay tier's save is byte for byte as before (the pins hold it). The
+  reader is store v12. The writer is one change, `ahead(...)` to `row(...)`, with its store
+  step (floor 12) and `just rows-lock` (`docs/deploy.md`).
 
 Reading a key that is absent:
 
@@ -294,7 +323,7 @@ value)`, which picks the typed op or `More`. Player's state is computed and not 
 |---|---|
 | A hero set dead | No health, effects or cooldowns; the dark token and its respawn time (D4). |
 | A hero revived that was captured dead | Full health, not the stored 0. |
-| A hero's hero changed | The stored abilities, items and build order are not drawn (they are the old hero's). |
+| A hero's hero changed | The stored abilities, items and build order are not drawn (they are the old hero's). In a scene that holds its heroes the pick clears them, so there is nothing to draw; in a scene from before, the roster's hero differing from the build's says so (§4.5 `has_heroes`). |
 | An unseen hero dragged | Writes its place (`pos`); the last seen place is not moved. |
 | A marker set up | No timer. A camp, powerup or mid-boss timer shows only while the marker is down. |
 | A timer at 0 | Drawn as up. |
@@ -377,16 +406,16 @@ selects; the build opens from the portrait's build control in both. The phone la
 
     The property (§9) holds for what is stored today: Save's capture of Player's frame reads
     back as that frame at the save's whole second (`web/test/from-scene.test.ts`: heroes,
-    each marker's shown status, lanes; both tiers). **One difference, open:** on the metadata
-    tier Save stores the path's coarse health with the build, which Player's state doesn't hold
-    (it isn't drawn on the map there). Whoever draws a token's health from a scene's state
-    decides: capture stops writing it, or the reader asks the source's tier.
+    each marker's shown status, lanes; both tiers). **The metadata tier's health** (the path's,
+    too coarse for Player to hold) is not captured: a snapshot is the Player frame. A scene's
+    state holds health only when it was saved from a replay (`source.tier`), so a scene saved
+    while the build still stored it reads the same.
   - **The viewer's Vision (`web/src/mapstate/shown.ts`, D3):** `heroDraw(hero, viewer, sight,
     stored)` is Player's Vision logic for both producers: seen; a ghost where last seen, or
     not drawn (Player); faded where it stands, with the last seen place when that is shown (a
-    scene). A scene with no sight data keeps the legacy meaning (D5). **Open:** with Show last
-    seen location on, a scene draws the faded hero and may draw its ghost too; the rule gives
-    both and the renderer decides.
+    scene). A scene with no sight data keeps the legacy meaning (D5). With Show last seen
+    location on, a scene draws both the faded hero and its ghost (the lead, 2026-11-14: the
+    only difference from Player is faded instead of gone); the rule gives both.
 - **The bound is on consumers:** a component reruns only when a value it reads changes. Each
   entity's fields are memos keyed by slot or marker with an equality check.
 - **A scene is static:** its `MapState` changes only when a record does.

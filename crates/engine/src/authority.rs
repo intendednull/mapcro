@@ -519,22 +519,34 @@ mod admission_tests {
         let doc = board();
         let (p, s) = (player(&doc), scene(&doc));
         let mut a = serving(Authority::new(doc));
-        let mut cseq = 0;
-        for r in RowId::all().filter(|r| r.row().entity == mapcro_schema::Entity::Hero) {
-            let write = tx(cseq, vec![Op::Set { id: p, value: FieldValue::More { key: r, value: None } }]);
+        // The scene's rows live on its `SceneState`: made first, when this build admits it.
+        let state_id = RecordId(900);
+        let state = tx(0, vec![Op::Create { id: state_id, record: Record::SceneState(SceneState { scene: s, more: More::default() }) }]);
+        let state_live = mapcro_schema::SCENE_STATE != Status::Ahead;
+        if state_live {
+            logged(&mut a, state);
+        } else {
+            assert_eq!(refused(&mut a, state), Reject::Immutable);
+        }
+        let (mut cseq, mut visited) = (1, Vec::new());
+        // Every row, on a record of its own entity: the scene's (`has_heroes`) as much as a
+        // hero's.
+        for r in RowId::all() {
+            let id = match r.row().entity {
+                mapcro_schema::Entity::Hero => p,
+                mapcro_schema::Entity::Scene => state_id,
+                other => panic!("a row of {other:?}: give this test a record of that entity"),
+            };
+            let write = tx(cseq, vec![Op::Set { id, value: FieldValue::More { key: r, value: None } }]);
             cseq += 1;
+            visited.push(r.key());
             if r.row().status == Status::Ahead {
                 assert_eq!(refused(&mut a, write), Reject::WrongField, "{r:?}");
-            } else {
+            } else if id == p || state_live {
                 logged(&mut a, write);
             }
         }
-        let state = tx(cseq, vec![Op::Create { id: RecordId(900), record: Record::SceneState(SceneState { scene: s, more: More::default() }) }]);
-        if mapcro_schema::SCENE_STATE == Status::Ahead {
-            assert_eq!(refused(&mut a, state), Reject::Immutable);
-        } else {
-            logged(&mut a, state);
-        }
+        assert!(visited.contains(&"has_heroes"), "the scene's rows are asked too");
     }
 
     /// Admission is `submit`'s alone: a base and a log that already hold a row or a scene's

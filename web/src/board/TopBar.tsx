@@ -32,7 +32,7 @@ import { slotName, slotPlaceholder } from "./roster";
 import { LIMITS } from "../gen/limits";
 import { ContextMenu, type MenuItem } from "../ui/ContextMenu";
 import type { SceneState } from "../gen/SceneState";
-import { captured } from "../mapstate/build";
+import { captured, sceneHero } from "../mapstate/build";
 import { holdsBuild, sceneBuildView } from "../mapstate/buildView";
 import { canRetake, retakeOps, slotKey } from "../match/save";
 import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
@@ -145,7 +145,10 @@ export function TopBar(p: {
   const sceneRow = () => p.state.scenes().find((s) => s.id === p.scene);
   // The scene's snapshot (map-state spec §4.5): what it says it holds. None: a scene from before.
   const stateRow = createMemo(() => p.state.rowsIn<SceneState>("SceneState", p.scene)[0]);
-  const snap = createMemo(() => captured(stateRow()?.r?.more), undefined, { equals: (a, b) => a.builds === b.builds && a.rows === b.rows && a.patch === b.patch });
+  const snap = createMemo(() => captured(stateRow()?.r?.more), undefined, { equals: (a, b) => a.builds === b.builds && a.heroes === b.heroes && a.rows === b.rows && a.patch === b.patch });
+  /** The hero a slot holds in this scene: its own once the scene holds its heroes (spec D2),
+   * else the board roster's. */
+  const heroIn = (x: { slot: Slot; player: Player }) => sceneHero(snap().heroes, x.player.state.more, x.slot.slot.hero);
   const hasBuilds = () => !p.compact && snap().builds;
   let el: HTMLDivElement | undefined;
   const panels = buildPanels(p.host, () => el, hasBuilds);
@@ -174,7 +177,7 @@ export function TopBar(p: {
   };
   /** A team's kills at the frame, if every hero's were captured. */
   const teamKills = (t: "Amber" | "Sapphire") => {
-    const each = team(t).map((x) => (holdsBuild(x.player.state.more, snap().rows, x.slot.slot.hero) ? x.player.state.more?.kills : undefined));
+    const each = team(t).map((x) => (holdsBuild(x.player.state.more, snap().rows, heroIn(x), snap().heroes) ? x.player.state.more?.kills : undefined));
     return each.length && each.every((k) => typeof k === "number") ? (each as number[]).reduce((a, b) => a + b, 0) : null;
   };
   const focus = (id: RecordId) => (on: boolean) => p.state.presence({ focus: on ? id : null });
@@ -206,7 +209,8 @@ export function TopBar(p: {
       const player = [...players().values()].find((pl) => pl.id === id);
       const slot = player && p.state.roster().find((s) => s.id === player.state.slot);
       if (!player || !slot) return;
-      const hero = slot.slot.hero != null ? p.art.heroes.get(slot.slot.hero) : undefined;
+      const held = heroIn({ slot, player });
+      const hero = held != null ? p.art.heroes.get(held) : undefined;
       setMenu({ slot, player, label: portraitTitle(nameOf(slot) || slotPlaceholder(slot.slot.team, slot.slot.slot), hero), at });
     });
     onCleanup(() => bind(undefined));
@@ -225,16 +229,17 @@ export function TopBar(p: {
     <TeamColumn team={t} side={side}>
       <For each={team(t)}>
         {({ slot, player }) => {
-          const hero = () => (slot.slot.hero != null ? p.art.heroes.get(slot.slot.hero) : undefined);
+          const heroId = () => heroIn({ slot, player });
+          const hero = () => (heroId() != null ? p.art.heroes.get(heroId()!) : undefined);
           const label = () => nameOf(slot) || slotPlaceholder(t, slot.slot.slot);
           let openSouls: (() => void) | undefined;
           // The hero's build, if the snapshot holds one that is still this slot's hero's.
           const key = slotKey(t, slot.slot.slot);
-          const has = () => hasBuilds() && holdsBuild(player.state.more, snap().rows, slot.slot.hero);
+          const has = () => hasBuilds() && holdsBuild(player.state.more, snap().rows, heroId(), snap().heroes);
           const open = () => has() && panels.expanded(key);
           // All builds and Tab mount the twelve once: after that they stay, hidden (as Player's).
           const allShown = createMemo((was: boolean) => was || (has() && panels.all()), false);
-          const view = sceneBuildView({ more: () => player.state.more, rows: () => snap().rows, hero: () => slot.slot.hero ?? 0, alive: () => player.state.alive, patch, time: frameT });
+          const view = sceneBuildView({ more: () => player.state.more, rows: () => snap().rows, hero: () => heroId() ?? 0, alive: () => player.state.alive, patch, time: frameT });
           return (
             <PortraitSlot
               team={t}
@@ -271,7 +276,7 @@ export function TopBar(p: {
             >
               {/* With a hero: the portrait focuses it, and an editor changes it from the corner's
                   swap button. Without one, the portrait is the picker. */}
-              <Show when={!editable() || slot.slot.hero != null}>
+              <Show when={!editable() || heroId() != null}>
                 <button
                   class="tb-focus"
                   data-testid="focus-hero"
@@ -288,13 +293,13 @@ export function TopBar(p: {
               </Show>
               <Show when={editable()}>
                 <button
-                  class={cx("tb-pick", slot.slot.hero != null && "swap")}
+                  class={cx("tb-pick", heroId() != null && "swap")}
                   data-testid="pick-hero"
-                  title={slot.slot.hero != null ? "Change hero" : "Pick hero"}
-                  aria-label={slot.slot.hero != null ? "Change hero" : "Pick hero"}
+                  title={heroId() != null ? "Change hero" : "Pick hero"}
+                  aria-label={heroId() != null ? "Change hero" : "Pick hero"}
                   onClick={() => p.onPickHero?.(slot.id)}
                 >
-                  <Show when={slot.slot.hero != null}>
+                  <Show when={heroId() != null}>
                     <svg viewBox="0 0 16 16" aria-hidden="true">
                       <path d="M3 6h9l-2.5-2.5M13 10H4l2.5 2.5" />
                     </svg>
@@ -419,9 +424,9 @@ export function TopBar(p: {
         run: () => p.state.edit([{ Set: { id: pl().id, value: { PlayerVisible: !pl().state.visible } } }]),
       },
     ];
-    if (m.slot.slot.hero == null && p.onFocus) items.push({ label: "Show on the map", testid: "hero-menu-focus", run: () => p.onFocus!(m.slot.slot.team, m.slot.slot.slot) });
+    if (heroIn(m) == null && p.onFocus) items.push({ label: "Show on the map", testid: "hero-menu-focus", run: () => p.onFocus!(m.slot.slot.team, m.slot.slot.slot) });
     items.push({ label: "Rename…", testid: "hero-menu-rename", run: () => rename(m.slot.id) });
-    if (p.onPickHero) items.push({ label: m.slot.slot.hero != null ? "Change hero…" : "Pick hero…", testid: "hero-menu-hero", run: () => p.onPickHero!(m.slot.id) });
+    if (p.onPickHero) items.push({ label: heroIn(m) != null ? "Change hero…" : "Pick hero…", testid: "hero-menu-hero", run: () => p.onPickHero!(m.slot.id) });
     return <ContextMenu at={m.at} label={m.label} testid="hero-menu" onClose={() => setMenu(undefined)} items={items} />;
   };
 
