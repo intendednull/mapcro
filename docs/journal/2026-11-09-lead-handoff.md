@@ -3,6 +3,31 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed 3aa59af: map-state D2 reader, store v12 (2026-11-15 ~02:10 UTC, lead 9eb2516b)
+
+- **Prod `web` runs 3aa59af** (infra d42ebe6). The store reads `schema_version 12`,
+  `compat_floor 9`. Backup: `/var/lib/mapcro/mapcro.sqlite.pre-v12` (it was at v11, integrity ok).
+  - `has_heroes` lands `Ahead`; the writer is dormant.
+  - Scenes without the flag behave as on main.
+  - Metadata-tier saves store no health (TD-103: after a rollback, the stat calculator sees full
+    health).
+- **Review (Opus high, since Fable was out):** no blocker. Docs corrected; the admission test now
+  covers every entity.
+- **Must fix before D2's writer** (recorded in deploy.md's writer steps):
+  - The "neither" save case: with the flag written, a save without room stores neither the
+    heroes nor the roster.
+  - Retake's health tier check.
+- **Checks:**
+  - Gate green: 486 e2e, Firefox 27/27, VM, reader-check.
+  - QA locally and on prod (scene save, copy and ▶, Player, the D4 respawn label).
+  - Stats: 0 5xx.
+- **After deploy:** rows.lock is 16 rows (`has_heroes`); the justfile `reader` is 3aa59af
+  (86d619a); the backup ref `map-state-d2-pre-rebase` is deleted.
+- **Next:**
+  - Feedback writer v13 (floor 11): Opus high, merging main.
+  - Sessions phase 4 finish: Opus high.
+  - D2's writer: v14, `reader: 12`, after feedback's v13. Fix the two must-fixes first.
+
 ## Fable limit reached (2026-11-15 ~00:20 UTC, lead 9eb2516b)
 
 - Both Fable sessions stopped with a 429 ("You've reached your Fable limit"). Every stream is on
