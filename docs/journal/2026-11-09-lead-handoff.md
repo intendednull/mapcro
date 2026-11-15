@@ -3,6 +3,64 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## PAUSED (2026-11-15 ~07:50 UTC, lead 9eb2516b): resume only when the operator says so
+
+The operator paused mapcro to save usage for their interview, Tue 2026-11-17 13:00 PT. Both
+in-flight units landed first. **Nothing is running.** Every worktree is clean and merged into main,
+and no agent is active. Prod watching may continue.
+
+**Prod `web` runs 8efbfac** (infra 9d733b6). The store is **v13, floor 11**. Backups on the box:
+`/var/lib/mapcro/mapcro.sqlite.pre-v11`, `.pre-v12` and `.pre-v13`. Main is 9a44b67.
+
+- **Last deploy: feedback release 2,** the writer for #56 (scene names up to 48), #59 (a comment's
+  side, via right-click), #60 (recolour comments, arrows and strokes). #56–#60 are closed.
+  - Store step `Step::NeedsReader { reader }`; `SIDES_WRITER = 13`.
+  - Reviewed (Opus medium): no blocker. Deploy docs fixed: the v12 rollback target is
+    **18b41c6**, and a rolled-back build refuses its own export of a long name or side.
+  - Gate: 505 e2e, VM, reader-check (134 long names, 87 sides, 377 colours byte for byte on
+    v12). Firefox: one 412×915 load flake, 2/2 alone.
+  - The walkthrough on the merged tree and a prod check (a 48-character name, seen by a second
+    person and after a reload) are green; 0 5xx.
+- **After the deploy:** rows.lock is 16 rows, unchanged; the justfile `reader` is **8efbfac**.
+
+**Today's prod sequence:**
+1. 91e81c2: mobile defaults and map-state release 2.
+2. 3423072: map-state D4.
+3. ae169e6: sessions phase 3.
+4. ce1ec0c: feedback release 1, v11.
+5. 3aa59af: map-state D2 reader, v12.
+6. 18b41c6: sessions phase 4.
+7. 8efbfac: feedback release 2, v13.
+
+**To resume, in order:**
+1. **Map-state D2's writer, v14 (`Step::NeedsReader { reader: 12 }`).** Branch from main. Fix the
+   two must-fixes in docs/deploy.md's D2 writer steps first:
+   - the "neither" save case: with the flag written, a save with no room stores neither heroes
+     nor roster;
+   - Retake's health tier check.
+   Then the flip (the five tests that change on purpose are listed there), and `just rows-lock`.
+   Map-state phase 4 continues after: `Tokens.tsx` reads `heroDraw`, with TD-97's four specs.
+   **Operator rule:** under Show last seen, a scene draws only the faded hero, so drop the ghost
+   and flip `shown.test.ts`.
+2. **Sessions phase 5 (polish), spec §10.** Plus the unassigned item: following someone on
+   another tab whom nobody follows yet (§8, the people list's "Session" group).
+3. **Feedback follow-ups:**
+   - TD-107: the placed-thing menu needs a touch (long-press) path.
+   - A colour can't go back to "no colour" except by undo (review N4, design).
+4. **Debt to weigh at the next deploy:** TD-92 (load flakes; many rows today), TD-102 (room-load
+   RSS drift), TD-103 (metadata-tier health after a rollback), and TD-104 to TD-112.
+
+**Process notes for the next lead:**
+- **Models:** Opus 5.5 for implementers, designers and routine reviews (medium; high for store
+  versions and sync). Fable only for the hardest tasks, with a reason. Run
+  `concierge/bin/claude-sub-usage` before believing a "limit" 429.
+- **Deploys:** use `/tmp/lead-deploy.sh` with `DEPLOY=1`. It needs the ssh wrapper at
+  `/tmp/lead-sshwrap/ssh`; the runbook has how to recreate it if /tmp was wiped.
+- **Gates:** the full gate is `/tmp/lead-gate-full.sh` (gate, Firefox, VM, reader-check). Wait on
+  "reader-check exit", not on "ALL DONE", and never start a second one while one runs.
+- **QA scripts** (scratch, recreate if /tmp was wiped): `/tmp/qa-r3`, `/tmp/qa-d4`, `/tmp/qa-fb1`
+  and `/tmp/qa-sp3`. A local QA stack needs the replay worker.
+
 ## Deployed 18b41c6: sessions phase 4 (2026-11-15 ~06:40 UTC, lead 9eb2516b)
 
 - **Prod `web` runs 18b41c6** (infra f25edfc). Follow across tabs:
