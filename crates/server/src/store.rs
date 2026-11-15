@@ -1490,7 +1490,7 @@ mod tests {
         drop((c, store));
         // A second open is a no-op.
         Store::open(&path).expect("idempotent");
-        assert_eq!(meta(&path, "schema_version").as_deref(), Some("11"));
+        assert_eq!(meta(&path, "schema_version"), Some(SCHEMA_VERSION.to_string()));
     }
 
     /// A v7 database in use opens on v8 with its board as it was, and a v7 server (a rollback)
