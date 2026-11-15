@@ -54,6 +54,9 @@ const MAX_CALLOUT = LIMITS.max_callout;
 
 type Rec<T> = { id: RecordId; r: T };
 
+/** A comment's side as an attribute: none for Above, so such a comment's DOM is as before sides. */
+const sided = (side: Callout["side"]) => (side && side !== "Above" ? side : undefined);
+
 export function Layers(p: {
   state: BoardState;
   art: Art;
@@ -978,6 +981,12 @@ export function Layers(p: {
             const sc = () => p.unitsPerPx();
             const box = () => cardBox(c.r.text, pos(), sc(), p.visible(), c.r.side);
             const shape = () => bubble(c.r.side);
+            const drawn = () => (
+              <>
+                <path class="bubble-body" d={shape().body} />
+                <path class="bubble-dots" d={shape().dots} />
+              </>
+            );
             const open = () => p.isOpen(c.id) || hidden();
             const card = (cls: string) => (
               <g class={cls}>
@@ -1013,15 +1022,15 @@ export function Layers(p: {
                     style={tint()}
                     data-erase={c.id}
                     data-callout={c.id}
-                    data-side={c.r.side ?? "Above"}
+                    data-side={sided(c.r.side)}
                     data-open="false"
                     onPointerDown={(e) => calloutDown(c, e)}
                   >
                     <g transform={`translate(${pos().x} ${pos().y}) scale(${sc() * 0.8})`}>
-                      <g transform={shape().transform}>
-                        <path class="bubble-body" d={shape().body} />
-                        <path class="bubble-dots" d={shape().dots} />
-                      </g>
+                      {/* Above draws as every comment did before sides: no group, no mirror. */}
+                      <Show when={shape().transform} fallback={drawn()}>
+                        {(t) => <g transform={t()}>{drawn()}</g>}
+                      </Show>
                     </g>
                     <g class="preview" data-testid="comment-preview">
                       {card("preview-card")}
@@ -1034,7 +1043,7 @@ export function Layers(p: {
                   class={cx("co", "open", c.r.color != null && "tinted", erasing().has(c.id) && "erasing", others().length > 0 && "touched")}
                   data-erase={c.id}
                   data-callout={c.id}
-                  data-side={c.r.side ?? "Above"}
+                  data-side={sided(c.r.side)}
                   data-open="true"
                   style={{ ...tint(), opacity: hidden() ? 0.25 : undefined }}
                   onPointerDown={(e) => calloutDown(c, e)}

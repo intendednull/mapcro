@@ -27,6 +27,15 @@ const centre = async (l: Locator) => {
   return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
 };
 
+/** The comment's spot: its pin's centre, opened and closed again. */
+async function spotOf(p: Page) {
+  await comment(p).locator(".bubble-body").click();
+  const at = await centre(comment(p).locator(".pin"));
+  await p.mouse.click(5, 5);
+  await expect(comment(p)).toHaveAttribute("data-open", "false");
+  return at;
+}
+
 /** A comment, an arrow and a stroke, in the palette's first colour, apart from the heroes. */
 async function placeAll(a: Page) {
   await a.keyboard.press("s");
@@ -49,6 +58,7 @@ test("a comment's side and a placed thing's colour, from its right-click menu, f
   const a = await joinNew(browser, url, "Coach");
   const b = await joinNew(browser, url, "Marrow");
   const { arrow, stroke } = await placeAll(a);
+  await expect(comment(a)).not.toHaveAttribute("data-side");
 
   // The comment's menu: its four sides, Above marked, then the palette.
   await comment(a).locator(".bubble-body").click({ button: "right" });
@@ -57,14 +67,17 @@ test("a comment's side and a placed thing's colour, from its right-click menu, f
   await expect(menu(a).getByRole("menuitemradio")).toHaveCount(4 + 7);
   await expect(menu(a).getByRole("menuitemradio").first()).toBeFocused();
   for (const [side, on] of [["above", "true"], ["below", "false"], ["left", "false"], ["right", "false"]]) await expect(menu(a).getByTestId(`comment-side-${side}`)).toHaveAttribute("aria-checked", on!);
-  await expect(menu(a).getByTestId("recolour-0")).toHaveAttribute("aria-checked", "true");
-  // Left: the bubble's tail on the spot, its body to the left of it, for both.
+  // The comment's colour (the placer's palette colour) is marked, and only it.
+  await expect(menu(a).locator('.ctx-swatch[aria-checked="true"]')).toHaveCount(1);
+  // Left: the bubble's tail on the spot, its body to the left of it, for both. (Centres: a box
+  // takes in the tail's pointed stroke, which runs past the spot.)
   const spot = await centre(comment(a).locator(".bubble-body"));
   await menu(a).getByTestId("comment-side-left").click();
   await expect(menu(a)).toHaveCount(0);
   for (const p of [a, b]) await expect(comment(p)).toHaveAttribute("data-side", "Left");
-  const left = (await comment(b).locator(".bubble-body").boundingBox())!;
-  expect(left.x + left.width).toBeLessThan(spot.x + 2);
+  const left = await centre(comment(b).locator(".bubble-body"));
+  expect(left.x).toBeLessThan(spot.x - 10);
+  expect(Math.abs(left.y - (await spotOf(b)).y)).toBeLessThan(3);
   // Opened, its card is on the left of the pin too.
   await comment(b).locator(".bubble-body").click();
   await expect(comment(b)).toHaveAttribute("data-open", "true");
@@ -129,17 +142,17 @@ test("each side places the bubble and the card on that side of the spot; a viewe
   const url = await newBoardUrl(server, "sides");
   const a = await joinNew(browser, url, "Coach");
   await placeAll(a);
-  const spot = await centre(comment(a).locator(".bubble-body"));
-  const tip = { x: spot.x, y: (await comment(a).locator(".bubble-body").boundingBox())!.y + (await comment(a).locator(".bubble-body").boundingBox())!.height };
+  const tip = await spotOf(a);
   for (const side of ["Below", "Right", "Above"] as const) {
     await comment(a).locator(".bubble-body").click({ button: "right" });
     await menu(a).getByTestId(`comment-side-${side.toLowerCase()}`).click();
-    await expect(comment(a)).toHaveAttribute("data-side", side);
+    if (side === "Above") await expect(comment(a)).not.toHaveAttribute("data-side");
+    else await expect(comment(a)).toHaveAttribute("data-side", side);
     await a.mouse.move(5, 5);
-    const body = (await comment(a).locator(".bubble-body").boundingBox())!;
-    if (side === "Below") expect(body.y).toBeGreaterThan(tip.y - 2);
-    if (side === "Right") expect(body.x).toBeGreaterThan(tip.x - 2);
-    if (side === "Above") expect(body.y + body.height).toBeLessThan(tip.y + 2);
+    const body = await centre(comment(a).locator(".bubble-body"));
+    if (side === "Below") expect(body.y).toBeGreaterThan(tip.y + 10);
+    if (side === "Right") expect(body.x).toBeGreaterThan(tip.x + 10);
+    if (side === "Above") expect(body.y).toBeLessThan(tip.y - 10);
     await comment(a).locator(".bubble-body").click();
     const card = (await comment(a).locator(".card-bg").boundingBox())!;
     if (side === "Below") expect(card.y).toBeGreaterThan(tip.y);
@@ -148,7 +161,7 @@ test("each side places the bubble and the card on that side of the spot; a viewe
     await a.mouse.click(5, 5);
   }
   // Back above, the comment is stored with no side, and drawn as before.
-  await expect(comment(a)).toHaveAttribute("data-side", "Above");
+  await expect(comment(a)).not.toHaveAttribute("data-side");
   // A viewer: a right click opens nothing.
   const v = await joinNew(browser, await viewLink(server.url, url), "Guest");
   await comment(v).locator(".bubble-body").click({ button: "right" });
