@@ -1362,6 +1362,17 @@ mod tests {
         assert_eq!((meta(&old, "schema_version"), meta(&old, "compat_floor")), (Some(v), Some(floor)));
     }
 
+    /// `migrate` knows no step past this build's: asked for one, it refuses, and leaves the
+    /// database at this build's version.
+    #[test]
+    fn there_is_no_migration_past_this_builds_version() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        Store::open(&path).expect("create");
+        assert!(matches!(Store::open_at(&path, SCHEMA_VERSION + 1), Err(StoreError::Corrupt(_))));
+        assert_eq!(meta(&path, "schema_version"), Some(SCHEMA_VERSION.to_string()));
+    }
+
     /// The writer's floor is its reader's version, not the one before it: a reader step from
     /// another branch (additive) between the two leaves it at 11, so the v11 build is still a
     /// rollback target.
