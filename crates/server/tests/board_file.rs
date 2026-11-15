@@ -456,13 +456,15 @@ fn an_import_is_refused_before_its_body_is_read() {
     assert_eq!(answer(&mut held, std::time::Duration::from_secs(5)), Some(429));
     // Over the cap by its length, or no length at all.
     assert_eq!(answer(&mut held_import(server.port, "", MAX_BYTES + 1, 0), std::time::Duration::from_secs(5)), Some(413));
-    let r = ureq::post(&server.url("/api/boards/import"))
-        .header("content-type", "application/json")
-        .config()
-        .http_status_as_error(false)
-        .build()
-        .send(ureq::SendBody::from_reader(&mut &b"{}"[..]));
-    assert_eq!(r.expect("answer").status().as_u16(), 411, "a body of no stated length (chunked)");
+    // A body of no stated length (chunked): the head alone, then the answer. Sending the body
+    // too raced the server's 411 and close (`BrokenPipe` under load, TD-81).
+    let mut chunked = {
+        use std::io::Write;
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", server.port)).expect("connect");
+        write!(s, "POST /api/boards/import HTTP/1.1\r\nhost: x\r\ncontent-type: application/json\r\ntransfer-encoding: chunked\r\n\r\n").expect("head");
+        s
+    };
+    assert_eq!(answer(&mut chunked, std::time::Duration::from_secs(5)), Some(411), "a body of no stated length (chunked)");
 }
 
 /// F2: a body that stalls is cut off, and only so many imports read at once; one past them is
