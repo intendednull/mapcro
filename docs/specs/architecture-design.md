@@ -126,6 +126,20 @@ transaction and one undo step.
 
 The map is still the surface for every tool; the picker only chooses the gesture.
 
+**A placed thing's menu (feedback #59, #60, 2026-11-14):** an editor's right click (no drag) on a
+placed comment, arrow or stroke opens a menu at the pointer (`ui/ContextMenu.tsx`, as the hero
+menu). A comment's has its side first: **Above**, **Below**, **Left**, **Right**, the current one
+marked (Above is where every comment sat before sides: bubble above the spot, card up and to the
+right; the others put the bubble and the card on that side). Then the palette's colours as
+swatches, the current one marked: one write (`CalloutColor`, `ArrowColor`, `StrokeColor`), one
+undo step, seen by everyone. Its label is the thing's: Comment, Arrow, Drawing. A right drag still
+pans and opens nothing; viewers get no menu; the phone's numbered pins have no side. Pings
+(presence) and lane splits (no colour) have none.
+
+**Names (feedback #56):** a scene's name takes up to 48 characters (`max_scene_name`); roster
+names, game tabs and a hero's name in a scene stay at 24 (`max_name`). The scene list and the
+stage head cut a long name with an ellipsis.
+
 **The map's edge (feedback #21):** heroes, troopers and their rings and labels are clipped to the
 map's stencil (the HUD frame's shape) and take no pointer past it, and the edge is drawn over
 them. A dragged hero stops at the map's disc. Ink, arrows and comments may still go into the

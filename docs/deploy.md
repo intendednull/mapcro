@@ -234,6 +234,10 @@ stored board, but the older build admits rows by its own statuses: a board file 
 newer build, a copy of one of its scenes (Duplicate, New scene), or a pending edit a reloaded tab
 resends can carry a row the older build still holds `Ahead`, and is refused whole (`WrongField`).
 For v10 → v9 (1dcbd31): kills, deaths, assists and max health. Roll forward to import them.
+For the sides writer (v13) → v12 (3aa59af) or v11 (ce1ec0c): a scene name over 24 characters, a comment's side
+or a stroke's colour, refused as `TextTooLong` or `WrongField`. A board file holding a long
+scene name or a side says version 3, so v12 and v11 (which read up to 2) answer "Newer file" for it
+rather than "Bad file"; any other file the writer exports is version 2 and imports there.
 
 **Map-state rows: lock them at each deploy.** After a deploy is live, check out the deployed
 commit with nothing else in the tree, run `just rows-lock`, and commit `crates/schema/rows.lock`.
@@ -326,13 +330,24 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
   - **v11 is their reader**: all three `Ahead`. Its step adds no SQL and is additive (floor 9):
     it stores nothing new, so **the rollback targets from v11 are still the v10 build
     (prod, `3423072`) and the v9 build**. A test in `store.rs` holds the three `Ahead` while v11 is
-    the newest version (from v12, D2's reader, the v12 test holds them).
-  - **Their writer is the next store step** (`Step::NeedsReader`, floor 11): it makes the three
-    `Live`, and from it the rollback target is the v11 build and nothing older. Before it
-    merges, set `reader` in the justfile to the deployed v11 commit, so `just reader-check`
-    loads the writer's logs on it.
-  - The bytes that writer stores are pinned now (`crates/schema/tests/golden/sides-colours-*`):
-    the v11 reader reads exactly those.
+    the newest version (until the writer, v12's test held them).
+  - **Their writer is v13** (`SIDES_WRITER` in `store.rs`), after map-state D2's reader (v12,
+    `3aa59af`): its step is `Step::NeedsReader { reader: 11 }`, no SQL, and makes the three
+    `Live`. **From it the rollback targets are the v12 build (`3aa59af`) and the v11 build
+    (`ce1ec0c`), nothing older**: the floor is 11, because a writer's step names its reader
+    rather than "the version before" (steps 8 and 9 are readers 8 and 9). The v10 server
+    refuses to start on it. `just reader-check` (reader `3aa59af`, which has v11's reader
+    code) loads every board and log this build stores, each of the three included.
+  - The bytes that writer stores are the ones pinned by the reader
+    (`crates/schema/tests/golden/sides-colours-*`): the v11 reader reads exactly those.
+  - **Board files**: a file holding a scene name over 24 characters or a comment's side says
+    version 3 (`boardfile.rs`, `holds_typed_field`); the v11 and v12 builds read up to version
+    2 and say "Newer file". Any other file is still version 2. (A stroke's colour is a field
+    write; a file holds a stroke with its colour, which every build reads.)
+  - **Deploy note for the writer:** the flip changes the schema sources, so the build id
+    changes and every open tab of the older client closes as `Outdated` and reloads. An older
+    client would read the three (its replica is the reader) but draws a comment above whatever
+    its side, and its scene name inputs stop at 24.
 
 **Rolling back after a schema bump.** `meta` holds two numbers: `schema_version` and
 `compat_floor`, the oldest server schema version that can still use the database. An additive

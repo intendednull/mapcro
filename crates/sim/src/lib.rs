@@ -572,6 +572,22 @@ pub fn unfit_undos(genesis: &Doc, log: &[Tx]) -> usize {
         .count()
 }
 
+/// What the store v10 server can't load of feedback #56, #59 and #60: a comment's side, a
+/// stroke's colour as a field, a scene name over 24 characters. The first two as JSON
+/// keys, so this reads the stored bytes and not the engine's own idea of what it admitted.
+pub fn ahead_of_v10(tx: &Tx) -> [bool; 3] {
+    use mapcro_schema::{FieldValue, Op, Record};
+    let json = serde_json::to_string(tx).expect("json");
+    let long = |name: &str| name.chars().count() > mapcro_schema::LIMITS.max_name;
+    let long_name = tx.ops.iter().any(|op| match op {
+        Op::Set { value: FieldValue::SceneName(n), .. } => long(n),
+        Op::SetIf { expect: FieldValue::SceneName(e), value: FieldValue::SceneName(n), .. } => long(e) || long(n),
+        Op::Create { record: Record::Scene(s), .. } => long(&s.name),
+        _ => false,
+    });
+    [long_name, json.contains("\"CalloutSide\":") || json.contains("\"side\":"), json.contains("\"StrokeColor\":")]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -603,20 +619,33 @@ mod tests {
         assert_eq!(count(Admit { unfit_undo: mapcro_schema::Status::Ahead, ..Admit::READS }), 0, "a server that refuses them logged one");
     }
 
-    /// What the store v10 server can't load of feedback #56, #59 and #60: a comment's side, a
-    /// stroke's colour as a field, a scene name over 24 characters. The first two as JSON
-    /// keys, so this reads the stored bytes and not the engine's own idea of what it admitted.
-    fn ahead_of_v10(tx: &Tx) -> [bool; 3] {
-        use mapcro_schema::{FieldValue, Op, Record};
-        let json = serde_json::to_string(tx).expect("json");
-        let long = |name: &str| name.chars().count() > mapcro_schema::LIMITS.max_name;
-        let long_name = tx.ops.iter().any(|op| match op {
-            Op::Set { value: FieldValue::SceneName(n), .. } => long(n),
-            Op::SetIf { expect: FieldValue::SceneName(e), value: FieldValue::SceneName(n), .. } => long(e) || long(n),
-            Op::Create { record: Record::Scene(s), .. } => long(&s.name),
-            _ => false,
-        });
-        [long_name, json.contains("\"CalloutSide\":") || json.contains("\"side\":"), json.contains("\"StrokeColor\":")]
+    /// What `ahead_of_v10` counts (it reads the stored bytes for `reader-check`'s dump and the
+    /// test below): a scene name over 24 characters in any op that carries one, a side, a
+    /// stroke's colour as a field; nothing else.
+    #[test]
+    fn ahead_of_v10_finds_each_gated_field_and_nothing_else() {
+        use mapcro_schema::{Callout, FieldValue, Op, OrderKey, Record, RecordId, Scene, Side, TxKind, WorldPos};
+        let tx = |ops: Vec<Op>| Tx { client: mapcro_schema::ClientId(1), cseq: 0, kind: TxKind::Edit, ops };
+        let id = RecordId(5);
+        let name = |n: usize| FieldValue::SceneName("é".repeat(n));
+        let scene = |n: usize| Record::Scene(Scene { name: "é".repeat(n), order: OrderKey::first(), clock: None, source: None, live: false, parent: None });
+        let comment = |side| Record::Callout(Callout { scene: id, pos: WorldPos::default(), text: "x".into(), color: None, side });
+        let (fits, long) = (mapcro_schema::LIMITS.max_name, mapcro_schema::LIMITS.max_name + 1);
+        for (what, ops, found) in [
+            ("a name that fits", vec![Op::Set { id, value: name(fits) }], [false, false, false]),
+            ("a long name", vec![Op::Set { id, value: name(long) }], [true, false, false]),
+            ("an undo to a long name", vec![Op::SetIf { id, expect: name(fits), value: name(long) }], [true, false, false]),
+            ("an undo from a long name", vec![Op::SetIf { id, expect: name(long), value: name(fits) }], [true, false, false]),
+            ("an undo between names that fit", vec![Op::SetIf { id, expect: name(fits), value: name(fits) }], [false, false, false]),
+            ("a scene made with a long name", vec![Op::Create { id, record: scene(long) }], [true, false, false]),
+            ("a scene made with a name that fits", vec![Op::Create { id, record: scene(fits) }], [false, false, false]),
+            ("a side", vec![Op::Set { id, value: FieldValue::CalloutSide(Side::Above) }], [false, true, false]),
+            ("a comment made on a side", vec![Op::Create { id, record: comment(Side::Left) }], [false, true, false]),
+            ("a comment made above", vec![Op::Create { id, record: comment(Side::Above) }], [false, false, false]),
+            ("a stroke's colour", vec![Op::Set { id, value: FieldValue::StrokeColor(3) }], [false, false, true]),
+        ] {
+            assert_eq!(ahead_of_v10(&tx(ops)), found, "{what}");
+        }
     }
 
     /// The gated typed fields under every behaviour and attacker: admitted, each is written

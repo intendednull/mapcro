@@ -68,8 +68,16 @@ describe("player events", () => {
     // The metadata names the patron by Valve's lane; this board's marker is keyed lane0.
     expect(placeOf({ t: 9, kind: "objective", key: "patron:sapphire:lane3:1" }, markers)).toEqual(markers.find((m) => m.key === "patron:sapphire:lane0:1")!.at);
     expect(sceneName(shortLabel(ev[0]!, n))).toBe("Infernus died");
-    expect(sceneName("A very long hero name has died here")).toBe("A very long hero name h…");
-    expect(sceneName("A very long hero name has died here").length).toBe(24);
+    // Within a scene name's 48 characters (feedback #56), counted as the server counts them.
+    expect(sceneName("A very long hero name has died here")).toBe("A very long hero name has died here");
+    const long = "A very long hero name has died here, by the Yellow walker";
+    expect(sceneName(long)).toBe(`${long.slice(0, 47)}…`);
+    expect([...sceneName(long)].length).toBe(48);
+    // A cut never splits a character that takes two UTF-16 units.
+    const astral = "😀".repeat(60);
+    expect(sceneName(astral)).toBe(`${"😀".repeat(47)}…`);
+    expect([...sceneName(astral)].length).toBe(48);
+    expect(sceneName("😀".repeat(48))).toBe("😀".repeat(48));
   });
 });
 

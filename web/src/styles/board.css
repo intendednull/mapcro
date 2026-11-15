@@ -262,7 +262,11 @@ kbd {
   font: 500 25px/1.1 var(--display);
   letter-spacing: 0.01em;
   white-space: nowrap;
+  min-width: 0;
 }
+/* A scene name takes 48 characters (feedback #56): cut with an ellipsis, never past the head
+   (not while it's being typed: the field keeps its own box). */
+.scene-title h1:not(:has(.ie-input)) { overflow: hidden; text-overflow: ellipsis; }
 .scene-title h1 .clock { color: var(--brass); }
 .seg {
   display: inline-flex; padding: 2px;
@@ -901,6 +905,15 @@ kbd {
 .ctx-menu { position: fixed; z-index: 60; display: flex; flex-direction: column; min-width: 150px; padding: 4px; background: var(--bg-deep, #0b1714); border: 1px solid var(--line); border-radius: 7px; box-shadow: 0 6px 18px #0008; }
 .ctx-menu button { display: block; padding: 6px 10px; font: 500 13px var(--ui); color: var(--text); background: none; border: 0; border-radius: 5px; cursor: pointer; text-align: left; white-space: nowrap; }
 .ctx-menu button:hover, .ctx-menu button:focus-visible, .ctx-menu button:focus { background: var(--line-soft, #ffffff12); outline: none; }
+/* A choice in a set (a comment's side): the current one is marked. */
+.ctx-menu button[role="menuitemradio"] { padding-left: 24px; position: relative; }
+.ctx-menu button[role="menuitemradio"].on::before { content: ""; position: absolute; left: 10px; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: var(--accent); }
+.ctx-menu .ctx-sep { height: 1px; margin: 4px 2px; background: var(--line); }
+/* Colours (feedback #60): a row of swatches, as in the palette. */
+.ctx-menu .ctx-swatches { display: flex; gap: 6px; padding: 4px 6px; }
+.ctx-menu button.ctx-swatch { width: 20px; height: 20px; padding: 0; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1.5px #0b1714; }
+.ctx-menu button.ctx-swatch:hover, .ctx-menu button.ctx-swatch:focus { background: var(--c); box-shadow: 0 0 0 2px var(--bg-deep, #0b1714), 0 0 0 3.5px var(--text); }
+.ctx-menu button.ctx-swatch.on { box-shadow: 0 0 0 2px var(--bg-deep, #0b1714), 0 0 0 4px var(--c); }
 
 /* Placed things in Select: ends of an arrow to grab, a thing being moved, live ink, pings. */
 .mm-overlay.map .arrow-end { fill: transparent; stroke: transparent; pointer-events: all; cursor: grab; }

@@ -24,6 +24,8 @@ export interface SceneRow {
 export const isUnnamed = (name: string) => /^(Scene \d+)?$/.test(name.trim());
 /** The name to show for the scene at `index` (0-based) in the list. */
 export const sceneName = (name: string, index: number) => (isUnnamed(name) ? `Scene ${index + 1}` : name);
+/** A copy's name: "<name> copy", the name cut to leave room for it. Unnamed stays unnamed. */
+export const copyName = (name: string) => (isUnnamed(name) ? "" : `${[...name].slice(0, LIMITS.max_scene_name - " copy".length).join("").trimEnd()} copy`);
 
 /** The scenes as a tree: each scene's effective parent, and the depth-first order. */
 function treeOf(state: BoardState) {

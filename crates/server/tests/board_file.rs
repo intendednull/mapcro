@@ -171,6 +171,39 @@ fn an_export_imports_as_the_same_board_under_fresh_ids() {
     assert_eq!(m["matches"], json!([130816395]));
 }
 
+/// A board with a long scene name or a comment's side (feedback #56, #59) exports as version 3,
+/// which the v11 build (reading up to 2) calls newer; it imports here with both. Without
+/// either, the same board is version 2 again.
+#[test]
+fn a_long_scene_name_or_a_side_makes_the_file_version_3() {
+    let server = Server::start(&[]);
+    let (board, owner, _) = server.import_ok(&rich_file());
+    let plain = server.export_json(&board, &owner);
+    assert_eq!(plain["version"], 2);
+    let long = "n".repeat(48);
+    for (what, change) in [("a long name", 0), ("a side", 1)] {
+        let mut file = plain.clone();
+        for r in records(&mut file) {
+            match change {
+                0 => {
+                    if let Some(s) = r[1].get_mut("Scene") {
+                        s["name"] = json!(long);
+                    }
+                }
+                _ => {
+                    if let Some(c) = r[1].get_mut("Callout") {
+                        c["side"] = json!("Right");
+                    }
+                }
+            }
+        }
+        let (b, b_owner, _) = server.import_ok(&file);
+        let out = server.export_json(&b, &b_owner);
+        assert_eq!(out["version"], 3, "{what}");
+        assert_eq!(canonical(&out), canonical(&file), "{what}: the same records");
+    }
+}
+
 #[test]
 fn a_file_in_the_oldest_record_shapes_opens_with_their_defaults() {
     let server = Server::start(&[]);
@@ -298,10 +331,11 @@ fn bad_files_are_refused_with_a_code_and_make_no_board() {
     let send = |v: &Value| code(server.import(v.to_string().as_bytes()));
     let title_at = |v: &mut Value| -> usize { records(v).iter().position(|r| r[1].get("BoardMeta").is_some()).expect("meta") };
 
-    // A newer build's file: refused whole, whatever its body. Version 2 is read (below); a
-    // file whose writer knew more map-state rows than this build is newer at any version.
+    // A newer build's file: refused whole, whatever its body. Versions 2 and 3 are read
+    // (below); a file whose writer knew more map-state rows than this build is newer at any
+    // version.
     let rows = mapcro_schema::ROWS.len();
-    assert_eq!(send(&with(|v| v["version"] = json!(3))), (422, "newer".into()));
+    assert_eq!(send(&with(|v| v["version"] = json!(4))), (422, "newer".into()));
     assert_eq!(send(&with(|v| { v["version"] = json!(99); v["records"] = json!(marker); })), (422, "newer".into()));
     assert_eq!(send(&with(|v| { v["version"] = json!(2); v["rows"] = json!(rows + 1); v["records"] = json!(marker); })), (422, "newer".into()));
     assert_eq!(send(&with(|v| v["rows"] = json!(rows + 1))), (422, "newer".into()));
@@ -422,13 +456,15 @@ fn an_import_is_refused_before_its_body_is_read() {
     assert_eq!(answer(&mut held, std::time::Duration::from_secs(5)), Some(429));
     // Over the cap by its length, or no length at all.
     assert_eq!(answer(&mut held_import(server.port, "", MAX_BYTES + 1, 0), std::time::Duration::from_secs(5)), Some(413));
-    let r = ureq::post(&server.url("/api/boards/import"))
-        .header("content-type", "application/json")
-        .config()
-        .http_status_as_error(false)
-        .build()
-        .send(ureq::SendBody::from_reader(&mut &b"{}"[..]));
-    assert_eq!(r.expect("answer").status().as_u16(), 411, "a body of no stated length (chunked)");
+    // A body of no stated length (chunked): the head alone, then the answer. Sending the body
+    // too raced the server's 411 and close (`BrokenPipe` under load, TD-81).
+    let mut chunked = {
+        use std::io::Write;
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", server.port)).expect("connect");
+        write!(s, "POST /api/boards/import HTTP/1.1\r\nhost: x\r\ncontent-type: application/json\r\ntransfer-encoding: chunked\r\n\r\n").expect("head");
+        s
+    };
+    assert_eq!(answer(&mut chunked, std::time::Duration::from_secs(5)), Some(411), "a body of no stated length (chunked)");
 }
 
 /// F2: a body that stalls is cut off, and only so many imports read at once; one past them is

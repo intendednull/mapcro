@@ -134,18 +134,19 @@ pub const SCENE_STATE: Status = Status::Live;
 pub const UNFIT_UNDO: Status = Status::Live;
 
 /// Typed fields gated like a row (feedback #56, #59, #60): each is one more thing a log may
-/// hold that the build deployed as store v10 (e878c30) can't load, so its reader ships a release
-/// before anything writes it. Store v11 is that reader: `Ahead` here. They go `Live` with the
-/// store step that sets the floor to 11 (docs/deploy.md), which a test in `store.rs` holds.
+/// hold that the build deployed as store v10 (e878c30) can't load, so its reader shipped a
+/// release before anything wrote it: store v11 (ce1ec0c), with all three `Ahead`. They are
+/// `Live` from their writer's store step, which sets the floor to 11 (`SIDES_WRITER` in
+/// `store.rs`, docs/deploy.md), and a test there holds it.
 ///
 /// A scene's name over `max_name` characters, up to `max_scene_name`: v10 refuses it on replay
 /// (`TextTooLong`).
-pub const LONG_SCENE_NAME: Status = Status::Ahead;
+pub const LONG_SCENE_NAME: Status = Status::Live;
 /// A comment's side (`Callout::side`, `FieldValue::CalloutSide`): v10 can't parse the field
 /// value, and drops the record's side without a word.
-pub const CALLOUT_SIDE: Status = Status::Ahead;
+pub const CALLOUT_SIDE: Status = Status::Live;
 /// A stroke's colour written as a field (`FieldValue::StrokeColor`): v10 can't parse it.
-pub const STROKE_COLOR: Status = Status::Ahead;
+pub const STROKE_COLOR: Status = Status::Live;
 
 /// What may come in from outside, as opposed to what is read (spec §4.3): the check at
 /// admission, on a client's transaction (`Authority::submit`) and on a board file's records
@@ -246,6 +247,15 @@ impl Admit {
             Op::Delete { .. } | Op::Restore { .. } => Ok(()),
         })
     }
+}
+
+/// Whether `record` holds a gated typed field ([`LONG_SCENE_NAME`], [`CALLOUT_SIDE`]): what the
+/// build deployed as store v11 (ce1ec0c) reads but refuses in a board file. A file holding one
+/// says a version that build doesn't read, so it answers "Newer file", not "Bad file"
+/// (`boardfile.rs` in the server). A stroke's colour is a field write, never in a record.
+pub fn holds_typed_field(record: &Record) -> bool {
+    // (`stroke_color` is not asked of a record.)
+    Admit { long_scene_name: Status::Ahead, callout_side: Status::Ahead, ..Admit::READS }.record(record).is_err()
 }
 
 /// The registry as a TypeScript module, `web/src/gen/rows.ts` (`just ts` writes it): the
@@ -1108,6 +1118,24 @@ mod tests {
         for (field, ops, _) in gated_fields() {
             assert_eq!(retired.tx(&tx(ops)), Ok(()), "{field}");
         }
+    }
+
+    #[test]
+    fn a_record_holds_a_typed_field_with_a_long_scene_name_or_a_side() {
+        use crate::records::{Scene, Stroke};
+        let scene = |n: usize| Record::Scene(Scene { name: "é".repeat(n), order: crate::OrderKey::first(), clock: None, source: None, live: false, parent: None });
+        let comment = |side| Record::Callout(Callout { scene: RecordId(1), pos: WorldPos::default(), text: "x".into(), color: Some(2), side });
+        let stroke = Record::Stroke(Stroke { scene: RecordId(1), points: vec![WorldPos::default(); 2], color: 3, width: 20, offset: WorldPos::default() });
+        assert!(!holds_typed_field(&scene(LIMITS.max_name)));
+        assert!(holds_typed_field(&scene(LIMITS.max_name + 1)));
+        assert!(holds_typed_field(&scene(LIMITS.max_scene_name)));
+        assert!(!holds_typed_field(&comment(Side::Above)));
+        for side in [Side::Below, Side::Left, Side::Right] {
+            assert!(holds_typed_field(&comment(side)), "{side:?}");
+        }
+        assert!(!holds_typed_field(&stroke));
+        // Nor a registry value or a scene's state: a file says those by its `rows`.
+        assert!(!holds_typed_field(&scene_state(holding(&["rows"]))));
     }
 
     #[test]
