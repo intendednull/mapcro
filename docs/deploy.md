@@ -281,9 +281,11 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
     pins in `map-state-pins.test.ts` (with `web/test/pins/save-as-scene.json`), and on the
     server `board_file.rs` "`has_heroes` is the only row still ahead" and `store.rs` "the v12
     reader stores nothing new". The writer was rehearsed three times on the reader's branch
-    with the row flipped in the tree only (the third on top of v11): everything built, the
-    whole vitest suite failed only in those three of its tests, and the save flows' e2e passed
-    with the own-heroes test.
+    with the row flipped in the tree only, the third as store v12 on top of v11: everything
+    built, `tsc` was clean, the whole vitest suite failed only in those three of its tests,
+    `cargo test` only in those two and the rows-lock test (a `Live` row not in the lock: it
+    passes once `just rows-lock` has run at the reader's deploy), and the save flows' e2e
+    passed with the own-heroes test.
 - **`just reader-check`** (in `just test`) loads what this build's server stores on the reader
   release's own code. Its reader is `reader` in the justfile: **set it to the deployed commit
   at each deploy that changes what is stored**, with `just rows-lock`.

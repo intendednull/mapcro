@@ -7,6 +7,84 @@ Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `
 
 Off main `a0774c5` (prod `e878c30`, store v10). Newest first.
 
+### D2's reader on main, store v12 (2026-11-14, 16:40; the ninth implementer stops here)
+
+**Outcome: D2's reader is rebased onto main `62bab62` (store v11 deployed as `ce1ec0c`),
+renumbered to store v12, and green on every check. It goes to the lead's gate and adversarial
+review. The writer flip is not started.**
+
+- **Branch `map-state-d2`**, 15 commits on main `62bab62`: the 13 of D2 (rebased, new ids), the
+  renumber inside the row's commit (`b99b8e2`), and the docs. `map-state-d2-pre-rebase`
+  (`4733ffe`) is still there; delete it once this branch is accepted.
+- **The previous run** (`/tmp/ms-d2/summaryK`, on `797d4cc` over D4): `just test` 0, `just
+  web-test` 0 (74 files, 733 passed, 1 skipped), the tree unchanged, e2e on 17 spec groups 319
+  passed, 1 skipped (the own-heroes test), 0 failed. Nothing red to fix there.
+
+**The rebase** (onto `d75f745`, then again onto `62bab62`, which only added lead journal
+lines). One commit conflicted, the row's (`8fc1dbe`, now `b99b8e2`), all in
+`crates/server/src/store.rs`, because feedback's v11 and D2's old v11 were the same step:
+
+1. The `migrate` arm `10 => {}`: both comments. Kept feedback's on `10`, moved D2's to a new
+   `11 => {}` arm (v11 → v12).
+2. The test both named `the_v11_reader_stores_nothing_new…`: feedback's kept as history,
+   renamed `the_v9_and_v10_servers_open_the_v11_database` (`open_at(…, 11)`, as the v10 test
+   had become); D2's renumbered to `the_v12_reader_stores_nothing_new_so_the_v9_to_v11_servers_
+   still_open_its_database`.
+3. The floor test's comment: kept both lines, one per reader.
+
+Auto-merged without conflicts: `map_state.rs` (the row after feedback's typed fields),
+`system.rs`, `board_file.rs`, `Board.tsx`, `deploy.md`, `tech-debt.md` (TD-98 sits between
+TD-97 and TD-99; main's TD-101, TD-102 are elsewhere, no id clash), this journal.
+
+**The v12 changes** (`store.rs`, `system.rs`):
+
+- `SCHEMA_VERSION` 12; `step()` `5..=7 | 10 | 11 => Step::Additive`; `migrate` `11 => {}` with
+  D2's comment (floor 12 is for the writer).
+- The v12 test: the database at v12 has floor 9; the v9, v10 and v11 servers open it, v8 doesn't;
+  a v11 database migrates with its floor kept. It holds `has_heroes` `Ahead` in the registry and
+  in `Admit::DEPLOYED`, **and feedback's three typed fields `Ahead`** (moved from the v11 test:
+  the floor is still 9, so the v10 and v9 servers are rollback targets and can't load them).
+- The floor test: `step(11)` additive, `compat_floor(12) == 9`, `compat_floor(13) == 13` (the
+  unknown step). The "floor above this server" test one higher (a v14 database with floor 13
+  refused; floor 12 opens; v11 below it). The v6 migration test and `system.rs`'s two
+  `schema_version` checks read `"12"`.
+- Docs: `deploy.md` (the reader at v12, rollback targets v11 `ce1ec0c`, v10, v9; the writer the
+  next free version, likely v14, `Step::NeedsReader { reader: 12 }` from feedback's release 2,
+  floor 12), the spec §4.3 and §4.5.
+
+**Checks** (`/tmp/ms-d2/jobL.sh` on `b6a53a4`, through `tools/heavy.sh`, 16:04 to 16:37, load
+5 to 12.5; logs `/tmp/ms-d2/*L.log`, summary `summaryL`):
+
+| Check | Result |
+|---|---|
+| `just ts` | 0, `web/src/gen` as committed |
+| `just clippy` | 0 |
+| `just test` | 0: 541 passed, 0 failed, 20 ignored (with the 2 failpoint tests); the simulation 1000 seeds both as read and `--admit deployed`; `reader-check` on `ce1ec0c`: 40 boards, 9,675 transactions, byte for byte |
+| `just web-test` | 0: 76 files, 773 passed, 1 skipped; `tsc` clean; the tree unchanged |
+| e2e, the whole suite, 2 workers | 0: 486 passed, 16 skipped, 0 failed (the two `✘` are `frozen-write-guard`'s `test.fail()`) |
+| cargo-mutants on the Rust diff | 3 mutants: 2 caught (`step`'s `5..=7 \| 10 \| 11` arm deleted; `migrate` → `Ok(())`), 1 unviable |
+
+**The writer, rehearsed a third time** (the row `row(...)` in the tree only, then restored; the
+tree had 0 changed files after): wasm, `just ts`, the server built; `tsc` clean; vitest 3 failed,
+770 passed, exactly the three that state the dormant build (`scene-heroes.test.ts` "is not
+written by this build", the two Save pins in `map-state-pins.test.ts`); `cargo test` 3 failed:
+`board_file.rs` "`has_heroes` is the only row still ahead", `store.rs` the v12 test, and the
+schema's rows-lock test ("has_heroes: not deployed yet"), which `just rows-lock` at the
+reader's deploy clears; e2e on the save flows 46 passed, 1 skipped, with the own-heroes test
+passing. So the flip still works on top of v11.
+
+**Decisions for the lead**
+
+- **Merge order with feedback's writer.** The numbers assume D2's reader (v12) merges before
+  feedback's writer (v13). If feedback's lands first, the two swap and this branch renumbers.
+- **Feedback's writer touches the v12 test.** Its plan edits `the_v11_reader_stores_nothing_new…`
+  ("statuses `Ahead` while v11 is the newest"). After this merge that assertion lives in the v12
+  test; the v11 test is history only. Feedback's v13 must replace the three-status line there.
+- **After D2's reader deploys:** `just rows-lock` (16 rows with `has_heroes`), and `reader` in
+  the justfile set to the deployed v12 commit before the writer merges (`docs/deploy.md`).
+- **The backup ref** `map-state-d2-pre-rebase`: delete once this branch is accepted.
+- Still open from before: S1 (the faded hero and its ghost in a scene), TD-98.
+
 ### Handoff to the next implementer (2026-11-14, 09:30; the seventh stops here, context full)
 
 Read this, then the D2 section below it, then `docs/deploy.md` ("`has_heroes`").
