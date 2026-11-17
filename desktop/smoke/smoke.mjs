@@ -14,7 +14,8 @@
 // (CI's installed .deb, which its package manager updates) nothing is offered at all.
 // mapcro:// links (desktop/README.md, Deep links): a second launch with a board link hands it to
 // the running app (the single-instance plugin), whose window opens the board on the site, and a
-// link that isn't a board's changes nothing; then the app started by a link opens on its board.
+// link that isn't a board's changes nothing, a session's link opens the session; then the app
+// started by a link opens on its board.
 // On Linux the hand-off needs a D-Bus session (`just desktop-smoke` runs a private one); without
 // one those checks are skipped. The links are synthetic (no real board or token).
 //
@@ -329,6 +330,12 @@ try {
     await new Promise((r) => setTimeout(r, 3000));
     const still = await page();
     check("a link that isn't a board's changes nothing", still === `${board}#${TOKEN2}`, still);
+    // A session's link, naming its tab (docs/specs/sessions.md §7.1): its page, tab and all.
+    const TAB = "0123456789abcdef0123456789abcdef";
+    await launch(`mapcro://s/${BOARD}?tab=${TAB}#${TOKEN}`);
+    const want = `${site}s/${BOARD}?tab=${TAB}#${TOKEN}`;
+    const sess = await until("the session link opened", async () => ((await page()) === want ? true : null), 20_000).catch(() => false);
+    check("a second launch's mapcro:// session link opens the session in the window", sess, sess ? undefined : await page());
   } else {
     console.log("skip mapcro:// hand-off: no D-Bus session (run under dbus-run-session)");
   }

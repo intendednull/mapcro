@@ -815,3 +815,40 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 .add-menu .add-known .link { background: none; border: 0; color: var(--text); font-weight: 600; text-align: left; padding: 4px 0; width: 100%; cursor: pointer; }
 .add-menu .add-known .link:hover { text-decoration: underline; }
 .phone > .game-strip { min-height: 36px; }
+/* A tab's details (§8): its name, and under it the winner and the length, then the tier chip. */
+.game-tab .game-main, .games-pick .game-main { display: flex; flex-direction: column; justify-content: center; min-width: 0; line-height: 1.2; }
+.game-sub { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; color: var(--faint); font-size: 10.5px; font-weight: 500; white-space: nowrap; }
+.game-line { display: inline-flex; align-items: center; gap: 4px; }
+.game-win { flex: none; width: 6px; height: 6px; border-radius: 50%; }
+.game-win.amber { background: var(--amber); }
+.game-win.sapphire { background: var(--sapphire); }
+.game-tier { padding: 0 5px; border-radius: 999px; border: 1px solid var(--line); font-size: 9.5px; font-weight: 600; line-height: 13px; }
+.game-tier.replay { color: var(--brass); border-color: var(--brass-dim); }
+.game-tier.busy { color: var(--brass); border-style: dashed; }
+/* A tab nobody can open (§8): dimmed; its hover says No access. */
+.game-tab.unavailable, .games-row.unavailable { opacity: 0.45; }
+/* The people on a tab (§8): a dot each, in their colour. */
+.game-people { flex: none; display: inline-flex; align-items: center; padding-left: 2px; }
+.game-dot { width: 8px; height: 8px; border-radius: 50%; margin-left: -2px; box-shadow: 0 0 0 1.5px var(--bg-deep); }
+.game-more { margin-left: 3px; color: var(--faint); font-size: 10px; font-weight: 600; }
+.game-strip .all-games { align-self: center; white-space: nowrap; }
+/* The people list's Session group: who is on another tab (§8). */
+.session-people { display: flex; flex-direction: column; gap: 2px; }
+.people-group { margin: 10px 0 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: none; }
+.people-group small { color: var(--faint); font-weight: 500; }
+/* The phone (§8): the header's session title opens the Games sheet. */
+.games-open { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 6px; min-width: 44px; max-width: 40vw; height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); color: var(--text); font: 600 13px var(--ui); }
+.games-open .games-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.games-open .games-count { flex: none; padding: 0 6px; border-radius: 999px; background: var(--bg-deep); color: var(--muted); font-size: 12px; }
+.games-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; display: flex; flex-direction: column; max-height: min(70dvh, 560px); padding: 0 12px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); border-radius: 12px 12px 0 0; background: var(--panel); box-shadow: 0 -8px 24px #0008; }
+.games-sheet-head { flex: none; display: flex; align-items: center; justify-content: space-between; height: 48px; }
+.games-sheet-head b { font-size: 16px; font-weight: 600; }
+.games-sheet-head .btn { border: 0; background: transparent; font-size: 20px; min-width: 44px; min-height: 44px; }
+.games-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0; padding: 0; list-style: none; }
+.games-row { display: flex; align-items: center; gap: 4px; border-radius: 8px; }
+.games-row.on { background: var(--raised); box-shadow: inset 3px 0 var(--brass); }
+.games-pick { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 48px; padding: 4px 10px; color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer; }
+.games-pick .game-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.games-sheet .game-sub, .games-sheet .game-tier, .games-sheet .game-more { font-size: 12px; line-height: 16px; }
+.games-row .games-menu { flex: none; min-width: 44px; min-height: 44px; border: 0; background: transparent; font-size: 18px; }
+.games-add { flex: none; margin-top: 8px; min-height: 44px; }

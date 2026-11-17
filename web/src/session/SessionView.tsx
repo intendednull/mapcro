@@ -5,6 +5,12 @@
 // across it is what the tab showed (§4.2) and the page's timeline cache (§4.3). The open tab is
 // the session's view state (`session.tab`, session/follow.ts): a follower switches with its
 // presenter (§6), and the session's room is told who is here and on which tab.
+//
+// The strip (§8): each tab's name, then its board's newest match (the winner, the length) and the
+// tier chip, loaded only for tabs in view (session/details.ts); the dots of the people on it; an
+// "All games (n)" list once the tabs don't fit. On a phone the strip gives way to the session
+// title in the board's header, which opens the Games sheet: the tab list, Add game and the same
+// tab menu.
 
 import { ShareIcon } from "../ui/ShareIcon";
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
@@ -13,17 +19,23 @@ import { Board, type InSession } from "../board/Board";
 import { resetVisit } from "../board/reset";
 import { ShareDialog } from "../board/ShareDialog";
 import { addGrant, canOpen, parseSessionUrl, sessionUrl, withdrawGrant } from "../core/api";
-import { type Me, hasJoined, knownBoards, loadMe, rememberBoard } from "../core/device";
+import { APP_OPENS_SESSIONS, openSessionInAppHref } from "../core/applink";
+import { authHeader } from "../core/cred";
+import { type Me, colorOf, hasJoined, knownBoards, loadMe, rememberBoard } from "../core/device";
 import { href, replace } from "../core/nav";
 import { LIMITS } from "../gen/limits";
 import type { RecordId } from "../gen/RecordId";
 import type { Art } from "../map/pack";
+import { Api as PlayerApi } from "../player/api";
+import { previews } from "../player/picker";
+import { timelines } from "../player/timelineCache";
 import { ContextMenu, type MenuItem } from "../ui/ContextMenu";
 import { DeadLink } from "../ui/DeadLink";
 import { InlineEdit } from "../ui/InlineEdit";
 import { Wordmark } from "../ui/Wordmark";
 import { type AddChoice, AddMenu, refusal, takeAddOnOpen } from "./AddGame";
-import { createSessionFollow } from "./follow";
+import { createTabDetails, subLine, tierChip } from "./details";
+import { createSessionFollow, onTabs } from "./follow";
 import { UndoHistory } from "./history";
 import { SESSION_SIDE, createSessionState } from "./state";
 import { type TabRow, addTabOps, credentialFor, linkDead, moveOps, neighbourOf, pickTab, removeOps, renameOps } from "./tabs";
@@ -44,7 +56,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   // through; a refusal is asked about again each time it matters. ----
   const [openable, setOpenable] = createSignal<ReadonlyMap<string, boolean>>(new Map());
   const credential = (t: TabRow) => credentialFor(t, p.session, p.token, knownBoards());
-  const openKey = (board: string, grant: string | undefined) => `${board}\u0000${grant ?? ""}`;
+  const openKey = (board: string, grant: string | undefined) => `${board} ${grant ?? ""}`;
   const noteOpen = (key: string, ok: boolean) => setOpenable((m) => (m.get(key) === ok ? m : new Map(m).set(key, ok)));
   const asking = new Set<string>();
   const follow = createSessionFollow({
@@ -67,6 +79,81 @@ export function SessionView(p: { session: string; token: string; tab: string | u
     onPicked: (was, seat) => say(`Stopped following ${was?.state?.name || "them"}`, seat === undefined ? {} : { again: () => follow.again(seat, was) }),
   });
   const active = follow.tab;
+  // ---- the strip's details (§8): asked for only for tabs in view, with the credential each
+  // opens with; the open tab's from its board. ----
+  const keyOf = (t: TabRow) => openKey(t.board, credential(t).via?.grant);
+  const byKey = createMemo(() => new Map(s.tabs().map((t) => [keyOf(t), t] as const)));
+  const details = createTabDetails({
+    matches: async (key) => {
+      const t = untrack(byKey).get(key);
+      if (!t) return undefined;
+      const c = credential(t);
+      const r = await fetch(`/api/boards/${t.board}/matches`, { headers: { authorization: authHeader(c.token, c.via) } }).catch(() => undefined);
+      if (r?.ok) return (((await r.json().catch(() => ({}))) as { matches?: number[] }).matches ?? []).filter((n) => Number.isSafeInteger(n));
+      return r && (r.status === 401 || r.status === 403 || r.status === 404) ? "refused" : undefined;
+    },
+    job: async (key, match) => {
+      const t = untrack(byKey).get(key);
+      if (!t) return undefined;
+      const c = credential(t);
+      return new PlayerApi(t.board, c.token, c.via).job(match).catch(() => undefined);
+    },
+    preview: (match) => previews.ask(match),
+    held: (key, match) => {
+      const t = untrack(byKey).get(key);
+      return t ? timelines.candidates(t.board, match)[0]?.tl.duration_s : undefined;
+    },
+    // A refusal the strip hears, a follow knows too (§6.3): it says No access without asking.
+    // A board that opens is still asked about before a follow goes there: the strip asks as the
+    // page opens, and a grant withdrawn after that would land the follower on a dead tab. So
+    // a yes only clears a refusal heard before (the tab opens again: undo put it back).
+    opened: (key, ok) =>
+      setOpenable((m) => {
+        if (!ok) return m.get(key) === false ? m : new Map(m).set(key, false);
+        if (m.get(key) !== false) return m;
+        const next = new Map(m);
+        next.delete(key);
+        return next;
+      }),
+  });
+  /** The tabs in view, by key, as the strip and the Games sheet see them. */
+  const inView = new Map<Element, string>();
+  const observer =
+    typeof IntersectionObserver === "undefined"
+      ? undefined
+      : new IntersectionObserver((entries) => {
+          for (const e of entries) {
+            const key = (e.target as HTMLElement).dataset.key;
+            if (!key) continue;
+            if (e.isIntersecting) {
+              inView.set(e.target, key);
+              details.seen(key);
+            } else inView.delete(e.target);
+          }
+        });
+  /** Watch a tab's element (its key in `data-key`): its details load once it's in view. */
+  const watch = (el: HTMLElement) => {
+    if (observer) observer.observe(el);
+    else if (el.dataset.key) details.seen(el.dataset.key);
+    onCleanup(() => {
+      observer?.unobserve(el);
+      inView.delete(el);
+    });
+  };
+  // A tab someone is on may change (they load a match there): asked again now and then.
+  const occupied = () => new Set(s.tabs().filter((t) => people().has(t.id)).map(keyOf));
+  // Not while the page is hidden: nobody sees the strip.
+  const againTimer = setInterval(() => {
+    if (!document.hidden) details.again(new Set(inView.values()), untrack(occupied));
+  }, 5000);
+  onCleanup(() => {
+    clearInterval(againTimer);
+    observer?.disconnect();
+  });
+  /** A tab this page can't open (§8: dimmed, "No access" on hover). */
+  const unavailable = (t: TabRow) => details.get(keyOf(t))?.kind === "refused" || openable().get(keyOf(t)) === false;
+  /** Who is on each tab, by the session's presence (§8: the tabs' dots). */
+  const people = createMemo(() => onTabs(s.peers(), s.myPeer()));
   // Who this person is, for the session's room (§6.1): the name and colour the boards show,
   // once given (the join card asks once per session).
   const [me, setMe] = createSignal<Me | undefined>(hasJoined(p.session) ? loadMe() : undefined);
@@ -88,6 +175,9 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   const [adding, setAdding] = createSignal(takeAddOnOpen(p.session));
   const [sharing, setSharing] = createSignal(false);
   const [menu, setMenu] = createSignal<{ at: { x: number; y: number }; tab: TabRow }>();
+  const [games, setGames] = createSignal(false);
+  const [overflow, setOverflow] = createSignal(false);
+  const [allGames, setAllGames] = createSignal<{ x: number; y: number }>();
   const [renaming, setRenaming] = createSignal<RecordId>();
   const opens = new Map<RecordId, () => void>();
   const [dragging, setDragging] = createSignal<RecordId>();
@@ -197,6 +287,8 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   });
   const pick = (id: RecordId) => {
     setMenu(undefined);
+    // Switching closes the Games sheet and returns to the map (§8).
+    setGames(false);
     if (pressed) return void (queued = id);
     // A switch picked now wins over one held for a press that just ended.
     queued = undefined;
@@ -311,22 +403,107 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       </button>
     </Show>
   );
+  /** Under a tab's name: its board's newest match and the tier chip (§8), or "Sandbox". */
+  const sub = (t: TabRow) => {
+    const d = () => details.get(keyOf(t));
+    return (
+      <Show when={subLine(d()) || tierChip(d())}>
+        <span class="game-sub" data-testid="tab-sub">
+          <Show when={subLine(d())}>
+            {(l) => (
+              <span class="game-line" data-testid="tab-line" data-winner={l().winner ?? ""}>
+                <Show when={l().winner}>{(w) => <span class={`game-win ${w()}`} />}</Show>
+                {l().text}
+              </span>
+            )}
+          </Show>
+          <Show when={tierChip(d())}>
+            {(c) => (
+              <span class="game-tier" classList={{ replay: c().tier === "replay", busy: c().busy }} data-testid="tab-tier" data-tier={c().tier}>
+                {c().text}
+              </span>
+            )}
+          </Show>
+        </span>
+      </Show>
+    );
+  };
+  /** The dots of the people on a tab (§8), each in their colour, their name on hover. */
+  const dots = (t: TabRow) => {
+    const on = () => people().get(t.id) ?? [];
+    return (
+      <Show when={on().length > 0}>
+        <span class="game-people" data-testid="tab-people" data-count={on().length}>
+          <For each={on().slice(0, 3)}>{(x) => <span class="game-dot" style={{ background: colorOf(x.state!.color) }} title={x.state!.name || "Joining"} />}</For>
+          <Show when={on().length > 3}>
+            <span class="game-more">+{on().length - 3}</span>
+          </Show>
+        </span>
+      </Show>
+    );
+  };
+  /** A tab's hover text: its name, and "No access" when it can't be opened (§8). */
+  const hover = (t: TabRow) => (unavailable(t) ? `${t.name} · No access` : t.name);
+  const openMenu = (e: MouseEvent, t: TabRow) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setMenu({ at: e.type === "contextmenu" ? { x: e.clientX, y: e.clientY } : { x: r.left, y: r.bottom }, tab: t });
+  };
+  const nameEdit = (t: TabRow) => (
+    <InlineEdit
+      class="game-name"
+      label="Tab name"
+      testid="tab-name"
+      editable={renaming() === t.id}
+      value={t.name}
+      maxLength={LIMITS.max_name}
+      bindOpen={(o) => opens.set(t.id, o)}
+      onEditing={(on) => !on && setRenaming(undefined)}
+      onCommit={(text) => rename(t, text)}
+    />
+  );
+  // The strip scrolls when its tabs don't fit; "All games (n)" then lists them all (§8).
+  let tabsEl: HTMLDivElement | undefined;
+  const measure = () => tabsEl && setOverflow(tabsEl.scrollWidth > tabsEl.clientWidth + 1);
+  createEffect(() => {
+    s.tabs();
+    queueMicrotask(measure);
+  });
+  let allGamesClosed = -Infinity;
+  let allGamesPressed = -Infinity;
+  const allGamesItems = (): MenuItem[] => s.tabs().map((t) => ({ label: t.name, testid: "all-games-tab", checked: t.id === active(), run: () => pick(t.id) }));
   const strip = () => (
     <nav class="game-strip" data-testid="game-strip" aria-label="Games" data-can-edit={String(s.canEdit())}>
-      <div class="game-tabs" role="tablist">
+      <div
+        class="game-tabs"
+        role="tablist"
+        ref={(el) => {
+          tabsEl = el;
+          const ro = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+          ro?.observe(el);
+          onCleanup(() => ro?.disconnect());
+        }}
+      >
         <For each={s.tabs()}>
           {(t) => (
             <div
               class="game-tab"
-              classList={{ on: t.id === active(), dragging: dragging() === t.id }}
+              classList={{ on: t.id === active(), dragging: dragging() === t.id, unavailable: unavailable(t) }}
               role="tab"
               tabIndex={0}
               aria-selected={t.id === active()}
               aria-label={`Game tab, ${t.name}`}
-              title={t.name}
+              title={hover(t)}
               data-testid="game-tab"
               data-tab={t.id}
               data-board={t.board}
+              data-key={keyOf(t)}
+              ref={(el) => {
+                watch(el);
+                // The open tab is scrolled into view (a switch by key, by a follow, by the list).
+                createEffect(() => t.id === active() && el.scrollIntoView?.({ block: "nearest", inline: "nearest" }));
+              }}
               draggable={s.canEdit() && renaming() !== t.id}
               onClick={() => renaming() !== t.id && pick(t.id)}
               onKeyDown={(e) => e.key === "Enter" && e.target === e.currentTarget && pick(t.id)}
@@ -337,8 +514,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
               }}
               onContextMenu={(e) => {
                 if (!s.canEdit()) return;
-                e.preventDefault();
-                setMenu({ at: { x: e.clientX, y: e.clientY }, tab: t });
+                openMenu(e, t);
               }}
               onDragStart={(e) => {
                 setDragging(t.id);
@@ -351,17 +527,11 @@ export function SessionView(p: { session: string; token: string; tab: string | u
                 dropOn(t);
               }}
             >
-              <InlineEdit
-                class="game-name"
-                label="Tab name"
-                testid="tab-name"
-                editable={renaming() === t.id}
-                value={t.name}
-                maxLength={LIMITS.max_name}
-                bindOpen={(o) => opens.set(t.id, o)}
-                onEditing={(on) => !on && setRenaming(undefined)}
-                onCommit={(text) => rename(t, text)}
-              />
+              <span class="game-main">
+                {nameEdit(t)}
+                {sub(t)}
+              </span>
+              {dots(t)}
               <Show when={unsent().has(t.board) && t.board !== openBoard()}>
                 <span class="game-unsent" role="img" data-testid="tab-unsent" title="Not sent" aria-label="Not sent" />
               </Show>
@@ -383,6 +553,23 @@ export function SessionView(p: { session: string; token: string; tab: string | u
           )}
         </For>
       </div>
+      <Show when={overflow()}>
+        <button
+          class="btn ghost small all-games"
+          data-testid="all-games"
+          aria-haspopup="menu"
+          aria-expanded={!!allGames()}
+          onPointerDown={() => (allGamesPressed = performance.now())}
+          onClick={(e) => {
+            // This press closed the open list (a press outside it closes it first): it stays closed.
+            if (allGamesPressed - allGamesClosed >= 0 && allGamesPressed - allGamesClosed < 100) return;
+            const r = e.currentTarget.getBoundingClientRect();
+            setAllGames({ x: r.left, y: r.bottom });
+          }}
+        >
+          All games ({s.tabs().length})
+        </button>
+      </Show>
       <Show when={s.canEdit()}>
         <button class="btn ghost small add-game" data-testid="add-game" onClick={() => setAdding(true)}>
           + Add game
@@ -390,7 +577,94 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       </Show>
     </nav>
   );
-  const inSession = (): Omit<InSession, "via" | "opened"> => ({ id: p.session, history, joinKey: p.session, title, share, strip, canEdit: () => s.canEdit(), follow: follow.board, me: setMe, left });
+  /** On a phone, the header's session title (§8): it opens the Games sheet. */
+  const gamesButton = () => (
+    <button class="games-open" data-testid="games-open" aria-haspopup="dialog" aria-expanded={games()} onClick={() => setGames(!games())}>
+      <span class="games-title">{s.title() || "Games"}</span>
+      <span class="games-count">{s.tabs().length}</span>
+    </button>
+  );
+  /** The phone's Games sheet (§8): the tab list, Add game, and each tab's menu. No gesture: a
+   * tab is moved with Move left and Move right. */
+  const gamesSheet = () => (
+    <section class="games-sheet" data-testid="games-sheet" role="dialog" aria-label="Games" onKeyDown={(e) => e.key === "Escape" && !renaming() && setGames(false)}>
+      <header class="games-sheet-head">
+        <b>Games</b>
+        <button class="btn ghost" data-testid="games-close" aria-label="Close" onClick={() => setGames(false)}>
+          ×
+        </button>
+      </header>
+      <ul class="games-list" role="tablist">
+        <For each={s.tabs()}>
+          {(t) => (
+            <li
+              class="games-row"
+              classList={{ on: t.id === active(), unavailable: unavailable(t) }}
+              data-testid="games-row"
+              data-tab={t.id}
+              data-key={keyOf(t)}
+              ref={watch}
+            >
+              <div
+                class="games-pick"
+                role="tab"
+                tabIndex={0}
+                aria-selected={t.id === active()}
+                aria-label={`Game tab, ${t.name}`}
+                title={hover(t)}
+                data-testid="games-pick"
+                onClick={() => renaming() !== t.id && pick(t.id)}
+                onKeyDown={(e) => e.key === "Enter" && e.target === e.currentTarget && pick(t.id)}
+              >
+                <span class="game-main">
+                  {nameEdit(t)}
+                  {sub(t)}
+                </span>
+                {dots(t)}
+                <Show when={unsent().has(t.board) && t.board !== openBoard()}>
+                  <span class="game-unsent" role="img" data-testid="tab-unsent" title="Not sent" aria-label="Not sent" />
+                </Show>
+              </div>
+              <Show when={s.canEdit()}>
+                <button class="btn ghost games-menu" data-testid="games-menu" aria-label="More" aria-haspopup="menu" onClick={(e) => openMenu(e, t)}>
+                  ⋯
+                </button>
+              </Show>
+            </li>
+          )}
+        </For>
+      </ul>
+      <Show when={!s.tabs().length}>
+        <div class="session-empty muted">No games</div>
+      </Show>
+      <Show when={s.canEdit()}>
+        <button
+          class="btn games-add"
+          data-testid="games-add"
+          onClick={() => {
+            setGames(false);
+            setAdding(true);
+          }}
+        >
+          + Add game
+        </button>
+      </Show>
+    </section>
+  );
+  const inSession = (): Omit<InSession, "via" | "opened" | "left" | "shown"> => ({
+    id: p.session,
+    history,
+    joinKey: p.session,
+    title,
+    share,
+    strip,
+    games: gamesButton,
+    canEdit: () => s.canEdit(),
+    follow: follow.board,
+    me: setMe,
+    // The session's own link in the app, on the open tab (§7.1); held until the app opens it (TD-117).
+    appHref: () => (APP_OPENS_SESSIONS ? openSessionInAppHref({ session: p.session, token: p.token, ...(active() ? { tab: active()! } : {}) }) : undefined),
+  });
   // A dead link, not an outdated build: that one reloads, or says Update available, as a board does.
   const closed = () => linkDead(s.connection());
   const outdated = () => {
@@ -426,7 +700,17 @@ export function SessionView(p: { session: string; token: string; tab: string | u
               board={m.board}
               token={m.token}
               art={p.art}
-              session={{ ...inSession(), ...(m.via ? { via: m.via } : {}), opened: (ok) => noteOpen(openKey(m.board, m.via?.grant), ok) }}
+              session={{
+                ...inSession(),
+                ...(m.via ? { via: m.via } : {}),
+                opened: (ok) => noteOpen(openKey(m.board, m.via?.grant), ok),
+                // Left: the strip asks about it again (its match may have changed here).
+                left: (board, n) => {
+                  left(board, n);
+                  details.left(openKey(m.board, m.via?.grant));
+                },
+                shown: (x) => details.shown(openKey(m.board, m.via?.grant), x),
+              }}
             />
           </div>
         )}
@@ -451,6 +735,10 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       <Show when={menu()}>
         {(m) => <ContextMenu at={m().at} label={`Game tab, ${m().tab.name}`} testid="tab-menu" items={menuItems(m().tab)} onClose={() => setMenu(undefined)} />}
       </Show>
+      <Show when={allGames()}>
+        {(at) => <ContextMenu at={at()} label="All games" testid="all-games-list" items={allGamesItems()} onClose={() => ((allGamesClosed = performance.now()), setAllGames(undefined))} />}
+      </Show>
+      <Show when={games()}>{gamesSheet()}</Show>
       <Show when={toast()}>
         {(t) => (
           <div class="toast session-toast" role="status" data-testid="session-toast">

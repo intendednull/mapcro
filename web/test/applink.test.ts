@@ -1,7 +1,7 @@
 // Board links and the app (core/applink.ts): the pasted link's rules (the same as the app's,
 // desktop/core/src/link.rs), the mapcro:// form, and "Open in app"'s gating.
 import { describe, expect, it } from "vitest";
-import { SITE, appLink, boardHref, openInAppHref, parseBoardLink } from "../src/core/applink";
+import { SITE, appLink, boardHref, linkHref, openInAppHref, openSessionInAppHref, parseBoardLink, parseLink, sessionAppLink } from "../src/core/applink";
 import { LINUX_APP_URL, WINDOWS_APP_URL, desktopAppLinks } from "../src/player/desktop";
 
 const ID = "AbCdEfGhIjKlMnOpQrSt-_";
@@ -87,5 +87,66 @@ describe("openInAppHref", () => {
     expect(openInAppHref(want, { released: false, nav: win, w: {} })).toBeUndefined();
     expect(openInAppHref(want, { released: true, nav: mac, w: {} })).toBeUndefined();
     expect(openInAppHref(want, { released: true, nav: win, w: { __TAURI_INTERNALS__: { invoke: () => Promise.resolve() } } })).toBeUndefined();
+  });
+});
+
+describe("a session's link (sessions.md §7.1)", () => {
+  const TAB = "0123456789abcdef0123456789abcdef";
+  const s = { kind: "session", session: ID, token: TOKEN } as const;
+  it("takes the mapcro:// form and the site's, with or without the tab it names", () => {
+    expect(parseLink(`mapcro://s/${ID}#${TOKEN}`, DEV)).toEqual(s);
+    expect(parseLink(`mapcro://s/${ID}?tab=${TAB}#${TOKEN}`, DEV)).toEqual({ ...s, tab: TAB });
+    expect(parseLink(`${SITE}/s/${ID}?tab=${TAB}#${TOKEN}`, DEV)).toEqual({ ...s, tab: TAB });
+    expect(parseLink(`${SITE}/s/${ID}#${TOKEN}`, DEV)).toEqual(s);
+    expect(parseLink(`${DEV}/s/${ID}?tab=${TAB}#${TOKEN}`, DEV)).toEqual({ ...s, tab: TAB });
+    // Harmless variants, as a board's link has them.
+    expect(parseLink(`  MAPCRO://S/${ID}#${TOKEN}\n`, DEV)).toEqual(s);
+    expect(parseLink(`mapcro://s/${ID}/#${TOKEN}`, DEV)).toEqual(s);
+    expect(parseLink(`mapcro://s/${ID}/?tab=${TAB}#${TOKEN}`, DEV)).toEqual({ ...s, tab: TAB });
+    // A board's link is still a board's.
+    expect(parseLink(`mapcro://b/${ID}#${TOKEN}`, DEV)).toEqual({ kind: "board", ...want });
+  });
+  it("is no board link: Paste link (a board for the session) refuses it", () => {
+    expect(parseBoardLink(`mapcro://s/${ID}#${TOKEN}`, DEV)).toBeUndefined();
+    expect(parseBoardLink(`${SITE}/s/${ID}?tab=${TAB}#${TOKEN}`, DEV)).toBeUndefined();
+  });
+  it("refuses anything else", () => {
+    const bad = [
+      `mapcro://s/${ID}`,
+      `mapcro://s/${ID}#`,
+      `mapcro://s/${ID}#${TOKEN}x`,
+      `mapcro://s/${ID.slice(1)}#${TOKEN}`,
+      `mapcro://s/${ID}?tab=${TAB.toUpperCase()}#${TOKEN}`, // a record id is lowercase
+      `mapcro://s/${ID}?tab=${TAB.slice(1)}#${TOKEN}`,
+      `mapcro://s/${ID}?tab=${TAB}0#${TOKEN}`,
+      `mapcro://s/${ID}?tab=#${TOKEN}`,
+      `mapcro://s/${ID}?x=1#${TOKEN}`, // tab is the only query
+      `mapcro://s/${ID}?tab=${TAB}&x=1#${TOKEN}`,
+      `mapcro://s/${ID}?tab=${TAB}/#${TOKEN}`,
+      `mapcro://s/${ID}//#${TOKEN}`,
+      `mapcro://s//${ID}#${TOKEN}`,
+      `mapcro://s/../${ID}#${TOKEN}`,
+      `mapcro://evil.example/s/${ID}#${TOKEN}`,
+      `${SITE}/s/${ID}/#${TOKEN}`, // the site's links have no slash
+      `${SITE}/s/${ID}/?tab=${TAB}#${TOKEN}`,
+      `https://evil.example/s/${ID}#${TOKEN}`,
+      `http://mapcro.dmgdeadlock.com/s/${ID}#${TOKEN}`,
+      `${SITE}.evil.example/s/${ID}#${TOKEN}`,
+      `mapcro://s/${ID}#${TOKEN}\u0000`,
+      "mapcro://s/".repeat(40) + `${ID}#${TOKEN}`,
+    ];
+    for (const x of bad) expect(parseLink(x, DEV), x).toBeUndefined();
+  });
+  it("the mapcro:// form names the tab; the page on this origin is the session's address", () => {
+    expect(sessionAppLink({ session: ID, token: TOKEN, tab: TAB })).toBe(`mapcro://s/${ID}?tab=${TAB}#${TOKEN}`);
+    expect(sessionAppLink({ session: ID, token: TOKEN })).toBe(`mapcro://s/${ID}#${TOKEN}`);
+    expect(parseLink(sessionAppLink({ session: ID, token: TOKEN, tab: TAB }), DEV)).toEqual({ ...s, tab: TAB });
+    expect(linkHref({ ...s, tab: TAB }, DEV)).toBe(`${DEV}/s/${ID}?tab=${TAB}#${TOKEN}`);
+    expect(linkHref({ kind: "board", ...want }, DEV)).toBe(`${DEV}/b/${ID}#${TOKEN}`);
+  });
+  it("is a session page's Open in app, gated as a board's", () => {
+    const win = { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/142" };
+    expect(openSessionInAppHref({ session: ID, token: TOKEN, tab: TAB }, { released: true, nav: win, w: {} })).toBe(`mapcro://s/${ID}?tab=${TAB}#${TOKEN}`);
+    expect(openSessionInAppHref({ session: ID, token: TOKEN }, { released: false, nav: win, w: {} })).toBeUndefined();
   });
 });

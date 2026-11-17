@@ -705,9 +705,9 @@ By decision 1 of the view-state plan, new view state is a registry row:
   is in the session, as a board's own toast does: the page goes to their tab and follows.
 - **Who a late joiner can follow.** The board's follow chip (and the F key) also offers the
   session's presenters on other tabs: people the server says can be followed, whom someone in
-  the session follows, with a seat and a tab. **Someone on another tab whom nobody follows yet
-  can't be followed from here**: the "Session" people group and the avatar dots of §8 are in
-  neither phase 4's list nor phase 5's (docs/backlog.md).
+  the session follows, with a seat and a tab. **Someone on another tab whom nobody follows yet**
+  is followed from the people list's "Session" group (§8, built in phase 5): Follow there begins
+  the same follow by seat, and the session takes the page to their tab.
 
 ### 6.3 Who can be followed, and lacking access
 
@@ -750,6 +750,17 @@ By decision 1 of the view-state plan, new view state is a registry row:
   board doesn't know it is in one.
 - `mapcro://s/…` in the desktop app (`parseBoardLink` gains the session form; `link.rs` the
   same).
+  **As built (phase 5):** `mapcro://s/<session>#<token>` and `mapcro://s/<session>?tab=<tab>#<token>`,
+  and the site's `https://<site>/s/<session>[?tab=<tab>]#<token>`: `tab` (32 lowercase hex
+  digits) is the only query taken, a `/` after the session id is allowed on the `mapcro://` form
+  only, as for a board's. The page's `parseLink` (`core/applink.ts`) takes a board's or a
+  session's; `parseBoardLink` stays a board's, so Paste link in the add menu refuses a session's
+  ("Not a board link": a tab from another session is phase 6). In the app, Open link and Ctrl+L
+  open either. `desktop/core/src/link.rs` `parse` answers a `Link` (`Board` or `Session`, neither
+  `Debug` printing its token), and the app opens it on its own site. A session's tab offers the
+  session's link, on the open tab, as its "Open in app" (never the board's own). Held at deploy
+  (`APP_OPENS_SESSIONS`, TD-117): the released app parses only `mapcro://b/`, so until a desktop
+  release with this parser has been out a while, a session's tab offers no Open in app.
 
 ### 7.2 Editing the strip
 
@@ -765,6 +776,18 @@ By decision 1 of the view-state plan, new view state is a registry row:
 
   The new tab's name defaults to the board's title. The new tab opens, and the add is one undo
   step.
+
+  **As built (phase 5):** the menu is Load a game, New board, Paste link (with Can view and its
+  sentence), Your boards. **Load a game** is the landing's steps (`AddGame.tsx` `loadGame`): the
+  same refusals in the same words (a mode the board doesn't take, an id that isn't one, a file
+  named for another match, not a `.dem`), and a match without its metadata and no replay says
+  "Match not found yet." with "Upload replay file" (in the app, "Upload replay", its picker). The
+  board is "Match <id>"; by id the match is attached, with a replay the board uploads it as it
+  opens (`handOff`, as the landing's board does), and a replay dropped on the form is the
+  form's. **New board** takes a title ("Untitled board" without one) and rolls twelve random
+  heroes on its first load, as the landing's. Both keep the owner link in Your boards at once
+  (the landing keeps a match's only once it opens: here the tab exists either way), so the tab
+  opens through that link, as owner.
 - **Remove**: the tab's ×, or the context menu's Remove. It deletes the `Tab` record. A toast
   reads "Removed <name>" with **Undo**. If you were on that tab, you move to its left neighbour.
 - **Rename**: double-click the tab or use the context menu. This sets `TabName`. The board's own
@@ -831,6 +854,40 @@ each board has its own scenes. Its sub-line reads "Sandbox".
   Rename/Remove menu. Switching closes the sheet and returns to the map. No flow depends on a
   swipe or drag gesture, per the proposal's rule, so reorder on the phone is "Move left" and
   "Move right" in the tab menu.
+
+**As built (phase 5):**
+
+- **A tab's details** (`session/details.ts`): under the name, the newest match's winner (a dot
+  in the team's colour, "Amber" or "Sapphire") and its length ("Sapphire · 21:40"), then the
+  tier chip: the job under way ("Uploading…", "Waiting", "Queued", "Fetching…", "Parsing…"), else
+  "Full replay", else "API summary" where the match has metadata; "Sandbox" for a board without
+  a match. The winner and the length are the match's preview (`GET /api/matches/<id>/preview`,
+  the picker's cache; in the app the demo's first), the length from a timeline this page holds
+  when there is none. No new route: a tab in view asks `GET /api/boards/<id>/matches` and the
+  newest match's `GET …/replays/<id>`, with the credential it opens with. The open tab costs
+  nothing: its board says its own match, tier, job and length. A tab is asked again once it is
+  left here, while its job is under way (every 5 s), and every 10 s while someone in the session
+  is on it (only they can change its match). The rest is kept for the page's life. **No
+  percentage**: the server's job state has no progress, and only the uploader's own page knows
+  its upload's (it shows on that board's chip).
+- **A refusal the strip hears, a follow knows** (§6.3): a follower whose presenter goes to a tab
+  the strip found refused says "No access" without asking. A tab the strip found open is still
+  asked about before a follow goes there: the strip asks as the page opens, and a grant
+  withdrawn after that would otherwise land the follower on a dead tab (the §9.3 rows "the
+  presenter goes to a tab nobody can open" caught it). A yes only clears a refusal heard before.
+  A refused tab is dimmed, its hover "<name> · No access".
+- **The dots**: each tab shows a dot per person on it (session presence; never one's own), in
+  their colour, their name on hover, three and then "+n".
+- **"All games (n)"** shows once the tabs don't fit (the strip scrolls), and lists every tab, the
+  open one checked; picking one switches to it, and the open tab is scrolled into view.
+- **The people list's "Session" group**: who is in the session on another tab, with the tab's
+  name (and "presenting" when followed), Follow for anyone the server says can be followed who
+  has a seat, "view only" otherwise. On the board's desktop layout only: the phone has no people
+  list (TD-116).
+- **Phone:** in a session the phone's header has the session's title and its count of games as a
+  button (in Player too), in place of the strip under the header. The Games sheet is
+  SessionView's, over the board: a row per tab (its details and dots, a "⋯" with the tab menu),
+  Add game, and a close. A rename there is in the row.
 
 ## 9. Test plan
 
@@ -1283,6 +1340,27 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      `sessions-client.test.ts`.
 5. **Polish.** Strip details (match, winner, tier, job status), Load a game and New board from
    the strip, the overflow list, the phone Games sheet, and the mapcro:// session links.
+   **Built and verified 2026-11-16 (branch `sessions-p5`), not yet reviewed**
+   (`docs/journal/2026-11-14-sessions-build.md`, "Phase 5"). What was built is written into §7.1,
+   §7.2 and §8 ("As built"), and with it the operator-approved gap: someone on another tab whom
+   nobody follows is followed from the people list's "Session" group (§6.2). No store version, no
+   schema row, no wire field and no server change: the strip's details come from routes the
+   client already had, and the Session group and the dots from session presence as phase 4 sends
+   it.
+   - **Tests:** `web/test/sessions-details.test.ts` (what a tab says, when it is asked for),
+     `web/test/session-follow.test.ts` (`elsewhere`, `onTabs`, following someone nobody follows),
+     `web/test/applink.test.ts` (a session's link), `desktop/core/src/link.rs` (the same rules),
+     `web/e2e/sessions-polish.spec.ts` (the details, Load a game, New board, a dimmed tab, All
+     games and what is asked lazily), `web/e2e/session-follow.spec.ts` (the dots and the Session
+     group's follow), `web/e2e/phone.spec.ts` (the Games sheet at 390 × 844 and 344 × 615, Firefox
+     too), `web/e2e/open-link.spec.ts` (a session's link in the app; its Open in app), and
+     `desktop/smoke/smoke.mjs` (a session's link handed to the running app).
+   - **Mutation:** 62 hand mutants over `details.ts`, `follow.ts` and `applink.ts`, 60 killed by
+     the unit files, 2 equivalent; 22 over `SessionView.tsx`, `Board.tsx` and `Presence.tsx`
+     that only the browser rows can fail, 21 killed, 1 equivalent; cargo-mutants on `link.rs`,
+     35 caught, 4 unviable, 3 missed in the unchanged length guard (equivalent). The lists are in
+     the journal.
+   - **Debt:** TD-113 to TD-116; TD-104 updated.
 6. **Later.** Adding a tab from another session (a grant of a grant), cloning a session (open question 11), a series scoreline, and
    cross-game build comparison.
 

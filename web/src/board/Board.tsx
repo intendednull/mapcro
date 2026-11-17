@@ -27,6 +27,8 @@ import { fromTimeline, markerFrame, playerFrame } from "../mapstate/state";
 import type { MatchPreview } from "../match/preview";
 import { EventPings, Highlight, MapControls, Player, PlayerSide, PlayerSwitch, TierChip, TrooperDots } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
+import type { JobState } from "../player/api";
+import { tierOf } from "../match/timeline";
 import { ReplayPrompt } from "../player/ReplayPrompt";
 import { MarkerTips, TeleporterLink } from "../player/Camps";
 import { markerStates } from "../player/markerStates";
@@ -63,7 +65,7 @@ import { ShareIcon } from "../ui/ShareIcon";
 import { feedbackMatchOf } from "../core/feedback";
 import { rejection, statusView } from "./status";
 import type { Reject } from "../gen/Reject";
-import { Avatar, FollowChip, PeopleList, PresentingPill } from "./Presence";
+import { Avatar, FollowChip, PeopleList, PresentingPill, SessionPeople } from "./Presence";
 import { type ClearKind, Toolbar } from "./Toolbar";
 import { Palette } from "./Palette";
 import { isUnnamed, sceneName } from "./scenes";
@@ -173,6 +175,12 @@ export interface InSession {
   opened: (ok: boolean) => void;
   /** This board was left with `unsent` changes not sent (TD-101: the strip marks the tab). */
   left: (board: string, unsent: number | undefined) => void;
+  /** On a phone, the header's session title: it opens the Games sheet (sessions.md §8). */
+  games: () => JSX.Element;
+  /** What this board shows of its match, for the strip's details (§8): no request for the open tab. */
+  shown: (s: { match: string | undefined; tier: "replay" | "summary" | undefined; job: JobState | undefined; duration: number | undefined }) => void;
+  /** The session's "Open in app" (its mapcro:// link, on this tab), where the app's download shows. */
+  appHref: () => string | undefined;
 }
 
 export function Board(p: { board: string; token: string; art: Art; session?: InSession }) {
@@ -645,6 +653,17 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       const c = state.connection();
       if (c.kind === "live") inSession.opened(true);
       else if (c.kind === "closed" && c.reason !== "outdated") inSession.opened(false);
+    });
+  // The strip says what this board shows (§8): the match open here, its tier once its timeline
+  // is drawn, and its job (an upload under way, say). A board with no match yet says nothing:
+  // the strip asks, once.
+  if (inSession)
+    createEffect(() => {
+      const id = player.matchId();
+      if (!id) return;
+      const tl = player.tl();
+      const drawn = tl && String(tl.match_id) === id ? tl : undefined;
+      inSession.shown({ match: id, tier: drawn ? (tierOf(drawn) === "replay" ? "replay" : "summary") : undefined, job: player.job(), duration: drawn?.duration_s });
     });
   onCleanup(() => state.stop());
   // Unmounted (another board, or back to the landing): module state goes back to its defaults.
@@ -1119,6 +1138,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     <div class="phone" ref={phoneEl} classList={{ "phone-player": inPlayer(), "phone-editing": phoneEdit() }} data-testid="board" data-board={p.board} data-layout="phone">
       <header class="p-top">
         <Wordmark />
+        {/* In a session, its title: it opens the Games sheet (sessions.md §8). */}
+        <Show when={inSession}>{inSession!.games()}</Show>
         <Show when={!inPlayer()}>
           <span class="viewonly" data-testid="role-chip">
             {state.canEdit() ? "Can edit" : "View only"} · {teamName(viewpoint() === "sapphire" ? "sapphire" : "amber")} side
@@ -1132,8 +1153,6 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
         <SaveStatus state={state} rejected={rejected()} dismiss={() => setSeenProblems(state.problems().length)} />
         <Show when={!inPlayer()}><FeedbackButton variant="bar" match={feedbackMatch} /></Show>
       </header>
-      {/* Sessions on a phone are out of scope: the strip shows on the phone board, not in Player's shell. */}
-      <Show when={inSession && !inPlayer()}>{inSession!.strip()}</Show>
       <Show when={!inPlayer()}>{followChip()}</Show>
       <Show when={!inPlayer()}><div class="p-title" onPointerDown={swipe}>
         <div class="ord">
@@ -1457,7 +1476,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const rowIcon = (d: string) => <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" innerHTML={d} />;
   const DOWN = '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>';
   const moreGroups = createMemo((): MoreRow[][] => {
-    const app = !via ? openInAppHref({ board: p.board, token: p.token }) : undefined;
+    // A session's tab offers the session's own link (on this tab), never the board's; none while
+    // the app can't open session links (TD-117).
+    const app = inSession ? inSession.appHref() : openInAppHref({ board: p.board, token: p.token });
     return [
       updateLink() ? [{ label: "Update available", testid: "app-update", href: WINDOWS_APP_PORTABLE_URL, download: true, brass: true, icon: () => rowIcon(DOWN) }] : [],
       state.role()
@@ -1688,6 +1709,18 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
               stop={() => stopFollowing()}
               rename={() => setJoined(false)}
             />
+            {/* The session's people on other tabs (sessions.md §8), each with Follow. */}
+            <Show when={across && across.elsewhere().length > 0}>
+              <h3 class="people-group">
+                Session <small>{across!.elsewhere().length}</small>
+              </h3>
+              <SessionPeople
+                list={across!.elsewhere()}
+                followingSeat={following() !== undefined ? across!.seat() : undefined}
+                follow={(x) => follow(x.peer, x.state?.seat ?? undefined, x)}
+                stop={() => stopFollowing()}
+              />
+            </Show>
           </section>
           <Show when={!inPlayer()}>
           <section class="note-section">

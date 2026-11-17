@@ -201,3 +201,48 @@ export function PeopleList(p: {
     </div>
   );
 }
+
+/**
+ * The people list's "Session" group (sessions.md §8): who is in the session on another tab, and
+ * which, each with Follow where they can be followed. Following one goes to their tab, and
+ * follows them there (§6.2): the first follower starts here, as nobody follows them yet.
+ */
+export function SessionPeople(p: {
+  list: Array<{ peer: PeerPresence; tab: { name: string }; canFollow: boolean; followers: number }>;
+  /** The seat this page follows, while it follows. */
+  followingSeat: number | undefined;
+  follow: (x: PeerPresence) => void;
+  stop: () => void;
+}) {
+  return (
+    <div class="session-people" data-testid="session-people">
+      <For each={p.list}>
+        {(x) => {
+          const on = () => p.followingSeat !== undefined && x.peer.state?.seat === p.followingSeat;
+          return (
+            <div class="person" data-testid="session-person" data-person={nameOf(x.peer)}>
+              <Avatar name={nameOf(x.peer)} color={x.peer.state!.color} />
+              <span class="nm">
+                <b>{nameOf(x.peer)}</b>
+                <span class={cx("state", x.followers > 0 && "presenting")} data-testid="session-person-tab">
+                  {x.tab.name}
+                  {x.followers > 0 ? " · presenting" : ""}
+                </span>
+              </span>
+              <Show when={x.canFollow} fallback={<span class="nofollow">view only</span>}>
+                <button
+                  class={cx("pf-btn", on() && "on")}
+                  data-testid={`session-follow-${nameOf(x.peer)}`}
+                  aria-pressed={on()}
+                  onClick={() => (on() ? p.stop() : p.follow(x.peer))}
+                >
+                  {on() ? "Following" : "Follow"}
+                </button>
+              </Show>
+            </div>
+          );
+        }}
+      </For>
+    </div>
+  );
+}

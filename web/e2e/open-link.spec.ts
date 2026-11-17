@@ -267,3 +267,51 @@ test("the installed app's Later hides the banner for the run: another page doesn
   expect(calls.filter((c) => c.startsWith("app_update_install"))).toEqual([]);
   await ctx.close();
 });
+
+/** A session made from a new board, through the API: its id, owner token and first tab. */
+async function newSession(title: string) {
+  const { board, token } = parts(await newBoardUrl(server, title));
+  const r = await fetch(`${server.url}/api/sessions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title, board, board_token: token }) });
+  return (await r.json()) as { session: string; owner_token: string; tab: string };
+}
+
+test("in the app, Open link takes a session's link, in either form, on the tab it names (sessions.md §7.1)", async ({ browser }) => {
+  const ctx = await inApp(browser);
+  const p = await ctx.newPage();
+  const s = await newSession("Linked session");
+  await p.goto(server.url);
+  await p.getByTestId("open-link-input").fill(`mapcro://s/${s.session}?tab=${s.tab}#${s.owner_token}`);
+  await p.getByTestId("open-link-go").click();
+  await expect(p.getByTestId("session")).toHaveAttribute("data-session", s.session);
+  expect(p.url()).toBe(`${server.url}/s/${s.session}?tab=${s.tab}#${s.owner_token}`);
+  await joinHere(p);
+  await expect(p.getByTestId("game-tab")).toHaveCount(1);
+  // The site's form, without a tab: the session, on its first.
+  await p.goto(server.url);
+  await p.getByTestId("open-link-input").fill(`https://mapcro.dmgdeadlock.com/s/${s.session}#${s.owner_token}`);
+  await p.getByTestId("open-link-input").press("Enter");
+  await expect(p.getByTestId("session")).toHaveAttribute("data-session", s.session);
+  await expect.poll(() => new URL(p.url()).searchParams.get("tab")).toBe(s.tab);
+  // A session's link with anything else in its query is no link.
+  await p.goto(server.url);
+  await p.getByTestId("open-link-input").fill(`mapcro://s/${s.session}?tab=${s.tab}&x=1#${s.owner_token}`);
+  await p.getByTestId("open-link-go").click();
+  await expect(p.getByTestId("open-link-error")).toHaveText("Not a board link");
+  await ctx.close();
+});
+
+// Held until the released app opens session links (TD-117): no Open in app through the session's
+// grant. When `APP_OPENS_SESSIONS` turns on, this row expects the session's own link again:
+// `mapcro://s/<session>?tab=<tab>#<token>`, never the board's.
+test("in a Windows browser, a session's tab through its grant offers no Open in app yet", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, userAgent: WINDOWS_UA });
+  const p = await ctx.newPage();
+  const s = await newSession("App session");
+  await p.goto(`${server.url}/s/${s.session}#${s.owner_token}`);
+  await joinHere(p);
+  await expect(p.getByTestId("game-tab")).toHaveCount(1);
+  await openMore(p);
+  await expect(p.getByTestId("download")).toBeVisible();
+  await expect(p.getByTestId("open-in-app")).toHaveCount(0);
+  await ctx.close();
+});

@@ -259,7 +259,8 @@ test("More's menu: its rows by role and app, the update dot, the rows' testids",
   await viewer.getByTestId("more").click();
   await expect(rows(viewer)).toHaveText(["Download", "Open in app", "Get the app"]);
 
-  // Through a session grant (another device on the session's link): no Open in app.
+  // Through a session grant (another device on the session's link): no Open in app until the
+  // released app opens session links (TD-117); then it's the session's own link, on the open tab.
   await owner.keyboard.press("Escape");
   await owner.getByTestId("add-game").click();
   await expect(owner.getByTestId("session-share")).toBeVisible();

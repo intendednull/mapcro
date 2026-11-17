@@ -4,7 +4,161 @@ Phase 3: branch `sessions-p3` (worktree `mapcro.worktrees/sessions-p3`), off mai
 Phase 4: branch `sessions-p4` (worktree `mapcro.worktrees/sessions-p4`), off main 66c643d, with
 main merged in twice (62bab62, then aff82f7). The spec is `docs/specs/sessions.md`; what phase 3 built is written into
 its §4.1, §4.2, §4.3, §5 and §10, and what phase 4 built into §6.1 to §6.3, §9.3 and §10.
+Phase 5: branch `sessions-p5` (worktree `mapcro.worktrees/sessions-p5`), off main 42480b0; what it
+built is written into §6.2, §7.1, §7.2, §8 and §10.
 Newest state at the top.
+
+## Phase 5: polish (2026-11-16), built and verified, not reviewed
+
+Built by an Opus session in one run. No store version, no schema row, no wire field and **no
+server change**: the strip's details come from routes the client already had, and the Session
+group and the dots from session presence as phase 4 sends it. So there is no deploy order and no
+interop to test (`crates/` is untouched but for `desktop/core`'s link parser, which is the
+app's).
+
+**What a coach sees.**
+
+- **The strip says what each game is.** Under each tab's name: the winner (a dot in the team's
+  colour, "Amber" or "Sapphire") and the length, "Sapphire · 21:40", then the tier chip: "Full
+  replay", "API summary", or the job under way ("Uploading…", "Queued", "Fetching…", "Parsing…").
+  A board without a match says "Sandbox". A tab nobody can open is dimmed, its hover "<name> · No
+  access". Details load only for tabs in view, and never open a board's room.
+- **Each tab shows dots for the people on it**, in their colours, their names on hover.
+- **"+ Add game" has Load a game and New board.** Load a game is the landing's form (a match id,
+  or a replay file; in the app, its replay picker), with the landing's refusals in its words. The
+  new tab is "Match <id>", opens in Player, and someone else's strip shows its upload queued, then
+  parsing, then "Full replay". New board makes an empty board named as asked, with twelve random
+  heroes. Both land in Your boards.
+- **"All games (n)"** appears once the tabs don't fit: a list of every tab, the open one checked.
+  Picking one switches and scrolls it into view.
+- **On a phone** the strip gives way to the session's title in the header, with its count of
+  games. It opens the Games sheet: a row per tab with its details and dots, a "⋯" with the tab menu
+  (Rename, Move left, Move right, Remove), Add game, and a close. Picking a tab closes it and
+  shows the map.
+- **Following someone nobody follows yet** (the operator-approved gap). The people list has a
+  "Session" group: who is on another tab, and which, with Follow. Follow takes you to their tab
+  and follows there, as the chip's follow does.
+- **`mapcro://s/<session>?tab=<tab>#<token>`** opens the session in the app, on that tab. In the
+  app, Open link and Ctrl+L take a session's link in either form. On a session's tab, "Open in
+  app" is the session's link on the open tab, never the board's.
+
+**Decisions taken where the spec left a choice** (each in §7.1, §7.2 or §8 "As built"):
+
+1. **No new server route for the strip.** Per tab in view it asks `GET /api/boards/<id>/matches`
+   and, for the newest match, `GET …/replays/<id>`; the winner and length come from the match's
+   preview (the picker's cache, the app's demo first). A replay with no metadata shows its length
+   only once this page holds its timeline. A route that answered all of it at once (and TD-104's
+   "which tabs open") was weighed and left: it would be a server change with a deploy order.
+2. **When details are asked again:** once a tab is left here; every 5 s while its job is under
+   way; every 10 s while someone in the session is on it. Only the people on a board change its
+   match. Otherwise they are kept for the page's life (TD-114). The open tab costs nothing: its
+   board reports its match, tier, job and length.
+3. **A yes from the strip isn't trusted for a follow; a refusal is.** At first every answer went
+   into what a follow knows, and two §9.3 rows failed. The strip asks as the page opens, so a
+   grant withdrawn later landed the follower on the dead tab instead of saying No access. Now a
+   refusal is known at once, and a yes only clears an earlier refusal. TD-104 is updated.
+4. **No percentage on the strip.** The server's job state has none (TD-115).
+5. **Load a game keeps the owner link at once**, where the landing keeps a match's only once it
+   opens. Here the tab exists either way, and the tab then opens through that link, as owner.
+6. **The Session group is the desktop's only.** The phone has no people list (TD-116).
+7. **The session's "Open in app"** on a session's tab: `header.spec.ts` pinned "no Open in app
+   through a session grant"; it now pins the session's own link. A change of behaviour, flagged
+   for the lead. **Lead, after review:** held behind `APP_OPENS_SESSIONS = false` (TD-117), because a
+   released app before this branch ignores `mapcro://s/` links; `header.spec.ts` is back to "no
+   Open in app through a session grant" until a desktop release carries the parser. Also from the
+   review: `job()` runs a load asked for meanwhile; the strip isn't re-asked while the page is
+   hidden; New board waits for a running Load a game. The rest is TD-118.
+8. **Labels:** "Load a game", "New board", "Open match", "Board title", "Match id", "Select
+   replay file", "All games (n)", "Games", "Session", "No access", "Sandbox", "Full replay", "API
+   summary", "Amber", "Sapphire", and the job words, all from §8's list, the landing or the tier
+   chip. The tab's hover is its name, plus " · No access". The ⋯ button's label is "More", as the
+   board's.
+
+**Characterisation.** The existing rows were run first on the change, unchanged, as its
+characterisation: `sessions.spec.ts`, `session-isolation.spec.ts`, `session-follow.spec.ts`, the
+follow matrix and `open-link.spec.ts`. Three of them caught real changes:
+
+- the two §9.3 "nobody can open" rows (decision 3);
+- `header.spec.ts`'s More menu (decision 7, its expectation changed on purpose).
+
+The phone's strip was replaced without a characterisation row first (it had none: only the phone
+Player bar's No access row touched a session on a phone).
+
+### The checks, through `tools/heavy.sh`
+
+- **On 8a7d3b9 (gate A):** `just web-test` 79 files, 845 passed, 1 skipped, `tsc` clean,
+  `web/src/gen` unchanged; `just clippy` clean; `just test` green (`desktop/core`'s link tests
+  among them; `reader-check` with 8efbfac, 40 boards byte for byte). That run's `just e2e
+  --workers 2` failed three rows, each a real change: the two §9.3 "nobody can open" rows
+  (decision 3, fixed) and `header.spec.ts`'s More menu (decision 7). Firefox failed
+  `phone-player` 615 × 344 once at its 1-minute timeout, under load (a phone Player row phase 5
+  doesn't touch). The next Firefox run below passed it.
+- **On 9ad872b, the branch's code as it stands (gate C):**
+  - `just e2e --workers 2`: **513 passed, 16 skipped, none failed** (21.4 min). The two
+    `frozen-write-guard` rows show ✘, as they are meant to.
+  - `just e2e-firefox --workers 2`: **29 passed, 2 skipped** (the Games sheet at 390 × 844 and
+    344 × 615 among them).
+  - `just web-test`: 79 files, **847 passed**, 1 skipped; `web/src/gen` unchanged.
+  - `just desktop-smoke` (`nix develop .#desktop`, a real Linux app under Xvfb and a private
+    D-Bus): all passed, with the new check "a second launch's mapcro:// session link opens the
+    session in the window".
+  - Nothing in `crates/` changed after gate A, so `just test` and `clippy` stand.
+- **Interop: not needed.** No presence, wire, store or server change.
+- **The walkthrough** (scratch `~/.cache/mapcro-sp5/zz-walkthrough-p5.spec.ts`, copied into
+  `web/e2e` for one run and removed; 82c59d0, counts and booleans only):
+  - **Setup:** a coach and a student, then a phone. Three boards with matches: the reference
+    replay and a copy as fetched replays, and the fixture's match through a fake deadlock-api.
+  - **The student's fresh strip:** two "Full replay" and one "API summary"; the summary tab
+    with its winner's dot, its winner and its length. The replay tab never opened there shows
+    no length (no metadata); the open one does. The strip opened no sockets.
+  - **Following someone nobody follows:** the coach on the third tab, nobody following. The
+    student sees the coach's dot there, a chip offering nobody, and one person in the Session
+    group. Follow took the student there (365 and 393 ms to the mount in two runs), following;
+    the coach is presenting. The student went with the coach to the second tab, and a pick of
+    its own stopped it.
+  - **Load a game:** the reference replay by id is refused (no metadata) with the upload
+    offered; the fixture's match by id makes a fourth tab, open in Player, "API summary" with
+    its winner and length, and the student's strip has it.
+  - **New board:** a fifth tab, "Sandbox".
+  - **All games:** with 14 tabs at 1000 px it shows, lists every tab, and picking from it
+    switches.
+  - **The phone at 390 × 844:** no strip, the Games button 44 px high, the header in the
+    width. The sheet has 14 rows with tier chips, is on screen at 66% of the height, and a tap
+    switches and closes it.
+  - **Errors:** 0 page errors, 0 console errors but 10 refused requests (the lookups' 404s).
+- **Mutation:**
+  - **Unit, hand** (scratch `unit-mutants.py`): 62 mutants over `details.ts` (42), `follow.ts`
+    (`elsewhere`, `onTabs`: 11) and `applink.ts` (9). The first run killed 57. Three missed
+    ones got tests and are killed: a new match keeping the old one's preview, the open board's
+    length lost while its timeline redraws, my own follow counted twice. **60 killed, 2
+    equivalent:**
+    - `tierChip`'s check for no match: with none there is no job, tier or preview to show;
+    - `parseLink`'s length and ASCII guard: the strict pattern bounds both.
+  - **Browser rows, hand** (scratch `e2e-mutants.py`, `git status` clean after each run): 22
+    over `SessionView.tsx`, `Board.tsx` and `Presence.tsx`. **21 killed, 1 equivalent:** the
+    strip's refusal not kept for a follow, which only saves the round trip, since `canOpen`
+    then asks and is refused.
+    - Two were missed at first. "A tab someone is on never asked again" got the row step where
+      the coach loads a match on a tab the student saw as Sandbox. "A tab in view never asked
+      about" is a 5-second delay (the 5 s tick asks anyway), and the rows' 5 s expectations now
+      catch it.
+  - **cargo-mutants on `desktop/core/src/link.rs`:** 42 mutants, 35 caught, 4 unviable, 3 missed.
+    All three are in the length and ASCII guard, unchanged from main and equivalent for the same
+    reason as the web's.
+
+**Debt:** TD-113 (Load a game's steps written twice, the landing and the add menu), TD-114 (the
+strip's details for a tab nobody is on are kept until a reload), TD-115 (no percentage), TD-116
+(no Session group on the phone). TD-104 updated. Ids checked free on main, `d2-writer` and
+`player-transport`. The backlog's "someone nobody follows" item is marked done.
+
+**Open, for the lead:**
+
+- **Review.** No server, wire or store change, but it changes what a follow knows (decision 3)
+  and adds per-tab requests. A standard review, with the follow rows, seems enough.
+- **Decisions 2, 3 and 7** want the lead's word: the re-ask rate, the strip's yes, and Open in
+  app on a session's tab.
+- The phone has no Session group (TD-116); the phone's header is full at 344 px (the title cuts
+  with an ellipsis).
 
 ## Phase 4: follow across tabs (2026-11-14), built, verified and reviewed
 
