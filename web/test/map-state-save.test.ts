@@ -216,4 +216,19 @@ describe("Retake", () => {
     expect(retakeOps(scene(2), { id: "state", more: captureScene(tl) }, heroes, roster as never, tl, minter())).toEqual([]);
     expect(retakeOps(scene(null), undefined, heroes, roster as never, tl, minter())).toEqual([]);
   });
+
+  // Characterisation, before the D2 writer's fix (docs/deploy.md, "Retake's health tier"): the
+  // health Retake writes follows the open timeline's tier, while a scene reads it by its own
+  // `source.tier` (mapstate/scene.ts). The fix makes the two the same and changes this test.
+  it("as built: health follows the open timeline's tier, not the scene's", () => {
+    const sourced = (tier: string) => ({ id: "scene", scene: { name: "s", order: "a", clock: 2, source: { match_id: 9, t: 2, tier } } }) as never;
+    const metadata = { ...tl, tier: undefined, source: "metadata" } as unknown as Timeline;
+    const healthWrites = (ops: Op[]) => ops.filter((o) => setIf(o) && "More" in setIf(o)!.value && (setIf(o)!.value as { More: { key: string } }).More.key === "health").length;
+    // A scene saved from the metadata tier, retaken with the replay open: health is written.
+    expect(canRetake({ source: { match_id: 9, t: 2, tier: "metadata" } }, undefined, tl)).toBe(true);
+    expect(healthWrites(retakeOps(sourced("metadata"), undefined, old(), roster as never, tl, minter()).flat())).toBe(12);
+    // A scene saved from the replay, retaken with only the metadata open: offered, no health.
+    expect(canRetake({ source: { match_id: 9, t: 2, tier: "replay" } }, undefined, metadata)).toBe(true);
+    expect(healthWrites(retakeOps(sourced("replay"), undefined, old(), roster as never, metadata, minter()).flat())).toBe(0);
+  });
 });

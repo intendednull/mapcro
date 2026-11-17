@@ -454,6 +454,24 @@ mod tests {
         }
     }
 
+    /// Characterisation before map-state D2's writer: a board whose scene holds its heroes
+    /// (`has_heroes` in its state) is written as version 2, which the v13 build (8efbfac) reads
+    /// and refuses whole, as a bad file (the row is `Ahead` there). The writer changes this.
+    #[test]
+    fn as_built_a_file_holding_has_heroes_is_version_2_and_a_bad_file_for_the_v13_build() {
+        use mapcro_schema::Status;
+        let v13 = Admit { row: |r| if r.row().key == "has_heroes" { Status::Ahead } else { r.row().status }, ..Admit::DEPLOYED };
+        let held = file_with(|v| {
+            let scene = first(v, "Scene").0;
+            records(v).push(serde_json::json!([STATE_ID, { "SceneState": { "scene": scene, "more": { "rows": mapcro_schema::ROWS.len(), "has_heroes": true } } }]));
+        });
+        let (doc, _) = read(&held, ids(1000), &Admit::READS).expect("imports where the row is admitted");
+        let bytes = write(&doc, Vec::new(), 0, 0);
+        let head: Head = serde_json::from_slice(&bytes).expect("head");
+        assert_eq!(head.version, 2);
+        assert_eq!(read(&bytes, ids(1000), &v13).err(), Some(Refusal::Invalid));
+    }
+
     #[test]
     fn depth_is_counted_outside_strings() {
         assert!(!too_deep(br#"{"a":[[1]]}"#, 3));
