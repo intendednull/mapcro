@@ -170,6 +170,8 @@ test("each tab says its board's newest match, winner, length and tier; Load a ga
   await a.getByTestId("add-match-go").click();
   await expect(tabs(a)).toHaveCount(5);
   await expect(tab(a, 4).getByTestId("tab-name")).toHaveText("Match 52001");
+  // The open tab's own board says its upload, before the match is attached (nothing to ask yet).
+  await expect(tier(a, 4)).toHaveText(/^(Uploading…|Waiting|Queued)$/);
   const j = await job("52001");
   // Someone else sees it queued, then parsing, then the full replay, without opening it: Coach
   // is on that tab, so it's asked about again now and then.
@@ -207,7 +209,11 @@ test("each tab says its board's newest match, winner, length and tier; Load a ga
   expect(grant).toMatch(/^[A-Za-z0-9_-]{22}$/);
   const gone = await fetch(`${server.url}/api/sessions/${m.session}/grants/${grant}`, { method: "DELETE", headers: { authorization: `Bearer ${m.owner}` } });
   expect(gone.status).toBe(204);
-  const c = await joinNew(browser, m.url, "Late");
+  // A late joiner opens the session on that tab, its first: its board refuses them.
+  const c = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+  await c.goto(m.url);
+  await c.locator("#join-name").fill("Late");
+  await c.keyboard.press("Enter");
   await expect(tabs(c)).toHaveCount(6);
   const nameA = await tab(c, 0).getByTestId("tab-name").innerText();
   await expect(tab(c, 0)).toHaveClass(/unavailable/);
