@@ -11,7 +11,7 @@ import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Browser, type Page, expect, test } from "./fixtures";
-import { joinNew } from "./helpers";
+import { joinNew, revealControls } from "./helpers";
 import { ROOT, Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 
 const ID = "130816395";
@@ -118,6 +118,8 @@ async function attach(link: string, id: string) {
 }
 
 test("each tab says its board's newest match, winner, length and tier; Load a game and New board add tabs; a tab nobody can open is dimmed", async ({ browser }) => {
+  // A long row: someone else's strip hears a job move only every few seconds.
+  test.setTimeout(180_000);
   const m = await session(browser, ["Board A", "Board B", "Board C"]);
   await attach(m.links[1]!, ID);
   // A fresh page: the strip asks each tab in view for its matches, never opening its room.
@@ -142,8 +144,22 @@ test("each tab says its board's newest match, winner, length and tier; Load a ga
   await expect(b.getByTestId("match-tier")).toHaveText("API summary");
   expect(sockets.length).toBe(1);
 
-  // ---- Load a game, by match id: a tab named for it, open in Player, kept in Your boards ----
+  // ---- Someone loads a match on a tab the student saw as Sandbox: the strip catches up, as
+  // someone is on that tab ----
   const { a } = m;
+  await tab(a, 2).click();
+  await expect.poll(() => mounted(a)).toBe(boardOf(m.links[2]!));
+  await saved(a);
+  await a.getByTestId("mode-player").first().click();
+  await revealControls(a, "match-id");
+  await a.getByTestId("match-id").fill(ID);
+  await a.getByTestId("match-load").click();
+  await expect(a.getByTestId("match-tier")).toHaveText("API summary");
+  await expect(line(b, 2)).toHaveText("Sapphire · 21:40", { timeout: 30_000 });
+  await tab(a, 0).click();
+  await expect.poll(() => mounted(a)).toBe(boardOf(m.links[0]!));
+
+  // ---- Load a game, by match id: a tab named for it, open in Player, kept in Your boards ----
   await a.getByTestId("add-game").last().click();
   await expect(a.getByTestId("add-match-id")).toBeFocused();
   await a.getByTestId("add-match-id").fill("12x");

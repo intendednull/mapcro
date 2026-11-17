@@ -4,7 +4,13 @@ Phase 3: branch `sessions-p3` (worktree `mapcro.worktrees/sessions-p3`), off mai
 Phase 4: branch `sessions-p4` (worktree `mapcro.worktrees/sessions-p4`), off main 66c643d, with
 main merged in twice (62bab62, then aff82f7). The spec is `docs/specs/sessions.md`; what phase 3 built is written into
 its §4.1, §4.2, §4.3, §5 and §10, and what phase 4 built into §6.1 to §6.3, §9.3 and §10.
+Phase 5: branch `sessions-p5` (worktree `mapcro.worktrees/sessions-p5`), off main 42480b0; what it
+built is written into §6.2, §7.1, §7.2, §8 and §10.
 Newest state at the top.
+
+## Phase 5: polish (2026-11-16), built and verified, not reviewed
+
+@@PHASE5@@
 
 ## Phase 4: follow across tabs (2026-11-14), built, verified and reviewed
 
