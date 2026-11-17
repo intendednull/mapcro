@@ -103,9 +103,18 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       const t = untrack(byKey).get(key);
       return t ? timelines.candidates(t.board, match)[0]?.tl.duration_s : undefined;
     },
-    // What the strip learns, a follow knows too (§6.3): a tab whose board answered isn't asked
-    // about again before a follow goes there.
-    opened: noteOpen,
+    // A refusal the strip hears, a follow knows too (§6.3): it says No access without asking.
+    // A board that opens is still asked about before a follow goes there: the strip asks as the
+    // page opens, and a grant withdrawn after that would land the follower on a dead tab. So
+    // a yes only clears a refusal heard before (the tab opens again: undo put it back).
+    opened: (key, ok) =>
+      setOpenable((m) => {
+        if (!ok) return m.get(key) === false ? m : new Map(m).set(key, false);
+        if (m.get(key) !== false) return m;
+        const next = new Map(m);
+        next.delete(key);
+        return next;
+      }),
   });
   /** The tabs in view, by key, as the strip and the Games sheet see them. */
   const inView = new Map<Element, string>();

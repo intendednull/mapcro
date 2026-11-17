@@ -216,8 +216,11 @@ describe("the session's people on other tabs (§8: the people list's Session gro
     ]);
     // As a board's chip takes them: a peer id no board's room gives out.
     expect(list[2]!.peer).toEqual(farPeer(peers[0]!));
-    // My own follow counts; on another tab of mine, the one on A is listed and those on B not.
+    // My own follow counts, once (my presence in the room says it too); on another tab of mine,
+    // the one on A is listed and those on B not.
     expect(elsewhere(peers, 9, 4, A, TABS).find((x) => x.peer.state?.name === "Alone")?.followers).toBe(1);
+    const mine = peers.map((p) => (p.peer === 9 ? { ...p, state: { ...p.state!, following: 4 } } : p));
+    expect(elsewhere(mine, 9, 4, A, TABS).find((x) => x.peer.state?.name === "Alone")?.followers).toBe(1);
     expect(elsewhere(peers, 9, undefined, B, TABS).map((x) => x.peer.state?.name)).toEqual(["Here", "Coach", "Seatless"]);
     // With no tab open here, everyone on a tab.
     expect(elsewhere(peers, 9, undefined, undefined, TABS)).toHaveLength(5);

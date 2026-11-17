@@ -239,6 +239,31 @@ describe("when a tab's details are asked for", () => {
     expect(tierChip(d.get("A"))?.text).toBe("API summary");
     dispose();
   });
+  it("another newest match: its own preview, not the old one's", async () => {
+    const { f, d, dispose } = make();
+    d.seen("A");
+    await f.answer("matches A", [1]);
+    await f.answer("preview 1", preview("amber", 600));
+    await f.answer("job A 1", job("done"));
+    expect(subLine(d.get("A"))?.text).toBe("Amber · 10:00");
+    d.left("A");
+    await f.answer("matches A", [2, 1]);
+    expect(subLine(d.get("A"))).toBeUndefined();
+    expect(f.pending().sort()).toEqual(["job A 2", "preview 2"]);
+    await f.answer("preview 2", preview("sapphire", 60));
+    expect(subLine(d.get("A"))?.text).toBe("Sapphire · 1:00");
+    dispose();
+  });
+  it("the open board's length is kept while its timeline is drawn again", async () => {
+    const { d, dispose } = make();
+    d.shown("A", { match: "7", tier: "summary", job: job("none"), duration: 300 });
+    d.shown("A", { match: "7", tier: undefined, job: job("fetching"), duration: undefined });
+    expect(subLine(d.get("A"))?.text).toBe("5:00");
+    // Another match: no length of the old one's.
+    d.shown("A", { match: "8", tier: undefined, job: job("fetching"), duration: undefined });
+    expect(subLine(d.get("A"))).toBeUndefined();
+    dispose();
+  });
   it("left while it was being asked about: asked again once that's done", async () => {
     const { f, d, dispose } = make();
     d.seen("A");

@@ -868,9 +868,12 @@ each board has its own scenes. Its sub-line reads "Sandbox".
   is on it (only they can change its match). The rest is kept for the page's life. **No
   percentage**: the server's job state has no progress, and only the uploader's own page knows
   its upload's (it shows on that board's chip).
-- **What the strip learns, a follow knows** (§6.3): a tab whose board answered, yes or no, isn't
-  asked about again before a follow goes there (one of TD-104's two round trips gone for tabs in
-  view). A refused tab is dimmed, its hover "<name> · No access".
+- **A refusal the strip hears, a follow knows** (§6.3): a follower whose presenter goes to a tab
+  the strip found refused says "No access" without asking. A tab the strip found open is still
+  asked about before a follow goes there: the strip asks as the page opens, and a grant
+  withdrawn after that would otherwise land the follower on a dead tab (the §9.3 rows "the
+  presenter goes to a tab nobody can open" caught it). A yes only clears a refusal heard before.
+  A refused tab is dimmed, its hover "<name> · No access".
 - **The dots**: each tab shows a dot per person on it (session presence; never one's own), in
   their colour, their name on hover, three and then "+n".
 - **"All games (n)"** shows once the tabs don't fit (the strip scrolls), and lists every tab, the
