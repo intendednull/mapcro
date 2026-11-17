@@ -340,11 +340,11 @@ fn bad_files_are_refused_with_a_code_and_make_no_board() {
     let send = |v: &Value| code(server.import(v.to_string().as_bytes()));
     let title_at = |v: &mut Value| -> usize { records(v).iter().position(|r| r[1].get("BoardMeta").is_some()).expect("meta") };
 
-    // A newer build's file: refused whole, whatever its body. Versions 2 and 3 are read
+    // A newer build's file: refused whole, whatever its body. Versions 2 to 4 are read
     // (below); a file whose writer knew more map-state rows than this build is newer at any
     // version.
     let rows = mapcro_schema::ROWS.len();
-    assert_eq!(send(&with(|v| v["version"] = json!(4))), (422, "newer".into()));
+    assert_eq!(send(&with(|v| v["version"] = json!(5))), (422, "newer".into()));
     assert_eq!(send(&with(|v| { v["version"] = json!(99); v["records"] = json!(marker); })), (422, "newer".into()));
     assert_eq!(send(&with(|v| { v["version"] = json!(2); v["rows"] = json!(rows + 1); v["records"] = json!(marker); })), (422, "newer".into()));
     assert_eq!(send(&with(|v| v["rows"] = json!(rows + 1))), (422, "newer".into()));

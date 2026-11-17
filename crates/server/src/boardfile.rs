@@ -131,7 +131,7 @@ fn file(doc: &Doc, matches: Vec<u64>, exported_at: i64) -> BoardFile {
     // version 3 on the v13 build.
     let holds = |f: fn(&Record) -> bool| records.iter().any(|(_, r)| f(r));
     let version = if holds(mapcro_schema::holds_own_heroes) {
-        4
+        VERSION
     } else if holds(mapcro_schema::holds_typed_field) {
         3
     } else {
@@ -468,10 +468,11 @@ mod tests {
         }
     }
 
-    /// The file says version 4 only when the v13 build (8efbfac, reading up to version 3) would
-    /// refuse what it holds: a scene's state with `has_heroes`. That build, and the v12 one
-    /// (18b41c6, up to 2), answer "Newer file" for it, and import every other file this build
-    /// writes. (Before the writer such a board was written as version 2: a bad file there.)
+    /// The file says version 4 ([`VERSION`]) only when the v13 build (8efbfac, reading up to
+    /// version 3) would refuse what it holds: a scene's state with `has_heroes`. That build, and
+    /// the v12 one (18b41c6, up to 2), answer "Newer file" for it, and import every other file
+    /// this build writes. (Before the writer such a board was written as version 2: a bad file
+    /// there.)
     #[test]
     fn a_file_is_version_4_only_when_it_holds_what_the_v13_build_refuses() {
         use mapcro_schema::Status;
@@ -490,7 +491,8 @@ mod tests {
         };
         let long = |v: &mut serde_json::Value| first(v, "Scene").1["name"] = serde_json::json!("n".repeat(LIMITS.max_scene_name));
         let rows = mapcro_schema::ROWS.len();
-        let cases: [(&str, Box<dyn Fn(&mut serde_json::Value)>, u64); 6] = [
+        type Change = Box<dyn Fn(&mut serde_json::Value)>;
+        let cases: [(&str, Change, u64); 6] = [
             ("nothing new", Box::new(|_| {}), 2),
             ("a scene's state without it", Box::new(state(serde_json::json!({ "rows": rows, "has_builds": true }))), 2),
             ("a long name", Box::new(long), 3),
