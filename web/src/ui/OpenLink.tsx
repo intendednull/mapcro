@@ -5,7 +5,7 @@
 
 import { Match, Show, Switch, createResource, createSignal, onCleanup, onMount } from "solid-js";
 import { type PromptState, WINDOWS_APP_PORTABLE_URL, appUpdate, bridge, desktopAppLinks, updatePrompt } from "../player/desktop";
-import { type BoardLink, openBoard, openInAppHref, parseBoardLink } from "../core/applink";
+import { type BoardLink, linkHref, openInAppHref, parseLink } from "../core/applink";
 import { ModalScrim } from "./ModalScrim";
 import { dialogKeys } from "./modal";
 
@@ -32,7 +32,7 @@ export function OpenInApp(p: BoardLink) {
   );
 }
 
-/** A field for a board link; a valid one opens its board here. */
+/** A field for a board link (or a session's, sessions.md §7.1); a valid one opens it here. */
 export function OpenLinkForm(p: { class?: string; autofocus?: boolean; onOpen?: () => void }) {
   const [text, setText] = createSignal("");
   const [error, setError] = createSignal(false);
@@ -40,11 +40,11 @@ export function OpenLinkForm(p: { class?: string; autofocus?: boolean; onOpen?: 
   onMount(() => p.autofocus && input.focus());
   const go = (e: Event) => {
     e.preventDefault();
-    const b = parseBoardLink(text());
-    setError(!b);
-    if (!b) return;
+    const l = parseLink(text());
+    setError(!l);
+    if (!l) return;
     p.onOpen?.();
-    openBoard(b);
+    location.assign(linkHref(l));
   };
   return (
     <>

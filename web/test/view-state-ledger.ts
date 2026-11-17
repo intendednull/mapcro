@@ -136,6 +136,9 @@ export const SIGNALS: Record<string, Entries> = {
     renaming: ["local", "a tab's name being typed"],
     dragging: ["local", "a gesture in progress"],
     toast: ["local", "a message"],
+    games: ["personal", "the phone's Games sheet being open (sessions.md §8): layout, like the board's phoneSheet"],
+    overflow: ["local", "the layout: whether the strip's tabs fit, for All games"],
+    allGames: ["local", "a menu: All games"],
   },
   "session/state.ts": {
     records: ["local", "data"],

@@ -36,6 +36,19 @@ export interface SessionFollow {
   /** The session's presenters on other tabs, as a board's chip offers them: each with a
    * negative `peer` (no board's peer id is), their seat, name and colour. */
   far(): Array<{ peer: PeerPresence; followers: number }>;
+  /** Everyone in the session's room on another tab (§8, the people list's "Session" group):
+   * each as a board's chip takes them (`farPeer`), with their tab, whether they can be followed
+   * from here, and how many follow them. Followed or not: the first follower starts here. */
+  elsewhere(): Elsewhere[];
+}
+
+/** Someone on another tab of the session, as the people list's "Session" group shows them. */
+export interface Elsewhere {
+  peer: PeerPresence;
+  tab: TabRow;
+  /** The server says they can be followed, and they have a seat to be found by. */
+  canFollow: boolean;
+  followers: number;
 }
 
 /** A session peer as a board's follow chip takes it: never one of the board's peer ids. */
@@ -78,6 +91,34 @@ export function farPresenters(peers: PeerPresence[], me: number | undefined, iFo
   return presenters(peers, me, iFollow)
     .filter((x) => x.peer.peer !== iFollow && x.peer.state?.seat != null && x.peer.state.tab != null && x.peer.state.tab !== mine)
     .map((x) => ({ peer: farPeer(x.peer), followers: x.followers }));
+}
+
+/**
+ * The session's people on a tab other than `mine` (§8): live tabs only, never me, in the strip's
+ * order and then by name. `iFollow`: the session peer this page follows, counted as a follower.
+ */
+export function elsewhere(peers: PeerPresence[], me: number | undefined, iFollow: number | undefined, mine: RecordId | undefined, tabs: TabRow[]): Elsewhere[] {
+  const at = new Map(tabs.map((t, i) => [t.id, i] as const));
+  const count = new Map<number, number>();
+  for (const p of peers) if (p.peer !== me && p.state?.following != null) count.set(p.state.following, (count.get(p.state.following) ?? 0) + 1);
+  if (iFollow !== undefined) count.set(iFollow, (count.get(iFollow) ?? 0) + 1);
+  return peers
+    .filter((p) => p.peer !== me && p.state?.tab != null && p.state.tab !== mine && at.has(p.state.tab))
+    .map((p) => ({ peer: farPeer(p), tab: tabs[at.get(p.state!.tab!)!]!, canFollow: followable(p) && p.state!.seat != null, followers: count.get(p.peer) ?? 0 }))
+    .sort((a, b) => at.get(a.tab.id)! - at.get(b.tab.id)! || (a.peer.state!.name < b.peer.state!.name ? -1 : a.peer.state!.name > b.peer.state!.name ? 1 : b.peer.peer - a.peer.peer));
+}
+
+/** Who is on each tab, by the session's presence (§8: a tab's avatar dots), never me. */
+export function onTabs(peers: PeerPresence[], me: number | undefined): ReadonlyMap<RecordId, PeerPresence[]> {
+  const out = new Map<RecordId, PeerPresence[]>();
+  for (const p of peers) {
+    const t = p.state?.tab;
+    if (p.peer === me || t == null) continue;
+    const list = out.get(t);
+    if (list) list.push(p);
+    else out.set(t, [p]);
+  }
+  return out;
 }
 
 export interface SessionFollowOptions {
@@ -153,6 +194,7 @@ export function createSessionFollow(o: SessionFollowOptions) {
     holds: () => presenter() !== undefined,
     noAccess,
     far: createMemo(() => farPresenters(o.peers(), o.myPeer(), presenter()?.peer, tab())),
+    elsewhere: createMemo(() => elsewhere(o.peers(), o.myPeer(), presenter()?.peer, tab(), o.tabs())),
   };
   return {
     /** The open tab. */

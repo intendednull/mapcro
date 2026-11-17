@@ -1,8 +1,8 @@
-//! `mapcro://` board links (desktop/README.md, Deep links). The installer registers the scheme
-//! (`tauri.conf.json` `plugins.deep-link`); a link starts the app on that board, or, with the app
-//! running, comes to it through the single-instance plugin (its `deep-link` feature) and opens
-//! the board in the window. Only a link `mapcro_desktop_core::link::parse` takes is followed, and
-//! only to the board's page on the window's own site; anything else is ignored.
+//! `mapcro://` board and session links (desktop/README.md, Deep links). The installer registers
+//! the scheme (`tauri.conf.json` `plugins.deep-link`); a link starts the app on that board or
+//! session, or, with the app running, comes to it through the single-instance plugin (its
+//! `deep-link` feature) and opens it in the window. Only a link `mapcro_desktop_core::link::parse`
+//! takes is followed, and only to its page on the window's own site; anything else is ignored.
 //!
 //! The token is in the URL's fragment and is never logged: not the link, not the URL.
 
@@ -12,23 +12,23 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_deep_link::DeepLinkExt;
 use url::Url;
 
-/// The board page `link` names, on `site`'s origin, if it's a board link.
+/// The board or session page `link` names, on `site`'s origin, if it's such a link.
 fn target(link: &str, site: &Url) -> Option<Url> {
-    let board = link::parse(link);
-    if board.is_none() {
+    let named = link::parse(link);
+    if named.is_none() {
         eprintln!("mapcro: link ignored: not a board link");
     }
-    Url::parse(&board?.url(&site.origin().ascii_serialization())).ok()
+    Url::parse(&named?.url(&site.origin().ascii_serialization())).ok()
 }
 
-/// The page to open first: the board a link at start names (the app started by a link), else
-/// `site`.
+/// The page to open first: the board or session a link at start names (the app started by a
+/// link), else `site`.
 pub fn first_page(app: &AppHandle, site: &Url) -> Url {
     let start = app.deep_link().get_current().ok().flatten().unwrap_or_default();
     start.iter().find_map(|u| target(u.as_str(), site)).unwrap_or_else(|| site.clone())
 }
 
-/// Links that come while the app runs (a second launch, forwarded) open their board in `window`.
+/// Links that come while the app runs (a second launch, forwarded) open their page in `window`.
 pub fn listen(app: &AppHandle, site: &Url, window: &'static str) {
     let (site, handle) = (site.clone(), app.clone());
     app.deep_link().on_open_url(move |event| {

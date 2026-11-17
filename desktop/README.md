@@ -155,7 +155,12 @@ A shared board opens in the app from a link. The canonical form is
     mapcro://b/<board>#<token>
 
 the site's share link (`https://mapcro.dmgdeadlock.com/b/<board>#<token>`, spec §11) with
-`https://mapcro.dmgdeadlock.com` swapped for `mapcro://`. The token stays in the fragment.
+`https://mapcro.dmgdeadlock.com` swapped for `mapcro://`. The token stays in the fragment. A
+session's link (docs/specs/sessions.md §7.1) is the same swap of its address:
+
+    mapcro://s/<session>?tab=<tab>#<token>
+
+with `?tab=` optional (the tab it opens on; without it, the session's first).
 
 - **Registration.** `tauri.conf.json` `plugins.deep-link.desktop.schemes` is `["mapcro"]`
   (`tauri-plugin-deep-link`). The NSIS installer writes it per-user (`HKCU\Software\Classes\mapcro`,
@@ -174,10 +179,12 @@ the site's share link (`https://mapcro.dmgdeadlock.com/b/<board>#<token>`, spec 
 - **Validation** (`core/src/link.rs`, tests there): only `mapcro://b/<22 base64url>#<43
   base64url>` (one `/` after the board id allowed) or the site's own
   `https://mapcro.dmgdeadlock.com/b/<board>#<token>`, at most 256 ASCII bytes; scheme and host
-  without case. Anything else (another host, a query, more path, escapes, padding, another
-  length) is ignored with `link ignored: not a board link`. The target is always the window's
-  own site (`<site>/b/<board>#<token>`; a debug build's `MAPCRO_URL` origin), so a link can't
-  point the window anywhere else. `Board`'s `Debug` prints no token; nothing logs the link.
+  without case. A session's the same, with `s/` for `b/` and one query allowed, `?tab=<32
+  lowercase hex>`. Anything else (another host, another query, more path, escapes, padding,
+  another length) is ignored with `link ignored: not a board link`. The target is always the
+  window's own site (`<site>/b/<board>#<token>`, `<site>/s/<session>?tab=<tab>#<token>`; a debug
+  build's `MAPCRO_URL` origin), so a link can't point the window anywhere else. `Board`'s and
+  `Session`'s `Debug` print no token; nothing logs the link.
 - **In the page** (spec §6b): on a board page in a browser, **Open in app** is the board's
   `mapcro://` link, with a quiet **Get the app** (the installer) beside it for a browser without
   the app (an unknown scheme does nothing visible). It shows where the download link does: a
@@ -186,11 +193,12 @@ the site's share link (`https://mapcro.dmgdeadlock.com/b/<board>#<token>`, spec 
   that has never run (or was moved since) isn't reached until it runs once; "Get the app" covers
   that. In the
   app, the landing's **Open link** field and **Ctrl+L** anywhere take a pasted link in either
-  form (or on the page's own origin, for a dev server), checked by the same rules
-  (`parseBoardLink`); anything else says "Not a board link".
+  form, a board's or a session's (or on the page's own origin, for a dev server), checked by the
+  same rules (`parseLink`); anything else says "Not a board link". A session's page offers its
+  own `mapcro://s/…` link, naming the open tab, as its **Open in app**.
 - **Smoke test:** a second launch with a board link moves the window to it, the same board's
-  other token too, three links that aren't a board's change nothing, and the app started by a
-  link opens on its board. On Linux the hand-off needs a D-Bus session: `just desktop-smoke`
+  other token too, three links that aren't a board's change nothing, a session's link (with its
+  tab) moves the window to the session, and the app started by a link opens on its board. On Linux the hand-off needs a D-Bus session: `just desktop-smoke`
   and CI run `dbus-run-session`, so it never reaches an app on your desktop's bus.
 
 ## The parse: a child process

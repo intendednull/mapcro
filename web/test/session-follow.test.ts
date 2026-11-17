@@ -14,7 +14,7 @@ import type { LinkRole } from "../src/gen/LinkRole";
 import type { PeerPresence } from "../src/gen/PeerPresence";
 import type { Presence } from "../src/gen/Presence";
 import { SESSION_KEYS, type SessionKey, VIEW_KEYS, type Values, createViewState } from "../src/player/viewstate";
-import { createSessionFollow, farPeer, farPresenters, seated, whereTo } from "../src/session/follow";
+import { createSessionFollow, elsewhere, farPeer, farPresenters, onTabs, seated, whereTo } from "../src/session/follow";
 import type { TabRow } from "../src/session/tabs";
 import { MAX_UNSENT, loadUnsent, saveUnsent, unsentKey, withUnsent } from "../src/session/unsent";
 
@@ -192,6 +192,59 @@ describe("the session's room: who is followed, and who presents elsewhere", () =
     expect(farPresenters([peer(12, "edit", { name: "Alone", seat: 11, tab: C })], 9, 12, A)).toEqual([]);
     // Never me.
     expect(farPresenters(peers, 1, undefined, A)).toEqual([]);
+  });
+});
+
+describe("the session's people on other tabs (§8: the people list's Session group, the tabs' dots)", () => {
+  it("everyone on another live tab, followed or not, with the tab, in the strip's order, then by name", () => {
+    const peers = [
+      peer(1, "owner", { name: "Coach", seat: 7, tab: C }),
+      peer(2, "view", { name: "Student", seat: 8, tab: B, following: 1 }),
+      peer(3, "edit", { name: "Here", seat: 9, tab: A }), // on my tab: in the board's own list
+      peer(4, "edit", { name: "Alone", seat: 10, tab: B }), // nobody follows them: still listed
+      peer(5, "edit", { name: "Seatless", tab: C }), // an older page: listed, not to be followed
+      peer(6, "edit", { name: "Tabless", seat: 11 }), // no tab open yet
+      peer(10, "edit", { name: "Gone", seat: 12, tab: X }), // a tab this copy doesn't have
+      peer(9, "edit", { name: "Me", seat: 13, tab: B }), // this page
+    ];
+    const list = elsewhere(peers, 9, undefined, A, TABS);
+    expect(list.map((x) => [x.peer.state?.name, x.tab.id, x.canFollow, x.followers])).toEqual([
+      ["Alone", B, true, 0],
+      ["Student", B, false, 0],
+      ["Coach", C, true, 1],
+      ["Seatless", C, false, 0],
+    ]);
+    // As a board's chip takes them: a peer id no board's room gives out.
+    expect(list[2]!.peer).toEqual(farPeer(peers[0]!));
+    // My own follow counts; on another tab of mine, the one on A is listed and those on B not.
+    expect(elsewhere(peers, 9, 4, A, TABS).find((x) => x.peer.state?.name === "Alone")?.followers).toBe(1);
+    expect(elsewhere(peers, 9, undefined, B, TABS).map((x) => x.peer.state?.name)).toEqual(["Here", "Coach", "Seatless"]);
+    // With no tab open here, everyone on a tab.
+    expect(elsewhere(peers, 9, undefined, undefined, TABS)).toHaveLength(5);
+    expect(elsewhere([], 9, undefined, A, TABS)).toEqual([]);
+  });
+  it("a tab's dots are the people on it, never me", () => {
+    const peers = [peer(1, "owner", { tab: C }), peer(2, "view", { tab: C }), peer(3, "edit", { tab: A }), peer(4, "edit"), peer(9, "edit", { tab: A })];
+    const on = onTabs(peers, 9);
+    expect(on.get(C)?.map((x) => x.peer)).toEqual([1, 2]);
+    expect(on.get(A)?.map((x) => x.peer)).toEqual([3]);
+    expect(on.has(B)).toBe(false);
+    expect([...on.keys()].sort()).toEqual([A, C].sort());
+  });
+  it("the session's follow lists them, and following one who nobody follows takes this page to their tab", () => {
+    const h = harness();
+    h.open(B, true);
+    h.setPeers([peer(4, "edit", { name: "Alone", seat: 10, tab: B })]);
+    // Not offered by the chip (nobody follows them), but in the Session group.
+    expect(h.f.board.far()).toEqual([]);
+    const [x] = h.f.board.elsewhere();
+    expect([x?.peer.state?.name, x?.canFollow, x?.followers]).toEqual(["Alone", true, 0]);
+    h.f.board.begin(x!.peer.state!.seat!, x!.peer);
+    expect(h.f.tab()).toBe(B);
+    expect(h.f.presenter()?.peer).toBe(4);
+    // Now on their tab: they're in the board's own list, not this one.
+    expect(h.f.board.elsewhere()).toEqual([]);
+    h.dispose();
   });
 });
 
