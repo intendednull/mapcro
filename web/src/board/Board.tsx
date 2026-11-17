@@ -1476,9 +1476,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const rowIcon = (d: string) => <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" innerHTML={d} />;
   const DOWN = '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>';
   const moreGroups = createMemo((): MoreRow[][] => {
-    // A session's tab offers the session's own link (on this tab), never a grant's board link.
-    // Until the app opens session links (TD-117): the board's own link, not through a grant.
-    const app = inSession?.appHref() ?? (!via ? openInAppHref({ board: p.board, token: p.token }) : undefined);
+    // A session's tab offers the session's own link (on this tab), never the board's; none while
+    // the app can't open session links (TD-117).
+    const app = inSession ? inSession.appHref() : openInAppHref({ board: p.board, token: p.token });
     return [
       updateLink() ? [{ label: "Update available", testid: "app-update", href: WINDOWS_APP_PORTABLE_URL, download: true, brass: true, icon: () => rowIcon(DOWN) }] : [],
       state.role()

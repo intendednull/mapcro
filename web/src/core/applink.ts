@@ -96,12 +96,12 @@ export function openInAppHref(b: BoardLink, o: Parameters<typeof desktopAppLinks
   return desktopAppLinks(o) ? appLink(b) : undefined;
 }
 
-/** "Open in app" on a session's page: its mapcro:// link, where the app's download shows. */
 /** The released desktop app opens `mapcro://s/` links. Off until a desktop release with the
  * session parser has been out a while: an older app ignores them (TD-117). Until then a session's
- * tab offers the board's own link, as before phase 5. */
+ * tab offers no Open in app. */
 export const APP_OPENS_SESSIONS = false;
 
+/** "Open in app" on a session's page: its mapcro:// link, where the app's download shows. */
 export function openSessionInAppHref(l: SessionLink, o: Parameters<typeof desktopAppLinks>[0] = {}): string | undefined {
   return desktopAppLinks(o) ? sessionAppLink(l) : undefined;
 }

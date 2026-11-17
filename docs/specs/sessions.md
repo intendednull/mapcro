@@ -760,8 +760,7 @@ By decision 1 of the view-state plan, new view state is a registry row:
   `Debug` printing its token), and the app opens it on its own site. A session's tab offers the
   session's link, on the open tab, as its "Open in app" (never the board's own). Held at deploy
   (`APP_OPENS_SESSIONS`, TD-117): the released app parses only `mapcro://b/`, so until a desktop
-  release with this parser has been out a while, a session's tab keeps the old rule (its board's
-  own link, none through a grant).
+  release with this parser has been out a while, a session's tab offers no Open in app.
 
 ### 7.2 Editing the strip
 

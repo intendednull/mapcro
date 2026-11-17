@@ -300,7 +300,10 @@ test("in the app, Open link takes a session's link, in either form, on the tab i
   await ctx.close();
 });
 
-test("in a Windows browser, a session's tab offers the session's own link in the app, on the open tab", async ({ browser }) => {
+// Held until the released app opens session links (TD-117): no Open in app through the session's
+// grant. When `APP_OPENS_SESSIONS` turns on, this row expects the session's own link again:
+// `mapcro://s/<session>?tab=<tab>#<token>`, never the board's.
+test("in a Windows browser, a session's tab through its grant offers no Open in app yet", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, userAgent: WINDOWS_UA });
   const p = await ctx.newPage();
   const s = await newSession("App session");
@@ -308,8 +311,7 @@ test("in a Windows browser, a session's tab offers the session's own link in the
   await joinHere(p);
   await expect(p.getByTestId("game-tab")).toHaveCount(1);
   await openMore(p);
-  await expect(p.getByTestId("open-in-app")).toHaveAttribute("href", `mapcro://s/${s.session}?tab=${s.tab}#${s.owner_token}`);
-  // Never the board's own link: the board opened through the session.
-  await expect(p.getByTestId("open-in-app")).not.toHaveAttribute("href", /mapcro:\/\/b\//);
+  await expect(p.getByTestId("download")).toBeVisible();
+  await expect(p.getByTestId("open-in-app")).toHaveCount(0);
   await ctx.close();
 });
