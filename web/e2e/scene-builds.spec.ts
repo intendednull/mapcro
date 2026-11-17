@@ -307,7 +307,9 @@ test("with no match on the board, a scene from a file shows its builds and a fol
   const inPlayer = await savedScene(maker);
   const [, board, token] = /\/b\/([^#]+)#(.+)$/.exec(from)!;
   const file = (await (await fetch(`${server.url}/api/boards/${board}/export`, { headers: { authorization: `Bearer ${token}` } })).json()) as { version: number; rows: number; matches: number[] };
-  expect(file.version).toBe(2);
+  // Version 4: the scene holds its own heroes (`has_heroes`, store v14), which the v13 and v12
+  // builds call a newer file.
+  expect(file.version).toBe(4);
   expect(file.matches).toEqual([Number(ID)]);
   file.matches = [];
   await maker.close();
