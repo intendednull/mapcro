@@ -193,7 +193,7 @@ pub struct Store {
 }
 
 /// Database schema version. Each step in `migrate` takes the database one version forward.
-const SCHEMA_VERSION: i64 = SIDES_WRITER;
+const SCHEMA_VERSION: i64 = HEROES_WRITER;
 
 /// The reader of feedback #56, #59 and #60 (a scene name up to 48 characters, a comment's side,
 /// a stroke's colour as a field): deployed as ce1ec0c.
@@ -203,6 +203,14 @@ const SIDES_READER: i64 = 11;
 /// use this): if another branch's reader step merges first and takes this number, this moves up
 /// one, and the floor stays [`SIDES_READER`].
 const SIDES_WRITER: i64 = 13;
+
+/// The reader of the map-state row `has_heroes` (a scene that holds its own heroes, D2):
+/// deployed as 3aa59af, then 18b41c6.
+const HEROES_READER: i64 = 12;
+/// Its writer: the version whose step makes `has_heroes` `Live`. The one place its number is
+/// written (`step`, `migrate` and the tests use this): if another branch's step merges first and
+/// takes this number, this moves up one, and the floor stays [`HEROES_READER`].
+const HEROES_WRITER: i64 = 14;
 
 /// What the step from `from` to `from + 1` asks of an older server (spec §9, docs/deploy.md
 /// "Rollbacks").
@@ -220,7 +228,8 @@ enum Step {
     /// writer's database still opens on its reader. The map-state writers' steps: v8 → v9
     /// (reader 8: the v8 reader loads everything that writer stores, and a server older than
     /// that reader would drop it without a word) and v9 → v10 (reader 9: four more rows and the
-    /// unfit undo; docs/specs/map-state.md §4.3). Feedback #56, #59 and #60: reader 11.
+    /// unfit undo; docs/specs/map-state.md §4.3). Feedback #56, #59 and #60: reader 11. Map-state
+    /// D2's `has_heroes`: reader 12.
     NeedsReader { reader: i64 },
 }
 
@@ -232,6 +241,7 @@ fn step(from: i64) -> Step {
         8 => Step::NeedsReader { reader: 8 },
         9 => Step::NeedsReader { reader: 9 },
         f if f + 1 == SIDES_WRITER => Step::NeedsReader { reader: SIDES_READER },
+        f if f + 1 == HEROES_WRITER => Step::NeedsReader { reader: HEROES_READER },
         _ => Step::Breaking,
     }
 }
@@ -354,6 +364,11 @@ fn migrate(conn: &Connection, from: i64, to: i64) -> Result<(), StoreError> {
             // `Live`). The v11 reader loads all three and the v10 server refuses them on a cold
             // load: the floor is 11 (`Step::NeedsReader { reader: 11 }`).
             f if f + 1 == SIDES_WRITER => {}
+            // The writer of `has_heroes` (`HEROES_WRITER`): no SQL. From here the server takes
+            // a scene's state saying it holds its own heroes (the row is `Live`). The v12 reader
+            // and the v13 server load it and the v11 server can't parse the key: the floor is 12
+            // (`Step::NeedsReader { reader: 12 }`).
+            f if f + 1 == HEROES_WRITER => {}
             other => return Err(StoreError::Corrupt(format!("no migration from schema {other}"))),
         }
         v += 1;
@@ -1286,24 +1301,18 @@ mod tests {
         assert_eq!((meta(&old, "schema_version").as_deref(), meta(&old, "compat_floor").as_deref()), (Some("11"), Some("9")));
     }
 
-    /// The reader of the map-state row `has_heroes` (v12): it reads the row and admits it from
-    /// nobody, so a v12 database holds nothing the v11, v10 and v9 servers can't load: they stay
-    /// rollback targets. The row's writer's step comes with the build that makes it `Live`. (The
-    /// feedback writer, v13, comes after it: its floor is 11, below.)
+    /// The reader of the map-state row `has_heroes` (v12): it read the row and admitted it from
+    /// nobody, so a v12 database holds nothing the v11, v10 and v9 servers can't load: they were
+    /// its rollback targets. (The row is `Live` from its writer, `HEROES_WRITER`, below; the
+    /// feedback writer, v13, between them has floor 11.)
     ///
     /// The older servers here are this build's `reconcile` told an older version: what they make
-    /// of the floor, not of the boards. The proof that a v11 server loads what this one stores
-    /// is `just reader-check`, which loads the simulation's stored boards on the deployed reader's own
-    /// code (`reader` in the justfile).
+    /// of the floor, not of the boards. The proof that the reader loads what this build stores
+    /// is `just reader-check`, which loads the simulation's stored boards on the deployed
+    /// reader's own code (`reader` in the justfile).
     #[test]
-    fn the_v12_reader_stores_nothing_new_so_the_v9_to_v11_servers_still_open_its_database() {
-        use mapcro_schema::{Admit, RowId, Status};
+    fn the_v9_to_v11_servers_open_the_v12_database() {
         assert_eq!(step(11), Step::Additive);
-        // Written only from a step that sets the floor to 12: until then a v11 server may be
-        // rolled back to, and it can't parse the row.
-        let row = RowId::of("has_heroes").expect("the row");
-        assert_eq!(row.row().status, Status::Ahead, "its writer needs a store step with floor 12");
-        assert_eq!((Admit::DEPLOYED.row)(row), Status::Ahead);
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
         Store::open_at(&path, 12).expect("create at v12");
@@ -1320,6 +1329,46 @@ mod tests {
         Store::open_at(&old, 11).expect("create at v11");
         Store::open_at(&old, 12).expect("migrates");
         assert_eq!((meta(&old, "schema_version").as_deref(), meta(&old, "compat_floor").as_deref()), (Some("12"), Some("9")));
+    }
+
+    /// `has_heroes` is written only from its writer's version: while this build's newest step is
+    /// older, a server that can't parse it (v11) may be rolled back to.
+    #[test]
+    fn has_heroes_is_live_only_from_its_writers_version() {
+        use mapcro_schema::{Admit, RowId, Status};
+        const { assert!(SCHEMA_VERSION >= HEROES_WRITER, "the row is live: its writer's step must be in this build") };
+        let row = RowId::of("has_heroes").expect("the row");
+        assert_eq!(row.row().status, Status::Live);
+        assert_eq!((Admit::DEPLOYED.row)(row), Status::Live);
+        const { assert!(HEROES_READER < HEROES_WRITER && SIDES_WRITER < HEROES_WRITER) };
+    }
+
+    /// The writer's database (`has_heroes` `Live`): the v12 reader and the v13 server (the
+    /// sides writer) open it and leave it as it is, so they are the rollback targets; the v11
+    /// server, which can't parse the row's key on a cold load, is refused, and everything older.
+    #[test]
+    fn only_the_v12_reader_and_the_v13_server_open_the_heroes_writers_database() {
+        let (v, floor) = (HEROES_WRITER.to_string(), HEROES_READER.to_string());
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("db.sqlite");
+        Store::open_at(&path, HEROES_WRITER).expect("create at the writer's version");
+        assert_eq!((meta(&path, "schema_version"), meta(&path, "compat_floor")), (Some(v.clone()), Some(floor.clone())));
+        let c = Connection::open(&path).expect("open");
+        for reader in HEROES_READER..HEROES_WRITER {
+            reconcile(&c, reader).unwrap_or_else(|e| panic!("the v{reader} server (the v12 reader, or one after it) opens the writer's database: {e}"));
+        }
+        assert_eq!((HEROES_READER..HEROES_WRITER).collect::<Vec<_>>(), [12, 13], "the v12 build (18b41c6) and the v13 build (8efbfac)");
+        for older in 5..HEROES_READER {
+            assert!(matches!(reconcile(&c, older), Err(StoreError::Corrupt(_))), "v{older} is from before the reader");
+        }
+        drop(c);
+        assert_eq!((meta(&path, "schema_version"), meta(&path, "compat_floor")), (Some(v.clone()), Some(floor.clone())), "left as it was");
+        // The deployed v13 database migrates to it: the floor goes from 11 to 12.
+        let old = dir.path().join("old.sqlite");
+        Store::open_at(&old, HEROES_WRITER - 1).expect("create at v13");
+        assert_eq!(meta(&old, "compat_floor").as_deref(), Some("11"));
+        Store::open_at(&old, HEROES_WRITER).expect("migrates");
+        assert_eq!((meta(&old, "schema_version"), meta(&old, "compat_floor")), (Some(v), Some(floor)));
     }
 
     /// The three are written only from their writer's version: while this build's newest step
@@ -1392,6 +1441,24 @@ mod tests {
         assert_eq!(floor(SIDES_WRITER + 1), SIDES_READER, "the writer after it: still the v11 reader");
     }
 
+    /// The same for `has_heroes`: its writer's floor is the v12 reader whatever sits between
+    /// them (the sides writer, v13, does), and a step from another branch taking its number
+    /// leaves the floor at 12.
+    #[test]
+    fn a_step_between_the_heroes_reader_and_writer_leaves_the_floor_at_12() {
+        assert_eq!(step(HEROES_WRITER - 1), Step::NeedsReader { reader: HEROES_READER });
+        assert_eq!(compat_floor(HEROES_WRITER), HEROES_READER);
+        assert_eq!(compat_floor(HEROES_WRITER - 1), SIDES_READER, "the step between had floor 11, below the reader's");
+        let shifted = |from: i64| match from {
+            f if f == HEROES_WRITER - 1 => Step::Additive,
+            f if f == HEROES_WRITER => Step::NeedsReader { reader: HEROES_READER },
+            f => step(f),
+        };
+        let floor = |version: i64| floor_of(version, shifted);
+        assert_eq!(floor(HEROES_WRITER), compat_floor(HEROES_WRITER - 1), "an additive step between keeps the floor");
+        assert_eq!(floor(HEROES_WRITER + 1), HEROES_READER, "the writer after it: still the v12 reader");
+    }
+
     #[test]
     fn v5_to_v7_servers_open_a_v8_database_without_touching_it() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -1455,6 +1522,10 @@ mod tests {
         // The writer of feedback #56, #59 and #60, after it: the floor is the v11 reader.
         assert_eq!(step(12), Step::NeedsReader { reader: 11 });
         assert_eq!(compat_floor(SIDES_WRITER), 11, "the writer's database opens on the v11 reader and the v12 one, and on nothing older");
+        // The writer of `has_heroes`, after it: the floor is the v12 reader.
+        assert_eq!(step(13), Step::NeedsReader { reader: 12 });
+        assert_eq!(compat_floor(HEROES_WRITER), 12, "v14 opens on the v12 reader and the v13 server, and on nothing older");
+        assert_eq!(HEROES_WRITER, 14);
         assert_eq!(compat_floor(SCHEMA_VERSION + 1), SCHEMA_VERSION + 1, "a step this build doesn't know counts as breaking");
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("db.sqlite");
@@ -1527,7 +1598,7 @@ mod tests {
         }
         let store = Store::open(&path).expect("migrates");
         assert_eq!(meta(&path, "schema_version"), Some(SCHEMA_VERSION.to_string()));
-        assert_eq!(meta(&path, "compat_floor").as_deref(), Some("11"), "through the writers' steps: the v11 reader opens it");
+        assert_eq!(meta(&path, "compat_floor"), Some(HEROES_READER.to_string()), "through the writers' steps: the v12 reader opens it");
         for (hash, role, label, revoked, parent) in [
             (&owner, LinkRole::Owner, "owner", false, None),
             (&edit, LinkRole::Edit, "coach", false, Some(&owner)),

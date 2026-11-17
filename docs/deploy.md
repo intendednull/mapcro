@@ -242,6 +242,11 @@ rather than "Bad file"; any other file the writer exports is version 2 and impor
 **After that rollback, a board holding a long name or a side exports as version 2 from the older
 build, and that same build refuses the file as "Bad file"** (`Admit::DEPLOYED` there holds the
 three `Ahead`). Nothing is lost: v13 imports it. Roll forward to move such a board by file.
+For the heroes writer (v14) → v13 (8efbfac) or v12 (18b41c6): anything naming `has_heroes`,
+refused as `WrongField`, which includes a copy (Duplicate, New scene) of a scene v14 saved. A
+board file holding it says version 4, which both answer "Newer file" for. **The same holds
+after that rollback for that build's own export of such a board**: it writes version 3 or 2,
+and refuses it as "Bad file" (the row is `Ahead` there). v14 imports it.
 
 **Map-state rows: lock them at each deploy.** After a deploy is live, check out the deployed
 commit with nothing else in the tree, run `just rows-lock`, and commit `crates/schema/rows.lock`.
@@ -274,42 +279,64 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
     stored differently: a save from the metadata tier stores no `health` on a hero's record
     (fewer keys, nothing new). Those builds read the missing key as a hero alive at full
     health; no scene draws a hero's health, but the stat calculator counts a life-threshold
-    item (Battle Vest, Hollow Point) as active there (`docs/specs/map-state.md` §4.5). A test in `store.rs` ("the v12
-    reader stores nothing new") holds the row `Ahead`, with feedback's three typed fields,
-    while v12 is the newest version.
-  - **Its writer is the next free store version** (v14 if feedback's writer takes v13; the lead
-    assigns it at merge): `ahead("has_heroes", ...)` becomes `row(...)` in
-    `crates/schema/src/map_state.rs`, and the store gets a step
-    `Step::NeedsReader { reader: 12 }` (the form feedback's release 2 introduces: the floor is
-    the reader's version, 12, whatever number the writer takes), then `just ts`, `just
-    rows-lock` after the deploy, and `reader` in the justfile set to the deployed v12 commit
-    before it merges. From that deploy the rollback target is the v12 build and nothing older
-    (a server before v12 can't parse a `more` that names the row).
-  - **After the reader's deploy:** `just rows-lock` (16 rows, with `has_heroes`), and before the
-    writer merges, `reader` in the justfile set to the deployed v12 commit.
-  - **Must fix before the flip** (the D2 reader's review, 2026-11-14):
-    - **The "neither" case.** With the row written, `own` is true and Save never pushes the
-      roster's sets (`web/src/match/save.ts`, the `!own` guard and the heroes-only fallback;
-      asserted in `scene-heroes.test.ts`, "None"). A save with no room for the heroes and the
-      flag then stores neither and draws whatever the roster holds, against §4.5 ("sets the
-      roster to the match's heroes"). Fall back to the roster's sets when they fit, or refuse
-      the save.
-    - **Retake's health tier.** Capture asks the open timeline's tier, while
-      `CAPTURED.health` asks the scene's `source.tier`: a Retake of a metadata-sourced scene
-      with the replay loaded writes health that the reader hides. Make the two ask the same.
-  - From the writer's deploy Save leaves the roster alone and a saved scene draws its own
-    heroes; `web/e2e/scene-hero.spec.ts` switches from the test of Save setting the roster to
-    the test of a scene's own heroes by the row's status, and so does the server's refusal in
-    `web/test/scene-hero-pick.test.ts`. Five tests say what this build does and change on
-    purpose with the flip: `scene-heroes.test.ts` "is not written by this build", the two Save
-    pins in `map-state-pins.test.ts` (with `web/test/pins/save-as-scene.json`), and on the
-    server `board_file.rs` "`has_heroes` is the only row still ahead" and `store.rs` "the v12
-    reader stores nothing new". The writer was rehearsed three times on the reader's branch
-    with the row flipped in the tree only, the third as store v12 on top of v11: everything
-    built, `tsc` was clean, the whole vitest suite failed only in those three of its tests,
-    `cargo test` only in those two and the rows-lock test (a `Live` row not in the lock: it
-    passes once `just rows-lock` has run at the reader's deploy), and the save flows' e2e
-    passed with the own-heroes test.
+    item (Battle Vest, Hollow Point) as active there (`docs/specs/map-state.md` §4.5). A test in `store.rs` held the row
+    `Ahead` while v12 was the newest version; since v14 it is history
+    (`the_v9_to_v11_servers_open_the_v12_database`). After its deploy `just rows-lock` locked
+    16 rows, `has_heroes` among them (86d619a).
+  - **v14 is its writer** (`HEROES_WRITER` in `store.rs`, branch `d2-writer`):
+    `row("has_heroes", ...)` in `crates/schema/src/map_state.rs`, and the store step 13 → 14
+    `Step::NeedsReader { reader: 12 }` (`HEROES_READER`), no SQL. **From it the rollback targets
+    are the v13 build (`8efbfac`, prod before it) and the v12 build (`18b41c6`), nothing
+    older**: the floor is 12. The v11 server (`ce1ec0c`) refuses to start on it (it can't parse
+    a `more` that names the row). `just reader-check` (reader `8efbfac`, the justfile's) loads
+    every board and log this build stores, `has_heroes` included; it was also run on `18b41c6`.
+  - **What a coach sees from the deploy:** Save as scene stores each slot's hero in the scene
+    and `has_heroes`, and leaves the board's roster alone: the roster, hand-made scenes and
+    scenes saved before keep their heroes. A pick in such a scene sets that scene's hero and
+    clears the old hero's build in one undo step ("No hero" is not offered there). A scene saved
+    before the deploy (no flag) is exactly as before: it draws the roster's hero, and a pick in
+    it writes the roster for every such scene. **A save no longer fills the board's roster.** A
+    board made in the app still gets its random roster on the device that made it
+    (`randomRosterOps`, `FRESH_BOARD`), so hand-made scenes there show those heroes; only a board
+    whose roster was never filled (made through the API) has empty slots until someone picks.
+  - **The two must-fixes from the reader's review, as built:**
+    - **A save with no room for its heroes is not made** (`matchSceneOps` returns no ops; the
+      page says "Not saved", or "Saved N of M" for many). Chosen over falling back to the
+      roster's sets: such a fallback scene would be the only one this build saves without the
+      flag, so a pick in it would write the roster for every old scene; the roster's sets are
+      the larger write (up to twelve ops of about 55 bytes against one state op and about 20
+      bytes a hero), so where the heroes don't fit they mostly don't either; and the case is not
+      reachable on a real match (a save's own records are a few KB of the 64 KiB).
+    - **One health tier** (`holdsHealth` in `build.ts`): Save captures a hero's health by the
+      scene's `source.tier`, Retake by the scene's `source.tier`, and the scene reads it by the
+      same. A scene saved from the replay is retaken only with the replay open (`canRetake`).
+  - **Board files:** a file holding `has_heroes` (true or false) says **version 4**
+    (`boardfile.rs`, `holds_own_heroes` in `map_state.rs`). The v13 build reads up to version 3
+    and the v12 build up to 2, so both say "Newer file" for it, never "Bad file". A board with
+    no such scene is version 3 (a long name or a side) or 2, as before. Since every scene this
+    build saves from a match holds the flag, most of its boards export as version 4 (TD-108).
+  - **Rolled back from v14 to v13 or v12:** every board loads, and a scene saved by v14 looks
+    and edits the same there: both clients read the flag (a pick in it writes the scene; its
+    ops name `hero` and the build rows, which those builds admit). What they refuse
+    (`WrongField`) is anything naming `has_heroes` from outside: **Duplicate and New scene of a
+    scene saved by v14** (the copy carries its state), a pending save a reloaded tab resends,
+    and the v14 board files above ("Newer file"). A copy that fits one transaction is refused
+    whole; a large one (with ink) is chunked by `addSceneOps`, so its scene, heroes and builds
+    land and only its state is refused: an unflagged copy there, which draws the roster's heroes
+    and hides its builds. A refused resent save is gone (the tab drops it). Saves made there are
+    unflagged and set the roster, as before v14. Stored boards are untouched; roll forward to
+    copy or import the rest.
+  - **Deploy note:** the flip changes the schema sources, so the build id changes and every
+    open tab of the v13 client closes as `Outdated` and reloads. Back up the database first
+    (`pre-v14`, below). After the deploy, `just rows-lock`: the lock lists rows, not statuses,
+    so it should come back unchanged (16 rows); commit it only if it changed. Then set `reader`
+    in the justfile to the deployed v14 commit.
+  - The five tests that said what the reader build did changed on purpose with the flip:
+    `scene-heroes.test.ts` (now "is written by this build"), the two Save pins in
+    `map-state-pins.test.ts` with `web/test/pins/save-as-scene.json` (each of the three saves
+    lost its six roster writes and its state gained `has_heroes`; nothing else moved),
+    `board_file.rs` ("no row is still ahead"), and `store.rs`'s v12 test (history now; the row's
+    status is held by "has_heroes is live only from its writer's version").
 - **`just reader-check`** (in `just test`) loads what this build's server stores on the reader
   release's own code. Its reader is `reader` in the justfile: **set it to the deployed commit
   at each deploy that changes what is stored**, with `just rows-lock`.

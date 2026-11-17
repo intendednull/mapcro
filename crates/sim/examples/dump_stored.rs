@@ -11,7 +11,7 @@ fn main() {
     let seeds: u64 = args.next().map_or(40, |n| n.parse().expect("seeds"));
     std::fs::create_dir_all(&dir).expect("dir");
     let config = Config { admit: Admit::DEPLOYED, steps: 1500, ..Config::default() };
-    let (mut logged, mut registry, mut unfit) = (0, 0, 0);
+    let (mut logged, mut registry, mut unfit, mut own) = (0, 0, 0, 0);
     // Transactions holding a long scene name, a comment's side, a stroke's colour as a field.
     let mut typed = [0usize; 3];
     for seed in 0..seeds {
@@ -22,6 +22,8 @@ fn main() {
             apply_tx(&mut doc, tx).expect("replays on this build");
             let line = serde_json::to_string(tx).expect("json");
             registry += usize::from(["\"More\":", "\"SceneState\":", "\"more\":"].iter().any(|k| line.contains(k)));
+            // A scene's state that says it holds its heroes (map-state D2), as a field or a record.
+            own += usize::from(line.contains("\"has_heroes\""));
             for (n, hit) in typed.iter_mut().zip(ahead_of_v10(tx)) {
                 *n += usize::from(hit);
             }
@@ -50,8 +52,11 @@ fn main() {
     for ((what, n), status) in ["a long scene name", "a comment's side", "a stroke's colour"].iter().zip(typed).zip(statuses) {
         assert!(status == mapcro_schema::Status::Ahead || n > 0 || seeds < 40, "{what} is written by this build, but no dumped log holds one");
     }
+    // Once `has_heroes` is written, the check is that the v12 reader and the v13 server load it.
+    let heroes = mapcro_schema::RowId::of("has_heroes").expect("the row").row().status;
+    assert!(heroes == mapcro_schema::Status::Ahead || own > 0 || seeds < 40, "`has_heroes` is written by this build, but no dumped log holds it");
     println!(
-        "dumped {seeds} boards: {logged} logged transactions, {registry} holding registry values or a scene's state, {unfit} an undo that no longer fits, {} a long scene name, {} a comment's side, {} a stroke's colour",
+        "dumped {seeds} boards: {logged} logged transactions, {registry} holding registry values or a scene's state, {unfit} an undo that no longer fits, {} a long scene name, {} a comment's side, {} a stroke's colour, {own} a scene's own heroes",
         typed[0], typed[1], typed[2]
     );
 }

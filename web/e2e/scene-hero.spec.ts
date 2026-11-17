@@ -10,7 +10,8 @@
 //
 // A scene that holds its heroes (saved once the row is written) draws its own: the roster and
 // the board's other scenes keep theirs, and a pick in it is that scene's alone and drops the old
-// hero's build. Those tests run once the row is `live`.
+// hero's build. Those tests run once the row is `live` (store v14, its writer); the test of
+// Save setting the roster runs only on a build from before.
 
 import { createServer } from "node:http";
 import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";

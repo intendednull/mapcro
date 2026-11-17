@@ -18,7 +18,7 @@ import { clampToMap } from "../map/transform";
 import { type Timeline, clockLabel, slotKey } from "./timeline";
 import { LIMITS } from "../gen/limits";
 import type { More } from "../gen/More";
-import { WRITTEN, captureBuild, captureScene, captured, heroBuildAt, moreBytes, retakeRows, writesHeroes } from "../mapstate/build";
+import { WRITTEN, captureBuild, captureScene, captured, heroBuildAt, holdsHealth, moreBytes, retakeRows, writesHeroes } from "../mapstate/build";
 import { savedPart } from "../mapstate/frame";
 import type { Player } from "../board/state";
 
@@ -36,6 +36,9 @@ export function rosterChanges(roster: Slot[], tl: Timeline): Array<{ id: RecordI
 /** The longest respawn time a hero record holds, in seconds (the schema's bound on `PlayerRespawn`). */
 export const MAX_RESPAWN = 600;
 
+/** Save as scene from moment `t` of `tl`: the scene and its records, in one transaction's
+ * `ops`. Empty `ops`: the scene can't be saved whole (it would not hold its heroes), so nothing
+ * is sent. `builds`: the snapshot's builds are in it. */
 export function matchSceneOps(
   roster: Slot[],
   scenes: SceneRow[],
@@ -80,8 +83,8 @@ export function matchSceneOps(
   // A scene has one split per lane: the middle of the zipline colours' gap (spec §6b).
   for (const [lane, w] of frame.lanes) if (lanes.length === 0 || lanes.includes(lane)) ops.push({ Create: { id: mint(), record: { Wave: { scene: id, lane, t: Math.round((w.amber + w.sapphire) / 2) } } } });
   // A scene that holds its own heroes (spec D2) leaves the board's roster alone: no other
-  // scene's heroes change. Until this build writes `has_heroes`, the roster is set to the
-  // match's, as before.
+  // scene's heroes change. A build from before `has_heroes` was written set the roster to the
+  // match's (`written` below the row: tests of that build pass it).
   const written = opts.written ?? WRITTEN;
   const own = writesHeroes(written);
   if (!own && opts.roster !== false) for (const c of rosterChanges(roster, tl)) ops.push({ Set: { id: c.id, value: { RosterHero: c.hero } } });
@@ -95,7 +98,7 @@ export function matchSceneOps(
     stateId = mint();
     const state: Op = { Create: { id: stateId, record: { SceneState: { scene: id, more: captureScene(tl, { written }) } } } };
     const room = LIMITS.max_tx_bytes - TX_SLACK - opsBytes([...ops, state]);
-    const builds = sceneBuilds(roster, tl, second, room);
+    const builds = sceneBuilds(roster, tl, second, room, opts.source ? opts.source.tier : null);
     if (builds) {
       roster.forEach((s, i) => {
         const more = builds.get(s.id);
@@ -106,8 +109,8 @@ export function matchSceneOps(
     }
   }
   // Without the builds the scene still holds its heroes: each record its match's hero, and a
-  // state that says so. Both or neither: a save with no room even for that (its own records
-  // fill the transaction) is a scene that draws the board roster's heroes.
+  // state that says so. Both or neither, to the byte.
+  let held = !own || stored;
   if (!stored && own && ops.length < LIMITS.max_ops_per_tx) {
     const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
     const mine = roster.map((s) => players.get(slotKey(s.slot.team, s.slot.slot))?.hero_id);
@@ -118,8 +121,13 @@ export function matchSceneOps(
         if (hero != null) heroes[i]!.PlayerState.more = { hero };
       });
       ops.push(state);
+      held = true;
     }
   }
+  // No room even for that (the save's own records fill the transaction; not seen on a real
+  // match): no scene at all, rather than one that draws the board roster's heroes, which Save
+  // no longer sets. `ops` is then empty and the caller says "Not saved".
+  if (!held) return { id, ops: [], order, builds: false };
   return { id, ops, order, builds: stored };
 }
 
@@ -132,13 +140,13 @@ export const opsBytes = (ops: Op[]) => new TextEncoder().encode(JSON.stringify(o
 /**
  * Each roster slot's build at `second` of the match, as its hero record's `more`, all within
  * `room` bytes together (each within a record's own cap): the build orders lose their oldest
- * rows to fit. `undefined`: they don't fit even so.
+ * rows to fit. `undefined`: they don't fit even so. `tier`: the scene's `source.tier` (null: none).
  */
-function sceneBuilds(roster: Slot[], tl: Timeline, second: number, room: number): Map<RecordId, More> | undefined {
+function sceneBuilds(roster: Slot[], tl: Timeline, second: number, room: number, tier: string | null): Map<RecordId, More> | undefined {
   const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
   const mine = roster.flatMap((s) => {
     const p = players.get(slotKey(s.slot.team, s.slot.slot));
-    return p ? [{ id: s.id, build: heroBuildAt(tl, p, second) }] : [];
+    return p ? [{ id: s.id, build: heroBuildAt(tl, p, second, tier) }] : [];
   });
   const out = new Map<RecordId, More>();
   // Whole first; over, an even share each.
@@ -158,9 +166,11 @@ function sceneBuilds(roster: Slot[], tl: Timeline, second: number, room: number)
 const MORE_KEY = 8;
 
 /** Whether Retake has anything to give a scene: it came from `tl`'s match, and holds no build
- * snapshot, or one from before rows this build writes. */
-export function canRetake(scene: Pick<SceneRow["scene"], "source">, state: More | undefined, tl: Pick<Timeline, "match_id"> | undefined, written: number = WRITTEN): boolean {
-  if (!tl || scene.source?.match_id !== tl.match_id) return false;
+ * snapshot, or one from before rows this build writes. A scene saved from the replay is retaken
+ * from the replay only: it reads its heroes' health as captured (`holdsHealth`), and the
+ * metadata tier has none to give. */
+export function canRetake(scene: Pick<SceneRow["scene"], "source">, state: More | undefined, tl: Pick<Timeline, "match_id" | "tier"> | undefined, written: number = WRITTEN): boolean {
+  if (!tl || scene.source?.match_id !== tl.match_id || !retakesFrom(scene.source.tier, tl)) return false;
   const c = captured(state);
   return !c.builds || c.rows < retakeRows(written);
 }
@@ -184,7 +194,8 @@ export function retakeOps(
   written: number = WRITTEN,
 ): Op[][] {
   const second = scene.scene.source?.t;
-  if (second == null) return [];
+  const tier = scene.scene.source?.tier ?? null;
+  if (second == null || !retakesFrom(tier, tl)) return [];
   const players = new Map(tl.players.map((p) => [slotKey(p.team, p.slot), p]));
   const slots = new Map(roster.map((s) => [s.id, s]));
   const absent = (id: RecordId, key: string, value: MoreValue): Op => ({ SetIf: { id, expect: { More: { key, value: null } }, value: { More: { key, value } } } });
@@ -197,7 +208,7 @@ export function retakeOps(
     // A slot given another hero in a scene that holds its heroes: the match's build is not
     // that hero's, and stays out.
     if (typeof have.hero === "number" && have.hero !== p.hero_id) continue;
-    const ops = Object.entries(captureBuild(heroBuildAt(tl, p, second))).filter(([key]) => have[key] === undefined).map(([key, value]) => absent(h.id, key, value));
+    const ops = Object.entries(captureBuild(heroBuildAt(tl, p, second, tier))).filter(([key]) => have[key] === undefined).map(([key, value]) => absent(h.id, key, value));
     if (ops.length) groups.push(ops);
   }
   // The scene's state last, so a scene never says it holds builds that haven't been written.
@@ -214,6 +225,10 @@ export function retakeOps(
   }
   return chunkByBytes(groups);
 }
+
+/** Whether a scene saved from a match of `tier` can be retaken from `tl`: what the scene reads
+ * as captured, `tl` holds (the health of a scene saved from the replay). */
+const retakesFrom = (tier: string | null | undefined, tl: Pick<Timeline, "tier">) => !holdsHealth(tier) || holdsHealth(tl.tier);
 
 /** Whether ops fit one transaction's bytes, with room for what wraps them on the wire. */
 export const fitsTx = (ops: Op[]) => opsBytes(ops) <= LIMITS.max_tx_bytes - TX_SLACK;
@@ -265,8 +280,10 @@ export function sceneName(label: string, _second?: number): string {
 }
 
 /**
- * One scene per moment, in order after the current scene: the roster is set to the match's
- * heroes once. `groups` holds each scene's ops, to be sent in transactions within the op cap.
+ * One scene per moment, in order after the current scene (a build from before `has_heroes` set
+ * the roster to the match's heroes once). `groups` holds each scene's ops, to be sent in
+ * transactions within the op cap, and `of` the index of its moment: a moment that can't be
+ * saved whole (`matchSceneOps`) has no scene, so there may be fewer groups than moments.
  */
 export function matchScenesOps(
   roster: Slot[],
@@ -277,19 +294,22 @@ export function matchScenesOps(
   markers: Array<Pick<Marker, "key" | "kind" | "team" | "lane" | "at">>,
   mint: () => RecordId,
   lanes: string[] = [],
-): { ids: RecordId[]; ops: Op[]; groups: Op[][]; builds: boolean[] } {
+): { ids: RecordId[]; ops: Op[]; groups: Op[][]; builds: boolean[]; of: number[] } {
   const builds: boolean[] = [];
   const ids: RecordId[] = [];
   const groups: Op[][] = [];
+  const of: number[] = [];
   let after: string | undefined;
   moments.forEach((m, n) => {
     const r = matchSceneOps(roster, scenes, current, tl, m.t, markers, mint, lanes, { name: m.name, ...(after ? { after } : {}), roster: n === 0, source: sourceOf(tl) });
+    if (!r.ops.length) return;
     ids.push(r.id);
     builds.push(r.builds);
     groups.push(r.ops);
+    of.push(n);
     after = r.order;
   });
-  return { ids, ops: groups.flat(), groups, builds };
+  return { ids, ops: groups.flat(), groups, builds, of };
 }
 
 /** A timeline's scene source (spec §6b). */

@@ -1,7 +1,7 @@
 // A pick of another hero in a scene that holds its heroes (map-state spec D2), through the real
 // replica and server: the scene's `hero` set and the old hero's build cleared in one
-// transaction, for everyone; one undo brings back both; and the server refuses the row that
-// says a scene holds its heroes while it is ahead of its writer, so nothing stores it yet.
+// transaction, for everyone; one undo brings back both; and the server takes the row that says
+// a scene holds its heroes once it is live (store v14), as it refused it while it was ahead.
 
 import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
@@ -105,7 +105,7 @@ it("sets the scene's hero and clears the old hero's build for everyone, in one u
   [a, b].forEach((s) => s.stop());
 });
 
-it("the server takes the row that says a scene holds its heroes only once it is live: ahead of its writer, nothing stores it", async () => {
+it("the server takes the row that says a scene holds its heroes once it is live, and refuses it while it is ahead of its writer", async () => {
   const { a, b, scene } = await board();
   const state = newRecordId();
   const more = () => (s: BoardSession) => (s.records.get(state)!.record as { SceneState: { more?: More } }).SceneState.more;

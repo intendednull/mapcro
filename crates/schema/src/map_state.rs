@@ -116,8 +116,10 @@ pub const ROWS: &[Row] = &[
     // The snapshot holds its heroes (spec §2, D2): the scene's own `hero` wins over the board
     // roster's, and a pick in the scene writes the scene. A scene without it (every scene saved
     // before this is written) draws the roster's hero, as it always has: there a `hero` that
-    // differs from the roster's is a build whose slot was given another hero since.
-    ahead("has_heroes", Entity::Scene, Kind::Bool),
+    // differs from the roster's is a build whose slot was given another hero since. Its reader
+    // was deployed as store v12 (3aa59af, then 18b41c6) and v13 (8efbfac); written from store
+    // v14 (`HEROES_WRITER` in the server's `store.rs`), whose floor is 12.
+    row("has_heroes", Entity::Scene, Kind::Bool),
 ];
 
 /// `SceneState`'s own status: the record kind is gated as a row is. Its reader ships a release
@@ -256,6 +258,15 @@ impl Admit {
 pub fn holds_typed_field(record: &Record) -> bool {
     // (`stroke_color` is not asked of a record.)
     Admit { long_scene_name: Status::Ahead, callout_side: Status::Ahead, ..Admit::READS }.record(record).is_err()
+}
+
+/// Whether `record` holds `has_heroes` (a scene that holds its own heroes, D2), true or false:
+/// what the builds deployed as store v12 (18b41c6) and v13 (8efbfac) read but refuse in a board
+/// file, where the row is `Ahead`. A file holding it says a version neither reads, so they answer
+/// "Newer file", not "Bad file" (`boardfile.rs` in the server). Its `rows` can't say so: those
+/// builds' registries hold the row.
+pub fn holds_own_heroes(record: &Record) -> bool {
+    Admit { row: |r| if r.key() == "has_heroes" { Status::Ahead } else { Status::Live }, ..Admit::READS }.record(record).is_err()
 }
 
 /// The registry as a TypeScript module, `web/src/gen/rows.ts` (`just ts` writes it): the
@@ -1136,6 +1147,25 @@ mod tests {
         assert!(!holds_typed_field(&stroke));
         // Nor a registry value or a scene's state: a file says those by its `rows`.
         assert!(!holds_typed_field(&scene_state(holding(&["rows"]))));
+        assert!(!holds_typed_field(&scene_state([(id("has_heroes"), MoreValue::Bool(true))].into_iter().collect())));
+    }
+
+    /// The one row the v12 and v13 builds read but refuse in a file: a scene's state holding
+    /// `has_heroes`, whatever its value, and nothing else.
+    #[test]
+    fn a_record_holds_own_heroes_only_with_the_row() {
+        use crate::records::Scene;
+        let flag = |v: bool| -> More { [(id("rows"), MoreValue::Int(16)), (id("has_heroes"), MoreValue::Bool(v))].into_iter().collect() };
+        assert!(holds_own_heroes(&scene_state(flag(true))));
+        assert!(holds_own_heroes(&scene_state(flag(false))));
+        // Every other row, on the scene's state or a hero, and the typed fields: not it.
+        for r in RowId::all().filter(|r| r.key() != "has_heroes") {
+            let more = holding(&[r.key()]);
+            assert!(!holds_own_heroes(&scene_state(more.clone())) && !holds_own_heroes(&hero(more)), "{}", r.key());
+        }
+        assert!(!holds_own_heroes(&scene_state(More::default())));
+        let long = Record::Scene(Scene { name: "é".repeat(LIMITS.max_scene_name), order: crate::OrderKey::first(), clock: None, source: None, live: false, parent: None });
+        assert!(!holds_own_heroes(&long) && holds_typed_field(&long));
     }
 
     #[test]

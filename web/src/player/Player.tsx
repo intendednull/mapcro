@@ -113,7 +113,7 @@ export function Player(p: {
     const m = h.tl();
     if (!m) return;
     const { id, ops, builds } = matchSceneOps(p.state.roster(), p.state.scenes(), p.scene, m, h.t(), markers(), p.mint, lanes(), { source: sourceOf(m) });
-    if (!p.state.edit(ops)) return h.setStatus("Not saved");
+    if (!ops.length || !p.state.edit(ops)) return h.setStatus("Not saved");
     const live = p.state.liveScene(h.tl()?.match_id);
     if (live) {
       const moves = takeAnnotationsOps(rows, live, id, p.mint);
@@ -957,7 +957,8 @@ export function PlayerSide(p: Props) {
     if (!m || !n || !events.length) return saved;
     const sorted = [...events].sort((a, b) => a.t - b.t);
     const moments = sorted.map((e) => ({ t: jumpTarget(m, e, lead), name: shortLabel(e, n) }));
-    const { ids, groups, builds } = matchScenesOps(p.state.roster(), p.state.scenes(), p.scene, m, moments, markers(), p.mint, lanes());
+    // `of`: each scene's moment (one that can't be saved whole has no scene, and isn't saved).
+    const { ids, groups, builds, of } = matchScenesOps(p.state.roster(), p.state.scenes(), p.scene, m, moments, markers(), p.mint, lanes());
     // Chunk whole scenes, remembering which events each transaction carries.
     let i = 0;
     let first: RecordId | undefined;
@@ -971,7 +972,7 @@ export function PlayerSide(p: Props) {
         inTx.push(i++);
       }
       if (p.state.edit(tx)) {
-        for (const k of inTx) saved.add(eventKey(sorted[k]!));
+        for (const k of inTx) saved.add(eventKey(sorted[of[k]!]!));
         first ??= ids[inTx[0] ?? 0];
         bare ||= inTx.some((k) => !builds[k]);
       }

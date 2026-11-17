@@ -10,6 +10,8 @@ import { FALLBACK } from "../src/map/fallback-data";
 import { modelFromFallback } from "../src/map/model";
 import { buildAt } from "../src/match/builds";
 import { matchSceneOps, sourceOf } from "../src/match/save";
+import { ROWS } from "../src/gen/rows";
+import type { Op } from "../src/gen/Op";
 import { type Timeline, type TimelinePlayer, campsAt, downAt, lanesAt, playersAt, sitesAt, tierOf } from "../src/match/timeline";
 
 const model = modelFromFallback(FALLBACK);
@@ -96,7 +98,7 @@ describe("map state, as it is before MapState (phase 0 pins)", () => {
     await expect(JSON.stringify({ replay_2: saved(replay, 2), replay_3_9: saved(replay, 3.9), metadata_3: saved(metadata, 3) }, null, 1)).toMatchFileSnapshot("./pins/save-as-scene.json");
   });
 
-  it("Save writes a dead hero where it died, a hero with no samples as dead and unplaced, and rewrites the roster", () => {
+  it("Save writes a dead hero where it died, a hero with no samples as dead and unplaced, and leaves the roster alone", () => {
     // The parts of today's copy that decisions D2 and D4 will change, stated so the change is seen.
     const ops = saved(replay, 3).ops;
     const players = ops.flatMap((o) => ("Create" in o && "PlayerState" in o.Create.record ? [o.Create.record.PlayerState] : []));
@@ -107,15 +109,23 @@ describe("map state, as it is before MapState (phase 0 pins)", () => {
     // is still one flag, set for all.
     expect(players.every((p) => p.visible === true)).toBe(true);
     expect(players.filter((p) => p.alive).every((p) => p.respawn === undefined)).toBe(true);
-    // Six slots had no hero: Save sets the board's roster to the match's.
-    expect(ops.filter((o) => "Set" in o && "RosterHero" in o.Set.value)).toHaveLength(6);
+    // Six slots had no hero. Until the D2 writer (store v14) Save set the board's roster to the
+    // match's (six writes here); now the scene holds its own heroes (`has_heroes`) and the
+    // roster is left as it is.
+    expect(ops.filter((o) => "Set" in o && "RosterHero" in o.Set.value)).toHaveLength(0);
+    expect(players.map((p) => p.more?.hero)).toEqual(replay.players.map((p) => p.hero_id));
+    expect(ops.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState.more?.has_heroes] : []))).toEqual([true]);
     // Phase 2 (spec §8): the frame's builds are stored too, on the heroes' records, with one
     // state for the scene that says so. Health on the bar, timers and sight are later phases.
     const kinds = new Set(ops.flatMap((o) => ("Create" in o ? Object.keys(o.Create.record) : [])));
     expect([...kinds].sort()).toEqual(["ObjectiveState", "PlayerState", "Scene", "SceneState", "Wave"]);
-    // Without the snapshot it is the save as it was before phase 2, record for record.
+    // Without the snapshot it is the save as it was before phase 2, record for record, but for
+    // the scene's heroes (D2): each hero record its hero alone, and a state that says only that.
     const bare = matchSceneOps(roster as never, [], undefined, replay, 3, markers, (() => { let n = 0; return () => `id${n++}`; })(), lanes, { source: sourceOf(replay), builds: false }).ops;
-    expect(new Set(bare.flatMap((o) => ("Create" in o ? Object.keys(o.Create.record) : [])))).toEqual(new Set(["ObjectiveState", "PlayerState", "Scene", "Wave"]));
-    expect(bare.every((o) => !("Create" in o && "PlayerState" in o.Create.record && o.Create.record.PlayerState.more))).toBe(true);
+    expect(new Set(bare.flatMap((o) => ("Create" in o ? Object.keys(o.Create.record) : [])))).toEqual(new Set(["ObjectiveState", "PlayerState", "Scene", "SceneState", "Wave"]));
+    expect(bare.flatMap((o) => ("Create" in o && "PlayerState" in o.Create.record ? [o.Create.record.PlayerState.more] : []))).toEqual(replay.players.map((p) => ({ hero: p.hero_id })));
+    expect(bare.flatMap((o) => ("Create" in o && "SceneState" in o.Create.record ? [o.Create.record.SceneState.more] : []))).toEqual([{ rows: ROWS.has_heroes.index + 1, has_heroes: true }]);
+    const plain = (ops: Op[]) => ops.filter((o) => !("Create" in o && "SceneState" in o.Create.record)).map((o) => JSON.parse(JSON.stringify(o, (k, v) => (k === "more" ? undefined : v))));
+    expect(plain(bare)).toEqual(plain(ops.filter((o) => !("Set" in o))));
   });
 });

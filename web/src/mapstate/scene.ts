@@ -16,7 +16,7 @@ import type { RecordId } from "../gen/RecordId";
 import type { RosterSlot } from "../gen/RosterSlot";
 import { ROWS } from "../gen/rows";
 import { slotKey } from "../match/timeline";
-import { captured, sceneHero } from "./build";
+import { captured, holdsHealth, sceneHero } from "./build";
 import { type Feature, type HeroState, type LaneState, type MapState, type MarkerState, type SceneFacts, sameValue } from "./state";
 
 /** What a scene's state is read from: its records, and what it reads from outside them. */
@@ -45,8 +45,8 @@ type Snapshot = ReturnType<typeof captured> & { tier: string | undefined };
 const CAPTURED: { [F in Feature]-?: (snap: Snapshot) => boolean } = {
   // A hero's health is a row of its build (`health`), written with it: the replay tier's.
   // The metadata tier's is not held (Player doesn't hold it either), whatever a scene saved
-  // before that was settled stored.
-  health: (s) => s.builds && ROWS.health.index < s.rows && s.tier === "replay",
+  // before that was settled stored. Save and Retake ask the same (`holdsHealth`).
+  health: (s) => s.builds && ROWS.health.index < s.rows && holdsHealth(s.tier),
   // One flag a hero (`visible`), set by hand: not each team's sight of it.
   sight: () => false,
   cc: () => false,
