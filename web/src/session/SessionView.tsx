@@ -19,7 +19,7 @@ import { Board, type InSession } from "../board/Board";
 import { resetVisit } from "../board/reset";
 import { ShareDialog } from "../board/ShareDialog";
 import { addGrant, canOpen, parseSessionUrl, sessionUrl, withdrawGrant } from "../core/api";
-import { openSessionInAppHref } from "../core/applink";
+import { APP_OPENS_SESSIONS, openSessionInAppHref } from "../core/applink";
 import { authHeader } from "../core/cred";
 import { type Me, colorOf, hasJoined, knownBoards, loadMe, rememberBoard } from "../core/device";
 import { href, replace } from "../core/nav";
@@ -142,7 +142,10 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   };
   // A tab someone is on may change (they load a match there): asked again now and then.
   const occupied = () => new Set(s.tabs().filter((t) => people().has(t.id)).map(keyOf));
-  const againTimer = setInterval(() => details.again(new Set(inView.values()), untrack(occupied)), 5000);
+  // Not while the page is hidden: nobody sees the strip.
+  const againTimer = setInterval(() => {
+    if (!document.hidden) details.again(new Set(inView.values()), untrack(occupied));
+  }, 5000);
   onCleanup(() => {
     clearInterval(againTimer);
     observer?.disconnect();
@@ -659,8 +662,8 @@ export function SessionView(p: { session: string; token: string; tab: string | u
     canEdit: () => s.canEdit(),
     follow: follow.board,
     me: setMe,
-    // The session's own link in the app, on the open tab (§7.1).
-    appHref: () => openSessionInAppHref({ session: p.session, token: p.token, ...(active() ? { tab: active()! } : {}) }),
+    // The session's own link in the app, on the open tab (§7.1); held until the app opens it (TD-117).
+    appHref: () => (APP_OPENS_SESSIONS ? openSessionInAppHref({ session: p.session, token: p.token, ...(active() ? { tab: active()! } : {}) }) : undefined),
   });
   // A dead link, not an outdated build: that one reloads, or says Update available, as a board does.
   const closed = () => linkDead(s.connection());

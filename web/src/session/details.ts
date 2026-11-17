@@ -148,6 +148,8 @@ export function createTabDetails(src: DetailsSource, clock: () => number = Date.
       if (j) patch(key, match, { job: j });
     } finally {
       asking.delete(key);
+      // A load asked for meanwhile (the tab was left) runs now.
+      if (redo.delete(key)) void load(key);
     }
   };
   return {

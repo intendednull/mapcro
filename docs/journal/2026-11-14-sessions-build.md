@@ -63,7 +63,11 @@ app's).
 6. **The Session group is the desktop's only.** The phone has no people list (TD-116).
 7. **The session's "Open in app"** on a session's tab: `header.spec.ts` pinned "no Open in app
    through a session grant"; it now pins the session's own link. A change of behaviour, flagged
-   for the lead.
+   for the lead. **Lead, after review:** held behind `APP_OPENS_SESSIONS = false` (TD-117), because a
+   released app before this branch ignores `mapcro://s/` links; `header.spec.ts` is back to "no
+   Open in app through a session grant" until a desktop release carries the parser. Also from the
+   review: `job()` runs a load asked for meanwhile; the strip isn't re-asked while the page is
+   hidden; New board waits for a running Load a game. The rest is TD-118.
 8. **Labels:** "Load a game", "New board", "Open match", "Board title", "Match id", "Select
    replay file", "All games (n)", "Games", "Session", "No access", "Sandbox", "Full replay", "API
    summary", "Amber", "Sapphire", and the job words, all from §8's list, the landing or the tier

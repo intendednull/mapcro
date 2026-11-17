@@ -203,7 +203,8 @@ export function AddMenu(p: { onAdd: (c: AddChoice) => Promise<string | undefined
   };
   const create = async (e: Event) => {
     e.preventDefault();
-    if (busy()) return;
+    // Not while Load a game is opening one: one tab per press.
+    if (busy() || loading()) return;
     setBusy(true);
     const m = await newBoard(title());
     setBusy(false);
@@ -300,7 +301,7 @@ export function AddMenu(p: { onAdd: (c: AddChoice) => Promise<string | undefined
               value={title()}
               onInput={(e) => setTitle(e.currentTarget.value)}
             />
-            <button class="btn" type="submit" data-testid="add-new-go" disabled={busy()}>
+            <button class="btn" type="submit" data-testid="add-new-go" disabled={busy() || loading()}>
               New board
             </button>
           </form>
