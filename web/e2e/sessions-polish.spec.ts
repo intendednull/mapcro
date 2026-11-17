@@ -225,11 +225,10 @@ test("each tab says its board's newest match, winner, length and tier; Load a ga
   expect(grant).toMatch(/^[A-Za-z0-9_-]{22}$/);
   const gone = await fetch(`${server.url}/api/sessions/${m.session}/grants/${grant}`, { method: "DELETE", headers: { authorization: `Bearer ${m.owner}` } });
   expect(gone.status).toBe(204);
-  // A late joiner opens the session on that tab, its first: its board refuses them.
+  // A late joiner opens the session on that tab, its first: its board refuses them. No name
+  // asked: the join card shows only while a board connects, and this one closes (TD-118).
   const c = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
   await c.goto(m.url);
-  await c.locator("#join-name").fill("Late");
-  await c.keyboard.press("Enter");
   await expect(tabs(c)).toHaveCount(6);
   const nameA = await tab(c, 0).getByTestId("tab-name").innerText();
   await expect(tab(c, 0)).toHaveClass(/unavailable/);
