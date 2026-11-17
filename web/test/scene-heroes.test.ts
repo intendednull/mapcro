@@ -193,7 +193,7 @@ describe("Save, once it writes the row", () => {
     expect(now.groups.map((g) => captured(made<{ more?: More }>(g, "SceneState")[0]?.r.more).heroes)).toEqual([writesHeroes(), writesHeroes()]);
   });
 
-  it("with no room even for the heroes, stores neither them nor a state that says so", () => {
+  it("with no room even for the heroes, saves nothing: no scene that draws the roster's heroes", () => {
     // One objective down whose key fills the transaction to within `spare` bytes of its cap.
     const filled = (spare: number, written: number, builds = false) => {
       const at = (pad: number) => {
@@ -210,21 +210,19 @@ describe("Save, once it writes the row", () => {
     expect(made<HeroRecord>(roomy, "PlayerState").every((h) => typeof h.r.more?.hero === "number")).toBe(true);
     expect(made<{ more?: More }>(roomy, "SceneState").map((s) => s.r.more)).toEqual([{ rows: LATER, has_heroes: true }]);
     expect(opsBytes(roomy)).toBeLessThanOrEqual(LIMITS.max_tx_bytes - 1024);
-    // None: the save is whole and within the cap, and the scene draws the roster's heroes.
-    const tight = filled(40, LATER);
-    expect(made<HeroRecord>(tight, "PlayerState").every((h) => h.r.more === undefined)).toBe(true);
-    expect(made(tight, "SceneState")).toEqual([]);
-    expect(opsBytes(tight)).toBeLessThanOrEqual(LIMITS.max_tx_bytes - 1024);
-    expect(rosterWrites(tight)).toEqual([]);
+    // None: nothing is sent. Saved without its heroes or its flag, the scene would draw the
+    // board roster's, which Save no longer sets (spec §4.5: a save holds its heroes).
+    expect(filled(40, LATER)).toEqual([]);
     // To the byte: exactly what the heroes and the state add fits; one less does not.
     const strip = (ops: Op[]) => ops.filter((o) => !("Create" in o && "SceneState" in o.Create.record)).map((o) => JSON.parse(JSON.stringify(o, (k, v) => (k === "more" ? undefined : v))));
     const need = opsBytes(roomy) - opsBytes(strip(roomy));
     expect(need).toBeGreaterThan(12 * 19);
     expect(made(filled(need, LATER), "SceneState")).toHaveLength(1);
     expect(opsBytes(filled(need, LATER))).toBe(LIMITS.max_tx_bytes - 1024);
-    const short = filled(need - 1, LATER);
-    expect([made(short, "SceneState").length, made<HeroRecord>(short, "PlayerState").filter((h) => h.r.more !== undefined).length]).toEqual([0, 0]);
-    // A build from before stores neither either way.
+    expect(filled(need - 1, LATER)).toEqual([]);
+    // A build from before saves the scene either way, without a state: it sets the roster.
+    const before = filled(40, BEFORE);
+    expect([made(before, "Scene").length, made(before, "SceneState").length, rosterWrites(before).length]).toEqual([1, 0, 12]);
     expect(made(filled(2000, BEFORE), "SceneState")).toEqual([]);
     // Room for the heroes but not for their builds: the same save as one asked for without
     // builds, record for record and id for id.

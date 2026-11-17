@@ -103,8 +103,16 @@ const HERO: { [K in HeroKey]-?: { put: (b: HeroBuild) => MoreValue | undefined; 
   max_health: { put: (b) => (inRow("max_health", b.max_health) ? Math.round(b.max_health) : undefined), get: (b, v) => { b.max_health = int(v); } },
 };
 
-/** The build at second `t` of the match, as Player's column shows it. */
-export function heroBuildAt(tl: Pick<Timeline, "events" | "players" | "format" | "tier">, player: TimelinePlayer, t: number): HeroBuild {
+/** Whether a snapshot of a match of `tier` holds its heroes' health: the replay tier's alone
+ * (the metadata tier's is the path's, too coarse for Player to hold: mapstate/state.ts). Save
+ * and Retake capture by it, and a scene reads by it (`scene.ts`, `CAPTURED.health`), each asking
+ * the scene's own `source.tier`. */
+export const holdsHealth = (tier: string | null | undefined): boolean => tier === "replay";
+
+/** The build at second `t` of the match, as Player's column shows it. `tier`: the tier of the
+ * snapshot it is captured for (the scene's `source.tier`, null for a scene with none; by default
+ * the timeline's own). */
+export function heroBuildAt(tl: Pick<Timeline, "events" | "players" | "format" | "tier">, player: TimelinePlayer, t: number, tier: string | null = tl.tier ?? "metadata"): HeroBuild {
   const at: BuildAt = buildAt(player, t);
   const sec = Math.max(0, Math.floor(t));
   let pickups: Pickups | null = (tl.format ?? 0) >= PICKUPS_FORMAT ? [0, 0, 0, 0, 0] : null;
@@ -115,9 +123,8 @@ export function heroBuildAt(tl: Pick<Timeline, "events" | "players" | "format" |
     abilities: at.abilities,
     order: player.items == null ? null : [...player.items].filter(([ds]) => ds <= t * 10).sort((a, b) => a[0] - b[0]),
     level: scoreboardValueAt(player.level, t),
-    // The replay tier's alone: the metadata tier's is the path's, too coarse for Player to
-    // hold (mapstate/state.ts), so a snapshot doesn't either.
-    health: tl.tier === "replay" && player.x[sec] != null ? player.health[sec] ?? null : null,
+    // Only for a snapshot that holds it, and only from the replay's own samples.
+    health: holdsHealth(tier) && tl.tier === "replay" && player.x[sec] != null ? player.health[sec] ?? null : null,
     pickups,
     kills: player.kills != null ? scoreboardValueAt(player.kills, t) : killsAt(tl, t, player.team, player.slot),
     deaths: player.deaths.filter((d) => d <= t).length,
