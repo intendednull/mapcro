@@ -32,3 +32,5 @@ states/
 
 # Local scratch output (packs, probes): never committed
 /scratch/
+mutants.out/
+mutants.out.old/

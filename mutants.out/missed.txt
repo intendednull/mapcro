@@ -1,3 +1,0 @@
-desktop/core/src/link.rs:131:29: replace || with && in parse
-desktop/core/src/link.rs:131:19: replace > with == in parse
-desktop/core/src/link.rs:131:19: replace > with >= in parse

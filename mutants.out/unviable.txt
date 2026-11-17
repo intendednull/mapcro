@@ -1,4 +1,0 @@
-desktop/core/src/link.rs:108:5: replace board_and_token -> Option<Board> with Some(Default::default())
-desktop/core/src/link.rs:116:5: replace session_and_token -> Option<Session> with Some(Default::default())
-desktop/core/src/link.rs:130:5: replace parse -> Option<Link> with Some(Default::default())
-desktop/core/src/link.rs:150:5: replace routed -> Option<Link> with Some(Default::default())
