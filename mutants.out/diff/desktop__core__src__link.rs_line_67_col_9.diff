@@ -1,0 +1,21 @@
+--- desktop/core/src/link.rs
++++ replace <impl std::fmt::Debug for Session>::fmt -> std::fmt::Result with Ok(Default::default())
+@@ -59,17 +59,17 @@
+ pub struct Session {
+     pub id: String,
+     pub tab: Option<String>,
+     token: String,
+ }
+ 
+ impl std::fmt::Debug for Session {
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        f.debug_struct("Session").field("id", &self.id).field("tab", &self.tab).field("token", &"<redacted>").finish()
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ impl Session {
+     /// The session's page on `origin`: `<origin>/s/<session>[?tab=<tab>]#<token>`.
+     pub fn url(&self, origin: &str) -> String {
+         let tab = self.tab.as_deref().map(|t| format!("?tab={t}")).unwrap_or_default();
+         format!("{}/s/{}{tab}#{}", origin.trim_end_matches('/'), self.id, self.token)

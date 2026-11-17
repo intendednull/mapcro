@@ -1353,6 +1353,12 @@ Each phase is small, merges on its own, and leaves boards unchanged.
      group's follow), `web/e2e/phone.spec.ts` (the Games sheet at 390 × 844 and 344 × 615, Firefox
      too), `web/e2e/open-link.spec.ts` (a session's link in the app; its Open in app), and
      `desktop/smoke/smoke.mjs` (a session's link handed to the running app).
+   - **Mutation:** 62 hand mutants over `details.ts`, `follow.ts` and `applink.ts`, 60 killed by
+     the unit files, 2 equivalent; 22 over `SessionView.tsx`, `Board.tsx` and `Presence.tsx`
+     that only the browser rows can fail, 21 killed, 1 equivalent; cargo-mutants on `link.rs`,
+     35 caught, 4 unviable, 3 missed in the unchanged length guard (equivalent). The lists are in
+     the journal.
+   - **Debt:** TD-113 to TD-116; TD-104 updated.
 6. **Later.** Adding a tab from another session (a grant of a grant), cloning a session (open question 11), a series scoreline, and
    cross-game build comparison.
 

@@ -1,0 +1,21 @@
+--- desktop/core/src/link.rs
++++ replace == with != in b64url
+@@ -94,17 +94,17 @@
+         match self {
+             Link::Board(b) => b.url(origin),
+             Link::Session(s) => s.url(origin),
+         }
+     }
+ }
+ 
+ fn b64url(s: &str, len: usize) -> bool {
+-    s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
++    s.len() != /* ~ changed by cargo-mutants ~ */ len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+ }
+ 
+ /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the
+ /// `mapcro://` form only (some launchers add one); nothing else: no query, no more path.
+ fn board_and_token(rest: &str, trailing_slash: bool) -> Option<Board> {
+     let (id, token) = rest.split_once('#')?;
+     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };
+     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })

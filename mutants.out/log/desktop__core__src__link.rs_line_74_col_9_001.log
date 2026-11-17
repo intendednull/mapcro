@@ -1,0 +1,335 @@
+
+*** desktop/core/src/link.rs:74:9: replace Session::url -> String with "xyzzy".into()
+
+*** mutation diff:
+--- desktop/core/src/link.rs
++++ replace Session::url -> String with "xyzzy".into()
+@@ -66,18 +66,17 @@
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         f.debug_struct("Session").field("id", &self.id).field("tab", &self.tab).field("token", &"<redacted>").finish()
+     }
+ }
+ 
+ impl Session {
+     /// The session's page on `origin`: `<origin>/s/<session>[?tab=<tab>]#<token>`.
+     pub fn url(&self, origin: &str) -> String {
+-        let tab = self.tab.as_deref().map(|t| format!("?tab={t}")).unwrap_or_default();
+-        format!("{}/s/{}{tab}#{}", origin.trim_end_matches('/'), self.id, self.token)
++        "xyzzy".into() /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     /// The token, for the URL only.
+     pub fn token(&self) -> &str {
+         &self.token
+     }
+ }
+ 
+
+
+*** /nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo test --no-run --verbose --package=mapcro-desktop-core@0.0.0
+       Fresh unicode-ident v1.0.27
+       Fresh shlex v2.0.1
+       Fresh find-msvc-tools v0.1.15
+       Fresh cfg-if v1.0.5
+       Fresh stable_deref_trait v1.2.1
+       Fresh proc-macro2 v1.0.107
+       Fresh version_check v0.9.5
+       Fresh either v1.19.0
+       Fresh memchr v2.8.3
+       Fresh typenum v1.20.1
+       Fresh pkg-config v0.3.34
+       Fresh quote v1.0.47
+       Fresh libc v0.2.191
+       Fresh object v0.39.1
+       Fresh serde_core v1.0.229
+       Fresh utf_types v1.0.0
+       Fresh writeable v0.6.4
+       Fresh litemap v0.8.3
+       Fresh syn v3.0.9
+       Fresh jobserver v0.1.34
+       Fresh ar_archive_writer v0.5.3
+       Fresh anyhow v1.0.104
+       Fresh utf8_iter v1.1.0
+       Fresh syn v2.0.119
+       Fresh itertools v0.14.0
+       Fresh cc v1.11.1
+       Fresh synstructure v0.14.0
+       Fresh zerovec-derive v0.11.7
+       Fresh displaydoc v0.2.7
+       Fresh generic-array v0.14.7
+       Fresh serde_derive v1.0.229
+       Fresh prost-derive v0.14.4
+       Fresh zerofrom-derive v0.1.8
+       Fresh yoke-derive v0.8.4
+       Fresh serde v1.0.229
+       Fresh zerofrom v0.1.8
+       Fresh bytes v1.12.1
+       Fresh icu_properties_data v2.4.0
+       Fresh yoke v0.8.4
+       Fresh psm v0.1.32
+       Fresh prost v0.14.4
+       Fresh block-buffer v0.10.4
+       Fresh icu_normalizer_data v2.4.0
+       Fresh crypto-common v0.1.7
+       Fresh zerovec v0.11.9
+       Fresh zerotrie v0.2.5
+       Fresh stacker v0.1.25
+       Fresh thiserror-impl v2.0.21
+       Fresh linux-raw-sys v0.12.1
+       Fresh smallvec v1.16.5
+       Fresh ucd-trie v0.1.7
+       Fresh bitflags v2.13.2
+       Fresh tinystr v0.8.5
+       Fresh potential_utf v0.1.6
+       Fresh pest_stack_guard v1.0.1
+       Fresh rustix v1.1.6
+       Fresh thiserror v2.0.21
+       Fresh prost-types v0.14.4
+       Fresh digest v0.10.7
+       Fresh zmij v1.0.23
+       Fresh icu_locale_core v2.4.0
+       Fresh icu_collections v2.4.0
+       Fresh pest v2.9.6
+       Fresh getrandom v0.4.3
+       Fresh snap v1.1.2
+       Fresh zstd-sys v2.0.15+zstd.1.5.7
+       Fresh itoa v1.0.18
+       Fresh once_cell v1.21.4
+       Fresh cpufeatures v0.2.17
+       Fresh icu_provider v2.4.0
+       Fresh fastrand v2.5.0
+       Fresh rustc-hash v2.1.3
+       Fresh keyvalues-parser v0.2.4
+       Fresh zstd-safe v7.2.4
+       Fresh sha2 v0.10.9
+       Fresh serde_json v1.0.154
+       Fresh boon-proto v0.4.11152727+6805
+       Fresh memmap2 v0.9.12
+       Fresh icu_normalizer v2.4.0
+       Fresh icu_properties v2.4.0
+       Fresh pbdems2 v0.4.1 (/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/crates/vendor/pbdems2)
+       Fresh tempfile v3.27.0
+       Fresh adler2 v2.0.1
+       Fresh crc-catalog v2.5.0
+       Fresh simd-adler32 v0.3.10
+       Fresh percent-encoding v2.3.2
+       Fresh libbz2-rs-sys v0.2.6
+       Fresh crc32fast v1.5.4
+       Fresh idna_adapter v1.2.2
+       Fresh bzip2 v0.6.1
+       Fresh crc v3.4.0
+       Fresh miniz_oxide v0.9.1
+       Fresh boon-deadlock v0.19.0 (/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/crates/vendor/boon-deadlock)
+       Fresh form_urlencoded v1.2.2
+       Fresh zstd v0.13.3
+       Fresh keyvalues-serde v0.2.4
+       Fresh base64 v0.22.1
+       Fresh idna v1.1.0
+       Fresh mapcro-replay v0.0.0 (/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/crates/replay)
+       Fresh flate2 v1.1.11
+       Fresh steamlocate v2.1.1
+       Fresh url v2.5.8
+       Dirty mapcro-desktop-core v0.0.0 (/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/desktop/core): the file `desktop/core/src/link.rs` has changed (1794895645.538723591s, 4s after last build at 1794895641.894752494s)
+   Compiling mapcro-desktop-core v0.0.0 (/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/desktop/core)
+     Running `rustc --crate-name mapcro_desktop_core --edition=2024 desktop/core/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 '--warn=clippy::unwrap_used' --forbid=unsafe_code --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=2ad8f5b6a8bfec46 -C extra-filename=-89d2ef9f58117c82 --out-dir /tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps -C incremental=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/incremental -L dependency=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps --extern flate2=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libflate2-cc5a91c7a2af4c2a.rlib --extern mapcro_replay=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libmapcro_replay-77e3a99a303a8e0b.rlib --extern serde=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libserde-72eda1ddc4bf8393.rlib --extern serde_json=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libserde_json-4286cb2755e76717.rlib --extern steamlocate=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libsteamlocate-dd643307d61e69e0.rlib --extern tempfile=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libtempfile-195a17ba84b8feaa.rlib --extern url=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/liburl-3fffc6609f0b18b2.rlib -L native=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/build/zstd-sys-90ae8e5282a3920b/out -L native=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/build/psm-27d5c23bbd876537/out`
+     Running `rustc --crate-name mapcro_desktop_core --edition=2024 desktop/core/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 '--warn=clippy::unwrap_used' --forbid=unsafe_code --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=f31d8e168d35db28 -C extra-filename=-77a3382aa040b676 --out-dir /tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps -C incremental=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/incremental -L dependency=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps --extern flate2=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libflate2-cc5a91c7a2af4c2a.rmeta --extern mapcro_replay=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libmapcro_replay-77e3a99a303a8e0b.rmeta --extern serde=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libserde-72eda1ddc4bf8393.rmeta --extern serde_json=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libserde_json-4286cb2755e76717.rmeta --extern steamlocate=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libsteamlocate-dd643307d61e69e0.rmeta --extern url=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/liburl-3fffc6609f0b18b2.rmeta -L native=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/build/zstd-sys-90ae8e5282a3920b/out -L native=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/build/psm-27d5c23bbd876537/out`
+warning: unused variable: `origin`
+  --> desktop/core/src/link.rs:73:23
+   |
+73 |     pub fn url(&self, origin: &str) -> String {
+   |                       ^^^^^^ help: if this is intentional, prefix it with an underscore: `_origin`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `mapcro-desktop-core` (lib) generated 1 warning (run `cargo fix --lib -p mapcro-desktop-core` to apply 1 suggestion)
+     Running `rustc --crate-name mapcro_desktop_parse --edition=2024 desktop/core/src/bin/parse_child.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type bin --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 '--warn=clippy::unwrap_used' --forbid=unsafe_code --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=fa7c2d9f03ff290c -C extra-filename=-1641ad13ebe70bf0 --out-dir /tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps -C incremental=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/incremental -L dependency=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps --extern flate2=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libflate2-cc5a91c7a2af4c2a.rlib --extern mapcro_desktop_core=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libmapcro_desktop_core-77a3382aa040b676.rlib --extern mapcro_replay=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libmapcro_replay-77e3a99a303a8e0b.rlib --extern serde=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libserde-72eda1ddc4bf8393.rlib --extern serde_json=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libserde_json-4286cb2755e76717.rlib --extern steamlocate=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libsteamlocate-dd643307d61e69e0.rlib --extern url=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/liburl-3fffc6609f0b18b2.rlib -L native=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/build/zstd-sys-90ae8e5282a3920b/out -L native=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/build/psm-27d5c23bbd876537/out`
+     Running `rustc --crate-name mapcro_desktop_parse --edition=2024 desktop/core/src/bin/parse_child.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 '--warn=clippy::unwrap_used' --forbid=unsafe_code --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=1d0c7884513a658e -C extra-filename=-1dba9ba155777cdf --out-dir /tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps -C incremental=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/incremental -L dependency=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps --extern flate2=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libflate2-cc5a91c7a2af4c2a.rlib --extern mapcro_desktop_core=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libmapcro_desktop_core-77a3382aa040b676.rlib --extern mapcro_replay=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libmapcro_replay-77e3a99a303a8e0b.rlib --extern serde=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libserde-72eda1ddc4bf8393.rlib --extern serde_json=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libserde_json-4286cb2755e76717.rlib --extern steamlocate=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libsteamlocate-dd643307d61e69e0.rlib --extern tempfile=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libtempfile-195a17ba84b8feaa.rlib --extern url=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/liburl-3fffc6609f0b18b2.rlib -L native=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/build/zstd-sys-90ae8e5282a3920b/out -L native=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/build/psm-27d5c23bbd876537/out`
+     Running `rustc --crate-name local_replay --edition=2024 desktop/core/tests/local_replay.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 '--warn=clippy::unwrap_used' --forbid=unsafe_code --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=6b32a657510f4140 -C extra-filename=-50d070028bd0e4d6 --out-dir /tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps -C incremental=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/incremental -L dependency=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps --extern flate2=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libflate2-cc5a91c7a2af4c2a.rlib --extern mapcro_desktop_core=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libmapcro_desktop_core-77a3382aa040b676.rlib --extern mapcro_replay=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libmapcro_replay-77e3a99a303a8e0b.rlib --extern serde=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libserde-72eda1ddc4bf8393.rlib --extern serde_json=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libserde_json-4286cb2755e76717.rlib --extern steamlocate=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libsteamlocate-dd643307d61e69e0.rlib --extern tempfile=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/libtempfile-195a17ba84b8feaa.rlib --extern url=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/liburl-3fffc6609f0b18b2.rlib -L native=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/build/zstd-sys-90ae8e5282a3920b/out -L native=/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/build/psm-27d5c23bbd876537/out`
+warning: `mapcro-desktop-core` (lib test) generated 1 warning (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.79s
+  Executable `/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/mapcro_desktop_core-89d2ef9f58117c82`
+  Executable `/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/mapcro_desktop_parse-1dba9ba155777cdf`
+  Executable `/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/local_replay-50d070028bd0e4d6`
+
+*** result: Success
+
+*** /nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo test --verbose --package=mapcro-desktop-core@0.0.0
+       Fresh unicode-ident v1.0.27
+       Fresh shlex v2.0.1
+       Fresh find-msvc-tools v0.1.15
+       Fresh stable_deref_trait v1.2.1
+       Fresh cfg-if v1.0.5
+       Fresh proc-macro2 v1.0.107
+       Fresh version_check v0.9.5
+       Fresh litemap v0.8.3
+       Fresh typenum v1.20.1
+       Fresh quote v1.0.47
+       Fresh libc v0.2.191
+       Fresh pkg-config v0.3.34
+       Fresh utf_types v1.0.0
+       Fresh writeable v0.6.4
+       Fresh syn v3.0.9
+       Fresh jobserver v0.1.34
+       Fresh object v0.39.1
+       Fresh serde_core v1.0.229
+       Fresh either v1.19.0
+       Fresh memchr v2.8.3
+       Fresh syn v2.0.119
+       Fresh utf8_iter v1.1.0
+       Fresh cc v1.11.1
+       Fresh synstructure v0.14.0
+       Fresh zerovec-derive v0.11.7
+       Fresh displaydoc v0.2.7
+       Fresh ar_archive_writer v0.5.3
+       Fresh generic-array v0.14.7
+       Fresh itertools v0.14.0
+       Fresh serde_derive v1.0.229
+       Fresh anyhow v1.0.104
+       Fresh zerofrom-derive v0.1.8
+       Fresh yoke-derive v0.8.4
+       Fresh prost-derive v0.14.4
+       Fresh serde v1.0.229
+       Fresh zerofrom v0.1.8
+       Fresh bytes v1.12.1
+       Fresh yoke v0.8.4
+       Fresh psm v0.1.32
+       Fresh icu_properties_data v2.4.0
+       Fresh prost v0.14.4
+       Fresh icu_normalizer_data v2.4.0
+       Fresh zerovec v0.11.9
+       Fresh zerotrie v0.2.5
+       Fresh stacker v0.1.25
+       Fresh block-buffer v0.10.4
+       Fresh crypto-common v0.1.7
+       Fresh thiserror-impl v2.0.21
+       Fresh bitflags v2.13.2
+       Fresh tinystr v0.8.5
+       Fresh potential_utf v0.1.6
+       Fresh pest_stack_guard v1.0.1
+       Fresh linux-raw-sys v0.12.1
+       Fresh smallvec v1.16.5
+       Fresh ucd-trie v0.1.7
+       Fresh digest v0.10.7
+       Fresh thiserror v2.0.21
+       Fresh icu_locale_core v2.4.0
+       Fresh icu_collections v2.4.0
+       Fresh pest v2.9.6
+       Fresh rustix v1.1.6
+       Fresh snap v1.1.2
+       Fresh zmij v1.0.23
+       Fresh getrandom v0.4.3
+       Fresh prost-types v0.14.4
+       Fresh zstd-sys v2.0.15+zstd.1.5.7
+       Fresh icu_provider v2.4.0
+       Fresh once_cell v1.21.4
+       Fresh cpufeatures v0.2.17
+       Fresh fastrand v2.5.0
+       Fresh itoa v1.0.18
+       Fresh rustc-hash v2.1.3
+       Fresh keyvalues-parser v0.2.4
+       Fresh zstd-safe v7.2.4
+       Fresh boon-proto v0.4.11152727+6805
+       Fresh icu_normalizer v2.4.0
+       Fresh icu_properties v2.4.0
+       Fresh sha2 v0.10.9
+       Fresh tempfile v3.27.0
+       Fresh pbdems2 v0.4.1 (/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/crates/vendor/pbdems2)
+       Fresh serde_json v1.0.154
+       Fresh memmap2 v0.9.12
+       Fresh simd-adler32 v0.3.10
+       Fresh crc-catalog v2.5.0
+       Fresh idna_adapter v1.2.2
+       Fresh percent-encoding v2.3.2
+       Fresh libbz2-rs-sys v0.2.6
+       Fresh adler2 v2.0.1
+       Fresh boon-deadlock v0.19.0 (/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/crates/vendor/boon-deadlock)
+       Fresh crc32fast v1.5.4
+       Fresh crc v3.4.0
+       Fresh zstd v0.13.3
+       Fresh keyvalues-serde v0.2.4
+       Fresh base64 v0.22.1
+       Fresh form_urlencoded v1.2.2
+       Fresh bzip2 v0.6.1
+       Fresh miniz_oxide v0.9.1
+       Fresh idna v1.1.0
+       Fresh steamlocate v2.1.1
+       Fresh url v2.5.8
+       Fresh flate2 v1.1.11
+       Fresh mapcro-replay v0.0.0 (/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/crates/replay)
+warning: unused variable: `origin`
+  --> desktop/core/src/link.rs:73:23
+   |
+73 |     pub fn url(&self, origin: &str) -> String {
+   |                       ^^^^^^ help: if this is intentional, prefix it with an underscore: `_origin`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `mapcro-desktop-core` (lib) generated 1 warning (run `cargo fix --lib -p mapcro-desktop-core` to apply 1 suggestion)
+warning: `mapcro-desktop-core` (lib test) generated 1 warning (1 duplicate)
+       Fresh mapcro-desktop-core v0.0.0 (/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/desktop/core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `/tmp/nix-shell.SpcUr0/cargo-mutants-sessions-p5-szDzjg.tmp/target/debug/deps/mapcro_desktop_core-89d2ef9f58117c82`
+
+running 42 tests
+test folder::tests::no_folder_says_why_without_a_path ... ok
+test link::tests::debug_leaves_the_token_out ... ok
+test link::tests::a_broken_sessions_link_is_nothing ... ok
+test link::tests::a_sessions_link_maps_to_the_session_on_the_site_with_its_tab ... FAILED
+test folder::tests::the_chosen_folder_wins_while_it_is_there ... ok
+test link::tests::the_canonical_form_maps_to_the_board_on_the_site ... ok
+test mode::tests::install_goes_ahead_only_for_the_offered_version_where_install_is_offered ... ok
+test link::tests::the_sites_share_link_and_harmless_variants_are_taken ... ok
+test link::tests::hostile_or_broken_input_is_nothing ... ok
+test mode::tests::installed_leaves_the_scheme_to_the_installer_except_as_an_appimage ... ok
+test mode::tests::portable_registers_the_scheme_itself_and_only_links_to_updates ... ok
+test folder::tests::the_choice_is_kept_and_read_back ... ok
+test mode::tests::the_build_flag_picks_the_mode ... ok
+test mode::tests::the_installer_and_the_appimage_offer_install_and_a_package_offers_nothing ... ok
+test mode::tests::the_page_sees_the_offer_as_a_word ... ok
+test mode::tests::updates_need_a_real_key ... ok
+test parse::tests::only_the_child_argument_makes_a_child ... ok
+test nav::tests::other_schemes_and_junk_are_dropped ... ok
+test nav::tests::links_off_the_site_go_to_the_system_browser ... ok
+test nav::tests::the_sites_own_pages_stay_in_the_window ... ok
+test preview::tests::only_the_child_argument_makes_a_child ... ok
+test preview::tests::only_a_preview_of_this_match_in_the_pages_shape_is_taken ... ok
+test parse::tests::gzip_round_trips ... ok
+test replays::tests::only_the_games_names_are_replays ... ok
+test parse::tests::the_child_refuses_a_file_that_is_not_a_demo ... ok
+test steam::tests::manifest_gives_a_plain_install_dir_only ... ok
+test steam::tests::libraryfolders_names_the_library_with_deadlock ... ok
+test replays::tests::a_page_id_must_be_plain_digits ... ok
+test preview::tests::the_child_refuses_a_file_that_is_not_a_demo ... ok
+test steam::tests::the_old_libraryfolders_layout_and_other_roots ... ok
+test vdf::tests::malformed_text_is_none ... ok
+test replays::tests::a_demo_starts_with_its_magic ... ok
+test vdf::tests::reads_nested_blocks_comments_and_escapes ... ok
+test steam::tests::says_what_is_missing ... ok
+test preview::tests::the_cache_holds_a_file_until_it_changes_and_survives_a_restart ... ok
+test replays::tests::lists_replays_newest_first_and_nothing_else ... ok
+test steam::tests::finds_the_replays_folder_from_the_two_files ... ok
+test preview::tests::the_cache_drops_the_oldest_past_its_cap ... ok
+test parse::tests::with_a_stand_in_child::output_that_is_not_a_timeline_for_this_match_is_refused ... ok
+test parse::tests::with_a_stand_in_child::a_reason_from_the_child_comes_back ... ok
+test preview::tests::a_stand_in_childs_answers ... ok
+test parse::tests::with_a_stand_in_child::a_child_past_the_time_limit_is_killed ... ok
+
+failures:
+
+---- link::tests::a_sessions_link_maps_to_the_session_on_the_site_with_its_tab stdout ----
+
+thread 'link::tests::a_sessions_link_maps_to_the_session_on_the_site_with_its_tab' (2454728) panicked at desktop/core/src/link.rs:267:9:
+assertion `left == right` failed
+  left: "xyzzy"
+ right: "https://mapcro.dmgdeadlock.com/s/AbCdEfGhIjKlMnOpQrSt-_?tab=0123456789abcdef0123456789abcdef#0123456789abcdefghijklmnopqrstuvwxyzABCD-_Z"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    link::tests::a_sessions_link_maps_to_the_session_on_the_site_with_its_tab
+
+test result: FAILED. 41 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+error: test failed, to rerun pass `-p mapcro-desktop-core --lib`
+
+*** result: Failure(101)

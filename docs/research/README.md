@@ -226,6 +226,11 @@ design; `pack.rs` is the manifest (`SCHEMA` = 4).
   `net_worth` exist (129738985, read 2026-11-10, key names only): team kills 39/35 equal the other
   team's deaths, and each player's last `stats[]` `net_worth` equals the final one. The preview
   card reads them (spec §6a "Previews"; `matches.rs` `preview_of`).
+  **A replay timeline carries no winner** (2026-11-16, sessions phase 5, from the code): the parse
+  reads `m_iWinningTeam` to find the end (`parse.rs`), but `timeline.rs` `Timeline` has no
+  `winner`, so a match with only a replay (an upload, no metadata) has a winner only from the
+  app's demo preview (`preview.rs`). The session strip's winner is the server's preview, which
+  needs the metadata; its length falls back to a timeline the page holds.
 - **Valve CDN:** `http://replay{cluster}.valve.net/1422450/{match_id}_{replay_salt}.dem.bz2`
   (and `.meta.bz2`). Since 2026-07-20 the `.bz2` files are zstd: sniff the magic bytes
   (`lib.rs` `ZSTD_MAGIC`; match-replay §1.1). Valid about three weeks after the match (§3.4).

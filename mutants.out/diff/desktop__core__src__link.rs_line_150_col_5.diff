@@ -1,0 +1,29 @@
+--- desktop/core/src/link.rs
++++ replace routed -> Option<Link> with None
+@@ -142,25 +142,17 @@
+         return routed(path.strip_prefix('/')?, false);
+     }
+     None
+ }
+ 
+ /// `b/…` or `s/…`: the route's letter has no case on the `mapcro://` form (it's the URL's host
+ /// there), and is lowercase on the site's.
+ fn routed(rest: &str, app: bool) -> Option<Link> {
+-    let route = rest.get(..2)?;
+-    let is = |r: &str| if app { route.eq_ignore_ascii_case(r) } else { route == r };
+-    if is("b/") {
+-        board_and_token(&rest[2..], app).map(Link::Board)
+-    } else if is("s/") {
+-        session_and_token(&rest[2..], app).map(Link::Session)
+-    } else {
+-        None
+-    }
++    None /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+ 
+     const ID: &str = "AbCdEfGhIjKlMnOpQrSt-_";
+     const TOKEN: &str = "0123456789abcdefghijklmnopqrstuvwxyzABCD-_Z";

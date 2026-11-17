@@ -1,0 +1,2724 @@
+{
+  "outcomes": [
+    {
+      "scenario": "Baseline",
+      "summary": "Success",
+      "log_path": "log/baseline.log",
+      "diff_path": null,
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 42.941180012,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.501699132,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:40:9: replace <impl std::fmt::Debug for Board>::fmt -> std::fmt::Result with Ok(Default::default())",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "<impl std::fmt::Debug for Board>::fmt",
+            "return_type": "-> std::fmt::Result",
+            "span": {
+              "start": {
+                "line": 39,
+                "column": 5
+              },
+              "end": {
+                "line": 41,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 40,
+              "column": 9
+            },
+            "end": {
+              "line": 40,
+              "column": 93
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_40_col_9.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_40_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.965332298,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.451978906,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:48:9: replace Board::url -> String with String::new()",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "Board::url",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 45,
+                "column": 5
+              },
+              "end": {
+                "line": 49,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 48,
+              "column": 9
+            },
+            "end": {
+              "line": 48,
+              "column": 81
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_48_col_9.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_48_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.91108679,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.40224805,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:48:9: replace Board::url -> String with \"xyzzy\".into()",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "Board::url",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 45,
+                "column": 5
+              },
+              "end": {
+                "line": 49,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 48,
+              "column": 9
+            },
+            "end": {
+              "line": 48,
+              "column": 81
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_48_col_9_001.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_48_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.95857278,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.456523517,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:53:9: replace Board::token -> &str with \"\"",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "Board::token",
+            "return_type": "-> &str",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 54,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 53,
+              "column": 9
+            },
+            "end": {
+              "line": 53,
+              "column": 20
+            }
+          },
+          "replacement": "\"\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_53_col_9.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_53_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.067269782,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.453339993,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:53:9: replace Board::token -> &str with \"xyzzy\"",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "Board::token",
+            "return_type": "-> &str",
+            "span": {
+              "start": {
+                "line": 51,
+                "column": 5
+              },
+              "end": {
+                "line": 54,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 53,
+              "column": 9
+            },
+            "end": {
+              "line": 53,
+              "column": 20
+            }
+          },
+          "replacement": "\"xyzzy\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_53_col_9_001.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_53_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.121087916,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.453426776,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:74:9: replace Session::url -> String with String::new()",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "Session::url",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 72,
+                "column": 5
+              },
+              "end": {
+                "line": 76,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 74,
+              "column": 9
+            },
+            "end": {
+              "line": 75,
+              "column": 86
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_74_col_9.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_74_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 3.38187893,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.452106293,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:74:9: replace Session::url -> String with \"xyzzy\".into()",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "Session::url",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 72,
+                "column": 5
+              },
+              "end": {
+                "line": 76,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 74,
+              "column": 9
+            },
+            "end": {
+              "line": 75,
+              "column": 86
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_74_col_9_001.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_74_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.8589888700000001,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.452294315,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:80:9: replace Session::token -> &str with \"\"",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "Session::token",
+            "return_type": "-> &str",
+            "span": {
+              "start": {
+                "line": 78,
+                "column": 5
+              },
+              "end": {
+                "line": 81,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 80,
+              "column": 9
+            },
+            "end": {
+              "line": 80,
+              "column": 20
+            }
+          },
+          "replacement": "\"\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_80_col_9.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_80_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.154656873,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.401621644,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:80:9: replace Session::token -> &str with \"xyzzy\"",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "Session::token",
+            "return_type": "-> &str",
+            "span": {
+              "start": {
+                "line": 78,
+                "column": 5
+              },
+              "end": {
+                "line": 81,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 80,
+              "column": 9
+            },
+            "end": {
+              "line": 80,
+              "column": 20
+            }
+          },
+          "replacement": "\"xyzzy\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_80_col_9_001.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_80_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.907243187,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.401401758,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:94:9: replace Link::url -> String with String::new()",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "Link::url",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 92,
+                "column": 5
+              },
+              "end": {
+                "line": 98,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 94,
+              "column": 9
+            },
+            "end": {
+              "line": 97,
+              "column": 10
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_94_col_9.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_94_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.908636731,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.401462409,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:94:9: replace Link::url -> String with \"xyzzy\".into()",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "Link::url",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 92,
+                "column": 5
+              },
+              "end": {
+                "line": 98,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 94,
+              "column": 9
+            },
+            "end": {
+              "line": 97,
+              "column": 10
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_94_col_9_001.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_94_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.859850767,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.451708729,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:102:5: replace b64url -> bool with true",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "b64url",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 101,
+                "column": 1
+              },
+              "end": {
+                "line": 103,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 102,
+              "column": 5
+            },
+            "end": {
+              "line": 102,
+              "column": 93
+            }
+          },
+          "replacement": "true",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_102_col_5.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_102_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.959033236,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.451702741,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:102:5: replace b64url -> bool with false",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "b64url",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 101,
+                "column": 1
+              },
+              "end": {
+                "line": 103,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 102,
+              "column": 5
+            },
+            "end": {
+              "line": 102,
+              "column": 93
+            }
+          },
+          "replacement": "false",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_102_col_5_001.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_102_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.908619825,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.401638364,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:102:20: replace && with || in b64url",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "b64url",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 101,
+                "column": 1
+              },
+              "end": {
+                "line": 103,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 102,
+              "column": 20
+            },
+            "end": {
+              "line": 102,
+              "column": 22
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_102_col_20.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_102_col_20.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.857991614,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.451540757,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:102:13: replace == with != in b64url",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "b64url",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 101,
+                "column": 1
+              },
+              "end": {
+                "line": 103,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 102,
+              "column": 13
+            },
+            "end": {
+              "line": 102,
+              "column": 15
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_102_col_13.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_102_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.854815382,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.40142447,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:102:80: replace || with && in b64url",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "b64url",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 101,
+                "column": 1
+              },
+              "end": {
+                "line": 103,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 102,
+              "column": 80
+            },
+            "end": {
+              "line": 102,
+              "column": 82
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_102_col_80.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_102_col_80.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.862008762,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.451811439,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:102:67: replace || with && in b64url",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "b64url",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 101,
+                "column": 1
+              },
+              "end": {
+                "line": 103,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 102,
+              "column": 67
+            },
+            "end": {
+              "line": 102,
+              "column": 69
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_102_col_67.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_102_col_67.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.859088438,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.401698571,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:102:72: replace == with != in b64url",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "b64url",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 101,
+                "column": 1
+              },
+              "end": {
+                "line": 103,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 102,
+              "column": 72
+            },
+            "end": {
+              "line": 102,
+              "column": 74
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_102_col_72.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_102_col_72.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.855804557,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.451717414,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:102:85: replace == with != in b64url",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "b64url",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 101,
+                "column": 1
+              },
+              "end": {
+                "line": 103,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 102,
+              "column": 85
+            },
+            "end": {
+              "line": 102,
+              "column": 87
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_102_col_85.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_102_col_85.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.857108522,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.401618226,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:108:5: replace board_and_token -> Option<Board> with None",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "board_and_token",
+            "return_type": "-> Option<Board>",
+            "span": {
+              "start": {
+                "line": 105,
+                "column": 1
+              },
+              "end": {
+                "line": 111,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 108,
+              "column": 5
+            },
+            "end": {
+              "line": 110,
+              "column": 118
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_108_col_5.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_108_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.902978107,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.401627028,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:108:5: replace board_and_token -> Option<Board> with Some(Default::default())",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "board_and_token",
+            "return_type": "-> Option<Board>",
+            "span": {
+              "start": {
+                "line": 105,
+                "column": 1
+              },
+              "end": {
+                "line": 111,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 108,
+              "column": 5
+            },
+            "end": {
+              "line": 110,
+              "column": 118
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/desktop__core__src__link.rs_line_108_col_5_001.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_108_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.251405936,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:110:28: replace && with || in board_and_token",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "board_and_token",
+            "return_type": "-> Option<Board>",
+            "span": {
+              "start": {
+                "line": 105,
+                "column": 1
+              },
+              "end": {
+                "line": 111,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 110,
+              "column": 28
+            },
+            "end": {
+              "line": 110,
+              "column": 30
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_110_col_28.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_110_col_28.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.908858398,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.401779669,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:116:5: replace session_and_token -> Option<Session> with None",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "session_and_token",
+            "return_type": "-> Option<Session>",
+            "span": {
+              "start": {
+                "line": 113,
+                "column": 1
+              },
+              "end": {
+                "line": 124,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 116,
+              "column": 5
+            },
+            "end": {
+              "line": 123,
+              "column": 159
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_116_col_5.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_116_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.90654702,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.401694211,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:116:5: replace session_and_token -> Option<Session> with Some(Default::default())",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "session_and_token",
+            "return_type": "-> Option<Session>",
+            "span": {
+              "start": {
+                "line": 113,
+                "column": 1
+              },
+              "end": {
+                "line": 124,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 116,
+              "column": 5
+            },
+            "end": {
+              "line": 123,
+              "column": 159
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/desktop__core__src__link.rs_line_116_col_5_001.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_116_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.251375299,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:122:56: replace && with || in session_and_token",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "session_and_token",
+            "return_type": "-> Option<Session>",
+            "span": {
+              "start": {
+                "line": 113,
+                "column": 1
+              },
+              "end": {
+                "line": 124,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 122,
+              "column": 56
+            },
+            "end": {
+              "line": 122,
+              "column": 58
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_122_col_56.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_122_col_56.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.90721087,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.401828403,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:122:45: replace == with != in session_and_token",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "session_and_token",
+            "return_type": "-> Option<Session>",
+            "span": {
+              "start": {
+                "line": 113,
+                "column": 1
+              },
+              "end": {
+                "line": 124,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 122,
+              "column": 45
+            },
+            "end": {
+              "line": 122,
+              "column": 47
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_122_col_45.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_122_col_45.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.905888674,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.401632646,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:122:96: replace || with && in session_and_token",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "session_and_token",
+            "return_type": "-> Option<Session>",
+            "span": {
+              "start": {
+                "line": 113,
+                "column": 1
+              },
+              "end": {
+                "line": 124,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 122,
+              "column": 96
+            },
+            "end": {
+              "line": 122,
+              "column": 98
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_122_col_96.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_122_col_96.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.862759175,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.452882731,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:123:56: replace && with || in session_and_token",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "session_and_token",
+            "return_type": "-> Option<Session>",
+            "span": {
+              "start": {
+                "line": 113,
+                "column": 1
+              },
+              "end": {
+                "line": 124,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 123,
+              "column": 56
+            },
+            "end": {
+              "line": 123,
+              "column": 58
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_123_col_56.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_123_col_56.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.914763146,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.451807481,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:123:28: replace && with || in session_and_token",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "session_and_token",
+            "return_type": "-> Option<Session>",
+            "span": {
+              "start": {
+                "line": 113,
+                "column": 1
+              },
+              "end": {
+                "line": 124,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 123,
+              "column": 28
+            },
+            "end": {
+              "line": 123,
+              "column": 30
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_123_col_28.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_123_col_28.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.90561219,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.451824363,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:130:5: replace parse -> Option<Link> with None",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "parse",
+            "return_type": "-> Option<Link>",
+            "span": {
+              "start": {
+                "line": 126,
+                "column": 1
+              },
+              "end": {
+                "line": 145,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 130,
+              "column": 5
+            },
+            "end": {
+              "line": 144,
+              "column": 9
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_130_col_5.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_130_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.260278332,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.401784913,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:130:5: replace parse -> Option<Link> with Some(Default::default())",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "parse",
+            "return_type": "-> Option<Link>",
+            "span": {
+              "start": {
+                "line": 126,
+                "column": 1
+              },
+              "end": {
+                "line": 145,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 130,
+              "column": 5
+            },
+            "end": {
+              "line": 144,
+              "column": 9
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/desktop__core__src__link.rs_line_130_col_5_001.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_130_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.251385376,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:131:29: replace || with && in parse",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "parse",
+            "return_type": "-> Option<Link>",
+            "span": {
+              "start": {
+                "line": 126,
+                "column": 1
+              },
+              "end": {
+                "line": 145,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 131,
+              "column": 29
+            },
+            "end": {
+              "line": 131,
+              "column": 31
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_131_col_29.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_131_col_29.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.113274647,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.501638664,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:131:19: replace > with == in parse",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "parse",
+            "return_type": "-> Option<Link>",
+            "span": {
+              "start": {
+                "line": 126,
+                "column": 1
+              },
+              "end": {
+                "line": 145,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 131,
+              "column": 19
+            },
+            "end": {
+              "line": 131,
+              "column": 20
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_131_col_19.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_131_col_19.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.974649536,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.508907502,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:131:19: replace > with < in parse",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "parse",
+            "return_type": "-> Option<Link>",
+            "span": {
+              "start": {
+                "line": 126,
+                "column": 1
+              },
+              "end": {
+                "line": 145,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 131,
+              "column": 19
+            },
+            "end": {
+              "line": 131,
+              "column": 20
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_131_col_19_001.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_131_col_19_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.904845257,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.404002233,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:131:19: replace > with >= in parse",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "parse",
+            "return_type": "-> Option<Link>",
+            "span": {
+              "start": {
+                "line": 126,
+                "column": 1
+              },
+              "end": {
+                "line": 145,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 131,
+              "column": 19
+            },
+            "end": {
+              "line": 131,
+              "column": 20
+            }
+          },
+          "replacement": ">=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_131_col_19_002.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_131_col_19_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.011911776,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.50188859,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:131:32: delete ! in parse",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "parse",
+            "return_type": "-> Option<Link>",
+            "span": {
+              "start": {
+                "line": 126,
+                "column": 1
+              },
+              "end": {
+                "line": 145,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 131,
+              "column": 32
+            },
+            "end": {
+              "line": 131,
+              "column": 33
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_131_col_32.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_131_col_32.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.908870385,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.451858477,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:135:65: replace + with - in parse",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "parse",
+            "return_type": "-> Option<Link>",
+            "span": {
+              "start": {
+                "line": 126,
+                "column": 1
+              },
+              "end": {
+                "line": 145,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 135,
+              "column": 65
+            },
+            "end": {
+              "line": 135,
+              "column": 66
+            }
+          },
+          "replacement": "-",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_135_col_65.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_135_col_65.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.911110652,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.403206835,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:135:65: replace + with * in parse",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "parse",
+            "return_type": "-> Option<Link>",
+            "span": {
+              "start": {
+                "line": 126,
+                "column": 1
+              },
+              "end": {
+                "line": 145,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 135,
+              "column": 65
+            },
+            "end": {
+              "line": 135,
+              "column": 66
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_135_col_65_001.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_135_col_65_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.908380627,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.451649033,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:150:5: replace routed -> Option<Link> with None",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "routed",
+            "return_type": "-> Option<Link>",
+            "span": {
+              "start": {
+                "line": 147,
+                "column": 1
+              },
+              "end": {
+                "line": 159,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 150,
+              "column": 5
+            },
+            "end": {
+              "line": 158,
+              "column": 6
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_150_col_5.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_150_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.314051762,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.451802575,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:150:5: replace routed -> Option<Link> with Some(Default::default())",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "routed",
+            "return_type": "-> Option<Link>",
+            "span": {
+              "start": {
+                "line": 147,
+                "column": 1
+              },
+              "end": {
+                "line": 159,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 150,
+              "column": 5
+            },
+            "end": {
+              "line": 158,
+              "column": 6
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/desktop__core__src__link.rs_line_150_col_5_001.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_150_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.251432217,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:151:78: replace == with != in routed",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "routed",
+            "return_type": "-> Option<Link>",
+            "span": {
+              "start": {
+                "line": 147,
+                "column": 1
+              },
+              "end": {
+                "line": 159,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 151,
+              "column": 78
+            },
+            "end": {
+              "line": 151,
+              "column": 80
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_151_col_78.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_151_col_78.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.365350597,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.452889961,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "desktop/core/src/link.rs:67:9: replace <impl std::fmt::Debug for Session>::fmt -> std::fmt::Result with Ok(Default::default())",
+          "package": "mapcro-desktop-core",
+          "file": "desktop/core/src/link.rs",
+          "function": {
+            "function_name": "<impl std::fmt::Debug for Session>::fmt",
+            "return_type": "-> std::fmt::Result",
+            "span": {
+              "start": {
+                "line": 66,
+                "column": 5
+              },
+              "end": {
+                "line": 68,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 67,
+              "column": 9
+            },
+            "end": {
+              "line": 67,
+              "column": 119
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/desktop__core__src__link.rs_line_67_col_9.log",
+      "diff_path": "diff/desktop__core__src__link.rs_line_67_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 52.918058915,
+          "process_status": "Success",
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.40159106,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/nix/store/zj2n52yvn3wgwpq8zi4f6yj1y7y3hfh6-cargo-1.99.1-x86_64-unknown-linux-gnu/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=mapcro-desktop-core@0.0.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 42,
+  "missed": 3,
+  "caught": 35,
+  "timeout": 0,
+  "unviable": 4,
+  "success": 0,
+  "start_time": "2026-11-17T06:06:24.67355499Z",
+  "end_time": "2026-11-17T06:08:16.932146599Z",
+  "cargo_mutants_version": "27.1.0"
+}

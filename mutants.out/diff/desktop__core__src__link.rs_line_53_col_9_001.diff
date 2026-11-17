@@ -1,0 +1,21 @@
+--- desktop/core/src/link.rs
++++ replace Board::token -> &str with "xyzzy"
+@@ -45,17 +45,17 @@
+     /// The board's page on `origin` (`https://mapcro.dmgdeadlock.com`, or a debug build's dev
+     /// server): `<origin>/b/<board>#<token>`. `origin` has no trailing slash.
+     pub fn url(&self, origin: &str) -> String {
+         format!("{}/b/{}#{}", origin.trim_end_matches('/'), self.id, self.token)
+     }
+ 
+     /// The token, for the URL only.
+     pub fn token(&self) -> &str {
+-        &self.token
++        "xyzzy" /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ /// A session, the tab its link names (if any) and the token that opens it.
+ #[derive(Clone, PartialEq, Eq)]
+ pub struct Session {
+     pub id: String,
+     pub tab: Option<String>,

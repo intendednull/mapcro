@@ -1,0 +1,24 @@
+--- desktop/core/src/link.rs
++++ replace Link::url -> String with String::new()
+@@ -86,20 +86,17 @@
+ pub enum Link {
+     Board(Board),
+     Session(Session),
+ }
+ 
+ impl Link {
+     /// The page it names on `origin`.
+     pub fn url(&self, origin: &str) -> String {
+-        match self {
+-            Link::Board(b) => b.url(origin),
+-            Link::Session(s) => s.url(origin),
+-        }
++        String::new() /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ fn b64url(s: &str, len: usize) -> bool {
+     s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+ }
+ 
+ /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the

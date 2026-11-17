@@ -1,0 +1,35 @@
+--- desktop/core/src/link.rs
++++ replace parse -> Option<Link> with Some(Default::default())
+@@ -122,31 +122,17 @@
+     let tab_ok = tab.is_none_or(|t| t.len() == TAB_LEN && t.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })
+ }
+ 
+ /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,
+ /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace
+ /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.
+ pub fn parse(link: &str) -> Option<Link> {
+-    let link = link.trim();
+-    if link.len() > MAX_LEN || !link.is_ascii() {
+-        return None;
+-    }
+-    let scheme_end = link.find("://")?;
+-    let (scheme, rest) = (&link[..scheme_end], &link[scheme_end + 3..]);
+-    if scheme.eq_ignore_ascii_case(SCHEME) {
+-        return routed(rest, true);
+-    }
+-    let host = SITE.strip_prefix("https://").expect("SITE is https");
+-    if scheme.eq_ignore_ascii_case("https") {
+-        let path = rest.get(..host.len()).filter(|h| h.eq_ignore_ascii_case(host)).map(|_| &rest[host.len()..])?;
+-        return routed(path.strip_prefix('/')?, false);
+-    }
+-    None
++    Some(Default::default()) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// `b/…` or `s/…`: the route's letter has no case on the `mapcro://` form (it's the URL's host
+ /// there), and is lowercase on the site's.
+ fn routed(rest: &str, app: bool) -> Option<Link> {
+     let route = rest.get(..2)?;
+     let is = |r: &str| if app { route.eq_ignore_ascii_case(r) } else { route == r };
+     if is("b/") {

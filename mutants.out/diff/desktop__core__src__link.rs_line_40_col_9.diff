@@ -1,0 +1,21 @@
+--- desktop/core/src/link.rs
++++ replace <impl std::fmt::Debug for Board>::fmt -> std::fmt::Result with Ok(Default::default())
+@@ -32,17 +32,17 @@
+ #[derive(Clone, PartialEq, Eq)]
+ pub struct Board {
+     pub id: String,
+     token: String,
+ }
+ 
+ impl std::fmt::Debug for Board {
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        f.debug_struct("Board").field("id", &self.id).field("token", &"<redacted>").finish()
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ impl Board {
+     /// The board's page on `origin` (`https://mapcro.dmgdeadlock.com`, or a debug build's dev
+     /// server): `<origin>/b/<board>#<token>`. `origin` has no trailing slash.
+     pub fn url(&self, origin: &str) -> String {
+         format!("{}/b/{}#{}", origin.trim_end_matches('/'), self.id, self.token)

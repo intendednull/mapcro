@@ -1,0 +1,1346 @@
+[
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace <impl std::fmt::Debug for Board>::fmt -> std::fmt::Result with Ok(Default::default())\n@@ -32,17 +32,17 @@\n #[derive(Clone, PartialEq, Eq)]\n pub struct Board {\n     pub id: String,\n     token: String,\n }\n \n impl std::fmt::Debug for Board {\n     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n-        f.debug_struct(\"Board\").field(\"id\", &self.id).field(\"token\", &\"<redacted>\").finish()\n+        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */\n     }\n }\n \n impl Board {\n     /// The board's page on `origin` (`https://mapcro.dmgdeadlock.com`, or a debug build's dev\n     /// server): `<origin>/b/<board>#<token>`. `origin` has no trailing slash.\n     pub fn url(&self, origin: &str) -> String {\n         format!(\"{}/b/{}#{}\", origin.trim_end_matches('/'), self.id, self.token)\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "<impl std::fmt::Debug for Board>::fmt",
+      "return_type": "-> std::fmt::Result",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 41
+        },
+        "start": {
+          "column": 5,
+          "line": 39
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:40:9: replace <impl std::fmt::Debug for Board>::fmt -> std::fmt::Result with Ok(Default::default())",
+    "package": "mapcro-desktop-core",
+    "replacement": "Ok(Default::default())",
+    "span": {
+      "end": {
+        "column": 93,
+        "line": 40
+      },
+      "start": {
+        "column": 9,
+        "line": 40
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace Board::url -> String with String::new()\n@@ -40,17 +40,17 @@\n         f.debug_struct(\"Board\").field(\"id\", &self.id).field(\"token\", &\"<redacted>\").finish()\n     }\n }\n \n impl Board {\n     /// The board's page on `origin` (`https://mapcro.dmgdeadlock.com`, or a debug build's dev\n     /// server): `<origin>/b/<board>#<token>`. `origin` has no trailing slash.\n     pub fn url(&self, origin: &str) -> String {\n-        format!(\"{}/b/{}#{}\", origin.trim_end_matches('/'), self.id, self.token)\n+        String::new() /* ~ changed by cargo-mutants ~ */\n     }\n \n     /// The token, for the URL only.\n     pub fn token(&self) -> &str {\n         &self.token\n     }\n }\n \n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "Board::url",
+      "return_type": "-> String",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 49
+        },
+        "start": {
+          "column": 5,
+          "line": 45
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:48:9: replace Board::url -> String with String::new()",
+    "package": "mapcro-desktop-core",
+    "replacement": "String::new()",
+    "span": {
+      "end": {
+        "column": 81,
+        "line": 48
+      },
+      "start": {
+        "column": 9,
+        "line": 48
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace Board::url -> String with \"xyzzy\".into()\n@@ -40,17 +40,17 @@\n         f.debug_struct(\"Board\").field(\"id\", &self.id).field(\"token\", &\"<redacted>\").finish()\n     }\n }\n \n impl Board {\n     /// The board's page on `origin` (`https://mapcro.dmgdeadlock.com`, or a debug build's dev\n     /// server): `<origin>/b/<board>#<token>`. `origin` has no trailing slash.\n     pub fn url(&self, origin: &str) -> String {\n-        format!(\"{}/b/{}#{}\", origin.trim_end_matches('/'), self.id, self.token)\n+        \"xyzzy\".into() /* ~ changed by cargo-mutants ~ */\n     }\n \n     /// The token, for the URL only.\n     pub fn token(&self) -> &str {\n         &self.token\n     }\n }\n \n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "Board::url",
+      "return_type": "-> String",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 49
+        },
+        "start": {
+          "column": 5,
+          "line": 45
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:48:9: replace Board::url -> String with \"xyzzy\".into()",
+    "package": "mapcro-desktop-core",
+    "replacement": "\"xyzzy\".into()",
+    "span": {
+      "end": {
+        "column": 81,
+        "line": 48
+      },
+      "start": {
+        "column": 9,
+        "line": 48
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace Board::token -> &str with \"\"\n@@ -45,17 +45,17 @@\n     /// The board's page on `origin` (`https://mapcro.dmgdeadlock.com`, or a debug build's dev\n     /// server): `<origin>/b/<board>#<token>`. `origin` has no trailing slash.\n     pub fn url(&self, origin: &str) -> String {\n         format!(\"{}/b/{}#{}\", origin.trim_end_matches('/'), self.id, self.token)\n     }\n \n     /// The token, for the URL only.\n     pub fn token(&self) -> &str {\n-        &self.token\n+        \"\" /* ~ changed by cargo-mutants ~ */\n     }\n }\n \n /// A session, the tab its link names (if any) and the token that opens it.\n #[derive(Clone, PartialEq, Eq)]\n pub struct Session {\n     pub id: String,\n     pub tab: Option<String>,\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "Board::token",
+      "return_type": "-> &str",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 54
+        },
+        "start": {
+          "column": 5,
+          "line": 51
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:53:9: replace Board::token -> &str with \"\"",
+    "package": "mapcro-desktop-core",
+    "replacement": "\"\"",
+    "span": {
+      "end": {
+        "column": 20,
+        "line": 53
+      },
+      "start": {
+        "column": 9,
+        "line": 53
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace Board::token -> &str with \"xyzzy\"\n@@ -45,17 +45,17 @@\n     /// The board's page on `origin` (`https://mapcro.dmgdeadlock.com`, or a debug build's dev\n     /// server): `<origin>/b/<board>#<token>`. `origin` has no trailing slash.\n     pub fn url(&self, origin: &str) -> String {\n         format!(\"{}/b/{}#{}\", origin.trim_end_matches('/'), self.id, self.token)\n     }\n \n     /// The token, for the URL only.\n     pub fn token(&self) -> &str {\n-        &self.token\n+        \"xyzzy\" /* ~ changed by cargo-mutants ~ */\n     }\n }\n \n /// A session, the tab its link names (if any) and the token that opens it.\n #[derive(Clone, PartialEq, Eq)]\n pub struct Session {\n     pub id: String,\n     pub tab: Option<String>,\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "Board::token",
+      "return_type": "-> &str",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 54
+        },
+        "start": {
+          "column": 5,
+          "line": 51
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:53:9: replace Board::token -> &str with \"xyzzy\"",
+    "package": "mapcro-desktop-core",
+    "replacement": "\"xyzzy\"",
+    "span": {
+      "end": {
+        "column": 20,
+        "line": 53
+      },
+      "start": {
+        "column": 9,
+        "line": 53
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace <impl std::fmt::Debug for Session>::fmt -> std::fmt::Result with Ok(Default::default())\n@@ -59,17 +59,17 @@\n pub struct Session {\n     pub id: String,\n     pub tab: Option<String>,\n     token: String,\n }\n \n impl std::fmt::Debug for Session {\n     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n-        f.debug_struct(\"Session\").field(\"id\", &self.id).field(\"tab\", &self.tab).field(\"token\", &\"<redacted>\").finish()\n+        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */\n     }\n }\n \n impl Session {\n     /// The session's page on `origin`: `<origin>/s/<session>[?tab=<tab>]#<token>`.\n     pub fn url(&self, origin: &str) -> String {\n         let tab = self.tab.as_deref().map(|t| format!(\"?tab={t}\")).unwrap_or_default();\n         format!(\"{}/s/{}{tab}#{}\", origin.trim_end_matches('/'), self.id, self.token)\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "<impl std::fmt::Debug for Session>::fmt",
+      "return_type": "-> std::fmt::Result",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 68
+        },
+        "start": {
+          "column": 5,
+          "line": 66
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:67:9: replace <impl std::fmt::Debug for Session>::fmt -> std::fmt::Result with Ok(Default::default())",
+    "package": "mapcro-desktop-core",
+    "replacement": "Ok(Default::default())",
+    "span": {
+      "end": {
+        "column": 119,
+        "line": 67
+      },
+      "start": {
+        "column": 9,
+        "line": 67
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace Session::url -> String with String::new()\n@@ -66,18 +66,17 @@\n     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n         f.debug_struct(\"Session\").field(\"id\", &self.id).field(\"tab\", &self.tab).field(\"token\", &\"<redacted>\").finish()\n     }\n }\n \n impl Session {\n     /// The session's page on `origin`: `<origin>/s/<session>[?tab=<tab>]#<token>`.\n     pub fn url(&self, origin: &str) -> String {\n-        let tab = self.tab.as_deref().map(|t| format!(\"?tab={t}\")).unwrap_or_default();\n-        format!(\"{}/s/{}{tab}#{}\", origin.trim_end_matches('/'), self.id, self.token)\n+        String::new() /* ~ changed by cargo-mutants ~ */\n     }\n \n     /// The token, for the URL only.\n     pub fn token(&self) -> &str {\n         &self.token\n     }\n }\n \n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "Session::url",
+      "return_type": "-> String",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 76
+        },
+        "start": {
+          "column": 5,
+          "line": 72
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:74:9: replace Session::url -> String with String::new()",
+    "package": "mapcro-desktop-core",
+    "replacement": "String::new()",
+    "span": {
+      "end": {
+        "column": 86,
+        "line": 75
+      },
+      "start": {
+        "column": 9,
+        "line": 74
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace Session::url -> String with \"xyzzy\".into()\n@@ -66,18 +66,17 @@\n     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n         f.debug_struct(\"Session\").field(\"id\", &self.id).field(\"tab\", &self.tab).field(\"token\", &\"<redacted>\").finish()\n     }\n }\n \n impl Session {\n     /// The session's page on `origin`: `<origin>/s/<session>[?tab=<tab>]#<token>`.\n     pub fn url(&self, origin: &str) -> String {\n-        let tab = self.tab.as_deref().map(|t| format!(\"?tab={t}\")).unwrap_or_default();\n-        format!(\"{}/s/{}{tab}#{}\", origin.trim_end_matches('/'), self.id, self.token)\n+        \"xyzzy\".into() /* ~ changed by cargo-mutants ~ */\n     }\n \n     /// The token, for the URL only.\n     pub fn token(&self) -> &str {\n         &self.token\n     }\n }\n \n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "Session::url",
+      "return_type": "-> String",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 76
+        },
+        "start": {
+          "column": 5,
+          "line": 72
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:74:9: replace Session::url -> String with \"xyzzy\".into()",
+    "package": "mapcro-desktop-core",
+    "replacement": "\"xyzzy\".into()",
+    "span": {
+      "end": {
+        "column": 86,
+        "line": 75
+      },
+      "start": {
+        "column": 9,
+        "line": 74
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace Session::token -> &str with \"\"\n@@ -72,17 +72,17 @@\n     /// The session's page on `origin`: `<origin>/s/<session>[?tab=<tab>]#<token>`.\n     pub fn url(&self, origin: &str) -> String {\n         let tab = self.tab.as_deref().map(|t| format!(\"?tab={t}\")).unwrap_or_default();\n         format!(\"{}/s/{}{tab}#{}\", origin.trim_end_matches('/'), self.id, self.token)\n     }\n \n     /// The token, for the URL only.\n     pub fn token(&self) -> &str {\n-        &self.token\n+        \"\" /* ~ changed by cargo-mutants ~ */\n     }\n }\n \n /// What a link names: a board, or a session.\n #[derive(Debug, Clone, PartialEq, Eq)]\n pub enum Link {\n     Board(Board),\n     Session(Session),\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "Session::token",
+      "return_type": "-> &str",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 81
+        },
+        "start": {
+          "column": 5,
+          "line": 78
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:80:9: replace Session::token -> &str with \"\"",
+    "package": "mapcro-desktop-core",
+    "replacement": "\"\"",
+    "span": {
+      "end": {
+        "column": 20,
+        "line": 80
+      },
+      "start": {
+        "column": 9,
+        "line": 80
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace Session::token -> &str with \"xyzzy\"\n@@ -72,17 +72,17 @@\n     /// The session's page on `origin`: `<origin>/s/<session>[?tab=<tab>]#<token>`.\n     pub fn url(&self, origin: &str) -> String {\n         let tab = self.tab.as_deref().map(|t| format!(\"?tab={t}\")).unwrap_or_default();\n         format!(\"{}/s/{}{tab}#{}\", origin.trim_end_matches('/'), self.id, self.token)\n     }\n \n     /// The token, for the URL only.\n     pub fn token(&self) -> &str {\n-        &self.token\n+        \"xyzzy\" /* ~ changed by cargo-mutants ~ */\n     }\n }\n \n /// What a link names: a board, or a session.\n #[derive(Debug, Clone, PartialEq, Eq)]\n pub enum Link {\n     Board(Board),\n     Session(Session),\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "Session::token",
+      "return_type": "-> &str",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 81
+        },
+        "start": {
+          "column": 5,
+          "line": 78
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:80:9: replace Session::token -> &str with \"xyzzy\"",
+    "package": "mapcro-desktop-core",
+    "replacement": "\"xyzzy\"",
+    "span": {
+      "end": {
+        "column": 20,
+        "line": 80
+      },
+      "start": {
+        "column": 9,
+        "line": 80
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace Link::url -> String with String::new()\n@@ -86,20 +86,17 @@\n pub enum Link {\n     Board(Board),\n     Session(Session),\n }\n \n impl Link {\n     /// The page it names on `origin`.\n     pub fn url(&self, origin: &str) -> String {\n-        match self {\n-            Link::Board(b) => b.url(origin),\n-            Link::Session(s) => s.url(origin),\n-        }\n+        String::new() /* ~ changed by cargo-mutants ~ */\n     }\n }\n \n fn b64url(s: &str, len: usize) -> bool {\n     s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n }\n \n /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "Link::url",
+      "return_type": "-> String",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 98
+        },
+        "start": {
+          "column": 5,
+          "line": 92
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:94:9: replace Link::url -> String with String::new()",
+    "package": "mapcro-desktop-core",
+    "replacement": "String::new()",
+    "span": {
+      "end": {
+        "column": 10,
+        "line": 97
+      },
+      "start": {
+        "column": 9,
+        "line": 94
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace Link::url -> String with \"xyzzy\".into()\n@@ -86,20 +86,17 @@\n pub enum Link {\n     Board(Board),\n     Session(Session),\n }\n \n impl Link {\n     /// The page it names on `origin`.\n     pub fn url(&self, origin: &str) -> String {\n-        match self {\n-            Link::Board(b) => b.url(origin),\n-            Link::Session(s) => s.url(origin),\n-        }\n+        \"xyzzy\".into() /* ~ changed by cargo-mutants ~ */\n     }\n }\n \n fn b64url(s: &str, len: usize) -> bool {\n     s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n }\n \n /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "Link::url",
+      "return_type": "-> String",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 98
+        },
+        "start": {
+          "column": 5,
+          "line": 92
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:94:9: replace Link::url -> String with \"xyzzy\".into()",
+    "package": "mapcro-desktop-core",
+    "replacement": "\"xyzzy\".into()",
+    "span": {
+      "end": {
+        "column": 10,
+        "line": 97
+      },
+      "start": {
+        "column": 9,
+        "line": 94
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace b64url -> bool with true\n@@ -94,17 +94,17 @@\n         match self {\n             Link::Board(b) => b.url(origin),\n             Link::Session(s) => s.url(origin),\n         }\n     }\n }\n \n fn b64url(s: &str, len: usize) -> bool {\n-    s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n+    true /* ~ changed by cargo-mutants ~ */\n }\n \n /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the\n /// `mapcro://` form only (some launchers add one); nothing else: no query, no more path.\n fn board_and_token(rest: &str, trailing_slash: bool) -> Option<Board> {\n     let (id, token) = rest.split_once('#')?;\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "b64url",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 103
+        },
+        "start": {
+          "column": 1,
+          "line": 101
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:102:5: replace b64url -> bool with true",
+    "package": "mapcro-desktop-core",
+    "replacement": "true",
+    "span": {
+      "end": {
+        "column": 93,
+        "line": 102
+      },
+      "start": {
+        "column": 5,
+        "line": 102
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace b64url -> bool with false\n@@ -94,17 +94,17 @@\n         match self {\n             Link::Board(b) => b.url(origin),\n             Link::Session(s) => s.url(origin),\n         }\n     }\n }\n \n fn b64url(s: &str, len: usize) -> bool {\n-    s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n+    false /* ~ changed by cargo-mutants ~ */\n }\n \n /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the\n /// `mapcro://` form only (some launchers add one); nothing else: no query, no more path.\n fn board_and_token(rest: &str, trailing_slash: bool) -> Option<Board> {\n     let (id, token) = rest.split_once('#')?;\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "b64url",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 103
+        },
+        "start": {
+          "column": 1,
+          "line": 101
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:102:5: replace b64url -> bool with false",
+    "package": "mapcro-desktop-core",
+    "replacement": "false",
+    "span": {
+      "end": {
+        "column": 93,
+        "line": 102
+      },
+      "start": {
+        "column": 5,
+        "line": 102
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace && with || in b64url\n@@ -94,17 +94,17 @@\n         match self {\n             Link::Board(b) => b.url(origin),\n             Link::Session(s) => s.url(origin),\n         }\n     }\n }\n \n fn b64url(s: &str, len: usize) -> bool {\n-    s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n+    s.len() == len || /* ~ changed by cargo-mutants ~ */ s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n }\n \n /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the\n /// `mapcro://` form only (some launchers add one); nothing else: no query, no more path.\n fn board_and_token(rest: &str, trailing_slash: bool) -> Option<Board> {\n     let (id, token) = rest.split_once('#')?;\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "b64url",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 103
+        },
+        "start": {
+          "column": 1,
+          "line": 101
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:102:20: replace && with || in b64url",
+    "package": "mapcro-desktop-core",
+    "replacement": "||",
+    "span": {
+      "end": {
+        "column": 22,
+        "line": 102
+      },
+      "start": {
+        "column": 20,
+        "line": 102
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace == with != in b64url\n@@ -94,17 +94,17 @@\n         match self {\n             Link::Board(b) => b.url(origin),\n             Link::Session(s) => s.url(origin),\n         }\n     }\n }\n \n fn b64url(s: &str, len: usize) -> bool {\n-    s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n+    s.len() != /* ~ changed by cargo-mutants ~ */ len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n }\n \n /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the\n /// `mapcro://` form only (some launchers add one); nothing else: no query, no more path.\n fn board_and_token(rest: &str, trailing_slash: bool) -> Option<Board> {\n     let (id, token) = rest.split_once('#')?;\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "b64url",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 103
+        },
+        "start": {
+          "column": 1,
+          "line": 101
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:102:13: replace == with != in b64url",
+    "package": "mapcro-desktop-core",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 15,
+        "line": 102
+      },
+      "start": {
+        "column": 13,
+        "line": 102
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace || with && in b64url\n@@ -94,17 +94,17 @@\n         match self {\n             Link::Board(b) => b.url(origin),\n             Link::Session(s) => s.url(origin),\n         }\n     }\n }\n \n fn b64url(s: &str, len: usize) -> bool {\n-    s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n+    s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' && /* ~ changed by cargo-mutants ~ */ b == b'_')\n }\n \n /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the\n /// `mapcro://` form only (some launchers add one); nothing else: no query, no more path.\n fn board_and_token(rest: &str, trailing_slash: bool) -> Option<Board> {\n     let (id, token) = rest.split_once('#')?;\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "b64url",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 103
+        },
+        "start": {
+          "column": 1,
+          "line": 101
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:102:80: replace || with && in b64url",
+    "package": "mapcro-desktop-core",
+    "replacement": "&&",
+    "span": {
+      "end": {
+        "column": 82,
+        "line": 102
+      },
+      "start": {
+        "column": 80,
+        "line": 102
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace || with && in b64url\n@@ -94,17 +94,17 @@\n         match self {\n             Link::Board(b) => b.url(origin),\n             Link::Session(s) => s.url(origin),\n         }\n     }\n }\n \n fn b64url(s: &str, len: usize) -> bool {\n-    s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n+    s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() && /* ~ changed by cargo-mutants ~ */ b == b'-' || b == b'_')\n }\n \n /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the\n /// `mapcro://` form only (some launchers add one); nothing else: no query, no more path.\n fn board_and_token(rest: &str, trailing_slash: bool) -> Option<Board> {\n     let (id, token) = rest.split_once('#')?;\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "b64url",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 103
+        },
+        "start": {
+          "column": 1,
+          "line": 101
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:102:67: replace || with && in b64url",
+    "package": "mapcro-desktop-core",
+    "replacement": "&&",
+    "span": {
+      "end": {
+        "column": 69,
+        "line": 102
+      },
+      "start": {
+        "column": 67,
+        "line": 102
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace == with != in b64url\n@@ -94,17 +94,17 @@\n         match self {\n             Link::Board(b) => b.url(origin),\n             Link::Session(s) => s.url(origin),\n         }\n     }\n }\n \n fn b64url(s: &str, len: usize) -> bool {\n-    s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n+    s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b != /* ~ changed by cargo-mutants ~ */ b'-' || b == b'_')\n }\n \n /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the\n /// `mapcro://` form only (some launchers add one); nothing else: no query, no more path.\n fn board_and_token(rest: &str, trailing_slash: bool) -> Option<Board> {\n     let (id, token) = rest.split_once('#')?;\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "b64url",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 103
+        },
+        "start": {
+          "column": 1,
+          "line": 101
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:102:72: replace == with != in b64url",
+    "package": "mapcro-desktop-core",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 74,
+        "line": 102
+      },
+      "start": {
+        "column": 72,
+        "line": 102
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace == with != in b64url\n@@ -94,17 +94,17 @@\n         match self {\n             Link::Board(b) => b.url(origin),\n             Link::Session(s) => s.url(origin),\n         }\n     }\n }\n \n fn b64url(s: &str, len: usize) -> bool {\n-    s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n+    s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b != /* ~ changed by cargo-mutants ~ */ b'_')\n }\n \n /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the\n /// `mapcro://` form only (some launchers add one); nothing else: no query, no more path.\n fn board_and_token(rest: &str, trailing_slash: bool) -> Option<Board> {\n     let (id, token) = rest.split_once('#')?;\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "b64url",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 103
+        },
+        "start": {
+          "column": 1,
+          "line": 101
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:102:85: replace == with != in b64url",
+    "package": "mapcro-desktop-core",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 87,
+        "line": 102
+      },
+      "start": {
+        "column": 85,
+        "line": 102
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace board_and_token -> Option<Board> with None\n@@ -100,19 +100,17 @@\n \n fn b64url(s: &str, len: usize) -> bool {\n     s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n }\n \n /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the\n /// `mapcro://` form only (some launchers add one); nothing else: no query, no more path.\n fn board_and_token(rest: &str, trailing_slash: bool) -> Option<Board> {\n-    let (id, token) = rest.split_once('#')?;\n-    let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n-    (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })\n+    None /* ~ changed by cargo-mutants ~ */\n }\n \n /// `<session>[?tab=<tab>]#<token>`, from what follows `/s/`. A `/` after the session id is let\n /// through on the `mapcro://` form only; `tab` is the only query.\n fn session_and_token(rest: &str, trailing_slash: bool) -> Option<Session> {\n     let (head, token) = rest.split_once('#')?;\n     let (id, tab) = match head.split_once('?') {\n         Some((id, query)) => (id, Some(query.strip_prefix(\"tab=\")?)),\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "board_and_token",
+      "return_type": "-> Option<Board>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 111
+        },
+        "start": {
+          "column": 1,
+          "line": 105
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:108:5: replace board_and_token -> Option<Board> with None",
+    "package": "mapcro-desktop-core",
+    "replacement": "None",
+    "span": {
+      "end": {
+        "column": 118,
+        "line": 110
+      },
+      "start": {
+        "column": 5,
+        "line": 108
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace board_and_token -> Option<Board> with Some(Default::default())\n@@ -100,19 +100,17 @@\n \n fn b64url(s: &str, len: usize) -> bool {\n     s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n }\n \n /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the\n /// `mapcro://` form only (some launchers add one); nothing else: no query, no more path.\n fn board_and_token(rest: &str, trailing_slash: bool) -> Option<Board> {\n-    let (id, token) = rest.split_once('#')?;\n-    let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n-    (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })\n+    Some(Default::default()) /* ~ changed by cargo-mutants ~ */\n }\n \n /// `<session>[?tab=<tab>]#<token>`, from what follows `/s/`. A `/` after the session id is let\n /// through on the `mapcro://` form only; `tab` is the only query.\n fn session_and_token(rest: &str, trailing_slash: bool) -> Option<Session> {\n     let (head, token) = rest.split_once('#')?;\n     let (id, tab) = match head.split_once('?') {\n         Some((id, query)) => (id, Some(query.strip_prefix(\"tab=\")?)),\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "board_and_token",
+      "return_type": "-> Option<Board>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 111
+        },
+        "start": {
+          "column": 1,
+          "line": 105
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:108:5: replace board_and_token -> Option<Board> with Some(Default::default())",
+    "package": "mapcro-desktop-core",
+    "replacement": "Some(Default::default())",
+    "span": {
+      "end": {
+        "column": 118,
+        "line": 110
+      },
+      "start": {
+        "column": 5,
+        "line": 108
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace && with || in board_and_token\n@@ -102,17 +102,17 @@\n     s.len() == len && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')\n }\n \n /// `<board>#<token>`, from what follows `/b/`. A `/` after the board id is let through on the\n /// `mapcro://` form only (some launchers add one); nothing else: no query, no more path.\n fn board_and_token(rest: &str, trailing_slash: bool) -> Option<Board> {\n     let (id, token) = rest.split_once('#')?;\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n-    (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })\n+    (b64url(id, BOARD_LEN) || /* ~ changed by cargo-mutants ~ */ b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })\n }\n \n /// `<session>[?tab=<tab>]#<token>`, from what follows `/s/`. A `/` after the session id is let\n /// through on the `mapcro://` form only; `tab` is the only query.\n fn session_and_token(rest: &str, trailing_slash: bool) -> Option<Session> {\n     let (head, token) = rest.split_once('#')?;\n     let (id, tab) = match head.split_once('?') {\n         Some((id, query)) => (id, Some(query.strip_prefix(\"tab=\")?)),\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "board_and_token",
+      "return_type": "-> Option<Board>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 111
+        },
+        "start": {
+          "column": 1,
+          "line": 105
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:110:28: replace && with || in board_and_token",
+    "package": "mapcro-desktop-core",
+    "replacement": "||",
+    "span": {
+      "end": {
+        "column": 30,
+        "line": 110
+      },
+      "start": {
+        "column": 28,
+        "line": 110
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace session_and_token -> Option<Session> with None\n@@ -108,24 +108,17 @@\n     let (id, token) = rest.split_once('#')?;\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })\n }\n \n /// `<session>[?tab=<tab>]#<token>`, from what follows `/s/`. A `/` after the session id is let\n /// through on the `mapcro://` form only; `tab` is the only query.\n fn session_and_token(rest: &str, trailing_slash: bool) -> Option<Session> {\n-    let (head, token) = rest.split_once('#')?;\n-    let (id, tab) = match head.split_once('?') {\n-        Some((id, query)) => (id, Some(query.strip_prefix(\"tab=\")?)),\n-        None => (head, None),\n-    };\n-    let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n-    let tab_ok = tab.is_none_or(|t| t.len() == TAB_LEN && t.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));\n-    (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n+    None /* ~ changed by cargo-mutants ~ */\n }\n \n /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n     let link = link.trim();\n     if link.len() > MAX_LEN || !link.is_ascii() {\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "session_and_token",
+      "return_type": "-> Option<Session>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 124
+        },
+        "start": {
+          "column": 1,
+          "line": 113
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:116:5: replace session_and_token -> Option<Session> with None",
+    "package": "mapcro-desktop-core",
+    "replacement": "None",
+    "span": {
+      "end": {
+        "column": 159,
+        "line": 123
+      },
+      "start": {
+        "column": 5,
+        "line": 116
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace session_and_token -> Option<Session> with Some(Default::default())\n@@ -108,24 +108,17 @@\n     let (id, token) = rest.split_once('#')?;\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN)).then(|| Board { id: id.to_owned(), token: token.to_owned() })\n }\n \n /// `<session>[?tab=<tab>]#<token>`, from what follows `/s/`. A `/` after the session id is let\n /// through on the `mapcro://` form only; `tab` is the only query.\n fn session_and_token(rest: &str, trailing_slash: bool) -> Option<Session> {\n-    let (head, token) = rest.split_once('#')?;\n-    let (id, tab) = match head.split_once('?') {\n-        Some((id, query)) => (id, Some(query.strip_prefix(\"tab=\")?)),\n-        None => (head, None),\n-    };\n-    let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n-    let tab_ok = tab.is_none_or(|t| t.len() == TAB_LEN && t.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));\n-    (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n+    Some(Default::default()) /* ~ changed by cargo-mutants ~ */\n }\n \n /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n     let link = link.trim();\n     if link.len() > MAX_LEN || !link.is_ascii() {\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "session_and_token",
+      "return_type": "-> Option<Session>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 124
+        },
+        "start": {
+          "column": 1,
+          "line": 113
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:116:5: replace session_and_token -> Option<Session> with Some(Default::default())",
+    "package": "mapcro-desktop-core",
+    "replacement": "Some(Default::default())",
+    "span": {
+      "end": {
+        "column": 159,
+        "line": 123
+      },
+      "start": {
+        "column": 5,
+        "line": 116
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace && with || in session_and_token\n@@ -114,17 +114,17 @@\n /// through on the `mapcro://` form only; `tab` is the only query.\n fn session_and_token(rest: &str, trailing_slash: bool) -> Option<Session> {\n     let (head, token) = rest.split_once('#')?;\n     let (id, tab) = match head.split_once('?') {\n         Some((id, query)) => (id, Some(query.strip_prefix(\"tab=\")?)),\n         None => (head, None),\n     };\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n-    let tab_ok = tab.is_none_or(|t| t.len() == TAB_LEN && t.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));\n+    let tab_ok = tab.is_none_or(|t| t.len() == TAB_LEN || /* ~ changed by cargo-mutants ~ */ t.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n }\n \n /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n     let link = link.trim();\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "session_and_token",
+      "return_type": "-> Option<Session>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 124
+        },
+        "start": {
+          "column": 1,
+          "line": 113
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:122:56: replace && with || in session_and_token",
+    "package": "mapcro-desktop-core",
+    "replacement": "||",
+    "span": {
+      "end": {
+        "column": 58,
+        "line": 122
+      },
+      "start": {
+        "column": 56,
+        "line": 122
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace == with != in session_and_token\n@@ -114,17 +114,17 @@\n /// through on the `mapcro://` form only; `tab` is the only query.\n fn session_and_token(rest: &str, trailing_slash: bool) -> Option<Session> {\n     let (head, token) = rest.split_once('#')?;\n     let (id, tab) = match head.split_once('?') {\n         Some((id, query)) => (id, Some(query.strip_prefix(\"tab=\")?)),\n         None => (head, None),\n     };\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n-    let tab_ok = tab.is_none_or(|t| t.len() == TAB_LEN && t.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));\n+    let tab_ok = tab.is_none_or(|t| t.len() != /* ~ changed by cargo-mutants ~ */ TAB_LEN && t.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n }\n \n /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n     let link = link.trim();\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "session_and_token",
+      "return_type": "-> Option<Session>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 124
+        },
+        "start": {
+          "column": 1,
+          "line": 113
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:122:45: replace == with != in session_and_token",
+    "package": "mapcro-desktop-core",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 47,
+        "line": 122
+      },
+      "start": {
+        "column": 45,
+        "line": 122
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace || with && in session_and_token\n@@ -114,17 +114,17 @@\n /// through on the `mapcro://` form only; `tab` is the only query.\n fn session_and_token(rest: &str, trailing_slash: bool) -> Option<Session> {\n     let (head, token) = rest.split_once('#')?;\n     let (id, tab) = match head.split_once('?') {\n         Some((id, query)) => (id, Some(query.strip_prefix(\"tab=\")?)),\n         None => (head, None),\n     };\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n-    let tab_ok = tab.is_none_or(|t| t.len() == TAB_LEN && t.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));\n+    let tab_ok = tab.is_none_or(|t| t.len() == TAB_LEN && t.bytes().all(|b| b.is_ascii_digit() && /* ~ changed by cargo-mutants ~ */ (b'a'..=b'f').contains(&b)));\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n }\n \n /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n     let link = link.trim();\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "session_and_token",
+      "return_type": "-> Option<Session>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 124
+        },
+        "start": {
+          "column": 1,
+          "line": 113
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:122:96: replace || with && in session_and_token",
+    "package": "mapcro-desktop-core",
+    "replacement": "&&",
+    "span": {
+      "end": {
+        "column": 98,
+        "line": 122
+      },
+      "start": {
+        "column": 96,
+        "line": 122
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace && with || in session_and_token\n@@ -115,17 +115,17 @@\n fn session_and_token(rest: &str, trailing_slash: bool) -> Option<Session> {\n     let (head, token) = rest.split_once('#')?;\n     let (id, tab) = match head.split_once('?') {\n         Some((id, query)) => (id, Some(query.strip_prefix(\"tab=\")?)),\n         None => (head, None),\n     };\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n     let tab_ok = tab.is_none_or(|t| t.len() == TAB_LEN && t.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));\n-    (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n+    (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) || /* ~ changed by cargo-mutants ~ */ tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n }\n \n /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n     let link = link.trim();\n     if link.len() > MAX_LEN || !link.is_ascii() {\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "session_and_token",
+      "return_type": "-> Option<Session>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 124
+        },
+        "start": {
+          "column": 1,
+          "line": 113
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:123:56: replace && with || in session_and_token",
+    "package": "mapcro-desktop-core",
+    "replacement": "||",
+    "span": {
+      "end": {
+        "column": 58,
+        "line": 123
+      },
+      "start": {
+        "column": 56,
+        "line": 123
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace && with || in session_and_token\n@@ -115,17 +115,17 @@\n fn session_and_token(rest: &str, trailing_slash: bool) -> Option<Session> {\n     let (head, token) = rest.split_once('#')?;\n     let (id, tab) = match head.split_once('?') {\n         Some((id, query)) => (id, Some(query.strip_prefix(\"tab=\")?)),\n         None => (head, None),\n     };\n     let id = if trailing_slash { id.strip_suffix('/').unwrap_or(id) } else { id };\n     let tab_ok = tab.is_none_or(|t| t.len() == TAB_LEN && t.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));\n-    (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n+    (b64url(id, BOARD_LEN) || /* ~ changed by cargo-mutants ~ */ b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n }\n \n /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n     let link = link.trim();\n     if link.len() > MAX_LEN || !link.is_ascii() {\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "session_and_token",
+      "return_type": "-> Option<Session>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 124
+        },
+        "start": {
+          "column": 1,
+          "line": 113
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:123:28: replace && with || in session_and_token",
+    "package": "mapcro-desktop-core",
+    "replacement": "||",
+    "span": {
+      "end": {
+        "column": 30,
+        "line": 123
+      },
+      "start": {
+        "column": 28,
+        "line": 123
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace parse -> Option<Link> with None\n@@ -122,31 +122,17 @@\n     let tab_ok = tab.is_none_or(|t| t.len() == TAB_LEN && t.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n }\n \n /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n-    let link = link.trim();\n-    if link.len() > MAX_LEN || !link.is_ascii() {\n-        return None;\n-    }\n-    let scheme_end = link.find(\"://\")?;\n-    let (scheme, rest) = (&link[..scheme_end], &link[scheme_end + 3..]);\n-    if scheme.eq_ignore_ascii_case(SCHEME) {\n-        return routed(rest, true);\n-    }\n-    let host = SITE.strip_prefix(\"https://\").expect(\"SITE is https\");\n-    if scheme.eq_ignore_ascii_case(\"https\") {\n-        let path = rest.get(..host.len()).filter(|h| h.eq_ignore_ascii_case(host)).map(|_| &rest[host.len()..])?;\n-        return routed(path.strip_prefix('/')?, false);\n-    }\n-    None\n+    None /* ~ changed by cargo-mutants ~ */\n }\n \n /// `b/…` or `s/…`: the route's letter has no case on the `mapcro://` form (it's the URL's host\n /// there), and is lowercase on the site's.\n fn routed(rest: &str, app: bool) -> Option<Link> {\n     let route = rest.get(..2)?;\n     let is = |r: &str| if app { route.eq_ignore_ascii_case(r) } else { route == r };\n     if is(\"b/\") {\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "parse",
+      "return_type": "-> Option<Link>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 145
+        },
+        "start": {
+          "column": 1,
+          "line": 126
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:130:5: replace parse -> Option<Link> with None",
+    "package": "mapcro-desktop-core",
+    "replacement": "None",
+    "span": {
+      "end": {
+        "column": 9,
+        "line": 144
+      },
+      "start": {
+        "column": 5,
+        "line": 130
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace parse -> Option<Link> with Some(Default::default())\n@@ -122,31 +122,17 @@\n     let tab_ok = tab.is_none_or(|t| t.len() == TAB_LEN && t.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n }\n \n /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n-    let link = link.trim();\n-    if link.len() > MAX_LEN || !link.is_ascii() {\n-        return None;\n-    }\n-    let scheme_end = link.find(\"://\")?;\n-    let (scheme, rest) = (&link[..scheme_end], &link[scheme_end + 3..]);\n-    if scheme.eq_ignore_ascii_case(SCHEME) {\n-        return routed(rest, true);\n-    }\n-    let host = SITE.strip_prefix(\"https://\").expect(\"SITE is https\");\n-    if scheme.eq_ignore_ascii_case(\"https\") {\n-        let path = rest.get(..host.len()).filter(|h| h.eq_ignore_ascii_case(host)).map(|_| &rest[host.len()..])?;\n-        return routed(path.strip_prefix('/')?, false);\n-    }\n-    None\n+    Some(Default::default()) /* ~ changed by cargo-mutants ~ */\n }\n \n /// `b/…` or `s/…`: the route's letter has no case on the `mapcro://` form (it's the URL's host\n /// there), and is lowercase on the site's.\n fn routed(rest: &str, app: bool) -> Option<Link> {\n     let route = rest.get(..2)?;\n     let is = |r: &str| if app { route.eq_ignore_ascii_case(r) } else { route == r };\n     if is(\"b/\") {\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "parse",
+      "return_type": "-> Option<Link>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 145
+        },
+        "start": {
+          "column": 1,
+          "line": 126
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:130:5: replace parse -> Option<Link> with Some(Default::default())",
+    "package": "mapcro-desktop-core",
+    "replacement": "Some(Default::default())",
+    "span": {
+      "end": {
+        "column": 9,
+        "line": 144
+      },
+      "start": {
+        "column": 5,
+        "line": 130
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace || with && in parse\n@@ -123,17 +123,17 @@\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n }\n \n /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n     let link = link.trim();\n-    if link.len() > MAX_LEN || !link.is_ascii() {\n+    if link.len() > MAX_LEN && /* ~ changed by cargo-mutants ~ */ !link.is_ascii() {\n         return None;\n     }\n     let scheme_end = link.find(\"://\")?;\n     let (scheme, rest) = (&link[..scheme_end], &link[scheme_end + 3..]);\n     if scheme.eq_ignore_ascii_case(SCHEME) {\n         return routed(rest, true);\n     }\n     let host = SITE.strip_prefix(\"https://\").expect(\"SITE is https\");\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "parse",
+      "return_type": "-> Option<Link>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 145
+        },
+        "start": {
+          "column": 1,
+          "line": 126
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:131:29: replace || with && in parse",
+    "package": "mapcro-desktop-core",
+    "replacement": "&&",
+    "span": {
+      "end": {
+        "column": 31,
+        "line": 131
+      },
+      "start": {
+        "column": 29,
+        "line": 131
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace > with == in parse\n@@ -123,17 +123,17 @@\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n }\n \n /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n     let link = link.trim();\n-    if link.len() > MAX_LEN || !link.is_ascii() {\n+    if link.len() == /* ~ changed by cargo-mutants ~ */ MAX_LEN || !link.is_ascii() {\n         return None;\n     }\n     let scheme_end = link.find(\"://\")?;\n     let (scheme, rest) = (&link[..scheme_end], &link[scheme_end + 3..]);\n     if scheme.eq_ignore_ascii_case(SCHEME) {\n         return routed(rest, true);\n     }\n     let host = SITE.strip_prefix(\"https://\").expect(\"SITE is https\");\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "parse",
+      "return_type": "-> Option<Link>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 145
+        },
+        "start": {
+          "column": 1,
+          "line": 126
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:131:19: replace > with == in parse",
+    "package": "mapcro-desktop-core",
+    "replacement": "==",
+    "span": {
+      "end": {
+        "column": 20,
+        "line": 131
+      },
+      "start": {
+        "column": 19,
+        "line": 131
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace > with < in parse\n@@ -123,17 +123,17 @@\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n }\n \n /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n     let link = link.trim();\n-    if link.len() > MAX_LEN || !link.is_ascii() {\n+    if link.len() < /* ~ changed by cargo-mutants ~ */ MAX_LEN || !link.is_ascii() {\n         return None;\n     }\n     let scheme_end = link.find(\"://\")?;\n     let (scheme, rest) = (&link[..scheme_end], &link[scheme_end + 3..]);\n     if scheme.eq_ignore_ascii_case(SCHEME) {\n         return routed(rest, true);\n     }\n     let host = SITE.strip_prefix(\"https://\").expect(\"SITE is https\");\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "parse",
+      "return_type": "-> Option<Link>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 145
+        },
+        "start": {
+          "column": 1,
+          "line": 126
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:131:19: replace > with < in parse",
+    "package": "mapcro-desktop-core",
+    "replacement": "<",
+    "span": {
+      "end": {
+        "column": 20,
+        "line": 131
+      },
+      "start": {
+        "column": 19,
+        "line": 131
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace > with >= in parse\n@@ -123,17 +123,17 @@\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n }\n \n /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n     let link = link.trim();\n-    if link.len() > MAX_LEN || !link.is_ascii() {\n+    if link.len() >= /* ~ changed by cargo-mutants ~ */ MAX_LEN || !link.is_ascii() {\n         return None;\n     }\n     let scheme_end = link.find(\"://\")?;\n     let (scheme, rest) = (&link[..scheme_end], &link[scheme_end + 3..]);\n     if scheme.eq_ignore_ascii_case(SCHEME) {\n         return routed(rest, true);\n     }\n     let host = SITE.strip_prefix(\"https://\").expect(\"SITE is https\");\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "parse",
+      "return_type": "-> Option<Link>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 145
+        },
+        "start": {
+          "column": 1,
+          "line": 126
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:131:19: replace > with >= in parse",
+    "package": "mapcro-desktop-core",
+    "replacement": ">=",
+    "span": {
+      "end": {
+        "column": 20,
+        "line": 131
+      },
+      "start": {
+        "column": 19,
+        "line": 131
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ delete ! in parse\n@@ -123,17 +123,17 @@\n     (b64url(id, BOARD_LEN) && b64url(token, TOKEN_LEN) && tab_ok).then(|| Session { id: id.to_owned(), tab: tab.map(str::to_owned), token: token.to_owned() })\n }\n \n /// The board or session a link names: `mapcro://b/<board>#<token>`, `mapcro://s/<session>[?tab=<tab>]#<token>`,\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n     let link = link.trim();\n-    if link.len() > MAX_LEN || !link.is_ascii() {\n+    if link.len() > MAX_LEN ||  /* ~ changed by cargo-mutants ~ */link.is_ascii() {\n         return None;\n     }\n     let scheme_end = link.find(\"://\")?;\n     let (scheme, rest) = (&link[..scheme_end], &link[scheme_end + 3..]);\n     if scheme.eq_ignore_ascii_case(SCHEME) {\n         return routed(rest, true);\n     }\n     let host = SITE.strip_prefix(\"https://\").expect(\"SITE is https\");\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "parse",
+      "return_type": "-> Option<Link>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 145
+        },
+        "start": {
+          "column": 1,
+          "line": 126
+        }
+      }
+    },
+    "genre": "UnaryOperator",
+    "name": "desktop/core/src/link.rs:131:32: delete ! in parse",
+    "package": "mapcro-desktop-core",
+    "replacement": "",
+    "span": {
+      "end": {
+        "column": 33,
+        "line": 131
+      },
+      "start": {
+        "column": 32,
+        "line": 131
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace + with - in parse\n@@ -127,17 +127,17 @@\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n     let link = link.trim();\n     if link.len() > MAX_LEN || !link.is_ascii() {\n         return None;\n     }\n     let scheme_end = link.find(\"://\")?;\n-    let (scheme, rest) = (&link[..scheme_end], &link[scheme_end + 3..]);\n+    let (scheme, rest) = (&link[..scheme_end], &link[scheme_end - /* ~ changed by cargo-mutants ~ */ 3..]);\n     if scheme.eq_ignore_ascii_case(SCHEME) {\n         return routed(rest, true);\n     }\n     let host = SITE.strip_prefix(\"https://\").expect(\"SITE is https\");\n     if scheme.eq_ignore_ascii_case(\"https\") {\n         let path = rest.get(..host.len()).filter(|h| h.eq_ignore_ascii_case(host)).map(|_| &rest[host.len()..])?;\n         return routed(path.strip_prefix('/')?, false);\n     }\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "parse",
+      "return_type": "-> Option<Link>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 145
+        },
+        "start": {
+          "column": 1,
+          "line": 126
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:135:65: replace + with - in parse",
+    "package": "mapcro-desktop-core",
+    "replacement": "-",
+    "span": {
+      "end": {
+        "column": 66,
+        "line": 135
+      },
+      "start": {
+        "column": 65,
+        "line": 135
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace + with * in parse\n@@ -127,17 +127,17 @@\n /// or the site's own `https://mapcro.dmgdeadlock.com/b/…` and `/s/…` links. Surrounding whitespace\n /// is dropped (a pasted link); the scheme and host are matched without case, the rest exactly.\n pub fn parse(link: &str) -> Option<Link> {\n     let link = link.trim();\n     if link.len() > MAX_LEN || !link.is_ascii() {\n         return None;\n     }\n     let scheme_end = link.find(\"://\")?;\n-    let (scheme, rest) = (&link[..scheme_end], &link[scheme_end + 3..]);\n+    let (scheme, rest) = (&link[..scheme_end], &link[scheme_end * /* ~ changed by cargo-mutants ~ */ 3..]);\n     if scheme.eq_ignore_ascii_case(SCHEME) {\n         return routed(rest, true);\n     }\n     let host = SITE.strip_prefix(\"https://\").expect(\"SITE is https\");\n     if scheme.eq_ignore_ascii_case(\"https\") {\n         let path = rest.get(..host.len()).filter(|h| h.eq_ignore_ascii_case(host)).map(|_| &rest[host.len()..])?;\n         return routed(path.strip_prefix('/')?, false);\n     }\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "parse",
+      "return_type": "-> Option<Link>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 145
+        },
+        "start": {
+          "column": 1,
+          "line": 126
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:135:65: replace + with * in parse",
+    "package": "mapcro-desktop-core",
+    "replacement": "*",
+    "span": {
+      "end": {
+        "column": 66,
+        "line": 135
+      },
+      "start": {
+        "column": 65,
+        "line": 135
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace routed -> Option<Link> with None\n@@ -142,25 +142,17 @@\n         return routed(path.strip_prefix('/')?, false);\n     }\n     None\n }\n \n /// `b/…` or `s/…`: the route's letter has no case on the `mapcro://` form (it's the URL's host\n /// there), and is lowercase on the site's.\n fn routed(rest: &str, app: bool) -> Option<Link> {\n-    let route = rest.get(..2)?;\n-    let is = |r: &str| if app { route.eq_ignore_ascii_case(r) } else { route == r };\n-    if is(\"b/\") {\n-        board_and_token(&rest[2..], app).map(Link::Board)\n-    } else if is(\"s/\") {\n-        session_and_token(&rest[2..], app).map(Link::Session)\n-    } else {\n-        None\n-    }\n+    None /* ~ changed by cargo-mutants ~ */\n }\n \n #[cfg(test)]\n mod tests {\n     use super::*;\n \n     const ID: &str = \"AbCdEfGhIjKlMnOpQrSt-_\";\n     const TOKEN: &str = \"0123456789abcdefghijklmnopqrstuvwxyzABCD-_Z\";\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "routed",
+      "return_type": "-> Option<Link>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 159
+        },
+        "start": {
+          "column": 1,
+          "line": 147
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:150:5: replace routed -> Option<Link> with None",
+    "package": "mapcro-desktop-core",
+    "replacement": "None",
+    "span": {
+      "end": {
+        "column": 6,
+        "line": 158
+      },
+      "start": {
+        "column": 5,
+        "line": 150
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace routed -> Option<Link> with Some(Default::default())\n@@ -142,25 +142,17 @@\n         return routed(path.strip_prefix('/')?, false);\n     }\n     None\n }\n \n /// `b/…` or `s/…`: the route's letter has no case on the `mapcro://` form (it's the URL's host\n /// there), and is lowercase on the site's.\n fn routed(rest: &str, app: bool) -> Option<Link> {\n-    let route = rest.get(..2)?;\n-    let is = |r: &str| if app { route.eq_ignore_ascii_case(r) } else { route == r };\n-    if is(\"b/\") {\n-        board_and_token(&rest[2..], app).map(Link::Board)\n-    } else if is(\"s/\") {\n-        session_and_token(&rest[2..], app).map(Link::Session)\n-    } else {\n-        None\n-    }\n+    Some(Default::default()) /* ~ changed by cargo-mutants ~ */\n }\n \n #[cfg(test)]\n mod tests {\n     use super::*;\n \n     const ID: &str = \"AbCdEfGhIjKlMnOpQrSt-_\";\n     const TOKEN: &str = \"0123456789abcdefghijklmnopqrstuvwxyzABCD-_Z\";\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "routed",
+      "return_type": "-> Option<Link>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 159
+        },
+        "start": {
+          "column": 1,
+          "line": 147
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "desktop/core/src/link.rs:150:5: replace routed -> Option<Link> with Some(Default::default())",
+    "package": "mapcro-desktop-core",
+    "replacement": "Some(Default::default())",
+    "span": {
+      "end": {
+        "column": 6,
+        "line": 158
+      },
+      "start": {
+        "column": 5,
+        "line": 150
+      }
+    }
+  },
+  {
+    "diff": "--- desktop/core/src/link.rs\n+++ replace == with != in routed\n@@ -143,17 +143,17 @@\n     }\n     None\n }\n \n /// `b/…` or `s/…`: the route's letter has no case on the `mapcro://` form (it's the URL's host\n /// there), and is lowercase on the site's.\n fn routed(rest: &str, app: bool) -> Option<Link> {\n     let route = rest.get(..2)?;\n-    let is = |r: &str| if app { route.eq_ignore_ascii_case(r) } else { route == r };\n+    let is = |r: &str| if app { route.eq_ignore_ascii_case(r) } else { route != /* ~ changed by cargo-mutants ~ */ r };\n     if is(\"b/\") {\n         board_and_token(&rest[2..], app).map(Link::Board)\n     } else if is(\"s/\") {\n         session_and_token(&rest[2..], app).map(Link::Session)\n     } else {\n         None\n     }\n }\n",
+    "file": "desktop/core/src/link.rs",
+    "function": {
+      "function_name": "routed",
+      "return_type": "-> Option<Link>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 159
+        },
+        "start": {
+          "column": 1,
+          "line": 147
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "desktop/core/src/link.rs:151:78: replace == with != in routed",
+    "package": "mapcro-desktop-core",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 80,
+        "line": 151
+      },
+      "start": {
+        "column": 78,
+        "line": 151
+      }
+    }
+  }
+]
