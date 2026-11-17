@@ -3,6 +3,23 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Resumed (2026-11-16, lead 9eb2516b)
+
+The operator said "We can resume". Running:
+
+- **Map-state D2's writer, v14** (`NeedsReader { reader: 12 }`): Opus high, worktree `d2-writer`.
+  The two must-fixes come first.
+- **Sessions phase 5 (polish)**, plus following someone nobody follows yet: Opus medium,
+  worktree `sessions-p5`.
+- **An Astra (codex/gpt-6-astra, high) design pass on Player's transport controls** (play, speed,
+  skip, scrubber, clock), asked for by the operator.
+  - Paseo agent 6df03c7a, worktree `player-transport`.
+  - It writes a design note and implements on the branch.
+  - Screenshots go only to `/home/intendednull/concierge/artifacts/mapcro-player-transport/`.
+  - It is a design pass for the operator to judge, not merged without their say.
+
+Next in line: feedback follow-ups (TD-107, a touch path for the placed-thing menu).
+
 ## PAUSED (2026-11-15 ~07:50 UTC, lead 9eb2516b): resume only when the operator says so
 
 The operator paused mapcro to save usage for their interview, Tue 2026-11-17 13:00 PT. Both
