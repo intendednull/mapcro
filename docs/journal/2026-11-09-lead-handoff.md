@@ -6,8 +6,16 @@ compaction). The newest state is at the top; the history is in git and the other
 ## PAUSED (2026-11-17 ~08:40 UTC, lead 9eb2516b): resume only when the operator says so
 
 The operator (via the concierge) asked to pause after this cycle's in-flight work. Both build
-units landed. **Only Astra's Player transport design pass may still be running**; it was
-scheduled to finish after its Codex limit reset, and it is the operator's to judge, not merged.
+units landed, and Astra's Player transport design pass finished. **Nothing is running.**
+
+Astra's branch `player-transport` (tip 6ed0179, off 42480b0, not merged):
+- Desktop: the timeline is on its own row above Back, brass Play, Forward, one speed stepper and
+  the clock; the bar keeps 79 px reserved while it loads.
+- Its 42 transport, dock and phone rows pass, and `player-dock.spec.ts`'s overlap rows are
+  unchanged.
+- Before/after at nine sizes: `/home/intendednull/concierge/artifacts/mapcro-player-transport/index.html`
+  (screenshots are not committed).
+- The design note is `docs/journal/2026-11-16-player-transport.md` on the branch.
 
 **Prod `web` runs 4be082f** (infra b6892d5). The store is **v14, floor 12**. Backups on the box:
 `/var/lib/mapcro/mapcro.sqlite.pre-v11`, `.pre-v12`, `.pre-v13` and `.pre-v14`. rows.lock is 16
