@@ -3,6 +3,126 @@
 Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `docs/specs/map-state.md`
 (third revision). Review: `docs/specs/map-state-review.md`. Newest state at the top.
 
+## D2's writer, store v14: branch `d2-writer` (2026-11-16, tenth implementer)
+
+**Outcome: built and checked; not merged, not deployed.** `has_heroes` is `Live`, the store
+step is v14 `Step::NeedsReader { reader: 12 }` (floor 12), and a board file holding the flag
+says version 4. The two must-fixes are done. Branch tip: the docs commit on top of the code at `18a23c7`, off main 42480b0 (prod
+8efbfac, store v13, floor 11).
+
+**What a coach sees after the deploy**
+
+- Save as scene stores each slot's hero in the scene and `has_heroes`, and **leaves the
+  board's roster alone**: hand-made scenes and scenes saved before keep their heroes. On a fresh
+  board the roster stays empty, so a hand-made scene there has empty slots until someone picks.
+- A pick in a saved scene sets that scene's hero and clears the old hero's build in one
+  transaction (one undo step). "No hero" is not offered there.
+- Scenes saved before the deploy have no flag and are exactly as before: the roster's hero, a
+  pick writes the roster for every such scene, a stored build of another hero is hidden.
+- Downloaded boards holding such a scene are version 4. Every open v13 tab closes as
+  `Outdated` and reloads (the build id changes).
+
+**The two must-fixes (`dc3da35`)**
+
+- **The "neither" save: refused.** With the flag written, a save with no room even for its
+  heroes and the flag now makes no scene (`matchSceneOps` returns no ops; "Not saved"; for many
+  moments `matchScenesOps` returns only the scenes made, with each one's moment in `of`, and the
+  page says "Saved N of M"). Not the roster fallback, because: (1) a fallback scene would be the
+  only one this build saves without the flag, so a pick in it would write the roster for every
+  old scene, and a coach can't tell which scenes are which; (2) the roster's sets are the larger
+  write (up to 12 ops of about 55 bytes, against one state op and about 20 bytes a hero), so
+  where the heroes don't fit they mostly don't either; (3) the case isn't reachable on a real
+  match (a save's own records are a few KB of the 64 KiB). Spec §4.5 says so.
+- **Retake's health tier: one rule.** `holdsHealth(tier)` in `build.ts`. Save captures health
+  by the scene's `source.tier` (a save with no source stores none), Retake by the scene's own
+  `source.tier`, and `CAPTURED.health` reads by the same. The other direction was the same bug
+  (a scene from the replay retaken with only the metadata open stored no health, which its
+  reader takes as full health): such a scene is not offered Retake until its replay is open
+  (`canRetake`; `retakeOps` returns nothing too). Characterised first (`bdf1af0`).
+
+**The flip (`6b227dc`, with `34bad24`, `8cd58d2`, `18a23c7`)**
+
+- Schema: `row("has_heroes", ...)`; `holds_own_heroes(record)` says a record holds the row (what
+  the v12 and v13 builds read but refuse in a file).
+- Store: `HEROES_READER = 12`, `HEROES_WRITER = 14` (`SCHEMA_VERSION`). Step 13 → 14 is
+  `NeedsReader { reader: 12 }`, no SQL. Tests by the constants: the row is live only from its
+  writer's version; v12 and v13 open the v14 database and leave it as it is, v5 to v11 don't; the
+  deployed v13 database migrates with its floor 11 → 12; a step between the reader and the
+  writer leaves the floor at 12; `compat_floor(14) == 12`. The v12 test is history now
+  (`the_v9_to_v11_servers_open_the_v12_database`). system.rs reads `"14"`.
+- Board files: `VERSION`/`READS` 4; version 4 when a record holds the flag (true or false),
+  else 3 for a long name or a side, else 2. The unit test simulates the v13 gate (reads 3) and
+  the v12 one (reads 2): "Newer file" for version 4, import for the rest, and the same file as
+  version 3 is "Bad file" on v13. Two more tests moved with it: board_file.rs's newer-file case
+  asks version 5, and `scene-builds.spec.ts`'s export says 4. (The rehearsals didn't meet these:
+  the file version is new in this release.)
+- reader-check: `dump_stored` now asserts the dump holds `has_heroes`.
+- The five deliberate tests: `scene-heroes.test.ts` "is written by this build"; the two Save
+  pins (`save-as-scene.json`: each of its three saves lost its six roster writes and its state
+  gained `has_heroes` with `rows` 16, nothing else; checked by a semantic diff of the old and new
+  file); `board_file.rs` "no row is still ahead"; `store.rs`'s v12 test.
+- TD-108 updated (a second hand-kept line, `holds_own_heroes`). No new TD.
+
+**Checks**
+
+Through `tools/heavy.sh`, scripts `/tmp/d2w/job{A,B,C}.sh`, summaries `/tmp/d2w/summary{A,B,C}`.
+
+| Check | Result |
+|---|---|
+| `just ts` | 0, `web/src/gen` as committed (rows.ts: `has_heroes` `live`) |
+| `just clippy` | 0 (at `18a23c7`; the first run found an unused `VERSION` and a test type, fixed) |
+| `just test` (at `18a23c7`) | 0: 562 passed, 0 failed, 20 ignored (with the failpoint tests); both simulations 1000 seeds × 400 steps, identical counts (nothing is gated any more, so `--admit deployed` is the reads gate); `reader-check` on `8efbfac`: 40 boards, 10,819 transactions byte for byte, 98 of them a scene's own heroes (and 193 long names, 87 sides, 368 colours) |
+| `just reader-check 18b41c6` (the v12 build) | 0: the same 40 boards and 10,819 transactions byte for byte |
+| `just web-test` (at `6b227dc`) | 0: 78 files, 825 passed, 1 skipped; `tsc` clean; tree unchanged |
+| e2e, the whole suite, 2 workers (at `6b227dc`) | 504 passed, 16 skipped, 1 failed: `scene-builds.spec.ts` "with no match on the board…", which asked the export for version 2; it is 4 now (`8cd58d2`). The two `✘` are `frozen-write-guard`'s `test.fail()`. The own-heroes test ran and passed; the "Save sets the roster" test skips by the row's status |
+| e2e `scene-builds` + `scene-hero` again (at `18a23c7`) | 9 passed, 1 skipped |
+| `just e2e-firefox --workers 2` | 27 passed, 2 skipped |
+| cargo-mutants on the Rust diff | 18 mutants: 15 caught, 3 unviable, 0 missed |
+| Hand mutants, Rust (`boardfile.rs` `file`'s version pick, which cargo-mutants doesn't mutate) | 3 of 3 caught (no version 4; version 3 for the flag; the typed-field test in its place) |
+| Hand mutants, TypeScript (vitest on the save, scene, pins and build files) | 19 mutants, 18 caught; the one missed is equivalent (`heroBuildAt`'s default tier `"replay"`: health also needs the timeline's own tier to be the replay's) |
+
+**The walkthrough** (Chromium, this build's server and client on a temp data dir holding the
+reference replay 129738985's cached timeline, the local packs; counts and booleans only;
+`/tmp/d2w-qa/run.sh`, script `/tmp/d2w-mut/qa-walk.mjs`, log `/tmp/d2w/qa7.log`):
+
+- A new board (empty roster), the replay at 12:00 ("Full replay"), Save: 2 scenes; the saved
+  scene draws 12 heroes; its export is version 4 with one state holding `has_heroes`; 0 roster
+  slots got a hero; the hand-made scene draws none. Amber-2's build opens.
+- A second person sees the same 12 heroes. The picker in the saved scene: 11 taken, no "No
+  hero". A free hero picked for Amber-2: it changed, the other 11 didn't, its build is gone (0
+  open; the record holds only `hero`), the second person sees it, the roster still holds no
+  hero, the hand-made scene still draws none.
+- A fresh tab of the same person (a reload): the pick and the other 11 hold.
+- An old scene: the same save as a build before v14 stored it (the state without
+  `has_heroes`, `rows` 15, the roster set to the match's heroes; imported as a file, 201). It
+  draws the roster's heroes (12 of 12 as saved), so does the board's hand-made scene; "No hero"
+  is offered; a pick shows, hides the stored build (0 open), and is the roster's on every scene;
+  the records keep their builds (12); the first hero back shows its build again (1 open). Its
+  export is version 2 with no `has_heroes`.
+- The first runs of the old-scene half failed in the harness, not the build: it found the saved
+  scene as "the scene with a source", and Player's live scene has one too. It now takes the scene
+  its state names.
+
+
+**Rollback notes** (`docs/deploy.md`): from v14 the targets are v13 (`8efbfac`) and v12
+(`18b41c6`); v11 refuses to start. Both load every board and draw a v14 scene the same (their
+clients read the flag). They refuse anything naming `has_heroes` from outside: Duplicate and
+New scene of a v14 scene, a resent pending save, a v14 board file ("Newer file"), and after the
+rollback their own export of such a board ("Bad file"; v14 imports it). Back up as `pre-v14`.
+After the deploy `just rows-lock` (rows, not statuses: it should be unchanged) and `reader` in
+the justfile set to the v14 commit.
+
+**Decisions for the lead**
+
+- The "neither" case is a refusal, not a fallback (above). Override if you prefer the fallback.
+- Retake is no longer offered on a scene saved from the replay while only the metadata tier is
+  open. It used to be (and stored no health there).
+- A fresh board's roster is not filled by Save any more (as the spec's table says): worth a line
+  in the release note.
+- `Player.tsx`'s two call sites of the refusal ("Not saved"; "Saved N of M" through `of`) have
+  no test that reaches them: the case needs a save whose own records fill 64 KiB. The pure
+  functions under them are tested and mutated.
+
 ## State: phases 3 onward, branch `map-state-p3` (sixth implementer, 2026-11-13 late)
 
 Off main `a0774c5` (prod `e878c30`, store v10). Newest first.

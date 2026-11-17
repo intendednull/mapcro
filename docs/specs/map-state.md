@@ -163,16 +163,18 @@ a server without the reader would drop `more` silently. So:
   `deaths`, `assists` and `max_health` and admits the unfit undo, both read by v9 (deployed as
   `1dcbd31`): its floor is 9. v11 is the reader of feedback #56, #59 and #60's typed fields
   (additive, floor 9). The reader of `has_heroes` is v12, additive too (floor 9: the v9, v10 and
-  v11 servers still open it). Its writer is the next free version after it, a
-  `Step::NeedsReader { reader: 12 }`: the floor is the reader's version, 12, whichever number
-  the writer takes.
+  v11 servers still open it). Its writer is v14 (feedback's writer took v13, floor 11), a
+  `Step::NeedsReader { reader: 12 }`: the floor is the reader's version, 12, so the v12 and
+  v13 servers open it and v11 doesn't.
 - **Board files:** the reader accepts file version 2 (version 1 plus a `rows` header) and still
   writes version 1. The writer writes version 2. `rows` is the number of rows the exporting
   build writes: the index of its first `Ahead` row (`written_rows`), the same watermark a
   snapshot stores. Not the registry's length, which counts rows the build only reads: the
   reader release has fewer, and would refuse every export made after the writer's deploy. A
   file whose `rows` is above the importing build's registry is refused as "Newer file".
-  `just reader-check` holds that the reader takes this build's `rows`.
+  `just reader-check` holds that the reader takes this build's `rows`. `rows` can't say a row
+  the importing build knows but holds `Ahead`: such a file says a newer file version instead
+  (version 3 for feedback's typed fields, version 4 for `has_heroes`: `docs/deploy.md`).
 
 A new field therefore costs: the row (as `Ahead`), its producer in Player, its draw; then one
 release later the row goes `Live` and Save writes it. Lists (`Ints`) also need a hand-written
@@ -258,8 +260,9 @@ So that an absent key can be told from an unknown one, `SceneState.more` holds:
   index at or above it was not known then, and reads as "not captured", never as its default.
 - **`has_<feature>`**, one `Bool` row per feature: the snapshot holds it. These are ordinary keys,
   so they merge per key and undo. Retake and a hand edit of an uncaptured feature set them.
-- **`has_heroes`** (D2, as built): the scene holds its own heroes. Only a save sets it, never
-  Retake.
+- **`has_heroes`** (D2, as built; written from store v14): the scene holds its own heroes.
+  Only a save sets it, never Retake. A save that has no room for its heroes and the flag is not
+  made at all (it would draw the roster's heroes, which Save no longer sets).
 
   | | A scene that says `has_heroes` | Any other scene (made by hand, or saved before the row was written) |
   |---|---|---|
@@ -271,8 +274,9 @@ So that an absent key can be told from an unknown one, `SceneState.more` holds:
   The right-hand column is today's behaviour, kept exactly: where a stored `hero` and the
   roster's differ there, a coach picked another hero since, and that pick is never undone by
   reading. One rule gives the hero everywhere (`web/src/mapstate/build.ts` `sceneHero`; the
-  pick is `edit.ts` `pickHeroOps`). The row landed `Ahead` (the reader), so this build's Save
-  writes neither the flag nor anything about heroes differently. **One thing is stored
+  pick is `edit.ts` `pickHeroOps`). The row landed `Ahead` (the reader, store v12), whose Save
+  wrote neither the flag nor anything about heroes differently; the writer (store v14) makes it
+  `Live`, and its Save is the left-hand column. **One thing the reader already stored
   differently, on the metadata tier only:** a hero's record no longer holds `health` there
   (`build.ts` `heroBuildAt`; the save pin lost its ten metadata-tier `health` values), so such
   a save stores fewer keys. The v9 to v11 builds read the missing key as a hero alive at full
@@ -281,8 +285,13 @@ So that an absent key can be told from an unknown one, `SceneState.more` holds:
   metadata-tier scene saved by this build, an item with a life threshold (Battle Vest, Hollow
   Point: 65 %) counts at full health, where Player at that second uses the path's health. The
   replay tier's save is byte for byte as before (the pins hold it). The
-  reader is store v12. The writer is one change, `ahead(...)` to `row(...)`, with its store
-  step (floor 12) and `just rows-lock` (`docs/deploy.md`).
+  reader is store v12. The writer is store v14: `ahead(...)` to `row(...)`, its store step
+  (floor 12), board files that hold the flag at version 4, and `just rows-lock` after it
+  (`docs/deploy.md`).
+- **Health is held by the scene's tier, one rule for all three** (`build.ts` `holdsHealth`):
+  Save captures a hero's `health` only for a scene whose `source.tier` is the replay's, Retake
+  by the scene's own `source.tier` (not the open timeline's), and the scene reads it by the
+  same. A scene saved from the replay is retaken only with the replay open.
 
 Reading a key that is absent:
 
