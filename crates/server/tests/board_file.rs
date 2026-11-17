@@ -149,10 +149,10 @@ fn an_export_imports_as_the_same_board_under_fresh_ids() {
     assert_eq!(first["version"], 2, "the writer: version 1 plus the `rows` header");
     // The rows this build writes, not the ones it only reads: the reader release takes it.
     assert_eq!(first["rows"], json!(mapcro_schema::written_rows()));
-    // One row is ahead of its writer in this build (`has_heroes`, the last): the export says
-    // the rows before it, so the build before this one, which doesn't know the row, takes it.
-    let ahead = mapcro_schema::ROWS.iter().position(|r| r.key == "has_heroes").expect("the row");
-    assert_eq!((mapcro_schema::written_rows(), mapcro_schema::ROWS.len()), (ahead, ahead + 1), "`has_heroes` is the only row still ahead");
+    // Every row is written by this build (`has_heroes`, the last, since its writer): the export
+    // says them all, which the builds a rollback goes to (v12, v13) know too.
+    let last = mapcro_schema::ROWS.iter().position(|r| r.key == "has_heroes").expect("the row");
+    assert_eq!((mapcro_schema::written_rows(), mapcro_schema::ROWS.len()), (last + 1, last + 1), "no row is still ahead");
     assert!(first["build"].as_str().is_some_and(|b| b.len() == 16), "the server's build");
     assert!(first["exported_at"].as_i64().is_some_and(|t| t > 1_700_000_000));
     assert_eq!(first["matches"], json!([130816395]), "the match comes back by its id");
@@ -290,6 +290,15 @@ fn a_file_with_map_state_imports_and_a_row_still_ahead_makes_no_board() {
         assert_eq!(mores.len(), 2, "the hero's and the scene's, and no empty one written: {mores:?}");
         assert!(mores.contains(&build) && mores.contains(&scene_rows), "{mores:?}");
         // What was exported imports again.
+        server.import_ok(&out);
+        // A scene that holds its heroes imports, and its export says version 4 (which the v13
+        // and v12 builds call newer): the row is live.
+        let own = versioned(&|v| state(v, json!({ "rows": ROWS.len(), "has_heroes": true })));
+        let (board, owner, _) = server.import_ok(&own);
+        let mut out = server.export_json(&board, &owner);
+        assert_eq!(out["version"], 4, "version {version}");
+        let flags: Vec<Value> = records(&mut out).iter().filter_map(|r| r[1].get("SceneState").map(|s| s["more"].clone())).collect();
+        assert_eq!(flags, [json!({ "rows": ROWS.len(), "has_heroes": true })]);
         server.import_ok(&out);
         // A row whose reader is this build is still refused, alone or beside written ones.
         for ahead in ROWS.iter().filter(|r| r.status == Status::Ahead) {

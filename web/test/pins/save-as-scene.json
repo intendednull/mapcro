@@ -703,63 +703,16 @@
     }
    },
    {
-    "Set": {
-     "id": "slot-6",
-     "value": {
-      "RosterHero": 16
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-7",
-     "value": {
-      "RosterHero": 17
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-8",
-     "value": {
-      "RosterHero": 18
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-9",
-     "value": {
-      "RosterHero": 19
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-10",
-     "value": {
-      "RosterHero": 20
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-11",
-     "value": {
-      "RosterHero": 21
-     }
-    }
-   },
-   {
     "Create": {
      "id": "id20",
      "record": {
       "SceneState": {
        "scene": "id0",
        "more": {
-        "rows": 15,
+        "rows": 16,
         "has_builds": true,
-        "build": 6839
+        "build": 6839,
+        "has_heroes": true
        }
       }
      }
@@ -1531,63 +1484,16 @@
     }
    },
    {
-    "Set": {
-     "id": "slot-6",
-     "value": {
-      "RosterHero": 16
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-7",
-     "value": {
-      "RosterHero": 17
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-8",
-     "value": {
-      "RosterHero": 18
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-9",
-     "value": {
-      "RosterHero": 19
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-10",
-     "value": {
-      "RosterHero": 20
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-11",
-     "value": {
-      "RosterHero": 21
-     }
-    }
-   },
-   {
     "Create": {
      "id": "id21",
      "record": {
       "SceneState": {
        "scene": "id0",
        "more": {
-        "rows": 15,
+        "rows": 16,
         "has_builds": true,
-        "build": 6839
+        "build": 6839,
+        "has_heroes": true
        }
       }
      }
@@ -2277,63 +2183,16 @@
     }
    },
    {
-    "Set": {
-     "id": "slot-6",
-     "value": {
-      "RosterHero": 16
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-7",
-     "value": {
-      "RosterHero": 17
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-8",
-     "value": {
-      "RosterHero": 18
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-9",
-     "value": {
-      "RosterHero": 19
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-10",
-     "value": {
-      "RosterHero": 20
-     }
-    }
-   },
-   {
-    "Set": {
-     "id": "slot-11",
-     "value": {
-      "RosterHero": 21
-     }
-    }
-   },
-   {
     "Create": {
      "id": "id15",
      "record": {
       "SceneState": {
        "scene": "id0",
        "more": {
-        "rows": 15,
+        "rows": 16,
         "has_builds": true,
-        "build": 6839
+        "build": 6839,
+        "has_heroes": true
        }
       }
      }

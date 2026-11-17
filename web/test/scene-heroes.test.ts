@@ -5,8 +5,9 @@
 // was: the roster's hero, a pick writes the roster, and a stored build whose hero differs from
 // the roster's is hidden.
 //
-// The row is `ahead` in this build, so nothing writes it yet: the save's tests pass the row
-// count of the build that will (`LATER`), and the default is held to be the save as it was.
+// The row is `live` from store v14 (its writer): this build's save is `LATER`'s. The tests of
+// the save from before (store v12 and v13, the rollback targets) pass that build's row count
+// (`BEFORE`).
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -50,14 +51,14 @@ const read = (ops: Op[], slots = roster()) => ({
 const SLOTS = tl.players.map((p) => `${p.team}-${p.slot}`);
 
 describe("the row", () => {
-  // The one test here that says what this build does: it changes on purpose with the release
-  // that makes the row `live` (docs/deploy.md).
-  it("is not written by this build: its save is the save from before", () => {
-    expect(ROWS.has_heroes).toMatchObject({ entity: "scene", kind: "bool", status: "ahead" });
-    expect(WRITTEN).toBe(BEFORE);
-    expect(writesHeroes()).toBe(false);
-    expect("has_heroes" in captureScene(tl)).toBe(false);
-    expect(matchSceneOps(roster() as never, [], undefined, tl, 4, markers, minter(), [], { source: sourceOf(tl) }).ops).toEqual(save().ops);
+  // The one test here that says what this build does: it changed on purpose with the release
+  // that made the row `live` (store v14, docs/deploy.md).
+  it("is written by this build: its save holds the scene's heroes", () => {
+    expect(ROWS.has_heroes).toMatchObject({ entity: "scene", kind: "bool", status: "live" });
+    expect(WRITTEN).toBe(LATER);
+    expect(writesHeroes()).toBe(true);
+    expect(captureScene(tl).has_heroes).toBe(true);
+    expect(matchSceneOps(roster() as never, [], undefined, tl, 4, markers, minter(), [], { source: sourceOf(tl) }).ops).toEqual(save({ written: LATER }).ops);
   });
 
   it("a save from before sets the roster to the match's heroes, and says nothing of the scene's own", () => {
@@ -187,10 +188,28 @@ describe("Save, once it writes the row", () => {
     expect(made<HeroRecord>(eleven, "PlayerState").map((h) => h.r.more?.hero)).toEqual([...tl.players.slice(0, 11).map((p) => p.hero_id), undefined]);
   });
 
-  it("many scenes at once: none of them writes the roster (before the row: the first does, once)", () => {
+  it("many scenes at once: none of them writes the roster, and each holds its heroes", () => {
     const now = matchScenesOps(roster() as never, [], undefined, tl, [{ t: 2, name: "a" }, { t: 6, name: "b" }], markers, minter());
-    expect(now.groups.map((g) => rosterWrites(g).length)).toEqual(writesHeroes() ? [0, 0] : [12, 0]);
-    expect(now.groups.map((g) => captured(made<{ more?: More }>(g, "SceneState")[0]?.r.more).heroes)).toEqual([writesHeroes(), writesHeroes()]);
+    expect(now.groups.map((g) => rosterWrites(g).length)).toEqual([0, 0]);
+    expect(now.groups.map((g) => captured(made<{ more?: More }>(g, "SceneState")[0]?.r.more).heroes)).toEqual([true, true]);
+    expect(now.of).toEqual([0, 1]);
+  });
+
+  it("many scenes at once: a moment with no room for its heroes has no scene; the others keep their moments and order", () => {
+    // An objective down from second 5 whose key alone is over a transaction.
+    const key = `walker:amber:lane1:1:${"k".repeat(LIMITS.max_tx_bytes)}`;
+    const full = { ...tl, objectives: [{ key, kind: "walker", team: "amber", lane: 1, destroyed_s: 5 }] } as never;
+    const mk = [{ key, kind: "walker", team: "amber", lane: "yellow", at: { x: 0, y: 0 } }] as never[];
+    const r = matchScenesOps(roster() as never, [], undefined, full, [{ t: 2, name: "a" }, { t: 6, name: "b" }, { t: 3, name: "c" }], mk, minter());
+    expect(r.of).toEqual([0, 2]);
+    expect([r.ids.length, r.groups.length, r.builds.length]).toEqual([2, 2, 2]);
+    const scenes = r.groups.map((g) => made<{ name: string; order: string }>(g, "Scene")[0]!.r);
+    expect(scenes.map((s) => s.name)).toEqual(["a", "c"]);
+    expect(scenes[0]!.order < scenes[1]!.order).toBe(true);
+    expect(r.ops).toEqual(r.groups.flat());
+    expect(r.groups.every((g) => captured(made<{ more?: More }>(g, "SceneState")[0]?.r.more).heroes)).toBe(true);
+    // The one at 6 alone is not made.
+    expect(matchSceneOps(roster() as never, [], undefined, full, 6, mk, minter(), [], { source: sourceOf(tl) }).ops).toEqual([]);
   });
 
   it("with no room even for the heroes, saves nothing: no scene that draws the roster's heroes", () => {
