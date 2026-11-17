@@ -215,7 +215,7 @@ export function SessionPeople(p: {
   stop: () => void;
 }) {
   return (
-    <div class="people session-people" data-testid="session-people">
+    <div class="session-people" data-testid="session-people">
       <For each={p.list}>
         {(x) => {
           const on = () => p.followingSeat !== undefined && x.peer.state?.seat === p.followingSeat;

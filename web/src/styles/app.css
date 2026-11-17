@@ -833,6 +833,7 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 .game-more { margin-left: 3px; color: var(--faint); font-size: 10px; font-weight: 600; }
 .game-strip .all-games { align-self: center; white-space: nowrap; }
 /* The people list's Session group: who is on another tab (§8). */
+.session-people { display: flex; flex-direction: column; gap: 2px; }
 .people-group { margin: 10px 0 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: none; }
 .people-group small { color: var(--faint); font-weight: 500; }
 /* The phone (§8): the header's session title opens the Games sheet. */

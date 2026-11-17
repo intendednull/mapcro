@@ -9,7 +9,7 @@ vi.mock("solid-js", async () => await import(/* @vite-ignore */ "solid-js/dist/"
 import { createRoot } from "solid-js";
 import type { JobState } from "../src/player/api";
 import type { CardData, Preview } from "../src/player/picker";
-import { type DetailsSource, type TabDetails, createTabDetails, subLine, tierChip, wantsAgain } from "../src/session/details";
+import { type DetailsSource, REASK_MS, type TabDetails, createTabDetails, subLine, tierChip, wantsAgain } from "../src/session/details";
 
 const preview = (winner: "amber" | "sapphire" | null, duration_s = 2052): CardData => ({
   kind: "preview",
@@ -93,8 +93,9 @@ function fake() {
 
 const make = () => {
   const f = fake();
-  const { d, dispose } = createRoot((dispose) => ({ d: createTabDetails(f.src), dispose }));
-  return { f, d, dispose };
+  let now = 1_000_000;
+  const { d, dispose } = createRoot((dispose) => ({ d: createTabDetails(f.src, () => now), dispose }));
+  return { f, d, dispose, tick: (ms: number) => void (now += ms) };
 };
 
 describe("when a tab's details are asked for", () => {
@@ -185,6 +186,57 @@ describe("when a tab's details are asked for", () => {
     expect(f.pending()).toEqual(["job A 9"]);
     await f.answer("job A 9", job("done"));
     expect(tierChip(d.get("A"))?.text).toBe("Full replay");
+    dispose();
+  });
+  it("a tab someone is on is asked again now and then, as its match may change there; one nobody is on is not", async () => {
+    const { f, d, dispose, tick } = make();
+    d.seen("A");
+    d.seen("B");
+    await f.answer("matches A", []);
+    await f.answer("matches B", []);
+    const on = new Set(["A"]);
+    d.again(["A", "B"], on);
+    expect(f.pending()).toEqual([]);
+    tick(REASK_MS - 1);
+    d.again(["A", "B"], on);
+    expect(f.pending()).toEqual([]);
+    tick(1);
+    d.again(["A", "B"], on);
+    expect(f.pending()).toEqual(["matches A"]);
+    // Someone loaded a match there meanwhile.
+    await f.answer("matches A", [52001]);
+    expect(d.get("A")?.match).toBe("52001");
+    await f.answer("job A 52001", job("uploading"));
+    await f.answer("preview 52001", { kind: "none" });
+    expect(tierChip(d.get("A"))?.text).toBe("Uploading…");
+    // Out of view, nothing is asked, someone there or not.
+    tick(REASK_MS);
+    d.again([], on);
+    expect(f.pending()).toEqual([]);
+    // The open tab says its own, someone there or not.
+    d.shown("B", { match: undefined, tier: undefined, job: undefined, duration: undefined });
+    tick(REASK_MS);
+    d.again(["B"], new Set(["B"]));
+    expect(f.pending()).toEqual([]);
+    dispose();
+  });
+  it("the open tab's board, its match not drawn yet, says its job: an upload under way", async () => {
+    const { f, d, dispose } = make();
+    d.shown("A", { match: "7", tier: undefined, job: job("uploading"), duration: undefined });
+    expect(tierChip(d.get("A"))?.text).toBe("Uploading…");
+    d.again(["A"]);
+    expect(f.pending()).toEqual(["preview 7"]);
+    d.shown("A", { match: "7", tier: undefined, job: job("done"), duration: undefined });
+    expect(tierChip(d.get("A"))?.text).toBe("Full replay");
+    dispose();
+  });
+  it("an ask from before the tab was opened here doesn't take the place of what its board says", async () => {
+    const { f, d, dispose } = make();
+    d.seen("A");
+    d.shown("A", { match: "7", tier: "summary", job: job("none"), duration: 60 });
+    await f.answer("matches A", [6]);
+    expect(d.get("A")?.match).toBe("7");
+    expect(tierChip(d.get("A"))?.text).toBe("API summary");
     dispose();
   });
   it("left while it was being asked about: asked again once that's done", async () => {

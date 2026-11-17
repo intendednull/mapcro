@@ -583,6 +583,52 @@ test("a late joiner follows, and lands on the presenter's tab", async ({ browser
   await expect(following(d)).toHaveCount(1);
 });
 
+test("someone on another tab whom nobody follows: a dot on their tab, a row in the Session group, and Follow takes you there", async ({ browser }) => {
+  const m = await session(browser, 3);
+  const { a } = m;
+  await go(a, m, 2);
+  const b = await member(browser, m, "Student");
+  // Nobody follows Coach: the chip offers no one.
+  await expect(chip(b)).toHaveCount(0);
+  // The strip: Coach's dot on the third tab, none on the others (never one's own).
+  const dots = (p: Page, i: number) => tabs(p).nth(i).getByTestId("tab-people");
+  await expect(dots(b, 2)).toHaveAttribute("data-count", "1");
+  await expect(dots(b, 2).locator(".game-dot")).toHaveAttribute("title", "Coach");
+  await expect(dots(b, 0)).toHaveCount(0);
+  await expect(dots(b, 1)).toHaveCount(0);
+  await expect(dots(a, 0)).toHaveAttribute("data-count", "1");
+  await expect(dots(a, 2)).toHaveCount(0);
+  // The people list: the board's own has no Coach; the Session group has Coach, on their tab.
+  await expect(b.locator(".people")).not.toContainText("Coach");
+  const row = b.getByTestId("session-person");
+  await expect(row).toHaveCount(1);
+  await expect(row).toHaveAttribute("data-person", "Coach");
+  const third = await tabs(b).nth(2).getByTestId("tab-name").innerText();
+  await expect(row.getByTestId("session-person-tab")).toHaveText(third);
+  // Coach's own list has Student on the first tab.
+  await expect(a.getByTestId("session-person")).toHaveAttribute("data-person", "Student");
+  // Follow: to Coach's tab, following there.
+  await b.getByTestId("session-follow-Coach").click();
+  await on(b, m, 2);
+  await expect(following(b)).toHaveCount(1);
+  await expect(chip(b)).toContainText("Following Coach");
+  await expect(a.getByTestId("presenting")).toContainText("1 following");
+  // On the same tab now: in the board's own list, not the Session group.
+  await expect(b.getByTestId("session-person")).toHaveCount(0);
+  await expect(b.locator(".people")).toContainText("Coach");
+  await expect(dots(b, 2)).toHaveCount(0);
+  // And across tabs with Coach, as any follow.
+  await go(a, m, 1);
+  await on(b, m, 1);
+  await expect(following(b)).toHaveCount(1);
+  // A third person sees both on the second tab, and Coach presenting.
+  const c = await member(browser, m, "Late");
+  await expect(dots(c, 1)).toHaveAttribute("data-count", "2");
+  await expect(c.getByTestId("session-person")).toHaveCount(2);
+  await expect(c.locator('[data-testid="session-person"][data-person="Coach"]').getByTestId("session-person-tab")).toContainText("presenting");
+  await expect(c.locator('[data-testid="session-person"][data-person="Student"]').getByTestId("session-person-tab")).not.toContainText("presenting");
+});
+
 test("a session editor on a view-only tab is followable by session members, and not by a board-only viewer", async ({ browser }) => {
   // The second tab is added through a view link: everyone who comes through the session is a
   // viewer on its board.

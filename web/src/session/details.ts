@@ -3,8 +3,9 @@
 // "API summary", or the replay job under way); "Sandbox" with no match. Loaded lazily: only for
 // tabs in view, with the credential the tab opens with, and kept for the page's life. The strip
 // never opens a board's room. The open tab's board says its own (its match, tier and job), so
-// it costs no request; a tab is asked about again once it is left, as its match may have
-// changed there, and while its job is under way.
+// it costs no request. A tab is asked about again once it is left here (its match may have
+// changed), while its job is under way, and every `REASK_MS` while someone in the session is on
+// it (only the people on a board change its match).
 
 import { createSignal } from "solid-js";
 import { type JobState, busy } from "../player/api";
@@ -23,7 +24,12 @@ export interface TabDetails {
   preview?: CardData | undefined;
   /** The length from a timeline this page holds, for when the preview has none. */
   duration?: number | undefined;
+  /** Said by the open tab's board (`shown`): nothing to ask while it's open. */
+  own?: boolean | undefined;
 }
+
+/** How often a tab in view that someone is on is asked about again. */
+export const REASK_MS = 10_000;
 
 export const TEAM_LABEL: Record<Team, string> = { amber: "Amber", sapphire: "Sapphire" };
 
@@ -40,7 +46,8 @@ export function subLine(d: TabDetails | undefined): { winner?: Team; text: strin
 }
 
 /** The tier chip: the job under way, else the tier ("Full replay", "API summary"); none for a
- * board without a match, or while not known. */
+ * board without a match, or while not known. `tier` is the board's own where it's open here;
+ * else a job done means the replay. */
 export function tierChip(d: TabDetails | undefined): { text: string; tier: "replay" | "summary"; busy: boolean } | undefined {
   if (d?.kind !== "ready" || d.match === undefined) return undefined;
   const j = d.job;
@@ -77,7 +84,7 @@ export interface DetailsSource {
  * tab's once; `again` asks again for those in view that want it (a job under way, no answer);
  * `left` forgets one, to be asked again; `shown` takes the open tab's from its board.
  */
-export function createTabDetails(src: DetailsSource) {
+export function createTabDetails(src: DetailsSource, clock: () => number = Date.now) {
   const [all, setAll] = createSignal<ReadonlyMap<string, TabDetails>>(new Map());
   const put = (key: string, d: TabDetails | undefined) =>
     setAll((m) => {
@@ -92,6 +99,8 @@ export function createTabDetails(src: DetailsSource) {
     if (d?.kind === "ready" && d.match === match) put(key, { ...d, ...more });
   };
   const asking = new Set<string>();
+  /** When each tab's matches were last asked for. */
+  const askedAt = new Map<string, number>();
   /** Asked again while an ask was under way (the tab left meanwhile): asked once it's done. */
   const redo = new Set<string>();
   const preview = (key: string, match: string) => {
@@ -104,6 +113,7 @@ export function createTabDetails(src: DetailsSource) {
     try {
       const had = all().get(key);
       if (!had) put(key, { kind: "loading" });
+      askedAt.set(key, clock());
       const m = await src.matches(key);
       if (m === undefined) {
         // No answer: not known; asked again while in view.
@@ -114,8 +124,10 @@ export function createTabDetails(src: DetailsSource) {
       if (m === "refused") return void put(key, { kind: "refused" });
       const match = m[0] === undefined ? undefined : String(m[0]);
       const before = all().get(key);
+      // The board opened here meanwhile says its own.
+      if (before?.own) return;
       const same = before?.kind === "ready" && before.match === match;
-      put(key, { kind: "ready", match, ...(same ? { preview: before.preview, duration: before.duration } : {}) });
+      put(key, { kind: "ready", match, ...(same ? { preview: before.preview, duration: before.duration, job: before.job } : {}) });
       if (match === undefined) return;
       const duration = src.held?.(key, match);
       if (duration !== undefined) patch(key, match, { duration });
@@ -144,28 +156,31 @@ export function createTabDetails(src: DetailsSource) {
     seen(key: string) {
       if (!all().has(key)) void load(key);
     },
-    /** For each tab in view that wants it: asked again. */
-    again(keys: Iterable<string>) {
+    /** For each tab in view that wants it: asked again. `occupied`: the tabs someone is on,
+     * whose match may change; asked again every `REASK_MS`. */
+    again(keys: Iterable<string>, occupied: ReadonlySet<string> = new Set()) {
       for (const key of keys) {
         const d = all().get(key);
-        if (!wantsAgain(d)) continue;
-        // The open tab's board says its own job (`shown`): nothing to ask.
-        if (d?.kind === "ready") {
-          if (d.match !== undefined && d.tier === undefined) void job(key, d.match);
+        // The open tab's board says its own (`shown`): nothing to ask.
+        if (d?.own) continue;
+        if (occupied.has(key) && d?.kind !== "loading" && clock() - (askedAt.get(key) ?? -Infinity) >= REASK_MS) void load(key);
+        else if (!wantsAgain(d)) continue;
+        else if (d?.kind === "ready") {
+          if (d.match !== undefined) void job(key, d.match);
         } else void load(key);
       }
     },
     /** Its board was left here: what it shows may have changed, so it's asked about again. */
     left(key: string) {
       const d = all().get(key);
-      if (d?.kind === "ready") put(key, { ...d, tier: undefined, kind: "ready" });
+      if (d?.kind === "ready") put(key, { ...d, own: undefined, tier: undefined });
       void load(key);
     },
     /** The open tab's board says what it has: its match, tier, job and length. */
     shown(key: string, s: { match: string | undefined; tier: "replay" | "summary" | undefined; job: JobState | undefined; duration: number | undefined }) {
       const d = all().get(key);
       const same = d?.kind === "ready" && d.match === s.match;
-      const next: TabDetails = { kind: "ready", match: s.match, tier: s.tier, job: s.job, duration: s.duration ?? (same ? d.duration : undefined), ...(same && d.preview ? { preview: d.preview } : {}) };
+      const next: TabDetails = { kind: "ready", own: true, match: s.match, tier: s.tier, job: s.job, duration: s.duration ?? (same ? d.duration : undefined), ...(same && d.preview ? { preview: d.preview } : {}) };
       if (d && JSON.stringify(d) === JSON.stringify(next)) return;
       put(key, next);
       src.opened?.(key, true);

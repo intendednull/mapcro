@@ -654,13 +654,16 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       if (c.kind === "live") inSession.opened(true);
       else if (c.kind === "closed" && c.reason !== "outdated") inSession.opened(false);
     });
-  // The strip says what this board shows (§8): the match open here, once its timeline is.
+  // The strip says what this board shows (§8): the match open here, its tier once its timeline
+  // is drawn, and its job (an upload under way, say). A board with no match yet says nothing:
+  // the strip asks, once.
   if (inSession)
     createEffect(() => {
       const id = player.matchId();
+      if (!id) return;
       const tl = player.tl();
-      if (!id || !tl || String(tl.match_id) !== id) return;
-      inSession.shown({ match: id, tier: tierOf(tl) === "replay" ? "replay" : "summary", job: player.job(), duration: tl.duration_s });
+      const drawn = tl && String(tl.match_id) === id ? tl : undefined;
+      inSession.shown({ match: id, tier: drawn ? (tierOf(drawn) === "replay" ? "replay" : "summary") : undefined, job: player.job(), duration: drawn?.duration_s });
     });
   onCleanup(() => state.stop());
   // Unmounted (another board, or back to the landing): module state goes back to its defaults.

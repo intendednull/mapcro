@@ -56,7 +56,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
   // through; a refusal is asked about again each time it matters. ----
   const [openable, setOpenable] = createSignal<ReadonlyMap<string, boolean>>(new Map());
   const credential = (t: TabRow) => credentialFor(t, p.session, p.token, knownBoards());
-  const openKey = (board: string, grant: string | undefined) => `${board}\u0000${grant ?? ""}`;
+  const openKey = (board: string, grant: string | undefined) => `${board} ${grant ?? ""}`;
   const noteOpen = (key: string, ok: boolean) => setOpenable((m) => (m.get(key) === ok ? m : new Map(m).set(key, ok)));
   const asking = new Set<string>();
   const follow = createSessionFollow({
@@ -131,7 +131,9 @@ export function SessionView(p: { session: string; token: string; tab: string | u
       inView.delete(el);
     });
   };
-  const againTimer = setInterval(() => details.again(new Set(inView.values())), 5000);
+  // A tab someone is on may change (they load a match there): asked again now and then.
+  const occupied = () => new Set(s.tabs().filter((t) => people().has(t.id)).map(keyOf));
+  const againTimer = setInterval(() => details.again(new Set(inView.values()), untrack(occupied)), 5000);
   onCleanup(() => {
     clearInterval(againTimer);
     observer?.disconnect();
