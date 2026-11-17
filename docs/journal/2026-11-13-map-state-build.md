@@ -13,8 +13,9 @@ says version 4. The two must-fixes are done. Branch tip: the docs commit on top 
 **What a coach sees after the deploy**
 
 - Save as scene stores each slot's hero in the scene and `has_heroes`, and **leaves the
-  board's roster alone**: hand-made scenes and scenes saved before keep their heroes. On a fresh
-  board the roster stays empty, so a hand-made scene there has empty slots until someone picks.
+  board's roster alone**: hand-made scenes and scenes saved before keep their heroes. (Lead, from
+  the review: a board made in the app still gets its random roster on the device that made it, so
+  hand-made scenes there show those heroes; only a never-filled roster leaves empty slots.)
 - A pick in a saved scene sets that scene's hero and clears the old hero's build in one
   transaction (one undo step). "No hero" is not offered there.
 - Scenes saved before the deploy have no flag and are exactly as before: the roster's hero, a
@@ -108,7 +109,9 @@ reference replay 129738985's cached timeline, the local packs; counts and boolea
 (`18b41c6`); v11 refuses to start. Both load every board and draw a v14 scene the same (their
 clients read the flag). They refuse anything naming `has_heroes` from outside: Duplicate and
 New scene of a v14 scene, a resent pending save, a v14 board file ("Newer file"), and after the
-rollback their own export of such a board ("Bad file"; v14 imports it). Back up as `pre-v14`.
+rollback their own export of such a board ("Bad file"; v14 imports it). (Lead, from the review: a
+large copy is chunked, so only its state is refused and an unflagged copy lands; a refused resent
+save is gone. `docs/deploy.md` says so.) Back up as `pre-v14`.
 After the deploy `just rows-lock` (rows, not statuses: it should be unchanged) and `reader` in
 the justfile set to the v14 commit.
 

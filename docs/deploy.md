@@ -295,8 +295,10 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
     scenes saved before keep their heroes. A pick in such a scene sets that scene's hero and
     clears the old hero's build in one undo step ("No hero" is not offered there). A scene saved
     before the deploy (no flag) is exactly as before: it draws the roster's hero, and a pick in
-    it writes the roster for every such scene. **A fresh board's roster is no longer filled by a
-    save**: a hand-made scene there has empty slots until someone picks.
+    it writes the roster for every such scene. **A save no longer fills the board's roster.** A
+    board made in the app still gets its random roster on the device that made it
+    (`randomRosterOps`, `FRESH_BOARD`), so hand-made scenes there show those heroes; only a board
+    whose roster was never filled (made through the API) has empty slots until someone picks.
   - **The two must-fixes from the reader's review, as built:**
     - **A save with no room for its heroes is not made** (`matchSceneOps` returns no ops; the
       page says "Not saved", or "Saved N of M" for many). Chosen over falling back to the
@@ -318,8 +320,12 @@ It lists the map-state rows the deployed build reads (`docs/specs/map-state.md` 
     ops name `hero` and the build rows, which those builds admit). What they refuse
     (`WrongField`) is anything naming `has_heroes` from outside: **Duplicate and New scene of a
     scene saved by v14** (the copy carries its state), a pending save a reloaded tab resends,
-    and the v14 board files above ("Newer file"). Saves made there are unflagged and set the
-    roster, as before v14. Nothing is lost; roll forward to copy or import those.
+    and the v14 board files above ("Newer file"). A copy that fits one transaction is refused
+    whole; a large one (with ink) is chunked by `addSceneOps`, so its scene, heroes and builds
+    land and only its state is refused: an unflagged copy there, which draws the roster's heroes
+    and hides its builds. A refused resent save is gone (the tab drops it). Saves made there are
+    unflagged and set the roster, as before v14. Stored boards are untouched; roll forward to
+    copy or import the rest.
   - **Deploy note:** the flip changes the schema sources, so the build id changes and every
     open tab of the v13 client closes as `Outdated` and reloads. Back up the database first
     (`pre-v14`, below). After the deploy, `just rows-lock`: the lock lists rows, not statuses,
