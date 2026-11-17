@@ -491,7 +491,7 @@ mod tests {
         };
         let long = |v: &mut serde_json::Value| first(v, "Scene").1["name"] = serde_json::json!("n".repeat(LIMITS.max_scene_name));
         let rows = mapcro_schema::ROWS.len();
-        type Change = Box<dyn Fn(&mut serde_json::Value)>;
+        type Change<'a> = Box<dyn Fn(&mut serde_json::Value) + 'a>;
         let cases: [(&str, Change, u64); 6] = [
             ("nothing new", Box::new(|_| {}), 2),
             ("a scene's state without it", Box::new(state(serde_json::json!({ "rows": rows, "has_builds": true }))), 2),
