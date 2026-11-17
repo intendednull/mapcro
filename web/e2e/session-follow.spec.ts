@@ -616,7 +616,8 @@ test("someone on another tab whom nobody follows: a dot on their tab, a row in t
   // On the same tab now: in the board's own list, not the Session group.
   await expect(b.getByTestId("session-person")).toHaveCount(0);
   await expect(b.locator(".people")).toContainText("Coach");
-  await expect(dots(b, 2)).toHaveCount(0);
+  // The open tab's dots are the others on it: Coach.
+  await expect(dots(b, 2)).toHaveAttribute("data-count", "1");
   // And across tabs with Coach, as any follow.
   await go(a, m, 1);
   await on(b, m, 1);

@@ -459,6 +459,7 @@ export function SessionView(p: { session: string; token: string; tab: string | u
     queueMicrotask(measure);
   });
   let allGamesClosed = -Infinity;
+  let allGamesPressed = -Infinity;
   const allGamesItems = (): MenuItem[] => s.tabs().map((t) => ({ label: t.name, testid: "all-games-tab", checked: t.id === active(), run: () => pick(t.id) }));
   const strip = () => (
     <nav class="game-strip" data-testid="game-strip" aria-label="Games" data-can-edit={String(s.canEdit())}>
@@ -546,9 +547,10 @@ export function SessionView(p: { session: string; token: string; tab: string | u
           data-testid="all-games"
           aria-haspopup="menu"
           aria-expanded={!!allGames()}
+          onPointerDown={() => (allGamesPressed = performance.now())}
           onClick={(e) => {
-            // A press on the button while the list is open closed it (a press outside it).
-            if (performance.now() - allGamesClosed < 400) return;
+            // This press closed the open list (a press outside it closes it first): it stays closed.
+            if (allGamesPressed - allGamesClosed >= 0 && allGamesPressed - allGamesClosed < 100) return;
             const r = e.currentTarget.getBoundingClientRect();
             setAllGames({ x: r.left, y: r.bottom });
           }}

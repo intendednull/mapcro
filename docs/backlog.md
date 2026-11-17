@@ -6,13 +6,10 @@ what it is, and what it depends on.
 
 ## Follow across tabs: what phase 4 left (2026-11-14, from sessions-p4)
 
-- **Someone on another tab whom nobody follows yet can't be followed from where you are.** The
-  follow chip (and F) offers the session's presenters on other tabs, which needs one person
-  already following them: enough for a late joiner, not for the first follower. The spec's §8
-  has the answer, the people list's "Session" group (who is in the session, and on which tab,
-  each with Follow) and the avatar dots on the tabs, but they are in neither phase 4's list
-  nor phase 5's (sessions.md §10). The session's presence already carries what they need:
-  name, colour, `tab`, `seat`, `following`. Needs the lead's word on which phase.
+- ~~**Someone on another tab whom nobody follows yet can't be followed from where you are.**~~
+  **Done in sessions phase 5** (operator-approved): the people list's "Session" group (who is on
+  another tab, which, Follow) and the tabs' avatar dots (sessions.md §8). The phone has no people
+  list, so not there yet (TD-116).
 - **The people list says "following <name>" for you while your presenter is on a tab you
   can't open**, and the chip says "No access"; the list has no "No access" of its own.
 - **A follower is told nothing when its own pick lands on a dead tab** beyond that board's

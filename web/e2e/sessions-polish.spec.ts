@@ -191,7 +191,7 @@ test("each tab says its board's newest match, winner, length and tier; Load a ga
   await a.getByTestId("add-new-go").click();
   await expect(tabs(a)).toHaveCount(6);
   await expect(tab(a, 5).getByTestId("tab-name")).toHaveText("Fresh plan");
-  await expect(a.getByTestId("board-title")).toHaveText("Fresh plan");
+  await expect(tab(a, 5)).toHaveAttribute("aria-selected", "true");
   await expect(line(a, 5)).toHaveText("Sandbox");
   await saved(a);
   // Your boards keeps the adder's two games and the new board, beside the session.
