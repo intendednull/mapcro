@@ -3,6 +3,63 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## PAUSED (2026-11-17 ~08:40 UTC, lead 9eb2516b): resume only when the operator says so
+
+The operator (via the concierge) asked to pause after this cycle's in-flight work. Both build
+units landed. **Only Astra's Player transport design pass may still be running**; it was
+scheduled to finish after its Codex limit reset, and it is the operator's to judge, not merged.
+
+**Prod `web` runs 4be082f** (infra b6892d5). The store is **v14, floor 12**. Backups on the box:
+`/var/lib/mapcro/mapcro.sqlite.pre-v11`, `.pre-v12`, `.pre-v13` and `.pre-v14`. rows.lock is 16
+rows, unchanged; the justfile `reader` is **4be082f** (reader-check green with it).
+
+**This cycle's deploys:**
+1. **9c213c3: sessions phase 5** (strip details, Load a game and New board, All games, the phone
+   Games sheet, `mapcro://` session links, the people list's Session group). No store change.
+   - Review (Opus medium): no correctness blocker. Fixed at review:
+     - `job()` runs a load asked for meanwhile;
+     - no strip re-ask while the page is hidden;
+     - New board waits for a running Load a game;
+     - the stray `mutants.out/` commit is removed and ignored.
+   - **Held: a session tab's Open in app** (`APP_OPENS_SESSIONS = false`, TD-117). The released
+     desktop app parses only `mapcro://b/`. To turn it on: a `desktop-v*` release with the new
+     `link.rs`, out a while, then flip it, and `open-link.spec.ts` and `header.spec.ts` expect
+     the session's link again.
+   - `sessions-polish`'s late-joiner row raced the join card (it shows only while a board
+     connects; a refused first tab never shows it). The row is fixed (fda23a3). The product gap
+     is in TD-118: a late joiner on a refused tab isn't asked a name until a tab admits them.
+   - Gate: 513 e2e, Firefox 29, VM, reader-check. Re-gate of the fixes: 847 unit, 91 affected
+     e2e, the racy row 4/4. Prod check: tiers, Sandbox, dots, the Session group and follow
+     across tabs, New board, and the phone sheet were all true; 0 page errors and 0 5xx.
+2. **4be082f: map-state D2's writer, store v14 (floor 12).** A saved scene holds its own heroes
+   (`has_heroes` Live); a board file holding it is version 4.
+   - Accepted decisions:
+     - a save that can't hold its heroes is refused, not saved through the roster;
+     - Retake on a replay-sourced scene is offered only with the replay open.
+   - Review (Opus high): no blocker. Docs were corrected: an app-made board keeps its random
+     roster, and after a rollback a large copy is chunked, so only its state is refused. TD-119
+     is new: a pick racing a Retake can give the picked hero the old hero's build.
+   - Gate: 511 e2e, plus 2 load flakes rerun green. Firefox 29, VM, reader-check 98 own-hero
+     transactions byte for byte. Walkthrough on the merged tree and on prod: all true.
+
+**To resume, in order:**
+1. **Astra's Player transport branch** (`player-transport`): the operator judges it. Two
+   questions for them:
+   - is the extra desktop dock height worth an unbroken timeline?
+   - is elapsed-only time OK on the shortest landscape phones?
+2. **Map-state phase 4:** `Tokens.tsx` reads `heroDraw`, with TD-97's four specs. Under Show last
+   seen a scene draws only the faded hero (operator rule), so drop the ghost and flip
+   `shown.test.ts`.
+3. **Feedback follow-ups:**
+   - TD-107: a touch (long-press) path for the placed-thing menu.
+   - A colour can't go back to "no colour" except by undo.
+4. **TD-117:** a desktop release carrying the session-link parser, then turn on a session tab's
+   Open in app.
+5. **Debt to weigh:**
+   - TD-92 (load flakes);
+   - TD-102 to TD-119, of which TD-118 (the late joiner's name, the strip's gaps) and TD-119
+     (pick versus Retake) are the newest with user effect.
+
 ## Resumed (2026-11-16, lead 9eb2516b)
 
 The operator said "We can resume". Running:
