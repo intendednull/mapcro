@@ -70,8 +70,14 @@ the code for when it does.
 - E2e on the wiring (Tokens, Board), each on its own build: 17. 12 caught at once. Of the 5
   missed, 4 were gaps and got a test (`6645298`), then all 4 caught: another editor's split drag shown in Player, a scene's tokens drawing Player's hero (its health arc), the echo after a seek, the ghost's how-long-ago not counting on. So 16 of 17 caught. The fifth is not
   equivalent and stays missed: Player's token `alive` from the second's sample instead of
-  "drawn means alive" (`live() || h().alive()` → `h().alive()`): the two differ only within a
-  second of a death or a respawn, and every fixture dies and respawns on whole seconds.
+  "drawn means alive" (`live() || h().alive()` → `h().alive()`). (Lead, from the review: not
+  "within a second of a death"; both sides read `x[floor(t)]`, so for a hero drawn where it
+  stands they agree. They differ only for a ghost: Vision, Last seen on, a hero whose `x` is null
+  with no recorded death in `seenFrom`'s window, which real data has (a revived death dropped by
+  `derive.rs` `revived`, a pawn out of the recording). The current code draws a plain ghost there,
+  as main does; the mutant would draw it dark. A fixture with `x` null for 2 s and no `deaths`
+  entry, out of sight under Vision with Last seen on, would catch it. A fractional respawn would
+  not; the fixture's `[5, 7.5]` already has one.)
 
 **The walkthrough** (Chromium; this build's server and client on port 8198 over a temp data dir
 holding the reference replay's cached timeline and the local packs; `/tmp/msp4-qa/run.sh`,
@@ -98,10 +104,16 @@ holding the reference replay's cached timeline and the local packs; `/tmp/msp4-q
    small change in `Tokens.tsx` (the arc reading `HeroState.health` under Health); say if it should.
 2. **A scene's own name (`more.name`) wins on the token** (D2's order, as `fromScene` reads it).
    Nothing writes it yet; the scene's top bar still ignores it (TD-120, step 4).
-3. The e2e mutant left missed (`alive` from the sample, above): accepted, or a fixture with a
-   fractional respawn time.
+3. The e2e mutant left missed (`alive` from the sample, above). Lead: accepted for now; the
+   fixture that catches it is described above (a gap in `x` with no death, a ghost under Vision).
 
 **New debt:** TD-120 (the scene bar's names against the token's). TD-97: done.
+
+**Lead, from the review (no blocker):** the operator's faded-only rule can't be reached in the
+page yet: a scene's `has("sight")` is false until phase 5, so `heroDraw` takes the legacy branch
+and the new e2e row "in a scene, a hero out of sight is only faded" also passes on main. Only
+`shown.test.ts` holds the rule. When phase 5 gives scenes sight, add an e2e row with Last seen on
+and per-team sight.
 
 **Next:** phase 4 step 4 (markers on `marker(key)`, the two bars, `RiftRings`, `UrnMark`,
 `DeathSkulls`, `MarkerTips`), nothing started. Found at the boundary, not done: the markers'
