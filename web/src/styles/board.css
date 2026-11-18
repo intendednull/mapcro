@@ -914,6 +914,13 @@ kbd {
 .ctx-menu button.ctx-swatch { width: 20px; height: 20px; padding: 0; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1.5px #0b1714; }
 .ctx-menu button.ctx-swatch:hover, .ctx-menu button.ctx-swatch:focus { background: var(--c); box-shadow: 0 0 0 2px var(--bg-deep, #0b1714), 0 0 0 3.5px var(--text); }
 .ctx-menu button.ctx-swatch.on { box-shadow: 0 0 0 2px var(--bg-deep, #0b1714), 0 0 0 4px var(--c); }
+/* A finger (a long press opens it, TD-107): rows a finger's height, swatches near it, the seven
+   in one row inside a 344 px phone. */
+@media (pointer: coarse) {
+  .ctx-menu button { min-height: 44px; }
+  .ctx-menu .ctx-swatches { gap: 4px; }
+  .ctx-menu button.ctx-swatch { width: 40px; height: 40px; min-height: 40px; }
+}
 
 /* Placed things in Select: ends of an arrow to grab, a thing being moved, live ink, pings. */
 .mm-overlay.map .arrow-end { fill: transparent; stroke: transparent; pointer-events: all; cursor: grab; }

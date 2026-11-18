@@ -147,8 +147,10 @@ async function touchEditor(browser: Browser, url: string, viewport: { width: num
 
 const PHONE = { width: 390, height: 844 };
 const TABLET = { width: 768, height: 1024 };
+/** The operator's phone, about (playwright.config.ts). */
+const SMALL = { width: 344, height: 615 };
 
-for (const viewport of [PHONE, TABLET]) {
+for (const viewport of [PHONE, TABLET, SMALL]) {
   test(`a long press on a pin, an arrow and a stroke opens its menu and recolours it, for everyone, at ${viewport.width}×${viewport.height}`, async ({ browser }) => {
     const url = await newBoardUrl(server, "touch menu");
     const a = await joinNew(browser, url, "Coach");
@@ -167,6 +169,15 @@ for (const viewport of [PHONE, TABLET]) {
     await expect(menu(t).locator("[data-testid^='comment-side-']")).toHaveCount(0);
     await expect(menu(t).getByRole("menuitemradio")).toHaveCount(7 + 1);
     await expect(menu(t).getByTestId("recolour-0")).toHaveAttribute("aria-checked", "true");
+    // Sized for a finger: every item 40 px or more, the seven swatches in one row, all inside
+    // the window.
+    const fit = await menu(t).evaluate((el) => {
+      const m = el.getBoundingClientRect();
+      const items = [...el.querySelectorAll("button")].map((b) => b.getBoundingClientRect());
+      const rows = new Set([...el.querySelectorAll(".ctx-swatch")].map((b) => Math.round(b.getBoundingClientRect().top)));
+      return { inside: m.left >= 0 && m.top >= 0 && m.right <= innerWidth && m.bottom <= innerHeight, small: items.filter((b) => b.height < 40).length, rows: rows.size };
+    });
+    expect(fit).toEqual({ inside: true, small: 0, rows: 1 });
     // The hold opened nothing else: the comment isn't open for the other person.
     await menu(t).getByTestId("recolour-1").tap();
     await expect(menu(t)).toHaveCount(0);
