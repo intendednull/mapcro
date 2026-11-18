@@ -378,6 +378,11 @@ test("a long press in the comment being typed keeps the editor and its text, and
   const t = await touchEditor(browser, url, { width: 1440, height: 900 });
   const f = await fingers(browser, t);
   const co = t.locator(".mapbox [data-callout]");
+  // A tap opens it; its text then takes the double-click that edits it.
+  await f.press(1, await centre(co.locator(".bubble-body")));
+  await sleep(80);
+  await f.lift(1);
+  await expect(co).toHaveAttribute("data-open", "true");
   await co.locator("text").first().dblclick();
   const input = t.getByTestId("comment-input");
   await expect(input).toBeVisible();
