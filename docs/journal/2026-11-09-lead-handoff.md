@@ -3,6 +3,22 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Deployed 48cc8ad: TD-107, the long press on touch (2026-11-18, lead 9eb2516b)
+
+- **Prod `web` runs 48cc8ad** (infra 2335139). Store unchanged (v14, floor 12).
+- **What a coach gets:** in Select, a finger held still for 500 ms on or within 22 px of a comment,
+  arrow or stroke opens the right-click menu. Comments and arrows have No colour. Menus on touch
+  have 44 px rows and 40 px swatches.
+- **Review (Opus medium) caught a must-fix:** a long press inside the comment being typed closed
+  the editor and could delete the comment. Fixed, with a row shown to fail without the fix.
+- **Gate:** 525 e2e, VM, reader-check. Firefox had one failure, `phone-player.spec.ts` "phone
+  follows the presenter's replay time": it stalls 1 run in 8 on the branch and on main (TD-133).
+  The touch rows pass 8 of 8 in Firefox. Live check with emulated touch in Chromium: all true.
+- **Not checked:** a real phone. **The operator is asked to try a long press once in Firefox for
+  Android** (TD-130).
+- **Next:** phase 4's markers and bars (`ms-p4-markers`, reviewed, in its gate), then TD-117 and
+  debt (TD-118, TD-119).
+
 ## Deployed ba36854: map-state phase 4, tokens (2026-11-18 ~03:50 UTC, lead 9eb2516b)
 
 - **Prod `web` runs ba36854** (infra d07aaf9). The store is unchanged (v14, floor 12), so no
