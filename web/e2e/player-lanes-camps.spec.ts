@@ -110,6 +110,44 @@ test("lanes take the zipline colours: each team to its edge, the gap bare", asyn
   await a.screenshot({ path: "shots/lanes-synthetic.png" });
 });
 
+/** Where the lane's wave handle sits against the colours' gap, in screen pixels: its distance
+ * from the gap's middle (between the nearest Amber and Sapphire ends), and the gap's width. */
+const waveInGap = (p: Page, lane: string) =>
+  p.evaluate((lane) => {
+    const g = document.querySelector(`[data-testid=map] svg.lanes g[data-key="${lane}"]`)!;
+    const ends = (half: string) => {
+      const path = g.querySelector(`path[data-half="${half}"]`) as SVGPathElement;
+      const m = path.getScreenCTM()!;
+      return [0, path.getTotalLength()].map((l) => {
+        const q = path.getPointAtLength(l);
+        return new DOMPoint(q.x, q.y).matrixTransform(m);
+      });
+    };
+    let gap = { a: new DOMPoint(), b: new DOMPoint(), d: Infinity };
+    for (const a of ends("amber")) for (const b of ends("sapphire")) if (Math.hypot(a.x - b.x, a.y - b.y) < gap.d) gap = { a, b, d: Math.hypot(a.x - b.x, a.y - b.y) };
+    const c = document.querySelector(`[data-testid=wave-gap-${lane}]`)!.getBoundingClientRect();
+    return { off: Math.hypot(c.x + c.width / 2 - (gap.a.x + gap.b.x) / 2, c.y + c.height / 2 - (gap.a.y + gap.b.y) / 2), gap: gap.d };
+  }, lane);
+
+test("Player's lanes are the match's, the wave in their gap; a scene's are its own split (TD-97)", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Lane gap"), "Coach");
+  await open(a);
+  const mid = a.locator('[data-testid=map] svg.lanes g[data-key="lane4"]');
+  // The wave sits where the match's colours leave their gap, and moves with them.
+  for (const [t, amber] of [[20, "300"], [80, "600"]] as const) {
+    await scrubTo(a, t);
+    await expect(mid).toHaveAttribute("data-amber", amber);
+    const at = await waveInGap(a, "lane4");
+    expect(at.off, `the wave at ${t} s`).toBeLessThan(at.gap / 2);
+  }
+  // A scene draws its own split, never the open match's colours.
+  await revealControls(a, "mode-sandbox");
+  await a.getByTestId("mode-sandbox").click();
+  await expect(a.locator(".pl-topbar")).toHaveCount(0);
+  await expect(mid).toHaveAttribute("data-t", /^\d/);
+  await expect(a.locator("[data-testid=map] svg.lanes g[data-amber]")).toHaveCount(0);
+});
+
 test("camps show their state; when they come back shows only on hover", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Camps"), "Coach");
   await open(a);
