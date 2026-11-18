@@ -637,7 +637,7 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 .board-app .dock .toolbar .tb-sep { margin: 0 2px; }
 .pl-source { position: relative; }
 /* Over the replay prompt's map scrim (40): the source opens upward over the map, and the bar stays in use. */
-.pl-source .pl-head { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 41; width: 300px; flex-wrap: wrap; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 -8px 24px #0005; }
+.pl-source .pl-head { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 41; width: min(300px, calc(100cqi - 16px)); box-sizing: border-box; flex-wrap: wrap; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 -8px 24px #0005; }
 .pl-source .pl-head > .spacer { display: none; }
 .pl-scene-row { grid-column: 1 / -1; }
 .side { display: flex; flex-direction: column; }
@@ -653,7 +653,6 @@ svg[data-tool="select"] .pl-skull[data-recap] { pointer-events: auto; cursor: po
 }
 .p-map-wrap > .map-controls { position: relative; top: auto; bottom: auto; left: auto; right: auto; flex-wrap: wrap; margin: 0 0 8px; }
 @media (max-width: 800px) {
-  .pl-source .pl-head { max-width: calc(100vw - 44px); }
 }
 
 

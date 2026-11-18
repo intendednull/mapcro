@@ -145,8 +145,9 @@ export async function checkPhoneLayout(page: Page) {
   expect(report.portraits.length).toBe(12);
   expect(report.play).toBe(true);
   if (report.landscape) {
-    expect(t.h).toBeLessThanOrEqual(60);
-    expect(report.map.h).toBeGreaterThanOrEqual(report.height - (tablet ? 64 : 60));
+    // A phone keeps one row; a tablet has two, the lane over the keys centred on Play.
+    expect(t.h).toBeLessThanOrEqual(tablet ? 104 : 60);
+    expect(report.map.h).toBeGreaterThanOrEqual(report.height - (tablet ? 108 : 60));
     expect(report.rosterLeft).toBeGreaterThanOrEqual(report.map.right - 1);
     if (tablet) {
       expect(report.width - report.map.right).toBeGreaterThanOrEqual(300);
