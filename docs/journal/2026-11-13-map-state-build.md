@@ -3,6 +3,123 @@
 Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `docs/specs/map-state.md`
 (third revision). Review: `docs/specs/map-state-review.md`. Newest state at the top.
 
+## Phase 4, steps 2 and 3: the tokens on MapState, branch `ms-p4-tokens` (2026-11-17, eleventh implementer)
+
+**Outcome: built and checked; not merged, not deployed.** One release, off main bb122d8. No
+store, schema or view-state change (no `just ts` change, no new rows). The code is `10f98f3`
+and `e3b86b7`; the tests before and after it; the docs on top.
+
+**What a coach sees:** nothing new, by design. Old scenes, saved scenes, hand-made scenes and
+Player draw their heroes as before (the DOM pins pass unchanged: no pin moved). The one decided
+change, the operator's "a scene under Show last seen draws only the faded hero", has nothing to
+act on yet: no scene holds each team's sight until phase 5, so a scene's faded hero is still the
+one marked out of sight by hand, the same with Show last seen on or off. The rule now holds in
+the code for when it does.
+
+**Steps, in order**
+
+1. **TD-97's four e2e gaps, as characterisation, on the old code** (`a270cda`, `65a9c5f`,
+   `fe99b94`; run against `fe99b94`, the tests only, before any code changed): base green, and
+   each wiring mutant caught by the assertion meant for it:
+   - lanes' colours gated on Player (`laneEdges` without `inPlayer()`): caught by "Player's
+     lanes are the match's…", a scene has no `data-amber`;
+   - `splitOf` ignoring the match's edges in Player: caught there, the wave handle in the
+     colours' gap at 20 s and 80 s (`waveInGap`, screen pixels);
+   - the portrait level 30 s late and 30 s early: caught by `player-stats.spec.ts`, a level that
+     rises at 35 s (5, 5 at 34 s, 7 at 36 s);
+   - the phone's All builds rows asked at 0 s: already caught by `ad60722`'s icon counts (it
+     landed minutes before TD-97 was written); asked 30 s late: caught by the new read of one
+     row at 8 s and 20 s (Lifesteal, then the Infuser).
+   - Also characterised: "in a scene, a hero out of sight is only faded where it stands…"
+     (`player-vision.spec.ts`), green on the old code.
+2. **Board.tsx:** `mapState()` is `inPlayer() ? matchState : sceneState`. `splitOf` reads
+   `mapState().lane(key).split()` (another editor's drag still only off Player), and the lanes'
+   colours `mapState().lane(key).edges()`: a scene's are empty (not captured), so the Player
+   gate is the producer's now. `tokenFrame` hands the tokens the frame, `inPlayer`, the
+   viewer's choices and whether playback is continuous.
+3. **Tokens.tsx:** each slot reads `HeroState` and `heroDraw` in both modes. Player: the hero
+   under the viewer's choices is `playerHero` (`shown.ts`), what `previewAt` gave the slot;
+   `shown.test.ts` compares the two for every slot, the dead included, at 41 times on both tiers
+   under six Vision views and two sets of layers. A scene: D2's hero (`HeroState.hero`), D1's
+   names (`HeroState.name`: its own, the board's typed name, then `sceneMatchName`), D4's dark
+   token and respawn label (`alive`, `respawn`), D3/D5's fade (`heroDraw`), placed is
+   `last != null`. Records are read only to edit (drag, K, the respawn input) and for which slots
+   the scene has. `heroDraw`'s `faded` has no ghost now; `shown.test.ts` flipped (operator
+   rule). `Layers.tsx` passes `frame` instead of `preview` and `matchName`.
+
+**Checks** (scripts `/tmp/msp4/job.sh`, `job2.sh`; summaries `/tmp/msp4/run/summary`,
+`/tmp/msp4/run2/summary`; all through `tools/heavy.sh`):
+
+| Check | Result |
+|---|---|
+| (The whole-suite runs below are at `12cdb3c`; `e3b86b7` and `6645298` came after, checked by `tsc`, `shown.test.ts` and the last row) | |
+| Quick e2e first (dom pins, vision, lanes, names, scene-hero, heroes-live, stats) | 31 passed, 1 skipped; the pins unchanged |
+| `just web-test` | 0: 79 files, 850 passed, 1 skipped; `tsc` clean; tree unchanged after `just ts` |
+| `just e2e --workers 2` | 514 passed, 16 skipped, 1 failed: `caddy-timeline.spec.ts` (a cached timeline's ETag through Caddy; nothing here touches it); it passed alone at the tip (`job2.sh`). The two `✘` of `frozen-write-guard` are its `test.fail()` |
+| `just e2e-firefox --workers 2` | 0: 29 passed, 2 skipped |
+| `just clippy` | 0 |
+| `just test` | 0: 564 passed, 0 failed, 20 ignored; both simulations 1000 seeds × 400 steps; `reader-check`: 40 boards, 10,819 transactions byte for byte |
+| The strengthened specs again, at the tip (`job2.sh`) | 0: 60 passed, 1 skipped (lanes, vision, scene-builds, dom pins, names, scene-hero, heroes-live, caddy-timeline, phone-player) |
+
+**Mutants**
+
+- TD-97 (on `fe99b94`, old code): 7 of 7 caught (above).
+- Vitest on `shown.ts` (`shown.test.ts`): 14; 12 caught; 2 equivalent: `has("health")` in
+  `playerHero` (the frame holds no health on the metadata tier, so the gate was redundant: removed,
+  `e3b86b7`), and `!== "seen"` for `=== "hidden"` (Player never gets `faded`).
+- E2e on the wiring (Tokens, Board), each on its own build: 17. 12 caught at once. Of the 5
+  missed, 4 were gaps and got a test (`6645298`), then all 4 caught: another editor's split drag shown in Player, a scene's tokens drawing Player's hero (its health arc), the echo after a seek, the ghost's how-long-ago not counting on. So 16 of 17 caught. The fifth is not
+  equivalent and stays missed: Player's token `alive` from the second's sample instead of
+  "drawn means alive" (`live() || h().alive()` → `h().alive()`). (Lead, from the review: not
+  "within a second of a death"; both sides read `x[floor(t)]`, so for a hero drawn where it
+  stands they agree. They differ only for a ghost: Vision, Last seen on, a hero whose `x` is null
+  with no recorded death in `seenFrom`'s window, which real data has (a revived death dropped by
+  `derive.rs` `revived`, a pawn out of the recording). The current code draws a plain ghost there,
+  as main does; the mutant would draw it dark. A fixture with `x` null for 2 s and no `deaths`
+  entry, out of sight under Vision with Last seen on, would catch it. A fractional respawn would
+  not; the fixture's `[5, 7.5]` already has one.)
+
+**The walkthrough** (Chromium; this build's server and client on port 8198 over a temp data dir
+holding the reference replay's cached timeline and the local packs; `/tmp/msp4-qa/run.sh`,
+`walk.mjs`, log `/tmp/msp4/run/walk.log`; counts and booleans only):
+
+- Player at 12:00 on 129738985: 10 drawn under All, no ghosts; the King's view with Last seen
+  off 9, on 10 (1 ghost, its label says Seen): Last seen adds exactly the ghosts. Back in Player
+  later: the same; Last seen off, 0 ghosts.
+- Save: the saved scene draws 12 (2 dead, dark, with 2 respawn labels), 0 faded, 0 ghosts, 0
+  `data-seen`, 0 echoes; the same DOM with Last seen off. Its 10 heroes drawn in both have the
+  match's portraits (D2) and names (D1); 0 placeholder names. One marked out of sight: 1 faded
+  where it stood, 0 ghosts, 0 echoes, the same with Last seen off.
+- The hand-made scene: 12 drawn, none dead, faded or ghost, the same with Last seen off; its 10
+  compared names are the open match's (D1, no source).
+- An old scene (the oldest-shapes file plus a pre-snapshot save from this match): 11 drawn (one
+  unplaced), 2 dead with respawn labels, 1 faded, 0 ghosts; the same with the match open under
+  the King's view, Last seen on or off; 11 typed names; 0 page errors.
+
+**Decisions for the lead**
+
+1. **Health arcs on a scene's tokens: not drawn.** A scene saved from the replay holds each
+   hero's health, and Player draws it as an arc under Health. Phase 4 ships decided changes only,
+   so the token keeps the arc Player's; `scene-builds.spec.ts` now pins that. Drawing it is a
+   small change in `Tokens.tsx` (the arc reading `HeroState.health` under Health); say if it should.
+2. **A scene's own name (`more.name`) wins on the token** (D2's order, as `fromScene` reads it).
+   Nothing writes it yet; the scene's top bar still ignores it (TD-120, step 4).
+3. The e2e mutant left missed (`alive` from the sample, above). Lead: accepted for now; the
+   fixture that catches it is described above (a gap in `x` with no death, a ghost under Vision).
+
+**New debt:** TD-120 (the scene bar's names against the token's). TD-97: done.
+
+**Lead, from the review (no blocker):** the operator's faded-only rule can't be reached in the
+page yet: a scene's `has("sight")` is false until phase 5, so `heroDraw` takes the legacy branch
+and the new e2e row "in a scene, a hero out of sight is only faded" also passes on main. Only
+`shown.test.ts` holds the rule. When phase 5 gives scenes sight, add an e2e row with Last seen on
+and per-team sight.
+
+**Next:** phase 4 step 4 (markers on `marker(key)`, the two bars, `RiftRings`, `UrnMark`,
+`DeathSkulls`, `MarkerTips`), nothing started. Found at the boundary, not done: the markers'
+status still comes from `sceneState` directly (`markerStates`), and `matchPreview` is still
+computed every frame for the rest of the map's Player readers.
+
 ## D2's writer, store v14: branch `d2-writer` (2026-11-16, tenth implementer)
 
 **Outcome: built and checked; not merged, not deployed.** `has_heroes` is `Live`, the store

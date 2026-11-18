@@ -23,7 +23,7 @@ import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type FollowTarget, type ViewRect, clampView, fromViewport, locate, presenters, sideOf, startFollow, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
-import { fromTimeline, markerFrame, playerFrame } from "../mapstate/state";
+import { type MapState, fromTimeline, markerFrame, playerFrame } from "../mapstate/state";
 import type { MatchPreview } from "../match/preview";
 import { EventPings, Highlight, MapControls, Player, PlayerSide, PlayerSwitch, TierChip, TrooperDots } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
@@ -48,6 +48,7 @@ import { openInAppHref } from "../core/applink";
 import { WINDOWS_APP_PORTABLE_URL, appUpdate, desktopAppLinks } from "../player/desktop";
 import { downloadBoard } from "../core/boardfile";
 import { Layers, calloutOrder } from "./Layers";
+import type { TokenFrame } from "./Tokens";
 import { FRESH_BOARD, randomRosterOps, sceneMatchName } from "./roster";
 import { fromScene, sceneRecords } from "../mapstate/scene";
 import { pickHeroOps } from "../mapstate/edit";
@@ -610,6 +611,11 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       () => scene()?.scene.source?.tier,
     ),
   );
+  /** The frame the map draws (map-state spec §6): Player's, computed from the match at t, or the
+   * open scene's, read from its records. One interface; a reader asks it the same in both. */
+  const mapState = (): MapState => (inPlayer() ? matchState : sceneState);
+  /** What the hero tokens draw: the frame and the viewer's choices over it. */
+  const tokenFrame: TokenFrame = { ms: mapState, player: inPlayer, shown: player.shown, smooth: () => inPlayer() && player.continuous() };
   /** The presenters in this board's room; and with them the session's on other tabs, whom the
    * chip offers too (sessions.md §9.3: a late joiner follows, and lands on the presenter's tab). */
   const presentersHere = createMemo(() => presenters(state.peerList(), state.myPeer(), followingHere()));
@@ -832,8 +838,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   const laneEdges = createMemo(() => {
     const m = new Map<string, () => { amber: number; sapphire: number } | undefined>();
     for (const l of p.art.model.lanes) {
-      // The lane's own field: it changes when the colours move, not each frame.
-      const edges = () => (inPlayer() ? matchState.lane(l.key).edges() : undefined);
+      // The lane's own field: it changes when the colours move, not each frame. A scene holds
+      // no colours yet (`has("lanes")` is false there): its split draws instead.
+      const edges = () => mapState().lane(l.key).edges();
       const amber = easedNumber(() => edges()?.amber);
       const sapphire = easedNumber(() => edges()?.sapphire);
       m.set(l.key, () => {
@@ -848,9 +855,9 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
     const mine = waveDrag();
     if (mine?.key === key) return mine.t;
     const lane = p.art.model.lanes.find((l) => l.key === key);
-    // Player shows only the match's lanes (replay tier: the zipline colours, drawn by `laneEdges`;
-    // this is their gap's middle), never the scene's (spec §6b).
-    const split = inPlayer() ? matchState.lane(key).split() : (remoteSmooth().get(key)?.() ?? sceneState.lane(key).split());
+    // The frame's split: in Player the middle of the match's colours' gap (replay tier; drawn by
+    // `laneEdges`), never the scene's (spec §6b); in a scene its own, or another editor's drag.
+    const split = (inPlayer() ? undefined : remoteSmooth().get(key)?.()) ?? mapState().lane(key).split();
     return split ?? (lane ? defaultSplit(lane.line) : 500);
   };
 
@@ -1401,7 +1408,6 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 myColor={me()?.color ?? 0}
                 bindPing={(f) => (pingAt = f)}
                 focused={focused}
-                matchName={matchName}
                 onOpenHero={openHero}
                 onHeroMenu={(id, at) => heroMenu?.(id, at)}
                 svg={overlay}
@@ -1418,7 +1424,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 objSelection={objSelection}
                 setObjSelection={setObjSelection}
                 isOpen={isOpen}
-                preview={matchPreview}
+                frame={tokenFrame}
                 unitsPerPx={() => view().w / (mapPx() * 0.9)}
                 visible={view}
                 openComment={openComment}

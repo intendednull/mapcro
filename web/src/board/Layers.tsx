@@ -32,7 +32,6 @@ import { LANE_GAP } from "../map/MapView";
 import { groupToggleOps, marqueePick, toggleOps } from "./objectives";
 import { CARD, SIDES, bubble, cardBox } from "./commentLayout";
 import { ContextMenu, type MenuItem } from "../ui/ContextMenu";
-import type { MatchPreview } from "../match/MatchPanel";
 import type { Art } from "../map/pack";
 import { type Pt, type Viewpoint, clampShift, clampToBoard, clampToMap, mapToView, mapToWorld, viewToMap, viewToWorld, worldToMap, worldToView } from "../map/transform";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
@@ -43,7 +42,7 @@ import { type Placed, liveInk, moveStrokeOps, recolourOps, sideOps, strokePoints
 import { smoothed } from "./smooth";
 import type { BoardState } from "./state";
 import { type Tool, TOOLS } from "./tools";
-import { NameTag, Tokens, svgPoint } from "./Tokens";
+import { NameTag, type TokenFrame, Tokens, svgPoint } from "./Tokens";
 import { hoverHandle, hoveredHandle, registerHover } from "../map/HoverLabel";
 import { Cursors } from "./Presence";
 import { LIMITS } from "../gen/limits";
@@ -97,7 +96,8 @@ export function Layers(p: {
   /** Comments: whether one shows as its full card, and this person's open one. */
   isOpen: (id: RecordId) => boolean;
   openComment: () => RecordId | undefined;
-  preview?: (() => MatchPreview | undefined) | undefined;
+  /** What the hero tokens draw: the frame (Player's or the scene's) and the viewer's choices. */
+  frame: TokenFrame;
   /** Comments are drawn at screen size: view units per screen pixel, and the visible part of the map. */
   unitsPerPx: () => number;
   visible: () => { x: number; y: number; w: number };
@@ -107,8 +107,6 @@ export function Layers(p: {
   bindPing?: (ping: (at: WorldPos) => void) => void;
   /** A hero just focused ("Amber-0"), its token flashes; `n` restarts the flash. */
   focused?: () => { slot: string; n: number } | undefined;
-  /** In a scene, the open match's in-game name for a slot. */
-  matchName?: (team: string, slot: number) => string | undefined;
   /** Player: a hero token's single click opens its panel (player/HeroCard.tsx). */
   onOpenHero?: (team: string, slot: number, token?: Element) => void;
   /** A scene: a right click (no drag) on a hero's token opens its menu there (feedback #53). */
@@ -956,7 +954,7 @@ export function Layers(p: {
           />
         )}
       </Show>
-      <Tokens editing={p.editing} state={st} art={p.art} vp={p.vp} scene={p.tokenScene ?? p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} onPress={clearObjects} preview={p.preview} focused={p.focused} matchName={p.matchName} onOpen={p.onOpenHero} />
+      <Tokens editing={p.editing} state={st} art={p.art} vp={p.vp} scene={p.tokenScene ?? p.scene} tool={p.tool} k={p.k} svg={p.svg} selection={p.selection} setSelection={p.setSelection} onPress={clearObjects} frame={p.frame} focused={p.focused} onOpen={p.onOpenHero} />
       <For each={othersPicks()}>
         {(x) => (
           <g class="picks" data-picks={x.peer.state!.name} style={{ "pointer-events": "none" }}>

@@ -391,7 +391,8 @@ selects; the build opens from the portrait's build control in both. The phone la
     choices, as one `MatchPreview`); `markerFrame` is the markers' part of it, new once a second.
   - **Who reads it today:** the lanes' colours (`lane(key).edges`), the top bar's and the hero
     panel's "out of sight" (`hero(slot).inSight`, the tenth's), the map's markers (the second's
-    part). The rest still read the adapter's frame until phase 4.
+    part), and from phase 4 the hero tokens (below). The rest still read the adapter's frame
+    until phase 4's step 4.
   - **A build column** is on the clocks too (`player/buildState.ts`): `buildAt` once a tenth
     (asked at the tenth's middle; a cooldown is shown in whole seconds and ends on a whole
     tenth, so every t of a tenth shows the same), the stats' input, level, K/A and max health
@@ -400,7 +401,10 @@ selects; the build opens from the portrait's build control in both. The phone la
     second (`match/save.ts`), the unfiltered facts Player computes (D9).
   - **A scene's state (phase 4, step 1, `web/src/mapstate/scene.ts`):** `fromScene(records)`
     gives the same interface from a scene's records (`sceneRecords(board, sceneId)` takes them
-    out of the board's state). Nothing draws from it yet.
+    out of the board's state). **Built (phase 4, steps 2 and 3):** `Board.tsx` holds one
+    `mapState()`, Player's state in Player and the scene's on a scene; the lanes (their split and
+    colours) and the hero tokens read it in both modes. The markers, the two bars, `RiftRings`,
+    `UrnMark`, `DeathSkulls` and `MarkerTips` still read the adapter or the records (step 4).
 
     | Field | In a scene |
     |---|---|
@@ -423,9 +427,20 @@ selects; the build opens from the portrait's build control in both. The phone la
     stored)` is Player's Vision logic for both producers: seen; a ghost where last seen, or
     not drawn (Player); faded where it stands (a scene). A scene with no sight data keeps the
     legacy meaning (D5). **With Show last seen location on, a scene draws only the faded hero,
-    with no last-seen marker** (operator, 2026-11-14, over the lead's earlier "both"). As
-    built, `heroDraw` still returns `{ as: "faded", ghost }`, pinned by `web/test/shown.test.ts`.
-    Change both when `Tokens.tsx` reads `heroDraw` (TD-97's trigger).
+    with no last-seen marker** (operator, 2026-11-14, over the lead's earlier "both"): built in
+    phase 4, `{ as: "faded" }` carries no ghost (`web/test/shown.test.ts`). Player still draws
+    the ghost where last seen.
+  - **The hero tokens (phase 4, `board/Tokens.tsx`):** a token reads its slot's `HeroState` and
+    `heroDraw` in both modes; the records only to edit them (a drag, K, the respawn time) and
+    for which slots the scene has. In Player `playerHero` (`shown.ts`) is the token's hero under
+    the viewer's choices, what `previewAt` gave the slot (`shown.test.ts` compares the two for
+    every slot, the dead included, at 41 times on both tiers under every choice). In a scene:
+    D2's hero (`more.hero` once the scene holds its heroes, else the roster's), D1's names (its
+    own, the board's typed name, then the source match's while it is the open match, or the open
+    match's for a scene with no source), D4's dark token and respawn time, and D3/D5's faded
+    hero. What stays Player's: the health arc, elevation, ziplines and CC (a scene captures none
+    of the last three yet; its health is held, but whether its token draws it is the lead's
+    call, so it doesn't), the ghost, the vision fades and the echo.
 - **The bound is on consumers:** a component reruns only when a value it reads changes. Each
   entity's fields are memos keyed by slot or marker with an equality check.
 - **A scene is static:** its `MapState` changes only when a record does.

@@ -162,6 +162,11 @@ test("each team's view shows its own heroes and the enemies in its sight; Show l
   await a.mouse.move(b.x + b.width / 2, b.y + 2);
   await expect(a.getByTestId("hover-label")).toHaveText(/Seen 0:10 ago$/);
   await a.mouse.move(5, 5);
+  // How long ago counts on with the match, the ghost where it was.
+  await scrubTo(a, 35);
+  await expect(ghost).toHaveAttribute("aria-label", /Seen 0:15 ago$/);
+  expect(await at(a, "Sapphire-0")).toEqual(all[20]!.s0);
+  await scrubTo(a, 30);
   await a.screenshot({ path: "/tmp/vision/synthetic-king-30.png" });
 
   // The Archmother's view: Amber 0 always seen; Amber 1 a ghost after 30 s, gone once it dies.
@@ -230,6 +235,41 @@ test("1 2 3 pick Hidden King, Archmother and All, each option showing its key; a
   await a.getByTestId("events-search").press("2");
   await expect(pick).toHaveValue("all");
   await expect(a.getByTestId("events-search")).toHaveValue("2");
+});
+
+test("in a scene, a hero out of sight is only faded where it stands, under any Vision, Show last seen location on or off", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Vision in a scene"), "Coach");
+  await a.emulateMedia({ reducedMotion: "reduce" });
+  // The scene marks Sapphire 0 out of sight (its portrait's menu).
+  await a.locator('.tb-player[data-slot="Sapphire-0"]:visible').click({ button: "right" });
+  await a.getByTestId("hero-menu-vision").click();
+  await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-visible", "false");
+  const tokens = a.locator("[data-testid=map] .tok[data-slot]");
+  const placed = await tokens.count();
+  const stands = await at(a, "Sapphire-0");
+  // Player, the King's view with Show last seen location: at 25 s it's a ghost where last seen.
+  await open(a);
+  await a.getByTestId("vision-select").selectOption("amber");
+  await a.getByTestId("last-seen-toggle").click();
+  await scrubTo(a, 25);
+  await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-seen", "false");
+  await revealControls(a, "mode-sandbox");
+  await a.getByTestId("mode-sandbox").click();
+  await expect(a.locator(".pl-topbar")).toHaveCount(0);
+  for (const lastSeen of ["true", "false"]) {
+    await expect(a.getByTestId("last-seen-toggle")).toHaveAttribute("aria-pressed", lastSeen);
+    // Faded where it stands, its eye struck through; no ghost and nothing where it was last seen.
+    await expect(tok(a, "Sapphire-0")).toHaveClass(/\bghost\b/);
+    await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-visible", "false");
+    await expect(tok(a, "Sapphire-0").getByTestId("unseen-mark")).toHaveCount(1);
+    await expect(tok(a, "Sapphire-0")).not.toHaveAttribute("aria-label", /Seen/);
+    expect(await at(a, "Sapphire-0")).toEqual(stands);
+    await expect(tokens).toHaveCount(placed);
+    await expect(a.locator("[data-testid=map] [data-echo], [data-testid=map] .tok[data-seen]")).toHaveCount(0);
+    // Every other hero as it is.
+    await expect(a.locator('[data-testid=map] .tok[data-visible="false"]')).toHaveCount(1);
+    if (lastSeen === "true") await a.getByTestId("last-seen-toggle").click();
+  }
 });
 
 test("a ghost eases in and out, and jumps under reduced motion", async ({ browser }) => {
@@ -516,6 +556,21 @@ test("a seek, even while playing, snaps the view without a fade", async ({ brows
   });
   await expect(tok(a, "Sapphire-0")).toHaveCount(1, { timeout: 100 });
   expect(await watched).toBe(false);
+  // With Show last seen location, a seek from its ghost to where it is seen again leaves no
+  // echo of the ghost fading out where it was.
+  await a.getByTestId("last-seen-toggle").click();
+  await a.getByTestId("match-time").evaluate((el) => {
+    (el as HTMLInputElement).value = "25";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-seen", "false");
+  const echoes = watchFades(a, "[data-testid=map] [data-echo]", 1500);
+  await a.getByTestId("match-time").evaluate((el) => {
+    (el as HTMLInputElement).value = "47";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-seen", "true", { timeout: 500 });
+  expect(await echoes).toBe(false);
 });
 
 test("under reduced motion a hero leaves and enters sight at once", async ({ browser }) => {

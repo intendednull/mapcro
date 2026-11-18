@@ -76,7 +76,7 @@ test.afterAll(() => {
 
 const range = <T,>(f: (s: number) => T) => Array.from({ length: N + 1 }, (_, s) => f(s));
 
-/** Every hero: level 5 from 10 s, a vitality item at 5 s and a weapon item at 12 s, a statue
+/** Every hero: level 5 from 10 s and 7 from 35 s, a vitality item at 5 s and a weapon item at 12 s, a statue
  * pickup (+20 health, +3% weapon) at 20 s; the recorded max health is 777 from the spawn. */
 function timeline(id: string, build: number) {
   return {
@@ -86,7 +86,7 @@ function timeline(id: string, build: number) {
         team, slot, hero_id: 1 + slot, name: null,
         x: range(() => slot * 1500 - 4000), y: range(() => (team === "amber" ? -3000 : 3000)),
         health: range(() => 100), deaths: [], respawn: [], souls: [[0, 500]], ult: range(() => 0), seen: [],
-        level: [[0, 1], [10, 5]], max_health: [[0, 777]], kills: [[0, 0]], assists: [[0, 0]],
+        level: [[0, 1], [10, 5], [35, 7]], max_health: [[0, 777]], kills: [[0, 0]], assists: [[0, 0]],
         pickups: [[20, [20, 0, 3, 0, 0]]],
         items: [[50, VIT, 0], [120, WEAPON, 0]], abilities: [], casts: [], charges: [], cc: [], effects: [], recaps: [],
       })),
@@ -168,6 +168,13 @@ test("the scoreboard shows the build's calculated stats from its own patch's tab
   await scrubTo(a, 11);
   await expect(c.getByTestId("stat-max-health")).toContainText("1081");
   await expect(c.getByTestId("stat-weapon-damage")).toHaveText("0%");
+  // The portrait's level is the scoreboard's at this second: 5 until 35 s, then 7 (TD-97).
+  const level = a.locator('.tb-player[data-slot="Amber-0"] [data-testid=tb-level]');
+  await expect(level).toHaveText("5");
+  await scrubTo(a, 34);
+  await expect(level).toHaveText("5");
+  await scrubTo(a, 36);
+  await expect(level).toHaveText("7");
 });
 
 test("a build no table covers shows — and the recorded max health", async ({ browser }) => {

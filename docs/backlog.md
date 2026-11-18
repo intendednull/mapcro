@@ -20,12 +20,14 @@ what it is, and what it depends on.
 
 ## A scene under Show last seen draws only the faded hero (2026-11-14, operator decision)
 
-When a saved scene's tokens start reading `heroDraw` (map-state phase 4, `Tokens.tsx`; TD-97's
-four specs land with it), a hero out of the viewer's sight is drawn faded where it stands, and
-**no last-seen marker is drawn, even with Show last seen location on**. Today `heroDraw`
-(`web/src/mapstate/shown.ts:42-48`) returns `{ as: "faded", ghost }`, and `web/test/shown.test.ts`
-pins the ghost. Drop the ghost for a scene and flip those expectations. Spec map-state.md §6
-says so.
+**Built (map-state phase 4, branch `ms-p4-tokens`, 2026-11-17), not yet merged.** A saved
+scene's tokens read `heroDraw`: a hero out of the viewer's sight is drawn faded where it
+stands, and no last-seen marker is drawn, even with Show last seen location on. `heroDraw`'s
+`{ as: "faded" }` carries no ghost now, and `web/test/shown.test.ts` says so; Player still
+draws the ghost where last seen. No scene holds each team's sight yet (phase 5), so today the
+fade is the legacy one: a hero marked out of sight by hand, faded for every viewer.
+`player-vision.spec.ts` holds it in the page ("in a scene, a hero out of sight is only
+faded…"). Close this item at the merge.
 
 ## Speed on a phone held upright is still the list (2026-11-14, from feedback-56-60; for mobile-defaults)
 
