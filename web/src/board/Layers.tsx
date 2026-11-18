@@ -9,7 +9,8 @@
 //   Erase    click or scrub over ink, arrows and callouts  → one transaction of deletes
 //
 // A right click (no drag) on a placed comment, arrow or stroke opens its menu (editors): a
-// comment's side (feedback #59) and a colour for any of the three (feedback #60).
+// comment's side (feedback #59) and a colour for any of the three (feedback #60). On touch, in
+// Select, a long press on it does (TD-107, longPress.ts).
 //
 // Layer order (design/parity/README.md, layer 10): arrows, ink and callouts, drag ghosts, hero
 // tokens, then lasers, cursors and name tags.
@@ -17,6 +18,7 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type Signal } from "solid-js";
 import { capture } from "../ui/capture";
 import { touchGestures } from "./touchGestures";
+import { longPress, reachPoints, swallowLiftClick } from "./longPress";
 import { PALETTE, colorOf, inkOn } from "../core/device";
 import type { Arrow } from "../gen/Arrow";
 import type { Callout } from "../gen/Callout";
@@ -548,12 +550,58 @@ export function Layers(p: {
         },
       }),
     );
+    // Back to no colour (a comment's own, an arrow's team's): a stroke's ink always has one.
+    if (m.kind !== "Stroke")
+      items.push({
+        label: "No colour",
+        testid: "recolour-none",
+        get checked() {
+          return colour() == null;
+        },
+        run: () => {
+          const ops = recolourOps(m.kind, m.id, colour(), null);
+          if (ops.length) st.edit(ops);
+        },
+      });
     return <ContextMenu at={m.at} label={m.kind === "Callout" ? "Comment" : m.kind === "Arrow" ? "Arrow" : "Drawing"} testid="placed-menu" items={items} onClose={() => setMenu(undefined)} />;
+  };
+
+  // A finger held still on or beside a placed thing (Select): the gesture it started (a drag, a
+  // tap that opens a comment) ends uncommitted, as a pinch ends it, and the menu opens there. Only
+  // what is on top at each point counts, so nothing is found through a hero or a sheet.
+  let holding: (() => void) | undefined;
+  onCleanup(() => holding?.());
+  const placedNear = (svg: SVGSVGElement, x: number, y: number) => {
+    for (const q of reachPoints(x, y)) {
+      const el = document.elementFromPoint(q.x, q.y);
+      const placed = el && svg.contains(el) ? placedAt(el) : undefined;
+      if (placed) return placed;
+    }
+    return undefined;
+  };
+  const hold = (e: PointerEvent) => {
+    holding?.();
+    const at = { x: e.clientX, y: e.clientY };
+    holding = longPress(e, () => {
+      holding = undefined;
+      const svg = p.svg();
+      // Not while a comment is being typed: the menu would take the focus, and the blur commits
+      // the text (an empty field deletes the comment).
+      if (!svg || p.tool !== "select" || !editor() || editing()) return;
+      const placed = placedNear(svg, at.x, at.y);
+      if (!placed) return;
+      svg.dispatchEvent(new PointerEvent("pointercancel", { pointerId: e.pointerId, pointerType: "touch", bubbles: true, clientX: at.x, clientY: at.y }));
+      swallowLiftClick(e.pointerId);
+      setMenu({ ...placed, at });
+    });
   };
 
   const down = (e: PointerEvent) => {
     const svg = p.svg();
     if (!svg) return;
+    // A hero, a death skull, a wave's handle and the comment being typed keep their own press,
+    // whatever lies beside them.
+    if (e.pointerType === "touch" && e.button === 0 && p.tool === "select" && !(e.target as Element).closest?.(".tok, .pl-skull, .wave-hit, .co.editing")) hold(e);
     // A press anywhere but on a comment closes the open one.
     const onComment = (e.target as Element).closest?.("[data-callout]")?.getAttribute("data-callout");
     if (!onComment) p.setOpenComment(undefined);
