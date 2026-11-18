@@ -8,8 +8,9 @@ import { defineConfig, devices } from "@playwright/test";
 // Chromium, so the specs' geometry holds in both. Specs that use a Chromium-only API skip
 // themselves there with the reason (`test.skip(browserName === "webkit", …)`).
 //
-// Firefox is opt-in too (`just e2e-firefox`, MAPCRO_E2E_FIREFOX=1): the phone specs only, for
-// Firefox for Android (the operator's browser: about 344 × 615 CSS px at a pixel ratio near 4.2).
+// Firefox is opt-in too (`just e2e-firefox`, MAPCRO_E2E_FIREFOX=1): the phone specs (and
+// touch-menu's) only, for Firefox for Android (the operator's browser: about 344 × 615 CSS px
+// at a pixel ratio near 4.2).
 // Playwright's Firefox has no `isMobile`, so a phone there is a viewport and `hasTouch`
 // (e2e/phone-layout.ts, `phoneContext`) plus these prefs: the pointer is coarse, as Android's is,
 // so the tablet sizes get the touch layout as well, and every page is drawn at 4.2 device px per
@@ -29,7 +30,7 @@ export default defineConfig({
     { name: "chromium", use: { ...devices["Desktop Chrome"], ...desktop } },
     ...(process.env.MAPCRO_E2E_WEBKIT ? [{ name: "webkit", use: { ...devices["Desktop Safari"], ...desktop, deviceScaleFactor: 1 } }] : []),
     ...(process.env.MAPCRO_E2E_FIREFOX ? [{
-      name: "firefox", testMatch: /phone(-player)?\.spec\.ts$/,
+      name: "firefox", testMatch: /(phone(-player)?|touch-menu)\.spec\.ts$/,
       use: { ...devices["Desktop Firefox"], ...desktop, launchOptions: { firefoxUserPrefs: FIREFOX_PHONE } },
     }] : []),
   ],

@@ -87,6 +87,27 @@ it("an arrow, a comment and a stroke are recoloured, seen by the other, and one 
   [a, b].forEach((s) => s.stop());
 });
 
+it("a comment and an arrow go back to no colour, seen by the other, and one undo puts the colour back; a stroke has none", async () => {
+  const { a, b, ids } = await board();
+  for (const kind of ["Arrow", "Callout"] as const) {
+    const ops = recolourOps(kind, ids[kind], 1, null);
+    expect(ops).toHaveLength(1);
+    a.edit(ops);
+    expect(await settled(a)).toBe(true);
+    expect(await until(() => body(b, ids[kind], kind) !== undefined && body(b, ids[kind], kind)!.color == null)).toBe(true);
+    // No colour already: nothing to send, stored as null or as before colours (absent).
+    expect(recolourOps(kind, ids[kind], null, null)).toEqual([]);
+    expect(recolourOps(kind, ids[kind], undefined, null)).toEqual([]);
+    a.undo();
+    expect(await settled(a)).toBe(true);
+    expect(await until(() => body(b, ids[kind], kind)?.color === 1)).toBe(true);
+  }
+  // A stroke's ink always has a colour.
+  expect(recolourOps("Stroke", ids.Stroke, 1, null)).toEqual([]);
+  expect(a.status.kind).toBe("saved");
+  [a, b].forEach((s) => s.stop());
+});
+
 it("a comment moves to each side and back above, where it's stored as before sides", async () => {
   const { a, b, ids } = await board();
   const id = ids.Callout;

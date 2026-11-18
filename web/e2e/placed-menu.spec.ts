@@ -67,7 +67,7 @@ test("a comment's side and a placed thing's colour, from its right-click menu, f
   await comment(a).locator(".bubble-body").click({ button: "right" });
   await expect(menu(a)).toBeVisible();
   await expect(menu(a)).toHaveAttribute("aria-label", "Comment");
-  await expect(menu(a).getByRole("menuitemradio")).toHaveCount(4 + 7);
+  await expect(menu(a).getByRole("menuitemradio")).toHaveCount(4 + 7 + 1);
   await expect(menu(a).getByRole("menuitemradio").first()).toBeFocused();
   for (const [side, on] of [["above", "true"], ["below", "false"], ["left", "false"], ["right", "false"]]) await expect(menu(a).getByTestId(`comment-side-${side}`)).toHaveAttribute("aria-checked", on!);
   // The comment's colour (the placer's palette colour) is marked, and only it.
@@ -103,7 +103,7 @@ test("a comment's side and a placed thing's colour, from its right-click menu, f
   for (const p of [a, b]) await expect.poll(() => css(comment(p).locator(".bubble-body"), "fill")).toBe(LIME);
   await a.locator(`.mapbox [data-arrow="${arrow}"] .arw`).click({ button: "right" });
   await expect(menu(a)).toHaveAttribute("aria-label", "Arrow");
-  await expect(menu(a).getByRole("menuitemradio")).toHaveCount(7);
+  await expect(menu(a).getByRole("menuitemradio")).toHaveCount(7 + 1);
   await menu(a).getByRole("menuitemradio", { name: "Ice" }).click();
   for (const p of [a, b]) {
     await expect.poll(() => css(p.locator(`.mapbox [data-arrow="${arrow}"] .arw`), "stroke")).toBe(ICE);
@@ -145,6 +145,52 @@ test("a comment's side and a placed thing's colour, from its right-click menu, f
   await a.keyboard.press("Escape");
   await expect(menu(a)).toHaveCount(0);
   await expect(comment(b)).toHaveAttribute("data-side", "Left");
+});
+
+test("No colour: a recoloured comment and arrow go back to none, for everyone, and one undo puts the colour back; a drawing has none", async ({ browser }) => {
+  const url = await newBoardUrl(server, "no colour");
+  const a = await joinNew(browser, url, "Coach");
+  const b = await joinNew(browser, url, "Marrow");
+  const { arrow, stroke } = await placeAll(a);
+  const arw = (p: Page) => p.locator(`.mapbox [data-arrow="${arrow}"] .arw`);
+  // The comment: coloured (the placer's colour), then No colour, after the swatches.
+  await comment(a).locator(".bubble-body").click({ button: "right" });
+  await expect(menu(a).getByTestId("recolour-none")).toHaveAttribute("aria-checked", "false");
+  await expect(menu(a).locator(".ctx-swatches [data-testid='recolour-none']")).toHaveCount(0);
+  await expect(menu(a).getByTestId("recolour-none")).toHaveText("No colour");
+  await menu(a).getByTestId("recolour-none").click();
+  for (const p of [a, b]) await expect(comment(p)).not.toHaveClass(/tinted/);
+  await comment(a).locator(".bubble-body").click({ button: "right" });
+  await expect(menu(a).getByTestId("recolour-none")).toHaveAttribute("aria-checked", "true");
+  await expect(menu(a).locator('[aria-checked="true"]')).toHaveCount(2); // Above, and No colour
+  await a.keyboard.press("Escape");
+  // The arrow: Ice, then No colour: drawn as before colours (no colour of its own).
+  await arw(a).click({ button: "right" });
+  await menu(a).getByTestId("recolour-4").click();
+  for (const p of [a, b]) await expect.poll(() => css(arw(p), "stroke")).toBe(ICE);
+  await arw(a).click({ button: "right" });
+  await menu(a).getByTestId("recolour-none").click();
+  for (const p of [a, b]) {
+    await expect.poll(() => css(arw(p), "stroke")).not.toBe(ICE);
+    await expect(arw(p)).not.toHaveAttribute("style", /stroke/);
+  }
+  await expect(a.getByTestId("dismiss-rejection")).toHaveCount(0);
+  // One undo: Ice again, for both; redo: none again.
+  await a.keyboard.press("Control+z");
+  for (const p of [a, b]) await expect.poll(() => css(arw(p), "stroke")).toBe(ICE);
+  await a.keyboard.press("Control+Shift+z");
+  for (const p of [a, b]) await expect(arw(p)).not.toHaveAttribute("style", /stroke/);
+  // A drawing's ink always has a colour: no No colour.
+  await a.locator(`.mapbox [data-stroke="${stroke}"] path.ink`).click({ button: "right" });
+  await expect(menu(a)).toHaveAttribute("aria-label", "Drawing");
+  await expect(menu(a).getByTestId("recolour-none")).toHaveCount(0);
+  await expect(menu(a).getByRole("menuitemradio")).toHaveCount(7);
+  await a.keyboard.press("Escape");
+  await expect(a.getByTestId("save-status")).toHaveAttribute("data-state", "saved");
+  // Kept: B reloads and sees both without colour.
+  await b.reload();
+  await expect(comment(b)).not.toHaveClass(/tinted/);
+  await expect(arw(b)).not.toHaveAttribute("style", /stroke/);
 });
 
 test("each side places the bubble and the card on that side of the spot; a viewer gets no menu", async ({ browser }) => {
