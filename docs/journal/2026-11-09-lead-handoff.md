@@ -3,6 +3,27 @@
 Written by the lead before compacting its session, for whoever leads next (including itself after
 compaction). The newest state is at the top; the history is in git and the other journal entries.
 
+## Resumed (2026-11-18 ~00:20 UTC, lead 9eb2516b)
+
+The operator lifted the pause (via the concierge). Astra's `player-transport` still waits on the
+operator's two questions; don't merge it. Running:
+
+- **Map-state phase 4, steps 2 and 3:**
+  - TD-97's four e2e gaps first;
+  - one `mapState()` in Board;
+  - `Tokens.tsx` on `HeroState` and `heroDraw`;
+  - the operator's faded-only rule.
+
+  Opus high, worktree `ms-p4-tokens`. Markers and bars are the next unit.
+- **TD-107** (long press for a placed thing's menu on touch) and "no colour" in that menu: Opus
+  medium, worktree `touch-menu`.
+- **TD-117:** desktop 0.2.4 (3e046c0, tag `desktop-v0.2.4`) carries the session-link parser.
+  After it has been out a while (the updater moves installs on launch), set
+  `APP_OPENS_SESSIONS = true`. Then `header.spec.ts` and `open-link.spec.ts` expect the session's
+  link, with the token checked as the viewer's own.
+
+Next after these: debt (TD-118, TD-119 first).
+
 ## PAUSED (2026-11-17 ~08:40 UTC, lead 9eb2516b): resume only when the operator says so
 
 The operator (via the concierge) asked to pause after this cycle's in-flight work. Both build
