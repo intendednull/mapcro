@@ -419,7 +419,7 @@ describe("Retake and the scene's heroes", () => {
     // A record that holds a build and no hero is still told its hero.
     const bare = whole.map((h) => { const { hero: _, ...more } = h.state.more!; return { ...h, state: { ...h.state, more } }; });
     const told = retakeOps(scene(4), state, bare, roster() as never, tl, minter(), LATER).flat();
-    expect(told.filter((o) => "Set" in o)).toHaveLength(bare.length);
+    expect(told.filter((o) => "Set" in o)).toEqual(bare.map((h, i) => ({ Set: { id: h.id, value: { More: { key: "hero", value: tl.players[i]!.hero_id } } } })));
     expect(told.filter((o) => "SetIf" in o && o.SetIf.id !== "state")).toEqual([]);
   });
 
