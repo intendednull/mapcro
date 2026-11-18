@@ -84,9 +84,9 @@ test("speed: − and + step through the five speeds, each disabled at its end, a
   await openMatch(a);
   const group = a.getByTestId("match-speed");
   const [down, up, now] = [a.getByTestId("speed-down"), a.getByTestId("speed-up"), a.getByTestId("speed-now")];
-  // No list any more: two buttons and the speed between them, in that order.
+  // No list on the desktop: the speed keys are the outer ends of the cluster around Play.
   await expect(a.getByTestId("match-speed-list")).toBeHidden();
-  expect(await group.evaluate((el) => [...el.children].map((c) => c.getAttribute("data-testid")))).toEqual(["speed-down", "speed-now", "speed-up"]);
+  expect(await a.locator(".pl-keys").evaluate((el) => [...el.querySelectorAll("button")].map((c) => c.getAttribute("data-testid")))).toEqual(["speed-down", "match-back", "match-play", "match-forward", "speed-up"]);
   await expect(now).toHaveText("1×");
   await expect(down).toBeEnabled();
   await expect(up).toBeEnabled();

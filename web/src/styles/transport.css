@@ -1,0 +1,223 @@
+/* Player's transport (spec §6b): the bar, the timeline lane and the keys, on the desktop's dock and
+   in the touch shell. The keys are one cluster mirrored around Play: slower, Back, Play, Forward,
+   faster. Play sits on the bar's centre line at every size: the rows beside it are two equal
+   columns, so what they hold can't push it off. */
+
+/* ---- The bar ---- */
+.pl-bar { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; width: 100%; padding: 8px 12px; box-sizing: border-box; background: var(--panel); border-top: 1px solid var(--line); }
+.pl-bar.scene { opacity: .92; background: color-mix(in srgb, var(--panel) 80%, transparent); }
+.pl-bar.scene .pl-scrub { opacity: .8; }
+.pl-transport { display: contents; }
+.pl-tail { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.pl-source > summary { white-space: nowrap; }
+.pl-source > summary:focus-visible, .pl-speed-list:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---- The keys ---- */
+.pl-keys { position: relative; display: flex; align-items: center; justify-content: center; }
+.pl-ico { width: 22px; height: 22px; fill: currentColor; flex: none; }
+.pl-play { justify-content: center; padding: 0; border-radius: 50%; background: var(--brass); border-color: var(--brass); color: #1b1408; }
+.pl-play:hover { background: color-mix(in srgb, var(--brass) 85%, #fff); }
+.pl-play:focus-visible { outline-color: var(--text); }
+.pl-play[data-playing=false]:not(.resume) .pl-ico { margin-left: 3px; }   /* a triangle's optical centre */
+.pl-play.resume { width: auto; border-radius: 999px; gap: 6px; font-size: 14px; }
+.pl-play-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.pl-play.resume .pl-play-word { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+.pl-skip, .pl-step { position: relative; justify-content: center; padding: 0; border-radius: 50%; color: var(--muted); }
+.pl-skip:hover, .pl-step:not([disabled]):hover { background: var(--raised); color: var(--text); }
+.pl-skip .pl-skip-arc { width: 30px; height: 30px; }
+.pl-skip-n { position: absolute; inset: 0; display: grid; place-items: center; padding-top: 2px; font: 700 11px var(--ui); font-variant-numeric: tabular-nums; letter-spacing: -.02em; pointer-events: none; }
+.pl-step { font-size: 17px; }
+/* The current speed: a tag on Play's foot, on the centre line, so no speed moves a key. */
+.pl-speed { position: absolute; left: 50%; bottom: -6px; z-index: 1; transform: translateX(-50%); pointer-events: none; }
+.pl-speed-now { display: block; height: 16px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--brass-dim); background: var(--bg-deep); color: var(--text); font: 700 11px / 14px var(--ui); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pl-speed-list { display: none; }
+
+/* ---- The timeline: --p is the played share (Player.tsx), --trk the track's thickness ---- */
+.pl-scrub { --trk: 6px; --thumb: 16px; position: relative; display: flex; align-items: center; min-width: 0; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.pl-scrub:hover, .pl-scrub:focus-within { --trk: 10px; }
+.match-range { -webkit-appearance: none; appearance: none; display: block; flex: 1; width: 100%; height: 24px; margin: 0; padding: 0; background: transparent; cursor: pointer; }
+.match-range:focus-visible { outline: none; }
+.match-range::-webkit-slider-runnable-track {
+  height: var(--trk); border-radius: 999px; transition: height .12s;
+  background: linear-gradient(to right, var(--accent) 0 var(--p, 0%), color-mix(in srgb, var(--text) 16%, transparent) var(--p, 0%));
+}
+.match-range::-moz-range-track { height: var(--trk); border-radius: 999px; background: color-mix(in srgb, var(--text) 16%, transparent); transition: height .12s; }
+.match-range::-moz-range-progress { height: var(--trk); border-radius: 999px; background: var(--accent); }
+.match-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: var(--thumb); height: var(--thumb); margin-top: calc((var(--trk) - var(--thumb)) / 2);
+  border: 0; border-radius: 50%; background: var(--text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent), 0 1px 4px #000a; transition: margin-top .12s;
+}
+.match-range::-moz-range-thumb {
+  width: var(--thumb); height: var(--thumb); border: 0; border-radius: 50%; background: var(--text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent), 0 1px 4px #000a;
+}
+.match-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--brass), 0 1px 4px #000a; }
+.match-range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--brass), 0 1px 4px #000a; }
+
+/* Events and scenes above the track, inset by the lane's padding and half the thumb. */
+.pl-ticks { position: absolute; left: 18px; right: 18px; top: 13px; height: 8px; pointer-events: none; }
+.pl-marks { position: absolute; left: 18px; right: 18px; top: 3px; height: 10px; pointer-events: none; }
+/* A tick takes the pointer over a few px either side (::before); hovered it grows and shows its tag. */
+.pl-tick { position: absolute; bottom: 0; width: 2px; height: 8px; padding: 0; border: 0; border-radius: 1px; background: var(--faint); transform: translateX(-1px); cursor: pointer; pointer-events: auto; transition: height .1s, width .1s, transform .1s; }
+.pl-tick::before { content: ""; position: absolute; left: -3px; right: -3px; top: -3px; bottom: -2px; }
+.pl-tick:hover { z-index: 2; width: 4px; height: 14px; transform: translateX(-2px); }
+.pl-tick-tag { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); padding: 5px 11px; border-radius: 7px; background: #0b1714e6; border: 1px solid #ffffff33; color: #fff; font: 600 15px / 1.2 var(--ui); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 14px #0008; }
+.pl-tick:hover .pl-tick-tag { display: block; }
+.pl-tick.near-start .pl-tick-tag { left: -6px; transform: none; }
+.pl-tick.near-end .pl-tick-tag { left: auto; right: -6px; transform: none; }
+.pl-tick.death { background: var(--warn); }
+.pl-tick.objective, .pl-tick.mid_boss { background: var(--brass); }
+.pl-mark { position: absolute; width: 9px; height: 9px; transform: translateX(-50%) rotate(45deg); background: var(--brass); border: 1px solid #0008; padding: 0; cursor: pointer; pointer-events: auto; }
+.pl-mark:hover { background: #fff; }
+.pl-mark.current { background: var(--text); box-shadow: 0 0 0 2px var(--brass); }
+
+/* ---- The clock ---- */
+.match-clock { font: 600 13px var(--ui); font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
+
+/* ---- Desktop: the dock's bar ----
+   The lane across the whole bar, then the source, the keys and the clock with Save scene. The bar
+   holds its full height while a match loads, so the tools and the map don't jump when the timeline
+   arrives after the summary. */
+.board-app .stage > .dock > .pl-bar { min-height: 133px; align-content: start; }
+.board-app .dock > .pl-bar:has(> .pl-transport) {
+  display: grid; align-items: center; column-gap: 12px; row-gap: 0; padding: 10px 20px 12px;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-areas:
+    "scene scene scene"
+    "up up up"
+    "note note note"
+    "lane lane lane"
+    "src keys tail";
+}
+/* No row gap (the empty head rows would keep theirs): each row's items carry the space under it. */
+.board-app .dock > .pl-bar:has(> .pl-transport) > :is(.pl-scene-row, .pl-upload, .pl-notice) { margin-bottom: 8px; }
+.board-app .dock > .pl-bar > .pl-scene-row { grid-area: scene; }
+.board-app .dock > .pl-bar > .pl-upload { grid-area: up; }
+.board-app .dock > .pl-bar > .pl-notice { grid-area: note; }
+.board-app .dock > .pl-bar > .pl-source { grid-area: src; justify-self: start; min-width: 0; max-width: 100%; }
+.board-app .dock .pl-transport > .pl-keys { grid-area: keys; gap: 12px; }
+.board-app .dock .pl-transport > .pl-scrub { grid-area: lane; }
+.board-app .dock .pl-transport > .pl-tail { grid-area: tail; justify-self: end; }
+
+.board-app .dock .pl-bar .pl-source > summary { height: 44px; max-width: 100%; box-sizing: border-box; overflow: hidden; padding: 0 14px; font-size: 13px; border-radius: 12px; color: var(--muted); }
+.board-app .dock .pl-keys .pl-play { width: 56px; min-width: 56px; height: 56px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--brass) 14%, transparent), 0 2px 10px #0006; }
+.board-app .dock .pl-keys .pl-play .pl-ico { width: 28px; height: 28px; }
+.board-app .dock .pl-keys .pl-play.resume { width: auto; padding: 0 20px 0 16px; }
+.board-app .dock .pl-keys .pl-skip { width: 44px; height: 44px; border-color: var(--line); background: var(--panel); }
+.board-app .dock .pl-keys .pl-skip:hover { background: var(--raised); }
+.board-app .dock .pl-keys .pl-step { width: 40px; min-width: 40px; height: 40px; padding: 0; border-color: var(--line); background: transparent; font-size: 17px; }
+.board-app .dock .pl-keys .pl-step:not([disabled]):hover { background: var(--raised); }
+
+/* The lane: a recessed band, the track along its foot and the events and scenes above it. */
+.board-app .dock .pl-transport > .pl-scrub { height: 44px; margin-bottom: 10px; padding: 0 10px 2px; box-sizing: border-box; align-items: flex-end; border-radius: 12px; background: var(--bg-deep); border: 1px solid var(--line-soft); }
+/* The timecode: the time large and bright, the length small and muted, in a readout's well. */
+.board-app .dock .pl-transport .match-clock {
+  display: inline-flex; align-items: baseline; justify-content: center; gap: 3px; height: 44px; padding: 0 10px; box-sizing: border-box;
+  border-radius: 12px; background: var(--bg-deep); border: 1px solid var(--line-soft);
+  font: 700 17px / 42px var(--ui); color: var(--text);
+}
+.board-app .dock .match-clock .clock-of { font-size: 12px; font-weight: 600; color: var(--faint); }
+.board-app .dock .pl-transport [data-testid=match-save] { height: 44px; padding: 0 16px; font-size: 13px; border-radius: 12px; }
+
+/* Too narrow for one row: the keys take a centred row of their own, the rest goes under them. */
+@container dock (width < 840px) {
+  .board-app .stage > .dock > .pl-bar { min-height: 187px; }
+  .board-app .dock > .pl-bar:has(> .pl-transport) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "scene scene"
+      "up up"
+      "note note"
+      "lane lane"
+      "keys keys"
+      "src tail";
+  }
+  .board-app .dock .pl-transport > .pl-keys { margin-bottom: 10px; }
+}
+/* The centre column between both panels (800 to 820 px windows): the clock beside the source, which
+   is its match id here, and Save scene under them. */
+@container dock (width < 480px) {
+  .board-app .stage > .dock > .pl-bar { min-height: 234px; }
+  .board-app .dock > .pl-bar:has(> .pl-transport) {
+    column-gap: 8px; padding: 10px 12px 12px;
+    grid-template-areas:
+      "scene scene"
+      "up up"
+      "note note"
+      "lane lane"
+      "keys keys"
+      "src clock"
+      "save save";
+  }
+  .board-app .dock .pl-transport > .pl-scrub, .board-app .dock .pl-transport > .pl-keys { margin-bottom: 8px; }
+  .board-app .dock .pl-transport > .pl-keys { gap: 8px; }
+  .board-app .dock .pl-transport > .pl-tail { display: contents; }
+  .board-app .dock .pl-transport .match-clock { grid-area: clock; justify-self: end; margin-bottom: 8px; padding: 0 8px; font-size: 16px; }
+  .board-app .dock > .pl-bar > .pl-source { margin-bottom: 8px; }
+  .board-app .dock .pl-transport [data-testid=match-save] { grid-area: save; justify-self: stretch; padding: 0 12px; }
+  /* The word stays for a screen reader. */
+  .board-app .dock .pl-source-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .board-app .dock .pl-bar .pl-source > summary { padding: 0 10px; }
+}
+
+/* ---- Touch: the phone and tablet shell ----
+   Upright: the lane, then the speed list, Play and the clock, then the tabs. A phone upright has no
+   skip keys and picks its speed from the list (#58); wider screens have the whole cluster. */
+.phone-player .pl-bar {
+  grid-area: bar; z-index: 55; margin: 0; gap: 2px 8px; padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-areas: "scrub scrub scrub" "speed keys clock" "tail tail tail";
+  background: var(--bg-deep);
+}
+.phone-player .pl-bar > * { grid-column: 1 / -1; }
+.phone-player .pl-transport > .pl-keys { grid-area: keys; gap: 8px; }
+.phone-player .pl-transport > .pl-scrub { --trk: 8px; --thumb: 24px; grid-area: scrub; height: 44px; touch-action: none; }
+.phone-player .match-range { height: 44px; }
+.phone-player :is(.pl-ticks, .pl-marks) { display: none; }
+.phone-player .pl-keys .pl-play { width: 48px; min-width: 48px; height: 48px; }
+.phone-player .pl-keys .pl-play .pl-ico { width: 26px; height: 26px; }
+.phone-player .pl-keys .pl-play[data-playing=false]:not(.resume) .pl-ico { margin-left: 2px; }
+.phone-player .pl-keys .pl-play.resume { width: auto; padding: 0 14px 0 10px; gap: 4px; }
+.phone-player .pl-keys .pl-skip { display: none; width: 44px; height: 44px; border-color: transparent; background: transparent; }
+.phone-player .pl-skip .pl-skip-arc { width: 34px; height: 34px; }
+.phone-player .pl-skip-n { font-size: 12px; }
+.phone-player .pl-keys .pl-step { width: 44px; min-width: 44px; height: 44px; border: 1px solid var(--line); background: var(--raised); font-size: 18px; }
+.phone-player .pl-speed-list { grid-area: speed; justify-self: start; width: auto; height: 44px; min-width: 56px; padding: 0 10px; border-radius: 999px; font-weight: 700; background: var(--raised); }
+.phone-player .pl-transport > .pl-tail { grid-area: clock; justify-self: end; min-width: 0; margin: 0; }
+/* The clock takes what's left: one line where it fits, else the time over the length. */
+.phone-player .pl-tail .match-clock { flex: 0 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: .25em; font-size: 14px; font-weight: 700; line-height: 16px; }
+.phone-player .match-clock .clock-of { font-size: 12px; line-height: 14px; color: var(--muted); }
+.phone-player .pl-bar > .p-tail { grid-area: tail; justify-self: center; display: flex; gap: 0; }
+.phone-player .pl-bar > .p-rail { grid-area: tail; display: flex; align-items: center; gap: 0; min-width: 0; }
+/* The tool rail stands in for the tabs, and Play stays. */
+.phone-player .pl-bar:has(.p-rail) :is(.pl-step, .pl-speed, .pl-speed-list, .pl-skip, .pl-tail) { display: none; }
+
+@media (orientation: portrait) and (max-width: 480px) {
+  .phone-player .pl-keys :is(.pl-step, .pl-speed) { display: none; }
+  .phone-player .pl-bar:not(:has(.p-rail)) .pl-speed-list { display: block; }
+}
+@media (orientation: portrait) and (min-width: 600px) {
+  .phone-player .pl-bar:not(:has(.p-rail)) .pl-keys .pl-skip { display: inline-flex; }
+}
+
+/* On its side: one row, so the map keeps its height. The clock leads the lane on the left, the tabs
+   balance them on the right, and the keys hold the centre. */
+@media (orientation: landscape) {
+  .phone-player .pl-bar { --clock-w: 52px; grid-template-areas: "scrub keys tail"; padding-top: 4px; padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
+  .phone-player .pl-transport > .pl-tail { grid-area: scrub; justify-self: start; width: var(--clock-w); }
+  .phone-player .pl-transport > .pl-scrub { margin-left: calc(var(--clock-w) + 8px); }
+  .phone-player .pl-bar > .p-tail { justify-self: end; }
+  /* The rail shares the row: Play, the scrubber (at least 40%), then the rail, which scrolls. */
+  .phone-player .pl-bar:has(.p-rail) { grid-template-columns: auto minmax(40%, 1fr) minmax(0, max-content); grid-template-areas: "keys scrub tail"; }
+  .phone-player .pl-bar:has(.p-rail) .pl-transport > .pl-scrub { margin-left: 0; }
+}
+/* A short turned phone keeps its 52 px row. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .phone-player .pl-keys .pl-play { width: 44px; min-width: 44px; height: 44px; }
+  .phone-player .pl-speed { bottom: -4px; }
+}
+@media (orientation: landscape) and (min-width: 780px) {
+  .phone-player .pl-bar { --clock-w: 104px; }
+  .phone-player .pl-bar:not(:has(.p-rail)) .pl-keys .pl-skip { display: inline-flex; }
+}

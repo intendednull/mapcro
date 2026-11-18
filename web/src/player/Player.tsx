@@ -152,7 +152,7 @@ export function Player(p: {
     const s = next(h.playback().speed);
     if (s === undefined) return;
     if (next(s) === undefined && document.activeElement === button) {
-      button.parentElement?.querySelector<HTMLButtonElement>(`button:not([data-testid="${button.dataset.testid}"])`)?.focus();
+      button.parentElement?.querySelector<HTMLButtonElement>(`.pl-step:not([data-testid="${button.dataset.testid}"])`)?.focus();
     }
     user(() => h.control.speed(s));
   };
@@ -508,38 +508,35 @@ export function Player(p: {
         <Show when={(watching() || sourceHere()) && h.tl()}>
           {(m) => (
             <div class="pl-transport">
-              {/* The deck (player-alt-opus): Back, Play and Forward as one cluster, Play the big round
-                  key between two skip keys, as music and podcast players have it. The words stay
+              {/* The keys, mirrored around Play: slower, Back, Play, Forward, faster. The words stay
                   in the buttons' text (the specs read them); the icons are drawn beside them. */}
-              <div class="pl-keys">
-              <button class="btn small pl-skip" type="button" data-testid="match-back" aria-label="Back 10 s" title="Back 10 s" onClick={() => seekReplay(transportTime() - 10)}>
-                <SkipIcon back /><span class="pl-skip-n">10</span>
-              </button>
-              <button class={cx("btn small pl-play", !watching() && "resume")} type="button" data-testid="match-play" data-playing={String(watching() && h.playback().playing)} aria-label={!watching() ? "Resume replay" : h.playback().playing ? "Pause" : "Play"} title={!watching() ? "Resume replay" : h.playback().playing ? "Pause" : "Play"} onClick={toggleReplay}>
-                <PlayIcon playing={watching() && h.playback().playing} /><span class="pl-play-word">{!watching() ? "Resume" : h.playback().playing ? "Pause" : "Play"}</span>
-              </button>
-              <button class="btn small pl-skip" type="button" data-testid="match-forward" aria-label="Forward 10 s" title="Forward 10 s" onClick={() => seekReplay(transportTime() + 10)}>
-                <SkipIcon /><span class="pl-skip-n">10</span>
-              </button>
+              <div class="pl-keys" role="group" aria-label="Playback">
+                <button class="btn small pl-step" type="button" data-testid="speed-down" aria-label="Slower" title="Slower" disabled={slower(h.playback().speed) === undefined} onClick={(e) => stepSpeed(slower, e.currentTarget)}>
+                  −
+                </button>
+                <button class="btn small pl-skip" type="button" data-testid="match-back" aria-label="Back 10 s" title="Back 10 s" onClick={() => seekReplay(transportTime() - 10)}>
+                  <SkipIcon back /><span class="pl-skip-n">10</span>
+                </button>
+                <button class={cx("btn small pl-play", !watching() && "resume")} type="button" data-testid="match-play" data-playing={String(watching() && h.playback().playing)} aria-label={!watching() ? "Resume replay" : h.playback().playing ? "Pause" : "Play"} title={!watching() ? "Resume replay" : h.playback().playing ? "Pause" : "Play"} onClick={toggleReplay}>
+                  <PlayIcon playing={watching() && h.playback().playing} /><span class="pl-play-word">{!watching() ? "Resume" : h.playback().playing ? "Pause" : "Play"}</span>
+                </button>
+                <button class="btn small pl-skip" type="button" data-testid="match-forward" aria-label="Forward 10 s" title="Forward 10 s" onClick={() => seekReplay(transportTime() + 10)}>
+                  <SkipIcon /><span class="pl-skip-n">10</span>
+                </button>
+                <button class="btn small pl-step" type="button" data-testid="speed-up" aria-label="Faster" title="Faster" disabled={faster(h.playback().speed) === undefined} onClick={(e) => stepSpeed(faster, e.currentTarget)}>
+                  +
+                </button>
+                <span class="pl-speed" data-testid="match-speed" data-speed={String(h.playback().speed)}>
+                  <output class="pl-speed-now" data-testid="speed-now" aria-label={`Speed ${h.playback().speed}×`}>{h.playback().speed}×</output>
+                </span>
               </div>
-              {/* Speed (feedback #58): − and + step through SPEEDS, the current one between them.
-                  A phone held upright (480 px or less) keeps the list, by CSS: the buttons would
-                  narrow its scrubber, and under 390 px they don't fit their row at all. */}
+              {/* A phone held upright (480 px or less) picks the speed from this list, by CSS (#58). */}
               <select class="input pl-speed-list" data-testid="match-speed-list" aria-label="Speed" value={String(h.playback().speed)} onChange={(e) => {
                   user(() => h.control.speed(Number(e.currentTarget.value)));
                   e.currentTarget.blur();
                 }}>
                 <For each={SPEEDS}>{(s) => <option value={String(s)}>{s}×</option>}</For>
               </select>
-              <span class="pl-speed" role="group" aria-label="Speed" data-testid="match-speed" data-speed={String(h.playback().speed)}>
-                <button class="btn small" type="button" data-testid="speed-down" aria-label="Slower" title="Slower" disabled={slower(h.playback().speed) === undefined} onClick={(e) => stepSpeed(slower, e.currentTarget)}>
-                  −
-                </button>
-                <output class="pl-speed-now" data-testid="speed-now">{h.playback().speed}×</output>
-                <button class="btn small" type="button" data-testid="speed-up" aria-label="Faster" title="Faster" disabled={faster(h.playback().speed) === undefined} onClick={(e) => stepSpeed(faster, e.currentTarget)}>
-                  +
-                </button>
-              </span>
               {/* The marker space above the bar scrubs too (#45): a press and drag there scrubs as
                   the bar does, a plain press on a marker still does the marker's thing. */}
               <div class="pl-scrub" style={{ "--p": `${(Math.min(m().duration_s, Math.max(0, transportTime())) / Math.max(1, m().duration_s)) * 100}%` }} onPointerDown={(e) => { if (!(e.target as Element).closest(".match-range")) scrubFromMarks(e); }}>

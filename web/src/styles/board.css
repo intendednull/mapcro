@@ -1155,14 +1155,6 @@ kbd {
 .phone .phone-build-sheet .tb-build-popovers > .tb-effects { margin: 0; }
 .phone .phone-build-sheet .tb-build-popovers > .tb-order[open] { flex-basis: 100%; }
 
-.phone .pl-bar { width: 100%; box-sizing: border-box; grid-template-columns: 1fr; }
-.phone .pl-transport { display: flex; flex-wrap: wrap; gap: 4px; }
-.phone .pl-transport .pl-scrub { order: 2; flex: 1 0 100%; min-width: 0; height: 44px; padding-top: 0; }
-.phone .match-range { width: 100%; height: 44px; margin: 0; }
-.phone .pl-ticks, .phone .pl-marks { display: none; }
-.phone .pl-tail { margin-left: auto; min-width: 0; }
-.phone .pl-tail .match-clock { font-size: 12px; white-space: normal; }
-.phone [data-testid=match-back], .phone [data-testid=match-forward] { display: none; }
 /* ---- Player on a phone: an app shell, no page scroll (design direction 2026-11-12) ----
    Portrait: status strip | roster | a square, full-bleed map | transport.
    Landscape: the map square on the left; strip, roster and the docked sheet on the right. */
@@ -1181,16 +1173,6 @@ kbd {
 .phone-player .p-top .p-follow button { height: 44px; }
 @media (max-width: 400px) { .phone-player .wordmark span { display: none; } }
 
-/* The transport, in the shell's last row: Play beside the scrubber, then speed, the clock, and
-   Events, Map layers, More (or the tool rail, which takes the whole second row). */
-.phone-player .pl-bar {
-  grid-area: bar; position: relative; z-index: 55; display: grid; margin: 0;   /* not the narrow desktop bar's 6 px above it */
-  grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "play scrub scrub" "speed clock tail";
-  align-items: center; gap: 4px 8px; padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
-  border-top: 1px solid var(--line); background: var(--bg-deep);
-}
-.phone-player .pl-bar > * { grid-column: 1 / -1; }
-.phone-player .pl-transport { display: contents; }
 /* The match source opens from More, as a sheet on the transport. */
 .phone-player .pl-source:not([open]) { display: none; }
 .phone-player .pl-source[open] { position: fixed; left: 0; right: 0; bottom: var(--transport-h, 104px); z-index: 57; max-width: none; padding: 12px 8px; background: var(--panel); border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; }
@@ -1216,20 +1198,10 @@ kbd {
 .phone-player .pl-source[open] .pl-head { position: static; width: auto; max-width: none; box-shadow: none; border: 0; padding: 0; background: transparent; }
 /* A match id is 9 digits (soon 10) at the fields' 16 px: all of it shows. */
 .phone-player .pl-source[open] .pl-id { flex: 1 1 8em; width: auto; min-width: 8em; max-width: 12em; }
-.phone-player .pl-play { grid-area: play; min-width: 64px; background: var(--raised); }
-.phone-player .pl-speed { grid-area: speed; }
-.phone-player .pl-transport .pl-scrub { grid-area: scrub; order: 0; flex: none; }
 .phone-player [data-testid=match-save] { display: none; }
-.phone-player .pl-tail { grid-area: clock; margin: 0; min-width: 0; }
-/* The clock takes what the tabs leave: one line where it fits, else the time over the length. */
-.phone-player .pl-tail .match-clock { flex: 0 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: .25em; text-align: left; font-size: 14px; line-height: 16px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.phone-player .match-clock .clock-of { font-size: 12px; line-height: 14px; color: var(--muted); }
-.phone-player .p-tail { grid-area: tail; justify-self: end; display: flex; gap: 0; }
 .phone-player .p-tail .btn, .phone-player .p-rail .btn { border: 0; background: transparent; color: var(--muted); font-size: 14px; padding: 0 8px; }
 @media (max-width: 340px) { .phone-player .p-tail .btn { padding: 0 4px; } }
 .phone-player .p-tail .btn[aria-expanded=true], .phone-player .p-rail .btn.on { color: var(--text); box-shadow: inset 0 -2px var(--brass); }
-.phone-player .pl-bar:has(.p-rail) .pl-speed, .phone-player .pl-bar:has(.p-rail) .pl-tail { display: none; }
-.phone-player .p-rail { grid-column: 1 / -1; grid-row: 2; display: flex; align-items: center; gap: 0; min-width: 0; }
 .phone-player .p-rail > * { flex: none; }
 .phone-player .p-rail > .p-rail-tools { flex: 1 1 auto; min-width: 0; display: flex; overflow-x: auto; scrollbar-width: none; }
 .phone-player .p-rail-tools > * { flex: none; }
@@ -1266,15 +1238,8 @@ kbd {
   }
   .phone-player > .p-map-wrap { width: calc(100dvh - var(--transport-h, 52px)); height: 100%; }
   .phone-player > .phone-roster { width: auto; align-self: start; }
-  .phone-player .pl-bar {
-    grid-template-columns: auto auto minmax(0, 1fr) auto auto; grid-template-areas: "play speed scrub clock tail";
-  }
   /* The match source keeps to the map's side: the dock is never empty, and covered its right end. */
   .phone-player .pl-source[open] { right: auto; width: calc(100dvh - var(--transport-h, 52px)); box-sizing: border-box; border-radius: 0 16px 0 0; }
-  /* The rail shares the row: Play, the scrubber (at least 40%), then the rail, which scrolls. */
-  .phone-player .pl-bar:has(.p-rail) { grid-template-columns: auto minmax(40%, 1fr) minmax(0, max-content); }
-  .phone-player .p-rail { grid-column: 3 / 4; grid-row: 1; }
-  .phone-player .pl-bar:has(.p-rail) .pl-transport .pl-scrub { grid-column: 2 / 3; }
   .phone .p-sheet, .phone-player .phone-build-sheet {
     left: calc(100dvh - var(--transport-h, 52px)); top: var(--sheet-top, 152px); max-height: none; border-radius: 16px 0 0 0;
   }
@@ -1308,7 +1273,6 @@ html:has(.phone) :is(input:not([type=range], [type=checkbox], [type=radio]), tex
 .phone input[type=checkbox]:focus-visible { outline: 2px solid var(--brass); outline-offset: -10px; }
 /* touch-action per surface: the shell never scrolls, so the scrubber takes every direction; a
    sheet's body scrolls up and down, the tool rail sideways. */
-.phone-player .pl-scrub { touch-action: none; }
 .phone .p-sheet-body, .phone .phone-build-content { touch-action: pan-y; }
 .phone-player .p-rail-tools { touch-action: pan-x; }
 
