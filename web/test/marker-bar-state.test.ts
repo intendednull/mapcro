@@ -135,6 +135,22 @@ describe.each([["the replay tier", replay()], ["the metadata tier", metadata]] a
   });
 });
 
+describe("a hover over an objective that is down", () => {
+  it("says nothing, though its health is keyed so the match still reports some", () => {
+    // The health's key (`patron:amber`) isn't the destroyed objective's: the frame's health stays.
+    const key = markers.find((m) => m.kind === "t3" && m.team === "amber")!.key;
+    const tl = { ...replay(), objectives: [{ key, kind: "patron", team: "amber", lane: 0, destroyed_s: 2 }] } as Timeline;
+    const patron = model.markers.find((m) => m.key === key)!;
+    createRoot((dispose) => {
+      const state = fromTimeline({ tl: () => tl, t: () => 9, markers: () => markers });
+      expect(state.marker(key).health()?.pct).toBe(60);
+      expect(state.marker(key).down()).toBe(true);
+      expect(markerTip(patron, tipFacts(state, key, true, undefined), 9)).toBeUndefined();
+      dispose();
+    });
+  });
+});
+
 describe("a slot the match doesn't hold", () => {
   it("has no portrait, and no timeline shows no markers' detail", () => {
     createRoot((dispose) => {
