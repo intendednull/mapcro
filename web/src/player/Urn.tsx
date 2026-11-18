@@ -3,15 +3,16 @@
 // point is a map marker (MapView, kind "urn"), lit while open; hovering a point says when the
 // next urn spawns (player/Camps.tsx).
 
-import { Show, createSignal } from "solid-js";
+import { Show, createMemo, createSignal } from "solid-js";
 import { visionFade } from "../board/fade";
 import { cx } from "../ui/cx";
 import type { Art } from "../map/pack";
 import { worldToView } from "../map/transform";
 import { HUD_PX } from "../map/model";
 import { TOKEN_R } from "../board/Tokens";
+import type { TokenFrame } from "../board/Tokens";
 import { type UrnNow, clockLabel } from "../match/timeline";
-import type { MatchPreview } from "../match/preview";
+import { shownUrn } from "../mapstate/shown";
 
 /**
  * Sizes and offsets from the game's minimap, panorama/styles/hud_minimap.vcss (pack
@@ -40,15 +41,16 @@ export function urnTip(u: UrnNow, key: string, t: number): string | undefined {
 }
 
 /** `mk`: the map markers' scale (a rift's), for the urn on the ground; `k`: the hero tokens'. */
-export function UrnMark(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; preview: () => MatchPreview | undefined; k: number; mk: number }) {
+export function UrnMark(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; frame: TokenFrame; k: number; mk: number }) {
+  const urn = createMemo(() => shownUrn(p.frame.ms(), p.frame.shown().vision));
   const drawn = () => {
-    const x = p.preview()?.urn;
+    const x = urn();
     return x && x.state !== "none" && x.at ? x : undefined;
   };
   // A carrier going out of a team's sight takes the urn with it: it fades out on its last spot,
   // and in again with the carrier (board/fade.ts). Its hover is gone at once (Camps.tsx).
   const [el, setEl] = createSignal<SVGGElement>();
-  const vf = visionFade({ value: drawn, hidden: () => !!p.preview()?.urn?.unseen, smooth: () => !!p.preview()?.fade, el });
+  const vf = visionFade({ value: drawn, hidden: () => !!urn()?.unseen, smooth: p.frame.smooth, el });
   const u = vf.shown;
   const img = () => p.art.images.get("urn");
   return (

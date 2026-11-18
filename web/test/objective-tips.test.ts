@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import { FALLBACK } from "../src/map/fallback-data";
 import { modelFromFallback } from "../src/map/model";
 import { type Timeline, campAt, powerupAt, riftAt } from "../src/match/timeline";
-import { campTip, markerTip, powerupTip, riftTip } from "../src/player/Camps";
+import { campTip, powerupTip, riftTip } from "../src/player/Camps";
+import { tipOf } from "./support/tips";
 import { label, namesFor, shortLabel } from "../src/player/events";
 import { hoverFromWire, hoverWire } from "../src/map/HoverLabel";
 
@@ -65,11 +66,11 @@ describe("objective tips", () => {
   it("a marker with nothing timed says nothing: the API summary's mid boss, and Sandbox", () => {
     const boss = markers.find((m) => m.kind === "midboss")!;
     const pv = { players: new Map(), down: new Set([boss.key]), sites: new Map(), lanes: new Map(), camps: new Map() };
-    expect(markerTip(boss, pv, 10)).toBeUndefined();
-    expect(markerTip(boss, { ...pv, down: new Set() }, 10)).toBeUndefined();
-    expect(markerTip(boss, undefined, 10)).toBeUndefined();
+    expect(tipOf(boss, pv, 10)).toBeUndefined();
+    expect(tipOf(boss, { ...pv, down: new Set() }, 10)).toBeUndefined();
+    expect(tipOf(boss, undefined, 10)).toBeUndefined();
     const walker = markers.find((m) => m.kind === "t2")!;
-    expect(markerTip(walker, pv, 10)).toBeUndefined();
+    expect(tipOf(walker, pv, 10)).toBeUndefined();
   });
 
   it("an objective with health says its name and health, rounded; down or unknown, nothing", () => {
@@ -78,16 +79,16 @@ describe("objective tips", () => {
     const boss = markers.find((m) => m.kind === "midboss")!;
     const health = new Map([[walker.key, { pct: 61.6 }], [guardian.key, { pct: 100 }], [boss.key, { pct: 44.5 }]]);
     const pv = { players: new Map(), down: new Set<string>(), sites: new Map(), lanes: new Map(), camps: new Map(), health };
-    expect(markerTip(walker, pv, 10)).toBe("Walker 62%");
-    expect(markerTip(guardian, pv, 10)).toBe("Guardian 100%");
-    expect(markerTip(boss, pv, 10)).toBe("Mid-Boss 45%");
+    expect(tipOf(walker, pv, 10)).toBe("Walker 62%");
+    expect(tipOf(guardian, pv, 10)).toBe("Guardian 100%");
+    expect(tipOf(boss, pv, 10)).toBe("Mid-Boss 45%");
     // Down: nothing; the mid boss, its timer instead.
-    expect(markerTip(walker, { ...pv, down: new Set([walker.key]) }, 10)).toBeUndefined();
+    expect(tipOf(walker, { ...pv, down: new Set([walker.key]) }, 10)).toBeUndefined();
     const camps = new Map([[boss.key, { state: "cleared" as const, at: 70 }]]);
-    expect(markerTip(boss, { ...pv, camps }, 10)).toBe("Respawns in 1:00");
+    expect(tipOf(boss, { ...pv, camps }, 10)).toBe("Respawns in 1:00");
     // Health off (no health in the view): nothing.
     const { health: _off, ...off } = pv;
-    expect(markerTip(walker, off, 10)).toBeUndefined();
+    expect(tipOf(walker, off, 10)).toBeUndefined();
   });
 
   it("powerup events name their buff", () => {

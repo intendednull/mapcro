@@ -8,7 +8,7 @@ import type { Art } from "../map/pack";
 import { HUD_PX } from "../map/model";
 import { mapToView } from "../map/transform";
 import { easedNumber } from "../board/smooth";
-import type { MatchPreview } from "../match/preview";
+import type { TokenFrame } from "../board/Tokens";
 
 /** The rift's marker box (`.capture_point`, 32 × 32 HUD px); the rings sit just outside its icon. */
 const RIFT_HUD_PX = 32;
@@ -19,14 +19,12 @@ const RING = { amber: 0.47, sapphire: 0.39, width: 0.07 } as const;
 const COLOUR = { amber: "#D4860B", sapphire: "#4D75C3" } as const;
 
 /** `mk`: the map markers' scale. */
-export function RiftRings(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; preview: () => MatchPreview | undefined; mk: number }) {
+export function RiftRings(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; frame: TokenFrame; mk: number }) {
   const open = () => {
-    const rifts = p.preview()?.rifts;
-    if (!rifts) return undefined;
-    for (const [key, r] of rifts) {
-      if (r.state !== "active" || !r.capture) continue;
-      const m = p.art.model.markers.find((x) => x.key === key);
-      if (m) return { key, at: m.at, capture: r.capture };
+    for (const m of p.art.model.markers) {
+      if (m.kind !== "koth") continue;
+      const r = p.frame.ms().marker(m.key).rift();
+      if (r?.state === "active" && r.capture) return { key: m.key, at: m.at, capture: r.capture };
     }
     return undefined;
   };

@@ -3,6 +3,96 @@
 Phase 1 was built on branch `scene-state`; phase 2 is on `map-state-p2`. Spec: `docs/specs/map-state.md`
 (third revision). Review: `docs/specs/map-state-review.md`. Newest state at the top.
 
+## Phase 4, step 4: the markers and the two bars on MapState, branch `ms-p4-markers` (2026-11-17, twelfth implementer)
+
+**Outcome: built and checked; not merged, not deployed.** One release, off main 350ba0e. No store,
+schema or view-state change (`just ts` leaves the tree as it was, no new rows). The code is
+`0495d60` (the urn's rule shortened in `10510d2`); the characterisation is `c6c94fa` and `10510d2`; the
+tests that came of the mutants are `9c6a317`, `96f3948` and `9ca41c9`. Checked at `706003a`; only this journal is on top.
+
+**What a coach sees:** nothing new, by design. Old, saved and hand-made scenes and Player draw as
+before. The one difference needs a hand-edited board file: a scene that holds its own name for a
+hero (`more.name`, which nothing in the app writes yet) now shows that name on the portrait too, as
+its token already did (TD-120).
+
+**What moved**
+
+1. **`markerStates`** asks `marker(key)`. A scene shows the stored `status`, never `down` (which
+   there also means a rift or urn point that is off); Player reads the detail. A lane shop keeps
+   its one rule in both modes, closed with its guardian, so a status stored on a shop is still
+   ignored, as it was.
+2. **`RiftRings`, `UrnMark`, `DeathSkulls`, `MarkerTips`** take the frame. The viewer's rules are in
+   `shown.ts`: `shownUrn`, `shownDeaths`, and `playerPlace` for a portrait's focus. A scene holds no
+   rift, urn or death yet, so the three that draw stay mounted in Player only (`DeathSkulls`' empty
+   group would otherwise change a scene's DOM) and a scene's markers say nothing on hover.
+3. **The two bars.** The scene's `TopBar` draws `HeroState` (name, hero, souls, ult, alive, sight)
+   and reads the records only to edit them. `PlayerTopBar` draws `HeroState` and `scene().rejuv`.
+   Still read from the timeline, because the frame doesn't hold them: a Rejuvenator's pickup time,
+   the Mid-Boss's respawn counted from t, and a hero's level and build (TD-141).
+4. **`matchPreview` is gone.** Player no longer computes the whole frame every frame. `playerFrame`
+   and `heroesAt` moved to `web/test/support/player-frame.ts`, and `markerFrame` went: nothing in
+   `src` read them. `previewAt` stays as the definition the tests compare with (TD-140).
+
+**TD-120, the rule:** the bar and the token both read `HeroState.name`: the scene's own, then the
+name typed on the board, then the open match's. Names off hides only the match's. A scene's own name
+counts as a typed name, shown whatever Names says, because a coach wrote it and a match didn't.
+
+**"The bottom bar":** the brief names the top bar and the bottom bar. The spec and this journal's
+"two bars" are the scene's `TopBar` and Player's `PlayerTopBar`, and those are what moved. The bottom
+bar (`Player.tsx`, the transport) draws no hero or marker state, so nothing there changed.
+
+**Pins**
+
+- `map-state-dom-pins.spec.ts`: **no pin moved.** Its `outline` helper moved to `e2e/outline.ts`.
+- New, `map-state-marker-pins.spec.ts`: 32 files, written and verified twice on main's code before
+  the change (bar, map and hovers at eight moments across the Visions, Health and Names; a scene's
+  stored statuses for an editor and a viewer; names on and off). All pass unchanged on the new code.
+
+**Checks** (at `706003a`; `/tmp/msp4m/final.sh`, summary `/tmp/msp4m/run/final/summary`; all through
+`tools/heavy.sh`):
+
+| Check | Result |
+|---|---|
+| `just clippy` | 0 |
+| `just test` | 0: 564 passed, 0 failed, 20 ignored; both simulations 1000 seeds; `reader-check`: 40 boards, 10,819 transactions byte for byte |
+| `just web-test` | 0: 80 files, 867 passed, 1 skipped; `tsc` clean; tree unchanged after `just ts` |
+| `just e2e --workers 2` | 0: 524 passed, 16 skipped, 0 failed |
+| `just e2e-firefox --workers 2` | 0: 29 passed, 2 skipped |
+
+**Mutants**
+
+- Vitest, by hand, on `markerStates`, `shown.ts`, `barSlot` and the tips: 27. 26 caught, one of them
+  after a new test (a hover over an objective that is down, its health keyed apart). 1 equivalent:
+  a powerup's `buff` read without checking it is up (only the up state has one).
+- E2e, each on its own build: 22. 21 caught, 5 of them after new pins (the focus under Last seen,
+  whose first assertion retried until the ping had faded; a dead scene hero's portrait; a saved
+  scene's menu; a skull's portrait; a scene's own name over a typed one). 1 equivalent: the rings
+  without their `active` check (only an active rift has a capture).
+
+**The walkthrough** (Chromium, the reference replay 129738985; this build and main's, each on its
+own server; `/tmp/msp4m/qa/walk.mjs`; counts, booleans and hashes only):
+
+- 32 views, each view's bar and map hashed: Player at 14 moments under All, 11 under a team's Vision
+  (one with Last seen), one with Health off and one with Names off; a saved scene, a hand-made scene, the oldest scene, and an old
+  saved scene with and without its match open. **The two builds' output is identical** (38 lines, no
+  difference).
+- Among those views: the rift's rings in 2, the urn in 12, skulls in 9, a Rejuvenator in 2, respawn
+  times in 21. 567 marker hovers, 365 saying something; the 31 under a hero token aren't compared,
+  because the token takes the hover and which of a stack is on top goes by the board's record ids.
+- A ghost's portrait pings its last-seen spot; 0 page errors.
+
+**Decisions for the lead**
+
+1. A scene's own name counts as typed (above). It decides what phase 6's editor means by Names off.
+2. The two bars stay two components (TD-141). Merging them moves every edit control, so it isn't in
+   a unit that ships no visible change.
+3. The rings, the urn and the skulls stay mounted in Player only until phase 5 gives a scene their
+   rows.
+
+**New debt:** TD-140, TD-141. TD-120: done.
+
+**Next:** phase 5, the remaining rows.
+
 ## Phase 4, steps 2 and 3: the tokens on MapState, branch `ms-p4-tokens` (2026-11-17, eleventh implementer)
 
 **Outcome: built and checked; not merged, not deployed.** One release, off main bb122d8. No

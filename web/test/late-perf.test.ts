@@ -9,7 +9,7 @@ vi.mock("solid-js", async () => await import(/* @vite-ignore */ "solid-js/dist/"
 
 import { batch, createComputed, createMemo, createRoot, createSignal } from "solid-js";
 import { markerKey, type PlayerAt } from "../src/match/timeline";
-import { barSlot } from "../src/player/barSlot";
+import { type BarHero, barSlot } from "../src/player/barSlot";
 import { markerStates } from "../src/player/markerStates";
 import { openTip, closeTips, tipIsOpen } from "../src/player/GameTooltip";
 import { easedNumber } from "../src/board/smooth";
@@ -20,6 +20,7 @@ import { statBuild } from "../src/match/stats";
 import { type Timeline, scoreboardValueAt } from "../src/match/timeline";
 import type { TimelinePlayer } from "../src/match/timeline";
 import type { MatchPreview } from "../src/match/preview";
+import type { MapState, MarkerState } from "../src/mapstate/state";
 
 /** Runs `read` in a computation of its own and counts how often it runs. */
 function runs(read: () => unknown): () => number {
@@ -62,13 +63,16 @@ describe("markerKey", () => {
 
 const player = (over: Partial<PlayerAt> = {}): PlayerAt => ({ team: "amber", slot: 0, hero_id: 7, name: null, pos: { x: 0, y: 0 }, last: { x: 0, y: 0 }, souls: 1000, ult: 40, health: 80, respawn: null, ...over });
 
+/** A hero's fields over a row that changes, as `HeroState` gives them to the bar. */
+const barHero = (row: () => PlayerAt): BarHero => ({ present: () => true, hero: () => row().hero_id, pos: () => row().pos, souls: () => row().souls, ult: () => row().ult, health: () => row().health, respawn: () => row().respawn });
+
 describe("the top bar's portraits", () => {
   it("don't redraw on a frame that changes only the position", () => {
     createRoot((dispose) => {
       const [t, setT] = createSignal(100);
-      // As PlayerTopBar's `at`: a new map of new rows every frame; only the position moves.
-      const at = createMemo(() => new Map([["Amber-0", player({ pos: { x: t(), y: t() } })]]));
-      const x = barSlot(at, "Amber-0");
+      // A new row every frame; only the position moves.
+      const row = createMemo(() => player({ pos: { x: t(), y: t() } }));
+      const x = barSlot(barHero(row));
       const count = runs(x);
       for (let i = 1; i <= 60; i++) setT(100 + i / 60);
       expect(count()).toBe(1);
@@ -79,7 +83,7 @@ describe("the top bar's portraits", () => {
   it("redraw when what they draw changes", () => {
     createRoot((dispose) => {
       const [row, setRow] = createSignal(player());
-      const x = barSlot(() => new Map([["Amber-0", row()]]), "Amber-0");
+      const x = barSlot(barHero(row));
       const count = runs(x);
       setRow(player({ souls: 1100 }));
       expect(x()?.souls).toBe(1100);
@@ -109,13 +113,33 @@ const preview = (over: Partial<MatchPreview> = {}): MatchPreview => ({
   ...over,
 });
 
+/** The markers' part of a frame as `MapState` gives it: each field new with the frame, `status`
+ * the scene's own when there is no frame (`pv` undefined: outside Player). */
+function markerFrame(pv: () => MatchPreview | undefined, own: (k: string) => "Active" | undefined = () => undefined) {
+  const field = <T,>(f: (p: MatchPreview) => T) => () => {
+    const p = pv();
+    return p ? f(p) : undefined;
+  };
+  const marker = (k: string): MarkerState => ({
+    status: () => (pv() ? undefined : own(k)),
+    down: () => field((p) => p.down.has(k))() ?? false,
+    site: field((p) => p.sites.get(k)),
+    shopClosed: () => field((p) => p.shops?.has(k))() ?? false,
+    camp: field((p) => p.camps.get(k)),
+    powerup: field((p) => p.powerups?.get(k)),
+    health: field((p) => p.health?.get(k)),
+    rift: () => undefined,
+  });
+  return { ms: () => ({ marker }) as unknown as MapState, player: () => pv() !== undefined, health: () => true };
+}
+
 describe("the map's markers", () => {
   const keys = ["t1:amber:1", "rift:1", "camp:a", "powerup:1", "t3:amber", "shop:1"];
 
-  it("don't redraw on a frame whose preview shows the same", () => {
+  it("don't redraw on a frame that shows the same", () => {
     createRoot((dispose) => {
       const [pv, setPv] = createSignal(preview());
-      const marks = markerStates(pv, () => keys, () => undefined);
+      const marks = markerStates(markerFrame(pv), () => keys);
       const counts = keys.map((k) => runs(() => [marks.status(k), marks.health(k), marks.camp(k), marks.buff(k)]));
       for (let i = 0; i < 60; i++) setPv(preview());
       expect(counts.map((c) => c())).toEqual(keys.map(() => 1));
@@ -123,10 +147,10 @@ describe("the map's markers", () => {
     });
   });
 
-  it("show the match: a change redraws, and the values are the preview's", () => {
+  it("show the match: a change redraws, and the values are the frame's", () => {
     createRoot((dispose) => {
       const [pv, setPv] = createSignal<MatchPreview | undefined>(preview());
-      const marks = markerStates(pv, () => keys, (k) => (k === "t1:amber:1" ? "Active" : undefined));
+      const marks = markerStates(markerFrame(pv, (k) => (k === "t1:amber:1" ? "Active" : undefined)), () => keys);
       const count = runs(() => marks.status("rift:1"));
       expect([marks.status("t1:amber:1"), marks.status("rift:1"), marks.status("t3:amber"), marks.status("shop:1")]).toEqual(["Destroyed", "Active", "Active", undefined]);
       expect([marks.health("t3:amber"), marks.camp("camp:a"), marks.buff("powerup:1")]).toEqual([60, "alive", "gun"]);

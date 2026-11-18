@@ -1,0 +1,12 @@
+rift:neutral:lane1:1: Rift opens in 0:15
+rift:neutral:lane6:1: Rift opens at the other site in 0:15
+urn:neutral:lane1:1: Urn returns in 2:47
+urn:neutral:lane6:1: Urn delivery point
+powerup:neutral:lane1:1: Gun buff
+powerup:neutral:lane6:1: -
+camp:neutral:lane0:3: Spawns in 0:05
+mid_boss:neutral:lane0:1: Respawns in 1:15
+walker:amber:lane1:1: Walker 100%
+guardian:amber:lane1:1: -
+patron:amber:lane0:1: Patron 100%
+the urn: Urn returns in 2:47

@@ -21,9 +21,8 @@ import { cx } from "../ui/cx";
 import { buildPanels } from "../board/buildPanels";
 import { playerBuildView } from "../mapstate/buildView";
 import { teamTotal } from "../core/souls";
-import { heroesAt } from "../mapstate/frame";
 import type { MapState } from "../mapstate/state";
-import { campAt, clockLabel, playersAt, scoreboardValueAt, rejuvAt, type PlayerAt, type RejuvNow } from "../match/timeline";
+import { campAt, clockLabel, scoreboardValueAt, type RejuvNow } from "../match/timeline";
 import { slotKey } from "../match/save";
 import type { Art } from "../map/pack";
 import { rosterTeamName } from "../map/model";
@@ -164,24 +163,13 @@ export function PlayerTopBar(p: {
   const [ladderTable] = createResource(() => ladderKeyFor(p.art.stats, build()) ?? false, key => loadStatTable(p.art.stats, key || null));
   const friend = () => (p.vp === "sapphire" ? "Sapphire" : "Amber");
   const enemy = () => (friend() === "Amber" ? "Sapphire" : "Amber");
-  // The heroes' samples (souls, ults, health) once a second; their places and respawn times,
-  // counted from t, each frame (mapstate/frame.ts; TD-50).
-  const samples = createMemo(() => {
-    const m = p.host.tl();
-    return m ? { m, heroes: playersAt(m, p.host.second()) } : undefined;
-  });
-  const at = createMemo(() => {
-    const s = samples();
-    return s ? new Map(heroesAt(s.m, p.host.t(), s.heroes).map((x) => [slotKey(x.team, x.slot), x])) : new Map<string, PlayerAt>();
-  });
   // Rows by the roster's slots, so the order and names are the board's; the hero is the match's.
   const team = (t: "Amber" | "Sapphire") => p.state.roster().filter((s) => s.slot.team === t);
-  const total = (t: "Amber" | "Sapphire") => teamTotal(team(t).map((s) => at().get(slotKey(t, s.slot.slot))?.souls ?? null));
-  const known = (t: "Amber" | "Sapphire") => team(t).some((s) => at().get(slotKey(t, s.slot.slot))?.souls != null);
-  const rejuv = createMemo(() => {
-    const m = p.host.tl();
-    return m ? rejuvAt(m, p.host.second()) : [];
-  });
+  /** The match's hero in a roster slot (the frame's facts: mapstate/state.ts). */
+  const heroOf = (t: "Amber" | "Sapphire", slot: number) => p.ms.hero(slotKey(t, slot));
+  const total = (t: "Amber" | "Sapphire") => teamTotal(team(t).map((s) => heroOf(t, s.slot.slot).souls()));
+  const known = (t: "Amber" | "Sapphire") => team(t).some((s) => heroOf(t, s.slot.slot).souls() != null);
+  const rejuv = createMemo(() => p.ms.scene().rejuv() ?? []);
   const held = (t: "Amber" | "Sapphire") => rejuv().find((r) => r.team === t.toLowerCase());
   // When the held one was taken: its timer drains from there.
   const taken = (t: "Amber" | "Sapphire") => {
@@ -205,17 +193,18 @@ export function PlayerTopBar(p: {
       <For each={team(t)}>
         {(s) => {
           // Only what the bar draws, changing when a sample does, not every frame (#39).
-          const x = barSlot(at, slotKey(t, s.slot.slot));
+          const h = heroOf(t, s.slot.slot);
+          const x = barSlot(h);
           const hero = () => (x() ? p.art.heroes.get(x()!.hero_id) : undefined);
-          const nameOf = () => p.host.playerName(t.toLowerCase(), s.slot.slot);
+          // The match's name, under Names (spec §6b).
+          const nameOf = () => (p.host.showNames() && h.name()) || undefined;
           // As the scene's bar and the tokens: the match's name, else the one typed into the slot.
           const label = () => slotName(nameOf() ?? "", s.slot.name) || slotPlaceholder(t, s.slot.slot);
           const dead = () => !!x()?.dead;
           // In one team's view, an enemy out of its sight: the hero's own field, the tenth's.
-          const sight = p.ms.hero(slotKey(t, s.slot.slot)).inSight;
           const unseen = createMemo(() => {
             const view = p.host.vision();
-            return view !== "all" && view !== t.toLowerCase() && !sight();
+            return view !== "all" && view !== t.toLowerCase() && !h.inSight();
           });
           /** Health to draw: replay tier, Health on, alive (.Dead #HealthBar collapses). */
           const hp = () => (p.host.showHealth() && !dead() && x()?.health != null ? Math.max(0, Math.min(100, x()!.health!)) : null);
@@ -344,10 +333,10 @@ export function PlayerTopBar(p: {
         <div class="phone-team">
           <For each={team(t)}>{s => {
             const key = slotKey(t, s.slot.slot);
-            const player = () => p.host.tl()?.players.find(q => slotKey(q.team, q.slot) === key);
-            const hero = () => p.art.heroes.get(player()?.hero_id ?? 0);
+            const h = heroOf(t, s.slot.slot);
+            const hero = () => p.art.heroes.get(h.hero() ?? 0);
             // The bar's readout: souls under the portrait; the dead greyed with their respawn.
-            const x = barSlot(at, key);
+            const x = barSlot(h);
             const dead = () => !!x()?.dead;
             const respawn = () => (dead() && x()?.respawn != null ? Math.ceil(x()!.respawn!) : null);
             return <div class={cx(`tb-player ${t.toLowerCase()}`, dead() && "dead")} data-slot={`${t}-${s.slot.slot}`}>
@@ -402,7 +391,7 @@ export function PlayerTopBar(p: {
                   // Items move on tenths: asked once a tenth, not each frame (TD-50).
                   const tenth = createMemo(() => tenthOf(now()));
                   const items = createMemo(() => { const q = pl(); return q ? buildAt(q, tenth()).items ?? [] : []; });
-                  const souls = () => at().get(key)?.souls;
+                  const souls = heroOf(t, s.slot.slot).souls;
                   return <button class={`phone-build-row ${t.toLowerCase()}`} data-testid="all-builds-row" aria-label={`${hero()?.name ?? "Hero"} build`} onClick={() => { onlyBuild(key); p.onFocus?.(t, s.slot.slot); }}>
                     <span class="tb-player"><HeroBadge art={p.art} slot={s.slot} hero={hero()} /></span>
                     <span class="phone-row-kda">{kda()}</span>

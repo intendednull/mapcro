@@ -23,8 +23,8 @@ import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
 import type { PeerPresence } from "../gen/PeerPresence";
 import { FIT, type FollowTarget, type ViewRect, clampView, fromViewport, locate, presenters, sideOf, startFollow, toViewport, zoomAt } from "./follow";
 import { CloneDialog, JUST_CLONED } from "./CloneDialog";
-import { type MapState, fromTimeline, markerFrame, playerFrame } from "../mapstate/state";
-import type { MatchPreview } from "../match/preview";
+import { type MapState, fromTimeline } from "../mapstate/state";
+import { playerPlace } from "../mapstate/shown";
 import { EventPings, Highlight, MapControls, Player, PlayerSide, PlayerSwitch, TierChip, TrooperDots } from "../player/Player";
 import { createPlayerHost, playbackPresence } from "../player/host";
 import type { JobState } from "../player/api";
@@ -249,13 +249,8 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   /** The match open in Player, for the feedback form (spec §11a); none in sandbox. */
   const feedbackMatch = () => feedbackMatchOf(inPlayer(), player.matchId(), player.tl(), player.t());
   // Player draws the match alone, an empty map while there's no timeline (review finding 7).
-  // Player's state, on its three clocks (mapstate/state.ts; TD-50), and the frame the map's
-  // older readers take from it.
-  const matchSource = { tl: player.tl, t: player.t, markers: () => p.art.model.markers };
-  const matchState = fromTimeline(matchSource);
-  const frame = playerFrame({ ...matchSource, shown: player.shown, fade: player.continuous }, matchState);
-  const markerPreview = markerFrame(matchState, player.showHealth);
-  const matchPreview = createMemo<MatchPreview | undefined>(() => (inPlayer() ? frame() : undefined));
+  // Player's state, on its three clocks (mapstate/state.ts; TD-50).
+  const matchState = fromTimeline({ tl: player.tl, t: player.t, markers: () => p.art.model.markers });
   const liveScene = liveLayer(state, player, p.board, inPlayer);
   /** Where annotation goes: the scene, or in Player the match's live layer, never a fallback. */
   const annScene = () => (inPlayer() ? liveScene() : scene()?.id);
@@ -515,12 +510,11 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
   // centre it, pings its spot (everyone sees the ping), and flashes its token. Following
   // someone, the view stays theirs: only the ping and the flash. A hero with nowhere on the
   // map (not placed; in Player, dead or not in the match at t) gets nothing. ----
-  /** Where a roster slot's hero stands now: in Player the match at t, else the scene's token. */
+  /** Where a roster slot's hero stands now: in Player where the viewer's frame draws it (its
+   * ghost, under Last seen), else the scene's token, dead or alive, once placed. */
   const heroAt = (team: string, n: number): WorldPos | undefined => {
-    if (inPlayer()) return matchPreview()?.players.get(slotKey(team, n))?.pos ?? undefined;
-    const s = state.roster().find((x) => x.slot.team === team && x.slot.slot === n);
-    const pl = s && state.playersIn(scene()?.id).find((x) => x.state.slot === s.id);
-    return pl?.state.placed ? pl.state.pos : undefined;
+    const key = slotKey(team, n);
+    return inPlayer() ? playerPlace(matchState, key, player.shown()) : (sceneState.hero(key).last() ?? undefined);
   };
   let pingAt: ((w: WorldPos) => void) | undefined;
   // The top bar's hero menu, opened from a token on the map too (feedback #53); unset in Player.
@@ -1174,7 +1168,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       </div>
       </Show>
       <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} ms={matchState} art={p.art} vp={viewpoint()} compact onFocus={focusHero} onSeek={seekMatch} />}>
-        <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} compact readOnly onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} />
+        <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} ms={sceneState} compact readOnly onPickHero={setHeroPick} onFocus={focusHero} />
       </Show>
       <div class="p-map-wrap">
         <Show when={!inPlayer()}>{mapControls()}</Show>
@@ -1318,11 +1312,10 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
       },
     };
   };
-  // Each marker's status, health, camp and buff at t: changing when one does, not with every
-  // frame's preview (#39).
+  // Each marker's status, health, camp and buff: changing when one does, not with every frame
+  // (#39). What they read in Player is new once a second.
   const markerKeys = createMemo(() => p.art.model.markers.map((m) => m.key));
-  // The markers' part of the frame is new once a second, so these run then, not each frame.
-  const marks = markerStates(() => (inPlayer() ? markerPreview() : undefined), markerKeys, (k) => sceneState.marker(k).status());
+  const marks = markerStates({ ms: mapState, player: inPlayer, health: player.showHealth }, markerKeys);
   const markerStatus = marks.status;
   const mapControls = () => (<MapControls host={player} heals={heals()} crates={crates()}
               toggleHeals={() => player.setShowHeals(!heals())}
@@ -1434,12 +1427,12 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
                 onZoom={(at, factor) => userView(zoomAt(view(), at, factor), "zoomed the map")}
               />
               <Show when={inPlayer()}>
-                <RiftRings art={p.art} vp={viewpoint()} preview={matchPreview} mk={Math.min(1, view().w / 1000)} />
-                <UrnMark art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} mk={Math.min(1, view().w / 1000)} />
-                <DeathSkulls art={p.art} vp={viewpoint()} preview={matchPreview} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} hit={phone ? 26 * view().w / mapPx() / (Math.min(1, view().w / 1000) * 1.4) : undefined} hasRecap={hasRecap} onOpenRecap={(slot, t) => setSkullRecap({ slot, t })} />
+                <RiftRings art={p.art} vp={viewpoint()} frame={tokenFrame} mk={Math.min(1, view().w / 1000)} />
+                <UrnMark art={p.art} vp={viewpoint()} frame={tokenFrame} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} mk={Math.min(1, view().w / 1000)} />
+                <DeathSkulls art={p.art} vp={viewpoint()} frame={tokenFrame} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} hit={phone ? 26 * view().w / mapPx() / (Math.min(1, view().w / 1000) * 1.4) : undefined} hasRecap={hasRecap} onOpenRecap={(slot, t) => setSkullRecap({ slot, t })} />
               </Show>
               <TeleporterLink art={p.art} vp={viewpoint()} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
-              <MarkerTips art={p.art} vp={viewpoint()} hidden={(k) => markerStatus(k) === "Hidden"} shown={() => ({ heals: heals(), crates: crates() })} preview={matchPreview} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
+              <MarkerTips art={p.art} vp={viewpoint()} hidden={(k) => markerStatus(k) === "Hidden"} shown={() => ({ heals: heals(), crates: crates() })} frame={tokenFrame} t={player.t} k={Math.min(1, view().w / 1000) * (phone ? 1.4 : 1)} />
               <Highlight at={inPlayer() ? player.ring() : undefined} vp={viewpoint()} />
               <Show when={inPlayer()}>
                 <EventPings host={player} art={p.art} vp={viewpoint()} />
@@ -1635,7 +1628,7 @@ export function Board(p: { board: string; token: string; art: Art; session?: InS
             </div>
           </div>
           <Show when={!inPlayer()} fallback={<PlayerTopBar host={player} state={state} ms={matchState} art={p.art} vp={viewpoint()} onFocus={focusHero} onSeek={seekMatch} />}>
-            <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} onPickHero={setHeroPick} onFocus={focusHero} matchName={matchName} bindMenu={(f) => (heroMenu = f)} />
+            <TopBar state={state} host={player} art={p.art} vp={viewpoint()} scene={scene()?.id} ms={sceneState} onPickHero={setHeroPick} onFocus={focusHero} bindMenu={(f) => (heroMenu = f)} />
           </Show>
           {/* The map takes all the room left, as the largest square that fits. */}
           <div class="mapfit" ref={measureBoard} data-testid="board-area">

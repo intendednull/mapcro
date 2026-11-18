@@ -28,11 +28,12 @@ import { InlineEdit } from "../ui/InlineEdit";
 import type { BoardState, Player, Slot } from "./state";
 import { BarClock, EyeIcon, PortraitSlot, Souls, TeamColumn, TeamScore, TopBarFrame, UltDial, portraitTitle } from "./TopBarParts";
 import { aliveOps } from "./Tokens";
-import { slotName, slotPlaceholder } from "./roster";
+import { slotPlaceholder } from "./roster";
 import { LIMITS } from "../gen/limits";
 import { ContextMenu, type MenuItem } from "../ui/ContextMenu";
 import type { SceneState } from "../gen/SceneState";
-import { captured, sceneHero } from "../mapstate/build";
+import { captured } from "../mapstate/build";
+import type { MapState } from "../mapstate/state";
 import { holdsBuild, sceneBuildView } from "../mapstate/buildView";
 import { canRetake, retakeOps, slotKey } from "../match/save";
 import { ladderKeyFor, loadStatTable, tableKeyFor, type LoadedTable } from "../match/stats";
@@ -41,9 +42,9 @@ import type { PlayerHost } from "../player/host";
 import { newRecordId } from "../wasm/mapcro_wasm.js";
 import { buildPanels } from "./buildPanels";
 
-function UltRing(p: { state: BoardState; player: Player; editable: boolean; label: string }) {
+function UltRing(p: { state: BoardState; player: Player; left: number | null; editable: boolean; label: string }) {
   const [preview, setPreview] = createSignal<number | null | undefined>();
-  const value = () => (preview() !== undefined ? preview()! : p.player.state.ult_cooldown);
+  const value = () => (preview() !== undefined ? preview()! : p.left);
   const commit = (v: number | null) => {
     if (v !== p.player.state.ult_cooldown) p.state.edit([{ Set: { id: p.player.id, value: { PlayerUltCooldown: v } } }]);
   };
@@ -111,14 +112,15 @@ export function TopBar(p: {
   art: Art;
   vp: Viewpoint;
   scene: RecordId | undefined;
+  /** The scene's frame (Board's `mapState()` on a scene): what the bar draws. The records are
+   * read only to edit them. */
+  ms: MapState;
   compact?: boolean;
   readOnly?: boolean;
   /** A click on a portrait: pick that slot's hero. */
   onPickHero?: (slot: RecordId) => void;
   /** A click on a hero's portrait focuses it on the map (Board's focusHero). */
   onFocus?: (team: string, slot: number) => void;
-  /** The open match's in-game name for a slot, if any (Board's `sceneMatchName`). */
-  matchName?: (team: string, slot: number) => string | undefined;
   /** Hands the board the hero menu, to open from a token's right click on the map (feedback
    * #53); `undefined` once this bar is gone. */
   bindMenu?: (open: ((player: RecordId, at: { x: number; y: number }) => void) | undefined) => void;
@@ -140,7 +142,9 @@ export function TopBar(p: {
         if (!pair) pairs.set(k, (pair = { slot: s, player: pl }));
         return [pair];
       });
-  const total = (t: "Amber" | "Sapphire") => teamTotal(team(t).map((x) => x.player.state.souls));
+  /** The slot's hero in this scene's frame. */
+  const heroOf = (s: Slot) => p.ms.hero(slotKey(s.slot.team, s.slot.slot));
+  const total = (t: "Amber" | "Sapphire") => teamTotal(team(t).map((x) => heroOf(x.slot).souls()));
   const editable = () => !p.readOnly && p.state.canEdit();
   const sceneRow = () => p.state.scenes().find((s) => s.id === p.scene);
   // The scene's snapshot (map-state spec §4.5): what it says it holds. None: a scene from before.
@@ -148,7 +152,7 @@ export function TopBar(p: {
   const snap = createMemo(() => captured(stateRow()?.r?.more), undefined, { equals: (a, b) => a.builds === b.builds && a.heroes === b.heroes && a.rows === b.rows && a.patch === b.patch });
   /** The hero a slot holds in this scene: its own once the scene holds its heroes (spec D2),
    * else the board roster's. */
-  const heroIn = (x: { slot: Slot; player: Player }) => sceneHero(snap().heroes, x.player.state.more, x.slot.slot.hero);
+  const heroIn = (x: { slot: Slot }) => heroOf(x.slot).hero();
   const hasBuilds = () => !p.compact && snap().builds;
   let el: HTMLDivElement | undefined;
   const panels = buildPanels(p.host, () => el, hasBuilds);
@@ -181,7 +185,9 @@ export function TopBar(p: {
     return each.length && each.every((k) => typeof k === "number") ? (each as number[]).reduce((a, b) => a + b, 0) : null;
   };
   const focus = (id: RecordId) => (on: boolean) => p.state.presence({ focus: on ? id : null });
-  const nameOf = (s: Slot) => slotName(s.slot.name, p.matchName?.(s.slot.team, s.slot.slot));
+  /** The slot's name as its token says it (`HeroState.name`): the scene's own, then the one
+   * typed on the board, both shown whatever Names says, then the open match's, under Names. */
+  const nameOf = (s: Slot) => heroOf(s).name() ?? undefined;
   // "Rename…" in the menu: opens the slot's name editor, in place under its portrait.
   const [renaming, setRenaming] = createSignal<RecordId>();
   const openName = new Map<RecordId, () => void>();
@@ -209,7 +215,7 @@ export function TopBar(p: {
       const player = [...players().values()].find((pl) => pl.id === id);
       const slot = player && p.state.roster().find((s) => s.id === player.state.slot);
       if (!player || !slot) return;
-      const held = heroIn({ slot, player });
+      const held = heroIn({ slot });
       const hero = held != null ? p.art.heroes.get(held) : undefined;
       setMenu({ slot, player, label: portraitTitle(nameOf(slot) || slotPlaceholder(slot.slot.team, slot.slot.slot), hero), at });
     });
@@ -229,7 +235,8 @@ export function TopBar(p: {
     <TeamColumn team={t} side={side}>
       <For each={team(t)}>
         {({ slot, player }) => {
-          const heroId = () => heroIn({ slot, player });
+          const h = heroOf(slot);
+          const heroId = h.hero;
           const hero = () => (heroId() != null ? p.art.heroes.get(heroId()!) : undefined);
           const label = () => nameOf(slot) || slotPlaceholder(t, slot.slot.slot);
           let openSouls: (() => void) | undefined;
@@ -239,7 +246,7 @@ export function TopBar(p: {
           const open = () => has() && panels.expanded(key);
           // All builds and Tab mount the twelve once: after that they stay, hidden (as Player's).
           const allShown = createMemo((was: boolean) => was || (has() && panels.all()), false);
-          const view = sceneBuildView({ more: () => player.state.more, rows: () => snap().rows, hero: () => heroId() ?? 0, alive: () => player.state.alive, patch, time: frameT });
+          const view = sceneBuildView({ more: () => player.state.more, rows: () => snap().rows, hero: () => heroId() ?? 0, alive: h.alive, patch, time: frameT });
           return (
             <PortraitSlot
               team={t}
@@ -247,8 +254,8 @@ export function TopBar(p: {
               roster={slot.slot}
               art={p.art}
               hero={hero()}
-              dead={!player.state.alive}
-              unseen={!player.state.visible}
+              dead={!h.alive()}
+              unseen={!h.inSight()}
               class={open() && "build-open"}
               title={portraitTitle(label(), hero())}
               onContextMenu={(e) => openMenu(e, slot, player, portraitTitle(label(), hero()))}
@@ -260,10 +267,10 @@ export function TopBar(p: {
                     label={`${label()} souls`}
                     testid="souls"
                     editable={editable()}
-                    value={player.state.souls == null ? "" : String(player.state.souls)}
+                    value={h.souls() == null ? "" : String(h.souls())}
                     placeholder="–"
                     maxLength={9}
-                    display={() => <Souls n={player.state.souls} />}
+                    display={() => <Souls n={h.souls()} />}
                     onEditing={focus(player.id)}
                     onCommit={(text) => {
                       const v = parseSouls(text);
@@ -307,18 +314,18 @@ export function TopBar(p: {
                 </button>
               </Show>
               <button
-                class={cx("tb-vis", !player.state.visible && "off")}
+                class={cx("tb-vis", !h.inSight() && "off")}
                 data-testid="tb-vision"
                 disabled={!editable()}
-                hidden={!editable() && player.state.visible}
-                title={player.state.visible ? "In vision" : "Not seen"}
-                aria-label={player.state.visible ? `${label()}, In vision` : `${label()}, Not seen`}
-                aria-pressed={!player.state.visible}
+                hidden={!editable() && h.inSight()}
+                title={h.inSight() ? "In vision" : "Not seen"}
+                aria-label={h.inSight() ? `${label()}, In vision` : `${label()}, Not seen`}
+                aria-pressed={!h.inSight()}
                 onClick={() => p.state.edit([{ Set: { id: player.id, value: { PlayerVisible: !player.state.visible } } }])}
               >
-                <EyeIcon off={!player.state.visible} />
+                <EyeIcon off={!h.inSight()} />
               </button>
-              <UltRing state={p.state} player={player} editable={editable()} label={label()} />
+              <UltRing state={p.state} player={player} left={h.ult()} editable={editable()} label={label()} />
               {/* As Player's bar: the hero level on the portrait while its build is open. */}
               <Show when={open() && view.level()}>
                 {(lv) => <span class="tb-level" data-testid="tb-level" title="Hero level">{lv()}</span>}
@@ -336,7 +343,8 @@ export function TopBar(p: {
                   testid="tb-name"
                   editable={editable()}
                   value={slot.slot.name}
-                  placeholder={p.matchName?.(t, slot.slot.slot) ?? ""}
+                  display={() => nameOf(slot)}
+                  placeholder={nameOf(slot) ?? ""}
                   maxLength={LIMITS.max_name}
                   onEditing={(on) => {
                     focus(slot.id)(on);

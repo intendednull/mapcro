@@ -15,8 +15,8 @@ vi.mock("solid-js", async () => await import(/* @vite-ignore */ "solid-js/dist/"
 
 import { readFileSync } from "node:fs";
 import { createComputed, createRoot, createSignal } from "solid-js";
-import { type FrameMarkers, type Shown, heroesAt, previewAt, savedPart, secondPart, tenthPart } from "../src/mapstate/frame";
-import { FEATURES, type PlayerState, featuresOf, fromTimeline, markerFrame, playerFrame, sameValue, urnOf } from "../src/mapstate/state";
+import { type FrameMarkers, type Shown, previewAt, savedPart, secondPart, tenthPart } from "../src/mapstate/frame";
+import { FEATURES, type PlayerState, featuresOf, fromTimeline, sameValue, urnOf } from "../src/mapstate/state";
 import { buildAt } from "../src/match/builds";
 import { statBuild } from "../src/match/stats";
 import { sameBuild, sameStatBuild, tenthOf } from "../src/player/buildState";
@@ -24,10 +24,12 @@ import type { MatchPreview } from "../src/match/preview";
 import { matchSceneOps, slotKey } from "../src/match/save";
 import { type CampAt, type PowerupAt, type RiftAt, type Timeline, type TimelinePlayer, campsAt, downAt, lanesAt, markerKey, objectiveHealthAt, playersAt, powerupAt, rejuvAt, riftAt, scoreboardValueAt, shopsClosed, sitesAt, urnAt } from "../src/match/timeline";
 import { crowdControlAt } from "../src/player/cc";
+import { markerStates } from "../src/player/markerStates";
 import { movementAt } from "../src/player/movement";
 import { deathSeen, skullsAt } from "../src/player/skulls";
 import { hasVision, seenAt } from "../src/player/vision";
 
+import { heroesAt, playerFrame } from "./support/player-frame";
 import { N, keyOf, markers, metadata, model, replay } from "./support/synthetic-match";
 
 /** `host.preview` as it was before the clocks (a0774c5), with the viewer's choices as `shown`. */
@@ -70,6 +72,20 @@ function before(m: Timeline, at: number, shown: Shown, fade: boolean): MatchPrev
   return { fade, skulls, players, down, shops: shopsClosed(down, markers), sites: sitesAt(m, at, markers), lanes: lanesAt(m, at), camps, rifts, powerups, ...(health ? { health: byMarker(objectiveHealthAt(m, at)) } : {}), ...(urn ? { urn } : {}), ...(m.rejuv ? { rejuv: rejuvAt(m, at) } : {}) } as MatchPreview;
 }
 
+
+/** What the map showed for a marker from the frame, as `markerStates` did before it read `MapState`. */
+function shownStatus(pv: MatchPreview, k: string) {
+  if (k.startsWith("shop:")) return pv.shops?.has(k) ? "Hidden" : undefined;
+  const site = pv.sites.get(k);
+  if (site) return site;
+  if (k.startsWith("rift:") || k.startsWith("urn:")) return "Destroyed";
+  if (pv.down.has(k)) return "Destroyed";
+  return pv.health?.get(k)?.stage === 2 ? "Stage2" : "Active";
+}
+const buffOf = (pv: MatchPreview, k: string) => {
+  const b = pv.powerups?.get(k);
+  return b?.state === "up" ? b.buff : undefined;
+};
 
 /** Times that land on, just before and just after seconds and tenths, and between them. */
 const times = (duration: number, step: number) => {
@@ -416,40 +432,47 @@ describe("Player's frame", () => {
     dispose();
   });
 
-  it("the markers' part of the frame is new once a second and with Health, and is the frame's", () => {
+  it("the map's markers change at most once a second, and with Health, and show the frame's", () => {
     const m = replay();
     createRoot((dispose) => {
       const [t, setT] = createSignal(3);
       const [health, setHealth] = createSignal(true);
       const state = fromTimeline({ tl: () => m, t, markers: () => markers });
-      const part = markerFrame(state, health);
-      const pick = (f: MatchPreview) => ({ down: f.down, shops: f.shops, sites: f.sites, camps: f.camps, powerups: f.powerups, ...(f.health ? { health: f.health } : {}) });
-      const seen = new Set<unknown>();
+      const marks = markerStates({ ms: () => state, player: () => true, health }, () => markers.map((k) => k.key));
+      const read = () => markers.map(({ key }) => [marks.status(key), marks.health(key), marks.camp(key), marks.buff(key)]);
+      let runs = 0;
+      createComputed(() => (read(), runs++));
+      const pick = (f: MatchPreview) => markers.map(({ key }) => [shownStatus(f, key), f.health?.get(key)?.pct, f.camps.get(key)?.state, buffOf(f, key)]);
       for (let f = 0; f < 120; f++) {
         setT(3 + f / 60);
-        seen.add(part());
-        expect(part()).toEqual(pick(before(m, t(), ALL, true)));
+        expect(read()).toEqual(pick(before(m, t(), ALL, true)));
       }
-      expect(seen.size).toBe(2);
-      // Health off: no health in it, as in the frame.
+      // Across one second's boundary, and only at it.
+      expect(runs).toBeLessThanOrEqual(2);
+      // Health off: no health, and the patron's stage goes with it, as in the frame.
+      setT(11);
       setHealth(false);
-      expect("health" in part()).toBe(false);
-      expect(part()).toEqual(pick(before(m, t(), { ...ALL, health: false }, true)));
-      expect(seen.has(part())).toBe(false);
+      expect(read()).toEqual(pick(before(m, 11, { ...ALL, health: false }, true)));
+      expect(markers.every(({ key }) => marks.health(key) === undefined)).toBe(true);
+      setHealth(true);
+      expect(marks.status(markers.find((k) => k.kind === "t3" && k.team === "amber")!.key)).toBe("Stage2");
       dispose();
     });
-    // No timeline: empty, as the frame.
+    // No timeline: nothing down, rifts off, as the empty frame.
     createRoot((dispose) => {
       const state = fromTimeline({ tl: () => undefined, t: () => 0, markers: () => markers });
-      const part = markerFrame(state, () => true);
-      expect([part().down.size, part().sites.size, part().camps.size, "health" in part()]).toEqual([0, 0, 0, false]);
+      const marks = markerStates({ ms: () => state, player: () => true, health: () => true }, () => markers.map((k) => k.key));
+      expect([marks.status(keyOf("koth")), marks.status(keyOf("urn")), marks.status(keyOf("t1")), marks.status(keyOf("shop"))]).toEqual(["Destroyed", "Destroyed", "Active", undefined]);
+      expect(markers.every(({ key }) => marks.health(key) === undefined && marks.camp(key) === undefined && marks.buff(key) === undefined)).toBe(true);
       dispose();
     });
-    // The metadata tier: no objectives' health, Health on or not.
+    // The metadata tier: no objectives' health, Health on or not; what is down is the frame's.
     createRoot((dispose) => {
-      const part = markerFrame(fromTimeline({ tl: () => metadata, t: () => 7, markers: () => markers }), () => true);
-      expect("health" in part()).toBe(false);
-      expect(part().down).toEqual(before(metadata, 7, ALL, true).down);
+      const state = fromTimeline({ tl: () => metadata, t: () => 7, markers: () => markers });
+      const marks = markerStates({ ms: () => state, player: () => true, health: () => true }, () => markers.map((k) => k.key));
+      const frame = before(metadata, 7, ALL, true);
+      expect(markers.every(({ key }) => marks.health(key) === undefined)).toBe(true);
+      expect(markers.filter(({ key }) => marks.status(key) === "Destroyed" && !key.startsWith("rift:") && !key.startsWith("urn:")).map((k) => k.key).sort()).toEqual([...frame.down].sort());
       dispose();
     });
   });

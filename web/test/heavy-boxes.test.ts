@@ -6,7 +6,7 @@ import { FALLBACK } from "../src/map/fallback-data";
 import { isFurniture, markersFrom, modelFromFallback, optionalShown, withBuiltInFurniture, type PackEntity } from "../src/map/model";
 import { artFromManifest } from "../src/map/pack";
 import { type Timeline, campsAt, sitesAt } from "../src/match/timeline";
-import { markerTip } from "../src/player/Camps";
+import { tipOf } from "./support/tips";
 import type { MatchPreview } from "../src/match/preview";
 
 // As the extractor writes one (129738985's lane4:3 broke at 181, back at 361).
@@ -52,9 +52,9 @@ describe("heavy boxes in Player", () => {
   });
 
   it("says when it's back, and nothing while it's up", () => {
-    expect(markerTip(m, pv(200), 200)).toBe("Respawns in 2:41");
-    expect(markerTip(m, pv(100), 100)).toBe("Spawns in 1:20");
-    expect(markerTip(m, pv(400), 400)).toBeUndefined();
+    expect(tipOf(m, pv(200), 200)).toBe("Respawns in 2:41");
+    expect(tipOf(m, pv(100), 100)).toBe("Spawns in 1:20");
+    expect(tipOf(m, pv(400), 400)).toBeUndefined();
   });
 
   it("finds the crate by place when a pack keys it differently", () => {

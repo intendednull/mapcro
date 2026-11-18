@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import { FALLBACK } from "../src/map/fallback-data";
 import { modelFromFallback } from "../src/map/model";
 import { type Timeline, captureAt, campsAt, rejuvAt, riftAt, urnAt } from "../src/match/timeline";
-import { centreTimer, markerTip, rejuvTip, respawnTip, riftTip, urnItemTip } from "../src/player/Camps";
+import { centreTimer, rejuvTip, respawnTip, riftTip, urnItemTip } from "../src/player/Camps";
+import { tipOf } from "./support/tips";
 import { groupOf, label, labelParts, namesFor, shortLabel } from "../src/player/events";
 import type { MatchPreview } from "../src/match/preview";
 
@@ -71,13 +72,13 @@ describe("Rejuvenator", () => {
     const boss = markers.find((m) => m.kind === "midboss")!;
     const pv = (t: number): MatchPreview => ({ players: new Map(), down: new Set(), sites: new Map(), lanes: new Map(), camps: new Map([[boss.key, campsAt(tl, t).get(MID)!]]), rejuv: rejuvAt(tl, t) });
     expect(pv(1952).rejuv).toHaveLength(1);
-    expect(markerTip(boss, pv(1952), 1952)).toBe("Respawns in 5:33");
-    expect(markerTip(boss, pv(2100), 2100)).toBe("Respawns in 3:05");
+    expect(tipOf(boss, pv(1952), 1952)).toBe("Respawns in 5:33");
+    expect(tipOf(boss, pv(2100), 2100)).toBe("Respawns in 3:05");
     // Up, with a Rejuvenator held: nothing (no health known here), or its health.
     expect(pv(2400).rejuv).toHaveLength(1);
-    expect(markerTip(boss, { ...pv(2400), camps: new Map() }, 2400)).toBeUndefined();
-    expect(markerTip(boss, { ...pv(2400), camps: new Map(), health: new Map([[boss.key, { pct: 45 }]]) } as MatchPreview, 2400)).toBe("Mid-Boss 45%");
-    expect(markerTip(boss, { ...pv(2600), camps: new Map() }, 2600)).toBeUndefined();
+    expect(tipOf(boss, { ...pv(2400), camps: new Map() }, 2400)).toBeUndefined();
+    expect(tipOf(boss, { ...pv(2400), camps: new Map(), health: new Map([[boss.key, { pct: 45 }]]) } as MatchPreview, 2400)).toBe("Mid-Boss 45%");
+    expect(tipOf(boss, { ...pv(2600), camps: new Map() }, 2600)).toBeUndefined();
   });
 
   it("the centre timer: a held Rejuvenator's, else the Mid-Boss's respawn while it's dead, else none", () => {

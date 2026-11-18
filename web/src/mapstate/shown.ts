@@ -9,9 +9,10 @@
 // meaning: a hero marked out of sight is faded for every viewer (D5).
 
 import type { MatchPreview } from "../match/preview";
+import { type UrnNow, slotKey } from "../match/timeline";
 import type { Vision } from "../player/vision";
 import type { Shown } from "./frame";
-import type { HeroState } from "./state";
+import type { Death, HeroState, MapState } from "./state";
 
 type Pos = { x: number; y: number };
 
@@ -74,4 +75,34 @@ export function playerHero(h: HeroState, draw: HeroDraw, shown: Shown): PlayerHe
     ...(shown.movement && live ? { height: h.height(), zipline: h.zipline() } : {}),
     ...(shown.cc && live ? { cc: h.cc() } : {}),
   };
+}
+
+/** The team whose sight the frame is drawn under: none for All, or a frame without sight data. */
+const sightOf = (ms: MapState, vision: Vision) => (vision !== "all" && ms.has("sight") ? vision : null);
+
+/** Where the viewer's frame draws the hero in slot `key`, in Player: where it is, or its ghost;
+ * `undefined` when it isn't drawn. */
+export function playerPlace(ms: MapState, key: string, shown: Shown): Pos | undefined {
+  const h = ms.hero(key);
+  const team = key.startsWith("amber") ? "amber" : "sapphire";
+  const draw = heroDraw({ team, inSight: h.inSight(), lastSeen: h.lastSeen() }, shown, ms.has("sight"), false);
+  return playerHero(h, draw, shown)?.pos ?? undefined;
+}
+
+/** The urn as the viewer may see it. In one team's view, an urn carried by an enemy out of its
+ * sight isn't drawn: where it is would give the carrier away (operator 2026-11-09), ghost or
+ * undrawn alike, so the urn never follows a ghost. `at: null` draws nothing and can't be hovered. */
+export function shownUrn(ms: MapState, vision: Vision): (UrnNow & { unseen?: boolean }) | undefined {
+  const u = ms.scene().urn();
+  const view = sightOf(ms, vision);
+  if (u?.state !== "carried" || !view || !u.team || u.slot == null || u.team === view) return u;
+  return ms.hero(slotKey(u.team, u.slot)).inSight() ? u : { ...u, at: null, unseen: true };
+}
+
+/** The deaths the viewer's frame shows as skulls: a team always sees its own heroes die, an
+ * enemy's death only if it saw it. */
+export function shownDeaths(ms: MapState, vision: Vision): Death[] {
+  const view = sightOf(ms, vision);
+  const deaths = ms.scene().deaths();
+  return view ? deaths.filter((d) => d.team === view || d.seen) : deaths;
 }
