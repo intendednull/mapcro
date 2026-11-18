@@ -6,12 +6,12 @@
 import { Index, Show } from "solid-js";
 import { worldToView } from "../map/transform";
 import type { Art } from "../map/pack";
-import { SKULL, TOKEN_R } from "../board/Tokens";
-import type { MatchPreview } from "../match/preview";
+import { SKULL, TOKEN_R, type TokenFrame } from "../board/Tokens";
+import { shownDeaths } from "../mapstate/shown";
 
 /** `k`: the hero tokens' scale, so the fallen hero keeps exactly their on-screen size. */
 export function DeathSkulls(p: {
-  art: Art; vp: "amber" | "sapphire" | "neutral"; preview: () => MatchPreview | undefined; k: number;
+  art: Art; vp: "amber" | "sapphire" | "neutral"; frame: TokenFrame; k: number;
   /** Whether the death (slot "amber-0"…, its second) has a recap: its skull opens it. */
   hasRecap?: (slot: string, t: number) => boolean;
   /** A touch target's radius, in the skull's own units (phone: 44 px across on screen). */
@@ -20,10 +20,10 @@ export function DeathSkulls(p: {
 }) {
   return (
     <g class="pl-skulls" data-testid="death-skulls">
-      <Index each={p.preview()?.skulls ?? []}>
+      <Index each={shownDeaths(p.frame.ms(), p.frame.shown().vision)}>
         {(s) => {
           const v = () => worldToView(s().at, p.vp);
-          const hero = () => p.art.heroes.get(p.preview()?.players.get(s().slot)?.hero ?? -1);
+          const hero = () => p.art.heroes.get(p.frame.ms().hero(s().slot).hero() ?? -1);
           const recap = () => !!p.onOpenRecap && !!p.hasRecap?.(s().slot, s().t);
           return (
             <g

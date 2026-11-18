@@ -1,9 +1,10 @@
 // Player's frame: the match at playback time t as the board draws it (map-state spec §6).
 //
-// `previewAt` is the definition: everything computed at t. Player's state (state.ts
-// `fromTimeline`, and `playerFrame` from it) gives the same from three clocks (TD-50): what the
-// timeline holds per second is computed once a second, what it holds per tenth once a tenth,
-// and only places and what is counted from t on every frame. `secondPart` and `tenthPart` are
+// `previewAt` is the definition: everything computed at t. Nothing draws from it: the renderers
+// read Player's state (state.ts `fromTimeline`), and `frame-clocks.test.ts` holds that state and
+// this to the same answer. The state rests on three clocks (TD-50): what the timeline holds per
+// second is computed once a second, what it holds per tenth once a tenth, and only places and
+// what is counted from t on every frame. `secondPart` and `tenthPart` are
 // those parts, unfiltered: Save as scene captures from them too. A new feature goes on the
 // slowest clock its data allows; `frame-clocks.test.ts` holds that the clocked frame equals the
 // definition at every t it tries.
@@ -102,15 +103,9 @@ export function tenthPart(m: Timeline, t: number): TenthPart {
   return { sight: m.players.map((p) => sightAt(p, ds + 0.5)), cc: m.players.map((p) => crowdControlAt(p, mid)) };
 }
 
-/** `playersAt(m, t)` from the samples of t's second (`playersAt(m, Math.floor(t))`): a hero's
- * samples are the second's; its place and its respawn time are counted from t. */
-export function heroesAt(m: Timeline, t: number, samples: PlayerAt[]): PlayerAt[] {
-  return samples.map((x, i) => ({ ...x, pos: positionAt(m.players[i]!, t), respawn: respawnAt(m.players[i]!, t) }));
-}
-
 /**
  * The match at `at` as the board draws it under the viewer's choices. `sec` and `tenth`: the
- * parts for at's second and tenth, when the caller holds them (state.ts `playerFrame`); computed here
+ * parts for at's second and tenth, when the caller holds them; computed here
  * otherwise, which is the definition.
  */
 export function previewAt(m: Timeline, at: number, markers: FrameMarkers, shown: Shown, fade: boolean, sec: SecondPart = secondPart(m, at, markers), tenth: TenthPart = tenthPart(m, at)): MatchPreview {

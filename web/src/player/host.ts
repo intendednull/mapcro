@@ -1143,8 +1143,7 @@ export function createPlayerHost(board: string, token: string, via?: Via, rememb
     eventSearchHeard,
     eventSearchByName,
     second,
-    /** The viewer's choices the frame is drawn under (mapstate/frame.ts `playerFrame`, which
-     * gives the match at t as the board draws it). */
+    /** The viewer's choices the frame is drawn under (mapstate/shown.ts). */
     shown: (): Shown => ({ health: showHealth(), names: showNames(), vision: vision(), lastSeen: showLastSeen(), movement: showMovement(), cc: showCC() }),
     /** Whether this moment continues the last in playback (`MatchPreview.fade`). */
     continuous,

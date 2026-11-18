@@ -5,7 +5,7 @@
 // while playing, and input waited behind it).
 
 import { createMemo } from "solid-js";
-import type { PlayerAt } from "../match/timeline";
+import type { HeroState } from "../mapstate/state";
 
 export interface BarSlot {
   hero_id: number;
@@ -19,8 +19,11 @@ export interface BarSlot {
   respawn: number | null;
 }
 
-export function barSlotOf(x: PlayerAt | undefined): BarSlot | undefined {
-  return x && { hero_id: x.hero_id, dead: x.pos === null, souls: x.souls, ult: x.ult, health: x.health, respawn: x.respawn };
+/** What the bar reads of a hero. */
+export type BarHero = Pick<HeroState, "present" | "hero" | "pos" | "souls" | "ult" | "health" | "respawn">;
+
+export function barSlotOf(h: BarHero): BarSlot | undefined {
+  return h.present() ? { hero_id: h.hero() ?? 0, dead: h.pos() === null, souls: h.souls(), ult: h.ult(), health: h.health(), respawn: h.respawn() } : undefined;
 }
 
 const shownRespawn = (s: number | null) => (s == null ? null : Math.ceil(s));
@@ -32,8 +35,7 @@ export function sameBarSlot(a: BarSlot | undefined, b: BarSlot | undefined): boo
   return a.hero_id === b.hero_id && a.dead === b.dead && a.souls === b.souls && a.ult === b.ult && a.health === b.health && shownRespawn(a.respawn) === shownRespawn(b.respawn);
 }
 
-/** The slot `key`'s bar state from the players at t, as a memo that only changes with it. Call
- * inside a component or root. */
-export function barSlot(at: () => ReadonlyMap<string, PlayerAt>, key: string): () => BarSlot | undefined {
-  return createMemo(() => barSlotOf(at().get(key)), undefined, { equals: sameBarSlot });
+/** The hero's bar state, as a memo that only changes with it. Call inside a component or root. */
+export function barSlot(h: BarHero): () => BarSlot | undefined {
+  return createMemo(() => barSlotOf(h), undefined, { equals: sameBarSlot });
 }

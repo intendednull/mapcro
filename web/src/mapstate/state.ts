@@ -6,18 +6,17 @@
 // is in it whether or not Health is on, and each hero's sight whichever Vision is picked.
 //
 // `fromTimeline` is Player's producer: the fields rest on the frame's three clocks (frame.ts), so
-// one that the timeline holds per second is computed once a second. `playerFrame` is the old
-// readers' adapter: the same state as a `MatchPreview` under the viewer's choices, until the
-// renderers read `MapState` themselves (phase 4, with `fromScene` giving the same interface).
+// one that the timeline holds per second is computed once a second. The renderers read `MapState`
+// in both modes (phase 4, with `fromScene` giving the same interface); the viewer's choices apply
+// in shown.ts.
 
 import { type Accessor, createMemo, getOwner, runWithOwner } from "solid-js";
 import type { ObjectiveStatus } from "../gen/ObjectiveStatus";
-import type { MatchPreview } from "../match/preview";
 import { type CampAt, type PowerupAt, type RejuvNow, type RiftAt, type Timeline, type UrnNow, markerKey, positionAt, respawnAt, riftAt, slotKey, urnAt } from "../match/timeline";
 import type { CrowdControl } from "../player/cc";
 import { type Skull, deathSeen, skullsAt } from "../player/skulls";
 import { hasVision, seenFrom } from "../player/vision";
-import { type FrameMarkers, type SecondPart, type Shown, type TenthPart, previewAt, secondPart, tenthPart } from "./frame";
+import { type FrameMarkers, type SecondPart, type TenthPart, secondPart, tenthPart } from "./frame";
 
 type Pos = { x: number; y: number };
 
@@ -272,40 +271,4 @@ export function urnOf(m: Timeline, t: number, markers: FrameMarkers): UrnNow | u
   const u = urnAt(m, t);
   const site = (k: string | null | undefined) => (k ? (markerKey(k, markers) ?? null) : null);
   return u ? { ...u, delivery: site(u.delivery), next: u.next ? { t: u.next.t, key: site(u.next.key) ?? u.next.key } : null } : undefined;
-}
-
-const EMPTY = (): MatchPreview => ({ players: new Map(), down: new Set(), sites: new Map(), lanes: new Map(), camps: new Map(), rifts: new Map(), powerups: new Map() });
-
-export interface FrameSource extends StateSource {
-  shown: Accessor<Shown>;
-  /** Whether this moment continues the last in playback (`MatchPreview.fade`). */
-  fade: Accessor<boolean>;
-}
-
-/**
- * Player's frame as the old readers take it: the state's parts under the viewer's choices, as
- * one `MatchPreview`, new each frame. Empty with no timeline. Call inside a component or root.
- */
-export function playerFrame(src: FrameSource, state: PlayerState = fromTimeline(src)): Accessor<MatchPreview> {
-  return () => {
-    const m = src.tl();
-    const [s, d] = [state.second(), state.tenth()];
-    return m && s && d ? previewAt(m, src.t(), src.markers(), src.shown(), src.fade(), s, d) : EMPTY();
-  };
-}
-
-/** What the map's markers draw from (player/markerStates.ts): the second's part of the frame. */
-export type MarkerPreview = Pick<MatchPreview, "down" | "shops" | "sites" | "camps" | "powerups" | "health">;
-
-/**
- * The markers' part of Player's frame under the viewer's Health choice: new once a second (and
- * when Health is switched), not each frame. Empty with no timeline, as the frame is. Call
- * inside a component or root.
- */
-export function markerFrame(state: PlayerState, health: Accessor<boolean>): Accessor<MarkerPreview> {
-  return createMemo(() => {
-    const s = state.second();
-    if (!s) return EMPTY();
-    return { down: s.down, shops: s.shops, sites: s.sites, camps: s.camps, powerups: s.powerups, ...(health() && s.health ? { health: s.health } : {}) };
-  });
 }

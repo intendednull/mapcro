@@ -11,7 +11,9 @@ import { HUD_MAP_PX, type Marker, type OptionalFurniture, optionalShown, teamNam
 import { type Pt, mapToView, worldToView } from "../map/transform";
 import { svgPoint } from "../board/Tokens";
 import { type CampAt, type PowerupAt, type RejuvNow, type RiftAt, type UrnNow, clockLabel } from "../match/timeline";
-import type { MatchPreview } from "../match/preview";
+import type { TokenFrame } from "../board/Tokens";
+import type { MapState } from "../mapstate/state";
+import { shownUrn } from "../mapstate/shown";
 import { buffInfo } from "../match/buffs";
 import { hoverMarker, localHover, registerHover } from "../map/HoverLabel";
 import { urnTip } from "./Urn";
@@ -90,19 +92,35 @@ export function healthTip(kind: Marker["kind"], pct: number | undefined): string
   return name && pct !== undefined ? `${name} ${Math.round(Math.max(0, Math.min(100, pct)))}%` : undefined;
 }
 
+/** What a marker's hover reads of the frame at t. */
+export interface TipFacts {
+  down: boolean;
+  camp?: CampAt | undefined;
+  /** Its health, under the viewer's Health. */
+  health?: number | undefined;
+  rift?: RiftAt | undefined;
+  powerup?: PowerupAt | undefined;
+  urn?: UrnNow | undefined;
+}
+
+/** Marker `key`'s facts in the frame. A scene holds none of them yet, so it says nothing. */
+export function tipFacts(ms: MapState, key: string, health: boolean, urn: UrnNow | undefined): TipFacts {
+  const m = ms.marker(key);
+  return { down: m.down(), camp: m.camp(), health: health ? m.health()?.pct : undefined, rift: m.rift(), powerup: m.powerup(), urn };
+}
+
 /**
- * What marker `m` says at t in Player, if anything: a timer, an objective's health ("Walker
- * 62%", operator 2026-11-09), or a name that is the news (the buff that's up, an open delivery
- * point). Players know a camp when they see one, so one that's up says nothing; an objective
- * whose health isn't known (Health off, the API summary) or that's down says nothing either,
- * nor does anything in Sandbox, where the board sets no health.
+ * What marker `m` says at t, if anything: a timer, an objective's health ("Walker 62%", operator
+ * 2026-11-09), or a name that is the news (the buff that's up, an open delivery point). Players
+ * know a camp when they see one, so one that's up says nothing; an objective whose health isn't
+ * known (Health off, the API summary) or that's down says nothing either, nor does anything in a
+ * scene, whose frame holds no timers or health.
  */
-export function markerTip(m: Pick<Marker, "key" | "kind">, pv: MatchPreview | undefined, t: number): string | undefined {
-  if (!pv) return undefined;
-  const c = pv.camps.get(m.key);
+export function markerTip(m: Pick<Marker, "key" | "kind">, f: TipFacts, t: number): string | undefined {
+  const c = f.camp;
   // A healing pickup has a camp's timers: taken, when it's back; up, nothing to say.
   if ((m.kind === "camp" || m.kind === "heal" || m.kind === "crate") && c) return campTip(c, t);
-  const hp = pv.down.has(m.key) ? undefined : pv.health?.get(m.key)?.pct;
+  const hp = f.down ? undefined : f.health;
   if (m.kind === "midboss") {
     // Down: its respawn alone; up: its health. A held Rejuvenator's time is on its top-bar
     // timer's hover, its revives the marks beside it (feedback #44). The API summary has the
@@ -110,25 +128,24 @@ export function markerTip(m: Pick<Marker, "key" | "kind">, pv: MatchPreview | un
     return (c ? campTip(c, t) : undefined) ?? healthTip(m.kind, hp);
   }
   if (HEALTH_NAME[m.kind]) return healthTip(m.kind, hp);
-  const r = pv.rifts?.get(m.key);
-  if (m.kind === "koth" && r) return riftTip(r, m.key, t);
-  const b = pv.powerups?.get(m.key);
-  if (m.kind === "powerup" && b) return powerupTip(b, t);
-  if (m.kind === "urn" && pv.urn) return urnTip(pv.urn, m.key, t);
+  if (m.kind === "koth" && f.rift) return riftTip(f.rift, m.key, t);
+  if (m.kind === "powerup" && f.powerup) return powerupTip(f.powerup, t);
+  if (m.kind === "urn" && f.urn) return urnTip(f.urn, m.key, t);
   return undefined;
 }
 
 /** `hidden`: a marker hidden from the map (an objective turned off), which has nothing to say.
  * `shown`: the healing pickups and heavy boxes this browser draws (their toggles); off, they
  * can't be hovered. */
-export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; hidden: (key: string) => boolean; shown?: () => OptionalFurniture; preview: () => MatchPreview | undefined; t: () => number; k: number }) {
+export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; hidden: (key: string) => boolean; shown?: () => OptionalFurniture; frame: TokenFrame; t: () => number; k: number }) {
   let g!: SVGGElement;
   const markers = () => {
     const on = p.shown?.() ?? {};
     return p.art.model.markers.filter((m) => optionalShown(m.kind, on));
   };
+  const shownNow = () => shownUrn(p.frame.ms(), p.frame.shown().vision);
   const urn = () => {
-    const u = p.preview()?.urn;
+    const u = shownNow();
     return u?.state === "ground" && u.at ? { u, at: worldToView(u.at, p.vp) } : undefined;
   };
   const near = (at: Pt) => {
@@ -154,7 +171,7 @@ export function MarkerTips(p: { art: Art; vp: "amber" | "sapphire" | "neutral"; 
         if (p.hidden(m.key)) return undefined;
         // Nothing to say is still a marker under the pointer: an empty text, which the label
         // doesn't draw but which keeps the wave's handle under it from labelling.
-        const text = markerTip(m, p.preview(), p.t()) ?? "";
+        const text = markerTip(m, tipFacts(p.frame.ms(), m.key, p.frame.shown().health, shownNow()), p.t()) ?? "";
         const at = mapToView(m.at, p.vp);
         return { x: at.x, y: at.y, gap: Math.max(10, (m.px / HUD_MAP_PX) * 1000 * 0.22 * p.k) + 6 * p.k, text };
       }),

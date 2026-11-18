@@ -7,7 +7,7 @@ import { FALLBACK } from "../src/map/fallback-data";
 import { isFurniture, markersFrom, modelFromFallback, withBuiltInFurniture, type PackEntity } from "../src/map/model";
 import { artFromManifest } from "../src/map/pack";
 import { type Timeline, campsAt, downAt, shopsClosed, sitesAt } from "../src/match/timeline";
-import { markerTip } from "../src/player/Camps";
+import { tipOf } from "./support/tips";
 import type { MatchPreview } from "../src/match/preview";
 
 // As the extractor writes them for build 6860.
@@ -77,13 +77,13 @@ describe("healing pickups in Player", () => {
   });
 
   it("says when it's back, and nothing while it's up", () => {
-    expect(markerTip(m, pv(450), 450)).toBe("Respawns in 2:12");
-    expect(markerTip(m, pv(100), 100)).toBe("Spawns in 0:50");
-    expect(markerTip(m, pv(200), 200)).toBeUndefined();
+    expect(tipOf(m, pv(450), 450)).toBe("Respawns in 2:12");
+    expect(tipOf(m, pv(100), 100)).toBe("Spawns in 0:50");
+    expect(tipOf(m, pv(200), 200)).toBeUndefined();
   });
 
   it("shops and teleporters say nothing (the label rule)", () => {
-    for (const k of ["shop:amber:lane1:1", "teleporter:neutral:lane4:1"]) expect(markerTip(markers.find((x) => x.key === k)!, pv(450), 450)).toBeUndefined();
+    for (const k of ["shop:amber:lane1:1", "teleporter:neutral:lane4:1"]) expect(tipOf(markers.find((x) => x.key === k)!, pv(450), 450)).toBeUndefined();
   });
 });
 
