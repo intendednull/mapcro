@@ -379,6 +379,16 @@ for (const viewport of [...PHONES, ...TABLETS]) {
       expect(icons.map((r) => r.shown)).toEqual(icons.map((r) => r.n));
       for (const r of icons) expect(r.h).toBeGreaterThanOrEqual(48);
       await checkPhoneLayout(phone);
+      // A row's items are the build at this moment: at 8 s Test Lifesteal, by 20 s the Infuser
+      // it became at 12 s (TD-97).
+      const items = () => phone.getByTestId("all-builds-row").first().locator(".phone-row-items img").evaluateAll((imgs) => imgs.map((i) => i.getAttribute("src")));
+      const now = await items();
+      expect(now).toHaveLength(1);
+      await scrubTo(phone, 8);
+      await expect.poll(items).not.toEqual(now);
+      expect(await items()).toHaveLength(1);
+      await scrubTo(phone, 20);
+      await expect.poll(items).toEqual(now);
       await phone.getByTestId("all-builds-row").first().tap();
       await expect(phone.getByTestId("all-builds-list")).toHaveCount(0);
       await expect(column(phone)).toHaveCount(1);

@@ -1,6 +1,11 @@
 // Hero tokens on the map: one per roster slot in the current scene. With the Select tool an
 // editor drags a token; while dragging, its position travels through presence (others watch it
 // move, with the dragger's name tag), and the drop commits one op (spec §4a).
+//
+// What a token draws is its hero's state in the frame (`MapState`, map-state spec §6): Player's,
+// computed from the match at t, or the scene's, read from its records. The viewer's Vision over
+// it is one rule for both (mapstate/shown.ts `heroDraw`). The records are read here only to edit
+// them (a drag, K, the respawn time) and to know which slots the scene has.
 
 import { slotName, slotPlaceholder } from "./roster";
 import { slotTag } from "../map/model";
@@ -9,8 +14,10 @@ import { Portal } from "solid-js/web";
 import { formatClock, parseClock } from "../core/clock";
 import { capture } from "../ui/capture";
 import { cx } from "../ui/cx";
-import type { MatchPreview } from "../match/MatchPanel";
 import { MAX_RESPAWN, slotKey } from "../match/save";
+import type { Shown } from "../mapstate/frame";
+import { heroDraw, playerHero } from "../mapstate/shown";
+import type { MapState } from "../mapstate/state";
 import { colorOf } from "../core/device";
 import type { PeerPresence } from "../gen/PeerPresence";
 import type { RecordId } from "../gen/RecordId";
@@ -21,8 +28,6 @@ import { FLIP_MS, smoothed } from "./smooth";
 import { fadeTiming, fadeTo, visionFade } from "./fade";
 import { hoverToken, hoveredToken, registerHover } from "../map/HoverLabel";
 import type { BoardState, Player, Slot } from "./state";
-import type { SceneState } from "../gen/SceneState";
-import { captured, sceneHero } from "../mapstate/build";
 
 export const TOKEN_R = 23;
 
@@ -79,6 +84,18 @@ const EYE = "M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z";
 /** A small skull: dome, eyes and jaw (eyes and nose are holes, evenodd). */
 export const SKULL = "M0 -6a6 6 0 0 1 6 6c0 2-1 3-2 3.6V6H-4V3.6C-5 3-6 2-6 0a6 6 0 0 1 6-6zM-2.4 -1.2a1.5 1.5 0 1 0 0.01 0zM2.4 -1.2a1.5 1.5 0 1 0 0.01 0zM0 1.6l-0.9 1.4h1.8z";
 
+/** What the tokens draw (Board's): the frame, and the viewer's choices over it. */
+export interface TokenFrame {
+  /** The frame: Player's state, or the open scene's (Board's `mapState()`). */
+  ms: () => MapState;
+  /** Player: the frame is the match's, drawn as it plays, and the tokens aren't edited. */
+  player: () => boolean;
+  /** The viewer's choices (Player's Vision, Show last seen location, names, health, movement, CC). */
+  shown: () => Shown;
+  /** Whether this moment continues the last in playback: Vision's fades run only then. */
+  smooth: () => boolean;
+}
+
 export function Tokens(p: {
   state: BoardState;
   art: Art;
@@ -93,12 +110,9 @@ export function Tokens(p: {
   /** A press on a hero ends an objective group selection. */
   editing?: boolean | undefined;
   onPress?: () => void;
-  /** A match preview: heroes at the match's positions (by "amber-0"…), dead ones hidden. */
-  preview?: (() => MatchPreview | undefined) | undefined;
+  frame: TokenFrame;
   /** A hero just focused from its portrait ("Amber-0"): its token flashes; `n` restarts it. */
   focused?: (() => { slot: string; n: number } | undefined) | undefined;
-  /** In a scene, the open match's in-game name for a slot (Board's `sceneMatchName`). */
-  matchName?: ((team: string, slot: number) => string | undefined) | undefined;
   /** Under a match preview, a single click (no drag) with the Select tool on a hero ("amber", 0):
    * Player's hero panel (player/HeroCard.tsx). */
   /** A token clicked under a match preview: its slot, and the token (its panel opens beside it, #48). */
@@ -108,8 +122,6 @@ export function Tokens(p: {
   const slots = createMemo(() => new Map(p.state.roster().map((s) => [s.id, s.slot])));
   const players = createMemo(() => p.state.playersIn(p.scene).filter((pl) => slots().has(pl.state.slot)));
   const bySlot = createMemo(() => new Map(players().map((pl) => [pl.state.slot, pl])));
-  /** Whether the scene holds its own heroes (its snapshot's state says so). */
-  const ownHeroes = createMemo(() => captured(p.state.rowsIn<SceneState>("SceneState", p.scene)[0]?.r?.more).heroes);
   const slotIds = createMemo(() => players().map((pl) => pl.state.slot), undefined, { equals: (a, b) => a.length === b.length && a.every((x, i) => x === b[i]) });
   const posOf = (id: RecordId) => {
     const e = p.state.records[id];
@@ -138,7 +150,8 @@ export function Tokens(p: {
     return m;
   });
 
-  const editable = () => p.tool === "select" && (p.state.canEdit() && p.editing !== false) && !p.preview?.();
+  const live = () => p.frame.player();
+  const editable = () => p.tool === "select" && (p.state.canEdit() && p.editing !== false) && !live();
 
   /** A click under a match preview: press and release within a few px, the map's own pan aside. */
   const click = (pl: Player, e: PointerEvent) => {
@@ -157,7 +170,7 @@ export function Tokens(p: {
   };
 
   const down = (pl: Player, e: PointerEvent) => {
-    if (p.preview?.() && p.tool === "select" && e.button === 0) click(pl, e);
+    if (live() && p.tool === "select" && e.button === 0) click(pl, e);
     if (!editable() || e.button !== 0) return;
     const svg = p.svg();
     if (!svg) return;
@@ -211,7 +224,7 @@ export function Tokens(p: {
 
   /** Dead or alive (K on a hovered hero). */
   const toggleAlive = (pl: Player) => {
-    if (!(p.state.canEdit() && p.editing !== false) || p.preview?.()) return;
+    if (!(p.state.canEdit() && p.editing !== false) || live()) return;
     p.state.edit(aliveOps(pl));
   };
   // K acts on the hero under the pointer: the hover is a hint, and is checked against what is
@@ -237,7 +250,7 @@ export function Tokens(p: {
       if (!inside) setArmed(undefined);
     };
     const key = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "k" || e.ctrlKey || e.metaKey || e.altKey || e.repeat || !at || p.preview?.()) return;
+      if (e.key.toLowerCase() !== "k" || e.ctrlKey || e.metaKey || e.altKey || e.repeat || !at || live()) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       const under = document.elementsFromPoint(at.x, at.y).map((el) => el.closest?.(".tok[data-player]")?.getAttribute("data-player")).find(Boolean);
@@ -275,26 +288,35 @@ export function Tokens(p: {
           let last: Player | undefined;
           const pl = () => (last = bySlot().get(slotId) ?? last)!;
           const slot = () => slots().get(pl().state.slot)!;
-          const raw = () => p.preview?.()?.players.get(slotKey(slot().team, slot().slot));
+          const team = () => (slot().team === "Amber" ? "amber" : "sapphire");
+          /** Its hero in the frame (Player's or the scene's: `MapState`). */
+          const h = () => p.frame.ms().hero(slotKey(slot().team, slot().slot));
+          // The viewer's Vision over the frame's sight, one rule in both (D3): Player's ghost
+          // where last seen, or nothing; in a scene, faded where it stands, and only that.
+          const sight = createMemo(() => {
+            const x = h();
+            return heroDraw({ team: team(), get inSight() { return x.inSight(); }, get lastSeen() { return x.lastSeen(); } }, p.frame.shown(), p.frame.ms().has("sight"), !live());
+          }, undefined, { equals: (a, b) => a.as === b.as && (a.as !== "ghost" || (b.as === "ghost" && a.ago === b.ago && a.at.x === b.at.x && a.at.y === b.at.y)) });
+          /** Player: the hero as the frame draws it under the viewer's choices, where it is or
+           * its ghost; none in a scene. */
+          const raw = createMemo(() => (live() ? playerHero(h(), sight(), p.frame.shown()) : undefined));
           // Vision (Player): coming into sight it fades in; leaving it, it stays where it was
           // last drawn while it fades out, unhoverable (board/fade.ts). Snaps on a seek.
           const [el, setEl] = createSignal<SVGGElement>();
-          const smooth = () => !!p.preview?.()?.fade;
+          const smooth = () => p.frame.smooth();
           const vf = visionFade({ value: () => (raw()?.pos ? raw() : undefined), hidden: () => !!raw()?.unseen, smooth, el });
           const leaving = vf.leaving;
           const pv = () => vf.shown() ?? raw();
-          // A match preview (Player) draws only the timeline at t, never the scene's records:
-          // alive and seen by the match, placed where the match has them (spec §6b).
-          const live = () => !!p.preview?.();
-          const alive = () => (live() ? true : pl().state.alive);
-          // In one team's Vision, an enemy out of its sight: a ghost where last seen (spec §6b).
-          const ghost = () => (live() ? (pv()?.ghost ?? null) : null);
-          const visible = () => (live() ? ghost() == null : pl().state.visible);
-          // Player: the match's hero. A scene: its own once it holds its heroes (spec D2), else
-          // the board roster's.
-          const heroId = () => pv()?.hero ?? sceneHero(ownHeroes(), pl().state.more, slot().hero);
+          // Player draws no dead hero; a scene's is dark, with its respawn time (D4).
+          const alive = () => live() || h().alive();
+          // In one team's Vision, an enemy out of its sight: a ghost where last seen (Player).
+          const ghost = () => pv()?.ghost ?? null;
+          // Dim: Player's ghost, or a scene's hero out of the viewer's sight (D3, D5).
+          const visible = () => ghost() == null && sight().as !== "faded";
+          // Player: the match's hero. A scene: its own once it holds its heroes (D2), else the
+          // board roster's.
+          const heroId = () => h().hero();
           const hero = () => (heroId() != null ? p.art.heroes.get(heroId()!) : undefined);
-          const team = () => (slot().team === "Amber" ? "amber" : "sapphire");
           const mine = () => {
             const d = drag();
             const g = d?.group.find((x) => x.id === pl().id);
@@ -304,7 +326,9 @@ export function Tokens(p: {
           const remote = () => (touching().get(pl().id) ?? []).find((t) => t.at);
           const remoteDrag = () => remote()?.peer;
           const remoteAt = smoothed(() => remote()?.at);
-          const target = () => pv()?.pos ?? mine() ?? remoteAt() ?? pl().state.pos;
+          // Player: where the frame draws it. A scene: a drag's, else where its token stands
+          // (an unplaced hero's spot is the record's: where a flip glides it from).
+          const target = () => pv()?.pos ?? mine() ?? remoteAt() ?? h().last() ?? pl().state.pos;
           // A scene flip: from the last scene's spot to this one's (render only).
           const flipped = smoothed(target, FLIP_MS, () => p.scene);
           const shown = () => flipped() ?? target();
@@ -312,12 +336,15 @@ export function Tokens(p: {
           const at = () => worldToView(shown(), p.vp);
           const home = () => worldToView(pl().state.pos, p.vp);
           const r = () => TOKEN_R * p.k;
-          // In Player, the match's player name (spec §6b); else the board's slot name, falling back
-          // in a scene to the open match's.
-          const label = () => `${pv()?.name || slotName(slot().name, live() ? undefined : p.matchName?.(slot().team, slot().slot)) || slotPlaceholder(slot().team, slot().slot)}${hero() ? `, ${hero()!.name}` : ""}${ghost() != null ? ` · Seen ${formatClock(Math.floor(ghost()!))} ago` : ""}`;
+          // In Player, the match's player name under Player names (spec §6b), else the board's
+          // slot name. A scene's: its own, the board's slot name, then its source match's (D1).
+          const name = () => (live() ? pv()?.name : h().name()) || slotName(slot().name, undefined) || slotPlaceholder(slot().team, slot().slot);
+          const label = () => `${name()}${hero() ? `, ${hero()!.name}` : ""}${ghost() != null ? ` · Seen ${formatClock(Math.floor(ghost()!))} ago` : ""}`;
           // The map's hover label (map/HoverLabel.tsx), by roster slot, never the player's id.
           const hoverId = () => `${slot().team}-${slot().slot}`;
-          const shownOnMap = () => (live() ? !!pv()?.pos && !leaving() : pl().state.placed);
+          /** Drawn: Player, where the frame has it; a scene, once its token is placed. */
+          const drawn = () => (live() ? !!pv()?.pos : h().last() != null);
+          const shownOnMap = () => drawn() && !leaving();
           createEffect(() => {
             const off = registerHover("token", hoverId(), () => (shownOnMap() ? { x: at().x, y: at().y, gap: r() + 12 * p.k, text: label() } : undefined));
             onCleanup(off);
@@ -337,8 +364,9 @@ export function Tokens(p: {
           // fades out where it was (the echo), rather than one token jumping between them.
           const [echo, setEcho] = createSignal<{ pos: WorldPos; ago: number }>();
           createEffect(
-            on(raw, (next, prev) => {
-              if (!smooth()) return setEcho(undefined);
+            on([raw, smooth], ([next, sm], was) => {
+              const prev = was?.[0];
+              if (!sm) return setEcho(undefined);
               if (!prev?.pos || prev.ghost == null || !next?.pos || next.ghost != null || fadeTiming().ms <= 0) return;
               const [a, b] = [worldToView(prev.pos, p.vp), worldToView(next.pos, p.vp)];
               if (Math.hypot(a.x - b.x, a.y - b.y) < r() / 2) return;
@@ -348,7 +376,7 @@ export function Tokens(p: {
             }),
           );
           return (
-            <Show when={live() ? !!pv()?.pos : pl().state.placed}>
+            <Show when={drawn()}>
               <Show when={echo()} keyed>
                 {(e) => {
                   const v = worldToView(e.pos, p.vp);
@@ -497,14 +525,14 @@ export function Tokens(p: {
                   </g>
                 </Show>
               </g>
-              <Show when={!alive() && !live()}>
+              <Show when={!alive()}>
                 <Portal mount={labels} isSVG>
                   <g class="respawn" data-testid="respawn" data-player={pl().id} transform={`translate(${at().x} ${at().y + r() + 14 * p.k}) scale(${p.k})`}>
                     <Show
                       when={timing() === pl().id}
                       fallback={
                         <g
-                          class={cx("respawn-label", (p.state.canEdit() && p.editing !== false) && "editable", pl().state.respawn == null && "unset", armed() === pl().id && "hint")}
+                          class={cx("respawn-label", (p.state.canEdit() && p.editing !== false) && "editable", h().respawn() == null && "unset", armed() === pl().id && "hint")}
                           onPointerDown={(e) => {
                             if (e.button !== 0 || !(p.state.canEdit() && p.editing !== false)) return;
                             e.preventDefault();
@@ -513,7 +541,7 @@ export function Tokens(p: {
                           }}
                         >
                           <rect x="-44" y="-10" width="88" height="20" rx="4" />
-                          <text>{pl().state.respawn != null ? `respawn ${formatClock(pl().state.respawn)}` : "respawn"}</text>
+                          <text>{h().respawn() != null ? `respawn ${formatClock(h().respawn())}` : "respawn"}</text>
                         </g>
                       }
                     >
@@ -522,7 +550,7 @@ export function Tokens(p: {
                           class="respawn-input"
                           data-testid="respawn-input"
                           aria-label="Respawn in (m:ss)"
-                          value={formatClock(pl().state.respawn)}
+                          value={formatClock(h().respawn())}
                           ref={(el) => queueMicrotask(() => el.select())}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") setRespawn(pl(), e.currentTarget.value);
