@@ -232,6 +232,41 @@ test("1 2 3 pick Hidden King, Archmother and All, each option showing its key; a
   await expect(a.getByTestId("events-search")).toHaveValue("2");
 });
 
+test("in a scene, a hero out of sight is only faded where it stands, under any Vision, Show last seen location on or off", async ({ browser }) => {
+  const a = await joinNew(browser, await newBoardUrl(server, "Vision in a scene"), "Coach");
+  await a.emulateMedia({ reducedMotion: "reduce" });
+  // The scene marks Sapphire 0 out of sight (its portrait's menu).
+  await a.locator('.tb-player[data-slot="Sapphire-0"]:visible').click({ button: "right" });
+  await a.getByTestId("hero-menu-vision").click();
+  await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-visible", "false");
+  const tokens = a.locator("[data-testid=map] .tok[data-slot]");
+  const placed = await tokens.count();
+  const stands = await at(a, "Sapphire-0");
+  // Player, the King's view with Show last seen location: at 25 s it's a ghost where last seen.
+  await open(a);
+  await a.getByTestId("vision-select").selectOption("amber");
+  await a.getByTestId("last-seen-toggle").click();
+  await scrubTo(a, 25);
+  await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-seen", "false");
+  await revealControls(a, "mode-sandbox");
+  await a.getByTestId("mode-sandbox").click();
+  await expect(a.locator(".pl-topbar")).toHaveCount(0);
+  for (const lastSeen of ["true", "false"]) {
+    await expect(a.getByTestId("last-seen-toggle")).toHaveAttribute("aria-pressed", lastSeen);
+    // Faded where it stands, its eye struck through; no ghost and nothing where it was last seen.
+    await expect(tok(a, "Sapphire-0")).toHaveClass(/\bghost\b/);
+    await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-visible", "false");
+    await expect(tok(a, "Sapphire-0").getByTestId("unseen-mark")).toHaveCount(1);
+    await expect(tok(a, "Sapphire-0")).not.toHaveAttribute("aria-label", /Seen/);
+    expect(await at(a, "Sapphire-0")).toEqual(stands);
+    await expect(tokens).toHaveCount(placed);
+    await expect(a.locator("[data-testid=map] [data-echo], [data-testid=map] .tok[data-seen]")).toHaveCount(0);
+    // Every other hero as it is.
+    await expect(a.locator('[data-testid=map] .tok[data-visible="false"]')).toHaveCount(1);
+    if (lastSeen === "true") await a.getByTestId("last-seen-toggle").click();
+  }
+});
+
 test("a ghost eases in and out, and jumps under reduced motion", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Vision ease"), "Coach");
   await open(a);
