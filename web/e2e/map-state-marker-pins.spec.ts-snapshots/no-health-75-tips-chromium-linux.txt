@@ -1,0 +1,12 @@
+rift:neutral:lane1:1: Fades in 0:25
+rift:neutral:lane6:1: -
+urn:neutral:lane1:1: -
+urn:neutral:lane6:1: Urn delivery point
+powerup:neutral:lane1:1: Buff respawns in 0:05
+powerup:neutral:lane6:1: -
+camp:neutral:lane0:3: Respawns in 0:15
+mid_boss:neutral:lane0:1: Respawns in 0:25
+walker:amber:lane1:1: -
+guardian:amber:lane1:1: -
+patron:amber:lane0:1: -
+the urn: Urn returns in 2:50

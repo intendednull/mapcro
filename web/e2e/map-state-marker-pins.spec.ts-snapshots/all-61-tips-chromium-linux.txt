@@ -1,0 +1,12 @@
+rift:neutral:lane1:1: Fades in 0:39
+rift:neutral:lane6:1: -
+urn:neutral:lane1:1: -
+urn:neutral:lane6:1: Urn delivery point
+powerup:neutral:lane1:1: Buff respawns in 0:19
+powerup:neutral:lane6:1: -
+camp:neutral:lane0:3: Respawns in 0:29
+mid_boss:neutral:lane0:1: Respawns in 0:39
+walker:amber:lane1:1: Walker 62%
+guardian:amber:lane1:1: -
+patron:amber:lane0:1: Patron 80%
+the urn: Pilot s2

@@ -1,0 +1,279 @@
+<div class="tb-host pl-topbar" data-mode="player" data-testid="topbar" style="--u: 0.7px;">
+  <div class="tb-bar">
+    <div class="tb-team friend amber">
+      <div class="tb-player amber friend" data-alive="true" data-hero="1" data-seen="true" data-slot="Amber-0" title="Pilot a0">
+        <button aria-controls="build-Amber-0" aria-expanded="false" aria-label="Pilot a0 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="2500" data-testid="souls"> 2.5
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K1
+        <button aria-controls="build-Amber-0" aria-expanded="false" aria-label="Inspect Pilot a0" class="tb-focus" data-testid="focus-hero" title="Inspect Pilot a0">
+        <div aria-label="Pilot a0 health, 100%" class="tb-health" data-health="100" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 100%;">
+          <i class="tb-health-border">
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Pilot a0 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <span class="pl-tb-name" data-testid="tb-name"> Pilot a0
+      <div class="tb-player amber friend" data-alive="true" data-hero="2" data-seen="true" data-slot="Amber-1" title="Pilot a1">
+        <button aria-controls="build-Amber-1" aria-expanded="false" aria-label="Pilot a1 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="2800" data-testid="souls"> 2.8
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K2
+        <button aria-controls="build-Amber-1" aria-expanded="false" aria-label="Inspect Pilot a1" class="tb-focus" data-testid="focus-hero" title="Inspect Pilot a1">
+        <div aria-label="Pilot a1 health, 90%" class="tb-health" data-health="90" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 90%;">
+          <i class="tb-health-border">
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Pilot a1 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <span class="pl-tb-name" data-testid="tb-name"> Pilot a1
+      <div class="tb-player amber friend" data-alive="true" data-hero="3" data-seen="true" data-slot="Amber-2" title="Pilot a2">
+        <button aria-controls="build-Amber-2" aria-expanded="false" aria-label="Pilot a2 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="3100" data-testid="souls"> 3.1
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K3
+        <button aria-controls="build-Amber-2" aria-expanded="false" aria-label="Inspect Pilot a2" class="tb-focus" data-testid="focus-hero" title="Inspect Pilot a2">
+        <div aria-label="Pilot a2 health, 80%" class="tb-health" data-health="80" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 80%;">
+          <i class="tb-health-border">
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Pilot a2 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <span class="pl-tb-name" data-testid="tb-name"> Pilot a2
+      <div class="tb-player amber friend health-low" data-alive="true" data-hero="4" data-seen="true" data-slot="Amber-3" title="Pilot a3">
+        <button aria-controls="build-Amber-3" aria-expanded="false" aria-label="Pilot a3 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="3400" data-testid="souls"> 3.4
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K4
+        <button aria-controls="build-Amber-3" aria-expanded="false" aria-label="Inspect Pilot a3" class="tb-focus" data-testid="focus-hero" title="Inspect Pilot a3">
+        <div aria-label="Pilot a3 health, 20%" class="tb-health" data-health="20" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 20%;">
+          <i class="tb-health-border">
+        <span class="tb-critical" data-testid="tb-critical">
+          <span> Critical
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Pilot a3 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <span class="pl-tb-name" data-testid="tb-name"> Pilot a3
+      <div class="tb-player amber friend" data-alive="true" data-hero="5" data-seen="true" data-slot="Amber-4" title="Pilot a4">
+        <button aria-controls="build-Amber-4" aria-expanded="false" aria-label="Pilot a4 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="3700" data-testid="souls"> 3.7
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K5
+        <button aria-controls="build-Amber-4" aria-expanded="false" aria-label="Inspect Pilot a4" class="tb-focus" data-testid="focus-hero" title="Inspect Pilot a4">
+        <div aria-label="Pilot a4 health, 60%" class="tb-health" data-health="60" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 60%;">
+          <i class="tb-health-border">
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Pilot a4 ult cooldown" class="tb-ult cooldown" data-testid="ult" data-ult="40" style="--left: 40%;" title="Ult 40%">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <span class="pl-tb-name" data-testid="tb-name"> Pilot a4
+      <div class="tb-player amber friend" data-alive="true" data-hero="6" data-seen="true" data-slot="Amber-5" title="Pilot a5">
+        <button aria-controls="build-Amber-5" aria-expanded="false" aria-label="Pilot a5 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="4000" data-testid="souls"> 4.0
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> K6
+        <button aria-controls="build-Amber-5" aria-expanded="false" aria-label="Inspect Pilot a5" class="tb-focus" data-testid="focus-hero" title="Inspect Pilot a5">
+        <div aria-label="Pilot a5 health, 50%" class="tb-health" data-health="50" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 50%;">
+          <i class="tb-health-border">
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Pilot a5 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <span class="pl-tb-name" data-testid="tb-name"> Pilot a5
+    <div class="tb-team enemy sapphire">
+      <div class="tb-player sapphire enemy" data-alive="true" data-hero="1" data-seen="true" data-slot="Sapphire-0" title="Pilot s0">
+        <button aria-controls="build-Sapphire-0" aria-expanded="false" aria-label="Pilot s0 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="2500" data-testid="souls"> 2.5
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A1
+        <button aria-controls="build-Sapphire-0" aria-expanded="false" aria-label="Inspect Pilot s0" class="tb-focus" data-testid="focus-hero" title="Inspect Pilot s0">
+        <div aria-label="Pilot s0 health, 100%" class="tb-health" data-health="100" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 100%;">
+          <i class="tb-health-border">
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Pilot s0 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <span class="pl-tb-name" data-testid="tb-name"> Pilot s0
+      <div class="tb-player sapphire enemy unseen" data-alive="true" data-hero="2" data-seen="false" data-slot="Sapphire-1" title="Pilot s1">
+        <button aria-controls="build-Sapphire-1" aria-expanded="false" aria-label="Pilot s1 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="2800" data-testid="souls"> 2.8
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A2
+        <span aria-label="Not seen" class="tb-vis off" data-testid="tb-vision" role="img" title="Not seen">
+          <svg aria-hidden="true" viewBox="-8 -8 16 16">
+            <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z">
+            <path d="M-6 6L6 -6">
+        <button aria-controls="build-Sapphire-1" aria-expanded="false" aria-label="Inspect Pilot s1" class="tb-focus" data-testid="focus-hero" title="Inspect Pilot s1">
+        <div aria-label="Pilot s1 health, 90%" class="tb-health" data-health="90" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 90%;">
+          <i class="tb-health-border">
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Pilot s1 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <span class="pl-tb-name" data-testid="tb-name"> Pilot s1
+      <div class="tb-player sapphire enemy unseen" data-alive="true" data-hero="3" data-seen="false" data-slot="Sapphire-2" title="Pilot s2">
+        <button aria-controls="build-Sapphire-2" aria-expanded="false" aria-label="Pilot s2 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="3100" data-testid="souls"> 3.1
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A3
+        <span aria-label="Not seen" class="tb-vis off" data-testid="tb-vision" role="img" title="Not seen">
+          <svg aria-hidden="true" viewBox="-8 -8 16 16">
+            <path d="M-6 0s2.4-4 6-4 6 4 6 4-2.4 4-6 4-6-4-6-4z">
+            <path d="M-6 6L6 -6">
+        <button aria-controls="build-Sapphire-2" aria-expanded="false" aria-label="Inspect Pilot s2" class="tb-focus" data-testid="focus-hero" title="Inspect Pilot s2">
+        <div aria-label="Pilot s2 health, 80%" class="tb-health" data-health="80" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 80%;">
+          <i class="tb-health-border">
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Pilot s2 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <span class="pl-tb-name" data-testid="tb-name"> Pilot s2
+      <div class="tb-player sapphire enemy" data-alive="true" data-hero="4" data-seen="true" data-slot="Sapphire-3" title="Pilot s3">
+        <button aria-controls="build-Sapphire-3" aria-expanded="false" aria-label="Pilot s3 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="3400" data-testid="souls"> 3.4
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A4
+        <button aria-controls="build-Sapphire-3" aria-expanded="false" aria-label="Inspect Pilot s3" class="tb-focus" data-testid="focus-hero" title="Inspect Pilot s3">
+        <div aria-label="Pilot s3 health, 70%" class="tb-health" data-health="70" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 70%;">
+          <i class="tb-health-border">
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Pilot s3 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <span class="pl-tb-name" data-testid="tb-name"> Pilot s3
+      <div class="tb-player sapphire enemy" data-alive="true" data-hero="5" data-seen="true" data-slot="Sapphire-4" title="Pilot s4">
+        <button aria-controls="build-Sapphire-4" aria-expanded="false" aria-label="Pilot s4 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="3700" data-testid="souls"> 3.7
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A5
+        <button aria-controls="build-Sapphire-4" aria-expanded="false" aria-label="Inspect Pilot s4" class="tb-focus" data-testid="focus-hero" title="Inspect Pilot s4">
+        <div aria-label="Pilot s4 health, 60%" class="tb-health" data-health="60" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 60%;">
+          <i class="tb-health-border">
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Pilot s4 ult cooldown" class="tb-ult cooldown" data-testid="ult" data-ult="40" style="--left: 40%;" title="Ult 40%">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <span class="pl-tb-name" data-testid="tb-name"> Pilot s4
+      <div class="tb-player sapphire enemy" data-alive="true" data-hero="6" data-seen="true" data-slot="Sapphire-5" title="Pilot s5">
+        <button aria-controls="build-Sapphire-5" aria-expanded="false" aria-label="Pilot s5 build" class="tb-souls tb-build-trigger" data-testid="souls-banner" type="button">
+          <span class="tb-souls-value" data-souls="4000" data-testid="souls"> 4.0
+            <span class="demote"> k
+        <div class="tb-badge">
+          <i class="tb-disc"> A6
+        <button aria-controls="build-Sapphire-5" aria-expanded="false" aria-label="Inspect Pilot s5" class="tb-focus" data-testid="focus-hero" title="Inspect Pilot s5">
+        <div aria-label="Pilot s5 health, 50%" class="tb-health" data-health="50" data-testid="tb-health">
+          <i class="tb-health-back">
+          <i class="tb-health-fill" style="height: 50%;">
+          <i class="tb-health-border">
+        <span class="gt-anchor" data-testid="ult-hover">
+          <div aria-label="Pilot s5 ult cooldown" class="tb-ult ready" data-testid="ult" data-ult="0" style="" title="Ult ready">
+            <i class="tb-ult-bg">
+            <i class="tb-ult-icon">
+            <i class="tb-ult-sweep">
+            <i class="tb-ult-fb">
+        <span class="pl-tb-name" data-testid="tb-name"> Pilot s5
+    <div class="tb-center">
+      <div class="tb-clock">
+        <span class="tb-clock-label" data-testid="tb-clock"> 0:55
+      <button aria-expanded="false" class="tb-all-builds" title="All builds" type="button"> ▾ All builds
+        <kbd> Hold Tab
+      <div class="tb-scores">
+        <div class="tb-score amber" data-souls="19500" data-testid="total-Amber">
+          <i class="tb-score-bg">
+          <div class="tb-score-row">
+            <span class="tb-score-label"> 19
+              <span class="demote"> k
+            <i class="tb-team-icon">
+        <div class="tb-score sapphire right" data-souls="19500" data-testid="total-Sapphire">
+          <i class="tb-score-bg">
+          <div class="tb-score-row">
+            <i class="tb-team-icon">
+            <span class="tb-score-label"> 19
+              <span class="demote"> k
+      <div class="pl-rejuv friend amber" data-left="0" data-team="amber" data-testid="tb-rejuv">
+        <img alt="" class="pl-rejuv-icons" data-n="1" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+        <img alt="" class="pl-rejuv-icons" data-n="2" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(58.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+        <img alt="" class="pl-rejuv-icons" data-n="3" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(43.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(73.5%2010)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+        <img alt="" class="pl-rejuv-icons" data-n="4" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(28.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(58.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(88.5%2010)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+      <div aria-label="Archmother Rejuvenator, 3 revives" class="pl-rejuv enemy sapphire" data-left="3" data-team="sapphire" data-testid="tb-rejuv" role="img" title="Archmother Rejuvenator">
+        <img alt="" class="pl-rejuv-icons" data-n="1" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+        <img alt="" class="pl-rejuv-icons" data-n="2" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(58.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+        <img alt="" class="pl-rejuv-icons on" data-n="3" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(43.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(73.5%2010)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+        <img alt="" class="pl-rejuv-icons" data-n="4" src="data:(160))%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(28.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(58.5%2026)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3Cpath%20transform%3D%22translate(88.5%2010)%20scale(1.4)%22%20d%3D%22M10%200a2%202%200%201%201%200%204a2%202%200%201%201%200-4ZM0%205.5h5c1%202.2%203%203.4%205%203.4s4-1.2%205-3.4h5c0%201.6-1%202.6-3%202.6c-2%202.2-3.6%203.4-5%204l-1.4%208.4h-1.2L9%2012.1c-1.4-.6-3-1.8-5-4c-2%200-3-1-3-2.6Z%22%20fill%3D%22%23FFCC00%22%2F%3E%3C%2Fsvg%3E">
+      <span class="gt-anchor">
+        <div aria-hidden="true" class="pl-rejuv-timer friend amber both" data-frac="0" data-team="amber" data-testid="tb-rejuv-timer">
+          <svg viewBox="0 0 30 30">
+            <circle class="pl-rejuv-disc" cx="15" cy="15" r="13.5">
+            <path class="pl-rejuv-mark" d="M10 0a2 2 0 1 1 0 4a2 2 0 1 1 0-4ZM0 5.5h5c1 2.2 3 3.4 5 3.4s4-1.2 5-3.4h5c0 1.6-1 2.6-3 2.6c-2 2.2-3.6 3.4-5 4l-1.4 8.4h-1.2L9 12.1c-1.4-.6-3-1.8-5-4c-2 0-3-1-3-2.6Z" transform="translate(6 6.5) scale(0.9)">
+            <circle class="pl-rejuv-track" cx="15" cy="15" r="13.5">
+            <circle class="pl-rejuv-ring" cx="15" cy="15" pathLength="100" r="13.5" style="stroke-dasharray: 0, 100;" transform="rotate(-90 15 15)">
+      <span class="gt-anchor">
+        <div aria-label="Archmother Rejuvenator ends in 2:25" class="pl-rejuv-timer enemy sapphire on" data-frac="0.9" data-team="sapphire" data-testid="tb-rejuv-timer" role="img">
+          <svg viewBox="0 0 30 30">
+            <circle class="pl-rejuv-disc" cx="15" cy="15" r="13.5">
+            <path class="pl-rejuv-mark" d="M10 0a2 2 0 1 1 0 4a2 2 0 1 1 0-4ZM0 5.5h5c1 2.2 3 3.4 5 3.4s4-1.2 5-3.4h5c0 1.6-1 2.6-3 2.6c-2 2.2-3.6 3.4-5 4l-1.4 8.4h-1.2L9 12.1c-1.4-.6-3-1.8-5-4c-2 0-3-1-3-2.6Z" transform="translate(6 6.5) scale(0.9)">
+            <circle class="pl-rejuv-track" cx="15" cy="15" r="13.5">
+            <circle class="pl-rejuv-ring" cx="15" cy="15" pathLength="100" r="13.5" style="stroke-dasharray: 86.1, 100;" transform="rotate(-90 15 15)">
+      <span class="gt-anchor">
+        <div aria-hidden="true" class="pl-rejuv-timer pl-respawn-timer" data-testid="tb-respawn-timer">
+          <svg viewBox="0 0 30 30">
+            <circle class="pl-rejuv-disc" cx="15" cy="15" r="13.5">
+            <path class="pl-rejuv-mark" d="M10 0a2 2 0 1 1 0 4a2 2 0 1 1 0-4ZM0 5.5h5c1 2.2 3 3.4 5 3.4s4-1.2 5-3.4h5c0 1.6-1 2.6-3 2.6c-2 2.2-3.6 3.4-5 4l-1.4 8.4h-1.2L9 12.1c-1.4-.6-3-1.8-5-4c-2 0-3-1-3-2.6Z" transform="translate(6 6.5) scale(0.9)">
+            <circle class="pl-rejuv-track" cx="15" cy="15" r="13.5">
+          <span class="pl-respawn-label" data-testid="tb-respawn-label">

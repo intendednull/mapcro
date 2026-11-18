@@ -1,0 +1,11 @@
+rift:neutral:lane1:1: -
+rift:neutral:lane6:1: -
+urn:neutral:lane1:1: -
+urn:neutral:lane6:1: -
+powerup:neutral:lane1:1: -
+powerup:neutral:lane6:1: -
+camp:neutral:lane0:3: -
+mid_boss:neutral:lane0:1: -
+walker:amber:lane1:1: -
+guardian:amber:lane1:1: -
+patron:amber:lane0:1: -

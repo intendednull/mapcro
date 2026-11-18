@@ -1,0 +1,12 @@
+Amber-0: Player 1 | Player 1
+Amber-1: King 2 | King 2
+Amber-2: King 3 | King 3
+Amber-3: Typed name | Typed name
+Amber-4: King 5 | King 5
+Amber-5: King 6 | King 6
+Sapphire-0: Archmother 1 | Archmother 1
+Sapphire-1: Archmother 2 | Archmother 2
+Sapphire-2: Archmother 3 | Archmother 3
+Sapphire-3: Archmother 4 | Archmother 4
+Sapphire-4: Archmother 5 | Archmother 5
+Sapphire-5: Archmother 6 | Archmother 6

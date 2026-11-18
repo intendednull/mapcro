@@ -387,12 +387,12 @@ selects; the build opens from the portrait's build control in both. The phone la
     holds. A field's memo is made when
     the field is first read, not with its entity (a memo runs whenever what it reads changes,
     read or not): the top bar asking only who is in sight computes no place, respawn time, urn
-    or death (`frame-clocks.test.ts`: no read of those series over 59 frames). `playerFrame` is the old readers' adapter (the state's parts under the viewer's
-    choices, as one `MatchPreview`); `markerFrame` is the markers' part of it, new once a second.
-  - **Who reads it today:** the lanes' colours (`lane(key).edges`), the top bar's and the hero
-    panel's "out of sight" (`hero(slot).inSight`, the tenth's), the map's markers (the second's
-    part), and from phase 4 the hero tokens (below). The rest still read the adapter's frame
-    until phase 4's step 4.
+    or death (`frame-clocks.test.ts`: no read of those series over 59 frames). `previewAt` (the
+    frame under the viewer's choices, as one `MatchPreview`) is the definition the clocks are
+    checked against; nothing draws from it since phase 4's step 4.
+  - **Who reads it today:** the lanes, the hero tokens, the map's markers and their hovers, the
+    rift's rings, the urn, the skulls, both top bars and the hero panel's "out of sight". What
+    the bars still read of the timeline, and why, is under "The markers and the bars" below.
   - **A build column** is on the clocks too (`player/buildState.ts`): `buildAt` once a tenth
     (asked at the tenth's middle; a cooldown is shown in whole seconds and ends on a whole
     tenth, so every t of a tenth shows the same), the stats' input, level, K/A and max health
@@ -403,8 +403,8 @@ selects; the build opens from the portrait's build control in both. The phone la
     gives the same interface from a scene's records (`sceneRecords(board, sceneId)` takes them
     out of the board's state). **Built (phase 4, steps 2 and 3):** `Board.tsx` holds one
     `mapState()`, Player's state in Player and the scene's on a scene; the lanes (their split and
-    colours) and the hero tokens read it in both modes. The markers, the two bars, `RiftRings`,
-    `UrnMark`, `DeathSkulls` and `MarkerTips` still read the adapter or the records (step 4).
+    colours) and the hero tokens read it in both modes. **Built (step 4):** so do the markers,
+    `RiftRings`, `UrnMark`, `DeathSkulls`, `MarkerTips` and the two top bars (below).
 
     | Field | In a scene |
     |---|---|
@@ -441,6 +441,22 @@ selects; the build opens from the portrait's build control in both. The phone la
     hero. What stays Player's: the health arc, elevation, ziplines and CC (a scene captures none
     of the last three yet; its health is held, but whether its token draws it is the lead's
     call, so it doesn't), the ghost, the vision fades and the echo.
+  - **The markers and the bars (phase 4, step 4):** `markerStates` asks `marker(key)`: in a
+    scene the stored `status` (never `down`, which there also means a rift or urn point that is
+    off), in Player the detail (site, down, the patron's stage under Health). A lane shop keeps
+    its one rule in both: closed with its guardian, whatever a scene stores. `RiftRings`,
+    `UrnMark`, `DeathSkulls` and `MarkerTips` read the frame, with the viewer's rules in `shown.ts`
+    (`shownUrn`: an urn on an enemy out of the view's sight isn't drawn; `shownDeaths`: a view sees
+    its own deaths and the enemy's it saw; `playerPlace`: where a portrait's focus goes). A scene
+    holds no rift, urn or death yet, so the rings, the urn and the skulls stay mounted in Player
+    only and a scene's markers say nothing on hover; phase 5's rows reach them through `MapState`.
+    The scene's top bar draws `HeroState` (name, hero, souls, ult, alive, sight), the records only
+    to edit; Player's bar draws `HeroState` and `scene().rejuv`. Player's bar still reads the
+    timeline for what the frame doesn't hold: a Rejuvenator's pickup time (its timer's drain),
+    the Mid-Boss's respawn counted from t, and the build columns (`BuildView`).
+  - **A slot's name in a scene (TD-120):** the bar and the token both read `HeroState.name`: the
+    scene's own (`more.name`), the name typed on the board, then the open match's. Names off
+    hides only the match's: a scene's own name is a typed name, shown whatever Names says.
 - **The bound is on consumers:** a component reruns only when a value it reads changes. Each
   entity's fields are memos keyed by slot or marker with an equality check.
 - **A scene is static:** its `MapState` changes only when a record does.

@@ -1,0 +1,12 @@
+Amber-0: Player 1 | Player 1
+Amber-1: Pilot a1 | Pilot a1
+Amber-2: Pilot a2 | Pilot a2
+Amber-3: Typed name | Typed name
+Amber-4: Pilot a4 | Pilot a4
+Amber-5: Pilot a5 | Pilot a5
+Sapphire-0: Pilot s0 | Pilot s0
+Sapphire-1: Pilot s1 | Pilot s1
+Sapphire-2: Pilot s2 | Pilot s2
+Sapphire-3: Pilot s3 | Pilot s3
+Sapphire-4: Pilot s4 | Pilot s4
+Sapphire-5: Pilot s5 | Pilot s5

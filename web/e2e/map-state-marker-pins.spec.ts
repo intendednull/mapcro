@@ -132,9 +132,9 @@ async function toggle(p: Page, id: string, on: boolean) {
   if ((await pressed(p, id)) !== on) await p.getByTestId(id).click();
 }
 async function view(p: Page, team: "all" | "amber" | "sapphire", lastSeen = false) {
-  await revealControls(p, "vision-select");
   await p.getByTestId("vision-select").selectOption(team);
-  if (team !== "all") await toggle(p, "last-seen-toggle", lastSeen);
+  // Offered in a team's view, beside the select.
+  if (team !== "all" && (await pressed(p, "last-seen-toggle")) !== lastSeen) await p.getByTestId("last-seen-toggle").click();
 }
 
 /** What each marker's hover says at this moment ("-": nothing), and the urn's where it lies. */
@@ -142,20 +142,22 @@ async function tips(p: Page, keys: string[]): Promise<string> {
   const lines: string[] = [];
   const said = async () => ((await p.getByTestId("hover-label").count()) ? await p.getByTestId("hover-label").first().textContent() : "-");
   for (const key of keys) {
-    const b = await p.locator(`[data-testid=map] .mk[data-key="${key}"]`).boundingBox();
-    if (!b) {
+    const marker = p.locator(`[data-testid=map] .mk[data-key="${key}"]`);
+    if (!(await marker.count())) {
       lines.push(`${key}: not drawn`);
       continue;
     }
+    const b = (await marker.boundingBox())!;
     await p.mouse.move(2, 2);
     await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
     await p.waitForTimeout(120);
     lines.push(`${key}: ${await said()}`);
   }
-  const urn = await p.locator("[data-testid=map] [data-testid=urn]").boundingBox();
-  if (urn) {
+  const urn = p.locator("[data-testid=map] [data-testid=urn]");
+  if (await urn.count()) {
+    const b = (await urn.boundingBox())!;
     await p.mouse.move(2, 2);
-    await p.mouse.move(urn.x + urn.width / 2, urn.y + urn.height / 2);
+    await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
     await p.waitForTimeout(120);
     lines.push(`the urn: ${await said()}`);
   }
@@ -170,7 +172,7 @@ test("Player's markers and bar, frame by frame under the viewer's choices", asyn
   await openMatch(p);
   const frame = async (name: string, t: number) => {
     await scrubTo(p, t);
-    await expect(p.getByTestId("match-clock")).toContainText(`${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")} /`);
+    await expect(p.getByTestId("match-clock")).toContainText(`${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")} /`);
     expect(await outline(p, "topbar")).toMatchSnapshot(`${name}-bar.txt`);
     expect(await outline(p, "map")).toMatchSnapshot(`${name}-map.txt`);
     expect(await tips(p, TIPPED)).toMatchSnapshot(`${name}-tips.txt`);
@@ -183,14 +185,14 @@ test("Player's markers and bar, frame by frame under the viewer's choices", asyn
   await view(p, "amber", true);
   await frame("king-last-seen-55", 55);
   // A death the King didn't see: no skull in his view, and one in All.
-  await frame("king-last-seen-60", 60.5);
+  await frame("king-last-seen-61", 61);
   await view(p, "all");
-  await frame("all-60", 60.5);
+  await frame("all-61", 61);
   // The rift's capture, the Rejuvenator, the patron's core.
   await view(p, "sapphire", false);
-  await frame("archmother-75", 75.25);
+  await frame("archmother-75", 75);
   await toggle(p, "health-toggle", false);
-  await frame("no-health-75", 75.25);
+  await frame("no-health-75", 75);
   await toggle(p, "health-toggle", true);
   await toggle(p, "names-toggle", false);
   await view(p, "all");
@@ -285,4 +287,29 @@ test("a scene's bar names a slot as its token does: typed, the open match's, and
   await open();
   expect(await names()).toMatchSnapshot("scene-names-off.txt");
   expect(await outline(p, "topbar")).toMatchSnapshot("scene-names-off-bar.txt");
+});
+
+test("a scene's own name is a typed name: the bar and the token say it, with Names on or off (TD-120)", async ({ browser }) => {
+  const f = boardFile();
+  const own = f.records.find((r) => r[0] === hex(0xb05))![1].PlayerState! as { slot: string; more?: unknown };
+  own.more = { name: "Own name" };
+  const roster = f.records.find((r) => r[0] === own.slot)![1].RosterSlot! as { team: string; slot: number };
+  const slot = `${roster.team}-${roster.slot}`;
+  const p = await joinNew(browser, await seed(f), "Coach");
+  await openMatch(p);
+  const open = async () => {
+    await p.getByTestId("scene-card").nth(1).click();
+    await expect(p.getByTestId("tb-clock")).toHaveText("0:55");
+  };
+  const said = async () => {
+    await expect(p.locator(`.tb-player[data-slot="${slot}"]`)).toHaveAttribute("title", /^Own name/);
+    await expect(p.locator(`.tb-player[data-slot="${slot}"] [data-testid=tb-name]`)).toHaveText("Own name");
+    await expect(p.locator(`.mapbox .tok[data-slot="${slot}"]`)).toHaveAttribute("aria-label", /^Own name/);
+  };
+  await open();
+  await said();
+  await p.getByTestId("mode-player").click();
+  await toggle(p, "names-toggle", false);
+  await open();
+  await said();
 });

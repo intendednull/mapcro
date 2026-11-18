@@ -96,8 +96,7 @@ export function shownUrn(ms: MapState, vision: Vision): (UrnNow & { unseen?: boo
   const u = ms.scene().urn();
   const view = sightOf(ms, vision);
   if (u?.state !== "carried" || !view || !u.team || u.slot == null || u.team === view) return u;
-  const carrier = ms.hero(slotKey(u.team, u.slot));
-  return carrier.present() && !carrier.inSight() ? { ...u, at: null, unseen: true } : u;
+  return ms.hero(slotKey(u.team, u.slot)).inSight() ? u : { ...u, at: null, unseen: true };
 }
 
 /** The deaths the viewer's frame shows as skulls: a team always sees its own heroes die, an
