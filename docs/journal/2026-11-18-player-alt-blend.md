@@ -44,6 +44,10 @@ because the columns beside it are equal. The current speed is a tag on Play's fo
 - Resume's word pushed the cluster off an 800 px window's dock. Play stays a disc there.
 - The save toast sat on the taller bar. It now clears the dock.
 - A scene's row cut off Back to replay at 800 px. It wraps.
+- Review of the release: Sandbox kept the transport's height, a scene opened on a phone or tablet
+  lost the touch layout, and windows 650 px tall or less cut controls off. Sandbox now has the scene's
+  row alone, touch has one layout for both, and a window 720 px tall or less has smaller keys
+  (Play 44 px, Back and Forward 36, speed 32).
 
 **Cost.** The bar is taller than the old one, so the map is smaller on short windows (`--u` is 1.3 px
 against 1.5 at 1440×900). An empty Player keeps the reserved height, so nothing jumps when a match

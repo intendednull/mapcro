@@ -79,8 +79,9 @@
 /* ---- Desktop: the dock's bar ----
    The lane across the whole bar, then the source, the keys and the clock with Save scene. The bar
    holds its full height while a match loads, so the tools and the map don't jump when the timeline
-   arrives after the summary. */
-.board-app .stage > .dock > .pl-bar { min-height: 133px; align-content: start; }
+   arrives after the summary. Only in Player: in Sandbox the bar is the scene's row alone. */
+.board-app .stage > .dock > .pl-bar { align-content: start; }
+.board-app .stage > .dock > .pl-bar[data-state=match] { min-height: 133px; }
 /* The source opens from the bar's top edge, over the map: the lane, the keys and a notice stay in use. */
 .board-app .dock > .pl-bar > .pl-source { position: static; }
 .board-app .dock > .pl-bar .pl-source .pl-head { left: 12px; }
@@ -127,7 +128,7 @@
 
 /* Too narrow for one row: the keys take a centred row of their own, the rest goes under them. */
 @container dock (width < 840px) {
-  .board-app .stage > .dock > .pl-bar { min-height: 187px; }
+  .board-app .stage > .dock > .pl-bar[data-state=match] { min-height: 187px; }
   .board-app .dock > .pl-bar:has(> .pl-transport) {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
@@ -143,7 +144,7 @@
 /* The centre column between both panels (800 to 820 px windows): the clock beside the source, which
    is its match id here, and Save scene under them. */
 @container dock (width < 480px) {
-  .board-app .stage > .dock > .pl-bar { min-height: 235px; }
+  .board-app .stage > .dock > .pl-bar[data-state=match] { min-height: 235px; }
   .board-app .dock > .pl-bar:has(> .pl-transport) {
     column-gap: 8px; padding: 10px min(12px, 2cqi) 12px;
     grid-template-areas:
@@ -175,78 +176,130 @@
   .board-app .dock > .pl-bar:has(> .pl-transport) .pl-source .pl-head { left: min(12px, 2cqi); }
 }
 
+/* Narrower still (windows under 800 px): the source and the clock each take a row, so the match id
+   shows whole beside an hour-long clock. */
+@container dock (width < 250px) {
+  .board-app .dock > .pl-bar:has(> .pl-transport) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "scene" "up" "note" "lane" "keys" "src" "clock" "save";
+  }
+  .board-app .dock .pl-transport .match-clock { justify-self: start; }
+}
+
+/* ---- A short window ----
+   The page doesn't scroll, so every control has to fit: smaller keys, tighter rows and a smaller
+   map, and the bar keeps no spare height. */
+@media (max-height: 720px) {
+  .board-app .stage > .mapfit { min-height: 120px; }
+  .board-app .stage > .dock > .pl-bar[data-state=match] { min-height: 0; }
+  .board-app .dock > .pl-bar:has(> .pl-transport) { padding-top: 6px; padding-bottom: 8px; }
+  .board-app .dock .pl-transport > .pl-scrub { height: 34px; margin-bottom: 6px; }
+  .board-app .dock .pl-scrub .pl-ticks { top: 5px; }
+  .board-app .dock .pl-scrub .pl-marks { top: 0; }
+  .board-app .dock .pl-transport > .pl-keys { gap: 8px; }
+  .board-app .dock .pl-keys .pl-play { height: min(44px, 23cqi); }
+  .board-app .dock .pl-keys .pl-play:not(.resume) { width: min(44px, 23cqi); min-width: 0; }
+  .board-app .dock .pl-keys .pl-play .pl-ico { width: 24px; height: 24px; }
+  .board-app .dock .pl-keys .pl-skip { width: min(36px, 18cqi); height: min(36px, 18cqi); }
+  .board-app .dock .pl-keys .pl-skip .pl-skip-arc { width: 68%; height: 68%; }
+  .board-app .dock .pl-keys .pl-step { width: min(32px, 16.5cqi); min-width: 0; height: min(32px, 16.5cqi); }
+  .board-app .dock .pl-bar .pl-source > summary, .board-app .dock .pl-transport [data-testid=match-save] { height: 36px; }
+  .board-app .dock .pl-transport .match-clock { height: 36px; font-size: 15px; line-height: 34px; }
+  @container dock (width < 840px) {
+    .board-app .dock .pl-transport > .pl-keys { margin-bottom: 6px; }
+  }
+  /* Wide enough for the source, the keys and the clock on one row at these sizes. */
+  @container dock (720px <= width < 840px) {
+    .board-app .dock > .pl-bar:has(> .pl-transport) {
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      grid-template-areas: "scene scene scene" "up up up" "note note note" "lane lane lane" "src keys tail";
+    }
+    .board-app .dock .pl-transport > .pl-keys { margin-bottom: 0; }
+  }
+  @container dock (width < 480px) {
+    .board-app .dock .pl-keys .pl-play.resume { width: min(44px, 23cqi); }
+    .board-app .dock .pl-transport .match-clock, .board-app .dock > .pl-bar:has(> .pl-transport) > .pl-source { margin-bottom: 6px; }
+  }
+}
+
 /* ---- Touch: the phone and tablet shell ----
    Upright, two rows: the clock and the lane, then Play on the centre line with the speed list and
    Events to its left, Map layers and More to its right. A phone upright has no skip keys and picks
    its speed from the list (#58); wider screens have the whole cluster. */
-.phone-player .pl-bar {
+.phone .pl-bar {
   --clock-w: 60px; grid-area: bar; z-index: 55; margin: 0; gap: 2px 8px; padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   grid-template-areas: "scrub scrub scrub" "before keys after";
   background: var(--bg-deep);
 }
-.phone-player .pl-bar > * { grid-column: 1 / -1; }
-.phone-player .pl-transport > .pl-keys { grid-area: keys; gap: 8px; }
-.phone-player .pl-transport > .pl-scrub { --trk: 8px; --thumb: 24px; grid-area: scrub; height: 44px; margin-left: calc(var(--clock-w) + 8px); touch-action: none; }
-.phone-player .match-range { height: 44px; }
-.phone-player :is(.pl-ticks, .pl-marks) { display: none; }
-.phone-player .pl-keys .pl-play { width: 48px; min-width: 48px; height: 48px; }
-.phone-player .pl-keys .pl-play .pl-ico { width: 26px; height: 26px; }
-.phone-player .pl-keys .pl-play[data-playing=false]:not(.resume) .pl-ico { margin-left: 2px; }
-.phone-player .pl-keys .pl-play.resume { width: auto; padding: 0 14px 0 10px; gap: 4px; }
-.phone-player .pl-keys .pl-skip { display: none; width: 44px; height: 44px; border-color: transparent; background: transparent; }
-.phone-player .pl-skip .pl-skip-arc { width: 34px; height: 34px; }
-.phone-player .pl-skip-n { font-size: 12px; }
-.phone-player .pl-keys .pl-step { width: 44px; min-width: 44px; height: 44px; border: 1px solid var(--line); background: var(--raised); font-size: 18px; }
-.phone-player .pl-speed-list { grid-area: before; justify-self: start; height: 44px; width: 60px; min-width: 0; padding: 0 2px 0 8px; border-radius: 999px; font-weight: 700; background: var(--raised); }
-.phone-player .pl-transport > .pl-tail { grid-area: scrub; justify-self: start; width: var(--clock-w); min-width: 0; margin: 0; }
+.phone .pl-bar > * { grid-column: 1 / -1; }
+/* A scene from the match: its row heads the same bar. */
+.phone .pl-bar.scene { grid-template-areas: "scene scene scene" "scrub scrub scrub" "before keys after"; }
+.phone .pl-bar > .pl-scene-row { grid-area: scene; }
+.phone .pl-transport > .pl-keys { grid-area: keys; gap: 8px; }
+.phone .pl-transport > .pl-scrub { --trk: 8px; --thumb: 24px; grid-area: scrub; height: 44px; margin-left: calc(var(--clock-w) + 8px); touch-action: none; }
+.phone .match-range { height: 44px; }
+.phone :is(.pl-ticks, .pl-marks) { display: none; }
+.phone .pl-keys .pl-play { width: 48px; min-width: 48px; height: 48px; }
+.phone .pl-keys .pl-play .pl-ico { width: 26px; height: 26px; }
+.phone .pl-keys .pl-play[data-playing=false]:not(.resume) .pl-ico { margin-left: 2px; }
+.phone .pl-keys .pl-play.resume { width: auto; padding: 0 14px 0 10px; gap: 4px; }
+.phone .pl-keys .pl-skip { display: none; width: 44px; height: 44px; border-color: transparent; background: transparent; }
+.phone .pl-skip .pl-skip-arc { width: 34px; height: 34px; }
+.phone .pl-skip-n { font-size: 12px; }
+.phone .pl-keys .pl-step { width: 44px; min-width: 44px; height: 44px; border: 1px solid var(--line); background: var(--raised); font-size: 18px; }
+.phone .pl-speed-list { grid-area: before; justify-self: start; height: 44px; width: 60px; min-width: 0; padding: 0 2px 0 8px; border-radius: 999px; font-weight: 700; background: var(--raised); }
+.phone .pl-transport > .pl-tail { grid-area: scrub; justify-self: start; width: var(--clock-w); min-width: 0; margin: 0; }
 /* The clock takes what's left: one line where it fits, else the time over the length. */
-.phone-player .pl-tail .match-clock { flex: 0 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: .25em; font-size: 14px; font-weight: 700; line-height: 16px; }
-.phone-player .match-clock .clock-of { font-size: 12px; line-height: 14px; color: var(--muted); }
+.phone .pl-tail .match-clock { flex: 0 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: .25em; font-size: 14px; font-weight: 700; line-height: 16px; }
+.phone .match-clock .clock-of { font-size: 12px; line-height: 14px; color: var(--muted); }
 /* The tabs part around Play, so the row fits a 320 px phone. */
-.phone-player .pl-bar > .p-tail { display: contents; }
-.phone-player .p-tail [data-testid=phone-events] { grid-area: before; justify-self: end; }
-.phone-player .p-tail [data-testid=phone-layers] { grid-area: after; justify-self: start; }
-.phone-player .p-tail [data-testid=phone-more] { grid-area: after; justify-self: end; }
+.phone .pl-bar > .p-tail { display: contents; }
+.phone .p-tail [data-testid=phone-events] { grid-area: before; justify-self: end; }
+.phone .p-tail [data-testid=phone-layers] { grid-area: after; justify-self: start; }
+.phone .p-tail [data-testid=phone-more] { grid-area: after; justify-self: end; }
 /* The tool rail takes the second row: Play goes back beside the lane, as the rail needs the width. */
-.phone-player .pl-bar:has(.p-rail) { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "keys scrub" "rail rail"; }
-.phone-player .pl-bar > .p-rail { grid-area: rail; display: flex; align-items: center; gap: 0; min-width: 0; }
-.phone-player .pl-bar:has(.p-rail) .pl-transport > .pl-scrub { margin-left: 0; }
-.phone-player .pl-bar:has(.p-rail) :is(.pl-step, .pl-speed, .pl-speed-list, .pl-skip, .pl-tail) { display: none; }
+.phone .pl-bar:has(.p-rail) { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "keys scrub" "rail rail"; }
+.phone .pl-bar.scene:has(.p-rail) { grid-template-areas: "scene scene" "keys scrub" "rail rail"; }
+.phone .pl-bar > .p-rail { grid-area: rail; display: flex; align-items: center; gap: 0; min-width: 0; }
+.phone .pl-bar:has(.p-rail) .pl-transport > .pl-scrub { margin-left: 0; }
+.phone .pl-bar:has(.p-rail) :is(.pl-step, .pl-speed, .pl-speed-list, .pl-skip, .pl-tail) { display: none; }
 
-@media (max-width: 340px) { .phone-player .pl-bar { column-gap: 4px; } }
+@media (max-width: 340px) { .phone .pl-bar { column-gap: 4px; } }
 @media (orientation: portrait) and (max-width: 480px) {
-  .phone-player .pl-keys :is(.pl-step, .pl-speed) { display: none; }
-  .phone-player .pl-bar:not(:has(.p-rail)) .pl-speed-list { display: block; }
+  .phone .pl-keys :is(.pl-step, .pl-speed) { display: none; }
+  .phone .pl-bar:not(:has(.p-rail)) .pl-speed-list { display: block; }
 }
 @media (orientation: portrait) and (min-width: 600px) {
-  .phone-player .pl-bar:not(:has(.p-rail)) .pl-keys .pl-skip { display: inline-flex; }
+  .phone .pl-bar:not(:has(.p-rail)) .pl-keys .pl-skip { display: inline-flex; }
 }
 
 /* A phone on its side: one row, so the map keeps its height. The clock leads the lane on the left,
    the tabs balance them on the right, and the keys hold the centre. */
 @media (orientation: landscape) and (max-height: 500px) {
-  .phone-player .pl-bar { grid-template-areas: "scrub keys after"; }
-  .phone-player .pl-bar > .p-tail { grid-area: after; justify-self: end; display: flex; gap: 0; }
+  .phone .pl-bar { grid-template-areas: "scrub keys after"; }
+  .phone .pl-bar.scene { grid-template-areas: "scene scene scene" "scrub keys after"; }
+  .phone .pl-bar > .p-tail { grid-area: after; justify-self: end; display: flex; gap: 0; }
 }
 /* A tablet on its side has the height for two rows: the lane across the bar keeps its length, with
    the clock, the keys and the tabs under it. */
 @media (orientation: landscape) and (min-height: 501px) {
-  .phone-player .pl-transport > .pl-scrub { margin-left: 0; }
-  .phone-player .pl-transport > .pl-tail { grid-area: before; width: auto; }
-  .phone-player .pl-bar > .p-tail { grid-area: after; justify-self: end; display: flex; gap: 0; }
+  .phone .pl-transport > .pl-scrub { margin-left: 0; }
+  .phone .pl-transport > .pl-tail { grid-area: before; width: auto; }
+  .phone .pl-bar > .p-tail { grid-area: after; justify-self: end; display: flex; gap: 0; }
 }
 @media (orientation: landscape) and (max-height: 500px) {
   /* The rail shares the row: Play, the scrubber (at least 40%), then the rail, which scrolls. */
-  .phone-player .pl-bar:has(.p-rail) { grid-template-columns: auto minmax(40%, 1fr) minmax(0, max-content); grid-template-areas: "keys scrub rail"; }
+  .phone .pl-bar:has(.p-rail) { grid-template-columns: auto minmax(40%, 1fr) minmax(0, max-content); grid-template-areas: "keys scrub rail"; }
+  .phone .pl-bar.scene:has(.p-rail) { grid-template-areas: "scene scene scene" "keys scrub rail"; }
 }
 /* A short turned phone keeps its 52 px row. */
 @media (orientation: landscape) and (max-height: 500px) {
-  .phone-player .pl-keys .pl-play { width: 44px; min-width: 44px; height: 44px; }
-  .phone-player .pl-speed { bottom: -4px; }
+  .phone .pl-keys .pl-play { width: 44px; min-width: 44px; height: 44px; }
+  .phone .pl-speed { bottom: -4px; }
 }
 @media (orientation: landscape) and (min-width: 780px) {
-  .phone-player .pl-bar { --clock-w: 104px; }
-  .phone-player .pl-bar:has(.p-rail) .pl-transport > .pl-scrub { margin-left: 0; }
-  .phone-player .pl-bar:not(:has(.p-rail)) .pl-keys .pl-skip { display: inline-flex; }
+  .phone .pl-bar { --clock-w: 104px; }
+  .phone .pl-bar:has(.p-rail) .pl-transport > .pl-scrub { margin-left: 0; }
+  .phone .pl-bar:not(:has(.p-rail)) .pl-keys .pl-skip { display: inline-flex; }
 }

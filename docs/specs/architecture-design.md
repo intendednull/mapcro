@@ -1224,7 +1224,9 @@ makes a board with that match attached and lands in Player; **New board** is tod
   event, over the source, the keys, and the match clock with Save scene. Keys: Play 56 px, Back and
   Forward 44, speed 40. A dock under 840 px gives the keys a centred row of their own; under 480 px
   the clock sits beside the source and Save scene under them; a dock under 250 px (windows under
-  800 px) scales the keys to fit.
+  800 px) scales the keys to fit and gives the source and the clock a row each. A window 720 px tall
+  or less has smaller keys (Play 44 px, Back and Forward 36, speed 32), so every control stays on
+  screen. In Sandbox the bar is the scene's row alone.
   A tick hovered grows and shows its event's tag above it (the events list's short label, "Walker
   down", "Haze died"); a press jumps there as a row does (less the lead, with the ring). Ticks
   aren't in the tab order: ↑ ↓ step events from the keyboard (2026-11-11, feedback #6).
@@ -1581,8 +1583,10 @@ its left, Map layers and More (⋯) to its right. The clock shows the time over 
 menu, opened as a sheet), Scenes, Laser, Edit, Feedback, and the role. Laser or Edit swaps row 2
 for a tool rail, with Play back beside the scrubber: the tools scroll sideways (Look, Laser, Draw, Arrow, Erase, Undo, Redo), and the
 ink swatch and Done are pinned at its right end, outside the scroll, so they are always on screen;
-Done restores row 2 and Look. Back/forward, Save scene and the scrubber's event and scene marks
-are not on the phone: Events and Scenes are the larger targets for those jumps.
+Done restores row 2 and Look. Save scene and the scrubber's event and scene marks are not on the
+phone, and Back and Forward show only from 600 px wide upright or 780 px wide on its side: Events and
+Scenes are the larger targets for those jumps. A scene opened from the match keeps this bar, under
+the scene's own row.
 
 **The roster reads like the HUD's bar.** Each 44 px cell is a portrait (a tap opens the build),
 its souls along the foot (12 px), and while dead the portrait greys with the respawn seconds on
