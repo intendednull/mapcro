@@ -93,10 +93,10 @@
 }
 /* No row gap (the empty head rows would keep theirs): each row's items carry the space under it. */
 .board-app .dock > .pl-bar:has(> .pl-transport) > :is(.pl-scene-row, .pl-upload, .pl-notice) { margin-bottom: 8px; }
-.board-app .dock > .pl-bar > .pl-scene-row { grid-area: scene; }
-.board-app .dock > .pl-bar > .pl-upload { grid-area: up; }
-.board-app .dock > .pl-bar > .pl-notice { grid-area: note; }
-.board-app .dock > .pl-bar > .pl-source { grid-area: src; justify-self: start; min-width: 0; max-width: 100%; }
+.board-app .dock > .pl-bar:has(> .pl-transport) > .pl-scene-row { grid-area: scene; }
+.board-app .dock > .pl-bar:has(> .pl-transport) > .pl-upload { grid-area: up; }
+.board-app .dock > .pl-bar:has(> .pl-transport) > .pl-notice { grid-area: note; }
+.board-app .dock > .pl-bar:has(> .pl-transport) > .pl-source { grid-area: src; justify-self: start; min-width: 0; max-width: 100%; }
 .board-app .dock .pl-transport > .pl-keys { grid-area: keys; gap: 12px; }
 .board-app .dock .pl-transport > .pl-scrub { grid-area: lane; }
 .board-app .dock .pl-transport > .pl-tail { grid-area: tail; justify-self: end; }
@@ -160,7 +160,7 @@
   .board-app .dock .pl-keys .pl-skip .pl-skip-arc { width: 68%; height: 68%; }
   .board-app .dock .pl-transport > .pl-tail { display: contents; }
   .board-app .dock .pl-transport .match-clock { grid-area: clock; justify-self: end; margin-bottom: 8px; padding: 0 8px; font-size: 16px; }
-  .board-app .dock > .pl-bar > .pl-source { margin-bottom: 8px; }
+  .board-app .dock > .pl-bar:has(> .pl-transport) > .pl-source { margin-bottom: 8px; }
   .board-app .dock .pl-transport [data-testid=match-save] { grid-area: save; justify-self: stretch; padding: 0 12px; }
   /* The word stays for a screen reader. */
   .board-app .dock .pl-source-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

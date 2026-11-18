@@ -517,6 +517,28 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768
   });
 }
 
+// Before a match is loaded the bar has no transport: the source stays at its left end, and what it
+// opens is on the stage (its Load went under the right panel).
+for (const [width, height] of [[1440, 900], [1280, 768], [800, 768]] as const) {
+  test(`the source opens on the stage with no match, ${width}×${height}`, async ({ browser }) => {
+    test.skip(!hasCdp(browser), "the Firefox project is touch-first throughout");
+    const p = await (await browser.newContext({ viewport: { width, height } })).newPage();
+    await p.goto(await newBoardUrl(server, "No match"));
+    await p.locator("#join-name").fill("Coach");
+    await p.keyboard.press("Enter");
+    await p.getByTestId("mode-player").click();
+    await revealControls(p, "match-id");
+    const stage = (await p.locator(".stage").boundingBox())!;
+    for (const id of ["match-id", "match-load"]) {
+      const b = (await p.getByTestId(id).boundingBox())!;
+      expect(b.x, id).toBeGreaterThanOrEqual(stage.x);
+      expect(b.x + b.width, id).toBeLessThanOrEqual(stage.x + stage.width);
+    }
+    await p.getByTestId("match-load").click({ trial: true });
+    await p.context().close();
+  });
+}
+
 // The transport's layout at each shell and tier (spec §6b): the keys mirrored around Play on the
 // bar's centre line, every key its size, and nothing outside the bar or the stage.
 const within1 = (a: number, b: number, what: string) => expect(Math.abs(a - b), what).toBeLessThanOrEqual(1);
