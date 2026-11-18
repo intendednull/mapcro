@@ -529,6 +529,8 @@ for (const [width, height] of [[1440, 900], [1280, 768], [800, 768]] as const) {
     await p.getByTestId("mode-player").click();
     await revealControls(p, "match-id");
     const stage = (await p.locator(".stage").boundingBox())!;
+    const bar = (await p.getByTestId("player").boundingBox())!;
+    expect((await p.locator(".pl-source > summary").boundingBox())!.x - bar.x, "the source at the bar's left").toBeLessThanOrEqual(24);
     for (const id of ["match-id", "match-load"]) {
       const b = (await p.getByTestId(id).boundingBox())!;
       expect(b.x, id).toBeGreaterThanOrEqual(stage.x);
@@ -594,9 +596,10 @@ for (const [width, height, touch] of [[1920, 1080, false], [1440, 900, false], [
         expect(Math.min(b.width, b.height), id).toBeGreaterThanOrEqual(min);
       }
       // The tools stay on the stage, and it never scrolls sideways (TD-121).
-      const tools = await box("toolbar");
-      expect(tools.x).toBeGreaterThanOrEqual(stage.x);
-      expect(tools.x + tools.width).toBeLessThanOrEqual(stage.x + stage.width);
+      for (const b of await p.getByTestId("toolbar").locator("button").evaluateAll((all) => all.map((e) => e.getBoundingClientRect()).filter((r) => r.width > 0).map((r) => ({ x: r.x, width: r.width })))) {
+        expect(b.x, "a tool").toBeGreaterThanOrEqual(stage.x);
+        expect(b.x + b.width, "a tool").toBeLessThanOrEqual(stage.x + stage.width);
+      }
       await p.getByTestId("toolbar").locator("button").last().focus();
       expect(await p.locator(".stage").evaluate((e) => e.scrollLeft)).toBe(0);
       // The source opens on screen, clear of the panels.
