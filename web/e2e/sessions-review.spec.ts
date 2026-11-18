@@ -54,7 +54,9 @@ test("Ctrl+Z takes back a strip edit on a view-only tab, and with no games left"
 test("the strip's toast clears Player's bar", async ({ browser }) => {
   const { page } = await threeTabs(browser);
   await page.getByTestId("mode-player").click();
-  await tabs(page).nth(2).getByTestId("tab-remove").click();
+  await expect(page.getByTestId("player")).toBeVisible();
+  await tabs(page).nth(0).getByTestId("tab-remove").click();
+  await expect(page.getByTestId("player")).toBeVisible();
   const toast = (await page.getByTestId("session-toast").boundingBox())!;
   const bar = (await page.getByTestId("player").boundingBox())!;
   expect(toast.y + toast.height).toBeLessThanOrEqual(bar.y);

@@ -218,6 +218,10 @@
   }
   @container dock (width < 480px) {
     .board-app .dock .pl-keys .pl-play.resume { width: min(44px, 23cqi); }
+    /* The scene's name is in the stage's head: its two buttons share one row here. */
+    .board-app .dock .pl-scene-label { display: none; }
+    .board-app .dock .pl-scene-row { gap: 4px; }
+    .board-app .dock .pl-scene-row .btn { padding: 0 6px; font-size: 11px; }
     .board-app .dock .pl-transport .match-clock, .board-app .dock > .pl-bar:has(> .pl-transport) > .pl-source { margin-bottom: 6px; }
   }
 }
