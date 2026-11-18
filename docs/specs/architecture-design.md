@@ -1662,7 +1662,7 @@ follows their replay time.
 A tablet is the same shell (no third layout). Landscape (any size) is two panes: the square map
 on the left, at least 300 px of roster and dock on the right, and a two-row transport: the scrubber
 across the bar (at least 40% of the width), then the clock, the keys centred on Play, and the tabs
-(with the tool rail open, one row: Play, scrubber, rail). Portrait over
+(with the tool rail open: Play and the scrubber, then the rail). Portrait over
 700 px wide: the roster is one row of 12 (the teams side by side), and sheets stop at half the
 height. Tab has no key on a tablet: an `All builds` toggle (44 px; at the roster's end in portrait, at
 the dock's tab row's end in landscape) drives the

@@ -236,7 +236,7 @@
   .phone-player .pl-transport > .pl-tail { grid-area: before; width: auto; }
   .phone-player .pl-bar > .p-tail { grid-area: after; justify-self: end; display: flex; gap: 0; }
 }
-@media (orientation: landscape) {
+@media (orientation: landscape) and (max-height: 500px) {
   /* The rail shares the row: Play, the scrubber (at least 40%), then the rail, which scrolls. */
   .phone-player .pl-bar:has(.p-rail) { grid-template-columns: auto minmax(40%, 1fr) minmax(0, max-content); grid-template-areas: "keys scrub rail"; }
 }
