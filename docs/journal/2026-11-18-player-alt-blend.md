@@ -43,6 +43,7 @@ because the columns beside it are equal. The current speed is a tag on Play's fo
 - The source opened over the lane and any notice. It now opens from the bar's top edge, over the map.
 - Resume's word pushed the cluster off an 800 px window's dock. Play stays a disc there.
 - The save toast sat on the taller bar. It now clears the dock.
+- A scene's row cut off Back to replay at 800 px. It wraps.
 
 **Cost.** The bar is taller than the old one, so the map is smaller on short windows (`--u` is 1.3 px
 against 1.5 at 1440×900). An empty Player keeps the reserved height, so nothing jumps when a match

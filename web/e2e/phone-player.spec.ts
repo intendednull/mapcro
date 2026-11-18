@@ -602,6 +602,8 @@ for (const [width, height, touch] of [[1920, 1080, false], [1440, 900, false], [
       }
       await p.getByTestId("toolbar").locator("button").last().focus();
       expect(await p.locator(".stage").evaluate((e) => e.scrollLeft)).toBe(0);
+      await p.getByTestId("vision-select").focus();
+      expect(await p.locator(".stage").evaluate((e) => e.scrollLeft), "the stage scrolled to the Vision list").toBe(0);
       // The source opens on screen, clear of the panels.
       await p.locator(".pl-source > summary").click();
       const pop = (await p.locator(".pl-source .pl-head").boundingBox())!;
@@ -613,7 +615,7 @@ for (const [width, height, touch] of [[1920, 1080, false], [1440, 900, false], [
       await expect(p.getByTestId("player")).toHaveAttribute("data-state", "scene");
       await expect(p.getByTestId("match-play")).toHaveAttribute("aria-label", "Resume replay");
       within1(middle(await box("match-play")), middle(await box("player")), "Resume on the bar's centre");
-      for (const id of ["speed-down", "speed-up"]) {
+      for (const id of ["speed-down", "speed-up", "play-from-here", "mode-player"]) {
         const b = await box(id);
         expect(b.x, id).toBeGreaterThanOrEqual(stage.x);
         expect(b.x + b.width, id).toBeLessThanOrEqual(stage.x + stage.width);
