@@ -10,7 +10,7 @@ import { createServer } from "node:http";
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Browser, type Page, expect, test } from "./fixtures";
+import { type Browser, type Page, type WebSocketRoute, expect, test } from "./fixtures";
 import { joinNew, revealControls } from "./helpers";
 import { ROOT, Server, TIMELINE_FORMAT, newBoardUrl } from "./server";
 
@@ -288,6 +288,12 @@ test("while the server is away a tab is asked less and less, and asked soon afte
   const b = await ctx.newPage();
   const board = boardOf(m.links[1]!);
   let asked = 0;
+  // The page's sockets, to drop them: going offline leaves an open socket up.
+  const sockets = new Set<WebSocketRoute>();
+  await b.routeWebSocket(/.*/, (w) => {
+    w.connectToServer();
+    sockets.add(w);
+  });
   // Tab B's board gives no answer, from the page's first ask.
   await b.route(`**/api/boards/${board}/matches`, (r) => {
     asked++;
@@ -304,10 +310,8 @@ test("while the server is away a tab is asked less and less, and asked soon afte
   expect(asked).toBeLessThanOrEqual(6);
   // The server is back, as the session's room hears when it reconnects: asked within a tick or
   // so, where its wait has most of a minute to run.
-  await ctx.setOffline(true);
-  await expect(b.getByTestId("save-status")).toHaveAttribute("data-state", "offline", { timeout: 20_000 });
   await b.unroute(`**/api/boards/${board}/matches`);
-  await ctx.setOffline(false);
+  for (const w of sockets) await w.close();
   await expect(line(b, 1)).toHaveText("Sandbox", { timeout: 25_000 });
 });
 
