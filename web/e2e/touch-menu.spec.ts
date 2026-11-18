@@ -264,7 +264,13 @@ test("a pan onto a pin, and a pinch with a finger held on it, open no menu", asy
   // the map moves, no menu.
   const q = await centre(pin);
   const box = (await t.getByTestId("map").boundingBox())!;
-  const start = { x: box.x + box.width * 0.06, y: box.y + box.height * 0.06 };
+  const start = { x: box.x + box.width * 0.15, y: box.y + box.height * 0.15 };
+  // On the map itself: nothing placed, no hero, no lane's split there.
+  const under = await t.evaluate(({ x, y }) => {
+    const e = document.elementFromPoint(x, y);
+    return !!e?.closest(".mm-overlay.map") && !e.closest("[data-callout], [data-arrow], [data-stroke], .tok, .wave-hit");
+  }, start);
+  expect(under).toBe(true);
   const v1 = await view();
   await f.press(1, start);
   await slide(f, 1, start, q, 300);
