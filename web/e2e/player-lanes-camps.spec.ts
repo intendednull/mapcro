@@ -148,6 +148,40 @@ test("Player's lanes are the match's, the wave in their gap; a scene's are its o
   await expect(a.locator("[data-testid=map] svg.lanes g[data-amber]")).toHaveCount(0);
 });
 
+test("in Player, a split another editor drags on a scene isn't drawn", async ({ browser }) => {
+  const url = await newBoardUrl(server, "Lane drag");
+  const a = await joinNew(browser, url, "Coach");
+  await open(a);
+  await scrubTo(a, 20);
+  // The side lane has no zipline colours in this match: Player draws its split, the default.
+  const side = (p: Page) => p.locator('[data-testid=map] svg.lanes g[data-key="lane6"]');
+  await expect(side(a)).not.toHaveAttribute("data-amber");
+  const t0 = await side(a).getAttribute("data-t");
+  const b = await joinNew(browser, url, "Marrow");
+  if (await b.locator(".pl-topbar").count()) {
+    await revealControls(b, "mode-sandbox");
+    await b.getByTestId("mode-sandbox").click();
+  }
+  await expect(b.locator(".pl-topbar")).toHaveCount(0);
+  // Marrow holds the side lane's wave dragged toward one end.
+  const gap = (await b.getByTestId("wave-gap-lane6").boundingBox())!;
+  const dest = await side(b).locator('path[data-half="sapphire"]').evaluate((el) => {
+    const path = el as SVGPathElement;
+    const q = path.getPointAtLength(path.getTotalLength() * 0.5);
+    const m = path.getScreenCTM()!;
+    return { x: q.x * m.a + q.y * m.c + m.e, y: q.x * m.b + q.y * m.d + m.f };
+  });
+  await b.mouse.move(gap.x + gap.width / 2, gap.y + gap.height / 2);
+  await b.mouse.down();
+  await b.mouse.move(dest.x, dest.y, { steps: 10 });
+  await expect(b.locator('.lane-raised[data-raised="lane6"]')).toHaveCount(1);
+  await expect.poll(async () => Number(await side(b).getAttribute("data-t"))).not.toBe(Number(t0));
+  // Presence lands in tens of ms; Player's lane stays the match's.
+  await a.waitForTimeout(1000);
+  await expect(side(a)).toHaveAttribute("data-t", t0!);
+  await b.mouse.up();
+});
+
 test("camps show their state; when they come back shows only on hover", async ({ browser }) => {
   const a = await joinNew(browser, await newBoardUrl(server, "Camps"), "Coach");
   await open(a);

@@ -162,6 +162,11 @@ test("each team's view shows its own heroes and the enemies in its sight; Show l
   await a.mouse.move(b.x + b.width / 2, b.y + 2);
   await expect(a.getByTestId("hover-label")).toHaveText(/Seen 0:10 ago$/);
   await a.mouse.move(5, 5);
+  // How long ago counts on with the match, the ghost where it was.
+  await scrubTo(a, 35);
+  await expect(ghost).toHaveAttribute("aria-label", /Seen 0:15 ago$/);
+  expect(await at(a, "Sapphire-0")).toEqual(all[20]!.s0);
+  await scrubTo(a, 30);
   await a.screenshot({ path: "/tmp/vision/synthetic-king-30.png" });
 
   // The Archmother's view: Amber 0 always seen; Amber 1 a ghost after 30 s, gone once it dies.
@@ -551,6 +556,21 @@ test("a seek, even while playing, snaps the view without a fade", async ({ brows
   });
   await expect(tok(a, "Sapphire-0")).toHaveCount(1, { timeout: 100 });
   expect(await watched).toBe(false);
+  // With Show last seen location, a seek from its ghost to where it is seen again leaves no
+  // echo of the ghost fading out where it was.
+  await a.getByTestId("last-seen-toggle").click();
+  await a.getByTestId("match-time").evaluate((el) => {
+    (el as HTMLInputElement).value = "25";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-seen", "false");
+  const echoes = watchFades(a, "[data-testid=map] [data-echo]", 1500);
+  await a.getByTestId("match-time").evaluate((el) => {
+    (el as HTMLInputElement).value = "47";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(tok(a, "Sapphire-0")).toHaveAttribute("data-seen", "true", { timeout: 500 });
+  expect(await echoes).toBe(false);
 });
 
 test("under reduced motion a hero leaves and enters sight at once", async ({ browser }) => {

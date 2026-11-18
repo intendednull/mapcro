@@ -118,6 +118,10 @@ test("a scene saved from Player shows each hero's build as Player did (#49)", as
   const inPlayer = await savedScene(p);
   expect(inPlayer.items).toEqual(["715762406", "1009965641"]);
   await expect(builds(p)).toHaveCount(0);
+  // The scene holds each hero's health, but its tokens draw no health arc: that is Player's
+  // (map-state phase 4; Health is on).
+  await expect(p.locator("[data-testid=map] .tok[data-slot]")).toHaveCount(12);
+  await expect(p.locator("[data-testid=map] [data-testid=tok-health]")).toHaveCount(0);
   // A portrait opens its hero's build: what Player showed at the frame.
   await portrait(p, "Amber-3").getByTestId("focus-hero").click();
   await expect(builds(p)).toHaveCount(1);
