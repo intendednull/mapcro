@@ -53,3 +53,35 @@ export function longPress(e: PointerEvent, fire: () => void): () => void {
   window.addEventListener("pointercancel", end, opts);
   return stop;
 }
+
+/** How long after the lift its click may still come. */
+const LIFT_CLICK_MS = 400;
+
+/**
+ * The lift of a finger whose hold opened a menu: the browser may still send it a click, and that
+ * click lands on whatever is under the finger now, which is the menu (Chromium, a swatch: a
+ * recolour nobody asked for). Swallow clicks until shortly after the lift; a new press ends it,
+ * so a quick real tap on the menu counts.
+ */
+export function swallowLiftClick(pointerId: number) {
+  const opts = { capture: true } as const;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stop = () => {
+    clearTimeout(timer);
+    window.removeEventListener("click", click, opts);
+    window.removeEventListener("pointerdown", stop, opts);
+    window.removeEventListener("pointerup", lifted, opts);
+    window.removeEventListener("pointercancel", lifted, opts);
+  };
+  const click = (e: MouseEvent) => {
+    e.stopImmediatePropagation();
+    e.preventDefault();
+  };
+  const lifted = (e: PointerEvent) => {
+    if (e.pointerId === pointerId) timer = setTimeout(stop, LIFT_CLICK_MS);
+  };
+  window.addEventListener("click", click, opts);
+  window.addEventListener("pointerdown", stop, opts);
+  window.addEventListener("pointerup", lifted, opts);
+  window.addEventListener("pointercancel", lifted, opts);
+}

@@ -18,7 +18,7 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type Signal } from "solid-js";
 import { capture } from "../ui/capture";
 import { touchGestures } from "./touchGestures";
-import { longPress, reachPoints } from "./longPress";
+import { longPress, reachPoints, swallowLiftClick } from "./longPress";
 import { PALETTE, colorOf, inkOn } from "../core/device";
 import type { Arrow } from "../gen/Arrow";
 import type { Callout } from "../gen/Callout";
@@ -591,6 +591,7 @@ export function Layers(p: {
       const placed = placedNear(svg, at.x, at.y);
       if (!placed) return;
       svg.dispatchEvent(new PointerEvent("pointercancel", { pointerId: e.pointerId, pointerType: "touch", bubbles: true, clientX: at.x, clientY: at.y }));
+      swallowLiftClick(e.pointerId);
       setMenu({ ...placed, at });
     });
   };

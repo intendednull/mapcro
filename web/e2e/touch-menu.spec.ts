@@ -20,6 +20,8 @@ test.beforeAll(async () => {
   await server.start();
 });
 test.afterAll(() => server.stop());
+// Firefox draws these pages in software at 4.2 device px per CSS px (playwright.config.ts).
+test.beforeEach(({ browserName }) => test.slow(browserName === "firefox"));
 
 type Pt = { x: number; y: number };
 const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
@@ -140,7 +142,9 @@ async function touchEditor(browser: Browser, url: string, viewport: { width: num
   if ((await p.getByTestId("board").getAttribute("data-layout")) === "phone") {
     await p.getByTestId("phone-edit").tap();
     await p.getByTestId("tool-select").tap();
-    await p.getByTestId("map").scrollIntoViewIfNeeded();
+    // Not Playwright's scrollIntoViewIfNeeded: it waits on a stable box, which a software-drawn
+    // Firefox at a phone's pixel ratio can starve for the whole test.
+    await p.getByTestId("map").evaluate((e) => e.scrollIntoView({ block: "nearest" }));
   } else await p.getByTestId("tool-select").tap();
   return p;
 }
@@ -166,6 +170,9 @@ for (const viewport of [PHONE, TABLET, SMALL]) {
     await expect(menu(t)).toBeVisible();
     await f.lift(1);
     await expect(menu(t)).toHaveAttribute("aria-label", "Comment");
+    // The lift picks nothing, whatever of the menu came up under the finger.
+    await sleep(600);
+    await expect(menu(t)).toBeVisible();
     await expect(menu(t).locator("[data-testid^='comment-side-']")).toHaveCount(0);
     await expect(menu(t).getByRole("menuitemradio")).toHaveCount(7 + 1);
     await expect(menu(t).getByTestId("recolour-0")).toHaveAttribute("aria-checked", "true");
@@ -318,22 +325,26 @@ test("a hold beside a small pin finds it; a hold on a hero beside it, or on empt
   await expect(a.locator(".mapbox [data-callout]")).toHaveCount(1);
   const t = await touchEditor(browser, url, SMALL);
   const f = await fingers(browser, t);
-  // On the hero: its own press, no menu, though the pin is within reach.
-  await longPress(f, await centre(t.locator(`.p-map .tok[data-slot="${slot}"]`)));
-  await expect(menu(t)).toHaveCount(0);
-  await f.lift(1);
-  // Far from anything placed: nothing.
   const pin = await centre(t.locator(".p-map [data-callout]"));
+  const hero = await centre(t.locator(`.p-map .tok[data-slot="${slot}"]`));
+  // Beside the pin, on the side away from the hero: its menu.
+  await longPress(f, { x: pin.x + (pin.x >= hero.x ? 14 : -14), y: pin.y });
+  await expect(menu(t)).toBeVisible();
+  await f.lift(1);
+  await expect(menu(t)).toHaveAttribute("aria-label", "Comment");
+  await t.keyboard.press("Escape");
+  await expect(menu(t)).toHaveCount(0);
+  // Far from anything placed: nothing.
   const box = (await t.getByTestId("map").boundingBox())!;
   await longPress(f, { x: box.x + box.width / 2, y: pin.y > box.y + box.height / 2 ? box.y + 30 : box.y + box.height - 30 });
   await expect(menu(t)).toHaveCount(0);
   await f.lift(1);
-  // Beside the pin, on the side away from the hero: its menu.
-  const side = pin.x >= (await centre(t.locator(`.p-map .tok[data-slot="${slot}"]`))).x ? 14 : -14;
-  await longPress(f, { x: pin.x + side, y: pin.y });
-  await expect(menu(t)).toBeVisible();
+  // On the hero: its own press, no menu, though the pin is within reach. (Last: a hero's tap
+  // may open its sheet over the map.)
+  await longPress(f, hero);
+  await expect(menu(t)).toHaveCount(0);
   await f.lift(1);
-  await expect(menu(t)).toHaveAttribute("aria-label", "Comment");
+  await expect(menu(t)).toHaveCount(0);
 });
 
 test("on a touch screen's desktop layout, a tap opens a comment and a long press sets its side, for everyone", async ({ browser }) => {
