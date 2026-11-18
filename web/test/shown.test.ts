@@ -99,7 +99,7 @@ describe("a hero under the viewer's Vision", () => {
               const frame = previewAt(tl, t, markers, shown, false);
               for (const s of SLOTS) {
                 const h = state.hero(s.key);
-                const now = playerHero(h, heroDraw({ team: s.team, inSight: h.inSight(), lastSeen: h.lastSeen() }, view, state.has("sight"), false), shown, state.has);
+                const now = playerHero(h, heroDraw({ team: s.team, inSight: h.inSight(), lastSeen: h.lastSeen() }, view, state.has("sight"), false), shown);
                 expect(drawn(now), `${s.key} at ${t} in ${view.vision}${view.lastSeen ? " with last seen" : ""}, ${on ? "on" : "off"}`).toEqual(drawn(frame.players.get(s.key)));
                 tally[now!.ghost != null ? "ghost" : now!.unseen ? "hidden" : "seen"]++;
                 if (!now!.pos) tally.dead += h.alive() ? 0 : 1;
@@ -117,7 +117,7 @@ describe("a hero under the viewer's Vision", () => {
     createRoot((dispose) => {
       const state = fromTimeline({ tl: () => undefined, t: () => 0, markers: () => markers });
       const h = state.hero("amber-0");
-      expect(playerHero(h, { as: "seen" }, { health: true, names: true, movement: true, cc: true, vision: "all", lastSeen: true }, state.has)).toBeUndefined();
+      expect(playerHero(h, { as: "seen" }, { health: true, names: true, movement: true, cc: true, vision: "all", lastSeen: true })).toBeUndefined();
       dispose();
     });
   });

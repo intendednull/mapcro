@@ -299,7 +299,7 @@ export function Tokens(p: {
           }, undefined, { equals: (a, b) => a.as === b.as && (a.as !== "ghost" || (b.as === "ghost" && a.ago === b.ago && a.at.x === b.at.x && a.at.y === b.at.y)) });
           /** Player: the hero as the frame draws it under the viewer's choices, where it is or
            * its ghost; none in a scene. */
-          const raw = createMemo(() => (live() ? playerHero(h(), sight(), p.frame.shown(), p.frame.ms().has) : undefined));
+          const raw = createMemo(() => (live() ? playerHero(h(), sight(), p.frame.shown()) : undefined));
           // Vision (Player): coming into sight it fades in; leaving it, it stays where it was
           // last drawn while it fades out, unhoverable (board/fade.ts). Snaps on a seek.
           const [el, setEl] = createSignal<SVGGElement>();

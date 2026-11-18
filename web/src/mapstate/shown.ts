@@ -11,7 +11,7 @@
 import type { MatchPreview } from "../match/preview";
 import type { Vision } from "../player/vision";
 import type { Shown } from "./frame";
-import type { Feature, HeroState } from "./state";
+import type { HeroState } from "./state";
 
 type Pos = { x: number; y: number };
 
@@ -61,7 +61,7 @@ export type PlayerHero = NonNullable<ReturnType<MatchPreview["players"]["get"]>>
  * status (movement, CC): never a ghost, which would give away what its enemies can't see.
  * `undefined`: the frame has no hero in the slot.
  */
-export function playerHero(h: HeroState, draw: HeroDraw, shown: Shown, has: (f: Feature) => boolean): PlayerHero | undefined {
+export function playerHero(h: HeroState, draw: HeroDraw, shown: Shown): PlayerHero | undefined {
   if (!h.present()) return undefined;
   const base = { hero: h.hero() ?? 0, name: shown.names ? h.name() : null, pos: h.pos(), respawn: h.respawn() };
   if (draw.as === "ghost") return { ...base, pos: draw.at, health: null, ghost: draw.ago };
@@ -69,7 +69,8 @@ export function playerHero(h: HeroState, draw: HeroDraw, shown: Shown, has: (f: 
   const live = !!base.pos;
   return {
     ...base,
-    health: shown.health && has("health") ? h.health() : null,
+    // `null` where the frame holds none (the metadata tier).
+    health: shown.health ? h.health() : null,
     ...(shown.movement && live ? { height: h.height(), zipline: h.zipline() } : {}),
     ...(shown.cc && live ? { cc: h.cc() } : {}),
   };
