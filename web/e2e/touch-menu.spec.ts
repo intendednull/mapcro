@@ -260,20 +260,27 @@ test("a pan onto a pin, and a pinch with a finger held on it, open no menu", asy
   await sleep(HOLD);
   await expect(menu(t)).toHaveCount(0);
 
-  // A pan from empty map (zoomed in, the map's corner) that ends on the pin and rests there:
+  // A pan from empty map (zoomed in) that ends on the pin and rests there:
   // the map moves, no menu.
   const q = await centre(pin);
-  const box = (await t.getByTestId("map").boundingBox())!;
-  const start = { x: box.x + box.width * 0.15, y: box.y + box.height * 0.15 };
-  // On the map itself: nothing placed, no hero, no lane's split there.
-  const under = await t.evaluate(({ x, y }) => {
-    const e = document.elementFromPoint(x, y);
-    return !!e?.closest(".mm-overlay.map") && !e.closest("[data-callout], [data-arrow], [data-stroke], .tok, .wave-hit");
-  }, start);
-  expect(under).toBe(true);
+  // On the map itself, away from the pin: nothing placed, no hero, no lane's split there. The
+  // first such point of a grid over the map's box.
+  const start = await t.evaluate((q) => {
+    const box = document.querySelector("[data-testid=map]")!.getBoundingClientRect();
+    for (let fy = 0.1; fy < 0.95; fy += 0.08)
+      for (let fx = 0.1; fx < 0.95; fx += 0.08) {
+        const x = box.left + box.width * fx;
+        const y = box.top + box.height * fy;
+        if (Math.hypot(x - q.x, y - q.y) < 80 || y < 0 || y > innerHeight) continue;
+        const e = document.elementFromPoint(x, y);
+        if (e?.closest(".mm-overlay.map") && !e.closest("[data-callout], [data-arrow], [data-stroke], .tok, .wave-hit, .lane-raised")) return { x, y };
+      }
+    return undefined;
+  }, q);
+  expect(start).toBeTruthy();
   const v1 = await view();
-  await f.press(1, start);
-  await slide(f, 1, start, q, 300);
+  await f.press(1, start!);
+  await slide(f, 1, start!, q, 300);
   await sleep(HOLD);
   await expect(menu(t)).toHaveCount(0);
   await f.lift(1);
