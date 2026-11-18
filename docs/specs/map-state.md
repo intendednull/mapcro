@@ -364,7 +364,7 @@ selects; the build opens from the portrait's build control in both. The phone la
   casts, which are tenth-of-a-second series), per second (the rest). Marker timers stay computed
   on hover.
   - **Built (phase 3, `web/src/mapstate/frame.ts`):** `previewAt` is the frame's definition,
-    everything at t. `playerFrame` gives the same from the clocks, and `host.second` is the
+    everything at t (since phase 4's step 4 only tests read it, TD-140; `playerFrame`, the same from the clocks, is in `web/test/support/player-frame.ts`), and `host.second` is the
     second's clock for other readers (the top bar's heroes and Rejuvenator).
 
     | Clock | What |

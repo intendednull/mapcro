@@ -120,7 +120,7 @@ export interface StateSource {
 }
 
 /** Player's state: `MapState`, and the clocks' parts whole, for readers of every hero or every
- * marker at once (the frame's adapter, the map's markers). */
+ * marker at once (the map's markers). */
 export interface PlayerState extends MapState {
   /** The second's part: new when t enters a new second (`undefined`: no timeline). */
   second: Accessor<SecondPart | undefined>;
